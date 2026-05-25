@@ -1,0 +1,1370 @@
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+)
+
+const (
+	defaultExportDir        = "entire-brain-export"
+	defaultCheckpointLimit  = 10000
+	exportManifestFileName  = "manifest.json"
+	exportReadmeFileName    = "README.md"
+	exportSessionsDirectory = "sessions"
+
+	exportScopeAll    = "all"
+	exportScopeBranch = "branch"
+
+	v2MainRef   = "refs/entire/checkpoints/v2/main"
+	v1MainRef   = "refs/heads/entire/checkpoints/v1"
+	v1RemoteRef = "refs/heads/entire/checkpoints/v1"
+
+	checkpointRemoteProviderGitHub = "github"
+	checkpointRemoteBlobFilter     = "blob:limit=128k"
+
+	checkpointStorageV1 = 1
+	checkpointStorageV2 = 2
+
+	v1TranscriptFileName = "full.jsonl"
+	v2TranscriptFileName = "transcript.jsonl"
+)
+
+type exportCommandOptions struct {
+	outputDir       string
+	checkpointLimit int
+	entireBinary    string
+	rawTranscript   bool
+	scope           string
+}
+
+func newExportCommand(opts Options) *cobra.Command {
+	exportOpts := exportCommandOptions{
+		outputDir:       defaultExportDir,
+		checkpointLimit: defaultCheckpointLimit,
+		entireBinary:    "entire",
+		scope:           exportScopeAll,
+	}
+
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "Export latest known transcript for each Entire session",
+		Long: `Export writes an agent-reviewable snapshot of Entire session history.
+
+The export contains one transcript file per unique session ID. When a session
+appears in multiple checkpoints, the copy with the newest checkpoint timestamp
+is selected.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runExport(cmd.Context(), cmd, opts, exportOpts)
+		},
+	}
+
+	cmd.Flags().StringVarP(&exportOpts.outputDir, "output", "o", defaultExportDir, "Output directory for the export")
+	cmd.Flags().IntVar(&exportOpts.checkpointLimit, "checkpoint-limit", defaultCheckpointLimit, "Maximum checkpoints to inspect")
+	cmd.Flags().StringVar(&exportOpts.entireBinary, "entire-binary", "entire", "Entire CLI binary to invoke")
+	cmd.Flags().BoolVar(&exportOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts")
+	cmd.Flags().StringVar(&exportOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope: all or branch")
+
+	return cmd
+}
+
+func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts exportCommandOptions) error {
+	if exportOpts.checkpointLimit <= 0 {
+		return errors.New("--checkpoint-limit must be greater than zero")
+	}
+	if strings.TrimSpace(exportOpts.outputDir) == "" {
+		return errors.New("--output must not be empty")
+	}
+	if strings.TrimSpace(exportOpts.entireBinary) == "" {
+		return errors.New("--entire-binary must not be empty")
+	}
+	if exportOpts.scope != exportScopeAll && exportOpts.scope != exportScopeBranch {
+		return errors.New("--scope must be either all or branch")
+	}
+
+	repoDir, err := exportRepoDir(opts.Env)
+	if err != nil {
+		return err
+	}
+	if _, err := validateExportDirAvailable(exportOpts.outputDir); err != nil {
+		return err
+	}
+
+	var warnings []string
+	var selected map[string]selectedSession
+	var checkpointsScanned int
+	var snapshot *checkpointSnapshot
+
+	if exportOpts.scope == exportScopeAll {
+		loadedSnapshot, snapshotWarnings, snapshotErr := loadConfiguredCheckpointSnapshot(ctx, opts.Runner, repoDir, exportOpts.rawTranscript, exportOpts.checkpointLimit)
+		if snapshotErr == nil {
+			snapshot = loadedSnapshot
+			defer snapshot.Cleanup()
+			selected = loadedSnapshot.Selected
+			checkpointsScanned = loadedSnapshot.CheckpointCount
+			warnings = append(warnings, snapshotWarnings...)
+		} else if !errors.Is(snapshotErr, errCheckpointSnapshotUnavailable) {
+			warnings = append(warnings, "direct checkpoint export unavailable: "+snapshotErr.Error())
+		}
+	}
+
+	if selected == nil {
+		checkpoints, discoverWarnings, err := discoverCheckpoints(ctx, opts.Runner, repoDir, exportOpts.entireBinary, exportOpts.scope, exportOpts.checkpointLimit)
+		if err != nil {
+			return err
+		}
+		warnings = append(warnings, discoverWarnings...)
+		checkpointsScanned = len(checkpoints)
+
+		selected = make(map[string]selectedSession)
+		for _, checkpoint := range checkpoints {
+			if !checkpoint.IsLogsOnly {
+				warnings = append(warnings, fmt.Sprintf("skipped non-committed checkpoint list entry %s", checkpoint.CheckpointID))
+				continue
+			}
+			if checkpoint.CheckpointID == "" {
+				warnings = append(warnings, "skipped checkpoint list entry with no checkpoint_id")
+				continue
+			}
+
+			detail, detailErr := checkpointDetail(ctx, opts.Runner, repoDir, exportOpts.entireBinary, checkpoint.CheckpointID)
+			if detailErr != nil {
+				return detailErr
+			}
+
+			for _, session := range detail.Sessions {
+				if session.Error != "" {
+					warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s session %d: %s", detail.CheckpointID, session.Index, session.Error))
+					continue
+				}
+				if session.SessionID == "" {
+					warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s session %d: missing session_id", detail.CheckpointID, session.Index))
+					continue
+				}
+
+				createdAt := checkpoint.Date
+				if session.CreatedAt != nil && !session.CreatedAt.IsZero() {
+					createdAt = *session.CreatedAt
+				}
+
+				candidate := selectedSession{
+					CheckpointID:     detail.CheckpointID,
+					SessionIndex:     session.Index,
+					SessionID:        session.SessionID,
+					Agent:            session.Agent,
+					Model:            session.Model,
+					Kind:             session.Kind,
+					ReviewSkills:     session.ReviewSkills,
+					CreatedAt:        createdAt,
+					TurnID:           session.TurnID,
+					IsTask:           session.IsTask,
+					ToolUseID:        session.ToolUseID,
+					FilesTouched:     session.FilesTouched,
+					TokenUsage:       session.TokenUsage,
+					Summary:          session.Summary,
+					CheckpointsCount: detail.CheckpointsCount,
+				}
+
+				current, ok := selected[session.SessionID]
+				if !ok || shouldReplaceSession(current, candidate) {
+					selected[session.SessionID] = candidate
+				}
+			}
+		}
+	}
+
+	manifest := exportManifest{
+		SchemaVersion:      1,
+		GeneratedAt:        opts.Now().UTC(),
+		RepoRoot:           repoDir,
+		EntireCLIVersion:   opts.Env.CLIVersion,
+		TranscriptMode:     actualTranscriptMode(exportOpts.rawTranscript, snapshot),
+		Scope:              exportOpts.scope,
+		CheckpointLimit:    exportOpts.checkpointLimit,
+		CheckpointsScanned: checkpointsScanned,
+		Warnings:           warnings,
+	}
+
+	sessions := flattenSessions(selected)
+	outputDir, err := prepareExportDir(exportOpts.outputDir)
+	if err != nil {
+		return err
+	}
+
+	var transcriptWarnings []string
+	if snapshot != nil {
+		sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions)
+		if err != nil {
+			return err
+		}
+	} else {
+		transcriptWarnings, err = writeSessionTranscripts(ctx, opts.Runner, repoDir, outputDir, exportOpts.entireBinary, exportOpts.rawTranscript, sessions)
+		if err != nil {
+			return err
+		}
+	}
+	manifest.Warnings = append(manifest.Warnings, transcriptWarnings...)
+	manifest.Sessions = sessions
+
+	if err := writeJSONFile(filepath.Join(outputDir, exportManifestFileName), manifest); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, exportReadmeFileName), []byte(renderExportReadme(manifest)), 0o600); err != nil {
+		return fmt.Errorf("write export readme: %w", err)
+	}
+
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "exported %d sessions from %d checkpoints\n", len(manifest.Sessions), checkpointsScanned)
+	fmt.Fprintf(out, "output: %s\n", outputDir)
+	if len(manifest.Warnings) > 0 {
+		fmt.Fprintf(out, "warnings: %d\n", len(manifest.Warnings))
+	}
+	return nil
+}
+
+func exportRepoDir(env EntireEnv) (string, error) {
+	if env.RepoRoot != "" {
+		return env.RepoRoot, nil
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get current directory: %w", err)
+	}
+	return wd, nil
+}
+
+func prepareExportDir(path string) (string, error) {
+	abs, err := validateExportDirAvailable(path)
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.MkdirAll(abs, 0o700); err != nil {
+		return "", fmt.Errorf("create output directory: %w", err)
+	}
+
+	sessionsDir := filepath.Join(abs, exportSessionsDirectory)
+	if err := os.MkdirAll(sessionsDir, 0o700); err != nil {
+		return "", fmt.Errorf("create sessions directory: %w", err)
+	}
+	return abs, nil
+}
+
+func validateExportDirAvailable(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve output directory: %w", err)
+	}
+
+	info, err := os.Stat(abs)
+	switch {
+	case err == nil:
+		if !info.IsDir() {
+			return "", fmt.Errorf("output path exists and is not a directory: %s", abs)
+		}
+		entries, readErr := os.ReadDir(abs)
+		if readErr != nil {
+			return "", fmt.Errorf("read output directory: %w", readErr)
+		}
+		if len(entries) > 0 {
+			return "", fmt.Errorf("output directory is not empty: %s", abs)
+		}
+	case os.IsNotExist(err):
+		return abs, nil
+	default:
+		return "", fmt.Errorf("stat output directory: %w", err)
+	}
+	return abs, nil
+}
+
+func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, entireBinary, scope string, limit int) ([]checkpointListEntry, []string, error) {
+	if scope == exportScopeBranch {
+		return listBranchCheckpoints(ctx, runner, repoDir, entireBinary, limit)
+	}
+
+	checkpoints, warnings, err := listAllCheckpointRefs(ctx, runner, repoDir, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(checkpoints) > 0 {
+		return checkpoints, warnings, nil
+	}
+
+	fallback, fallbackWarnings, fallbackErr := listBranchCheckpoints(ctx, runner, repoDir, entireBinary, limit)
+	if fallbackErr != nil {
+		return nil, warnings, fmt.Errorf("all checkpoint discovery found no metadata refs and branch fallback failed: %w", fallbackErr)
+	}
+	warnings = append(warnings, "all checkpoint discovery found no metadata refs; used branch-visible checkpoint list fallback")
+	warnings = append(warnings, fallbackWarnings...)
+	return fallback, warnings, nil
+}
+
+func listBranchCheckpoints(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, limit int) ([]checkpointListEntry, []string, error) {
+	stdout, stderr, err := runner.Run(ctx, repoDir, entireBinary, "checkpoint", "explain", "--json", "--limit", strconv.Itoa(limit))
+	if err != nil {
+		return nil, nil, fmt.Errorf("list checkpoints: %w", err)
+	}
+
+	var checkpoints []checkpointListEntry
+	if err := json.Unmarshal(stdout, &checkpoints); err != nil {
+		return nil, nil, fmt.Errorf("parse checkpoint list json: %w", err)
+	}
+	return checkpoints, warningLines("checkpoint list", stderr), nil
+}
+
+func listAllCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir string, limit int) ([]checkpointListEntry, []string, error) {
+	settings, settingsErr := readEntireSettings(repoDir)
+	includeV2 := settingsErr == nil && settings.CheckpointsV2Enabled()
+	ids, warnings := listLocalCheckpointRefIDs(ctx, runner, repoDir, checkpointRefs(includeV2))
+	if len(ids) == 0 {
+		localWarnings := warnings
+		remoteURL, remoteErr := settings.CheckpointRemoteFetchURL()
+		if settingsErr != nil {
+			remoteErr = settingsErr
+		}
+		if remoteErr == nil {
+			var remoteWarnings []string
+			ids, remoteWarnings = listRemoteCheckpointRefIDs(ctx, runner, remoteURL, checkpointRefs(includeV2))
+			if len(ids) > 0 {
+				warnings = remoteWarnings
+				warnings = append(warnings, "discovered checkpoint refs from configured checkpoint remote")
+			} else {
+				warnings = append(localWarnings, remoteWarnings...)
+			}
+		} else {
+			warnings = append(warnings, "checkpoint remote unavailable: "+remoteErr.Error())
+		}
+	}
+
+	return checkpointEntriesFromIDs(ids, limit), warningsFromLimit(ids, limit, warnings), nil
+}
+
+func checkpointRefs(includeV2 bool) []string {
+	if includeV2 {
+		return []string{v2MainRef, v1RemoteRef}
+	}
+	return []string{v1RemoteRef}
+}
+
+func listLocalCheckpointRefIDs(ctx context.Context, runner CommandRunner, repoDir string, refs []string) (map[string]struct{}, []string) {
+	ids := make(map[string]struct{})
+	var refErrors []string
+	var warnings []string
+
+	for _, ref := range refs {
+		stdout, stderr, err := runner.Run(ctx, repoDir, "git", "ls-tree", "-r", "--name-only", ref)
+		if err != nil {
+			refErrors = append(refErrors, fmt.Sprintf("checkpoint ref %s unavailable: %v", ref, err))
+			continue
+		}
+		warnings = append(warnings, warningLines("checkpoint ref "+ref, stderr)...)
+		for _, id := range checkpointIDsFromTreeListing(stdout) {
+			ids[id] = struct{}{}
+		}
+	}
+	if len(ids) == 0 {
+		warnings = append(warnings, refErrors...)
+	}
+	return ids, warnings
+}
+
+func listRemoteCheckpointRefIDs(ctx context.Context, runner CommandRunner, remoteURL string, refs []string) (map[string]struct{}, []string) {
+	ids := make(map[string]struct{})
+	var warnings []string
+
+	tmpDir, err := os.MkdirTemp("", "entire-brain-checkpoints-*")
+	if err != nil {
+		return ids, []string{"create checkpoint discovery temp repo: " + err.Error()}
+	}
+	defer os.RemoveAll(tmpDir)
+
+	if _, stderr, err := runner.Run(ctx, tmpDir, "git", "init", "-q"); err != nil {
+		warnings = append(warnings, "initialize checkpoint discovery temp repo: "+err.Error())
+		warnings = append(warnings, warningLines("git init", stderr)...)
+		return ids, warnings
+	}
+
+	for _, ref := range refs {
+		localRef := ref
+		refspec := "+" + ref + ":" + localRef
+		_, stderr, fetchErr := runner.Run(ctx, tmpDir, "git", "fetch", "--no-tags", "--depth=1", "--filter=blob:none", remoteURL, refspec)
+		if fetchErr != nil {
+			warnings = append(warnings, fmt.Sprintf("checkpoint remote ref %s unavailable: %v", ref, fetchErr))
+			warnings = append(warnings, warningLines("checkpoint remote "+ref, stderr)...)
+			continue
+		}
+
+		stdout, stderr, treeErr := runner.Run(ctx, tmpDir, "git", "ls-tree", "-r", "--name-only", localRef)
+		if treeErr != nil {
+			warnings = append(warnings, fmt.Sprintf("checkpoint remote ref %s unreadable after fetch: %v", ref, treeErr))
+			warnings = append(warnings, warningLines("checkpoint remote "+ref, stderr)...)
+			continue
+		}
+		warnings = append(warnings, warningLines("checkpoint remote "+ref, stderr)...)
+		for _, id := range checkpointIDsFromTreeListing(stdout) {
+			ids[id] = struct{}{}
+		}
+	}
+
+	return ids, warnings
+}
+
+func checkpointEntriesFromIDs(ids map[string]struct{}, limit int) []checkpointListEntry {
+	sorted := make([]string, 0, len(ids))
+	for id := range ids {
+		sorted = append(sorted, id)
+	}
+	sort.Strings(sorted)
+	if len(sorted) > limit {
+		sorted = sorted[:limit]
+	}
+
+	checkpoints := make([]checkpointListEntry, 0, len(sorted))
+	for _, id := range sorted {
+		checkpoints = append(checkpoints, checkpointListEntry{
+			CheckpointID: id,
+			IsLogsOnly:   true,
+		})
+	}
+	return checkpoints
+}
+
+func warningsFromLimit(ids map[string]struct{}, limit int, warnings []string) []string {
+	if len(ids) > limit {
+		warnings = append(warnings, fmt.Sprintf("checkpoint ref discovery capped at %d checkpoints; rerun with --checkpoint-limit <N> to inspect more", limit))
+	}
+	return warnings
+}
+
+func readEntireSettings(repoDir string) (entireSettingsFile, error) {
+	data, err := os.ReadFile(filepath.Join(repoDir, ".entire", "settings.json"))
+	if err != nil {
+		return entireSettingsFile{}, fmt.Errorf("read .entire/settings.json: %w", err)
+	}
+
+	var settings entireSettingsFile
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return entireSettingsFile{}, fmt.Errorf("parse .entire/settings.json: %w", err)
+	}
+	return settings, nil
+}
+
+func (s entireSettingsFile) CheckpointRemoteFetchURL() (string, error) {
+	remote := s.StrategyOptions.CheckpointRemote
+	if remote == nil || remote.Provider == "" || remote.Repo == "" {
+		return "", errors.New("strategy_options.checkpoint_remote is not configured")
+	}
+
+	switch strings.ToLower(strings.TrimSpace(remote.Provider)) {
+	case checkpointRemoteProviderGitHub:
+		return "https://github.com/" + strings.Trim(strings.TrimSpace(remote.Repo), "/") + ".git", nil
+	default:
+		return "", fmt.Errorf("unsupported checkpoint_remote provider %q", remote.Provider)
+	}
+}
+
+func (s entireSettingsFile) CheckpointsV2Enabled() bool {
+	if s.StrategyOptions.CheckpointsVersionValue() == 2 {
+		return true
+	}
+	if s.StrategyOptions.CheckpointsV2 != nil {
+		return *s.StrategyOptions.CheckpointsV2
+	}
+	return false
+}
+
+func (s entireStrategyOptions) CheckpointsVersionValue() int {
+	if s.CheckpointsVersion == nil {
+		return 1
+	}
+	switch v := s.CheckpointsVersion.(type) {
+	case int:
+		if v == 1 || v == 2 {
+			return v
+		}
+	case float64:
+		if v == 1 || v == 2 {
+			return int(v)
+		}
+	case string:
+		parsed, err := strconv.Atoi(v)
+		if err == nil && (parsed == 1 || parsed == 2) {
+			return parsed
+		}
+	}
+	return 1
+}
+
+var errCheckpointSnapshotUnavailable = errors.New("checkpoint snapshot unavailable")
+
+func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int) (*checkpointSnapshot, []string, error) {
+	settings, err := readEntireSettings(repoDir)
+	if err != nil {
+		return loadDefaultLocalV1CheckpointSnapshot(ctx, runner, repoDir, raw, limit)
+	}
+
+	version := checkpointStorageV1
+	ref := v1RemoteRef
+	transcriptFileName := v1TranscriptFileName
+	mode := "raw"
+	if settings.CheckpointsV2Enabled() {
+		version = checkpointStorageV2
+		ref = v2MainRef
+		transcriptFileName = v2TranscriptFileName
+		mode = "compact"
+		if raw {
+			return nil, nil, fmt.Errorf("%w: direct v2 raw transcript export is not implemented", errCheckpointSnapshotUnavailable)
+		}
+	}
+
+	snapshot, warnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, repoDir, ref, version, transcriptFileName, mode, limit)
+	if err == nil {
+		warnings = append(warnings, fmt.Sprintf("exporting %s transcripts directly from local checkpoint ref %s", mode, ref))
+		if version == checkpointStorageV1 && !raw {
+			warnings = append(warnings, "compact transcript unavailable for v1 checkpoints; exported raw full.jsonl logs")
+		}
+		return snapshot, warnings, nil
+	}
+
+	remoteURL, remoteErr := settings.CheckpointRemoteFetchURL()
+	if remoteErr != nil {
+		return nil, warnings, fmt.Errorf("%w: local checkpoint ref %s unavailable and checkpoint remote unavailable: %v", errCheckpointSnapshotUnavailable, ref, remoteErr)
+	}
+
+	remoteSnapshot, remoteWarnings, remoteErr := loadCheckpointSnapshotFromRemoteRef(ctx, runner, remoteURL, ref, version, transcriptFileName, mode, limit)
+	if remoteErr != nil {
+		warnings = append(warnings, remoteWarnings...)
+		return nil, warnings, remoteErr
+	}
+	warnings = remoteWarnings
+	warnings = append(warnings, fmt.Sprintf("exporting %s transcripts directly from configured checkpoint remote ref %s", mode, ref))
+	if version == checkpointStorageV1 && !raw {
+		warnings = append(warnings, "compact transcript unavailable for v1 checkpoints; exported raw full.jsonl logs")
+	}
+	return remoteSnapshot, warnings, nil
+}
+
+func loadDefaultLocalV1CheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int) (*checkpointSnapshot, []string, error) {
+	snapshot, warnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, repoDir, v1RemoteRef, checkpointStorageV1, v1TranscriptFileName, "raw", limit)
+	if err != nil {
+		return nil, warnings, err
+	}
+	warnings = append(warnings, fmt.Sprintf("exporting raw transcripts directly from local checkpoint ref %s", v1RemoteRef))
+	if !raw {
+		warnings = append(warnings, "compact transcript unavailable for v1 checkpoints; exported raw full.jsonl logs")
+	}
+	return snapshot, warnings, nil
+}
+
+func loadCheckpointSnapshotFromGitDir(ctx context.Context, runner CommandRunner, gitDir, ref string, version int, transcriptFileName, mode string, limit int) (*checkpointSnapshot, []string, error) {
+	stdout, stderr, err := runner.Run(ctx, gitDir, "git", "ls-tree", "-r", "--name-only", ref)
+	if err != nil {
+		warnings := warningLines("checkpoint ref "+ref, stderr)
+		return nil, warnings, fmt.Errorf("%w: read checkpoint ref %s: %v", errCheckpointSnapshotUnavailable, ref, err)
+	}
+	treePaths := treePathSet(stdout)
+	selected, checkpointCount, warnings, err := readCheckpointSnapshotMetadata(ctx, runner, gitDir, ref, transcriptFileName, treePaths, limit)
+	if err != nil {
+		return nil, append(warnings, warningLines("checkpoint ref "+ref, stderr)...), err
+	}
+	warnings = append(warnings, warningLines("checkpoint ref "+ref, stderr)...)
+	return &checkpointSnapshot{
+		GitDir:             gitDir,
+		Ref:                ref,
+		Version:            version,
+		TranscriptMode:     mode,
+		TranscriptFileName: transcriptFileName,
+		Selected:           selected,
+		CheckpointCount:    checkpointCount,
+		TreePaths:          treePaths,
+	}, warnings, nil
+}
+
+func loadCheckpointSnapshotFromRemoteRef(ctx context.Context, runner CommandRunner, remoteURL, ref string, version int, transcriptFileName, mode string, limit int) (*checkpointSnapshot, []string, error) {
+	tmpDir, err := os.MkdirTemp("", "entire-brain-checkpoints-*")
+	if err != nil {
+		return nil, nil, fmt.Errorf("create checkpoint snapshot temp repo: %w", err)
+	}
+	cleanupOnError := true
+	defer func() {
+		if cleanupOnError {
+			os.RemoveAll(tmpDir)
+		}
+	}()
+
+	if _, stderr, err := runner.Run(ctx, tmpDir, "git", "init", "-q"); err != nil {
+		return nil, warningLines("git init", stderr), fmt.Errorf("initialize checkpoint snapshot temp repo: %w", err)
+	}
+
+	refspec := "+" + ref + ":" + ref
+	if _, stderr, err := runner.Run(ctx, tmpDir, "git", "fetch", "--no-tags", "--depth=1", "--filter="+checkpointRemoteBlobFilter, remoteURL, refspec); err != nil {
+		warnings := warningLines("checkpoint remote "+ref, stderr)
+		return nil, warnings, fmt.Errorf("fetch checkpoint remote ref %s: %w", ref, err)
+	}
+
+	snapshot, warnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, tmpDir, ref, version, transcriptFileName, mode, limit)
+	if err != nil {
+		return nil, warnings, err
+	}
+	cleanupOnError = false
+	snapshot.TempDir = tmpDir
+	return snapshot, warnings, nil
+}
+
+func readCheckpointSnapshotMetadata(ctx context.Context, runner CommandRunner, gitDir, ref string, transcriptFileName string, treePaths map[string]struct{}, limit int) (map[string]selectedSession, int, []string, error) {
+	checkpointIDs := make(map[string]struct{})
+	sessionMetadataPaths := make([]string, 0)
+	rootMetadataPaths := make([]string, 0)
+	var warnings []string
+
+	for path := range treePaths {
+		if checkpointID, ok := checkpointIDFromRootMetadataPath(path); ok {
+			checkpointIDs[checkpointID] = struct{}{}
+			rootMetadataPaths = append(rootMetadataPaths, path)
+			continue
+		}
+
+		checkpointID, _, ok := sessionMetadataPathParts(path)
+		if !ok {
+			continue
+		}
+		checkpointIDs[checkpointID] = struct{}{}
+		sessionMetadataPaths = append(sessionMetadataPaths, path)
+	}
+	sort.Strings(sessionMetadataPaths)
+	sort.Strings(rootMetadataPaths)
+
+	allowed := limitedCheckpointSet(checkpointIDs, limit)
+	rootMetadataByCheckpoint, transcriptPathsByMetadata, rootWarnings := readRootMetadataForSnapshot(ctx, runner, gitDir, ref, rootMetadataPaths, allowed)
+	warnings = append(warnings, rootWarnings...)
+
+	selected := make(map[string]selectedSession)
+	checkpointsWithSessionMetadata := make(map[string]struct{})
+	missingTranscriptCount := 0
+
+	for _, path := range sessionMetadataPaths {
+		checkpointID, sessionIndex, _ := sessionMetadataPathParts(path)
+		if _, ok := allowed[checkpointID]; !ok {
+			continue
+		}
+		checkpointsWithSessionMetadata[checkpointID] = struct{}{}
+
+		transcriptPath := transcriptPathsByMetadata[path]
+		if transcriptPath == "" {
+			transcriptPath = snapshotTranscriptPath(checkpointID, sessionIndex, transcriptFileName)
+		}
+		if !hasSnapshotTranscript(transcriptPath, treePaths) {
+			missingTranscriptCount++
+			continue
+		}
+
+		data, err := catFile(ctx, runner, gitDir, ref, path)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s session %d: read metadata: %v", checkpointID, sessionIndex, err))
+			continue
+		}
+		var meta checkpointExportSession
+		if err := json.Unmarshal(data, &meta); err != nil {
+			warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s session %d: parse metadata: %v", checkpointID, sessionIndex, err))
+			continue
+		}
+		addSnapshotSession(selected, checkpointID, sessionIndex, transcriptPath, meta)
+	}
+
+	for _, path := range rootMetadataPaths {
+		checkpointID, ok := checkpointIDFromRootMetadataPath(path)
+		if !ok {
+			continue
+		}
+		if _, ok := allowed[checkpointID]; !ok {
+			continue
+		}
+		if _, ok := checkpointsWithSessionMetadata[checkpointID]; ok {
+			continue
+		}
+
+		transcriptPath := snapshotRootTranscriptPath(checkpointID, transcriptFileName)
+		if !hasSnapshotTranscript(transcriptPath, treePaths) {
+			missingTranscriptCount++
+			continue
+		}
+
+		data := rootMetadataByCheckpoint[checkpointID]
+		if data == nil {
+			continue
+		}
+		var meta checkpointExportSession
+		if err := json.Unmarshal(data, &meta); err != nil {
+			warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s root metadata: parse metadata: %v", checkpointID, err))
+			continue
+		}
+		addSnapshotSession(selected, checkpointID, 0, transcriptPath, meta)
+	}
+
+	if missingTranscriptCount > 0 {
+		warnings = append(warnings, fmt.Sprintf("skipped %d session metadata entries with no transcript bytes in %s", missingTranscriptCount, ref))
+	}
+
+	if len(selected) == 0 {
+		return nil, min(len(checkpointIDs), limit), warnings, fmt.Errorf("%w: checkpoint ref %s contained no readable sessions", errCheckpointSnapshotUnavailable, ref)
+	}
+
+	if len(checkpointIDs) > limit {
+		warnings = append(warnings, fmt.Sprintf("checkpoint ref discovery capped at %d checkpoints; rerun with --checkpoint-limit <N> to inspect more", limit))
+	}
+	return selected, min(len(checkpointIDs), limit), warnings, nil
+}
+
+func readRootMetadataForSnapshot(ctx context.Context, runner CommandRunner, gitDir, ref string, rootMetadataPaths []string, allowed map[string]struct{}) (map[string][]byte, map[string]string, []string) {
+	rootMetadataByCheckpoint := make(map[string][]byte)
+	transcriptPathsByMetadata := make(map[string]string)
+	var warnings []string
+
+	for _, path := range rootMetadataPaths {
+		checkpointID, ok := checkpointIDFromRootMetadataPath(path)
+		if !ok {
+			continue
+		}
+		if _, ok := allowed[checkpointID]; !ok {
+			continue
+		}
+		data, err := catFile(ctx, runner, gitDir, ref, path)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s root metadata: read metadata: %v", checkpointID, err))
+			continue
+		}
+		rootMetadataByCheckpoint[checkpointID] = data
+
+		var summary checkpointSummaryPaths
+		if err := json.Unmarshal(data, &summary); err != nil {
+			continue
+		}
+		for _, session := range summary.Sessions {
+			metadataPath := normalizeSnapshotPath(session.Metadata)
+			transcriptPath := normalizeSnapshotPath(session.Transcript)
+			if metadataPath != "" && transcriptPath != "" {
+				transcriptPathsByMetadata[metadataPath] = transcriptPath
+			}
+		}
+	}
+
+	return rootMetadataByCheckpoint, transcriptPathsByMetadata, warnings
+}
+
+func addSnapshotSession(selected map[string]selectedSession, checkpointID string, sessionIndex int, transcriptPath string, meta checkpointExportSession) {
+	if meta.SessionID == "" {
+		return
+	}
+
+	var createdAt time.Time
+	if meta.CreatedAt != nil {
+		createdAt = *meta.CreatedAt
+	}
+	candidate := selectedSession{
+		CheckpointID:         checkpointID,
+		SessionIndex:         sessionIndex,
+		SessionID:            meta.SessionID,
+		Agent:                meta.Agent,
+		Model:                meta.Model,
+		Kind:                 meta.Kind,
+		ReviewSkills:         meta.ReviewSkills,
+		CreatedAt:            createdAt,
+		TurnID:               meta.TurnID,
+		IsTask:               meta.IsTask,
+		ToolUseID:            meta.ToolUseID,
+		FilesTouched:         meta.FilesTouched,
+		TokenUsage:           meta.TokenUsage,
+		Summary:              meta.Summary,
+		CheckpointsCount:     meta.CheckpointsCount,
+		SourceTranscriptPath: transcriptPath,
+	}
+
+	current, ok := selected[meta.SessionID]
+	if !ok || shouldReplaceSession(current, candidate) {
+		selected[meta.SessionID] = candidate
+	}
+}
+
+func limitedCheckpointSet(ids map[string]struct{}, limit int) map[string]struct{} {
+	sorted := make([]string, 0, len(ids))
+	for id := range ids {
+		sorted = append(sorted, id)
+	}
+	sort.Strings(sorted)
+	if len(sorted) > limit {
+		sorted = sorted[:limit]
+	}
+	allowed := make(map[string]struct{}, len(sorted))
+	for _, id := range sorted {
+		allowed[id] = struct{}{}
+	}
+	return allowed
+}
+
+func checkpointIDFromRootMetadataPath(path string) (string, bool) {
+	parts := strings.Split(path, "/")
+	if len(parts) != 3 || parts[2] != "metadata.json" {
+		return "", false
+	}
+	checkpointID := parts[0] + parts[1]
+	return checkpointID, isCheckpointID(checkpointID)
+}
+
+func sessionMetadataPathParts(path string) (string, int, bool) {
+	parts := strings.Split(path, "/")
+	if len(parts) != 4 || parts[3] != "metadata.json" {
+		return "", 0, false
+	}
+	checkpointID := parts[0] + parts[1]
+	if !isCheckpointID(checkpointID) {
+		return "", 0, false
+	}
+	sessionIndex, err := strconv.Atoi(parts[2])
+	if err != nil || sessionIndex < 0 {
+		return "", 0, false
+	}
+	return checkpointID, sessionIndex, true
+}
+
+func checkpointIDsFromTreeListing(data []byte) []string {
+	var ids []string
+	for _, line := range strings.Split(string(data), "\n") {
+		path := strings.TrimSpace(line)
+		parts := strings.Split(path, "/")
+		if len(parts) != 3 || parts[2] != "metadata.json" {
+			continue
+		}
+		id := parts[0] + parts[1]
+		if isCheckpointID(id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func treePathSet(data []byte) map[string]struct{} {
+	paths := make(map[string]struct{})
+	for _, line := range strings.Split(string(data), "\n") {
+		path := strings.TrimSpace(filepath.ToSlash(line))
+		if path != "" {
+			paths[path] = struct{}{}
+		}
+	}
+	return paths
+}
+
+func checkpointPath(checkpointID string) string {
+	if len(checkpointID) < 3 {
+		return checkpointID
+	}
+	return checkpointID[:2] + "/" + checkpointID[2:]
+}
+
+func snapshotTranscriptPath(checkpointID string, sessionIndex int, transcriptFileName string) string {
+	return checkpointPath(checkpointID) + "/" + strconv.Itoa(sessionIndex) + "/" + transcriptFileName
+}
+
+func snapshotRootTranscriptPath(checkpointID string, transcriptFileName string) string {
+	return checkpointPath(checkpointID) + "/" + transcriptFileName
+}
+
+func normalizeSnapshotPath(path string) string {
+	return strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(path)), "/")
+}
+
+func hasSnapshotTranscript(basePath string, treePaths map[string]struct{}) bool {
+	if _, ok := treePaths[basePath]; ok {
+		return true
+	}
+	return len(snapshotTranscriptChunks(basePath, treePaths)) > 0
+}
+
+func catFile(ctx context.Context, runner CommandRunner, gitDir, ref, path string) ([]byte, error) {
+	stdout, _, err := runner.Run(ctx, gitDir, "git", "cat-file", "-p", ref+":"+path)
+	if err != nil {
+		return nil, err
+	}
+	return stdout, nil
+}
+
+func isCheckpointID(value string) bool {
+	if len(value) != 12 {
+		return false
+	}
+	for _, r := range value {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+func checkpointDetail(ctx context.Context, runner CommandRunner, repoDir, entireBinary, checkpointID string) (checkpointExportEnvelope, error) {
+	stdout, _, err := runner.Run(ctx, repoDir, entireBinary, "checkpoint", "explain", "--json", checkpointID)
+	if err != nil {
+		return checkpointExportEnvelope{}, fmt.Errorf("read checkpoint json: %w", err)
+	}
+
+	var detail checkpointExportEnvelope
+	if err := json.Unmarshal(stdout, &detail); err != nil {
+		return checkpointExportEnvelope{}, fmt.Errorf("parse checkpoint json: %w", err)
+	}
+	if detail.CheckpointID == "" {
+		detail.CheckpointID = checkpointID
+	}
+	return detail, nil
+}
+
+func shouldReplaceSession(current, candidate selectedSession) bool {
+	if candidate.CreatedAt.After(current.CreatedAt) {
+		return true
+	}
+	if current.CreatedAt.Equal(candidate.CreatedAt) {
+		if candidate.CheckpointID > current.CheckpointID {
+			return true
+		}
+		if candidate.CheckpointID == current.CheckpointID && candidate.SessionIndex > current.SessionIndex {
+			return true
+		}
+	}
+	return false
+}
+
+func flattenSessions(selected map[string]selectedSession) []exportSession {
+	sessions := make([]exportSession, 0, len(selected))
+	for _, session := range selected {
+		sessions = append(sessions, exportSession{
+			SessionID:            session.SessionID,
+			Agent:                session.Agent,
+			Model:                session.Model,
+			Kind:                 session.Kind,
+			ReviewSkills:         session.ReviewSkills,
+			LatestCheckpoint:     session.CheckpointID,
+			SessionIndex:         session.SessionIndex,
+			CreatedAt:            session.CreatedAt.UTC(),
+			TurnID:               session.TurnID,
+			IsTask:               session.IsTask,
+			ToolUseID:            session.ToolUseID,
+			FilesTouched:         session.FilesTouched,
+			TokenUsage:           session.TokenUsage,
+			Summary:              session.Summary,
+			CheckpointsCount:     session.CheckpointsCount,
+			SourceTranscriptPath: session.SourceTranscriptPath,
+		})
+	}
+
+	sort.Slice(sessions, func(i, j int) bool {
+		if !sessions[i].CreatedAt.Equal(sessions[j].CreatedAt) {
+			return sessions[i].CreatedAt.Before(sessions[j].CreatedAt)
+		}
+		return sessions[i].SessionID < sessions[j].SessionID
+	})
+	return sessions
+}
+
+func writeSessionTranscripts(ctx context.Context, runner CommandRunner, repoDir, outputDir, entireBinary string, raw bool, sessions []exportSession) ([]string, error) {
+	transcriptFlag := "--transcript"
+	extension := ".jsonl"
+	if raw {
+		transcriptFlag = "--raw-transcript"
+	}
+
+	var warnings []string
+	for i := range sessions {
+		session := &sessions[i]
+		stdout, stderr, err := runner.Run(ctx, repoDir, entireBinary, "checkpoint", "explain", transcriptFlag, "--session-index", strconv.Itoa(session.SessionIndex), session.LatestCheckpoint)
+		if err != nil {
+			return nil, fmt.Errorf("export transcript for session %s from checkpoint %s: %w", session.SessionID, session.LatestCheckpoint, err)
+		}
+		for _, warning := range warningLines("session "+session.SessionID, stderr) {
+			warnings = append(warnings, warning)
+		}
+
+		name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, extension)
+		relPath := filepath.Join(exportSessionsDirectory, name)
+		if err := os.WriteFile(filepath.Join(outputDir, relPath), stdout, 0o600); err != nil {
+			return nil, fmt.Errorf("write transcript for session %s: %w", session.SessionID, err)
+		}
+		session.TranscriptPath = filepath.ToSlash(relPath)
+	}
+	return warnings, nil
+}
+
+func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, outputDir string, sessions []exportSession) ([]exportSession, []string, error) {
+	var warnings []string
+	for i := range sessions {
+		session := &sessions[i]
+		sourcePath := session.SourceTranscriptPath
+		if sourcePath == "" {
+			sourcePath = snapshotTranscriptPath(session.LatestCheckpoint, session.SessionIndex, snapshot.TranscriptFileName)
+		}
+
+		transcript, err := readSnapshotTranscript(ctx, runner, snapshot, sourcePath)
+		if err != nil {
+			return nil, warnings, fmt.Errorf("export transcript for session %s from checkpoint %s: %w", session.SessionID, session.LatestCheckpoint, err)
+		}
+
+		name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, ".jsonl")
+		relPath := filepath.Join(exportSessionsDirectory, name)
+		if err := os.WriteFile(filepath.Join(outputDir, relPath), transcript, 0o600); err != nil {
+			return nil, warnings, fmt.Errorf("write transcript for session %s: %w", session.SessionID, err)
+		}
+		session.TranscriptPath = filepath.ToSlash(relPath)
+	}
+	return sessions, warnings, nil
+}
+
+func readSnapshotTranscript(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, sourcePath string) ([]byte, error) {
+	if _, ok := snapshot.TreePaths[sourcePath]; ok {
+		return catFile(ctx, runner, snapshot.GitDir, snapshot.Ref, sourcePath)
+	}
+
+	chunks := snapshotTranscriptChunks(sourcePath, snapshot.TreePaths)
+	if len(chunks) == 0 {
+		return nil, fmt.Errorf("transcript path %s not found in %s", sourcePath, snapshot.Ref)
+	}
+
+	var b strings.Builder
+	for i, chunk := range chunks {
+		data, err := catFile(ctx, runner, snapshot.GitDir, snapshot.Ref, chunk)
+		if err != nil {
+			return nil, fmt.Errorf("read transcript chunk %s: %w", chunk, err)
+		}
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.Write(data)
+	}
+	return []byte(b.String()), nil
+}
+
+func snapshotTranscriptChunks(basePath string, treePaths map[string]struct{}) []string {
+	var chunks []string
+	if _, ok := treePaths[basePath]; ok {
+		chunks = append(chunks, basePath)
+	}
+	for path := range treePaths {
+		if path == basePath {
+			continue
+		}
+		if parseChunkIndex(path, basePath) > 0 {
+			chunks = append(chunks, path)
+		}
+	}
+	sort.Slice(chunks, func(i, j int) bool {
+		return parseChunkIndex(chunks[i], basePath) < parseChunkIndex(chunks[j], basePath)
+	})
+	return chunks
+}
+
+func parseChunkIndex(path, basePath string) int {
+	if path == basePath {
+		return 0
+	}
+	prefix := basePath + "."
+	if !strings.HasPrefix(path, prefix) {
+		return -1
+	}
+	suffix := strings.TrimPrefix(path, prefix)
+	index, err := strconv.Atoi(suffix)
+	if err != nil {
+		return -1
+	}
+	if fmt.Sprintf("%03d", index) != suffix {
+		return -1
+	}
+	return index
+}
+
+func writeJSONFile(path string, value any) error {
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode %s: %w", filepath.Base(path), err)
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
+	}
+	return nil
+}
+
+func sessionFileName(createdAt time.Time, agent, sessionID, checkpointID, extension string) string {
+	timestamp := createdAt.UTC().Format("20060102T150405Z")
+	agentPart := safePathComponent(agent, "agent", 32)
+	sessionPart := safePathComponent(sessionID, "session", 80)
+	checkpointPart := safePathComponent(checkpointID, "checkpoint", 32)
+	return strings.Join([]string{timestamp, agentPart, sessionPart, checkpointPart}, "_") + extension
+}
+
+func safePathComponent(value, fallback string, max int) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-'
+		if ok {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	out := strings.Trim(b.String(), "-._")
+	if out == "" {
+		out = fallback
+	}
+	if max > 0 && len(out) > max {
+		out = strings.Trim(out[:max], "-._")
+		if out == "" {
+			out = fallback
+		}
+	}
+	return out
+}
+
+func transcriptMode(raw bool) string {
+	if raw {
+		return "raw"
+	}
+	return "compact"
+}
+
+func actualTranscriptMode(raw bool, snapshot *checkpointSnapshot) string {
+	if snapshot != nil && snapshot.TranscriptMode != "" {
+		return snapshot.TranscriptMode
+	}
+	return transcriptMode(raw)
+}
+
+func warningLines(prefix string, data []byte) []string {
+	text := strings.TrimSpace(string(data))
+	if text == "" {
+		return nil
+	}
+	lines := strings.Split(text, "\n")
+	warnings := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			warnings = append(warnings, prefix+": "+line)
+		}
+	}
+	return warnings
+}
+
+func renderExportReadme(manifest exportManifest) string {
+	var b strings.Builder
+	fmt.Fprintln(&b, "# Entire Brain Session Export")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Generated at: `%s`\n\n", manifest.GeneratedAt.Format(time.RFC3339))
+	fmt.Fprintln(&b, "This directory contains the newest known checkpoint version of each unique Entire session.")
+	fmt.Fprintln(&b, "Read `manifest.json` first, then inspect session transcript files in chronological order.")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "## Summary")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "- Sessions: %d\n", len(manifest.Sessions))
+	fmt.Fprintf(&b, "- Checkpoints scanned: %d\n", manifest.CheckpointsScanned)
+	fmt.Fprintf(&b, "- Transcript mode: %s\n", manifest.TranscriptMode)
+	fmt.Fprintf(&b, "- Scope: %s\n", manifest.Scope)
+	if manifest.RepoRoot != "" {
+		fmt.Fprintf(&b, "- Repo root: `%s`\n", manifest.RepoRoot)
+	}
+	if manifest.EntireCLIVersion != "" {
+		fmt.Fprintf(&b, "- Entire CLI version: `%s`\n", manifest.EntireCLIVersion)
+	}
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "## Sessions")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "| Created | Agent | Model | Session | Checkpoint | Transcript |")
+	fmt.Fprintln(&b, "| --- | --- | --- | --- | --- | --- |")
+	for _, session := range manifest.Sessions {
+		fmt.Fprintf(&b, "| %s | %s | %s | `%s` | `%s` | `%s` |\n",
+			session.CreatedAt.Format(time.RFC3339),
+			escapeMarkdownTable(session.Agent),
+			escapeMarkdownTable(session.Model),
+			session.SessionID,
+			session.LatestCheckpoint,
+			session.TranscriptPath,
+		)
+	}
+	if len(manifest.Warnings) > 0 {
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "## Warnings")
+		fmt.Fprintln(&b)
+		for _, warning := range manifest.Warnings {
+			fmt.Fprintf(&b, "- %s\n", warning)
+		}
+	}
+	return b.String()
+}
+
+func escapeMarkdownTable(value string) string {
+	if value == "" {
+		return ""
+	}
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, "|", `\|`)
+	value = strings.ReplaceAll(value, "\n", " ")
+	return value
+}
+
+type checkpointListEntry struct {
+	CheckpointID     string    `json:"checkpoint_id"`
+	SessionID        string    `json:"session_id,omitempty"`
+	Agent            string    `json:"agent,omitempty"`
+	Date             time.Time `json:"date"`
+	Message          string    `json:"message,omitempty"`
+	IsTaskCheckpoint bool      `json:"is_task_checkpoint,omitempty"`
+	IsLogsOnly       bool      `json:"is_logs_only,omitempty"`
+	SessionCount     int       `json:"session_count,omitempty"`
+	SessionIDs       []string  `json:"session_ids,omitempty"`
+}
+
+type checkpointExportEnvelope struct {
+	CheckpointID     string                    `json:"checkpoint_id"`
+	Strategy         string                    `json:"strategy,omitempty"`
+	Branch           string                    `json:"branch,omitempty"`
+	CheckpointsCount int                       `json:"checkpoints_count"`
+	FilesTouched     []string                  `json:"files_touched,omitempty"`
+	HasReview        bool                      `json:"has_review,omitempty"`
+	SessionCount     int                       `json:"session_count"`
+	Sessions         []checkpointExportSession `json:"sessions"`
+	Partial          bool                      `json:"partial,omitempty"`
+}
+
+type checkpointExportSession struct {
+	Index            int                   `json:"index"`
+	SessionID        string                `json:"session_id,omitempty"`
+	Agent            string                `json:"agent,omitempty"`
+	Model            string                `json:"model,omitempty"`
+	Kind             string                `json:"kind,omitempty"`
+	ReviewSkills     []string              `json:"review_skills,omitempty"`
+	CreatedAt        *time.Time            `json:"created_at,omitempty"`
+	TurnID           string                `json:"turn_id,omitempty"`
+	IsTask           bool                  `json:"is_task,omitempty"`
+	ToolUseID        string                `json:"tool_use_id,omitempty"`
+	FilesTouched     []string              `json:"files_touched,omitempty"`
+	CheckpointsCount int                   `json:"checkpoints_count,omitempty"`
+	TokenUsage       *checkpointTokenUsage `json:"token_usage,omitempty"`
+	Summary          *checkpointSummary    `json:"summary,omitempty"`
+	Error            string                `json:"error,omitempty"`
+}
+
+type checkpointTokenUsage struct {
+	InputTokens         int `json:"input_tokens"`
+	OutputTokens        int `json:"output_tokens"`
+	CacheReadTokens     int `json:"cache_read_tokens,omitempty"`
+	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
+}
+
+type checkpointSummary struct {
+	Intent  string `json:"intent,omitempty"`
+	Outcome string `json:"outcome,omitempty"`
+}
+
+type checkpointSummaryPaths struct {
+	Sessions []checkpointSessionPaths `json:"sessions,omitempty"`
+}
+
+type checkpointSessionPaths struct {
+	Metadata   string `json:"metadata,omitempty"`
+	Transcript string `json:"transcript,omitempty"`
+}
+
+type checkpointSnapshot struct {
+	GitDir             string
+	TempDir            string
+	Ref                string
+	Version            int
+	TranscriptMode     string
+	TranscriptFileName string
+	Selected           map[string]selectedSession
+	CheckpointCount    int
+	TreePaths          map[string]struct{}
+}
+
+func (s *checkpointSnapshot) Cleanup() {
+	if s != nil && s.TempDir != "" {
+		_ = os.RemoveAll(s.TempDir)
+	}
+}
+
+type entireSettingsFile struct {
+	StrategyOptions entireStrategyOptions `json:"strategy_options,omitempty"`
+}
+
+type entireStrategyOptions struct {
+	CheckpointRemote   *checkpointRemoteSettings `json:"checkpoint_remote,omitempty"`
+	CheckpointsV2      *bool                     `json:"checkpoints_v2,omitempty"`
+	CheckpointsVersion any                       `json:"checkpoints_version,omitempty"`
+}
+
+type checkpointRemoteSettings struct {
+	Provider string `json:"provider"`
+	Repo     string `json:"repo"`
+}
+
+type selectedSession struct {
+	CheckpointID         string
+	SessionIndex         int
+	SessionID            string
+	Agent                string
+	Model                string
+	Kind                 string
+	ReviewSkills         []string
+	CreatedAt            time.Time
+	TurnID               string
+	IsTask               bool
+	ToolUseID            string
+	FilesTouched         []string
+	TokenUsage           *checkpointTokenUsage
+	Summary              *checkpointSummary
+	CheckpointsCount     int
+	SourceTranscriptPath string
+}
+
+type exportManifest struct {
+	SchemaVersion      int             `json:"schema_version"`
+	GeneratedAt        time.Time       `json:"generated_at"`
+	RepoRoot           string          `json:"repo_root,omitempty"`
+	EntireCLIVersion   string          `json:"entire_cli_version,omitempty"`
+	TranscriptMode     string          `json:"transcript_mode"`
+	Scope              string          `json:"scope"`
+	CheckpointLimit    int             `json:"checkpoint_limit"`
+	CheckpointsScanned int             `json:"checkpoints_scanned"`
+	Sessions           []exportSession `json:"sessions"`
+	Warnings           []string        `json:"warnings,omitempty"`
+}
+
+type exportSession struct {
+	SessionID            string                `json:"session_id"`
+	Agent                string                `json:"agent,omitempty"`
+	Model                string                `json:"model,omitempty"`
+	Kind                 string                `json:"kind,omitempty"`
+	ReviewSkills         []string              `json:"review_skills,omitempty"`
+	LatestCheckpoint     string                `json:"latest_checkpoint_id"`
+	SessionIndex         int                   `json:"session_index"`
+	CreatedAt            time.Time             `json:"created_at"`
+	TurnID               string                `json:"turn_id,omitempty"`
+	IsTask               bool                  `json:"is_task,omitempty"`
+	ToolUseID            string                `json:"tool_use_id,omitempty"`
+	FilesTouched         []string              `json:"files_touched,omitempty"`
+	TokenUsage           *checkpointTokenUsage `json:"token_usage,omitempty"`
+	Summary              *checkpointSummary    `json:"summary,omitempty"`
+	CheckpointsCount     int                   `json:"checkpoints_count,omitempty"`
+	TranscriptPath       string                `json:"transcript_path"`
+	SourceTranscriptPath string                `json:"-"`
+}

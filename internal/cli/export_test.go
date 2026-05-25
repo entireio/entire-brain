@@ -1,0 +1,553 @@
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+type fakeCommandRunner struct {
+	responses map[string]fakeCommandResponse
+	sequences map[string][]fakeCommandResponse
+	calls     []fakeCommandCall
+}
+
+type fakeCommandResponse struct {
+	stdout string
+	stderr string
+	err    error
+}
+
+type fakeCommandCall struct {
+	dir  string
+	name string
+	args []string
+}
+
+func (r *fakeCommandRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	key := fakeCommandKey(name, args...)
+	r.calls = append(r.calls, fakeCommandCall{
+		dir:  dir,
+		name: name,
+		args: append([]string(nil), args...),
+	})
+
+	if sequence, ok := r.sequences[key]; ok && len(sequence) > 0 {
+		response := sequence[0]
+		r.sequences[key] = sequence[1:]
+		return []byte(response.stdout), []byte(response.stderr), response.err
+	}
+
+	response, ok := r.responses[key]
+	if !ok {
+		return nil, nil, errors.New("unexpected command: " + key)
+	}
+	return []byte(response.stdout), []byte(response.stderr), response.err
+}
+
+func fakeCommandKey(name string, args ...string) string {
+	return name + "\x00" + strings.Join(args, "\x00")
+}
+
+func TestDiscoverCheckpointsFallsBackToCheckpointRemote(t *testing.T) {
+	repoDir := t.TempDir()
+	settingsDir := filepath.Join(repoDir, ".entire")
+	if err := os.MkdirAll(settingsDir, 0o700); err != nil {
+		t.Fatalf("create settings dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(`{
+  "enabled": true,
+  "strategy_options": {
+    "checkpoints_version": 2,
+    "checkpoint_remote": {
+      "provider": "github",
+      "repo": "entireio/cli-checkpoints"
+    }
+  }
+}`), 0o600); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	remoteURL := "https://github.com/entireio/cli-checkpoints.git"
+	runner := &fakeCommandRunner{
+		responses: map[string]fakeCommandResponse{
+			fakeCommandKey("git", "init", "-q"): {},
+			fakeCommandKey("git", "fetch", "--no-tags", "--depth=1", "--filter=blob:none", remoteURL, "+"+v2MainRef+":"+v2MainRef):     {},
+			fakeCommandKey("git", "fetch", "--no-tags", "--depth=1", "--filter=blob:none", remoteURL, "+"+v1RemoteRef+":"+v1RemoteRef): {},
+		},
+		sequences: map[string][]fakeCommandResponse{
+			fakeCommandKey("git", "ls-tree", "-r", "--name-only", v2MainRef): {
+				{err: errors.New("local v2 missing")},
+				{stdout: "aa/a111aaa111/metadata.json\n"},
+			},
+			fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef): {
+				{err: errors.New("local v1 missing")},
+				{stdout: "bb/b222bbb222/metadata.json\n"},
+			},
+		},
+	}
+
+	checkpoints, warnings, err := discoverCheckpoints(context.Background(), runner, repoDir, "entire-test", exportScopeAll, 10)
+	if err != nil {
+		t.Fatalf("discover checkpoints: %v", err)
+	}
+	if len(checkpoints) != 2 {
+		t.Fatalf("checkpoint count = %d, want 2: %+v", len(checkpoints), checkpoints)
+	}
+	if checkpoints[0].CheckpointID != "aaa111aaa111" || checkpoints[1].CheckpointID != "bbb222bbb222" {
+		t.Fatalf("unexpected checkpoints: %+v", checkpoints)
+	}
+
+	joinedWarnings := strings.Join(warnings, "\n")
+	if !strings.Contains(joinedWarnings, "discovered checkpoint refs from configured checkpoint remote") {
+		t.Fatalf("missing remote discovery warning: %v", warnings)
+	}
+
+	var sawRemoteFetch bool
+	for _, call := range runner.calls {
+		if call.name == "git" && len(call.args) >= 2 && call.args[0] == "fetch" && call.args[len(call.args)-2] == remoteURL {
+			sawRemoteFetch = true
+		}
+	}
+	if !sawRemoteFetch {
+		t.Fatalf("expected checkpoint remote fetch, calls: %+v", runner.calls)
+	}
+}
+
+func TestDiscoverCheckpointsMirrorsV1Settings(t *testing.T) {
+	repoDir := t.TempDir()
+	settingsDir := filepath.Join(repoDir, ".entire")
+	if err := os.MkdirAll(settingsDir, 0o700); err != nil {
+		t.Fatalf("create settings dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(`{
+  "enabled": true,
+  "strategy_options": {
+    "checkpoint_remote": {
+      "provider": "github",
+      "repo": "entireio/cli-checkpoints"
+    }
+  }
+}`), 0o600); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	remoteURL := "https://github.com/entireio/cli-checkpoints.git"
+	runner := &fakeCommandRunner{
+		responses: map[string]fakeCommandResponse{
+			fakeCommandKey("git", "init", "-q"): {},
+			fakeCommandKey("git", "fetch", "--no-tags", "--depth=1", "--filter=blob:none", remoteURL, "+"+v1RemoteRef+":"+v1RemoteRef): {},
+		},
+		sequences: map[string][]fakeCommandResponse{
+			fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef): {
+				{err: errors.New("local v1 missing")},
+				{stdout: "bb/b222bbb222/metadata.json\n"},
+			},
+		},
+	}
+
+	checkpoints, _, err := discoverCheckpoints(context.Background(), runner, repoDir, "entire-test", exportScopeAll, 10)
+	if err != nil {
+		t.Fatalf("discover checkpoints: %v", err)
+	}
+	if len(checkpoints) != 1 || checkpoints[0].CheckpointID != "bbb222bbb222" {
+		t.Fatalf("unexpected checkpoints: %+v", checkpoints)
+	}
+
+	for _, call := range runner.calls {
+		for _, arg := range call.args {
+			if arg == v2MainRef || strings.Contains(arg, v2MainRef) {
+				t.Fatalf("v2 ref should not be used when repo settings default to v1, calls: %+v", runner.calls)
+			}
+		}
+	}
+}
+
+func TestExportUsesConfiguredV1CheckpointRemoteDirectly(t *testing.T) {
+	repoDir := t.TempDir()
+	settingsDir := filepath.Join(repoDir, ".entire")
+	if err := os.MkdirAll(settingsDir, 0o700); err != nil {
+		t.Fatalf("create settings dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(`{
+  "enabled": true,
+  "strategy_options": {
+    "checkpoint_remote": {
+      "provider": "github",
+      "repo": "entireio/cli-checkpoints"
+    }
+  }
+}`), 0o600); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	outputDir := filepath.Join(t.TempDir(), "export")
+	remoteURL := "https://github.com/entireio/cli-checkpoints.git"
+	checkpointID := "aaa111aaa111"
+	checkpointDir := "aa/a111aaa111"
+	sessionMetadataPath := checkpointDir + "/0/metadata.json"
+	transcriptPath := checkpointDir + "/0/full.jsonl"
+	runner := &fakeCommandRunner{
+		responses: map[string]fakeCommandResponse{
+			fakeCommandKey("git", "init", "-q"): {},
+			fakeCommandKey("git", "fetch", "--no-tags", "--depth=1", "--filter="+checkpointRemoteBlobFilter, remoteURL, "+"+v1RemoteRef+":"+v1RemoteRef): {},
+			fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":"+checkpointDir+"/metadata.json"): {
+				stdout: `{
+  "checkpoint_id": "aaa111aaa111",
+  "sessions": [
+    {
+      "metadata": "/aa/a111aaa111/0/metadata.json",
+      "transcript": "/aa/a111aaa111/0/full.jsonl"
+    }
+  ]
+}`,
+			},
+			fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":"+sessionMetadataPath): {
+				stdout: `{
+  "checkpoint_id": "aaa111aaa111",
+  "session_id": "session-one",
+  "agent": "Codex",
+  "model": "gpt-5",
+  "created_at": "2026-02-03T04:05:06Z",
+  "checkpoints_count": 7
+}`,
+			},
+			fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":"+transcriptPath): {
+				stdout: "{\"type\":\"message\",\"text\":\"from v1 full log\"}\n",
+			},
+		},
+		sequences: map[string][]fakeCommandResponse{
+			fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1RemoteRef): {
+				{err: errors.New("local v1 missing")},
+				{stdout: checkpointDir + "/metadata.json\n" + sessionMetadataPath + "\n" + transcriptPath + "\n"},
+			},
+		},
+	}
+
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			CLIVersion: "cli-test",
+			RepoRoot:   repoDir,
+		},
+		Runner: runner,
+		Now: func() time.Time {
+			return time.Date(2026, 2, 4, 0, 0, 0, 0, time.UTC)
+		},
+	})
+
+	out, err := execute(t, cmd, "export", "--output", outputDir, "--checkpoint-limit", "10", "--entire-binary", "entire-test")
+	if err != nil {
+		t.Fatalf("export: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "exported 1 sessions from 1 checkpoints") {
+		t.Fatalf("unexpected output:\n%s", out)
+	}
+
+	var manifest exportManifest
+	data, err := os.ReadFile(filepath.Join(outputDir, exportManifestFileName))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse manifest: %v", err)
+	}
+	if manifest.TranscriptMode != "raw" {
+		t.Fatalf("transcript mode = %q, want raw", manifest.TranscriptMode)
+	}
+	if len(manifest.Sessions) != 1 || manifest.Sessions[0].LatestCheckpoint != checkpointID {
+		t.Fatalf("unexpected sessions: %+v", manifest.Sessions)
+	}
+	transcript, err := os.ReadFile(filepath.Join(outputDir, filepath.FromSlash(manifest.Sessions[0].TranscriptPath)))
+	if err != nil {
+		t.Fatalf("read transcript: %v", err)
+	}
+	if !strings.Contains(string(transcript), "from v1 full log") {
+		t.Fatalf("unexpected transcript:\n%s", transcript)
+	}
+
+	for _, call := range runner.calls {
+		if call.name == "entire-test" {
+			t.Fatalf("direct remote export should not shell out to Entire checkpoint explain, calls: %+v", runner.calls)
+		}
+		for _, arg := range call.args {
+			if arg == v2MainRef || strings.Contains(arg, v2MainRef) {
+				t.Fatalf("v2 ref should not be used for default v1 settings, calls: %+v", runner.calls)
+			}
+		}
+	}
+}
+
+func TestExportUsesLocalV1WithoutSettings(t *testing.T) {
+	repoDir := t.TempDir()
+	outputDir := filepath.Join(t.TempDir(), "export")
+	checkpointID := "ccc333ccc333"
+	checkpointDir := "cc/c333ccc333"
+	sessionMetadataPath := checkpointDir + "/0/metadata.json"
+	transcriptPath := checkpointDir + "/0/full.jsonl"
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1RemoteRef): {
+			stdout: checkpointDir + "/metadata.json\n" + sessionMetadataPath + "\n" + transcriptPath + "\n",
+		},
+		fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":"+checkpointDir+"/metadata.json"): {
+			stdout: `{"sessions":[{"metadata":"/cc/c333ccc333/0/metadata.json","transcript":"/cc/c333ccc333/0/full.jsonl"}]}`,
+		},
+		fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":"+sessionMetadataPath): {
+			stdout: `{
+  "checkpoint_id": "ccc333ccc333",
+  "session_id": "local-session",
+  "agent": "Codex",
+  "created_at": "2026-02-05T00:00:00Z"
+}`,
+		},
+		fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":"+transcriptPath): {
+			stdout: "{\"type\":\"message\",\"text\":\"local v1\"}\n",
+		},
+	}}
+
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			RepoRoot: repoDir,
+		},
+		Runner: runner,
+		Now: func() time.Time {
+			return time.Date(2026, 2, 5, 1, 0, 0, 0, time.UTC)
+		},
+	})
+
+	out, err := execute(t, cmd, "export", "--output", outputDir, "--entire-binary", "entire-test")
+	if err != nil {
+		t.Fatalf("export: %v\n%s", err, out)
+	}
+
+	var manifest exportManifest
+	data, err := os.ReadFile(filepath.Join(outputDir, exportManifestFileName))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse manifest: %v", err)
+	}
+	if len(manifest.Sessions) != 1 || manifest.Sessions[0].LatestCheckpoint != checkpointID {
+		t.Fatalf("unexpected sessions: %+v", manifest.Sessions)
+	}
+	if manifest.TranscriptMode != "raw" {
+		t.Fatalf("transcript mode = %q, want raw", manifest.TranscriptMode)
+	}
+	for _, call := range runner.calls {
+		if call.name == "entire-test" {
+			t.Fatalf("local v1 direct export should not shell out to Entire, calls: %+v", runner.calls)
+		}
+		for _, arg := range call.args {
+			if arg == v2MainRef || strings.Contains(arg, v2MainRef) {
+				t.Fatalf("v2 ref should not be used when settings are absent and local v1 exists, calls: %+v", runner.calls)
+			}
+		}
+	}
+}
+
+func TestSnapshotMetadataSkipsNewerSessionWithoutTranscript(t *testing.T) {
+	treePaths := map[string]struct{}{
+		"aa/a111aaa111/metadata.json":   {},
+		"aa/a111aaa111/0/metadata.json": {},
+		"aa/a111aaa111/0/full.jsonl":    {},
+		"bb/b222bbb222/metadata.json":   {},
+		"bb/b222bbb222/0/metadata.json": {},
+	}
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":aa/a111aaa111/metadata.json"): {
+			stdout: `{"sessions":[{"metadata":"/aa/a111aaa111/0/metadata.json","transcript":"/aa/a111aaa111/0/full.jsonl"}]}`,
+		},
+		fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":bb/b222bbb222/metadata.json"): {
+			stdout: `{"sessions":[{"metadata":"/bb/b222bbb222/0/metadata.json","transcript":"/bb/b222bbb222/0/full.jsonl"}]}`,
+		},
+		fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":aa/a111aaa111/0/metadata.json"): {
+			stdout: `{
+  "checkpoint_id": "aaa111aaa111",
+  "session_id": "session-one",
+  "created_at": "2026-01-01T00:00:00Z"
+}`,
+		},
+	}}
+
+	selected, _, warnings, err := readCheckpointSnapshotMetadata(context.Background(), runner, "/repo/root", v1RemoteRef, v1TranscriptFileName, treePaths, 10)
+	if err != nil {
+		t.Fatalf("read snapshot metadata: %v", err)
+	}
+	session, ok := selected["session-one"]
+	if !ok {
+		t.Fatalf("session-one was not selected: %+v", selected)
+	}
+	if session.CheckpointID != "aaa111aaa111" {
+		t.Fatalf("selected checkpoint = %q, want older checkpoint with transcript", session.CheckpointID)
+	}
+	if !strings.Contains(strings.Join(warnings, "\n"), "skipped 1 session metadata entries with no transcript bytes") {
+		t.Fatalf("missing skipped transcript warning: %v", warnings)
+	}
+	for _, call := range runner.calls {
+		for _, arg := range call.args {
+			if strings.Contains(arg, "bb/b222bbb222/0/metadata.json") {
+				t.Fatalf("newer metadata without transcript should not be read, calls: %+v", runner.calls)
+			}
+		}
+	}
+}
+
+func TestExportSelectsLatestCheckpointPerSession(t *testing.T) {
+	repoDir := t.TempDir()
+	settingsDir := filepath.Join(repoDir, ".entire")
+	if err := os.MkdirAll(settingsDir, 0o700); err != nil {
+		t.Fatalf("create settings dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(`{"enabled":true,"strategy_options":{"checkpoints_version":2}}`), 0o600); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	outputDir := filepath.Join(t.TempDir(), "export")
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v2MainRef): {
+			stdout: "aa/a111aaa111/metadata.json\nbb/b222bbb222/metadata.json\nbb/b222bbb222/0/metadata.json\n",
+		},
+		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef): {
+			stdout: "aa/a111aaa111/metadata.json\n",
+		},
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "aaa111aaa111"): {
+			stdout: `{
+  "checkpoint_id": "aaa111aaa111",
+  "checkpoints_count": 1,
+  "session_count": 1,
+  "sessions": [
+    {
+      "index": 0,
+      "session_id": "session-one",
+      "agent": "Codex",
+      "model": "gpt-old",
+      "created_at": "2026-01-01T00:00:00Z"
+    }
+  ]
+}`,
+		},
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "bbb222bbb222"): {
+			stdout: `{
+  "checkpoint_id": "bbb222bbb222",
+  "checkpoints_count": 2,
+  "session_count": 2,
+  "sessions": [
+    {
+      "index": 0,
+      "session_id": "session-one",
+      "agent": "Codex",
+      "model": "gpt-new",
+      "created_at": "2026-01-03T00:00:00Z",
+      "summary": {
+        "intent": "newer work",
+        "outcome": "done"
+      }
+    },
+    {
+      "index": 1,
+      "session_id": "session-two",
+      "agent": "Claude Code",
+      "model": "sonnet",
+      "created_at": "2026-01-02T12:00:00Z"
+    }
+  ]
+}`,
+		},
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--transcript", "--session-index", "0", "bbb222bbb222"): {
+			stdout: "{\"type\":\"message\",\"text\":\"latest session one\"}\n",
+		},
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--transcript", "--session-index", "1", "bbb222bbb222"): {
+			stdout: "{\"type\":\"message\",\"text\":\"session two\"}\n",
+		},
+	}}
+
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			CLIVersion: "cli-test",
+			RepoRoot:   repoDir,
+		},
+		Runner: runner,
+		Now: func() time.Time {
+			return time.Date(2026, 1, 4, 0, 0, 0, 0, time.UTC)
+		},
+	})
+
+	out, err := execute(t, cmd, "export", "--output", outputDir, "--checkpoint-limit", "2", "--entire-binary", "entire-test")
+	if err != nil {
+		t.Fatalf("export: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "exported 2 sessions from 2 checkpoints") {
+		t.Fatalf("unexpected output:\n%s", out)
+	}
+
+	var manifest exportManifest
+	data, err := os.ReadFile(filepath.Join(outputDir, exportManifestFileName))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse manifest: %v", err)
+	}
+
+	if len(manifest.Sessions) != 2 {
+		t.Fatalf("sessions len = %d, want 2", len(manifest.Sessions))
+	}
+	if manifest.Sessions[0].SessionID != "session-two" {
+		t.Fatalf("first chronological session = %q, want session-two", manifest.Sessions[0].SessionID)
+	}
+	sessionOne := manifest.Sessions[1]
+	if sessionOne.SessionID != "session-one" {
+		t.Fatalf("second chronological session = %q, want session-one", sessionOne.SessionID)
+	}
+	if sessionOne.LatestCheckpoint != "bbb222bbb222" {
+		t.Fatalf("session one checkpoint = %q, want latest checkpoint", sessionOne.LatestCheckpoint)
+	}
+	if sessionOne.Model != "gpt-new" {
+		t.Fatalf("session one model = %q, want gpt-new", sessionOne.Model)
+	}
+	if sessionOne.Summary == nil || sessionOne.Summary.Intent != "newer work" {
+		t.Fatalf("session one summary missing latest metadata: %+v", sessionOne.Summary)
+	}
+
+	transcript, err := os.ReadFile(filepath.Join(outputDir, filepath.FromSlash(sessionOne.TranscriptPath)))
+	if err != nil {
+		t.Fatalf("read transcript: %v", err)
+	}
+	if !strings.Contains(string(transcript), "latest session one") {
+		t.Fatalf("transcript missing latest content:\n%s", transcript)
+	}
+
+	for _, call := range runner.calls {
+		if call.dir != repoDir {
+			t.Fatalf("command dir = %q, want %s", call.dir, repoDir)
+		}
+	}
+}
+
+func TestExportRejectsNonEmptyOutputDirectory(t *testing.T) {
+	outputDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outputDir, "existing.txt"), []byte("old"), 0o600); err != nil {
+		t.Fatalf("seed output dir: %v", err)
+	}
+
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Runner:  &fakeCommandRunner{responses: map[string]fakeCommandResponse{}},
+	})
+
+	_, err := execute(t, cmd, "export", "--output", outputDir)
+	if err == nil {
+		t.Fatal("export returned nil error for non-empty output directory")
+	}
+	if !strings.Contains(err.Error(), "output directory is not empty") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

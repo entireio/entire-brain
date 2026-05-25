@@ -1,6 +1,8 @@
 # Entire Brain
 
-Entire Brain is an external-command plugin for the Entire CLI.
+Entire Brain is an external-command plugin for the Entire CLI. It exports
+Entire session history into a compact directory an agent can inspect to learn a
+project's development history.
 
 Entire CLI plugins are plain executables named `entire-<name>` on `PATH`.
 When a user runs `entire <name>`, the parent CLI dispatches to that binary and
@@ -46,6 +48,43 @@ CLI so `ENTIRE_PLUGIN_DATA_DIR` is present. For standalone testing, set it:
 ```sh
 ENTIRE_PLUGIN_DATA_DIR="$(mktemp -d)" go run ./cmd/entire-brain doctor
 ```
+
+### Export Session History
+
+Export the newest known checkpoint version of each unique Entire session:
+
+```sh
+entire brain export --output ./entire-brain-export
+```
+
+The export contains:
+
+| Path | Purpose |
+|---|---|
+| `manifest.json` | Machine-readable index of exported sessions, metadata, timestamps, and transcript paths. |
+| `README.md` | Short agent-facing guide and chronological session table. |
+| `sessions/*.jsonl` | One transcript per unique `session_id`, selected from the checkpoint with the newest session timestamp. |
+
+By default, transcripts use Entire's normalized compact transcript export:
+
+```sh
+entire checkpoint explain --transcript <checkpoint-id>
+```
+
+Use `--raw` when native agent logs are required instead:
+
+```sh
+entire brain export --raw --output ./entire-brain-raw-export
+```
+
+The exporter respects the repository's configured checkpoint storage version:
+V1 repositories read `entire/checkpoints/v1`, while V2 repositories read
+`refs/entire/checkpoints/v2/main`. Checkpoints can live either in the current
+repository or in a configured `strategy_options.checkpoint_remote`; the exporter
+will use the configured checkpoint remote when local checkpoint refs are absent.
+It inspects up to 10,000 checkpoints by default; adjust with
+`--checkpoint-limit`. Use `--scope branch` for the current branch's
+`entire checkpoint explain --json` list view.
 
 ## Entire Plugin Contract
 

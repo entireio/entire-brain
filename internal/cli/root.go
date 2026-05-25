@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/ashtom/entire-brain/internal/config"
 	"github.com/spf13/cobra"
@@ -10,6 +11,8 @@ import (
 type Options struct {
 	Version string
 	Env     EntireEnv
+	Runner  CommandRunner
+	Now     func() time.Time
 }
 
 // Execute runs the plugin root command with the real process environment.
@@ -24,17 +27,22 @@ func NewRootCommand(opts Options) *cobra.Command {
 	if opts.Version == "" {
 		opts.Version = "dev"
 	}
+	if opts.Runner == nil {
+		opts.Runner = ExecRunner{}
+	}
+	if opts.Now == nil {
+		opts.Now = time.Now
+	}
 
 	cmd := &cobra.Command{
 		Use:           "entire-brain",
-		Short:         "External command plugin for the Entire CLI",
+		Short:         "Export Entire session history for agent review",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Long: `entire-brain is a minimal, testable external-command
-plugin for the Entire CLI.
+		Long: `entire-brain is an external-command plugin for the Entire CLI.
 
-It demonstrates the binary naming convention, parent-provided environment, and
-per-plugin durable data directory used by Entire external commands.`,
+It exports checkpointed session transcripts and metadata into a directory an
+agent can inspect to understand project history.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runStatus(cmd, opts)
 		},
@@ -42,6 +50,7 @@ per-plugin durable data directory used by Entire external commands.`,
 
 	cmd.AddCommand(newDoctorCommand(opts.Env))
 	cmd.AddCommand(newConfigCommand(opts.Env))
+	cmd.AddCommand(newExportCommand(opts))
 	cmd.AddCommand(newVersionCommand(opts.Version))
 	return cmd
 }
