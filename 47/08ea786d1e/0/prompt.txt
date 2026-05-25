@@ -1,0 +1,69 @@
+Do you see a folder ../cli with the source code of Entire CLI?
+
+---
+
+Do you see a folder ../cli with the source code of Entire CLI?
+
+---
+
+Review the codebase and understand how it stores agent session logs, how it reads and explains them, and how plugins work. This project/repo will be such plugin.
+
+---
+
+Correct, this repo should be an external command plugin. Its goal is to export all unique session logs in its respective last version (i.e. with the newest timestamp) in such a way that an agent like you can review all sessions and learn about the project’s history.
+
+---
+
+Correct, this repo should be an external command plugin. Its goal is to export all unique session logs in its respective last version (i.e. with the newest timestamp) in such a way that an agent like you can review all sessions and learn about the project’s history.
+
+---
+
+If you run the plugin on the cli repo itself, how many session logs do you get?
+
+---
+
+If you run the plugin on the cli repo itself, how many session logs do you get?
+
+---
+
+Analyze the root cause for this. The repo definitely has many checkpoints.
+
+---
+
+Analyze the root cause for this. The repo definitely has many checkpoints.
+
+---
+
+Make it so.
+
+---
+
+Make it so.
+
+---
+
+Hm, never use v2 if the repo is configured for v1
+
+---
+
+Note that checkpoints can either be stored in a branch or a separate repo
+
+---
+
+Note that checkpoints can either be stored in a branch or a separate repo
+
+---
+
+Look through other repos under ~/Projects to validate your assumptions
+
+---
+
+Look through other repos under ~/Projects to validate your assumptions
+
+---
+
+I checked out a new repo. Check it.
+
+---
+
+I checked out a new repo. Check it.

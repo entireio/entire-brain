@@ -1,0 +1,100 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "4708ea786d1e",
+  "session_id": "019e5dd1-d451-7ca1-b1e4-df15cf69fcc0",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-25T10:01:22.672006Z",
+  "branch": "main",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "README.md",
+    "internal/cli/export.go",
+    "internal/cli/export_test.go",
+    "internal/cli/root.go",
+    "internal/cli/runner.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "83a5f1fb3866",
+  "token_usage": {
+    "input_tokens": 1204096,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 32524672,
+    "output_tokens": 127172,
+    "api_call_count": 265
+  },
+  "session_metrics": {
+    "turn_count": 16
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-25T10:01:22.544356Z",
+    "agent_lines": 1370,
+    "agent_removed": 0,
+    "human_added": 510,
+    "human_modified": 67,
+    "human_removed": 0,
+    "total_committed": 1947,
+    "total_lines_changed": 1947,
+    "agent_percentage": 70.36466358500256,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 951,
+      "agent_lines_removed": 6
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 951,
+      "agent_lines_removed": 6
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 577,
+      "user_lines_removed": 67,
+      "agent_lines_added": 951,
+      "agent_lines_removed": 6,
+      "user_added_per_file": {
+        "internal/cli/export.go": 453,
+        "internal/cli/export_test.go": 124
+      },
+      "user_removed_per_file": {
+        "internal/cli/export.go": 65,
+        "internal/cli/export_test.go": 2
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1924,
+      "agent_lines_removed": 6
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2014,
+      "agent_lines_removed": 6
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2014,
+      "agent_lines_removed": 6
+    }
+  ]
+}
