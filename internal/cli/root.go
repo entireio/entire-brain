@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 
-	"github.com/entireio/entire-plugin-template/internal/config"
+	"github.com/ashtom/entire-brain/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -26,11 +26,11 @@ func NewRootCommand(opts Options) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:           "entire-plugin-template",
-		Short:         "Template external command plugin for the Entire CLI",
+		Use:           "entire-brain",
+		Short:         "External command plugin for the Entire CLI",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		Long: `entire-plugin-template is a minimal, testable external-command
+		Long: `entire-brain is a minimal, testable external-command
 plugin for the Entire CLI.
 
 It demonstrates the binary naming convention, parent-provided environment, and
@@ -48,7 +48,7 @@ per-plugin durable data directory used by Entire external commands.`,
 
 func runStatus(cmd *cobra.Command, opts Options) error {
 	out := cmd.OutOrStdout()
-	fmt.Fprintln(out, "entire-plugin-template")
+	fmt.Fprintln(out, "entire-brain")
 	fmt.Fprintf(out, "version: %s\n", opts.Version)
 	fmt.Fprintf(out, "entire cli: %s\n", valueOrUnset(opts.Env.CLIVersion))
 	fmt.Fprintf(out, "repo root: %s\n", valueOrUnset(opts.Env.RepoRoot))

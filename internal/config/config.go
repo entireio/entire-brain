@@ -13,7 +13,7 @@ type Config struct {
 }
 
 func Default() Config {
-	return Config{Greeting: "Hello from an Entire plugin"}
+	return Config{Greeting: "Hello from Entire Brain"}
 }
 
 func Path(dataDir string) (string, error) {

@@ -1,4 +1,4 @@
-module github.com/entireio/entire-plugin-template
+module github.com/ashtom/entire-brain
 
 go 1.26
 

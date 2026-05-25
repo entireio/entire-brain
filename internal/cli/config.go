@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/entireio/entire-plugin-template/internal/config"
+	"github.com/ashtom/entire-brain/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -82,7 +82,7 @@ func configPath(env EntireEnv) (string, error) {
 
 func requireDataDir(env EntireEnv) (string, error) {
 	if env.PluginDataDir == "" {
-		return "", errors.New("ENTIRE_PLUGIN_DATA_DIR is unset; run through `entire plugin-template` or set it for local testing")
+		return "", errors.New("ENTIRE_PLUGIN_DATA_DIR is unset; run through `entire brain` or set it for local testing")
 	}
 	return env.PluginDataDir, nil
 }

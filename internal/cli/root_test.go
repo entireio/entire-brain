@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/entireio/entire-plugin-template/internal/config"
+	"github.com/ashtom/entire-brain/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -40,6 +40,7 @@ func TestRootStatusShowsEntireEnvironment(t *testing.T) {
 		t.Fatalf("execute root: %v", err)
 	}
 	for _, want := range []string{
+		"entire-brain",
 		"version: test-version",
 		"entire cli: cli-test",
 		"repo root: /tmp/repo",
@@ -113,7 +114,7 @@ func TestConfigInitAndShow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config show: %v", err)
 	}
-	if !strings.Contains(out, `"greeting": "Hello from an Entire plugin"`) {
+	if !strings.Contains(out, `"greeting": "Hello from Entire Brain"`) {
 		t.Fatalf("config show output missing default greeting:\n%s", out)
 	}
 }

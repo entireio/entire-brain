@@ -17,7 +17,7 @@ run = "go test -race ./..."
 
 [tasks.build]
 description = "Build the plugin binary"
-run = "go build -o entire-plugin-template ./cmd/entire-plugin-template"
+run = "go build -o entire-brain ./cmd/entire-brain"
 
 [tasks.build-all]
 description = "Cross-build common Entire CLI plugin targets"

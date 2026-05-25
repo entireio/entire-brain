@@ -25,7 +25,7 @@ func runDoctor(cmd *cobra.Command, env EntireEnv) error {
 	fmt.Fprintf(out, "ENTIRE_PLUGIN_DATA_DIR=%s\n", valueOrUnset(env.PluginDataDir))
 
 	if env.PluginDataDir == "" {
-		return errors.New("ENTIRE_PLUGIN_DATA_DIR is unset; run through `entire plugin-template` or set it for local testing")
+		return errors.New("ENTIRE_PLUGIN_DATA_DIR is unset; run through `entire brain` or set it for local testing")
 	}
 	if err := os.MkdirAll(env.PluginDataDir, 0o700); err != nil {
 		return fmt.Errorf("create plugin data dir: %w", err)
