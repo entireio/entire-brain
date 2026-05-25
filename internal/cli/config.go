@@ -32,11 +32,11 @@ func newConfigCommand(env EntireEnv) *cobra.Command {
 		Use:   "show",
 		Short: "Print plugin configuration as JSON",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dataDir, err := requireDataDir(env)
+			configDir, err := requireConfigDir(env)
 			if err != nil {
 				return err
 			}
-			cfg, err := config.Load(dataDir)
+			cfg, err := config.Load(configDir)
 			if err != nil {
 				return err
 			}
@@ -53,14 +53,14 @@ func newConfigCommand(env EntireEnv) *cobra.Command {
 		Use:   "init",
 		Short: "Write the default plugin configuration",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dataDir, err := requireDataDir(env)
+			configDir, err := requireConfigDir(env)
 			if err != nil {
 				return err
 			}
-			if err := config.Save(dataDir, config.Default()); err != nil {
+			if err := config.Save(configDir, config.Default()); err != nil {
 				return err
 			}
-			path, err := config.Path(dataDir)
+			path, err := config.Path(configDir)
 			if err != nil {
 				return err
 			}
@@ -73,16 +73,20 @@ func newConfigCommand(env EntireEnv) *cobra.Command {
 }
 
 func configPath(env EntireEnv) (string, error) {
-	dataDir, err := requireDataDir(env)
+	configDir, err := requireConfigDir(env)
 	if err != nil {
 		return "", err
 	}
-	return config.Path(dataDir)
+	return config.Path(configDir)
 }
 
-func requireDataDir(env EntireEnv) (string, error) {
-	if env.PluginDataDir == "" {
-		return "", errors.New("ENTIRE_PLUGIN_DATA_DIR is unset; run through `entire brain` or set it for local testing")
+func requireConfigDir(env EntireEnv) (string, error) {
+	dirs, err := resolvePluginDirs(env)
+	if err != nil {
+		return "", err
 	}
-	return env.PluginDataDir, nil
+	if dirs.Config == "" {
+		return "", errors.New("plugin config dir is empty")
+	}
+	return dirs.Config, nil
 }

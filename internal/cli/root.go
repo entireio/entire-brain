@@ -61,14 +61,16 @@ func runStatus(cmd *cobra.Command, opts Options) error {
 	fmt.Fprintf(out, "version: %s\n", opts.Version)
 	fmt.Fprintf(out, "entire cli: %s\n", valueOrUnset(opts.Env.CLIVersion))
 	fmt.Fprintf(out, "repo root: %s\n", valueOrUnset(opts.Env.RepoRoot))
-	fmt.Fprintf(out, "plugin data: %s\n", valueOrUnset(opts.Env.PluginDataDir))
-
-	if opts.Env.PluginDataDir == "" {
-		fmt.Fprintln(out, "greeting: <unavailable until ENTIRE_PLUGIN_DATA_DIR is set>")
-		return nil
+	dirs, err := resolvePluginDirs(opts.Env)
+	if err != nil {
+		return err
 	}
+	fmt.Fprintf(out, "plugin config: %s\n", dirs.Config)
+	fmt.Fprintf(out, "plugin data: %s\n", dirs.Data)
+	fmt.Fprintf(out, "plugin state: %s\n", dirs.State)
+	fmt.Fprintf(out, "plugin cache: %s\n", dirs.Cache)
 
-	cfg, err := config.Load(opts.Env.PluginDataDir)
+	cfg, err := config.Load(dirs.Config)
 	if err != nil {
 		return err
 	}

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
@@ -22,18 +21,40 @@ func runDoctor(cmd *cobra.Command, env EntireEnv) error {
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "ENTIRE_CLI_VERSION=%s\n", valueOrUnset(env.CLIVersion))
 	fmt.Fprintf(out, "ENTIRE_REPO_ROOT=%s\n", valueOrUnset(env.RepoRoot))
+	fmt.Fprintf(out, "ENTIRE_PLUGIN_CONFIG_DIR=%s\n", valueOrUnset(env.PluginConfigDir))
 	fmt.Fprintf(out, "ENTIRE_PLUGIN_DATA_DIR=%s\n", valueOrUnset(env.PluginDataDir))
+	fmt.Fprintf(out, "ENTIRE_PLUGIN_STATE_DIR=%s\n", valueOrUnset(env.PluginStateDir))
+	fmt.Fprintf(out, "ENTIRE_PLUGIN_CACHE_DIR=%s\n", valueOrUnset(env.PluginCacheDir))
 
-	if env.PluginDataDir == "" {
-		return errors.New("ENTIRE_PLUGIN_DATA_DIR is unset; run through `entire brain` or set it for local testing")
-	}
-	if err := os.MkdirAll(env.PluginDataDir, 0o700); err != nil {
-		return fmt.Errorf("create plugin data dir: %w", err)
-	}
-
-	f, err := os.CreateTemp(env.PluginDataDir, ".write-test-*")
+	dirs, err := resolvePluginDirs(env)
 	if err != nil {
-		return fmt.Errorf("write plugin data dir: %w", err)
+		return err
+	}
+	checks := []struct {
+		label string
+		path  string
+	}{
+		{label: "plugin config dir", path: dirs.Config},
+		{label: "plugin data dir", path: dirs.Data},
+		{label: "plugin state dir", path: dirs.State},
+		{label: "plugin cache dir", path: dirs.Cache},
+	}
+	for _, check := range checks {
+		if err := probeWritableDir(check.path); err != nil {
+			return fmt.Errorf("%s: %w", check.label, err)
+		}
+		fmt.Fprintf(out, "%s: writable (%s)\n", check.label, check.path)
+	}
+	return nil
+}
+
+func probeWritableDir(dir string) error {
+	if err := ensureDir(dir); err != nil {
+		return fmt.Errorf("create directory: %w", err)
+	}
+	f, err := os.CreateTemp(dir, ".write-test-*")
+	if err != nil {
+		return fmt.Errorf("write probe: %w", err)
 	}
 	name := f.Name()
 	if err := f.Close(); err != nil {
@@ -42,7 +63,5 @@ func runDoctor(cmd *cobra.Command, env EntireEnv) error {
 	if err := os.Remove(name); err != nil {
 		return fmt.Errorf("remove write probe: %w", err)
 	}
-
-	fmt.Fprintln(out, "plugin data dir: writable")
 	return nil
 }

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -27,14 +28,14 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Load = %+v, want %+v", got, want)
 	}
 }
 
 func TestLoadFillsMissingGreeting(t *testing.T) {
 	dataDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dataDir, "config.json"), []byte("{}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dataDir, "brain.json"), []byte("{}\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 

@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	defaultExportDir        = "entire-brain-export"
+	defaultExportDir        = ""
 	defaultCheckpointLimit  = 10000
 	exportManifestFileName  = "manifest.json"
 	exportReadmeFileName    = "README.md"
@@ -79,7 +79,7 @@ is selected.`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&exportOpts.outputDir, "output", "o", defaultExportDir, "Output directory for the export")
+	cmd.Flags().StringVarP(&exportOpts.outputDir, "output", "o", defaultExportDir, "Output directory for the export (default: plugin data brain directory)")
 	cmd.Flags().IntVar(&exportOpts.checkpointLimit, "checkpoint-limit", defaultCheckpointLimit, "Maximum checkpoints to inspect")
 	cmd.Flags().StringVar(&exportOpts.entireBinary, "entire-binary", "entire", "Entire CLI binary to invoke")
 	cmd.Flags().BoolVar(&exportOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts")
@@ -92,7 +92,8 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	if exportOpts.checkpointLimit <= 0 {
 		return errors.New("--checkpoint-limit must be greater than zero")
 	}
-	if strings.TrimSpace(exportOpts.outputDir) == "" {
+	outputExplicit := cmd.Flags().Changed("output")
+	if outputExplicit && strings.TrimSpace(exportOpts.outputDir) == "" {
 		return errors.New("--output must not be empty")
 	}
 	if strings.TrimSpace(exportOpts.entireBinary) == "" {
@@ -106,8 +107,10 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	if err != nil {
 		return err
 	}
-	if _, err := validateExportDirAvailable(exportOpts.outputDir); err != nil {
-		return err
+	if outputExplicit {
+		if _, err := validateExportDirAvailable(exportOpts.outputDir); err != nil {
+			return err
+		}
 	}
 
 	var warnings []string
@@ -214,7 +217,21 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	sessions := flattenSessions(selected)
 	applySessionAuthors(sessions, authorIndex)
 	branchDirs := buildBranchDirectories(sessions, defaultBranch)
-	outputDir, err := prepareExportDir(exportOpts.outputDir)
+	outputDir := exportOpts.outputDir
+	persistentBrain := !outputExplicit
+	var cursor *exportCursor
+	var cursorFile string
+	if persistentBrain {
+		storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+		if err != nil {
+			return err
+		}
+		outputDir = storage.BrainDir
+		cursorFile = storage.HeadPath
+		cursor = loadExportCursor(cursorFile)
+	}
+
+	outputDir, err = prepareExportDir(outputDir, persistentBrain)
 	if err != nil {
 		return err
 	}
@@ -224,12 +241,12 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 
 	var transcriptWarnings []string
 	if snapshot != nil {
-		sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs)
+		sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
 		if err != nil {
 			return err
 		}
 	} else {
-		transcriptWarnings, err = writeSessionTranscripts(ctx, opts.Runner, repoDir, outputDir, exportOpts.entireBinary, exportOpts.rawTranscript, sessions, branchDirs)
+		transcriptWarnings, err = writeSessionTranscripts(ctx, opts.Runner, repoDir, outputDir, exportOpts.entireBinary, exportOpts.rawTranscript, sessions, branchDirs, cursor)
 		if err != nil {
 			return err
 		}
@@ -237,12 +254,22 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	manifest.Warnings = append(manifest.Warnings, transcriptWarnings...)
 	manifest.Sessions = sessions
 	manifest.Branches = summarizeBranchExports(sessions, branchDirs, defaultBranch)
+	if persistentBrain {
+		if err := cleanupStaleSessionFiles(outputDir, sessions); err != nil {
+			return err
+		}
+	}
 
 	if err := writeJSONFile(filepath.Join(outputDir, exportManifestFileName), manifest); err != nil {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(outputDir, exportReadmeFileName), []byte(renderExportReadme(manifest)), 0o600); err != nil {
 		return fmt.Errorf("write export readme: %w", err)
+	}
+	if persistentBrain {
+		if err := writeExportCursor(cursorFile, manifest); err != nil {
+			return err
+		}
 	}
 
 	out := cmd.OutOrStdout()
@@ -265,10 +292,26 @@ func exportRepoDir(env EntireEnv) (string, error) {
 	return wd, nil
 }
 
-func prepareExportDir(path string) (string, error) {
-	abs, err := validateExportDirAvailable(path)
-	if err != nil {
-		return "", err
+func prepareExportDir(path string, allowExisting bool) (string, error) {
+	var abs string
+	var err error
+	if allowExisting {
+		abs, err = filepath.Abs(path)
+		if err != nil {
+			return "", fmt.Errorf("resolve output directory: %w", err)
+		}
+		info, statErr := os.Stat(abs)
+		if statErr == nil && !info.IsDir() {
+			return "", fmt.Errorf("output path exists and is not a directory: %s", abs)
+		}
+		if statErr != nil && !os.IsNotExist(statErr) {
+			return "", fmt.Errorf("stat output directory: %w", statErr)
+		}
+	} else {
+		abs, err = validateExportDirAvailable(path)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	if err := os.MkdirAll(abs, 0o700); err != nil {
@@ -1269,7 +1312,7 @@ func (i checkpointAuthorIndex) AuthorsFor(checkpointID string) []exportAuthor {
 	return append([]exportAuthor(nil), authors...)
 }
 
-func writeSessionTranscripts(ctx context.Context, runner CommandRunner, repoDir, outputDir, entireBinary string, raw bool, sessions []exportSession, branchDirs map[string]string) ([]string, error) {
+func writeSessionTranscripts(ctx context.Context, runner CommandRunner, repoDir, outputDir, entireBinary string, raw bool, sessions []exportSession, branchDirs map[string]string, cursor *exportCursor) ([]string, error) {
 	transcriptFlag := "--transcript"
 	extension := ".jsonl"
 	if raw {
@@ -1279,6 +1322,13 @@ func writeSessionTranscripts(ctx context.Context, runner CommandRunner, repoDir,
 	var warnings []string
 	for i := range sessions {
 		session := &sessions[i]
+		name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, extension)
+		relPath := filepath.Join(branchDirs[session.Branch], name)
+		if reuseTranscriptFromCursor(outputDir, cursor, *session, relPath, transcriptMode(raw)) {
+			session.TranscriptPath = filepath.ToSlash(relPath)
+			continue
+		}
+
 		stdout, stderr, err := runner.Run(ctx, repoDir, entireBinary, "checkpoint", "explain", transcriptFlag, "--session-index", strconv.Itoa(session.SessionIndex), session.LatestCheckpoint)
 		if err != nil {
 			return nil, fmt.Errorf("export transcript for session %s from checkpoint %s: %w", session.SessionID, session.LatestCheckpoint, err)
@@ -1287,8 +1337,6 @@ func writeSessionTranscripts(ctx context.Context, runner CommandRunner, repoDir,
 			warnings = append(warnings, warning)
 		}
 
-		name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, extension)
-		relPath := filepath.Join(branchDirs[session.Branch], name)
 		if err := writeTranscriptFile(outputDir, relPath, stdout); err != nil {
 			return nil, fmt.Errorf("write transcript for session %s: %w", session.SessionID, err)
 		}
@@ -1297,10 +1345,17 @@ func writeSessionTranscripts(ctx context.Context, runner CommandRunner, repoDir,
 	return warnings, nil
 }
 
-func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, outputDir string, sessions []exportSession, branchDirs map[string]string) ([]exportSession, []string, error) {
+func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, outputDir string, sessions []exportSession, branchDirs map[string]string, cursor *exportCursor) ([]exportSession, []string, error) {
 	var warnings []string
 	for i := range sessions {
 		session := &sessions[i]
+		name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, ".jsonl")
+		relPath := filepath.Join(branchDirs[session.Branch], name)
+		if reuseTranscriptFromCursor(outputDir, cursor, *session, relPath, snapshot.TranscriptMode) {
+			session.TranscriptPath = filepath.ToSlash(relPath)
+			continue
+		}
+
 		sourcePath := session.SourceTranscriptPath
 		if sourcePath == "" {
 			sourcePath = snapshotTranscriptPath(session.LatestCheckpoint, session.SessionIndex, snapshot.TranscriptFileName)
@@ -1311,14 +1366,27 @@ func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, 
 			return nil, warnings, fmt.Errorf("export transcript for session %s from checkpoint %s: %w", session.SessionID, session.LatestCheckpoint, err)
 		}
 
-		name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, ".jsonl")
-		relPath := filepath.Join(branchDirs[session.Branch], name)
 		if err := writeTranscriptFile(outputDir, relPath, transcript); err != nil {
 			return nil, warnings, fmt.Errorf("write transcript for session %s: %w", session.SessionID, err)
 		}
 		session.TranscriptPath = filepath.ToSlash(relPath)
 	}
 	return sessions, warnings, nil
+}
+
+func reuseTranscriptFromCursor(outputDir string, cursor *exportCursor, session exportSession, relPath, transcriptMode string) bool {
+	if cursor == nil {
+		return false
+	}
+	entry := cursor.Sessions[selectedSessionKey(session.Branch, session.SessionID)]
+	if entry.LatestCheckpoint != session.LatestCheckpoint || entry.TranscriptPath != filepath.ToSlash(relPath) {
+		return false
+	}
+	if entry.TranscriptMode != transcriptMode {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(outputDir, relPath))
+	return err == nil && !info.IsDir()
 }
 
 func writeTranscriptFile(outputDir, relPath string, data []byte) error {
@@ -1413,6 +1481,88 @@ func writeJSONFile(path string, value any) error {
 		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
 	}
 	return nil
+}
+
+func loadExportCursor(path string) *exportCursor {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var cursor exportCursor
+	if err := json.Unmarshal(data, &cursor); err != nil {
+		return nil
+	}
+	if cursor.Sessions == nil {
+		cursor.Sessions = make(map[string]exportCursorSession)
+	}
+	return &cursor
+}
+
+func writeExportCursor(path string, manifest exportManifest) error {
+	cursor := exportCursor{
+		SchemaVersion: 1,
+		UpdatedAt:     manifest.GeneratedAt,
+		RepoRoot:      manifest.RepoRoot,
+		Sessions:      make(map[string]exportCursorSession, len(manifest.Sessions)),
+	}
+	for _, session := range manifest.Sessions {
+		cursor.Sessions[selectedSessionKey(session.Branch, session.SessionID)] = exportCursorSession{
+			Branch:           session.Branch,
+			SessionID:        session.SessionID,
+			LatestCheckpoint: session.LatestCheckpoint,
+			TranscriptMode:   manifest.TranscriptMode,
+			TranscriptPath:   session.TranscriptPath,
+			CreatedAt:        session.CreatedAt,
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create cursor directory: %w", err)
+	}
+	if err := writeJSONFile(path, cursor); err != nil {
+		return fmt.Errorf("write export cursor: %w", err)
+	}
+	return nil
+}
+
+func cleanupStaleSessionFiles(outputDir string, sessions []exportSession) error {
+	active := make(map[string]struct{}, len(sessions))
+	for _, session := range sessions {
+		if session.TranscriptPath != "" {
+			active[filepath.FromSlash(session.TranscriptPath)] = struct{}{}
+		}
+	}
+	sessionsRoot := filepath.Join(outputDir, exportSessionsDirectory)
+	if _, err := os.Stat(sessionsRoot); os.IsNotExist(err) {
+		return nil
+	}
+	return filepath.WalkDir(sessionsRoot, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !isTranscriptFile(path) {
+			return nil
+		}
+		rel, err := filepath.Rel(outputDir, path)
+		if err != nil {
+			return err
+		}
+		if _, ok := active[rel]; ok {
+			return nil
+		}
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("remove stale transcript %s: %w", rel, err)
+		}
+		return nil
+	})
+}
+
+func isTranscriptFile(path string) bool {
+	switch filepath.Ext(path) {
+	case ".json", ".jsonl":
+		return true
+	default:
+		return false
+	}
 }
 
 func sessionFileName(createdAt time.Time, agent, sessionID, checkpointID, extension string) string {
@@ -1868,4 +2018,20 @@ type exportAuthor struct {
 	Email        string     `json:"email,omitempty"`
 	Commits      int        `json:"commits,omitempty"`
 	LastCommitAt *time.Time `json:"last_commit_at,omitempty"`
+}
+
+type exportCursor struct {
+	SchemaVersion int                            `json:"schema_version"`
+	UpdatedAt     time.Time                      `json:"updated_at"`
+	RepoRoot      string                         `json:"repo_root,omitempty"`
+	Sessions      map[string]exportCursorSession `json:"sessions"`
+}
+
+type exportCursorSession struct {
+	Branch           string    `json:"branch,omitempty"`
+	SessionID        string    `json:"session_id"`
+	LatestCheckpoint string    `json:"latest_checkpoint_id"`
+	TranscriptMode   string    `json:"transcript_mode"`
+	TranscriptPath   string    `json:"transcript_path"`
+	CreatedAt        time.Time `json:"created_at"`
 }

@@ -1,11 +1,20 @@
 package cli
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/ashtom/entire-brain/internal/config"
+)
 
 func TestEnvFromOS(t *testing.T) {
 	t.Setenv(envCLIVersion, "cli-test")
 	t.Setenv(envRepoRoot, "/tmp/repo")
+	t.Setenv(envPluginConfigDir, "/tmp/config")
 	t.Setenv(envPluginDataDir, "/tmp/data")
+	t.Setenv(envPluginStateDir, "/tmp/state")
+	t.Setenv(envPluginCacheDir, "/tmp/cache")
 
 	env := EnvFromOS()
 	if env.CLIVersion != "cli-test" {
@@ -14,7 +23,92 @@ func TestEnvFromOS(t *testing.T) {
 	if env.RepoRoot != "/tmp/repo" {
 		t.Fatalf("RepoRoot = %q", env.RepoRoot)
 	}
+	if env.PluginConfigDir != "/tmp/config" {
+		t.Fatalf("PluginConfigDir = %q", env.PluginConfigDir)
+	}
 	if env.PluginDataDir != "/tmp/data" {
 		t.Fatalf("PluginDataDir = %q", env.PluginDataDir)
+	}
+	if env.PluginStateDir != "/tmp/state" {
+		t.Fatalf("PluginStateDir = %q", env.PluginStateDir)
+	}
+	if env.PluginCacheDir != "/tmp/cache" {
+		t.Fatalf("PluginCacheDir = %q", env.PluginCacheDir)
+	}
+}
+
+func TestResolvePluginDirsUsesXDGDefaultsUnderEntireRoot(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv(xdgConfigHome, xdg+"/config")
+	t.Setenv(xdgDataHome, xdg+"/data")
+	t.Setenv(xdgStateHome, xdg+"/state")
+	t.Setenv(xdgCacheHome, xdg+"/cache")
+
+	dirs, err := resolvePluginDirs(EntireEnv{})
+	if err != nil {
+		t.Fatalf("resolve plugin dirs: %v", err)
+	}
+	if dirs.Config != xdg+"/config/entire" {
+		t.Fatalf("Config = %q", dirs.Config)
+	}
+	if dirs.Data != xdg+"/data/entire" {
+		t.Fatalf("Data = %q", dirs.Data)
+	}
+	if dirs.State != xdg+"/state/entire" {
+		t.Fatalf("State = %q", dirs.State)
+	}
+	if dirs.Cache != xdg+"/cache/entire" {
+		t.Fatalf("Cache = %q", dirs.Cache)
+	}
+}
+
+func TestRepoStoragePathsUseKnownOriginDomain(t *testing.T) {
+	env := EntireEnv{
+		PluginConfigDir: "/tmp/entire-config",
+		PluginDataDir:   "/tmp/entire-data",
+		PluginStateDir:  "/tmp/entire-state",
+	}
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "remote", "get-url", "origin"): {
+			stdout: "git@github.com:entireio/cli.git\n",
+		},
+	}}
+
+	storage, err := repoStoragePaths(context.Background(), runner, env, "/repo/cli")
+	if err != nil {
+		t.Fatalf("repo storage paths: %v", err)
+	}
+	if storage.Key != "gh/entireio/cli" {
+		t.Fatalf("key = %q", storage.Key)
+	}
+	if storage.BrainDir != "/tmp/entire-data/brain/gh/entireio/cli" {
+		t.Fatalf("brain dir = %q", storage.BrainDir)
+	}
+	if storage.HeadPath != "/tmp/entire-state/brain/gh/entireio/cli/head.json" {
+		t.Fatalf("head path = %q", storage.HeadPath)
+	}
+}
+
+func TestRepoStorageKeyStoresUnknownDomainSlug(t *testing.T) {
+	configDir := t.TempDir()
+
+	key, ok, err := repoKeyFromRemote(configDir, "ssh://git@git.example.test/acme/service.git")
+	if err != nil {
+		t.Fatalf("repo key from remote: %v", err)
+	}
+	if !ok {
+		t.Fatal("repo key from remote returned ok=false")
+	}
+	parts := strings.Split(key, "/")
+	if len(parts) != 3 || len(parts[0]) != 3 || parts[1] != "acme" || parts[2] != "service" {
+		t.Fatalf("key = %q", key)
+	}
+
+	cfg, err := config.Load(configDir)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.DomainSlugs["git.example.test"] != parts[0] {
+		t.Fatalf("stored domain slug = %q, want %q", cfg.DomainSlugs["git.example.test"], parts[0])
 	}
 }

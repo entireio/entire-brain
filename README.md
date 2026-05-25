@@ -42,11 +42,16 @@ go run ./cmd/entire-brain
 
 ### Subcommands
 
-Some commands, such as `doctor` and `config`, expect to run through the Entire
-CLI so `ENTIRE_PLUGIN_DATA_DIR` is present. For standalone testing, set it:
+Some commands, such as `doctor` and `config`, use plugin directories supplied
+by the Entire CLI. For standalone testing, either set those variables yourself
+or let the plugin fall back to XDG locations:
 
 ```sh
-ENTIRE_PLUGIN_DATA_DIR="$(mktemp -d)" go run ./cmd/entire-brain doctor
+ENTIRE_PLUGIN_CONFIG_DIR="$(mktemp -d)" \
+ENTIRE_PLUGIN_DATA_DIR="$(mktemp -d)" \
+ENTIRE_PLUGIN_STATE_DIR="$(mktemp -d)" \
+ENTIRE_PLUGIN_CACHE_DIR="$(mktemp -d)" \
+  go run ./cmd/entire-brain doctor
 ```
 
 ### Export Session History
@@ -56,8 +61,14 @@ branch, using default-branch commit reachability so merged work is grouped with
 the default branch:
 
 ```sh
-entire brain export --output ./entire-brain-export
+entire brain export
 ```
+
+Without `--output`, the export is maintained as the repository's persistent
+agent brain under the plugin data directory. The cursor that tracks already
+exported sessions is stored separately under the plugin state directory, so
+subsequent exports can reuse unchanged transcript files. Pass `--output` for a
+one-off export; explicit output directories must be empty.
 
 The export contains:
 
@@ -98,7 +109,25 @@ The parent CLI supplies these variables when it dispatches a plugin:
 |---|---|
 | `ENTIRE_CLI_VERSION` | Parent CLI version, such as `0.42.0` or `dev`. |
 | `ENTIRE_REPO_ROOT` | Absolute git worktree root when invoked inside one. |
-| `ENTIRE_PLUGIN_DATA_DIR` | Per-plugin durable storage directory. The plugin should create it before writing. |
+| `ENTIRE_PLUGIN_CONFIG_DIR` | Per-plugin configuration directory. Defaults to `${XDG_CONFIG_HOME:-~/.config}/entire`. |
+| `ENTIRE_PLUGIN_DATA_DIR` | Per-plugin durable data directory. Defaults to `${XDG_DATA_HOME:-~/.local/share}/entire`. |
+| `ENTIRE_PLUGIN_STATE_DIR` | Per-plugin state directory for cursors and other regenerable state. Defaults to `${XDG_STATE_HOME:-~/.local/state}/entire`. |
+| `ENTIRE_PLUGIN_CACHE_DIR` | Per-plugin cache directory. Defaults to `${XDG_CACHE_HOME:-~/.cache}/entire`. |
+
+The default export layout uses the root folder name `entire`:
+
+| Path | Purpose |
+|---|---|
+| `${config}/brain.json` | Plugin configuration, including generated 3-letter slugs for unknown repo domains. |
+| `${data}/brain/<repo-key>/` | Persistent brain export for the current repository. |
+| `${state}/brain/<repo-key>/head.json` | Cursor used to avoid re-pulling unchanged session transcripts. |
+
+Repo keys are derived from the repository origin. Known hosts use compact
+provider prefixes, for example `github.com/entireio/cli` becomes
+`gh/entireio/cli`. Built-in prefixes are `gh` for GitHub, `gl` for GitLab,
+`bb` for Bitbucket, `et` for Entire, `tg` for Tangled, and `cs` for
+Code Storage. Other domains receive a generated 3-letter prefix stored in
+`brain.json` to keep future exports stable and avoid collisions.
 
 The plugin runs in the caller's current working directory. The parent CLI
 filters the environment before launching third-party plugins; users can opt

@@ -9,22 +9,23 @@ import (
 )
 
 type Config struct {
-	Greeting string `json:"greeting"`
+	Greeting    string            `json:"greeting"`
+	DomainSlugs map[string]string `json:"domain_slugs,omitempty"`
 }
 
 func Default() Config {
 	return Config{Greeting: "Hello from Entire Brain"}
 }
 
-func Path(dataDir string) (string, error) {
-	if dataDir == "" {
-		return "", errors.New("plugin data dir is empty")
+func Path(configDir string) (string, error) {
+	if configDir == "" {
+		return "", errors.New("plugin config dir is empty")
 	}
-	return filepath.Join(dataDir, "config.json"), nil
+	return filepath.Join(configDir, "brain.json"), nil
 }
 
-func Load(dataDir string) (Config, error) {
-	path, err := Path(dataDir)
+func Load(configDir string) (Config, error) {
+	path, err := Path(configDir)
 	if err != nil {
 		return Config{}, err
 	}
@@ -47,8 +48,8 @@ func Load(dataDir string) (Config, error) {
 	return cfg, nil
 }
 
-func Save(dataDir string, cfg Config) error {
-	path, err := Path(dataDir)
+func Save(configDir string, cfg Config) error {
+	path, err := Path(configDir)
 	if err != nil {
 		return err
 	}

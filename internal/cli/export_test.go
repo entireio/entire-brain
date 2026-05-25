@@ -674,3 +674,135 @@ func TestExportRejectsNonEmptyOutputDirectory(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestExportDefaultUsesBrainAndCursor(t *testing.T) {
+	repoDir := t.TempDir()
+	dataDir := filepath.Join(t.TempDir(), "data")
+	stateDir := filepath.Join(t.TempDir(), "state")
+
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "remote", "get-url", "origin"): {
+			stdout: "https://github.com/entireio/cli.git\n",
+		},
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--limit", "10000"): {
+			stdout: `[{"checkpoint_id":"aaa111aaa111","date":"2026-01-01T00:00:00Z","is_logs_only":true}]`,
+		},
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "aaa111aaa111"): {
+			stdout: `{
+  "checkpoint_id": "aaa111aaa111",
+  "checkpoints_count": 1,
+  "session_count": 1,
+  "sessions": [
+    {
+      "index": 0,
+      "session_id": "session-one",
+      "agent": "Codex",
+      "created_at": "2026-01-01T00:00:00Z"
+    }
+  ]
+}`,
+		},
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--transcript", "--session-index", "0", "aaa111aaa111"): {
+			stdout: "{\"type\":\"message\",\"text\":\"session one\"}\n",
+		},
+	}}
+
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			RepoRoot:       repoDir,
+			PluginDataDir:  dataDir,
+			PluginStateDir: stateDir,
+		},
+		Runner: runner,
+		Now: func() time.Time {
+			return time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+		},
+	})
+
+	out, err := execute(t, cmd, "export", "--entire-binary", "entire-test")
+	if err != nil {
+		t.Fatalf("export: %v\n%s", err, out)
+	}
+
+	brain, err := brainDirForKey(EntireEnv{PluginDataDir: dataDir}, "gh/entireio/cli")
+	if err != nil {
+		t.Fatalf("brain dir: %v", err)
+	}
+	cursor, err := headPathForKey(EntireEnv{PluginStateDir: stateDir}, "gh/entireio/cli")
+	if err != nil {
+		t.Fatalf("head path: %v", err)
+	}
+	if !strings.Contains(out, "output: "+brain) {
+		t.Fatalf("export did not use brain dir:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(brain, exportManifestFileName)); err != nil {
+		t.Fatalf("manifest not written to brain: %v", err)
+	}
+	if _, err := os.Stat(cursor); err != nil {
+		t.Fatalf("head not written to state dir: %v", err)
+	}
+	for _, stale := range []string{
+		filepath.Join(brain, exportSessionsDirectory, "main", "stale.json"),
+		filepath.Join(brain, exportSessionsDirectory, "main", "stale.jsonl"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(stale), 0o700); err != nil {
+			t.Fatalf("create stale dir: %v", err)
+		}
+		if err := os.WriteFile(stale, []byte("stale"), 0o600); err != nil {
+			t.Fatalf("write stale transcript: %v", err)
+		}
+	}
+
+	secondRunner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "remote", "get-url", "origin"): {
+			stdout: "https://github.com/entireio/cli.git\n",
+		},
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--limit", "10000"): {
+			stdout: `[{"checkpoint_id":"aaa111aaa111","date":"2026-01-01T00:00:00Z","is_logs_only":true}]`,
+		},
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "aaa111aaa111"): {
+			stdout: `{
+  "checkpoint_id": "aaa111aaa111",
+  "checkpoints_count": 1,
+  "session_count": 1,
+  "sessions": [
+    {
+      "index": 0,
+      "session_id": "session-one",
+      "agent": "Codex",
+      "created_at": "2026-01-01T00:00:00Z"
+    }
+  ]
+}`,
+		},
+	}}
+	cmd = NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			RepoRoot:       repoDir,
+			PluginDataDir:  dataDir,
+			PluginStateDir: stateDir,
+		},
+		Runner: secondRunner,
+		Now: func() time.Time {
+			return time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)
+		},
+	})
+	if _, err := execute(t, cmd, "export", "--entire-binary", "entire-test"); err != nil {
+		t.Fatalf("second export should reuse cursor transcript: %v", err)
+	}
+	for _, call := range secondRunner.calls {
+		if len(call.args) > 2 && call.args[0] == "checkpoint" && call.args[1] == "explain" && call.args[2] == "--transcript" {
+			t.Fatalf("second export pulled unchanged transcript despite cursor: %+v", secondRunner.calls)
+		}
+	}
+	for _, stale := range []string{
+		filepath.Join(brain, exportSessionsDirectory, "main", "stale.json"),
+		filepath.Join(brain, exportSessionsDirectory, "main", "stale.jsonl"),
+	} {
+		if _, err := os.Stat(stale); !os.IsNotExist(err) {
+			t.Fatalf("stale transcript still exists after persistent export: %s", stale)
+		}
+	}
+}
