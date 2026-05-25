@@ -1,1 +1,1 @@
-Change config.json to brain.json. Change cursor.json to head.json. And make repo key dependent on the origin, so github.com/entireio/cli becomes the key /gh/entireio/cli - respectively, use gl for gitlab.com, bb for bitbucket.org, et for entire.io, tg for tangled.org, and cs for code.storage. Avoid collisions by generating a 3-letter slug and storing it in brain.json for any other repo domain. When done, show me the results again for the cli and for the podcasts repo.
+commit/push
