@@ -1,0 +1,52 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": null,
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".codex/hooks/post-tool-use.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": null,
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".codex/hooks/session-start.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": null,
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".codex/hooks/stop.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": null,
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".codex/hooks/user-prompt-submit.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

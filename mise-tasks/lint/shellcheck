@@ -1,0 +1,4 @@
+#!/bin/sh
+#MISE description="Lint shell scripts with shellcheck"
+
+find mise-tasks .codex/hooks -type f -exec sh -c 'head -1 "$1" | grep -Eq "^#!/bin/(sh|bash)"' _ {} \; -print0 | xargs -0 shellcheck

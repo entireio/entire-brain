@@ -1,0 +1,14 @@
+{
+  "name": "entire-plugin-template",
+  "build": { "dockerfile": "Dockerfile" },
+  "remoteUser": "vscode",
+  "mounts": [
+    "source=entire-plugin-template-gocache,target=/home/vscode/go,type=volume"
+  ],
+  "postCreateCommand": "go mod download && go build ./...",
+  "customizations": {
+    "vscode": {
+      "extensions": ["golang.go"]
+    }
+  }
+}
