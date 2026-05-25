@@ -1,0 +1,37 @@
+commit/push
+
+---
+
+Run the entire-brain command on the cli repo, then pretend you want to learn all about it by reading the session logs.
+
+---
+
+Run the entire-brain command on the cli repo, then pretend you want to learn all about it by reading the session logs.
+
+---
+
+Two questions: 1. Did you organize the session logs by branch?
+
+---
+
+Hm, ideal would be to have all session logs for the default branch (i.e. main) in one folder, then for all branches just the session logs specific to this branch. Can you modify the entire-brain command to achieve this?
+
+---
+
+Hm, ideal would be to have all session logs for the default branch (i.e. main) in one folder, then for all branches just the session logs specific to this branch. Can you modify the entire-brain command to achieve this?
+
+---
+
+Just checking, what happens when a branch has been merged to main, where does the session log land?
+
+---
+
+Just checking, what happens when a branch has been merged to main, where does the session log land?
+
+---
+
+Not ideal indeed. The goal is that the agent reading the export can understand what is on the branch and work with that.
+
+---
+
+Also, have the export keep author information, so the agent can know who built what feature.
