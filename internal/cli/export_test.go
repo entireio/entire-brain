@@ -366,6 +366,73 @@ func TestExportUsesLocalV1WithoutSettings(t *testing.T) {
 	}
 }
 
+func TestExportUsesOriginTrackingV1RefWithoutSettings(t *testing.T) {
+	repoDir := t.TempDir()
+	outputDir := filepath.Join(t.TempDir(), "export")
+	checkpointID := "ddd444ddd444"
+	checkpointDir := "dd/d444ddd444"
+	sessionMetadataPath := checkpointDir + "/0/metadata.json"
+	transcriptPath := checkpointDir + "/0/full.jsonl"
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef): {
+			err: errors.New("local v1 branch missing"),
+		},
+		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef): {
+			stdout: checkpointDir + "/metadata.json\n" + sessionMetadataPath + "\n" + transcriptPath + "\n",
+		},
+		fakeCommandKey("git", "cat-file", "-p", v1OriginRef+":"+checkpointDir+"/metadata.json"): {
+			stdout: `{"sessions":[{"metadata":"/dd/d444ddd444/0/metadata.json","transcript":"/dd/d444ddd444/0/full.jsonl"}]}`,
+		},
+		fakeCommandKey("git", "cat-file", "-p", v1OriginRef+":"+sessionMetadataPath): {
+			stdout: `{
+  "checkpoint_id": "ddd444ddd444",
+  "session_id": "origin-session",
+  "agent": "Codex",
+  "created_at": "2026-02-06T00:00:00Z"
+}`,
+		},
+		fakeCommandKey("git", "cat-file", "-p", v1OriginRef+":"+transcriptPath): {
+			stdout: "{\"type\":\"message\",\"text\":\"origin v1\"}\n",
+		},
+	}}
+
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			RepoRoot: repoDir,
+		},
+		Runner: runner,
+		Now: func() time.Time {
+			return time.Date(2026, 2, 6, 1, 0, 0, 0, time.UTC)
+		},
+	})
+
+	out, err := execute(t, cmd, "export", "--output", outputDir, "--entire-binary", "entire-test")
+	if err != nil {
+		t.Fatalf("export: %v\n%s", err, out)
+	}
+
+	var manifest exportManifest
+	data, err := os.ReadFile(filepath.Join(outputDir, exportManifestFileName))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse manifest: %v", err)
+	}
+	if len(manifest.Sessions) != 1 || manifest.Sessions[0].LatestCheckpoint != checkpointID {
+		t.Fatalf("unexpected sessions: %+v", manifest.Sessions)
+	}
+	if !strings.Contains(strings.Join(manifest.Warnings, "\n"), "local checkpoint ref "+v1OriginRef) {
+		t.Fatalf("warnings do not mention origin tracking ref: %+v", manifest.Warnings)
+	}
+	for _, call := range runner.calls {
+		if call.name == "entire-test" {
+			t.Fatalf("origin-tracking v1 export should not shell out to Entire, calls: %+v", runner.calls)
+		}
+	}
+}
+
 func TestSnapshotMetadataSkipsNewerSessionWithoutTranscript(t *testing.T) {
 	treePaths := map[string]struct{}{
 		"aa/a111aaa111/metadata.json":   {},

@@ -28,9 +28,11 @@ const (
 	exportScopeAll    = "all"
 	exportScopeBranch = "branch"
 
-	v2MainRef   = "refs/entire/checkpoints/v2/main"
-	v1MainRef   = "refs/heads/entire/checkpoints/v1"
-	v1RemoteRef = "refs/heads/entire/checkpoints/v1"
+	v2MainRef        = "refs/entire/checkpoints/v2/main"
+	v1MainRef        = "refs/heads/entire/checkpoints/v1"
+	v1OriginRef      = "refs/remotes/origin/entire/checkpoints/v1"
+	v1RemoteFetchRef = "refs/heads/entire/checkpoints/v1"
+	v1RemoteRef      = v1RemoteFetchRef
 
 	checkpointRemoteProviderGitHub = "github"
 	checkpointRemoteBlobFilter     = "blob:limit=128k"
@@ -599,7 +601,7 @@ func listBranchCheckpoints(ctx context.Context, runner CommandRunner, repoDir, e
 func listAllCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir string, limit int) ([]checkpointListEntry, []string, error) {
 	settings, settingsErr := readEntireSettings(repoDir)
 	includeV2 := settingsErr == nil && settings.CheckpointsV2Enabled()
-	ids, warnings := listLocalCheckpointRefIDs(ctx, runner, repoDir, checkpointRefs(includeV2))
+	ids, warnings := listLocalCheckpointRefIDs(ctx, runner, repoDir, localCheckpointRefs(includeV2))
 	if len(ids) == 0 {
 		localWarnings := warnings
 		remoteURL, remoteErr := settings.CheckpointRemoteFetchURL()
@@ -608,7 +610,7 @@ func listAllCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir st
 		}
 		if remoteErr == nil {
 			var remoteWarnings []string
-			ids, remoteWarnings = listRemoteCheckpointRefIDs(ctx, runner, remoteURL, checkpointRefs(includeV2))
+			ids, remoteWarnings = listRemoteCheckpointRefIDs(ctx, runner, remoteURL, remoteCheckpointRefs(includeV2))
 			if len(ids) > 0 {
 				warnings = remoteWarnings
 				warnings = append(warnings, "discovered checkpoint refs from configured checkpoint remote")
@@ -623,11 +625,18 @@ func listAllCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir st
 	return checkpointEntriesFromIDs(ids, limit), warningsFromLimit(ids, limit, warnings), nil
 }
 
-func checkpointRefs(includeV2 bool) []string {
+func localCheckpointRefs(includeV2 bool) []string {
 	if includeV2 {
-		return []string{v2MainRef, v1RemoteRef}
+		return []string{v2MainRef, v1MainRef, v1OriginRef}
 	}
-	return []string{v1RemoteRef}
+	return []string{v1MainRef, v1OriginRef}
+}
+
+func remoteCheckpointRefs(includeV2 bool) []string {
+	if includeV2 {
+		return []string{v2MainRef, v1RemoteFetchRef}
+	}
+	return []string{v1RemoteFetchRef}
 }
 
 func listLocalCheckpointRefIDs(ctx context.Context, runner CommandRunner, repoDir string, refs []string) (map[string]struct{}, []string) {
@@ -788,12 +797,12 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 	}
 
 	version := checkpointStorageV1
-	ref := v1RemoteRef
+	refs := []string{v1MainRef, v1OriginRef}
 	transcriptFileName := v1TranscriptFileName
 	mode := "raw"
 	if settings.CheckpointsV2Enabled() {
 		version = checkpointStorageV2
-		ref = v2MainRef
+		refs = []string{v2MainRef}
 		transcriptFileName = v2TranscriptFileName
 		mode = "compact"
 		if raw {
@@ -801,7 +810,7 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 		}
 	}
 
-	snapshot, warnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, repoDir, ref, version, transcriptFileName, mode, limit, branchDestinations)
+	snapshot, ref, warnings, err := loadCheckpointSnapshotFromGitDirRefs(ctx, runner, repoDir, refs, version, transcriptFileName, mode, limit, branchDestinations)
 	if err == nil {
 		warnings = append(warnings, fmt.Sprintf("exporting %s transcripts directly from local checkpoint ref %s", mode, ref))
 		if version == checkpointStorageV1 && !raw {
@@ -812,16 +821,17 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 
 	remoteURL, remoteErr := settings.CheckpointRemoteFetchURL()
 	if remoteErr != nil {
-		return nil, warnings, fmt.Errorf("%w: local checkpoint ref %s unavailable and checkpoint remote unavailable: %v", errCheckpointSnapshotUnavailable, ref, remoteErr)
+		return nil, warnings, fmt.Errorf("%w: local checkpoint refs unavailable and checkpoint remote unavailable: %v", errCheckpointSnapshotUnavailable, remoteErr)
 	}
 
-	remoteSnapshot, remoteWarnings, remoteErr := loadCheckpointSnapshotFromRemoteRef(ctx, runner, remoteURL, ref, version, transcriptFileName, mode, limit, branchDestinations)
+	remoteRef := remoteCheckpointRefs(version == checkpointStorageV2)[0]
+	remoteSnapshot, remoteWarnings, remoteErr := loadCheckpointSnapshotFromRemoteRef(ctx, runner, remoteURL, remoteRef, version, transcriptFileName, mode, limit, branchDestinations)
 	if remoteErr != nil {
 		warnings = append(warnings, remoteWarnings...)
 		return nil, warnings, remoteErr
 	}
 	warnings = remoteWarnings
-	warnings = append(warnings, fmt.Sprintf("exporting %s transcripts directly from configured checkpoint remote ref %s", mode, ref))
+	warnings = append(warnings, fmt.Sprintf("exporting %s transcripts directly from configured checkpoint remote ref %s", mode, remoteRef))
 	if version == checkpointStorageV1 && !raw {
 		warnings = append(warnings, "compact transcript unavailable for v1 checkpoints; exported raw full.jsonl logs")
 	}
@@ -829,15 +839,28 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 }
 
 func loadDefaultLocalV1CheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int, branchDestinations checkpointBranchDestinations) (*checkpointSnapshot, []string, error) {
-	snapshot, warnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, repoDir, v1RemoteRef, checkpointStorageV1, v1TranscriptFileName, "raw", limit, branchDestinations)
+	snapshot, ref, warnings, err := loadCheckpointSnapshotFromGitDirRefs(ctx, runner, repoDir, []string{v1MainRef, v1OriginRef}, checkpointStorageV1, v1TranscriptFileName, "raw", limit, branchDestinations)
 	if err != nil {
 		return nil, warnings, err
 	}
-	warnings = append(warnings, fmt.Sprintf("exporting raw transcripts directly from local checkpoint ref %s", v1RemoteRef))
+	warnings = append(warnings, fmt.Sprintf("exporting raw transcripts directly from local checkpoint ref %s", ref))
 	if !raw {
 		warnings = append(warnings, "compact transcript unavailable for v1 checkpoints; exported raw full.jsonl logs")
 	}
 	return snapshot, warnings, nil
+}
+
+func loadCheckpointSnapshotFromGitDirRefs(ctx context.Context, runner CommandRunner, gitDir string, refs []string, version int, transcriptFileName, mode string, limit int, branchDestinations checkpointBranchDestinations) (*checkpointSnapshot, string, []string, error) {
+	var warnings []string
+	for _, ref := range refs {
+		snapshot, refWarnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, gitDir, ref, version, transcriptFileName, mode, limit, branchDestinations)
+		if err == nil {
+			return snapshot, ref, append(warnings, refWarnings...), nil
+		}
+		warnings = append(warnings, refWarnings...)
+		warnings = append(warnings, err.Error())
+	}
+	return nil, "", warnings, fmt.Errorf("%w: no local checkpoint refs readable", errCheckpointSnapshotUnavailable)
 }
 
 func loadCheckpointSnapshotFromGitDir(ctx context.Context, runner CommandRunner, gitDir, ref string, version int, transcriptFileName, mode string, limit int, branchDestinations checkpointBranchDestinations) (*checkpointSnapshot, []string, error) {
