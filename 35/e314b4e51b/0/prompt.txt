@@ -1,5 +1,1 @@
-This project is a plugin template for Sntire cli. Rename it to entire-brain.
-
----
-
-This project is a plugin template for Sntire cli. Rename it to entire-brain.
+commit/push
