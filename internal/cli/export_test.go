@@ -45,6 +45,9 @@ func (r *fakeCommandRunner) Run(ctx context.Context, dir, name string, args ...s
 
 	response, ok := r.responses[key]
 	if !ok {
+		if key == fakeCommandKey("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD") {
+			return []byte("origin/main\n"), nil, nil
+		}
 		return nil, nil, errors.New("unexpected command: " + key)
 	}
 	return []byte(response.stdout), []byte(response.stderr), response.err
@@ -199,6 +202,7 @@ func TestExportUsesConfiguredV1CheckpointRemoteDirectly(t *testing.T) {
 			fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":"+checkpointDir+"/metadata.json"): {
 				stdout: `{
   "checkpoint_id": "aaa111aaa111",
+  "branch": "main",
   "sessions": [
     {
       "metadata": "/aa/a111aaa111/0/metadata.json",
@@ -211,6 +215,7 @@ func TestExportUsesConfiguredV1CheckpointRemoteDirectly(t *testing.T) {
 				stdout: `{
   "checkpoint_id": "aaa111aaa111",
   "session_id": "session-one",
+  "branch": "main",
   "agent": "Codex",
   "model": "gpt-5",
   "created_at": "2026-02-03T04:05:06Z",
@@ -262,6 +267,15 @@ func TestExportUsesConfiguredV1CheckpointRemoteDirectly(t *testing.T) {
 	}
 	if len(manifest.Sessions) != 1 || manifest.Sessions[0].LatestCheckpoint != checkpointID {
 		t.Fatalf("unexpected sessions: %+v", manifest.Sessions)
+	}
+	if manifest.DefaultBranch != "main" {
+		t.Fatalf("default branch = %q, want main", manifest.DefaultBranch)
+	}
+	if manifest.Sessions[0].Branch != "main" {
+		t.Fatalf("session branch = %q, want main", manifest.Sessions[0].Branch)
+	}
+	if !strings.HasPrefix(manifest.Sessions[0].TranscriptPath, "sessions/main/") {
+		t.Fatalf("transcript path = %q, want sessions/main", manifest.Sessions[0].TranscriptPath)
 	}
 	transcript, err := os.ReadFile(filepath.Join(outputDir, filepath.FromSlash(manifest.Sessions[0].TranscriptPath)))
 	if err != nil {
@@ -376,11 +390,11 @@ func TestSnapshotMetadataSkipsNewerSessionWithoutTranscript(t *testing.T) {
 		},
 	}}
 
-	selected, _, warnings, err := readCheckpointSnapshotMetadata(context.Background(), runner, "/repo/root", v1RemoteRef, v1TranscriptFileName, treePaths, 10)
+	selected, _, warnings, err := readCheckpointSnapshotMetadata(context.Background(), runner, "/repo/root", v1RemoteRef, v1TranscriptFileName, treePaths, 10, checkpointBranchDestinations{})
 	if err != nil {
 		t.Fatalf("read snapshot metadata: %v", err)
 	}
-	session, ok := selected["session-one"]
+	session, ok := selected[selectedSessionKey("", "session-one")]
 	if !ok {
 		t.Fatalf("session-one was not selected: %+v", selected)
 	}
@@ -396,6 +410,115 @@ func TestSnapshotMetadataSkipsNewerSessionWithoutTranscript(t *testing.T) {
 				t.Fatalf("newer metadata without transcript should not be read, calls: %+v", runner.calls)
 			}
 		}
+	}
+}
+
+func TestSnapshotMetadataSelectsLatestSessionPerBranch(t *testing.T) {
+	treePaths := map[string]struct{}{
+		"aa/a111aaa111/metadata.json":   {},
+		"aa/a111aaa111/0/metadata.json": {},
+		"aa/a111aaa111/0/full.jsonl":    {},
+		"bb/b222bbb222/metadata.json":   {},
+		"bb/b222bbb222/0/metadata.json": {},
+		"bb/b222bbb222/0/full.jsonl":    {},
+	}
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":aa/a111aaa111/metadata.json"): {
+			stdout: `{"branch":"main","sessions":[{"metadata":"/aa/a111aaa111/0/metadata.json","transcript":"/aa/a111aaa111/0/full.jsonl"}]}`,
+		},
+		fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":bb/b222bbb222/metadata.json"): {
+			stdout: `{"branch":"feature/branch","sessions":[{"metadata":"/bb/b222bbb222/0/metadata.json","transcript":"/bb/b222bbb222/0/full.jsonl"}]}`,
+		},
+		fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":aa/a111aaa111/0/metadata.json"): {
+			stdout: `{
+  "checkpoint_id": "aaa111aaa111",
+  "session_id": "session-one",
+  "branch": "main",
+  "created_at": "2026-01-01T00:00:00Z"
+}`,
+		},
+		fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":bb/b222bbb222/0/metadata.json"): {
+			stdout: `{
+  "checkpoint_id": "bbb222bbb222",
+  "session_id": "session-one",
+  "branch": "feature/branch",
+  "created_at": "2026-01-02T00:00:00Z"
+}`,
+		},
+	}}
+
+	selected, _, _, err := readCheckpointSnapshotMetadata(context.Background(), runner, "/repo/root", v1RemoteRef, v1TranscriptFileName, treePaths, 10, checkpointBranchDestinations{})
+	if err != nil {
+		t.Fatalf("read snapshot metadata: %v", err)
+	}
+	if len(selected) != 2 {
+		t.Fatalf("selected sessions = %d, want 2: %+v", len(selected), selected)
+	}
+	byBranch := map[string]selectedSession{}
+	for _, session := range selected {
+		byBranch[session.Branch] = session
+	}
+	if byBranch["main"].CheckpointID != "aaa111aaa111" {
+		t.Fatalf("main selected checkpoint = %q, want aaa111aaa111", byBranch["main"].CheckpointID)
+	}
+	if byBranch["feature/branch"].CheckpointID != "bbb222bbb222" {
+		t.Fatalf("feature selected checkpoint = %q, want bbb222bbb222", byBranch["feature/branch"].CheckpointID)
+	}
+}
+
+func TestSelectedSessionOnDefaultBranchOverridesSourceBranch(t *testing.T) {
+	selected := map[string]selectedSession{}
+	destinations := checkpointBranchDestinations{
+		DefaultBranch: "main",
+		DefaultCheckpointIDs: map[string]struct{}{
+			"aaa111aaa111": {},
+		},
+	}
+
+	addSelectedSession(selected, selectedSession{
+		CheckpointID: "aaa111aaa111",
+		SessionID:    "session-one",
+		Branch:       "feature/already-merged",
+		CreatedAt:    time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}, destinations)
+
+	session, ok := selected[selectedSessionKey("main", "session-one")]
+	if !ok {
+		t.Fatalf("session was not selected for main: %+v", selected)
+	}
+	if session.Branch != "main" {
+		t.Fatalf("session branch = %q, want main", session.Branch)
+	}
+	if session.SourceBranch != "feature/already-merged" {
+		t.Fatalf("source branch = %q, want original feature branch", session.SourceBranch)
+	}
+}
+
+func TestCheckpointAuthorsFromGitLog(t *testing.T) {
+	data := []byte(
+		"commit-one\x00Alice\x00alice@example.com\x002026-01-01T00:00:00Z\x00Add thing\n\nEntire-Checkpoint: aaa111aaa111\n" + gitLogRecordSeparator +
+			"commit-two\x00Bob\x00bob@example.com\x002026-01-02T00:00:00Z\x00Review thing\n\nEntire-Checkpoint: aaa111aaa111\nEntire-Checkpoint: bbb222bbb222\n" + gitLogRecordSeparator +
+			"commit-three\x00Alice\x00alice@example.com\x002026-01-03T00:00:00Z\x00Follow-up\n\nEntire-Checkpoint: aaa111aaa111\nEntire-Checkpoint: aaa111aaa111\n" + gitLogRecordSeparator,
+	)
+
+	index := checkpointAuthorsFromGitLog(data)
+	authors := index.AuthorsFor("aaa111aaa111")
+	if len(authors) != 2 {
+		t.Fatalf("authors len = %d, want 2: %+v", len(authors), authors)
+	}
+	if authors[0].Name != "Alice" || authors[0].Email != "alice@example.com" || authors[0].Commits != 2 {
+		t.Fatalf("first author = %+v, want Alice with two commits", authors[0])
+	}
+	if authors[0].LastCommitAt == nil || !authors[0].LastCommitAt.Equal(time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("first author last commit = %+v, want 2026-01-03", authors[0].LastCommitAt)
+	}
+	if authors[1].Name != "Bob" || authors[1].Commits != 1 {
+		t.Fatalf("second author = %+v, want Bob with one commit", authors[1])
+	}
+
+	authors = index.AuthorsFor("bbb222bbb222")
+	if len(authors) != 1 || authors[0].Name != "Bob" {
+		t.Fatalf("bbb authors = %+v, want Bob", authors)
 	}
 }
 

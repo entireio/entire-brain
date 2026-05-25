@@ -51,7 +51,9 @@ ENTIRE_PLUGIN_DATA_DIR="$(mktemp -d)" go run ./cmd/entire-brain doctor
 
 ### Export Session History
 
-Export the newest known checkpoint version of each unique Entire session:
+Export the newest known checkpoint version of each unique Entire session per
+branch, using default-branch commit reachability so merged work is grouped with
+the default branch:
 
 ```sh
 entire brain export --output ./entire-brain-export
@@ -61,9 +63,11 @@ The export contains:
 
 | Path | Purpose |
 |---|---|
-| `manifest.json` | Machine-readable index of exported sessions, metadata, timestamps, and transcript paths. |
-| `README.md` | Short agent-facing guide and chronological session table. |
-| `sessions/*.jsonl` | One transcript per unique `session_id`, selected from the checkpoint with the newest session timestamp. |
+| `manifest.json` | Machine-readable index of exported branches, sessions, authors, metadata, timestamps, and transcript paths. |
+| `README.md` | Short agent-facing guide, branch folder list, and chronological session table. |
+| `sessions/<default-branch>/*.jsonl` | Session transcripts whose checkpoint trailers are reachable from the default branch, usually `sessions/main`. |
+| `sessions/branches/<branch>/*.jsonl` | Branch-specific session transcripts for non-default branches that are not reachable from the default branch. |
+| `sessions/unknown/*.jsonl` | Session transcripts from older metadata that did not record a branch. |
 
 By default, transcripts use Entire's normalized compact transcript export:
 

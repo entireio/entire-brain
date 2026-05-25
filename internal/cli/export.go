@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +22,8 @@ const (
 	exportManifestFileName  = "manifest.json"
 	exportReadmeFileName    = "README.md"
 	exportSessionsDirectory = "sessions"
+	exportBranchesDirectory = "branches"
+	exportUnknownDirectory  = "unknown"
 
 	exportScopeAll    = "all"
 	exportScopeBranch = "branch"
@@ -37,7 +40,14 @@ const (
 
 	v1TranscriptFileName = "full.jsonl"
 	v2TranscriptFileName = "transcript.jsonl"
+
+	checkpointTrailerKey = "Entire-Checkpoint"
+
+	gitLogRecordSeparator = "\x1e"
+	gitLogFieldSeparator  = "\x00"
 )
+
+var checkpointTrailerRegex = regexp.MustCompile(checkpointTrailerKey + `:\s*([a-f0-9]{12})(?:\s|$)`)
 
 type exportCommandOptions struct {
 	outputDir       string
@@ -105,8 +115,15 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	var checkpointsScanned int
 	var snapshot *checkpointSnapshot
 
+	defaultBranch, defaultBranchWarnings := detectDefaultBranch(ctx, opts.Runner, repoDir)
+	warnings = append(warnings, defaultBranchWarnings...)
+	branchDestinations, branchDestinationWarnings := buildCheckpointBranchDestinations(ctx, opts.Runner, repoDir, defaultBranch)
+	warnings = append(warnings, branchDestinationWarnings...)
+	authorIndex, authorWarnings := buildCheckpointAuthorIndex(ctx, opts.Runner, repoDir)
+	warnings = append(warnings, authorWarnings...)
+
 	if exportOpts.scope == exportScopeAll {
-		loadedSnapshot, snapshotWarnings, snapshotErr := loadConfiguredCheckpointSnapshot(ctx, opts.Runner, repoDir, exportOpts.rawTranscript, exportOpts.checkpointLimit)
+		loadedSnapshot, snapshotWarnings, snapshotErr := loadConfiguredCheckpointSnapshot(ctx, opts.Runner, repoDir, exportOpts.rawTranscript, exportOpts.checkpointLimit, branchDestinations)
 		if snapshotErr == nil {
 			snapshot = loadedSnapshot
 			defer snapshot.Cleanup()
@@ -161,6 +178,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 					CheckpointID:     detail.CheckpointID,
 					SessionIndex:     session.Index,
 					SessionID:        session.SessionID,
+					Branch:           sessionBranch(session.Branch, detail.Branch),
 					Agent:            session.Agent,
 					Model:            session.Model,
 					Kind:             session.Kind,
@@ -175,10 +193,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 					CheckpointsCount: detail.CheckpointsCount,
 				}
 
-				current, ok := selected[session.SessionID]
-				if !ok || shouldReplaceSession(current, candidate) {
-					selected[session.SessionID] = candidate
-				}
+				addSelectedSession(selected, candidate, branchDestinations)
 			}
 		}
 	}
@@ -188,6 +203,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		GeneratedAt:        opts.Now().UTC(),
 		RepoRoot:           repoDir,
 		EntireCLIVersion:   opts.Env.CLIVersion,
+		DefaultBranch:      defaultBranch,
 		TranscriptMode:     actualTranscriptMode(exportOpts.rawTranscript, snapshot),
 		Scope:              exportOpts.scope,
 		CheckpointLimit:    exportOpts.checkpointLimit,
@@ -196,25 +212,31 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	}
 
 	sessions := flattenSessions(selected)
+	applySessionAuthors(sessions, authorIndex)
+	branchDirs := buildBranchDirectories(sessions, defaultBranch)
 	outputDir, err := prepareExportDir(exportOpts.outputDir)
 	if err != nil {
+		return err
+	}
+	if err := ensureExportDirectories(outputDir, branchDirs); err != nil {
 		return err
 	}
 
 	var transcriptWarnings []string
 	if snapshot != nil {
-		sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions)
+		sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs)
 		if err != nil {
 			return err
 		}
 	} else {
-		transcriptWarnings, err = writeSessionTranscripts(ctx, opts.Runner, repoDir, outputDir, exportOpts.entireBinary, exportOpts.rawTranscript, sessions)
+		transcriptWarnings, err = writeSessionTranscripts(ctx, opts.Runner, repoDir, outputDir, exportOpts.entireBinary, exportOpts.rawTranscript, sessions, branchDirs)
 		if err != nil {
 			return err
 		}
 	}
 	manifest.Warnings = append(manifest.Warnings, transcriptWarnings...)
 	manifest.Sessions = sessions
+	manifest.Branches = summarizeBranchExports(sessions, branchDirs, defaultBranch)
 
 	if err := writeJSONFile(filepath.Join(outputDir, exportManifestFileName), manifest); err != nil {
 		return err
@@ -285,6 +307,215 @@ func validateExportDirAvailable(path string) (string, error) {
 		return "", fmt.Errorf("stat output directory: %w", err)
 	}
 	return abs, nil
+}
+
+func detectDefaultBranch(ctx context.Context, runner CommandRunner, repoDir string) (string, []string) {
+	if branch, ok := parseOriginHeadBranch(runGitOutput(ctx, runner, repoDir, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")); ok {
+		return branch, nil
+	}
+
+	for _, branch := range []string{"main", "master"} {
+		if gitRefExists(ctx, runner, repoDir, "refs/heads/"+branch) || gitRefExists(ctx, runner, repoDir, "refs/remotes/origin/"+branch) {
+			return branch, nil
+		}
+	}
+
+	current := strings.TrimSpace(string(runGitOutput(ctx, runner, repoDir, "branch", "--show-current")))
+	if current != "" {
+		return current, []string{"default branch not found; using current branch " + current}
+	}
+
+	return "main", []string{"default branch not found; using main"}
+}
+
+func runGitOutput(ctx context.Context, runner CommandRunner, repoDir string, args ...string) []byte {
+	stdout, _, err := runner.Run(ctx, repoDir, "git", args...)
+	if err != nil {
+		return nil
+	}
+	return stdout
+}
+
+func gitRefExists(ctx context.Context, runner CommandRunner, repoDir, ref string) bool {
+	_, _, err := runner.Run(ctx, repoDir, "git", "show-ref", "--verify", "--quiet", ref)
+	return err == nil
+}
+
+func parseOriginHeadBranch(data []byte) (string, bool) {
+	ref := strings.TrimSpace(string(data))
+	if ref == "" {
+		return "", false
+	}
+	if branch, ok := strings.CutPrefix(ref, "origin/"); ok && branch != "" {
+		return branch, true
+	}
+	parts := strings.Split(ref, "/")
+	branch := parts[len(parts)-1]
+	return branch, branch != ""
+}
+
+func buildCheckpointBranchDestinations(ctx context.Context, runner CommandRunner, repoDir, defaultBranch string) (checkpointBranchDestinations, []string) {
+	destinations := checkpointBranchDestinations{
+		DefaultBranch:        defaultBranch,
+		DefaultCheckpointIDs: make(map[string]struct{}),
+	}
+	if defaultBranch == "" {
+		return destinations, nil
+	}
+
+	defaultRef, ok := resolveDefaultBranchRef(ctx, runner, repoDir, defaultBranch)
+	if !ok {
+		return destinations, []string{"default branch checkpoint reachability unavailable: could not resolve " + defaultBranch}
+	}
+
+	stdout, stderr, err := runner.Run(ctx, repoDir, "git", "log", "--format=%B", "--grep", checkpointTrailerKey+":", defaultRef)
+	warnings := warningLines("default branch checkpoint reachability", stderr)
+	if err != nil {
+		warnings = append(warnings, "default branch checkpoint reachability unavailable: "+err.Error())
+		return destinations, warnings
+	}
+	destinations.DefaultCheckpointIDs = checkpointIDsFromCommitMessages(stdout)
+	return destinations, warnings
+}
+
+func resolveDefaultBranchRef(ctx context.Context, runner CommandRunner, repoDir, defaultBranch string) (string, bool) {
+	localRef := "refs/heads/" + defaultBranch
+	if gitRefExists(ctx, runner, repoDir, localRef) {
+		return localRef, true
+	}
+	remoteRef := "refs/remotes/origin/" + defaultBranch
+	if gitRefExists(ctx, runner, repoDir, remoteRef) {
+		return remoteRef, true
+	}
+	return "", false
+}
+
+func checkpointIDsFromCommitMessages(data []byte) map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, checkpointID := range checkpointIDsFromCommitMessageText(string(data)) {
+		ids[checkpointID] = struct{}{}
+	}
+	return ids
+}
+
+func checkpointIDsFromCommitMessageText(message string) []string {
+	matches := checkpointTrailerRegex.FindAllStringSubmatch(message, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(matches))
+	ids := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		checkpointID := strings.TrimSpace(match[1])
+		if _, ok := seen[checkpointID]; ok {
+			continue
+		}
+		seen[checkpointID] = struct{}{}
+		ids = append(ids, checkpointID)
+	}
+	return ids
+}
+
+func buildCheckpointAuthorIndex(ctx context.Context, runner CommandRunner, repoDir string) (checkpointAuthorIndex, []string) {
+	stdout, stderr, err := runner.Run(ctx, repoDir, "git", "log", "--all", "--format=%H%x00%an%x00%ae%x00%aI%x00%B%x1e", "--grep", checkpointTrailerKey+":")
+	warnings := warningLines("checkpoint author index", stderr)
+	if err != nil {
+		warnings = append(warnings, "checkpoint author index unavailable: "+err.Error())
+		return checkpointAuthorIndex{}, warnings
+	}
+	return checkpointAuthorsFromGitLog(stdout), warnings
+}
+
+func checkpointAuthorsFromGitLog(data []byte) checkpointAuthorIndex {
+	accumulators := make(map[string]map[string]*checkpointAuthorAccumulator)
+
+	for _, record := range strings.Split(string(data), gitLogRecordSeparator) {
+		record = strings.TrimSpace(record)
+		if record == "" {
+			continue
+		}
+
+		parts := strings.SplitN(record, gitLogFieldSeparator, 5)
+		if len(parts) != 5 {
+			continue
+		}
+
+		commitSHA := strings.TrimSpace(parts[0])
+		author := exportAuthor{
+			Name:  strings.TrimSpace(parts[1]),
+			Email: strings.TrimSpace(parts[2]),
+		}
+		authoredAt, _ := time.Parse(time.RFC3339, strings.TrimSpace(parts[3])) //nolint:errcheck // Timestamp is optional metadata.
+		checkpointIDs := checkpointIDsFromCommitMessageText(parts[4])
+		if commitSHA == "" || len(checkpointIDs) == 0 {
+			continue
+		}
+
+		authorKey := exportAuthorKey(author)
+		for _, checkpointID := range checkpointIDs {
+			if accumulators[checkpointID] == nil {
+				accumulators[checkpointID] = make(map[string]*checkpointAuthorAccumulator)
+			}
+			acc := accumulators[checkpointID][authorKey]
+			if acc == nil {
+				acc = &checkpointAuthorAccumulator{
+					Author:  author,
+					Commits: make(map[string]struct{}),
+				}
+				accumulators[checkpointID][authorKey] = acc
+			}
+			if _, ok := acc.Commits[commitSHA]; !ok {
+				acc.Commits[commitSHA] = struct{}{}
+				acc.Author.Commits++
+			}
+			if authoredAt.After(acc.LastCommitAt) {
+				acc.LastCommitAt = authoredAt.UTC()
+			}
+		}
+	}
+
+	index := checkpointAuthorIndex{AuthorsByCheckpoint: make(map[string][]exportAuthor, len(accumulators))}
+	for checkpointID, byAuthor := range accumulators {
+		authors := make([]exportAuthor, 0, len(byAuthor))
+		for _, acc := range byAuthor {
+			author := acc.Author
+			if !acc.LastCommitAt.IsZero() {
+				lastCommitAt := acc.LastCommitAt
+				author.LastCommitAt = &lastCommitAt
+			}
+			authors = append(authors, author)
+		}
+		sort.Slice(authors, func(i, j int) bool {
+			if authors[i].Commits != authors[j].Commits {
+				return authors[i].Commits > authors[j].Commits
+			}
+			if authorLastCommitAt(authors[i]).Equal(authorLastCommitAt(authors[j])) {
+				return exportAuthorKey(authors[i]) < exportAuthorKey(authors[j])
+			}
+			return authorLastCommitAt(authors[i]).After(authorLastCommitAt(authors[j]))
+		})
+		index.AuthorsByCheckpoint[checkpointID] = authors
+	}
+	return index
+}
+
+func exportAuthorKey(author exportAuthor) string {
+	email := strings.ToLower(strings.TrimSpace(author.Email))
+	if email != "" {
+		return email
+	}
+	return strings.ToLower(strings.TrimSpace(author.Name))
+}
+
+func authorLastCommitAt(author exportAuthor) time.Time {
+	if author.LastCommitAt == nil {
+		return time.Time{}
+	}
+	return *author.LastCommitAt
 }
 
 func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, entireBinary, scope string, limit int) ([]checkpointListEntry, []string, error) {
@@ -507,10 +738,10 @@ func (s entireStrategyOptions) CheckpointsVersionValue() int {
 
 var errCheckpointSnapshotUnavailable = errors.New("checkpoint snapshot unavailable")
 
-func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int) (*checkpointSnapshot, []string, error) {
+func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int, branchDestinations checkpointBranchDestinations) (*checkpointSnapshot, []string, error) {
 	settings, err := readEntireSettings(repoDir)
 	if err != nil {
-		return loadDefaultLocalV1CheckpointSnapshot(ctx, runner, repoDir, raw, limit)
+		return loadDefaultLocalV1CheckpointSnapshot(ctx, runner, repoDir, raw, limit, branchDestinations)
 	}
 
 	version := checkpointStorageV1
@@ -527,7 +758,7 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 		}
 	}
 
-	snapshot, warnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, repoDir, ref, version, transcriptFileName, mode, limit)
+	snapshot, warnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, repoDir, ref, version, transcriptFileName, mode, limit, branchDestinations)
 	if err == nil {
 		warnings = append(warnings, fmt.Sprintf("exporting %s transcripts directly from local checkpoint ref %s", mode, ref))
 		if version == checkpointStorageV1 && !raw {
@@ -541,7 +772,7 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 		return nil, warnings, fmt.Errorf("%w: local checkpoint ref %s unavailable and checkpoint remote unavailable: %v", errCheckpointSnapshotUnavailable, ref, remoteErr)
 	}
 
-	remoteSnapshot, remoteWarnings, remoteErr := loadCheckpointSnapshotFromRemoteRef(ctx, runner, remoteURL, ref, version, transcriptFileName, mode, limit)
+	remoteSnapshot, remoteWarnings, remoteErr := loadCheckpointSnapshotFromRemoteRef(ctx, runner, remoteURL, ref, version, transcriptFileName, mode, limit, branchDestinations)
 	if remoteErr != nil {
 		warnings = append(warnings, remoteWarnings...)
 		return nil, warnings, remoteErr
@@ -554,8 +785,8 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 	return remoteSnapshot, warnings, nil
 }
 
-func loadDefaultLocalV1CheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int) (*checkpointSnapshot, []string, error) {
-	snapshot, warnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, repoDir, v1RemoteRef, checkpointStorageV1, v1TranscriptFileName, "raw", limit)
+func loadDefaultLocalV1CheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int, branchDestinations checkpointBranchDestinations) (*checkpointSnapshot, []string, error) {
+	snapshot, warnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, repoDir, v1RemoteRef, checkpointStorageV1, v1TranscriptFileName, "raw", limit, branchDestinations)
 	if err != nil {
 		return nil, warnings, err
 	}
@@ -566,14 +797,14 @@ func loadDefaultLocalV1CheckpointSnapshot(ctx context.Context, runner CommandRun
 	return snapshot, warnings, nil
 }
 
-func loadCheckpointSnapshotFromGitDir(ctx context.Context, runner CommandRunner, gitDir, ref string, version int, transcriptFileName, mode string, limit int) (*checkpointSnapshot, []string, error) {
+func loadCheckpointSnapshotFromGitDir(ctx context.Context, runner CommandRunner, gitDir, ref string, version int, transcriptFileName, mode string, limit int, branchDestinations checkpointBranchDestinations) (*checkpointSnapshot, []string, error) {
 	stdout, stderr, err := runner.Run(ctx, gitDir, "git", "ls-tree", "-r", "--name-only", ref)
 	if err != nil {
 		warnings := warningLines("checkpoint ref "+ref, stderr)
 		return nil, warnings, fmt.Errorf("%w: read checkpoint ref %s: %v", errCheckpointSnapshotUnavailable, ref, err)
 	}
 	treePaths := treePathSet(stdout)
-	selected, checkpointCount, warnings, err := readCheckpointSnapshotMetadata(ctx, runner, gitDir, ref, transcriptFileName, treePaths, limit)
+	selected, checkpointCount, warnings, err := readCheckpointSnapshotMetadata(ctx, runner, gitDir, ref, transcriptFileName, treePaths, limit, branchDestinations)
 	if err != nil {
 		return nil, append(warnings, warningLines("checkpoint ref "+ref, stderr)...), err
 	}
@@ -590,7 +821,7 @@ func loadCheckpointSnapshotFromGitDir(ctx context.Context, runner CommandRunner,
 	}, warnings, nil
 }
 
-func loadCheckpointSnapshotFromRemoteRef(ctx context.Context, runner CommandRunner, remoteURL, ref string, version int, transcriptFileName, mode string, limit int) (*checkpointSnapshot, []string, error) {
+func loadCheckpointSnapshotFromRemoteRef(ctx context.Context, runner CommandRunner, remoteURL, ref string, version int, transcriptFileName, mode string, limit int, branchDestinations checkpointBranchDestinations) (*checkpointSnapshot, []string, error) {
 	tmpDir, err := os.MkdirTemp("", "entire-brain-checkpoints-*")
 	if err != nil {
 		return nil, nil, fmt.Errorf("create checkpoint snapshot temp repo: %w", err)
@@ -612,7 +843,7 @@ func loadCheckpointSnapshotFromRemoteRef(ctx context.Context, runner CommandRunn
 		return nil, warnings, fmt.Errorf("fetch checkpoint remote ref %s: %w", ref, err)
 	}
 
-	snapshot, warnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, tmpDir, ref, version, transcriptFileName, mode, limit)
+	snapshot, warnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, tmpDir, ref, version, transcriptFileName, mode, limit, branchDestinations)
 	if err != nil {
 		return nil, warnings, err
 	}
@@ -621,7 +852,7 @@ func loadCheckpointSnapshotFromRemoteRef(ctx context.Context, runner CommandRunn
 	return snapshot, warnings, nil
 }
 
-func readCheckpointSnapshotMetadata(ctx context.Context, runner CommandRunner, gitDir, ref string, transcriptFileName string, treePaths map[string]struct{}, limit int) (map[string]selectedSession, int, []string, error) {
+func readCheckpointSnapshotMetadata(ctx context.Context, runner CommandRunner, gitDir, ref string, transcriptFileName string, treePaths map[string]struct{}, limit int, branchDestinations checkpointBranchDestinations) (map[string]selectedSession, int, []string, error) {
 	checkpointIDs := make(map[string]struct{})
 	sessionMetadataPaths := make([]string, 0)
 	rootMetadataPaths := make([]string, 0)
@@ -645,7 +876,7 @@ func readCheckpointSnapshotMetadata(ctx context.Context, runner CommandRunner, g
 	sort.Strings(rootMetadataPaths)
 
 	allowed := limitedCheckpointSet(checkpointIDs, limit)
-	rootMetadataByCheckpoint, transcriptPathsByMetadata, rootWarnings := readRootMetadataForSnapshot(ctx, runner, gitDir, ref, rootMetadataPaths, allowed)
+	rootMetadataByCheckpoint, transcriptPathsByMetadata, branchByCheckpoint, rootWarnings := readRootMetadataForSnapshot(ctx, runner, gitDir, ref, rootMetadataPaths, allowed)
 	warnings = append(warnings, rootWarnings...)
 
 	selected := make(map[string]selectedSession)
@@ -678,7 +909,7 @@ func readCheckpointSnapshotMetadata(ctx context.Context, runner CommandRunner, g
 			warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s session %d: parse metadata: %v", checkpointID, sessionIndex, err))
 			continue
 		}
-		addSnapshotSession(selected, checkpointID, sessionIndex, transcriptPath, meta)
+		addSnapshotSession(selected, checkpointID, sessionIndex, transcriptPath, meta, branchByCheckpoint[checkpointID], branchDestinations)
 	}
 
 	for _, path := range rootMetadataPaths {
@@ -708,7 +939,7 @@ func readCheckpointSnapshotMetadata(ctx context.Context, runner CommandRunner, g
 			warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s root metadata: parse metadata: %v", checkpointID, err))
 			continue
 		}
-		addSnapshotSession(selected, checkpointID, 0, transcriptPath, meta)
+		addSnapshotSession(selected, checkpointID, 0, transcriptPath, meta, branchByCheckpoint[checkpointID], branchDestinations)
 	}
 
 	if missingTranscriptCount > 0 {
@@ -725,9 +956,10 @@ func readCheckpointSnapshotMetadata(ctx context.Context, runner CommandRunner, g
 	return selected, min(len(checkpointIDs), limit), warnings, nil
 }
 
-func readRootMetadataForSnapshot(ctx context.Context, runner CommandRunner, gitDir, ref string, rootMetadataPaths []string, allowed map[string]struct{}) (map[string][]byte, map[string]string, []string) {
+func readRootMetadataForSnapshot(ctx context.Context, runner CommandRunner, gitDir, ref string, rootMetadataPaths []string, allowed map[string]struct{}) (map[string][]byte, map[string]string, map[string]string, []string) {
 	rootMetadataByCheckpoint := make(map[string][]byte)
 	transcriptPathsByMetadata := make(map[string]string)
+	branchByCheckpoint := make(map[string]string)
 	var warnings []string
 
 	for _, path := range rootMetadataPaths {
@@ -749,6 +981,9 @@ func readRootMetadataForSnapshot(ctx context.Context, runner CommandRunner, gitD
 		if err := json.Unmarshal(data, &summary); err != nil {
 			continue
 		}
+		if summary.Branch != "" {
+			branchByCheckpoint[checkpointID] = summary.Branch
+		}
 		for _, session := range summary.Sessions {
 			metadataPath := normalizeSnapshotPath(session.Metadata)
 			transcriptPath := normalizeSnapshotPath(session.Transcript)
@@ -758,10 +993,10 @@ func readRootMetadataForSnapshot(ctx context.Context, runner CommandRunner, gitD
 		}
 	}
 
-	return rootMetadataByCheckpoint, transcriptPathsByMetadata, warnings
+	return rootMetadataByCheckpoint, transcriptPathsByMetadata, branchByCheckpoint, warnings
 }
 
-func addSnapshotSession(selected map[string]selectedSession, checkpointID string, sessionIndex int, transcriptPath string, meta checkpointExportSession) {
+func addSnapshotSession(selected map[string]selectedSession, checkpointID string, sessionIndex int, transcriptPath string, meta checkpointExportSession, checkpointBranch string, branchDestinations checkpointBranchDestinations) {
 	if meta.SessionID == "" {
 		return
 	}
@@ -770,10 +1005,13 @@ func addSnapshotSession(selected map[string]selectedSession, checkpointID string
 	if meta.CreatedAt != nil {
 		createdAt = *meta.CreatedAt
 	}
+	sourceBranch := sessionBranch(meta.Branch, checkpointBranch)
 	candidate := selectedSession{
 		CheckpointID:         checkpointID,
 		SessionIndex:         sessionIndex,
 		SessionID:            meta.SessionID,
+		Branch:               sourceBranch,
+		SourceBranch:         sourceBranch,
 		Agent:                meta.Agent,
 		Model:                meta.Model,
 		Kind:                 meta.Kind,
@@ -789,10 +1027,36 @@ func addSnapshotSession(selected map[string]selectedSession, checkpointID string
 		SourceTranscriptPath: transcriptPath,
 	}
 
-	current, ok := selected[meta.SessionID]
-	if !ok || shouldReplaceSession(current, candidate) {
-		selected[meta.SessionID] = candidate
+	addSelectedSession(selected, candidate, branchDestinations)
+}
+
+func addSelectedSession(selected map[string]selectedSession, candidate selectedSession, branchDestinations checkpointBranchDestinations) {
+	sourceBranch := candidate.Branch
+	candidate.SourceBranch = sourceBranch
+	for _, branch := range branchDestinations.BranchesFor(candidate.CheckpointID, sourceBranch) {
+		scoped := candidate
+		scoped.Branch = branch
+		scoped.SourceBranch = sourceBranch
+
+		key := selectedSessionKey(scoped.Branch, scoped.SessionID)
+		current, ok := selected[key]
+		if !ok || shouldReplaceSession(current, scoped) {
+			selected[key] = scoped
+		}
 	}
+}
+
+func (d checkpointBranchDestinations) BranchesFor(checkpointID, metadataBranch string) []string {
+	if d.DefaultBranch != "" && len(d.DefaultCheckpointIDs) > 0 {
+		if _, ok := d.DefaultCheckpointIDs[checkpointID]; ok {
+			return []string{d.DefaultBranch}
+		}
+	}
+	branch := strings.TrimSpace(metadataBranch)
+	if branch == "" {
+		return []string{""}
+	}
+	return []string{branch}
 }
 
 func limitedCheckpointSet(ids map[string]struct{}, limit int) map[string]struct{} {
@@ -940,11 +1204,24 @@ func shouldReplaceSession(current, candidate selectedSession) bool {
 	return false
 }
 
+func sessionBranch(sessionBranch, checkpointBranch string) string {
+	if strings.TrimSpace(sessionBranch) != "" {
+		return strings.TrimSpace(sessionBranch)
+	}
+	return strings.TrimSpace(checkpointBranch)
+}
+
+func selectedSessionKey(branch, sessionID string) string {
+	return branch + "\x00" + sessionID
+}
+
 func flattenSessions(selected map[string]selectedSession) []exportSession {
 	sessions := make([]exportSession, 0, len(selected))
 	for _, session := range selected {
 		sessions = append(sessions, exportSession{
 			SessionID:            session.SessionID,
+			Branch:               session.Branch,
+			SourceBranch:         session.SourceBranch,
 			Agent:                session.Agent,
 			Model:                session.Model,
 			Kind:                 session.Kind,
@@ -967,12 +1244,32 @@ func flattenSessions(selected map[string]selectedSession) []exportSession {
 		if !sessions[i].CreatedAt.Equal(sessions[j].CreatedAt) {
 			return sessions[i].CreatedAt.Before(sessions[j].CreatedAt)
 		}
+		if sessions[i].Branch != sessions[j].Branch {
+			return sessions[i].Branch < sessions[j].Branch
+		}
 		return sessions[i].SessionID < sessions[j].SessionID
 	})
 	return sessions
 }
 
-func writeSessionTranscripts(ctx context.Context, runner CommandRunner, repoDir, outputDir, entireBinary string, raw bool, sessions []exportSession) ([]string, error) {
+func applySessionAuthors(sessions []exportSession, authorIndex checkpointAuthorIndex) {
+	for i := range sessions {
+		sessions[i].Authors = authorIndex.AuthorsFor(sessions[i].LatestCheckpoint)
+	}
+}
+
+func (i checkpointAuthorIndex) AuthorsFor(checkpointID string) []exportAuthor {
+	if len(i.AuthorsByCheckpoint) == 0 {
+		return nil
+	}
+	authors := i.AuthorsByCheckpoint[checkpointID]
+	if len(authors) == 0 {
+		return nil
+	}
+	return append([]exportAuthor(nil), authors...)
+}
+
+func writeSessionTranscripts(ctx context.Context, runner CommandRunner, repoDir, outputDir, entireBinary string, raw bool, sessions []exportSession, branchDirs map[string]string) ([]string, error) {
 	transcriptFlag := "--transcript"
 	extension := ".jsonl"
 	if raw {
@@ -991,8 +1288,8 @@ func writeSessionTranscripts(ctx context.Context, runner CommandRunner, repoDir,
 		}
 
 		name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, extension)
-		relPath := filepath.Join(exportSessionsDirectory, name)
-		if err := os.WriteFile(filepath.Join(outputDir, relPath), stdout, 0o600); err != nil {
+		relPath := filepath.Join(branchDirs[session.Branch], name)
+		if err := writeTranscriptFile(outputDir, relPath, stdout); err != nil {
 			return nil, fmt.Errorf("write transcript for session %s: %w", session.SessionID, err)
 		}
 		session.TranscriptPath = filepath.ToSlash(relPath)
@@ -1000,7 +1297,7 @@ func writeSessionTranscripts(ctx context.Context, runner CommandRunner, repoDir,
 	return warnings, nil
 }
 
-func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, outputDir string, sessions []exportSession) ([]exportSession, []string, error) {
+func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, outputDir string, sessions []exportSession, branchDirs map[string]string) ([]exportSession, []string, error) {
 	var warnings []string
 	for i := range sessions {
 		session := &sessions[i]
@@ -1015,13 +1312,33 @@ func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, 
 		}
 
 		name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, ".jsonl")
-		relPath := filepath.Join(exportSessionsDirectory, name)
-		if err := os.WriteFile(filepath.Join(outputDir, relPath), transcript, 0o600); err != nil {
+		relPath := filepath.Join(branchDirs[session.Branch], name)
+		if err := writeTranscriptFile(outputDir, relPath, transcript); err != nil {
 			return nil, warnings, fmt.Errorf("write transcript for session %s: %w", session.SessionID, err)
 		}
 		session.TranscriptPath = filepath.ToSlash(relPath)
 	}
 	return sessions, warnings, nil
+}
+
+func writeTranscriptFile(outputDir, relPath string, data []byte) error {
+	abs := filepath.Join(outputDir, relPath)
+	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
+		return fmt.Errorf("create transcript directory: %w", err)
+	}
+	if err := os.WriteFile(abs, data, 0o600); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureExportDirectories(outputDir string, branchDirs map[string]string) error {
+	for _, relPath := range branchDirs {
+		if err := os.MkdirAll(filepath.Join(outputDir, relPath), 0o700); err != nil {
+			return fmt.Errorf("create branch transcript directory %s: %w", relPath, err)
+		}
+	}
+	return nil
 }
 
 func readSnapshotTranscript(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, sourcePath string) ([]byte, error) {
@@ -1106,6 +1423,102 @@ func sessionFileName(createdAt time.Time, agent, sessionID, checkpointID, extens
 	return strings.Join([]string{timestamp, agentPart, sessionPart, checkpointPart}, "_") + extension
 }
 
+func buildBranchDirectories(sessions []exportSession, defaultBranch string) map[string]string {
+	branches := uniqueSessionBranches(sessions)
+	if defaultBranch != "" {
+		branches = append(branches, defaultBranch)
+		sort.Strings(branches)
+		branches = compactSortedStrings(branches)
+	}
+	defaultDir := filepath.Join(exportSessionsDirectory, safePathComponent(defaultBranch, "main", 80))
+
+	slugCounts := make(map[string]int)
+	for _, branch := range branches {
+		if branch == "" || branch == defaultBranch {
+			continue
+		}
+		slugCounts[safePathComponent(branch, "branch", 100)]++
+	}
+
+	nextCollisionIndex := make(map[string]int)
+	dirs := make(map[string]string, len(branches))
+	for _, branch := range branches {
+		switch {
+		case branch == defaultBranch:
+			dirs[branch] = defaultDir
+		case branch == "":
+			dirs[branch] = filepath.Join(exportSessionsDirectory, exportUnknownDirectory)
+		default:
+			slug := safePathComponent(branch, "branch", 100)
+			if slugCounts[slug] > 1 {
+				nextCollisionIndex[slug]++
+				slug = fmt.Sprintf("%s-%d", slug, nextCollisionIndex[slug])
+			}
+			dirs[branch] = filepath.Join(exportSessionsDirectory, exportBranchesDirectory, slug)
+		}
+	}
+	return dirs
+}
+
+func summarizeBranchExports(sessions []exportSession, branchDirs map[string]string, defaultBranch string) []exportBranch {
+	counts := make(map[string]int)
+	if defaultBranch != "" {
+		counts[defaultBranch] = 0
+	}
+	for _, session := range sessions {
+		counts[session.Branch]++
+	}
+
+	branches := make([]exportBranch, 0, len(counts))
+	for _, branch := range sortedBranches(counts) {
+		branches = append(branches, exportBranch{
+			Branch:       branch,
+			Directory:    filepath.ToSlash(branchDirs[branch]),
+			SessionCount: counts[branch],
+			Default:      branch != "" && branch == defaultBranch,
+		})
+	}
+	return branches
+}
+
+func compactSortedStrings(values []string) []string {
+	out := values[:0]
+	for _, value := range values {
+		if len(out) == 0 || out[len(out)-1] != value {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func uniqueSessionBranches(sessions []exportSession) []string {
+	seen := make(map[string]struct{})
+	for _, session := range sessions {
+		seen[session.Branch] = struct{}{}
+	}
+	return sortedBranches(seen)
+}
+
+func sortedBranches[T any](values map[string]T) []string {
+	branches := make([]string, 0, len(values))
+	for branch := range values {
+		branches = append(branches, branch)
+	}
+	sort.Slice(branches, func(i, j int) bool {
+		if branches[i] == branches[j] {
+			return false
+		}
+		if branches[i] == "" {
+			return false
+		}
+		if branches[j] == "" {
+			return true
+		}
+		return branches[i] < branches[j]
+	})
+	return branches
+}
+
 func safePathComponent(value, fallback string, max int) string {
 	value = strings.TrimSpace(strings.ToLower(value))
 	var b strings.Builder
@@ -1170,8 +1583,8 @@ func renderExportReadme(manifest exportManifest) string {
 	fmt.Fprintln(&b, "# Entire Brain Session Export")
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "Generated at: `%s`\n\n", manifest.GeneratedAt.Format(time.RFC3339))
-	fmt.Fprintln(&b, "This directory contains the newest known checkpoint version of each unique Entire session.")
-	fmt.Fprintln(&b, "Read `manifest.json` first, then inspect session transcript files in chronological order.")
+	fmt.Fprintln(&b, "This directory contains the newest known checkpoint version of each unique Entire session per branch.")
+	fmt.Fprintln(&b, "Read `manifest.json` first, then inspect default-branch transcripts before branch-specific transcripts.")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "## Summary")
 	fmt.Fprintln(&b)
@@ -1179,6 +1592,9 @@ func renderExportReadme(manifest exportManifest) string {
 	fmt.Fprintf(&b, "- Checkpoints scanned: %d\n", manifest.CheckpointsScanned)
 	fmt.Fprintf(&b, "- Transcript mode: %s\n", manifest.TranscriptMode)
 	fmt.Fprintf(&b, "- Scope: %s\n", manifest.Scope)
+	if manifest.DefaultBranch != "" {
+		fmt.Fprintf(&b, "- Default branch: `%s`\n", manifest.DefaultBranch)
+	}
 	if manifest.RepoRoot != "" {
 		fmt.Fprintf(&b, "- Repo root: `%s`\n", manifest.RepoRoot)
 	}
@@ -1186,13 +1602,40 @@ func renderExportReadme(manifest exportManifest) string {
 		fmt.Fprintf(&b, "- Entire CLI version: `%s`\n", manifest.EntireCLIVersion)
 	}
 	fmt.Fprintln(&b)
+	if len(manifest.Branches) > 0 {
+		fmt.Fprintln(&b, "## Branch Folders")
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "| Branch | Sessions | Directory |")
+		fmt.Fprintln(&b, "| --- | ---: | --- |")
+		for _, branch := range manifest.Branches {
+			label := branch.Branch
+			if label == "" {
+				label = "(unknown)"
+			}
+			if branch.Default {
+				label += " (default)"
+			}
+			fmt.Fprintf(&b, "| %s | %d | `%s` |\n",
+				escapeMarkdownTable(label),
+				branch.SessionCount,
+				branch.Directory,
+			)
+		}
+		fmt.Fprintln(&b)
+	}
 	fmt.Fprintln(&b, "## Sessions")
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "| Created | Agent | Model | Session | Checkpoint | Transcript |")
-	fmt.Fprintln(&b, "| --- | --- | --- | --- | --- | --- |")
+	fmt.Fprintln(&b, "| Created | Branch | Authors | Agent | Model | Session | Checkpoint | Transcript |")
+	fmt.Fprintln(&b, "| --- | --- | --- | --- | --- | --- | --- | --- |")
 	for _, session := range manifest.Sessions {
-		fmt.Fprintf(&b, "| %s | %s | %s | `%s` | `%s` | `%s` |\n",
+		branch := session.Branch
+		if branch == "" {
+			branch = "(unknown)"
+		}
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | `%s` | `%s` | `%s` |\n",
 			session.CreatedAt.Format(time.RFC3339),
+			escapeMarkdownTable(branch),
+			escapeMarkdownTable(formatAuthors(session.Authors)),
 			escapeMarkdownTable(session.Agent),
 			escapeMarkdownTable(session.Model),
 			session.SessionID,
@@ -1209,6 +1652,26 @@ func renderExportReadme(manifest exportManifest) string {
 		}
 	}
 	return b.String()
+}
+
+func formatAuthors(authors []exportAuthor) string {
+	if len(authors) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(authors))
+	for _, author := range authors {
+		name := strings.TrimSpace(author.Name)
+		email := strings.TrimSpace(author.Email)
+		switch {
+		case name != "" && email != "":
+			parts = append(parts, fmt.Sprintf("%s <%s>", name, email))
+		case name != "":
+			parts = append(parts, name)
+		case email != "":
+			parts = append(parts, email)
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 func escapeMarkdownTable(value string) string {
@@ -1248,6 +1711,7 @@ type checkpointExportEnvelope struct {
 type checkpointExportSession struct {
 	Index            int                   `json:"index"`
 	SessionID        string                `json:"session_id,omitempty"`
+	Branch           string                `json:"branch,omitempty"`
 	Agent            string                `json:"agent,omitempty"`
 	Model            string                `json:"model,omitempty"`
 	Kind             string                `json:"kind,omitempty"`
@@ -1276,6 +1740,7 @@ type checkpointSummary struct {
 }
 
 type checkpointSummaryPaths struct {
+	Branch   string                   `json:"branch,omitempty"`
 	Sessions []checkpointSessionPaths `json:"sessions,omitempty"`
 }
 
@@ -1294,6 +1759,21 @@ type checkpointSnapshot struct {
 	Selected           map[string]selectedSession
 	CheckpointCount    int
 	TreePaths          map[string]struct{}
+}
+
+type checkpointBranchDestinations struct {
+	DefaultBranch        string
+	DefaultCheckpointIDs map[string]struct{}
+}
+
+type checkpointAuthorIndex struct {
+	AuthorsByCheckpoint map[string][]exportAuthor
+}
+
+type checkpointAuthorAccumulator struct {
+	Author       exportAuthor
+	Commits      map[string]struct{}
+	LastCommitAt time.Time
 }
 
 func (s *checkpointSnapshot) Cleanup() {
@@ -1321,6 +1801,8 @@ type selectedSession struct {
 	CheckpointID         string
 	SessionIndex         int
 	SessionID            string
+	Branch               string
+	SourceBranch         string
 	Agent                string
 	Model                string
 	Kind                 string
@@ -1341,16 +1823,28 @@ type exportManifest struct {
 	GeneratedAt        time.Time       `json:"generated_at"`
 	RepoRoot           string          `json:"repo_root,omitempty"`
 	EntireCLIVersion   string          `json:"entire_cli_version,omitempty"`
+	DefaultBranch      string          `json:"default_branch,omitempty"`
 	TranscriptMode     string          `json:"transcript_mode"`
 	Scope              string          `json:"scope"`
 	CheckpointLimit    int             `json:"checkpoint_limit"`
 	CheckpointsScanned int             `json:"checkpoints_scanned"`
+	Branches           []exportBranch  `json:"branches,omitempty"`
 	Sessions           []exportSession `json:"sessions"`
 	Warnings           []string        `json:"warnings,omitempty"`
 }
 
+type exportBranch struct {
+	Branch       string `json:"branch"`
+	Directory    string `json:"directory"`
+	SessionCount int    `json:"session_count"`
+	Default      bool   `json:"default,omitempty"`
+}
+
 type exportSession struct {
 	SessionID            string                `json:"session_id"`
+	Branch               string                `json:"branch,omitempty"`
+	SourceBranch         string                `json:"source_branch,omitempty"`
+	Authors              []exportAuthor        `json:"authors,omitempty"`
 	Agent                string                `json:"agent,omitempty"`
 	Model                string                `json:"model,omitempty"`
 	Kind                 string                `json:"kind,omitempty"`
@@ -1367,4 +1861,11 @@ type exportSession struct {
 	CheckpointsCount     int                   `json:"checkpoints_count,omitempty"`
 	TranscriptPath       string                `json:"transcript_path"`
 	SourceTranscriptPath string                `json:"-"`
+}
+
+type exportAuthor struct {
+	Name         string     `json:"name,omitempty"`
+	Email        string     `json:"email,omitempty"`
+	Commits      int        `json:"commits,omitempty"`
+	LastCommitAt *time.Time `json:"last_commit_at,omitempty"`
 }
