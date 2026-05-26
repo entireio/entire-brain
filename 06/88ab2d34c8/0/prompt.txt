@@ -1,0 +1,9 @@
+Add a sub command to “entire brain” so an agent can find the path to the brain for a path or repo URL. If the path exists but isn’t exported yet, the command should do that first.
+
+---
+
+Read the brain for this project
+
+---
+
+Read the brain for this project
