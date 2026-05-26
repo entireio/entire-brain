@@ -1,0 +1,166 @@
+package cli
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/spf13/cobra"
+)
+
+type pathCommandOptions struct {
+	checkpointLimit int
+	entireBinary    string
+	rawTranscript   bool
+	scope           string
+}
+
+func newPathCommand(opts Options) *cobra.Command {
+	pathOpts := pathCommandOptions{
+		checkpointLimit: defaultCheckpointLimit,
+		entireBinary:    "entire",
+		scope:           exportScopeAll,
+	}
+
+	cmd := &cobra.Command{
+		Use:   "path [path-or-repo-url]",
+		Short: "Print the persistent brain path for a repo path or URL",
+		Long: `Path prints the persistent brain export directory for a repository.
+
+When the target is an existing local path, it is resolved to the containing git
+worktree when possible. If that brain has not been exported yet, path creates
+the persistent export before printing the directory. Repo URLs are resolved to
+their deterministic brain directory without exporting.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target := "."
+			if opts.Env.RepoRoot != "" {
+				target = opts.Env.RepoRoot
+			}
+			if len(args) == 1 {
+				target = args[0]
+			}
+			return runPath(cmd.Context(), cmd, opts, pathOpts, target)
+		},
+	}
+
+	cmd.Flags().IntVar(&pathOpts.checkpointLimit, "checkpoint-limit", defaultCheckpointLimit, "Maximum checkpoints to inspect when exporting")
+	cmd.Flags().StringVar(&pathOpts.entireBinary, "entire-binary", "entire", "Entire CLI binary to invoke when exporting")
+	cmd.Flags().BoolVar(&pathOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts")
+	cmd.Flags().StringVar(&pathOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope when exporting: all or branch")
+
+	return cmd
+}
+
+func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pathCommandOptions, target string) error {
+	dirs, err := resolvePluginDirs(opts.Env)
+	if err != nil {
+		return err
+	}
+
+	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	if err != nil {
+		return err
+	}
+	if local {
+		storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+		if err != nil {
+			return err
+		}
+		if !brainExportExists(storage.BrainDir) {
+			if err := runPathExport(ctx, opts, pathOpts, repoDir); err != nil {
+				return err
+			}
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), storage.BrainDir)
+		return nil
+	}
+
+	key, ok, err := repoKeyFromRemote(dirs.Config, target)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("target is neither an existing path nor a supported repo URL: %s", target)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), filepath.Join(dirs.Data, brainDirName, filepath.FromSlash(key)))
+	return nil
+}
+
+func resolveLocalTargetRepoDir(ctx context.Context, runner CommandRunner, target string) (string, bool, error) {
+	info, err := os.Stat(target)
+	switch {
+	case err == nil:
+	case os.IsNotExist(err):
+		return "", false, nil
+	default:
+		return "", false, fmt.Errorf("stat target path: %w", err)
+	}
+
+	dir := target
+	if !info.IsDir() {
+		dir = filepath.Dir(target)
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", true, fmt.Errorf("resolve target path: %w", err)
+	}
+
+	if runner != nil {
+		stdout, _, err := runner.Run(ctx, abs, "git", "rev-parse", "--show-toplevel")
+		if err == nil {
+			root := filepath.Clean(strings.TrimSpace(string(stdout)))
+			if root != "" {
+				if !filepath.IsAbs(root) {
+					root = filepath.Join(abs, root)
+				}
+				rootAbs, absErr := filepath.Abs(root)
+				if absErr != nil {
+					return "", true, fmt.Errorf("resolve git root: %w", absErr)
+				}
+				abs = rootAbs
+			}
+		}
+	}
+
+	return abs, true, nil
+}
+
+func brainExportExists(brainDir string) bool {
+	info, err := os.Stat(filepath.Join(brainDir, exportManifestFileName))
+	return err == nil && !info.IsDir()
+}
+
+func runPathExport(ctx context.Context, opts Options, pathOpts pathCommandOptions, repoDir string) error {
+	if pathOpts.checkpointLimit <= 0 {
+		return fmt.Errorf("--checkpoint-limit must be greater than zero")
+	}
+	if strings.TrimSpace(pathOpts.entireBinary) == "" {
+		return fmt.Errorf("--entire-binary must not be empty")
+	}
+	if pathOpts.scope != exportScopeAll && pathOpts.scope != exportScopeBranch {
+		return fmt.Errorf("--scope must be either all or branch")
+	}
+
+	exportEnv := opts.Env
+	exportEnv.RepoRoot = repoDir
+	exportCmd := &cobra.Command{Use: "export"}
+	exportCmd.SetOut(io.Discard)
+	exportCmd.SetErr(io.Discard)
+	exportOpts := exportCommandOptions{
+		outputDir:       defaultExportDir,
+		checkpointLimit: pathOpts.checkpointLimit,
+		entireBinary:    pathOpts.entireBinary,
+		rawTranscript:   pathOpts.rawTranscript,
+		scope:           pathOpts.scope,
+	}
+	return runExport(ctx, exportCmd, Options{
+		Version: opts.Version,
+		Env:     exportEnv,
+		Runner:  opts.Runner,
+		Now:     opts.Now,
+	}, exportOpts)
+}

@@ -92,6 +92,20 @@ Use `--raw` when native agent logs are required instead:
 entire brain export --raw --output ./entire-brain-raw-export
 ```
 
+### Find a Brain Path
+
+Agents can resolve the persistent brain path for a local checkout path or a
+repo URL:
+
+```sh
+entire brain path .
+entire brain path https://github.com/entireio/cli.git
+```
+
+For existing local paths, the command prints the persistent brain directory and
+creates the default export first when `manifest.json` is not present. Repo URLs
+resolve to their deterministic brain directory without exporting.
+
 The exporter respects the repository's configured checkpoint storage version:
 V1 repositories read `entire/checkpoints/v1`, while V2 repositories read
 `refs/entire/checkpoints/v2/main`. Checkpoints can live either in the current
