@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "b6766fc924c8",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/seed.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b6/766fc924c8/0/metadata.json",
+      "transcript": "/b6/766fc924c8/0/full.jsonl",
+      "content_hash": "/b6/766fc924c8/0/content_hash.txt",
+      "prompt": "/b6/766fc924c8/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 40154,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3302400,
+    "output_tokens": 3940,
+    "api_call_count": 21
+  }
+}

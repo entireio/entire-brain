@@ -1,0 +1,9 @@
+Ok, now run the same with —agent claude-code. Verify that it runs without errors and compare the results to the codex run.
+
+---
+
+Use the gaps to write more precise instructions for both agents; same instructions, not specific per agent. Then run them both again and see if the result is closer.
+
+---
+
+Use the gaps to write more precise instructions for both agents; same instructions, not specific per agent. Then run them both again and see if the result is closer.
