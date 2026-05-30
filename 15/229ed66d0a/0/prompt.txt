@@ -1,13 +1,1 @@
-Exports those gaps into the plan doc. Then commit/push.
-
----
-
-Did you run the seed for react-split-flap with the —agent option?
-
----
-
-Do that next, use codex as agent.
-
----
-
 Do that next, use codex as agent.
