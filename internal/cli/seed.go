@@ -1267,7 +1267,7 @@ func runSeedAgentPhase(ctx context.Context, repoDir, outputDir string, opts seed
 		if err != nil {
 			phaseManifest.Status = "failed"
 			if stderr.Len() > 0 {
-				phaseManifest.Warnings = append(phaseManifest.Warnings, strings.TrimSpace(stderr.String()))
+				phaseManifest.Warnings = append(phaseManifest.Warnings, truncateAgentWarning(strings.TrimSpace(stderr.String())))
 			}
 			return phaseManifest, nil, fmt.Errorf("agent %s synthesis failed: %w", phase, err)
 		}
@@ -1297,12 +1297,17 @@ func runSeedAgentPhase(ctx context.Context, repoDir, outputDir string, opts seed
 		phaseManifest.Status = "success"
 		phaseManifest.Model = out.Model
 		phaseManifest.Warnings = append(phaseManifest.Warnings, out.Warnings...)
-		if stderr.Len() > 0 {
-			phaseManifest.Warnings = append(phaseManifest.Warnings, strings.TrimSpace(stderr.String()))
-		}
 		phaseManifest.OutputPaths = written
 		return phaseManifest, out.Artifacts, nil
 	}
+}
+
+func truncateAgentWarning(warning string) string {
+	const maxWarningBytes = 4000
+	if len(warning) <= maxWarningBytes {
+		return warning
+	}
+	return warning[:maxWarningBytes] + "\n[truncated]"
 }
 
 func promptSeedTimeoutAction(opts seedCommandOptions, timeout time.Duration, fallback string) string {
@@ -1337,22 +1342,22 @@ func seedAgentCommandArgs(repoDir, phase string, opts seedCommandOptions) ([]str
 		}
 		return append([]string(nil), opts.agentCommand...), nil
 	case "codex":
-		schemaPath := filepath.Join(repoDir, ".entire", "tmp", "seed-agent-schema-"+phase+".json")
-		if err := os.MkdirAll(filepath.Dir(schemaPath), 0o700); err != nil {
-			return nil, err
-		}
-		if err := os.WriteFile(schemaPath, []byte(seedAgentOutputSchema()), 0o600); err != nil {
-			return nil, err
-		}
-		prompt := "Read the JSON seed packet on stdin and return only JSON matching the provided schema. Produce the required artifacts for the requested phase."
-		return []string{"codex", "exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only", "--ask-for-approval", "never", "--output-schema", schemaPath, prompt}, nil
+		prompt := fmt.Sprintf("Read the JSON seed packet on stdin and return only raw JSON with keys schema_version, status, model, artifacts, and warnings. artifacts must be an object whose keys are artifact filenames and values are markdown content. For phase %q, artifacts must include exactly these required filenames: %s. Do not include markdown fences or prose outside the JSON object.", phase, strings.Join(seedAgentRequiredArtifacts(phase), ", "))
+		return []string{"codex", "exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only", prompt}, nil
 	default:
 		return nil, fmt.Errorf("unsupported --agent %q", opts.agent)
 	}
 }
 
-func seedAgentOutputSchema() string {
-	return `{"type":"object","required":["schema_version","status","artifacts"],"properties":{"schema_version":{"type":"integer"},"status":{"type":"string"},"model":{"type":"string"},"artifacts":{"type":"object","additionalProperties":{"type":"string"}},"warnings":{"type":"array","items":{"type":"string"}}},"additionalProperties":false}`
+func seedAgentRequiredArtifacts(phase string) []string {
+	switch phase {
+	case "quick":
+		return []string{"quick-overview.md"}
+	case "deep":
+		return []string{"overview.md", "architecture.md", "risks.md", "maintenance-guide.md", "open-questions.md"}
+	default:
+		return nil
+	}
 }
 
 func writeAgentArtifacts(outputDir string, artifacts map[string]string) ([]string, error) {
