@@ -1,0 +1,6 @@
+You have everything to implement the full plan end-to-end? If you have any questions, ask them
+now, I don’t want to babysit you. You are only done when all phases are implemented, commit, and tested.
+
+---
+
+Run the command on this repo and verify the results
