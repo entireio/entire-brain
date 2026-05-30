@@ -1,0 +1,5 @@
+Run the command on this repo and verify the results
+
+---
+
+Ok, now try it against ../react-split-flap.
