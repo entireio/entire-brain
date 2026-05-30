@@ -511,6 +511,33 @@ Coverage classes:
 Merge commits are recorded as a separate flag/count instead of an exclusive
 class, because a merge can still be missing session coverage.
 
+Branch handling gaps:
+
+- Current implementation scans only commits reachable from the current `HEAD`
+  because it runs `git log` without an explicit ref set.
+- Merged branch commits are covered only when they are reachable from that
+  `HEAD`.
+- Other local branches are not scanned.
+- Remote-only branches are not scanned.
+- Exported sessions can record branch names, but seed coverage does not yet
+  compare each session branch to that branch's reachable commit graph.
+- The current report therefore answers "what is missing from the current
+  project history" but not "what is missing on every known branch."
+
+Branch-aware coverage requirements:
+
+- Add a coverage scope that mirrors export scope: `branch` for current/default
+  branch and `all` for all discovered local/remote refs.
+- Record scanned refs in `sources.seed.history_coverage`.
+- Deduplicate commits reachable from multiple refs while preserving the list of
+  refs that reach each commit.
+- Classify coverage per commit and expose ref reachability in
+  `seed/history-gaps.md`.
+- Flag exported session branches whose commits are outside the selected seed
+  coverage scope.
+- Keep merge commits as a flag/count, not as a substitute for coverage
+  classification.
+
 Tests:
 
 - pre-session commits are counted without being reported as later gaps.
@@ -518,6 +545,10 @@ Tests:
 - checkpointed commits not directly exported are listed as fallback context.
 - later non-checkpointed commits are listed as missing session coverage.
 - merge commits keep their coverage class and increment the merge count.
+- branch scope scans only current/default branch reachability.
+- all scope scans local and remote refs, deduplicates shared commits, and
+  records all reaching refs.
+- sessions whose branch is outside the scanned coverage scope produce a warning.
 
 ## Future Refresh Command
 
