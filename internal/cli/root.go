@@ -52,6 +52,8 @@ agent can inspect to understand project history.`,
 	cmd.AddCommand(newConfigCommand(opts.Env))
 	cmd.AddCommand(newExportCommand(opts))
 	cmd.AddCommand(newPathCommand(opts))
+	cmd.AddCommand(newRefreshCommand(opts))
+	cmd.AddCommand(newSeedCommand(opts))
 	cmd.AddCommand(newVersionCommand(opts.Version))
 	return cmd
 }

@@ -223,11 +223,13 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	persistentBrain := !outputExplicit
 	var cursor *exportCursor
 	var cursorFile string
+	var repoKey string
 	if persistentBrain {
 		storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 		if err != nil {
 			return err
 		}
+		repoKey = storage.Key
 		outputDir = storage.BrainDir
 		cursorFile = storage.HeadPath
 		cursor = loadExportCursor(cursorFile)
@@ -262,11 +264,14 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		}
 	}
 
-	if err := writeJSONFile(filepath.Join(outputDir, exportManifestFileName), manifest); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(outputDir, exportReadmeFileName), []byte(renderExportReadme(manifest)), 0o600); err != nil {
-		return fmt.Errorf("write export readme: %w", err)
+	if persistentBrain {
+		if err := writeBrainSessionSource(outputDir, repoKey, manifest); err != nil {
+			return err
+		}
+	} else {
+		if err := writeBrainManifestAndReadme(outputDir, manifest); err != nil {
+			return err
+		}
 	}
 	if persistentBrain {
 		if err := writeExportCursor(cursorFile, manifest); err != nil {
@@ -1995,6 +2000,7 @@ type exportManifest struct {
 	SchemaVersion      int             `json:"schema_version"`
 	GeneratedAt        time.Time       `json:"generated_at"`
 	RepoRoot           string          `json:"repo_root,omitempty"`
+	RepoKey            string          `json:"repo_key,omitempty"`
 	EntireCLIVersion   string          `json:"entire_cli_version,omitempty"`
 	DefaultBranch      string          `json:"default_branch,omitempty"`
 	TranscriptMode     string          `json:"transcript_mode"`
@@ -2004,6 +2010,7 @@ type exportManifest struct {
 	Branches           []exportBranch  `json:"branches,omitempty"`
 	Sessions           []exportSession `json:"sessions"`
 	Warnings           []string        `json:"warnings,omitempty"`
+	Sources            *brainSources   `json:"sources,omitempty"`
 }
 
 type exportBranch struct {

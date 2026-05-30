@@ -115,6 +115,45 @@ It inspects up to 10,000 checkpoints by default; adjust with
 `--checkpoint-limit`. Use `--scope branch` for the current branch's
 `entire checkpoint explain --json` list view.
 
+### Seed a Brain from Repository Contents
+
+When a repository has no Entire session logs, or when its git history predates
+the oldest available session log, seed the brain from committed repository
+contents:
+
+```sh
+entire brain seed .
+entire brain seed ../agentviz --output /tmp/agentviz-brain
+```
+
+The seed writes deterministic repository context under `seed/`, including a
+file index, copied high-signal docs, detected commands, entrypoints,
+architecture notes, conventions, and risks. It never fabricates session logs;
+real sessions remain under `sessions/`.
+
+Agent synthesis can be added on top of the deterministic seed:
+
+```sh
+entire brain seed --agent command --agent-command ./seed-agent .
+entire brain seed --agent codex .
+```
+
+Agent synthesis runs in quick and deep phases. The quick phase has a default
+2-minute timeout and produces `seed/agent/quick-overview.md`; the deep phase has
+a default 10-minute timeout and can be continued, failed, or kept as the quick
+result in interactive mode.
+
+Refresh combines both flows:
+
+```sh
+entire brain refresh
+```
+
+`refresh` updates session history and creates or updates the seed when no
+sessions exist, when the seed is missing, or when the oldest commit predates the
+oldest session. `entire brain path .` uses this refresh behavior when it needs
+to materialize a missing persistent brain for a local checkout.
+
 ## Entire Plugin Contract
 
 The parent CLI supplies these variables when it dispatches a plugin:

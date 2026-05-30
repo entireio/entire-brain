@@ -71,7 +71,7 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 			return err
 		}
 		if !brainExportExists(storage.BrainDir) {
-			if err := runPathExport(ctx, opts, pathOpts, repoDir); err != nil {
+			if err := runPathRefresh(ctx, opts, pathOpts, repoDir); err != nil {
 				return err
 			}
 		}
@@ -163,4 +163,32 @@ func runPathExport(ctx context.Context, opts Options, pathOpts pathCommandOption
 		Runner:  opts.Runner,
 		Now:     opts.Now,
 	}, exportOpts)
+}
+
+func runPathRefresh(ctx context.Context, opts Options, pathOpts pathCommandOptions, repoDir string) error {
+	refreshCmd := &cobra.Command{Use: "refresh"}
+	refreshCmd.SetOut(io.Discard)
+	refreshCmd.SetErr(io.Discard)
+	refreshEnv := opts.Env
+	refreshEnv.RepoRoot = repoDir
+	return runRefresh(ctx, refreshCmd, Options{
+		Version: opts.Version,
+		Env:     refreshEnv,
+		Runner:  opts.Runner,
+		Now:     opts.Now,
+	}, refreshCommandOptions{
+		checkpointLimit: pathOpts.checkpointLimit,
+		entireBinary:    pathOpts.entireBinary,
+		rawTranscript:   pathOpts.rawTranscript,
+		scope:           pathOpts.scope,
+		seed: seedCommandOptions{
+			includeTests:       true,
+			maxFileBytes:       defaultSeedMaxFileBytes,
+			maxFiles:           defaultSeedMaxFiles,
+			format:             "markdown+json",
+			agent:              "none",
+			agentTimeoutAction: "keep-quick",
+			agentMaxInputBytes: defaultAgentMaxInput,
+		},
+	})
 }
