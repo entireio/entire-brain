@@ -144,6 +144,12 @@ Agent synthesis runs in quick and deep phases. The quick phase has a default
 a default 10-minute timeout and can be continued, failed, or kept as the quick
 result in interactive mode.
 
+Fresh agent intake templates are available for projects that should read an
+existing brain before work:
+
+- `templates/entire-brain-intake-codex-skill.md`
+- `templates/entire-brain-intake-claude-agent.md`
+
 Refresh combines both flows:
 
 ```sh
