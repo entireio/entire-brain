@@ -524,7 +524,7 @@ func isSelectedUntrackedSeedFile(path string) bool {
 
 func isEntrypointPath(path string) bool {
 	base := filepath.Base(path)
-	if base == "main.go" || base == "server.js" || base == "index.js" || base == "main.jsx" || base == "main.tsx" || base == "App.jsx" || base == "App.tsx" {
+	if base == "main.go" || base == "server.js" || base == "index.js" || base == "index.ts" || base == "index.tsx" || base == "main.jsx" || base == "main.tsx" || base == "App.jsx" || base == "App.tsx" {
 		return true
 	}
 	return strings.HasPrefix(filepath.ToSlash(path), "bin/")
