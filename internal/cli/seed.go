@@ -1205,8 +1205,9 @@ func buildAgentInput(phase, repoDir string, scan seedScanResult, quick map[strin
 		Inventory: scan.Files,
 		Documents: scan.Docs,
 		Metadata: map[string]any{
-			"entrypoints": scan.Entrypoints,
-			"commands":    scan.Commands,
+			"entrypoints":      scan.Entrypoints,
+			"commands":         scan.Commands,
+			"history_coverage": scan.Coverage,
 		},
 		DeterministicSummaries: map[string]string{
 			"overview":      renderSeedOverview(scan),
@@ -1214,6 +1215,7 @@ func buildAgentInput(phase, repoDir string, scan seedScanResult, quick map[strin
 			"commands":      renderSeedCommands(scan),
 			"conventions":   renderSeedConventions(scan),
 			"risks_and_gap": renderSeedRisks(scan),
+			"history_gaps":  renderSeedHistoryGaps(scan),
 		},
 		QuickResult: quick,
 	}
@@ -1346,13 +1348,54 @@ func seedAgentCommandArgs(repoDir, phase string, opts seedCommandOptions) ([]str
 		}
 		return append([]string(nil), opts.agentCommand...), nil
 	case "codex":
-		prompt := fmt.Sprintf("Read the JSON seed packet on stdin and return only raw JSON with keys schema_version, status, model, artifacts, and warnings. artifacts must be an object whose keys are artifact filenames and values are markdown content. For phase %q, artifacts must include exactly these required filenames: %s. Do not include markdown fences or prose outside the JSON object.", phase, strings.Join(seedAgentRequiredArtifacts(phase), ", "))
-		return []string{"codex", "exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only", prompt}, nil
+		return []string{"codex", "exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only", seedAgentPrompt(phase)}, nil
 	case "claude-code":
-		prompt := fmt.Sprintf("Read the JSON seed packet on stdin and return only raw JSON with keys schema_version, status, model, artifacts, and warnings. artifacts must be an object whose keys are artifact filenames and values are markdown content. For phase %q, artifacts must include exactly these required filenames: %s. Do not include markdown fences or prose outside the JSON object.", phase, strings.Join(seedAgentRequiredArtifacts(phase), ", "))
-		return []string{"claude", "--print", "--no-session-persistence", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt", prompt}, nil
+		return []string{"claude", "--print", "--no-session-persistence", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt", seedAgentPrompt(phase)}, nil
 	default:
 		return nil, fmt.Errorf("unsupported --agent %q", opts.agent)
+	}
+}
+
+func seedAgentPrompt(phase string) string {
+	required := strings.Join(seedAgentRequiredArtifacts(phase), ", ")
+	common := fmt.Sprintf(`Read the JSON seed packet on stdin and return only raw JSON with keys schema_version, status, model, artifacts, and warnings.
+artifacts must be an object whose keys are artifact filenames and values are markdown content.
+For phase %q, artifacts must include exactly these required filenames: %s.
+Do not include markdown fences or prose outside the JSON object.
+
+Use the deterministic summaries, documents list, inventory, commands, entrypoints, and history_coverage metadata.
+Pay special attention to history gaps:
+- distinguish pre-session commits, checkpointed-but-unexported commits, and missing_session commits.
+- explain missing history as uncertainty, not as if session transcripts exist.
+- use commit subjects/notes from history_gaps when describing likely development history.
+- call out skipped files and denied paths only when they affect confidence.
+
+Keep all artifacts factual, repo-specific, and useful for a future coding agent.
+Do not invent APIs, test results, CI status, release process, or rationale not present in the packet.
+Prefer concrete filenames, exported symbols, commands, renderer names, and documented constraints over generic advice.
+Use compact markdown.`, phase, required)
+	switch phase {
+	case "quick":
+		return common + `
+
+quick-overview.md must contain these sections:
+# Quick Overview
+## Project
+## Entry Points
+## Core Modules
+## Commands
+## History Coverage
+## Immediate Risks`
+	case "deep":
+		return common + `
+
+overview.md must summarize purpose, public surface, commands, tests, docs, and history confidence.
+architecture.md must explain module boundaries and data flow across the actual files in the packet.
+risks.md must rank concrete code/process risks and include history-gap risk separately.
+maintenance-guide.md must tell a future agent where to edit, what to run, and what parity checks matter.
+open-questions.md must list only questions supported by packet evidence; include any history backfill question caused by missing_session commits.`
+	default:
+		return common
 	}
 }
 
