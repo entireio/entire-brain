@@ -1,0 +1,9 @@
+Do that next, use codex as agent.
+
+---
+
+Ok, now run the same with —agent claude-code. Verify that it runs without errors and compare the results to the codex run.
+
+---
+
+Ok, now run the same with —agent claude-code. Verify that it runs without errors and compare the results to the codex run.
