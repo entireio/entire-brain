@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -48,6 +49,9 @@ func TestSeedWritesDeterministicBrain(t *testing.T) {
 	}
 	if len(manifest.Sources.Seed.Commands) == 0 {
 		t.Fatalf("commands missing from package.json: %+v", manifest.Sources.Seed)
+	}
+	if !hasSeedCommand(manifest.Sources.Seed.Commands, "mise run fmt") || !hasSeedCommand(manifest.Sources.Seed.Commands, "mise run test:ci") {
+		t.Fatalf("mise commands missing: %+v", manifest.Sources.Seed.Commands)
 	}
 	if !hasSeedDocument(manifest.Sources.Seed.Documents, "README.md") || !hasSeedDocument(manifest.Sources.Seed.Documents, "CLAUDE.md") || !hasSeedDocument(manifest.Sources.Seed.Documents, ".github/copilot-instructions.md") {
 		t.Fatalf("expected docs missing: %+v", manifest.Sources.Seed.Documents)
@@ -166,6 +170,55 @@ printf '{"schema_version":1,"status":"success","artifacts":{"../bad.md":"bad","q
 	}
 }
 
+func TestSeedHistoryBaselineUsesRootCommit(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	outputDir := t.TempDir()
+	oldestSession := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := writeBrainSessionSource(outputDir, "gh/example/repo", exportManifest{
+		GeneratedAt:        oldestSession,
+		TranscriptMode:     "compact",
+		Scope:              exportScopeAll,
+		CheckpointLimit:    10,
+		CheckpointsScanned: 1,
+		Sessions: []exportSession{{
+			SessionID:        "session-one",
+			LatestCheckpoint: "aaa111aaa111",
+			CreatedAt:        oldestSession,
+			TranscriptPath:   "sessions/main/session.jsonl",
+		}},
+	}); err != nil {
+		t.Fatalf("write session source: %v", err)
+	}
+	runner := seedFixtureRunner(repoDir)
+	runner.responses[fakeCommandKey("git", "rev-list", "--max-parents=0", "HEAD")] = fakeCommandResponse{stdout: "root-newer\nroot-older\n"}
+	runner.responses[fakeCommandKey("git", "show", "-s", "--format=%aI", "root-newer")] = fakeCommandResponse{stdout: "2025-01-01T00:00:00Z\n"}
+	runner.responses[fakeCommandKey("git", "show", "-s", "--format=%aI", "root-older")] = fakeCommandResponse{stdout: "2024-01-01T00:00:00Z\n"}
+
+	baseline := buildSeedHistoryBaseline(context.Background(), runner, repoDir, outputDir)
+	if baseline.OldestCommitAt == nil || !baseline.OldestCommitAt.Equal(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("oldest commit = %+v, want 2024 root", baseline.OldestCommitAt)
+	}
+	if !baseline.SeedRequired {
+		t.Fatalf("seed should be required when root commit predates session: %+v", baseline)
+	}
+}
+
+func TestCombinedReadmeDeduplicatesWarnings(t *testing.T) {
+	warning := "same warning"
+	readme := renderCombinedBrainReadme(exportManifest{
+		Warnings: []string{warning},
+		Sources: &brainSources{
+			Seed: &seedSourceManifest{GeneratedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), SummaryPath: "seed/repo-overview.md"},
+			Sessions: &sessionSourceManifest{
+				Warnings: []string{warning},
+			},
+		},
+	})
+	if strings.Count(readme, warning) != 1 {
+		t.Fatalf("warning was not deduplicated:\n%s", readme)
+	}
+}
+
 func seedFixtureRepo(t *testing.T) string {
 	t.Helper()
 	repoDir := t.TempDir()
@@ -174,6 +227,7 @@ func seedFixtureRepo(t *testing.T) string {
 		"CLAUDE.md":                       "# Rules\n",
 		".github/copilot-instructions.md": "# Copilot\n",
 		"package.json":                    `{"scripts":{"dev":"vite","test":"vitest"}}`,
+		"mise.toml":                       "[tasks.fmt]\nrun = \"gofmt -w .\"\n\n[tasks.\"test:ci\"]\nrun = '''\ngo test -race ./...\n'''\n",
 		"src/main.jsx":                    "export function main() {}\n",
 		"src/__tests__/main.test.js":      "test('x', () => {})\n",
 		".env.local":                      "TOKEN=secret\n",
@@ -206,12 +260,19 @@ func seedFixtureRunner(repoDir string) *fakeCommandRunner {
 		fakeCommandKey("git", "log", "--reverse", "--format=%aI", "--max-count=1"): {
 			stdout: "2025-01-01T00:00:00Z\n",
 		},
+		fakeCommandKey("git", "rev-list", "--max-parents=0", "HEAD"): {
+			stdout: "root-one\n",
+		},
+		fakeCommandKey("git", "show", "-s", "--format=%aI", "root-one"): {
+			stdout: "2025-01-01T00:00:00Z\n",
+		},
 		fakeCommandKey("git", "ls-files"): {
 			stdout: strings.Join([]string{
 				"README.md",
 				"CLAUDE.md",
 				".github/copilot-instructions.md",
 				"package.json",
+				"mise.toml",
 				"src/main.jsx",
 				"src/__tests__/main.test.js",
 				".env.local",
@@ -225,6 +286,15 @@ func seedFixtureRunner(repoDir string) *fakeCommandRunner {
 func hasSeedDocument(docs []seedDocument, path string) bool {
 	for _, doc := range docs {
 		if doc.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSeedCommand(commands []seedCommand, name string) bool {
+	for _, command := range commands {
+		if command.Name == name {
 			return true
 		}
 	}

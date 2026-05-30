@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -334,6 +335,13 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 			}
 			result.Commands = append(result.Commands, commands...)
 		}
+		if filepath.Base(rel) == "mise.toml" {
+			commands, err := miseCommands(filepath.Join(repoDir, rel), rel)
+			if err != nil {
+				result.Warnings = append(result.Warnings, err.Error())
+			}
+			result.Commands = append(result.Commands, commands...)
+		}
 	}
 	sort.Slice(result.Files, func(i, j int) bool { return result.Files[i].Path < result.Files[j].Path })
 	sort.Slice(result.Docs, func(i, j int) bool { return result.Docs[i].Path < result.Docs[j].Path })
@@ -547,6 +555,64 @@ func packageJSONCommands(path, rel string) ([]seedCommand, error) {
 	return commands, nil
 }
 
+func miseCommands(path, rel string) ([]seedCommand, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", rel, err)
+	}
+	var commands []seedCommand
+	var current string
+	var collecting bool
+	var multiline strings.Builder
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if collecting {
+			if end, _, ok := strings.Cut(line, "'''"); ok {
+				multiline.WriteString(strings.TrimSpace(end))
+				commands = append(commands, seedCommand{Name: "mise run " + current, Command: strings.TrimSpace(multiline.String()), Source: filepath.ToSlash(rel)})
+				collecting = false
+				multiline.Reset()
+				continue
+			}
+			multiline.WriteString(strings.TrimSpace(raw))
+			multiline.WriteByte('\n')
+			continue
+		}
+		if strings.HasPrefix(line, "[tasks.") && strings.HasSuffix(line, "]") {
+			name := strings.TrimSuffix(strings.TrimPrefix(line, "[tasks."), "]")
+			name = strings.Trim(name, `"`)
+			current = name
+			continue
+		}
+		if current == "" || !strings.HasPrefix(line, "run") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(key) != "run" {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if strings.HasPrefix(value, "'''") {
+			value = strings.TrimPrefix(value, "'''")
+			if before, _, ok := strings.Cut(value, "'''"); ok {
+				commands = append(commands, seedCommand{Name: "mise run " + current, Command: strings.TrimSpace(before), Source: filepath.ToSlash(rel)})
+				continue
+			}
+			collecting = true
+			multiline.WriteString(strings.TrimSpace(value))
+			if strings.TrimSpace(value) != "" {
+				multiline.WriteByte('\n')
+			}
+			continue
+		}
+		if unquoted, err := strconv.Unquote(value); err == nil {
+			value = unquoted
+		}
+		commands = append(commands, seedCommand{Name: "mise run " + current, Command: value, Source: filepath.ToSlash(rel)})
+	}
+	return commands, nil
+}
+
 func seedFingerprint(scan seedScanResult) string {
 	var b strings.Builder
 	b.WriteString(scan.Commit)
@@ -707,11 +773,15 @@ func sortedMapKeys[T any](m map[string]T) []string {
 func buildSeedHistoryBaseline(ctx context.Context, runner CommandRunner, repoDir, outputDir string) *seedHistoryBaseline {
 	var baseline seedHistoryBaseline
 	baseline.Confidence = "heuristic"
-	stdout := runGitOutput(ctx, runner, repoDir, "log", "--reverse", "--format=%aI", "--max-count=1")
-	if text := strings.TrimSpace(string(stdout)); text != "" {
-		if parsed, err := time.Parse(time.RFC3339, text); err == nil {
-			parsed = parsed.UTC()
-			baseline.OldestCommitAt = &parsed
+	for _, root := range splitNonEmptyLines(runGitOutput(ctx, runner, repoDir, "rev-list", "--max-parents=0", "HEAD")) {
+		stdout := runGitOutput(ctx, runner, repoDir, "show", "-s", "--format=%aI", root)
+		if text := strings.TrimSpace(string(stdout)); text != "" {
+			if parsed, err := time.Parse(time.RFC3339, text); err == nil {
+				parsed = parsed.UTC()
+				if baseline.OldestCommitAt == nil || parsed.Before(*baseline.OldestCommitAt) {
+					baseline.OldestCommitAt = &parsed
+				}
+			}
 		}
 	}
 	manifest, err := loadBrainManifest(outputDir)
@@ -797,6 +867,7 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 	if manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		warnings = append(warnings, manifest.Sources.Sessions.Warnings...)
 	}
+	warnings = uniqueStrings(warnings)
 	if len(warnings) > 0 {
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, "## Warnings")
@@ -806,6 +877,22 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 		}
 	}
 	return b.String()
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 type seedAgentInput struct {
