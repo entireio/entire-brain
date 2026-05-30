@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "14f4da1e48f4",
+  "session_id": "019e78b6-21f0-7471-8066-c2586662120e",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-30T17:49:06.872481Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "README.md",
+    "templates/entire-brain-intake-claude-agent.md",
+    "templates/entire-brain-intake-codex-skill.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "23680743ea19",
+  "token_usage": {
+    "input_tokens": 2023876,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 38368512,
+    "output_tokens": 101762,
+    "api_call_count": 308
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-30T17:49:06.769052Z",
+    "agent_lines": 97,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 97,
+    "total_lines_changed": 97,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

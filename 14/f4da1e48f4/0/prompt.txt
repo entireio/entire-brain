@@ -1,0 +1,17 @@
+Use the gaps to write more precise instructions for both agents; same instructions, not specific per agent. Then run them both again and see if the result is closer.
+
+---
+
+Now that we have a complete seed and export, what’s the most efficient way for a fresh agent session to read and process that information?
+
+---
+
+How would I make this a skill for Codex and Claude? Your prompt pattern needs to include a call to “entire brain path” with the cwd so the agent can find the brain.
+
+---
+
+Add that as template to the repo
+
+---
+
+Add that as template to the repo
