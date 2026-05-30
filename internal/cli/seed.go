@@ -61,6 +61,7 @@ type seedSourceManifest struct {
 	Entrypoints       []string             `json:"entrypoints,omitempty"`
 	Commands          []seedCommand        `json:"commands,omitempty"`
 	HistoryBaseline   *seedHistoryBaseline `json:"history_baseline,omitempty"`
+	HistoryCoverage   *seedHistoryCoverage `json:"history_coverage,omitempty"`
 	Agent             *seedAgentManifest   `json:"agent,omitempty"`
 	Warnings          []string             `json:"warnings,omitempty"`
 	DeterministicPath []string             `json:"deterministic_paths,omitempty"`
@@ -86,6 +87,34 @@ type seedHistoryBaseline struct {
 	SeedRequired    bool       `json:"seed_required"`
 	Reason          string     `json:"reason"`
 	Confidence      string     `json:"confidence"`
+}
+
+type seedHistoryCoverage struct {
+	Path                          string              `json:"path"`
+	TotalCommits                  int                 `json:"total_commits"`
+	PreSessionCommits             int                 `json:"pre_session_commits"`
+	CoveredCommits                int                 `json:"covered_commits"`
+	CheckpointedUnexportedCommits int                 `json:"checkpointed_unexported_commits"`
+	MissingSessionCommits         int                 `json:"missing_session_commits"`
+	NoSessionHistoryCommits       int                 `json:"no_session_history_commits"`
+	MergeCommits                  int                 `json:"merge_commits"`
+	OldestSessionAt               *time.Time          `json:"oldest_session_at,omitempty"`
+	ExportedCheckpoints           int                 `json:"exported_checkpoints"`
+	UncoveredCommits              []seedCoveredCommit `json:"uncovered_commits,omitempty"`
+	GeneratedFrom                 string              `json:"generated_from"`
+}
+
+type seedCoveredCommit struct {
+	Hash        string    `json:"hash"`
+	CommittedAt time.Time `json:"committed_at"`
+	AuthorName  string    `json:"author_name,omitempty"`
+	AuthorEmail string    `json:"author_email,omitempty"`
+	Subject     string    `json:"subject,omitempty"`
+	Coverage    string    `json:"coverage"`
+	Checkpoints []string  `json:"checkpoints,omitempty"`
+	Merge       bool      `json:"merge,omitempty"`
+	Parents     []string  `json:"parents,omitempty"`
+	BodyExcerpt string    `json:"body_excerpt,omitempty"`
 }
 
 type seedAgentManifest struct {
@@ -138,6 +167,7 @@ type seedScanResult struct {
 	Docs        []seedDocument
 	Entrypoints []string
 	Commands    []seedCommand
+	Coverage    *seedHistoryCoverage
 	Warnings    []string
 	Fingerprint string
 }
@@ -239,6 +269,10 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	if err != nil {
 		return err
 	}
+	scan.Coverage = buildSeedHistoryCoverage(ctx, opts.Runner, repoDir, outputDir)
+	if scan.Coverage != nil && scan.Coverage.MissingSessionCommits > 0 {
+		scan.Warnings = append(scan.Warnings, fmt.Sprintf("%d commits after oldest session have no Entire checkpoint trailer; see seed/history-gaps.md", scan.Coverage.MissingSessionCommits))
+	}
 	if err := writeSeedArtifacts(outputDir, scan); err != nil {
 		return err
 	}
@@ -253,8 +287,9 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		Entrypoints:       scan.Entrypoints,
 		Commands:          scan.Commands,
 		HistoryBaseline:   buildSeedHistoryBaseline(ctx, opts.Runner, repoDir, outputDir),
+		HistoryCoverage:   scan.Coverage,
 		Warnings:          scan.Warnings,
-		DeterministicPath: []string{"seed/repo-overview.md", "seed/architecture.md", "seed/commands.md", "seed/conventions.md", "seed/risks.md", "seed/file-index.json"},
+		DeterministicPath: []string{"seed/repo-overview.md", "seed/architecture.md", "seed/commands.md", "seed/conventions.md", "seed/risks.md", "seed/history-gaps.md", "seed/file-index.json"},
 	}
 
 	if seedOpts.agent != "none" {
@@ -650,6 +685,9 @@ func writeSeedArtifacts(outputDir string, scan seedScanResult) error {
 	if err := os.WriteFile(filepath.Join(outputDir, seedDirName, "risks.md"), []byte(renderSeedRisks(scan)), 0o600); err != nil {
 		return err
 	}
+	if err := os.WriteFile(filepath.Join(outputDir, seedDirName, "history-gaps.md"), []byte(renderSeedHistoryGaps(scan)), 0o600); err != nil {
+		return err
+	}
 	for _, doc := range scan.Docs {
 		src := filepath.Join(scan.RepoDir, filepath.FromSlash(doc.Path))
 		dst := filepath.Join(outputDir, filepath.FromSlash(doc.SeedPath))
@@ -683,6 +721,9 @@ func renderSeedOverview(scan seedScanResult) string {
 	fmt.Fprintf(&b, "- Documents copied: %d\n", len(scan.Docs))
 	fmt.Fprintf(&b, "- Entrypoints detected: %d\n", len(scan.Entrypoints))
 	fmt.Fprintf(&b, "- Commands detected: %d\n", len(scan.Commands))
+	if scan.Coverage != nil {
+		fmt.Fprintf(&b, "- Commits without session coverage after oldest session: %d\n", scan.Coverage.MissingSessionCommits)
+	}
 	return b.String()
 }
 
@@ -755,8 +796,55 @@ func renderSeedRisks(scan seedScanResult) string {
 	if skipped > 0 {
 		fmt.Fprintf(&b, "- %d files were skipped. See `file-index.json` for reasons.\n", skipped)
 	}
-	if skipped == 0 && len(scan.Warnings) == 0 {
+	if scan.Coverage != nil && scan.Coverage.MissingSessionCommits > 0 {
+		fmt.Fprintf(&b, "- %d commits after the oldest exported session have no Entire checkpoint trailer. See `history-gaps.md`.\n", scan.Coverage.MissingSessionCommits)
+	}
+	if skipped == 0 && len(scan.Warnings) == 0 && (scan.Coverage == nil || scan.Coverage.MissingSessionCommits == 0) {
 		fmt.Fprintln(&b, "No deterministic seed risks were detected.")
+	}
+	return b.String()
+}
+
+func renderSeedHistoryGaps(scan seedScanResult) string {
+	var b strings.Builder
+	fmt.Fprintln(&b, "# History Coverage")
+	fmt.Fprintln(&b)
+	if scan.Coverage == nil {
+		fmt.Fprintln(&b, "Commit coverage could not be computed.")
+		return b.String()
+	}
+	coverage := scan.Coverage
+	fmt.Fprintf(&b, "- Total commits: %d\n", coverage.TotalCommits)
+	fmt.Fprintf(&b, "- Pre-session commits: %d\n", coverage.PreSessionCommits)
+	fmt.Fprintf(&b, "- Covered by exported session checkpoint: %d\n", coverage.CoveredCommits)
+	fmt.Fprintf(&b, "- Checkpointed but not directly exported: %d\n", coverage.CheckpointedUnexportedCommits)
+	fmt.Fprintf(&b, "- Missing session coverage after oldest session: %d\n", coverage.MissingSessionCommits)
+	fmt.Fprintf(&b, "- Commits with no session history available: %d\n", coverage.NoSessionHistoryCommits)
+	fmt.Fprintf(&b, "- Merge commits: %d\n", coverage.MergeCommits)
+	if coverage.OldestSessionAt != nil {
+		fmt.Fprintf(&b, "- Oldest exported session: `%s`\n", coverage.OldestSessionAt.Format(time.RFC3339))
+	}
+	fmt.Fprintf(&b, "- Exported checkpoints known to manifest: %d\n", coverage.ExportedCheckpoints)
+	fmt.Fprintln(&b)
+	if len(coverage.UncoveredCommits) == 0 {
+		fmt.Fprintln(&b, "No commits need fallback history coverage.")
+		return b.String()
+	}
+	fmt.Fprintln(&b, "## Commits Needing Fallback Context")
+	fmt.Fprintln(&b)
+	for _, commit := range coverage.UncoveredCommits {
+		hash := shortCommitHash(commit.Hash)
+		fmt.Fprintf(&b, "- `%s` `%s` %s", hash, commit.CommittedAt.Format(time.RFC3339), commit.Subject)
+		if commit.Merge {
+			fmt.Fprint(&b, " (merge)")
+		}
+		fmt.Fprintf(&b, " [%s]\n", commit.Coverage)
+		if len(commit.Checkpoints) > 0 {
+			fmt.Fprintf(&b, "  Checkpoints: `%s`\n", strings.Join(commit.Checkpoints, "`, `"))
+		}
+		if commit.BodyExcerpt != "" && commit.BodyExcerpt != commit.Subject {
+			fmt.Fprintf(&b, "  Notes: %s\n", commit.BodyExcerpt)
+		}
 	}
 	return b.String()
 }
@@ -801,6 +889,165 @@ func buildSeedHistoryBaseline(ctx context.Context, runner CommandRunner, repoDir
 	return &baseline
 }
 
+func buildSeedHistoryCoverage(ctx context.Context, runner CommandRunner, repoDir, outputDir string) *seedHistoryCoverage {
+	manifest, err := loadBrainManifest(outputDir)
+	if err != nil {
+		return &seedHistoryCoverage{
+			Path:          filepath.ToSlash(filepath.Join(seedDirName, "history-gaps.md")),
+			GeneratedFrom: "git log",
+		}
+	}
+	var sessions *sessionSourceManifest
+	if manifest.Sources != nil {
+		sessions = manifest.Sources.Sessions
+	}
+	exportedCheckpoints := make(map[string]struct{})
+	var oldestSession *time.Time
+	if sessions != nil {
+		oldestSession = sessions.OldestSessionAt
+		for _, session := range sessions.Sessions {
+			if session.LatestCheckpoint != "" {
+				exportedCheckpoints[session.LatestCheckpoint] = struct{}{}
+			}
+		}
+	}
+
+	coverage := &seedHistoryCoverage{
+		Path:                filepath.ToSlash(filepath.Join(seedDirName, "history-gaps.md")),
+		OldestSessionAt:     oldestSession,
+		ExportedCheckpoints: len(exportedCheckpoints),
+		GeneratedFrom:       "git log",
+	}
+	commits := parseSeedGitLog(runGitOutput(ctx, runner, repoDir, "log", "--reverse", "--format=%H%x00%P%x00%aI%x00%an%x00%ae%x00%B%x1e"))
+	for _, commit := range commits {
+		classifySeedCommitCoverage(&commit, oldestSession, exportedCheckpoints)
+		coverage.TotalCommits++
+		if commit.Merge {
+			coverage.MergeCommits++
+		}
+		switch commit.Coverage {
+		case "pre_session":
+			coverage.PreSessionCommits++
+		case "covered":
+			coverage.CoveredCommits++
+		case "checkpointed_unexported":
+			coverage.CheckpointedUnexportedCommits++
+			coverage.UncoveredCommits = append(coverage.UncoveredCommits, commit)
+		case "missing_session":
+			coverage.MissingSessionCommits++
+			coverage.UncoveredCommits = append(coverage.UncoveredCommits, commit)
+		case "no_session_history":
+			coverage.NoSessionHistoryCommits++
+			coverage.UncoveredCommits = append(coverage.UncoveredCommits, commit)
+		}
+	}
+	return coverage
+}
+
+func parseSeedGitLog(data []byte) []seedCoveredCommit {
+	var commits []seedCoveredCommit
+	for _, raw := range strings.Split(string(data), gitLogRecordSeparator) {
+		raw = strings.Trim(raw, "\n")
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		fields := strings.SplitN(raw, gitLogFieldSeparator, 6)
+		if len(fields) < 6 {
+			continue
+		}
+		committedAt, err := time.Parse(time.RFC3339, strings.TrimSpace(fields[2]))
+		if err != nil {
+			continue
+		}
+		body := strings.TrimSpace(fields[5])
+		parents := splitCommitParents(fields[1])
+		commits = append(commits, seedCoveredCommit{
+			Hash:        strings.TrimSpace(fields[0]),
+			Parents:     parents,
+			CommittedAt: committedAt.UTC(),
+			AuthorName:  strings.TrimSpace(fields[3]),
+			AuthorEmail: strings.TrimSpace(fields[4]),
+			Subject:     firstCommitSubject(body),
+			Checkpoints: uniqueStrings(checkpointTrailers(body)),
+			Merge:       len(parents) > 1,
+			BodyExcerpt: commitBodyExcerpt(body),
+		})
+	}
+	return commits
+}
+
+func classifySeedCommitCoverage(commit *seedCoveredCommit, oldestSession *time.Time, exportedCheckpoints map[string]struct{}) {
+	if oldestSession == nil {
+		commit.Coverage = "no_session_history"
+		return
+	}
+	if commit.CommittedAt.Before(*oldestSession) {
+		commit.Coverage = "pre_session"
+		return
+	}
+	for _, checkpoint := range commit.Checkpoints {
+		if _, ok := exportedCheckpoints[checkpoint]; ok {
+			commit.Coverage = "covered"
+			return
+		}
+	}
+	if len(commit.Checkpoints) > 0 {
+		commit.Coverage = "checkpointed_unexported"
+		return
+	}
+	commit.Coverage = "missing_session"
+}
+
+func splitCommitParents(value string) []string {
+	return strings.Fields(strings.TrimSpace(value))
+}
+
+func checkpointTrailers(body string) []string {
+	var checkpoints []string
+	for _, match := range checkpointTrailerRegex.FindAllStringSubmatch(body, -1) {
+		if len(match) > 1 {
+			checkpoints = append(checkpoints, match[1])
+		}
+	}
+	return checkpoints
+}
+
+func firstCommitSubject(body string) string {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+func commitBodyExcerpt(body string) string {
+	var lines []string
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, checkpointTrailerKey+":") {
+			continue
+		}
+		lines = append(lines, line)
+		if len(strings.Join(lines, " ")) >= 240 {
+			break
+		}
+	}
+	excerpt := strings.Join(lines, " ")
+	if len(excerpt) > 240 {
+		excerpt = excerpt[:240]
+	}
+	return excerpt
+}
+
+func shortCommitHash(hash string) string {
+	if len(hash) <= 12 {
+		return hash
+	}
+	return hash[:12]
+}
+
 func seedWorktreeMode(opts seedCommandOptions) string {
 	if opts.worktree {
 		return "worktree"
@@ -833,6 +1080,9 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 		fmt.Fprintf(&b, "- Commands: %d\n", len(seed.Commands))
 		if seed.HistoryBaseline != nil {
 			fmt.Fprintf(&b, "- Historical gap: %s (confidence: %s)\n", seed.HistoryBaseline.Reason, seed.HistoryBaseline.Confidence)
+		}
+		if seed.HistoryCoverage != nil {
+			fmt.Fprintf(&b, "- Commit coverage: %d total, %d missing session coverage after oldest session, %d checkpointed but not directly exported (`%s`)\n", seed.HistoryCoverage.TotalCommits, seed.HistoryCoverage.MissingSessionCommits, seed.HistoryCoverage.CheckpointedUnexportedCommits, seed.HistoryCoverage.Path)
 		}
 		if seed.Agent != nil {
 			fmt.Fprintf(&b, "- Agent quick status: %s\n", seed.Agent.Quick.Status)

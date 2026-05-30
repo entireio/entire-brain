@@ -490,6 +490,35 @@ warning when timestamps are missing or suspicious.
 If no git history is available, seed when sessions are absent or the seed is
 missing.
 
+Seed must also report later commits that lack session coverage. The
+oldest-commit heuristic only covers the initial history gap. `seed --update`
+and `refresh` should scan `git log`, compare commit trailers to exported
+session checkpoints, and write `seed/history-gaps.md` plus
+`sources.seed.history_coverage`.
+
+Coverage classes:
+
+- `pre_session`: commit is older than the oldest exported session.
+- `covered`: commit has an `Entire-Checkpoint` trailer matching an exported
+  session checkpoint.
+- `checkpointed_unexported`: commit has an `Entire-Checkpoint` trailer, but
+  none of those checkpoint IDs are the exported checkpoint for a session.
+- `missing_session`: commit is at or after the oldest exported session and has
+  no `Entire-Checkpoint` trailer.
+- `no_session_history`: no session source exists, so git history is fallback
+  context.
+
+Merge commits are recorded as a separate flag/count instead of an exclusive
+class, because a merge can still be missing session coverage.
+
+Tests:
+
+- pre-session commits are counted without being reported as later gaps.
+- checkpointed commits matching exported sessions are covered.
+- checkpointed commits not directly exported are listed as fallback context.
+- later non-checkpointed commits are listed as missing session coverage.
+- merge commits keep their coverage class and increment the merge count.
+
 ## Future Refresh Command
 
 Later, add:

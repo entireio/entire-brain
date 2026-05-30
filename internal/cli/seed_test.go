@@ -203,6 +203,52 @@ func TestSeedHistoryBaselineUsesRootCommit(t *testing.T) {
 	}
 }
 
+func TestSeedHistoryCoverageFindsLaterMissingSessionCommits(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	outputDir := t.TempDir()
+	oldestSession := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	if err := writeBrainSessionSource(outputDir, "gh/example/repo", exportManifest{
+		GeneratedAt:        oldestSession,
+		TranscriptMode:     "compact",
+		Scope:              exportScopeAll,
+		CheckpointLimit:    10,
+		CheckpointsScanned: 2,
+		Sessions: []exportSession{{
+			SessionID:        "session-one",
+			LatestCheckpoint: "aaa111aaa111",
+			CreatedAt:        oldestSession,
+			TranscriptPath:   "sessions/main/session.jsonl",
+		}},
+	}); err != nil {
+		t.Fatalf("write session source: %v", err)
+	}
+	runner := seedFixtureRunner(repoDir)
+	runner.responses[fakeCommandKey("git", "log", "--reverse", "--format=%H%x00%P%x00%aI%x00%an%x00%ae%x00%B%x1e")] = fakeCommandResponse{stdout: strings.Join([]string{
+		"precommit\x00\x002026-01-01T00:00:00Z\x00Alice\x00alice@example.com\x00Initial import",
+		"coveredcommit\x00precommit\x002026-01-02T01:00:00Z\x00Alice\x00alice@example.com\x00Covered work\n\nEntire-Checkpoint: aaa111aaa111",
+		"unexportedcommit\x00coveredcommit\x002026-01-02T02:00:00Z\x00Bob\x00bob@example.com\x00Intermediate checkpoint\n\nEntire-Checkpoint: bbb222bbb222",
+		"missingcommit\x00unexportedcommit\x002026-01-02T03:00:00Z\x00Bob\x00bob@example.com\x00Manual follow-up",
+		"mergecommit\x00missingcommit otherparent\x002026-01-02T04:00:00Z\x00Bob\x00bob@example.com\x00Merge branch feature",
+	}, gitLogRecordSeparator) + gitLogRecordSeparator}
+
+	coverage := buildSeedHistoryCoverage(context.Background(), runner, repoDir, outputDir)
+	if coverage.TotalCommits != 5 {
+		t.Fatalf("total commits = %d, want 5: %+v", coverage.TotalCommits, coverage)
+	}
+	if coverage.PreSessionCommits != 1 || coverage.CoveredCommits != 1 || coverage.CheckpointedUnexportedCommits != 1 || coverage.MissingSessionCommits != 2 {
+		t.Fatalf("unexpected coverage counts: %+v", coverage)
+	}
+	if coverage.MergeCommits != 1 {
+		t.Fatalf("merge commits = %d, want 1", coverage.MergeCommits)
+	}
+	if len(coverage.UncoveredCommits) != 3 {
+		t.Fatalf("uncovered len = %d, want 3: %+v", len(coverage.UncoveredCommits), coverage.UncoveredCommits)
+	}
+	if coverage.UncoveredCommits[0].Coverage != "checkpointed_unexported" || coverage.UncoveredCommits[1].Coverage != "missing_session" || coverage.UncoveredCommits[2].Coverage != "missing_session" {
+		t.Fatalf("unexpected uncovered classes: %+v", coverage.UncoveredCommits)
+	}
+}
+
 func TestCombinedReadmeDeduplicatesWarnings(t *testing.T) {
 	warning := "same warning"
 	readme := renderCombinedBrainReadme(exportManifest{
