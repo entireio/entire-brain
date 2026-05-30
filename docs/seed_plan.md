@@ -53,7 +53,7 @@ Agent flags:
 
 | Flag | Purpose |
 | --- | --- |
-| `--agent none\|codex\|command` | Select agent-backed synthesis. Default: `none` until the deterministic seed and agent contract are stable. |
+| `--agent none\|codex\|claude-code\|command` | Select agent-backed synthesis. Default: `none` until the deterministic seed and agent contract are stable. |
 | `--agent-command <argv...>` | Explicit command mode. Parsed as argv, not through a shell. |
 | `--agent-quick-timeout <duration>` | Timeout for the quick synthesis phase. Default: `2m`. |
 | `--agent-deep-timeout <duration>` | Timeout for the deep synthesis phase. Default: `10m`. |

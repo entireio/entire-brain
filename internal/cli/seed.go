@@ -207,7 +207,7 @@ func newSeedCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&seedOpts.maxFiles, "max-files", defaultSeedMaxFiles, "Maximum files to scan")
 	cmd.Flags().StringVar(&seedOpts.format, "format", "markdown+json", "Seed output format")
 	cmd.Flags().BoolVar(&seedOpts.worktree, "worktree", false, "Include selected untracked instruction/docs files")
-	cmd.Flags().StringVar(&seedOpts.agent, "agent", "none", "Agent synthesis mode: none, command, or codex")
+	cmd.Flags().StringVar(&seedOpts.agent, "agent", "none", "Agent synthesis mode: none, command, codex, or claude-code")
 	cmd.Flags().StringArrayVar(&seedOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().DurationVar(&seedOpts.agentQuickTimeout, "agent-quick-timeout", 2*time.Minute, "Timeout for quick agent synthesis")
 	cmd.Flags().DurationVar(&seedOpts.agentDeepTimeout, "agent-deep-timeout", 10*time.Minute, "Timeout for deep agent synthesis")
@@ -1266,8 +1266,12 @@ func runSeedAgentPhase(ctx context.Context, repoDir, outputDir string, opts seed
 		}
 		if err != nil {
 			phaseManifest.Status = "failed"
-			if stderr.Len() > 0 {
-				phaseManifest.Warnings = append(phaseManifest.Warnings, truncateAgentWarning(strings.TrimSpace(stderr.String())))
+			warning := strings.TrimSpace(stderr.String())
+			if warning == "" {
+				warning = strings.TrimSpace(stdout.String())
+			}
+			if warning != "" {
+				phaseManifest.Warnings = append(phaseManifest.Warnings, truncateAgentWarning(warning))
 			}
 			return phaseManifest, nil, fmt.Errorf("agent %s synthesis failed: %w", phase, err)
 		}
@@ -1344,6 +1348,9 @@ func seedAgentCommandArgs(repoDir, phase string, opts seedCommandOptions) ([]str
 	case "codex":
 		prompt := fmt.Sprintf("Read the JSON seed packet on stdin and return only raw JSON with keys schema_version, status, model, artifacts, and warnings. artifacts must be an object whose keys are artifact filenames and values are markdown content. For phase %q, artifacts must include exactly these required filenames: %s. Do not include markdown fences or prose outside the JSON object.", phase, strings.Join(seedAgentRequiredArtifacts(phase), ", "))
 		return []string{"codex", "exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only", prompt}, nil
+	case "claude-code":
+		prompt := fmt.Sprintf("Read the JSON seed packet on stdin and return only raw JSON with keys schema_version, status, model, artifacts, and warnings. artifacts must be an object whose keys are artifact filenames and values are markdown content. For phase %q, artifacts must include exactly these required filenames: %s. Do not include markdown fences or prose outside the JSON object.", phase, strings.Join(seedAgentRequiredArtifacts(phase), ", "))
+		return []string{"claude", "--print", "--no-session-persistence", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt", prompt}, nil
 	default:
 		return nil, fmt.Errorf("unsupported --agent %q", opts.agent)
 	}

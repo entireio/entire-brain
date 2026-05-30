@@ -136,6 +136,7 @@ Agent synthesis can be added on top of the deterministic seed:
 ```sh
 entire brain seed --agent command --agent-command ./seed-agent .
 entire brain seed --agent codex .
+entire brain seed --agent claude-code .
 ```
 
 Agent synthesis runs in quick and deep phases. The quick phase has a default
