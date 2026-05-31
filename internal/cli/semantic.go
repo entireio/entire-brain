@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -24,20 +25,22 @@ import (
 )
 
 const (
-	semanticDirName         = "semantic"
-	semanticSnapshotsDir    = "snapshots"
-	semanticGenerationsDir  = "generations"
-	semanticBundleDir       = "bundles"
-	semanticAuditLogName    = "audit.jsonl"
-	semanticLockDir         = "locks"
-	semanticIndexLockName   = "index.lock"
-	semanticSnapshotName    = "snapshot.ndjson"
-	semanticManifestName    = "manifest.json"
-	semanticSQLiteName      = "semantic.sqlite"
-	semanticMetricsName     = "metrics.json"
-	semanticSupportedMajor  = "1"
-	semanticContextMaxLines = 80
-	semanticContextMaxBytes = 64 * 1024
+	semanticDirName                     = "semantic"
+	semanticSnapshotsDir                = "snapshots"
+	semanticGenerationsDir              = "generations"
+	semanticBundleDir                   = "bundles"
+	semanticAuditLogName                = "audit.jsonl"
+	semanticLockDir                     = "locks"
+	semanticIndexLockName               = "index.lock"
+	semanticSnapshotName                = "snapshot.ndjson"
+	semanticManifestName                = "manifest.json"
+	semanticSQLiteName                  = "semantic.sqlite"
+	semanticMetricsName                 = "metrics.json"
+	semanticSupportedMajor              = "1"
+	semanticContextMaxLines             = 80
+	semanticContextMaxBytes             = 64 * 1024
+	semanticWorktreeFingerprintMaxFile  = 16 * 1024 * 1024
+	semanticWorktreeFingerprintMaxTotal = 128 * 1024 * 1024
 )
 
 var (
@@ -191,7 +194,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	}
 	branch, _ := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
 	defaultBranch, defaultWarnings := detectDefaultBranch(ctx, opts.Runner, repoDir)
-	dirty, err := worktreeDirty(ctx, opts.Runner, repoDir)
+	dirty, err := worktreeDirtyWithIgnore(ctx, opts.Runner, repoDir, ignore)
 	if err != nil {
 		return fmt.Errorf("check worktree dirtiness for semantic index: %w", err)
 	}
@@ -1018,6 +1021,31 @@ type brainIgnore struct {
 	patterns []string
 }
 
+func (i brainIgnore) gitPathspecExclusions() []string {
+	patterns := []string{"node_modules/**", "vendor/**", "dist/**", "build/**", "target/**", ".entire/**", ".git/**", ".env", "*.pem", "*.key"}
+	for _, pattern := range i.patterns {
+		pattern = strings.TrimSpace(filepath.ToSlash(pattern))
+		if pattern == "" {
+			continue
+		}
+		pattern = strings.TrimPrefix(pattern, "./")
+		if strings.HasSuffix(pattern, "/") {
+			pattern += "**"
+		}
+		patterns = append(patterns, pattern)
+	}
+	result := make([]string, 0, len(patterns))
+	seen := map[string]struct{}{}
+	for _, pattern := range patterns {
+		if _, ok := seen[pattern]; ok {
+			continue
+		}
+		seen[pattern] = struct{}{}
+		result = append(result, ":(exclude)"+pattern)
+	}
+	return result
+}
+
 func loadBrainIgnore(repoDir string) (brainIgnore, error) {
 	data, err := os.ReadFile(filepath.Join(repoDir, ".brainignore"))
 	if err != nil {
@@ -1109,11 +1137,19 @@ func gitScalar(ctx context.Context, runner CommandRunner, repoDir string, args .
 }
 
 func worktreeDirty(ctx context.Context, runner CommandRunner, repoDir string) (bool, error) {
-	stdout, _, err := runner.Run(ctx, repoDir, "git", "status", "--porcelain")
+	ignore, err := loadBrainIgnore(repoDir)
 	if err != nil {
 		return false, err
 	}
-	return strings.TrimSpace(string(stdout)) != "", nil
+	return worktreeDirtyWithIgnore(ctx, runner, repoDir, ignore)
+}
+
+func worktreeDirtyWithIgnore(ctx context.Context, runner CommandRunner, repoDir string, ignore brainIgnore) (bool, error) {
+	stdout, err := gitStatusPorcelainAll(ctx, runner, repoDir)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(filterWorktreeStatus(stdout, ignore))) != "", nil
 }
 
 func verifySemanticWorktreeStable(ctx context.Context, runner CommandRunner, repoDir string, worktreeMode, dirtyBefore bool, hashBefore string) error {
@@ -1141,52 +1177,164 @@ func verifySemanticWorktreeStable(ctx context.Context, runner CommandRunner, rep
 }
 
 func worktreeFingerprint(ctx context.Context, runner CommandRunner, repoDir string) (string, error) {
-	status, _, err := runner.Run(ctx, repoDir, "git", "status", "--porcelain")
+	status, err := gitStatusPorcelainAll(ctx, runner, repoDir)
 	if err != nil {
 		return "", err
 	}
-	diff, _, err := runner.Run(ctx, repoDir, "git", "diff", "--binary", "HEAD")
+	ignore, err := loadBrainIgnore(repoDir)
 	if err != nil {
 		return "", err
 	}
-	cached, _, err := runner.Run(ctx, repoDir, "git", "diff", "--cached", "--binary", "HEAD")
+	diff, err := gitDiffBinary(ctx, runner, repoDir, false, ignore)
 	if err != nil {
 		return "", err
 	}
-	content := append(append(status, diff...), cached...)
-	content = appendUntrackedWorktreeContent(content, repoDir, status)
-	sum := sha256.Sum256(content)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
+	cached, err := gitDiffBinary(ctx, runner, repoDir, true, ignore)
+	if err != nil {
+		return "", err
+	}
+	status = filterWorktreeStatus(status, ignore)
+	hasher := sha256.New()
+	total := int64(0)
+	for _, data := range [][]byte{status, diff, cached} {
+		if err := writeWorktreeFingerprintBytes(hasher, &total, data); err != nil {
+			return "", err
+		}
+	}
+	if err := appendUntrackedWorktreeContent(hasher, &total, repoDir, status, ignore); err != nil {
+		return "", err
+	}
+	return "sha256:" + hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
-func appendUntrackedWorktreeContent(content []byte, repoDir string, status []byte) []byte {
+func gitStatusPorcelainAll(ctx context.Context, runner CommandRunner, repoDir string) ([]byte, error) {
+	stdout, _, err := runner.Run(ctx, repoDir, "git", "status", "--porcelain", "--untracked-files=all")
+	if err == nil {
+		return stdout, nil
+	}
+	stdout, _, fallbackErr := runner.Run(ctx, repoDir, "git", "status", "--porcelain")
+	if fallbackErr != nil {
+		return nil, err
+	}
+	return stdout, nil
+}
+
+func gitDiffBinary(ctx context.Context, runner CommandRunner, repoDir string, cached bool, ignore brainIgnore) ([]byte, error) {
+	args := []string{"diff"}
+	if cached {
+		args = append(args, "--cached")
+	}
+	args = append(args, "--binary", "HEAD")
+	exclusions := ignore.gitPathspecExclusions()
+	if len(exclusions) > 0 {
+		args = append(args, "--", ".")
+		args = append(args, exclusions...)
+	}
+	stdout, _, err := runner.Run(ctx, repoDir, "git", args...)
+	if err == nil {
+		return stdout, nil
+	}
+	args = []string{"diff"}
+	if cached {
+		args = append(args, "--cached")
+	}
+	args = append(args, "--binary", "HEAD")
+	stdout, _, fallbackErr := runner.Run(ctx, repoDir, "git", args...)
+	if fallbackErr != nil {
+		return nil, err
+	}
+	return stdout, nil
+}
+
+func filterWorktreeStatus(status []byte, ignore brainIgnore) []byte {
+	var filtered []string
+	for _, line := range strings.Split(string(status), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		paths := worktreeStatusPaths(line)
+		if len(paths) > 0 {
+			allIgnored := true
+			for _, path := range paths {
+				if !ignore.Ignored(path) {
+					allIgnored = false
+					break
+				}
+			}
+			if allIgnored {
+				continue
+			}
+		}
+		filtered = append(filtered, line)
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return []byte(strings.Join(filtered, "\n") + "\n")
+}
+
+func worktreeStatusPaths(line string) []string {
+	if strings.HasPrefix(line, "?? ") && len(line) > 3 {
+		return []string{decodeGitPorcelainPath(strings.TrimSpace(line[3:]))}
+	}
+	if len(line) > 3 {
+		path := strings.TrimSpace(line[3:])
+		if before, after, ok := strings.Cut(path, " -> "); ok {
+			return []string{decodeGitPorcelainPath(strings.TrimSpace(before)), decodeGitPorcelainPath(strings.TrimSpace(after))}
+		}
+		return []string{decodeGitPorcelainPath(path)}
+	}
+	return nil
+}
+
+func decodeGitPorcelainPath(path string) string {
+	if len(path) >= 2 && path[0] == '"' && path[len(path)-1] == '"' {
+		if unquoted, err := strconv.Unquote(path); err == nil {
+			return unquoted
+		}
+	}
+	return path
+}
+
+func writeWorktreeFingerprintBytes(hasher hash.Hash, total *int64, data []byte) error {
+	*total += int64(len(data))
+	if *total > semanticWorktreeFingerprintMaxTotal {
+		return errors.New("worktree fingerprint exceeds total size limit")
+	}
+	_, err := hasher.Write(data)
+	return err
+}
+
+func appendUntrackedWorktreeContent(hasher hash.Hash, total *int64, repoDir string, status []byte, ignore brainIgnore) error {
 	for _, line := range strings.Split(string(status), "\n") {
 		if !strings.HasPrefix(line, "?? ") {
 			continue
 		}
-		path := strings.TrimSpace(strings.TrimPrefix(line, "?? "))
+		path := decodeGitPorcelainPath(strings.TrimSpace(strings.TrimPrefix(line, "?? ")))
 		clean, err := validateSemanticProviderPath(path)
 		if err != nil {
 			continue
 		}
-		content = appendWorktreePathContent(content, repoDir, clean)
+		if ignore.Ignored(clean) {
+			continue
+		}
+		if err := appendWorktreePathContent(hasher, total, repoDir, clean, ignore); err != nil {
+			return err
+		}
 	}
-	return content
+	return nil
 }
 
-func appendWorktreePathContent(content []byte, repoDir, clean string) []byte {
+func appendWorktreePathContent(hasher hash.Hash, total *int64, repoDir, clean string, ignore brainIgnore) error {
 	path := filepath.Join(repoDir, filepath.FromSlash(clean))
 	info, err := os.Lstat(path)
 	if err != nil || info.Mode()&os.ModeSymlink != 0 {
-		return content
+		return nil
 	}
 	if info.IsDir() {
-		_ = filepath.WalkDir(path, func(child string, d os.DirEntry, walkErr error) error {
-			if walkErr != nil || d.IsDir() {
-				return nil
-			}
-			if d.Type()&os.ModeSymlink != 0 {
-				return nil
+		return filepath.WalkDir(path, func(child string, d os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
 			}
 			rel, err := filepath.Rel(repoDir, child)
 			if err != nil {
@@ -1196,23 +1344,46 @@ func appendWorktreePathContent(content []byte, repoDir, clean string) []byte {
 			if _, err := validateSemanticProviderPath(relSlash); err != nil {
 				return nil
 			}
-			content = appendFileFingerprintContent(content, child, relSlash)
-			return nil
+			if d.IsDir() {
+				if ignore.Ignored(relSlash) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if d.Type()&os.ModeSymlink != 0 {
+				return nil
+			}
+			if ignore.Ignored(relSlash) {
+				return nil
+			}
+			return appendFileFingerprintContent(hasher, total, child, relSlash)
 		})
-		return content
 	}
-	return appendFileFingerprintContent(content, path, clean)
+	return appendFileFingerprintContent(hasher, total, path, clean)
 }
 
-func appendFileFingerprintContent(content []byte, path, rel string) []byte {
-	data, err := os.ReadFile(path)
+func appendFileFingerprintContent(hasher hash.Hash, total *int64, path, rel string) error {
+	f, err := os.Open(path)
 	if err != nil {
-		return content
+		return nil
 	}
-	content = append(content, "\x00untracked:"...)
-	content = append(content, rel...)
-	content = append(content, 0)
-	return append(content, data...)
+	defer f.Close()
+	if err := writeWorktreeFingerprintBytes(hasher, total, []byte("\x00untracked:"+rel+"\x00")); err != nil {
+		return err
+	}
+	limited := io.LimitReader(f, semanticWorktreeFingerprintMaxFile+1)
+	n, err := io.Copy(hasher, limited)
+	if err != nil {
+		return err
+	}
+	if n > semanticWorktreeFingerprintMaxFile {
+		return fmt.Errorf("untracked file exceeds worktree fingerprint size limit: %s", rel)
+	}
+	*total += n
+	if *total > semanticWorktreeFingerprintMaxTotal {
+		return errors.New("worktree fingerprint exceeds total size limit")
+	}
+	return nil
 }
 
 type staleReport struct {
@@ -2595,6 +2766,10 @@ FROM symbols WHERE file_path IN (`+strings.Join(placeholders, ",")+`) ORDER BY f
 }
 
 func changedSemanticFiles(ctx context.Context, runner CommandRunner, repoDir string) ([]string, error) {
+	ignore, err := loadBrainIgnore(repoDir)
+	if err != nil {
+		return nil, err
+	}
 	diffOutput, _, err := runner.Run(ctx, repoDir, "git", "diff", "--name-status", "-M", "-C", "HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("list changed files: %w", err)
@@ -2610,6 +2785,9 @@ func changedSemanticFiles(ctx context.Context, runner CommandRunner, repoDir str
 		if err != nil {
 			return
 		}
+		if ignore.Ignored(clean) {
+			return
+		}
 		if _, ok := seen[clean]; ok {
 			return
 		}
@@ -2621,9 +2799,9 @@ func changedSemanticFiles(ctx context.Context, runner CommandRunner, repoDir str
 	}
 	for _, line := range strings.Split(string(statusOutput), "\n") {
 		if strings.HasPrefix(line, "?? ") && len(line) > 3 {
-			path := strings.TrimSpace(line[3:])
+			path := decodeGitPorcelainPath(strings.TrimSpace(line[3:]))
 			if strings.HasSuffix(path, "/") {
-				for _, child := range untrackedDirectoryFiles(repoDir, path) {
+				for _, child := range untrackedDirectoryFiles(repoDir, path, ignore) {
 					add(child)
 				}
 				continue
@@ -2656,24 +2834,27 @@ func changedPathsFromNameStatus(output string) []string {
 		}
 		status := fields[0]
 		if (strings.HasPrefix(status, "R") || strings.HasPrefix(status, "C")) && len(fields) >= 3 {
-			add(fields[1])
-			add(fields[2])
+			add(decodeGitPorcelainPath(fields[1]))
+			add(decodeGitPorcelainPath(fields[2]))
 			continue
 		}
-		add(fields[1])
+		add(decodeGitPorcelainPath(fields[1]))
 	}
 	return paths
 }
 
-func untrackedDirectoryFiles(repoDir, relDir string) []string {
+func untrackedDirectoryFiles(repoDir, relDir string, ignore brainIgnore) []string {
 	clean, err := validateSemanticProviderPath(strings.TrimSuffix(relDir, "/"))
 	if err != nil {
+		return nil
+	}
+	if ignore.Ignored(clean) {
 		return nil
 	}
 	root := filepath.Join(repoDir, filepath.FromSlash(clean))
 	var files []string
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil || d.IsDir() || d.Type()&os.ModeSymlink != 0 {
+		if walkErr != nil {
 			return nil
 		}
 		rel, err := filepath.Rel(repoDir, path)
@@ -2681,7 +2862,16 @@ func untrackedDirectoryFiles(repoDir, relDir string) []string {
 			return nil
 		}
 		relSlash := filepath.ToSlash(rel)
+		if d.IsDir() && ignore.Ignored(relSlash) {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
 		if _, err := validateSemanticProviderPath(relSlash); err != nil {
+			return nil
+		}
+		if ignore.Ignored(relSlash) {
 			return nil
 		}
 		files = append(files, relSlash)
@@ -3152,6 +3342,9 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
 		return errors.New("semantic index missing; run `entire brain index`")
+	}
+	if manifest.Sources.Semantic.WorktreeMode == "worktree" || manifest.Sources.Semantic.DirtyWorktree || manifest.Sources.Semantic.WorktreeHash != "" {
+		return errors.New("semantic bundle export does not support worktree-backed semantic indexes; refresh a clean semantic index first")
 	}
 	activeSnapshot, err := validateSemanticSnapshotPath(manifest.Sources.Semantic.SnapshotPath)
 	if err != nil {

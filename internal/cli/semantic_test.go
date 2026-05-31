@@ -484,6 +484,168 @@ func TestWorktreeFingerprintSkipsSymlinksInsideUntrackedDirectory(t *testing.T) 
 	}
 }
 
+func TestWorktreeFingerprintIgnoresBrainignoredUntrackedContent(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoDir, ".brainignore"), []byte("ignored/\n"), 0o600); err != nil {
+		t.Fatalf("write brainignore: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoDir, "ignored"), 0o700); err != nil {
+		t.Fatalf("mkdir ignored: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "ignored", "secret.txt"), []byte("one"), 0o600); err != nil {
+		t.Fatalf("write ignored: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "keep.txt"), []byte("one"), 0o600); err != nil {
+		t.Fatalf("write keep: %v", err)
+	}
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "status", "--porcelain"):                {stdout: "?? keep.txt\n"},
+		fakeCommandKey("git", "diff", "--binary", "HEAD"):             {},
+		fakeCommandKey("git", "diff", "--cached", "--binary", "HEAD"): {},
+	}}
+	first, err := worktreeFingerprint((&cobra.Command{}).Context(), runner, repoDir)
+	if err != nil {
+		t.Fatalf("first fingerprint: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "ignored", "secret.txt"), []byte("two"), 0o600); err != nil {
+		t.Fatalf("rewrite ignored: %v", err)
+	}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: "?? ignored/\n?? keep.txt\n"}
+	second, err := worktreeFingerprint((&cobra.Command{}).Context(), runner, repoDir)
+	if err != nil {
+		t.Fatalf("second fingerprint: %v", err)
+	}
+	if first != second {
+		t.Fatalf("fingerprint changed for ignored content: %s != %s", first, second)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "keep.txt"), []byte("two"), 0o600); err != nil {
+		t.Fatalf("rewrite keep: %v", err)
+	}
+	third, err := worktreeFingerprint((&cobra.Command{}).Context(), runner, repoDir)
+	if err != nil {
+		t.Fatalf("third fingerprint: %v", err)
+	}
+	if third == second {
+		t.Fatalf("fingerprint did not change for unignored content")
+	}
+}
+
+func TestWorktreeFingerprintReadsQuotedUntrackedPath(t *testing.T) {
+	repoDir := t.TempDir()
+	path := filepath.Join(repoDir, "new file.go")
+	if err := os.WriteFile(path, []byte("one"), 0o600); err != nil {
+		t.Fatalf("write untracked: %v", err)
+	}
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {stdout: "?? \"new file.go\"\n"},
+		fakeCommandKey("git", "diff", "--binary", "HEAD"):                       {},
+		fakeCommandKey("git", "diff", "--cached", "--binary", "HEAD"):           {},
+	}}
+	first, err := worktreeFingerprint((&cobra.Command{}).Context(), runner, repoDir)
+	if err != nil {
+		t.Fatalf("first fingerprint: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("two"), 0o600); err != nil {
+		t.Fatalf("rewrite untracked: %v", err)
+	}
+	second, err := worktreeFingerprint((&cobra.Command{}).Context(), runner, repoDir)
+	if err != nil {
+		t.Fatalf("second fingerprint: %v", err)
+	}
+	if first == second {
+		t.Fatalf("fingerprint did not include quoted untracked path")
+	}
+}
+
+func TestWorktreeFingerprintUsesIgnoredDiffPathspecs(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoDir, ".brainignore"), []byte("ignored/\n"), 0o600); err != nil {
+		t.Fatalf("write brainignore: %v", err)
+	}
+	ignore := brainIgnore{patterns: []string{"ignored/"}}
+	diffArgs := append([]string{"diff", "--binary", "HEAD", "--", "."}, ignore.gitPathspecExclusions()...)
+	cachedArgs := append([]string{"diff", "--cached", "--binary", "HEAD", "--", "."}, ignore.gitPathspecExclusions()...)
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "status", "--porcelain"):                {stdout: ""},
+		fakeCommandKey("git", diffArgs...):                            {},
+		fakeCommandKey("git", cachedArgs...):                          {},
+		fakeCommandKey("git", "diff", "--binary", "HEAD"):             {stdout: "ignored diff should not be used"},
+		fakeCommandKey("git", "diff", "--cached", "--binary", "HEAD"): {stdout: "ignored cached diff should not be used"},
+	}}
+	if _, err := worktreeFingerprint((&cobra.Command{}).Context(), runner, repoDir); err != nil {
+		t.Fatalf("fingerprint: %v", err)
+	}
+	if !fakeRunnerCalled(runner, "git", diffArgs...) || !fakeRunnerCalled(runner, "git", cachedArgs...) {
+		t.Fatalf("ignored pathspec diff was not used: %+v", runner.calls)
+	}
+}
+
+func TestSemanticIndexAndStaleIgnoreBrainignoredDirtyFiles(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoDir, ".brainignore"), []byte("ignored/\n"), 0o600); err != nil {
+		t.Fatalf("write brainignore: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoDir, "ignored"), 0o700); err != nil {
+		t.Fatalf("mkdir ignored: %v", err)
+	}
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: "?? ignored/\n"}
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: semanticTestEnv(t, repoDir), Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index ignored dirty worktree: %v", err)
+	}
+	report, err := semanticStaleReport(cmd.Context(), opts, repoDir)
+	if err != nil {
+		t.Fatalf("stale: %v", err)
+	}
+	if report.Axes["worktree"].State != "clean" {
+		t.Fatalf("worktree axis = %+v", report.Axes["worktree"])
+	}
+}
+
+func TestWorktreeDirtyKeepsRenameFromIgnoredToPublic(t *testing.T) {
+	repoDir := t.TempDir()
+	ignore := brainIgnore{patterns: []string{"ignored/"}}
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "status", "--porcelain"): {stdout: "R  ignored/file.go -> public/file.go\n"},
+	}}
+	dirty, err := worktreeDirtyWithIgnore((&cobra.Command{}).Context(), runner, repoDir, ignore)
+	if err != nil {
+		t.Fatalf("dirty: %v", err)
+	}
+	if !dirty {
+		t.Fatalf("rename into public path was filtered as clean")
+	}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: "R  ignored/file.go -> ignored/other.go\n"}
+	dirty, err = worktreeDirtyWithIgnore((&cobra.Command{}).Context(), runner, repoDir, ignore)
+	if err != nil {
+		t.Fatalf("dirty ignored: %v", err)
+	}
+	if dirty {
+		t.Fatalf("rename within ignored paths was not filtered")
+	}
+}
+
+func TestWorktreeDirtyUsesExpandedUntrackedStatus(t *testing.T) {
+	repoDir := t.TempDir()
+	ignore := brainIgnore{patterns: []string{"secrets/*.pem"}}
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {stdout: "?? secrets/token.pem\n"},
+		fakeCommandKey("git", "status", "--porcelain"):                          {stdout: "?? secrets/\n"},
+	}}
+	dirty, err := worktreeDirtyWithIgnore((&cobra.Command{}).Context(), runner, repoDir, ignore)
+	if err != nil {
+		t.Fatalf("dirty: %v", err)
+	}
+	if dirty {
+		t.Fatalf("expanded ignored untracked file was treated as dirty")
+	}
+	if !fakeRunnerCalled(runner, "git", "status", "--porcelain", "--untracked-files=all") {
+		t.Fatalf("expanded status was not used: %+v", runner.calls)
+	}
+}
+
 func TestSemanticStaleMarksSkipSemUnsafe(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -1080,6 +1242,48 @@ func TestSemanticChangesIncludesRenamedOldPath(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"internal/auth/token.go"`) || !strings.Contains(out.String(), `"ValidateToken"`) {
 		t.Fatalf("changes JSON missing renamed old-path symbol:\n%s", out.String())
+	}
+}
+
+func TestSemanticChangesFiltersBrainignoredFiles(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoDir, ".brainignore"), []byte("ignored/\n"), 0o600); err != nil {
+		t.Fatalf("write brainignore: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoDir, "ignored"), 0o700); err != nil {
+		t.Fatalf("mkdir ignored: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "ignored", "secret.go"), []byte("package ignored\n"), 0o600); err != nil {
+		t.Fatalf("write ignored: %v", err)
+	}
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD"): {stdout: "M\tignored/tracked.go\nM\tinternal/auth/token.go\n"},
+		fakeCommandKey("git", "status", "--porcelain"):                     {stdout: "?? ignored/\n?? .env\n"},
+	}}
+	files, err := changedSemanticFiles((&cobra.Command{}).Context(), runner, repoDir)
+	if err != nil {
+		t.Fatalf("changed files: %v", err)
+	}
+	if len(files) != 1 || files[0] != "internal/auth/token.go" {
+		t.Fatalf("files = %+v", files)
+	}
+}
+
+func TestSemanticChangesDecodesQuotedUntrackedPath(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoDir, "new file.go"), []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write untracked: %v", err)
+	}
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD"): {},
+		fakeCommandKey("git", "status", "--porcelain"):                     {stdout: "?? \"new file.go\"\n"},
+	}}
+	files, err := changedSemanticFiles((&cobra.Command{}).Context(), runner, repoDir)
+	if err != nil {
+		t.Fatalf("changed files: %v", err)
+	}
+	if len(files) != 1 || files[0] != "new file.go" {
+		t.Fatalf("files = %+v", files)
 	}
 }
 
@@ -2405,6 +2609,25 @@ func TestBundleExportRejectsSymlinkOutput(t *testing.T) {
 	}
 	if string(data) != "keep" {
 		t.Fatalf("symlink target was modified: %q", data)
+	}
+}
+
+func TestBundleExportRejectsWorktreeSemanticIndex(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: " M internal/cli/semantic.go\n"}
+	runner.responses[fakeCommandKey("git", "diff", "--binary", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff", "--cached", "--binary", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--worktree")] = fakeCommandResponse{stdout: semanticFixtureSnapshot("1.0")}
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire", worktree: true}, repoDir); err != nil {
+		t.Fatalf("index --worktree: %v", err)
+	}
+	err := runSemanticBundleExport(cmd.Context(), &cobra.Command{Use: "bundle export"}, opts, filepath.Join(t.TempDir(), "brain.tar"))
+	if err == nil || !strings.Contains(err.Error(), "worktree-backed") {
+		t.Fatalf("export err = %v", err)
 	}
 }
 

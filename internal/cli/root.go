@@ -66,6 +66,7 @@ agent can inspect to understand project history.`,
 	cmd.AddCommand(newSemanticTestsCommand(opts))
 	cmd.AddCommand(newSemanticToolsCommand(opts))
 	cmd.AddCommand(newSemanticWorkflowsCommand(opts))
+	cmd.AddCommand(newWorkspaceCommand(opts))
 	cmd.AddCommand(newVersionCommand(opts.Version))
 	return cmd
 }

@@ -224,3 +224,31 @@ Verification:
 - `go test ./...` passed after release-5 implementation.
 - `mise run check` passed after release-5 implementation.
 - `entire review` reported no actionable findings for release 5.
+
+### Release 6: Local Workspaces
+
+Implemented in Entire Brain:
+
+- Added `entire brain workspace create`, `add`, `refresh`, `query`, and
+  `impact` for local-only multi-repo workspaces.
+- Added workspace brain layout under `brain/workspaces/<name>/` with
+  deterministic `workspace.json` and `README.md`.
+- Workspace membership stores repo-key identity plus local-only resolved repo
+  path hints, and workspace query/impact fan out across existing member repo
+  brains.
+- Workspace refresh now reports per-repo semantic freshness, validates path-hint
+  repo keys, rejects unsafe workspace names/repo keys, and refuses symlinked
+  workspace path components.
+- Hardened related semantic freshness behavior after review: ignored files are
+  filtered consistently for dirty checks, worktree fingerprints, and
+  `brain changes`; worktree-backed semantic bundle exports are rejected before
+  producing non-importable bundles.
+
+Verification:
+
+- Focused release-6 tests passed for workspace lifecycle/query/impact,
+  workspace freshness, unsafe repo keys/names, symlinked workspace paths,
+  path-hint repo-key mismatch, and ignore-aware worktree/change behavior.
+- `go test ./...` passed after release-6 implementation and hardening.
+- `mise run check` passed after release-6 implementation and hardening.
+- `entire review` reported no actionable findings for release 6.
