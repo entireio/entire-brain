@@ -202,3 +202,25 @@ Verification:
 - `go test ./...` passed after release-4 implementation and hardening.
 - `mise run check` passed after release-4 implementation and hardening.
 - `entire review` reported no actionable findings for release 4.
+
+### Release 5: Local Boundaries
+
+Implemented in Entire Brain:
+
+- Added `entire brain routes`, `entire brain tools`, and
+  `entire brain workflows` commands with stable JSON/text output over local
+  semantic boundary symbols and handler relations.
+- Added `entire brain tests <symbol-or-text>` to suggest relevant local test
+  symbols from semantic matches, relation context, and same-directory signals.
+- Implemented boundary views for both SQLite-backed generations and raw
+  snapshot-only imports.
+- Updated `docs/semantic_agent_guide.md` to include boundary and test-suggestion
+  intake steps.
+
+Verification:
+
+- Focused release-5 tests passed for routes/tools/workflows, relevant-test
+  suggestions, and snapshot fallback.
+- `go test ./...` passed after release-5 implementation.
+- `mise run check` passed after release-5 implementation.
+- `entire review` reported no actionable findings for release 5.

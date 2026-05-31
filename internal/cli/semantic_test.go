@@ -1136,6 +1136,94 @@ func TestSemanticChangesIncludesUntrackedAndFailsOnDiffError(t *testing.T) {
 	}
 }
 
+func TestSemanticBoundaryCommandsListRoutesToolsAndWorkflows(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	for _, tc := range []struct {
+		command string
+		want    string
+	}{
+		{command: "routes", want: `"GET /tokens/{id}"`},
+		{command: "tools", want: `"brain refresh"`},
+		{command: "workflows", want: `"token validation"`},
+	} {
+		out, err := execute(t, cmd, tc.command, "--json")
+		if err != nil {
+			t.Fatalf("%s: %v", tc.command, err)
+		}
+		if !strings.Contains(out, tc.want) {
+			t.Fatalf("%s output missing %s:\n%s", tc.command, tc.want, out)
+		}
+	}
+}
+
+func TestSemanticBoundaryLimitFiltersRelationsAndHandlers(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshotWithExtraRoute())
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	out, err := execute(t, cmd, "routes", "--limit", "1", "--json")
+	if err != nil {
+		t.Fatalf("routes: %v", err)
+	}
+	if !strings.Contains(out, `"GET /tokens/{id}"`) {
+		t.Fatalf("routes output missing first route:\n%s", out)
+	}
+	if strings.Contains(out, `"POST /sessions"`) || strings.Contains(out, `"CreateSession"`) {
+		t.Fatalf("routes limit leaked omitted boundary relation:\n%s", out)
+	}
+}
+
+func TestSemanticTestsSuggestsRelevantTests(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	out, err := execute(t, cmd, "tests", "ValidateToken", "--json")
+	if err != nil {
+		t.Fatalf("tests: %v", err)
+	}
+	if !strings.Contains(out, `"TestValidateToken"`) || !strings.Contains(out, `"reason"`) {
+		t.Fatalf("tests output missing relevant suggestion:\n%s", out)
+	}
+}
+
+func TestSemanticBoundaryFactsFallBackToSnapshot(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	source := *mustSemanticSource(t, env)
+	source.GenerationPath = ""
+	source.StorePath = ""
+	brainDir := filepath.Join(env.PluginDataDir, brainDirName, "gh", "example", "repo")
+	result, err := semanticBoundaryFacts(brainDir, &source, semanticBoundarySpec{
+		SymbolKinds:   []string{"route", "http_route"},
+		RelationTypes: []string{"HANDLES_ROUTE"},
+	}, 10)
+	if err != nil {
+		t.Fatalf("boundary facts: %v", err)
+	}
+	if len(result.Boundaries) != 1 || result.Boundaries[0].Name != "GET /tokens/{id}" || len(result.Handlers) != 1 {
+		t.Fatalf("snapshot boundary result = %+v", result)
+	}
+}
+
 func TestSemanticContextSQLiteFiltersRelationsBeforeLimit(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -2661,6 +2749,27 @@ func semanticFixtureSnapshot(schema string) string {
 	return `{"schema_version":"` + schema + `","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"caller","to_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","type":"CALLS","confidence":1}
+`
+}
+
+func semanticBoundaryFixtureSnapshot() string {
+	return `{"schema_version":"1.0","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go","routes","tools","workflows"],"warnings":[],"partial_failures":[]}
+{"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
+{"record_type":"symbol","id":"gh/example/repo:go:internal/http/routes.go:route:GET /tokens/{id}","kind":"route","name":"GET /tokens/{id}","qualified_name":"GET /tokens/{id}","file_path":"internal/http/routes.go","start_line":5,"end_line":5,"signature":"GET /tokens/{id}","language":"Go","stable_id_version":"1"}
+{"record_type":"symbol","id":"gh/example/repo:go:internal/cli/root.go:cli_command:brain refresh","kind":"cli_command","name":"brain refresh","qualified_name":"brain refresh","file_path":"internal/cli/root.go","start_line":50,"end_line":60,"signature":"entire brain refresh","language":"Go","stable_id_version":"1"}
+{"record_type":"symbol","id":"gh/example/repo:yaml:.github/workflows/test.yml:workflow:token validation","kind":"workflow","name":"token validation","qualified_name":"token validation","file_path":".github/workflows/test.yml","start_line":1,"end_line":20,"signature":"mise run check","language":"YAML","stable_id_version":"1"}
+{"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token_test.go:test:auth.TestValidateToken","kind":"test","name":"TestValidateToken","qualified_name":"auth.TestValidateToken","file_path":"internal/auth/token_test.go","start_line":8,"end_line":18,"signature":"func TestValidateToken(t *testing.T)","language":"Go","stable_id_version":"1"}
+{"record_type":"relation","from_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","to_id":"gh/example/repo:go:internal/http/routes.go:route:GET /tokens/{id}","type":"HANDLES_ROUTE","confidence":1}
+{"record_type":"relation","from_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","to_id":"gh/example/repo:go:internal/cli/root.go:cli_command:brain refresh","type":"HANDLES_TOOL","confidence":0.8}
+{"record_type":"relation","from_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","to_id":"gh/example/repo:yaml:.github/workflows/test.yml:workflow:token validation","type":"HANDLES_WORKFLOW","confidence":0.7}
+`
+}
+
+func semanticBoundaryFixtureSnapshotWithExtraRoute() string {
+	return strings.TrimSuffix(semanticBoundaryFixtureSnapshot(), "\n") + `
+{"record_type":"symbol","id":"gh/example/repo:go:internal/http/routes.go:route:POST /sessions","kind":"route","name":"POST /sessions","qualified_name":"POST /sessions","file_path":"internal/http/routes.go","start_line":6,"end_line":6,"signature":"POST /sessions","language":"Go","stable_id_version":"1"}
+{"record_type":"symbol","id":"gh/example/repo:go:internal/http/session.go:function:http.CreateSession","kind":"function","name":"CreateSession","qualified_name":"http.CreateSession","file_path":"internal/http/session.go","start_line":12,"end_line":24,"signature":"func CreateSession()","language":"Go","stable_id_version":"1"}
+{"record_type":"relation","from_id":"gh/example/repo:go:internal/http/session.go:function:http.CreateSession","to_id":"gh/example/repo:go:internal/http/routes.go:route:POST /sessions","type":"HANDLES_ROUTE","confidence":1}
 `
 }
 

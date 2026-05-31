@@ -1492,6 +1492,40 @@ type semanticChangesReport struct {
 	Symbols     []semanticRecord `json:"symbols"`
 }
 
+type semanticBoundaryOptions struct {
+	limit int
+	json  bool
+}
+
+type semanticBoundarySpec struct {
+	Name          string
+	Use           string
+	Short         string
+	SymbolKinds   []string
+	RelationTypes []string
+}
+
+type semanticBoundaryResult struct {
+	Boundaries []semanticRecord `json:"boundaries"`
+	Handlers   []semanticRecord `json:"handlers"`
+	Relations  []semanticRecord `json:"relations"`
+}
+
+type semanticTestsOptions struct {
+	limit int
+	json  bool
+}
+
+type semanticTestSuggestion struct {
+	Symbol semanticRecord `json:"symbol"`
+	Reason string         `json:"reason"`
+}
+
+type semanticTestsResult struct {
+	Roots       []semanticRecord         `json:"roots"`
+	Suggestions []semanticTestSuggestion `json:"suggestions"`
+}
+
 func newSemanticChangesCommand(opts Options) *cobra.Command {
 	changesOpts := semanticChangesOptions{limit: 100}
 	cmd := &cobra.Command{
@@ -1504,6 +1538,66 @@ func newSemanticChangesCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().IntVar(&changesOpts.limit, "limit", 100, "Maximum symbols to include")
 	cmd.Flags().BoolVar(&changesOpts.json, "json", false, "Emit machine-readable JSON")
+	return cmd
+}
+
+func newSemanticRoutesCommand(opts Options) *cobra.Command {
+	return newSemanticBoundaryCommand(opts, semanticBoundarySpec{
+		Name:          "routes",
+		Use:           "routes",
+		Short:         "List local route boundaries and handlers",
+		SymbolKinds:   []string{"route", "http_route"},
+		RelationTypes: []string{"HANDLES_ROUTE"},
+	})
+}
+
+func newSemanticToolsCommand(opts Options) *cobra.Command {
+	return newSemanticBoundaryCommand(opts, semanticBoundarySpec{
+		Name:          "tools",
+		Use:           "tools",
+		Short:         "List local tool and CLI boundaries and handlers",
+		SymbolKinds:   []string{"tool", "mcp_tool", "cli_command", "command"},
+		RelationTypes: []string{"HANDLES_TOOL", "HANDLES_CLI", "HANDLES_COMMAND"},
+	})
+}
+
+func newSemanticWorkflowsCommand(opts Options) *cobra.Command {
+	return newSemanticBoundaryCommand(opts, semanticBoundarySpec{
+		Name:          "workflows",
+		Use:           "workflows",
+		Short:         "List local workflow boundaries and handlers",
+		SymbolKinds:   []string{"workflow", "job", "pipeline"},
+		RelationTypes: []string{"HANDLES_WORKFLOW", "PART_OF_WORKFLOW"},
+	})
+}
+
+func newSemanticBoundaryCommand(opts Options, spec semanticBoundarySpec) *cobra.Command {
+	boundaryOpts := semanticBoundaryOptions{limit: 50}
+	cmd := &cobra.Command{
+		Use:   spec.Use,
+		Short: spec.Short,
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runSemanticBoundary(cmd.Context(), cmd, opts, boundaryOpts, spec)
+		},
+	}
+	cmd.Flags().IntVar(&boundaryOpts.limit, "limit", 50, "Maximum boundary symbols to include")
+	cmd.Flags().BoolVar(&boundaryOpts.json, "json", false, "Emit machine-readable JSON")
+	return cmd
+}
+
+func newSemanticTestsCommand(opts Options) *cobra.Command {
+	testsOpts := semanticTestsOptions{limit: 20}
+	cmd := &cobra.Command{
+		Use:   "tests <symbol-or-text>",
+		Short: "Suggest local tests relevant to a symbol or text query",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runSemanticTests(cmd.Context(), cmd, opts, testsOpts, args[0])
+		},
+	}
+	cmd.Flags().IntVar(&testsOpts.limit, "limit", 20, "Maximum test suggestions to include")
+	cmd.Flags().BoolVar(&testsOpts.json, "json", false, "Emit machine-readable JSON")
 	return cmd
 }
 
@@ -1792,6 +1886,117 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 	return nil
 }
 
+func runSemanticBoundary(ctx context.Context, cmd *cobra.Command, opts Options, boundaryOpts semanticBoundaryOptions, spec semanticBoundarySpec) error {
+	if boundaryOpts.limit <= 0 {
+		return errors.New("--limit must be greater than zero")
+	}
+	repoDir, err := exportRepoDir(opts.Env)
+	if err != nil {
+		return err
+	}
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		return err
+	}
+	unlock, err := acquireSemanticIndexLock(storage.BrainDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	manifest, err := loadBrainManifest(storage.BrainDir)
+	if err != nil {
+		return err
+	}
+	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
+		return errors.New("semantic index missing; run `entire brain index`")
+	}
+	freshness, err := semanticStaleReport(ctx, opts, repoDir)
+	if err != nil {
+		return err
+	}
+	result, err := semanticBoundaryFacts(storage.BrainDir, manifest.Sources.Semantic, spec, boundaryOpts.limit)
+	if err != nil {
+		return err
+	}
+	if boundaryOpts.json {
+		data, err := json.MarshalIndent(struct {
+			Freshness staleReport            `json:"freshness"`
+			Boundary  semanticBoundaryResult `json:"boundary"`
+		}{Freshness: freshness, Boundary: result}, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), string(data))
+		return nil
+	}
+	if freshness.Severity != "ok" {
+		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
+	}
+	for _, boundary := range result.Boundaries {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s:%d-%d\n", boundary.Kind, displaySymbolName(boundary), boundary.FilePath, boundary.StartLine, boundary.EndLine)
+	}
+	for _, relation := range result.Relations {
+		fmt.Fprintf(cmd.OutOrStdout(), "relation %s -> %s %s\n", relation.FromID, relation.ToID, relation.Type)
+	}
+	for _, handler := range result.Handlers {
+		fmt.Fprintf(cmd.OutOrStdout(), "handler %s %s:%d-%d\n", displaySymbolName(handler), handler.FilePath, handler.StartLine, handler.EndLine)
+	}
+	return nil
+}
+
+func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, testsOpts semanticTestsOptions, query string) error {
+	if testsOpts.limit <= 0 {
+		return errors.New("--limit must be greater than zero")
+	}
+	repoDir, err := exportRepoDir(opts.Env)
+	if err != nil {
+		return err
+	}
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		return err
+	}
+	unlock, err := acquireSemanticIndexLock(storage.BrainDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	manifest, err := loadBrainManifest(storage.BrainDir)
+	if err != nil {
+		return err
+	}
+	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
+		return errors.New("semantic index missing; run `entire brain index`")
+	}
+	freshness, err := semanticStaleReport(ctx, opts, repoDir)
+	if err != nil {
+		return err
+	}
+	result, err := semanticTestFacts(storage.BrainDir, manifest.Sources.Semantic, query, testsOpts.limit)
+	if err != nil {
+		return err
+	}
+	if testsOpts.json {
+		data, err := json.MarshalIndent(struct {
+			Freshness staleReport         `json:"freshness"`
+			Tests     semanticTestsResult `json:"tests"`
+		}{Freshness: freshness, Tests: result}, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), string(data))
+		return nil
+	}
+	if freshness.Severity != "ok" {
+		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
+	}
+	for _, suggestion := range result.Suggestions {
+		symbol := suggestion.Symbol
+		fmt.Fprintf(cmd.OutOrStdout(), "test %s %s:%d-%d %s\n", displaySymbolName(symbol), symbol.FilePath, symbol.StartLine, symbol.EndLine, suggestion.Reason)
+	}
+	return nil
+}
+
 func semanticContextFacts(brainDir string, source *semanticSourceManifest, query string, limit, offset int) ([]semanticRecord, []semanticRecord, error) {
 	if source.StorePath != "" {
 		storePath, err := validateSemanticDeclaredStore(brainDir, source)
@@ -1865,6 +2070,170 @@ func semanticSymbolsForFiles(brainDir string, source *semanticSourceManifest, fi
 		return nil, err
 	}
 	return findSemanticSymbolsForFiles(filepath.Join(brainDir, snapshotPath), files, limit)
+}
+
+func semanticBoundaryFacts(brainDir string, source *semanticSourceManifest, spec semanticBoundarySpec, limit int) (semanticBoundaryResult, error) {
+	symbolsByID, relations, err := loadSemanticBoundaryRecords(brainDir, source, spec.RelationTypes)
+	if err != nil {
+		return semanticBoundaryResult{}, err
+	}
+	kindSet := lowerSet(spec.SymbolKinds)
+	var result semanticBoundaryResult
+	seenBoundaries := map[string]struct{}{}
+	seenHandlers := map[string]struct{}{}
+	for _, symbol := range sortedSemanticSymbols(symbolsByID) {
+		if !semanticKindInSet(symbol.Kind, kindSet) {
+			continue
+		}
+		seenBoundaries[symbol.ID] = struct{}{}
+		result.Boundaries = append(result.Boundaries, symbol)
+		if len(result.Boundaries) >= limit {
+			break
+		}
+	}
+	for _, relation := range relations {
+		if _, fromBoundary := seenBoundaries[relation.FromID]; !fromBoundary {
+			if _, toBoundary := seenBoundaries[relation.ToID]; !toBoundary {
+				continue
+			}
+		}
+		result.Relations = append(result.Relations, relation)
+		for _, id := range []string{relation.FromID, relation.ToID} {
+			symbol, ok := symbolsByID[id]
+			if !ok {
+				continue
+			}
+			if semanticKindInSet(symbol.Kind, kindSet) {
+				if _, seen := seenBoundaries[id]; !seen && len(result.Boundaries) < limit {
+					seenBoundaries[id] = struct{}{}
+					result.Boundaries = append(result.Boundaries, symbol)
+				}
+				continue
+			}
+			if _, seen := seenHandlers[id]; seen {
+				continue
+			}
+			seenHandlers[id] = struct{}{}
+			result.Handlers = append(result.Handlers, symbol)
+		}
+	}
+	return result, nil
+}
+
+func semanticTestFacts(brainDir string, source *semanticSourceManifest, query string, limit int) (semanticTestsResult, error) {
+	roots, _, relations, symbolsByID, err := semanticGraphFacts(brainDir, source, query, 1, limit)
+	if err != nil {
+		return semanticTestsResult{}, err
+	}
+	related := map[string]struct{}{}
+	for _, root := range roots {
+		related[root.ID] = struct{}{}
+	}
+	for _, relation := range relations {
+		if _, ok := related[relation.FromID]; ok {
+			related[relation.ToID] = struct{}{}
+		}
+		if _, ok := related[relation.ToID]; ok {
+			related[relation.FromID] = struct{}{}
+		}
+	}
+	rootDirs := map[string]struct{}{}
+	rootNames := make([]string, 0, len(roots))
+	for _, root := range roots {
+		if root.FilePath != "" {
+			rootDirs[pathDirSlash(root.FilePath)] = struct{}{}
+		}
+		name := strings.ToLower(root.Name)
+		if name != "" {
+			rootNames = append(rootNames, name)
+		}
+	}
+	result := semanticTestsResult{Roots: roots}
+	seen := map[string]struct{}{}
+	for _, symbol := range sortedSemanticSymbols(symbolsByID) {
+		if !isSemanticTestSymbol(symbol) {
+			continue
+		}
+		reason := semanticTestReason(symbol, related, rootDirs, rootNames)
+		if reason == "" {
+			continue
+		}
+		if _, ok := seen[symbol.ID]; ok {
+			continue
+		}
+		seen[symbol.ID] = struct{}{}
+		result.Suggestions = append(result.Suggestions, semanticTestSuggestion{Symbol: symbol, Reason: reason})
+		if len(result.Suggestions) >= limit {
+			break
+		}
+	}
+	return result, nil
+}
+
+func semanticGraphFacts(brainDir string, source *semanticSourceManifest, query string, depth, limit int) ([]semanticRecord, []semanticRecord, []semanticRecord, map[string]semanticRecord, error) {
+	if source.StorePath != "" {
+		storePath, err := validateSemanticDeclaredStore(brainDir, source)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		roots, err := findSemanticSymbolsInSQLite(storePath, query, limit, 0)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		symbols, relations, err := traverseSemanticImpactSQLite(storePath, roots, depth, limit)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		symbolsByID, err := loadSemanticSymbolsByIDSQLite(storePath)
+		return roots, symbols, relations, symbolsByID, err
+	}
+	snapshotPath, err := validateSemanticSnapshotPath(source.SnapshotPath)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	if err := rejectSymlinkPathComponents(brainDir, snapshotPath); err != nil {
+		return nil, nil, nil, nil, err
+	}
+	fullPath := filepath.Join(brainDir, snapshotPath)
+	roots, err := findSemanticSymbols(fullPath, query, limit, 0)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	symbols, relations, err := traverseSemanticImpactSnapshot(fullPath, roots, depth, limit)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	symbolsByID, err := loadSemanticSymbolsByIDSnapshot(fullPath)
+	return roots, symbols, relations, symbolsByID, err
+}
+
+func loadSemanticBoundaryRecords(brainDir string, source *semanticSourceManifest, relationTypes []string) (map[string]semanticRecord, []semanticRecord, error) {
+	if source.StorePath != "" {
+		storePath, err := validateSemanticDeclaredStore(brainDir, source)
+		if err != nil {
+			return nil, nil, err
+		}
+		symbolsByID, err := loadSemanticSymbolsByIDSQLite(storePath)
+		if err != nil {
+			return nil, nil, err
+		}
+		relations, err := findSemanticRelationsByTypesSQLite(storePath, relationTypes)
+		return symbolsByID, relations, err
+	}
+	snapshotPath, err := validateSemanticSnapshotPath(source.SnapshotPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := rejectSymlinkPathComponents(brainDir, snapshotPath); err != nil {
+		return nil, nil, err
+	}
+	fullPath := filepath.Join(brainDir, snapshotPath)
+	symbolsByID, err := loadSemanticSymbolsByIDSnapshot(fullPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	relations, err := findSemanticRelationsByTypesSnapshot(fullPath, relationTypes)
+	return symbolsByID, relations, err
 }
 
 func validateSemanticDeclaredStore(brainDir string, source *semanticSourceManifest) (string, error) {
@@ -1991,6 +2360,38 @@ func findSemanticRelationsForSymbolsInSQLite(storePath string, symbols []semanti
 	rows, err := db.Query(`SELECT from_id, to_id, type, confidence, reason FROM relations
 WHERE from_id IN (`+inClause+`) OR to_id IN (`+inClause+`)
 ORDER BY id LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var relations []semanticRecord
+	for rows.Next() {
+		var record semanticRecord
+		record.RecordType = "relation"
+		if err := rows.Scan(&record.FromID, &record.ToID, &record.Type, &record.Confidence, &record.Reason); err != nil {
+			return nil, err
+		}
+		relations = append(relations, record)
+	}
+	return relations, rows.Err()
+}
+
+func findSemanticRelationsByTypesSQLite(storePath string, relationTypes []string) ([]semanticRecord, error) {
+	if len(relationTypes) == 0 {
+		return nil, nil
+	}
+	db, err := sql.Open("sqlite", storePath)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	args := make([]any, 0, len(relationTypes))
+	placeholders := make([]string, 0, len(relationTypes))
+	for _, relationType := range relationTypes {
+		args = append(args, relationType)
+		placeholders = append(placeholders, "?")
+	}
+	rows, err := db.Query(`SELECT from_id, to_id, type, confidence, reason FROM relations WHERE type IN (`+strings.Join(placeholders, ",")+`) ORDER BY id`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -2388,6 +2789,110 @@ func findSemanticRelationsForSymbols(snapshotPath string, symbols []semanticReco
 	return relations, scanner.Err()
 }
 
+func findSemanticRelationsByTypesSnapshot(snapshotPath string, relationTypes []string) ([]semanticRecord, error) {
+	if len(relationTypes) == 0 {
+		return nil, nil
+	}
+	typeSet := lowerSet(relationTypes)
+	f, err := os.Open(snapshotPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	scanner := newSemanticScanner(f)
+	first := true
+	var relations []semanticRecord
+	for scanner.Scan() {
+		if first {
+			first = false
+			continue
+		}
+		text := bytes.TrimSpace(scanner.Bytes())
+		if len(text) == 0 {
+			continue
+		}
+		var record semanticRecord
+		if err := json.Unmarshal(text, &record); err != nil {
+			return nil, err
+		}
+		if record.RecordType == "relation" && semanticKindInSet(record.Type, typeSet) {
+			relations = append(relations, record)
+		}
+	}
+	return relations, scanner.Err()
+}
+
+func lowerSet(values []string) map[string]struct{} {
+	result := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value != "" {
+			result[value] = struct{}{}
+		}
+	}
+	return result
+}
+
+func semanticKindInSet(value string, set map[string]struct{}) bool {
+	_, ok := set[strings.ToLower(strings.TrimSpace(value))]
+	return ok
+}
+
+func sortedSemanticSymbols(symbols map[string]semanticRecord) []semanticRecord {
+	result := make([]semanticRecord, 0, len(symbols))
+	for _, symbol := range symbols {
+		result = append(result, symbol)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].FilePath != result[j].FilePath {
+			return result[i].FilePath < result[j].FilePath
+		}
+		if result[i].StartLine != result[j].StartLine {
+			return result[i].StartLine < result[j].StartLine
+		}
+		if result[i].QualifiedName != result[j].QualifiedName {
+			return result[i].QualifiedName < result[j].QualifiedName
+		}
+		return result[i].ID < result[j].ID
+	})
+	return result
+}
+
+func isSemanticTestSymbol(symbol semanticRecord) bool {
+	kind := strings.ToLower(symbol.Kind)
+	path := strings.ToLower(symbol.FilePath)
+	name := strings.ToLower(symbol.Name)
+	return strings.Contains(kind, "test") ||
+		strings.HasSuffix(path, "_test.go") ||
+		strings.Contains(path, "/test/") ||
+		strings.Contains(path, "/tests/") ||
+		strings.HasPrefix(name, "test")
+}
+
+func semanticTestReason(symbol semanticRecord, related map[string]struct{}, rootDirs map[string]struct{}, rootNames []string) string {
+	if _, ok := related[symbol.ID]; ok {
+		return "semantic relation"
+	}
+	if _, ok := rootDirs[pathDirSlash(symbol.FilePath)]; ok {
+		return "same directory"
+	}
+	lowerName := strings.ToLower(symbol.Name)
+	for _, rootName := range rootNames {
+		if rootName != "" && strings.Contains(lowerName, rootName) {
+			return "name match"
+		}
+	}
+	return ""
+}
+
+func pathDirSlash(path string) string {
+	dir := filepath.ToSlash(filepath.Dir(filepath.FromSlash(path)))
+	if dir == "." {
+		return ""
+	}
+	return dir
+}
+
 func semanticContextContent(repoDir string, symbols []semanticRecord) []semanticContent {
 	var content []semanticContent
 	for _, symbol := range symbols {
@@ -2678,20 +3183,16 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 			return err
 		}
 	}
-	if err := rejectBundleOutputHardLink(output, storage.BrainDir); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(output), 0o700); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(output, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	f, tempPath, finalPath, err := createBundleOutputTemp(output, storage.BrainDir)
 	if err != nil {
 		return err
 	}
-	if err := f.Chmod(0o600); err != nil {
-		_ = f.Close()
-		return err
-	}
+	renamed := false
+	defer func() {
+		if !renamed {
+			_ = os.Remove(tempPath)
+		}
+	}()
 	hasher := sha256.New()
 	mw := io.MultiWriter(f, hasher)
 	tw := tar.NewWriter(mw)
@@ -2720,6 +3221,10 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	if err := f.Close(); err != nil {
 		return err
 	}
+	if err := os.Rename(tempPath, finalPath); err != nil {
+		return err
+	}
+	renamed = true
 	checksum := hex.EncodeToString(hasher.Sum(nil))
 	if err := appendSemanticAudit(storage.BrainDir, "bundle_export", output, checksum); err != nil {
 		return err
@@ -2958,6 +3463,36 @@ func rejectBundleOutputHardLink(output, brainDir string) error {
 		}
 		return nil
 	})
+}
+
+func createBundleOutputTemp(output, brainDir string) (*os.File, string, string, error) {
+	if err := os.MkdirAll(filepath.Dir(output), 0o700); err != nil {
+		return nil, "", "", err
+	}
+	dir, err := filepath.EvalSymlinks(filepath.Dir(output))
+	if err != nil {
+		return nil, "", "", err
+	}
+	finalPath := filepath.Join(dir, filepath.Base(output))
+	if err := rejectBundleOutputInsideBrain(finalPath, brainDir); err != nil {
+		return nil, "", "", err
+	}
+	if err := rejectBundleOutputSymlink(finalPath); err != nil {
+		return nil, "", "", err
+	}
+	if err := rejectBundleOutputHardLink(finalPath, brainDir); err != nil {
+		return nil, "", "", err
+	}
+	f, err := os.CreateTemp(dir, "."+filepath.Base(output)+".tmp-*")
+	if err != nil {
+		return nil, "", "", err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		return nil, "", "", err
+	}
+	return f, f.Name(), finalPath, nil
 }
 
 func rejectBundleOutputSymlink(output string) error {

@@ -10,9 +10,13 @@ Recommended intake flow:
    candidate symbols.
 3. Use `entire brain context <symbol> --json --include-content=false` for
    relation-aware context.
-4. Refresh with `entire brain refresh --semantic` when `stale` reports unsafe
+4. Use `entire brain routes --json`, `entire brain tools --json`, or
+   `entire brain workflows --json` when the task is about project boundaries.
+5. Use `entire brain tests <symbol> --json` before choosing validation
+   commands for a changed symbol.
+6. Refresh with `entire brain refresh --semantic` when `stale` reports unsafe
    semantic data.
-5. Use `--semantic-worktree` only when uncommitted code is intentionally part
+7. Use `--semantic-worktree` only when uncommitted code is intentionally part
    of the question. `--worktree` only affects seed refresh inputs.
 
 Do not publish semantic artifacts or send semantic context to remote services in
