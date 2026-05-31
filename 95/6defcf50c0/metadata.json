@@ -3,7 +3,7 @@
   "checkpoint_id": "956defcf50c0",
   "strategy": "manual-commit",
   "branch": "phase-1-semantic-brain",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     "docs/progress-so-far.md",
     "docs/semantic_agent_guide.md",
@@ -31,14 +31,20 @@
       "transcript": "/95/6defcf50c0/2/full.jsonl",
       "content_hash": "/95/6defcf50c0/2/content_hash.txt",
       "prompt": "/95/6defcf50c0/2/prompt.txt"
+    },
+    {
+      "metadata": "/95/6defcf50c0/3/metadata.json",
+      "transcript": "/95/6defcf50c0/3/full.jsonl",
+      "content_hash": "/95/6defcf50c0/3/content_hash.txt",
+      "prompt": "/95/6defcf50c0/3/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 274471,
+    "input_tokens": 380417,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 18235648,
-    "output_tokens": 31361,
-    "api_call_count": 175
+    "cache_read_tokens": 19079552,
+    "output_tokens": 37461,
+    "api_call_count": 186
   },
   "has_review": true
 }
