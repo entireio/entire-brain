@@ -5,8 +5,9 @@
 Branch: `phase-1-semantic-brain`
 
 Initial release 1 commit: `7f7f659` (`Implement semantic brain fresh index`),
-pushed to `origin/phase-1-semantic-brain`. Follow-up release-1 hardening is
-being committed on the same branch.
+pushed to `origin/phase-1-semantic-brain`. Follow-up release-1 hardening commit:
+`f244a1f` (`Harden semantic brain release one`), also pushed to
+`origin/phase-1-semantic-brain`.
 
 ### Release 1: Fresh Semantic Index
 
