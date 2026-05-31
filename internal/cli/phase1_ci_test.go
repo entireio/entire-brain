@@ -43,6 +43,29 @@ func TestPhase1SemanticCommandJSONContracts(t *testing.T) {
 	assertPhase1NoNetworkCommands(t, runner, repoDir)
 }
 
+func TestPhase1SemanticPerformanceSmoke(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+
+	start := time.Now()
+	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 30*time.Second {
+		t.Fatalf("phase 1 semantic index exceeded smoke budget: %s", elapsed)
+	}
+
+	start = time.Now()
+	if _, err := execute(t, cmd, "query", "ValidateToken", "--json", "--limit", "5"); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("phase 1 semantic query exceeded smoke budget: %s", elapsed)
+	}
+}
+
 func assertCommandJSONContains(t *testing.T, cmd *cobra.Command, name string, args []string, want string) {
 	t.Helper()
 	out, err := execute(t, cmd, append([]string{name}, args...)...)

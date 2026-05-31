@@ -356,19 +356,31 @@ repo:
   `git branch --show-current` lookups as unsafe freshness axes instead of
   comparing against empty current values.
 
-Known remaining gaps:
+Gap-closure work for the original Phase 1 plan:
 
-- `repair`, `reset`, and `reset --semantic-only` were described in the detailed
-  command plan but are not implemented yet.
-- Query/context/impact JSON output has stable data contracts and pagination,
-  but command failures still return process errors rather than a consistent
-  structured JSON error-code envelope.
-- Release 8's CI checklist is broad and aspirational. The current suite covers
-  deterministic provider fixtures, schema compatibility, SQLite integrity,
-  dirty/worktree behavior, locks, stale axes, JSON contracts, bundle
-  security/round-trip behavior, workspaces, MCP, race tests, and no-egress
-  command assertions, but it does not yet include explicit performance-budget
-  smoke tests or exhaustive read-only/permission-denied filesystem scenarios.
-- Workspace freshness reports local repo semantic freshness; explicit
-  cross-repo contract freshness remains a future refinement on top of the
-  current workspace query/impact model.
+- Added `entire brain repair`, which rebuilds derived SQLite generations from
+  the active local semantic snapshot without invoking the provider.
+- Added `entire brain reset --semantic-only --force`, which removes semantic
+  artifacts and semantic manifest metadata while preserving other brain sources.
+- Added `entire brain reset --force` for removing the generated repo brain
+  directory without touching source files.
+- Added structured JSON error envelopes for commands that opt into `--json`.
+- Added explicit Phase 1 performance-budget smoke coverage for index and query.
+- Added write-failure and read-only filesystem coverage for semantic indexing.
+- Added workspace contract freshness fields alongside per-repo semantic
+  freshness so workspace refresh/query/impact output can distinguish semantic
+  data freshness from cross-repo contract freshness.
+- Expanded GitHub Actions so the deterministic Phase 1 semantic suite runs on
+  Linux, macOS, and Windows, not only Linux.
+
+Completed validation for this gap-closure pass:
+
+- Focused semantic lifecycle, workspace contract, JSON-error, performance,
+  filesystem, and cross-platform path tests passed.
+- `go test ./...` passed.
+- `mise run check` passed.
+- `entire review` initially found Windows path assertions and partial JSON error
+  coverage; both were fixed. The follow-up `entire review` reported no
+  actionable findings.
+- Commit/push and GitHub Actions follow-up on all three operating systems are
+  next.

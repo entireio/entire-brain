@@ -130,6 +130,11 @@ type semanticIndexOptions struct {
 	worktree  bool
 }
 
+type semanticResetOptions struct {
+	force        bool
+	semanticOnly bool
+}
+
 func newSemanticIndexCommand(opts Options) *cobra.Command {
 	indexOpts := semanticIndexOptions{semBinary: "entire"}
 	cmd := &cobra.Command{
@@ -151,6 +156,47 @@ func newSemanticIndexCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&indexOpts.semBinary, "sem-binary", "entire", "Entire CLI binary that exposes `sem` provider commands")
 	cmd.Flags().BoolVar(&indexOpts.skipSem, "skip-sem", false, "Record semantic metadata without invoking the semantic provider")
 	cmd.Flags().BoolVar(&indexOpts.worktree, "worktree", false, "Index the dirty worktree instead of committed HEAD")
+	return cmd
+}
+
+func newSemanticRepairCommand(opts Options) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "repair [path]",
+		Short: "Rebuild local semantic brain derived indexes",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target := "."
+			if opts.Env.RepoRoot != "" {
+				target = opts.Env.RepoRoot
+			}
+			if len(args) == 1 {
+				target = args[0]
+			}
+			return runSemanticRepair(cmd.Context(), cmd, opts, target)
+		},
+	}
+	return cmd
+}
+
+func newSemanticResetCommand(opts Options) *cobra.Command {
+	resetOpts := semanticResetOptions{}
+	cmd := &cobra.Command{
+		Use:   "reset [path]",
+		Short: "Remove local generated brain data",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target := "."
+			if opts.Env.RepoRoot != "" {
+				target = opts.Env.RepoRoot
+			}
+			if len(args) == 1 {
+				target = args[0]
+			}
+			return runSemanticReset(cmd.Context(), cmd, opts, resetOpts, target)
+		},
+	}
+	cmd.Flags().BoolVar(&resetOpts.semanticOnly, "semantic-only", false, "Remove only semantic artifacts and manifest source metadata")
+	cmd.Flags().BoolVar(&resetOpts.force, "force", false, "Confirm removal without an interactive prompt")
 	return cmd
 }
 
@@ -349,6 +395,174 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "store: %s\n", source.StorePath)
 	fmt.Fprintf(cmd.OutOrStdout(), "build_ms: %d\n", metrics.BuildMillis)
+	return nil
+}
+
+func runSemanticRepair(ctx context.Context, cmd *cobra.Command, opts Options, target string) error {
+	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	if err != nil {
+		return err
+	}
+	if !local {
+		return fmt.Errorf("repair requires a local repository path: %s", target)
+	}
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		return err
+	}
+	if err := ensureSemanticAuditPathSafe(storage.BrainDir); err != nil {
+		return err
+	}
+	unlock, err := acquireSemanticIndexLock(storage.BrainDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	manifest, err := loadBrainManifest(storage.BrainDir)
+	if err != nil {
+		return err
+	}
+	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
+		return errors.New("semantic index missing; run `entire brain index`")
+	}
+	source := manifest.Sources.Semantic
+	snapshotRel, err := validateSemanticSnapshotPath(source.SnapshotPath)
+	if err != nil {
+		return err
+	}
+	if err := rejectSymlinkPathComponents(storage.BrainDir, snapshotRel); err != nil {
+		return err
+	}
+	snapshotPath := filepath.Join(storage.BrainDir, snapshotRel)
+	info, err := os.Lstat(snapshotPath)
+	if err != nil {
+		return fmt.Errorf("active semantic snapshot missing: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("active semantic snapshot must not be a symlink: %s", source.SnapshotPath)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("active semantic snapshot must be a file: %s", source.SnapshotPath)
+	}
+	raw, err := os.ReadFile(snapshotPath)
+	if err != nil {
+		return fmt.Errorf("read active semantic snapshot: %w", err)
+	}
+	header, counts, err := readSemanticSnapshotSummary(snapshotPath, storage.Key)
+	if err != nil {
+		return err
+	}
+	if err := validateSemanticSourceMatchesSnapshot(source, header, counts); err != nil {
+		return err
+	}
+	counts.Files = source.Files
+	if counts.Files == 0 {
+		counts.Files = semanticSnapshotFileCount(raw)
+	}
+	snapshotID := filepath.Base(filepath.Dir(snapshotRel))
+	if snapshotID == "." || snapshotID == string(filepath.Separator) || snapshotID == "" {
+		return fmt.Errorf("semantic snapshot path has no generation id: %s", source.SnapshotPath)
+	}
+	generation, metrics, err := buildSemanticGeneration(storage.BrainDir, repoDir, snapshotID, raw, header, counts, opts.Now().UTC())
+	if err != nil {
+		return err
+	}
+	repaired := *source
+	repaired.GeneratedAt = opts.Now().UTC()
+	repaired.StorePath = filepath.ToSlash(filepath.Join(generation, semanticSQLiteName))
+	repaired.GenerationPath = generation
+	repaired.MetricsPath = filepath.ToSlash(filepath.Join(generation, semanticMetricsName))
+	repaired.ParseCachePath = filepath.ToSlash(filepath.Join(generation, "parse-cache"))
+	repaired.Symbols = counts.Symbols
+	repaired.Relations = counts.Relations
+	repaired.Files = counts.Files
+	if err := writeBrainSemanticSource(storage.BrainDir, storage.Key, &repaired); err != nil {
+		return err
+	}
+	if err := writeSemanticSnapshotManifest(storage.BrainDir, snapshotID, &repaired); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "repaired semantic brain: %s\n", storage.BrainDir)
+	fmt.Fprintf(cmd.OutOrStdout(), "snapshot: %s\n", source.SnapshotPath)
+	fmt.Fprintf(cmd.OutOrStdout(), "store: %s\n", repaired.StorePath)
+	fmt.Fprintf(cmd.OutOrStdout(), "build_ms: %d\n", metrics.BuildMillis)
+	return nil
+}
+
+func semanticSnapshotFileCount(raw []byte) int {
+	files := map[string]struct{}{}
+	scanner := newSemanticScanner(bytes.NewReader(raw))
+	if !scanner.Scan() {
+		return 0
+	}
+	for scanner.Scan() {
+		text := bytes.TrimSpace(scanner.Bytes())
+		if len(text) == 0 {
+			continue
+		}
+		var record semanticRecord
+		if err := json.Unmarshal(text, &record); err != nil {
+			continue
+		}
+		switch record.RecordType {
+		case "file", "symbol":
+			if path := record.semanticPath(); path != "" {
+				files[path] = struct{}{}
+			}
+		}
+	}
+	return len(files)
+}
+
+func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, resetOpts semanticResetOptions, target string) error {
+	if !resetOpts.force {
+		return errors.New("reset requires --force")
+	}
+	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	if err != nil {
+		return err
+	}
+	if !local {
+		return fmt.Errorf("reset requires a local repository path: %s", target)
+	}
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		return err
+	}
+	if err := rejectSymlinkedBrainRoot(storage.BrainDir); err != nil {
+		return err
+	}
+	if resetOpts.semanticOnly {
+		unlock, err := acquireSemanticIndexLock(storage.BrainDir)
+		if err != nil {
+			return err
+		}
+		defer unlock()
+		manifest, err := loadBrainManifest(storage.BrainDir)
+		if err != nil {
+			return err
+		}
+		if manifest.Sources == nil {
+			manifest.Sources = &brainSources{}
+		}
+		manifest.Sources.Semantic = nil
+		applySessionSourceAliases(manifest)
+		if err := rejectExistingSymlinkPathComponents(storage.BrainDir, semanticDirName); err != nil {
+			return err
+		}
+		if err := os.RemoveAll(filepath.Join(storage.BrainDir, semanticDirName)); err != nil {
+			return fmt.Errorf("remove semantic artifacts: %w", err)
+		}
+		if err := writeBrainManifestAndReadme(storage.BrainDir, *manifest); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "reset semantic brain: %s\n", storage.BrainDir)
+		return nil
+	}
+	if err := os.RemoveAll(storage.BrainDir); err != nil {
+		return fmt.Errorf("remove brain directory: %w", err)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "reset brain: %s\n", storage.BrainDir)
 	return nil
 }
 

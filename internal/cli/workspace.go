@@ -39,10 +39,12 @@ type workspaceRepo struct {
 }
 
 type workspaceRepoFreshness struct {
-	RepoKey string `json:"repo_key"`
-	Name    string `json:"name,omitempty"`
-	State   string `json:"state"`
-	Detail  string `json:"detail,omitempty"`
+	RepoKey        string `json:"repo_key"`
+	Name           string `json:"name,omitempty"`
+	State          string `json:"state"`
+	Detail         string `json:"detail,omitempty"`
+	ContractState  string `json:"contract_state,omitempty"`
+	ContractDetail string `json:"contract_detail,omitempty"`
 }
 
 type workspaceAddOptions struct {
@@ -380,6 +382,8 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		return status
 	case brainManifest.Sources == nil || brainManifest.Sources.Semantic == nil:
 		status.State = "missing-semantic"
+		status.ContractState = "missing"
+		status.ContractDetail = "semantic contract facts unavailable"
 		return status
 	}
 	if repo.LocalPathHint == "" {
@@ -419,11 +423,22 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 	if err != nil {
 		status.State = "unsafe"
 		status.Detail = err.Error()
+		status.ContractState = "unsafe"
+		status.ContractDetail = "semantic freshness unavailable"
 		return status
 	}
 	status.State = report.Severity
 	if axis, ok := report.Axes["snapshot"]; ok {
 		status.Detail = axis.Detail
+	}
+	status.ContractState = report.Severity
+	switch report.Severity {
+	case "ok":
+		status.ContractDetail = "semantic contract facts current"
+	case "degraded":
+		status.ContractDetail = "semantic contract facts degraded"
+	default:
+		status.ContractDetail = "semantic contract freshness unsafe"
 	}
 	return status
 }

@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -772,6 +773,149 @@ func TestSemanticIndexRequiresForceWhenIndexExists(t *testing.T) {
 	}
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire", force: true}, repoDir); err != nil {
 		t.Fatalf("force index: %v", err)
+	}
+}
+
+func TestSemanticRepairRebuildsMissingStoreFromActiveSnapshot(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	brainDir := filepath.Join(env.PluginDataDir, brainDirName, "gh", "example", "repo")
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	storePath := filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.Semantic.StorePath))
+	if err := os.Remove(storePath); err != nil {
+		t.Fatalf("remove store: %v", err)
+	}
+	out, err := execute(t, cmd, "repair")
+	if err != nil {
+		t.Fatalf("repair: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "repaired semantic brain") {
+		t.Fatalf("repair output = %q", out)
+	}
+	if _, err := os.Stat(storePath); err != nil {
+		t.Fatalf("store was not rebuilt: %v", err)
+	}
+	queryOut, err := execute(t, cmd, "query", "ValidateToken", "--json")
+	if err != nil {
+		t.Fatalf("query after repair: %v", err)
+	}
+	if !strings.Contains(queryOut, `"ValidateToken"`) {
+		t.Fatalf("query output missing repaired symbol:\n%s", queryOut)
+	}
+}
+
+func TestSemanticResetRequiresForceAndSemanticOnlyPreservesManifest(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	if _, err := execute(t, cmd, "reset", "--semantic-only"); err == nil || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("reset without force err = %v", err)
+	}
+	out, err := execute(t, cmd, "reset", "--semantic-only", "--force")
+	if err != nil {
+		t.Fatalf("reset semantic-only: %v", err)
+	}
+	if !strings.Contains(out, "reset semantic brain") {
+		t.Fatalf("reset output = %q", out)
+	}
+	brainDir := filepath.Join(env.PluginDataDir, brainDirName, "gh", "example", "repo")
+	if _, err := os.Stat(filepath.Join(brainDir, semanticDirName)); !os.IsNotExist(err) {
+		t.Fatalf("semantic dir still exists: %v", err)
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	if manifest.Sources != nil && manifest.Sources.Semantic != nil {
+		t.Fatalf("semantic source still present: %+v", manifest.Sources.Semantic)
+	}
+}
+
+func TestSemanticResetForceRemovesBrainDirectory(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	brainDir := filepath.Join(env.PluginDataDir, brainDirName, "gh", "example", "repo")
+	if _, err := execute(t, cmd, "reset", "--force"); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	if _, err := os.Stat(brainDir); !os.IsNotExist(err) {
+		t.Fatalf("brain dir still exists: %v", err)
+	}
+}
+
+func TestSemanticJSONErrorsUseStructuredEnvelope(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	for name, args := range map[string][]string{
+		"runtime": {"query", "ValidateToken", "--json", "--limit", "0"},
+		"args":    {"query", "--json"},
+		"flags":   {"query", "--json", "--bogus"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, err := execute(t, cmd, args...)
+			if err == nil {
+				t.Fatalf("query succeeded unexpectedly:\n%s", out)
+			}
+			var envelope commandJSONError
+			if decodeErr := json.Unmarshal([]byte(out), &envelope); decodeErr != nil {
+				t.Fatalf("error output was not JSON: %v\n%s", decodeErr, out)
+			}
+			if envelope.Code != "command_failed" || envelope.Message == "" {
+				t.Fatalf("unexpected JSON error envelope: %+v", envelope)
+			}
+		})
+	}
+}
+
+func TestSemanticIndexReportsPluginDataWriteFailures(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	dataFile := filepath.Join(t.TempDir(), "plugin-data-file")
+	if err := os.WriteFile(dataFile, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("write plugin data file: %v", err)
+	}
+	env.PluginDataDir = dataFile
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err == nil {
+		t.Fatalf("index succeeded with file plugin data dir")
+	}
+}
+
+func TestSemanticIndexReportsReadOnlyBrainDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod read-only directory semantics are not portable on Windows")
+	}
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	brainRoot := filepath.Join(env.PluginDataDir, brainDirName)
+	if err := os.MkdirAll(brainRoot, 0o500); err != nil {
+		t.Fatalf("mkdir brain root: %v", err)
+	}
+	defer func() { _ = os.Chmod(brainRoot, 0o700) }()
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err == nil {
+		t.Fatalf("index succeeded with read-only brain root")
 	}
 }
 

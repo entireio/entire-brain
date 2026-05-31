@@ -42,6 +42,9 @@ func TestWorkspaceCreateAddRefreshAndQuery(t *testing.T) {
 	if !strings.Contains(queryOut, `"repo_key": "gh/example/repo"`) || !strings.Contains(queryOut, `"ValidateToken"`) {
 		t.Fatalf("query output missing workspace symbol:\n%s", queryOut)
 	}
+	if !strings.Contains(queryOut, `"contract_state": "ok"`) {
+		t.Fatalf("query output missing contract freshness:\n%s", queryOut)
+	}
 	impactOut, err := execute(t, cmd, "workspace", "impact", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
 		t.Fatalf("workspace impact: %v", err)

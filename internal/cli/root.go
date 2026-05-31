@@ -1,7 +1,11 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/ashtom/entire-brain/internal/config"
@@ -17,10 +21,15 @@ type Options struct {
 
 // Execute runs the plugin root command with the real process environment.
 func Execute(version string) error {
-	return NewRootCommand(Options{
+	cmd := NewRootCommand(Options{
 		Version: version,
 		Env:     EnvFromOS(),
-	}).Execute()
+	})
+	err := cmd.Execute()
+	if err != nil && commandErrorWasRendered(err) {
+		return err
+	}
+	return err
 }
 
 func NewRootCommand(opts Options) *cobra.Command {
@@ -62,6 +71,8 @@ agent can inspect to understand project history.`,
 	cmd.AddCommand(newSemanticRoutesCommand(opts))
 	cmd.AddCommand(newPathCommand(opts))
 	cmd.AddCommand(newRefreshCommand(opts))
+	cmd.AddCommand(newSemanticRepairCommand(opts))
+	cmd.AddCommand(newSemanticResetCommand(opts))
 	cmd.AddCommand(newSeedCommand(opts))
 	cmd.AddCommand(newSemanticStaleCommand(opts))
 	cmd.AddCommand(newSemanticTestsCommand(opts))
@@ -69,7 +80,116 @@ agent can inspect to understand project history.`,
 	cmd.AddCommand(newSemanticWorkflowsCommand(opts))
 	cmd.AddCommand(newWorkspaceCommand(opts))
 	cmd.AddCommand(newVersionCommand(opts.Version))
+	wrapJSONErrorRendering(cmd)
 	return cmd
+}
+
+type commandJSONError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type renderedCommandError struct {
+	err error
+}
+
+var errRenderedCommand = renderedCommandError{}
+
+func RenderedError() error {
+	return errRenderedCommand
+}
+
+func (e renderedCommandError) Error() string {
+	if e.err == nil {
+		return "command error rendered"
+	}
+	return e.err.Error()
+}
+
+func (e renderedCommandError) Unwrap() error {
+	return e.err
+}
+
+func (e renderedCommandError) Is(target error) bool {
+	_, ok := target.(renderedCommandError)
+	return ok
+}
+
+func commandErrorWasRendered(err error) bool {
+	_, ok := err.(renderedCommandError)
+	return ok
+}
+
+func wrapJSONErrorRendering(cmd *cobra.Command) {
+	if cmd.Args != nil {
+		argsFunc := cmd.Args
+		cmd.Args = func(cmd *cobra.Command, args []string) error {
+			err := argsFunc(cmd, args)
+			if err == nil || !commandWantsJSONError(cmd) {
+				return err
+			}
+			_ = writeCommandJSONError(cmd.ErrOrStderr(), err)
+			return renderedCommandError{err: err}
+		}
+	}
+	if cmd.RunE != nil {
+		run := cmd.RunE
+		cmd.RunE = func(cmd *cobra.Command, args []string) error {
+			err := run(cmd, args)
+			if err == nil || !commandWantsJSONError(cmd) {
+				return err
+			}
+			_ = writeCommandJSONError(cmd.ErrOrStderr(), err)
+			return renderedCommandError{err: err}
+		}
+	}
+	cmd.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
+		if !commandWantsJSONError(cmd) {
+			return err
+		}
+		_ = writeCommandJSONError(cmd.ErrOrStderr(), err)
+		return renderedCommandError{err: err}
+	})
+	for _, child := range cmd.Commands() {
+		wrapJSONErrorRendering(child)
+	}
+}
+
+func commandWantsJSONError(cmd *cobra.Command) bool {
+	if flag := cmd.Flags().Lookup("json"); flag != nil && flag.Changed {
+		return true
+	}
+	if flag := cmd.InheritedFlags().Lookup("json"); flag != nil && flag.Changed {
+		return true
+	}
+	return false
+}
+
+var commandErrorCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+
+func writeCommandJSONError(w io.Writer, err error) error {
+	envelope := commandJSONError{
+		Code:    commandErrorCode(err),
+		Message: err.Error(),
+	}
+	data, marshalErr := json.MarshalIndent(envelope, "", "  ")
+	if marshalErr != nil {
+		return marshalErr
+	}
+	_, writeErr := fmt.Fprintln(w, string(data))
+	return writeErr
+}
+
+func commandErrorCode(err error) string {
+	message := err.Error()
+	code, _, ok := strings.Cut(message, ":")
+	if ok {
+		code = strings.TrimSpace(code)
+		if commandErrorCodePattern.MatchString(code) {
+			return code
+		}
+	}
+	return "command_failed"
 }
 
 func runStatus(cmd *cobra.Command, opts Options) error {

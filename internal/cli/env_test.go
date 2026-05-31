@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -39,34 +40,34 @@ func TestEnvFromOS(t *testing.T) {
 
 func TestResolvePluginDirsUsesXDGDefaultsUnderEntireRoot(t *testing.T) {
 	xdg := t.TempDir()
-	t.Setenv(xdgConfigHome, xdg+"/config")
-	t.Setenv(xdgDataHome, xdg+"/data")
-	t.Setenv(xdgStateHome, xdg+"/state")
-	t.Setenv(xdgCacheHome, xdg+"/cache")
+	t.Setenv(xdgConfigHome, filepath.Join(xdg, "config"))
+	t.Setenv(xdgDataHome, filepath.Join(xdg, "data"))
+	t.Setenv(xdgStateHome, filepath.Join(xdg, "state"))
+	t.Setenv(xdgCacheHome, filepath.Join(xdg, "cache"))
 
 	dirs, err := resolvePluginDirs(EntireEnv{})
 	if err != nil {
 		t.Fatalf("resolve plugin dirs: %v", err)
 	}
-	if dirs.Config != xdg+"/config/entire" {
+	if dirs.Config != filepath.Join(xdg, "config", "entire") {
 		t.Fatalf("Config = %q", dirs.Config)
 	}
-	if dirs.Data != xdg+"/data/entire" {
+	if dirs.Data != filepath.Join(xdg, "data", "entire") {
 		t.Fatalf("Data = %q", dirs.Data)
 	}
-	if dirs.State != xdg+"/state/entire" {
+	if dirs.State != filepath.Join(xdg, "state", "entire") {
 		t.Fatalf("State = %q", dirs.State)
 	}
-	if dirs.Cache != xdg+"/cache/entire" {
+	if dirs.Cache != filepath.Join(xdg, "cache", "entire") {
 		t.Fatalf("Cache = %q", dirs.Cache)
 	}
 }
 
 func TestRepoStoragePathsUseKnownOriginDomain(t *testing.T) {
 	env := EntireEnv{
-		PluginConfigDir: "/tmp/entire-config",
-		PluginDataDir:   "/tmp/entire-data",
-		PluginStateDir:  "/tmp/entire-state",
+		PluginConfigDir: filepath.Join(string(filepath.Separator), "tmp", "entire-config"),
+		PluginDataDir:   filepath.Join(string(filepath.Separator), "tmp", "entire-data"),
+		PluginStateDir:  filepath.Join(string(filepath.Separator), "tmp", "entire-state"),
 	}
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
 		fakeCommandKey("git", "remote", "get-url", "origin"): {
@@ -81,10 +82,10 @@ func TestRepoStoragePathsUseKnownOriginDomain(t *testing.T) {
 	if storage.Key != "gh/entireio/cli" {
 		t.Fatalf("key = %q", storage.Key)
 	}
-	if storage.BrainDir != "/tmp/entire-data/brain/gh/entireio/cli" {
+	if storage.BrainDir != filepath.Join(env.PluginDataDir, brainDirName, "gh", "entireio", "cli") {
 		t.Fatalf("brain dir = %q", storage.BrainDir)
 	}
-	if storage.HeadPath != "/tmp/entire-state/brain/gh/entireio/cli/head.json" {
+	if storage.HeadPath != filepath.Join(env.PluginStateDir, brainDirName, "gh", "entireio", "cli", brainHeadFileName) {
 		t.Fatalf("head path = %q", storage.HeadPath)
 	}
 }

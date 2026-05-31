@@ -95,10 +95,25 @@ entire brain routes --json
 entire brain tools --json
 entire brain workflows --json
 entire brain tests "main" --json
+entire brain repair .
+entire brain reset . --semantic-only --force
 ```
 
 Use `--worktree` on `index` only when you intentionally want the current dirty
 worktree represented. Bundle export rejects worktree-backed semantic indexes.
+`repair` rebuilds derived semantic stores from the active local snapshot.
+`reset --semantic-only --force` removes semantic artifacts and manifest metadata
+without touching seed or session sources. `reset --force` removes the generated
+brain directory for the repo.
+
+Commands that support `--json` emit structured JSON error envelopes on failure:
+
+```json
+{
+  "code": "command_failed",
+  "message": "..."
+}
+```
 
 ### Bundle a Local Semantic Brain
 
@@ -162,6 +177,9 @@ mise run build       # build ./entire-brain
 mise run build-all   # cross-build common targets
 mise run check       # lint, race tests, Phase 1 tests, and cross-builds
 ```
+
+GitHub Actions runs generic tests and the deterministic Phase 1 semantic suite
+on Linux, macOS, and Windows.
 
 Key docs:
 
