@@ -20,6 +20,7 @@ type refreshCommandOptions struct {
 	rawTranscript    bool
 	scope            string
 	semantic         bool
+	semanticWorktree bool
 	allBranches      bool
 	forceAllBranches bool
 	semBinary        string
@@ -61,6 +62,7 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&refreshOpts.seed.agent, "agent", "none", "Agent synthesis mode for seed: none, command, codex, or claude-code")
 	cmd.Flags().StringArrayVar(&refreshOpts.seed.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", false, "Refresh the local semantic index after session and seed refresh")
+	cmd.Flags().BoolVar(&refreshOpts.semanticWorktree, "semantic-worktree", false, "Allow semantic indexing of the current dirty worktree")
 	cmd.Flags().StringVar(&refreshOpts.semBinary, "sem-binary", "entire", "Entire CLI binary that exposes `sem` provider commands")
 	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
 	cmd.Flags().BoolVar(&refreshOpts.forceAllBranches, "force-all-branches", false, "Allow all local branches instead of the bounded recent-branch default")
@@ -113,7 +115,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		indexCmd := &cobra.Command{Use: "index"}
 		indexCmd.SetOut(io.Discard)
 		indexCmd.SetErr(io.Discard)
-		if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, semBinary: refreshOpts.semBinary, worktree: refreshOpts.seed.worktree}, repoDir); err != nil {
+		if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, semBinary: refreshOpts.semBinary, worktree: refreshOpts.semanticWorktree}, repoDir); err != nil {
 			return err
 		}
 	}

@@ -977,6 +977,165 @@ func TestSemanticContextJSONIncludesRelations(t *testing.T) {
 	}
 }
 
+func TestSemanticImpactTraversesRelations(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	var out bytes.Buffer
+	impactCmd := &cobra.Command{Use: "impact"}
+	impactCmd.SetOut(&out)
+	if err := runSemanticImpact(impactCmd.Context(), impactCmd, opts, semanticImpactOptions{limit: 10, depth: 1, json: true}, "ValidateToken"); err != nil {
+		t.Fatalf("impact: %v", err)
+	}
+	if !strings.Contains(out.String(), `"relations"`) || !strings.Contains(out.String(), `"CALLS"`) {
+		t.Fatalf("impact JSON missing relation:\n%s", out.String())
+	}
+}
+
+func TestSemanticImpactReturnsRelationsWhenRootsFillLimit(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	brainDir := filepath.Join(env.PluginDataDir, brainDirName, "gh", "example", "repo")
+	roots, symbols, relations, err := semanticImpactFacts(brainDir, mustSemanticSource(t, env), "ValidateToken", 1, 1)
+	if err != nil {
+		t.Fatalf("impact facts: %v", err)
+	}
+	if len(roots) != 1 || len(symbols) != 1 || len(relations) != 1 {
+		t.Fatalf("impact = roots %+v symbols %+v relations %+v", roots, symbols, relations)
+	}
+}
+
+func TestSemanticImpactFallsBackToSnapshot(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	source := *mustSemanticSource(t, env)
+	source.GenerationPath = ""
+	source.StorePath = ""
+	brainDir := filepath.Join(env.PluginDataDir, brainDirName, "gh", "example", "repo")
+	roots, symbols, relations, err := semanticImpactFacts(brainDir, &source, "ValidateToken", 1, 10)
+	if err != nil {
+		t.Fatalf("impact facts: %v", err)
+	}
+	if len(roots) != 1 || len(symbols) != 1 || len(relations) != 1 {
+		t.Fatalf("snapshot impact = roots %+v symbols %+v relations %+v", roots, symbols, relations)
+	}
+}
+
+func TestSemanticChangesMapsChangedFilesToSymbols(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{stdout: "M\tinternal/auth/token.go\n"}
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	var out bytes.Buffer
+	changesCmd := &cobra.Command{Use: "changes"}
+	changesCmd.SetOut(&out)
+	if err := runSemanticChanges(changesCmd.Context(), changesCmd, opts, semanticChangesOptions{limit: 10, json: true}); err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	if !strings.Contains(out.String(), `"internal/auth/token.go"`) || !strings.Contains(out.String(), `"ValidateToken"`) {
+		t.Fatalf("changes JSON missing symbol:\n%s", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(env.PluginDataDir, brainDirName, "gh", "example", "repo", semanticDirName, "changes", "latest.json")); err != nil {
+		t.Fatalf("changes report missing: %v", err)
+	}
+}
+
+func TestSemanticChangesIncludesRenamedOldPath(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{stdout: "R100\tinternal/auth/token.go\tinternal/auth/token_new.go\n"}
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	var out bytes.Buffer
+	changesCmd := &cobra.Command{Use: "changes"}
+	changesCmd.SetOut(&out)
+	if err := runSemanticChanges(changesCmd.Context(), changesCmd, opts, semanticChangesOptions{limit: 10, json: true}); err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	if !strings.Contains(out.String(), `"internal/auth/token.go"`) || !strings.Contains(out.String(), `"ValidateToken"`) {
+		t.Fatalf("changes JSON missing renamed old-path symbol:\n%s", out.String())
+	}
+}
+
+func TestSemanticChangesExpandsUntrackedDirectory(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoDir, "newpkg"), 0o700); err != nil {
+		t.Fatalf("mkdir newpkg: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "newpkg", "foo.go"), []byte("package newpkg\n"), 0o600); err != nil {
+		t.Fatalf("write new file: %v", err)
+	}
+	env := semanticTestEnv(t, repoDir)
+	snapshot := strings.Replace(semanticFixtureSnapshot("1.0"), "internal/auth/token.go", "newpkg/foo.go", -1)
+	runner := semanticFixtureRunner(repoDir, snapshot)
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{stdout: ""}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: "?? newpkg/\n"}
+	files, err := changedSemanticFiles(cmd.Context(), runner, repoDir)
+	if err != nil {
+		t.Fatalf("changed files: %v", err)
+	}
+	if len(files) != 1 || files[0] != "newpkg/foo.go" {
+		t.Fatalf("files = %+v", files)
+	}
+}
+
+func TestSemanticChangesIncludesUntrackedAndFailsOnDiffError(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{stdout: ""}
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: "?? internal/auth/token.go\n"}
+	var out bytes.Buffer
+	changesCmd := &cobra.Command{Use: "changes"}
+	changesCmd.SetOut(&out)
+	if err := runSemanticChanges(changesCmd.Context(), changesCmd, opts, semanticChangesOptions{limit: 10, json: true}); err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	if !strings.Contains(out.String(), `"ValidateToken"`) {
+		t.Fatalf("changes did not include untracked symbol:\n%s", out.String())
+	}
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{err: errors.New("diff failed")}
+	if err := runSemanticChanges(changesCmd.Context(), changesCmd, opts, semanticChangesOptions{limit: 10, json: true}); err == nil {
+		t.Fatalf("changes succeeded after diff failure")
+	}
+}
+
 func TestSemanticContextSQLiteFiltersRelationsBeforeLimit(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -1010,6 +1169,28 @@ func TestSemanticContextContentSkipsSymlinkedRepoPath(t *testing.T) {
 	}
 	if hash := semanticFileContentHash(repoDir, "link.go"); hash != "" {
 		t.Fatalf("symlinked content was hashed: %s", hash)
+	}
+}
+
+func TestSemanticContextIncludeContentRequiresFreshness(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoDir, "internal", "auth"), 0o700); err != nil {
+		t.Fatalf("mkdir repo file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "internal", "auth", "token.go"), []byte("package auth\n"), 0o600); err != nil {
+		t.Fatalf("write repo file: %v", err)
+	}
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: " M internal/auth/token.go\n"}
+	err := runSemanticContext(cmd.Context(), cmd, opts, semanticContextOptions{limit: 10, includeContent: true}, "ValidateToken")
+	if err == nil || !strings.Contains(err.Error(), "requires fresh semantic data") {
+		t.Fatalf("context err = %v", err)
 	}
 }
 
@@ -2106,6 +2287,36 @@ func TestBundleExportUsesSanitizedManifest(t *testing.T) {
 	}
 	if !strings.Contains(string(manifestData), `"semantic"`) {
 		t.Fatalf("bundle manifest missing semantic source:\n%s", manifestData)
+	}
+}
+
+func TestBundleExportRejectsSymlinkOutput(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "target.tar")
+	if err := os.WriteFile(target, []byte("keep"), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	output := filepath.Join(t.TempDir(), "brain.tar")
+	if err := os.Symlink(target, output); err != nil {
+		t.Fatalf("symlink output: %v", err)
+	}
+	err := runSemanticBundleExport(cmd.Context(), cmd, opts, output)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("export err = %v", err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read target: %v", err)
+	}
+	if string(data) != "keep" {
+		t.Fatalf("symlink target was modified: %q", data)
 	}
 }
 

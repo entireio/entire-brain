@@ -79,7 +79,7 @@ func TestRefreshAllBranchesRequiresSemanticBeforeMutation(t *testing.T) {
 	}
 }
 
-func TestRefreshSemanticPassesWorktreeToIndex(t *testing.T) {
+func TestRefreshSemanticWorktreePassesWorktreeToIndex(t *testing.T) {
 	repoDir := seedFixtureRepo(t)
 	dataDir := filepath.Join(t.TempDir(), "data")
 	runner := seedFixtureRunner(repoDir)
@@ -103,11 +103,44 @@ func TestRefreshSemanticPassesWorktreeToIndex(t *testing.T) {
 		Runner: runner,
 		Now:    time.Now,
 	})
-	if _, err := execute(t, cmd, "refresh", "--semantic", "--worktree"); err != nil {
-		t.Fatalf("refresh --semantic --worktree: %v", err)
+	if _, err := execute(t, cmd, "refresh", "--semantic", "--semantic-worktree"); err != nil {
+		t.Fatalf("refresh --semantic --semantic-worktree: %v", err)
 	}
 	if !fakeRunnerCalled(runner, "entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--worktree") {
 		t.Fatalf("semantic snapshot was not called with --worktree: %+v", runner.calls)
+	}
+}
+
+func TestRefreshSeedWorktreeDoesNotPassSemanticWorktree(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	dataDir := filepath.Join(t.TempDir(), "data")
+	runner := seedFixtureRunner(repoDir)
+	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "aaa111\n"}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: ""}
+	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD^{tree}")] = fakeCommandResponse{stdout: "tree111\n"}
+	runner.responses[fakeCommandKey("entire", "sem", "doctor", "--json")] = fakeCommandResponse{stdout: `{"no_egress":true}`}
+	runner.responses[fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network")] = fakeCommandResponse{stdout: semanticFixtureSnapshot("1.0")}
+
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			RepoRoot:        repoDir,
+			PluginConfigDir: filepath.Join(t.TempDir(), "config"),
+			PluginDataDir:   dataDir,
+			PluginStateDir:  filepath.Join(t.TempDir(), "state"),
+			PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
+		},
+		Runner: runner,
+		Now:    time.Now,
+	})
+	if _, err := execute(t, cmd, "refresh", "--semantic", "--worktree"); err != nil {
+		t.Fatalf("refresh --semantic --worktree: %v", err)
+	}
+	if !fakeRunnerCalled(runner, "entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network") {
+		t.Fatalf("semantic snapshot was not called without --worktree: %+v", runner.calls)
+	}
+	if fakeRunnerCalled(runner, "entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--worktree") {
+		t.Fatalf("seed --worktree leaked into semantic snapshot: %+v", runner.calls)
 	}
 }
 

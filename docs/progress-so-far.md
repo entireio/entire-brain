@@ -175,3 +175,30 @@ Verification:
 - `go test ./...` passed after release-3 implementation and hardening.
 - `mise run check` passed after release-3 implementation and hardening.
 - `entire review` reported no actionable findings for release 3.
+
+### Release 4: Impact And Changes
+
+Implemented in Entire Brain:
+
+- Added `entire brain impact` to traverse semantic relations from matching
+  symbols with JSON/text output and stale-data reporting.
+- Added `entire brain changes` to map changed, renamed, copied, and untracked
+  files to indexed semantic symbols and write `semantic/changes/latest.json`.
+- Added snapshot fallback for impact traversal so imported raw semantic bundles
+  without a SQLite generation can still answer relation-aware impact queries.
+- Added explicit `refresh --semantic-worktree` handling so seed `--worktree`
+  mode no longer opts semantic indexing into dirty worktree snapshots.
+- Hardened release-4 paths after review: untracked directories are expanded,
+  rename/copy old paths are included for change impact, impact returns
+  relations even when the root symbol fills the symbol limit, and bundle export
+  rejects symlink output paths before opening them.
+- Updated `docs/semantic_agent_guide.md` for the new semantic worktree flag.
+
+Verification:
+
+- Focused release-4 tests passed for impact traversal, snapshot fallback,
+  change detection, refresh worktree flag behavior, and symlink bundle output
+  rejection.
+- `go test ./...` passed after release-4 implementation and hardening.
+- `mise run check` passed after release-4 implementation and hardening.
+- `entire review` reported no actionable findings for release 4.
