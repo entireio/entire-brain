@@ -3,7 +3,7 @@
   "checkpoint_id": "85defdf531cf",
   "strategy": "manual-commit",
   "branch": "phase-1-semantic-brain",
-  "checkpoints_count": 24,
+  "checkpoints_count": 25,
   "files_touched": [
     "docs/progress-so-far.md",
     "internal/cli/brain.go",
@@ -163,14 +163,20 @@
       "transcript": "/85/defdf531cf/24/full.jsonl",
       "content_hash": "/85/defdf531cf/24/content_hash.txt",
       "prompt": "/85/defdf531cf/24/prompt.txt"
+    },
+    {
+      "metadata": "/85/defdf531cf/25/metadata.json",
+      "transcript": "/85/defdf531cf/25/full.jsonl",
+      "content_hash": "/85/defdf531cf/25/content_hash.txt",
+      "prompt": "/85/defdf531cf/25/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 2222666,
+    "input_tokens": 2303249,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 20411520,
-    "output_tokens": 138515,
-    "api_call_count": 327
+    "cache_read_tokens": 21137920,
+    "output_tokens": 144369,
+    "api_call_count": 340
   },
   "has_review": true
 }
