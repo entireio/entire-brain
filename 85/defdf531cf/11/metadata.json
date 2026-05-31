@@ -1,0 +1,75 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "85defdf531cf",
+  "session_id": "019e7dcf-5729-74d1-a3ae-a431c86c2822",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-31T12:36:59.086507Z",
+  "branch": "phase-1-semantic-brain",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/brain.go",
+    "internal/cli/doctor.go",
+    "internal/cli/refresh.go",
+    "internal/cli/root.go",
+    "internal/cli/seed.go",
+    "internal/cli/seed_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "0b647d67c427",
+  "token_usage": {
+    "input_tokens": 79500,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 912640,
+    "output_tokens": 6287,
+    "api_call_count": 14
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-31T12:36:59.063491Z",
+    "agent_lines": 53,
+    "agent_removed": 1,
+    "human_added": 955,
+    "human_modified": 9,
+    "human_removed": 0,
+    "total_committed": 1017,
+    "total_lines_changed": 1018,
+    "agent_percentage": 5.304518664047151,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 3251,
+      "user_lines_removed": 9,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/progress-so-far.md": 73,
+        "docs/semantic_brain_plan.md": 1043,
+        "internal/cli/brain.go": 7,
+        "internal/cli/doctor.go": 12,
+        "internal/cli/refresh.go": 1,
+        "internal/cli/root.go": 6,
+        "internal/cli/seed.go": 29,
+        "internal/cli/seed_test.go": 41,
+        "internal/cli/semantic.go": 1317,
+        "internal/cli/semantic_test.go": 722
+      },
+      "user_removed_per_file": {
+        "internal/cli/brain.go": 3,
+        "internal/cli/doctor.go": 3,
+        "internal/cli/refresh.go": 1,
+        "internal/cli/root.go": 1,
+        "internal/cli/seed.go": 1
+      }
+    }
+  ],
+  "kind": "agent_review",
+  "review_skills": [
+    "/review"
+  ],
+  "review_prompt": "Review the current branch changes and report actionable findings. Prioritize correctness, regressions, security, and missing test coverage. Do not make code changes.\n\nScope: review the commits unique to this branch vs origin/HEAD, plus any uncommitted changes in the working tree. Ignore code outside this scope.\n\nCheckpoint context from commits in scope:\n- 14f4da1e48f4: prompt: Add that as template to the repo\n- b6766fc924c8: prompt: Use the gaps to write more precise instructions for both agents; same instructions, not specific per agent. Then run them both again and see if the result is closer.\n- 022a22869f0d: prompt: Ok, now run the same with —agent claude-code. Verify that it runs without errors and compare the results to the codex run.\n- 15229ed66d0a: prompt: Do that next, use codex as agent.\n\nUse `entire explain <id>` for full checkpoint context, or `entire explain <id> --raw-transcript` for raw transcripts.\n\nIn-progress session context (uncommitted):\n  019e7da2 Codex (touched: 9 files) prompt: Create a new branch to implement phase 1 of semantic_brain_plan.md. Another Codex instance is running in ../entire-sem to implement the entire-sem specific pieces. You can track its progress in the docs/ sub folder. If you need to, wait until that Codex has finished its work. Write your progress into docs/progress-s..."
+}
