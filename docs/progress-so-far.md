@@ -123,7 +123,35 @@ Verification:
 
 Notes for the next release:
 
-- Release 2 should replace the raw-scan query path with a SQLite-backed semantic
-  store, file/blob cache, parse-cache metadata, reverse-edge indexes, atomic
-  index generation promotion, dirty worktree overlays, branch overlays, and
-  build metrics.
+### Release 2: Incremental Refresh
+
+Implemented in Entire Brain:
+
+- Added a SQLite-backed semantic generation under
+  `semantic/generations/<generation>/semantic.sqlite`.
+- Added generation metrics, file/blob cache metadata, parse-cache artifact
+  metadata, symbol indexes, relation rows, and reverse-edge rows.
+- Added atomic generation build-and-promote behavior using a temporary
+  generation directory and rename.
+- Updated semantic query to prefer the SQLite store and fall back to raw NDJSON
+  when importing older bundles.
+- Added dirty worktree overlay indexing through an explicit provider
+  `--worktree` snapshot mode and worktree fingerprint metadata.
+- Added branch overlay metadata for feature-branch snapshots and a bounded
+  local `refresh --semantic --all-branches` flow that writes bounded branch
+  overlay metadata from local refs only.
+- Extended local bundles to include semantic generation files in addition to
+  the manifest and raw snapshot.
+- Hardened release-2 generated artifacts after review: provider paths are
+  repo-relative, generated SQLite stores are validated for integrity/schema and
+  counts, bundle imports replace generation directories as a unit, unreferenced
+  generation entries are rejected, audit paths are preflighted, worktree
+  fingerprints fail closed, clean `--worktree` indexes remain HEAD indexes,
+  query treats SQLite search text literally, and stale reports validate declared
+  stores.
+
+Verification:
+
+- `go test ./...` passed after release-2 implementation and hardening.
+- `mise run check` passed after release-2 implementation and hardening.
+- `entire review` reported no actionable findings for release 2.

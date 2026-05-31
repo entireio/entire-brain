@@ -1,11 +1,16 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
@@ -45,6 +50,64 @@ func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 	}
 	if manifest.Sources == nil || manifest.Sources.Seed == nil {
 		t.Fatalf("refresh did not create seed source: %+v", manifest)
+	}
+}
+
+func TestRefreshAllBranchesRequiresSemanticBeforeMutation(t *testing.T) {
+	runner := &fakeCommandRunner{
+		responses: map[string]fakeCommandResponse{
+			fakeCommandKey("git", "rev-parse", "--show-toplevel"): {err: errors.New("must not resolve repo")},
+		},
+	}
+	cmd := &cobra.Command{Use: "refresh"}
+	err := runRefresh(context.Background(), cmd, Options{
+		Env: EntireEnv{
+			RepoRoot:        t.TempDir(),
+			PluginConfigDir: filepath.Join(t.TempDir(), "config"),
+			PluginDataDir:   filepath.Join(t.TempDir(), "data"),
+			PluginStateDir:  filepath.Join(t.TempDir(), "state"),
+			PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
+		},
+		Runner: runner,
+		Now:    time.Now,
+	}, refreshCommandOptions{allBranches: true})
+	if err == nil || !strings.Contains(err.Error(), "--all-branches requires --semantic") {
+		t.Fatalf("refresh err = %v", err)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("refresh mutated before validation: %+v", runner.calls)
+	}
+}
+
+func TestRefreshSemanticPassesWorktreeToIndex(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	dataDir := filepath.Join(t.TempDir(), "data")
+	runner := seedFixtureRunner(repoDir)
+	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "aaa111\n"}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: " M internal/cli/semantic.go\n"}
+	runner.responses[fakeCommandKey("git", "diff", "--binary", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff", "--cached", "--binary", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD^{tree}")] = fakeCommandResponse{stdout: "tree111\n"}
+	runner.responses[fakeCommandKey("entire", "sem", "doctor", "--json")] = fakeCommandResponse{stdout: `{"no_egress":true}`}
+	runner.responses[fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--worktree")] = fakeCommandResponse{stdout: semanticFixtureSnapshot("1.0")}
+
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			RepoRoot:        repoDir,
+			PluginConfigDir: filepath.Join(t.TempDir(), "config"),
+			PluginDataDir:   dataDir,
+			PluginStateDir:  filepath.Join(t.TempDir(), "state"),
+			PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
+		},
+		Runner: runner,
+		Now:    time.Now,
+	})
+	if _, err := execute(t, cmd, "refresh", "--semantic", "--worktree"); err != nil {
+		t.Fatalf("refresh --semantic --worktree: %v", err)
+	}
+	if !fakeRunnerCalled(runner, "entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--worktree") {
+		t.Fatalf("semantic snapshot was not called with --worktree: %+v", runner.calls)
 	}
 }
 
