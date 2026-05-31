@@ -1,0 +1,82 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "35ac7a9ff818",
+  "session_id": "019e7fbd-d933-7130-a817-b99b09c6be66",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-31T20:37:36.855785Z",
+  "branch": "phase-1-semantic-brain",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "README.md",
+    "cmd/entire-brain/main.go",
+    "docs/progress-so-far.md",
+    "internal/cli/env_test.go",
+    "internal/cli/phase1_ci_test.go",
+    "internal/cli/root.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_test.go",
+    "internal/cli/workspace.go",
+    "internal/cli/workspace_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "898776b0eecb",
+  "token_usage": {
+    "input_tokens": 123442,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2271616,
+    "output_tokens": 7521,
+    "api_call_count": 25
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-31T20:37:36.830884Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 11,
+    "human_removed": 32,
+    "total_committed": 0,
+    "total_lines_changed": 43,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 587,
+      "user_lines_removed": 37,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".github/workflows/test.yml": 4,
+        "README.md": 18,
+        "cmd/entire-brain/main.go": 4,
+        "docs/progress-so-far.md": 22,
+        "internal/cli/env_test.go": 14,
+        "internal/cli/phase1_ci_test.go": 23,
+        "internal/cli/root.go": 122,
+        "internal/cli/semantic.go": 214,
+        "internal/cli/semantic_test.go": 144,
+        "internal/cli/workspace.go": 19,
+        "internal/cli/workspace_test.go": 3
+      },
+      "user_removed_per_file": {
+        ".github/workflows/test.yml": 2,
+        "cmd/entire-brain/main.go": 1,
+        "docs/progress-so-far.md": 15,
+        "internal/cli/env_test.go": 13,
+        "internal/cli/root.go": 2,
+        "internal/cli/workspace.go": 4
+      }
+    }
+  ],
+  "kind": "agent_review",
+  "review_skills": [
+    "/review"
+  ],
+  "review_prompt": "Review the current branch changes and report actionable findings. Prioritize correctness, regressions, security, and missing test coverage. Do not make code changes.\n\nScope: review the commits unique to this branch vs origin/HEAD, plus any uncommitted changes in the working tree. Ignore code outside this scope.\n\nCheckpoint context from commits in scope:\n- 0479be2b5ac2: prompt: Go back to our original plan for phase 1, compare the progress so far, validate with the brain for this repo, and check what’s missing. Also update the README with clear and concise instructions on how to use the project.\n- 7a008011b652: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.\n- 723214680224: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.\n- bd2a8f04da1c: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.\n- 30b1b8a8e4d4: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.\n- 956defcf50c0: prompt: Give me an update. Also count the number of commits since the branch started.\n- c3245f022640: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.\n- a6bd6983770c: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.\n- 6631d2d6741d: checkpoint metadata unavailable\n- 5a995c66ec90: prompt: Summarize docs/progress-so-far’z\n- 85defdf531cf: prompt: Did you stop?\n- 14f4da1e48f4: prompt: Add that as template to the repo\n- b6766fc924c8: prompt: Use the gaps to write more precise instructions for both agents; same instructions, not specific per agent. Then run them both again and see if the result is closer.\n- 022a22869f0d: prompt: Ok, now run the same with —agent claude-code. Verify that it runs without errors and compare the results to the codex run.\n- 15229ed66d0a: prompt: Do that next, use codex as agent.\n\nUse `entire explain <id>` for full checkpoint context, or `entire explain <id> --raw-transcript` for raw transcripts.\n\nIn-progress session context (uncommitted):\n  019e7da2 Codex (touched: 11 files) prompt: /goal Close all documented gaps. Then set up CI not just for Linux, but also Mac and Windows. Make sure all phase 1 features work on all 3 operating systems. If you see errors in the GitHub Actions runs, fix them, wait for the next run, and check again.\n  019e7e25 Codex prompt: You are a helpful assistant. You will be presented with a user prompt, and your job is to provide a short title for a task that will be created from that prompt. The task usually has to do with coding work, such as fixing a bug, changing a feature, or answering a question about a codebase. Generate a concise UI titl..."
+}
