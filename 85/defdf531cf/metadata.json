@@ -5,29 +5,21 @@
   "branch": "phase-1-semantic-brain",
   "checkpoints_count": 0,
   "files_touched": [
-    "docs/progress-so-far.md",
-    "internal/cli/brain.go",
-    "internal/cli/doctor.go",
-    "internal/cli/refresh.go",
-    "internal/cli/root.go",
-    "internal/cli/seed.go",
-    "internal/cli/seed_test.go",
-    "internal/cli/semantic.go",
-    "internal/cli/semantic_test.go"
+    "docs/progress-so-far.md"
   ],
   "sessions": [
     {
       "metadata": "/85/defdf531cf/0/metadata.json",
       "transcript": "/85/defdf531cf/0/full.jsonl",
       "content_hash": "/85/defdf531cf/0/content_hash.txt",
-      "prompt": "/85/defdf531cf/0/prompt.txt"
+      "prompt": ""
     }
   ],
   "token_usage": {
-    "input_tokens": 515218,
+    "input_tokens": 3887,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 57702400,
-    "output_tokens": 92271,
-    "api_call_count": 469
+    "cache_read_tokens": 1098112,
+    "output_tokens": 539,
+    "api_call_count": 5
   }
 }
