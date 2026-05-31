@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "30b1b8a8e4d4",
+  "strategy": "manual-commit",
+  "branch": "phase-1-semantic-brain",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/progress-so-far.md",
+    "docs/semantic_agent_guide.md",
+    "internal/cli/root.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/30/b1b8a8e4d4/0/metadata.json",
+      "transcript": "/30/b1b8a8e4d4/0/full.jsonl",
+      "content_hash": "/30/b1b8a8e4d4/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 130189,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 11491968,
+    "output_tokens": 18430,
+    "api_call_count": 107
+  }
+}
