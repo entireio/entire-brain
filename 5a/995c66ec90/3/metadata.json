@@ -1,0 +1,66 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "5a995c66ec90",
+  "session_id": "019e7e18-1607-72a1-9b50-23c59a0ecae4",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-31T13:16:43.514332Z",
+  "branch": "phase-1-semantic-brain",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/seed.go",
+    "internal/cli/seed_test.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "7d6c39e0d8a5",
+  "token_usage": {
+    "input_tokens": 115687,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1506048,
+    "output_tokens": 7956,
+    "api_call_count": 18
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-31T13:16:43.490188Z",
+    "agent_lines": 283,
+    "agent_removed": 10,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 4,
+    "total_committed": 283,
+    "total_lines_changed": 297,
+    "agent_percentage": 98.65319865319864,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 1184,
+      "user_lines_removed": 4,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/semantic_brain_plan.md": 1043,
+        "internal/cli/seed.go": 1,
+        "internal/cli/seed_test.go": 1,
+        "internal/cli/semantic.go": 58,
+        "internal/cli/semantic_test.go": 81
+      },
+      "user_removed_per_file": {
+        "internal/cli/seed.go": 1,
+        "internal/cli/seed_test.go": 1,
+        "internal/cli/semantic.go": 2
+      }
+    }
+  ],
+  "kind": "agent_review",
+  "review_skills": [
+    "/review"
+  ],
+  "review_prompt": "Review the current branch changes and report actionable findings. Prioritize correctness, regressions, security, and missing test coverage. Do not make code changes.\n\nScope: review the commits unique to this branch vs origin/HEAD, plus any uncommitted changes in the working tree. Ignore code outside this scope.\n\nCheckpoint context from commits in scope:\n- 85defdf531cf: prompt: Did you stop?\n- 14f4da1e48f4: prompt: Add that as template to the repo\n- b6766fc924c8: prompt: Use the gaps to write more precise instructions for both agents; same instructions, not specific per agent. Then run them both again and see if the result is closer.\n- 022a22869f0d: prompt: Ok, now run the same with —agent claude-code. Verify that it runs without errors and compare the results to the codex run.\n- 15229ed66d0a: prompt: Do that next, use codex as agent.\n\nUse `entire explain <id>` for full checkpoint context, or `entire explain <id> --raw-transcript` for raw transcripts.\n\nIn-progress session context (uncommitted):\n  019e7da2 Codex (touched: 5 files) prompt: Did you stop?"
+}
