@@ -3,7 +3,7 @@
   "checkpoint_id": "81d499250a05",
   "strategy": "manual-commit",
   "branch": "phase-1-semantic-brain",
-  "checkpoints_count": 7,
+  "checkpoints_count": 8,
   "files_touched": [
     "docs/progress-so-far.md",
     "internal/cli/env.go",
@@ -63,14 +63,20 @@
       "transcript": "/81/d499250a05/7/full.jsonl",
       "content_hash": "/81/d499250a05/7/content_hash.txt",
       "prompt": "/81/d499250a05/7/prompt.txt"
+    },
+    {
+      "metadata": "/81/d499250a05/8/metadata.json",
+      "transcript": "/81/d499250a05/8/full.jsonl",
+      "content_hash": "/81/d499250a05/8/content_hash.txt",
+      "prompt": "/81/d499250a05/8/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 1449369,
+    "input_tokens": 1590064,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 95584256,
-    "output_tokens": 132600,
-    "api_call_count": 753
+    "cache_read_tokens": 98088704,
+    "output_tokens": 142169,
+    "api_call_count": 775
   },
   "has_review": true
 }
