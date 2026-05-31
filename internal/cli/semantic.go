@@ -174,7 +174,10 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	}
 	branch, _ := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
 	defaultBranch, defaultWarnings := detectDefaultBranch(ctx, opts.Runner, repoDir)
-	dirty := worktreeDirty(ctx, opts.Runner, repoDir)
+	dirty, err := worktreeDirty(ctx, opts.Runner, repoDir)
+	if err != nil {
+		return fmt.Errorf("check worktree dirtiness for semantic index: %w", err)
+	}
 	if indexOpts.worktree {
 		return errors.New("worktree indexing is not supported until the semantic provider exposes an explicit worktree snapshot mode")
 	}
@@ -264,6 +267,9 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	}
 	snapshotRel := filepath.ToSlash(filepath.Join(semanticDirName, semanticSnapshotsDir, snapshotID, semanticSnapshotName))
 	snapshotPath := filepath.Join(storage.BrainDir, filepath.FromSlash(snapshotRel))
+	if err := rejectExistingSymlinkPathComponents(storage.BrainDir, filepath.FromSlash(snapshotRel)); err != nil {
+		return err
+	}
 	if err := writeFileAtomic(snapshotPath, raw, 0o600); err != nil {
 		return fmt.Errorf("write semantic snapshot: %w", err)
 	}
@@ -516,7 +522,11 @@ func writeSemanticSnapshotManifest(brainDir, snapshotID string, source *semantic
 		return err
 	}
 	data = append(data, '\n')
-	return writeFileAtomic(filepath.Join(brainDir, semanticDirName, semanticSnapshotsDir, snapshotID, semanticManifestName), data, 0o600)
+	rel := filepath.Join(semanticDirName, semanticSnapshotsDir, snapshotID, semanticManifestName)
+	if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+		return err
+	}
+	return writeFileAtomic(filepath.Join(brainDir, rel), data, 0o600)
 }
 
 type brainIgnore struct {
@@ -596,7 +606,7 @@ func (i brainIgnore) MentionsIgnoredPath(text string) bool {
 	if text == "" {
 		return false
 	}
-	for _, pattern := range append([]string{".env", ".pem", ".key", "secret/"}, i.patterns...) {
+	for _, pattern := range append([]string{".env", ".pem", ".key"}, i.patterns...) {
 		pattern = strings.Trim(filepath.ToSlash(pattern), "/")
 		if pattern != "" && strings.Contains(text, pattern) {
 			return true
@@ -613,9 +623,12 @@ func gitScalar(ctx context.Context, runner CommandRunner, repoDir string, args .
 	return strings.TrimSpace(string(stdout)), nil
 }
 
-func worktreeDirty(ctx context.Context, runner CommandRunner, repoDir string) bool {
+func worktreeDirty(ctx context.Context, runner CommandRunner, repoDir string) (bool, error) {
 	stdout, _, err := runner.Run(ctx, repoDir, "git", "status", "--porcelain")
-	return err == nil && strings.TrimSpace(string(stdout)) != ""
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(stdout)) != "", nil
 }
 
 func worktreeFingerprint(ctx context.Context, runner CommandRunner, repoDir string) string {
@@ -717,6 +730,8 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 		axes["snapshot"] = staleAxis{State: "unsafe", Detail: "semantic snapshot_path is missing"}
 	} else if _, err := validateSemanticSnapshotPath(source.SnapshotPath); err != nil {
 		axes["snapshot"] = staleAxis{State: "unsafe", Detail: err.Error()}
+	} else if err := rejectSymlinkPathComponents(storage.BrainDir, filepath.FromSlash(source.SnapshotPath)); err != nil {
+		axes["snapshot"] = staleAxis{State: "unsafe", Detail: err.Error()}
 	} else {
 		snapshotPath := filepath.Join(storage.BrainDir, filepath.FromSlash(source.SnapshotPath))
 		snapshotHeader, snapshotCounts, snapshotErr := readSemanticSnapshotSummary(snapshotPath, storage.Key)
@@ -730,7 +745,7 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 	}
 	head, _ := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
 	branch, _ := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
-	dirty := worktreeDirty(ctx, opts.Runner, repoDir)
+	dirty, dirtyErr := worktreeDirty(ctx, opts.Runner, repoDir)
 	if source.Commit == head {
 		axes["head"] = staleAxis{State: "ok", Current: head, Indexed: source.Commit}
 	} else {
@@ -742,6 +757,8 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 		axes["branch_tip"] = staleAxis{State: "stale", Current: branch, Indexed: source.Branch}
 	}
 	switch {
+	case dirtyErr != nil:
+		axes["worktree"] = staleAxis{State: "unsafe", Detail: "worktree status unavailable: " + dirtyErr.Error()}
 	case dirty && source.WorktreeMode != "worktree":
 		axes["worktree"] = staleAxis{State: "dirty-unindexed", Detail: "semantic index is based on committed HEAD"}
 	case dirty && source.WorktreeHash != "" && source.WorktreeHash != worktreeFingerprint(ctx, opts.Runner, repoDir):
@@ -889,8 +906,12 @@ func findSemanticSymbols(snapshotPath, query string, limit int) ([]semanticRecor
 			first = false
 			continue
 		}
+		text := bytes.TrimSpace(scanner.Bytes())
+		if len(text) == 0 {
+			continue
+		}
 		var record semanticRecord
-		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
+		if err := json.Unmarshal(text, &record); err != nil {
 			return nil, err
 		}
 		if record.RecordType != "symbol" {
@@ -968,6 +989,9 @@ func runSemanticGC(ctx context.Context, cmd *cobra.Command, opts Options, target
 		active = filepath.Clean(filepath.Join(storage.BrainDir, filepath.FromSlash(manifest.Sources.Semantic.SnapshotPath), ".."))
 	}
 	snapshotsRoot := filepath.Join(storage.BrainDir, semanticDirName, semanticSnapshotsDir)
+	if err := rejectExistingSymlinkPathComponents(storage.BrainDir, filepath.Join(semanticDirName, semanticSnapshotsDir)); err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(snapshotsRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -984,6 +1008,9 @@ func runSemanticGC(ctx context.Context, cmd *cobra.Command, opts Options, target
 		path := filepath.Join(snapshotsRoot, entry.Name())
 		if active != "" && filepath.Clean(path) == active {
 			continue
+		}
+		if err := rejectSymlinkPathComponents(storage.BrainDir, filepath.Join(semanticDirName, semanticSnapshotsDir, entry.Name())); err != nil {
+			return err
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -1096,6 +1123,9 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 		return fmt.Errorf("active semantic snapshot must be a file: %s", manifest.Sources.Semantic.SnapshotPath)
 	}
 	if err := validateSnapshotFileSchema(activeSnapshotPath, storage.Key); err != nil {
+		return err
+	}
+	if err := rejectBundleOutputHardLink(output, storage.BrainDir); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(output), 0o700); err != nil {
@@ -1213,6 +1243,28 @@ func rejectSymlinkPathComponents(root, rel string) error {
 	return nil
 }
 
+func rejectExistingSymlinkPathComponents(root, rel string) error {
+	clean := filepath.Clean(rel)
+	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("path is outside root: %s", rel)
+	}
+	current := root
+	for _, part := range strings.Split(clean, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("path component must not be a symlink: %s", rel)
+		}
+	}
+	return nil
+}
+
 func rejectBundleOutputInsideBrain(output, brainDir string) error {
 	outputAbs, err := filepath.Abs(output)
 	if err != nil {
@@ -1239,6 +1291,35 @@ func rejectBundleOutputInsideBrain(output, brainDir string) error {
 	return nil
 }
 
+func rejectBundleOutputHardLink(output, brainDir string) error {
+	outputInfo, err := os.Stat(output)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if outputInfo.IsDir() {
+		return fmt.Errorf("bundle output path is a directory: %s", output)
+	}
+	return filepath.WalkDir(brainDir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		if os.SameFile(outputInfo, info) {
+			return fmt.Errorf("bundle output must not be a hard link to brain file: %s", path)
+		}
+		return nil
+	})
+}
+
 func pathInside(root, path string) bool {
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
@@ -1251,15 +1332,34 @@ func resolvedOutputPath(output string) (string, error) {
 	if resolved, err := filepath.EvalSymlinks(output); err == nil {
 		return filepath.Abs(resolved)
 	}
-	parent := filepath.Dir(output)
-	resolvedParent, err := filepath.EvalSymlinks(parent)
+	absOutput, err := filepath.Abs(output)
 	if err != nil {
-		resolvedParent, err = filepath.Abs(parent)
-		if err != nil {
+		return "", err
+	}
+	volume := filepath.VolumeName(absOutput)
+	rest := strings.TrimPrefix(absOutput, volume)
+	parts := strings.Split(strings.Trim(rest, string(filepath.Separator)), string(filepath.Separator))
+	existing := volume + string(filepath.Separator)
+	var missing []string
+	for i, part := range parts {
+		candidate := filepath.Join(existing, part)
+		if _, err := os.Lstat(candidate); err != nil {
+			if os.IsNotExist(err) {
+				missing = parts[i:]
+				break
+			}
 			return "", err
 		}
+		existing = candidate
 	}
-	return filepath.Abs(filepath.Join(resolvedParent, filepath.Base(output)))
+	resolvedExisting, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		return "", err
+	}
+	for _, part := range missing {
+		resolvedExisting = filepath.Join(resolvedExisting, part)
+	}
+	return filepath.Abs(resolvedExisting)
 }
 
 func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Options, archive, expectedChecksum string) error {
@@ -1373,6 +1473,9 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 		if err != nil {
 			return err
 		}
+		if err := rejectExistingSymlinkPathComponents(storage.BrainDir, rel); err != nil {
+			return err
+		}
 		return writeFileAtomic(filepath.Join(storage.BrainDir, rel), content, 0o600)
 	}); err != nil {
 		return err
@@ -1403,6 +1506,10 @@ func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
 	var manifest exportManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return nil, fmt.Errorf("parse bundle manifest: %w", err)
+	}
+	symbolsPresent, relationsPresent, err := bundleSemanticCountPresence(data)
+	if err != nil {
+		return nil, err
 	}
 	if manifest.RepoKey == "" {
 		return nil, errors.New("bundle manifest missing repo_key")
@@ -1435,10 +1542,42 @@ func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !symbolsPresent {
+		manifest.Sources.Semantic.Symbols = snapshotCounts.Symbols
+	}
+	if !relationsPresent {
+		manifest.Sources.Semantic.Relations = snapshotCounts.Relations
+	}
+	if manifest.Sources.Semantic.Commit == "" {
+		manifest.Sources.Semantic.Commit = snapshotHeader.Commit
+	}
+	if manifest.Sources.Semantic.Tree == "" {
+		manifest.Sources.Semantic.Tree = snapshotHeader.Tree
+	}
+	if manifest.Sources.Semantic.Provider == "" {
+		manifest.Sources.Semantic.Provider = snapshotHeader.Provider
+	}
+	if manifest.Sources.Semantic.ProviderVersion == "" {
+		manifest.Sources.Semantic.ProviderVersion = snapshotHeader.ProviderVersion
+	}
 	if err := validateSemanticSourceMatchesSnapshot(manifest.Sources.Semantic, snapshotHeader, snapshotCounts); err != nil {
 		return nil, fmt.Errorf("bundle manifest does not match semantic snapshot: %w", err)
 	}
 	return &manifest, nil
+}
+
+func bundleSemanticCountPresence(data []byte) (bool, bool, error) {
+	var raw struct {
+		Sources struct {
+			Semantic map[string]json.RawMessage `json:"semantic"`
+		} `json:"sources"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return false, false, fmt.Errorf("parse bundle manifest count fields: %w", err)
+	}
+	_, symbolsPresent := raw.Sources.Semantic["symbols"]
+	_, relationsPresent := raw.Sources.Semantic["relations"]
+	return symbolsPresent, relationsPresent, nil
 }
 
 func validateSemanticSnapshotPath(snapshotPath string) (string, error) {

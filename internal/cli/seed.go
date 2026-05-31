@@ -1411,7 +1411,7 @@ func seedAgentCommandArgs(repoDir, phase string, opts seedCommandOptions) ([]str
 	case "codex":
 		return []string{"codex", "exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", seedAgentPrompt(phase)}, nil
 	case "claude-code":
-		return []string{"claude", "--print", "--no-session-persistence", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt", seedAgentPrompt(phase)}, nil
+		return []string{"claude", "--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt", seedAgentPrompt(phase)}, nil
 	default:
 		return nil, fmt.Errorf("unsupported --agent %q", opts.agent)
 	}

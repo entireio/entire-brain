@@ -96,7 +96,7 @@ func TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions(t *testing.T) {
 		t.Fatalf("claude-code args: %v", err)
 	}
 	joined := strings.Join(args, "\x00")
-	for _, want := range []string{"claude", "--print", "--no-session-persistence", "--permission-mode", "dontAsk", "--tools", "\x00\x00", "--system-prompt"} {
+	for _, want := range []string{"claude", "--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "\x00\x00", "--system-prompt"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("claude-code args missing %q: %#v", want, args)
 		}

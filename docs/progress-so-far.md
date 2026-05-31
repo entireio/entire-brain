@@ -4,8 +4,9 @@
 
 Branch: `phase-1-semantic-brain`
 
-Release 1 commit: `6c1ecc4` (`Implement semantic brain fresh index`), pushed to
-`origin/phase-1-semantic-brain`.
+Initial release 1 commit: `7f7f659` (`Implement semantic brain fresh index`),
+pushed to `origin/phase-1-semantic-brain`. Follow-up release-1 hardening is
+being committed on the same branch.
 
 ### Release 1: Fresh Semantic Index
 
@@ -111,6 +112,13 @@ Verification:
 - Latest review pass rejects imported semantic worktree overlay metadata while
   worktree indexing is unsupported and rejects extra seed-agent artifact files
   beyond the phase's required set.
+- Final hardening passes fixed Claude Code seed-agent isolation without
+  `--bare`, semantic snapshot symlink and hardlink defenses across index,
+  stale, query, GC, bundle import, and bundle export, bundle import count and
+  provenance backfilling, blank-line-tolerant query, and fail-closed worktree
+  status checks.
+- Final `entire review` pass reported no actionable findings. `mise run check`
+  passed after the final changes.
 
 Notes for the next release:
 
