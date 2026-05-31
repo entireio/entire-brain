@@ -252,3 +252,38 @@ Verification:
 - `go test ./...` passed after release-6 implementation and hardening.
 - `mise run check` passed after release-6 implementation and hardening.
 - `entire review` reported no actionable findings for release 6.
+
+### Release 7: Local Agent Transport
+
+Implemented in Entire Brain:
+
+- Added `entire brain mcp`, a local stdio-only MCP/JSON-RPC adapter.
+- Exposed MCP tools that wrap existing CLI JSON contracts:
+  `brain_stale`, `brain_query`, `brain_context`, `brain_impact`, and
+  `brain_changes`.
+- Kept CLI JSON output as the source of truth by returning the existing command
+  `--json` payloads as MCP text content.
+- Hardened the MCP adapter to reject oversized/negative frames before
+  allocation and to return tool errors for invalid integer arguments instead of
+  silently falling back.
+- Took per-repo semantic index locks around workspace query/impact reads so
+  concurrent refreshes cannot race manifest/store access.
+- Normalized `.brainignore` recursive `**` matching across in-process snapshot,
+  warning, untracked, and change filtering so it matches the git pathspec
+  exclusions used for dirty/fingerprint checks.
+- Added `docs/semantic_mcp_guide.md` and updated the semantic agent guide with
+  local MCP usage guidance.
+
+Verification:
+
+- Focused release-7 tests passed for MCP initialize/tools-list and
+  `brain_query`, `brain_context`, `brain_impact`, and `brain_changes` tool
+  calls over local semantic data.
+- Focused hardening tests passed for invalid MCP integer arguments, oversized
+  and negative MCP frames, and locked workspace query/impact reads.
+- Focused recursive `.brainignore` tests passed for nested semantic redaction
+  and direct matcher behavior.
+- `go test ./...` passed after release-7 implementation and hardening.
+- `mise run check` passed after release-7 implementation and hardening.
+- `entire review` reported no actionable findings for release 7 after
+  hardening.

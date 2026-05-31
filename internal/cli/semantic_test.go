@@ -796,11 +796,11 @@ func TestSemanticIndexRejectsProviderPathEscape(t *testing.T) {
 
 func TestSemanticIndexRedactsBrainignoredRecordsFromSnapshotAndQuery(t *testing.T) {
 	repoDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repoDir, ".brainignore"), []byte("secret/\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(repoDir, ".brainignore"), []byte("secret/**\n"), 0o600); err != nil {
 		t.Fatalf("write .brainignore: %v", err)
 	}
 	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshotWithIgnoredSecret())
+	runner := semanticFixtureRunner(repoDir, strings.ReplaceAll(semanticFixtureSnapshotWithIgnoredSecret(), "secret/config.go", "secret/nested/config.go"))
 	cmd := &cobra.Command{Use: "index"}
 	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
@@ -818,7 +818,7 @@ func TestSemanticIndexRedactsBrainignoredRecordsFromSnapshotAndQuery(t *testing.
 	if err != nil {
 		t.Fatalf("read snapshot: %v", err)
 	}
-	if strings.Contains(string(data), "SECRET_TOKEN") || strings.Contains(string(data), "secret/config.go") {
+	if strings.Contains(string(data), "SECRET_TOKEN") || strings.Contains(string(data), "secret/nested/config.go") {
 		t.Fatalf("ignored semantic record persisted:\n%s", data)
 	}
 	results, err := findSemanticSymbols(snapshotPath, "SECRET_TOKEN", 10, 0)
@@ -888,6 +888,20 @@ func TestBrainIgnoreDoesNotOvermatchDefaultDirectoryPrefixes(t *testing.T) {
 	for _, path := range []string{"vendor/pkg.go", "web/dist/app.js", "pkg/build/out.go", "target/debug/app"} {
 		if !ignore.Ignored(path) {
 			t.Fatalf("path %s was not ignored", path)
+		}
+	}
+}
+
+func TestBrainIgnoreMatchesRecursivePatterns(t *testing.T) {
+	ignore := brainIgnore{patterns: []string{"secrets/**", "generated/**/private-*.go"}}
+	for _, path := range []string{"secrets/token.go", "secrets/nested/key.go", "generated/private-token.go", "generated/deep/private-token.go"} {
+		if !ignore.Ignored(path) {
+			t.Fatalf("path %s was not ignored", path)
+		}
+	}
+	for _, path := range []string{"secret/token.go", "generated/deep/public.go"} {
+		if ignore.Ignored(path) {
+			t.Fatalf("path %s was unexpectedly ignored", path)
 		}
 	}
 }

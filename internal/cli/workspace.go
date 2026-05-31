@@ -248,13 +248,21 @@ func runWorkspaceQuery(cmd *cobra.Command, opts Options, queryOpts workspaceQuer
 		if err != nil {
 			return err
 		}
-		source, err := workspaceSemanticSource(brainDir)
+		unlock, err := acquireSemanticIndexLock(brainDir)
 		if err != nil {
 			result.Error = err.Error()
 			results = append(results, result)
 			continue
 		}
+		source, err := workspaceSemanticSource(brainDir)
+		if err != nil {
+			unlock()
+			result.Error = err.Error()
+			results = append(results, result)
+			continue
+		}
 		symbols, _, err := semanticContextFacts(brainDir, source, query, queryOpts.limit, 0)
+		unlock()
 		if err != nil {
 			result.Error = err.Error()
 		} else {
@@ -298,13 +306,21 @@ func runWorkspaceImpact(cmd *cobra.Command, opts Options, impactOpts workspaceIm
 		if err != nil {
 			return err
 		}
-		source, err := workspaceSemanticSource(brainDir)
+		unlock, err := acquireSemanticIndexLock(brainDir)
 		if err != nil {
 			result.Error = err.Error()
 			results = append(results, result)
 			continue
 		}
+		source, err := workspaceSemanticSource(brainDir)
+		if err != nil {
+			unlock()
+			result.Error = err.Error()
+			results = append(results, result)
+			continue
+		}
 		roots, symbols, relations, err := semanticImpactFacts(brainDir, source, query, impactOpts.depth, impactOpts.limit)
+		unlock()
 		if err != nil {
 			result.Error = err.Error()
 		} else {

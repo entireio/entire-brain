@@ -86,6 +86,43 @@ func TestWorkspaceRefreshReportsRepoSemanticFreshness(t *testing.T) {
 	}
 }
 
+func TestWorkspaceQueryAndImpactReportLockedSemanticIndex(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err != nil {
+		t.Fatalf("workspace create: %v", err)
+	}
+	if _, err := execute(t, cmd, "workspace", "add", "payments-platform", repoDir, "--name", "api"); err != nil {
+		t.Fatalf("workspace add: %v", err)
+	}
+	brainDir := filepath.Join(env.PluginDataDir, brainDirName, "gh", "example", "repo")
+	unlock, err := acquireSemanticIndexLock(brainDir)
+	if err != nil {
+		t.Fatalf("acquire lock: %v", err)
+	}
+	defer unlock()
+
+	queryOut, err := execute(t, cmd, "workspace", "query", "payments-platform", "ValidateToken", "--json")
+	if err != nil {
+		t.Fatalf("workspace query: %v", err)
+	}
+	if !strings.Contains(queryOut, `"error": "index_locked:`) {
+		t.Fatalf("query output missing lock error:\n%s", queryOut)
+	}
+	impactOut, err := execute(t, cmd, "workspace", "impact", "payments-platform", "ValidateToken", "--json")
+	if err != nil {
+		t.Fatalf("workspace impact: %v", err)
+	}
+	if !strings.Contains(impactOut, `"error": "index_locked:`) {
+		t.Fatalf("impact output missing lock error:\n%s", impactOut)
+	}
+}
+
 func TestWorkspaceRefreshRejectsMismatchedLocalPathHintRepoKey(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

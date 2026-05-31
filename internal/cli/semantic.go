@@ -14,6 +14,7 @@ import (
 	"hash"
 	"io"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -1081,14 +1082,56 @@ func (i brainIgnore) Ignored(path string) bool {
 		}
 	}
 	for _, pattern := range i.patterns {
-		if pattern == path || strings.HasPrefix(path, strings.TrimSuffix(pattern, "/")+"/") {
-			return true
-		}
-		if ok, _ := filepath.Match(pattern, path); ok {
+		if brainIgnorePatternMatches(pattern, path) {
 			return true
 		}
 	}
 	return false
+}
+
+func brainIgnorePatternMatches(pattern, target string) bool {
+	pattern = filepath.ToSlash(strings.TrimSpace(pattern))
+	pattern = strings.TrimPrefix(pattern, "./")
+	target = filepath.ToSlash(strings.TrimPrefix(target, "./"))
+	if pattern == "" || target == "" {
+		return false
+	}
+	if strings.HasSuffix(pattern, "/") {
+		prefix := strings.TrimSuffix(pattern, "/")
+		return target == prefix || strings.HasPrefix(target, prefix+"/")
+	}
+	if strings.Contains(pattern, "**") {
+		return brainIgnoreSegmentsMatch(strings.Split(pattern, "/"), strings.Split(target, "/"))
+	}
+	if pattern == target || strings.HasPrefix(target, pattern+"/") {
+		return true
+	}
+	if ok, _ := pathpkg.Match(pattern, target); ok {
+		return true
+	}
+	return false
+}
+
+func brainIgnoreSegmentsMatch(pattern, target []string) bool {
+	if len(pattern) == 0 {
+		return len(target) == 0
+	}
+	if pattern[0] == "**" {
+		for i := 0; i <= len(target); i++ {
+			if brainIgnoreSegmentsMatch(pattern[1:], target[i:]) {
+				return true
+			}
+		}
+		return false
+	}
+	if len(target) == 0 {
+		return false
+	}
+	ok, err := pathpkg.Match(pattern[0], target[0])
+	if err != nil || !ok {
+		return false
+	}
+	return brainIgnoreSegmentsMatch(pattern[1:], target[1:])
 }
 
 func pathHasSegment(path, segment string) bool {
