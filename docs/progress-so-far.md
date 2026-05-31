@@ -373,14 +373,31 @@ Gap-closure work for the original Phase 1 plan:
 - Expanded GitHub Actions so the deterministic Phase 1 semantic suite runs on
   Linux, macOS, and Windows, not only Linux.
 
+Additional gap closure completed after the first cross-OS CI run:
+
+- Fixed Windows portability failures in path, XDG, provider-path, and Unix
+  permission tests.
+- Preserved valid one-letter SCP remotes such as `g:org/repo.git` while still
+  rejecting Windows drive paths as local paths.
+- Made JSON error envelopes respect explicit `--json=false` and stay
+  order-independent for `--json` parse failures.
+- Sanitized provider warning text, snapshot record free text, structural IDs,
+  bundle manifests, exported snapshots, and exported SQLite stores so shared
+  bundles do not leak local absolute paths.
+- Rebuilt imported semantic SQLite stores from the validated snapshot so a
+  bundled store cannot disagree with the snapshot content.
+- Normalized symbol records that use `path` into SQLite `file_path` so query,
+  context, changes, workspaces, and related features keep file associations.
+
 Completed validation for this gap-closure pass:
 
 - Focused semantic lifecycle, workspace contract, JSON-error, performance,
-  filesystem, and cross-platform path tests passed.
+  filesystem, bundle privacy/import, and cross-platform path tests passed.
 - `go test ./...` passed.
 - `mise run check` passed.
-- `entire review` initially found Windows path assertions and partial JSON error
-  coverage; both were fixed. The follow-up `entire review` reported no
+- `entire review` iteratively found Windows path assertions, JSON error
+  edge-cases, bundle redaction/import consistency gaps, and one-letter SCP
+  parsing regressions. All were fixed. The final `entire review` reported no
   actionable findings.
 - Commit/push and GitHub Actions follow-up on all three operating systems are
   next.

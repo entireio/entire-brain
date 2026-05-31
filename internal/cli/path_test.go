@@ -35,6 +35,94 @@ func TestPathPrintsBrainDirForRepoURL(t *testing.T) {
 	}
 }
 
+func TestPathPrintsBrainDirForOneLetterSCPHostAlias(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "data")
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			PluginConfigDir: t.TempDir(),
+			PluginDataDir:   dataDir,
+			PluginStateDir:  t.TempDir(),
+			PluginCacheDir:  t.TempDir(),
+		},
+		Runner: &fakeCommandRunner{responses: map[string]fakeCommandResponse{}},
+	})
+
+	out, err := execute(t, cmd, "path", "g:org/repo.git")
+	if err != nil {
+		t.Fatalf("path: %v\n%s", err, out)
+	}
+	wantSuffix := filepath.Join("org", "repo") + "\n"
+	if !strings.HasSuffix(out, wantSuffix) {
+		t.Fatalf("path output = %q, want suffix %q", out, wantSuffix)
+	}
+}
+
+func TestPathPrefersExistingLocalPathThatLooksLikeRepoRemote(t *testing.T) {
+	root := t.TempDir()
+	repoDir := filepath.Join(root, "github.com", "entireio", "cli")
+	if err := os.MkdirAll(repoDir, 0o700); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	dataDir := filepath.Join(t.TempDir(), "data")
+	brainDir := filepath.Join(dataDir, brainDirName, "gh", "local", "repo")
+	if err := os.MkdirAll(brainDir, 0o700); err != nil {
+		t.Fatalf("mkdir brain: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			PluginConfigDir: t.TempDir(),
+			PluginDataDir:   dataDir,
+			PluginStateDir:  t.TempDir(),
+			PluginCacheDir:  t.TempDir(),
+		},
+		Runner: &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+			fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+			fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "git@github.com:local/repo.git\n"},
+		}},
+	})
+
+	out, err := execute(t, cmd, "path", repoDir)
+	if err != nil {
+		t.Fatalf("path: %v\n%s", err, out)
+	}
+	want := filepath.Join(dataDir, brainDirName, "gh", "local", "repo") + "\n"
+	if out != want {
+		t.Fatalf("path output = %q, want %q", out, want)
+	}
+}
+
+func TestPathRejectsMissingWindowsDrivePathAsRemote(t *testing.T) {
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			PluginConfigDir: t.TempDir(),
+			PluginDataDir:   t.TempDir(),
+			PluginStateDir:  t.TempDir(),
+			PluginCacheDir:  t.TempDir(),
+		},
+		Runner: &fakeCommandRunner{responses: map[string]fakeCommandResponse{}},
+	})
+	out, err := execute(t, cmd, "path", `C:\missing\repo`)
+	if err == nil {
+		t.Fatalf("path succeeded for missing Windows drive path:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "neither an existing path") && !strings.Contains(err.Error(), "stat target path") {
+		t.Fatalf("path err = %v", err)
+	}
+	out, err = execute(t, cmd, "path", `C:missing`)
+	if err == nil {
+		t.Fatalf("path succeeded for drive-relative Windows path:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "neither an existing path") && !strings.Contains(err.Error(), "stat target path") {
+		t.Fatalf("path err = %v", err)
+	}
+}
+
 func TestPathUsesExistingLocalBrainWithoutExport(t *testing.T) {
 	repoDir := t.TempDir()
 	subDir := filepath.Join(repoDir, "internal", "pkg")

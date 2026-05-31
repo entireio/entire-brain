@@ -203,6 +203,9 @@ func parseRepoRemote(remote string) (string, []string, bool) {
 		host = parsed.host
 		path = parsed.path
 	} else if match := repoRemoteSCPRegex.FindStringSubmatch(remote); len(match) == 3 {
+		if looksLikeWindowsDriveRemotePath(remote, match[2]) {
+			return "", nil, false
+		}
 		host = match[1]
 		path = match[2]
 	} else if before, after, ok := strings.Cut(remote, "/"); ok && before != "" && after != "" && strings.Contains(before, ".") {
@@ -218,6 +221,11 @@ func parseRepoRemote(remote string) (string, []string, bool) {
 		return "", nil, false
 	}
 	return host, components, true
+}
+
+func looksLikeWindowsDriveRemotePath(remote, scpPath string) bool {
+	return looksLikeWindowsDrivePath(remote) &&
+		(strings.HasPrefix(scpPath, "/") || strings.Contains(scpPath, "\\") || !strings.Contains(scpPath, "/"))
 }
 
 type parsedRemote struct {

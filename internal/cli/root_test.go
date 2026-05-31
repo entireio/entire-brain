@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -64,10 +65,10 @@ func TestRootStatusShowsEntireEnvironment(t *testing.T) {
 
 func TestRootStatusWorksWithoutEntireEnvironment(t *testing.T) {
 	xdg := t.TempDir()
-	t.Setenv(xdgConfigHome, xdg+"/config")
-	t.Setenv(xdgDataHome, xdg+"/data")
-	t.Setenv(xdgStateHome, xdg+"/state")
-	t.Setenv(xdgCacheHome, xdg+"/cache")
+	t.Setenv(xdgConfigHome, filepath.Join(xdg, "config"))
+	t.Setenv(xdgDataHome, filepath.Join(xdg, "data"))
+	t.Setenv(xdgStateHome, filepath.Join(xdg, "state"))
+	t.Setenv(xdgCacheHome, filepath.Join(xdg, "cache"))
 
 	cmd := NewRootCommand(Options{Version: "test-version"})
 	out, err := execute(t, cmd)
@@ -75,10 +76,10 @@ func TestRootStatusWorksWithoutEntireEnvironment(t *testing.T) {
 		t.Fatalf("execute root: %v", err)
 	}
 	for _, want := range []string{
-		"plugin config: " + xdg + "/config/entire",
-		"plugin data: " + xdg + "/data/entire",
-		"plugin state: " + xdg + "/state/entire",
-		"plugin cache: " + xdg + "/cache/entire",
+		"plugin config: " + filepath.Join(xdg, "config", "entire"),
+		"plugin data: " + filepath.Join(xdg, "data", "entire"),
+		"plugin state: " + filepath.Join(xdg, "state", "entire"),
+		"plugin cache: " + filepath.Join(xdg, "cache", "entire"),
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("root output missing %q:\n%s", want, out)
@@ -88,10 +89,10 @@ func TestRootStatusWorksWithoutEntireEnvironment(t *testing.T) {
 
 func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	xdg := t.TempDir()
-	t.Setenv(xdgConfigHome, xdg+"/config")
-	t.Setenv(xdgDataHome, xdg+"/data")
-	t.Setenv(xdgStateHome, xdg+"/state")
-	t.Setenv(xdgCacheHome, xdg+"/cache")
+	t.Setenv(xdgConfigHome, filepath.Join(xdg, "config"))
+	t.Setenv(xdgDataHome, filepath.Join(xdg, "data"))
+	t.Setenv(xdgStateHome, filepath.Join(xdg, "state"))
+	t.Setenv(xdgCacheHome, filepath.Join(xdg, "cache"))
 
 	cmd := NewRootCommand(Options{Version: "test-version"})
 	out, err := execute(t, cmd, "doctor")
@@ -100,10 +101,10 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	}
 	for _, want := range []string{
 		"ENTIRE_PLUGIN_DATA_DIR=<unset>",
-		"plugin config dir: writable (" + xdg + "/config/entire)",
-		"plugin data dir: writable (" + xdg + "/data/entire)",
-		"plugin state dir: writable (" + xdg + "/state/entire)",
-		"plugin cache dir: writable (" + xdg + "/cache/entire)",
+		"plugin config dir: writable (" + filepath.Join(xdg, "config", "entire") + ")",
+		"plugin data dir: writable (" + filepath.Join(xdg, "data", "entire") + ")",
+		"plugin state dir: writable (" + filepath.Join(xdg, "state", "entire") + ")",
+		"plugin cache dir: writable (" + filepath.Join(xdg, "cache", "entire") + ")",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("doctor output missing %q:\n%s", want, out)

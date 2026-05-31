@@ -64,10 +64,11 @@ func TestResolvePluginDirsUsesXDGDefaultsUnderEntireRoot(t *testing.T) {
 }
 
 func TestRepoStoragePathsUseKnownOriginDomain(t *testing.T) {
+	base := t.TempDir()
 	env := EntireEnv{
-		PluginConfigDir: filepath.Join(string(filepath.Separator), "tmp", "entire-config"),
-		PluginDataDir:   filepath.Join(string(filepath.Separator), "tmp", "entire-data"),
-		PluginStateDir:  filepath.Join(string(filepath.Separator), "tmp", "entire-state"),
+		PluginConfigDir: filepath.Join(base, "entire-config"),
+		PluginDataDir:   filepath.Join(base, "entire-data"),
+		PluginStateDir:  filepath.Join(base, "entire-state"),
 	}
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
 		fakeCommandKey("git", "remote", "get-url", "origin"): {
@@ -111,5 +112,42 @@ func TestRepoStorageKeyStoresUnknownDomainSlug(t *testing.T) {
 	}
 	if cfg.DomainSlugs["git.example.test"] != parts[0] {
 		t.Fatalf("stored domain slug = %q, want %q", cfg.DomainSlugs["git.example.test"], parts[0])
+	}
+}
+
+func TestRepoStorageKeyParsesOneLetterSCPHostAlias(t *testing.T) {
+	key, ok, err := repoKeyFromRemote(t.TempDir(), "g:org/repo.git")
+	if err != nil {
+		t.Fatalf("repo key from remote: %v", err)
+	}
+	if !ok {
+		t.Fatal("repo key from one-letter SCP remote returned ok=false")
+	}
+	parts := strings.Split(key, "/")
+	if len(parts) != 3 || parts[1] != "org" || parts[2] != "repo" {
+		t.Fatalf("key = %q", key)
+	}
+}
+
+func TestRepoStorageKeyTreatsWindowsDriveOriginAsLocal(t *testing.T) {
+	repoDir := t.TempDir()
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "remote", "get-url", "origin"): {stdout: `C:\repos\upstream.git` + "\n"},
+	}}
+	key, err := repoStorageKey(context.Background(), runner, t.TempDir(), repoDir)
+	if err != nil {
+		t.Fatalf("repo storage key: %v", err)
+	}
+	if !strings.HasPrefix(key, "local/") {
+		t.Fatalf("key = %q, want local fallback", key)
+	}
+
+	runner.responses[fakeCommandKey("git", "remote", "get-url", "origin")] = fakeCommandResponse{stdout: "C:upstream.git\n"}
+	key, err = repoStorageKey(context.Background(), runner, t.TempDir(), repoDir)
+	if err != nil {
+		t.Fatalf("repo storage key: %v", err)
+	}
+	if !strings.HasPrefix(key, "local/") {
+		t.Fatalf("key = %q, want local fallback", key)
 	}
 }

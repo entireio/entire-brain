@@ -63,7 +63,18 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
-		return err
+		if looksLikeWindowsDriveTargetPath(target) {
+			return err
+		}
+		key, ok, keyErr := repoKeyFromRemote(dirs.Config, target)
+		if keyErr != nil {
+			return keyErr
+		}
+		if !ok {
+			return err
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), filepath.Join(dirs.Data, brainDirName, filepath.FromSlash(key)))
+		return nil
 	}
 	if local {
 		storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
@@ -79,15 +90,34 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		return nil
 	}
 
+	if looksLikeWindowsDriveTargetPath(target) {
+		return fmt.Errorf("target is neither an existing path nor a supported repo URL: %s", target)
+	}
 	key, ok, err := repoKeyFromRemote(dirs.Config, target)
 	if err != nil {
 		return err
 	}
-	if !ok {
-		return fmt.Errorf("target is neither an existing path nor a supported repo URL: %s", target)
+	if ok {
+		fmt.Fprintln(cmd.OutOrStdout(), filepath.Join(dirs.Data, brainDirName, filepath.FromSlash(key)))
+		return nil
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), filepath.Join(dirs.Data, brainDirName, filepath.FromSlash(key)))
-	return nil
+	return fmt.Errorf("target is neither an existing path nor a supported repo URL: %s", target)
+}
+
+func looksLikeWindowsDrivePath(target string) bool {
+	return len(target) >= 2 &&
+		((target[0] >= 'A' && target[0] <= 'Z') || (target[0] >= 'a' && target[0] <= 'z')) &&
+		target[1] == ':'
+}
+
+func looksLikeWindowsDriveTargetPath(target string) bool {
+	if !looksLikeWindowsDrivePath(target) {
+		return false
+	}
+	if match := repoRemoteSCPRegex.FindStringSubmatch(target); len(match) == 3 && !looksLikeWindowsDriveRemotePath(target, match[2]) {
+		return false
+	}
+	return true
 }
 
 func resolveLocalTargetRepoDir(ctx context.Context, runner CommandRunner, target string) (string, bool, error) {

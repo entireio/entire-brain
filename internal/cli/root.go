@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"time"
@@ -157,12 +159,46 @@ func wrapJSONErrorRendering(cmd *cobra.Command) {
 
 func commandWantsJSONError(cmd *cobra.Command) bool {
 	if flag := cmd.Flags().Lookup("json"); flag != nil && flag.Changed {
-		return true
+		return commandJSONFlagEnabled(flag.Value.String())
 	}
 	if flag := cmd.InheritedFlags().Lookup("json"); flag != nil && flag.Changed {
-		return true
+		return commandJSONFlagEnabled(flag.Value.String())
+	}
+	for _, arg := range append(cmd.Flags().Args(), commandRawArgs(cmd)...) {
+		if arg == "--json" {
+			return true
+		}
+		if strings.HasPrefix(arg, "--json=") {
+			value := strings.TrimPrefix(arg, "--json=")
+			return value == "" || value == "true" || value == "1"
+		}
 	}
 	return false
+}
+
+func commandJSONFlagEnabled(value string) bool {
+	value = strings.ToLower(value)
+	return value != "false" && value != "0"
+}
+
+func commandRawArgs(cmd *cobra.Command) []string {
+	root := cmd.Root()
+	if root == nil {
+		return os.Args[1:]
+	}
+	value := reflect.ValueOf(root)
+	if value.Kind() != reflect.Pointer || value.IsNil() {
+		return os.Args[1:]
+	}
+	args := value.Elem().FieldByName("args")
+	if !args.IsValid() || args.Kind() != reflect.Slice || args.IsNil() {
+		return os.Args[1:]
+	}
+	out := make([]string, 0, args.Len())
+	for i := 0; i < args.Len(); i++ {
+		out = append(out, args.Index(i).String())
+	}
+	return out
 }
 
 var commandErrorCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
