@@ -52,6 +52,7 @@ agent can inspect to understand project history.`,
 	cmd.AddCommand(newConfigCommand(opts.Env))
 	cmd.AddCommand(newExportCommand(opts))
 	cmd.AddCommand(newSemanticBundleCommand(opts))
+	cmd.AddCommand(newSemanticContextCommand(opts))
 	cmd.AddCommand(newSemanticGCCommand(opts))
 	cmd.AddCommand(newSemanticIndexCommand(opts))
 	cmd.AddCommand(newSemanticQueryCommand(opts))

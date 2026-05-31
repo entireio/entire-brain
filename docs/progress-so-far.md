@@ -155,3 +155,23 @@ Verification:
 - `go test ./...` passed after release-2 implementation and hardening.
 - `mise run check` passed after release-2 implementation and hardening.
 - `entire review` reported no actionable findings for release 2.
+
+### Release 3: Query And Context
+
+Implemented in Entire Brain:
+
+- Added pagination metadata and `--offset` support to `entire brain query`.
+- Added `entire brain context` with JSON/text output, symbol matches,
+  relation context, pagination, and optional bounded source snippets.
+- Added declared-store validation before query/context open SQLite stores, so
+  read-only commands do not recreate missing stores.
+- Added context/query hardening for symlinked source paths, snippet size caps,
+  lock handling, blank-line snapshot fallback, and literal SQLite text search.
+- Added `docs/semantic_agent_guide.md` and updated generated README intake text
+  to point agents at `query` and `context`.
+
+Verification:
+
+- `go test ./...` passed after release-3 implementation and hardening.
+- `mise run check` passed after release-3 implementation and hardening.
+- `entire review` reported no actionable findings for release 3.
