@@ -1,0 +1,14 @@
+Review the current branch changes and report actionable findings. Prioritize correctness, regressions, security, and missing test coverage. Do not make code changes.
+
+Scope: review the commits unique to this branch vs origin/HEAD, plus any uncommitted changes in the working tree. Ignore code outside this scope.
+
+Checkpoint context from commits in scope:
+- 14f4da1e48f4: prompt: Add that as template to the repo
+- b6766fc924c8: prompt: Use the gaps to write more precise instructions for both agents; same instructions, not specific per agent. Then run them both again and see if the result is closer.
+- 022a22869f0d: prompt: Ok, now run the same with —agent claude-code. Verify that it runs without errors and compare the results to the codex run.
+- 15229ed66d0a: prompt: Do that next, use codex as agent.
+
+Use `entire explain <id>` for full checkpoint context, or `entire explain <id> --raw-transcript` for raw transcripts.
+
+In-progress session context (uncommitted):
+  019e7da2 Codex (touched: 9 files) prompt: Did you stop?

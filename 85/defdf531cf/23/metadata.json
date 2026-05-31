@@ -1,0 +1,75 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "85defdf531cf",
+  "session_id": "019e7df6-3d93-7040-8c96-9bed1b3c0ce8",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-31T12:37:05.187466Z",
+  "branch": "phase-1-semantic-brain",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/brain.go",
+    "internal/cli/doctor.go",
+    "internal/cli/refresh.go",
+    "internal/cli/root.go",
+    "internal/cli/seed.go",
+    "internal/cli/seed_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "2d6112996926",
+  "token_usage": {
+    "input_tokens": 110113,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1774208,
+    "output_tokens": 8635,
+    "api_call_count": 23
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-31T12:37:05.161001Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 344,
+    "human_modified": 10,
+    "human_removed": 0,
+    "total_committed": 344,
+    "total_lines_changed": 354,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 3960,
+      "user_lines_removed": 10,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/progress-so-far.md": 104,
+        "docs/semantic_brain_plan.md": 1043,
+        "internal/cli/brain.go": 8,
+        "internal/cli/doctor.go": 12,
+        "internal/cli/refresh.go": 1,
+        "internal/cli/root.go": 6,
+        "internal/cli/seed.go": 76,
+        "internal/cli/seed_test.go": 61,
+        "internal/cli/semantic.go": 1467,
+        "internal/cli/semantic_test.go": 1182
+      },
+      "user_removed_per_file": {
+        "internal/cli/brain.go": 4,
+        "internal/cli/doctor.go": 3,
+        "internal/cli/refresh.go": 1,
+        "internal/cli/root.go": 1,
+        "internal/cli/seed.go": 1
+      }
+    }
+  ],
+  "kind": "agent_review",
+  "review_skills": [
+    "/review"
+  ],
+  "review_prompt": "Review the current branch changes and report actionable findings. Prioritize correctness, regressions, security, and missing test coverage. Do not make code changes.\n\nScope: review the commits unique to this branch vs origin/HEAD, plus any uncommitted changes in the working tree. Ignore code outside this scope.\n\nCheckpoint context from commits in scope:\n- 14f4da1e48f4: prompt: Add that as template to the repo\n- b6766fc924c8: prompt: Use the gaps to write more precise instructions for both agents; same instructions, not specific per agent. Then run them both again and see if the result is closer.\n- 022a22869f0d: prompt: Ok, now run the same with —agent claude-code. Verify that it runs without errors and compare the results to the codex run.\n- 15229ed66d0a: prompt: Do that next, use codex as agent.\n\nUse `entire explain <id>` for full checkpoint context, or `entire explain <id> --raw-transcript` for raw transcripts.\n\nIn-progress session context (uncommitted):\n  019e7da2 Codex (touched: 9 files) prompt: Did you stop?"
+}
