@@ -3,7 +3,7 @@
   "checkpoint_id": "a6bd6983770c",
   "strategy": "manual-commit",
   "branch": "phase-1-semantic-brain",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "docs/progress-so-far.md",
     "go.mod",
@@ -25,14 +25,20 @@
       "transcript": "/a6/bd6983770c/1/full.jsonl",
       "content_hash": "/a6/bd6983770c/1/content_hash.txt",
       "prompt": "/a6/bd6983770c/1/prompt.txt"
+    },
+    {
+      "metadata": "/a6/bd6983770c/2/metadata.json",
+      "transcript": "/a6/bd6983770c/2/full.jsonl",
+      "content_hash": "/a6/bd6983770c/2/content_hash.txt",
+      "prompt": "/a6/bd6983770c/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 664436,
+    "input_tokens": 767679,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 43685376,
-    "output_tokens": 80645,
-    "api_call_count": 325
+    "cache_read_tokens": 44198784,
+    "output_tokens": 85303,
+    "api_call_count": 334
   },
   "has_review": true
 }
