@@ -1016,6 +1016,44 @@ func TestSemanticStaleReportsWorktreeStatusErrorUnsafe(t *testing.T) {
 	}
 }
 
+func TestSemanticStaleReportsHeadLookupErrorUnsafe(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := &cobra.Command{Use: "index"}
+	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{err: errors.New("head failed")}
+	report, err := semanticStaleReport(cmd.Context(), Options{Env: env, Runner: runner}, repoDir)
+	if err != nil {
+		t.Fatalf("stale: %v", err)
+	}
+	axis := report.Axes["head"]
+	if report.Severity != "unsafe" || axis.State != "unsafe" || !strings.Contains(axis.Detail, "HEAD unavailable") {
+		t.Fatalf("head lookup error was not unsafe: %+v", report)
+	}
+}
+
+func TestSemanticStaleReportsBranchLookupErrorUnsafe(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := &cobra.Command{Use: "index"}
+	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	runner.responses[fakeCommandKey("git", "branch", "--show-current")] = fakeCommandResponse{err: errors.New("branch failed")}
+	report, err := semanticStaleReport(cmd.Context(), Options{Env: env, Runner: runner}, repoDir)
+	if err != nil {
+		t.Fatalf("stale: %v", err)
+	}
+	axis := report.Axes["branch_tip"]
+	if report.Severity != "unsafe" || axis.State != "unsafe" || !strings.Contains(axis.Detail, "branch unavailable") {
+		t.Fatalf("branch lookup error was not unsafe: %+v", report)
+	}
+}
+
 func TestSemanticStaleReportsMissingOrCorruptSnapshotUnsafe(t *testing.T) {
 	for name, mutate := range map[string]func(t *testing.T, path string){
 		"missing": func(t *testing.T, path string) {

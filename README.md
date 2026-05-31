@@ -1,50 +1,37 @@
 # Entire Brain
 
-Entire Brain is an external-command plugin for the Entire CLI. It exports
-Entire session history into a compact directory an agent can inspect to learn a
-project's development history.
+Entire Brain is an external-command plugin for the Entire CLI. It builds a
+local, inspectable "brain" for a repository from Entire session history, seeded
+repository context, and optional semantic facts from `entire-sem`.
 
-Entire CLI plugins are plain executables named `entire-<name>` on `PATH`.
-When a user runs `entire <name>`, the parent CLI dispatches to that binary and
-passes the remaining arguments through unchanged.
-
-This project builds a plugin binary named `entire-brain`,
-which is invoked as:
+The plugin binary is named `entire-brain` and is invoked through Entire as:
 
 ```sh
 entire brain
 ```
 
-## Quick Start
+All Phase 1 semantic features are local-only. They read local repositories and
+write local plugin data; they do not publish, hydrate, or serve brain data over
+the network.
 
-### Build the Plugin
+## Install
 
 ```sh
 mise install
-mise run test
+mise run check
 mise run build
-```
-
-### Install with the CLI
-
-```sh
 entire plugin install ./entire-brain
 entire brain doctor
 ```
 
-### Local Execution
-
-For local development without installing the binary, run it directly:
+For development without installing:
 
 ```sh
-go run ./cmd/entire-brain
+go run ./cmd/entire-brain --help
 ```
 
-### Subcommands
-
-Some commands, such as `doctor` and `config`, use plugin directories supplied
-by the Entire CLI. For standalone testing, either set those variables yourself
-or let the plugin fall back to XDG locations:
+When running outside the Entire CLI, set plugin directories explicitly or allow
+the XDG fallbacks:
 
 ```sh
 ENTIRE_PLUGIN_CONFIG_DIR="$(mktemp -d)" \
@@ -54,160 +41,131 @@ ENTIRE_PLUGIN_CACHE_DIR="$(mktemp -d)" \
   go run ./cmd/entire-brain doctor
 ```
 
-### Export Session History
+## Common Workflows
 
-Export the newest known checkpoint version of each unique Entire session per
-branch, using default-branch commit reachability so merged work is grouped with
-the default branch:
+### Export Session History
 
 ```sh
 entire brain export
-```
-
-Without `--output`, the export is maintained as the repository's persistent
-agent brain under the plugin data directory. The cursor that tracks already
-exported sessions is stored separately under the plugin state directory, so
-subsequent exports can reuse unchanged transcript files. Pass `--output` for a
-one-off export; explicit output directories must be empty.
-
-The export contains:
-
-| Path | Purpose |
-|---|---|
-| `manifest.json` | Machine-readable index of exported branches, sessions, authors, metadata, timestamps, and transcript paths. |
-| `README.md` | Short agent-facing guide, branch folder list, and chronological session table. |
-| `sessions/<default-branch>/*.jsonl` | Session transcripts whose checkpoint trailers are reachable from the default branch, usually `sessions/main`. |
-| `sessions/branches/<branch>/*.jsonl` | Branch-specific session transcripts for non-default branches that are not reachable from the default branch. |
-| `sessions/unknown/*.jsonl` | Session transcripts from older metadata that did not record a branch. |
-
-By default, transcripts use Entire's normalized compact transcript export:
-
-```sh
-entire checkpoint explain --transcript <checkpoint-id>
-```
-
-Use `--raw` when native agent logs are required instead:
-
-```sh
-entire brain export --raw --output ./entire-brain-raw-export
-```
-
-### Find a Brain Path
-
-Agents can resolve the persistent brain path for a local checkout path or a
-repo URL:
-
-```sh
+entire brain export --output /tmp/repo-brain
 entire brain path .
-entire brain path https://github.com/entireio/cli.git
 ```
 
-For existing local paths, the command prints the persistent brain directory and
-creates the default export first when `manifest.json` is not present. Repo URLs
-resolve to their deterministic brain directory without exporting.
+`export` writes the newest known checkpoint version of each Entire session into
+the persistent brain directory. `path` prints that directory and creates it when
+needed for a local checkout.
 
-The exporter respects the repository's configured checkpoint storage version:
-V1 repositories read `entire/checkpoints/v1`, while V2 repositories read
-`refs/entire/checkpoints/v2/main`. Checkpoints can live either in the current
-repository or in a configured `strategy_options.checkpoint_remote`; the exporter
-will use the configured checkpoint remote when local checkpoint refs are absent.
-It inspects up to 10,000 checkpoints by default; adjust with
-`--checkpoint-limit`. Use `--scope branch` for the current branch's
-`entire checkpoint explain --json` list view.
-
-### Seed a Brain from Repository Contents
-
-When a repository has no Entire session logs, or when its git history predates
-the oldest available session log, seed the brain from committed repository
-contents:
+### Seed Repository Context
 
 ```sh
 entire brain seed .
-entire brain seed ../agentviz --output /tmp/agentviz-brain
+entire brain seed . --agent none
+entire brain refresh --force-seed
 ```
 
-The seed writes deterministic repository context under `seed/`, including a
-file index, copied high-signal docs, detected commands, entrypoints,
-architecture notes, conventions, and risks. It never fabricates session logs;
-real sessions remain under `sessions/`.
+`seed` writes deterministic repository context under `seed/`, including file
+indexes, docs, commands, entrypoints, conventions, risks, and history gaps.
+`refresh` updates session history and creates or refreshes the seed when useful.
 
-Agent synthesis can be added on top of the deterministic seed:
+### Build a Semantic Brain
+
+Install or build a provider that supports `entire sem`, then index:
 
 ```sh
-entire brain seed --agent command --agent-command ./seed-agent .
-entire brain seed --agent codex .
-entire brain seed --agent claude-code .
+entire brain index . --sem-binary entire
+entire brain stale --json
 ```
 
-Agent synthesis runs in quick and deep phases. The quick phase has a default
-2-minute timeout and produces `seed/agent/quick-overview.md`; the deep phase has
-a default 10-minute timeout and can be continued, failed, or kept as the quick
-result in interactive mode.
-
-Fresh agent intake templates are available for projects that should read an
-existing brain before work:
-
-- `templates/entire-brain-intake-codex-skill.md`
-- `templates/entire-brain-intake-claude-agent.md`
-
-Refresh combines both flows:
+For a directly built provider wrapper, point `--sem-binary` at that executable.
+The provider must support:
 
 ```sh
-entire brain refresh
+entire sem doctor --json
+entire sem snapshot --repo . --format ndjson --no-network
 ```
 
-`refresh` updates session history and creates or updates the seed when no
-sessions exist, when the seed is missing, or when the oldest commit predates the
-oldest session. `entire brain path .` uses this refresh behavior when it needs
-to materialize a missing persistent brain for a local checkout.
+Useful semantic commands:
 
-## Entire Plugin Contract
+```sh
+entire brain query "main" --json --limit 10
+entire brain context "main" --json --limit 10
+entire brain impact "main" --json --depth 2 --limit 20
+entire brain changes --json
+entire brain routes --json
+entire brain tools --json
+entire brain workflows --json
+entire brain tests "main" --json
+```
 
-The parent CLI supplies these variables when it dispatches a plugin:
+Use `--worktree` on `index` only when you intentionally want the current dirty
+worktree represented. Bundle export rejects worktree-backed semantic indexes.
 
-| Variable | Meaning |
+### Bundle a Local Semantic Brain
+
+```sh
+entire brain bundle export --output /tmp/repo-brain.tar
+shasum -a 256 /tmp/repo-brain.tar
+entire brain bundle import /tmp/repo-brain.tar --sha256 <sha256>
+entire brain gc --older-than 30d
+```
+
+Bundles are local files only. Import verifies checksums, schema compatibility,
+repo identity, archive paths, size limits, and semantic store integrity.
+
+### Work Across Local Repos
+
+```sh
+entire brain workspace create platform
+entire brain workspace add platform ../api --name api
+entire brain workspace add platform ../web --name web
+entire brain workspace refresh platform
+entire brain workspace query platform "checkout" --json
+entire brain workspace impact platform "checkout" --json
+```
+
+Workspaces coordinate already-local repo brains by repo key and local path hint.
+They do not sync or publish generated brain data.
+
+### Use MCP Locally
+
+```sh
+entire brain mcp
+```
+
+The MCP adapter is stdio-only and exposes local wrappers for `stale`, `query`,
+`context`, `impact`, and `changes`. See `docs/semantic_mcp_guide.md`.
+
+## Storage
+
+The parent Entire CLI supplies these directories:
+
+| Variable | Purpose |
 |---|---|
-| `ENTIRE_CLI_VERSION` | Parent CLI version, such as `0.42.0` or `dev`. |
-| `ENTIRE_REPO_ROOT` | Absolute git worktree root when invoked inside one. |
-| `ENTIRE_PLUGIN_CONFIG_DIR` | Per-plugin configuration directory. Defaults to `${XDG_CONFIG_HOME:-~/.config}/entire`. |
-| `ENTIRE_PLUGIN_DATA_DIR` | Per-plugin durable data directory. Defaults to `${XDG_DATA_HOME:-~/.local/share}/entire`. |
-| `ENTIRE_PLUGIN_STATE_DIR` | Per-plugin state directory for cursors and other regenerable state. Defaults to `${XDG_STATE_HOME:-~/.local/state}/entire`. |
-| `ENTIRE_PLUGIN_CACHE_DIR` | Per-plugin cache directory. Defaults to `${XDG_CACHE_HOME:-~/.cache}/entire`. |
+| `ENTIRE_PLUGIN_CONFIG_DIR` | Plugin config, including `brain.json`. |
+| `ENTIRE_PLUGIN_DATA_DIR` | Durable brains under `brain/<repo-key>/`. |
+| `ENTIRE_PLUGIN_STATE_DIR` | Regenerable cursors under `brain/<repo-key>/`. |
+| `ENTIRE_PLUGIN_CACHE_DIR` | Cache data. |
+| `ENTIRE_REPO_ROOT` | Current git checkout when invoked inside a repo. |
 
-The default export layout uses the root folder name `entire`:
+Repo keys come from the repository origin. For example,
+`github.com/entireio/cli` becomes `gh/entireio/cli`.
 
-| Path | Purpose |
-|---|---|
-| `${config}/brain.json` | Plugin configuration, including generated 3-letter slugs for unknown repo domains. |
-| `${data}/brain/<repo-key>/` | Persistent brain export for the current repository. |
-| `${state}/brain/<repo-key>/head.json` | Cursor used to avoid re-pulling unchanged session transcripts. |
-
-Repo keys are derived from the repository origin. Known hosts use compact
-provider prefixes, for example `github.com/entireio/cli` becomes
-`gh/entireio/cli`. Built-in prefixes are `gh` for GitHub, `gl` for GitLab,
-`bb` for Bitbucket, `et` for Entire, `tg` for Tangled, and `cs` for
-Code Storage. Other domains receive a generated 3-letter prefix stored in
-`brain.json` to keep future exports stable and avoid collisions.
-
-The plugin runs in the caller's current working directory. The parent CLI
-filters the environment before launching third-party plugins; users can opt
-additional variables in with `ENTIRE_PLUGIN_ENV`, for example:
+## Development
 
 ```sh
-ENTIRE_PLUGIN_ENV='AWS_*,EDITOR' entire brain
+mise run fmt         # gofmt -s -w .
+mise run lint        # go vet, gofmt check, go mod tidy check, shellcheck
+mise run test        # go test ./...
+mise run test:ci     # go test -race ./...
+mise run test:phase1 # deterministic Phase 1 semantic suite
+mise run build       # build ./entire-brain
+mise run build-all   # cross-build common targets
+mise run check       # lint, race tests, Phase 1 tests, and cross-builds
 ```
 
-External-command plugins do not use a manifest and do not participate in
-checkpoint/session protocols. If you need full agent lifecycle integration, use
-the separate external agent plugin protocol instead.
+Key docs:
 
-## Useful Commands
-
-```sh
-mise run fmt        # gofmt -s -w .
-mise run lint       # go vet, gofmt check, go mod tidy check, shellcheck
-mise run test       # go test ./...
-mise run test:ci    # go test -race ./...
-mise run build      # build ./entire-brain
-mise run build-all  # cross-build common Entire targets
-```
+- `docs/semantic_brain_plan.md`
+- `docs/progress-so-far.md`
+- `docs/semantic_agent_guide.md`
+- `docs/semantic_mcp_guide.md`

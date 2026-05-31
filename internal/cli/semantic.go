@@ -1558,20 +1558,24 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 			axes["store"] = staleAxis{State: "ok", Detail: source.StorePath}
 		}
 	}
-	head, _ := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
-	branch, _ := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
+	head, headErr := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
+	branch, branchErr := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
 	dirty, dirtyErr := worktreeDirty(ctx, opts.Runner, repoDir)
 	currentWorktreeHash := ""
 	var currentWorktreeHashErr error
 	if dirty && source.WorktreeHash != "" {
 		currentWorktreeHash, currentWorktreeHashErr = worktreeFingerprint(ctx, opts.Runner, repoDir)
 	}
-	if source.Commit == head {
+	if headErr != nil {
+		axes["head"] = staleAxis{State: "unsafe", Detail: "HEAD unavailable: " + headErr.Error(), Indexed: source.Commit}
+	} else if source.Commit == head {
 		axes["head"] = staleAxis{State: "ok", Current: head, Indexed: source.Commit}
 	} else {
 		axes["head"] = staleAxis{State: "stale", Current: head, Indexed: source.Commit}
 	}
-	if source.Branch == "" || source.Branch == branch {
+	if branchErr != nil {
+		axes["branch_tip"] = staleAxis{State: "unsafe", Detail: "branch unavailable: " + branchErr.Error(), Indexed: source.Branch}
+	} else if source.Branch == "" || source.Branch == branch {
 		axes["branch_tip"] = staleAxis{State: "ok", Current: branch, Indexed: source.Branch}
 	} else {
 		axes["branch_tip"] = staleAxis{State: "stale", Current: branch, Indexed: source.Branch}

@@ -333,3 +333,42 @@ Verification:
 - `mise run check` passed after release-8 implementation.
 - `entire review` reported no actionable findings for release 8 after
   hardening and round-trip coverage.
+
+### Current Phase 1 Gap Check
+
+Compared against `docs/semantic_brain_plan.md`, the eight Phase 1 releases are
+implemented and validated for the local semantic brain path. Fresh indexing,
+incremental SQLite generations, query/context, impact/changes, boundary views,
+workspaces, stdio MCP, local bundles, no-egress provider invocation, and
+deterministic CI coverage are present.
+
+Live self-validation with the fixed `../entire-sem` provider passed for this
+repo:
+
+- `entire sem doctor --json`
+- `entire sem snapshot --repo . --format ndjson --no-network`
+- `entire brain index . --sem-binary <fixed-provider> --worktree --force`
+- `stale`, `query`, `context`, `impact`, `changes`, `routes`, `tools`,
+  `workflows`, `tests`
+- workspace create/add/refresh/query/impact
+- bundle export/import, `gc`, and MCP `tools/list`
+- A follow-up hardening pass now marks failed `git rev-parse HEAD` and
+  `git branch --show-current` lookups as unsafe freshness axes instead of
+  comparing against empty current values.
+
+Known remaining gaps:
+
+- `repair`, `reset`, and `reset --semantic-only` were described in the detailed
+  command plan but are not implemented yet.
+- Query/context/impact JSON output has stable data contracts and pagination,
+  but command failures still return process errors rather than a consistent
+  structured JSON error-code envelope.
+- Release 8's CI checklist is broad and aspirational. The current suite covers
+  deterministic provider fixtures, schema compatibility, SQLite integrity,
+  dirty/worktree behavior, locks, stale axes, JSON contracts, bundle
+  security/round-trip behavior, workspaces, MCP, race tests, and no-egress
+  command assertions, but it does not yet include explicit performance-budget
+  smoke tests or exhaustive read-only/permission-denied filesystem scenarios.
+- Workspace freshness reports local repo semantic freshness; explicit
+  cross-repo contract freshness remains a future refinement on top of the
+  current workspace query/impact model.
