@@ -1,0 +1,65 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "c3245f022640",
+  "session_id": "019e7e78-a0e3-7451-b357-5796da5ee3b7",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-31T15:04:10.703584Z",
+  "branch": "phase-1-semantic-brain",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/root.go",
+    "internal/cli/seed.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "f21d8992f28b",
+  "token_usage": {
+    "input_tokens": 82425,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 560384,
+    "output_tokens": 3729,
+    "api_call_count": 10
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-31T15:04:10.684043Z",
+    "agent_lines": 236,
+    "agent_removed": 17,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 13,
+    "total_committed": 236,
+    "total_lines_changed": 266,
+    "agent_percentage": 95.11278195488721,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 440,
+      "user_lines_removed": 13,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/semantic_agent_guide.md": 19,
+        "internal/cli/root.go": 1,
+        "internal/cli/seed.go": 1,
+        "internal/cli/semantic.go": 279,
+        "internal/cli/semantic_test.go": 140
+      },
+      "user_removed_per_file": {
+        "internal/cli/semantic.go": 10,
+        "internal/cli/semantic_test.go": 3
+      }
+    }
+  ],
+  "kind": "agent_review",
+  "review_skills": [
+    "/review"
+  ],
+  "review_prompt": "Review the current branch changes and report actionable findings. Prioritize correctness, regressions, security, and missing test coverage. Do not make code changes.\n\nScope: review the commits unique to this branch vs origin/HEAD, plus any uncommitted changes in the working tree. Ignore code outside this scope.\n\nCheckpoint context from commits in scope:\n- a6bd6983770c: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.\n- 6631d2d6741d: checkpoint metadata unavailable\n- 5a995c66ec90: prompt: Summarize docs/progress-so-far’z\n- 85defdf531cf: prompt: Did you stop?\n- 14f4da1e48f4: prompt: Add that as template to the repo\n- b6766fc924c8: prompt: Use the gaps to write more precise instructions for both agents; same instructions, not specific per agent. Then run them both again and see if the result is closer.\n- 022a22869f0d: prompt: Ok, now run the same with —agent claude-code. Verify that it runs without errors and compare the results to the codex run.\n- 15229ed66d0a: prompt: Do that next, use codex as agent.\n\nUse `entire explain <id>` for full checkpoint context, or `entire explain <id> --raw-transcript` for raw transcripts.\n\nIn-progress session context (uncommitted):\n  019e7e25 Codex prompt: You are a helpful assistant. You will be presented with a user prompt, and your job is to provide a short title for a task that will be created from that prompt. The task usually has to do with coding work, such as fixing a bug, changing a feature, or answering a question about a codebase. Generate a concise UI titl..."
+}
