@@ -72,5 +72,17 @@
     "output_tokens": 81409,
     "api_call_count": 297
   },
+  "combined_attribution": {
+    "calculated_at": "2026-05-31T17:56:52.920451Z",
+    "agent_lines": 388,
+    "agent_removed": 9,
+    "human_added": 87,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 475,
+    "total_lines_changed": 484,
+    "agent_percentage": 82.02479338842976,
+    "metric_version": 2
+  },
   "has_review": true
 }
