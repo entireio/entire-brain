@@ -1,0 +1,25 @@
+When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.
+
+---
+
+/goal Test all entire brain features with the repos in the ~/Projects directory.
+
+---
+
+Do the 4 failures need a fix?
+
+---
+
+Write a task description for Codex in entire-sem
+
+---
+
+Fix is done in entire-sem. Validate it with the brain.
+
+---
+
+Try again
+
+---
+
+Go back to our original plan for phase 1, compare the progress so far, validate with the brain for this repo, and check what’s missing. Also update the README with clear and concise instructions on how to use the project.
