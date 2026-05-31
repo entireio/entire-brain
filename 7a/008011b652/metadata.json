@@ -3,7 +3,7 @@
   "checkpoint_id": "7a008011b652",
   "strategy": "manual-commit",
   "branch": "phase-1-semantic-brain",
-  "checkpoints_count": 0,
+  "checkpoints_count": 1,
   "files_touched": [
     ".github/workflows/test.yml",
     "docs/progress-so-far.md",
@@ -21,13 +21,20 @@
       "transcript": "/7a/008011b652/0/full.jsonl",
       "content_hash": "/7a/008011b652/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/7a/008011b652/1/metadata.json",
+      "transcript": "/7a/008011b652/1/full.jsonl",
+      "content_hash": "/7a/008011b652/1/content_hash.txt",
+      "prompt": "/7a/008011b652/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 217177,
+    "input_tokens": 351512,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 19883904,
-    "output_tokens": 28483,
-    "api_call_count": 161
-  }
+    "cache_read_tokens": 21557632,
+    "output_tokens": 35384,
+    "api_call_count": 181
+  },
+  "has_review": true
 }
