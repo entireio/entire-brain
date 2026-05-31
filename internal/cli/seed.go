@@ -1109,6 +1109,28 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 			fmt.Fprintf(&b, "- `%s`: %d sessions in `%s`\n", label, branch.SessionCount, branch.Directory)
 		}
 	}
+	if manifest.Sources != nil && manifest.Sources.Semantic != nil {
+		semantic := manifest.Sources.Semantic
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "## Semantic Index")
+		fmt.Fprintln(&b)
+		fmt.Fprintf(&b, "- Generated at: `%s`\n", semantic.GeneratedAt.Format(time.RFC3339))
+		fmt.Fprintf(&b, "- Provider: `%s`", semantic.Provider)
+		if semantic.ProviderVersion != "" {
+			fmt.Fprintf(&b, " `%s`", semantic.ProviderVersion)
+		}
+		fmt.Fprintln(&b)
+		fmt.Fprintf(&b, "- Schema: `%s`\n", semantic.SchemaVersion)
+		fmt.Fprintf(&b, "- Snapshot: `%s`\n", semantic.SnapshotPath)
+		fmt.Fprintf(&b, "- Symbols: %d\n", semantic.Symbols)
+		fmt.Fprintf(&b, "- Relations: %d\n", semantic.Relations)
+		if semantic.Commit != "" {
+			fmt.Fprintf(&b, "- Commit: `%s`\n", semantic.Commit)
+		}
+		if semantic.Branch != "" {
+			fmt.Fprintf(&b, "- Branch: `%s`\n", semantic.Branch)
+		}
+	}
 	var warnings []string
 	warnings = append(warnings, manifest.Warnings...)
 	if manifest.Sources != nil && manifest.Sources.Seed != nil {
@@ -1116,6 +1138,14 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 	}
 	if manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		warnings = append(warnings, manifest.Sources.Sessions.Warnings...)
+	}
+	if manifest.Sources != nil && manifest.Sources.Semantic != nil {
+		for _, warning := range manifest.Sources.Semantic.Warnings {
+			warnings = append(warnings, warning.Code)
+		}
+		for _, failure := range manifest.Sources.Semantic.PartialFailures {
+			warnings = append(warnings, failure.Code)
+		}
 	}
 	warnings = uniqueStrings(warnings)
 	if len(warnings) > 0 {
@@ -1289,11 +1319,19 @@ func runSeedAgentPhase(ctx context.Context, repoDir, outputDir string, opts seed
 		if out.Artifacts == nil {
 			out.Artifacts = make(map[string]string)
 		}
+		if err := validateSeedAgentOutput(out, phase); err != nil {
+			phaseManifest.Status = "failed"
+			return phaseManifest, out.Artifacts, err
+		}
 		for _, name := range required {
 			if _, ok := out.Artifacts[name]; !ok {
 				phaseManifest.Status = "incomplete"
 				return phaseManifest, out.Artifacts, fmt.Errorf("agent %s output missing required artifact %s", phase, name)
 			}
+		}
+		if err := validateSeedAgentArtifactSet(out.Artifacts, required, phase); err != nil {
+			phaseManifest.Status = "failed"
+			return phaseManifest, out.Artifacts, err
 		}
 		written, err := writeAgentArtifacts(outputDir, out.Artifacts)
 		if err != nil {
@@ -1306,6 +1344,29 @@ func runSeedAgentPhase(ctx context.Context, repoDir, outputDir string, opts seed
 		phaseManifest.OutputPaths = written
 		return phaseManifest, out.Artifacts, nil
 	}
+}
+
+func validateSeedAgentArtifactSet(artifacts map[string]string, required []string, phase string) error {
+	allowed := make(map[string]struct{}, len(required))
+	for _, name := range required {
+		allowed[name] = struct{}{}
+	}
+	for name := range artifacts {
+		if _, ok := allowed[name]; !ok {
+			return fmt.Errorf("agent %s output included unexpected artifact %s", phase, name)
+		}
+	}
+	return nil
+}
+
+func validateSeedAgentOutput(out seedAgentOutput, phase string) error {
+	if out.SchemaVersion != 1 {
+		return fmt.Errorf("agent %s output has unsupported schema_version %d", phase, out.SchemaVersion)
+	}
+	if out.Status != "success" {
+		return fmt.Errorf("agent %s output status %q is not success", phase, out.Status)
+	}
+	return nil
 }
 
 func truncateAgentWarning(warning string) string {
@@ -1348,7 +1409,7 @@ func seedAgentCommandArgs(repoDir, phase string, opts seedCommandOptions) ([]str
 		}
 		return append([]string(nil), opts.agentCommand...), nil
 	case "codex":
-		return []string{"codex", "exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only", seedAgentPrompt(phase)}, nil
+		return []string{"codex", "exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", seedAgentPrompt(phase)}, nil
 	case "claude-code":
 		return []string{"claude", "--print", "--no-session-persistence", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt", seedAgentPrompt(phase)}, nil
 	default:

@@ -71,6 +71,75 @@ func TestSeedWritesDeterministicBrain(t *testing.T) {
 	}
 }
 
+func TestSeedAgentCommandArgsCodexUsesStructuredReadOnlyExec(t *testing.T) {
+	args, err := seedAgentCommandArgs("/repo", "quick", seedCommandOptions{agent: "codex"})
+	if err != nil {
+		t.Fatalf("codex args: %v", err)
+	}
+	joined := strings.Join(args, "\x00")
+	for _, want := range []string{"codex", "exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("codex args missing %q: %#v", want, args)
+		}
+	}
+	if strings.Contains(joined, "--output-schema") {
+		t.Fatalf("codex args should rely on prompt plus local validation, not --output-schema: %#v", args)
+	}
+	if !strings.Contains(args[len(args)-1], "return only raw JSON") {
+		t.Fatalf("codex prompt missing structured-output instruction:\n%s", args[len(args)-1])
+	}
+}
+
+func TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions(t *testing.T) {
+	args, err := seedAgentCommandArgs("/repo", "deep", seedCommandOptions{agent: "claude-code"})
+	if err != nil {
+		t.Fatalf("claude-code args: %v", err)
+	}
+	joined := strings.Join(args, "\x00")
+	for _, want := range []string{"claude", "--print", "--no-session-persistence", "--permission-mode", "dontAsk", "--tools", "\x00\x00", "--system-prompt"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("claude-code args missing %q: %#v", want, args)
+		}
+	}
+	if strings.Contains(joined, "--bare") {
+		t.Fatalf("claude-code args should not use --bare because it bypasses logged-in Claude auth: %#v", args)
+	}
+	if !strings.Contains(args[len(args)-1], "return only raw JSON") {
+		t.Fatalf("claude-code prompt missing structured-output instruction:\n%s", args[len(args)-1])
+	}
+}
+
+func TestValidateSeedAgentOutputRequiresSuccessSchema(t *testing.T) {
+	tests := []struct {
+		name string
+		out  seedAgentOutput
+	}{
+		{name: "failed status", out: seedAgentOutput{SchemaVersion: 1, Status: "failed", Artifacts: map[string]string{"quick-overview.md": "x"}}},
+		{name: "missing schema", out: seedAgentOutput{Status: "success", Artifacts: map[string]string{"quick-overview.md": "x"}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateSeedAgentOutput(test.out, "quick"); err == nil {
+				t.Fatalf("expected validation error")
+			}
+		})
+	}
+	if err := validateSeedAgentOutput(seedAgentOutput{SchemaVersion: 1, Status: "success"}, "quick"); err != nil {
+		t.Fatalf("valid output rejected: %v", err)
+	}
+}
+
+func TestValidateSeedAgentArtifactSetRejectsExtras(t *testing.T) {
+	artifacts := map[string]string{
+		"quick-overview.md": "ok",
+		"extra.md":          "unexpected",
+	}
+	err := validateSeedAgentArtifactSet(artifacts, []string{"quick-overview.md"}, "quick")
+	if err == nil || !strings.Contains(err.Error(), "unexpected artifact") {
+		t.Fatalf("artifact validation err = %v", err)
+	}
+}
+
 func TestSeedRejectsNonEmptyOutputUnlessForced(t *testing.T) {
 	repoDir := seedFixtureRepo(t)
 	outputDir := t.TempDir()

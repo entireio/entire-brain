@@ -8,11 +8,12 @@ import (
 	"time"
 )
 
-const brainManifestSchemaVersion = 2
+const brainManifestSchemaVersion = 3
 
 type brainSources struct {
-	Seed     *seedSourceManifest    `json:"seed,omitempty"`
-	Sessions *sessionSourceManifest `json:"sessions,omitempty"`
+	Seed     *seedSourceManifest     `json:"seed,omitempty"`
+	Sessions *sessionSourceManifest  `json:"sessions,omitempty"`
+	Semantic *semanticSourceManifest `json:"semantic,omitempty"`
 }
 
 type sessionSourceManifest struct {
@@ -127,6 +128,9 @@ func writeBrainSessionSource(outputDir, repoKey string, sessionManifest exportMa
 	if existing.Sources.Seed != nil {
 		sessionManifest.Sources.Seed = existing.Sources.Seed
 	}
+	if existing.Sources.Semantic != nil {
+		sessionManifest.Sources.Semantic = existing.Sources.Semantic
+	}
 	return writeBrainManifestAndReadme(outputDir, sessionManifest)
 }
 
@@ -216,7 +220,7 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 }
 
 func renderBrainReadme(manifest exportManifest) string {
-	if manifest.Sources == nil || manifest.Sources.Seed == nil {
+	if manifest.Sources == nil || (manifest.Sources.Seed == nil && manifest.Sources.Semantic == nil) {
 		return renderExportReadme(manifest)
 	}
 	return renderCombinedBrainReadme(manifest)

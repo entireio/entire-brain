@@ -48,12 +48,17 @@ agent can inspect to understand project history.`,
 		},
 	}
 
-	cmd.AddCommand(newDoctorCommand(opts.Env))
+	cmd.AddCommand(newDoctorCommand(opts))
 	cmd.AddCommand(newConfigCommand(opts.Env))
 	cmd.AddCommand(newExportCommand(opts))
+	cmd.AddCommand(newSemanticBundleCommand(opts))
+	cmd.AddCommand(newSemanticGCCommand(opts))
+	cmd.AddCommand(newSemanticIndexCommand(opts))
+	cmd.AddCommand(newSemanticQueryCommand(opts))
 	cmd.AddCommand(newPathCommand(opts))
 	cmd.AddCommand(newRefreshCommand(opts))
 	cmd.AddCommand(newSeedCommand(opts))
+	cmd.AddCommand(newSemanticStaleCommand(opts))
 	cmd.AddCommand(newVersionCommand(opts.Version))
 	return cmd
 }

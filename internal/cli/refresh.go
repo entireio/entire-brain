@@ -48,7 +48,7 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&refreshOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope: all or branch")
 	cmd.Flags().BoolVar(&refreshOpts.seed.force, "force-seed", false, "Force seed refresh")
 	cmd.Flags().BoolVar(&refreshOpts.seed.worktree, "worktree", false, "Include selected untracked instruction/docs files in seed")
-	cmd.Flags().StringVar(&refreshOpts.seed.agent, "agent", "none", "Agent synthesis mode for seed: none, command, or codex")
+	cmd.Flags().StringVar(&refreshOpts.seed.agent, "agent", "none", "Agent synthesis mode for seed: none, command, codex, or claude-code")
 	cmd.Flags().StringArrayVar(&refreshOpts.seed.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	return cmd
 }

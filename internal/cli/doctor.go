@@ -7,17 +7,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newDoctorCommand(env EntireEnv) *cobra.Command {
+func newDoctorCommand(opts Options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
 		Short: "Check the parent Entire CLI plugin environment",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDoctor(cmd, env)
+			return runDoctor(cmd, opts)
 		},
 	}
 }
 
-func runDoctor(cmd *cobra.Command, env EntireEnv) error {
+func runDoctor(cmd *cobra.Command, opts Options) error {
+	env := opts.Env
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "ENTIRE_CLI_VERSION=%s\n", valueOrUnset(env.CLIVersion))
 	fmt.Fprintf(out, "ENTIRE_REPO_ROOT=%s\n", valueOrUnset(env.RepoRoot))
@@ -44,6 +45,14 @@ func runDoctor(cmd *cobra.Command, env EntireEnv) error {
 			return fmt.Errorf("%s: %w", check.label, err)
 		}
 		fmt.Fprintf(out, "%s: writable (%s)\n", check.label, check.path)
+	}
+	if env.RepoRoot != "" && opts.Runner != nil {
+		report, err := semanticStaleReport(cmd.Context(), opts, env.RepoRoot)
+		if err != nil {
+			fmt.Fprintf(out, "semantic brain: unavailable (%s)\n", err)
+		} else {
+			fmt.Fprintf(out, "semantic brain: %s\n", report.Severity)
+		}
 	}
 	return nil
 }
