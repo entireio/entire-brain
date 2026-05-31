@@ -40,6 +40,7 @@ const (
 	semanticSupportedMajor              = "1"
 	semanticContextMaxLines             = 80
 	semanticContextMaxBytes             = 64 * 1024
+	semanticParseCacheMaxFile           = 16 * 1024 * 1024
 	semanticWorktreeFingerprintMaxFile  = 16 * 1024 * 1024
 	semanticWorktreeFingerprintMaxTotal = 128 * 1024 * 1024
 )
@@ -90,7 +91,7 @@ type semanticHeader struct {
 	SchemaVersion   string            `json:"schema_version"`
 	Provider        string            `json:"provider"`
 	ProviderVersion string            `json:"provider_version"`
-	RepoRoot        string            `json:"repo_root"`
+	RepoRoot        string            `json:"repo_root,omitempty"`
 	RepoKey         string            `json:"repo_key"`
 	Commit          string            `json:"commit"`
 	Tree            string            `json:"tree"`
@@ -222,7 +223,6 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		header = semanticHeader{
 			SchemaVersion: "1.0",
 			Provider:      "skipped",
-			RepoRoot:      repoDir,
 			RepoKey:       storage.Key,
 			Commit:        head,
 			Tree:          tree,
@@ -391,6 +391,9 @@ func writeBrainSemanticSource(outputDir, repoKey string, semantic *semanticSourc
 }
 
 func acquireSemanticIndexLock(brainDir string) (func(), error) {
+	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+		return nil, err
+	}
 	lockDir := filepath.Join(brainDir, semanticLockDir)
 	if err := rejectExistingSymlinkPathComponents(brainDir, semanticLockDir); err != nil {
 		return nil, err
@@ -487,6 +490,7 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore) (semanticHeader, sem
 	if err := json.Unmarshal(scanner.Bytes(), &header); err != nil {
 		return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot header: %w", err)
 	}
+	header.RepoRoot = ""
 	header.Warnings = ignore.FilterWarnings(header.Warnings)
 	header.PartialFailures = ignore.FilterWarnings(header.PartialFailures)
 	headerLine, marshalErr := json.Marshal(header)
@@ -926,11 +930,18 @@ func semanticFileContentHash(repoDir, path string) string {
 	if err := rejectSymlinkPathComponents(repoDir, filepath.FromSlash(clean)); err != nil {
 		return ""
 	}
-	data, err := os.ReadFile(filepath.Join(repoDir, filepath.FromSlash(clean)))
+	f, err := os.Open(filepath.Join(repoDir, filepath.FromSlash(clean)))
 	if err != nil {
 		return ""
 	}
-	sum := sha256.Sum256(data)
+	defer f.Close()
+	hasher := sha256.New()
+	limited := io.LimitReader(f, semanticParseCacheMaxFile+1)
+	n, err := io.Copy(hasher, limited)
+	if err != nil || n > semanticParseCacheMaxFile {
+		return ""
+	}
+	sum := hasher.Sum(nil)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
@@ -3440,7 +3451,7 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 		_ = f.Close()
 		return err
 	}
-	if err := addBundlePath(tw, storage.BrainDir, activeSnapshot); err != nil {
+	if err := addSanitizedSnapshotBundlePath(tw, storage.BrainDir, activeSnapshot); err != nil {
 		_ = f.Close()
 		return err
 	}
@@ -3594,6 +3605,72 @@ func addBundlePath(tw *tar.Writer, root, rel string) error {
 	return err
 }
 
+func addSanitizedSnapshotBundlePath(tw *tar.Writer, root, rel string) error {
+	if err := rejectSymlinkPathComponents(root, rel); err != nil {
+		return err
+	}
+	path := filepath.Join(root, rel)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("bundle export refuses symlink: %s", rel)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("active semantic snapshot must be a file: %s", rel)
+	}
+	data, err := sanitizedSemanticSnapshotForBundle(path)
+	if err != nil {
+		return err
+	}
+	header := &tar.Header{Name: filepath.ToSlash(rel), Mode: 0o600, Size: int64(len(data)), ModTime: info.ModTime()}
+	if err := tw.WriteHeader(header); err != nil {
+		return err
+	}
+	_, err = tw.Write(data)
+	return err
+}
+
+func sanitizedSemanticSnapshotForBundle(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	scanner := newSemanticScanner(f)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("semantic snapshot missing header")
+	}
+	var header semanticHeader
+	if err := json.Unmarshal(scanner.Bytes(), &header); err != nil {
+		return nil, fmt.Errorf("parse semantic snapshot header: %w", err)
+	}
+	header.RepoRoot = ""
+	headerLine, err := json.Marshal(header)
+	if err != nil {
+		return nil, err
+	}
+	var out bytes.Buffer
+	out.Write(headerLine)
+	out.WriteByte('\n')
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		out.Write(line)
+		out.WriteByte('\n')
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
 func rejectSymlinkPathComponents(root, rel string) error {
 	clean := filepath.Clean(rel)
 	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
@@ -3644,6 +3721,27 @@ func rejectExistingSymlinkPathComponents(root, rel string) error {
 		}
 	}
 	return nil
+}
+
+func rejectSymlinkedBrainRoot(brainDir string) error {
+	info, err := os.Lstat(brainDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("brain directory must not be a symlink: %s", brainDir)
+	}
+	return nil
+}
+
+func rejectBrainRootPathSymlinks(brainRoot, rel string) error {
+	if err := rejectSymlinkedBrainRoot(brainRoot); err != nil {
+		return err
+	}
+	return rejectExistingSymlinkPathComponents(brainRoot, rel)
 }
 
 func rejectBundleOutputInsideBrain(output, brainDir string) error {
@@ -4438,6 +4536,9 @@ func appendSemanticAudit(brainDir, action, path, checksum string) error {
 }
 
 func ensureSemanticAuditPathSafe(brainDir string) error {
+	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+		return err
+	}
 	auditPath := filepath.Join(brainDir, semanticDirName, semanticAuditLogName)
 	if err := os.MkdirAll(filepath.Dir(auditPath), 0o700); err != nil {
 		return err

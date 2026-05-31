@@ -309,6 +309,22 @@ func TestWorkspaceRejectsSymlinkedWorkspacePath(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRejectsSymlinkedBrainRoot(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	brainRoot := filepath.Join(env.PluginDataDir, brainDirName)
+	external := t.TempDir()
+	if err := os.Symlink(external, brainRoot); err != nil {
+		t.Fatalf("symlink brain root: %v", err)
+	}
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}, Now: time.Now})
+	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err == nil || !strings.Contains(err.Error(), "brain directory must not be a symlink") {
+		t.Fatalf("workspace create err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(external, workspaceDirName)); !os.IsNotExist(err) {
+		t.Fatalf("workspace directory was created through symlinked brain root: %v", err)
+	}
+}
+
 func TestWorkspaceRefreshReportsMissingBrains(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	manifest := workspaceManifest{

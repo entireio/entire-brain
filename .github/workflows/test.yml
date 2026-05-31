@@ -48,3 +48,21 @@ jobs:
       - uses: actions/setup-go@v5
         with: { go-version: "1.26.2" }
       - run: go test ./...
+
+  phase1-semantic:
+    runs-on: ubuntu-latest
+    env:
+      ENTIRE_BRAIN_PHASE1_CI: "1"
+      GOPROXY: "off"
+      GOSUMDB: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.26.2" }
+      - name: Prime module cache
+        env:
+          GOPROXY: "https://proxy.golang.org,direct"
+          GOSUMDB: "sum.golang.org"
+        run: go mod download
+      - name: Run deterministic Phase 1 semantic tests
+        run: go test -race ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'

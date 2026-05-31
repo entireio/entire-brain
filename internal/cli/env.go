@@ -134,9 +134,13 @@ func repoStoragePaths(ctx context.Context, runner CommandRunner, env EntireEnv, 
 	if err != nil {
 		return repoStorage{}, err
 	}
+	brainRoot := filepath.Join(dirs.Data, brainDirName)
+	if err := rejectBrainRootPathSymlinks(brainRoot, filepath.FromSlash(key)); err != nil {
+		return repoStorage{}, err
+	}
 	return repoStorage{
 		Key:      key,
-		BrainDir: filepath.Join(dirs.Data, brainDirName, filepath.FromSlash(key)),
+		BrainDir: filepath.Join(brainRoot, filepath.FromSlash(key)),
 		HeadPath: filepath.Join(dirs.State, brainDirName, filepath.FromSlash(key), brainHeadFileName),
 	}, nil
 }
@@ -146,7 +150,11 @@ func brainDirForKey(env EntireEnv, key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dirs.Data, brainDirName, filepath.FromSlash(key)), nil
+	brainRoot := filepath.Join(dirs.Data, brainDirName)
+	if err := rejectBrainRootPathSymlinks(brainRoot, filepath.FromSlash(key)); err != nil {
+		return "", err
+	}
+	return filepath.Join(brainRoot, filepath.FromSlash(key)), nil
 }
 
 func headPathForKey(env EntireEnv, key string) (string, error) {

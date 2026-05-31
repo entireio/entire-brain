@@ -15,6 +15,10 @@ run = "go test ./..."
 description = "Run tests with race detection"
 run = "go test -race ./..."
 
+[tasks."test:phase1"]
+description = "Run deterministic Phase 1 semantic brain contract tests"
+run = "ENTIRE_BRAIN_PHASE1_CI=1 go test -race ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'"
+
 [tasks.build]
 description = "Build the plugin binary"
 run = "go build -o entire-brain ./cmd/entire-brain"
@@ -30,4 +34,4 @@ done
 
 [tasks.check]
 description = "Run formatting, linting, tests, and builds"
-depends = ["lint", "test:ci", "build-all"]
+depends = ["lint", "test:ci", "test:phase1", "build-all"]

@@ -448,7 +448,7 @@ func workspaceDir(env EntireEnv, name string) (string, error) {
 		return "", err
 	}
 	brainRoot := filepath.Join(dirs.Data, brainDirName)
-	if err := rejectExistingSymlinkPathComponents(brainRoot, filepath.Join(workspaceDirName, name)); err != nil {
+	if err := rejectBrainRootPathSymlinks(brainRoot, filepath.Join(workspaceDirName, name)); err != nil {
 		return "", err
 	}
 	return filepath.Join(brainRoot, workspaceDirName, name), nil

@@ -287,3 +287,49 @@ Verification:
 - `mise run check` passed after release-7 implementation and hardening.
 - `entire review` reported no actionable findings for release 7 after
   hardening.
+
+### Release 8: Comprehensive CI Testing
+
+Implemented in Entire Brain:
+
+- Added `mise run test:phase1`, a race-enabled deterministic Phase 1 semantic
+  contract suite for `index`, `stale`, `query`, `context`, `impact`, `changes`,
+  bundle import/export, local workspaces, MCP, and semantic refresh tests.
+- Added a `phase1-semantic` GitHub Actions job that primes module downloads,
+  then runs the Phase 1 semantic suite with `GOPROXY=off` and `GOSUMDB=off` so
+  the test phase itself cannot fetch modules.
+- Added a command-level JSON contract test that drives the local semantic
+  workflow through the root CLI and asserts the provider snapshot invocation
+  includes `--no-network`.
+- Added Phase 1 command-runner egress checks in that contract test to fail on
+  network-style external commands such as `git fetch`, `curl`, `wget`, `ssh`,
+  `scp`, or `gh`.
+- Hardened semantic writes to reject symlinked brain roots and existing
+  symlinked repo brain parent components before creating audit logs, locks,
+  snapshots, generations, or bundle-import state.
+- Hardened workspace path resolution to reject a symlinked `brain/` root before
+  writing workspace manifests.
+- Redacted provider `repo_root` from persisted semantic snapshots, including
+  `--skip-sem` snapshots, so bundle exports cannot leak local checkout paths.
+- Sanitized the active snapshot during bundle export as a defense for legacy or
+  imported snapshots that still contain `repo_root`.
+- Bounded parse-cache content hashing for indexed files so large files are not
+  read fully into memory during generation builds.
+- Updated `mise run check` so local and CI checks run the Phase 1 semantic
+  suite in addition to lint, full race tests, and cross-builds.
+
+Verification:
+
+- Focused symlink-root and symlink-parent hardening tests passed for semantic
+  index writes and workspace creation.
+- Focused provider, `--skip-sem`, and legacy/imported-style bundle snapshot
+  redaction tests passed.
+- Focused oversized content-hash tests passed.
+- Focused generated bundle round-trip test passed for export, import into a
+  fresh brain dir, `stale`, and `query`.
+- `go test ./internal/cli -run TestPhase1SemanticCommandJSONContracts` passed.
+- `mise run test:phase1` passed.
+- `go test ./...` passed after release-8 implementation.
+- `mise run check` passed after release-8 implementation.
+- `entire review` reported no actionable findings for release 8 after
+  hardening and round-trip coverage.
