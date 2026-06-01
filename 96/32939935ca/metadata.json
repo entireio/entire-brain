@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "9632939935ca",
+  "strategy": "manual-commit",
+  "branch": "phase-1-semantic-brain",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/seed_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/96/32939935ca/0/metadata.json",
+      "transcript": "/96/32939935ca/0/full.jsonl",
+      "content_hash": "/96/32939935ca/0/content_hash.txt",
+      "prompt": "/96/32939935ca/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 67525,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1143040,
+    "output_tokens": 4930,
+    "api_call_count": 14
+  }
+}
