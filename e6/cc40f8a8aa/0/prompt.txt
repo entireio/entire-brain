@@ -1,0 +1,49 @@
+I want to create a benchmark for entire-brain that shows its benefits for Codex and Claude Code. We can start with 3 projects: entire-brain itself, entire-cli (in ../cli), and the Github CLI (in ../github-cli). Come up with a plan that shows clear scenarios where the agent performs better with the brain than without.
+
+---
+
+Both
+
+---
+
+For the repos with entire checkpoints, do you have a comparison with and without?
+
+---
+
+Check again, ../cli definitely has checkpoints. Read the brain’s code to understand how it extracts them.
+
+---
+
+Check again, ../cli definitely has checkpoints. Read the brain’s code to understand how it extracts them.
+
+---
+
+Good. Export the benchmark plan to the docs folder.
+
+---
+
+Good. Export the benchmark plan to the docs folder.
+
+---
+
+You can ignore the v2 checkpoints. Update the plan accordingly.
+
+---
+
+/goal Implement the full benchmark plan, run the benchmarks, keep iterating until you have significant statistical proof that the brain scenarios improve agentic coding.
+
+---
+
+/goal Implement the full benchmark plan, run the benchmarks, keep iterating until you have significant statistical proof that the brain scenarios improve agentic coding.
+
+---
+
+What about measuring number of turns, token consumption, and duration?
+
+---
+
+Claude is now authorized with a Max 5 account, so cost shouldn't be an issue
+
+---
+
+Claude is now authorized with a Max 5 account, so cost shouldn't be an issue
