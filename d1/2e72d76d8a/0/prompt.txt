@@ -1,13 +1,1 @@
-commit/push if you haven’t already
-
----
-
-/plan Extend the benchmark for more scenarios that clearly show the value of the brain. Include iterations if they don’t to ultimately find the value prop.
-
----
-
-/plan Extend the benchmark for more scenarios that clearly show the value of the brain. Include iterations if they don’t to ultimately find the value prop.
-
----
-
-Ok, add that as phase 2 to the benchmark doc
+Let’s expand the test matrix to use both Codex and Claude with different models and reasoning efforts? And add cost as a metric to optimize for.
