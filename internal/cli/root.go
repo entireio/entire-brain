@@ -60,8 +60,12 @@ agent can inspect to understand project history.`,
 	}
 
 	cmd.AddCommand(newDoctorCommand(opts))
+	cmd.AddCommand(newAgentStatusCommand(opts))
+	cmd.AddCommand(newBrainBriefCommand(opts))
 	cmd.AddCommand(newConfigCommand(opts.Env))
 	cmd.AddCommand(newExportCommand(opts))
+	cmd.AddCommand(newBrainGuideCommand())
+	cmd.AddCommand(newBrainInspectCommand(opts))
 	cmd.AddCommand(newMCPCommand(opts))
 	cmd.AddCommand(newSemanticBundleCommand(opts))
 	cmd.AddCommand(newSemanticChangesCommand(opts))
@@ -75,7 +79,9 @@ agent can inspect to understand project history.`,
 	cmd.AddCommand(newRefreshCommand(opts))
 	cmd.AddCommand(newSemanticRepairCommand(opts))
 	cmd.AddCommand(newSemanticResetCommand(opts))
+	cmd.AddCommand(newBrainSearchCommand(opts))
 	cmd.AddCommand(newSeedCommand(opts))
+	cmd.AddCommand(newBrainShowCommand(opts))
 	cmd.AddCommand(newSemanticStaleCommand(opts))
 	cmd.AddCommand(newSemanticTestsCommand(opts))
 	cmd.AddCommand(newSemanticToolsCommand(opts))
