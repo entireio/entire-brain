@@ -1,0 +1,5 @@
+You are on the wrong path. You have run a full index for entire-cli before. Why is it taking so long now?
+
+---
+
+Hm, so you are saying entire-brain was never able to index entire-cli? I thought we tested that yesterday, as you should be able to see in your own entire checkpoints?

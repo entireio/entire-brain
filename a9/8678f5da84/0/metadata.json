@@ -1,0 +1,141 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "a98678f5da84",
+  "session_id": "019e81aa-6c40-7690-8c0a-dd90d56d369a",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-01T14:09:30.819035Z",
+  "branch": "phase-1-semantic-brain",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "benchmarks/agent-brain/.gitignore",
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/results-summary.md",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/tasks/entire-cli-plugin-env-xdg-prefix.json",
+    "benchmarks/agent-brain/tasks/entire-cli-review-base-flag-scope.json",
+    "benchmarks/agent-brain/tasks/entire-cli-review-prompt-uncommitted-scope.json",
+    "benchmarks/agent-brain/tasks/entire-cli-transcript-reresolve-updates-state.json",
+    "benchmarks/agent-brain/tasks/github-cli-auth-env-token.json",
+    "benchmarks/agent-brain/tasks/github-cli-format-web-conflict.json",
+    "benchmarks/agent-brain/tasks/github-cli-http-scopes-suggestion.json",
+    "benchmarks/agent-brain/tasks/github-cli-repo-name-trims-dotgit.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-cli-review-uncommitted-scope.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-cli-transcript-reresolve.json",
+    "benchmarks/agent-brain/tasks/swe-style-github-cli-auth-env-token.json",
+    "benchmarks/agent-brain/tasks/swe-style-github-cli-format-web-conflict.json",
+    "benchmarks/agent-brain/tasks/swe-style-github-cli-http-scopes-suggestion.json",
+    "docs/agent_benchmark_plan.md",
+    "docs/progress-so-far.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "6bc994a766fb",
+  "checkpoint_transcript_start": 2756,
+  "transcript_lines_at_start": 2756,
+  "token_usage": {
+    "input_tokens": 563102,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 19466112,
+    "output_tokens": 37783,
+    "api_call_count": 122
+  },
+  "session_metrics": {
+    "turn_count": 40
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-01T14:09:30.638833Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 1439,
+    "human_modified": 51,
+    "human_removed": 0,
+    "total_committed": 1439,
+    "total_lines_changed": 1490,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 489,
+      "user_lines_removed": 12,
+      "agent_lines_added": 48,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        "benchmarks/agent-brain/.gitignore": 1,
+        "benchmarks/agent-brain/README.md": 6,
+        "benchmarks/agent-brain/results-summary.md": 11,
+        "benchmarks/agent-brain/run.py": 157,
+        "benchmarks/agent-brain/tasks/entire-cli-plugin-env-xdg-prefix.json": 23,
+        "benchmarks/agent-brain/tasks/entire-cli-review-base-flag-scope.json": 23,
+        "benchmarks/agent-brain/tasks/entire-cli-review-prompt-uncommitted-scope.json": 23,
+        "benchmarks/agent-brain/tasks/entire-cli-transcript-reresolve-updates-state.json": 23,
+        "benchmarks/agent-brain/tasks/github-cli-auth-env-token.json": 22,
+        "benchmarks/agent-brain/tasks/github-cli-format-web-conflict.json": 22,
+        "benchmarks/agent-brain/tasks/github-cli-http-scopes-suggestion.json": 22,
+        "benchmarks/agent-brain/tasks/github-cli-repo-name-trims-dotgit.json": 22,
+        "benchmarks/agent-brain/tasks/swe-style-entire-cli-review-uncommitted-scope.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-entire-cli-transcript-reresolve.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-github-cli-auth-env-token.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-github-cli-format-web-conflict.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-github-cli-http-scopes-suggestion.json": 24,
+        "docs/agent_benchmark_plan.md": 14
+      },
+      "user_removed_per_file": {
+        "benchmarks/agent-brain/run.py": 8,
+        "docs/agent_benchmark_plan.md": 4
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 300,
+      "user_lines_removed": 0,
+      "agent_lines_added": 233,
+      "agent_lines_removed": 11,
+      "user_added_per_file": {
+        "benchmarks/agent-brain/tasks/entire-cli-plugin-env-xdg-prefix.json": 23,
+        "benchmarks/agent-brain/tasks/entire-cli-review-base-flag-scope.json": 23,
+        "benchmarks/agent-brain/tasks/entire-cli-review-prompt-uncommitted-scope.json": 23,
+        "benchmarks/agent-brain/tasks/entire-cli-transcript-reresolve-updates-state.json": 23,
+        "benchmarks/agent-brain/tasks/github-cli-auth-env-token.json": 22,
+        "benchmarks/agent-brain/tasks/github-cli-format-web-conflict.json": 22,
+        "benchmarks/agent-brain/tasks/github-cli-http-scopes-suggestion.json": 22,
+        "benchmarks/agent-brain/tasks/github-cli-repo-name-trims-dotgit.json": 22,
+        "benchmarks/agent-brain/tasks/swe-style-entire-cli-review-uncommitted-scope.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-entire-cli-transcript-reresolve.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-github-cli-auth-env-token.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-github-cli-format-web-conflict.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-github-cli-http-scopes-suggestion.json": 24
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 300,
+      "user_lines_removed": 0,
+      "agent_lines_added": 233,
+      "agent_lines_removed": 11,
+      "user_added_per_file": {
+        "benchmarks/agent-brain/tasks/entire-cli-plugin-env-xdg-prefix.json": 23,
+        "benchmarks/agent-brain/tasks/entire-cli-review-base-flag-scope.json": 23,
+        "benchmarks/agent-brain/tasks/entire-cli-review-prompt-uncommitted-scope.json": 23,
+        "benchmarks/agent-brain/tasks/entire-cli-transcript-reresolve-updates-state.json": 23,
+        "benchmarks/agent-brain/tasks/github-cli-auth-env-token.json": 22,
+        "benchmarks/agent-brain/tasks/github-cli-format-web-conflict.json": 22,
+        "benchmarks/agent-brain/tasks/github-cli-http-scopes-suggestion.json": 22,
+        "benchmarks/agent-brain/tasks/github-cli-repo-name-trims-dotgit.json": 22,
+        "benchmarks/agent-brain/tasks/swe-style-entire-cli-review-uncommitted-scope.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-entire-cli-transcript-reresolve.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-github-cli-auth-env-token.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-github-cli-format-web-conflict.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-github-cli-http-scopes-suggestion.json": 24
+      }
+    }
+  ]
+}
