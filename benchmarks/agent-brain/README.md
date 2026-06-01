@@ -106,6 +106,28 @@ separate `outcome`, `patch_focus`, `validation_discipline`,
 `runtime_efficiency`, and `brain_use` components. Do not compare v1 and v2 score
 means directly; rerun retained tasks after a scoring change.
 
+Phase 2 scenario discovery is generated with `discover`:
+
+```sh
+python3 benchmarks/agent-brain/run.py discover \
+  --minimum-per-layer 21 \
+  --suite-name phase2-discovery
+```
+
+Discovery writes a committed scenario ledger under
+`benchmarks/agent-brain/discovery/<suite>/` with more than 20 brain-positive
+candidates for each benchmark layer:
+
+- Layer A: project-native tasks.
+- Layer B: SWE-bench-style issue tasks.
+- Layer C: model/effort/cost tasks for lower-priced runners.
+
+The discovery ledger is not the same as statistical proof. It records why each
+scenario should favor the brain, which brain source should matter, which metric
+should retain the scenario, and which repetitions are needed. Existing repeated
+agent-run proof signals from local `results/*/summary.json` files are folded
+into the report separately.
+
 For a SWE-bench-style matrix, tag tasks with `source` and `suite_tags`. The
 current harness already supports the essential SWE shape: issue prompt,
 regression setup patch/replacements, hidden validation, disposable worktree, and

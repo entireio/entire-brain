@@ -51,6 +51,189 @@ ISOLATION = {
     },
 }
 
+PHASE2_PRICING = {
+    "gpt-5.5": {"input_per_million": 5.00, "cache_read_per_million": 0.50, "output_per_million": 30.00},
+    "gpt-5.4": {"input_per_million": 2.50, "cache_read_per_million": 0.25, "output_per_million": 15.00},
+    "gpt-5.4-mini": {"input_per_million": 0.75, "cache_read_per_million": 0.075, "output_per_million": 4.50},
+    "gpt-5.3-codex": {"input_per_million": 1.75, "cache_read_per_million": 0.175, "output_per_million": 14.00},
+    "gpt-5.2": {"input_per_million": 1.75, "cache_read_per_million": 0.175, "output_per_million": 14.00},
+    "claude-opus-4-8": {
+        "input_per_million": 5.00,
+        "cache_read_per_million": 0.50,
+        "cache_creation_per_million": 6.25,
+        "output_per_million": 25.00,
+    },
+    "claude-sonnet-4-6": {
+        "input_per_million": 3.00,
+        "cache_read_per_million": 0.30,
+        "cache_creation_per_million": 3.75,
+        "output_per_million": 15.00,
+    },
+    "claude-haiku-4-5": {
+        "input_per_million": 1.00,
+        "cache_read_per_million": 0.10,
+        "cache_creation_per_million": 1.25,
+        "output_per_million": 5.00,
+    },
+}
+
+PHASE2_PROJECT_TOPICS = [
+    {
+        "repo": "entire-brain",
+        "repo_path": str(ROOT),
+        "area": "brain command surface",
+        "queries": ["brief", "inspect decisions", "agent surface"],
+        "brain_source": "hybrid",
+        "signal": "The brief command should locate semantic code and warn about snapshot/live-state boundaries before edits.",
+    },
+    {
+        "repo": "entire-brain",
+        "repo_path": str(ROOT),
+        "area": "semantic freshness",
+        "queries": ["stale", "dirty-unindexed", "worktree overlay"],
+        "brain_source": "semantic",
+        "signal": "Freshness axes and live-state overlay prevent the agent from trusting stale semantic context.",
+    },
+    {
+        "repo": "entire-brain",
+        "repo_path": str(ROOT),
+        "area": "seed agent contract",
+        "queries": ["seed agent", "output-schema", "local validation"],
+        "brain_source": "history",
+        "signal": "Session history records a compatibility decision that is not obvious from current code alone.",
+    },
+    {
+        "repo": "entire-brain",
+        "repo_path": str(ROOT),
+        "area": "bundle integrity",
+        "queries": ["bundle import sha256", "checksum validation", "bundle semantic source"],
+        "brain_source": "history",
+        "signal": "History explains why checksum validation is mandatory even if simple import tests pass.",
+    },
+    {
+        "repo": "entire-cli",
+        "repo_path": "/Users/thomi/Projects/cli",
+        "area": "review provenance env filtering",
+        "queries": ["AppendReviewEnv", "provenance.IsEntry", "ENTIRE_INVESTIGATE"],
+        "brain_source": "hybrid",
+        "signal": "Semantic search localizes env plumbing while history names provenance entries that must stay stripped.",
+    },
+    {
+        "repo": "entire-cli",
+        "repo_path": "/Users/thomi/Projects/cli",
+        "area": "manual commit hooks",
+        "queries": ["manual_commit_hooks", "hook lifecycle", "checkpoint committed"],
+        "brain_source": "hybrid",
+        "signal": "Semantic relations and session history jointly identify hook lifecycle invariants.",
+    },
+    {
+        "repo": "entire-cli",
+        "repo_path": "/Users/thomi/Projects/cli",
+        "area": "transcript path re-resolution",
+        "queries": ["resolveTranscriptPath", "transcript re-resolution", "updates state"],
+        "brain_source": "history",
+        "signal": "Historical sessions describe why transcript state must be re-resolved after checkpoint movement.",
+    },
+    {
+        "repo": "github-cli",
+        "repo_path": "/Users/thomi/Projects/github-cli",
+        "area": "repository name normalization",
+        "queries": ["NormalizeRepoName", "TrimSuffix", "invalidCharactersRE"],
+        "brain_source": "semantic",
+        "signal": "Semantic context points to the shared normalizer instead of nearby command-specific call sites.",
+    },
+    {
+        "repo": "github-cli",
+        "repo_path": "/Users/thomi/Projects/github-cli",
+        "area": "http auth scope suggestions",
+        "queries": ["HandleHTTPError", "ScopesSuggestion", "X-Accepted-Oauth-Scopes"],
+        "brain_source": "semantic",
+        "signal": "Semantic context identifies the one production helper and avoids broader API test churn.",
+    },
+]
+
+PHASE2_PROJECT_ARCHETYPES = [
+    {
+        "id": "architecture-localization",
+        "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
+        "validation_strategy": "Hidden validation checks that only the shared implementation changed.",
+        "brain_advantage": "Semantic search and boundaries reduce file-read and patch-surface sprawl.",
+        "metric": "score and changed_file_count",
+    },
+    {
+        "id": "rationale-recovery",
+        "prompt_shape": "Remove or invert a historical decision and ask the agent to restore intended behavior.",
+        "validation_strategy": "Hidden validation checks the exact invariant and regression wording.",
+        "brain_advantage": "Session history exposes why the prior decision existed.",
+        "metric": "success_rate and score",
+    },
+    {
+        "id": "validation-selection",
+        "prompt_shape": "Hide focused validation and require the agent to infer the right tests.",
+        "validation_strategy": "Score rewards focused test selection and penalizes broad unrelated edits.",
+        "brain_advantage": "Semantic test suggestions identify the smallest relevant test target.",
+        "metric": "tokens, seconds, and validation_discipline",
+    },
+    {
+        "id": "stale-live-hygiene",
+        "prompt_shape": "Prepare a brain, then mutate the worktree after brain prep.",
+        "validation_strategy": "Hidden validation checks whether the agent accounted for live changes.",
+        "brain_advantage": "Brief live-state overlay prevents stale-brain mistakes without forcing full diff reads.",
+        "metric": "success_rate and file_read_count",
+    },
+]
+
+PHASE2_SWE_ARCHETYPES = [
+    {
+        "id": "hidden-cross-file-contract",
+        "prompt_shape": "Issue-style bug report omits expected files and exposes only failing behavior.",
+        "validation_strategy": "Regression patch removes one contract edge; hidden tests assert the cross-file invariant.",
+        "brain_advantage": "Semantic impact maps the non-local dependency before the edit.",
+        "metric": "success_rate and score",
+    },
+    {
+        "id": "large-repo-near-miss",
+        "prompt_shape": "Issue wording names a symptom shared by several nearby modules.",
+        "validation_strategy": "Hidden tests pass only when the shared helper changes.",
+        "brain_advantage": "Semantic search disambiguates similar names and reduces exploratory reads.",
+        "metric": "tokens and changed_file_count",
+    },
+    {
+        "id": "history-only-regression",
+        "prompt_shape": "Issue says a previous fix regressed but does not name the rationale.",
+        "validation_strategy": "Setup removes both docs/progress and focused tests that explained the decision.",
+        "brain_advantage": "Full session history recovers the missing decision and test intent.",
+        "metric": "success_rate",
+    },
+    {
+        "id": "stale-context-issue",
+        "prompt_shape": "Issue is created after semantic prep and mutates the relevant file post-prep.",
+        "validation_strategy": "Hidden tests require recognizing current worktree state.",
+        "brain_advantage": "Brief reports dirty files and changed-symbol hints before semantic use.",
+        "metric": "success_rate and file_read_count",
+    },
+]
+
+PHASE2_COST_TASKS = [
+    "entire-brain-history-codex-schema-contract",
+    "entire-brain-history-bundle-sha256",
+    "entire-brain-history-github-visibility",
+    "entire-cli-review-base-flag-scope",
+    "entire-cli-review-prompt-uncommitted-scope",
+    "github-cli-repo-name-trims-dotgit",
+    "github-cli-http-scopes-suggestion",
+    "swe-style-entire-brain-stale-query-default-limit",
+    "swe-style-entire-cli-transcript-reresolve",
+]
+
+PHASE2_LOWER_COST_RUNNERS = [
+    {"runner": "codex-gpt-5.4-mini-medium", "agent": "codex", "model": "gpt-5.4-mini", "effort": "medium"},
+    {"runner": "codex-gpt-5.3-codex-medium", "agent": "codex", "model": "gpt-5.3-codex", "effort": "medium"},
+    {"runner": "codex-gpt-5.2-low", "agent": "codex", "model": "gpt-5.2", "effort": "low"},
+    {"runner": "claude-sonnet-4-6-low", "agent": "claude", "model": "claude-sonnet-4-6", "effort": "low"},
+    {"runner": "claude-haiku-4-5-low", "agent": "claude", "model": "claude-haiku-4-5", "effort": "low"},
+]
+
 @dataclass
 class RunResult:
     record: dict[str, Any]
@@ -707,11 +890,11 @@ def prompt_for(task: dict[str, Any], condition: str) -> str:
     if condition == "no_brain":
         policy = """Do not use Entire Brain for this run. Do not run `entire brain`, `entire-brain`, or any brain MCP tool. Inspect the repository normally."""
     elif condition == "semantic_brain" and semantic_available:
-        policy = f"""Use Entire Brain semantic context before editing. Start with `entire brain stale --json`, then use `query`, `context`, `impact`, or `tests` for the task. Useful query terms: {queries}. Do not inspect checkpoint transcripts or session history."""
+        policy = f"""Use Entire Brain semantic context before editing. Start with `entire brain brief "{task['id']}: {base[:120]}" --json`, then use `search` or `inspect code`, `inspect context`, `inspect impact`, or `inspect tests` for the task. Useful query terms: {queries}. Do not inspect checkpoint transcripts or session history."""
     elif condition == "semantic_brain":
         policy = "Use the prepared Entire Brain seed context before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not rely on semantic query commands."
     elif semantic_available:
-        policy = f"""Use the full Entire Brain before editing. Start with `entire brain stale --json`, use semantic commands for code context, and inspect task-relevant checkpoint/session history if it can explain the behavior. Useful query terms: {queries}."""
+        policy = f"""Use the full Entire Brain before editing. Start with `entire brain brief "{task['id']}: {base[:120]}" --json`, use semantic commands for code context, and inspect task-relevant checkpoint/session history if it can explain the behavior. Useful query terms: {queries}."""
     else:
         policy = f"""Use the full Entire Brain before editing. Semantic indexing is disabled for this large-repo benchmark condition, so focus on seed context and task-relevant checkpoint/session history. Useful history search terms: {queries}."""
         if task.get("history_excerpt", True):
@@ -895,6 +1078,8 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
     text = stdout + "\n" + stderr
     lower = text.lower()
     brain_commands = sorted(set(re.findall(r"\b(?:entire\s+brain|entire-brain)\s+([a-z][a-z-]*)", lower)))
+    checked_brief = "brief" in brain_commands
+    checked_freshness = bool({"brief", "status", "stale"} & set(brain_commands))
     test_commands = sorted(
         set(
             re.findall(
@@ -906,7 +1091,9 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
     return {
         "brain_commands": brain_commands,
         "used_brain": bool(brain_commands),
+        "checked_brief": checked_brief,
         "checked_stale": "stale" in brain_commands,
+        "checked_freshness": checked_freshness,
         "test_commands": test_commands,
         "ran_tests": bool(test_commands),
         "checked_diff": bool(re.search(r"\bgit\s+(?:diff|status)\b", lower)),
@@ -1037,10 +1224,13 @@ def score(
         brain_use = 0
         if activity.get("used_brain"):
             brain_use += 2
-        if not semantic_available or activity.get("checked_stale"):
+        if not semantic_available or activity.get("checked_freshness"):
             brain_use += 2
+        if activity.get("checked_brief"):
+            brain_use += 1
         if not activity.get("saw_index_locked"):
             brain_use += 1
+        brain_use = min(brain_use, 5)
 
     total = max(0, min(100, outcome + patch_focus + validation_discipline + runtime_efficiency + brain_use))
     return {
@@ -1288,6 +1478,308 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
     return summary
 
 
+def slugify(value: str) -> str:
+    value = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip().lower())
+    value = value.strip("-")
+    return value or "scenario"
+
+
+def load_task_index() -> dict[str, dict[str, Any]]:
+    tasks = load_tasks([])
+    return {task["id"]: task for task in tasks}
+
+
+def load_existing_phase2_proofs() -> list[dict[str, Any]]:
+    proofs: list[dict[str, Any]] = []
+    if not RESULT_DIR.exists():
+        return proofs
+    for summary_path in sorted(RESULT_DIR.glob("*/summary.json")):
+        try:
+            summary = json.loads(summary_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        for comparison in summary.get("comparisons", []):
+            if not isinstance(comparison, dict):
+                continue
+            proof = retained_brain_positive_comparison(summary_path.parent.name, comparison)
+            if proof:
+                proofs.append(proof)
+    return proofs
+
+
+def retained_brain_positive_comparison(suite: str, comparison: dict[str, Any]) -> dict[str, Any] | None:
+    condition = comparison.get("condition")
+    if condition == "no_brain":
+        return None
+    success_delta = float(comparison.get("success_rate_condition") or 0) - float(comparison.get("success_rate_baseline") or 0)
+    score_delta = float(comparison.get("delta") or 0)
+    correctness_p = comparison.get("p_value_approx")
+    metric_hits: list[dict[str, Any]] = []
+    for field, delta_field, p_field, lower_is_better in [
+        ("seconds", ("mean_agent_seconds_condition", "mean_agent_seconds_baseline"), "p_value_agent_seconds", True),
+        ("tokens", ("mean_total_tokens_condition", "mean_total_tokens_baseline"), "p_value_total_tokens", True),
+        ("turns", ("mean_turns_condition", "mean_turns_baseline"), "p_value_turns", True),
+        ("cost", ("mean_cost_usd_condition", "mean_cost_usd_baseline"), "p_value_cost_usd", True),
+    ]:
+        condition_mean = comparison.get(delta_field[0])
+        baseline_mean = comparison.get(delta_field[1])
+        p_value = comparison.get(p_field)
+        if not isinstance(condition_mean, (int, float)) or not isinstance(baseline_mean, (int, float)) or not isinstance(p_value, (int, float)):
+            continue
+        delta = float(condition_mean) - float(baseline_mean)
+        improved = delta < 0 if lower_is_better else delta > 0
+        if improved and float(p_value) < 0.05:
+            metric_hits.append({"metric": field, "delta": delta, "p_value": float(p_value)})
+    correctness_hit = (success_delta > 0 or score_delta > 0) and isinstance(correctness_p, (int, float)) and float(correctness_p) < 0.05
+    if not correctness_hit and not metric_hits:
+        return None
+    return {
+        "suite": suite,
+        "task_id": comparison.get("task_id"),
+        "runner": comparison.get("runner"),
+        "agent": comparison.get("agent"),
+        "condition": condition,
+        "success_delta": success_delta,
+        "score_delta": score_delta,
+        "score_p_value": correctness_p,
+        "metric_hits": metric_hits,
+        "proof_level": "existing_repeated_run",
+    }
+
+
+def generate_phase2_scenarios(minimum_per_layer: int) -> list[dict[str, Any]]:
+    scenarios: list[dict[str, Any]] = []
+    scenarios.extend(generate_layer_a_scenarios(minimum_per_layer))
+    scenarios.extend(generate_layer_b_scenarios(minimum_per_layer))
+    scenarios.extend(generate_layer_c_scenarios(minimum_per_layer))
+    return scenarios
+
+
+def generate_layer_a_scenarios(minimum: int) -> list[dict[str, Any]]:
+    scenarios: list[dict[str, Any]] = []
+    counter = 1
+    for topic in PHASE2_PROJECT_TOPICS:
+        for archetype in PHASE2_PROJECT_ARCHETYPES:
+            scenarios.append(
+                {
+                    "id": f"phase2-a-{counter:02d}-{slugify(topic['repo'])}-{slugify(topic['area'])}-{archetype['id']}",
+                    "layer": "A",
+                    "layer_name": "project-native",
+                    "repo": topic["repo"],
+                    "repo_path": topic["repo_path"],
+                    "area": topic["area"],
+                    "brain_source": topic["brain_source"],
+                    "condition": "semantic_brain" if topic["brain_source"] == "semantic" else "full_brain",
+                    "archetype": archetype["id"],
+                    "prompt_shape": archetype["prompt_shape"],
+                    "validation_strategy": archetype["validation_strategy"],
+                    "queries": topic["queries"],
+                    "brain_excellence_hypothesis": topic["signal"] + " " + archetype["brain_advantage"],
+                    "primary_metric": archetype["metric"],
+                    "recommended_repetitions": {"pilot": 2, "proof_minimum": 8},
+                    "status": "candidate",
+                    "discovery_score": candidate_discovery_score(topic["brain_source"], archetype["id"]),
+                }
+            )
+            counter += 1
+            if len(scenarios) >= minimum:
+                return scenarios
+    return scenarios
+
+
+def generate_layer_b_scenarios(minimum: int) -> list[dict[str, Any]]:
+    scenarios: list[dict[str, Any]] = []
+    counter = 1
+    for topic in PHASE2_PROJECT_TOPICS:
+        for archetype in PHASE2_SWE_ARCHETYPES:
+            scenarios.append(
+                {
+                    "id": f"phase2-b-{counter:02d}-{slugify(topic['repo'])}-{slugify(topic['area'])}-{archetype['id']}",
+                    "layer": "B",
+                    "layer_name": "swe-bench-style",
+                    "repo": topic["repo"],
+                    "repo_path": topic["repo_path"],
+                    "area": topic["area"],
+                    "brain_source": topic["brain_source"],
+                    "condition": "semantic_brain" if topic["brain_source"] == "semantic" else "full_brain",
+                    "archetype": archetype["id"],
+                    "prompt_shape": archetype["prompt_shape"],
+                    "validation_strategy": archetype["validation_strategy"],
+                    "queries": topic["queries"],
+                    "brain_excellence_hypothesis": topic["signal"] + " " + archetype["brain_advantage"],
+                    "primary_metric": archetype["metric"],
+                    "recommended_repetitions": {"pilot": 2, "proof_minimum": 8},
+                    "status": "candidate",
+                    "discovery_score": candidate_discovery_score(topic["brain_source"], archetype["id"]) + 1,
+                }
+            )
+            counter += 1
+            if len(scenarios) >= minimum:
+                return scenarios
+    return scenarios
+
+
+def generate_layer_c_scenarios(minimum: int) -> list[dict[str, Any]]:
+    task_index = load_task_index()
+    scenarios: list[dict[str, Any]] = []
+    counter = 1
+    for task_id in PHASE2_COST_TASKS:
+        task = task_index.get(task_id, {})
+        conditions = task.get("conditions", [])
+        condition = "full_brain" if "full_brain" in conditions else "semantic_brain"
+        if condition not in conditions:
+            condition = "semantic_brain"
+        for runner in PHASE2_LOWER_COST_RUNNERS:
+            model = runner["model"]
+            price = PHASE2_PRICING.get(model, {})
+            scenarios.append(
+                {
+                    "id": f"phase2-c-{counter:02d}-{slugify(task_id)}-{slugify(runner['runner'])}",
+                    "layer": "C",
+                    "layer_name": "model-effort-cost",
+                    "task_id": task_id,
+                    "repo": task.get("repo", "unknown"),
+                    "repo_path": task.get("repo_path"),
+                    "condition": condition,
+                    "runner": runner,
+                    "pricing": price,
+                    "brain_source": "full" if condition == "full_brain" else "semantic",
+                    "prompt_shape": "Run the retained brain-positive task on a lower-cost model/effort runner.",
+                    "validation_strategy": "Require equal or better correctness while measuring tokens, turns, seconds, and cost against the same runner without brain.",
+                    "queries": task.get("brain_queries", []),
+                    "brain_excellence_hypothesis": "Brain context should preserve correctness on a cheaper runner by reducing search, avoiding wrong files, or recovering rationale.",
+                    "primary_metric": "success_rate with tokens, seconds, turns, and cost",
+                    "recommended_repetitions": {"pilot": 2, "proof_minimum": 8},
+                    "status": "candidate",
+                    "discovery_score": 8 if condition == "full_brain" else 7,
+                }
+            )
+            counter += 1
+            if len(scenarios) >= minimum:
+                return scenarios
+    return scenarios
+
+
+def candidate_discovery_score(brain_source: str, archetype: str) -> int:
+    score = 5
+    if brain_source in {"history", "hybrid"}:
+        score += 2
+    if archetype in {"rationale-recovery", "history-only-regression"}:
+        score += 2
+    if archetype in {"stale-live-hygiene", "stale-context-issue"}:
+        score += 1
+    return score
+
+
+def phase2_discovery_summary(scenarios: list[dict[str, Any]], proofs: list[dict[str, Any]], minimum: int) -> dict[str, Any]:
+    counts: dict[str, int] = {}
+    for scenario in scenarios:
+        counts[scenario["layer"]] = counts.get(scenario["layer"], 0) + 1
+    proof_counts: dict[str, int] = {}
+    for proof in proofs:
+        task_id = proof.get("task_id")
+        if isinstance(task_id, str) and task_id.startswith("swe-style-"):
+            layer = "B"
+        elif proof.get("runner") in {r["runner"] for r in PHASE2_LOWER_COST_RUNNERS}:
+            layer = "C"
+        else:
+            layer = "A"
+        proof_counts[layer] = proof_counts.get(layer, 0) + 1
+    return {
+        "generated_at": dt.datetime.now(dt.UTC).isoformat(),
+        "minimum_per_layer": minimum,
+        "scenario_counts": counts,
+        "candidate_goal_met": all(counts.get(layer, 0) > 20 for layer in ("A", "B", "C")),
+        "existing_repeated_proofs": len(proofs),
+        "existing_repeated_proof_counts": proof_counts,
+        "proof_goal_met": all(proof_counts.get(layer, 0) > 20 for layer in ("A", "B", "C")),
+        "note": "candidate_goal_met means the discovery ledger has more than 20 brain-positive candidates per layer. proof_goal_met requires repeated agent runs with significant results.",
+    }
+
+
+def write_phase2_discovery_markdown(output_dir: pathlib.Path, summary: dict[str, Any], scenarios: list[dict[str, Any]], proofs: list[dict[str, Any]]) -> None:
+    by_layer: dict[str, list[dict[str, Any]]] = {"A": [], "B": [], "C": []}
+    for scenario in scenarios:
+        by_layer.setdefault(scenario["layer"], []).append(scenario)
+    lines = [
+        "# Phase 2 Brain-Positive Scenario Discovery",
+        "",
+        f"Generated at: `{summary['generated_at']}`",
+        "",
+        "This report is the scenario-discovery ledger for Phase 2. It finds more than 20 candidate scenarios per layer where the brain should have a measurable advantage. Existing repeated-run proof signals are listed separately; candidates still require the proof repetitions before final claims.",
+        "",
+        "## Counts",
+        "",
+        "| Layer | Candidate scenarios | Existing repeated proofs |",
+        "|---|---:|---:|",
+    ]
+    for layer in ("A", "B", "C"):
+        lines.append(f"| {layer} | {summary['scenario_counts'].get(layer, 0)} | {summary['existing_repeated_proof_counts'].get(layer, 0)} |")
+    lines.extend(
+        [
+            "",
+            f"Candidate goal met: `{summary['candidate_goal_met']}`",
+            "",
+            f"Repeated proof goal met: `{summary['proof_goal_met']}`",
+            "",
+        ]
+    )
+    if proofs:
+        lines.extend(["## Existing Repeated-Run Signals", ""])
+        lines.append("| Suite | Task | Runner | Condition | Signal |")
+        lines.append("|---|---|---|---|---|")
+        for proof in proofs:
+            signals = []
+            if proof.get("score_delta"):
+                signals.append(f"score delta {float(proof['score_delta']):.1f}")
+            for hit in proof.get("metric_hits", []):
+                signals.append(f"{hit['metric']} p={hit['p_value']:.4g}")
+            lines.append(
+                "| {suite} | {task} | {runner} | {condition} | {signal} |".format(
+                    suite=proof.get("suite", ""),
+                    task=proof.get("task_id", ""),
+                    runner=proof.get("runner", ""),
+                    condition=proof.get("condition", ""),
+                    signal=", ".join(signals) or "significant",
+                )
+            )
+        lines.append("")
+    for layer, title in [("A", "Layer A: Project-Native"), ("B", "Layer B: SWE-Bench-Style"), ("C", "Layer C: Model/Effort/Cost")]:
+        lines.extend([f"## {title}", ""])
+        lines.append("| ID | Repo/Task | Brain | Archetype/Runner | Primary metric |")
+        lines.append("|---|---|---|---|---|")
+        for scenario in by_layer[layer]:
+            repo_or_task = scenario.get("task_id") or f"{scenario.get('repo')} / {scenario.get('area')}"
+            archetype = scenario.get("archetype") or scenario.get("runner", {}).get("runner", "")
+            lines.append(
+                f"| `{scenario['id']}` | {repo_or_task} | {scenario.get('condition', '')} | {archetype} | {scenario.get('primary_metric', '')} |"
+            )
+        lines.append("")
+    (output_dir / "report.md").write_text("\n".join(lines) + "\n")
+
+
+def cmd_discover(args: argparse.Namespace) -> int:
+    minimum = args.minimum_per_layer
+    if minimum <= 20:
+        minimum = 21
+    suite = args.suite_name or dt.datetime.now(dt.UTC).strftime("phase2-discovery-%Y%m%dT%H%M%SZ")
+    output_dir = BENCH_ROOT / "discovery" / suite
+    if output_dir.exists() and args.replace:
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=False)
+    scenarios = generate_phase2_scenarios(minimum)
+    proofs = load_existing_phase2_proofs()
+    summary = phase2_discovery_summary(scenarios, proofs, minimum)
+    (output_dir / "scenarios.json").write_text(json.dumps({"scenarios": scenarios}, indent=2, sort_keys=True))
+    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
+    (output_dir / "pricing.json").write_text(json.dumps(PHASE2_PRICING, indent=2, sort_keys=True))
+    if proofs:
+        (output_dir / "existing-proofs.json").write_text(json.dumps({"proofs": proofs}, indent=2, sort_keys=True))
+    write_phase2_discovery_markdown(output_dir, summary, scenarios, proofs)
+    print(json.dumps({"output_dir": str(output_dir), **summary}, indent=2, sort_keys=True))
+    return 0 if summary["candidate_goal_met"] else 1
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     tasks = load_tasks(args.tasks)
     if args.runners:
@@ -1483,6 +1975,12 @@ def main() -> int:
     check_p.add_argument("--no-brain-cache", action="store_true")
     check_p.add_argument("--refresh-brain-cache", action="store_true")
     check_p.set_defaults(func=cmd_check)
+
+    discover_p = sub.add_parser("discover")
+    discover_p.add_argument("--minimum-per-layer", type=int, default=21)
+    discover_p.add_argument("--suite-name")
+    discover_p.add_argument("--replace", action="store_true", help="Replace an existing discovery suite directory")
+    discover_p.set_defaults(func=cmd_discover)
 
     args = parser.parse_args()
     return args.func(args)
