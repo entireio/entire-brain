@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "c8f8e39ac9bb",
+  "strategy": "manual-commit",
+  "branch": "phase-2-brain-benchmark-plan",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_test.go",
+    "internal/cli/root.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c8/f8e39ac9bb/0/metadata.json",
+      "transcript": "/c8/f8e39ac9bb/0/full.jsonl",
+      "content_hash": "/c8/f8e39ac9bb/0/content_hash.txt",
+      "prompt": "/c8/f8e39ac9bb/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 156225,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3867264,
+    "output_tokens": 19658,
+    "api_call_count": 39
+  }
+}
