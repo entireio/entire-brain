@@ -118,14 +118,58 @@ depend on a narrow interface so the backing store can evolve.
 
 ### Agent Surface
 
-Agents should use simple commands first:
+Agents should use a small command set first. `brief` is the front door for
+coding agents; specialist semantic and history tools live under `inspect` so
+agents do not have to choose from a wide top-level command surface.
 
 ```sh
-entire brain query "auth validation"
-entire brain context validateToken
-entire brain impact validateToken
-entire brain changes --base main --head HEAD
-entire brain stale
+entire brain status [repo] --json
+entire brain brief "<task>" --json
+entire brain search "<query>" --json
+entire brain show <id> --json
+entire brain refresh [repo] --json
+entire brain guide
+entire brain path [repo]
+```
+
+The normal agent loop should start with one command:
+
+```sh
+entire brain brief "<task>" --json
+```
+
+`brief` should combine brain freshness, semantic code facts, seeded baseline
+context, history-derived decisions, likely files, likely tests, known pitfalls,
+provenance, and a cheap live-state overlay into one bounded packet. The
+live-state overlay should include branch, HEAD, dirty file list, staged vs
+unstaged state, diff stats, and changed-symbol hints when available. It must
+make clear that the brain is an indexed snapshot and may not include edits the
+same agent made minutes ago. Agents should inspect full diffs or file contents
+only when the task intersects those live changes or when `brief` returns low
+confidence.
+
+Specialist/debug surfaces should move under `inspect`:
+
+```sh
+entire brain inspect code "<query>" --json
+entire brain inspect context <symbol-or-id> --json
+entire brain inspect impact <symbol-or-file> --json
+entire brain inspect changes --base main --head HEAD --json
+entire brain inspect tests "<query>" --json
+entire brain inspect decisions "<query>" --json
+entire brain inspect history "<query>" --json
+entire brain inspect sessions "<query>" --json
+entire brain inspect validation "<query>" --json
+entire brain inspect tool-paths "<query>" --json
+entire brain inspect architecture "<area-or-query>" --json
+entire brain inspect boundaries --kind route|tool|workflow --json
+```
+
+Workspace use should keep the same front door:
+
+```sh
+entire brain brief "<task>" --workspace <name> --json
+entire brain status --workspace <name> --json
 ```
 
 Each command should provide concise human output and a stable `--json` mode.

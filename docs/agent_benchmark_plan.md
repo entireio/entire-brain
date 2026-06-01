@@ -238,10 +238,133 @@ Compare:
 - Add one smoke task per repo.
 - Store transcripts, diffs, test outputs, timing, and command logs.
 
-### Phase 2: Value-Prop Discovery Suite
+### Phase 2: Brain Product Question Discovery
+
+Phase 2 answers the three core product questions directly. It is a discovery
+phase, not a smoke-test phase: the benchmark should actively search for
+scenarios where agent plus brain is measurably better than the same agent
+without brain context.
+
+Do not spend Phase 2 budget on simple coding tasks that modern models solve
+reliably without brain context. Saturated tasks are useful only as harness
+smoke tests and should be dropped from proof queues as soon as they show no
+brain advantage.
+
+#### Question 1: Semantic Index vs Full Session Data
+
+The semantic index is a fresh-enough repository understanding snapshot, not
+live agent memory. It is best for architecture, localization, boundaries,
+impact, and validation selection. It may not include edits from the current
+agent session.
+
+Session history is best for historical rationale: prior decisions, rejected
+approaches, regressions, compatibility quirks, validation recipes, repeated
+failure modes, and successful tool paths.
+
+Benchmark requirements:
+
+- Semantic-only tasks must target architecture/navigation, impact, boundary
+  discovery, validation selection, and stale/live-state hygiene.
+- Full-brain tasks must target rationale-dependent behavior where session
+  history changes available information.
+- Hybrid tasks should test whether semantic context finds the relevant code and
+  session history selects the correct invariant or validation recipe.
+- `brief` should include a cheap live-state overlay: branch, HEAD, dirty file
+  list, staged/unstaged state, diff stats, and changed-symbol hints when
+  available. Agents should inspect full diffs or file contents only when the
+  task intersects those live changes.
+
+#### Question 2: Agent-Facing Brain Shape
+
+Benchmark the simple agent contract, not a large specialist command menu.
+
+Normal agent entry points:
+
+```sh
+entire brain status [repo] --json
+entire brain brief "<task>" --json
+entire brain search "<query>" --json
+entire brain show <id> --json
+entire brain refresh [repo] --json
+entire brain guide
+entire brain path [repo]
+```
+
+Specialist/debug commands live under `inspect`, for example
+`inspect code`, `inspect tests`, `inspect decisions`, `inspect history`,
+`inspect validation`, and `inspect tool-paths`. Workspace use keeps the same
+front door:
+
+```sh
+entire brain brief "<task>" --workspace <name> --json
+entire brain status --workspace <name> --json
+```
+
+`brief` should be implemented as a context-graph query that ranks code facts,
+history facts, validation recipes, and live-state overlays into one bounded
+task packet.
+
+#### Question 3: What Full Session Data Teaches Agents
+
+Build a history index during `export`/`refresh --history-index`, not during
+normal read commands. Extract decisions, learnings, validation recipes, tool
+paths, topic clusters, repeated failure modes, and provenance back to
+sessions/checkpoints.
+
+Link history records to semantic files/symbols when possible. Mark links
+degraded when the semantic snapshot, history index, or file mapping is stale.
+For `entire-cli`, start with dense exported-history areas: agents, hooks,
+checkpoints, transcripts, review/resume, env filtering, attribution,
+provenance, and plugin dispatch.
+
+#### Phase 2 Discovery Targets
+
+Phase 2 should retain statistically significant brain-positive scenarios in
+each layer:
+
+- Layer A, project-native tasks: at least 20 scenarios where agent plus brain
+  beats agent plus no brain.
+- Layer B, SWE-bench-style tasks: at least 20 scenarios where agent plus brain
+  beats agent plus no brain.
+- Layer C, model/effort/cost matrix: at least 20 lower-cost runner scenarios
+  where brain preserves or improves correctness while reducing tokens,
+  duration, or estimated/reported cost versus the same runner without brain.
+
+Treat a retained scenario as brain-positive only when:
+
+- the compared runs use the same agent, model, effort, task, base commit,
+  hidden validation, and isolation policy;
+- brain improves correctness, or correctness is equal and brain improves at
+  least one operational metric by a material threshold;
+- the result is statistically significant at `p < 0.05` using the appropriate
+  test for the metric: Fisher exact or bootstrap/permutation for pass/fail,
+  Welch or bootstrap for time, tokens, cost, and file-read counts;
+- the effect is repeatable with enough repetitions to survive one obvious
+  outlier.
+
+Discovery loop:
+
+1. Generate candidates from context-graph gaps, history hotspots, hidden
+   validation-selection tasks, stale/live-state hygiene, and cross-repo
+   boundaries.
+2. Run cheap pilots only to eliminate saturated or broken tasks.
+3. Promote only candidates with a plausible brain-specific signal.
+4. Run proof repetitions until the scenario is significant or rejected.
+5. Keep a rejected-task ledger explaining why each candidate saturated or failed
+   to show a brain advantage.
+
+Acceptance criteria for Phase 2:
+
+- `brief` is benchmarked as the default brain entry point.
+- Reports separate semantic-only wins, full-history wins, hybrid wins,
+  workspace wins, stale/live-state hygiene wins, and saturated/no-signal tasks.
+- Each retained layer has at least 20 statistically significant brain-positive
+  scenarios before moving to broad model/cost proof.
+
+### Phase 3: Value-Prop Proof Suite
 
 The initial harness runs showed that simple bugfix tasks can saturate: agents
-may pass every condition, leaving no correctness delta. Phase 2 should add
+may pass every condition, leaving no correctness delta. Phase 3 should add
 scenarios that test where the brain has unique value, then iterate until the
 data supports a specific claim.
 
@@ -267,7 +390,7 @@ tokens, and duration. Keep correctness and operational metrics separate so the
 report can honestly say whether the brain improves correctness, efficiency,
 validation quality, or cost-normalized outcomes.
 
-### Phase 2A: Isolation Hardening
+### Phase 3A: Isolation Hardening
 
 Agents should not inherit useful knowledge from previous benchmark runs.
 
@@ -279,7 +402,7 @@ Agents should not inherit useful knowledge from previous benchmark runs.
 - Every result record includes an `isolation` object so old and new runs are not
   mixed accidentally.
 
-### Phase 2B: Complexity Expansion
+### Phase 3B: Complexity Expansion
 
 Add tasks that are hard because of missing rationale, stale context, or hidden
 cross-file contracts:
@@ -345,7 +468,7 @@ Use real SWE-bench Lite or Verified tasks once the local matrix is stable:
 - compare no-brain vs semantic/full only after the harness can guarantee
   isolation and repeatable setup.
 
-### Phase 2B.1: Semantic Prep Cache
+### Phase 3B.1: Semantic Prep Cache
 
 Do not rebuild deterministic semantic indexes per repetition. Fresh worktrees
 and isolated agent processes are necessary; recomputing the same read-only
@@ -378,7 +501,7 @@ This cache removes repeated prep cost after a brain has been built. The initial
 `entire-cli` semantic index build is now bounded enough for local benchmark
 use, so the cache is usable for the expanded semantic task set.
 
-### Phase 2B.2: `entire-cli` Semantic Index Blocker Resolved
+### Phase 3B.2: `entire-cli` Semantic Index Blocker Resolved
 
 The earlier `entire-cli` semantic indexing pause is resolved for local
 benchmarking:
@@ -415,14 +538,18 @@ Next work:
 - then resume the Codex/Claude no-brain, semantic-brain, and full-brain matrix
   on retained tasks.
 
-### Phase 2C: Model, Effort, and Cost Matrix
+### Phase 3C: Model, Effort, and Cost Matrix
 
 Run the most discriminating tasks across:
 
 - Codex: explicitly pinned models and at least medium/high effort for the
-  primary runners, with low effort added after a task has a retained signal;
+  primary runners, with low effort added after a task has a retained signal.
+  Include at least two lower-priced alternatives to the strongest supported
+  model, starting with `gpt-5.4-mini` and either `gpt-5.3-codex` or `gpt-5.2`.
 - Claude Code: explicitly pinned aliases or full model names for Sonnet and
-  Opus where available, with low/medium/high effort;
+  Opus where available, with low/medium/high effort. Include at least two
+  lower-priced alternatives to Opus when available through the CLI, starting
+  with Sonnet and Haiku.
 - conditions: no brain, semantic brain, full brain when checkpoint history
   exists;
 - metrics: success, score, turns, tokens, duration, reported/estimated cost,
@@ -449,6 +576,9 @@ Run a model and effort matrix in addition to the agent/context matrix:
 - Treat Claude costs as reported by Claude JSON output. Treat Codex costs as
   estimates unless the CLI output includes reported cost; require a current
   pricing table in the run artifact before claiming dollar savings.
+- Published pricing is per token/model, not per reasoning effort. Record
+  requested effort because it can change token usage, latency, and success rate;
+  compute cost from actual input, cached-input, output, and tool-use tokens.
 
 Current local model availability snapshot, captured on 2026-06-01:
 
@@ -463,6 +593,26 @@ Current local model availability snapshot, captured on 2026-06-01:
 | Claude Code | `sonnet` | `claude-sonnet-4-6` in prior benchmark artifacts | `low`, `medium`, `high`, `xhigh`, `max` | primary cheaper Claude runner |
 | Claude Code | `opus` or `claude-opus-4-8` | `claude-opus-4-8[1m]` in recent/default artifacts | `low`, `medium`, `high`, `xhigh`, `max` | stronger Claude runner and long-context comparison |
 | Claude Code | not a primary runner yet | `claude-haiku-4-5-20251001` observed as auxiliary usage | n/a | record as auxiliary model usage, not as the runner model |
+
+Pricing snapshot, researched on 2026-06-01 from official provider pages:
+
+| Provider | Model | Efforts to benchmark | Input / 1M | Cached input / 1M | Output / 1M | Notes |
+|---|---|---|---:|---:|---:|---|
+| OpenAI/Codex | `gpt-5.5` | `low`, `medium`, `high`, `xhigh` | $5.00 | $0.50 | $30.00 | Primary strongest Codex baseline. |
+| OpenAI/Codex | `gpt-5.4` | `low`, `medium`, `high`, `xhigh` | $2.50 | $0.25 | $15.00 | Lower-priced alternative. |
+| OpenAI/Codex | `gpt-5.4-mini` | `low`, `medium`, `high`, `xhigh` | $0.75 | $0.075 | $4.50 | Lower-priced alternative. |
+| OpenAI/Codex | `gpt-5.3-codex` | `low`, `medium`, `high`, `xhigh` | $1.75 | $0.175 | $14.00 | Codex-specialized lower-priced alternative. |
+| OpenAI/Codex | `gpt-5.2` | `none`, `low`, `medium`, `high`, `xhigh` when supported by runner | $1.75 | $0.175 | $14.00 | Backfill/reserve lower-priced alternative. |
+| Anthropic/Claude | `claude-opus-4-8` | `low`, `medium`, `high`, `xhigh`, `max` | $5.00 | $0.50 cache hit | $25.00 | Stronger Claude baseline; 5m cache write $6.25, 1h cache write $10.00. |
+| Anthropic/Claude | `claude-sonnet-4-6` | `low`, `medium`, `high`, `xhigh`, `max` | $3.00 | $0.30 cache hit | $15.00 | Lower-priced alternative. |
+| Anthropic/Claude | `claude-haiku-4-5` | runner support required | $1.00 | $0.10 cache hit | $5.00 | Lower-priced alternative if Claude Code exposes it as a runner. |
+
+Pricing source links:
+
+- OpenAI API pricing: `https://openai.com/api/pricing/`
+- OpenAI GPT-5.3-Codex model pricing: `https://developers.openai.com/api/docs/models/gpt-5.3-codex`
+- OpenAI GPT-5.2 model pricing: `https://developers.openai.com/api/docs/models/gpt-5.2`
+- Anthropic pricing: `https://platform.claude.com/docs/en/about-claude/pricing`
 
 Model-attribution rules:
 
@@ -552,7 +702,7 @@ slow. Fix the underlying semantic indexing blocker first. Disable semantic
 indexing only when the scenario is specifically about checkpoint history and
 semantic context is not part of the claim being measured.
 
-### Phase 3: Demo Evidence
+### Phase 4: Demo Evidence
 
 - Select three or four strongest scenarios.
 - Produce a concise report from the same run artifacts.
