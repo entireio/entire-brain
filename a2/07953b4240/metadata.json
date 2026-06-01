@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "a207953b4240",
+  "strategy": "manual-commit",
+  "branch": "phase-1-semantic-brain",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/results-summary.md",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/tasks/entire-brain-stale-query-default-limit.json",
+    "benchmarks/agent-brain/tasks/entire-cli-review-provenance-strip.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-brain-stale-query-default-limit.json",
+    "docs/agent_benchmark_plan.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a2/07953b4240/0/metadata.json",
+      "transcript": "/a2/07953b4240/0/full.jsonl",
+      "content_hash": "/a2/07953b4240/0/content_hash.txt",
+      "prompt": "/a2/07953b4240/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 204857,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 12755712,
+    "output_tokens": 21013,
+    "api_call_count": 143
+  }
+}

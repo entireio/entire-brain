@@ -1,0 +1,23 @@
+Let’s expand the test matrix to use both Codex and Claude with different models and reasoning efforts? And add cost as a metric to optimize for.
+
+---
+
+Two questions:
+1. Do the agents really start with no previous knowledge? Or do they read global files (aka memory) that let’s them know information from
+previous runs)?
+2. What do you suggest we do to expand the complexity of the test cases? How about using swe-bench or a subset of it?
+
+---
+
+Two questions:
+1. Do the agents really start with no previous knowledge? Or do they read global files (aka memory) that let’s them know information from
+previous runs)?
+2. What do you suggest we do to expand the complexity of the test cases? How about using swe-bench or a subset of it?
+
+---
+
+Ok, make it so, i.e. follow your own rec. I am away for 2h, so please use the time to go as deep as possible on all three layers
+
+---
+
+Ok, make it so, i.e. follow your own rec. I am away for 2h, so please use the time to go as deep as possible on all three layers
