@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "d12e72d76d8a",
+  "strategy": "manual-commit",
+  "branch": "phase-1-semantic-brain",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/results-summary.md",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/tasks/entire-brain-history-bundle-sha256.json",
+    "benchmarks/agent-brain/tasks/entire-brain-history-claude-bare-auth.json",
+    "benchmarks/agent-brain/tasks/entire-brain-history-claude-seed-agent.json",
+    "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+    "benchmarks/agent-brain/tasks/entire-brain-history-github-visibility.json",
+    "docs/agent_benchmark_plan.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d1/2e72d76d8a/0/metadata.json",
+      "transcript": "/d1/2e72d76d8a/0/full.jsonl",
+      "content_hash": "/d1/2e72d76d8a/0/content_hash.txt",
+      "prompt": "/d1/2e72d76d8a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 727888,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 26522752,
+    "output_tokens": 44662,
+    "api_call_count": 200
+  }
+}
