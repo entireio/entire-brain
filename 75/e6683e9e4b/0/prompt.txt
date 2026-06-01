@@ -1,0 +1,1 @@
+Implement phase 2 of the implementation plan and the corresponding benchmarks. Commit/push at major milestones. Do not stop until you have found more than 20 scenarios for each benchmark layer where the brain excels. Now let's fucking go and crush it.
