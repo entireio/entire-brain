@@ -1,0 +1,25 @@
+{
+  "id": "entire-cli-review-provenance-strip",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/cli",
+  "conditions": ["no_brain", "full_brain"],
+  "prepare_semantic": false,
+  "prompt": "Fix the review-session provenance regression. `entire review` must strip stale Entire provenance inherited from parent review or investigate sessions before appending fresh ENTIRE_REVIEW_* values, while preserving unrelated environment entries. Keep the stable env-var names unchanged.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "cmd/entire/cli/review/env.go",
+      "old": "if provenance.IsEntry(kv) {\n\t\t\tcontinue\n\t\t}",
+      "new": "if provenance.IsReviewEntry(kv) {\n\t\t\tcontinue\n\t\t}"
+    }
+  ],
+  "validation": [
+    "test $(rg -n 'provenance\\.IsEntry\\(kv\\)' cmd/entire/cli/review/env.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./cmd/entire/cli/review -run 'TestEnvNamesAreStable|TestAppendReviewEnv_StripsPreExistingReviewVars'",
+    "go test ./cmd/entire/cli/investigate -run TestAppendInvestigateEnv_StripsStaleInvestigateAndReview"
+  ],
+  "expected_files": ["cmd/entire/cli/review/env.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "brain_queries": ["AppendReviewEnv", "provenance.IsEntry", "ENTIRE_INVESTIGATE", "stale env inheritance"]
+}

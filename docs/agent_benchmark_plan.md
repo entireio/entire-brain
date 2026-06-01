@@ -18,6 +18,15 @@ conditions, not just tool latency. Useful outcomes include faster localization,
 better test selection, fewer irrelevant file reads, fewer wrong edits, and
 better recovery of implementation rationale.
 
+The expanded benchmark should optimize across three layers:
+
+- Layer A: project-native hard tasks in `entire-brain`, `entire-cli`, and
+  GitHub CLI.
+- Layer B: SWE-bench-style tasks with issue prompts, hidden tests, fixed base
+  commits, and no repo-specific hints beyond the condition policy.
+- Layer C: model, reasoning-effort, turn, token, duration, and cost matrixes
+  for Codex and Claude Code.
+
 ## Context Conditions
 
 Run each task under these conditions when the repo supports them:
@@ -26,6 +35,8 @@ Run each task under these conditions when the repo supports them:
    - The agent receives the task prompt and normal repository access.
    - The agent must not run `entire brain ...`.
    - No brain docs or MCP tools are preloaded.
+   - Codex and Claude still use their host auth state, but the harness disables
+     persistent sessions, user config/rules, slash commands, and MCP config.
 
 2. **Semantic brain only**
    - The agent receives the task prompt plus Entire Brain semantic intake
@@ -43,6 +54,10 @@ Run each task under these conditions when the repo supports them:
 
 Keep the base task prompt identical across conditions. Only the allowed context
 policy changes.
+
+For stale-context tasks, prepare the brain first, then apply and commit the
+regression. These tasks measure whether the agent treats prepared context as a
+cache with a freshness contract rather than as ground truth.
 
 ## Checkpoint Availability
 
@@ -231,12 +246,65 @@ Add metrics beyond final score:
 - `cost_usd`
 - `cost_source` (`reported` from agent JSON or `estimated` from a supplied
   pricing table)
+- `isolation` metadata describing disabled persistent state/config surfaces
 
 Parse Codex JSON logs and Claude JSON output to extract shell commands, file
 reads, first relevant-file access, first edit time, validation commands, turns,
 tokens, and duration. Keep correctness and operational metrics separate so the
 report can honestly say whether the brain improves correctness, efficiency,
 validation quality, or cost-normalized outcomes.
+
+### Phase 2A: Isolation Hardening
+
+Agents should not inherit useful knowledge from previous benchmark runs.
+
+- Codex runs with `--ephemeral`, `--ignore-user-config`, and `--ignore-rules`.
+- Claude runs with `--no-session-persistence`, `--strict-mcp-config`, an empty
+  MCP config, and `--disable-slash-commands`.
+- The remaining intentional shared state is auth only: Codex may use host
+  `CODEX_HOME` credentials and Claude may use the authorized Max/OAuth account.
+- Every result record includes an `isolation` object so old and new runs are not
+  mixed accidentally.
+
+### Phase 2B: Complexity Expansion
+
+Add tasks that are hard because of missing rationale, stale context, or hidden
+cross-file contracts:
+
+- `entire-brain-stale-query-default-limit`: semantic/full-brain runs receive a
+  prepared semantic index, then the regression is committed afterward. The
+  expected behavior is that brain-enabled agents check freshness before using
+  semantic results.
+- `entire-cli-review-provenance-strip`: a large-repo checkpoint-history task
+  where the fix depends on the review/investigate provenance design contract,
+  not only on a local unit test.
+- `swe-style-*`: local SWE-bench-style tasks using issue-only prompts, hidden
+  validation, fixed base commits, and no explicit expected file hints in the
+  prompt.
+
+Use real SWE-bench Lite or Verified tasks once the local matrix is stable:
+
+- cache each target repo locally;
+- pin the upstream base commit;
+- apply the SWE problem statement as the prompt;
+- apply the SWE test patch or equivalent hidden validation after checkout;
+- compare no-brain vs semantic/full only after the harness can guarantee
+  isolation and repeatable setup.
+
+### Phase 2C: Model, Effort, and Cost Matrix
+
+Run the most discriminating tasks across:
+
+- Codex: at least low, medium, and high reasoning effort for the active model;
+- Claude Code: Sonnet and Opus where available, with low/medium/high effort;
+- conditions: no brain, semantic brain, full brain when checkpoint history
+  exists;
+- metrics: success, score, turns, tokens, duration, reported/estimated cost,
+  and cost per successful run.
+
+Optimize for the cheapest configuration that preserves the brain advantage. A
+brain condition is a win if it improves correctness, or if correctness is equal
+and it significantly reduces tokens, turns, duration, or cost.
 
 Run a model and effort matrix in addition to the agent/context matrix:
 

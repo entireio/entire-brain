@@ -32,6 +32,22 @@ BENCH_ROOT = pathlib.Path(__file__).resolve().parent
 TASK_DIR = BENCH_ROOT / "tasks"
 RESULT_DIR = BENCH_ROOT / "results"
 
+ISOLATION = {
+    "codex": {
+        "session": "ephemeral",
+        "user_config": "ignored",
+        "rules": "ignored",
+        "auth": "host CODEX_HOME auth may still be used",
+    },
+    "claude": {
+        "session": "no-session-persistence",
+        "mcp": "strict empty config",
+        "slash_commands": "disabled",
+        "auth": "host Claude Max/OAuth auth may still be used",
+        "settings": "default non-bare settings required for Max auth",
+    },
+}
+
 
 @dataclass
 class RunResult:
@@ -208,16 +224,7 @@ def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path
     patch = task.get("setup_patch", "")
     if patch:
         run_cmd(["git", "apply", "-"], cwd=worktree, input_text=patch, check=True)
-    for replacement in task.get("setup_replacements", []):
-        rel = replacement["path"]
-        path = worktree / rel
-        data = path.read_text()
-        old = replacement["old"]
-        new = replacement["new"]
-        count = data.count(old)
-        if count != 1:
-            raise RuntimeError(f"setup replacement for {rel} matched {count} times, expected 1")
-        path.write_text(data.replace(old, new, 1))
+    apply_replacements(worktree, task.get("setup_replacements", []), "setup")
     for command in task.get("setup_commands", []):
         proc = shell_cmd(command, cwd=worktree, env=os.environ.copy(), timeout=120)
         if proc.returncode != 0:
@@ -242,6 +249,53 @@ def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path
             check=True,
         )
     return worktree
+
+
+def apply_post_brain_setup(task: dict[str, Any], worktree: pathlib.Path) -> bool:
+    changed = False
+    replacements = task.get("post_brain_replacements", [])
+    commands = task.get("post_brain_commands", [])
+    if replacements:
+        apply_replacements(worktree, replacements, "post-brain")
+        changed = True
+    for command in commands:
+        proc = shell_cmd(command, cwd=worktree, env=os.environ.copy(), timeout=120)
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"post-brain command failed ({proc.returncode}): {command}\n"
+                f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+            )
+        changed = True
+    if changed:
+        run_cmd(["git", "add", "-A"], cwd=worktree, check=True)
+        run_cmd(
+            [
+                "git",
+                "-c",
+                "user.name=Entire Brain Benchmark",
+                "-c",
+                "user.email=benchmark@example.invalid",
+                "commit",
+                "-m",
+                f"Benchmark post-brain setup for {task['id']}",
+            ],
+            cwd=worktree,
+            check=True,
+        )
+    return changed
+
+
+def apply_replacements(worktree: pathlib.Path, replacements: list[dict[str, str]], label: str) -> None:
+    for replacement in replacements:
+        rel = replacement["path"]
+        path = worktree / rel
+        data = path.read_text()
+        old = replacement["old"]
+        new = replacement["new"]
+        count = data.count(old)
+        if count != 1:
+            raise RuntimeError(f"{label} replacement for {rel} matched {count} times, expected 1")
+        path.write_text(data.replace(old, new, 1))
 
 
 def remove_worktree(source: pathlib.Path, worktree: pathlib.Path) -> None:
@@ -414,6 +468,8 @@ def run_agent(
             "codex",
             "exec",
             "--ephemeral",
+            "--ignore-user-config",
+            "--ignore-rules",
             "--sandbox",
             "workspace-write",
             "--json",
@@ -429,6 +485,11 @@ def run_agent(
         cmd = [
             "claude",
             "--print",
+            "--no-session-persistence",
+            "--strict-mcp-config",
+            "--mcp-config",
+            '{"mcpServers":{}}',
+            "--disable-slash-commands",
             "--permission-mode",
             "bypassPermissions",
             "--output-format",
@@ -461,6 +522,7 @@ def run_agent(
             "model": runner.model,
             "effort": runner.effort,
         },
+        "isolation": ISOLATION.get(runner.agent, {}),
         "cmd": cmd[:1] + ["..."],
         "returncode": proc.returncode,
         "seconds": time.time() - start,
@@ -645,6 +707,7 @@ def run_one(
     try:
         worktree = create_worktree(task, run_dir)
         env, prep = prepare_brain(task, condition, worktree, run_dir, tools, args.checkpoint_limit)
+        post_brain_changed = apply_post_brain_setup(task, worktree)
         prompt = prompt_for(task, condition)
         (run_dir / "prompt.txt").write_text(prompt)
         agent_info = run_agent(runner, prompt, worktree, env, run_dir, args.timeout, args.claude_budget, pricing)
@@ -656,6 +719,7 @@ def run_one(
                 "ok": validation["ok"] and agent_info["returncode"] == 0,
                 "worktree": str(worktree),
                 "brain_prep": prep,
+                "post_brain_setup_applied": post_brain_changed,
                 "agent_info": agent_info,
                 "changed_files": files,
                 "diff_stat": diff_stat(worktree),
@@ -734,12 +798,60 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
                 "p_value_approx": welch_p_value(values, base),
                 "mean_agent_seconds_condition": mean_field(condition_records, ["agent_info", "seconds"]),
                 "mean_agent_seconds_baseline": mean_field(base_records, ["agent_info", "seconds"]),
+                "p_value_agent_seconds": welch_p_value(
+                    [
+                        float(rec["agent_info"]["seconds"])
+                        for rec in condition_records
+                        if isinstance(rec.get("agent_info", {}).get("seconds"), (int, float))
+                    ],
+                    [
+                        float(rec["agent_info"]["seconds"])
+                        for rec in base_records
+                        if isinstance(rec.get("agent_info", {}).get("seconds"), (int, float))
+                    ],
+                ),
                 "mean_total_tokens_condition": mean_field(condition_records, ["agent_info", "usage", "total_tokens"]),
                 "mean_total_tokens_baseline": mean_field(base_records, ["agent_info", "usage", "total_tokens"]),
+                "p_value_total_tokens": welch_p_value(
+                    [
+                        float(rec["agent_info"]["usage"]["total_tokens"])
+                        for rec in condition_records
+                        if isinstance(rec.get("agent_info", {}).get("usage", {}).get("total_tokens"), (int, float))
+                    ],
+                    [
+                        float(rec["agent_info"]["usage"]["total_tokens"])
+                        for rec in base_records
+                        if isinstance(rec.get("agent_info", {}).get("usage", {}).get("total_tokens"), (int, float))
+                    ],
+                ),
                 "mean_turns_condition": mean_field(condition_records, ["agent_info", "usage", "turns"]),
                 "mean_turns_baseline": mean_field(base_records, ["agent_info", "usage", "turns"]),
+                "p_value_turns": welch_p_value(
+                    [
+                        float(rec["agent_info"]["usage"]["turns"])
+                        for rec in condition_records
+                        if isinstance(rec.get("agent_info", {}).get("usage", {}).get("turns"), (int, float))
+                    ],
+                    [
+                        float(rec["agent_info"]["usage"]["turns"])
+                        for rec in base_records
+                        if isinstance(rec.get("agent_info", {}).get("usage", {}).get("turns"), (int, float))
+                    ],
+                ),
                 "mean_cost_usd_condition": mean_field(condition_records, ["agent_info", "usage", "cost_usd"]),
                 "mean_cost_usd_baseline": mean_field(base_records, ["agent_info", "usage", "cost_usd"]),
+                "p_value_cost_usd": welch_p_value(
+                    [
+                        float(rec["agent_info"]["usage"]["cost_usd"])
+                        for rec in condition_records
+                        if isinstance(rec.get("agent_info", {}).get("usage", {}).get("cost_usd"), (int, float))
+                    ],
+                    [
+                        float(rec["agent_info"]["usage"]["cost_usd"])
+                        for rec in base_records
+                        if isinstance(rec.get("agent_info", {}).get("usage", {}).get("cost_usd"), (int, float))
+                    ],
+                ),
                 "success_rate_condition": sum(1 for rec in condition_records if rec.get("ok")) / len(condition_records),
                 "success_rate_baseline": sum(1 for rec in base_records if rec.get("ok")) / len(base_records),
             }
@@ -810,6 +922,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         try:
             worktree = create_worktree(task, run_dir)
             env, _ = prepare_brain(task, "no_brain", worktree, run_dir, tools, args.checkpoint_limit)
+            apply_post_brain_setup(task, worktree)
             validation = validate(task, worktree, env)
             state = "fails-as-expected" if not validation["ok"] else "unexpected-pass"
             print(f"{task['id']}: {state}")

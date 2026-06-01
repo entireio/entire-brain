@@ -2,9 +2,31 @@
 
 ## Current Status
 
-The harness now supports Phase 2 history-dependent tasks, runner matrixes, and
-cost metrics. Initial Phase 2 runs found one strong Claude Code cost/efficiency
-result and a positive but not-yet-significant Codex correctness signal.
+The harness now supports Phase 2 history-dependent tasks, runner matrixes,
+stale-context setup, stricter agent isolation, and metric-level cost/efficiency
+p-values. Isolated Phase 2 runs found a strong Codex correctness result and a
+strong Claude Code cost/efficiency result on the same history-dependent task.
+
+Isolation note: results produced before the isolation hardening should not be
+mixed with new runs for final proof. New Codex runs ignore user config/rules and
+use ephemeral sessions. New Claude runs disable session persistence, slash
+commands, and non-empty MCP config. Host auth is still intentionally reused.
+
+Current isolated proof candidate:
+
+| Suite(s) | Runner | Task | Condition | n | Success | Mean score | Mean seconds | Mean tokens | Mean turns | Mean cost | Key p-value |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `phase2-isolated-schema-claude-codex-r3`, `phase2-isolated-schema-claude-codex-r2b` | `codex-medium` | `entire-brain-history-codex-schema-contract` | no brain | 5 | 0% | 35 | 93.5 | 398,583 | n/a | n/a | score p=0.000 |
+| same | `codex-medium` | same | full brain | 5 | 100% | 100 | 97.5 | 521,472 | n/a | n/a | score p=0.000 |
+| same | `claude-sonnet-low` | same | no brain | 5 | 60% | 74 | 109.6 | 837,649 | 14.2 | $0.357 | cost p=0.007 |
+| same | `claude-sonnet-low` | same | full brain | 5 | 100% | 95 | 63.2 | 280,855 | 9.6 | $0.205 | tokens p=0.00012 |
+
+Interpretation: with isolation enabled, Codex default-medium failed all five
+no-brain runs and passed all five full-brain runs on the history-dependent
+schema-contract task. Claude Sonnet low also improved success rate from 60% to
+100%, but the score p-value is not yet significant at n=5 because three
+baseline runs passed. Its efficiency signal is statistically strong: full brain
+cut mean cost by 42%, tokens by 66%, and duration by 42%.
 
 Phase 2 proof candidate:
 
@@ -116,3 +138,17 @@ just navigation speed:
 
 Do not claim a positive result until a combined report shows a positive delta
 with enough repetitions and an acceptable p-value.
+
+## Phase 2 Expansion Queue
+
+New tasks added for the next run:
+
+| Task | Layer | Target signal |
+|---|---|---|
+| `entire-brain-stale-query-default-limit` | project-native stale context | Brain-enabled agents should check freshness and avoid stale semantic answers. |
+| `entire-cli-review-provenance-strip` | project-native checkpoint history | Full brain should recover the review/investigate provenance contract in a large repo. |
+| `swe-style-entire-brain-stale-query-default-limit` | SWE-bench style local | Issue-only prompt with hidden validation and stale context setup. |
+
+Run these first with small repetitions to identify saturation, then expand the
+runner matrix across Codex/Claude models and reasoning efforts only where the
+task produces a measurable correctness, duration, turn, token, or cost gap.

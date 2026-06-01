@@ -7,6 +7,11 @@ Each task creates a disposable git worktree, applies a known regression patch,
 commits that setup state, runs an agent, validates the fix, scores the run, and
 writes artifacts under `benchmarks/agent-brain/results/`.
 
+Tasks may also define `post_brain_replacements` or `post_brain_commands`. Those
+mutations are applied and committed after brain preparation, which creates a
+stale-context scenario for semantic and full-brain runs. Use these tasks to
+measure whether agents check brain freshness before relying on prepared context.
+
 Each `record.json` includes:
 
 - `agent_info.seconds` for wall-clock agent duration.
@@ -42,8 +47,17 @@ Codex runner efforts are passed as
 `--config model_reasoning_effort="<effort>"`. Claude runner efforts are passed
 as `--effort <effort>`.
 
-Claude Code runs are supported, but use `--claude-budget` deliberately. Even a
-small non-interactive Claude Code call can create a large prompt cache.
+Agent process isolation is explicit in each result record. Codex runs use
+`--ephemeral`, `--ignore-user-config`, and `--ignore-rules`. Claude runs use
+`--no-session-persistence`, `--strict-mcp-config`, an empty MCP config, and
+`--disable-slash-commands`. Authentication still comes from the host account
+state (`CODEX_HOME` for Codex and the configured Claude Max/OAuth state for
+Claude), so the isolation claim is about run memory, MCP/tools, and project
+instructions, not about auth credentials.
+
+Claude Code runs are supported, but use `--claude-budget` deliberately when you
+need a hard cap. Even a small non-interactive Claude Code call can create a
+large prompt cache.
 
 Cost is recorded in `agent_info.usage.cost_usd`. Claude reports exact cost in
 JSON output. Codex cost is estimated only when a price map is supplied:
@@ -65,7 +79,14 @@ python3 benchmarks/agent-brain/run.py report codex-mcp-smoke
 ```
 
 Reports include score deltas, success rates, mean agent seconds, total tokens,
-turns, and cost when available.
+turns, cost when available, and approximate Welch p-values for score, duration,
+tokens, turns, and cost.
+
+For a SWE-bench-style matrix, tag tasks with `source` and `suite_tags`. The
+current harness already supports the essential SWE shape: issue prompt,
+regression setup patch/replacements, hidden validation, disposable worktree, and
+per-run artifacts. External SWE-bench tasks should be imported as local task
+JSON files with fixed base commits and cached repositories before large runs.
 
 The harness intentionally keeps generated brain artifacts and worktrees out of
 the repository. Result directories are ignored by git.

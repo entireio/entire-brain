@@ -1,0 +1,27 @@
+{
+  "id": "entire-brain-stale-query-default-limit",
+  "repo": "entire-brain",
+  "repo_path": "/Users/thomi/Projects/entire-brain",
+  "conditions": ["no_brain", "semantic_brain", "full_brain"],
+  "prompt": "Fix the semantic query default-limit regression. A regression was applied after any prepared brain context, so do not trust semantic answers until you have checked freshness against the current checkout. The query command should keep its documented default result limit. Run the focused semantic query tests before finishing.",
+  "post_brain_replacements": [
+    {
+      "path": "internal/cli/semantic.go",
+      "old": "queryOpts := semanticQueryOptions{limit: 20}",
+      "new": "queryOpts := semanticQueryOptions{limit: 2}"
+    },
+    {
+      "path": "internal/cli/semantic.go",
+      "old": "cmd.Flags().IntVar(&queryOpts.limit, \"limit\", 20, \"Maximum results to return\")",
+      "new": "cmd.Flags().IntVar(&queryOpts.limit, \"limit\", 2, \"Maximum results to return\")"
+    }
+  ],
+  "validation": [
+    "test $(rg -n 'semanticQueryOptions\\{limit: 20\\}' internal/cli/semantic.go | wc -l | tr -d ' ') -eq 1",
+    "test $(rg -n 'IntVar\\(&queryOpts.limit, \"limit\", 20' internal/cli/semantic.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./internal/cli -run 'TestSemanticQueryJSONIncludesPagination|TestSemanticQueryFindsExactSymbol|TestSemanticQueryJSONIncludesFreshness'"
+  ],
+  "expected_files": ["internal/cli/semantic.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "brain_queries": ["stale", "newSemanticQueryCommand", "semanticQueryOptions", "TestSemanticQueryJSONIncludesFreshness"]
+}
