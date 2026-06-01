@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -107,6 +108,52 @@ func TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions(t *testing.T) {
 	if !strings.Contains(args[len(args)-1], "return only raw JSON") {
 		t.Fatalf("claude-code prompt missing structured-output instruction:\n%s", args[len(args)-1])
 	}
+}
+
+func TestSeedAgentCodexPhaseUsesPATHStdinAndWritesArtifacts(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	outputDir := t.TempDir()
+	logDir := installFakeSeedAgentBinaries(t)
+	t.Setenv("FAKE_SEED_AGENT_LOG_DIR", logDir)
+
+	input := []byte(`{"schema_version":1,"phase":"quick","repo":{"key":"gh/example/repo"}}`)
+	phase, artifacts, err := runSeedAgentPhase(context.Background(), repoDir, outputDir, seedCommandOptions{agent: "codex"}, "quick", 10*time.Second, input, []string{"quick-overview.md"})
+	if err != nil {
+		t.Fatalf("run codex phase: %v", err)
+	}
+	if phase.Status != "success" || phase.Model != "fake-codex" {
+		t.Fatalf("phase = %+v", phase)
+	}
+	if artifacts["quick-overview.md"] != "quick artifact from codex" {
+		t.Fatalf("artifacts = %+v", artifacts)
+	}
+	assertSeedAgentArtifact(t, outputDir, "quick-overview.md", "quick artifact from codex")
+	assertFakeSeedAgentLog(t, logDir, "codex", "quick", input, []string{"exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"})
+}
+
+func TestSeedAgentClaudePhaseUsesPATHStdinAndWritesArtifacts(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	outputDir := t.TempDir()
+	logDir := installFakeSeedAgentBinaries(t)
+	t.Setenv("FAKE_SEED_AGENT_LOG_DIR", logDir)
+
+	input := []byte(`{"schema_version":1,"phase":"deep","quick_result":{"quick-overview.md":"quick"}}`)
+	required := []string{"overview.md", "architecture.md", "risks.md", "maintenance-guide.md", "open-questions.md"}
+	phase, artifacts, err := runSeedAgentPhase(context.Background(), repoDir, outputDir, seedCommandOptions{agent: "claude-code"}, "deep", 10*time.Second, input, required)
+	if err != nil {
+		t.Fatalf("run claude-code phase: %v", err)
+	}
+	if phase.Status != "success" || phase.Model != "fake-claude" {
+		t.Fatalf("phase = %+v", phase)
+	}
+	for _, name := range required {
+		want := name + " from claude"
+		if artifacts[name] != want {
+			t.Fatalf("artifact %s = %q, want %q", name, artifacts[name], want)
+		}
+		assertSeedAgentArtifact(t, outputDir, name, want)
+	}
+	assertFakeSeedAgentLog(t, logDir, "claude", "deep", input, []string{"--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt"})
 }
 
 func TestValidateSeedAgentOutputRequiresSuccessSchema(t *testing.T) {
@@ -399,6 +446,171 @@ func seedFixtureRunner(repoDir string) *fakeCommandRunner {
 		},
 	}}
 }
+
+func installFakeSeedAgentBinaries(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	source := filepath.Join(dir, "fake-agent.go")
+	if err := os.WriteFile(source, []byte(fakeSeedAgentSource), 0o600); err != nil {
+		t.Fatalf("write fake agent source: %v", err)
+	}
+	binary := filepath.Join(dir, "fake-agent"+exeSuffix())
+	cmd := exec.Command("go", "build", "-o", binary, source)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build fake agent: %v\n%s", err, output)
+	}
+	for _, name := range []string{"codex", "claude"} {
+		link := filepath.Join(dir, name+exeSuffix())
+		if err := os.Link(binary, link); err != nil {
+			data, readErr := os.ReadFile(binary)
+			if readErr != nil {
+				t.Fatalf("read fake agent binary: %v", readErr)
+			}
+			if writeErr := os.WriteFile(link, data, 0o700); writeErr != nil {
+				t.Fatalf("install fake %s binary: %v", name, writeErr)
+			}
+		}
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return dir
+}
+
+func exeSuffix() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+	return ""
+}
+
+func assertSeedAgentArtifact(t *testing.T, outputDir, name, want string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(outputDir, seedDirName, seedAgentDirName, name))
+	if err != nil {
+		t.Fatalf("read agent artifact %s: %v", name, err)
+	}
+	if string(data) != want {
+		t.Fatalf("agent artifact %s = %q, want %q", name, data, want)
+	}
+}
+
+func assertFakeSeedAgentLog(t *testing.T, logDir, agent, phase string, input []byte, wantArgs []string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(logDir, agent+"-"+phase+".json"))
+	if err != nil {
+		t.Fatalf("read fake agent log: %v", err)
+	}
+	var log struct {
+		Args  []string `json:"args"`
+		Stdin string   `json:"stdin"`
+	}
+	if err := json.Unmarshal(data, &log); err != nil {
+		t.Fatalf("parse fake agent log: %v\n%s", err, data)
+	}
+	if log.Stdin != string(input) {
+		t.Fatalf("stdin = %q, want %q", log.Stdin, input)
+	}
+	for i, want := range wantArgs {
+		if i >= len(log.Args) || log.Args[i] != want {
+			t.Fatalf("args = %#v, want prefix %#v", log.Args, wantArgs)
+		}
+	}
+	if len(log.Args) <= len(wantArgs) || !strings.Contains(log.Args[len(log.Args)-1], "return only raw JSON") {
+		t.Fatalf("prompt arg missing structured-output instruction: %#v", log.Args)
+	}
+}
+
+const fakeSeedAgentSource = `package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+func main() {
+	stdin, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		fail("read stdin: %v", err)
+	}
+	var packet map[string]any
+	if err := json.Unmarshal(stdin, &packet); err != nil {
+		fail("parse stdin: %v", err)
+	}
+	phase, _ := packet["phase"].(string)
+	if phase == "" {
+		fail("missing phase")
+	}
+	base := strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe")
+	if base != "codex" && base != "claude" {
+		fail("unexpected binary name %q", base)
+	}
+	args := os.Args[1:]
+	validateArgs(base, phase, args)
+	logDir := os.Getenv("FAKE_SEED_AGENT_LOG_DIR")
+	if logDir == "" {
+		fail("missing FAKE_SEED_AGENT_LOG_DIR")
+	}
+	log := map[string]any{"args": args, "stdin": string(stdin)}
+	logData, err := json.Marshal(log)
+	if err != nil {
+		fail("marshal log: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(logDir, base+"-"+phase+".json"), logData, 0600); err != nil {
+		fail("write log: %v", err)
+	}
+	artifacts := map[string]string{}
+	model := "fake-" + base
+	if phase == "quick" {
+		artifacts["quick-overview.md"] = "quick artifact from " + base
+	} else {
+		for _, name := range []string{"overview.md", "architecture.md", "risks.md", "maintenance-guide.md", "open-questions.md"} {
+			artifacts[name] = name + " from " + base
+		}
+	}
+	output := map[string]any{
+		"schema_version": 1,
+		"status": "success",
+		"model": model,
+		"artifacts": artifacts,
+		"warnings": []string{"fake warning"},
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(output); err != nil {
+		fail("encode output: %v", err)
+	}
+}
+
+func validateArgs(base, phase string, args []string) {
+	if base == "codex" {
+		want := []string{"exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"}
+		requirePrefix(base, args, want)
+	} else {
+		want := []string{"--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt"}
+		requirePrefix(base, args, want)
+	}
+	if len(args) == 0 || !strings.Contains(args[len(args)-1], "For phase \""+phase+"\"") || !strings.Contains(args[len(args)-1], "return only raw JSON") {
+		fail("%s prompt missing phase or JSON instruction: %#v", base, args)
+	}
+}
+
+func requirePrefix(base string, got, want []string) {
+	if len(got) < len(want)+1 {
+		fail("%s args too short: got %#v want prefix %#v", base, got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			fail("%s arg %d = %q, want %q; all args %#v", base, i, got[i], want[i], got)
+		}
+	}
+}
+
+func fail(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, format+"\n", args...)
+	os.Exit(2)
+}
+`
 
 func hasSeedDocument(docs []seedDocument, path string) bool {
 	for _, doc := range docs {
