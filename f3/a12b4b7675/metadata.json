@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "f3a12b4b7675",
+  "strategy": "manual-commit",
+  "branch": "phase-1-semantic-brain",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/results-summary.md",
+    "benchmarks/agent-brain/run.py",
+    "docs/agent_benchmark_plan.md",
+    "docs/progress-so-far.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f3/a12b4b7675/0/metadata.json",
+      "transcript": "/f3/a12b4b7675/0/full.jsonl",
+      "content_hash": "/f3/a12b4b7675/0/content_hash.txt",
+      "prompt": "/f3/a12b4b7675/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 234013,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5565184,
+    "output_tokens": 29402,
+    "api_call_count": 47
+  }
+}

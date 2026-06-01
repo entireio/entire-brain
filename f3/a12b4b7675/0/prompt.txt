@@ -1,0 +1,49 @@
+commit/push
+
+---
+
+How come the scores are either 90 or 100? That’s seems to be a bug in how you score.
+
+---
+
+Replace it
+
+---
+
+Replace it
+
+---
+
+Give me a summary on the overall benchmark effort so far
+
+---
+
+Which models did you use?
+
+---
+
+Which models did you use?
+
+---
+
+Are you sure you have the right models for Codex and Claude?
+
+---
+
+Are you sure you have the right models for Codex and Claude?
+
+---
+
+Which models are actually available for each agent?
+
+---
+
+Update both plan and progress docs with a model matrix and learnings from the above.
+
+---
+
+Update both plan and progress docs with a model matrix and learnings from the above.
+
+---
+
+commit/push
