@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "2ad3583cfaf9",
+  "strategy": "manual-commit",
+  "branch": "phase-2-brain-benchmark-plan",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-bundle-sha256.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-codex-schema-contract.json",
+    "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-github-visibility.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2a/d3583cfaf9/0/metadata.json",
+      "transcript": "/2a/d3583cfaf9/0/full.jsonl",
+      "content_hash": "/2a/d3583cfaf9/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 231587,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 28312704,
+    "output_tokens": 17446,
+    "api_call_count": 139
+  }
+}
