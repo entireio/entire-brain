@@ -691,6 +691,9 @@ func inspectBrainText(brainDir, kind, query string) (brainHistoryInspectReport, 
 	if query == "" {
 		return report, errors.New("query must not be empty")
 	}
+	if indexed, ok := inspectBrainHistoryIndex(brainDir, kind, query); ok {
+		return indexed, nil
+	}
 	err := filepath.WalkDir(brainDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			report.ScanErrors = append(report.ScanErrors, err.Error())
@@ -746,6 +749,55 @@ func inspectBrainText(brainDir, kind, query string) (brainHistoryInspectReport, 
 		return report, err
 	}
 	return report, nil
+}
+
+func inspectBrainHistoryIndex(brainDir, kind, query string) (brainHistoryInspectReport, bool) {
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil || manifest.Sources == nil || manifest.Sources.History == nil {
+		return brainHistoryInspectReport{}, false
+	}
+	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	if err != nil {
+		return brainHistoryInspectReport{}, false
+	}
+	report := brainHistoryInspectReport{Kind: kind, Query: query, BrainPath: brainDir, Scanned: len(index.Records)}
+	allowed := historyInspectKinds(kind)
+	for _, record := range index.Records {
+		if len(allowed) > 0 {
+			if _, ok := allowed[record.Kind]; !ok {
+				continue
+			}
+		}
+		haystack := strings.ToLower(record.Summary + " " + strings.Join(record.Terms, " ") + " " + record.Path)
+		if !strings.Contains(haystack, query) {
+			continue
+		}
+		report.Matches = append(report.Matches, brainTextMatch{
+			Path:    record.Path,
+			Line:    record.Line,
+			Excerpt: record.Summary,
+		})
+		if len(report.Matches) >= brainInspectHistoryMaxHits {
+			report.Truncated = true
+			break
+		}
+	}
+	return report, true
+}
+
+func historyInspectKinds(kind string) map[string]struct{} {
+	switch kind {
+	case "decisions":
+		return map[string]struct{}{"decision": {}}
+	case "validation":
+		return map[string]struct{}{"validation": {}}
+	case "tool-paths":
+		return map[string]struct{}{"tool_call": {}}
+	case "history", "sessions", "architecture":
+		return nil
+	default:
+		return nil
+	}
 }
 
 func agentSurfaceTarget(opts Options, args []string) string {

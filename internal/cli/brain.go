@@ -14,6 +14,7 @@ type brainSources struct {
 	Seed     *seedSourceManifest     `json:"seed,omitempty"`
 	Sessions *sessionSourceManifest  `json:"sessions,omitempty"`
 	Semantic *semanticSourceManifest `json:"semantic,omitempty"`
+	History  *historySourceManifest  `json:"history,omitempty"`
 }
 
 type sessionSourceManifest struct {
@@ -220,7 +221,7 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 }
 
 func renderBrainReadme(manifest exportManifest) string {
-	if manifest.Sources == nil || (manifest.Sources.Seed == nil && manifest.Sources.Semantic == nil) {
+	if manifest.Sources == nil || (manifest.Sources.Seed == nil && manifest.Sources.Semantic == nil && manifest.Sources.History == nil) {
 		return renderExportReadme(manifest)
 	}
 	return renderCombinedBrainReadme(manifest)

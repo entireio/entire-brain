@@ -57,6 +57,7 @@ type exportCommandOptions struct {
 	entireBinary    string
 	rawTranscript   bool
 	scope           string
+	historyIndex    bool
 }
 
 func newExportCommand(opts Options) *cobra.Command {
@@ -86,6 +87,7 @@ is selected.`,
 	cmd.Flags().StringVar(&exportOpts.entireBinary, "entire-binary", "entire", "Entire CLI binary to invoke")
 	cmd.Flags().BoolVar(&exportOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts")
 	cmd.Flags().StringVar(&exportOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope: all or branch")
+	cmd.Flags().BoolVar(&exportOpts.historyIndex, "history-index", false, "Build a decision/rationale index from exported sessions")
 
 	return cmd
 }
@@ -270,6 +272,11 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		}
 	} else {
 		if err := writeBrainManifestAndReadme(outputDir, manifest); err != nil {
+			return err
+		}
+	}
+	if exportOpts.historyIndex {
+		if _, err := writeBrainHistoryIndexAndSource(outputDir, opts.Now().UTC()); err != nil {
 			return err
 		}
 	}

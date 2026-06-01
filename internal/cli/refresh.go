@@ -23,6 +23,7 @@ type refreshCommandOptions struct {
 	semanticWorktree bool
 	allBranches      bool
 	forceAllBranches bool
+	historyIndex     bool
 	semBinary        string
 	seed             seedCommandOptions
 }
@@ -63,6 +64,7 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringArrayVar(&refreshOpts.seed.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", false, "Refresh the local semantic index after session and seed refresh")
 	cmd.Flags().BoolVar(&refreshOpts.semanticWorktree, "semantic-worktree", false, "Allow semantic indexing of the current dirty worktree")
+	cmd.Flags().BoolVar(&refreshOpts.historyIndex, "history-index", false, "Build a decision/rationale index from exported sessions")
 	cmd.Flags().StringVar(&refreshOpts.semBinary, "sem-binary", "entire", "Entire CLI binary that exposes `sem` provider commands")
 	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
 	cmd.Flags().BoolVar(&refreshOpts.forceAllBranches, "force-all-branches", false, "Allow all local branches instead of the bounded recent-branch default")
@@ -110,6 +112,11 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	}
 	if exportErr != nil && !needSeed {
 		return exportErr
+	}
+	if refreshOpts.historyIndex {
+		if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, opts.Now().UTC()); err != nil {
+			return err
+		}
 	}
 	if refreshOpts.semantic {
 		indexCmd := &cobra.Command{Use: "index"}

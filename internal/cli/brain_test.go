@@ -164,6 +164,16 @@ func TestBrainInspectDecisionsSearchesExportedText(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(storage.BrainDir, exportSessionsDirectory, "main", "session.jsonl"), []byte(`{"type":"agent_message","message":"Decision: keep prompt plus local validation instead of output schema."}`+"\n"), 0o600); err != nil {
 		t.Fatalf("write transcript: %v", err)
 	}
+	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("write history index: %v", err)
+	}
+	manifest, err := loadBrainManifest(storage.BrainDir)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	if manifest.Sources == nil || manifest.Sources.History == nil || manifest.Sources.History.Decisions != 1 {
+		t.Fatalf("history source missing decision count: %+v", manifest.Sources)
+	}
 
 	cmd := NewRootCommand(opts)
 	out, err := execute(t, cmd, "inspect", "decisions", "output schema", "--json")

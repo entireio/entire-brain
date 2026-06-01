@@ -1109,6 +1109,19 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 			fmt.Fprintf(&b, "- `%s`: %d sessions in `%s`\n", label, branch.SessionCount, branch.Directory)
 		}
 	}
+	if manifest.Sources != nil && manifest.Sources.History != nil {
+		history := manifest.Sources.History
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "## History Index")
+		fmt.Fprintln(&b)
+		fmt.Fprintf(&b, "- Generated at: `%s`\n", history.GeneratedAt.Format(time.RFC3339))
+		fmt.Fprintf(&b, "- Index: `%s`\n", history.IndexPath)
+		fmt.Fprintf(&b, "- Records: %d\n", history.Records)
+		fmt.Fprintf(&b, "- Decisions: %d\n", history.Decisions)
+		fmt.Fprintf(&b, "- Learnings: %d\n", history.Learnings)
+		fmt.Fprintf(&b, "- Validations: %d\n", history.Validations)
+		fmt.Fprintf(&b, "- Tool calls: %d\n", history.ToolCalls)
+	}
 	if manifest.Sources != nil && manifest.Sources.Semantic != nil {
 		semantic := manifest.Sources.Semantic
 		fmt.Fprintln(&b)
@@ -1139,6 +1152,9 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 	}
 	if manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		warnings = append(warnings, manifest.Sources.Sessions.Warnings...)
+	}
+	if manifest.Sources != nil && manifest.Sources.History != nil {
+		warnings = append(warnings, manifest.Sources.History.Warnings...)
 	}
 	if manifest.Sources != nil && manifest.Sources.Semantic != nil {
 		for _, warning := range manifest.Sources.Semantic.Warnings {
