@@ -1,0 +1,59 @@
+Review the current branch changes and report actionable findings. Prioritize correctness, regressions, security, and missing test coverage. Do not make code changes.
+
+Scope: review the commits unique to this branch vs origin/HEAD, plus any uncommitted changes in the working tree. Ignore code outside this scope.
+
+Checkpoint context from commits in scope:
+- 81d499250a05: prompt: /goal Close all documented gaps. Then set up CI not just for Linux, but also Mac and Windows. Make sure all phase 1 features work on all 3 operating systems. If you see errors in the GitHub Actions runs, fix them, wait for the next run, and check again.
+- 35ac7a9ff818: prompt: /goal Close all documented gaps. Then set up CI not just for Linux, but also Mac and Windows. Make sure all phase 1 features work on all 3 operating systems. If you see errors in the GitHub Actions runs, fix them, wait for the next run, and check again.
+- 0479be2b5ac2: prompt: Go back to our original plan for phase 1, compare the progress so far, validate with the brain for this repo, and check what’s missing. Also update the README with clear and concise instructions on how to use the project.
+- 7a008011b652: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.
+- 723214680224: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.
+- bd2a8f04da1c: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.
+- 30b1b8a8e4d4: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.
+- 956defcf50c0: prompt: Give me an update. Also count the number of commits since the branch started.
+- c3245f022640: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.
+- a6bd6983770c: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.
+- 6631d2d6741d: checkpoint metadata unavailable
+- 5a995c66ec90: prompt: Summarize docs/progress-so-far’z
+- 85defdf531cf: prompt: Did you stop?
+- 14f4da1e48f4: prompt: Add that as template to the repo
+- b6766fc924c8: prompt: Use the gaps to write more precise instructions for both agents; same instructions, not specific per agent. Then run them both again and see if the result is closer.
+- 022a22869f0d: prompt: Ok, now run the same with —agent claude-code. Verify that it runs without errors and compare the results to the codex run.
+- 15229ed66d0a: prompt: Do that next, use codex as agent.
+
+Use `entire explain <id>` for full checkpoint context, or `entire explain <id> --raw-transcript` for raw transcripts.
+
+In-progress session context (uncommitted):
+  019e7da2 Codex (touched: 1 file) prompt: Fix the GitHub Actions warning by updating the checkout and setup actions
+  019e7e25 Codex prompt: You are a helpful assistant. You will be presented with a user prompt, and your job is to provide a short title for a task that will be created from that prompt. The task usually has to do with coding work, such as fixing a bug, changing a feature, or answering a question about a codebase. Generate a concise UI titl...
+
+---
+
+Review the current branch changes and report actionable findings. Prioritize correctness, regressions, security, and missing test coverage. Do not make code changes.
+
+Scope: review the commits unique to this branch vs origin/HEAD, plus any uncommitted changes in the working tree. Ignore code outside this scope.
+
+Checkpoint context from commits in scope:
+- 81d499250a05: prompt: /goal Close all documented gaps. Then set up CI not just for Linux, but also Mac and Windows. Make sure all phase 1 features work on all 3 operating systems. If you see errors in the GitHub Actions runs, fix them, wait for the next run, and check again.
+- 35ac7a9ff818: prompt: /goal Close all documented gaps. Then set up CI not just for Linux, but also Mac and Windows. Make sure all phase 1 features work on all 3 operating systems. If you see errors in the GitHub Actions runs, fix them, wait for the next run, and check again.
+- 0479be2b5ac2: prompt: Go back to our original plan for phase 1, compare the progress so far, validate with the brain for this repo, and check what’s missing. Also update the README with clear and concise instructions on how to use the project.
+- 7a008011b652: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.
+- 723214680224: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.
+- bd2a8f04da1c: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.
+- 30b1b8a8e4d4: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.
+- 956defcf50c0: prompt: Give me an update. Also count the number of commits since the branch started.
+- c3245f022640: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.
+- a6bd6983770c: prompt: When you are done, continue with the next release. Rinse and repeat. Don’t forget to review, commit and push.
+- 6631d2d6741d: checkpoint metadata unavailable
+- 5a995c66ec90: prompt: Summarize docs/progress-so-far’z
+- 85defdf531cf: prompt: Did you stop?
+- 14f4da1e48f4: prompt: Add that as template to the repo
+- b6766fc924c8: prompt: Use the gaps to write more precise instructions for both agents; same instructions, not specific per agent. Then run them both again and see if the result is closer.
+- 022a22869f0d: prompt: Ok, now run the same with —agent claude-code. Verify that it runs without errors and compare the results to the codex run.
+- 15229ed66d0a: prompt: Do that next, use codex as agent.
+
+Use `entire explain <id>` for full checkpoint context, or `entire explain <id> --raw-transcript` for raw transcripts.
+
+In-progress session context (uncommitted):
+  019e7da2 Codex (touched: 1 file) prompt: Fix the GitHub Actions warning by updating the checkout and setup actions
+  019e7e25 Codex prompt: You are a helpful assistant. You will be presented with a user prompt, and your job is to provide a short title for a task that will be created from that prompt. The task usually has to do with coding work, such as fixing a bug, changing a feature, or answering a question about a codebase. Generate a concise UI titl...
