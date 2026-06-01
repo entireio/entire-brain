@@ -282,6 +282,27 @@ cross-file contracts:
   validation, fixed base commits, and no explicit expected file hints in the
   prompt.
 
+Current coverage is now wide enough for pilot filtering but still short of final
+repo-general evidence: 19 project-native task definitions and 6 local
+SWE-bench-style task definitions. Project-native coverage is 8 `entire-brain`,
+6 `entire-cli`, and 5 GitHub CLI tasks. Treat local SWE-style tasks as harness
+shakedown only; they do not replace real SWE-bench Lite/Verified evidence.
+
+Expand the task inventory to:
+
+- `entire-cli`: 6-10 non-smoke tasks. Include review/resume context, plugin
+  dispatch/env filtering, agent hook lifecycle, transcript/session adoption,
+  checkpoint remote handling, and provenance propagation. Run full-brain
+  checkpoint-history conditions now; run semantic conditions only after
+  `entire-cli` semantic indexing completes reliably.
+- GitHub CLI: 5-8 semantic-only tasks. Focus on JSON/export behavior,
+  `cmdutil`/factory/auth/repo resolution, mocked HTTP/API error handling, and
+  validation-selection tasks where the focused package test is not obvious from
+  the prompt.
+- SWE-bench Layer B: start with 10 cached SWE-bench Lite or Verified tasks,
+  then scale to 25 if setup is stable. Keep local SWE-style tasks as harness
+  shakedown only; they do not replace real SWE-bench evidence.
+
 Use real SWE-bench Lite or Verified tasks once the local matrix is stable:
 
 - cache each target repo locally;
@@ -290,6 +311,66 @@ Use real SWE-bench Lite or Verified tasks once the local matrix is stable:
 - apply the SWE test patch or equivalent hidden validation after checkout;
 - compare no-brain vs semantic/full only after the harness can guarantee
   isolation and repeatable setup.
+
+### Phase 2B.1: Semantic Prep Cache
+
+Do not rebuild deterministic semantic indexes per repetition. Fresh worktrees
+and isolated agent processes are necessary; recomputing the same read-only
+semantic store for every repetition is not.
+
+Add a semantic-prep cache keyed by:
+
+- repo identity and base commit;
+- setup patch/replacement hash;
+- semantic binary/version and index configuration;
+- brain task condition and checkpoint export limit when relevant.
+
+For each run, copy or hardlink the cached semantic store into the run directory
+and record the cache key, source manifest, and freshness metadata in
+`record.json`. For stale-context tasks, build or reuse the cache at the
+pre-regression state, then apply the post-brain mutation per run. Invalidate the
+cache whenever the base commit, setup variant, semantic version, or indexing
+configuration changes.
+
+Implemented cache behavior:
+
+- cache root: `benchmarks/agent-brain/cache/`;
+- bypass: `--no-brain-cache`;
+- refresh: `--refresh-brain-cache`;
+- each run gets a copied plugin directory, not a shared writable cache path;
+- text artifacts containing the cache-populating worktree path are rewritten to
+  the current disposable worktree path.
+
+This cache removes repeated prep cost after a brain has been built. It does not
+fix the initial semantic index build. Current checkpoint evidence shows
+`entire-sem snapshot --repo ../cli` and `entire-brain index
+/Users/thomi/Projects/cli` attempts, but no completed `entire-cli` semantic
+index artifact. Broad `entire-cli` semantic-brain benchmarking is therefore
+paused until the provider/brain indexing path can complete reliably.
+
+### Phase 2B.2: `entire-cli` Semantic Index Blocker
+
+Benchmark work is paused here to fix `entire-cli` semantic indexing first.
+Evidence gathered so far:
+
+- successful `entire-cli` full-brain benchmark runs used checkpoint export plus
+  seed only, with `prepare_semantic: false`;
+- checkpoint history shows direct and brain-mediated semantic indexing attempts
+  for `../cli`, but not a successful semantic artifact;
+- a harness smoke run against a new semantic `entire-cli` task timed out after
+  900 seconds in `entire-brain index`, delegated to `entire-sem snapshot`;
+- benchmark-side pruning or synthetic `.brainignore` injection is not an
+  acceptable proof path.
+
+Next work before resuming benchmarks:
+
+- reproduce `entire-sem snapshot --repo ../cli --format ndjson --no-network`
+  outside the benchmark harness and profile where it stalls;
+- fix `entire-sem` and/or `entire-brain index` so the full repository indexes
+  with normal project ignores and bounded runtime;
+- record semantic artifact counts, runtime, warnings, and freshness metadata;
+- only then re-enable semantic/full semantic conditions for the expanded
+  `entire-cli` task set.
 
 ### Phase 2C: Model, Effort, and Cost Matrix
 
@@ -390,9 +471,10 @@ Acceptance criteria:
   current-price-estimated cost improves, and checkpoint-history value only when
   full brain beats semantic brain.
 
-Avoid rebuilding expensive semantic indexes per repetition for large repos.
-Reuse bundles or disable semantic indexing when the scenario is specifically
-about checkpoint history.
+Avoid disabling semantic indexing for `entire-cli` solely because indexing is
+slow. Fix the underlying semantic indexing blocker first. Disable semantic
+indexing only when the scenario is specifically about checkpoint history and
+semantic context is not part of the claim being measured.
 
 ### Phase 3: Demo Evidence
 

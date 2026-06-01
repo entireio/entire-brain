@@ -1,0 +1,24 @@
+{
+  "id": "swe-style-github-cli-format-web-conflict",
+  "repo": "github-cli",
+  "repo_path": "/Users/thomi/Projects/github-cli",
+  "source": "swe-bench-style-local",
+  "suite_tags": ["swe-style", "github-cli", "flag-validation"],
+  "conditions": ["no_brain", "semantic_brain"],
+  "prompt": "Issue: commands that support `--format json` should not also allow a web-opening mode in the same invocation. A regression lets those flags be combined. Submit the minimal patch that restores the expected validation behavior.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "pkg/cmdutil/json_flags.go",
+      "old": "if formatFlag.Changed {\n\t\tif webFlag != nil && webFlag.Changed {",
+      "new": "if formatFlag.Changed {\n\t\tif false && webFlag != nil && webFlag.Changed {"
+    }
+  ],
+  "validation": [
+    "go test ./pkg/cmdutil -run TestAddFormatFlags"
+  ],
+  "expected_files": ["pkg/cmdutil/json_flags.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "brain_queries": ["format json web conflict", "checkFormatFlags"]
+}

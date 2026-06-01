@@ -1,0 +1,24 @@
+{
+  "id": "swe-style-github-cli-auth-env-token",
+  "repo": "github-cli",
+  "repo_path": "/Users/thomi/Projects/github-cli",
+  "source": "swe-bench-style-local",
+  "suite_tags": ["swe-style", "github-cli", "auth"],
+  "conditions": ["no_brain", "semantic_brain"],
+  "prompt": "Issue: `gh` reports the user as unauthenticated when authentication is supplied only through environment variables. Environment tokens should satisfy the auth check even without stored host config. Submit the minimal fix.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "pkg/cmdutil/auth_check.go",
+      "old": "if cfg.Authentication().HasEnvToken() {\n\t\treturn true\n\t}",
+      "new": "if cfg.Authentication().HasEnvToken() {\n\t\treturn false\n\t}"
+    }
+  ],
+  "validation": [
+    "go test ./pkg/cmdutil -run Test_CheckAuth"
+  ],
+  "expected_files": ["pkg/cmdutil/auth_check.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "brain_queries": ["environment token auth check", "HasEnvToken"]
+}

@@ -401,3 +401,52 @@ Completed validation for this gap-closure pass:
   actionable findings.
 - Commit/push and GitHub Actions follow-up on all three operating systems are
   next.
+
+## Agent Brain Benchmark Progress
+
+Benchmarking is paused to fix `entire-cli` semantic indexing before making
+broader proof claims.
+
+Completed so far:
+
+- Added a repeatable benchmark harness for Codex and Claude Code with
+  disposable worktrees, setup regressions, post-brain stale-context mutations,
+  validation, scoring, result records, aggregate reports, and explicit process
+  isolation metadata.
+- Added metrics capture for agent duration, brain-prep duration, validation
+  duration, turns/tokens/cost when exposed by the agent output, and
+  cost-estimation hooks for Codex pricing maps.
+- Verified one strong isolated proof task for checkpoint-history value:
+  `entire-brain-history-codex-schema-contract` showed a clear no-brain vs
+  full-brain correctness gap for Codex and lower Claude token/cost/duration on
+  repeated runs.
+- Expanded the task inventory to 25 definitions: 19 project-native tasks and 6
+  local SWE-bench-style tasks. Project-native coverage is 8 `entire-brain`, 6
+  `entire-cli`, and 5 GitHub CLI tasks.
+- Added brain-prep caching under `benchmarks/agent-brain/cache/` so repeated
+  runs can copy a successfully built plugin/brain artifact instead of rebuilding
+  deterministic prep for every repetition.
+
+Current blocker:
+
+- Existing successful `entire-cli` benchmark runs used checkpoint export plus
+  seed only. They did not prove semantic indexing because those tasks set
+  `prepare_semantic: false`.
+- Checkpoints show earlier `entire-sem snapshot --repo ../cli` and
+  `entire-brain index /Users/thomi/Projects/cli` attempts, but no completed
+  semantic index artifact was found.
+- A new semantic `entire-cli` benchmark prep attempt timed out after 900 seconds
+  in `entire-brain index`, delegated to `entire-sem snapshot`.
+- Benchmark-side pruning or automatic `.brainignore` injection was rejected as
+  the wrong proof path. The next step is to fix the provider/brain indexing path
+  itself.
+
+Next benchmark step after the blocker is fixed:
+
+- Reproduce and profile `entire-sem snapshot --repo ../cli --format ndjson
+  --no-network` outside the harness.
+- Make `entire-cli` semantic indexing complete reliably with normal project
+  ignores and bounded runtime.
+- Record semantic artifact counts, warnings, runtime, and freshness metadata.
+- Resume the expanded benchmark matrix with no-brain, semantic-brain, and
+  full-brain conditions across Codex and Claude runner variants.

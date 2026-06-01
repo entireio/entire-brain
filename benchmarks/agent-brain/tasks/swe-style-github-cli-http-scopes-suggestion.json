@@ -1,0 +1,24 @@
+{
+  "id": "swe-style-github-cli-http-scopes-suggestion",
+  "repo": "github-cli",
+  "repo_path": "/Users/thomi/Projects/github-cli",
+  "source": "swe-bench-style-local",
+  "suite_tags": ["swe-style", "github-cli", "http-error"],
+  "conditions": ["no_brain", "semantic_brain"],
+  "prompt": "Issue: HTTP 4xx errors stopped showing the helpful `gh auth refresh -s ...` suggestion when GitHub reports accepted OAuth scopes that are missing from the current token. Restore the suggestion while preserving cases where no suggestion is appropriate.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "api/client.go",
+      "old": "if tokenHasScopes == \"\" {\n\t\treturn \"\"\n\t}",
+      "new": "if tokenHasScopes != \"\" {\n\t\treturn \"\"\n\t}"
+    }
+  ],
+  "validation": [
+    "go test ./api -run TestHTTPError_ScopesSuggestion"
+  ],
+  "expected_files": ["api/client.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "brain_queries": ["OAuth scope suggestion", "ScopesSuggestion"]
+}

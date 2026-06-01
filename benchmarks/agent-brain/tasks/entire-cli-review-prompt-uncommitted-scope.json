@@ -1,0 +1,23 @@
+{
+  "id": "entire-cli-review-prompt-uncommitted-scope",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/cli",
+  "conditions": ["no_brain", "semantic_brain", "full_brain"],
+  "prompt": "Fix the review prompt regression. The shared review prompt must explicitly include uncommitted working-tree changes in scope when a base ref is present, so review agents do not silently skip in-progress edits.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "cmd/entire/cli/review/prompt.go",
+      "old": "\", plus any uncommitted changes in the working tree. Ignore code outside this scope.\")",
+      "new": "\". Ignore code outside this scope.\")"
+    }
+  ],
+  "validation": [
+    "test $(rg -n 'uncommitted changes in the working tree' cmd/entire/cli/review/prompt.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./cmd/entire/cli/review -run 'TestComposeReviewPrompt_AllSectionsWithScope|TestComposeReviewPrompt_ScopeIncludesUncommittedChanges|TestComposeReviewPrompt_IncludesCheckpointContext'"
+  ],
+  "expected_files": ["cmd/entire/cli/review/prompt.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "brain_queries": ["ComposeReviewPrompt", "uncommitted changes", "ScopeBaseRef"]
+}

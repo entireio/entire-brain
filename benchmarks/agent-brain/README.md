@@ -12,6 +12,14 @@ mutations are applied and committed after brain preparation, which creates a
 stale-context scenario for semantic and full-brain runs. Use these tasks to
 measure whether agents check brain freshness before relying on prepared context.
 
+Brain prep artifacts are cached under `benchmarks/agent-brain/cache/` by
+repo/base/setup/condition/tool hash. Each run receives its own copy of the
+cached plugin directory, with text artifacts rewritten to the current disposable
+worktree path. Use `--refresh-brain-cache` to overwrite a cache entry or
+`--no-brain-cache` to force per-run rebuilds. The cache avoids repeated prep
+after a brain has been built successfully; it does not fix slow or incomplete
+initial semantic indexing.
+
 Each `record.json` includes:
 
 - `agent_info.seconds` for wall-clock agent duration.

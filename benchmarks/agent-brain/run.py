@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import glob
+import hashlib
 import json
 import math
 import os
@@ -31,6 +32,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 BENCH_ROOT = pathlib.Path(__file__).resolve().parent
 TASK_DIR = BENCH_ROOT / "tasks"
 RESULT_DIR = BENCH_ROOT / "results"
+CACHE_DIR = BENCH_ROOT / "cache"
 
 ISOLATION = {
     "codex": {
@@ -47,7 +49,6 @@ ISOLATION = {
         "settings": "default non-bare settings required for Max auth",
     },
 }
-
 
 @dataclass
 class RunResult:
@@ -216,6 +217,14 @@ def git_head(repo: pathlib.Path) -> str:
     return run_cmd(["git", "rev-parse", "HEAD"], cwd=repo, check=True).stdout.strip()
 
 
+def file_sha256(path: pathlib.Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path:
     source = pathlib.Path(task["repo_path"])
     base = task.get("base_commit") or git_head(source)
@@ -317,6 +326,64 @@ def plugin_env(run_dir: pathlib.Path, worktree: pathlib.Path, tools: dict[str, p
     return env
 
 
+def brain_cache_payload(
+    task: dict[str, Any],
+    condition: str,
+    worktree: pathlib.Path,
+    tools: dict[str, pathlib.Path],
+    checkpoint_limit: int,
+) -> dict[str, Any]:
+    return {
+        "schema": 1,
+        "repo": task.get("repo"),
+        "repo_path": str(pathlib.Path(task["repo_path"]).resolve()),
+        "base_ref": task.get("base_commit") or git_head(pathlib.Path(task["repo_path"])),
+        "condition": condition,
+        "prepare_semantic": bool(task.get("prepare_semantic", True)),
+        "checkpoint_limit": checkpoint_limit if condition == "full_brain" else None,
+        "setup_patch": task.get("setup_patch", ""),
+        "setup_replacements": task.get("setup_replacements", []),
+        "setup_commands": task.get("setup_commands", []),
+        "brain_sha256": file_sha256(tools["brain"]),
+        "sem_sha256": file_sha256(tools["sem"]),
+    }
+
+
+def brain_cache_key(payload: dict[str, Any]) -> str:
+    data = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(data).hexdigest()[:24]
+
+
+def copy_cached_plugin(cache_plugin: pathlib.Path, run_plugin: pathlib.Path, old_worktree: str, new_worktree: str) -> None:
+    if run_plugin.exists():
+        shutil.rmtree(run_plugin)
+    shutil.copytree(cache_plugin, run_plugin)
+    if old_worktree == new_worktree:
+        return
+    old = old_worktree.encode()
+    new = new_worktree.encode()
+    for path in run_plugin.rglob("*"):
+        if not path.is_file() or path.is_symlink():
+            continue
+        data = path.read_bytes()
+        if old not in data:
+            continue
+        try:
+            data.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        path.write_bytes(data.replace(old, new))
+
+
+def brain_prep_commands(task: dict[str, Any], condition: str, worktree: pathlib.Path, tools: dict[str, pathlib.Path], checkpoint_limit: int) -> list[list[str]]:
+    commands = [[str(tools["brain"]), "seed", str(worktree), "--agent", "none", "--force"]]
+    if task.get("prepare_semantic", True):
+        commands.append([str(tools["brain"]), "index", str(worktree), "--sem-binary", str(tools["entire"]), "--force"])
+    if condition == "full_brain":
+        commands.insert(0, [str(tools["brain"]), "export", "--checkpoint-limit", str(checkpoint_limit)])
+    return commands
+
+
 def prepare_brain(
     task: dict[str, Any],
     condition: str,
@@ -324,17 +391,35 @@ def prepare_brain(
     run_dir: pathlib.Path,
     tools: dict[str, pathlib.Path],
     checkpoint_limit: int,
+    use_cache: bool = True,
+    refresh_cache: bool = False,
 ) -> tuple[dict[str, str], dict[str, Any]]:
     env = plugin_env(run_dir, worktree, tools)
     prep: dict[str, Any] = {"condition": condition, "commands": []}
     if condition == "no_brain":
         return env, prep
 
-    commands = [[str(tools["brain"]), "seed", str(worktree), "--agent", "none", "--force"]]
-    if task.get("prepare_semantic", True):
-        commands.append([str(tools["brain"]), "index", str(worktree), "--sem-binary", str(tools["entire"]), "--force"])
-    if condition == "full_brain":
-        commands.insert(0, [str(tools["brain"]), "export", "--checkpoint-limit", str(checkpoint_limit)])
+    payload = brain_cache_payload(task, condition, worktree, tools, checkpoint_limit)
+    key = brain_cache_key(payload)
+    cache_entry = CACHE_DIR / key
+    cache_plugin = cache_entry / "plugin"
+    cache_meta = cache_entry / "meta.json"
+    prep["cache"] = {"enabled": use_cache, "key": key, "hit": False}
+    if use_cache and cache_plugin.exists() and cache_meta.exists() and not refresh_cache:
+        meta = json.loads(cache_meta.read_text())
+        copy_cached_plugin(cache_plugin, run_dir / "plugin", meta.get("source_worktree", ""), str(worktree))
+        prep["cache"].update(
+            {
+                "hit": True,
+                "source_worktree": meta.get("source_worktree"),
+                "created_at": meta.get("created_at"),
+            }
+        )
+        if condition == "full_brain" and task.get("history_excerpt", True):
+            write_history_excerpt(task, worktree)
+        return env, prep
+
+    commands = brain_prep_commands(task, condition, worktree, tools, checkpoint_limit)
 
     for cmd in commands:
         start = time.time()
@@ -349,6 +434,28 @@ def prepare_brain(
         prep["commands"].append(entry)
         if proc.returncode != 0:
             raise RuntimeError(f"brain prep failed: {shlex.join(cmd)}\n{proc.stderr}")
+    if use_cache:
+        tmp_entry = cache_entry.with_name(cache_entry.name + f".tmp-{os.getpid()}")
+        if tmp_entry.exists():
+            shutil.rmtree(tmp_entry)
+        tmp_entry.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(run_dir / "plugin", tmp_entry / "plugin")
+        (tmp_entry / "meta.json").write_text(
+            json.dumps(
+                {
+                    "key": key,
+                    "created_at": dt.datetime.now(dt.UTC).isoformat(),
+                    "source_worktree": str(worktree),
+                    "payload": payload,
+                    "commands": prep["commands"],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        if cache_entry.exists():
+            shutil.rmtree(cache_entry)
+        tmp_entry.rename(cache_entry)
     if condition == "full_brain" and task.get("history_excerpt", True):
         write_history_excerpt(task, worktree)
     return env, prep
@@ -706,7 +813,16 @@ def run_one(
     }
     try:
         worktree = create_worktree(task, run_dir)
-        env, prep = prepare_brain(task, condition, worktree, run_dir, tools, args.checkpoint_limit)
+        env, prep = prepare_brain(
+            task,
+            condition,
+            worktree,
+            run_dir,
+            tools,
+            args.checkpoint_limit,
+            use_cache=not args.no_brain_cache,
+            refresh_cache=args.refresh_brain_cache,
+        )
         post_brain_changed = apply_post_brain_setup(task, worktree)
         prompt = prompt_for(task, condition)
         (run_dir / "prompt.txt").write_text(prompt)
@@ -921,7 +1037,16 @@ def cmd_check(args: argparse.Namespace) -> int:
         worktree: pathlib.Path | None = None
         try:
             worktree = create_worktree(task, run_dir)
-            env, _ = prepare_brain(task, "no_brain", worktree, run_dir, tools, args.checkpoint_limit)
+            env, _ = prepare_brain(
+                task,
+                "no_brain",
+                worktree,
+                run_dir,
+                tools,
+                args.checkpoint_limit,
+                use_cache=not args.no_brain_cache,
+                refresh_cache=args.refresh_brain_cache,
+            )
             apply_post_brain_setup(task, worktree)
             validation = validate(task, worktree, env)
             state = "fails-as-expected" if not validation["ok"] else "unexpected-pass"
@@ -960,6 +1085,8 @@ def main() -> int:
     run_p.add_argument("--checkpoint-limit", type=int, default=200)
     run_p.add_argument("--suite-name")
     run_p.add_argument("--keep-worktrees", action="store_true")
+    run_p.add_argument("--no-brain-cache", action="store_true", help="Rebuild brain prep artifacts in every run")
+    run_p.add_argument("--refresh-brain-cache", action="store_true", help="Overwrite cached brain prep artifacts")
     run_p.set_defaults(func=cmd_run)
 
     report_p = sub.add_parser("report")
@@ -970,6 +1097,8 @@ def main() -> int:
     check_p.add_argument("--tasks", nargs="*", default=[])
     check_p.add_argument("--checkpoint-limit", type=int, default=50)
     check_p.add_argument("--keep-check-dir", action="store_true")
+    check_p.add_argument("--no-brain-cache", action="store_true")
+    check_p.add_argument("--refresh-brain-cache", action="store_true")
     check_p.set_defaults(func=cmd_check)
 
     args = parser.parse_args()

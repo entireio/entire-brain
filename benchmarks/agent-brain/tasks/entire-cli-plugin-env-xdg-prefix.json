@@ -1,0 +1,23 @@
+{
+  "id": "entire-cli-plugin-env-xdg-prefix",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/cli",
+  "conditions": ["no_brain", "semantic_brain", "full_brain"],
+  "prompt": "Fix the plugin environment regression. External Entire plugins should still receive the documented XDG_* environment namespace while credential-like variables remain filtered unless explicitly overridden.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "cmd/entire/cli/plugin_env.go",
+      "old": "\t\"XDG_\",\n",
+      "new": ""
+    }
+  ],
+  "validation": [
+    "test $(rg -n '\"XDG_\"' cmd/entire/cli/plugin_env.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./cmd/entire/cli -run 'TestPluginEnv|TestPluginEnv_OverrideVarItselfPasses'"
+  ],
+  "expected_files": ["cmd/entire/cli/plugin_env.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "brain_queries": ["pluginEnvPrefixes", "XDG_", "credentials are dropped"]
+}

@@ -115,8 +115,10 @@ Result: every completed comparison has `delta = 0` and approximate `p = 1`.
   a tiny task where context lookup overhead cannot pay back.
 - `entire-cli-external-command-env-filter` is a better large-repo task, but
   no-brain Codex still finds the correct area and passes hidden validation.
-- Live semantic indexing of `../cli` is too slow to rebuild per repetition with
-  the current harness. The `entire-cli` task was adjusted to compare no-brain
+- Live semantic indexing of `../cli` is the current blocker. The checkpoints
+  show earlier `entire-sem snapshot --repo ../cli` and `entire-brain index
+  /Users/thomi/Projects/cli` attempts, but no completed semantic index artifact
+  was found. Existing successful `entire-cli` benchmark runs compared no-brain
   against full checkpoint-history brain without semantic indexing.
 - Claude Code Max authorization removes the practical cost blocker. The harness
   leaves Claude uncapped by default; pass `--claude-budget <usd>` only when a
@@ -149,6 +151,19 @@ New tasks added for the next run:
 | `entire-cli-review-provenance-strip` | project-native checkpoint history | Full brain should recover the review/investigate provenance contract in a large repo. |
 | `swe-style-entire-brain-stale-query-default-limit` | SWE-bench style local | Issue-only prompt with hidden validation and stale context setup. |
 
-Run these first with small repetitions to identify saturation, then expand the
-runner matrix across Codex/Claude models and reasoning efforts only where the
-task produces a measurable correctness, duration, turn, token, or cost gap.
+Expanded task inventory now includes 25 task definitions: 19 project-native
+tasks and 6 local SWE-bench-style tasks. Project-native coverage is 8
+`entire-brain`, 6 `entire-cli`, and 5 GitHub CLI tasks. The local SWE-style
+tasks are still harness shakedown tasks; real SWE-bench Lite/Verified import is
+the remaining Layer B gap.
+
+The harness now caches brain prep artifacts under
+`benchmarks/agent-brain/cache/`. This helps repeated semantic/full-brain runs
+after prep completes, but it does not solve the initial `entire-cli` semantic
+indexing failure. Benchmark execution is paused until that provider/brain-layer
+blocker is fixed.
+
+After `entire-cli` indexing is fixed, run these first with small repetitions to
+identify saturation, then expand the runner matrix across Codex/Claude models
+and reasoning efforts only where the task produces a measurable correctness,
+duration, turn, token, or cost gap.
