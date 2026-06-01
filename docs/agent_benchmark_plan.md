@@ -200,13 +200,26 @@ For demo reporting, emphasize:
 
 ## Scoring
 
-Score each run out of 100:
+Score each run with the v2 quality rubric and record the component scores in
+`record.json` under `score.version = 2`. The score is still only a triage aid;
+final claims should cite the underlying component metrics.
 
-- 50 correctness: tests pass and behavior matches task requirements
-- 20 locality: expected areas touched, no unrelated rewrites
-- 15 validation quality: correct focused tests and no obvious skipped checks
-- 10 efficiency: fewer irrelevant inspections, retries, and failed test loops
-- 5 brain hygiene: freshness checked and brain output used appropriately
+- 45 outcome: agent completed successfully and harness validation commands pass,
+  with partial validation credit when only some commands pass.
+- 30 patch focus: expected files touched, unexpected files avoided, forbidden
+  files avoided, missing expected files penalized, and diff size kept bounded.
+- 10 validation discipline: the agent ran relevant tests, inspected the final
+  diff/status, and left the harness validation passing.
+- 10 runtime efficiency: bounded absolute credit for agent seconds and token
+  use. Cross-condition time/token means remain the primary efficiency evidence.
+- 5 brain use: no-brain runs avoid brain commands; brain-enabled runs use brain
+  commands, check freshness when semantic context is available, and avoid
+  lock/freshness failures.
+
+The old v1 score mostly collapsed passing runs to 90 or 100 because validation
+success, efficiency, and brain hygiene were nearly constant and locality only
+had two passing states. Do not mix v1 and v2 score means in final proof tables;
+rerun retained tasks after rubric changes.
 
 Compare:
 
@@ -406,8 +419,10 @@ Next work:
 
 Run the most discriminating tasks across:
 
-- Codex: at least low, medium, and high reasoning effort for the active model;
-- Claude Code: Sonnet and Opus where available, with low/medium/high effort;
+- Codex: explicitly pinned models and at least medium/high effort for the
+  primary runners, with low effort added after a task has a retained signal;
+- Claude Code: explicitly pinned aliases or full model names for Sonnet and
+  Opus where available, with low/medium/high effort;
 - conditions: no brain, semantic brain, full brain when checkpoint history
   exists;
 - metrics: success, score, turns, tokens, duration, reported/estimated cost,
@@ -423,6 +438,9 @@ Run a model and effort matrix in addition to the agent/context matrix:
   `--model` flag and `model_reasoning_effort` config override.
 - Claude Code runners: `claude:<model>:<effort>`, using Claude `--model` and
   `--effort`.
+- Do not use unpinned `codex` or `claude` runners for proof claims. They are
+  allowed only for smoke tests because defaults can change and may not be
+  visible in the run artifacts.
 - Compare each runner independently against its own no-brain baseline before
   making aggregate claims.
 - Optimize for cost only after correctness is equal or better. For saturated
@@ -431,6 +449,34 @@ Run a model and effort matrix in addition to the agent/context matrix:
 - Treat Claude costs as reported by Claude JSON output. Treat Codex costs as
   estimates unless the CLI output includes reported cost; require a current
   pricing table in the run artifact before claiming dollar savings.
+
+Current local model availability snapshot, captured on 2026-06-01:
+
+| Agent | Requestable model or alias | Observed/resolved model | Efforts | Primary benchmark use |
+|---|---|---|---|---|
+| Codex | `gpt-5.5` | not resolved in existing Codex artifacts | `low`, `medium`, `high`, `xhigh` | primary pinned Codex model |
+| Codex | `gpt-5.3-codex` | not resolved in existing Codex artifacts | `low`, `medium`, `high`, `xhigh` | Codex-specialized comparison |
+| Codex | `gpt-5.4-mini` | not resolved in existing Codex artifacts | `low`, `medium`, `high`, `xhigh` | cheaper-efficiency comparison after correctness is stable |
+| Codex | `gpt-5.4`, `gpt-5.2` | not resolved in existing Codex artifacts | `low`, `medium`, `high`, `xhigh` | reserve/backfill comparisons |
+| Codex | `gpt-5.3-codex-spark` | not resolved in existing Codex artifacts | `low`, `medium`, `high`, `xhigh` | exclude from primary matrix until a CLI smoke confirms support |
+| Codex | `codex-auto-review` | hidden in the local cache | `low`, `medium`, `high`, `xhigh` | exclude from benchmark claims |
+| Claude Code | `sonnet` | `claude-sonnet-4-6` in prior benchmark artifacts | `low`, `medium`, `high`, `xhigh`, `max` | primary cheaper Claude runner |
+| Claude Code | `opus` or `claude-opus-4-8` | `claude-opus-4-8[1m]` in recent/default artifacts | `low`, `medium`, `high`, `xhigh`, `max` | stronger Claude runner and long-context comparison |
+| Claude Code | not a primary runner yet | `claude-haiku-4-5-20251001` observed as auxiliary usage | n/a | record as auxiliary model usage, not as the runner model |
+
+Model-attribution rules:
+
+- Codex CLI `0.135.0` has `--model`, but existing benchmark runs used
+  `--ignore-user-config` and no `--model`. The user config default
+  `gpt-5.5` therefore cannot be attributed to those records.
+- Store the requested model, requested effort, CLI version, and the Codex model
+  cache timestamp or hash with each proof run. Treat Codex's resolved model as
+  unknown unless the CLI output exposes it.
+- Claude Code `2.1.159` exposes model aliases but not a full availability
+  catalog. Store the requested alias/full name, requested effort, CLI version,
+  and all `modelUsage` keys from Claude JSON output.
+- If a requested alias resolves to a newer full model later, split the report
+  by resolved model rather than mixing records under the alias.
 
 Add these scenario families:
 

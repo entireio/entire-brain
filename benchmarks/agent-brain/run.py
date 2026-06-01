@@ -788,6 +788,7 @@ def run_agent(
     (run_dir / "agent.stdout").write_text(proc.stdout)
     (run_dir / "agent.stderr").write_text(proc.stderr)
     usage = extract_usage(runner.agent, proc.stdout, proc.stderr)
+    activity = extract_agent_activity(proc.stdout, proc.stderr)
     if usage.get("cost_usd") is None:
         usage["cost_usd"] = estimate_cost_usd(runner, usage, pricing)
         usage["cost_source"] = "estimated" if usage["cost_usd"] is not None else None
@@ -806,6 +807,7 @@ def run_agent(
         "returncode": proc.returncode,
         "seconds": time.time() - start,
         "usage": usage,
+        "activity": activity,
         "stdout_bytes": len(proc.stdout.encode()),
         "stderr_bytes": len(proc.stderr.encode()),
         "stdout_tail": proc.stdout[-4000:],
@@ -889,6 +891,29 @@ def extract_usage(agent: str, stdout: str, stderr: str) -> dict[str, Any]:
     return usage
 
 
+def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
+    text = stdout + "\n" + stderr
+    lower = text.lower()
+    brain_commands = sorted(set(re.findall(r"\b(?:entire\s+brain|entire-brain)\s+([a-z][a-z-]*)", lower)))
+    test_commands = sorted(
+        set(
+            re.findall(
+                r"\b(?:go test|pytest|npm (?:test|run test)|yarn test|pnpm test|cargo test|mvn test|gradle test|make test)\b",
+                lower,
+            )
+        )
+    )
+    return {
+        "brain_commands": brain_commands,
+        "used_brain": bool(brain_commands),
+        "checked_stale": "stale" in brain_commands,
+        "test_commands": test_commands,
+        "ran_tests": bool(test_commands),
+        "checked_diff": bool(re.search(r"\bgit\s+(?:diff|status)\b", lower)),
+        "saw_index_locked": "index_locked" in lower or "semantic index lock" in lower,
+    }
+
+
 def changed_files(worktree: pathlib.Path) -> list[str]:
     out = run_cmd(["git", "diff", "--name-only"], cwd=worktree).stdout
     return sorted(x for x in out.splitlines() if x.strip())
@@ -919,37 +944,128 @@ def validate(task: dict[str, Any], worktree: pathlib.Path, env: dict[str, str]) 
     return {"ok": ok, "results": results}
 
 
-def score(task: dict[str, Any], condition: str, agent_info: dict[str, Any], validation: dict[str, Any], files: list[str]) -> dict[str, Any]:
+def score(
+    task: dict[str, Any],
+    condition: str,
+    agent_info: dict[str, Any],
+    validation: dict[str, Any],
+    files: list[str],
+    diff: dict[str, Any],
+) -> dict[str, Any]:
     expected = set(task.get("expected_files", []))
     forbidden = set(task.get("forbidden_files", []))
     touched = set(files)
+    results = validation.get("results") or []
+    passed_validations = sum(1 for result in results if result.get("returncode") == 0)
+    validation_count = len(results)
+    validation_ratio = (passed_validations / validation_count) if validation_count else (1.0 if validation.get("ok") else 0.0)
 
-    correctness = 50 if validation["ok"] and agent_info["returncode"] == 0 else 0
-    locality = 0
-    if touched:
-        if touched <= expected:
-            locality = 20
-        elif touched & expected:
-            locality = 10
-    if touched & forbidden:
-        locality = max(0, locality - 20)
-    validation_quality = 15 if validation["ok"] else 0
-    efficiency = max(0, 10 - int(agent_info["seconds"] // 300))
-    brain_hygiene = 0
-    if condition == "no_brain":
-        brain_hygiene = 5
+    outcome = round(35 * validation_ratio)
+    if agent_info.get("returncode") == 0:
+        outcome += 10 if validation.get("ok") else 5
+
+    expected_touched = touched & expected
+    unexpected_touched = touched - expected if expected else set()
+    missing_expected = expected - touched
+    forbidden_touched = touched & forbidden
+    if expected:
+        expected_coverage = round(12 * len(expected_touched) / len(expected))
+        minimality = max(0, 10 - 3 * len(unexpected_touched))
     else:
-        text = (agent_info.get("stdout_tail") or "") + "\n" + (agent_info.get("stderr_tail") or "")
-        if "brain" in text.lower() or "entire" in text.lower():
-            brain_hygiene = 5
-    total = correctness + locality + validation_quality + efficiency + brain_hygiene
+        expected_coverage = 8 if touched else 0
+        minimality = max(0, 14 - 2 * max(0, len(touched) - 1))
+    if not touched:
+        minimality = 0
+    forbidden_points = max(0, 5 - 5 * len(forbidden_touched))
+    diff_bytes = int(diff.get("bytes") or 0)
+    if diff_bytes == 0:
+        size_points = 0
+    elif diff_bytes <= 500:
+        size_points = 3
+    elif diff_bytes <= 2_000:
+        size_points = 2
+    elif diff_bytes <= 8_000:
+        size_points = 1
+    else:
+        size_points = 0
+    missing_penalty = min(5, 2 * len(missing_expected))
+    patch_focus = max(0, min(30, expected_coverage + minimality + forbidden_points + size_points - missing_penalty))
+
+    activity = agent_info.get("activity") if isinstance(agent_info.get("activity"), dict) else {}
+    validation_discipline = 0
+    if activity.get("ran_tests"):
+        validation_discipline += 6
+    if activity.get("checked_diff"):
+        validation_discipline += 2
+    if validation.get("ok"):
+        validation_discipline += 2
+
+    seconds = float(agent_info.get("seconds") or 0)
+    if seconds <= 60:
+        time_points = 5
+    elif seconds <= 120:
+        time_points = 4
+    elif seconds <= 240:
+        time_points = 3
+    elif seconds <= 480:
+        time_points = 2
+    elif seconds <= 900:
+        time_points = 1
+    else:
+        time_points = 0
+    tokens = agent_info.get("usage", {}).get("total_tokens") if isinstance(agent_info.get("usage"), dict) else None
+    if not isinstance(tokens, (int, float)):
+        token_points = 3
+    elif tokens <= 250_000:
+        token_points = 5
+    elif tokens <= 500_000:
+        token_points = 4
+    elif tokens <= 1_000_000:
+        token_points = 3
+    elif tokens <= 2_000_000:
+        token_points = 2
+    elif tokens <= 4_000_000:
+        token_points = 1
+    else:
+        token_points = 0
+    runtime_efficiency = time_points + token_points
+
+    if condition == "no_brain":
+        brain_use = 0 if activity.get("used_brain") else 5
+    else:
+        semantic_available = task.get("prepare_semantic", True)
+        brain_use = 0
+        if activity.get("used_brain"):
+            brain_use += 2
+        if not semantic_available or activity.get("checked_stale"):
+            brain_use += 2
+        if not activity.get("saw_index_locked"):
+            brain_use += 1
+
+    total = max(0, min(100, outcome + patch_focus + validation_discipline + runtime_efficiency + brain_use))
     return {
+        "version": 2,
         "total": total,
-        "correctness": correctness,
-        "locality": locality,
-        "validation_quality": validation_quality,
-        "efficiency": efficiency,
-        "brain_hygiene": brain_hygiene,
+        "outcome": outcome,
+        "patch_focus": patch_focus,
+        "validation_discipline": validation_discipline,
+        "runtime_efficiency": runtime_efficiency,
+        "brain_use": brain_use,
+        "details": {
+            "validation_passed": passed_validations,
+            "validation_count": validation_count,
+            "expected_files_touched": sorted(expected_touched),
+            "missing_expected_files": sorted(missing_expected),
+            "unexpected_files_touched": sorted(unexpected_touched),
+            "forbidden_files_touched": sorted(forbidden_touched),
+            "changed_file_count": len(touched),
+            "diff_bytes": diff_bytes,
+            "agent_seconds": seconds,
+            "total_tokens": tokens,
+            "brain_commands": activity.get("brain_commands", []),
+            "ran_tests": bool(activity.get("ran_tests")),
+            "checked_diff": bool(activity.get("checked_diff")),
+        },
     }
 
 
@@ -1001,7 +1117,8 @@ def run_one(
         agent_info = run_agent(runner, prompt, worktree, env, run_dir, args.timeout, args.claude_budget, pricing)
         files = changed_files(worktree)
         validation = validate(task, worktree, env)
-        scoring = score(task, condition, agent_info, validation, files)
+        diff = diff_stat(worktree)
+        scoring = score(task, condition, agent_info, validation, files, diff)
         record.update(
             {
                 "ok": validation["ok"] and agent_info["returncode"] == 0,
@@ -1010,7 +1127,7 @@ def run_one(
                 "post_brain_setup_applied": post_brain_changed,
                 "agent_info": agent_info,
                 "changed_files": files,
-                "diff_stat": diff_stat(worktree),
+                "diff_stat": diff,
                 "validation": validation,
                 "score": scoring,
             }
@@ -1071,6 +1188,16 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
                     vals.append(float(value))
             return sum(vals) / len(vals) if vals else None
 
+        def score_versions(recs: list[dict[str, Any]]) -> list[int]:
+            versions = set()
+            for rec in recs:
+                score = rec.get("score")
+                if isinstance(score, dict):
+                    version = score.get("version", 1)
+                    if isinstance(version, int):
+                        versions.add(version)
+            return sorted(versions)
+
         comparisons.append(
             {
                 "task_id": task_id,
@@ -1084,6 +1211,18 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
                 "mean_baseline": sum(base) / len(base),
                 "delta": sum(values) / len(values) - sum(base) / len(base),
                 "p_value_approx": welch_p_value(values, base),
+                "score_versions_condition": score_versions(condition_records),
+                "score_versions_baseline": score_versions(base_records),
+                "mean_outcome_condition": mean_field(condition_records, ["score", "outcome"]),
+                "mean_outcome_baseline": mean_field(base_records, ["score", "outcome"]),
+                "mean_patch_focus_condition": mean_field(condition_records, ["score", "patch_focus"]),
+                "mean_patch_focus_baseline": mean_field(base_records, ["score", "patch_focus"]),
+                "mean_validation_discipline_condition": mean_field(condition_records, ["score", "validation_discipline"]),
+                "mean_validation_discipline_baseline": mean_field(base_records, ["score", "validation_discipline"]),
+                "mean_runtime_efficiency_condition": mean_field(condition_records, ["score", "runtime_efficiency"]),
+                "mean_runtime_efficiency_baseline": mean_field(base_records, ["score", "runtime_efficiency"]),
+                "mean_brain_use_condition": mean_field(condition_records, ["score", "brain_use"]),
+                "mean_brain_use_baseline": mean_field(base_records, ["score", "brain_use"]),
                 "mean_agent_seconds_condition": mean_field(condition_records, ["agent_info", "seconds"]),
                 "mean_agent_seconds_baseline": mean_field(base_records, ["agent_info", "seconds"]),
                 "p_value_agent_seconds": welch_p_value(

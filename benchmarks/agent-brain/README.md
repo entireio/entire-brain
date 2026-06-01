@@ -99,9 +99,12 @@ The report command recomputes aggregate means and approximate Welch p-values:
 python3 benchmarks/agent-brain/run.py report codex-mcp-smoke
 ```
 
-Reports include score deltas, success rates, mean agent seconds, total tokens,
-turns, cost when available, and approximate Welch p-values for score, duration,
-tokens, turns, and cost.
+Reports include quality-score deltas, success rates, mean agent seconds, total
+tokens, turns, cost when available, and approximate Welch p-values for score,
+duration, tokens, turns, and cost. New records use `score.version = 2`, with
+separate `outcome`, `patch_focus`, `validation_discipline`,
+`runtime_efficiency`, and `brain_use` components. Do not compare v1 and v2 score
+means directly; rerun retained tasks after a scoring change.
 
 For a SWE-bench-style matrix, tag tasks with `source` and `suite_tags`. The
 current harness already supports the essential SWE shape: issue prompt,

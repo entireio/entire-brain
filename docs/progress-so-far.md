@@ -488,10 +488,39 @@ Latest resumed benchmark results:
   time, tokens, and reported cost for Claude at `n=1`, so the retained signal is
   currently Codex-specific.
 
+Model matrix and attribution learnings:
+
+- Codex CLI is `0.135.0`. The local Codex model cache, fetched on 2026-06-01,
+  lists `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`,
+  `gpt-5.3-codex-spark`, `gpt-5.2`, and hidden `codex-auto-review`; all list
+  `low`, `medium`, `high`, and `xhigh` reasoning levels.
+- Existing Codex benchmark records are not model-attributable. The harness ran
+  Codex with `--ignore-user-config` and no `--model`, so the user config
+  default `gpt-5.5` did not pin those runs. Future proof runs must use explicit
+  specs such as `codex:gpt-5.5:medium` or `codex:gpt-5.3-codex:medium`.
+- Claude Code is `2.1.159`. Its help exposes `--model` aliases such as
+  `sonnet` and `opus`, plus full model names such as `claude-opus-4-8`, but it
+  does not expose a full local availability catalog.
+- Claude artifacts do expose resolved `modelUsage` keys. Prior `sonnet` runs
+  resolved to `claude-sonnet-4-6`; recent/default Claude retained pilots used
+  `claude-opus-4-8[1m]`; `claude-haiku-4-5-20251001` appeared as auxiliary
+  usage in some runs.
+- The next matrix should report requested model/effort separately from resolved
+  model usage. For Codex, resolved model remains unknown unless the CLI exposes
+  it; for Claude, use `modelUsage` keys as the resolved-model source.
+
 Next benchmark step:
 
-- Run retained GitHub CLI semantic tasks across alternate Codex runner settings;
-  redesign or replace them for Claude because the first Claude pilot saturated.
+- Rerun retained candidates after the scoring-rubric replacement. New records
+  use `score.version = 2`; older 90/100-heavy score means are legacy v1 and
+  should not be mixed with new score means.
+- Run retained GitHub CLI semantic tasks across pinned Codex runner settings
+  (`gpt-5.5` and `gpt-5.3-codex` first, then `gpt-5.4-mini` if correctness is
+  stable); redesign or replace them for Claude because the first Claude pilot
+  saturated.
+- Run Claude follow-ups with explicit `claude:sonnet:<effort>` and
+  `claude:opus:<effort>` specs, and split results by the resolved `modelUsage`
+  keys if aliases move.
 - Add more validation-selection, stale-context hygiene, and cross-repo tasks;
   the current `entire-cli` semantic/history pilots are mostly saturated.
 - Import real SWE-bench Lite/Verified cases only after the local retained-task

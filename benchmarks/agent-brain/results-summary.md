@@ -12,6 +12,13 @@ mixed with new runs for final proof. New Codex runs ignore user config/rules and
 use ephemeral sessions. New Claude runs disable session persistence, slash
 commands, and non-empty MCP config. Host auth is still intentionally reused.
 
+Scoring note: the score tables below were produced with the legacy v1 rubric,
+which compressed most passing runs to 90 or 100. The harness now writes
+`score.version = 2` with separate outcome, patch-focus, validation-discipline,
+runtime-efficiency, and brain-use components. Rerun retained tasks before making
+new score-based claims; existing pass/fail, time, token, cost, and changed-file
+metrics remain useful.
+
 Current isolated proof candidates:
 
 | Suite(s) | Runner | Task | Condition | n | Success | Mean score | Mean seconds | Mean tokens | Mean turns | Mean cost | Key p-value |
