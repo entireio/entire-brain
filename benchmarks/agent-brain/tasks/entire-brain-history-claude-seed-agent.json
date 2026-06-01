@@ -1,0 +1,59 @@
+{
+  "id": "entire-brain-history-claude-seed-agent",
+  "repo": "entire-brain",
+  "repo_path": "/Users/thomi/Projects/entire-brain",
+  "conditions": ["no_brain", "full_brain"],
+  "prepare_semantic": false,
+  "prompt": "A checkpointed implementation added support for the second first-party seed synthesis agent and its matching intake template. A regression removed that support, the tests, and the docs. Restore the prior checkpointed behavior and keep the agent invocation isolated from project configuration.",
+  "setup_replacements": [
+    {
+      "path": "internal/cli/seed.go",
+      "old": "case \"claude-code\":\n\t\treturn []string{\"claude\", \"--print\", \"--no-session-persistence\", \"--setting-sources\", \"user\", \"--strict-mcp-config\", \"--mcp-config\", \"{}\", \"--disable-slash-commands\", \"--permission-mode\", \"dontAsk\", \"--tools\", \"\", \"--system-prompt\", seedAgentPrompt(phase)}, nil",
+      "new": "case \"claude-code\":\n\t\treturn nil, fmt.Errorf(\"unsupported --agent %q\", opts.agent)"
+    },
+    {
+      "path": "internal/cli/seed.go",
+      "old": "cmd.Flags().StringVar(&seedOpts.agent, \"agent\", \"none\", \"Agent synthesis mode: none, command, codex, or claude-code\")",
+      "new": "cmd.Flags().StringVar(&seedOpts.agent, \"agent\", \"none\", \"Agent synthesis mode: none, command, or codex\")"
+    },
+    {
+      "path": "internal/cli/refresh.go",
+      "old": "cmd.Flags().StringVar(&refreshOpts.seed.agent, \"agent\", \"none\", \"Agent synthesis mode for seed: none, command, codex, or claude-code\")",
+      "new": "cmd.Flags().StringVar(&refreshOpts.seed.agent, \"agent\", \"none\", \"Agent synthesis mode for seed: none, command, or codex\")"
+    }
+  ],
+  "setup_commands": [
+    "rm -f templates/entire-brain-intake-claude-agent.md",
+    "perl -0pi -e 's/\\nfunc TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions\\(t \\*testing\\.T\\) \\{.*?\\n\\}\\n\\nfunc TestSeedAgentCodexPhaseUsesPATHStdinAndWritesArtifacts/\\nfunc TestSeedAgentCodexPhaseUsesPATHStdinAndWritesArtifacts/s' internal/cli/seed_test.go",
+    "perl -0pi -e 's/\\nfunc TestSeedAgentClaudePhaseUsesPATHStdinAndWritesArtifacts\\(t \\*testing\\.T\\) \\{.*?\\n\\}\\n\\nfunc TestValidateSeedAgentOutputRequiresSuccessSchema/\\nfunc TestValidateSeedAgentOutputRequiresSuccessSchema/s' internal/cli/seed_test.go",
+    "perl -0pi -e 's/\\|codex\\|claude-code\\|command/\\|codex\\|command/g; s/entire brain seed --agent claude-code \\.\\n//g; s/- `templates\\/entire-brain-intake-claude-agent.md`\\n//g' README.md docs/seed_plan.md"
+  ],
+  "validation": [
+    "test $(rg -n 'case \"claude-code\"' internal/cli/seed.go | wc -l | tr -d ' ') -eq 1",
+    "test $(rg -n '\"--no-session-persistence\"' internal/cli/seed.go | wc -l | tr -d ' ') -eq 1",
+    "test $(rg -n '\"--setting-sources\", \"user\"' internal/cli/seed.go | wc -l | tr -d ' ') -eq 1",
+    "test -f templates/entire-brain-intake-claude-agent.md",
+    "test $(rg -n 'tools: Bash, Read' templates/entire-brain-intake-claude-agent.md | wc -l | tr -d ' ') -eq 1",
+    "test $(rg -n 'claude-code' README.md docs/seed_plan.md internal/cli/refresh.go internal/cli/seed.go internal/cli/seed_test.go | wc -l | tr -d ' ') -ge 8",
+    "go test ./internal/cli -run 'TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions|TestSeedAgentClaudePhaseUsesPATHStdinAndWritesArtifacts'"
+  ],
+  "expected_files": [
+    "README.md",
+    "docs/seed_plan.md",
+    "internal/cli/refresh.go",
+    "internal/cli/seed.go",
+    "internal/cli/seed_test.go",
+    "templates/entire-brain-intake-claude-agent.md"
+  ],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "brain_queries": [
+    "claude-code",
+    "templates/entire-brain-intake-claude-agent.md",
+    "--no-session-persistence",
+    "--setting-sources",
+    "should not use --bare"
+  ],
+  "history_excerpt_lines": 40
+}

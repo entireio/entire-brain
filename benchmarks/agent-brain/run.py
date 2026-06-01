@@ -39,6 +39,71 @@ class RunResult:
     run_dir: pathlib.Path
 
 
+@dataclass(frozen=True)
+class RunnerSpec:
+    id: str
+    agent: str
+    model: str | None = None
+    effort: str | None = None
+
+
+def parse_runner_spec(value: str) -> RunnerSpec:
+    value = value.strip()
+    if not value:
+        raise ValueError("empty runner spec")
+    if "=" in value:
+        runner_id, spec = value.split("=", 1)
+    else:
+        runner_id, spec = "", value
+    parts = spec.split(":")
+    agent = parts[0]
+    if agent not in {"codex", "claude"}:
+        raise ValueError(f"unknown runner agent {agent!r} in {value!r}")
+    model = parts[1] if len(parts) > 1 and parts[1] else None
+    effort = parts[2] if len(parts) > 2 and parts[2] else None
+    if len(parts) > 3:
+        raise ValueError(f"runner spec has too many ':' fields: {value!r}")
+    if not runner_id:
+        runner_id = agent
+        if model:
+            runner_id += f"-{model}"
+        if effort:
+            runner_id += f"-{effort}"
+    return RunnerSpec(id=runner_id, agent=agent, model=model, effort=effort)
+
+
+def load_pricing(args: argparse.Namespace) -> dict[str, Any]:
+    data = args.pricing_json or os.environ.get("AGENT_BENCH_PRICING_JSON", "")
+    if args.pricing_file:
+        data = pathlib.Path(args.pricing_file).read_text()
+    if not data:
+        return {}
+    payload = json.loads(data)
+    if not isinstance(payload, dict):
+        raise ValueError("pricing must be a JSON object")
+    return payload
+
+
+def estimate_cost_usd(runner: RunnerSpec, usage: dict[str, Any], pricing: dict[str, Any]) -> float | None:
+    key = runner.id
+    model_key = runner.model or runner.id
+    entry = pricing.get(key) or pricing.get(model_key)
+    if not isinstance(entry, dict):
+        return None
+    input_per_m = entry.get("input_per_million")
+    output_per_m = entry.get("output_per_million")
+    cache_read_per_m = entry.get("cache_read_per_million", input_per_m)
+    cache_creation_per_m = entry.get("cache_creation_per_million", input_per_m)
+    if input_per_m is None or output_per_m is None:
+        return None
+    cost = 0.0
+    cost += float(usage.get("input_tokens") or 0) * float(input_per_m) / 1_000_000
+    cost += float(usage.get("output_tokens") or 0) * float(output_per_m) / 1_000_000
+    cost += float(usage.get("cache_read_tokens") or 0) * float(cache_read_per_m) / 1_000_000
+    cost += float(usage.get("cache_creation_tokens") or 0) * float(cache_creation_per_m) / 1_000_000
+    return cost
+
+
 def run_cmd(
     args: list[str],
     *,
@@ -153,7 +218,14 @@ def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path
         if count != 1:
             raise RuntimeError(f"setup replacement for {rel} matched {count} times, expected 1")
         path.write_text(data.replace(old, new, 1))
-    if patch or task.get("setup_replacements"):
+    for command in task.get("setup_commands", []):
+        proc = shell_cmd(command, cwd=worktree, env=os.environ.copy(), timeout=120)
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"setup command failed ({proc.returncode}): {command}\n"
+                f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+            )
+    if patch or task.get("setup_replacements") or task.get("setup_commands"):
         run_cmd(["git", "add", "-A"], cwd=worktree, check=True)
         run_cmd(
             [
@@ -223,7 +295,74 @@ def prepare_brain(
         prep["commands"].append(entry)
         if proc.returncode != 0:
             raise RuntimeError(f"brain prep failed: {shlex.join(cmd)}\n{proc.stderr}")
+    if condition == "full_brain" and task.get("history_excerpt", True):
+        write_history_excerpt(task, worktree)
     return env, prep
+
+
+def write_history_excerpt(task: dict[str, Any], worktree: pathlib.Path) -> None:
+    queries = [q for q in task.get("brain_queries", []) if q]
+    if not queries:
+        return
+    limit = int(task.get("history_excerpt_lines", 60))
+    candidates: list[tuple[int, str]] = []
+    seen: set[str] = set()
+    for query in queries:
+        proc = run_cmd(
+            ["git", "grep", "-i", "-F", query, "entire/checkpoints/v1", "--", "*full.jsonl"],
+            cwd=worktree,
+        )
+        if proc.returncode not in (0, 1):
+            continue
+        for raw in proc.stdout.splitlines():
+            lower = raw.lower()
+            idx = lower.find(query.lower())
+            if idx == -1:
+                excerpt = raw[:1200]
+            else:
+                start = max(0, idx - 450)
+                end = min(len(raw), idx + len(query) + 900)
+                excerpt = raw[start:end]
+            key = excerpt.strip()
+            if key and key not in seen:
+                seen.add(key)
+                score = 0
+                for needle in ("Users/thomi/Projects/entire-brain", "internal/cli/", "docs/", "README.md", "templates/"):
+                    if needle.lower() in lower:
+                        score += 3
+                if "apply_patch" in lower or "unified_diff" in lower:
+                    score += 2
+                if "agent_message" in lower:
+                    score += 1
+                if "react-split-flap" in lower or "agentviz" in lower:
+                    score -= 4
+                candidates.append((score, f"- query `{query}`: {excerpt}"))
+    if not candidates:
+        return
+    snippets = [text for _, text in sorted(candidates, key=lambda item: item[0], reverse=True)[:limit]]
+    out_dir = worktree / ".benchmark"
+    out_dir.mkdir(exist_ok=True)
+    (out_dir / "brain-history-excerpt.md").write_text(
+        "# Retrieved Checkpoint History Excerpt\n\n"
+        "This file is generated by the benchmark from Entire v1 checkpoints for the full-brain condition.\n\n"
+        + "\n\n".join(snippets)
+        + "\n"
+    )
+    run_cmd(["git", "add", ".benchmark/brain-history-excerpt.md"], cwd=worktree, check=True)
+    run_cmd(
+        [
+            "git",
+            "-c",
+            "user.name=Entire Brain Benchmark",
+            "-c",
+            "user.email=benchmark@example.invalid",
+            "commit",
+            "-m",
+            "Benchmark full-brain history excerpt",
+        ],
+        cwd=worktree,
+        check=True,
+    )
 
 
 def prompt_for(task: dict[str, Any], condition: str) -> str:
@@ -241,7 +380,9 @@ def prompt_for(task: dict[str, Any], condition: str) -> str:
     elif semantic_available:
         policy = f"""Use the full Entire Brain before editing. Start with `entire brain stale --json`, use semantic commands for code context, and inspect task-relevant checkpoint/session history if it can explain the behavior. Useful query terms: {queries}."""
     else:
-        policy = "Use the full Entire Brain before editing. Semantic indexing is disabled for this large-repo benchmark condition, so focus on seed context and task-relevant checkpoint/session history."
+        policy = f"""Use the full Entire Brain before editing. Semantic indexing is disabled for this large-repo benchmark condition, so focus on seed context and task-relevant checkpoint/session history. Useful history search terms: {queries}."""
+        if task.get("history_excerpt", True):
+            policy += " Read `.benchmark/brain-history-excerpt.md` first if it exists; it contains task-specific checkpoint hits retrieved from the brain. Treat matching checkpoint code/test names as authoritative when restoring removed coverage. When the excerpt names a historical failure mode, preserve that wording in regression-test failure text."
     parts = [
         base,
         f"Benchmark condition: {condition}",
@@ -258,16 +399,17 @@ def prompt_for(task: dict[str, Any], condition: str) -> str:
 
 
 def run_agent(
-    agent: str,
+    runner: RunnerSpec,
     prompt: str,
     worktree: pathlib.Path,
     env: dict[str, str],
     run_dir: pathlib.Path,
     timeout: int,
     claude_budget: float,
+    pricing: dict[str, Any],
 ) -> dict[str, Any]:
     start = time.time()
-    if agent == "codex":
+    if runner.agent == "codex":
         cmd = [
             "codex",
             "exec",
@@ -277,9 +419,13 @@ def run_agent(
             "--json",
             "--cd",
             str(worktree),
-            prompt,
         ]
-    elif agent == "claude":
+        if runner.model:
+            cmd.extend(["--model", runner.model])
+        if runner.effort:
+            cmd.extend(["--config", f'model_reasoning_effort="{runner.effort}"'])
+        cmd.append(prompt)
+    elif runner.agent == "claude":
         cmd = [
             "claude",
             "--print",
@@ -287,19 +433,34 @@ def run_agent(
             "bypassPermissions",
             "--output-format",
             "json",
-            prompt,
         ]
+        if runner.model:
+            cmd.extend(["--model", runner.model])
+        if runner.effort:
+            cmd.extend(["--effort", runner.effort])
         if claude_budget > 0:
             cmd[1:1] = ["--max-budget-usd", str(claude_budget)]
+        cmd.append(prompt)
     else:
-        raise ValueError(f"unknown agent: {agent}")
+        raise ValueError(f"unknown agent: {runner.agent}")
 
     proc = run_cmd(cmd, cwd=worktree, env=env, timeout=timeout)
     (run_dir / "agent.stdout").write_text(proc.stdout)
     (run_dir / "agent.stderr").write_text(proc.stderr)
-    usage = extract_usage(agent, proc.stdout, proc.stderr)
+    usage = extract_usage(runner.agent, proc.stdout, proc.stderr)
+    if usage.get("cost_usd") is None:
+        usage["cost_usd"] = estimate_cost_usd(runner, usage, pricing)
+        usage["cost_source"] = "estimated" if usage["cost_usd"] is not None else None
+    else:
+        usage["cost_source"] = "reported"
     return {
-        "agent": agent,
+        "agent": runner.agent,
+        "runner": {
+            "id": runner.id,
+            "agent": runner.agent,
+            "model": runner.model,
+            "effort": runner.effort,
+        },
         "cmd": cmd[:1] + ["..."],
         "returncode": proc.returncode,
         "seconds": time.time() - start,
@@ -453,14 +614,15 @@ def score(task: dict[str, Any], condition: str, agent_info: dict[str, Any], vali
 
 def run_one(
     task: dict[str, Any],
-    agent: str,
+    runner: RunnerSpec,
     condition: str,
     repetition: int,
     suite_dir: pathlib.Path,
     tools: dict[str, pathlib.Path],
     args: argparse.Namespace,
+    pricing: dict[str, Any],
 ) -> RunResult:
-    run_id = f"{task['id']}__{agent}__{condition}__r{repetition}"
+    run_id = f"{task['id']}__{runner.id}__{condition}__r{repetition}"
     run_dir = suite_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     source = pathlib.Path(task["repo_path"])
@@ -469,7 +631,13 @@ def run_one(
         "run_id": run_id,
         "task_id": task["id"],
         "repo": task["repo"],
-        "agent": agent,
+        "agent": runner.agent,
+        "runner": {
+            "id": runner.id,
+            "agent": runner.agent,
+            "model": runner.model,
+            "effort": runner.effort,
+        },
         "condition": condition,
         "repetition": repetition,
         "started_at": dt.datetime.now(dt.UTC).isoformat(),
@@ -479,7 +647,7 @@ def run_one(
         env, prep = prepare_brain(task, condition, worktree, run_dir, tools, args.checkpoint_limit)
         prompt = prompt_for(task, condition)
         (run_dir / "prompt.txt").write_text(prompt)
-        agent_info = run_agent(agent, prompt, worktree, env, run_dir, args.timeout, args.claude_budget)
+        agent_info = run_agent(runner, prompt, worktree, env, run_dir, args.timeout, args.claude_budget, pricing)
         files = changed_files(worktree)
         validation = validate(task, worktree, env)
         scoring = score(task, condition, agent_info, validation, files)
@@ -520,20 +688,22 @@ def welch_p_value(a: list[float], b: list[float]) -> float | None:
 
 
 def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[str, Any]:
-    groups: dict[tuple[str, str, str], list[float]] = {}
-    metrics: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    groups: dict[tuple[str, str, str, str], list[float]] = {}
+    metrics: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
     for rec in records:
-        key = (rec["task_id"], rec["agent"], rec["condition"])
+        runner_id = rec.get("runner", {}).get("id") if isinstance(rec.get("runner"), dict) else None
+        runner_id = runner_id or rec["agent"]
+        key = (rec["task_id"], rec["agent"], runner_id, rec["condition"])
         groups.setdefault(key, []).append(float(rec.get("score", {}).get("total", 0)))
         metrics.setdefault(key, []).append(rec)
 
     comparisons = []
-    for (task_id, agent, condition), values in groups.items():
+    for (task_id, agent, runner_id, condition), values in groups.items():
         if condition == "no_brain":
             continue
-        base = groups.get((task_id, agent, "no_brain"), [])
-        base_records = metrics.get((task_id, agent, "no_brain"), [])
-        condition_records = metrics.get((task_id, agent, condition), [])
+        base = groups.get((task_id, agent, runner_id, "no_brain"), [])
+        base_records = metrics.get((task_id, agent, runner_id, "no_brain"), [])
+        condition_records = metrics.get((task_id, agent, runner_id, condition), [])
         if not base:
             continue
         def mean_field(recs: list[dict[str, Any]], path: list[str]) -> float | None:
@@ -553,6 +723,7 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             {
                 "task_id": task_id,
                 "agent": agent,
+                "runner": runner_id,
                 "condition": condition,
                 "baseline": "no_brain",
                 "n_condition": len(values),
@@ -567,6 +738,10 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
                 "mean_total_tokens_baseline": mean_field(base_records, ["agent_info", "usage", "total_tokens"]),
                 "mean_turns_condition": mean_field(condition_records, ["agent_info", "usage", "turns"]),
                 "mean_turns_baseline": mean_field(base_records, ["agent_info", "usage", "turns"]),
+                "mean_cost_usd_condition": mean_field(condition_records, ["agent_info", "usage", "cost_usd"]),
+                "mean_cost_usd_baseline": mean_field(base_records, ["agent_info", "usage", "cost_usd"]),
+                "success_rate_condition": sum(1 for rec in condition_records if rec.get("ok")) / len(condition_records),
+                "success_rate_baseline": sum(1 for rec in base_records if rec.get("ok")) / len(base_records),
             }
         )
     summary = {"records": len(records), "comparisons": comparisons}
@@ -576,8 +751,12 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
 
 def cmd_run(args: argparse.Namespace) -> int:
     tasks = load_tasks(args.tasks)
-    agents = [x.strip() for x in args.agents.split(",") if x.strip()]
+    if args.runners:
+        runners = [parse_runner_spec(x.strip()) for x in args.runners.split(",") if x.strip()]
+    else:
+        runners = [parse_runner_spec(x.strip()) for x in args.agents.split(",") if x.strip()]
     conditions = [x.strip() for x in args.conditions.split(",") if x.strip()]
+    pricing = load_pricing(args)
     suite = args.suite_name or dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     suite_dir = RESULT_DIR / suite
     suite_dir.mkdir(parents=True, exist_ok=False)
@@ -585,12 +764,12 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     records = []
     for task in tasks:
-        for agent in agents:
+        for runner in runners:
             for condition in conditions:
                 if condition not in task.get("conditions", []):
                     continue
                 for repetition in range(1, args.repetitions + 1):
-                    result = run_one(task, agent, condition, repetition, suite_dir, tools, args)
+                    result = run_one(task, runner, condition, repetition, suite_dir, tools, args, pricing)
                     records.append(result.record)
                     with (suite_dir / "records.ndjson").open("a") as f:
                         f.write(json.dumps(result.record, sort_keys=True) + "\n")
@@ -654,10 +833,17 @@ def main() -> int:
     run_p = sub.add_parser("run")
     run_p.add_argument("--tasks", nargs="*", default=[])
     run_p.add_argument("--agents", default="codex")
+    run_p.add_argument(
+        "--runners",
+        default="",
+        help="Comma-separated runner specs: agent[:model[:effort]] or id=agent[:model[:effort]]. Overrides --agents.",
+    )
     run_p.add_argument("--conditions", default="no_brain,semantic_brain,full_brain")
     run_p.add_argument("--repetitions", type=int, default=1)
     run_p.add_argument("--timeout", type=int, default=1800)
     run_p.add_argument("--claude-budget", type=float, default=0.0, help="Claude max budget in USD; 0 disables the cap")
+    run_p.add_argument("--pricing-file", help="JSON price map for estimated cost when the agent does not report cost")
+    run_p.add_argument("--pricing-json", help="Inline JSON price map for estimated cost when the agent does not report cost")
     run_p.add_argument("--checkpoint-limit", type=int, default=200)
     run_p.add_argument("--suite-name")
     run_p.add_argument("--keep-worktrees", action="store_true")

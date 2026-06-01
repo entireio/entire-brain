@@ -1,0 +1,37 @@
+{
+  "id": "entire-brain-history-claude-bare-auth",
+  "repo": "entire-brain",
+  "repo_path": "/Users/thomi/Projects/entire-brain",
+  "conditions": ["no_brain", "full_brain"],
+  "prepare_semantic": false,
+  "prompt": "A checkpoint-context review changed the Claude Code seed-agent invocation after a local authentication compatibility failure. A regression reintroduced the old invocation. Restore the prior checkpointed decision and add focused coverage for the command shape.",
+  "setup_replacements": [
+    {
+      "path": "internal/cli/seed.go",
+      "old": "case \"claude-code\":\n\t\treturn []string{\"claude\", \"--print\", \"--no-session-persistence\", \"--setting-sources\", \"user\", \"--strict-mcp-config\", \"--mcp-config\", \"{}\", \"--disable-slash-commands\", \"--permission-mode\", \"dontAsk\", \"--tools\", \"\", \"--system-prompt\", seedAgentPrompt(phase)}, nil",
+      "new": "case \"claude-code\":\n\t\treturn []string{\"claude\", \"--bare\", \"--print\", \"--no-session-persistence\", \"--setting-sources\", \"user\", \"--strict-mcp-config\", \"--mcp-config\", \"{}\", \"--disable-slash-commands\", \"--permission-mode\", \"dontAsk\", \"--tools\", \"\", \"--system-prompt\", seedAgentPrompt(phase)}, nil"
+    }
+  ],
+  "setup_commands": [
+    "rm -f docs/progress-so-far.md",
+    "perl -0pi -e 's/\\nfunc TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions\\(t \\*testing\\.T\\) \\{.*?\\n\\}\\n\\nfunc TestSeedAgentCodexPhaseUsesPATHStdinAndWritesArtifacts/\\nfunc TestSeedAgentCodexPhaseUsesPATHStdinAndWritesArtifacts/s' internal/cli/seed_test.go"
+  ],
+  "validation": [
+    "test $(rg -n -- '\"--bare\"' internal/cli/seed.go | wc -l | tr -d ' ') -eq 0",
+    "test $(rg -n 'TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions' internal/cli/seed_test.go | wc -l | tr -d ' ') -eq 1",
+    "test $(rg -n 'should not use --bare because it bypasses logged-in Claude auth' internal/cli/seed_test.go | wc -l | tr -d ' ') -eq 1",
+    "test $(rg -n '\"--setting-sources\", \"user\"' internal/cli/seed.go internal/cli/seed_test.go | wc -l | tr -d ' ') -ge 2",
+    "go test ./internal/cli -run 'TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions'"
+  ],
+  "expected_files": ["internal/cli/seed.go", "internal/cli/seed_test.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "brain_queries": [
+    "should not use --bare because it bypasses logged-in Claude auth",
+    "logged-in Claude auth",
+    "--setting-sources\", \"user\"",
+    "strict-mcp-config"
+  ],
+  "history_excerpt_lines": 24
+}

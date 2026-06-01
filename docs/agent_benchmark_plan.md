@@ -210,13 +210,121 @@ Compare:
 - Add one smoke task per repo.
 - Store transcripts, diffs, test outputs, timing, and command logs.
 
-### Phase 2: Full Scenario Suite
+### Phase 2: Value-Prop Discovery Suite
 
-- Expand to nine tasks.
-- Run each agent and condition at least three times per task.
-- Add scoring and aggregate summary generation.
-- Include both semantic-only and full-brain conditions where checkpoint history
-  exists.
+The initial harness runs showed that simple bugfix tasks can saturate: agents
+may pass every condition, leaving no correctness delta. Phase 2 should add
+scenarios that test where the brain has unique value, then iterate until the
+data supports a specific claim.
+
+Add metrics beyond final score:
+
+- `time_to_first_relevant_file`
+- `files_read_before_first_relevant_file`
+- `search_commands_count`
+- `brain_commands_count`
+- `validation_command_quality`
+- `agent_turns`
+- `total_tokens`
+- `agent_seconds`
+- `brain_prep_seconds`
+- `cost_usd`
+- `cost_source` (`reported` from agent JSON or `estimated` from a supplied
+  pricing table)
+
+Parse Codex JSON logs and Claude JSON output to extract shell commands, file
+reads, first relevant-file access, first edit time, validation commands, turns,
+tokens, and duration. Keep correctness and operational metrics separate so the
+report can honestly say whether the brain improves correctness, efficiency,
+validation quality, or cost-normalized outcomes.
+
+Run a model and effort matrix in addition to the agent/context matrix:
+
+- Codex runners: `codex:<model>:<reasoning_effort>`, using the local Codex
+  `--model` flag and `model_reasoning_effort` config override.
+- Claude Code runners: `claude:<model>:<effort>`, using Claude `--model` and
+  `--effort`.
+- Compare each runner independently against its own no-brain baseline before
+  making aggregate claims.
+- Optimize for cost only after correctness is equal or better. For saturated
+  tasks, prefer the runner/context pair with the lowest cost, then lower
+  duration and turns.
+- Treat Claude costs as reported by Claude JSON output. Treat Codex costs as
+  estimates unless the CLI output includes reported cost; require a current
+  pricing table in the run artifact before claiming dollar savings.
+
+Add these scenario families:
+
+- **History-dependent rationale tasks**
+  - Restore the required SHA-256 contract for `bundle import` after a setup
+    regression makes missing checksums valid again.
+  - Restore bundle audit-log exclusion/rejection after a setup regression leaks
+    local-only data.
+  - Restore `.github` visibility after an over-broad `.git` ignore regression.
+  - Expected value: full brain should recover prior checkpoint rationale that
+    is not obvious from local code alone.
+
+- **Large-repo navigation tasks**
+  - Add harder `../cli` review/resume context, plugin env, and agent hook
+    lifecycle regressions with hidden expected files and hidden validation.
+  - Expected value: semantic or full brain should reduce search breadth, token
+    use, and time even when no-brain can eventually pass.
+
+- **Cross-repo workspace tasks**
+  - Break a plugin dispatch/env assumption where the fix could plausibly live
+    in `entire-brain` or `../cli`.
+  - Later include `../entire-sem` for provider/consumer contract mismatch
+    scenarios.
+  - Expected value: workspace context should orient the agent to the right repo
+    boundary faster.
+
+- **Validation-selection tasks**
+  - Add semantic query/context, workspace freshness, bundle import validation,
+    and GitHub CLI JSON flag tasks where the correct focused test is not named
+    in the prompt.
+  - Expected value: `entire brain tests` and checkpoint history should improve
+    selected validation commands.
+
+- **Stale-context hygiene tasks**
+  - Prepare a semantic brain, apply the setup regression after indexing, then
+    allow brain use.
+  - Expected value: brain-enabled agents should run `stale`, detect unsafe or
+    dirty context, refresh or fall back, and avoid blindly trusting stale data.
+
+Iteration loop:
+
+1. Design one pilot task for history, navigation, and validation-selection.
+2. Run Codex only, one repetition per condition.
+3. Drop saturated tasks where all conditions score perfectly and brain
+   increases tokens/time/cost.
+4. Keep tasks where brain improves correctness, tokens by at least 20%, time by
+   at least 15%, cost by at least 15%, files read before relevant file by at
+   least 30%, or validation quality.
+5. Run retained proof tasks with at least five repetitions per condition for
+   both Codex and Claude Code across at least two model/effort settings per
+   agent.
+6. If no metric improves materially, redesign around more brain-specific
+   information.
+
+Acceptance criteria:
+
+- At least nine non-smoke tasks:
+  - three history-dependent
+  - three large-repo navigation
+  - two validation-selection
+  - one stale-context hygiene
+- At least five repetitions per retained proof task and condition.
+- Final report separates correctness improvement, efficiency improvement,
+  cost improvement, validation-quality improvement, and no-signal saturated
+  tasks.
+- Claims must match the data: correctness only when correctness improves,
+  efficiency only when operational metrics improve, cost only when reported or
+  current-price-estimated cost improves, and checkpoint-history value only when
+  full brain beats semantic brain.
+
+Avoid rebuilding expensive semantic indexes per repetition for large repos.
+Reuse bundles or disable semantic indexing when the scenario is specifically
+about checkpoint history.
 
 ### Phase 3: Demo Evidence
 

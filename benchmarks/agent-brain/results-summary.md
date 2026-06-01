@@ -2,9 +2,35 @@
 
 ## Current Status
 
-The harness is implemented and has run initial Codex suites, but the completed
-runs do **not** yet provide statistical proof that brain-enabled scenarios
-improve agentic coding.
+The harness now supports Phase 2 history-dependent tasks, runner matrixes, and
+cost metrics. Initial Phase 2 runs found one strong Claude Code cost/efficiency
+result and a positive but not-yet-significant Codex correctness signal.
+
+Phase 2 proof candidate:
+
+| Suite(s) | Runner | Task | Condition | n | Success | Mean score | Mean seconds | Mean tokens | Mean turns | Mean cost |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `phase2-claude-sonnet-low-schema*` | `claude-low` | `entire-brain-history-codex-schema-contract` | no brain | 5 | 100% | 100 | 121.9 | 603,864 | 21.0 | $0.348 |
+| `phase2-claude-sonnet-low-schema*` | `claude-low` | `entire-brain-history-codex-schema-contract` | full brain | 5 | 100% | 95 | 55.9 | 261,855 | 8.4 | $0.205 |
+
+Interpretation: Claude Sonnet low solved the task in both conditions, but the
+full-brain condition cut mean cost by 41%, tokens by 57%, turns by 60%, and
+agent time by 54%. The score delta is -5 because the full-brain runs touched a
+minor extra expected-adjacent surface often enough to lose locality points; the
+actual validation success rate stayed equal at 100%.
+
+Codex candidate:
+
+| Suite(s) | Runner | Task | Condition | n | Success | Mean score | Mean seconds | Mean tokens |
+|---|---|---|---|---:|---:|---:|---:|---:|
+| `phase2-codex-schema-rationale-pilot`, `phase2-codex-schema-r4` | `codex` | `entire-brain-history-codex-schema-contract` | no brain | 5 | 60% | 74 | 114.8 | 562,458 |
+| `phase2-codex-schema-rationale-pilot`, `phase2-codex-schema-r4` | `codex` | `entire-brain-history-codex-schema-contract` | full brain | 5 | 100% | 100 | 82.1 | 474,187 |
+
+Interpretation: Codex full-brain improved success rate, score, time, and tokens
+on this task, but the approximate Welch p-value is 0.10 at n=5, so this is a
+promising signal rather than statistical proof.
+
+Earlier Phase 1 smoke status follows.
 
 The first two runnable tasks were too easy for Codex:
 

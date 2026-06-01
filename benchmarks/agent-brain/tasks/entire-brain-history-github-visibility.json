@@ -1,0 +1,27 @@
+{
+  "id": "entire-brain-history-github-visibility",
+  "repo": "entire-brain",
+  "repo_path": "/Users/thomi/Projects/entire-brain",
+  "conditions": ["no_brain", "full_brain"],
+  "prepare_semantic": false,
+  "prompt": "A previous review found that one built-in ignore rule overmatched repository metadata and hid workflow/tooling files from semantic snapshots. A regression brought that overmatch back. Restore the intended default visibility from project history.",
+  "setup_replacements": [
+    {
+      "path": "internal/cli/semantic.go",
+      "old": "if path == \".git\" || strings.HasPrefix(path, \".git/\") {\n\t\treturn true\n\t}",
+      "new": "if strings.HasPrefix(path, \".git\") {\n\t\treturn true\n\t}"
+    }
+  ],
+  "setup_commands": [
+    "rm -f docs/progress-so-far.md"
+  ],
+  "validation": [
+    "test $(rg -n 'path == \"\\.git\" \\|\\| strings.HasPrefix\\(path, \"\\.git/\"\\)' internal/cli/semantic.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./internal/cli -run 'TestSemanticIndexDoesNotDefaultIgnoreGitHubPaths|TestBrainIgnoreDoesNotOvermatchDefaultDirectoryPrefixes'"
+  ],
+  "expected_files": ["internal/cli/semantic.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "brain_queries": [".github visible default ignore", "git ignore matching too broad", "workflow files semantic snapshot"]
+}
