@@ -12,7 +12,7 @@ mixed with new runs for final proof. New Codex runs ignore user config/rules and
 use ephemeral sessions. New Claude runs disable session persistence, slash
 commands, and non-empty MCP config. Host auth is still intentionally reused.
 
-Current isolated proof candidate:
+Current isolated proof candidates:
 
 | Suite(s) | Runner | Task | Condition | n | Success | Mean score | Mean seconds | Mean tokens | Mean turns | Mean cost | Key p-value |
 |---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -20,6 +20,10 @@ Current isolated proof candidate:
 | same | `codex-medium` | same | full brain | 5 | 100% | 100 | 97.5 | 521,472 | n/a | n/a | score p=0.000 |
 | same | `claude-sonnet-low` | same | no brain | 5 | 60% | 74 | 109.6 | 837,649 | 14.2 | $0.357 | cost p=0.007 |
 | same | `claude-sonnet-low` | same | full brain | 5 | 100% | 95 | 63.2 | 280,855 | 9.6 | $0.205 | tokens p=0.00012 |
+| `codex-github-cli-semantic-pilot-20260601`, `codex-github-cli-repo-name-retained-r2-r5-20260601` | `codex` | `github-cli-repo-name-trims-dotgit` | no brain | 5 | 100% | 92 | 162.6 | 1,170,419 | n/a | n/a | retained n=4 score p=0.0027 |
+| same | `codex` | same | semantic brain | 5 | 100% | 100 | 81.6 | 368,972 | n/a | n/a | retained n=4 tokens p=0.0010 |
+| `codex-github-cli-semantic-pilot-20260601`, `codex-github-cli-http-scopes-retained-r2-r5-20260601` | `codex` | `github-cli-http-scopes-suggestion` | no brain | 5 | 100% | 90 | 129.2 | 789,505 | n/a | n/a | retained n=4 score p=0.0027 |
+| same | `codex` | same | semantic brain | 5 | 100% | 98 | 96.3 | 558,858 | n/a | n/a | retained n=4 seconds p=0.045 |
 
 Interpretation: with isolation enabled, Codex default-medium failed all five
 no-brain runs and passed all five full-brain runs on the history-dependent
@@ -27,6 +31,17 @@ schema-contract task. Claude Sonnet low also improved success rate from 60% to
 100%, but the score p-value is not yet significant at n=5 because three
 baseline runs passed. Its efficiency signal is statistically strong: full brain
 cut mean cost by 42%, tokens by 66%, and duration by 42%.
+
+The GitHub CLI semantic candidates are the first repeated large-repo semantic
+signals after the `entire-cli` indexing blocker was cleared. For
+`repo-name-trims-dotgit`, semantic-brain made the one-file shared-normalizer fix
+in every run, while no-brain often expanded into `repo/create` tests and code.
+For `http-scopes-suggestion`, no-brain consistently added an extra API test file
+and scored 90, while semantic-brain usually made the one-line production fix.
+Both still need Claude and alternate Codex runner coverage before final claims.
+A first Claude Code pilot did not retain the signal: Claude scored 100 in both
+conditions on both GitHub CLI tasks, and semantic-brain increased time, tokens,
+and reported cost at `n=1`.
 
 Phase 2 proof candidate:
 
@@ -115,11 +130,37 @@ Result: every completed comparison has `delta = 0` and approximate `p = 1`.
   a tiny task where context lookup overhead cannot pay back.
 - `entire-cli-external-command-env-filter` is a better large-repo task, but
   no-brain Codex still finds the correct area and passes hidden validation.
-- Live semantic indexing of `../cli` is the current blocker. The checkpoints
-  show earlier `entire-sem snapshot --repo ../cli` and `entire-brain index
-  /Users/thomi/Projects/cli` attempts, but no completed semantic index artifact
-  was found. Existing successful `entire-cli` benchmark runs compared no-brain
-  against full checkpoint-history brain without semantic indexing.
+- Live semantic indexing of `../cli` is no longer the blocker for local
+  benchmark runs. With `entire-sem` at commit `b3839c7`, `entire-sem snapshot
+  --repo /Users/thomi/Projects/cli --format ndjson --no-network` completes in
+  about 17 seconds, and full isolated `entire-brain index` completes in about
+  29 seconds. The current artifact records 760 files, 9,130 symbols, 179,717
+  stored relations, zero warnings, zero partial failures, and a roughly 152 MB
+  SQLite store.
+- The harness now has a `prep` command for brain-only verification/cache
+  population, deterministic benchmark setup commits, and per-run plugin state
+  under ignored `.benchmark/plugin/` inside the disposable worktree. This keeps
+  cache-hit semantic freshness at `stale=ok` and lets sandboxed Codex runs open
+  the semantic store.
+- Semantic read commands no longer take the exclusive index lock. The old
+  behavior made parallel agent calls to `query`, `context`, or `impact` fail
+  with `index_locked`. A focused regression now verifies that read commands work
+  while a lock file exists, while index/repair/changes/GC/bundle writers still
+  keep the lock.
+- `entire-cli` semantic pilots are mostly saturated. `review-base-flag-scope`
+  retained a possible efficiency signal after the read-lock fix (score 90,
+  1.05M semantic tokens vs 1.92M no-brain tokens at `n=1`), but
+  `review-prompt-uncommitted-scope` and `transcript-reresolve-updates-state`
+  were worse or saturated. `review-provenance-strip` also saturated for
+  full-brain history: no-brain and full-brain both scored 90, with full-brain
+  slower and more token-heavy.
+- GitHub CLI semantic prep is reliable locally: all five semantic preps passed
+  with `stale=ok`, 855 files, 6,401 symbols, 194,152 stored relations, zero
+  warnings, and zero partial failures.
+- Claude Code one-run pilots on the retained GitHub CLI tasks are saturated:
+  no-brain and semantic-brain both scored 100 on `repo-name-trims-dotgit` and
+  `http-scopes-suggestion`. For Claude, semantic context added overhead in
+  these pilots rather than improving score.
 - Claude Code Max authorization removes the practical cost blocker. The harness
   leaves Claude uncapped by default; pass `--claude-budget <usd>` only when a
   hard cap is desired.
@@ -159,11 +200,13 @@ the remaining Layer B gap.
 
 The harness now caches brain prep artifacts under
 `benchmarks/agent-brain/cache/`. This helps repeated semantic/full-brain runs
-after prep completes, but it does not solve the initial `entire-cli` semantic
-indexing failure. Benchmark execution is paused until that provider/brain-layer
-blocker is fixed.
+after prep completes. Four semantic `entire-cli` task preps now pass with
+`stale=ok`, including cache-hit reuse.
 
-After `entire-cli` indexing is fixed, run these first with small repetitions to
-identify saturation, then expand the runner matrix across Codex/Claude models
-and reasoning efforts only where the task produces a measurable correctness,
-duration, turn, token, or cost gap.
+The first resumed Codex smoke on `entire-cli-plugin-env-xdg-prefix` is still
+saturated for correctness: no-brain and semantic-brain both passed with score
+90 in one repetition. The retained repeated semantic candidates are currently
+the GitHub CLI `repo-name-trims-dotgit` and `http-scopes-suggestion` tasks.
+Next, run them across Claude Code and alternate Codex runner settings, then add
+more validation-selection and stale-context tasks before importing real
+SWE-bench Lite/Verified cases.

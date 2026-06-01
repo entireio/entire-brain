@@ -33,6 +33,7 @@ BENCH_ROOT = pathlib.Path(__file__).resolve().parent
 TASK_DIR = BENCH_ROOT / "tasks"
 RESULT_DIR = BENCH_ROOT / "results"
 CACHE_DIR = BENCH_ROOT / "cache"
+BENCHMARK_COMMIT_DATE = "2026-01-01T00:00:00Z"
 
 ISOLATION = {
     "codex": {
@@ -148,6 +149,17 @@ def run_cmd(
     return proc
 
 
+def benchmark_git_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.update(
+        {
+            "GIT_AUTHOR_DATE": BENCHMARK_COMMIT_DATE,
+            "GIT_COMMITTER_DATE": BENCHMARK_COMMIT_DATE,
+        }
+    )
+    return env
+
+
 def shell_cmd(
     command: str,
     *,
@@ -230,6 +242,7 @@ def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path
     base = task.get("base_commit") or git_head(source)
     worktree = run_dir / "worktree"
     run_cmd(["git", "worktree", "add", "--detach", str(worktree), base], cwd=source, check=True)
+    ignore_benchmark_plugin(worktree)
     patch = task.get("setup_patch", "")
     if patch:
         run_cmd(["git", "apply", "-"], cwd=worktree, input_text=patch, check=True)
@@ -255,9 +268,24 @@ def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path
                 f"Benchmark setup for {task['id']}",
             ],
             cwd=worktree,
+            env=benchmark_git_env(),
             check=True,
         )
     return worktree
+
+
+def ignore_benchmark_plugin(worktree: pathlib.Path) -> None:
+    proc = run_cmd(["git", "rev-parse", "--git-path", "info/exclude"], cwd=worktree, check=True)
+    raw = proc.stdout.strip()
+    exclude_path = pathlib.Path(raw)
+    if not exclude_path.is_absolute():
+        exclude_path = worktree / exclude_path
+    exclude_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = exclude_path.read_text() if exclude_path.exists() else ""
+    entry = ".benchmark/plugin/"
+    if entry not in existing.splitlines():
+        suffix = "" if existing.endswith("\n") or not existing else "\n"
+        exclude_path.write_text(existing + suffix + entry + "\n")
 
 
 def apply_post_brain_setup(task: dict[str, Any], worktree: pathlib.Path) -> bool:
@@ -289,6 +317,7 @@ def apply_post_brain_setup(task: dict[str, Any], worktree: pathlib.Path) -> bool
                 f"Benchmark post-brain setup for {task['id']}",
             ],
             cwd=worktree,
+            env=benchmark_git_env(),
             check=True,
         )
     return changed
@@ -311,16 +340,21 @@ def remove_worktree(source: pathlib.Path, worktree: pathlib.Path) -> None:
     run_cmd(["git", "worktree", "remove", "--force", str(worktree)], cwd=source)
 
 
+def run_plugin_dir(worktree: pathlib.Path) -> pathlib.Path:
+    return worktree / ".benchmark" / "plugin"
+
+
 def plugin_env(run_dir: pathlib.Path, worktree: pathlib.Path, tools: dict[str, pathlib.Path]) -> dict[str, str]:
     env = os.environ.copy()
+    plugin = run_plugin_dir(worktree)
     env.update(
         {
             "PATH": f"{tools['bin']}:{env.get('PATH', '')}",
             "ENTIRE_REPO_ROOT": str(worktree),
-            "ENTIRE_PLUGIN_CONFIG_DIR": str(run_dir / "plugin" / "config"),
-            "ENTIRE_PLUGIN_DATA_DIR": str(run_dir / "plugin" / "data"),
-            "ENTIRE_PLUGIN_STATE_DIR": str(run_dir / "plugin" / "state"),
-            "ENTIRE_PLUGIN_CACHE_DIR": str(run_dir / "plugin" / "cache"),
+            "ENTIRE_PLUGIN_CONFIG_DIR": str(plugin / "config"),
+            "ENTIRE_PLUGIN_DATA_DIR": str(plugin / "data"),
+            "ENTIRE_PLUGIN_STATE_DIR": str(plugin / "state"),
+            "ENTIRE_PLUGIN_CACHE_DIR": str(plugin / "cache"),
         }
     )
     return env
@@ -334,7 +368,7 @@ def brain_cache_payload(
     checkpoint_limit: int,
 ) -> dict[str, Any]:
     return {
-        "schema": 1,
+        "schema": 2,
         "repo": task.get("repo"),
         "repo_path": str(pathlib.Path(task["repo_path"]).resolve()),
         "base_ref": task.get("base_commit") or git_head(pathlib.Path(task["repo_path"])),
@@ -404,10 +438,11 @@ def prepare_brain(
     cache_entry = CACHE_DIR / key
     cache_plugin = cache_entry / "plugin"
     cache_meta = cache_entry / "meta.json"
+    plugin = run_plugin_dir(worktree)
     prep["cache"] = {"enabled": use_cache, "key": key, "hit": False}
     if use_cache and cache_plugin.exists() and cache_meta.exists() and not refresh_cache:
         meta = json.loads(cache_meta.read_text())
-        copy_cached_plugin(cache_plugin, run_dir / "plugin", meta.get("source_worktree", ""), str(worktree))
+        copy_cached_plugin(cache_plugin, plugin, meta.get("source_worktree", ""), str(worktree))
         prep["cache"].update(
             {
                 "hit": True,
@@ -439,7 +474,7 @@ def prepare_brain(
         if tmp_entry.exists():
             shutil.rmtree(tmp_entry)
         tmp_entry.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(run_dir / "plugin", tmp_entry / "plugin")
+        shutil.copytree(plugin, tmp_entry / "plugin")
         (tmp_entry / "meta.json").write_text(
             json.dumps(
                 {
@@ -459,6 +494,142 @@ def prepare_brain(
     if condition == "full_brain" and task.get("history_excerpt", True):
         write_history_excerpt(task, worktree)
     return env, prep
+
+
+def read_json_file(path: pathlib.Path) -> Any:
+    with path.open() as f:
+        return json.load(f)
+
+
+def collect_brain_state(worktree: pathlib.Path, env: dict[str, str], tools: dict[str, pathlib.Path]) -> dict[str, Any]:
+    state: dict[str, Any] = {}
+    path_proc = run_cmd([str(tools["brain"]), "path", str(worktree)], cwd=worktree, env=env, timeout=120)
+    state["path_command"] = {
+        "returncode": path_proc.returncode,
+        "stdout_tail": path_proc.stdout[-4000:],
+        "stderr_tail": path_proc.stderr[-4000:],
+    }
+    if path_proc.returncode != 0:
+        return state
+
+    brain_dir = pathlib.Path(path_proc.stdout.strip().splitlines()[-1])
+    state["brain_dir"] = str(brain_dir)
+    manifest_path = brain_dir / "manifest.json"
+    if not manifest_path.exists():
+        state["manifest_error"] = "manifest.json missing"
+        return state
+
+    manifest = read_json_file(manifest_path)
+    sources = manifest.get("sources") if isinstance(manifest, dict) else None
+    semantic = sources.get("semantic") if isinstance(sources, dict) else None
+    state["manifest"] = {
+        "schema_version": manifest.get("schema_version"),
+        "repo_key": manifest.get("repo_key"),
+        "repo_root": manifest.get("repo_root"),
+        "has_seed": bool(isinstance(sources, dict) and sources.get("seed")),
+        "has_semantic": bool(semantic),
+        "has_checkpoints": bool(isinstance(sources, dict) and sources.get("checkpoints")),
+    }
+    if isinstance(semantic, dict):
+        state["semantic"] = semantic
+        artifacts: dict[str, Any] = {}
+        for key in ("snapshot_path", "store_path", "metrics_path", "parse_cache_path", "overlay_path"):
+            rel = semantic.get(key)
+            if not rel:
+                continue
+            artifact_path = brain_dir / pathlib.Path(rel)
+            artifact: dict[str, Any] = {"path": rel, "exists": artifact_path.exists()}
+            if artifact_path.exists() and artifact_path.is_file():
+                artifact["bytes"] = artifact_path.stat().st_size
+            elif artifact_path.exists() and artifact_path.is_dir():
+                artifact["entries"] = sum(1 for _ in artifact_path.rglob("*"))
+            artifacts[key] = artifact
+        state["semantic_artifacts"] = artifacts
+
+        metrics_rel = semantic.get("metrics_path")
+        if isinstance(metrics_rel, str):
+            metrics_path = brain_dir / pathlib.Path(metrics_rel)
+            if metrics_path.exists():
+                state["semantic_metrics"] = read_json_file(metrics_path)
+
+    stale_proc = run_cmd([str(tools["brain"]), "stale", str(worktree), "--json"], cwd=worktree, env=env, timeout=120)
+    state["stale_command"] = {
+        "returncode": stale_proc.returncode,
+        "stdout_tail": stale_proc.stdout[-4000:],
+        "stderr_tail": stale_proc.stderr[-4000:],
+    }
+    if stale_proc.returncode == 0 and stale_proc.stdout.strip():
+        try:
+            state["stale"] = json.loads(stale_proc.stdout)
+        except json.JSONDecodeError as exc:
+            state["stale_parse_error"] = str(exc)
+    return state
+
+
+def prep_record_summary(record: dict[str, Any]) -> str:
+    prep = record.get("brain_prep", {})
+    cache = prep.get("cache", {}) if isinstance(prep, dict) else {}
+    seconds = sum(
+        float(command.get("seconds") or 0)
+        for command in prep.get("commands", [])
+        if isinstance(command, dict)
+    )
+    state = record.get("brain_state", {})
+    semantic = state.get("semantic", {}) if isinstance(state, dict) else {}
+    stale = state.get("stale", {}) if isinstance(state, dict) else {}
+    parts = [f"ok={record.get('ok')}"]
+    if cache:
+        parts.append(f"cache_hit={cache.get('hit')}")
+    if seconds:
+        parts.append(f"prep_seconds={seconds:.1f}")
+    if semantic:
+        parts.append(f"files={semantic.get('files')}")
+        parts.append(f"symbols={semantic.get('symbols')}")
+        parts.append(f"relations={semantic.get('relations')}")
+    if stale:
+        parts.append(f"stale={stale.get('severity')}")
+    return " ".join(parts)
+
+
+def summarize_prep(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[str, Any]:
+    summary_records = []
+    for record in records:
+        state = record.get("brain_state", {})
+        semantic = state.get("semantic", {}) if isinstance(state, dict) else {}
+        metrics = state.get("semantic_metrics", {}) if isinstance(state, dict) else {}
+        stale = state.get("stale", {}) if isinstance(state, dict) else {}
+        prep = record.get("brain_prep", {})
+        commands = prep.get("commands", []) if isinstance(prep, dict) else []
+        summary_records.append(
+            {
+                "run_id": record.get("run_id"),
+                "task_id": record.get("task_id"),
+                "condition": record.get("condition"),
+                "ok": record.get("ok"),
+                "cache": prep.get("cache") if isinstance(prep, dict) else None,
+                "prep_seconds": sum(
+                    float(command.get("seconds") or 0)
+                    for command in commands
+                    if isinstance(command, dict)
+                ),
+                "semantic_files": semantic.get("files"),
+                "semantic_symbols": semantic.get("symbols"),
+                "semantic_relations": semantic.get("relations"),
+                "semantic_warnings": metrics.get("warnings"),
+                "semantic_partial_failures": metrics.get("partial_failures"),
+                "semantic_build_millis": metrics.get("build_millis"),
+                "semantic_store_bytes": metrics.get("store_bytes"),
+                "stale_severity": stale.get("severity"),
+            }
+        )
+    summary = {
+        "records": len(records),
+        "ok": sum(1 for record in records if record.get("ok")),
+        "failed": sum(1 for record in records if not record.get("ok")),
+        "prep": summary_records,
+    }
+    (suite_dir / "prep-summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
+    return summary
 
 
 def write_history_excerpt(task: dict[str, Any], worktree: pathlib.Path) -> None:
@@ -522,6 +693,7 @@ def write_history_excerpt(task: dict[str, Any], worktree: pathlib.Path) -> None:
             "Benchmark full-brain history excerpt",
         ],
         cwd=worktree,
+        env=benchmark_git_env(),
         check=True,
     )
 
@@ -1010,6 +1182,68 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_prep(args: argparse.Namespace) -> int:
+    tasks = load_tasks(args.tasks)
+    conditions = [x.strip() for x in args.conditions.split(",") if x.strip()]
+    suite = args.suite_name or dt.datetime.now(dt.UTC).strftime("prep-%Y%m%dT%H%M%SZ")
+    suite_dir = RESULT_DIR / suite
+    suite_dir.mkdir(parents=True, exist_ok=False)
+    tools = build_tools(suite_dir)
+
+    records: list[dict[str, Any]] = []
+    for task in tasks:
+        for condition in conditions:
+            if condition == "no_brain" or condition not in task.get("conditions", []):
+                continue
+            run_id = f"{task['id']}__prep__{condition}"
+            run_dir = suite_dir / run_id
+            run_dir.mkdir(parents=True, exist_ok=False)
+            source = pathlib.Path(task["repo_path"])
+            worktree: pathlib.Path | None = None
+            record: dict[str, Any] = {
+                "run_id": run_id,
+                "task_id": task["id"],
+                "repo": task["repo"],
+                "condition": condition,
+                "started_at": dt.datetime.now(dt.UTC).isoformat(),
+            }
+            try:
+                worktree = create_worktree(task, run_dir)
+                env, prep = prepare_brain(
+                    task,
+                    condition,
+                    worktree,
+                    run_dir,
+                    tools,
+                    args.checkpoint_limit,
+                    use_cache=not args.no_brain_cache,
+                    refresh_cache=args.refresh_brain_cache,
+                )
+                record.update(
+                    {
+                        "ok": True,
+                        "worktree": str(worktree),
+                        "brain_prep": prep,
+                        "brain_state": collect_brain_state(worktree, env, tools),
+                    }
+                )
+            except Exception as exc:
+                record.update({"ok": False, "error": str(exc)})
+            finally:
+                record["finished_at"] = dt.datetime.now(dt.UTC).isoformat()
+                (run_dir / "record.json").write_text(json.dumps(record, indent=2, sort_keys=True))
+                records.append(record)
+                with (suite_dir / "records.ndjson").open("a") as f:
+                    f.write(json.dumps(record, sort_keys=True) + "\n")
+                print(f"{run_id}: {prep_record_summary(record)}", flush=True)
+                if worktree and not args.keep_worktrees:
+                    remove_worktree(source, worktree)
+
+    summary = summarize_prep(records, suite_dir)
+    print(json.dumps(summary, indent=2, sort_keys=True))
+    return 1 if any(not record.get("ok") for record in records) else 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     records = []
     output_dir = RESULT_DIR / "combined-report"
@@ -1088,6 +1322,16 @@ def main() -> int:
     run_p.add_argument("--no-brain-cache", action="store_true", help="Rebuild brain prep artifacts in every run")
     run_p.add_argument("--refresh-brain-cache", action="store_true", help="Overwrite cached brain prep artifacts")
     run_p.set_defaults(func=cmd_run)
+
+    prep_p = sub.add_parser("prep")
+    prep_p.add_argument("--tasks", nargs="*", default=[])
+    prep_p.add_argument("--conditions", default="semantic_brain,full_brain")
+    prep_p.add_argument("--checkpoint-limit", type=int, default=200)
+    prep_p.add_argument("--suite-name")
+    prep_p.add_argument("--keep-worktrees", action="store_true")
+    prep_p.add_argument("--no-brain-cache", action="store_true")
+    prep_p.add_argument("--refresh-brain-cache", action="store_true")
+    prep_p.set_defaults(func=cmd_prep)
 
     report_p = sub.add_parser("report")
     report_p.add_argument("suite", nargs="+")

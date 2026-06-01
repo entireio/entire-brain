@@ -2061,16 +2061,64 @@ func TestBundleExportLockFailsFast(t *testing.T) {
 	}
 }
 
-func TestSemanticContextLockFailsFast(t *testing.T) {
+func TestSemanticReadCommandsDoNotRequireExclusiveIndexLock(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
 	brainDir := filepath.Join(env.PluginDataDir, brainDirName, "gh", "example", "repo")
 	writeSemanticTestLock(t, brainDir)
 
-	err := runSemanticContext((&cobra.Command{}).Context(), &cobra.Command{Use: "context"}, Options{Env: env, Runner: runner, Now: time.Now}, semanticContextOptions{limit: 10}, "ValidateToken")
-	if err == nil || !strings.Contains(err.Error(), "index_locked") {
-		t.Fatalf("context lock err = %v", err)
+	for _, tc := range []struct {
+		name string
+		run  func(*cobra.Command) error
+	}{
+		{
+			name: "query",
+			run: func(readCmd *cobra.Command) error {
+				return runSemanticQuery(readCmd.Context(), readCmd, opts, semanticQueryOptions{limit: 10, json: true}, "ValidateToken")
+			},
+		},
+		{
+			name: "context",
+			run: func(readCmd *cobra.Command) error {
+				return runSemanticContext(readCmd.Context(), readCmd, opts, semanticContextOptions{limit: 10, json: true}, "ValidateToken")
+			},
+		},
+		{
+			name: "impact",
+			run: func(readCmd *cobra.Command) error {
+				return runSemanticImpact(readCmd.Context(), readCmd, opts, semanticImpactOptions{limit: 10, depth: 1, json: true}, "ValidateToken")
+			},
+		},
+		{
+			name: "routes",
+			run: func(readCmd *cobra.Command) error {
+				return runSemanticBoundary(readCmd.Context(), readCmd, opts, semanticBoundaryOptions{limit: 10, json: true}, semanticBoundarySpec{
+					SymbolKinds:   []string{"route", "http_route"},
+					RelationTypes: []string{"HANDLES_ROUTE"},
+				})
+			},
+		},
+		{
+			name: "tests",
+			run: func(readCmd *cobra.Command) error {
+				return runSemanticTests(readCmd.Context(), readCmd, opts, semanticTestsOptions{limit: 10, json: true}, "ValidateToken")
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			readCmd := &cobra.Command{Use: tc.name}
+			readCmd.SetOut(&out)
+			if err := tc.run(readCmd); err != nil {
+				t.Fatalf("%s with index lock: %v", tc.name, err)
+			}
+		})
 	}
 }
 

@@ -2226,14 +2226,6 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 	if err != nil {
 		return err
 	}
-	if err := ensureSemanticAuditPathSafe(storage.BrainDir); err != nil {
-		return err
-	}
-	unlock, err := acquireSemanticIndexLock(storage.BrainDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
 	manifest, err := loadBrainManifest(storage.BrainDir)
 	if err != nil {
 		return err
@@ -2304,11 +2296,6 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 	if err != nil {
 		return err
 	}
-	unlock, err := acquireSemanticIndexLock(storage.BrainDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
 	manifest, err := loadBrainManifest(storage.BrainDir)
 	if err != nil {
 		return err
@@ -2373,11 +2360,6 @@ func runSemanticImpact(ctx context.Context, cmd *cobra.Command, opts Options, im
 	if err != nil {
 		return err
 	}
-	unlock, err := acquireSemanticIndexLock(storage.BrainDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
 	manifest, err := loadBrainManifest(storage.BrainDir)
 	if err != nil {
 		return err
@@ -2492,11 +2474,6 @@ func runSemanticBoundary(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if err != nil {
 		return err
 	}
-	unlock, err := acquireSemanticIndexLock(storage.BrainDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
 	manifest, err := loadBrainManifest(storage.BrainDir)
 	if err != nil {
 		return err
@@ -2550,11 +2527,6 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 	if err != nil {
 		return err
 	}
-	unlock, err := acquireSemanticIndexLock(storage.BrainDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
 	manifest, err := loadBrainManifest(storage.BrainDir)
 	if err != nil {
 		return err

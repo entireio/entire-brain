@@ -288,6 +288,26 @@ SWE-bench-style task definitions. Project-native coverage is 8 `entire-brain`,
 6 `entire-cli`, and 5 GitHub CLI tasks. Treat local SWE-style tasks as harness
 shakedown only; they do not replace real SWE-bench Lite/Verified evidence.
 
+Current pilot-filtering status:
+
+- `entire-cli` semantic indexing is no longer blocked, and sandboxed semantic
+  runs can read `.benchmark/plugin` stores. A read-lock issue found during the
+  pilot is fixed: read-only semantic commands no longer take the exclusive index
+  lock, while writer commands still do.
+- Most current `entire-cli` pilots are saturated. `review-base-flag-scope` has
+  a possible token/time efficiency signal at `n=1`, but `review-prompt`,
+  `transcript-reresolve`, and the checkpoint-history `review-provenance-strip`
+  task did not produce a retained correctness signal.
+- GitHub CLI semantic pilots produced two retained Codex candidates with five
+  repetitions per condition: `github-cli-repo-name-trims-dotgit` and
+  `github-cli-http-scopes-suggestion`. Both improved mean score, time, tokens,
+  and patch locality under semantic brain. They now need Claude and alternate
+  Codex runner coverage before final claims.
+- A one-run Claude Code pilot on those two GitHub CLI candidates saturated:
+  Claude scored 100 in both no-brain and semantic-brain conditions, and
+  semantic-brain added overhead. Treat these as Codex-retained tasks unless
+  redesigned for a harder Claude setting.
+
 Expand the task inventory to:
 
 - `entire-cli`: 6-10 non-smoke tasks. Include review/resume context, plugin
@@ -341,36 +361,46 @@ Implemented cache behavior:
 - text artifacts containing the cache-populating worktree path are rewritten to
   the current disposable worktree path.
 
-This cache removes repeated prep cost after a brain has been built. It does not
-fix the initial semantic index build. Current checkpoint evidence shows
-`entire-sem snapshot --repo ../cli` and `entire-brain index
-/Users/thomi/Projects/cli` attempts, but no completed `entire-cli` semantic
-index artifact. Broad `entire-cli` semantic-brain benchmarking is therefore
-paused until the provider/brain indexing path can complete reliably.
+This cache removes repeated prep cost after a brain has been built. The initial
+`entire-cli` semantic index build is now bounded enough for local benchmark
+use, so the cache is usable for the expanded semantic task set.
 
-### Phase 2B.2: `entire-cli` Semantic Index Blocker
+### Phase 2B.2: `entire-cli` Semantic Index Blocker Resolved
 
-Benchmark work is paused here to fix `entire-cli` semantic indexing first.
-Evidence gathered so far:
+The earlier `entire-cli` semantic indexing pause is resolved for local
+benchmarking:
 
-- successful `entire-cli` full-brain benchmark runs used checkpoint export plus
-  seed only, with `prepare_semantic: false`;
-- checkpoint history shows direct and brain-mediated semantic indexing attempts
-  for `../cli`, but not a successful semantic artifact;
-- a harness smoke run against a new semantic `entire-cli` task timed out after
-  900 seconds in `entire-brain index`, delegated to `entire-sem snapshot`;
-- benchmark-side pruning or synthetic `.brainignore` injection is not an
-  acceptable proof path.
+- `entire-sem snapshot --repo /Users/thomi/Projects/cli --format ndjson
+  --no-network` completes in about 17 seconds with normal project ignores;
+- isolated `entire-brain index /Users/thomi/Projects/cli` completes in about 29
+  seconds using locally built `entire-brain` and `entire-sem`;
+- the artifact records 760 files, 9,130 symbols, 179,717 stored relations, zero
+  warnings, zero partial failures, and a roughly 152 MB SQLite store;
+- semantic prep cache entries for four `entire-cli` tasks now produce
+  `stale=ok` on both cold prep and cache-hit reuse.
 
-Next work before resuming benchmarks:
+Harness fixes made while resolving this:
 
-- reproduce `entire-sem snapshot --repo ../cli --format ndjson --no-network`
-  outside the benchmark harness and profile where it stalls;
-- fix `entire-sem` and/or `entire-brain index` so the full repository indexes
-  with normal project ignores and bounded runtime;
-- record semantic artifact counts, runtime, warnings, and freshness metadata;
-- only then re-enable semantic/full semantic conditions for the expanded
-  `entire-cli` task set.
+- added `run.py prep` to verify/cache brain artifacts without launching agents;
+- made benchmark-generated setup commits deterministic, so commit-addressed
+  semantic snapshots stay fresh across identical disposable worktrees;
+- copied per-run plugin state under ignored `.benchmark/plugin/` inside the
+  disposable worktree so sandboxed agents can use semantic SQLite and lock files.
+
+Current caveat: the first resumed Codex smoke task
+`entire-cli-plugin-env-xdg-prefix` remains saturated for correctness. Both
+no-brain and semantic-brain conditions passed in one repetition. Semantic brain
+was faster and used fewer tokens in that single run, but `n=1` is not proof and
+the task should be treated as a harness smoke unless repeated runs show a stable
+operational delta.
+
+Next work:
+
+- run Codex-only pilots across the warmed `entire-cli` semantic tasks;
+- retain only tasks with a measurable correctness, navigation, validation,
+  duration, token, or cost signal;
+- then resume the Codex/Claude no-brain, semantic-brain, and full-brain matrix
+  on retained tasks.
 
 ### Phase 2C: Model, Effort, and Cost Matrix
 

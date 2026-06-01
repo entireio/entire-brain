@@ -14,11 +14,24 @@ measure whether agents check brain freshness before relying on prepared context.
 
 Brain prep artifacts are cached under `benchmarks/agent-brain/cache/` by
 repo/base/setup/condition/tool hash. Each run receives its own copy of the
-cached plugin directory, with text artifacts rewritten to the current disposable
-worktree path. Use `--refresh-brain-cache` to overwrite a cache entry or
-`--no-brain-cache` to force per-run rebuilds. The cache avoids repeated prep
+cached plugin directory under the disposable worktree's ignored
+`.benchmark/plugin/` path, with text artifacts rewritten to the current
+disposable worktree path. Use `--refresh-brain-cache` to overwrite a cache entry
+or `--no-brain-cache` to force per-run rebuilds. The cache avoids repeated prep
 after a brain has been built successfully; it does not fix slow or incomplete
 initial semantic indexing.
+
+Use `prep` to verify and cache brain artifacts without launching an agent:
+
+```sh
+python3 benchmarks/agent-brain/run.py prep \
+  --tasks entire-cli-plugin-env-xdg-prefix.json \
+  --conditions semantic_brain \
+  --suite-name entire-cli-semantic-prep
+```
+
+Prep records include semantic manifest counts, artifact sizes, stale status,
+generation metrics, command durations, and cache hit/miss metadata.
 
 Each `record.json` includes:
 
