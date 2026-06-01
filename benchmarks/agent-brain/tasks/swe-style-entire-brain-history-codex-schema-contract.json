@@ -1,0 +1,38 @@
+{
+  "id": "swe-style-entire-brain-history-codex-schema-contract",
+  "repo": "entire-brain",
+  "repo_path": "/Users/thomi/Projects/entire-brain",
+  "conditions": ["no_brain", "full_brain"],
+  "prepare_semantic": false,
+  "prompt": "Issue: Codex seed-agent runs are failing against the current structured-output contract. The command shape appears to have regressed to an older compatibility mode. Restore the intended behavior and add focused coverage so the regression cannot come back.",
+  "setup_replacements": [
+    {
+      "path": "internal/cli/seed.go",
+      "old": "case \"codex\":\n\t\treturn []string{\"codex\", \"exec\", \"--skip-git-repo-check\", \"--ephemeral\", \"--ignore-user-config\", \"--ignore-rules\", \"--sandbox\", \"read-only\", seedAgentPrompt(phase)}, nil",
+      "new": "case \"codex\":\n\t\treturn []string{\"codex\", \"exec\", \"--skip-git-repo-check\", \"--ephemeral\", \"--ignore-user-config\", \"--ignore-rules\", \"--sandbox\", \"read-only\", \"--output-schema\", \"seed-agent.schema.json\", seedAgentPrompt(phase)}, nil"
+    }
+  ],
+  "setup_commands": [
+    "rm -f docs/progress-so-far.md",
+    "perl -0pi -e 's/\\nfunc TestSeedAgentCommandArgsCodexUsesStructuredReadOnlyExec\\(t \\*testing\\.T\\) \\{.*?\\n\\}\\n\\nfunc TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions/\\nfunc TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions/s' internal/cli/seed_test.go"
+  ],
+  "validation": [
+    "test $(rg -n -- '--output-schema' internal/cli/seed.go | wc -l | tr -d ' ') -eq 0",
+    "test $(rg -n 'TestSeedAgentCommandArgsCodex' internal/cli/seed_test.go | wc -l | tr -d ' ') -ge 1",
+    "test $(rg -n 'should rely on prompt plus local validation, not --output-schema' internal/cli/seed_test.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./internal/cli -run 'TestSeedAgentCommandArgsCodex'"
+  ],
+  "expected_files": ["internal/cli/seed.go", "internal/cli/seed_test.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "source": "swe-style",
+  "suite_tags": ["phase2", "history", "rationale"],
+  "brain_queries": [
+    "Checkpoint-context review reverted Codex `--output-schema` usage",
+    "schema-dialect failure",
+    "prompt plus local `schema_version` and `status` validation",
+    "should rely on prompt plus local validation"
+  ],
+  "history_excerpt_lines": 24
+}

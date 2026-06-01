@@ -1,0 +1,31 @@
+{
+  "id": "swe-style-entire-brain-history-bundle-sha256",
+  "repo": "entire-brain",
+  "repo_path": "/Users/thomi/Projects/entire-brain",
+  "conditions": ["no_brain", "full_brain"],
+  "prepare_semantic": false,
+  "prompt": "Issue: importing a local brain bundle now succeeds without explicit archive integrity input. Restore the intended fail-closed command contract and keep the patch focused.",
+  "setup_replacements": [
+    {
+      "path": "internal/cli/semantic.go",
+      "old": "if expectedChecksum == \"\" {\n\t\t\t\treturn errors.New(\"--sha256 is required for bundle import\")\n\t\t\t}",
+      "new": "if false && expectedChecksum == \"\" {\n\t\t\t\treturn errors.New(\"--sha256 is required for bundle import\")\n\t\t\t}"
+    }
+  ],
+  "setup_commands": [
+    "rm -f docs/progress-so-far.md",
+    "perl -0pi -e 's/ --sha256 <sha256>//g; s/ --sha256 <bundle-sha256>//g; s/checksum validation,?//g; s/, checksum verification//g' README.md docs/semantic_brain_plan.md"
+  ],
+  "validation": [
+    "test $(rg -n 'if expectedChecksum == \"\"' internal/cli/semantic.go | wc -l | tr -d ' ') -eq 1",
+    "test $(rg -n '\"--sha256 is required for bundle import\"' internal/cli/semantic.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./internal/cli -run 'TestBundleImportRejectsChecksumMismatch|TestPhase1SemanticCommandJSONContracts'"
+  ],
+  "expected_files": ["internal/cli/semantic.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "source": "swe-style",
+  "suite_tags": ["phase2", "history", "safety"],
+  "brain_queries": ["bundle import sha256 required", "expected SHA-256 input", "local bundle archive integrity"]
+}
