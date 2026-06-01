@@ -1,0 +1,23 @@
+{
+  "id": "entire-cli-external-command-env-filter",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/cli",
+  "conditions": ["no_brain", "full_brain"],
+  "prepare_semantic": false,
+  "prompt": "Fix the security regression where third-party Entire plugin subprocesses can receive credential-like environment variables from the parent process. Preserve intentional allowlist and user override behavior.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "cmd/entire/cli/plugin_env.go",
+      "old": "func isPluginEnvAllowed(name string, userExact map[string]struct{}, userPrefixes []string) bool {\n\tif _, ok := pluginEnvAllowed[name]; ok {",
+      "new": "func isPluginEnvAllowed(name string, userExact map[string]struct{}, userPrefixes []string) bool {\n\tif name == \"GITHUB_TOKEN\" || name == \"AWS_ACCESS_KEY_ID\" {\n\t\treturn true\n\t}\n\tif _, ok := pluginEnvAllowed[name]; ok {"
+    }
+  ],
+  "validation": [
+    "go test -tags=integration ./cmd/entire/cli/integration_test -run TestExternalCommand_EnvFiltered_CredentialsDropped"
+  ],
+  "expected_files": ["cmd/entire/cli/plugin_env.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "brain_queries": ["shouldForwardPluginEnv", "EnvFiltered", "ExternalCommand"]
+}

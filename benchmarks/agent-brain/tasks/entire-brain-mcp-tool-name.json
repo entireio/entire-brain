@@ -1,0 +1,21 @@
+{
+  "id": "entire-brain-mcp-tool-name",
+  "repo": "entire-brain",
+  "repo_path": "/Users/thomi/Projects/entire-brain",
+  "conditions": ["no_brain", "semantic_brain", "full_brain"],
+  "prompt": "Fix the failing MCP tool-list regression. Keep the public MCP tool names stable and run the focused MCP tests before finishing.",
+  "setup_replacements": [
+    {
+      "path": "internal/cli/mcp.go",
+      "old": "\"name\":        \"brain_context\",",
+      "new": "\"name\":        \"brain_ctx\","
+    }
+  ],
+  "validation": [
+    "test $(rg -n '\"name\":\\s+\"brain_context\"' internal/cli/mcp.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./internal/cli -run 'TestMCPInitializeAndToolsList|TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON'"
+  ],
+  "expected_files": ["internal/cli/mcp.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "brain_queries": ["brain_context", "mcpToolDefinitions", "handleMCPToolCall"]
+}
