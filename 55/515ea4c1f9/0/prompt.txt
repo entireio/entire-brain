@@ -1,0 +1,5 @@
+/goal Close all documented gaps. Then set up CI not just for Linux, but also Mac and Windows. Make sure all phase 1 features work on all 3 operating systems. If you see errors in the GitHub Actions runs, fix them, wait for the next run, and check again.
+
+---
+
+Fix the GitHub Actions warning by updating the checkout and setup actions
