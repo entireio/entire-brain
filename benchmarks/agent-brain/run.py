@@ -558,6 +558,7 @@ def brain_cache_payload(
         "condition": condition,
         "prepare_semantic": bool(task.get("prepare_semantic", True)),
         "checkpoint_limit": checkpoint_limit if condition == "full_brain" else None,
+        "history_index": condition == "full_brain",
         "setup_patch": task.get("setup_patch", ""),
         "setup_replacements": task.get("setup_replacements", []),
         "setup_commands": task.get("setup_commands", []),
@@ -597,7 +598,7 @@ def brain_prep_commands(task: dict[str, Any], condition: str, worktree: pathlib.
     if task.get("prepare_semantic", True):
         commands.append([str(tools["brain"]), "index", str(worktree), "--sem-binary", str(tools["entire"]), "--force"])
     if condition == "full_brain":
-        commands.insert(0, [str(tools["brain"]), "export", "--checkpoint-limit", str(checkpoint_limit)])
+        commands.insert(0, [str(tools["brain"]), "export", "--checkpoint-limit", str(checkpoint_limit), "--history-index"])
     return commands
 
 
