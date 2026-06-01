@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "c386dd231cdf",
+  "strategy": "manual-commit",
+  "branch": "codex/phase-2-brain-benchmark-plan",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "docs/agent_benchmark_plan.md",
+    "docs/semantic_brain_plan.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c3/86dd231cdf/0/metadata.json",
+      "transcript": "/c3/86dd231cdf/0/full.jsonl",
+      "content_hash": "/c3/86dd231cdf/0/content_hash.txt",
+      "prompt": "/c3/86dd231cdf/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 441557,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6704640,
+    "output_tokens": 36058,
+    "api_call_count": 62
+  }
+}

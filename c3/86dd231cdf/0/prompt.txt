@@ -1,0 +1,88 @@
+Review the benchmarking plan and progress int he docs folder. From the learnings so far, there are a few questions:
+1. Think about what scenarios are best covered by the semantic index and the entire session data?
+2. Are there better way of structuring and exposing the brain to the coding agent?
+3. Specifically for repos with entire session data, e.g. entire-cli, what could you learn from reviewing the sessions and, for example, identifying decisions, learnings, tool calls, other things that may provide an optimization to the agent?
+
+---
+
+1. This is not quite right: "Treat the semantic index as the agent’s current-code navigation layer" -> The brain is a great starting point, especially when fresh and for architecture questions. But it won't know about changes the same agent did a few minutes ago.
+2. I feel like you didn't answer or address my 3 questions?
+
+---
+
+1. This is not quite right: "Treat the semantic index as the agent’s current-code navigation layer" -> The brain is a great starting point, especially when fresh and for architecture questions. But it won't know about changes the same agent did a few minutes ago.
+2. I feel like you didn't answer or address my 3 questions?
+
+---
+
+For things like "brain decisions", when would you parse the the decisions – when the brain is created or when the command is called?
+
+---
+
+For things like "brain decisions", when would you parse the the decisions – when the brain is created or when the command is called?
+
+---
+
+Got it. And how would the coding agent know about this command?
+
+---
+
+Got it. And how would the coding agent know about this command?
+
+---
+
+What would the full "entire brain" command set look like?
+
+---
+
+What would the full "entire brain" command set look like?
+
+---
+
+That's a lot of commands for "Semantic Code Understanding" and "History And Rationale". Are you sure you as agent would need all those? What would a simpler version look like and what are pros/cons for each approach?
+
+---
+
+That's a lot of commands for "Semantic Code Understanding" and "History And Rationale". Are you sure you as agent would need all those? What would a simpler version look like and what are pros/cons for each approach?
+
+---
+
+How is the workspace defined in "entire brain workspace brief"?
+
+---
+
+How is the workspace defined in "entire brain workspace brief"?
+
+---
+
+Ok, go with the simpler approach and move the specialist commands under an "inspect" command, e.g. "entire brain inspect decisions". Show me the full command set.
+
+---
+
+Ok, go with the simpler approach and move the specialist commands under an "inspect" command, e.g. "entire brain inspect decisions". Show me the full command set.
+
+---
+
+Ok, add that to the new plan. Back to my original 3 questions, what is your plan to address those?
+
+---
+
+Ok, add that to the new plan. Back to my original 3 questions, what is your plan to address those?
+
+---
+
+On 1. "agents must inspect git status, git diff, and files." sounds like a performance issue.
+On 2 and 3. Would a context graph help?
+
+---
+
+On 1. "agents must inspect git status, git diff, and files." sounds like a performance issue.
+On 2 and 3. Would a context graph help?
+
+---
+
+Ok, in the original plan, we had a phase 2. Make that phase 3 instead and introduce a new phase 2 for addressing the 3 questions. Note that phase 2 benchmarking should ensure that you are actively finding scenarios where the brain is better (with statistic significance), instead of trying simple coding tasks that modern models can solve without the brain. For each layer A/B/C, you should fine at least 20 scenarios where agent + brain is better than agent + no brain. Also, for both Codex and Claude, run at least two alternative models with lower pricing. Research token pricing for each supported model and reasoning effort.
+
+---
+
+Ok, in the original plan, we had a phase 2. Make that phase 3 instead and introduce a new phase 2 for addressing the 3 questions. Note that phase 2 benchmarking should ensure that you are actively finding scenarios where the brain is better (with statistic significance), instead of trying simple coding tasks that modern models can solve without the brain. For each layer A/B/C, you should fine at least 20 scenarios where agent + brain is better than agent + no brain. Also, for both Codex and Claude, run at least two alternative models with lower pricing. Research token pricing for each supported model and reasoning effort.
