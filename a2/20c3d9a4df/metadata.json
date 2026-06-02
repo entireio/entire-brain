@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "a220c3d9a4df",
+  "strategy": "manual-commit",
+  "branch": "phase-2-brain-benchmark-plan",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "benchmarks/agent-brain/tasks/swe-style-github-cli-repo-name-trims-dotgit.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a2/20c3d9a4df/0/metadata.json",
+      "transcript": "/a2/20c3d9a4df/0/full.jsonl",
+      "content_hash": "/a2/20c3d9a4df/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 500053,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 35136256,
+    "output_tokens": 19921,
+    "api_call_count": 166
+  }
+}
