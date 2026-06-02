@@ -29,19 +29,34 @@ Counts below are computed from the combined report over:
 - `phase2-manual-commit-attribution-fill-r3-20260602` (partial, used as a reject/surface-gap control)
 - `phase2-codex-default-high-history-fill-r3-20260602`
 
-Layer counts use overlapping membership:
+Important accounting correction: the 20-per-layer acceptance criterion is a
+scenario-level target, independent of model/runner. The earlier version of this
+ledger incorrectly treated task-runner-condition comparisons as scenarios.
+
+Comparison-level counts are still useful for model/effort evidence, but they do
+not satisfy the 20-scenario requirement:
 
 - A: project-native task comparisons.
 - B: SWE-style task comparisons.
 - C: lower-cost/model-effort comparisons.
 
-| Layer | Retained | Rejected | Target | Status |
+| Layer | Retained comparisons | Rejected/weak comparisons | Target scenarios | Status |
 |---|---:|---:|---:|---|
-| A project-native | 20 | 18 | 20 | met |
-| B SWE-style | 20 | 7 | 20 | met |
-| C model/effort/cost | 23 | 22 | 20 | met |
+| A project-native | 20 | 18 | 20 | comparison count only |
+| B SWE-style | 20 | 7 | 20 | comparison count only |
+| C model/effort/cost | 23 | 22 | 20 | comparison count only |
 
-The 20-per-layer proof target is met.
+Scenario-level counts, deduped by task prompt independent of model/runner:
+
+| Layer | Tested scenarios | Retained scenarios | Target | Status |
+|---|---:|---:|---:|---|
+| A project-native | 9 | 6 | 20 | short by 14 |
+| B SWE-style | 6 | 5 | 20 | short by 15 |
+| C model/effort/cost | 10 | 10 | 20 | short by 10 |
+
+The 20-per-layer scenario target is not met. The campaign found repeated
+evidence for a smaller set of brain-positive scenarios, then overcounted that
+evidence by runner/model.
 
 ## Metrics Appendices
 
@@ -181,10 +196,11 @@ Learning: the current history index is useful for known phrase recall and tool/v
 
 ## Phase 2 Outcome
 
-The Phase 2 benchmark target is complete:
+The Phase 2 benchmark target is not complete under the scenario-level
+requirement:
 
-- Layer A: 20 retained project-native comparisons.
-- Layer B: 20 retained SWE-style comparisons.
-- Layer C: 23 retained lower-cost/model-effort comparisons.
+- Layer A: 6 retained project-native scenarios.
+- Layer B: 5 retained SWE-style scenarios.
+- Layer C: 10 retained lower-cost/model-effort scenarios.
 
 The strongest retained scenarios are history/rationale tasks where the current checkout alone omits a prior implementation decision, validation trace, or contract detail. The weakest scenarios are simple semantic navigation tasks and full-session tasks whose relevant decision is present only as unstructured transcript text.
