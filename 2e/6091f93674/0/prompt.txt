@@ -1,0 +1,1 @@
+For the repos with entire session data, did you ever analyze decisions, architecture, etc. from the session logs? Try some of the brain inspect commands to validate that, the. continue the benchmark matrix.
