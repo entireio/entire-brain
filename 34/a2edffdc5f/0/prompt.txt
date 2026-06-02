@@ -1,9 +1,1 @@
-Just checking, where are you overall with the benchmark progress?
-
----
-
-Your report doesn't include any of the metrics like token usage for each comparison. Don't tell me you didn't collect this data?
-
----
-
 Your report doesn't include any of the metrics like token usage for each comparison. Don't tell me you didn't collect this data?
