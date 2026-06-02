@@ -1,0 +1,40 @@
+{
+  "id": "swe-style-github-cli-repo-name-trims-dotgit",
+  "repo": "github-cli",
+  "repo_path": "/Users/thomi/Projects/github-cli",
+  "conditions": [
+    "no_brain",
+    "semantic_brain"
+  ],
+  "source": "swe-style",
+  "suite_tags": [
+    "phase2",
+    "semantic",
+    "localization"
+  ],
+  "prompt": "Issue: repository creation accepts names ending in `.git`, but the CLI stopped normalizing that suffix before validation. Restore the shared normalization behavior so CLI input matches GitHub's new-repository UI.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "pkg/cmd/repo/shared/repo.go",
+      "old": "return strings.TrimSuffix(newName, \".git\")",
+      "new": "return newName"
+    }
+  ],
+  "validation": [
+    "go test ./pkg/cmd/repo/shared -run TestNormalizeRepoName"
+  ],
+  "expected_files": [
+    "pkg/cmd/repo/shared/repo.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "NormalizeRepoName",
+    "invalidCharactersRE",
+    "TrimSuffix"
+  ]
+}
