@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "66917122ee42",
+  "session_id": "019e849b-3b23-7890-8852-066ab00a19ad",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-02T10:09:17.1073Z",
+  "branch": "phase-2-brain-benchmark-plan",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "benchmarks/agent-brain/discovery/phase2-campaign-20260601/report.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "85abbde9968a",
+  "checkpoint_transcript_start": 5763,
+  "transcript_lines_at_start": 5763,
+  "token_usage": {
+    "input_tokens": 285195,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 36617984,
+    "output_tokens": 22323,
+    "api_call_count": 167
+  },
+  "session_metrics": {
+    "turn_count": 28
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-02T10:09:16.893245Z",
+    "agent_lines": 43,
+    "agent_removed": 12,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 43,
+    "total_lines_changed": 55,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
