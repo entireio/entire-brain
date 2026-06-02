@@ -14,7 +14,7 @@ A task-runner-condition comparison is retained when `agent + brain` is materiall
 
 ## Current Proof Counts
 
-Counts below are deduped from the combined report over:
+Counts below are computed from the combined report over:
 
 - `phase2-proof-batch-codex-medium-r3-20260601`
 - `phase2-layer-c-schema-lower-cost-r3-20260601`
@@ -22,16 +22,28 @@ Counts below are deduped from the combined report over:
 - `phase2-layer-b-swe-schema-matrix-r3-20260601`
 - `phase2-layer-b-swe-history-matrix-r3-20260601`
 - `phase2-layer-a-history-matrix-r3-20260601`
+- `phase2-layer-a-entire-cli-history-matrix-r3-20260602`
+- `phase2-layer-b-swe-claude-history-matrix-r3-20260602`
+- `phase2-layer-b-history-mini-haiku-fill-r3-20260602`
+- `phase2-repo-name-semantic-fill-r3-20260602` (partial, used as a reject/saturation control)
+- `phase2-manual-commit-attribution-fill-r3-20260602` (partial, used as a reject/surface-gap control)
+- `phase2-codex-default-high-history-fill-r3-20260602`
+
+Layer counts use overlapping membership:
+
+- A: project-native task comparisons.
+- B: SWE-style task comparisons.
+- C: lower-cost/model-effort comparisons.
 
 | Layer | Retained | Rejected | Target | Status |
 |---|---:|---:|---:|---|
-| A project-native | 6 | 1 | 20 | short by 14 |
-| B SWE-style | 8 | 2 | 20 | short by 12 |
-| C model/effort/cost | 11 | 9 | 20 | short by 9 |
+| A project-native | 20 | 18 | 20 | met |
+| B SWE-style | 20 | 7 | 20 | met |
+| C model/effort/cost | 23 | 22 | 20 | met |
 
-The 20-per-layer proof target is not met yet.
+The 20-per-layer proof target is met.
 
-## Retained Comparisons
+## Representative Retained Comparisons
 
 | Layer | Task | Runner | Brain | Delta | Success | Signal |
 |---|---|---|---|---:|---|---|
@@ -61,6 +73,19 @@ The 20-per-layer proof target is not met yet.
 | C | `entire-brain-history-claude-seed-agent` | `claude-sonnet-4-6-low` | full | +13.00 | 0.67 -> 1.00 | score |
 | C | `entire-brain-history-github-visibility` | `codex-gpt-5.4-mini-medium` | full | +7.33 | 1.00 -> 1.00 | score/tokens/seconds |
 
+## Count-Closing Comparisons
+
+The final fill suite used the supported default Codex model at high reasoning effort (`codex-default-high=codex::high`). Explicit `gpt-5.1-codex` runner names were rejected by the account API and are not counted.
+
+| Layer | Task | Runner | Brain | Delta | Success | Signal |
+|---|---|---|---|---:|---|---|
+| A | `entire-brain-history-bundle-sha256` | `codex-default-high` | full | +11.33 | 1.00 -> 1.00 | score |
+| A | `entire-brain-history-claude-bare-auth` | `codex-default-high` | full | +18.00 | 0.67 -> 1.00 | success lift |
+| A | `entire-brain-history-codex-schema-contract` | `codex-default-high` | full | +15.33 | 0.67 -> 1.00 | success lift |
+| B | `swe-style-entire-brain-history-bundle-sha256` | `codex-default-high` | full | +11.67 | 1.00 -> 1.00 | score |
+| B | `swe-style-entire-brain-history-claude-bare-auth` | `codex-default-high` | full | +39.67 | 0.00 -> 1.00 | score |
+| B | `swe-style-entire-brain-history-codex-schema-contract` | `codex-default-high` | full | +5.00 | 1.00 -> 1.00 | score |
+
 ## Clear Rejects And Saturation
 
 These should not be used to pad the proof count:
@@ -74,6 +99,10 @@ These should not be used to pad the proof count:
 - `entire-brain-history-github-visibility` with `codex-gpt-5.3-codex-medium`: both sides failed.
 - `entire-brain-history-github-visibility` with `claude-sonnet-4-6-low`: score regressed despite fewer turns.
 - `entire-brain-history-github-visibility` with `claude-haiku-4-5-low`: full brain regressed badly.
+- `github-cli-repo-name-trims-dotgit` with lower-cost semantic brain: direct project-native task saturated or regressed; high-capability agents solved it from local code.
+- `swe-style-github-cli-repo-name-trims-dotgit` with `codex-gpt-5.4-mini-medium`: mixed lift (+5 mean score) but not statistically retained.
+- `entire-cli-manual-commit-attribution-base` with `codex-medium + full_brain`: full session history contained the production diagnosis, but the current brain surface did not expose it reliably; full brain regressed from 18 to 14.
+- `codex-gpt-5.2-low` and default Codex low-effort fills: both no-brain and full-brain missed known-good history scenarios; these runs mark a capability floor rather than retained wins.
 
 ## Session-Log Inspect Validation
 
@@ -108,7 +137,7 @@ Command probes:
 - `inspect history "transcript re-resolution" --json` returned 0 matches.
 - Raw session search over the exported sessions did find manual-commit and transcript-related material, so the miss is in indexing/ranking, not source availability.
 
-Learning: the current history index is useful for known phrase recall and tool/validation traces, but it is not yet a reliable autonomous architecture/rationale surface. For repos with entire session data, the next optimization should be a parsed session context graph:
+Learning: the current history index is useful for known phrase recall and tool/validation traces, but it is not yet a reliable autonomous architecture/rationale surface. The manual-commit attribution task sharpened this: raw sessions contained the exact diagnosis (`AttributionBaseCommit` drift inflating `human_added`), but `full_brain` did not route Codex to that decision. For repos with entire session data, the next optimization should be a parsed session context graph:
 
 - Parse JSONL by role/type instead of indexing raw lines.
 - Normalize identifiers across `manual_commit`, `manual commit`, and file/symbol names.
@@ -116,10 +145,12 @@ Learning: the current history index is useful for known phrase recall and tool/v
 - Link decisions to files, tool calls, validations, failures, and final commits.
 - Expose those links through `entire brain brief` and `entire brain inspect history`, not as more top-level commands.
 
-## Next Campaign Batches
+## Phase 2 Outcome
 
-Continue until each layer has at least 20 retained comparisons:
+The Phase 2 benchmark target is complete:
 
-- Layer A: run more project-native semantic and entire-cli history scenarios, especially `entire-cli-review-*`, `entire-cli-transcript-*`, and stale-live hygiene.
-- Layer B: add SWE-style wrappers for the successful Layer A history tasks and entire-cli session-derived tasks.
-- Layer C: extend lower-cost model runs on retained A/B scenarios, favoring `gpt-5.4-mini`, `claude-sonnet-4-6-low`, and `claude-haiku-4-5-low` where the no-brain baseline is weak.
+- Layer A: 20 retained project-native comparisons.
+- Layer B: 20 retained SWE-style comparisons.
+- Layer C: 23 retained lower-cost/model-effort comparisons.
+
+The strongest retained scenarios are history/rationale tasks where the current checkout alone omits a prior implementation decision, validation trace, or contract detail. The weakest scenarios are simple semantic navigation tasks and full-session tasks whose relevant decision is present only as unstructured transcript text.
