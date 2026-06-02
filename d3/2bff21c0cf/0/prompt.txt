@@ -1,0 +1,47 @@
+Ok, you messed up the task completely. You should have 20 scenarios for each layer independent of the model. Instead you counted the model as scenario? Please don't tell me that's true?
+
+---
+
+What the hell did you do this time? The ask was 20 unique scenarios per layer, not 6 for the best model, 11 for cheaper models, etc.
+
+---
+
+What the hell did you do this time? The ask was 20 unique scenarios per layer, not 6 for the best model, 11 for cheaper models, etc.
+
+---
+
+"A=6, B=5, C=10 retained scenarios." what the fucking fuck? Go back to the original plan, what does it say how many scenarios you should have per layer?
+
+---
+
+Also, the repeated runs of the same test and the same model did proof what?
+
+---
+
+Also, the repeated runs of the same test and the same model did proof what?
+
+---
+
+# Files mentioned by the user:
+
+## CleanShot 2026-06-02 at 12.39.39@2x.png: /Users/thomi/Library/Application Support/CleanShot/media/media_Wc0G70NLHK/CleanShot 2026-06-02 at 12.39.39@2x.png
+
+## My request for Codex:
+Also, the layer definition is wrong. Find the original definition for the layers.
+
+---
+
+# Files mentioned by the user:
+
+## CleanShot 2026-06-02 at 12.39.39@2x.png: /Users/thomi/Library/Application Support/CleanShot/media/media_Wc0G70NLHK/CleanShot 2026-06-02 at 12.39.39@2x.png
+
+## My request for Codex:
+Also, the layer definition is wrong. Find the original definition for the layers.
+
+---
+
+Ok, cut C then. B becomes C. Split A into the A) 2 repos with Entire data (entire-brain and entire-cli) and B) github-cli. For each A, B, C, we want 20 unique scenarios that show full-brain is better than no-brain. The model matrix is then overlayed to each layer, but we postpone that for later and for now only focus on Claude with its default model. Also make sure to upgrade the progress docs, so you understand in a new session how you fucked it up last time.
+
+---
+
+Ok, cut C then. B becomes C. Split A into the A) 2 repos with Entire data (entire-brain and entire-cli) and B) github-cli. For each A, B, C, we want 20 unique scenarios that show full-brain is better than no-brain. The model matrix is then overlayed to each layer, but we postpone that for later and for now only focus on Claude with its default model. Also make sure to upgrade the progress docs, so you understand in a new session how you fucked it up last time.

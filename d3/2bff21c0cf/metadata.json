@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "d32bff21c0cf",
+  "strategy": "manual-commit",
+  "branch": "phase-2-brain-benchmark-plan",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/discovery/phase2-campaign-20260601/report.md",
+    "benchmarks/agent-brain/discovery/phase2-discovery-v1/report.md",
+    "benchmarks/agent-brain/results-summary.md",
+    "docs/agent_benchmark_plan.md",
+    "docs/progress-so-far.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d3/2bff21c0cf/0/metadata.json",
+      "transcript": "/d3/2bff21c0cf/0/full.jsonl",
+      "content_hash": "/d3/2bff21c0cf/0/content_hash.txt",
+      "prompt": "/d3/2bff21c0cf/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 254016,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2340736,
+    "output_tokens": 13868,
+    "api_call_count": 21
+  }
+}
