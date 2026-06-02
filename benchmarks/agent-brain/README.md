@@ -116,11 +116,17 @@ python3 benchmarks/agent-brain/run.py discover \
 
 Discovery writes a committed scenario ledger under
 `benchmarks/agent-brain/discovery/<suite>/` with more than 20 brain-positive
-candidates for each benchmark layer:
+candidates for each benchmark layer. The current Phase 2 layer map is:
 
-- Layer A: project-native tasks.
-- Layer B: SWE-bench-style issue tasks.
-- Layer C: model/effort/cost tasks for lower-priced runners.
+- Layer A: project-native tasks in repos with Entire session data:
+  `entire-brain` and `entire-cli`.
+- Layer B: project-native GitHub CLI tasks.
+- Layer C: SWE-bench-style issue tasks.
+
+Older discovery ledgers used the obsolete map where Layer C was
+model/effort/cost. Treat those ledgers as superseded until regenerated under
+the current layer map. Model/effort/cost runs are a later overlay on retained
+A/B/C scenarios, not a Phase 2 layer.
 
 The discovery ledger is not the same as statistical proof. It records why each
 scenario should favor the brain, which brain source should matter, which metric

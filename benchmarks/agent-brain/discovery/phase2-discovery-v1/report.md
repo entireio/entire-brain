@@ -4,6 +4,18 @@ Generated at: `2026-06-01T20:15:12.887105+00:00`
 
 This report is the scenario-discovery ledger for Phase 2. It finds more than 20 candidate scenarios per layer where the brain should have a measurable advantage. Existing repeated-run proof signals are listed separately; candidates still require the proof repetitions before final claims.
 
+Superseded layer map: this generated ledger predates the 2026-06-02 Phase 2
+reset. It uses the obsolete map where Layer A included all project-native repos,
+Layer B was SWE-bench-style, and Layer C was model/effort/cost. The current
+Phase 2 map is:
+
+- Layer A: project-native tasks in `entire-brain` and `entire-cli`.
+- Layer B: project-native GitHub CLI tasks.
+- Layer C: SWE-bench-style issue tasks.
+
+Do not use this report to claim current Phase 2 layer coverage until it is
+regenerated under the corrected map and Claude-default-only target.
+
 ## Counts
 
 | Layer | Candidate scenarios | Existing repeated proofs |
@@ -103,4 +115,3 @@ Repeated proof goal met: `False`
 | `phase2-c-19-entire-cli-review-base-flag-scope-claude-sonnet-4-6-low` | entire-cli-review-base-flag-scope | full_brain | claude-sonnet-4-6-low | success_rate with tokens, seconds, turns, and cost |
 | `phase2-c-20-entire-cli-review-base-flag-scope-claude-haiku-4-5-low` | entire-cli-review-base-flag-scope | full_brain | claude-haiku-4-5-low | success_rate with tokens, seconds, turns, and cost |
 | `phase2-c-21-entire-cli-review-prompt-uncommitted-scope-codex-gpt-5-4-mini-medium` | entire-cli-review-prompt-uncommitted-scope | full_brain | codex-gpt-5.4-mini-medium | success_rate with tokens, seconds, turns, and cost |
-

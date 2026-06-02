@@ -404,6 +404,47 @@ Completed validation for this gap-closure pass:
 
 ## Agent Brain Benchmark Progress
 
+### Phase 2 Reset: Scenario Accounting Correction
+
+On 2026-06-02 the Phase 2 target was corrected back to scenario-level
+accounting. The benchmark must retain 20 unique scenarios per layer, not 20
+task-runner-condition comparisons.
+
+Current Phase 2 layers:
+
+- Layer A: project-native tasks in repos with Entire session data:
+  `entire-brain` and `entire-cli`.
+- Layer B: project-native GitHub CLI tasks. Use the full-brain condition as the
+  complete available brain package with `history_available=false`; do not claim
+  full-history value for this layer.
+- Layer C: SWE-bench-style issue tasks.
+
+The old Layer C, model/effort/cost, is cut from Phase 2. Model, effort, token,
+duration, and cost matrixes are a later overlay on retained A/B/C scenarios.
+For now, Phase 2 focuses only on Claude Code with its default model.
+
+Counting rules for future sessions:
+
+- A scenario is one unique task/problem shape with one prompt, base commit,
+  hidden validation setup, and layer assignment.
+- Repeating the same task on the same model only proves or rejects that one
+  scenario; it does not create additional scenarios.
+- Running the same task on Codex, cheaper Claude, cheaper Codex, or a different
+  effort is model-matrix evidence only; it does not add scenarios.
+- The Phase 2 target is 20 retained unique scenarios in A, 20 in B, and 20 in C
+  where full brain beats no brain under Claude's default model.
+
+What went wrong in the previous campaign:
+
+- The ledger overcounted 65 task-runner-condition comparisons as if they were
+  unique scenarios.
+- Under the corrected layer split, all-runner retained evidence covered only 5
+  Layer A scenarios, 1 Layer B scenario, and 5 Layer C scenarios.
+- Under the current Claude-default-only target, retained evidence covers only 3
+  Layer A scenarios, 0 Layer B scenarios, and 4 Layer C scenarios.
+- Treat the previous campaign as diagnostic evidence and a source of candidate
+  patterns, not as Phase 2 completion.
+
 The `entire-cli` semantic indexing blocker has been cleared for local benchmark
 use. Broader proof claims still need repeated agent runs; the latest work only
 proves that semantic prep and sandboxed brain access now work.

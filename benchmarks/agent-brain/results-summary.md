@@ -191,6 +191,11 @@ with enough repetitions and an acceptable p-value.
 
 ## Phase 2 Expansion Queue
 
+Superseded planning note: this section predates the 2026-06-02 Phase 2 reset.
+Under the current map, Layer A is Entire-data project-native, Layer B is GitHub
+CLI project-native, Layer C is SWE-bench-style, and model/effort/cost is a later
+overlay rather than a layer.
+
 New tasks added for the next run:
 
 | Task | Layer | Target signal |
@@ -203,7 +208,7 @@ Expanded task inventory now includes 25 task definitions: 19 project-native
 tasks and 6 local SWE-bench-style tasks. Project-native coverage is 8
 `entire-brain`, 6 `entire-cli`, and 5 GitHub CLI tasks. The local SWE-style
 tasks are still harness shakedown tasks; real SWE-bench Lite/Verified import is
-the remaining Layer B gap.
+the remaining Layer C gap under the corrected layer map.
 
 The harness now caches brain prep artifacts under
 `benchmarks/agent-brain/cache/`. This helps repeated semantic/full-brain runs

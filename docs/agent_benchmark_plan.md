@@ -18,14 +18,17 @@ conditions, not just tool latency. Useful outcomes include faster localization,
 better test selection, fewer irrelevant file reads, fewer wrong edits, and
 better recovery of implementation rationale.
 
-The expanded benchmark should optimize across three layers:
+The Phase 2 benchmark should optimize across three scenario layers:
 
-- Layer A: project-native hard tasks in `entire-brain`, `entire-cli`, and
-  GitHub CLI.
-- Layer B: SWE-bench-style tasks with issue prompts, hidden tests, fixed base
+- Layer A: project-native hard tasks in the two repositories with Entire session
+  data: `entire-brain` and `entire-cli`.
+- Layer B: project-native hard tasks in GitHub CLI.
+- Layer C: SWE-bench-style tasks with issue prompts, hidden tests, fixed base
   commits, and no repo-specific hints beyond the condition policy.
-- Layer C: model, reasoning-effort, turn, token, duration, and cost matrixes
-  for Codex and Claude Code.
+
+The model, reasoning-effort, turn, token, duration, and cost matrix is not a
+separate Phase 2 layer. It is a later overlay applied to retained scenarios in
+Layers A, B, and C.
 
 ## Context Conditions
 
@@ -50,7 +53,11 @@ Run each task under these conditions when the repo supports them:
    - Includes semantic brain plus exported Entire checkpoint history.
    - The agent may use seed context, semantic facts, history gaps, checkpoint
      metadata, prompts, and transcripts.
-   - This condition is available for `entire-brain` and `entire-cli`.
+   - This full-history form is available for `entire-brain` and `entire-cli`.
+   - For GitHub CLI, which has no Entire checkpoint history, the full-brain
+     condition means the complete available brain package for that repo
+     (`history_available=false`); do not report GitHub CLI wins as
+     full-history wins.
 
 Keep the base task prompt identical across conditions. Only the allowed context
 policy changes.
@@ -320,15 +327,21 @@ provenance, and plugin dispatch.
 #### Phase 2 Discovery Targets
 
 Phase 2 should retain statistically significant brain-positive scenarios in
-each layer:
+each scenario layer, using Claude Code with its default model. Do not use Codex,
+cheaper models, or alternate reasoning efforts to satisfy Phase 2 scenario
+counts.
 
-- Layer A, project-native tasks: at least 20 scenarios where agent plus brain
-  beats agent plus no brain.
-- Layer B, SWE-bench-style tasks: at least 20 scenarios where agent plus brain
-  beats agent plus no brain.
-- Layer C, model/effort/cost matrix: at least 20 lower-cost runner scenarios
-  where brain preserves or improves correctness while reducing tokens,
-  duration, or estimated/reported cost versus the same runner without brain.
+- Layer A, Entire-data project-native tasks: at least 20 unique scenarios across
+  `entire-brain` and `entire-cli` where full brain beats no brain.
+- Layer B, GitHub CLI project-native tasks: at least 20 unique scenarios where
+  the full-brain condition beats no brain. For GitHub CLI this means the
+  complete available brain package with `history_available=false`, not a
+  full-history claim.
+- Layer C, SWE-bench-style tasks: at least 20 unique scenarios where full brain
+  beats no brain.
+
+The model/effort/cost matrix is postponed until after these targets are met. It
+should be overlaid later on retained scenarios from Layers A, B, and C.
 
 Treat a retained scenario as brain-positive only when:
 
@@ -342,12 +355,17 @@ Treat a retained scenario as brain-positive only when:
 - the effect is repeatable with enough repetitions to survive one obvious
   outlier.
 
+A unique scenario is one task/problem shape with one prompt, base commit, hidden
+validation setup, and layer assignment. Repeating the same scenario on the same
+model proves or rejects that scenario; it does not create more scenarios.
+Running the same scenario on another model is model-matrix evidence only.
+
 Discovery loop:
 
 1. Generate candidates from context-graph gaps, history hotspots, hidden
    validation-selection tasks, stale/live-state hygiene, and cross-repo
    boundaries.
-2. Run cheap pilots only to eliminate saturated or broken tasks.
+2. Run Claude-default pilots only to eliminate saturated or broken tasks.
 3. Promote only candidates with a plausible brain-specific signal.
 4. Run proof repetitions until the scenario is significant or rejected.
 5. Keep a rejected-task ledger explaining why each candidate saturated or failed
@@ -359,7 +377,8 @@ Acceptance criteria for Phase 2:
 - Reports separate semantic-only wins, full-history wins, hybrid wins,
   workspace wins, stale/live-state hygiene wins, and saturated/no-signal tasks.
 - Each retained layer has at least 20 statistically significant brain-positive
-  scenarios before moving to broad model/cost proof.
+  unique scenarios on Claude's default model before moving to broad model/cost
+  proof.
 
 ### Phase 3: Value-Prop Proof Suite
 

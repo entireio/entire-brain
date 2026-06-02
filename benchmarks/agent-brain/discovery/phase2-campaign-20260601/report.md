@@ -31,32 +31,41 @@ Counts below are computed from the combined report over:
 
 Important accounting correction: the 20-per-layer acceptance criterion is a
 scenario-level target, independent of model/runner. The earlier version of this
-ledger incorrectly treated task-runner-condition comparisons as scenarios.
+ledger incorrectly treated task-runner-condition comparisons as scenarios and
+also used the wrong Layer C definition.
 
-Comparison-level counts are still useful for model/effort evidence, but they do
-not satisfy the 20-scenario requirement:
+Correct Phase 2 layers:
 
-- A: project-native task comparisons.
-- B: SWE-style task comparisons.
-- C: lower-cost/model-effort comparisons.
+- A: project-native tasks in repos with Entire session data (`entire-brain` and
+  `entire-cli`).
+- B: project-native GitHub CLI tasks. Use the full-brain condition as the
+  complete available brain package with `history_available=false`; do not claim
+  full-history value for this layer.
+- C: SWE-bench-style issue tasks.
 
-| Layer | Retained comparisons | Rejected/weak comparisons | Target scenarios | Status |
+The previous model/effort/cost layer is cut from Phase 2. Model/cost evidence is
+a later overlay on retained scenarios, not a source of scenario count. Phase 2
+now focuses only on Claude Code with its default model.
+
+| Legacy bucket | Retained comparisons | Rejected/weak comparisons | Target scenarios | Status |
 |---|---:|---:|---:|---|
-| A project-native | 20 | 18 | 20 | comparison count only |
-| B SWE-style | 20 | 7 | 20 | comparison count only |
-| C model/effort/cost | 23 | 22 | 20 | comparison count only |
+| Old A project-native | 20 | 18 | 20 | comparison count only |
+| Old B SWE-style | 20 | 7 | 20 | comparison count only |
+| Old C model/effort/cost | 23 | 22 | 20 | removed from Phase 2 |
 
-Scenario-level counts, deduped by task prompt independent of model/runner:
+Scenario-level counts under the corrected A/B/C split, deduped by task prompt
+independent of model/runner:
 
-| Layer | Tested scenarios | Retained scenarios | Target | Status |
-|---|---:|---:|---:|---|
-| A project-native | 9 | 6 | 20 | short by 14 |
-| B SWE-style | 6 | 5 | 20 | short by 15 |
-| C model/effort/cost | 10 | 10 | 20 | short by 10 |
+| Layer | Tested scenarios | Retained scenarios, all runners | Retained scenarios, Claude default | Target | Status |
+|---|---:|---:|---:|---:|---|
+| A Entire-data project-native | 7 | 5 | 3 | 20 | short by 17 for active target |
+| B GitHub CLI project-native | 2 | 1 | 0 | 20 | short by 20 for active target |
+| C SWE-style | 6 | 5 | 4 | 20 | short by 16 for active target |
 
 The 20-per-layer scenario target is not met. The campaign found repeated
 evidence for a smaller set of brain-positive scenarios, then overcounted that
-evidence by runner/model.
+evidence by runner/model. The all-runner counts are diagnostic only; the active
+Phase 2 target is Claude default.
 
 ## Metrics Appendices
 
@@ -196,11 +205,11 @@ Learning: the current history index is useful for known phrase recall and tool/v
 
 ## Phase 2 Outcome
 
-The Phase 2 benchmark target is not complete under the scenario-level
+The Phase 2 benchmark target is not complete under the corrected scenario-level
 requirement:
 
-- Layer A: 6 retained project-native scenarios.
-- Layer B: 5 retained SWE-style scenarios.
-- Layer C: 10 retained lower-cost/model-effort scenarios.
+- Layer A: 3 retained Claude-default scenarios, target 20.
+- Layer B: 0 retained Claude-default scenarios, target 20.
+- Layer C: 4 retained Claude-default scenarios, target 20.
 
 The strongest retained scenarios are history/rationale tasks where the current checkout alone omits a prior implementation decision, validation trace, or contract detail. The weakest scenarios are simple semantic navigation tasks and full-session tasks whose relevant decision is present only as unstructured transcript text.
