@@ -1,0 +1,21 @@
+Fix the weaknesses
+
+---
+
+Why do we need the brainignore? And what do you mean with external provider?
+
+---
+
+Why do we need the brainignore? And what do you mean with external provider?
+
+---
+
+Ok, so write a task for entire-sem's agent to both consider the .gitignore and accept a command line parameter to specify one or more additional ignore lists.
+
+---
+
+Entire CLI now has a new version of the sem tool, which considers the .gitignore and has an option to set --ignore-file. Check it out.
+
+---
+
+Entire CLI now has a new version of the sem tool, which considers the .gitignore and has an option to set --ignore-file. Check it out.
