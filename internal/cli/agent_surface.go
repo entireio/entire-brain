@@ -730,7 +730,7 @@ func inspectBrainText(brainDir, kind, query string) (brainHistoryInspectReport, 
 		}
 		rel, _ := filepath.Rel(brainDir, path)
 		for i, line := range strings.Split(string(data), "\n") {
-			if !strings.Contains(strings.ToLower(line), query) {
+			if !historyTextMatchesQuery(line, query) {
 				continue
 			}
 			report.Matches = append(report.Matches, brainTextMatch{
@@ -762,16 +762,21 @@ func inspectBrainHistoryIndex(brainDir, kind, query string) (brainHistoryInspect
 	}
 	report := brainHistoryInspectReport{Kind: kind, Query: query, BrainPath: brainDir, Scanned: len(index.Records)}
 	allowed := historyInspectKinds(kind)
+	seen := map[string]struct{}{}
 	for _, record := range index.Records {
 		if len(allowed) > 0 {
 			if _, ok := allowed[record.Kind]; !ok {
 				continue
 			}
 		}
-		haystack := strings.ToLower(record.Summary + " " + strings.Join(record.Terms, " ") + " " + record.Path)
-		if !strings.Contains(haystack, query) {
+		if !historyRecordMatchesQuery(record, query) {
 			continue
 		}
+		matchKey := fmt.Sprintf("%s:%d:%s", record.Path, record.Line, record.Summary)
+		if _, ok := seen[matchKey]; ok {
+			continue
+		}
+		seen[matchKey] = struct{}{}
 		report.Matches = append(report.Matches, brainTextMatch{
 			Path:    record.Path,
 			Line:    record.Line,
@@ -793,7 +798,9 @@ func historyInspectKinds(kind string) map[string]struct{} {
 		return map[string]struct{}{"validation": {}}
 	case "tool-paths":
 		return map[string]struct{}{"tool_call": {}}
-	case "history", "sessions", "architecture":
+	case "architecture":
+		return map[string]struct{}{"architecture": {}, "decision": {}, "learning": {}}
+	case "history", "sessions":
 		return nil
 	default:
 		return nil

@@ -170,13 +170,13 @@ The `entire-cli` brain has full session data and a fresh semantic snapshot:
 - Sessions scanned in manifest: 3,753 checkpoints.
 - Semantic snapshot: 9,130 symbols, 179,717 relations, 760 files.
 
-After running:
+Initial validation, before the structured parser fix, used:
 
 ```sh
 /tmp/entire-brain-phase2 history-index /Users/thomi/Projects/cli
 ```
 
-the history source reported:
+That history source reported:
 
 - 2,000 indexed records.
 - 101 decisions.
@@ -193,9 +193,43 @@ Command probes:
 - `inspect decisions "provenance" --json` returned 0 matches.
 - `inspect architecture "manual commit" --json` returned 0 matches.
 - `inspect history "transcript re-resolution" --json` returned 0 matches.
-- Raw session search over the exported sessions did find manual-commit and transcript-related material, so the miss is in indexing/ranking, not source availability.
+- Raw session search over the exported sessions did find manual-commit and transcript-related material, so the miss was in indexing/ranking, not source availability.
 
-Learning: the current history index is useful for known phrase recall and tool/validation traces, but it is not yet a reliable autonomous architecture/rationale surface. The manual-commit attribution task sharpened this: raw sessions contained the exact diagnosis (`AttributionBaseCommit` drift inflating `human_added`), but `full_brain` did not route Codex to that decision. For repos with entire session data, the next optimization should be a parsed session context graph:
+Follow-up fix on 2026-06-02:
+
+- Parsed JSONL sessions by record type/role instead of treating every line as
+  raw text.
+- Excluded user/system prompt content from decision, architecture, learning,
+  validation, and tool-path records.
+- Indexed tool invocations separately from tool output, with tool-name-aware
+  validation so `apply_patch` text containing `go test` is not treated as a
+  validation run.
+- Normalized phrase matching so `manual_commit` can match `manual commit`
+  without arbitrary token co-occurrence matches.
+- Processed session files newest-first with per-kind caps and an explicit scan
+  budget warning for very large exports.
+
+Validated live brains after the fix:
+
+- `entire-brain`: 1,304 records, 157 decisions, 9 learnings, 88 validations,
+  1,002 tool calls; history-index took 0.96s.
+- `entire-cli`: 44,951 records, 10,289 decisions, 627 learnings, 10,068
+  validations, 20,000 tool calls; history-index took 28.95s and warned that it
+  scanned the newest 311 session files / 535,058,459 bytes before skipping older
+  sessions at the scan budget.
+- `entire-cli inspect decisions "source_signal"` returned 9 matches with a
+  first result about migrated/manual rows lacking usable `source_signal`.
+- `entire-cli inspect validation "go test"` returned 25 matches with a first
+  result from a Bash `go test` command.
+- `entire-cli inspect architecture "checkpoint"` returned 25 matches with RFD
+  decision/architecture rationale.
+- `entire-brain inspect validation "go test"` now returns actual `exec_command`
+  validation instead of README patch text.
+
+Learning: the history index is no longer just raw phrase recall; it now exposes
+useful session-derived decisions, architecture rationale, validation commands,
+and tool paths for both repos with Entire data. The next optimization should be
+a parsed session context graph:
 
 - Parse JSONL by role/type instead of indexing raw lines.
 - Normalize identifiers across `manual_commit`, `manual commit`, and file/symbol names.

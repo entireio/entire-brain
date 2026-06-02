@@ -550,6 +550,27 @@ Model matrix and attribution learnings:
   model usage. For Codex, resolved model remains unknown unless the CLI exposes
   it; for Claude, use `modelUsage` keys as the resolved-model source.
 
+Latest session-inspect fix:
+
+- The previous `entire-cli` full-brain failure was not only a scenario issue:
+  the history index was treating session JSON as raw text, so `inspect`
+  commands could return startup instructions, pretty-JSON `output` lines, or
+  patch text instead of session-derived decisions and validation.
+- The history index now parses JSONL by record type/role, excludes user/system
+  prompt content, skips raw fallback for JSON/JSONL, separates tool invocations
+  from tool output, and treats validation as exec/Bash/assistant validation
+  evidence rather than `apply_patch` content.
+- Live validation on 2026-06-02:
+  - `entire-brain`: 1,304 records, 157 decisions, 9 learnings, 88 validations,
+    1,002 tool calls; index time 0.96s.
+  - `entire-cli`: 44,951 records, 10,289 decisions, 627 learnings, 10,068
+    validations, 20,000 tool calls; index time 28.95s with an explicit warning
+    that only the newest 311 session files / 535,058,459 bytes were scanned
+    before the scan budget skipped older sessions.
+  - Representative non-zero probes: `inspect decisions "source_signal"`,
+    `inspect validation "go test"`, `inspect tool-paths "apply_patch"`,
+    `inspect architecture "checkpoint"`, and `inspect sessions "transcript"`.
+
 Next benchmark step:
 
 - Rerun retained candidates after the scoring-rubric replacement. New records

@@ -189,6 +189,105 @@ func TestBrainInspectDecisionsSearchesExportedText(t *testing.T) {
 	}
 }
 
+func TestBrainInspectParsesStructuredSessionHistory(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	sessionDir := filepath.Join(storage.BrainDir, exportSessionsDirectory, "main")
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		t.Fatalf("mkdir brain: %v", err)
+	}
+	events := []map[string]any{
+		{
+			"type": "session_meta",
+			"payload": map[string]any{
+				"base_instructions": "Decision: fake metadata should not be indexed.",
+			},
+		},
+		{
+			"type": "response_item",
+			"payload": map[string]any{
+				"type": "message",
+				"role": "assistant",
+				"content": []map[string]any{{
+					"type": "text",
+					"text": "Implemented the manual_commit AttributionBaseCommit invariant because condensation must keep attribution stable.",
+				}},
+			},
+		},
+		{
+			"type": "response_item",
+			"payload": map[string]any{
+				"type":      "function_call",
+				"name":      "exec_command",
+				"arguments": map[string]any{"cmd": "go test ./cmd/entire/cli/strategy"},
+			},
+		},
+		{
+			"type": "response_item",
+			"payload": map[string]any{
+				"type":  "custom_tool_call",
+				"name":  "apply_patch",
+				"input": "*** Begin Patch\n*** Update File: README.md\n+go test ./...\n",
+			},
+		},
+	}
+	var transcript strings.Builder
+	for _, event := range events {
+		data, err := json.Marshal(event)
+		if err != nil {
+			t.Fatalf("marshal event: %v", err)
+		}
+		transcript.Write(data)
+		transcript.WriteByte('\n')
+	}
+	transcript.WriteString(`  "output": "Decision: fake pretty JSON output should not be indexed."` + "\n")
+	if err := os.WriteFile(filepath.Join(sessionDir, "session.jsonl"), []byte(transcript.String()), 0o600); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	source, err := writeBrainHistoryIndexAndSource(storage.BrainDir, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("write history index: %v", err)
+	}
+	if source.Decisions != 1 || source.Validations != 1 || source.ToolCalls != 2 {
+		t.Fatalf("unexpected history source counts: %+v", source)
+	}
+
+	for _, tc := range []struct {
+		args    []string
+		want    string
+		wantLen int
+	}{
+		{args: []string{"inspect", "decisions", "manual commit", "--json"}, want: "AttributionBaseCommit", wantLen: 1},
+		{args: []string{"inspect", "decisions", "manual stable", "--json"}, wantLen: 0},
+		{args: []string{"inspect", "decisions", "fake metadata", "--json"}, wantLen: 0},
+		{args: []string{"inspect", "validation", "go test", "--json"}, want: "go test", wantLen: 1},
+		{args: []string{"inspect", "tool-paths", "apply_patch", "--json"}, want: "apply_patch", wantLen: 1},
+		{args: []string{"inspect", "architecture", "AttributionBaseCommit", "--json"}, want: "invariant", wantLen: 1},
+	} {
+		cmd := NewRootCommand(opts)
+		out, err := execute(t, cmd, tc.args...)
+		if err != nil {
+			t.Fatalf("%v: %v\n%s", tc.args, err, out)
+		}
+		var report brainHistoryInspectReport
+		if err := json.Unmarshal([]byte(out), &report); err != nil {
+			t.Fatalf("parse report for %v: %v\n%s", tc.args, err, out)
+		}
+		if len(report.Matches) != tc.wantLen {
+			t.Fatalf("%v returned %d matches, want %d: %+v", tc.args, len(report.Matches), tc.wantLen, report.Matches)
+		}
+		if tc.want != "" && !strings.Contains(report.Matches[0].Excerpt, tc.want) {
+			t.Fatalf("%v first match missing %q: %+v", tc.args, tc.want, report.Matches[0])
+		}
+	}
+}
+
 func TestLoadBrainManifestMigratesLegacyFlatManifest(t *testing.T) {
 	outputDir := t.TempDir()
 	legacy := exportManifest{
