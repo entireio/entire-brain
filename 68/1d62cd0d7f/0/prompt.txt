@@ -1,0 +1,5 @@
+Ok, cut C then. B becomes C. Split A into the A) 2 repos with Entire data (entire-brain and entire-cli) and B) github-cli. For each A, B, C, we want 20 unique scenarios that show full-brain is better than no-brain. The model matrix is then overlayed to each layer, but we postpone that for later and for now only focus on Claude with its default model. Also make sure to upgrade the progress docs, so you understand in a new session how you fucked it up last time.
+
+---
+
+Then next, you skipped a step in creating the brain, analyzing the entire sessions. Analyze the code for "brain inspect decisions" for both entire-brain and entire-cli and figure out how each of them actually has a non-zero response for this command. Similar for other "brain inspect" calls.
