@@ -43,21 +43,34 @@ Layer counts use overlapping membership:
 
 The 20-per-layer proof target is met.
 
-## Metrics Appendix
+## Metrics Appendices
 
-The aggregate metrics are committed in
-[`comparison-metrics.csv`](comparison-metrics.csv). It includes all 65
-task/runner/condition comparisons from the combined Phase 2 report, not only
-the retained rows.
+Two aggregate metric tables are committed:
 
-Columns include score, success rate, agent seconds, total tokens, turns, cost,
-deltas, p-values, sample counts, and retention status. Coverage:
+- [`comparison-metrics.csv`](comparison-metrics.csv) is the wide A/B comparison
+  table. Each row compares one brain condition against its no-brain baseline,
+  so no-brain values appear in `*_no_brain` columns and the compared brain
+  condition appears in `*_brain` columns.
+- [`condition-metrics.csv`](condition-metrics.csv) is the long condition table.
+  It has explicit `no_brain`, `semantic_brain`, and `full_brain` rows with
+  aggregate metrics per suite/task/runner/condition.
+
+The wide comparison table includes all 65 task/runner/condition comparisons
+from the combined Phase 2 report, not only the retained rows. Columns include
+score, success rate, agent seconds, total tokens, turns, cost, deltas, p-values,
+sample counts, and retention status. Coverage:
 
 - Score and success: 65 of 65 comparisons.
 - Agent seconds: 64 of 65 comparisons.
 - Total tokens: 64 of 65 comparisons.
 - Turns: 23 of 65 comparisons.
 - Cost: 23 of 65 comparisons.
+
+The long condition table includes 136 aggregate condition rows:
+
+- `no_brain`: 68 rows.
+- `semantic_brain`: 6 rows.
+- `full_brain`: 62 rows.
 
 The missing token/seconds row is a rejected Haiku regression where the agent run
 did not expose complete usage. Cost is blank for Codex rows where the CLI did
