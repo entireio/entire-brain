@@ -329,6 +329,13 @@ normal read commands. Extract decisions, learnings, validation recipes, tool
 paths, topic clusters, repeated failure modes, and provenance back to
 sessions/checkpoints.
 
+Also extract bounded source-derived `code_fact` records from tool outputs when
+session logs contain concrete code snippets, invariants, schema contracts,
+state updates, validation failures, or environment constants. These are not
+decisions; they are compact evidence that lets `brief` and broad `inspect`
+queries recover facts that were visible to the previous agent but not stated in
+assistant narration.
+
 Link history records to semantic files/symbols when possible. Mark links
 degraded when the semantic snapshot, history index, or file mapping is stale.
 For `entire-cli`, start with dense exported-history areas: agents, hooks,
@@ -339,6 +346,12 @@ Do not count a full-history scenario unless the brain can surface direct useful
 evidence through `brief` or a documented `inspect` command. If the best history
 match is only adjacent tool noise or a broad status summary, improve extraction
 first or replace the scenario.
+
+For semantic prep, prefer clean committed worktrees. Provider worktree snapshot
+mode may scan ignored generated artifacts before Entire Brain can redact them;
+Entire Brain should fail that path quickly with provider timeouts, but retained
+benchmark tasks should not depend on dirty worktree semantic indexing until the
+provider worktree walker honors `.gitignore`/`.brainignore`.
 
 #### Phase 2 Discovery Targets
 

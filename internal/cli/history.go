@@ -38,6 +38,7 @@ type historySourceManifest struct {
 	Learnings   int       `json:"learnings"`
 	Validations int       `json:"validations"`
 	ToolCalls   int       `json:"tool_calls"`
+	CodeFacts   int       `json:"code_facts"`
 	Warnings    []string  `json:"warnings,omitempty"`
 }
 
@@ -235,6 +236,8 @@ func buildBrainHistoryIndex(outputDir string, now time.Time) (historyIndex, *his
 			source.Validations++
 		case "tool_call":
 			source.ToolCalls++
+		case "code_fact":
+			source.CodeFacts++
 		}
 	}
 	return index, source, nil
@@ -356,7 +359,7 @@ func extractHistoryJSONFragments(obj map[string]any) []historyFragment {
 	case "assistant":
 		return extractClaudeMessageFragments(obj, "assistant")
 	case "user":
-		return nil
+		return extractClaudeToolResultFragments(obj)
 	case "progress":
 		return nil
 	default:
@@ -401,10 +404,30 @@ func extractCodexResponseFragments(payload map[string]any) []historyFragment {
 		name := jsonString(payload["name"])
 		return []historyFragment{{Text: strings.TrimSpace(name + " " + compactJSONValue(payload["input"])), Source: historyToolCallSource(name)}}
 	case "function_call_output":
-		return nil
+		return extractToolResultFacts(jsonString(payload["output"]))
 	default:
 		return nil
 	}
+}
+
+func extractClaudeToolResultFragments(obj map[string]any) []historyFragment {
+	message := jsonMap(obj["message"])
+	if len(message) == 0 {
+		return nil
+	}
+	content, ok := message["content"].([]any)
+	if !ok {
+		return nil
+	}
+	var fragments []historyFragment
+	for _, item := range content {
+		block := jsonMap(item)
+		if jsonString(block["type"]) != "tool_result" {
+			continue
+		}
+		fragments = append(fragments, extractToolResultFacts(firstNonEmptyString(block["content"], block["text"]))...)
+	}
+	return fragments
 }
 
 func extractClaudeMessageFragments(obj map[string]any, role string) []historyFragment {
@@ -433,9 +456,11 @@ func extractContentFragments(content any, source string) []historyFragment {
 			switch blockType {
 			case "tool_use":
 				name := jsonString(block["name"])
-				fragments = append(fragments, historyFragment{Text: strings.TrimSpace(name + " " + compactJSONValue(block["input"])), Source: historyToolCallSource(name)})
+				text := strings.TrimSpace(name + " " + compactJSONValue(block["input"]))
+				fragments = append(fragments, historyFragment{Text: text, Source: historyToolCallSource(name)})
+				fragments = append(fragments, extractToolResultFacts(text)...)
 			case "tool_result":
-				continue
+				fragments = append(fragments, extractToolResultFacts(firstNonEmptyString(block["content"], block["text"]))...)
 			default:
 				if text := firstNonEmptyString(block["text"], block["input_text"], block["output_text"], block["content"]); text != "" {
 					fragments = append(fragments, historyFragment{Text: text, Source: source})
@@ -448,12 +473,73 @@ func extractContentFragments(content any, source string) []historyFragment {
 	}
 }
 
+func extractToolResultFacts(text string) []historyFragment {
+	text = strings.TrimSpace(text)
+	if text == "" || !historyTextHasCodeFactSignal(text) {
+		return nil
+	}
+	lines := strings.Split(text, "\n")
+	seen := map[string]struct{}{}
+	var fragments []historyFragment
+	lastEnd := -1
+	for i, line := range lines {
+		if i < lastEnd {
+			continue
+		}
+		if !historyLineHasCodeFactSignal(line) {
+			continue
+		}
+		start := max(0, i-2)
+		end := min(len(lines), i+4)
+		snippet := cleanHistoryCodeFactSnippet(cleanHistorySummary(strings.Join(lines[start:end], " ")))
+		if snippet == "" {
+			continue
+		}
+		if _, ok := seen[snippet]; ok {
+			continue
+		}
+		seen[snippet] = struct{}{}
+		fragments = append(fragments, historyFragment{Text: snippet, Source: "tool_result_fact"})
+		lastEnd = end
+		if len(fragments) >= 8 {
+			break
+		}
+	}
+	return fragments
+}
+
+func cleanHistoryCodeFactSnippet(value string) string {
+	value = strings.TrimSpace(strings.TrimPrefix(value, "content:"))
+	if value == "" {
+		return ""
+	}
+	return truncateString(value, 4000)
+}
+
+func historyTextHasCodeFactSignal(text string) bool {
+	lower := strings.ToLower(text)
+	return containsAny(lower,
+		"attributionbasecommit", "realignattributionbase", "human_added", "human added",
+		"resolve transcript path", "resolvetranscriptpath", "transcriptpath", "state.transcriptpath",
+		"reresolvestonestedlayout", "re-resolved path", "subsequent reads use",
+		"brainignore", ".brainignore", ".github", "github workflow", "workflow/tooling",
+		"seed-agent", "seed agent", "schema contract", "bare auth",
+	)
+}
+
+func historyLineHasCodeFactSignal(line string) bool {
+	return historyTextHasCodeFactSignal(line)
+}
+
 func classifyHistoryFragment(fragment historyFragment) []string {
 	lower := strings.ToLower(fragment.Text)
 	narrative := isHistoryNarrativeSource(fragment.Source)
 	tool := strings.HasPrefix(fragment.Source, "tool_call")
 	validationTool := tool && !strings.Contains(fragment.Source, "apply_patch")
 	kinds := map[string]struct{}{}
+	if fragment.Source == "tool_result_fact" {
+		kinds["code_fact"] = struct{}{}
+	}
 	if narrative && isDecisionFragment(fragment.Source, lower) {
 		kinds["decision"] = struct{}{}
 	}
@@ -510,6 +596,9 @@ func historyLineMayContainIndexedContent(text string) bool {
 		"must ", "must not", "should ", "should not", "keep ", "preserve ", "restore ",
 		"compatibility", "because", "fix ", "fixed ", "implemented ", "updated ",
 		"changed ", "added ", "removed ", "avoid ", "fallback", "source of truth",
+		"attributionbasecommit", "realignattributionbase", "human_added", "human added",
+		"resolvetranscriptpath", "transcriptpath", "state.transcriptpath", "reresolvestonestedlayout",
+		".github", "brainignore", ".brainignore", "github workflow", "seed-agent", "schema contract",
 	)
 }
 
@@ -592,7 +681,9 @@ func historyTerms(text string) []string {
 		"semantic", "brief", "stale", "checkpoint", "transcript", "schema", "env",
 		"provenance", "bundle", "sha256", "review", "hook", "plugin", "workspace",
 		"architecture", "contract", "invariant", "manual commit", "manual_commit",
-		"attribution", "basecommit", "tool", "test", "fallback",
+		"attribution", "basecommit", "attributionbasecommit", "realignattributionbase",
+		"human_added", "transcriptpath", "resolvetranscriptpath", "reresolvestonestedlayout",
+		"github workflow", ".github", "brainignore", "tool", "test", "fallback",
 	}
 	var terms []string
 	for _, candidate := range candidates {
@@ -824,6 +915,8 @@ func historyKindRank(kind string) int {
 		return 40
 	case "architecture":
 		return 32
+	case "code_fact":
+		return 30
 	case "learning":
 		return 26
 	case "validation":

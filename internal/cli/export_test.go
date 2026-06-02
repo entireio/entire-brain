@@ -24,17 +24,23 @@ type fakeCommandResponse struct {
 }
 
 type fakeCommandCall struct {
-	dir  string
-	name string
-	args []string
+	dir         string
+	name        string
+	args        []string
+	hasDeadline bool
 }
 
 func (r *fakeCommandRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 	key := fakeCommandKey(name, args...)
+	var hasDeadline bool
+	if ctx != nil {
+		_, hasDeadline = ctx.Deadline()
+	}
 	r.calls = append(r.calls, fakeCommandCall{
-		dir:  dir,
-		name: name,
-		args: append([]string(nil), args...),
+		dir:         dir,
+		name:        name,
+		args:        append([]string(nil), args...),
+		hasDeadline: hasDeadline,
 	})
 
 	if sequence, ok := r.sequences[key]; ok && len(sequence) > 0 {

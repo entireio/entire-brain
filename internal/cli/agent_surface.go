@@ -841,7 +841,7 @@ func historyInspectKinds(kind string) map[string]struct{} {
 	case "tool-paths":
 		return map[string]struct{}{"tool_call": {}}
 	case "architecture":
-		return map[string]struct{}{"architecture": {}, "decision": {}, "learning": {}}
+		return map[string]struct{}{"architecture": {}, "code_fact": {}, "decision": {}, "learning": {}}
 	case "history", "sessions":
 		return nil
 	default:

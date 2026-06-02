@@ -43,6 +43,8 @@ const (
 	semanticParseCacheMaxFile           = 16 * 1024 * 1024
 	semanticWorktreeFingerprintMaxFile  = 16 * 1024 * 1024
 	semanticWorktreeFingerprintMaxTotal = 128 * 1024 * 1024
+	semanticDoctorTimeout               = 30 * time.Second
+	semanticSnapshotTimeout             = 2 * time.Minute
 )
 
 var (
@@ -645,7 +647,15 @@ func acquireSemanticIndexLock(brainDir string) (func(), error) {
 }
 
 func runSemanticDoctor(ctx context.Context, runner CommandRunner, repoDir, semBinary string) (bool, []semanticWarning) {
-	stdout, _, err := runner.Run(ctx, repoDir, semBinary, "sem", "doctor", "--json")
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	runCtx, cancel := context.WithTimeout(ctx, semanticDoctorTimeout)
+	defer cancel()
+	stdout, _, err := runner.Run(runCtx, repoDir, semBinary, "sem", "doctor", "--json")
+	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+		return false, []semanticWarning{{Code: "provider_doctor_timeout", Severity: "warning", Effect: "provider diagnostics unavailable", Detail: fmt.Sprintf("semantic provider doctor timed out after %s", semanticDoctorTimeout)}}
+	}
 	if err != nil {
 		return false, []semanticWarning{{Code: "provider_doctor_failed", Severity: "warning", Effect: "provider diagnostics unavailable", Detail: err.Error()}}
 	}
@@ -672,11 +682,19 @@ func boolValue(data map[string]any, key string) bool {
 }
 
 func runSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, semBinary string, worktree bool) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	args := []string{"sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"}
 	if worktree {
 		args = append(args, "--worktree")
 	}
-	stdout, _, err := runner.Run(ctx, repoDir, semBinary, args...)
+	runCtx, cancel := context.WithTimeout(ctx, semanticSnapshotTimeout)
+	defer cancel()
+	stdout, _, err := runner.Run(runCtx, repoDir, semBinary, args...)
+	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+		return nil, fmt.Errorf("semantic provider snapshot timed out after %s", semanticSnapshotTimeout)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("semantic provider snapshot failed: %w", err)
 	}

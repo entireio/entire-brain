@@ -88,6 +88,40 @@ func TestSemanticIndexStoresProviderSnapshotAndManifest(t *testing.T) {
 	}
 }
 
+func TestSemanticIndexRunsProviderCommandsWithTimeouts(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := &cobra.Command{Use: "index"}
+
+	if err := runSemanticIndex(cmd.Context(), cmd, Options{
+		Version: "test",
+		Env:     env,
+		Runner:  runner,
+		Now:     time.Now,
+	}, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	for _, args := range [][]string{
+		{"sem", "doctor", "--json"},
+		{"sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"},
+	} {
+		var found bool
+		for _, call := range runner.calls {
+			if call.name == "entire" && semanticArgsEqual(call.args, args) {
+				found = true
+				if !call.hasDeadline {
+					t.Fatalf("provider call %q did not use a timeout context", strings.Join(args, " "))
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("provider call %q was not recorded: %+v", strings.Join(args, " "), runner.calls)
+		}
+	}
+}
+
 func TestSemanticIndexWritesBranchOverlayForFeatureBranch(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -3792,6 +3826,18 @@ func fakeRunnerCalled(runner *fakeCommandRunner, name string, args ...string) bo
 		}
 	}
 	return false
+}
+
+func semanticArgsEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func semanticFixtureSnapshot(schema string) string {

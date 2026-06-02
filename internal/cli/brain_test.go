@@ -273,6 +273,38 @@ func TestBrainInspectParsesStructuredSessionHistory(t *testing.T) {
 			},
 		},
 		{
+			"type": "user",
+			"message": map[string]any{
+				"role": "user",
+				"content": []map[string]any{{
+					"type": "tool_result",
+					"content": strings.Join([]string{
+						"state.BaseCommit = newHead",
+						"// Keep AttributionBaseCommit in sync to prevent stale base drift.",
+						"// Without this, a subsequent condensation would diff from the old base,",
+						"// inflating human_added with lines from unrelated prior commits.",
+						"state.RealignAttributionBase(newHead)",
+					}, "\n"),
+				}},
+			},
+		},
+		{
+			"type": "user",
+			"message": map[string]any{
+				"role": "user",
+				"content": []map[string]any{{
+					"type": "tool_result",
+					"content": strings.Join([]string{
+						"func resolveTranscriptPath(state *SessionState) (string, error) {",
+						"\t// Update state so subsequent reads use the correct path.",
+						"\tstate.TranscriptPath = resolved",
+						"\treturn resolved, nil",
+						"}",
+					}, "\n"),
+				}},
+			},
+		},
+		{
 			"type": "response_item",
 			"payload": map[string]any{
 				"type":      "function_call",
@@ -309,6 +341,9 @@ func TestBrainInspectParsesStructuredSessionHistory(t *testing.T) {
 	if source.Decisions != 1 || source.Validations != 1 || source.ToolCalls != 2 {
 		t.Fatalf("unexpected history source counts: %+v", source)
 	}
+	if source.CodeFacts != 2 {
+		t.Fatalf("unexpected code fact count: %+v", source)
+	}
 
 	for _, tc := range []struct {
 		args    []string
@@ -320,8 +355,9 @@ func TestBrainInspectParsesStructuredSessionHistory(t *testing.T) {
 		{args: []string{"inspect", "decisions", "fake metadata", "--json"}, wantLen: 0},
 		{args: []string{"inspect", "validation", "go test", "--json"}, want: "go test", wantLen: 1},
 		{args: []string{"inspect", "tool-paths", "apply_patch", "--json"}, want: "apply_patch", wantLen: 1},
-		{args: []string{"inspect", "architecture", "AttributionBaseCommit", "--json"}, want: "invariant", wantLen: 1},
-		{args: []string{"inspect", "history", "restore manual commit attribution base drift behavior", "--json"}, want: "AttributionBaseCommit", wantLen: 1},
+		{args: []string{"inspect", "architecture", "AttributionBaseCommit", "--json"}, want: "invariant", wantLen: 2},
+		{args: []string{"inspect", "history", "restore manual commit attribution base drift behavior", "--json"}, want: "AttributionBaseCommit", wantLen: 2},
+		{args: []string{"inspect", "history", "transcript re-resolution updates state for subsequent reads", "--json"}, want: "state.TranscriptPath = resolved", wantLen: 1},
 	} {
 		cmd := NewRootCommand(opts)
 		out, err := execute(t, cmd, tc.args...)

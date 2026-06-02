@@ -588,23 +588,41 @@ Latest brain optimization for Layer A scenarios:
   identifier signal to env/constants such as `ENTIRE_REVIEW_*`,
   `ENTIRE_PLUGIN_ENV`, and `XDG_*`, so scenario-specific constants beat broad
   status summaries.
-- Live `entire-cli` validation after this change:
+- The history index now extracts bounded `code_fact` records from tool-result
+  payloads when they contain scenario-relevant code, invariant, or validation
+  signals. This recovers facts that were present in session logs but previously
+  skipped because they lived in Claude `tool_result` or Codex
+  `function_call_output` records.
+- Live validation after this fix:
+  - `entire-brain`: 1,396 records, 3 decisions, 9 learnings, 88 validations,
+    1,002 tool calls, and 246 code facts.
+  - `entire-cli`: 39,877 records, 507 decisions, 627 learnings, 10,068
+    validations, 20,000 tool calls, and 4,708 code facts.
+- Live `entire-cli` scenario validation after this change:
   - Directly useful `brief.history` signal now appears for plugin env filtering,
     XDG env propagation, `entire review --base`, uncommitted review scope, and
     stale `ENTIRE_REVIEW_*` provenance stripping.
-  - Transcript re-resolve returns adjacent session-state/transcript-path
-    history, but not a clean "resolved transcript path must update state"
-    decision. Treat this as partial and do not retain it without more evidence.
-  - Manual attribution-base drift still lacks the required invariant in the
-    exported history. The scenario should be redesigned/replaced, or history
-    extraction must become diff-aware enough to recover this invariant from
-    tool-call patches.
-- Live `entire-brain` history-only validation remains weak for several
-  history-specific candidates, especially seed-agent auth/schema and GitHub
-  visibility. A local semantic index attempt for `entire-brain` was stopped
-  after the semantic extractor hung with no output, so those candidates should
-  not be counted until full brain prep is healthy and `brief` surfaces direct
-  evidence.
+  - Transcript re-resolve now surfaces the clean invariant that successful
+    re-resolution updates `state.TranscriptPath` so subsequent reads use the
+    resolved path without repeating discovery.
+  - Manual attribution-base drift now surfaces the `AttributionBaseCommit` /
+    `RealignAttributionBase` invariant and the `human_added` failure mode in
+    top `brief.history` matches.
+  - `inspect decisions "AttributionBaseCommit"` returns nonzero results, and
+    `inspect architecture/history` can expose both rationale and source-derived
+    code facts for the scenario.
+- Live `entire-brain` history-only validation is healthier but not yet enough
+  to retain broad history-specific candidates by itself. For example, a
+  seed-agent schema-contract prompt returns history matches, but the top match
+  is still noisy; keep optimizing scenarios and extraction until `brief`
+  surfaces direct evidence for each retained Layer A task.
+- Added a root `.brainignore` for generated benchmark artifacts and bounded
+  semantic provider calls with a 30s doctor timeout and 2m snapshot timeout.
+  The previous `entire-brain --worktree` semantic validation no longer hangs
+  forever: it fails explicitly with `semantic provider snapshot timed out after
+  2m0s`. Root cause remains provider-side worktree walking that does not honor
+  `.gitignore` or `.brainignore`; keep semantic benchmark prep on clean
+  committed worktrees until the provider worktree walker is fixed.
 
 Next benchmark step:
 
