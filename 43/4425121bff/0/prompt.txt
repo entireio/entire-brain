@@ -1,17 +1,1 @@
-Try a fix and see where the numbers land. Then evaluate a sample of the decisions in how useful they are for agents.
-
----
-
-In benchmark layer A, do any of the decisions help with the scenarios?
-
----
-
-What needs to change, the brain or the scenarios?
-
----
-
-Ok, so optimize the brain for the scenarios
-
----
-
 Ok, so optimize the brain for the scenarios
