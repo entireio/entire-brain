@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "d6aef55dc0b5",
+  "strategy": "manual-commit",
+  "branch": "phase-2-brain-benchmark-plan",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".brainignore",
+    "docs/agent_benchmark_plan.md",
+    "docs/progress-so-far.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_test.go",
+    "internal/cli/export_test.go",
+    "internal/cli/history.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d6/aef55dc0b5/0/metadata.json",
+      "transcript": "/d6/aef55dc0b5/0/full.jsonl",
+      "content_hash": "/d6/aef55dc0b5/0/content_hash.txt",
+      "prompt": "/d6/aef55dc0b5/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 433320,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 11504128,
+    "output_tokens": 30386,
+    "api_call_count": 109
+  }
+}
