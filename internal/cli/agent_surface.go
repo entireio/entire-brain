@@ -63,6 +63,7 @@ type brainStatusSources struct {
 	Seed     bool `json:"seed"`
 	Sessions bool `json:"sessions"`
 	Semantic bool `json:"semantic"`
+	History  bool `json:"history"`
 }
 
 type brainLiveState struct {
@@ -83,6 +84,7 @@ type brainBriefReport struct {
 	Task        string             `json:"task"`
 	Status      brainStatusReport  `json:"status"`
 	Semantic    brainBriefSemantic `json:"semantic"`
+	History     brainBriefHistory  `json:"history"`
 	Guidance    []string           `json:"guidance"`
 	Warnings    []string           `json:"warnings,omitempty"`
 }
@@ -90,6 +92,10 @@ type brainBriefReport struct {
 type brainBriefSemantic struct {
 	Context semanticContextResult `json:"context"`
 	Tests   semanticTestsResult   `json:"tests"`
+}
+
+type brainBriefHistory struct {
+	Matches []brainTextMatch `json:"matches,omitempty"`
 }
 
 type brainShowReport struct {
@@ -365,7 +371,7 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "brain: %s\n", report.Brain.Path)
 	fmt.Fprintf(cmd.OutOrStdout(), "repo: %s\n", report.Repo.Root)
-	fmt.Fprintf(cmd.OutOrStdout(), "sources: seed=%t sessions=%t semantic=%t\n", report.Sources.Seed, report.Sources.Sessions, report.Sources.Semantic)
+	fmt.Fprintf(cmd.OutOrStdout(), "sources: seed=%t sessions=%t semantic=%t history=%t\n", report.Sources.Seed, report.Sources.Sessions, report.Sources.Semantic, report.Sources.History)
 	if report.Freshness != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "freshness: %s\n", report.Freshness.Severity)
 	}
@@ -414,6 +420,18 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	} else {
 		report.Warnings = append(report.Warnings, "semantic index missing; run `entire brain refresh --semantic` or `entire brain index`")
 	}
+	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.History != nil {
+		index, historyErr := loadBrainHistoryIndex(status.Brain.Path, status.Manifest.Sources.History)
+		if historyErr != nil {
+			report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
+		} else {
+			for _, record := range rankHistoryRecords(index, "history", task, briefOpts.limit) {
+				report.History.Matches = append(report.History.Matches, historyRecordTextMatch(record))
+			}
+		}
+	} else if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Sessions != nil {
+		report.Warnings = append(report.Warnings, "history index missing; run `entire brain history-index` or `entire brain refresh --history-index`")
+	}
 	if briefOpts.json {
 		return writeJSON(cmd, report)
 	}
@@ -428,6 +446,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	for _, suggestion := range report.Semantic.Tests.Suggestions {
 		symbol := suggestion.Symbol
 		fmt.Fprintf(cmd.OutOrStdout(), "test %s %s:%d-%d %s\n", displaySymbolName(symbol), symbol.FilePath, symbol.StartLine, symbol.EndLine, suggestion.Reason)
+	}
+	for _, match := range report.History.Matches {
+		fmt.Fprintf(cmd.OutOrStdout(), "history %s:%d %s\n", match.Path, match.Line, match.Excerpt)
 	}
 	for _, warning := range append(report.Status.Warnings, report.Warnings...) {
 		fmt.Fprintf(cmd.OutOrStdout(), "warning: %s\n", warning)
@@ -532,6 +553,7 @@ func buildBrainStatusReport(ctx context.Context, opts Options, target string) (b
 		report.Sources.Seed = manifest.Sources.Seed != nil
 		report.Sources.Sessions = manifest.Sources.Sessions != nil
 		report.Sources.Semantic = manifest.Sources.Semantic != nil
+		report.Sources.History = manifest.Sources.History != nil
 	}
 	live, liveErr := brainLiveStateReport(ctx, opts.Runner, repoDir, storage.BrainDir, manifest)
 	if liveErr != nil {
@@ -761,33 +783,53 @@ func inspectBrainHistoryIndex(brainDir, kind, query string) (brainHistoryInspect
 		return brainHistoryInspectReport{}, false
 	}
 	report := brainHistoryInspectReport{Kind: kind, Query: query, BrainPath: brainDir, Scanned: len(index.Records)}
-	allowed := historyInspectKinds(kind)
-	seen := map[string]struct{}{}
-	for _, record := range index.Records {
-		if len(allowed) > 0 {
-			if _, ok := allowed[record.Kind]; !ok {
-				continue
-			}
-		}
-		if !historyRecordMatchesQuery(record, query) {
-			continue
-		}
-		matchKey := record.Summary
-		if _, ok := seen[matchKey]; ok {
-			continue
-		}
-		seen[matchKey] = struct{}{}
-		report.Matches = append(report.Matches, brainTextMatch{
-			Path:    record.Path,
-			Line:    record.Line,
-			Excerpt: record.Summary,
-		})
-		if len(report.Matches) >= brainInspectHistoryMaxHits {
-			report.Truncated = true
-			break
-		}
+	records := inspectHistoryRecords(index, kind, query, brainInspectHistoryMaxHits)
+	for _, record := range records {
+		report.Matches = append(report.Matches, historyRecordTextMatch(record))
+	}
+	if len(report.Matches) >= brainInspectHistoryMaxHits {
+		report.Truncated = true
 	}
 	return report, true
+}
+
+func inspectHistoryRecords(index historyIndex, kind, query string, limit int) []historyRecord {
+	switch kind {
+	case "history", "sessions", "architecture":
+		return rankHistoryRecords(index, kind, query, limit)
+	default:
+		allowed := historyInspectKinds(kind)
+		var records []historyRecord
+		seen := map[string]struct{}{}
+		for _, record := range index.Records {
+			if len(allowed) > 0 {
+				if _, ok := allowed[record.Kind]; !ok {
+					continue
+				}
+			}
+			if !historyRecordMatchesQuery(record, query) {
+				continue
+			}
+			matchKey := normalizeHistorySearchText(record.Summary)
+			if _, ok := seen[matchKey]; ok {
+				continue
+			}
+			seen[matchKey] = struct{}{}
+			records = append(records, record)
+			if len(records) >= limit {
+				break
+			}
+		}
+		return records
+	}
+}
+
+func historyRecordTextMatch(record historyRecord) brainTextMatch {
+	return brainTextMatch{
+		Path:    record.Path,
+		Line:    record.Line,
+		Excerpt: record.Summary,
+	}
 }
 
 func historyInspectKinds(kind string) map[string]struct{} {

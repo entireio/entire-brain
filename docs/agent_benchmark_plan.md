@@ -311,6 +311,17 @@ entire brain status --workspace <name> --json
 history facts, validation recipes, and live-state overlays into one bounded
 task packet.
 
+For full-history repositories, `brief` must include ranked `history.matches`
+for the task prompt. Broad specialist reads such as `inspect history`,
+`inspect sessions`, and `inspect architecture` should use the same ranked
+history matcher. Narrow reads such as `inspect decisions` may remain stricter
+so exact decision queries do not become noisy.
+
+History ranking must preserve identifier signal. Terms such as
+`ENTIRE_REVIEW_*`, `ENTIRE_PLUGIN_ENV`, `XDG_*`, camel-case invariants, and
+symbol-like names should survive normalization and rank above generic status
+summaries.
+
 #### Question 3: What Full Session Data Teaches Agents
 
 Build a history index during `export`/`refresh --history-index`, not during
@@ -323,6 +334,11 @@ degraded when the semantic snapshot, history index, or file mapping is stale.
 For `entire-cli`, start with dense exported-history areas: agents, hooks,
 checkpoints, transcripts, review/resume, env filtering, attribution,
 provenance, and plugin dispatch.
+
+Do not count a full-history scenario unless the brain can surface direct useful
+evidence through `brief` or a documented `inspect` command. If the best history
+match is only adjacent tool noise or a broad status summary, improve extraction
+first or replace the scenario.
 
 #### Phase 2 Discovery Targets
 

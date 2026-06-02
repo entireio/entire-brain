@@ -576,6 +576,36 @@ Latest session-inspect fix:
     `inspect validation "go test"`, `inspect tool-paths "apply_patch"`,
     `inspect architecture "checkpoint"`, and `inspect sessions "transcript"`.
 
+Latest brain optimization for Layer A scenarios:
+
+- `entire brain brief "<task>" --json` now includes ranked `history.matches`
+  when a history index is available. `status` also reports `sources.history`.
+- Broad history commands (`inspect history`, `inspect sessions`, and
+  `inspect architecture`) now rank long task prompts by meaningful token
+  overlap instead of requiring exact phrase matches.
+- History normalization now splits camel-case and acronym identifiers such as
+  `AttributionBaseCommit` and `XDGPrefix`. Ranking also gives explicit
+  identifier signal to env/constants such as `ENTIRE_REVIEW_*`,
+  `ENTIRE_PLUGIN_ENV`, and `XDG_*`, so scenario-specific constants beat broad
+  status summaries.
+- Live `entire-cli` validation after this change:
+  - Directly useful `brief.history` signal now appears for plugin env filtering,
+    XDG env propagation, `entire review --base`, uncommitted review scope, and
+    stale `ENTIRE_REVIEW_*` provenance stripping.
+  - Transcript re-resolve returns adjacent session-state/transcript-path
+    history, but not a clean "resolved transcript path must update state"
+    decision. Treat this as partial and do not retain it without more evidence.
+  - Manual attribution-base drift still lacks the required invariant in the
+    exported history. The scenario should be redesigned/replaced, or history
+    extraction must become diff-aware enough to recover this invariant from
+    tool-call patches.
+- Live `entire-brain` history-only validation remains weak for several
+  history-specific candidates, especially seed-agent auth/schema and GitHub
+  visibility. A local semantic index attempt for `entire-brain` was stopped
+  after the semantic extractor hung with no output, so those candidates should
+  not be counted until full brain prep is healthy and `brief` surfaces direct
+  evidence.
+
 Next benchmark step:
 
 - Rerun retained candidates after the scoring-rubric replacement. New records

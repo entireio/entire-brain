@@ -56,6 +56,12 @@ type historyRecord struct {
 	Terms   []string `json:"terms,omitempty"`
 }
 
+type scoredHistoryRecord struct {
+	Record historyRecord
+	Score  int
+	Order  int
+}
+
 type historyFragment struct {
 	Text   string
 	Source string
@@ -640,12 +646,15 @@ func compactJSONValue(value any) string {
 }
 
 func normalizeHistorySearchText(value string) string {
-	value = strings.ToLower(value)
 	var b strings.Builder
+	runes := []rune(value)
 	lastSpace := true
-	for _, r := range value {
+	for i, r := range runes {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(r)
+			if !lastSpace && historyCamelBoundary(runes, i) {
+				b.WriteByte(' ')
+			}
+			b.WriteRune(unicode.ToLower(r))
 			lastSpace = false
 			continue
 		}
@@ -655,6 +664,24 @@ func normalizeHistorySearchText(value string) string {
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func historyCamelBoundary(runes []rune, index int) bool {
+	if index <= 0 || index >= len(runes) {
+		return false
+	}
+	current := runes[index]
+	previous := runes[index-1]
+	if !unicode.IsLetter(current) || !(unicode.IsLetter(previous) || unicode.IsDigit(previous)) || !unicode.IsUpper(current) {
+		return false
+	}
+	if unicode.IsLower(previous) || unicode.IsDigit(previous) {
+		return true
+	}
+	if unicode.IsUpper(previous) && index+1 < len(runes) && unicode.IsLower(runes[index+1]) {
+		return true
+	}
+	return false
 }
 
 func historyTextMatchesQuery(text, query string) bool {
@@ -679,6 +706,206 @@ func historyTextMatchesQuery(text, query string) bool {
 
 func historyRecordMatchesQuery(record historyRecord, query string) bool {
 	return historyTextMatchesQuery(record.Summary+" "+strings.Join(record.Terms, " ")+" "+record.Path, query)
+}
+
+func rankHistoryRecords(index historyIndex, kind, query string, limit int) []historyRecord {
+	if limit <= 0 {
+		return nil
+	}
+	allowed := historyInspectKinds(kind)
+	scored := make([]scoredHistoryRecord, 0, min(len(index.Records), limit))
+	seen := map[string]struct{}{}
+	for i, record := range index.Records {
+		if len(allowed) > 0 {
+			if _, ok := allowed[record.Kind]; !ok {
+				continue
+			}
+		}
+		score := historyRecordQueryScore(record, query)
+		if score == 0 {
+			continue
+		}
+		matchKey := normalizeHistorySearchText(record.Summary)
+		if _, ok := seen[matchKey]; ok {
+			continue
+		}
+		seen[matchKey] = struct{}{}
+		scored = append(scored, scoredHistoryRecord{Record: record, Score: score, Order: i})
+	}
+	sort.Slice(scored, func(i, j int) bool {
+		left, right := scored[i], scored[j]
+		if left.Score != right.Score {
+			return left.Score > right.Score
+		}
+		if historyKindRank(left.Record.Kind) != historyKindRank(right.Record.Kind) {
+			return historyKindRank(left.Record.Kind) > historyKindRank(right.Record.Kind)
+		}
+		if left.Record.Path != right.Record.Path {
+			return left.Record.Path > right.Record.Path
+		}
+		if left.Record.Line != right.Record.Line {
+			return left.Record.Line < right.Record.Line
+		}
+		return left.Order < right.Order
+	})
+	if len(scored) > limit {
+		scored = scored[:limit]
+	}
+	records := make([]historyRecord, 0, len(scored))
+	for _, item := range scored {
+		records = append(records, item.Record)
+	}
+	return records
+}
+
+func historyRecordQueryScore(record historyRecord, query string) int {
+	score := 0
+	if historyRecordMatchesQuery(record, query) {
+		score += 200
+	}
+	terms := historyQueryTerms(query)
+	identifiers := historyIdentifierQueryTerms(query)
+	if len(terms) == 0 && len(identifiers) == 0 {
+		return score
+	}
+	recordText := normalizeHistorySearchText(record.Summary + " " + strings.Join(record.Terms, " ") + " " + record.Path)
+	recordRaw := strings.ToUpper(record.Summary + " " + strings.Join(record.Terms, " ") + " " + record.Path)
+	recordTerms := normalizeHistorySearchText(strings.Join(record.Terms, " "))
+	matches := 0
+	for _, term := range terms {
+		if strings.Contains(recordText, term) {
+			matches++
+			score += 10
+			if strings.Contains(recordTerms, term) {
+				score += 5
+			}
+		}
+	}
+	identifierMatches := 0
+	for _, identifier := range identifiers {
+		if strings.Contains(recordRaw, identifier) {
+			identifierMatches++
+			score += 45
+		}
+	}
+	effectiveMatches := matches + identifierMatches
+	requiredTermCount := len(terms)
+	if requiredTermCount == 0 {
+		requiredTermCount = len(identifiers)
+	}
+	if effectiveMatches < historyRequiredQueryMatches(requiredTermCount) {
+		if score < 200 {
+			return 0
+		}
+		return score + historyKindRank(record.Kind)
+	}
+	score += effectiveMatches * 2
+	if len(terms) > 0 && matches >= len(terms) {
+		score += 30
+	}
+	score += historyKindRank(record.Kind)
+	return score
+}
+
+func historyRequiredQueryMatches(termCount int) int {
+	switch {
+	case termCount <= 1:
+		return 1
+	case termCount <= 3:
+		return 2
+	default:
+		return 3
+	}
+}
+
+func historyKindRank(kind string) int {
+	switch kind {
+	case "decision":
+		return 40
+	case "architecture":
+		return 32
+	case "learning":
+		return 26
+	case "validation":
+		return 18
+	case "tool_call":
+		return 4
+	default:
+		return 1
+	}
+}
+
+func historyQueryTerms(query string) []string {
+	normalized := normalizeHistorySearchText(query)
+	seen := map[string]struct{}{}
+	var terms []string
+	for _, term := range strings.Fields(normalized) {
+		if historyQueryStopword(term) {
+			continue
+		}
+		if len(term) < 3 && !historyShortQueryTerm(term) {
+			continue
+		}
+		if _, ok := seen[term]; ok {
+			continue
+		}
+		seen[term] = struct{}{}
+		terms = append(terms, term)
+	}
+	return terms
+}
+
+func historyIdentifierQueryTerms(query string) []string {
+	seen := map[string]struct{}{}
+	var terms []string
+	for _, candidate := range strings.FieldsFunc(query, func(r rune) bool {
+		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_')
+	}) {
+		candidate = strings.Trim(candidate, "_")
+		if candidate == "" {
+			continue
+		}
+		upper := strings.ToUpper(candidate)
+		if !strings.Contains(upper, "_") && (upper != candidate || len(upper) < 3) {
+			continue
+		}
+		if historyQueryStopword(strings.ToLower(upper)) {
+			continue
+		}
+		if _, ok := seen[upper]; ok {
+			continue
+		}
+		seen[upper] = struct{}{}
+		terms = append(terms, upper)
+	}
+	return terms
+}
+
+func historyShortQueryTerm(term string) bool {
+	switch term {
+	case "go", "ci", "pr", "ui", "id", "lc":
+		return true
+	default:
+		return false
+	}
+}
+
+func historyQueryStopword(term string) bool {
+	switch term {
+	case "a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "can",
+		"current", "do", "does", "during", "existing", "for", "from", "has",
+		"have", "how", "in", "into", "is", "it", "its", "keep", "local",
+		"make", "must", "new", "not", "of", "on", "only", "or", "other",
+		"previous", "prior", "preserve", "regression", "restore", "same",
+		"should", "task", "that", "the", "then", "this", "to", "use",
+		"when", "where", "with", "without":
+		return true
+	case "behavior", "before", "entire", "fix", "fresh", "parent", "run",
+		"runs", "setting", "value", "values":
+		return true
+	default:
+		return false
+	}
 }
 
 func loadBrainHistoryIndex(brainDir string, source *historySourceManifest) (historyIndex, error) {

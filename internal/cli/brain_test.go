@@ -76,13 +76,29 @@ func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	sessionDir := filepath.Join(storage.BrainDir, exportSessionsDirectory, "main")
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		t.Fatalf("mkdir session dir: %v", err)
+	}
+	sessionLine := `{"type":"agent_message","message":"Decision: ValidateToken review default scope is mainline; --base <ref> is an explicit override and uncommitted changes are included in the prompt."}` + "\n"
+	if err := os.WriteFile(filepath.Join(sessionDir, "session.jsonl"), []byte(sessionLine), 0o600); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
+	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, now); err != nil {
+		t.Fatalf("write history index: %v", err)
+	}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: " M internal/auth/token.go\n?? notes.md\n"}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{stdout: " M internal/auth/token.go\n?? notes.md\n"}
 	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{stdout: " 1 file changed, 2 insertions(+)\n"}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{stdout: "M\tinternal/auth/token.go\n"}
 
 	cmd := NewRootCommand(opts)
-	out, err := execute(t, cmd, "brief", "ValidateToken", "--json")
+	task := "ValidateToken"
+	out, err := execute(t, cmd, "brief", task, "--json")
 	if err != nil {
 		t.Fatalf("brief: %v\n%s", err, out)
 	}
@@ -90,10 +106,10 @@ func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("parse brief json: %v\n%s", err, out)
 	}
-	if report.Task != "ValidateToken" {
+	if report.Task != task {
 		t.Fatalf("task = %q", report.Task)
 	}
-	if !report.Status.Sources.Semantic || !report.Status.Live.Dirty {
+	if !report.Status.Sources.Semantic || !report.Status.Sources.History || !report.Status.Live.Dirty {
 		t.Fatalf("brief did not report semantic source and dirty live state: %+v", report.Status)
 	}
 	if got := report.Status.Live.Unstaged; len(got) != 1 || got[0] != "internal/auth/token.go" {
@@ -104,6 +120,9 @@ func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	}
 	if len(report.Semantic.Context.Symbols) == 0 || report.Semantic.Context.Symbols[0].Name != "ValidateToken" {
 		t.Fatalf("brief missing semantic context: %+v", report.Semantic.Context.Symbols)
+	}
+	if len(report.History.Matches) == 0 || !strings.Contains(report.History.Matches[0].Excerpt, "mainline") {
+		t.Fatalf("brief missing ranked history match: %+v", report.History.Matches)
 	}
 	if len(report.Guidance) == 0 || !strings.Contains(strings.Join(report.Guidance, "\n"), "indexed snapshot") {
 		t.Fatalf("brief missing snapshot guidance: %+v", report.Guidance)
@@ -302,6 +321,7 @@ func TestBrainInspectParsesStructuredSessionHistory(t *testing.T) {
 		{args: []string{"inspect", "validation", "go test", "--json"}, want: "go test", wantLen: 1},
 		{args: []string{"inspect", "tool-paths", "apply_patch", "--json"}, want: "apply_patch", wantLen: 1},
 		{args: []string{"inspect", "architecture", "AttributionBaseCommit", "--json"}, want: "invariant", wantLen: 1},
+		{args: []string{"inspect", "history", "restore manual commit attribution base drift behavior", "--json"}, want: "AttributionBaseCommit", wantLen: 1},
 	} {
 		cmd := NewRootCommand(opts)
 		out, err := execute(t, cmd, tc.args...)
@@ -318,6 +338,36 @@ func TestBrainInspectParsesStructuredSessionHistory(t *testing.T) {
 		if tc.want != "" && !strings.Contains(report.Matches[0].Excerpt, tc.want) {
 			t.Fatalf("%v first match missing %q: %+v", tc.args, tc.want, report.Matches[0])
 		}
+	}
+}
+
+func TestRankHistoryRecordsUsesIdentifierTerms(t *testing.T) {
+	index := historyIndex{Records: []historyRecord{
+		{
+			Kind:    "decision",
+			Path:    "sessions/main/generic.jsonl",
+			Line:    10,
+			Summary: "Final state: drop stale Strip references in review scanner tests.",
+		},
+		{
+			Kind:    "tool_call",
+			Path:    "sessions/main/review-env.jsonl",
+			Line:    20,
+			Summary: "AppendReviewEnv strips stale ENTIRE_REVIEW_* and ENTIRE_INVESTIGATE_* entries before appending fresh values.",
+		},
+	}}
+
+	records := rankHistoryRecords(index, "history", "Strip stale Entire review provenance before setting fresh ENTIRE_REVIEW_* values.", 2)
+	if len(records) == 0 {
+		t.Fatal("expected ranked history records")
+	}
+	if records[0].Path != "sessions/main/review-env.jsonl" {
+		t.Fatalf("identifier-specific record did not rank first: %+v", records)
+	}
+
+	records = rankHistoryRecords(index, "history", "ENTIRE_REVIEW_*", 2)
+	if len(records) == 0 || records[0].Path != "sessions/main/review-env.jsonl" {
+		t.Fatalf("identifier-only query did not rank env record first: %+v", records)
 	}
 }
 
