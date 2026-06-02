@@ -1,5 +1,1 @@
-Your report doesn't include any of the metrics like token usage for each comparison. Don't tell me you didn't collect this data?
-
----
-
 Your spreadsheet only include "full_brain" rows?
