@@ -223,6 +223,39 @@ func TestBrainInspectParsesStructuredSessionHistory(t *testing.T) {
 		{
 			"type": "response_item",
 			"payload": map[string]any{
+				"type": "message",
+				"role": "assistant",
+				"content": []map[string]any{{
+					"type": "text",
+					"text": "Implemented the manual_commit AttributionBaseCommit invariant because condensation must keep attribution stable.",
+				}},
+			},
+		},
+		{
+			"type": "response_item",
+			"payload": map[string]any{
+				"type": "message",
+				"role": "assistant",
+				"content": []map[string]any{{
+					"type": "text",
+					"text": "I'll treat the exported logs as the source of truth before reading current code.",
+				}},
+			},
+		},
+		{
+			"type": "response_item",
+			"payload": map[string]any{
+				"type": "message",
+				"role": "assistant",
+				"content": []map[string]any{{
+					"type": "text",
+					"text": "Updated the parser because the old output was noisy.",
+				}},
+			},
+		},
+		{
+			"type": "response_item",
+			"payload": map[string]any{
 				"type":      "function_call",
 				"name":      "exec_command",
 				"arguments": map[string]any{"cmd": "go test ./cmd/entire/cli/strategy"},

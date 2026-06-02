@@ -201,6 +201,9 @@ Follow-up fix on 2026-06-02:
   raw text.
 - Excluded user/system prompt content from decision, architecture, learning,
   validation, and tool-path records.
+- Tightened `decision` to explicit choice/rationale language or durable
+  contract/invariant/source-of-truth language, with progress/status preambles
+  filtered out and duplicate decision summaries collapsed.
 - Indexed tool invocations separately from tool output, with tool-name-aware
   validation so `apply_patch` text containing `go test` is not treated as a
   validation run.
@@ -209,16 +212,16 @@ Follow-up fix on 2026-06-02:
 - Processed session files newest-first with per-kind caps and an explicit scan
   budget warning for very large exports.
 
-Validated live brains after the fix:
+Validated live brains after the stricter decision classifier:
 
-- `entire-brain`: 1,304 records, 157 decisions, 9 learnings, 88 validations,
-  1,002 tool calls; history-index took 0.96s.
-- `entire-cli`: 44,951 records, 10,289 decisions, 627 learnings, 10,068
-  validations, 20,000 tool calls; history-index took 28.95s and warned that it
+- `entire-brain`: 1,150 records, 3 decisions, 9 learnings, 88 validations,
+  1,002 tool calls; history-index took 0.90s.
+- `entire-cli`: 35,169 records, 507 decisions, 627 learnings, 10,068
+  validations, 20,000 tool calls; history-index took 27.42s and warned that it
   scanned the newest 311 session files / 535,058,459 bytes before skipping older
   sessions at the scan budget.
-- `entire-cli inspect decisions "source_signal"` returned 9 matches with a
-  first result about migrated/manual rows lacking usable `source_signal`.
+- `entire-cli inspect decisions "source_signal"` returns focused RFD and
+  migration decisions about `source_signal` and existing memory records.
 - `entire-cli inspect validation "go test"` returned 25 matches with a first
   result from a Bash `go test` command.
 - `entire-cli inspect architecture "checkpoint"` returned 25 matches with RFD

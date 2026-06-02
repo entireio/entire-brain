@@ -772,7 +772,7 @@ func inspectBrainHistoryIndex(brainDir, kind, query string) (brainHistoryInspect
 		if !historyRecordMatchesQuery(record, query) {
 			continue
 		}
-		matchKey := fmt.Sprintf("%s:%d:%s", record.Path, record.Line, record.Summary)
+		matchKey := record.Summary
 		if _, ok := seen[matchKey]; ok {
 			continue
 		}

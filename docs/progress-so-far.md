@@ -560,11 +560,16 @@ Latest session-inspect fix:
   prompt content, skips raw fallback for JSON/JSONL, separates tool invocations
   from tool output, and treats validation as exec/Bash/assistant validation
   evidence rather than `apply_patch` content.
+- `decision` classification was tightened again after the first structured
+  parser pass inflated `entire-cli` to about 10k decisions. Decisions now need
+  explicit choice/rationale language or durable contract/invariant/source-of
+  truth language; obvious progress/status preambles are filtered and duplicate
+  decision summaries collapse.
 - Live validation on 2026-06-02:
-  - `entire-brain`: 1,304 records, 157 decisions, 9 learnings, 88 validations,
-    1,002 tool calls; index time 0.96s.
-  - `entire-cli`: 44,951 records, 10,289 decisions, 627 learnings, 10,068
-    validations, 20,000 tool calls; index time 28.95s with an explicit warning
+  - `entire-brain`: 1,150 records, 3 decisions, 9 learnings, 88 validations,
+    1,002 tool calls; index time 0.90s.
+  - `entire-cli`: 35,169 records, 507 decisions, 627 learnings, 10,068
+    validations, 20,000 tool calls; index time 27.42s with an explicit warning
     that only the newest 311 session files / 535,058,459 bytes were scanned
     before the scan budget skipped older sessions.
   - Representative non-zero probes: `inspect decisions "source_signal"`,

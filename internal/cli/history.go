@@ -151,6 +151,7 @@ func buildBrainHistoryIndex(outputDir string, now time.Time) (historyIndex, *his
 	}
 	kindCounts := map[string]int{}
 	kindTruncated := map[string]bool{}
+	seenDecisions := map[string]struct{}{}
 	totalTruncated := false
 	scannedFiles := 0
 	var scannedBytes int64
@@ -178,6 +179,13 @@ func buildBrainHistoryIndex(outputDir string, now time.Time) (historyIndex, *his
 			continue
 		}
 		for _, record := range records {
+			if record.Kind == "decision" {
+				dedupeKey := normalizeHistorySearchText(record.Summary)
+				if _, ok := seenDecisions[dedupeKey]; ok {
+					continue
+				}
+				seenDecisions[dedupeKey] = struct{}{}
+			}
 			if kindCounts[record.Kind] >= historyMaxKindRecords {
 				if !kindTruncated[record.Kind] {
 					index.Warnings = append(index.Warnings, fmt.Sprintf("history index truncated %s records at kind limit", record.Kind))
@@ -500,17 +508,38 @@ func historyLineMayContainIndexedContent(text string) bool {
 }
 
 func isDecisionFragment(source, lower string) bool {
-	if containsAny(lower, "decision", "decided", "we chose", "we choose", "instead of", "rationale") {
+	if isDecisionProgressFragment(lower) {
+		return false
+	}
+	if containsAny(lower,
+		"decision:", "decision -", "decision was", "decision is", "decided",
+		"we chose", "we choose", "chose to", "choose to", "rationale",
+		"tradeoff", "trade-off", "preferred", "prefer ",
+	) {
 		return true
 	}
 	if source != "assistant_message" && source != "final_answer" {
 		return false
 	}
 	return containsAny(lower,
-		"must ", "must not", "should ", "should not", "keep ", "preserve ", "restore ",
-		"contract", "invariant", "compatibility", "because", "regression", "fix ",
-		"fixed ", "implemented ", "updated ", "changed ", "added ", "removed ",
-		"now ", "avoid ", "fallback", "default", "source of truth",
+		"must preserve", "must keep", "must not", "should preserve", "should keep",
+		"contract", "invariant", "source of truth", "compatibility contract",
+		"stable contract", "api contract", "behavioral contract",
+	)
+}
+
+func isDecisionProgressFragment(lower string) bool {
+	return hasAnyPrefix(lower,
+		"i’m reading", "i'm reading",
+		"i’m checking", "i'm checking",
+		"i’m adding", "i'm adding",
+		"i’ll treat", "i'll treat",
+		"i’ll make", "i'll make",
+		"i have enough context",
+		"let me ",
+		"here is the final plan",
+		"server is up",
+		"net ",
 	)
 }
 
@@ -524,6 +553,15 @@ func isArchitectureFragment(lower string) bool {
 func containsAny(value string, needles ...string) bool {
 	for _, needle := range needles {
 		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAnyPrefix(value string, prefixes ...string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(value, prefix) {
 			return true
 		}
 	}
