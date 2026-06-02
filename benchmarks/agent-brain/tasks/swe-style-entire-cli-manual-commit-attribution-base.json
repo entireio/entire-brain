@@ -1,0 +1,29 @@
+{
+  "id": "swe-style-entire-cli-manual-commit-attribution-base",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/cli",
+  "source": "swe-bench-style-local",
+  "suite_tags": ["swe-style", "entire-cli", "manual-commit", "attribution"],
+  "conditions": ["no_brain", "full_brain"],
+  "prompt": "Issue: manual-commit attribution drifts after a user makes an unrelated commit during an active session. The following condensation then counts older unrelated lines as `human_added`, causing the agent percentage to collapse. Restore the remembered behavior that keeps attribution math scoped to the current cycle.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "cmd/entire/cli/strategy/manual_commit_hooks.go",
+      "old": "\t\tstate.BaseCommit = newHead\n\t\t// Keep AttributionBaseCommit in sync to prevent stale base drift.\n\t\t// Without this, a subsequent condensation would diff from the old base,\n\t\t// inflating human_added with lines from unrelated prior commits.\n\t\tstate.RealignAttributionBase(newHead)\n\t\tlogging.Debug(logCtx, \"post-commit: updated BaseCommit and AttributionBaseCommit\",",
+      "new": "\t\tstate.BaseCommit = newHead\n\t\tlogging.Debug(logCtx, \"post-commit: updated BaseCommit and AttributionBaseCommit\","
+    },
+    {
+      "path": "cmd/entire/cli/strategy/manual_commit_hooks.go",
+      "old": "\t\t\tstate.BaseCommit = newHead\n\t\t\t// Keep AttributionBaseCommit in sync to prevent stale base drift.\n\t\t\t// Without this, a subsequent condensation would diff from the old base,\n\t\t\t// inflating human_added with lines from unrelated prior commits.\n\t\t\tstate.RealignAttributionBase(newHead)\n\t\t\treturn nil",
+      "new": "\t\t\tstate.BaseCommit = newHead\n\t\t\treturn nil"
+    }
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/integration_test -run TestManualCommit_AttributionStaleBase"
+  ],
+  "expected_files": ["cmd/entire/cli/strategy/manual_commit_hooks.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "brain_queries": ["AttributionBaseCommit stale human_added no trailer", "TestManualCommit_AttributionStaleBase", "BaseCommit AttributionBaseCommit realign"]
+}
