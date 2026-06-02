@@ -43,6 +43,27 @@ Layer counts use overlapping membership:
 
 The 20-per-layer proof target is met.
 
+## Metrics Appendix
+
+The aggregate metrics are committed in
+[`comparison-metrics.csv`](comparison-metrics.csv). It includes all 65
+task/runner/condition comparisons from the combined Phase 2 report, not only
+the retained rows.
+
+Columns include score, success rate, agent seconds, total tokens, turns, cost,
+deltas, p-values, sample counts, and retention status. Coverage:
+
+- Score and success: 65 of 65 comparisons.
+- Agent seconds: 64 of 65 comparisons.
+- Total tokens: 64 of 65 comparisons.
+- Turns: 23 of 65 comparisons.
+- Cost: 23 of 65 comparisons.
+
+The missing token/seconds row is a rejected Haiku regression where the agent run
+did not expose complete usage. Cost is blank for Codex rows where the CLI did
+not report cost and no pricing file was supplied for estimation; Claude rows
+with reported cost are preserved.
+
 ## Representative Retained Comparisons
 
 | Layer | Task | Runner | Brain | Delta | Success | Signal |
@@ -77,14 +98,14 @@ The 20-per-layer proof target is met.
 
 The final fill suite used the supported default Codex model at high reasoning effort (`codex-default-high=codex::high`). Explicit `gpt-5.1-codex` runner names were rejected by the account API and are not counted.
 
-| Layer | Task | Runner | Brain | Delta | Success | Signal |
-|---|---|---|---|---:|---|---|
-| A | `entire-brain-history-bundle-sha256` | `codex-default-high` | full | +11.33 | 1.00 -> 1.00 | score |
-| A | `entire-brain-history-claude-bare-auth` | `codex-default-high` | full | +18.00 | 0.67 -> 1.00 | success lift |
-| A | `entire-brain-history-codex-schema-contract` | `codex-default-high` | full | +15.33 | 0.67 -> 1.00 | success lift |
-| B | `swe-style-entire-brain-history-bundle-sha256` | `codex-default-high` | full | +11.67 | 1.00 -> 1.00 | score |
-| B | `swe-style-entire-brain-history-claude-bare-auth` | `codex-default-high` | full | +39.67 | 0.00 -> 1.00 | score |
-| B | `swe-style-entire-brain-history-codex-schema-contract` | `codex-default-high` | full | +5.00 | 1.00 -> 1.00 | score |
+| Layer | Task | Runner | Score | Success | Seconds | Tokens | Signal |
+|---|---|---|---|---|---|---|---|
+| A | `entire-brain-history-bundle-sha256` | `codex-default-high` | 84.00 -> 95.33 | 1.00 -> 1.00 | 148.96 -> 92.73 | 590,370 -> 572,174 | score |
+| A | `entire-brain-history-claude-bare-auth` | `codex-default-high` | 77.67 -> 95.67 | 0.67 -> 1.00 | 130.20 -> 112.78 | 604,923 -> 508,132 | success lift |
+| A | `entire-brain-history-codex-schema-contract` | `codex-default-high` | 78.67 -> 94.00 | 0.67 -> 1.00 | 123.48 -> 140.11 | 637,861 -> 692,240 | success lift |
+| B | `swe-style-entire-brain-history-bundle-sha256` | `codex-default-high` | 84.67 -> 96.33 | 1.00 -> 1.00 | 122.21 -> 95.49 | 470,683 -> 521,079 | score |
+| B | `swe-style-entire-brain-history-claude-bare-auth` | `codex-default-high` | 55.33 -> 95.00 | 0.00 -> 1.00 | 96.97 -> 115.91 | 476,470 -> 551,836 | score |
+| B | `swe-style-entire-brain-history-codex-schema-contract` | `codex-default-high` | 89.33 -> 94.33 | 1.00 -> 1.00 | 133.13 -> 130.83 | 622,506 -> 658,432 | score |
 
 ## Clear Rejects And Saturation
 
