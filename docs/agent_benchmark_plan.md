@@ -347,11 +347,12 @@ evidence through `brief` or a documented `inspect` command. If the best history
 match is only adjacent tool noise or a broad status summary, improve extraction
 first or replace the scenario.
 
-For semantic prep, prefer clean committed worktrees. Provider worktree snapshot
-mode may scan ignored generated artifacts before Entire Brain can redact them;
-Entire Brain should fail that path quickly with provider timeouts, but retained
-benchmark tasks should not depend on dirty worktree semantic indexing until the
-provider worktree walker honors `.gitignore`/`.brainignore`.
+For semantic prep, pass the repo `.brainignore` to the semantic provider with
+`--ignore-file` when it exists, and still apply Entire Brain's post-snapshot
+redaction as a safety net. The provider now honors Git ignores and additional
+ignore-list files in worktree mode, so retained tasks may use worktree semantic
+prep after validating that generated benchmark artifacts are skipped before
+walking/reading.
 
 #### Phase 2 Discovery Targets
 

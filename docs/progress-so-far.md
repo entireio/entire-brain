@@ -618,11 +618,24 @@ Latest brain optimization for Layer A scenarios:
   surfaces direct evidence for each retained Layer A task.
 - Added a root `.brainignore` for generated benchmark artifacts and bounded
   semantic provider calls with a 30s doctor timeout and 2m snapshot timeout.
-  The previous `entire-brain --worktree` semantic validation no longer hangs
-  forever: it fails explicitly with `semantic provider snapshot timed out after
-  2m0s`. Root cause remains provider-side worktree walking that does not honor
-  `.gitignore` or `.brainignore`; keep semantic benchmark prep on clean
-  committed worktrees until the provider worktree walker is fixed.
+- After `entire-sem` added Git ignore support and repeatable
+  `--ignore-file`, Entire Brain now passes the repo `.brainignore` to
+  `entire sem snapshot` when present. Post-snapshot redaction remains as a
+  safety net.
+- Live validation with the new provider on 2026-06-02:
+  - Direct provider command
+    `entire sem snapshot --repo . --format ndjson --no-network --worktree
+    --ignore-file .brainignore` completed in 0.59s and emitted 5,888 NDJSON
+    records with no `benchmarks/agent-brain/cache` or
+    `benchmarks/agent-brain/results` records.
+  - Fresh local Entire Brain command
+    `entire-brain index . --force --worktree` completed in 1.46s, wrote
+    `semantic/snapshots/worktree-7b70cd575db52968/snapshot.ndjson`, and
+    recorded 921 symbols, 0 relations, and the expected
+    `W_WORKTREE_SNAPSHOT` warning.
+  - A plain provider worktree snapshot without `--ignore-file .brainignore`
+    was still stopped after running into the old slow path, so explicit
+    `.brainignore` pass-through remains part of the contract.
 
 Next benchmark step:
 

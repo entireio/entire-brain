@@ -234,6 +234,10 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	if err != nil {
 		return err
 	}
+	providerIgnoreFiles, err := semanticProviderIgnoreFiles(repoDir)
+	if err != nil {
+		return err
+	}
 	head, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
 	if err != nil {
 		return fmt.Errorf("resolve HEAD for semantic index: %w", err)
@@ -296,7 +300,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			}
 			return fmt.Errorf("%s: semantic provider no-egress status is not verified", code)
 		}
-		raw, err = runSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts.semBinary, indexOpts.worktree)
+		raw, err = runSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts.semBinary, indexOpts.worktree, providerIgnoreFiles)
 		if err != nil {
 			return err
 		}
@@ -681,11 +685,18 @@ func boolValue(data map[string]any, key string) bool {
 	return b
 }
 
-func runSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, semBinary string, worktree bool) ([]byte, error) {
+func runSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, semBinary string, worktree bool, ignoreFiles []string) ([]byte, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	args := []string{"sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"}
+	for _, path := range ignoreFiles {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		args = append(args, "--ignore-file", path)
+	}
 	if worktree {
 		args = append(args, "--worktree")
 	}
@@ -1333,6 +1344,21 @@ func loadBrainIgnore(repoDir string) (brainIgnore, error) {
 		ignore.patterns = append(ignore.patterns, filepath.ToSlash(line))
 	}
 	return ignore, nil
+}
+
+func semanticProviderIgnoreFiles(repoDir string) ([]string, error) {
+	path := filepath.Join(repoDir, ".brainignore")
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("stat .brainignore: %w", err)
+	}
+	if info.IsDir() {
+		return nil, errors.New(".brainignore is a directory")
+	}
+	return []string{path}, nil
 }
 
 func (i brainIgnore) Ignored(path string) bool {

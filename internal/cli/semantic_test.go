@@ -122,6 +122,30 @@ func TestSemanticIndexRunsProviderCommandsWithTimeouts(t *testing.T) {
 	}
 }
 
+func TestSemanticIndexPassesBrainignoreToProvider(t *testing.T) {
+	repoDir := t.TempDir()
+	brainignorePath := filepath.Join(repoDir, ".brainignore")
+	if err := os.WriteFile(brainignorePath, []byte("generated/\n"), 0o600); err != nil {
+		t.Fatalf("write .brainignore: %v", err)
+	}
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := &cobra.Command{Use: "index"}
+
+	if err := runSemanticIndex(cmd.Context(), cmd, Options{
+		Version: "test",
+		Env:     env,
+		Runner:  runner,
+		Now:     time.Now,
+	}, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	if !fakeRunnerCalled(runner, "entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--ignore-file", brainignorePath) {
+		t.Fatalf("semantic provider was not called with .brainignore: %+v", runner.calls)
+	}
+}
+
 func TestSemanticIndexWritesBranchOverlayForFeatureBranch(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -3796,16 +3820,19 @@ func semanticTestContainsEntrySuffix(entries []string, suffix string) bool {
 }
 
 func semanticFixtureRunner(repoDir, snapshot string) *fakeCommandRunner {
+	brainignorePath := filepath.Join(repoDir, ".brainignore")
 	return &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("git", "rev-parse", "--show-toplevel"):                                                {stdout: repoDir + "\n"},
-		fakeCommandKey("git", "remote", "get-url", "origin"):                                                 {stdout: "git@github.com:example/repo.git\n"},
-		fakeCommandKey("git", "rev-parse", "HEAD"):                                                           {stdout: "aaa111\n"},
-		fakeCommandKey("git", "rev-parse", "HEAD^{tree}"):                                                    {stdout: "tree111\n"},
-		fakeCommandKey("git", "branch", "--show-current"):                                                    {stdout: "feature\n"},
-		fakeCommandKey("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):              {stdout: "origin/main\n"},
-		fakeCommandKey("git", "status", "--porcelain"):                                                       {stdout: ""},
-		fakeCommandKey("entire", "sem", "doctor", "--json"):                                                  {stdout: `{"no_egress":true}`},
-		fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"): {stdout: snapshot},
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"):                                                                                                {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "remote", "get-url", "origin"):                                                                                                 {stdout: "git@github.com:example/repo.git\n"},
+		fakeCommandKey("git", "rev-parse", "HEAD"):                                                                                                           {stdout: "aaa111\n"},
+		fakeCommandKey("git", "rev-parse", "HEAD^{tree}"):                                                                                                    {stdout: "tree111\n"},
+		fakeCommandKey("git", "branch", "--show-current"):                                                                                                    {stdout: "feature\n"},
+		fakeCommandKey("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):                                                              {stdout: "origin/main\n"},
+		fakeCommandKey("git", "status", "--porcelain"):                                                                                                       {stdout: ""},
+		fakeCommandKey("entire", "sem", "doctor", "--json"):                                                                                                  {stdout: `{"no_egress":true}`},
+		fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"):                                                 {stdout: snapshot},
+		fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--ignore-file", brainignorePath):               {stdout: snapshot},
+		fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--ignore-file", brainignorePath, "--worktree"): {stdout: snapshot},
 	}}
 }
 
