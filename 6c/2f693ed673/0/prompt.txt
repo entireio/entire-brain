@@ -1,0 +1,17 @@
+Your spreadsheet only include "full_brain" rows?
+
+---
+
+You are not giving me clear answers. You ran for over 12 hours, you should be better than this. For the 65 comparisons, take only the results for Codex and Claude with the default model (not the cheaper models). Tell me for each how many tokens the no-brain or full-brain used. Don't give me a .csv, give me a clear answer there.
+
+---
+
+You are not giving me clear answers. You ran for over 12 hours, you should be better than this. For the 65 comparisons, take only the results for Codex and Claude with the default model (not the cheaper models). Tell me for each how many tokens the no-brain or full-brain used. Don't give me a .csv, give me a clear answer there.
+
+---
+
+Ok, you messed up the task completely. You should have 20 scenarios for each layer independent of the model. Instead you counted the model as scenario? Please don't tell me that's true?
+
+---
+
+Ok, you messed up the task completely. You should have 20 scenarios for each layer independent of the model. Instead you counted the model as scenario? Please don't tell me that's true?
