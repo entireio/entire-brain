@@ -53,6 +53,7 @@ var checkpointTrailerRegex = regexp.MustCompile(checkpointTrailerKey + `:\s*([a-
 
 type exportCommandOptions struct {
 	outputDir       string
+	outputExplicit  bool
 	checkpointLimit int
 	entireBinary    string
 	rawTranscript   bool
@@ -84,7 +85,7 @@ is selected.`,
 	}
 
 	cmd.Flags().StringVarP(&exportOpts.outputDir, "output", "o", defaultExportDir, "Output directory for the export (default: plugin data brain directory)")
-	cmd.Flags().IntVar(&exportOpts.checkpointLimit, "checkpoint-limit", defaultCheckpointLimit, "Maximum checkpoints to inspect")
+	cmd.Flags().IntVar(&exportOpts.checkpointLimit, "checkpoint-limit", defaultCheckpointLimit, "Maximum checkpoints to inspect (0 means all)")
 	cmd.Flags().StringVar(&exportOpts.entireBinary, "entire-binary", "entire", "Entire CLI binary to invoke")
 	cmd.Flags().BoolVar(&exportOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts")
 	cmd.Flags().StringVar(&exportOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope: all or branch")
@@ -95,10 +96,10 @@ is selected.`,
 }
 
 func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts exportCommandOptions) error {
-	if exportOpts.checkpointLimit <= 0 {
-		return errors.New("--checkpoint-limit must be greater than zero")
+	if exportOpts.checkpointLimit < 0 {
+		return errors.New("--checkpoint-limit must be greater than or equal to zero")
 	}
-	outputExplicit := cmd.Flags().Changed("output")
+	outputExplicit := exportOpts.outputExplicit || cmd.Flags().Changed("output")
 	if outputExplicit && strings.TrimSpace(exportOpts.outputDir) == "" {
 		return errors.New("--output must not be empty")
 	}
@@ -603,7 +604,11 @@ func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, ent
 }
 
 func listBranchCheckpoints(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, limit int) ([]checkpointListEntry, []string, error) {
-	stdout, stderr, err := runner.Run(ctx, repoDir, entireBinary, "checkpoint", "explain", "--json", "--limit", strconv.Itoa(limit))
+	args := []string{"checkpoint", "explain", "--json"}
+	if limit > 0 {
+		args = append(args, "--limit", strconv.Itoa(limit))
+	}
+	stdout, stderr, err := runner.Run(ctx, repoDir, entireBinary, args...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list checkpoints: %w", err)
 	}
@@ -725,7 +730,7 @@ func checkpointEntriesFromIDs(ids map[string]struct{}, limit int) []checkpointLi
 		sorted = append(sorted, id)
 	}
 	sort.Strings(sorted)
-	if len(sorted) > limit {
+	if limit > 0 && len(sorted) > limit {
 		sorted = sorted[:limit]
 	}
 
@@ -740,7 +745,7 @@ func checkpointEntriesFromIDs(ids map[string]struct{}, limit int) []checkpointLi
 }
 
 func warningsFromLimit(ids map[string]struct{}, limit int, warnings []string) []string {
-	if len(ids) > limit {
+	if limit > 0 && len(ids) > limit {
 		warnings = append(warnings, fmt.Sprintf("checkpoint ref discovery capped at %d checkpoints; rerun with --checkpoint-limit <N> to inspect more", limit))
 	}
 	return warnings

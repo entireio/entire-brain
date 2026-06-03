@@ -33,6 +33,7 @@ const (
 
 type seedCommandOptions struct {
 	outputDir          string
+	outputExplicit     bool
 	update             bool
 	force              bool
 	includeTests       bool
@@ -241,7 +242,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		return fmt.Errorf("seed target must be an existing local path: %s", target)
 	}
 
-	outputExplicit := cmd.Flags().Changed("output")
+	outputExplicit := seedOpts.outputExplicit || cmd.Flags().Changed("output")
 	persistentSeed := !outputExplicit
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
@@ -251,7 +252,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	if !outputExplicit {
 		outputDir = storage.BrainDir
 	}
-	if outputExplicit {
+	if outputExplicit && !seedOpts.update {
 		if seedOpts.force {
 			if err := os.RemoveAll(outputDir); err != nil {
 				return fmt.Errorf("remove forced output directory: %w", err)

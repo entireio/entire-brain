@@ -126,10 +126,12 @@ type semanticRecord struct {
 }
 
 type semanticIndexOptions struct {
-	force     bool
-	semBinary string
-	skipSem   bool
-	worktree  bool
+	force          bool
+	semBinary      string
+	skipSem        bool
+	worktree       bool
+	outputDir      string
+	outputExplicit bool
 }
 
 type semanticResetOptions struct {
@@ -213,6 +215,13 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
 		return err
+	}
+	if indexOpts.outputExplicit {
+		outputDir, err := filepath.Abs(indexOpts.outputDir)
+		if err != nil {
+			return fmt.Errorf("resolve output directory: %w", err)
+		}
+		storage.BrainDir = outputDir
 	}
 	if err := ensureSemanticAuditPathSafe(storage.BrainDir); err != nil {
 		return err

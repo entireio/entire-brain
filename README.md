@@ -47,14 +47,13 @@ ENTIRE_PLUGIN_CACHE_DIR="$(mktemp -d)" \
 ### Start a Coding Task
 
 ```sh
-entire brain refresh --history-index
+entire brain refresh
 entire brain status . --json
 entire brain brief "update the README" --json
 entire brain search "README" --json
 entire brain show <semantic-id> --json
 ```
 
-Add `--semantic` to `refresh` when an `entire sem` provider is available.
 `brief` is the agent-facing entry point: it combines brain availability,
 freshness, live git state, semantic context and test suggestions, and matching
 history records. `status`, `search`, and `show` provide smaller top-level
@@ -74,46 +73,39 @@ entire brain inspect history "semantic" --json
 entire brain inspect boundaries --kind tool --json
 ```
 
-### Export Session History
+### Create Or Refresh A Brain
 
 ```sh
-entire brain export --history-index
-entire brain history-index .
-entire brain export --output /tmp/repo-brain
-entire brain path .
+entire brain refresh
+entire brain refresh --agent none
+entire brain refresh --output /tmp/repo-brain
+entire brain refresh --force
 ```
 
-`export` writes the newest known checkpoint version of each Entire session into
-the persistent brain directory. `--history-index` also builds a local
-decision/rationale index from exported sessions. `history-index` can rebuild
-that derived index later. `path` prints the persistent brain directory and
-creates it when needed for a local checkout. Export warning details are printed
-after the warning count and recorded in the generated `README.md` and
-`manifest.json`.
+`refresh` is the normal entry point. It writes the newest known checkpoint
+version of every discoverable Entire session into the persistent brain
+directory, builds deterministic repository seed context, runs `entire sem`, and
+builds the local semantic context graph used by `query`, `context`, `impact`,
+`changes`, and `brief`. It also derives the local decision/rationale history
+index from the exported sessions. `--agent` controls optional seed synthesis:
+the default is `auto`, which uses Codex when available, then Claude Code when
+available, otherwise deterministic seed-only mode. `--output` writes a complete
+brain to an explicit directory. `--force` rebuilds generated sources and
+overwrites an explicit output directory when one is provided.
 
-### Seed Repository Context
+Advanced commands such as `export`, `seed`, `history-index`, and `path` remain
+available for debugging or targeted maintenance, but most users should not need
+them.
 
-```sh
-entire brain seed .
-entire brain seed . --agent none
-entire brain refresh --force-seed --history-index
-```
+### Semantic Context
 
-`seed` writes deterministic repository context under `seed/`, including file
-indexes, docs, commands, entrypoints, conventions, risks, and history gaps.
-`refresh` updates session history and creates or refreshes the seed when useful.
-
-### Build a Semantic Brain
-
-Install or build a provider that supports `entire sem`, then index:
+`refresh` expects a provider that supports `entire sem`:
 
 ```sh
-entire brain refresh --semantic --history-index --sem-binary entire
-entire brain index . --sem-binary entire --force
+entire brain refresh
 entire brain stale --json
 ```
 
-For a directly built provider wrapper, point `--sem-binary` at that executable.
 The provider must support:
 
 ```sh
@@ -121,13 +113,10 @@ entire sem doctor --json
 entire sem snapshot --repo . --format ndjson --no-network
 ```
 
-`index` stores semantic snapshots, a SQLite query store, metrics, parse cache,
-and branch overlays in the local brain directory. It refuses to replace an
-existing semantic source unless `--force` is set, and it refuses dirty worktrees
-unless `--worktree` is set. `refresh --semantic` forces a semantic rebuild after
-session and seed refresh; add `--semantic-worktree` to represent the current
-dirty worktree, or `--all-branches` to write recent local branch overlays
-without fetching remotes.
+The semantic refresh stores semantic snapshots, a SQLite query store, metrics,
+parse cache, and branch overlays in the local brain directory. It refuses dirty
+worktrees unless semantic worktree indexing is explicitly enabled through the
+advanced `index --worktree` maintenance path.
 
 Useful semantic commands:
 

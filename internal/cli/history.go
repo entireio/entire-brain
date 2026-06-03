@@ -20,26 +20,23 @@ import (
 )
 
 const (
-	historyDirName        = "history"
-	historyIndexFileName  = "index.json"
-	historyIndexPath      = historyDirName + "/" + historyIndexFileName
-	historyMaxLineBytes   = 1024 * 1024
-	historyMaxRecords     = 80000
-	historyMaxKindRecords = 20000
-	historyMaxScanFiles   = 500
-	historyMaxScanBytes   = int64(512 * 1024 * 1024)
+	historyDirName       = "history"
+	historyIndexFileName = "index.json"
+	historyIndexPath     = historyDirName + "/" + historyIndexFileName
+	historyMaxLineBytes  = 1024 * 1024
 )
 
 type historySourceManifest struct {
-	GeneratedAt time.Time `json:"generated_at"`
-	IndexPath   string    `json:"index_path"`
-	Records     int       `json:"records"`
-	Decisions   int       `json:"decisions"`
-	Learnings   int       `json:"learnings"`
-	Validations int       `json:"validations"`
-	ToolCalls   int       `json:"tool_calls"`
-	CodeFacts   int       `json:"code_facts"`
-	Warnings    []string  `json:"warnings,omitempty"`
+	GeneratedAt         time.Time `json:"generated_at"`
+	IndexPath           string    `json:"index_path"`
+	SessionsFingerprint string    `json:"sessions_fingerprint,omitempty"`
+	Records             int       `json:"records"`
+	Decisions           int       `json:"decisions"`
+	Learnings           int       `json:"learnings"`
+	Validations         int       `json:"validations"`
+	ToolCalls           int       `json:"tool_calls"`
+	CodeFacts           int       `json:"code_facts"`
+	Warnings            []string  `json:"warnings,omitempty"`
 }
 
 type historyIndex struct {
@@ -156,30 +153,8 @@ func buildBrainHistoryIndex(outputDir string, now time.Time) (historyIndex, *his
 	if err != nil {
 		return index, nil, err
 	}
-	kindCounts := map[string]int{}
-	kindTruncated := map[string]bool{}
 	seenDecisions := map[string]struct{}{}
-	totalTruncated := false
-	scannedFiles := 0
-	var scannedBytes int64
-	scanBudgetWarned := false
 	for _, file := range files {
-		if len(index.Records) >= historyMaxRecords {
-			if !totalTruncated {
-				index.Warnings = append(index.Warnings, "history index truncated at record limit")
-				totalTruncated = true
-			}
-			break
-		}
-		if scannedFiles > 0 && (scannedFiles >= historyMaxScanFiles || scannedBytes+file.Size > historyMaxScanBytes) {
-			if !scanBudgetWarned {
-				index.Warnings = append(index.Warnings, fmt.Sprintf("history index scanned newest %d session files (%d bytes) and skipped older sessions at scan budget", scannedFiles, scannedBytes))
-				scanBudgetWarned = true
-			}
-			break
-		}
-		scannedFiles++
-		scannedBytes += file.Size
 		records, scanErr := scanHistoryFile(outputDir, file.Path)
 		if scanErr != nil {
 			index.Warnings = append(index.Warnings, scanErr.Error())
@@ -193,22 +168,7 @@ func buildBrainHistoryIndex(outputDir string, now time.Time) (historyIndex, *his
 				}
 				seenDecisions[dedupeKey] = struct{}{}
 			}
-			if kindCounts[record.Kind] >= historyMaxKindRecords {
-				if !kindTruncated[record.Kind] {
-					index.Warnings = append(index.Warnings, fmt.Sprintf("history index truncated %s records at kind limit", record.Kind))
-					kindTruncated[record.Kind] = true
-				}
-				continue
-			}
-			if len(index.Records) >= historyMaxRecords {
-				if !totalTruncated {
-					index.Warnings = append(index.Warnings, "history index truncated at record limit")
-					totalTruncated = true
-				}
-				continue
-			}
 			index.Records = append(index.Records, record)
-			kindCounts[record.Kind]++
 		}
 	}
 	sort.Slice(index.Records, func(i, j int) bool {
@@ -221,10 +181,11 @@ func buildBrainHistoryIndex(outputDir string, now time.Time) (historyIndex, *his
 		return index.Records[i].Line < index.Records[j].Line
 	})
 	source := &historySourceManifest{
-		GeneratedAt: now,
-		IndexPath:   historyIndexPath,
-		Records:     len(index.Records),
-		Warnings:    append([]string(nil), index.Warnings...),
+		GeneratedAt:         now,
+		IndexPath:           historyIndexPath,
+		SessionsFingerprint: brainSessionsFingerprint(outputDir),
+		Records:             len(index.Records),
+		Warnings:            append([]string(nil), index.Warnings...),
 	}
 	for _, record := range index.Records {
 		switch record.Kind {
@@ -241,6 +202,53 @@ func buildBrainHistoryIndex(outputDir string, now time.Time) (historyIndex, *his
 		}
 	}
 	return index, source, nil
+}
+
+func brainSessionsFingerprint(outputDir string) string {
+	manifest, err := loadBrainManifest(outputDir)
+	if err != nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
+		return ""
+	}
+	return sessionSourceFingerprint(manifest.Sources.Sessions)
+}
+
+func sessionSourceFingerprint(source *sessionSourceManifest) string {
+	if source == nil {
+		return ""
+	}
+	type fingerprintSession struct {
+		SessionID        string `json:"session_id"`
+		LatestCheckpoint string `json:"latest_checkpoint_id"`
+		Branch           string `json:"branch,omitempty"`
+		TranscriptPath   string `json:"transcript_path"`
+	}
+	payload := struct {
+		DefaultBranch      string               `json:"default_branch,omitempty"`
+		TranscriptMode     string               `json:"transcript_mode"`
+		Scope              string               `json:"scope"`
+		LatestCheckpointID string               `json:"latest_checkpoint_id,omitempty"`
+		Sessions           []fingerprintSession `json:"sessions"`
+	}{
+		DefaultBranch:      source.DefaultBranch,
+		TranscriptMode:     source.TranscriptMode,
+		Scope:              source.Scope,
+		LatestCheckpointID: source.LatestCheckpointID,
+		Sessions:           make([]fingerprintSession, 0, len(source.Sessions)),
+	}
+	for _, session := range source.Sessions {
+		payload.Sessions = append(payload.Sessions, fingerprintSession{
+			SessionID:        session.SessionID,
+			LatestCheckpoint: session.LatestCheckpoint,
+			Branch:           session.Branch,
+			TranscriptPath:   session.TranscriptPath,
+		})
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func collectHistorySessionFiles(sessionsRoot string, warnings *[]string) ([]historySessionFile, error) {
@@ -1003,7 +1011,7 @@ func historyQueryStopword(term string) bool {
 
 func loadBrainHistoryIndex(brainDir string, source *historySourceManifest) (historyIndex, error) {
 	if source == nil || source.IndexPath == "" {
-		return historyIndex{}, errors.New("history index missing; run `entire brain history-index` or `entire brain refresh --history-index`")
+		return historyIndex{}, errors.New("history index missing; run `entire brain refresh`")
 	}
 	clean, err := validateHistoryIndexPath(source.IndexPath)
 	if err != nil {

@@ -47,7 +47,7 @@ their deterministic brain directory without exporting.`,
 		},
 	}
 
-	cmd.Flags().IntVar(&pathOpts.checkpointLimit, "checkpoint-limit", defaultCheckpointLimit, "Maximum checkpoints to inspect when exporting")
+	cmd.Flags().IntVar(&pathOpts.checkpointLimit, "checkpoint-limit", defaultCheckpointLimit, "Maximum checkpoints to inspect when exporting (0 means all)")
 	cmd.Flags().StringVar(&pathOpts.entireBinary, "entire-binary", "entire", "Entire CLI binary to invoke when exporting")
 	cmd.Flags().BoolVar(&pathOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts")
 	cmd.Flags().StringVar(&pathOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope when exporting: all or branch")
@@ -165,8 +165,8 @@ func brainExportExists(brainDir string) bool {
 }
 
 func runPathExport(ctx context.Context, opts Options, pathOpts pathCommandOptions, repoDir string) error {
-	if pathOpts.checkpointLimit <= 0 {
-		return fmt.Errorf("--checkpoint-limit must be greater than zero")
+	if pathOpts.checkpointLimit < 0 {
+		return fmt.Errorf("--checkpoint-limit must be greater than or equal to zero")
 	}
 	if strings.TrimSpace(pathOpts.entireBinary) == "" {
 		return fmt.Errorf("--entire-binary must not be empty")

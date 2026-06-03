@@ -418,7 +418,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			report.Semantic.Tests = tests
 		}
 	} else {
-		report.Warnings = append(report.Warnings, "semantic index missing; run `entire brain refresh --semantic` or `entire brain index`")
+		report.Warnings = append(report.Warnings, "semantic index missing; run `entire brain refresh`")
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.History != nil {
 		index, historyErr := loadBrainHistoryIndex(status.Brain.Path, status.Manifest.Sources.History)
@@ -430,7 +430,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			}
 		}
 	} else if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Sessions != nil {
-		report.Warnings = append(report.Warnings, "history index missing; run `entire brain history-index` or `entire brain refresh --history-index`")
+		report.Warnings = append(report.Warnings, "history index missing; run `entire brain refresh`")
 	}
 	if briefOpts.json {
 		return writeJSON(cmd, report)

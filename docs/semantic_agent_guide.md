@@ -18,10 +18,10 @@ Recommended intake flow:
    local workspaces that already list local repo path hints.
 7. Use `entire brain mcp` only as a local stdio adapter when an agent needs MCP
    tool calls instead of direct CLI commands.
-8. Refresh with `entire brain refresh --semantic` when `stale` reports unsafe
-   semantic data.
-9. Use `--semantic-worktree` only when uncommitted code is intentionally part
-   of the question. `--worktree` only affects seed refresh inputs.
+8. Refresh with `entire brain refresh` when `stale` reports unsafe semantic
+   data.
+9. Use `index --worktree` only when uncommitted code is intentionally part of
+   the question.
 
 Do not publish semantic artifacts or send semantic context to remote services in
 phase 1.

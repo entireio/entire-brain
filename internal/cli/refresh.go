@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,10 +16,12 @@ import (
 )
 
 type refreshCommandOptions struct {
+	outputDir        string
 	checkpointLimit  int
 	entireBinary     string
 	rawTranscript    bool
 	scope            string
+	force            bool
 	semantic         bool
 	semanticWorktree bool
 	allBranches      bool
@@ -30,16 +33,18 @@ type refreshCommandOptions struct {
 
 func newRefreshCommand(opts Options) *cobra.Command {
 	refreshOpts := refreshCommandOptions{
-		checkpointLimit: defaultCheckpointLimit,
+		checkpointLimit: 0,
 		entireBinary:    "entire",
 		semBinary:       "entire",
 		scope:           exportScopeAll,
+		historyIndex:    true,
+		semantic:        true,
 		seed: seedCommandOptions{
 			includeTests:       true,
 			maxFileBytes:       defaultSeedMaxFileBytes,
 			maxFiles:           defaultSeedMaxFiles,
 			format:             "markdown+json",
-			agent:              "none",
+			agent:              "auto",
 			agentQuickTimeout:  2 * time.Minute,
 			agentDeepTimeout:   10 * time.Minute,
 			agentTimeoutAction: "keep-quick",
@@ -48,26 +53,31 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	}
 	cmd := &cobra.Command{
 		Use:   "refresh",
-		Short: "Refresh session history and seed baseline when needed",
+		Short: "Create or refresh the repository brain",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runRefresh(cmd.Context(), cmd, opts, refreshOpts)
 		},
 	}
+	cmd.Flags().StringVarP(&refreshOpts.outputDir, "output", "o", defaultExportDir, "Output directory for the brain (default: persistent brain directory)")
+	cmd.Flags().BoolVar(&refreshOpts.force, "force", false, "Force a full refresh; overwrite explicit output when used with --output")
+	cmd.Flags().StringVar(&refreshOpts.seed.agent, "agent", "auto", "Agent synthesis mode for seed: auto, none, codex, claude-code, or command")
 	cmd.Flags().IntVar(&refreshOpts.checkpointLimit, "checkpoint-limit", defaultCheckpointLimit, "Maximum checkpoints to inspect")
 	cmd.Flags().StringVar(&refreshOpts.entireBinary, "entire-binary", "entire", "Entire CLI binary to invoke")
 	cmd.Flags().BoolVar(&refreshOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts")
 	cmd.Flags().StringVar(&refreshOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope: all or branch")
 	cmd.Flags().BoolVar(&refreshOpts.seed.force, "force-seed", false, "Force seed refresh")
 	cmd.Flags().BoolVar(&refreshOpts.seed.worktree, "worktree", false, "Include selected untracked instruction/docs files in seed")
-	cmd.Flags().StringVar(&refreshOpts.seed.agent, "agent", "none", "Agent synthesis mode for seed: none, command, codex, or claude-code")
 	cmd.Flags().StringArrayVar(&refreshOpts.seed.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
-	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", false, "Refresh the local semantic index after session and seed refresh")
+	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", true, "Refresh the local semantic index after session and seed refresh")
 	cmd.Flags().BoolVar(&refreshOpts.semanticWorktree, "semantic-worktree", false, "Allow semantic indexing of the current dirty worktree")
-	cmd.Flags().BoolVar(&refreshOpts.historyIndex, "history-index", false, "Build a decision/rationale index from exported sessions")
+	cmd.Flags().BoolVar(&refreshOpts.historyIndex, "history-index", true, "Build a decision/rationale index from exported sessions")
 	cmd.Flags().StringVar(&refreshOpts.semBinary, "sem-binary", "entire", "Entire CLI binary that exposes `sem` provider commands")
 	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
 	cmd.Flags().BoolVar(&refreshOpts.forceAllBranches, "force-all-branches", false, "Allow all local branches instead of the bounded recent-branch default")
+	for _, name := range []string{"checkpoint-limit", "entire-binary", "raw", "scope", "force-seed", "worktree", "agent-command", "semantic", "semantic-worktree", "history-index", "sem-binary", "all-branches", "force-all-branches"} {
+		_ = cmd.Flags().MarkHidden(name)
+	}
 	return cmd
 }
 
@@ -75,19 +85,42 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	if refreshOpts.allBranches && !refreshOpts.semantic {
 		return errors.New("--all-branches requires --semantic")
 	}
+	outputExplicit := cmd.Flags().Changed("output")
+	if outputExplicit && strings.TrimSpace(refreshOpts.outputDir) == "" {
+		return errors.New("--output must not be empty")
+	}
 	repoDir, err := exportRepoDir(opts.Env)
 	if err != nil {
 		return err
+	}
+	if refreshOpts.force {
+		refreshOpts.seed.force = true
+	}
+	if outputExplicit {
+		if refreshOpts.force {
+			if err := os.RemoveAll(refreshOpts.outputDir); err != nil {
+				return fmt.Errorf("remove forced output directory: %w", err)
+			}
+		} else if _, err := validateExportDirAvailable(refreshOpts.outputDir); err != nil {
+			return err
+		}
+	}
+	if refreshOpts.seed.agent == "auto" {
+		refreshOpts.seed.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
 	}
 	exportCmd := &cobra.Command{Use: "export"}
 	exportCmd.SetOut(io.Discard)
 	exportCmd.SetErr(io.Discard)
 	exportOpts := exportCommandOptions{
 		outputDir:       defaultExportDir,
+		outputExplicit:  outputExplicit,
 		checkpointLimit: refreshOpts.checkpointLimit,
 		entireBinary:    refreshOpts.entireBinary,
 		rawTranscript:   refreshOpts.rawTranscript,
 		scope:           refreshOpts.scope,
+	}
+	if outputExplicit {
+		exportOpts.outputDir = refreshOpts.outputDir
 	}
 	exportErr := runExport(ctx, exportCmd, opts, exportOpts)
 
@@ -95,8 +128,15 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	if storageErr != nil {
 		return storageErr
 	}
-	manifest, _ := loadBrainManifest(storage.BrainDir)
-	needSeed := refreshOpts.seed.force || seedNeededForBrain(manifest)
+	brainDir := storage.BrainDir
+	if outputExplicit {
+		brainDir, err = filepath.Abs(refreshOpts.outputDir)
+		if err != nil {
+			return fmt.Errorf("resolve output directory: %w", err)
+		}
+	}
+	manifest, _ := loadBrainManifest(brainDir)
+	needSeed := outputExplicit || refreshOpts.seed.force || seedNeededForBrain(manifest)
 	if exportErr != nil && manifest.Sources == nil {
 		needSeed = true
 	}
@@ -106,6 +146,10 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		seedCmd.SetErr(io.Discard)
 		seedOpts := refreshOpts.seed
 		seedOpts.update = true
+		seedOpts.outputExplicit = outputExplicit
+		if outputExplicit {
+			seedOpts.outputDir = brainDir
+		}
 		if err := runSeed(ctx, seedCmd, opts, seedOpts, repoDir); err != nil {
 			return err
 		}
@@ -113,17 +157,26 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	if exportErr != nil && !needSeed {
 		return exportErr
 	}
-	if refreshOpts.historyIndex {
-		if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, opts.Now().UTC()); err != nil {
+	if refreshOpts.historyIndex && (refreshOpts.force || !historyIndexCurrent(brainDir, manifest)) {
+		if _, err := writeBrainHistoryIndexAndSource(brainDir, opts.Now().UTC()); err != nil {
 			return err
 		}
 	}
 	if refreshOpts.semantic {
-		indexCmd := &cobra.Command{Use: "index"}
-		indexCmd.SetOut(io.Discard)
-		indexCmd.SetErr(io.Discard)
-		if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, semBinary: refreshOpts.semBinary, worktree: refreshOpts.semanticWorktree}, repoDir); err != nil {
+		needSemantic, err := semanticRefreshNeeded(ctx, opts, brainDir, repoDir, manifest, refreshOpts.semanticWorktree)
+		if err != nil {
 			return err
+		}
+		if refreshOpts.force {
+			needSemantic = true
+		}
+		if needSemantic {
+			indexCmd := &cobra.Command{Use: "index"}
+			indexCmd.SetOut(io.Discard)
+			indexCmd.SetErr(io.Discard)
+			if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, semBinary: refreshOpts.semBinary, worktree: refreshOpts.semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit}, repoDir); err != nil {
+				return err
+			}
 		}
 	}
 	if refreshOpts.allBranches {
@@ -131,8 +184,96 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			return err
 		}
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "refreshed brain: %s\n", storage.BrainDir)
+	fmt.Fprintf(cmd.OutOrStdout(), "refreshed brain: %s\n", brainDir)
 	return nil
+}
+
+func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
+	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil || manifest.Sources.History == nil {
+		return false
+	}
+	history := manifest.Sources.History
+	if history.IndexPath == "" || history.SessionsFingerprint == "" {
+		return false
+	}
+	if history.SessionsFingerprint != sessionSourceFingerprint(manifest.Sources.Sessions) {
+		return false
+	}
+	clean, err := validateHistoryIndexPath(history.IndexPath)
+	if err != nil {
+		return false
+	}
+	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(brainDir, clean))
+	return err == nil && !info.IsDir()
+}
+
+func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir string, manifest *exportManifest, worktree bool) (bool, error) {
+	if manifest == nil || manifest.Sources == nil || manifest.Sources.Semantic == nil {
+		return true, nil
+	}
+	source := manifest.Sources.Semantic
+	if worktree {
+		hash, err := worktreeFingerprint(ctx, opts.Runner, repoDir)
+		if err != nil {
+			return false, fmt.Errorf("fingerprint worktree for semantic refresh: %w", err)
+		}
+		return source.WorktreeMode != "worktree" || source.WorktreeHash != hash, nil
+	}
+	dirty, err := worktreeDirty(ctx, opts.Runner, repoDir)
+	if err != nil {
+		return false, fmt.Errorf("check worktree dirtiness for semantic refresh: %w", err)
+	}
+	if dirty {
+		return true, nil
+	}
+	tree, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD^{tree}")
+	if err != nil {
+		return false, fmt.Errorf("resolve HEAD tree for semantic refresh: %w", err)
+	}
+	if source.WorktreeMode == "worktree" || source.DirtyWorktree || source.Tree != tree {
+		return true, nil
+	}
+	if source.SnapshotPath == "" || source.StorePath == "" {
+		return true, nil
+	}
+	snapshotRel, err := validateSemanticSnapshotPath(source.SnapshotPath)
+	if err != nil {
+		return true, nil
+	}
+	if err := rejectSymlinkPathComponents(brainDir, snapshotRel); err != nil {
+		return true, nil
+	}
+	snapshotInfo, err := os.Stat(filepath.Join(brainDir, snapshotRel))
+	if err != nil || snapshotInfo.IsDir() {
+		return true, nil
+	}
+	if _, err := validateSemanticDeclaredStore(brainDir, source); err != nil {
+		return true, nil
+	}
+	return false, nil
+}
+
+func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir string) string {
+	if commandLooksAvailable(ctx, runner, repoDir, "codex") {
+		return "codex"
+	}
+	if commandLooksAvailable(ctx, runner, repoDir, "claude") {
+		return "claude-code"
+	}
+	return "none"
+}
+
+func commandLooksAvailable(ctx context.Context, runner CommandRunner, repoDir, name string) bool {
+	if runner == nil {
+		return false
+	}
+	runCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	_, _, err := runner.Run(runCtx, repoDir, name, "--version")
+	return err == nil
 }
 
 func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpts refreshCommandOptions, repoDir string) error {
@@ -153,7 +294,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.SnapshotPath == "" {
-		return errors.New("semantic index missing; run `entire brain refresh --semantic` first")
+		return errors.New("semantic index missing; run `entire brain index --force` first")
 	}
 	defaultBranch, _ := detectDefaultBranch(ctx, opts.Runner, repoDir)
 	defaultHead := ""

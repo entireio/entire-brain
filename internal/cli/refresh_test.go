@@ -18,6 +18,7 @@ func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 	dataDir := filepath.Join(t.TempDir(), "data")
 	stateDir := filepath.Join(t.TempDir(), "state")
 	runner := seedFixtureRunner(repoDir)
+	addRefreshSemanticFixture(runner, repoDir)
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef)] = fakeCommandResponse{err: os.ErrNotExist}
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef)] = fakeCommandResponse{err: os.ErrNotExist}
 
@@ -51,6 +52,107 @@ func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 	if manifest.Sources == nil || manifest.Sources.Seed == nil {
 		t.Fatalf("refresh did not create seed source: %+v", manifest)
 	}
+	if manifest.Sources.History == nil {
+		t.Fatalf("refresh did not create history index source: %+v", manifest.Sources)
+	}
+}
+
+func TestRefreshHelpShowsSimplifiedFlags(t *testing.T) {
+	cmd := NewRootCommand(Options{Version: "test-version"})
+	out, err := execute(t, cmd, "refresh", "--help")
+	if err != nil {
+		t.Fatalf("refresh help: %v", err)
+	}
+	for _, want := range []string{"--agent", "--force", "--output"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("refresh help missing %q:\n%s", want, out)
+		}
+	}
+	for _, hidden := range []string{"--history-index", "--force-seed", "--semantic", "--sem-binary"} {
+		if strings.Contains(out, hidden) {
+			t.Fatalf("refresh help exposed hidden flag %q:\n%s", hidden, out)
+		}
+	}
+}
+
+func TestRefreshOutputRequiresEmptyDirectoryUnlessForced(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	outputDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outputDir, "existing.txt"), []byte("keep"), 0o600); err != nil {
+		t.Fatalf("write existing output file: %v", err)
+	}
+	runner := seedFixtureRunner(repoDir)
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			RepoRoot:        repoDir,
+			PluginConfigDir: filepath.Join(t.TempDir(), "config"),
+			PluginDataDir:   filepath.Join(t.TempDir(), "data"),
+			PluginStateDir:  filepath.Join(t.TempDir(), "state"),
+			PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
+		},
+		Runner: runner,
+		Now:    time.Now,
+	})
+	out, err := execute(t, cmd, "refresh", "--output", outputDir)
+	if err == nil || !strings.Contains(err.Error(), "output directory is not empty") {
+		t.Fatalf("refresh --output err = %v\n%s", err, out)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("refresh touched runner before output validation: %+v", runner.calls)
+	}
+}
+
+func TestHistoryIndexCurrentUsesSessionFingerprint(t *testing.T) {
+	brainDir := t.TempDir()
+	sessionSource := &sessionSourceManifest{
+		GeneratedAt:        time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		TranscriptMode:     "compact",
+		Scope:              exportScopeAll,
+		LatestCheckpointID: "aaa111",
+		Sessions: []exportSession{{
+			SessionID:        "session-one",
+			LatestCheckpoint: "aaa111",
+			Branch:           "main",
+			TranscriptPath:   "sessions/main/session-one.jsonl",
+		}},
+	}
+	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+		t.Fatalf("create history dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), []byte(`{"records":[]}`), 0o600); err != nil {
+		t.Fatalf("write history index: %v", err)
+	}
+	manifest := &exportManifest{Sources: &brainSources{
+		Sessions: sessionSource,
+		History: &historySourceManifest{
+			IndexPath:           historyIndexPath,
+			SessionsFingerprint: sessionSourceFingerprint(sessionSource),
+		},
+	}}
+	if !historyIndexCurrent(brainDir, manifest) {
+		t.Fatalf("history index should be current for matching session fingerprint")
+	}
+	sessionSource.GeneratedAt = time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	if !historyIndexCurrent(brainDir, manifest) {
+		t.Fatalf("history index should ignore session source timestamp-only changes")
+	}
+	sessionSource.Sessions[0].LatestCheckpoint = "bbb222"
+	if historyIndexCurrent(brainDir, manifest) {
+		t.Fatalf("history index should be stale when exported sessions change")
+	}
+}
+
+func addRefreshSemanticFixture(runner *fakeCommandRunner, repoDir string) {
+	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "aaa111\n"}
+	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD^{tree}")] = fakeCommandResponse{stdout: "tree111\n"}
+	runner.responses[fakeCommandKey("git", "branch", "--show-current")] = fakeCommandResponse{stdout: "main\n"}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: ""}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{stdout: ""}
+	runner.responses[fakeCommandKey("git", "diff", "--binary", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff", "--cached", "--binary", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("entire", "sem", "doctor", "--json")] = fakeCommandResponse{stdout: `{"no_egress":true}`}
+	runner.responses[fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network")] = fakeCommandResponse{stdout: semanticFixtureSnapshot("1.0")}
 }
 
 func TestRefreshAllBranchesRequiresSemanticBeforeMutation(t *testing.T) {
