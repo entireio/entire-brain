@@ -1,0 +1,17 @@
+commit/push
+
+---
+
+Add some kind of progress update to entire brain refresh, with a spinner, then status.
+
+---
+
+Run "mise build" and "entire pluging install ./entire-brain --force"
+
+---
+
+Ok, "- export sessions" is lame. Add the current count and total to this status. Similar logic for other statuses.
+
+---
+
+Run "mise build" and "entire pluging install ./entire-brain --force"
