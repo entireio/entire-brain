@@ -28,6 +28,7 @@ type refreshCommandOptions struct {
 	forceAllBranches bool
 	historyIndex     bool
 	semBinary        string
+	statusAfter      bool
 	seed             seedCommandOptions
 }
 
@@ -39,6 +40,7 @@ func newRefreshCommand(opts Options) *cobra.Command {
 		scope:           exportScopeAll,
 		historyIndex:    true,
 		semantic:        true,
+		statusAfter:     true,
 		seed: seedCommandOptions{
 			includeTests:       true,
 			maxFileBytes:       defaultSeedMaxFileBytes,
@@ -108,6 +110,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	if refreshOpts.seed.agent == "auto" {
 		refreshOpts.seed.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
 	}
+	progress := newRefreshProgress(cmd.ErrOrStderr())
 	exportCmd := &cobra.Command{Use: "export"}
 	exportCmd.SetOut(io.Discard)
 	exportCmd.SetErr(io.Discard)
@@ -122,25 +125,45 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	if outputExplicit {
 		exportOpts.outputDir = refreshOpts.outputDir
 	}
+	exportTask := progress.Begin("export sessions")
+	exportOpts.progress = func(p exportProgress) {
+		exportTask.Update(refreshExportProgressLabel(p))
+	}
 	exportErr := runExport(ctx, exportCmd, opts, exportOpts)
 
+	storageTask := progress.Begin("locate brain")
 	storage, storageErr := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if storageErr != nil {
+		storageTask.Finish(storageErr)
 		return storageErr
 	}
+	storageTask.Update("locate brain: " + storage.Key)
+	storageTask.Finish(nil)
 	brainDir := storage.BrainDir
 	if outputExplicit {
+		finishOutput := progress.Step("resolve output path")
 		brainDir, err = filepath.Abs(refreshOpts.outputDir)
 		if err != nil {
+			finishOutput(err)
 			return fmt.Errorf("resolve output directory: %w", err)
 		}
+		finishOutput(nil)
 	}
 	manifest, _ := loadBrainManifest(brainDir)
 	needSeed := outputExplicit || refreshOpts.seed.force || seedNeededForBrain(manifest)
-	if exportErr != nil && manifest.Sources == nil {
+	if exportErr != nil && (manifest == nil || manifest.Sources == nil) {
 		needSeed = true
 	}
+	if exportErr != nil && !needSeed {
+		exportTask.Finish(exportErr)
+		return exportErr
+	}
+	if exportErr != nil {
+		exportTask.Update("export sessions: unavailable, using seed baseline")
+	}
+	exportTask.Finish(nil)
 	if needSeed {
+		seedTask := progress.Begin("seed baseline")
 		seedCmd := &cobra.Command{Use: "seed"}
 		seedCmd.SetOut(io.Discard)
 		seedCmd.SetErr(io.Discard)
@@ -151,40 +174,77 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			seedOpts.outputDir = brainDir
 		}
 		if err := runSeed(ctx, seedCmd, opts, seedOpts, repoDir); err != nil {
+			seedTask.Finish(err)
 			return err
 		}
-	}
-	if exportErr != nil && !needSeed {
-		return exportErr
+		manifest, _ = loadBrainManifest(brainDir)
+		seedTask.Update(refreshSeedLabel(manifest))
+		seedTask.Finish(nil)
+	} else {
+		progress.Skip(refreshSeedLabel(manifest))
 	}
 	if refreshOpts.historyIndex && (refreshOpts.force || !historyIndexCurrent(brainDir, manifest)) {
-		if _, err := writeBrainHistoryIndexAndSource(brainDir, opts.Now().UTC()); err != nil {
+		historyTask := progress.Begin("history index")
+		historySource, err := writeBrainHistoryIndexAndSource(brainDir, opts.Now().UTC())
+		if err != nil {
+			historyTask.Finish(err)
 			return err
 		}
+		historyTask.Update(refreshHistoryLabel(historySource))
+		historyTask.Finish(nil)
+		manifest, _ = loadBrainManifest(brainDir)
+	} else if refreshOpts.historyIndex {
+		progress.Skip(refreshHistoryLabel(existingHistorySource(manifest)))
 	}
 	if refreshOpts.semantic {
+		semanticCheckTask := progress.Begin(refreshSemanticCheckLabel(manifest))
 		needSemantic, err := semanticRefreshNeeded(ctx, opts, brainDir, repoDir, manifest, refreshOpts.semanticWorktree)
 		if err != nil {
+			semanticCheckTask.Finish(err)
 			return err
 		}
+		if !needSemantic {
+			semanticCheckTask.Update(refreshSemanticCheckLabel(manifest) + ": current")
+		}
+		semanticCheckTask.Finish(nil)
 		if refreshOpts.force {
 			needSemantic = true
 		}
 		if needSemantic {
+			semanticTask := progress.Begin("semantic index")
 			indexCmd := &cobra.Command{Use: "index"}
 			indexCmd.SetOut(io.Discard)
 			indexCmd.SetErr(io.Discard)
 			if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, semBinary: refreshOpts.semBinary, worktree: refreshOpts.semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit}, repoDir); err != nil {
+				semanticTask.Finish(err)
 				return err
 			}
+			manifest, _ = loadBrainManifest(brainDir)
+			semanticTask.Update(refreshSemanticLabel(existingSemanticSource(manifest)))
+			semanticTask.Finish(nil)
+		} else {
+			progress.Skip(refreshSemanticLabel(existingSemanticSource(manifest)))
 		}
+	} else {
+		progress.Skip("semantic index")
 	}
 	if refreshOpts.allBranches {
+		finishBranches := progress.Step("branch overlays")
 		if err := runSemanticRefreshAllBranches(ctx, opts, refreshOpts, repoDir); err != nil {
+			finishBranches(err)
 			return err
 		}
+		finishBranches(nil)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "refreshed brain: %s\n", brainDir)
+	if refreshOpts.statusAfter && !outputExplicit {
+		statusCmd := &cobra.Command{Use: "status"}
+		statusCmd.SetOut(cmd.OutOrStdout())
+		statusCmd.SetErr(cmd.ErrOrStderr())
+		if err := runAgentStatus(ctx, statusCmd, opts, agentStatusOptions{}, repoDir); err != nil {
+			return fmt.Errorf("status after refresh: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -208,6 +268,109 @@ func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
 	}
 	info, err := os.Stat(filepath.Join(brainDir, clean))
 	return err == nil && !info.IsDir()
+}
+
+func refreshExportProgressLabel(p exportProgress) string {
+	label := "export sessions"
+	if status := strings.TrimSpace(p.Status); status != "" {
+		label += ": " + status
+	}
+	current := p.Current
+	total := p.Total
+	unit := strings.TrimSpace(p.Unit)
+	if total <= 0 {
+		current = p.CurrentCheckpoint
+		total = p.TotalCheckpoints
+		unit = "checkpoint"
+	}
+	if total <= 0 {
+		return label
+	}
+	if unit == "" {
+		unit = "item"
+	}
+	return fmt.Sprintf("%s: %d/%d %s, %s", label, current, total, pluralUnit(unit, total), pluralCount(p.Sessions, "session"))
+}
+
+func pluralUnit(unit string, count int) string {
+	if count == 1 {
+		return unit
+	}
+	if strings.HasSuffix(unit, "s") {
+		return unit
+	}
+	return unit + "s"
+}
+
+func refreshSeedLabel(manifest *exportManifest) string {
+	seed := existingSeedSource(manifest)
+	if seed == nil {
+		return "seed baseline"
+	}
+	return fmt.Sprintf("seed baseline: %s, %s, %s",
+		pluralCount(len(seed.Documents), "document"),
+		pluralCount(len(seed.Entrypoints), "entrypoint"),
+		pluralCount(len(seed.Commands), "command"))
+}
+
+func refreshHistoryLabel(source *historySourceManifest) string {
+	if source == nil {
+		return "history index"
+	}
+	return fmt.Sprintf("history index: %s, %s, %s",
+		pluralCount(source.Records, "record"),
+		pluralCount(source.Decisions, "decision"),
+		pluralCount(source.ToolCalls, "tool call"))
+}
+
+func refreshSemanticCheckLabel(manifest *exportManifest) string {
+	source := existingSemanticSource(manifest)
+	if source == nil {
+		return "check semantic index"
+	}
+	return "check semantic index: " + refreshSemanticCounts(source)
+}
+
+func refreshSemanticLabel(source *semanticSourceManifest) string {
+	if source == nil {
+		return "semantic index"
+	}
+	return "semantic index: " + refreshSemanticCounts(source)
+}
+
+func refreshSemanticCounts(source *semanticSourceManifest) string {
+	return fmt.Sprintf("%s, %s, %s",
+		pluralCount(source.Symbols, "symbol"),
+		pluralCount(source.Relations, "relation"),
+		pluralCount(source.Files, "file"))
+}
+
+func existingSeedSource(manifest *exportManifest) *seedSourceManifest {
+	if manifest == nil || manifest.Sources == nil {
+		return nil
+	}
+	return manifest.Sources.Seed
+}
+
+func existingHistorySource(manifest *exportManifest) *historySourceManifest {
+	if manifest == nil || manifest.Sources == nil {
+		return nil
+	}
+	return manifest.Sources.History
+}
+
+func existingSemanticSource(manifest *exportManifest) *semanticSourceManifest {
+	if manifest == nil || manifest.Sources == nil {
+		return nil
+	}
+	return manifest.Sources.Semantic
+}
+
+func pluralCount(count int, singular string) string {
+	if count == 1 {
+		return fmt.Sprintf("%d %s", count, singular)
+	}
+	return fmt.Sprintf("%d %ss", count, singular)
 }
 
 func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir string, manifest *exportManifest, worktree bool) (bool, error) {

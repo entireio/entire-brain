@@ -555,7 +555,7 @@ func TestSnapshotMetadataSkipsNewerSessionWithoutTranscript(t *testing.T) {
 		},
 	}}
 
-	selected, _, warnings, err := readCheckpointSnapshotMetadata(context.Background(), runner, "/repo/root", v1RemoteRef, v1TranscriptFileName, treePaths, 10, checkpointBranchDestinations{})
+	selected, _, warnings, err := readCheckpointSnapshotMetadata(context.Background(), runner, "/repo/root", v1RemoteRef, v1TranscriptFileName, treePaths, 10, checkpointBranchDestinations{}, nil)
 	if err != nil {
 		t.Fatalf("read snapshot metadata: %v", err)
 	}
@@ -612,7 +612,7 @@ func TestSnapshotMetadataSelectsLatestSessionPerBranch(t *testing.T) {
 		},
 	}}
 
-	selected, _, _, err := readCheckpointSnapshotMetadata(context.Background(), runner, "/repo/root", v1RemoteRef, v1TranscriptFileName, treePaths, 10, checkpointBranchDestinations{})
+	selected, _, _, err := readCheckpointSnapshotMetadata(context.Background(), runner, "/repo/root", v1RemoteRef, v1TranscriptFileName, treePaths, 10, checkpointBranchDestinations{}, nil)
 	if err != nil {
 		t.Fatalf("read snapshot metadata: %v", err)
 	}
