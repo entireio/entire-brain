@@ -1,0 +1,60 @@
+According to the README, we have way too many commands to create or refresh the brain:
+
+### Export Session History
+
+```sh
+entire brain export --history-index
+entire brain history-index .
+entire brain export --output /tmp/repo-brain
+entire brain path .
+```
+
+`export` writes the newest known checkpoint version of each Entire session into
+the persistent brain directory. `--history-index` also builds a local
+decision/rationale index from exported sessions. `history-index` can rebuild
+that derived index later. `path` prints the persistent brain directory and
+creates it when needed for a local checkout. Export warning details are printed
+after the warning count and recorded in the generated `README.md` and
+`manifest.json`.
+
+### Seed Repository Context
+
+```sh
+entire brain seed .
+entire brain seed . --agent none
+entire brain refresh --force-seed --history-index
+```
+
+`seed` writes deterministic repository context under `seed/`, including file
+indexes, docs, commands, entrypoints, conventions, risks, and history gaps.
+`refresh` updates session history and creates or refreshes the seed when useful.
+
+### Build a Semantic Brain
+
+Install or build a provider that supports `entire sem`, then index:
+
+```sh
+entire brain refresh --semantic --history-index --sem-binary entire
+entire brain index . --sem-binary entire --force
+entire brain stale --json
+```
+
+
+Simplify this. The main command should be "entire brain refresh" with params --agent (default: codex or claude when enabled for Entire CLI), --output, and --force. I don't know what you need the others for. Ask questions if you aren't sure.
+
+---
+
+Hm, explain more on this:
+refresh now builds the history index by default.
+
+---
+
+Assume we already have the index. How long does it take to rebuild it?
+
+---
+
+The 500 session limit is not a decision we made. You must have introduced this without asking me. Same for the other limits. Explain in more detail was entire brain refresh does: It should build the seed, extract all entire sessions, run entire-sem, and build a context graph.
+
+---
+
+Ok, so now would you optimize the second call, so it doesn't have to go through all the data again, but does an incrementatl update?
