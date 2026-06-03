@@ -52,6 +52,26 @@ python3 benchmarks/agent-brain/run.py run \
   --suite-name codex-mcp-smoke
 ```
 
+For Phase 2 candidate screening, do not spend repetitions on tasks that are
+already easy without the brain. Run one no-brain pilot first and stop the task
+when that score is above the retention threshold:
+
+```sh
+python3 benchmarks/agent-brain/run.py run \
+  --tasks entire-brain-history-claude-seed-agent.json \
+  --runners claude \
+  --conditions no_brain,full_brain \
+  --repetitions 1 \
+  --stop-after-no-brain-score 90 \
+  --suite-name phase2-layer-a-pilot
+```
+
+Retain a scenario for proof only when no-brain is not already above 90, or when
+the brain condition is demonstrably cheaper or faster at equivalent correctness.
+Scenario prompts should withhold exact file names, test names, and prior
+rationale from no-brain runs when those facts are supposed to come from
+checkpoint/session history.
+
 Runner matrixes are supported with `--runners`. Specs are
 `agent[:model[:effort]]`, optionally prefixed by a stable id:
 

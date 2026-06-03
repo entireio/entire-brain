@@ -1,0 +1,18 @@
+{
+  "candidate_goal_met": true,
+  "existing_repeated_proof_counts": {
+    "A": 41,
+    "B": 5,
+    "C": 37
+  },
+  "existing_repeated_proofs": 83,
+  "generated_at": "2026-06-02T21:15:22.787928+00:00",
+  "minimum_per_layer": 21,
+  "note": "candidate_goal_met means the discovery ledger has more than 20 brain-positive candidates per layer. proof_goal_met requires repeated agent runs with significant results.",
+  "proof_goal_met": false,
+  "scenario_counts": {
+    "A": 21,
+    "B": 21,
+    "C": 21
+  }
+}
