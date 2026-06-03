@@ -58,6 +58,7 @@ type exportCommandOptions struct {
 	rawTranscript   bool
 	scope           string
 	historyIndex    bool
+	debug           bool
 }
 
 func newExportCommand(opts Options) *cobra.Command {
@@ -88,6 +89,7 @@ is selected.`,
 	cmd.Flags().BoolVar(&exportOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts")
 	cmd.Flags().StringVar(&exportOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope: all or branch")
 	cmd.Flags().BoolVar(&exportOpts.historyIndex, "history-index", false, "Build a decision/rationale index from exported sessions")
+	cmd.Flags().BoolVar(&exportOpts.debug, "debug", false, "Show diagnostic warnings for successful fallbacks")
 
 	return cmd
 }
@@ -257,7 +259,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			return err
 		}
 	}
-	manifest.Warnings = append(manifest.Warnings, transcriptWarnings...)
+	manifest.Warnings = usefulExportWarnings(append(manifest.Warnings, transcriptWarnings...), exportOpts.debug)
 	manifest.Sessions = sessions
 	manifest.Branches = summarizeBranchExports(sessions, branchDirs, defaultBranch)
 	if persistentBrain {
@@ -1764,6 +1766,73 @@ func warningLines(prefix string, data []byte) []string {
 		}
 	}
 	return warnings
+}
+
+func usefulExportWarnings(warnings []string, debug bool) []string {
+	if len(warnings) == 0 {
+		return nil
+	}
+	useful := make([]string, 0, len(warnings))
+	seen := make(map[string]struct{}, len(warnings))
+	for _, warning := range warnings {
+		warning = strings.TrimSpace(warning)
+		if warning == "" {
+			continue
+		}
+		if !debug && exportWarningIsDebugOnly(warning) {
+			continue
+		}
+		warning = usefulExportWarningText(warning)
+		if warning == "" {
+			continue
+		}
+		if _, ok := seen[warning]; ok {
+			continue
+		}
+		seen[warning] = struct{}{}
+		useful = append(useful, warning)
+	}
+	return useful
+}
+
+func exportWarningIsDebugOnly(warning string) bool {
+	switch {
+	case strings.HasPrefix(warning, "checkpoint ref "):
+		return true
+	case strings.HasPrefix(warning, "checkpoint snapshot unavailable:"):
+		return true
+	case strings.HasPrefix(warning, "exporting raw transcripts directly from "):
+		return true
+	case strings.HasPrefix(warning, "exporting compact transcripts directly from "):
+		return true
+	case strings.HasPrefix(warning, "compact transcript unavailable for v1 checkpoints;"):
+		return true
+	case warning == "discovered checkpoint refs from configured checkpoint remote":
+		return true
+	default:
+		return false
+	}
+}
+
+func usefulExportWarningText(warning string) string {
+	switch {
+	case strings.HasPrefix(warning, "default branch checkpoint reachability unavailable:"):
+		return "Could not determine which checkpoints are reachable from the default branch; branch folders may be less precise: " + strings.TrimSpace(strings.TrimPrefix(warning, "default branch checkpoint reachability unavailable:"))
+	case strings.HasPrefix(warning, "checkpoint author index unavailable:"):
+		return "Could not build the checkpoint author index; exported sessions may omit author metadata: " + strings.TrimSpace(strings.TrimPrefix(warning, "checkpoint author index unavailable:"))
+	case strings.HasPrefix(warning, "all checkpoint discovery found no metadata refs; used branch-visible checkpoint list fallback"):
+		return "Could not find all checkpoint metadata refs, so export used the current branch checkpoint list; sessions from other branches may be missing."
+	case warning == "discovered checkpoint refs from configured checkpoint remote":
+		return "Local checkpoint refs were unavailable, so export read checkpoints from the configured checkpoint remote."
+	case strings.HasPrefix(warning, "checkpoint remote unavailable:"):
+		return "Could not read the configured checkpoint remote; export used local checkpoint data only: " + strings.TrimSpace(strings.TrimPrefix(warning, "checkpoint remote unavailable:"))
+	case strings.HasPrefix(warning, "direct checkpoint export unavailable:"):
+		return "Could not export directly from checkpoint storage; export fell back to the Entire CLI checkpoint API: " + strings.TrimSpace(strings.TrimPrefix(warning, "direct checkpoint export unavailable:"))
+	case strings.HasPrefix(warning, "compact transcript unavailable for v1 checkpoints;"):
+		return "This repository uses v1 checkpoints, which only store raw full.jsonl transcripts; exported transcripts are raw."
+	default:
+		return warning
+	}
 }
 
 func renderExportReadme(manifest exportManifest) string {

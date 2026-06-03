@@ -260,14 +260,21 @@ func TestExportUsesConfiguredV1CheckpointRemoteDirectly(t *testing.T) {
 		t.Fatalf("unexpected output:\n%s", out)
 	}
 	for _, want := range []string{
-		"warnings: 4",
-		"warning: default branch checkpoint reachability unavailable: could not resolve main",
-		"warning: checkpoint author index unavailable:",
-		"warning: exporting raw transcripts directly from configured checkpoint remote ref refs/heads/entire/checkpoints/v1",
-		"warning: compact transcript unavailable for v1 checkpoints; exported raw full.jsonl logs",
+		"warnings: 2",
+		"warning: Could not determine which checkpoints are reachable from the default branch; branch folders may be less precise: could not resolve main",
+		"warning: Could not build the checkpoint author index; exported sessions may omit author metadata:",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("export output missing %q:\n%s", want, out)
+		}
+	}
+	for _, hidden := range []string{
+		"local v1 missing",
+		"exporting raw transcripts directly",
+		"compact transcript unavailable for v1 checkpoints",
+	} {
+		if strings.Contains(out, hidden) {
+			t.Fatalf("export output should hide debug warning %q:\n%s", hidden, out)
 		}
 	}
 
@@ -310,6 +317,77 @@ func TestExportUsesConfiguredV1CheckpointRemoteDirectly(t *testing.T) {
 			if arg == v2MainRef || strings.Contains(arg, v2MainRef) {
 				t.Fatalf("v2 ref should not be used for default v1 settings, calls: %+v", runner.calls)
 			}
+		}
+	}
+}
+
+func TestExportDebugShowsCheckpointFallbackDiagnostics(t *testing.T) {
+	repoDir := t.TempDir()
+	settingsDir := filepath.Join(repoDir, ".entire")
+	if err := os.MkdirAll(settingsDir, 0o700); err != nil {
+		t.Fatalf("create settings dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(`{
+  "enabled": true,
+  "strategy_options": {
+    "checkpoint_remote": {
+      "provider": "github",
+      "repo": "entireio/cli-checkpoints"
+    }
+  }
+}`), 0o600); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	outputDir := filepath.Join(t.TempDir(), "export")
+	remoteURL := "https://github.com/entireio/cli-checkpoints.git"
+	checkpointDir := "aa/a111aaa111"
+	sessionMetadataPath := checkpointDir + "/0/metadata.json"
+	transcriptPath := checkpointDir + "/0/full.jsonl"
+	runner := &fakeCommandRunner{
+		responses: map[string]fakeCommandResponse{
+			fakeCommandKey("git", "init", "-q"): {},
+			fakeCommandKey("git", "fetch", "--no-tags", "--depth=1", "--filter="+checkpointRemoteBlobFilter, remoteURL, "+"+v1RemoteRef+":"+v1RemoteRef): {},
+			fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":"+checkpointDir+"/metadata.json"): {
+				stdout: `{"sessions":[{"metadata":"/aa/a111aaa111/0/metadata.json","transcript":"/aa/a111aaa111/0/full.jsonl"}]}`,
+			},
+			fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":"+sessionMetadataPath): {
+				stdout: `{"checkpoint_id":"aaa111aaa111","session_id":"session-one","branch":"main","agent":"Codex","created_at":"2026-02-03T04:05:06Z"}`,
+			},
+			fakeCommandKey("git", "cat-file", "-p", v1RemoteRef+":"+transcriptPath): {
+				stdout: "{\"type\":\"message\",\"text\":\"from v1 full log\"}\n",
+			},
+		},
+		sequences: map[string][]fakeCommandResponse{
+			fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1RemoteRef): {
+				{err: errors.New("local v1 missing")},
+				{stdout: checkpointDir + "/metadata.json\n" + sessionMetadataPath + "\n" + transcriptPath + "\n"},
+			},
+		},
+	}
+
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			CLIVersion: "cli-test",
+			RepoRoot:   repoDir,
+		},
+		Runner: runner,
+		Now: func() time.Time {
+			return time.Date(2026, 2, 4, 0, 0, 0, 0, time.UTC)
+		},
+	})
+
+	out, err := execute(t, cmd, "export", "--debug", "--output", outputDir, "--checkpoint-limit", "10", "--entire-binary", "entire-test")
+	if err != nil {
+		t.Fatalf("export: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"warning: exporting raw transcripts directly from configured checkpoint remote ref refs/heads/entire/checkpoints/v1",
+		"warning: This repository uses v1 checkpoints, which only store raw full.jsonl transcripts; exported transcripts are raw.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("debug export output missing %q:\n%s", want, out)
 		}
 	}
 }
@@ -440,8 +518,11 @@ func TestExportUsesOriginTrackingV1RefWithoutSettings(t *testing.T) {
 	if len(manifest.Sessions) != 1 || manifest.Sessions[0].LatestCheckpoint != checkpointID {
 		t.Fatalf("unexpected sessions: %+v", manifest.Sessions)
 	}
-	if !strings.Contains(strings.Join(manifest.Warnings, "\n"), "local checkpoint ref "+v1OriginRef) {
-		t.Fatalf("warnings do not mention origin tracking ref: %+v", manifest.Warnings)
+	if strings.Contains(strings.Join(manifest.Warnings, "\n"), "checkpoint ref ") {
+		t.Fatalf("manifest leaked debug checkpoint ref warning: %+v", manifest.Warnings)
+	}
+	if strings.Contains(out, "local v1 branch missing") {
+		t.Fatalf("export output leaked debug checkpoint ref warning:\n%s", out)
 	}
 	for _, call := range runner.calls {
 		if call.name == "entire-test" {
