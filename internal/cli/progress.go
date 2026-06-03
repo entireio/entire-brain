@@ -13,6 +13,8 @@ import (
 
 var progressCountPattern = regexp.MustCompile(`: \d+/\d+ [^,]+`)
 
+const clearTerminalLine = "\r\033[2K"
+
 type refreshProgress struct {
 	out     io.Writer
 	spinner bool
@@ -80,7 +82,7 @@ func (t *refreshProgressTask) Update(label string) {
 	t.progress.mu.Lock()
 	t.label = label
 	if t.progress.spinner {
-		fmt.Fprintf(t.progress.out, "\r%s", spinnerLine('|', label))
+		fmt.Fprintf(t.progress.out, "%s%s", clearTerminalLine, spinnerLine('|', label))
 	} else if t.shouldPrintUpdate(label) {
 		fmt.Fprintf(t.progress.out, "refresh: %s\n", label)
 		t.lastPrinted = label
@@ -113,14 +115,14 @@ func (t *refreshProgressTask) Finish(err error) {
 	defer t.progress.mu.Unlock()
 	if err != nil {
 		if t.progress.spinner {
-			fmt.Fprintf(t.progress.out, "\r! %s failed\n", t.label)
+			fmt.Fprintf(t.progress.out, "%s! %s failed\n", clearTerminalLine, t.label)
 			return
 		}
 		fmt.Fprintf(t.progress.out, "refresh: %s failed\n", t.label)
 		return
 	}
 	if t.progress.spinner {
-		fmt.Fprintf(t.progress.out, "\r+ %s done\n", t.label)
+		fmt.Fprintf(t.progress.out, "%s+ %s done\n", clearTerminalLine, t.label)
 		return
 	}
 	fmt.Fprintf(t.progress.out, "refresh: %s done\n", t.label)
@@ -139,14 +141,14 @@ func (t *refreshProgressTask) startSpinner() {
 				return
 			case <-ticker.C:
 				t.progress.mu.Lock()
-				fmt.Fprintf(t.progress.out, "\r%s", spinnerLine(frames[i%len(frames)], t.label))
+				fmt.Fprintf(t.progress.out, "%s%s", clearTerminalLine, spinnerLine(frames[i%len(frames)], t.label))
 				t.progress.mu.Unlock()
 				i++
 			}
 		}
 	}()
 	t.progress.mu.Lock()
-	fmt.Fprintf(t.progress.out, "\r%s", spinnerLine(frames[0], t.label))
+	fmt.Fprintf(t.progress.out, "%s%s", clearTerminalLine, spinnerLine(frames[0], t.label))
 	t.progress.mu.Unlock()
 }
 

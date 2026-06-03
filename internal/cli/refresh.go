@@ -130,6 +130,17 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		exportTask.Update(refreshExportProgressLabel(p))
 	}
 	exportErr := runExport(ctx, exportCmd, opts, exportOpts)
+	exportTaskFinished := false
+	finishExportTask := func(err error) {
+		if exportTaskFinished {
+			return
+		}
+		exportTask.Finish(err)
+		exportTaskFinished = true
+	}
+	if exportErr == nil {
+		finishExportTask(nil)
+	}
 
 	storageTask := progress.Begin("locate brain")
 	storage, storageErr := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
@@ -155,13 +166,13 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		needSeed = true
 	}
 	if exportErr != nil && !needSeed {
-		exportTask.Finish(exportErr)
+		finishExportTask(exportErr)
 		return exportErr
 	}
 	if exportErr != nil {
 		exportTask.Update("export sessions: unavailable, using seed baseline")
 	}
-	exportTask.Finish(nil)
+	finishExportTask(nil)
 	if needSeed {
 		seedTask := progress.Begin("seed baseline")
 		seedCmd := &cobra.Command{Use: "seed"}
