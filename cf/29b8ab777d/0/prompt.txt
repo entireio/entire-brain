@@ -1,5 +1,1 @@
-Hm, doesn't seem to work. Check in /Users/thomi/Projects/entire-cli
-
----
-
 Also check output on all stages not overlapping each other
