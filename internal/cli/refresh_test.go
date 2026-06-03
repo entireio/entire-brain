@@ -40,7 +40,7 @@ func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 	if _, err := execute(t, cmd, "refresh", "--entire-binary", "entire-test"); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
-	brainDir := filepath.Join(dataDir, brainDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
 	var manifest exportManifest
 	data, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
 	if err != nil {
@@ -267,7 +267,7 @@ func TestPathMaterializesSeedWhenExportUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("path: %v\n%s", err, out)
 	}
-	brainDir := filepath.Join(dataDir, brainDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
 	if out != brainDir+"\n" {
 		t.Fatalf("path output = %q, want %q", out, brainDir+"\n")
 	}

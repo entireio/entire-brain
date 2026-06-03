@@ -29,7 +29,7 @@ func TestPathPrintsBrainDirForRepoURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("path: %v\n%s", err, out)
 	}
-	want := filepath.Join(dataDir, brainDirName, "gh", "entireio", "cli") + "\n"
+	want := filepath.Join(dataDir, repoStoreDirName, "gh", "entireio", "cli") + "\n"
 	if out != want {
 		t.Fatalf("path output = %q, want %q", out, want)
 	}
@@ -65,7 +65,7 @@ func TestPathPrefersExistingLocalPathThatLooksLikeRepoRemote(t *testing.T) {
 		t.Fatalf("mkdir repo: %v", err)
 	}
 	dataDir := filepath.Join(t.TempDir(), "data")
-	brainDir := filepath.Join(dataDir, brainDirName, "gh", "local", "repo")
+	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "local", "repo")
 	if err := os.MkdirAll(brainDir, 0o700); err != nil {
 		t.Fatalf("mkdir brain: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestPathPrefersExistingLocalPathThatLooksLikeRepoRemote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("path: %v\n%s", err, out)
 	}
-	want := filepath.Join(dataDir, brainDirName, "gh", "local", "repo") + "\n"
+	want := filepath.Join(dataDir, repoStoreDirName, "gh", "local", "repo") + "\n"
 	if out != want {
 		t.Fatalf("path output = %q, want %q", out, want)
 	}
@@ -135,7 +135,7 @@ func TestPathUsesExistingLocalBrainWithoutExport(t *testing.T) {
 	}
 
 	dataDir := filepath.Join(t.TempDir(), "data")
-	brainDir := filepath.Join(dataDir, brainDirName, "gh", "entireio", "cli")
+	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "entireio", "cli")
 	if err := os.MkdirAll(brainDir, 0o700); err != nil {
 		t.Fatalf("create brain dir: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestPathExportsExistingRepoWhenMissing(t *testing.T) {
 	repoDir := t.TempDir()
 	dataDir := filepath.Join(t.TempDir(), "data")
 	stateDir := filepath.Join(t.TempDir(), "state")
-	brainDir := filepath.Join(dataDir, brainDirName, "gh", "entireio", "cli")
+	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "entireio", "cli")
 
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
 		fakeCommandKey("git", "rev-parse", "--show-toplevel"): {
@@ -238,7 +238,7 @@ func TestPathExportsExistingRepoWhenMissing(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(brainDir, exportManifestFileName)); err != nil {
 		t.Fatalf("path did not export manifest: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, brainDirName, "gh", "entireio", "cli", brainHeadFileName)); err != nil {
+	if _, err := os.Stat(filepath.Join(stateDir, repoStoreDirName, "gh", "entireio", "cli", brainHeadFileName)); err != nil {
 		t.Fatalf("path did not write cursor: %v", err)
 	}
 
