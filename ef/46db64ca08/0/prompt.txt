@@ -1,5 +1,1 @@
-Why are there two /brain in /Users/thomi/.local/share/entire/plugins/data/brain/brain/gh/ashtom/entire-brain?
-
----
-
-Lets rename the inner folder to /repos
+commit/push
