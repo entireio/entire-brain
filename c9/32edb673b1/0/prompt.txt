@@ -1,0 +1,17 @@
+Ok, and your most recent Claude runs had it configured?
+
+---
+
+Show me the prompt instructions
+
+---
+
+Show me the prompt instructions
+
+---
+
+But Claude didn’t call the CLI to begin with
+
+---
+
+But Claude didn’t call the CLI to begin with

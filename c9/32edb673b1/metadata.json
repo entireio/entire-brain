@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "c932edb673b1",
+  "strategy": "manual-commit",
+  "branch": "phase-2-brain-benchmark-plan",
+  "checkpoints_count": 11,
+  "files_touched": [
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/run.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c9/32edb673b1/0/metadata.json",
+      "transcript": "/c9/32edb673b1/0/full.jsonl",
+      "content_hash": "/c9/32edb673b1/0/content_hash.txt",
+      "prompt": "/c9/32edb673b1/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1576453,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 56873216,
+    "output_tokens": 125334,
+    "api_call_count": 548
+  }
+}
