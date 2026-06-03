@@ -1,0 +1,13 @@
+Review the README against the codebase and update as needed.
+
+---
+
+Running "entire brain" without any commands should output help information.
+
+---
+
+"entire brain export" on this repo outputs:
+exported 120 sessions from 57 checkpoints
+output: /Users/thomi/.local/share/entire/plugins/data/brain/brain/gh/ashtom/entire-brain
+warnings: 4
+-> What are the warnings? How can a user seem them?
