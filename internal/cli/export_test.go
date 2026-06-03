@@ -259,6 +259,17 @@ func TestExportUsesConfiguredV1CheckpointRemoteDirectly(t *testing.T) {
 	if !strings.Contains(out, "exported 1 sessions from 1 checkpoints") {
 		t.Fatalf("unexpected output:\n%s", out)
 	}
+	for _, want := range []string{
+		"warnings: 4",
+		"warning: default branch checkpoint reachability unavailable: could not resolve main",
+		"warning: checkpoint author index unavailable:",
+		"warning: exporting raw transcripts directly from configured checkpoint remote ref refs/heads/entire/checkpoints/v1",
+		"warning: compact transcript unavailable for v1 checkpoints; exported raw full.jsonl logs",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("export output missing %q:\n%s", want, out)
+		}
+	}
 
 	var manifest exportManifest
 	data, err := os.ReadFile(filepath.Join(outputDir, exportManifestFileName))

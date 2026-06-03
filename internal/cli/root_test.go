@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ashtom/entire-brain/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -21,65 +20,19 @@ func execute(t *testing.T, cmd *cobra.Command, args ...string) (string, error) {
 	return stdout.String(), err
 }
 
-func TestRootStatusShowsEntireEnvironment(t *testing.T) {
-	configDir := t.TempDir()
-	dataDir := t.TempDir()
-	stateDir := t.TempDir()
-	cacheDir := t.TempDir()
-	if err := config.Save(configDir, config.Config{Greeting: "hello test"}); err != nil {
-		t.Fatalf("save config: %v", err)
-	}
-
-	cmd := NewRootCommand(Options{
-		Version: "test-version",
-		Env: EntireEnv{
-			CLIVersion:      "cli-test",
-			RepoRoot:        "/tmp/repo",
-			PluginConfigDir: configDir,
-			PluginDataDir:   dataDir,
-			PluginStateDir:  stateDir,
-			PluginCacheDir:  cacheDir,
-		},
-	})
-
-	out, err := execute(t, cmd)
-	if err != nil {
-		t.Fatalf("execute root: %v", err)
-	}
-	for _, want := range []string{
-		"entire-brain",
-		"version: test-version",
-		"entire cli: cli-test",
-		"repo root: /tmp/repo",
-		"plugin config: " + configDir,
-		"plugin data: " + dataDir,
-		"plugin state: " + stateDir,
-		"plugin cache: " + cacheDir,
-		"greeting: hello test",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("root output missing %q:\n%s", want, out)
-		}
-	}
-}
-
-func TestRootStatusWorksWithoutEntireEnvironment(t *testing.T) {
-	xdg := t.TempDir()
-	t.Setenv(xdgConfigHome, filepath.Join(xdg, "config"))
-	t.Setenv(xdgDataHome, filepath.Join(xdg, "data"))
-	t.Setenv(xdgStateHome, filepath.Join(xdg, "state"))
-	t.Setenv(xdgCacheHome, filepath.Join(xdg, "cache"))
-
+func TestRootWithoutCommandShowsHelp(t *testing.T) {
 	cmd := NewRootCommand(Options{Version: "test-version"})
 	out, err := execute(t, cmd)
 	if err != nil {
 		t.Fatalf("execute root: %v", err)
 	}
 	for _, want := range []string{
-		"plugin config: " + filepath.Join(xdg, "config", "entire"),
-		"plugin data: " + filepath.Join(xdg, "data", "entire"),
-		"plugin state: " + filepath.Join(xdg, "state", "entire"),
-		"plugin cache: " + filepath.Join(xdg, "cache", "entire"),
+		"entire-brain is an external-command plugin for the Entire CLI.",
+		"Usage:",
+		"Available Commands:",
+		"brief",
+		"status",
+		"workspace",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("root output missing %q:\n%s", want, out)
