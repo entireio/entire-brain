@@ -291,6 +291,9 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	fmt.Fprintf(out, "output: %s\n", outputDir)
 	if len(manifest.Warnings) > 0 {
 		fmt.Fprintf(out, "warnings: %d\n", len(manifest.Warnings))
+		for _, warning := range manifest.Warnings {
+			fmt.Fprintf(out, "warning: %s\n", warning)
+		}
 	}
 	return nil
 }

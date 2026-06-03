@@ -2,7 +2,8 @@
 
 Entire Brain is an external-command plugin for the Entire CLI. It builds a
 local, inspectable "brain" for a repository from Entire session history, seeded
-repository context, and optional semantic facts from `entire-sem`.
+repository context, a local history index, and optional semantic facts from
+`entire-sem`.
 
 The plugin binary is named `entire-brain` and is invoked through Entire as:
 
@@ -43,24 +44,59 @@ ENTIRE_PLUGIN_CACHE_DIR="$(mktemp -d)" \
 
 ## Common Workflows
 
+### Start a Coding Task
+
+```sh
+entire brain refresh --history-index
+entire brain status . --json
+entire brain brief "update the README" --json
+entire brain search "README" --json
+entire brain show <semantic-id> --json
+```
+
+Add `--semantic` to `refresh` when an `entire sem` provider is available.
+`brief` is the agent-facing entry point: it combines brain availability,
+freshness, live git state, semantic context and test suggestions, and matching
+history records. `status`, `search`, and `show` provide smaller top-level
+queries for agents and scripts.
+
+For deeper inspection:
+
+```sh
+entire brain guide
+entire brain inspect code "README" --json
+entire brain inspect context "main" --json
+entire brain inspect impact "main" --json
+entire brain inspect changes --json
+entire brain inspect tests "main" --json
+entire brain inspect decisions "semantic" --json
+entire brain inspect history "semantic" --json
+entire brain inspect boundaries --kind tool --json
+```
+
 ### Export Session History
 
 ```sh
-entire brain export
+entire brain export --history-index
+entire brain history-index .
 entire brain export --output /tmp/repo-brain
 entire brain path .
 ```
 
 `export` writes the newest known checkpoint version of each Entire session into
-the persistent brain directory. `path` prints that directory and creates it when
-needed for a local checkout.
+the persistent brain directory. `--history-index` also builds a local
+decision/rationale index from exported sessions. `history-index` can rebuild
+that derived index later. `path` prints the persistent brain directory and
+creates it when needed for a local checkout. Export warning details are printed
+after the warning count and recorded in the generated `README.md` and
+`manifest.json`.
 
 ### Seed Repository Context
 
 ```sh
 entire brain seed .
 entire brain seed . --agent none
-entire brain refresh --force-seed
+entire brain refresh --force-seed --history-index
 ```
 
 `seed` writes deterministic repository context under `seed/`, including file
@@ -72,7 +108,8 @@ indexes, docs, commands, entrypoints, conventions, risks, and history gaps.
 Install or build a provider that supports `entire sem`, then index:
 
 ```sh
-entire brain index . --sem-binary entire
+entire brain refresh --semantic --history-index --sem-binary entire
+entire brain index . --sem-binary entire --force
 entire brain stale --json
 ```
 
@@ -84,9 +121,21 @@ entire sem doctor --json
 entire sem snapshot --repo . --format ndjson --no-network
 ```
 
+`index` stores semantic snapshots, a SQLite query store, metrics, parse cache,
+and branch overlays in the local brain directory. It refuses to replace an
+existing semantic source unless `--force` is set, and it refuses dirty worktrees
+unless `--worktree` is set. `refresh --semantic` forces a semantic rebuild after
+session and seed refresh; add `--semantic-worktree` to represent the current
+dirty worktree, or `--all-branches` to write recent local branch overlays
+without fetching remotes.
+
 Useful semantic commands:
 
 ```sh
+entire brain status . --json
+entire brain brief "main" --json
+entire brain search "main" --json --limit 10
+entire brain show <semantic-id-or-name> --json
 entire brain query "main" --json --limit 10
 entire brain context "main" --json --limit 10
 entire brain impact "main" --json --depth 2 --limit 20
