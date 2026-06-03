@@ -1,5 +1,1 @@
-ommit/push
-
----
-
 Commit the codex hooks as well.
