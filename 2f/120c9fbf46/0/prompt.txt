@@ -1,15 +1,1 @@
-I don't know what to do with these warnings: entire brain export
-exported 121 sessions from 58 checkpoints
-output: /Users/thomi/.local/share/entire/plugins/data/brain/brain/gh/ashtom/entire-brain
-warnings: 4
-warning: checkpoint ref refs/heads/entire/checkpoints/v1: fatal: Not a valid object name refs/heads/entire/checkpoints/v1
-warning: checkpoint snapshot unavailable: read checkpoint ref refs/heads/entire/checkpoints/v1: git [ls-tree -r --name-only refs/heads/entire/checkpoints/v1]: exit status 128: fatal: Not a valid object name refs/heads/entire/checkpoints/v1
-
-warning: exporting raw transcripts directly from local checkpoint ref refs/remotes/origin/entire/checkpoints/v1
-warning: compact transcript unavailable for v1 checkpoints; exported raw full.jsonl logs
-
----
-
-Two things:
-1. Only show these type of warnings when the uses passes --debug.
-2. Make the warnings useful for the user.
+ommit/push
