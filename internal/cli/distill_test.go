@@ -27,6 +27,61 @@ func TestRenderDistillPromptSubstitutesTaxonomy(t *testing.T) {
 	}
 }
 
+func TestRenderDistillPromptStripsFrontmatter(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	prompt, err := renderDistillPrompt(defaultFactTaxonomy(now))
+	if err != nil {
+		t.Fatalf("renderDistillPrompt: %v", err)
+	}
+	// The agent runners pass the prompt as a positional CLI arg, so a leading
+	// "---" (YAML frontmatter) would be parsed as an unknown flag and rejected.
+	if strings.HasPrefix(prompt, "-") {
+		t.Fatalf("prompt must not start with a dash (frontmatter not stripped): %q", prompt[:40])
+	}
+	if strings.Contains(prompt, "name: entire-brain-distill") {
+		t.Fatalf("frontmatter leaked into prompt")
+	}
+	if !strings.HasPrefix(prompt, "You are an expert note-taker") {
+		t.Fatalf("prompt body missing after frontmatter strip: %q", prompt[:40])
+	}
+}
+
+func TestStripTemplateFrontmatter(t *testing.T) {
+	in := "---\nname: x\ndescription: y\n---\n\nBody starts here.\n"
+	if got := stripTemplateFrontmatter(in); got != "Body starts here.\n" {
+		t.Fatalf("got %q", got)
+	}
+	// No frontmatter: unchanged.
+	plain := "No frontmatter here.\n"
+	if got := stripTemplateFrontmatter(plain); got != plain {
+		t.Fatalf("plain content changed: %q", got)
+	}
+	// Unterminated frontmatter: left as-is rather than eating the whole file.
+	open := "---\nname: x\nstill going\n"
+	if got := stripTemplateFrontmatter(open); got != open {
+		t.Fatalf("unterminated frontmatter changed: %q", got)
+	}
+}
+
+func TestCapWarnings(t *testing.T) {
+	var w []string
+	for i := 0; i < 120; i++ {
+		w = append(w, "warn")
+	}
+	capped := capWarnings(w, maxDistillWarnings)
+	if len(capped) != maxDistillWarnings+1 {
+		t.Fatalf("expected %d entries, got %d", maxDistillWarnings+1, len(capped))
+	}
+	if !strings.Contains(capped[len(capped)-1], "more warnings") {
+		t.Fatalf("missing overflow summary: %q", capped[len(capped)-1])
+	}
+	// Under the cap: unchanged.
+	small := []string{"a", "b"}
+	if got := capWarnings(small, maxDistillWarnings); len(got) != 2 {
+		t.Fatalf("small list changed: %v", got)
+	}
+}
+
 func TestFactTaxonomyBlockDeterministic(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	a := factTaxonomyBlock(defaultFactTaxonomy(now))

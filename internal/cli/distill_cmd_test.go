@@ -182,6 +182,44 @@ func TestRunDistillForBrainPreservesAuthoredOnForce(t *testing.T) {
 	}
 }
 
+func TestRunDistillForBrainRetriesFailedSessions(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+
+	// First run: the agent fails on every chunk.
+	failRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return "", context.DeadlineExceeded
+	}
+	failOpts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: failRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, failOpts, now)
+	if err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if source.Facts != 0 {
+		t.Fatalf("expected 0 facts after total failure, got %d", source.Facts)
+	}
+
+	// Second run (no --force): failed sessions must be retried, not skipped as
+	// cached. This time the agent succeeds.
+	var calls int
+	okRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return "project.tooling.stack\tThe project uses TypeScript.\n", nil
+	}
+	okOpts := failOpts
+	okOpts.run = okRun
+	source, err = runDistillForBrain(context.Background(), t.TempDir(), brainDir, okOpts, now)
+	if err != nil {
+		t.Fatalf("retry run: %v", err)
+	}
+	if calls == 0 {
+		t.Fatalf("failed sessions were cached and skipped instead of retried")
+	}
+	if source.Facts == 0 {
+		t.Fatalf("retry produced no facts despite a working agent")
+	}
+}
+
 func TestRunDistillForBrainNoSessions(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := t.TempDir()

@@ -25,7 +25,22 @@ const (
 	defaultDistillChunkSize = 48 * 1024
 	defaultDistillTimeout   = 10 * time.Minute
 	distillDefaultBranch    = "main"
+	// maxDistillWarnings bounds the warning list so a systemic failure (e.g.
+	// every agent call failing) cannot balloon the manifest with one warning
+	// per chunk.
+	maxDistillWarnings = 50
 )
+
+// capWarnings truncates a warning list to max entries, replacing the overflow
+// with a single summary line so a systemic failure stays legible.
+func capWarnings(warnings []string, max int) []string {
+	if len(warnings) <= max {
+		return warnings
+	}
+	extra := len(warnings) - max
+	out := append(warnings[:max:max], fmt.Sprintf("... and %d more warnings (suppressed)", extra))
+	return out
+}
 
 // distillAgentRunner executes the seed agent with the distillation prompt for
 // one transcript chunk and returns the agent's raw stdout. It is injected so
@@ -208,19 +223,20 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		ensureBranch(branch)
 
 		fingerprint := distillSessionFingerprint(session)
-		newCache.Sessions[session.SessionID] = fingerprint
 		if !distillOpts.force {
 			if prev, ok := prevCache.Sessions[session.SessionID]; ok && prev == fingerprint {
-				continue // unchanged; existing distilled facts are retained
+				newCache.Sessions[session.SessionID] = prev // unchanged; retain in cache and keep existing facts
+				continue
 			}
 		}
 
 		content, readErr := readBrainRelativeFile(brainDir, session.TranscriptPath)
 		if readErr != nil {
 			warnings = append(warnings, fmt.Sprintf("read transcript %s: %v", session.TranscriptPath, readErr))
-			continue
+			continue // not cached: retried next run
 		}
 		chunks := chunkTranscript(content, distillOpts.maxChunkBytes)
+		sessionFailed := false
 		for _, chunk := range chunks {
 			chunksScanned++
 			anchor := factAnchor{
@@ -232,6 +248,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			out, runErr := distillOpts.run(ctx, repoDir, args, []byte(chunk.Text), distillOpts.timeout)
 			if runErr != nil {
 				warnings = append(warnings, fmt.Sprintf("agent failed on %s:%d: %v", session.SessionID, chunk.StartLine, runErr))
+				sessionFailed = true
 				continue
 			}
 			records, chunkWarnings := distilledFactsFromOutput(out, taxonomy, anchor, branch, now)
@@ -243,7 +260,15 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 				byBranch[branch] = upsertFact(byBranch[branch], record)
 			}
 		}
+		// Only cache a session as distilled when every chunk succeeded, so a
+		// session whose agent calls failed is retried on the next run rather
+		// than being silently treated as done.
+		if !sessionFailed {
+			newCache.Sessions[session.SessionID] = fingerprint
+		}
 	}
+
+	warnings = capWarnings(warnings, maxDistillWarnings)
 
 	for branch, records := range byBranch {
 		if err := writeFacts(brainDir, branch, records); err != nil {

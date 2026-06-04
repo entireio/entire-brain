@@ -17,14 +17,33 @@ const (
 	distillFactMaxTextSize = 2000
 )
 
-// distillTemplate returns the raw distillation prompt template shipped with the
-// binary. A missing template is a programming/build error, not a runtime one.
+// distillTemplate returns the distillation prompt body shipped with the binary,
+// with its YAML frontmatter stripped. The frontmatter is metadata for skill
+// installers, not part of the prompt — and crucially the agent runners pass the
+// prompt as a positional CLI argument, so a leading "---" would be parsed as an
+// unknown flag and rejected. A missing template is a build error, not runtime.
 func distillTemplate() (string, error) {
 	data, err := entirebrain.Templates.ReadFile(distillTemplateName)
 	if err != nil {
 		return "", fmt.Errorf("read distill template: %w", err)
 	}
-	return string(data), nil
+	return stripTemplateFrontmatter(string(data)), nil
+}
+
+// stripTemplateFrontmatter removes a leading YAML frontmatter block
+// ("---\n...\n---\n") and returns the body. Content without frontmatter is
+// returned unchanged.
+func stripTemplateFrontmatter(content string) string {
+	if !strings.HasPrefix(content, "---\n") && !strings.HasPrefix(content, "---\r\n") {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			return strings.TrimLeft(strings.Join(lines[i+1:], "\n"), "\n")
+		}
+	}
+	return content // no closing delimiter; leave as-is
 }
 
 // renderDistillPrompt substitutes the active taxonomy into the template's
