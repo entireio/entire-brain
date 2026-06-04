@@ -83,6 +83,7 @@ agent can inspect to understand project history.`,
 	// Create the brain — locate it, build/refresh it, manage workspaces.
 	addGrouped("create", newPathCommand(opts))
 	addGrouped("create", newRefreshCommand(opts))
+	addGrouped("create", newDistillCommand(opts))
 	addGrouped("create", newAgentStatusCommand(opts))
 	addGrouped("create", newWorkspaceCommand(opts))
 
