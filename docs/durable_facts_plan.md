@@ -255,7 +255,7 @@ functional with **no** CLI changes (Phase A). Two additive, backward-compatible
 surfaces unlock later phases; neither changes Entire's capture model.
 
 1. **Turn-level signed anchors (enables Phase B).** Entire already signs
-   checkpoints (`docs/architecture/checkpoint-signing.md`). Expose a stable,
+   checkpoints (`./entire-cli/docs/architecture/checkpoint-signing.md`). Expose a stable,
    addressable anchor for a turn within a checkpoint — `{session_id, commit,
    turn_id, checkpoint_id}` — and a way to verify that anchor against the
    checkpoint signature. This is the substrate for turn-level `blame` and for
@@ -359,7 +359,7 @@ Authored facts (`origin=authored`) are preserved across rebuilds by id; only
 ### Types
 
 Field names and tag conventions match the existing brain sources
-(`historyRecord`, `semanticManifest`). New code lives in
+(`historyRecord`, `semanticSourceManifest`). New code lives in
 `internal/cli/facts.go` with tests in `internal/cli/facts_test.go`.
 
 ```go
@@ -369,7 +369,7 @@ const (
 	factsTaxonomyFileName = "taxonomy.json"
 	factsFileName         = "facts.ndjson"
 	factsMaxLineBytes     = 64 * 1024
-	factsMaxPerTurn       = 6 // quality-gate output cap per source turn
+	factsMaxPerChunk      = 6 // quality-gate output cap per source chunk
 )
 
 // factSourceManifest is recorded under sources.facts in the brain manifest,
