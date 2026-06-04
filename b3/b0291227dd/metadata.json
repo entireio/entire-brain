@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.7.4-nightly.202606040747.b98014a6",
+  "checkpoint_id": "b3b0291227dd",
+  "strategy": "manual-commit",
+  "branch": "docs/durable-facts-and-distill",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/durable_facts_plan.md",
+    "templates/entire-brain-distill.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b3/b0291227dd/0/metadata.json",
+      "transcript": "/b3/b0291227dd/0/full.jsonl",
+      "content_hash": "/b3/b0291227dd/0/content_hash.txt",
+      "prompt": "/b3/b0291227dd/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 765,
+    "cache_creation_tokens": 1723,
+    "cache_read_tokens": 163943,
+    "output_tokens": 763,
+    "api_call_count": 4
+  }
+}

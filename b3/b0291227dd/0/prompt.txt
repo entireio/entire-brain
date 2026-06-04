@@ -1,0 +1,5 @@
+No, just merge to main
+
+---
+
+Create a new branch for docs/durable_facts_plan.md and templates/entire-brain-distill.md, and commit those docs in the branch. Then review the docs if they are still up-to-date based on the current HEAD.
