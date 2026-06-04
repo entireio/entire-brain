@@ -79,9 +79,9 @@ They do not sync or publish generated brain data.
 entire brain mcp
 ```
 
-The MCP adapter is stdio-only and exposes local wrappers for `stale`, `brief`,
-semantic `query`/`context`/`impact`/`changes`, and indexed session `history`.
-See `docs/semantic_mcp_guide.md`.
+The MCP adapter is stdio-only and exposes local tools `brain_stale`,
+`brain_brief`, the semantic `brain_query`/`brain_context`/`brain_impact`/`brain_changes`,
+and indexed session `brain_history`. See `docs/semantic_mcp_guide.md`.
 
 ### Ask The Brain
 
