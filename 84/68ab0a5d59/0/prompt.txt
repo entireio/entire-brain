@@ -1,0 +1,5 @@
+After merging a PR, the README now says "The MCP adapter is stdio-only and exposes local wrappers for stale, brief, semantic query/context/impact/changes, and indexed session history. See docs/semantic_mcp_guide.md." Is that still accurate with the changes to the command structure? Also check the referenced .md file.
+
+---
+
+Ok, do the rewording only.
