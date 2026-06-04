@@ -1,0 +1,255 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "8bb828056781",
+  "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-04T15:25:32.934022Z",
+  "branch": "agent-brain-benchmark-proof",
+  "checkpoints_count": 16,
+  "files_touched": [
+    "README.md",
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/audit_codex.py",
+    "benchmarks/agent-brain/make_report.py",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "benchmarks/agent-brain/tasks/entireio-cli-review-base-flag-scope.json",
+    "benchmarks/agent-brain/tasks/ultron-history-agentic-self-contained-turns.json",
+    "benchmarks/agent-brain/tasks/ultron-history-openai-metadata-step-string.json",
+    "benchmarks/agent-brain/tasks/ultron-history-storage-limit-normalization.json",
+    "benchmarks/agent-brain/tasks/ultron-history-youtube-media-verification.json",
+    "docs/semantic_mcp_guide.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_test.go",
+    "internal/cli/history.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8",
+  "turn_id": "2108656694b7",
+  "token_usage": {
+    "input_tokens": 50687,
+    "cache_creation_tokens": 1573950,
+    "cache_read_tokens": 141362817,
+    "output_tokens": 456828,
+    "api_call_count": 284
+  },
+  "session_metrics": {
+    "turn_count": 16
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-04T15:25:32.824213Z",
+    "agent_lines": 348,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 264,
+    "human_removed": 23,
+    "total_committed": 583,
+    "total_lines_changed": 635,
+    "agent_percentage": 54.803149606299215,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 3497,
+      "user_lines_removed": 171,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "README.md": 3,
+        "benchmarks/agent-brain/README.md": 32,
+        "benchmarks/agent-brain/run.py": 809,
+        "benchmarks/agent-brain/run_test.py": 521,
+        "benchmarks/agent-brain/tasks/ultron-history-agentic-self-contained-turns.json": 45,
+        "benchmarks/agent-brain/tasks/ultron-history-openai-metadata-step-string.json": 34,
+        "benchmarks/agent-brain/tasks/ultron-history-storage-limit-normalization.json": 29,
+        "benchmarks/agent-brain/tasks/ultron-history-youtube-media-verification.json": 34,
+        "docs/semantic_mcp_guide.md": 6,
+        "entire-brain-chat-history.txt": 125,
+        "entire-brain-full-context.md": 302,
+        "internal/cli/agent_surface.go": 1000,
+        "internal/cli/brain_test.go": 249,
+        "internal/cli/history.go": 101,
+        "internal/cli/mcp.go": 102,
+        "internal/cli/mcp_test.go": 85,
+        "internal/cli/semantic.go": 7,
+        "internal/cli/semantic_test.go": 13
+      },
+      "user_removed_per_file": {
+        "README.md": 2,
+        "benchmarks/agent-brain/README.md": 5,
+        "benchmarks/agent-brain/run.py": 114,
+        "docs/semantic_mcp_guide.md": 2,
+        "internal/cli/agent_surface.go": 26,
+        "internal/cli/history.go": 2,
+        "internal/cli/mcp.go": 13,
+        "internal/cli/mcp_test.go": 4,
+        "internal/cli/semantic.go": 3
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 4094,
+      "agent_lines_removed": 171
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 4094,
+      "agent_lines_removed": 171
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 4094,
+      "agent_lines_removed": 171
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 4154,
+      "agent_lines_removed": 172
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 4154,
+      "agent_lines_removed": 172
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 4154,
+      "agent_lines_removed": 172
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 4154,
+      "agent_lines_removed": 172
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 4189,
+      "agent_lines_removed": 172
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 3762,
+      "agent_lines_removed": 172
+    },
+    {
+      "checkpoint_number": 11,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 3770,
+      "agent_lines_removed": 172
+    },
+    {
+      "checkpoint_number": 12,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 4027,
+      "agent_lines_removed": 172
+    },
+    {
+      "checkpoint_number": 13,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 14,
+      "user_lines_added": 9,
+      "user_lines_removed": 0,
+      "agent_lines_added": 4037,
+      "agent_lines_removed": 172,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 9
+      }
+    },
+    {
+      "checkpoint_number": 15,
+      "user_lines_added": 75,
+      "user_lines_removed": 29,
+      "agent_lines_added": 3874,
+      "agent_lines_removed": 179,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 9,
+        "benchmarks/agent-brain/tasks/entireio-cli-review-base-flag-scope.json": 1,
+        "benchmarks/agent-brain/tasks/ultron-history-agentic-self-contained-turns.json": 17,
+        "benchmarks/agent-brain/tasks/ultron-history-openai-metadata-step-string.json": 15,
+        "benchmarks/agent-brain/tasks/ultron-history-storage-limit-normalization.json": 15,
+        "benchmarks/agent-brain/tasks/ultron-history-youtube-media-verification.json": 18
+      },
+      "user_removed_per_file": {
+        "benchmarks/agent-brain/tasks/entireio-cli-review-base-flag-scope.json": 1,
+        "benchmarks/agent-brain/tasks/ultron-history-agentic-self-contained-turns.json": 7,
+        "benchmarks/agent-brain/tasks/ultron-history-openai-metadata-step-string.json": 7,
+        "benchmarks/agent-brain/tasks/ultron-history-storage-limit-normalization.json": 7,
+        "benchmarks/agent-brain/tasks/ultron-history-youtube-media-verification.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 16,
+      "user_lines_added": 75,
+      "user_lines_removed": 29,
+      "agent_lines_added": 3874,
+      "agent_lines_removed": 179,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 9,
+        "benchmarks/agent-brain/tasks/entireio-cli-review-base-flag-scope.json": 1,
+        "benchmarks/agent-brain/tasks/ultron-history-agentic-self-contained-turns.json": 17,
+        "benchmarks/agent-brain/tasks/ultron-history-openai-metadata-step-string.json": 15,
+        "benchmarks/agent-brain/tasks/ultron-history-storage-limit-normalization.json": 15,
+        "benchmarks/agent-brain/tasks/ultron-history-youtube-media-verification.json": 18
+      },
+      "user_removed_per_file": {
+        "benchmarks/agent-brain/tasks/entireio-cli-review-base-flag-scope.json": 1,
+        "benchmarks/agent-brain/tasks/ultron-history-agentic-self-contained-turns.json": 7,
+        "benchmarks/agent-brain/tasks/ultron-history-openai-metadata-step-string.json": 7,
+        "benchmarks/agent-brain/tasks/ultron-history-storage-limit-normalization.json": 7,
+        "benchmarks/agent-brain/tasks/ultron-history-youtube-media-verification.json": 7
+      }
+    },
+    {
+      "checkpoint_number": 17,
+      "user_lines_added": 75,
+      "user_lines_removed": 29,
+      "agent_lines_added": 3874,
+      "agent_lines_removed": 179,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 9,
+        "benchmarks/agent-brain/tasks/entireio-cli-review-base-flag-scope.json": 1,
+        "benchmarks/agent-brain/tasks/ultron-history-agentic-self-contained-turns.json": 17,
+        "benchmarks/agent-brain/tasks/ultron-history-openai-metadata-step-string.json": 15,
+        "benchmarks/agent-brain/tasks/ultron-history-storage-limit-normalization.json": 15,
+        "benchmarks/agent-brain/tasks/ultron-history-youtube-media-verification.json": 18
+      },
+      "user_removed_per_file": {
+        "benchmarks/agent-brain/tasks/entireio-cli-review-base-flag-scope.json": 1,
+        "benchmarks/agent-brain/tasks/ultron-history-agentic-self-contained-turns.json": 7,
+        "benchmarks/agent-brain/tasks/ultron-history-openai-metadata-step-string.json": 7,
+        "benchmarks/agent-brain/tasks/ultron-history-storage-limit-normalization.json": 7,
+        "benchmarks/agent-brain/tasks/ultron-history-youtube-media-verification.json": 7
+      }
+    }
+  ]
+}
