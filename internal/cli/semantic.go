@@ -132,6 +132,16 @@ type semanticIndexOptions struct {
 	worktree       bool
 	outputDir      string
 	outputExplicit bool
+	// progress, when set, is called at each phase boundary of the index
+	// (verifying provider, snapshotting, building store, …) so long-running
+	// indexing reports something more useful than a static spinner.
+	progress func(phase string)
+}
+
+func (o semanticIndexOptions) reportPhase(phase string) {
+	if o.progress != nil {
+		o.progress(phase)
+	}
 }
 
 type semanticResetOptions struct {
@@ -300,6 +310,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			return errors.New("--sem-binary must not be empty")
 		}
 		var doctorWarnings []semanticWarning
+		indexOpts.reportPhase("verifying provider")
 		noEgress, doctorWarnings = runSemanticDoctor(ctx, opts.Runner, repoDir, indexOpts.semBinary)
 		warnings = append(warnings, doctorWarnings...)
 		if !noEgress {
@@ -309,10 +320,12 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			}
 			return fmt.Errorf("%s: semantic provider no-egress status is not verified", code)
 		}
+		indexOpts.reportPhase("parsing sources")
 		raw, err = runSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts.semBinary, indexOpts.worktree, providerIgnoreFiles)
 		if err != nil {
 			return err
 		}
+		indexOpts.reportPhase("filtering snapshot")
 		header, counts, raw, err = filterSemanticSnapshot(raw, ignore, repoDir)
 		if err != nil {
 			return err
@@ -364,6 +377,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	if err := writeFileAtomic(snapshotPath, raw, 0o600); err != nil {
 		return fmt.Errorf("write semantic snapshot: %w", err)
 	}
+	indexOpts.reportPhase("building store")
 	generation, metrics, err := buildSemanticGeneration(storage.BrainDir, repoDir, snapshotID, raw, header, counts, opts.Now().UTC())
 	if err != nil {
 		return err
@@ -2047,7 +2061,7 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 	if source.Provider == "skipped" || semanticWarningsContainCode(source.Warnings, "provider_skipped") {
 		axes["semantic_completeness"] = staleAxis{State: "unsafe", Detail: "semantic facts unavailable"}
 	} else if len(source.PartialFailures) > 0 {
-		axes["semantic_completeness"] = staleAxis{State: "degraded", Detail: strconv.Itoa(len(source.PartialFailures)) + " partial failures"}
+		axes["semantic_completeness"] = semanticCompletenessAxis(source)
 	} else {
 		axes["semantic_completeness"] = staleAxis{State: "ok"}
 	}
@@ -2062,6 +2076,41 @@ func semanticWarningsContainCode(warnings []semanticWarning, code string) bool {
 		}
 	}
 	return false
+}
+
+// semanticParseErrorCode marks files where the tree-sitter parse produced error
+// nodes but symbols were still extracted (error-tolerant parse). A small number
+// of these is expected for any real codebase — newer language syntax the bundled
+// grammar version predates — and does not make the indexed facts unsafe to use.
+const semanticParseErrorCode = "E_PARSE_ERROR"
+
+// semanticParseErrorTolerance is the fraction of indexed files that may carry
+// only benign parse errors before the brain is reported as degraded. Below this
+// threshold the completeness axis stays ok; the failures remain recorded in the
+// semantic source so they can still be inspected and acted on. Above it, the
+// volume is high enough to suspect a grammar/provider problem worth surfacing.
+const semanticParseErrorTolerance = 0.10
+
+// semanticCompletenessAxis classifies partial provider failures. Failures that
+// are exclusively benign parse errors and stay under the tolerance fraction keep
+// the axis ok; anything else (a non-parse failure code, an uncountable file set,
+// or too many parse errors) degrades the brain.
+func semanticCompletenessAxis(source *semanticSourceManifest) staleAxis {
+	failures := len(source.PartialFailures)
+	parseErrors := 0
+	for _, failure := range source.PartialFailures {
+		if failure.Code == semanticParseErrorCode {
+			parseErrors++
+		}
+	}
+	if parseErrors == failures && source.Files > 0 {
+		fraction := float64(failures) / float64(source.Files)
+		if fraction < semanticParseErrorTolerance {
+			return staleAxis{State: "ok", Detail: fmt.Sprintf("%d/%d files had tolerated parse errors", failures, source.Files)}
+		}
+		return staleAxis{State: "degraded", Detail: fmt.Sprintf("%d partial failures in %.0f%% of files", failures, fraction*100)}
+	}
+	return staleAxis{State: "degraded", Detail: strconv.Itoa(failures) + " partial failures"}
 }
 
 func aggregateStaleSeverity(axes map[string]staleAxis) string {

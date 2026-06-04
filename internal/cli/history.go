@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,10 +22,16 @@ import (
 )
 
 const (
-	historyDirName       = "history"
-	historyIndexFileName = "index.json"
-	historyIndexPath     = historyDirName + "/" + historyIndexFileName
-	historyMaxLineBytes  = 1024 * 1024
+	historyDirName           = "history"
+	historyIndexFileName     = "index.json"
+	historyIndexPath         = historyDirName + "/" + historyIndexFileName
+	historyScanCacheFileName = "scan-cache.json.gz"
+	historyScanCachePath     = historyDirName + "/" + historyScanCacheFileName
+	historyMaxLineBytes      = 1024 * 1024
+	// historyScanCacheVersion gates reuse of cached per-file scan results.
+	// Bump it whenever the history record extraction/classification logic
+	// changes so stale cached records are discarded on the next refresh.
+	historyScanCacheVersion = 1
 )
 
 type historySourceManifest struct {
@@ -66,9 +74,27 @@ type historyFragment struct {
 }
 
 type historySessionFile struct {
-	Path     string
-	SortTime time.Time
-	Size     int64
+	Path        string
+	SortTime    time.Time
+	Size        int64
+	ModUnixNano int64
+}
+
+// historyScanCache memoizes the parsed history records for each session
+// transcript so a refresh only re-scans files whose size or mtime changed.
+// Session transcripts are content-stable across refreshes (the export step
+// reuses unchanged transcripts via the export cursor), so the (size, mtime)
+// pair is a reliable change signal and lets the index skip both the I/O and
+// the parse for the vast majority of files on every run.
+type historyScanCache struct {
+	Version int                              `json:"version"`
+	Files   map[string]historyScanCacheEntry `json:"files"`
+}
+
+type historyScanCacheEntry struct {
+	Size        int64           `json:"size"`
+	ModUnixNano int64           `json:"mod_unix_nano"`
+	Records     []historyRecord `json:"records"`
 }
 
 func newHistoryIndexCommand(opts Options) *cobra.Command {
@@ -102,7 +128,7 @@ func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, targ
 	if err != nil {
 		return err
 	}
-	source, err := writeBrainHistoryIndexAndSource(storage.BrainDir, opts.Now().UTC())
+	source, err := writeBrainHistoryIndexAndSource(storage.BrainDir, opts.Now().UTC(), nil)
 	if err != nil {
 		return err
 	}
@@ -110,8 +136,13 @@ func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, targ
 	return nil
 }
 
-func writeBrainHistoryIndexAndSource(outputDir string, now time.Time) (*historySourceManifest, error) {
-	index, source, err := buildBrainHistoryIndex(outputDir, now)
+// historyIndexProgress reports incremental progress while the history index is
+// rebuilt. done counts session files processed so far out of total. It is
+// optional; pass nil when no progress reporting is needed.
+type historyIndexProgress func(done, total int)
+
+func writeBrainHistoryIndexAndSource(outputDir string, now time.Time, progress historyIndexProgress) (*historySourceManifest, error) {
+	index, source, err := buildBrainHistoryIndex(outputDir, now, progress)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +171,7 @@ func writeBrainHistoryIndexAndSource(outputDir string, now time.Time) (*historyS
 	return source, nil
 }
 
-func buildBrainHistoryIndex(outputDir string, now time.Time) (historyIndex, *historySourceManifest, error) {
+func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyIndexProgress) (historyIndex, *historySourceManifest, error) {
 	sessionsRoot := filepath.Join(outputDir, exportSessionsDirectory)
 	index := historyIndex{GeneratedAt: now}
 	if _, err := os.Stat(sessionsRoot); err != nil {
@@ -153,13 +184,40 @@ func buildBrainHistoryIndex(outputDir string, now time.Time) (historyIndex, *his
 	if err != nil {
 		return index, nil, err
 	}
+
+	prevCache := loadHistoryScanCache(outputDir)
+	newCache := historyScanCache{Version: historyScanCacheVersion, Files: make(map[string]historyScanCacheEntry, len(files))}
+
+	total := len(files)
+	if progress != nil {
+		progress(0, total)
+	}
 	seenDecisions := map[string]struct{}{}
-	for _, file := range files {
-		records, scanErr := scanHistoryFile(outputDir, file.Path)
-		if scanErr != nil {
-			index.Warnings = append(index.Warnings, scanErr.Error())
-			continue
+	for i, file := range files {
+		rel, relErr := filepath.Rel(outputDir, file.Path)
+		if relErr != nil {
+			rel = file.Path
 		}
+		rel = filepath.ToSlash(rel)
+
+		var records []historyRecord
+		if cached, ok := prevCache.Files[rel]; ok && cached.Size == file.Size && cached.ModUnixNano == file.ModUnixNano {
+			records = cached.Records
+		} else {
+			scanned, scanErr := scanHistoryFile(outputDir, file.Path)
+			if scanErr != nil {
+				index.Warnings = append(index.Warnings, scanErr.Error())
+				if progress != nil {
+					progress(i+1, total)
+				}
+				continue
+			}
+			records = scanned
+		}
+		// Only files that scanned cleanly (or were reused) are cached; a file
+		// that errored is left out so the next refresh retries it.
+		newCache.Files[rel] = historyScanCacheEntry{Size: file.Size, ModUnixNano: file.ModUnixNano, Records: records}
+
 		for _, record := range records {
 			if record.Kind == "decision" {
 				dedupeKey := normalizeHistorySearchText(record.Summary)
@@ -170,7 +228,11 @@ func buildBrainHistoryIndex(outputDir string, now time.Time) (historyIndex, *his
 			}
 			index.Records = append(index.Records, record)
 		}
+		if progress != nil {
+			progress(i+1, total)
+		}
 	}
+	saveHistoryScanCache(outputDir, newCache)
 	sort.Slice(index.Records, func(i, j int) bool {
 		if index.Records[i].Kind != index.Records[j].Kind {
 			return index.Records[i].Kind < index.Records[j].Kind
@@ -202,6 +264,47 @@ func buildBrainHistoryIndex(outputDir string, now time.Time) (historyIndex, *his
 		}
 	}
 	return index, source, nil
+}
+
+// loadHistoryScanCache reads the per-file scan cache. It always returns a
+// usable (non-nil map) value: any read/parse error or a version mismatch
+// yields an empty cache so the index simply rebuilds from scratch.
+// The cache stores every indexed record for every session, which at scale is
+// hundreds of megabytes of JSON. It is gzip-compressed on disk to bound the
+// footprint (the record text compresses heavily).
+func loadHistoryScanCache(outputDir string) historyScanCache {
+	empty := historyScanCache{Version: historyScanCacheVersion, Files: map[string]historyScanCacheEntry{}}
+	data, err := os.ReadFile(filepath.Join(outputDir, filepath.FromSlash(historyScanCachePath)))
+	if err != nil {
+		return empty
+	}
+	gz, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return empty
+	}
+	defer gz.Close()
+	var cache historyScanCache
+	if err := json.NewDecoder(gz).Decode(&cache); err != nil {
+		return empty
+	}
+	if cache.Version != historyScanCacheVersion || cache.Files == nil {
+		return empty
+	}
+	return cache
+}
+
+// saveHistoryScanCache persists the per-file scan cache. Failures are
+// non-fatal: a missing or unwritable cache only costs a full rebuild next time.
+func saveHistoryScanCache(outputDir string, cache historyScanCache) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if err := json.NewEncoder(gz).Encode(cache); err != nil {
+		return
+	}
+	if err := gz.Close(); err != nil {
+		return
+	}
+	_ = writeFileAtomic(filepath.Join(outputDir, filepath.FromSlash(historyScanCachePath)), buf.Bytes(), 0o600)
 }
 
 func brainSessionsFingerprint(outputDir string) string {
@@ -271,9 +374,10 @@ func collectHistorySessionFiles(sessionsRoot string, warnings *[]string) ([]hist
 			return nil
 		}
 		files = append(files, historySessionFile{
-			Path:     path,
-			SortTime: historySessionSortTime(path, info.ModTime()),
-			Size:     info.Size(),
+			Path:        path,
+			SortTime:    historySessionSortTime(path, info.ModTime()),
+			Size:        info.Size(),
+			ModUnixNano: info.ModTime().UnixNano(),
 		})
 		return nil
 	})

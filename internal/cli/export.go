@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -146,8 +148,20 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	authorIndex, authorWarnings := buildCheckpointAuthorIndex(ctx, opts.Runner, repoDir)
 	warnings = append(warnings, authorWarnings...)
 
+	// The persistent brain caches checkpoint metadata blobs by git object id so
+	// repeated refreshes do not re-run `git cat-file` over the whole history.
+	// An explicit --output target writes a throwaway brain, so caching is skipped.
+	var metadataCache *checkpointMetadataCache
+	var metadataCachePath string
+	if !outputExplicit {
+		if storage, storageErr := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir); storageErr == nil {
+			metadataCachePath = filepath.Join(storage.BrainDir, filepath.FromSlash(checkpointMetadataCachePath))
+			metadataCache = loadCheckpointMetadataCache(metadataCachePath)
+		}
+	}
+
 	if exportOpts.scope == exportScopeAll {
-		loadedSnapshot, snapshotWarnings, snapshotErr := loadConfiguredCheckpointSnapshot(ctx, opts.Runner, repoDir, exportOpts.rawTranscript, exportOpts.checkpointLimit, branchDestinations, exportOpts.progress)
+		loadedSnapshot, snapshotWarnings, snapshotErr := loadConfiguredCheckpointSnapshot(ctx, opts.Runner, repoDir, exportOpts.rawTranscript, exportOpts.checkpointLimit, branchDestinations, exportOpts.progress, metadataCache)
 		if snapshotErr == nil {
 			snapshot = loadedSnapshot
 			defer snapshot.Cleanup()
@@ -155,6 +169,9 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			checkpointsScanned = loadedSnapshot.CheckpointCount
 			warnings = append(warnings, snapshotWarnings...)
 			reportExportProgress(exportOpts.progress, checkpointsScanned, checkpointsScanned, len(selected))
+			if metadataCachePath != "" {
+				saveCheckpointMetadataCache(metadataCachePath, metadataCache)
+			}
 		} else if !errors.Is(snapshotErr, errCheckpointSnapshotUnavailable) {
 			warnings = append(warnings, "direct checkpoint export unavailable: "+snapshotErr.Error())
 		}
@@ -296,7 +313,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		}
 	}
 	if exportOpts.historyIndex {
-		if _, err := writeBrainHistoryIndexAndSource(outputDir, opts.Now().UTC()); err != nil {
+		if _, err := writeBrainHistoryIndexAndSource(outputDir, opts.Now().UTC(), nil); err != nil {
 			return err
 		}
 	}
@@ -857,10 +874,10 @@ func (s entireStrategyOptions) CheckpointsVersionValue() int {
 
 var errCheckpointSnapshotUnavailable = errors.New("checkpoint snapshot unavailable")
 
-func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress)) (*checkpointSnapshot, []string, error) {
+func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress), cache *checkpointMetadataCache) (*checkpointSnapshot, []string, error) {
 	settings, err := readEntireSettings(repoDir)
 	if err != nil {
-		return loadDefaultLocalV1CheckpointSnapshot(ctx, runner, repoDir, raw, limit, branchDestinations, progress)
+		return loadDefaultLocalV1CheckpointSnapshot(ctx, runner, repoDir, raw, limit, branchDestinations, progress, cache)
 	}
 
 	version := checkpointStorageV1
@@ -877,7 +894,7 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 		}
 	}
 
-	snapshot, ref, warnings, err := loadCheckpointSnapshotFromGitDirRefs(ctx, runner, repoDir, refs, version, transcriptFileName, mode, limit, branchDestinations, progress)
+	snapshot, ref, warnings, err := loadCheckpointSnapshotFromGitDirRefs(ctx, runner, repoDir, refs, version, transcriptFileName, mode, limit, branchDestinations, progress, cache)
 	if err == nil {
 		warnings = append(warnings, fmt.Sprintf("exporting %s transcripts directly from local checkpoint ref %s", mode, ref))
 		if version == checkpointStorageV1 && !raw {
@@ -892,7 +909,7 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 	}
 
 	remoteRef := remoteCheckpointRefs(version == checkpointStorageV2)[0]
-	remoteSnapshot, remoteWarnings, remoteErr := loadCheckpointSnapshotFromRemoteRef(ctx, runner, remoteURL, remoteRef, version, transcriptFileName, mode, limit, branchDestinations)
+	remoteSnapshot, remoteWarnings, remoteErr := loadCheckpointSnapshotFromRemoteRef(ctx, runner, remoteURL, remoteRef, version, transcriptFileName, mode, limit, branchDestinations, cache)
 	if remoteErr != nil {
 		warnings = append(warnings, remoteWarnings...)
 		return nil, warnings, remoteErr
@@ -905,8 +922,8 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 	return remoteSnapshot, warnings, nil
 }
 
-func loadDefaultLocalV1CheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress)) (*checkpointSnapshot, []string, error) {
-	snapshot, ref, warnings, err := loadCheckpointSnapshotFromGitDirRefs(ctx, runner, repoDir, []string{v1MainRef, v1OriginRef}, checkpointStorageV1, v1TranscriptFileName, "raw", limit, branchDestinations, progress)
+func loadDefaultLocalV1CheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress), cache *checkpointMetadataCache) (*checkpointSnapshot, []string, error) {
+	snapshot, ref, warnings, err := loadCheckpointSnapshotFromGitDirRefs(ctx, runner, repoDir, []string{v1MainRef, v1OriginRef}, checkpointStorageV1, v1TranscriptFileName, "raw", limit, branchDestinations, progress, cache)
 	if err != nil {
 		return nil, warnings, err
 	}
@@ -917,10 +934,10 @@ func loadDefaultLocalV1CheckpointSnapshot(ctx context.Context, runner CommandRun
 	return snapshot, warnings, nil
 }
 
-func loadCheckpointSnapshotFromGitDirRefs(ctx context.Context, runner CommandRunner, gitDir string, refs []string, version int, transcriptFileName, mode string, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress)) (*checkpointSnapshot, string, []string, error) {
+func loadCheckpointSnapshotFromGitDirRefs(ctx context.Context, runner CommandRunner, gitDir string, refs []string, version int, transcriptFileName, mode string, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress), cache *checkpointMetadataCache) (*checkpointSnapshot, string, []string, error) {
 	var warnings []string
 	for _, ref := range refs {
-		snapshot, refWarnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, gitDir, ref, version, transcriptFileName, mode, limit, branchDestinations, progress)
+		snapshot, refWarnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, gitDir, ref, version, transcriptFileName, mode, limit, branchDestinations, progress, cache)
 		if err == nil {
 			return snapshot, ref, append(warnings, refWarnings...), nil
 		}
@@ -930,7 +947,7 @@ func loadCheckpointSnapshotFromGitDirRefs(ctx context.Context, runner CommandRun
 	return nil, "", warnings, fmt.Errorf("%w: no local checkpoint refs readable", errCheckpointSnapshotUnavailable)
 }
 
-func loadCheckpointSnapshotFromGitDir(ctx context.Context, runner CommandRunner, gitDir, ref string, version int, transcriptFileName, mode string, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress)) (*checkpointSnapshot, []string, error) {
+func loadCheckpointSnapshotFromGitDir(ctx context.Context, runner CommandRunner, gitDir, ref string, version int, transcriptFileName, mode string, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress), cache *checkpointMetadataCache) (*checkpointSnapshot, []string, error) {
 	reportExportStatus(progress, "reading checkpoint tree")
 	stdout, stderr, err := runner.Run(ctx, gitDir, "git", "ls-tree", "-r", "--name-only", ref)
 	if err != nil {
@@ -938,7 +955,17 @@ func loadCheckpointSnapshotFromGitDir(ctx context.Context, runner CommandRunner,
 		return nil, warnings, fmt.Errorf("%w: read checkpoint ref %s: %v", errCheckpointSnapshotUnavailable, ref, err)
 	}
 	treePaths := treePathSet(stdout)
-	selected, checkpointCount, warnings, err := readCheckpointSnapshotMetadata(ctx, runner, gitDir, ref, transcriptFileName, treePaths, limit, branchDestinations, progress)
+	reader := &checkpointBlobReader{runner: runner, gitDir: gitDir, ref: ref}
+	if cache != nil {
+		// One extra ls-tree resolves the object id for each metadata path,
+		// keying the cache. Negligible next to the thousands of cat-file calls
+		// it lets us skip. Failure to read object ids just disables caching.
+		if oidOut, _, oidErr := runner.Run(ctx, gitDir, "git", "ls-tree", "-r", ref); oidErr == nil {
+			reader.oids = treePathOIDs(oidOut)
+			reader.cache = cache
+		}
+	}
+	selected, checkpointCount, warnings, err := readCheckpointSnapshotMetadata(ctx, reader, transcriptFileName, treePaths, limit, branchDestinations, progress)
 	if err != nil {
 		return nil, append(warnings, warningLines("checkpoint ref "+ref, stderr)...), err
 	}
@@ -955,7 +982,7 @@ func loadCheckpointSnapshotFromGitDir(ctx context.Context, runner CommandRunner,
 	}, warnings, nil
 }
 
-func loadCheckpointSnapshotFromRemoteRef(ctx context.Context, runner CommandRunner, remoteURL, ref string, version int, transcriptFileName, mode string, limit int, branchDestinations checkpointBranchDestinations) (*checkpointSnapshot, []string, error) {
+func loadCheckpointSnapshotFromRemoteRef(ctx context.Context, runner CommandRunner, remoteURL, ref string, version int, transcriptFileName, mode string, limit int, branchDestinations checkpointBranchDestinations, cache *checkpointMetadataCache) (*checkpointSnapshot, []string, error) {
 	tmpDir, err := os.MkdirTemp("", "entire-brain-checkpoints-*")
 	if err != nil {
 		return nil, nil, fmt.Errorf("create checkpoint snapshot temp repo: %w", err)
@@ -977,7 +1004,7 @@ func loadCheckpointSnapshotFromRemoteRef(ctx context.Context, runner CommandRunn
 		return nil, warnings, fmt.Errorf("fetch checkpoint remote ref %s: %w", ref, err)
 	}
 
-	snapshot, warnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, tmpDir, ref, version, transcriptFileName, mode, limit, branchDestinations, nil)
+	snapshot, warnings, err := loadCheckpointSnapshotFromGitDir(ctx, runner, tmpDir, ref, version, transcriptFileName, mode, limit, branchDestinations, nil, cache)
 	if err != nil {
 		return nil, warnings, err
 	}
@@ -986,7 +1013,7 @@ func loadCheckpointSnapshotFromRemoteRef(ctx context.Context, runner CommandRunn
 	return snapshot, warnings, nil
 }
 
-func readCheckpointSnapshotMetadata(ctx context.Context, runner CommandRunner, gitDir, ref string, transcriptFileName string, treePaths map[string]struct{}, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress)) (map[string]selectedSession, int, []string, error) {
+func readCheckpointSnapshotMetadata(ctx context.Context, reader *checkpointBlobReader, transcriptFileName string, treePaths map[string]struct{}, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress)) (map[string]selectedSession, int, []string, error) {
 	checkpointIDs := make(map[string]struct{})
 	sessionMetadataPaths := make([]string, 0)
 	rootMetadataPaths := make([]string, 0)
@@ -1024,7 +1051,7 @@ func readCheckpointSnapshotMetadata(ctx context.Context, runner CommandRunner, g
 	}
 	reportMetadataProgress(0)
 
-	rootMetadataByCheckpoint, transcriptPathsByMetadata, branchByCheckpoint, rootWarnings := readRootMetadataForSnapshot(ctx, runner, gitDir, ref, rootMetadataPaths, allowed, func() {
+	rootMetadataByCheckpoint, transcriptPathsByMetadata, branchByCheckpoint, rootWarnings := readRootMetadataForSnapshot(ctx, reader, rootMetadataPaths, allowed, func() {
 		advanceMetadataProgress(0)
 	})
 	warnings = append(warnings, rootWarnings...)
@@ -1057,7 +1084,7 @@ func readCheckpointSnapshotMetadata(ctx context.Context, runner CommandRunner, g
 			continue
 		}
 
-		data, err := catFile(ctx, runner, gitDir, ref, path)
+		data, err := reader.read(ctx, path)
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s session %d: read metadata: %v", checkpointID, sessionIndex, err))
 			deferProgress()
@@ -1105,11 +1132,11 @@ func readCheckpointSnapshotMetadata(ctx context.Context, runner CommandRunner, g
 	}
 
 	if missingTranscriptCount > 0 {
-		warnings = append(warnings, fmt.Sprintf("skipped %d session metadata entries with no transcript bytes in %s", missingTranscriptCount, ref))
+		warnings = append(warnings, fmt.Sprintf("skipped %d session metadata entries with no transcript bytes in %s", missingTranscriptCount, reader.ref))
 	}
 
 	if len(selected) == 0 {
-		return nil, min(len(checkpointIDs), limit), warnings, fmt.Errorf("%w: checkpoint ref %s contained no readable sessions", errCheckpointSnapshotUnavailable, ref)
+		return nil, min(len(checkpointIDs), limit), warnings, fmt.Errorf("%w: checkpoint ref %s contained no readable sessions", errCheckpointSnapshotUnavailable, reader.ref)
 	}
 
 	if len(checkpointIDs) > limit {
@@ -1141,7 +1168,7 @@ func countAllowedSnapshotMetadataPaths(rootMetadataPaths, sessionMetadataPaths [
 	return total
 }
 
-func readRootMetadataForSnapshot(ctx context.Context, runner CommandRunner, gitDir, ref string, rootMetadataPaths []string, allowed map[string]struct{}, progress func()) (map[string][]byte, map[string]string, map[string]string, []string) {
+func readRootMetadataForSnapshot(ctx context.Context, reader *checkpointBlobReader, rootMetadataPaths []string, allowed map[string]struct{}, progress func()) (map[string][]byte, map[string]string, map[string]string, []string) {
 	rootMetadataByCheckpoint := make(map[string][]byte)
 	transcriptPathsByMetadata := make(map[string]string)
 	branchByCheckpoint := make(map[string]string)
@@ -1158,7 +1185,7 @@ func readRootMetadataForSnapshot(ctx context.Context, runner CommandRunner, gitD
 		if progress != nil {
 			progress()
 		}
-		data, err := catFile(ctx, runner, gitDir, ref, path)
+		data, err := reader.read(ctx, path)
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("skipped checkpoint %s root metadata: read metadata: %v", checkpointID, err))
 			continue
@@ -1313,6 +1340,126 @@ func treePathSet(data []byte) map[string]struct{} {
 		}
 	}
 	return paths
+}
+
+// treePathOIDs parses `git ls-tree -r <ref>` output (mode, type, object-id,
+// then a tab and the path) into a path -> object-id map. Lines that do not
+// match the expected shape are skipped.
+func treePathOIDs(data []byte) map[string]string {
+	oids := make(map[string]string)
+	for _, line := range strings.Split(string(data), "\n") {
+		tab := strings.IndexByte(line, '\t')
+		if tab < 0 {
+			continue
+		}
+		fields := strings.Fields(line[:tab])
+		if len(fields) < 3 {
+			continue
+		}
+		path := strings.TrimSpace(filepath.ToSlash(line[tab+1:]))
+		if path != "" {
+			oids[path] = fields[2]
+		}
+	}
+	return oids
+}
+
+const checkpointMetadataCacheVersion = 1
+const checkpointMetadataCachePath = "export/checkpoint-metadata-cache.json.gz"
+
+// checkpointMetadataCache memoizes checkpoint metadata blobs by their git
+// object id so a refresh does not re-run `git cat-file` for every checkpoint
+// and session on every export. Checkpoint history is append-only and
+// content-addressed, so an object id present from a previous run is guaranteed
+// to carry identical bytes — making the cache safe by construction. prev holds
+// entries loaded from disk; next accumulates the entries actually seen this
+// run and is what gets persisted (so blobs for dropped checkpoints age out).
+type checkpointMetadataCache struct {
+	prev map[string][]byte
+	next map[string][]byte
+}
+
+type checkpointMetadataCacheFile struct {
+	Version int               `json:"version"`
+	Blobs   map[string][]byte `json:"blobs"`
+}
+
+func newCheckpointMetadataCache(prev map[string][]byte) *checkpointMetadataCache {
+	if prev == nil {
+		prev = map[string][]byte{}
+	}
+	return &checkpointMetadataCache{prev: prev, next: make(map[string][]byte, len(prev))}
+}
+
+// The cache holds the raw bytes of every checkpoint metadata blob, which for a
+// large history is hundreds of megabytes of JSON. It is gzip-compressed on disk
+// (the content compresses heavily) to keep the footprint reasonable.
+func loadCheckpointMetadataCache(path string) *checkpointMetadataCache {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return newCheckpointMetadataCache(nil)
+	}
+	gz, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return newCheckpointMetadataCache(nil)
+	}
+	defer gz.Close()
+	var file checkpointMetadataCacheFile
+	if err := json.NewDecoder(gz).Decode(&file); err != nil || file.Version != checkpointMetadataCacheVersion || file.Blobs == nil {
+		return newCheckpointMetadataCache(nil)
+	}
+	return newCheckpointMetadataCache(file.Blobs)
+}
+
+func saveCheckpointMetadataCache(path string, cache *checkpointMetadataCache) {
+	if cache == nil {
+		return
+	}
+	file := checkpointMetadataCacheFile{Version: checkpointMetadataCacheVersion, Blobs: cache.next}
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if err := json.NewEncoder(gz).Encode(file); err != nil {
+		return
+	}
+	if err := gz.Close(); err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return
+	}
+	_ = writeFileAtomic(path, buf.Bytes(), 0o600)
+}
+
+// checkpointBlobReader reads checkpoint metadata blobs, consulting an optional
+// object-id-keyed cache. When cache is nil it is a thin wrapper over catFile
+// and preserves the previous behavior exactly (no extra git calls, no caching).
+type checkpointBlobReader struct {
+	runner CommandRunner
+	gitDir string
+	ref    string
+	oids   map[string]string
+	cache  *checkpointMetadataCache
+}
+
+func (r *checkpointBlobReader) read(ctx context.Context, path string) ([]byte, error) {
+	if r.cache == nil {
+		return catFile(ctx, r.runner, r.gitDir, r.ref, path)
+	}
+	oid := r.oids[path]
+	if oid != "" {
+		if data, ok := r.cache.prev[oid]; ok {
+			r.cache.next[oid] = data
+			return data, nil
+		}
+	}
+	data, err := catFile(ctx, r.runner, r.gitDir, r.ref, path)
+	if err != nil {
+		return nil, err
+	}
+	if oid != "" {
+		r.cache.next[oid] = data
+	}
+	return data, nil
 }
 
 func checkpointPath(checkpointID string) string {
