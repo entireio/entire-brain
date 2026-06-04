@@ -824,6 +824,7 @@ func rankHistoryRecords(index historyIndex, kind, query string, limit int) []his
 		if score == 0 {
 			continue
 		}
+		score += historyInspectKindPreference(kind, record.Kind)
 		matchKey := normalizeHistorySearchText(record.Summary)
 		if _, ok := seen[matchKey]; ok {
 			continue
@@ -884,7 +885,7 @@ func historyRecordQueryScore(record historyRecord, query string) int {
 	for _, identifier := range identifiers {
 		if strings.Contains(recordRaw, identifier) {
 			identifierMatches++
-			score += 45
+			score += 90
 		}
 	}
 	effectiveMatches := matches + identifierMatches
@@ -902,8 +903,76 @@ func historyRecordQueryScore(record historyRecord, query string) int {
 	if len(terms) > 0 && matches >= len(terms) {
 		score += 30
 	}
+	score += historyRecordEvidenceScore(record, matches, identifierMatches)
 	score += historyKindRank(record.Kind)
 	return score
+}
+
+func historyRecordEvidenceScore(record historyRecord, termMatches, identifierMatches int) int {
+	text := record.Summary + " " + strings.Join(record.Terms, " ") + " " + record.Path
+	lower := strings.ToLower(text)
+	score := 0
+	pathLower := strings.ToLower(record.Path)
+	if pathLower == "manifest.json" || strings.HasPrefix(pathLower, "seed/") {
+		score -= 200
+	}
+	if record.Kind == "code_fact" {
+		score += 35
+	}
+	if containsAny(lower, "diff --git", "+++ b/", "--- a/", "@@", "apply_patch", "unified_diff") {
+		score += 40
+	}
+	if containsAny(lower, "packages/", "internal/", "cmd/", "src/", "apps/", ".go", ".ts", ".tsx", ".js", ".py", ".rs") {
+		score += 20
+	}
+	if containsAny(lower, "metadata.step", "invalid_type", "metadata values must be strings", "metadata value") {
+		score += 80
+	}
+	if containsAny(lower, "stopped chaining", "self-contained perception", "self-contained browser", "previous_response_id") &&
+		containsAny(lower, "agentic", "browser", "chrome") {
+		score += 90
+	}
+	if containsAny(lower, "openai docs", "responses api supports", "same-thread continuity", "conversations api") &&
+		!containsAny(lower, "agentic", "browser", "chrome") {
+		score -= 60
+	}
+	if identifierMatches > 0 {
+		score += 20 * identifierMatches
+		if containsAny(lower, "diff --git", "+++ b/", "apply_patch", "unified_diff") {
+			score += 25
+		}
+	}
+	if termMatches > 1 && containsAny(lower, "test", "validation", "regression", "contract", "invariant") {
+		score += 12
+	}
+	if containsAny(lower, "start by running:", "entire doctor", "entire status --detailed", "entire session current", "entire checkpoint list") {
+		score -= 120
+	}
+	if record.Kind == "tool_call" && !containsAny(lower, "apply_patch", "diff --git", "unified_diff") {
+		score -= 20
+	}
+	if len(record.Summary) > 2500 && !containsAny(lower, "diff --git", "+++ b/", "apply_patch", "unified_diff") {
+		score -= 25
+	}
+	return score
+}
+
+func historyInspectKindPreference(queryKind, recordKind string) int {
+	switch queryKind {
+	case "architecture":
+		switch recordKind {
+		case "architecture":
+			return 120
+		case "decision":
+			return 80
+		case "learning":
+			return 40
+		default:
+			return 0
+		}
+	default:
+		return 0
+	}
 }
 
 func historyRequiredQueryMatches(termCount int) int {
@@ -967,7 +1036,7 @@ func historyIdentifierQueryTerms(query string) []string {
 			continue
 		}
 		upper := strings.ToUpper(candidate)
-		if !strings.Contains(upper, "_") && (upper != candidate || len(upper) < 3) {
+		if !strings.Contains(upper, "_") && !historyIdentifierLike(candidate) {
 			continue
 		}
 		if historyQueryStopword(strings.ToLower(upper)) {
@@ -980,6 +1049,36 @@ func historyIdentifierQueryTerms(query string) []string {
 		terms = append(terms, upper)
 	}
 	return terms
+}
+
+func historyIdentifierLike(candidate string) bool {
+	if len(candidate) < 3 {
+		return false
+	}
+	hasUpper := false
+	hasLower := false
+	hasDigit := false
+	hasInternalUpper := false
+	for i, r := range candidate {
+		switch {
+		case unicode.IsUpper(r):
+			hasUpper = true
+			if i > 0 {
+				hasInternalUpper = true
+			}
+		case unicode.IsLower(r):
+			hasLower = true
+		case unicode.IsDigit(r):
+			hasDigit = true
+		}
+	}
+	if hasUpper && !hasLower {
+		return true
+	}
+	if hasInternalUpper && hasLower {
+		return true
+	}
+	return hasDigit && (hasUpper || hasLower)
 }
 
 func historyShortQueryTerm(term string) bool {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"strconv"
 	"strings"
 
@@ -16,6 +17,13 @@ import (
 )
 
 const maxMCPFrameBytes = 4 * 1024 * 1024
+
+type mcpFrameMode string
+
+const (
+	mcpFrameContentLength mcpFrameMode = "content-length"
+	mcpFrameJSONLine      mcpFrameMode = "json-line"
+)
 
 type mcpMessage struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -49,30 +57,50 @@ func newMCPCommand(opts Options) *cobra.Command {
 
 func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) error {
 	reader := bufio.NewReader(in)
+	debugLog := os.Getenv("ENTIRE_BRAIN_MCP_DEBUG_LOG")
+	mcpDebugLog(debugLog, "start")
 	for {
-		msg, err := readMCPMessage(reader)
+		msg, frameMode, err := readMCPMessage(reader)
 		if errors.Is(err, io.EOF) {
+			mcpDebugLog(debugLog, "eof")
 			return nil
 		}
 		if err != nil {
+			mcpDebugLog(debugLog, "read_error: "+err.Error())
 			return err
 		}
+		mcpDebugLog(debugLog, "message: "+msg.Method)
 		if msg.ID == nil {
 			continue
 		}
 		response := handleMCPMessage(ctx, opts, msg)
-		if err := writeMCPMessage(out, response); err != nil {
+		if err := writeMCPMessage(out, response, frameMode); err != nil {
+			mcpDebugLog(debugLog, "write_error: "+err.Error())
 			return err
 		}
+		mcpDebugLog(debugLog, "response: "+msg.Method)
 	}
+}
+
+func mcpDebugLog(path, line string) {
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintln(f, line)
 }
 
 func handleMCPMessage(ctx context.Context, opts Options, msg mcpMessage) mcpMessage {
 	response := mcpMessage{JSONRPC: "2.0", ID: msg.ID}
 	switch msg.Method {
 	case "initialize":
+		protocolVersion := mcpInitializeProtocolVersion(msg.Params)
 		response.Result = map[string]any{
-			"protocolVersion": "2024-11-05",
+			"protocolVersion": protocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "entire-brain", "version": opts.Version},
 		}
@@ -91,6 +119,17 @@ func handleMCPMessage(ctx context.Context, opts Options, msg mcpMessage) mcpMess
 	return response
 }
 
+func mcpInitializeProtocolVersion(raw json.RawMessage) string {
+	const fallback = "2024-11-05"
+	var params struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	if len(raw) == 0 || json.Unmarshal(raw, &params) != nil || strings.TrimSpace(params.ProtocolVersion) == "" {
+		return fallback
+	}
+	return params.ProtocolVersion
+}
+
 func mcpToolDefinitions() []map[string]any {
 	stringArg := func(name, description string) map[string]any {
 		return map[string]any{"type": "string", "description": description, "title": name}
@@ -103,6 +142,11 @@ func mcpToolDefinitions() []map[string]any {
 			"name":        "brain_stale",
 			"description": "Report local semantic brain freshness for the current repository.",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+		},
+		{
+			"name":        "brain_brief",
+			"description": "Build a bounded task packet from local brain context, live state, semantic context, and indexed history.",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"task"}, "properties": map[string]any{"task": stringArg("task", "Task or bug description"), "limit": integerArg("limit", "Maximum records per section")}},
 		},
 		{
 			"name":        "brain_query",
@@ -123,6 +167,11 @@ func mcpToolDefinitions() []map[string]any {
 			"name":        "brain_changes",
 			"description": "Map local file changes to semantic symbols.",
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"limit": integerArg("limit", "Maximum symbols")}},
+		},
+		{
+			"name":        "brain_history",
+			"description": "Search indexed Entire session history, decisions, validation notes, tool paths, or architecture facts.",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "History query"), "kind": stringArg("kind", "history, decisions, sessions, validation, tool-paths, or architecture")}},
 		},
 	}
 }
@@ -148,6 +197,13 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			target = opts.Env.RepoRoot
 		}
 		err = runSemanticStale(ctx, cmd, opts, target, true)
+	case "brain_brief":
+		task := mcpString(params.Arguments, "task")
+		if strings.TrimSpace(task) == "" {
+			err = errors.New("task is required")
+		} else {
+			err = runBrainBrief(ctx, cmd, opts, brainBriefOptions{limit: limit, json: true}, task)
+		}
 	case "brain_query":
 		err = requireMCPQuery(query)
 		if err == nil {
@@ -170,6 +226,19 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		}
 	case "brain_changes":
 		err = runSemanticChanges(ctx, cmd, opts, semanticChangesOptions{limit: limit, json: true})
+	case "brain_history":
+		err = requireMCPQuery(query)
+		if err == nil {
+			kind := strings.TrimSpace(mcpString(params.Arguments, "kind"))
+			if kind == "" {
+				kind = "history"
+			}
+			if !validMCPHistoryKind(kind) {
+				err = fmt.Errorf("kind must be history, decisions, sessions, validation, tool-paths, or architecture")
+			} else {
+				err = runBrainHistoryInspect(ctx, cmd, opts, kind, query, true)
+			}
+		}
 	default:
 		err = fmt.Errorf("unknown tool: %s", params.Name)
 	}
@@ -177,6 +246,15 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		return nil, err
 	}
 	return map[string]any{"content": []map[string]any{{"type": "text", "text": out.String()}}}, nil
+}
+
+func validMCPHistoryKind(kind string) bool {
+	switch kind {
+	case "history", "decisions", "sessions", "validation", "tool-paths", "architecture":
+		return true
+	default:
+		return false
+	}
 }
 
 func requireMCPQuery(query string) error {
@@ -211,14 +289,21 @@ func mcpPositiveInt(args map[string]any, key string, fallback int) (int, error) 
 	return 0, fmt.Errorf("%s must be an integer greater than zero", key)
 }
 
-func readMCPMessage(reader *bufio.Reader) (mcpMessage, error) {
+func readMCPMessage(reader *bufio.Reader) (mcpMessage, mcpFrameMode, error) {
 	length := -1
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			return mcpMessage{}, err
+			return mcpMessage{}, "", err
 		}
 		line = strings.TrimRight(line, "\r\n")
+		if strings.HasPrefix(strings.TrimSpace(line), "{") {
+			var msg mcpMessage
+			if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &msg); err != nil {
+				return mcpMessage{}, "", err
+			}
+			return msg, mcpFrameJSONLine, nil
+		}
 		if line == "" {
 			break
 		}
@@ -226,34 +311,38 @@ func readMCPMessage(reader *bufio.Reader) (mcpMessage, error) {
 		if ok && strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
 			parsed, err := strconv.Atoi(strings.TrimSpace(value))
 			if err != nil {
-				return mcpMessage{}, err
+				return mcpMessage{}, "", err
 			}
 			if parsed < 0 {
-				return mcpMessage{}, errors.New("Content-Length must be non-negative")
+				return mcpMessage{}, "", errors.New("Content-Length must be non-negative")
 			}
 			length = parsed
 		}
 	}
 	if length < 0 {
-		return mcpMessage{}, errors.New("missing Content-Length")
+		return mcpMessage{}, "", errors.New("missing Content-Length")
 	}
 	if length > maxMCPFrameBytes {
-		return mcpMessage{}, fmt.Errorf("Content-Length exceeds maximum frame size of %d bytes", maxMCPFrameBytes)
+		return mcpMessage{}, "", fmt.Errorf("Content-Length exceeds maximum frame size of %d bytes", maxMCPFrameBytes)
 	}
 	data := make([]byte, length)
 	if _, err := io.ReadFull(reader, data); err != nil {
-		return mcpMessage{}, err
+		return mcpMessage{}, "", err
 	}
 	var msg mcpMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
-		return mcpMessage{}, err
+		return mcpMessage{}, "", err
 	}
-	return msg, nil
+	return msg, mcpFrameContentLength, nil
 }
 
-func writeMCPMessage(out io.Writer, msg mcpMessage) error {
+func writeMCPMessage(out io.Writer, msg mcpMessage, frameMode mcpFrameMode) error {
 	data, err := json.Marshal(msg)
 	if err != nil {
+		return err
+	}
+	if frameMode == mcpFrameJSONLine {
+		_, err = fmt.Fprintf(out, "%s\n", data)
 		return err
 	}
 	_, err = fmt.Fprintf(out, "Content-Length: %d\r\n\r\n%s", len(data), data)

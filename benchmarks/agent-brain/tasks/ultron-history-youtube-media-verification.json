@@ -1,0 +1,45 @@
+{
+  "id": "ultron-history-youtube-media-verification",
+  "repo": "ultron",
+  "repo_path": "../Ultron",
+  "conditions": [
+    "no_brain",
+    "semantic_cli",
+    "full_cli_original",
+    "full_cli_compact",
+    "mcp_semantic",
+    "mcp_history"
+  ],
+  "copy_entire_history_from_source": true,
+  "path_prefix": "auto",
+  "prepare_semantic": true,
+  "prompt": "Restore the ULTRON browser automation regression: a YouTube/song request must remain a media playback task, and reaching YouTube alone must not count as success. Keep the fix minimal and preserve the existing automation contract.",
+  "setup_replacements": [
+    {
+      "path": "packages/automation/src/index.ts",
+      "old": "      requiresPlaybackVerification: true,\n",
+      "new": "      requiresPlaybackVerification: false,\n"
+    }
+  ],
+  "setup_commands": [
+    "if [ ! -e node_modules ] && [ -d $BENCH_SOURCE_REPO/node_modules ]; then ln -s $BENCH_SOURCE_REPO/node_modules node_modules; fi"
+  ],
+  "validation": [
+    "npm test -- packages/automation/src/index.test.ts"
+  ],
+  "expected_files": [
+    "packages/automation/src/index.ts"
+  ],
+  "forbidden_files": [
+    "packages/automation/src/index.test.ts"
+  ],
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "brain_queries": [
+    "YouTube song request remains media playback task",
+    "reaching YouTube alone must not count as success",
+    "browser automation media verification",
+    "song playback completion regression"
+  ],
+  "history_excerpt_lines": 36
+}

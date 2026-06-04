@@ -1,0 +1,55 @@
+{
+  "id": "ultron-history-agentic-self-contained-turns",
+  "repo": "ultron",
+  "repo_path": "../Ultron",
+  "conditions": [
+    "no_brain",
+    "full_cli_compact",
+    "mcp_history"
+  ],
+  "copy_entire_history_from_source": true,
+  "path_prefix": "auto",
+  "prepare_semantic": true,
+  "prompt": "Restore the ULTRON agentic Chrome loop regression: browser decision turns must stay self-contained after several steps instead of continuing from stale model state, while still carrying the visible page state and recent action history needed to make progress. Preserve normal Brain/chat continuation behavior plus existing reasoning, vision, and metadata behavior.",
+  "setup_replacements": [
+    {
+      "path": "packages/automation/src/index.ts",
+      "old": "    const history: Array<{ action: string; ok: boolean; summary: string }> = [];\n    let lastError: string | null =",
+      "new": "    const history: Array<{ action: string; ok: boolean; summary: string }> = [];\n    let previousResponseId: string | null = null;\n    let lastError: string | null ="
+    },
+    {
+      "path": "packages/automation/src/index.ts",
+      "old": "        previousResponseId: null",
+      "new": "        previousResponseId"
+    },
+    {
+      "path": "packages/automation/src/index.ts",
+      "old": "      const action = decision.action;\n\n      if (action.action === \"done\") {",
+      "new": "      previousResponseId = decision.previousResponseId ?? previousResponseId;\n      const action = decision.action;\n\n      if (action.action === \"done\") {"
+    }
+  ],
+  "setup_commands": [
+    "if [ ! -e node_modules ] && [ -d $BENCH_SOURCE_REPO/node_modules ]; then ln -s $BENCH_SOURCE_REPO/node_modules node_modules; fi"
+  ],
+  "validation": [
+    "node --import tsx <<'JS'\nimport assert from 'node:assert/strict';\nimport { mkdtempSync, rmSync } from 'node:fs';\nimport { tmpdir } from 'node:os';\nimport { join } from 'node:path';\nimport { createRequire } from 'node:module';\nimport { SqliteMemoryRepository } from './packages/storage/src/index.ts';\nimport { AutomationRuntime } from './packages/automation/src/index.ts';\n\nconst require = createRequire(import.meta.url);\nconst source = require('node:fs').readFileSync('packages/automation/src/index.ts', 'utf8');\nassert.match(source, /previousResponseId:\\s*null/, 'agentic browser perception must pass null response state');\nassert.doesNotMatch(source, /let\\s+previousResponseId\\s*:/, 'agentic browser loop must not accumulate response state');\nassert.doesNotMatch(source, /previousResponseId\\s*=\\s*decision\\.previousResponseId/, 'agentic browser loop must not chain model response ids');\n\nconst dir = mkdtempSync(join(tmpdir(), 'ultron-agentic-self-contained-'));\nconst repo = new SqliteMemoryRepository(join(dir, 'automation.sqlite'));\nawait repo.migrate();\nconst captured = [];\nconst decider = {\n  name: 'capture-self-contained-turns',\n  async decide(perception) {\n    captured.push({\n      stepIndex: perception.stepIndex,\n      previousResponseId: perception.previousResponseId,\n      historyLength: perception.history.length,\n      pageText: perception.pageText,\n      screenshotBase64: perception.screenshotBase64 ?? null\n    });\n    if (perception.stepIndex === 1) {\n      return { action: { action: 'observe' }, previousResponseId: 'resp-one' };\n    }\n    if (perception.stepIndex === 2) {\n      return { action: { action: 'scroll', direction: 'down' }, previousResponseId: 'resp-two' };\n    }\n    return { action: { action: 'done', success: true, evidence: 'condition ready' }, previousResponseId: 'resp-three' };\n  }\n};\nconst browser = {\n  name: 'fake-chrome',\n  startSession: async () => ({ targetRef: 'about:blank', viewport: { width: 1440, height: 900 } }),\n  navigate: async (url) => ({ url, loaded: true }),\n  click: async (point) => ({ ...point, clicked: true }),\n  clickSelector: async (selector) => ({ selector, clicked: true }),\n  waitForSelector: async (selector) => ({ selector, visible: true }),\n  waitForUrl: async (url) => ({ url, matched: true }),\n  dismissOverlays: async () => ({ dismissed: true }),\n  inspectMedia: async () => ({ url: 'https://example.com', title: 'Fixture', mediaCount: 0, playingCount: 0, pausedCount: 0, endedCount: 0, currentTimeMax: 0, durationMax: null, readyCount: 0, blockedReasons: [], goalSatisfied: false }),\n  verifyMediaPlayback: async () => ({ goalSatisfied: false, reason: 'not media', state: { url: 'https://example.com', title: 'Fixture', mediaCount: 0, playingCount: 0, pausedCount: 0, endedCount: 0, currentTimeMax: 0, durationMax: null, readyCount: 0, blockedReasons: [], goalSatisfied: false } }),\n  typeText: async (text) => ({ characters: text.length, typed: true }),\n  observe: async () => ({ url: 'https://example.com', title: 'Fixture', text: 'condition ready', observed: true }),\n  scroll: async (direction) => ({ direction, scrolled: true }),\n  pressKey: async (key) => ({ key, pressed: true }),\n  captureScreenshot: async () => ({ bytes: new Uint8Array([137, 80, 78, 71]), mimeType: 'image/png', width: 2, height: 2, metadata: { url: 'https://example.com', cursorVisible: true } }),\n  stop: async () => undefined\n};\nconst runtime = new AutomationRuntime({\n  repository: repo,\n  artifactRoot: join(dir, 'artifacts'),\n  browser,\n  autonomy: 'unattended',\n  agenticConfig: { maxSteps: 4, maxRetries: 0, vision: true },\n  agentic: decider\n});\ntry {\n  const started = await runtime.startRun({\n    goal: 'open example.com and inspect the page until condition ready',\n    mode: 'browser',\n    ownerUserId: 'local-user',\n    projectId: 'ultron'\n  });\n  const startedAt = Date.now();\n  while (Date.now() - startedAt < 4000) {\n    const snapshot = await runtime.getRun(started.session.id);\n    if (snapshot.session.status === 'completed') {\n      break;\n    }\n    await new Promise((resolve) => setTimeout(resolve, 50));\n  }\n  const snapshot = await runtime.getRun(started.session.id);\n  assert.equal(snapshot.session.status, 'completed');\n  assert.equal(snapshot.session.metadata.goalSatisfied, true);\n  assert.equal(captured.length, 3);\n  assert.deepEqual(captured.map((entry) => entry.previousResponseId ?? null), [null, null, null]);\n  assert.ok(captured[1].historyLength >= 1, 'later turns should still carry recent action history');\n  assert.ok(captured.every((entry) => entry.pageText.includes('condition ready')), 'each turn should include fresh page text');\n  assert.ok(captured.every((entry) => typeof entry.screenshotBase64 === 'string' && entry.screenshotBase64.length > 0), 'each turn should include screenshot context when vision is enabled');\n} finally {\n  await repo.close();\n  rmSync(dir, { recursive: true, force: true });\n}\nJS"
+  ],
+  "expected_files": [
+    "packages/automation/src/index.ts"
+  ],
+  "forbidden_files": [
+    "packages/brain/src/index.ts",
+    "packages/providers/src/index.ts",
+    "apps/desktop/src/main/agentic-decider.ts"
+  ],
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "brain_queries": [
+    "agentic browser self-contained perception stale model state",
+    "loop stopped chaining previous_response_id",
+    "agentic Chrome rebuild robustness self-contained",
+    "browser decision turns recent history screenshot page text",
+    "previous response id poisoned browser loop"
+  ],
+  "history_excerpt_lines": 32
+}

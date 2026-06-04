@@ -1,0 +1,42 @@
+{
+  "id": "ultron-history-openai-metadata-step-string",
+  "repo": "ultron",
+  "repo_path": "../Ultron",
+  "conditions": [
+    "no_brain",
+    "full_cli_compact",
+    "mcp_history"
+  ],
+  "copy_entire_history_from_source": true,
+  "path_prefix": "auto",
+  "prepare_semantic": true,
+  "prompt": "Restore the ULTRON agentic browser decider compatibility regression: browser decisions are failing against the Responses API because request metadata no longer satisfies the provider contract. Keep reasoning, vision, and previous-response behavior intact.",
+  "setup_replacements": [
+    {
+      "path": "apps/desktop/src/main/agentic-decider.ts",
+      "old": "metadata: { purpose: \"agentic_decision\", step: String(perception.stepIndex) },",
+      "new": "metadata: { purpose: \"agentic_decision\", step: perception.stepIndex },"
+    }
+  ],
+  "setup_commands": [
+    "if [ ! -e node_modules ] && [ -d $BENCH_SOURCE_REPO/node_modules ]; then ln -s $BENCH_SOURCE_REPO/node_modules node_modules; fi"
+  ],
+  "validation": [
+    "node --import tsx <<'JS'\nimport assert from 'node:assert/strict';\nimport { createAgenticDecider } from './apps/desktop/src/main/agentic-decider.ts';\n\nlet capturedOptions = null;\nconst fakeLlm = {\n  async generate(_messages, options) {\n    capturedOptions = options;\n    return {\n      text: '{\"action\":\"done\",\"success\":false,\"reason\":\"test\",\"evidence\":\"test\"}',\n      model: 'fake',\n      raw: { responseId: 'resp_test' }\n    };\n  }\n};\n\nconst decider = createAgenticDecider(fakeLlm, { vision: true, reasoningEffort: 'low', maxTokens: 123 });\nconst result = await decider.decide({\n  goal: 'Open example.com',\n  successCriteria: 'Example Domain is visible',\n  stepIndex: 7,\n  maxSteps: 10,\n  url: 'https://example.com',\n  title: 'Example Domain',\n  pageText: 'Example Domain',\n  screenshotBase64: Buffer.from('fake-image').toString('base64'),\n  history: [],\n  previousResponseId: 'previous_response',\n  lastError: null\n});\n\nassert.equal(result.previousResponseId, 'resp_test');\nassert.ok(capturedOptions, 'provider options should be captured');\nassert.equal(capturedOptions.metadata.purpose, 'agentic_decision');\nassert.equal(capturedOptions.metadata.step, '7');\nassert.equal(typeof capturedOptions.metadata.step, 'string');\nassert.equal(capturedOptions.reasoningEffort, 'low');\nassert.equal(capturedOptions.maxTokens, 123);\nassert.equal(capturedOptions.previousResponseId, 'previous_response');\nassert.equal(capturedOptions.images.length, 1);\nJS"
+  ],
+  "expected_files": [
+    "apps/desktop/src/main/agentic-decider.ts"
+  ],
+  "forbidden_files": [
+    "packages/providers/src/index.ts"
+  ],
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "brain_queries": [
+    "Responses API metadata values must be strings",
+    "browser decisions failing invalid_type metadata",
+    "agentic decider provider contract",
+    "request metadata step compatibility"
+  ],
+  "history_excerpt_lines": 24
+}

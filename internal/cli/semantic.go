@@ -734,7 +734,7 @@ func validateLiveSemanticHeader(header semanticHeader, repoKey, commit, tree str
 	if header.RepoKey == "" {
 		return errors.New("semantic snapshot header missing repo_key")
 	}
-	if header.RepoKey != repoKey {
+	if !semanticRepoKeyEqual(header.RepoKey, repoKey) {
 		return fmt.Errorf("semantic snapshot repo_key %q does not match current repo %q", header.RepoKey, repoKey)
 	}
 	if header.Commit != "" && commit != "" && header.Commit != commit {
@@ -816,7 +816,10 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 			continue
 		}
 		if record.RecordType == "relation" {
-			if ignore.MentionsIgnoredPath(record.FromID) || ignore.MentionsIgnoredPath(record.ToID) {
+			if p := semanticEndpointPath(record.FromID); p != "" && ignore.Ignored(p) {
+				continue
+			}
+			if p := semanticEndpointPath(record.ToID); p != "" && ignore.Ignored(p) {
 				continue
 			}
 			if _, ok := ignoredIDs[record.FromID]; ok {
@@ -864,6 +867,24 @@ func (r semanticRecord) semanticPath() string {
 		return r.FilePath
 	}
 	return r.Path
+}
+
+// semanticEndpointPath extracts the repository-relative file path encoded in a
+// semantic relation endpoint ID, or "" when the ID carries no path. Internal
+// IDs are "<repo-key>:<lang>:<path>:<kind>:<name>"; the repo key, language, and
+// kind segments never contain ":", so the path is always the third field.
+// External endpoints ("external:<kind>:<value>") carry no file path. Endpoint
+// IDs are filtered against the ignore set by file path so a substring in the
+// repo key or symbol name cannot accidentally redact unrelated relations.
+func semanticEndpointPath(id string) string {
+	if id == "" || strings.HasPrefix(id, "external:") {
+		return ""
+	}
+	parts := strings.Split(id, ":")
+	if len(parts) < 5 {
+		return ""
+	}
+	return parts[2]
 }
 
 func (r *semanticRecord) setSemanticPath(path string) {
@@ -4684,7 +4705,7 @@ func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
 	if manifest.RepoKey == "" {
 		return nil, errors.New("bundle manifest missing repo_key")
 	}
-	if manifest.RepoKey != repoKey {
+	if !semanticRepoKeyEqual(manifest.RepoKey, repoKey) {
 		return nil, fmt.Errorf("bundle repo_key %q does not match current repo %q", manifest.RepoKey, repoKey)
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
@@ -4951,7 +4972,7 @@ func readSemanticSnapshotSummary(path, repoKey string) (semanticHeader, semantic
 	if header.RepoKey == "" {
 		return semanticHeader{}, semanticCounts{}, errors.New("semantic snapshot header missing repo_key")
 	}
-	if header.RepoKey != repoKey {
+	if !semanticRepoKeyEqual(header.RepoKey, repoKey) {
 		return semanticHeader{}, semanticCounts{}, fmt.Errorf("semantic snapshot repo_key %q does not match current repo %q", header.RepoKey, repoKey)
 	}
 	if err := validateSemanticSchema(header.SchemaVersion); err != nil {
@@ -4983,6 +5004,10 @@ func readSemanticSnapshotSummary(path, repoKey string) (semanticHeader, semantic
 		return semanticHeader{}, semanticCounts{}, err
 	}
 	return header, counts, nil
+}
+
+func semanticRepoKeyEqual(a, b string) bool {
+	return a == b || strings.EqualFold(a, b)
 }
 
 func validateSemanticSourceMatchesSnapshot(source *semanticSourceManifest, header semanticHeader, counts semanticCounts) error {

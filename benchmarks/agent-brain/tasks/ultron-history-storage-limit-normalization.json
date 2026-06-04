@@ -1,0 +1,37 @@
+{
+  "id": "ultron-history-storage-limit-normalization",
+  "repo": "ultron",
+  "repo_path": "../Ultron",
+  "conditions": [
+    "no_brain",
+    "full_cli_original",
+    "full_cli_compact"
+  ],
+  "copy_entire_history_from_source": true,
+  "path_prefix": "auto",
+  "prepare_semantic": true,
+  "prompt": "Restore the ULTRON storage hardening regression: repository list/search APIs must consistently normalize oversized and invalid limits instead of trusting caller-provided values. Keep the fix minimal and preserve the storage contract across backends.",
+  "setup_commands": [
+    "if [ ! -e node_modules ] && [ -d $BENCH_SOURCE_REPO/node_modules ]; then ln -s $BENCH_SOURCE_REPO/node_modules node_modules; fi",
+    "perl -0pi -e 's/normalizeLimit\\(filter\\.limit, 250\\)/filter.limit ?? 250/g; s/normalizeLimit\\(query\\.limit, 25\\)/query.limit ?? 25/g; s/normalizeLimit\\(filter\\.limit, 100\\)/filter.limit ?? 100/g; s/normalizeLimit\\(limit, 500\\)/limit/g; s/normalizeLimit\\(limit, 200\\)/limit/g' packages/storage/src/index.ts"
+  ],
+  "validation": [
+    "node --import tsx <<'JS'\nimport assert from 'node:assert/strict';\nimport { mkdtempSync, rmSync } from 'node:fs';\nimport { tmpdir } from 'node:os';\nimport { join } from 'node:path';\nimport { createAutomationAction, createAutomationSession, createChatThread, createMemoryNode, createStoredChatMessage } from '@ultron/core';\nimport { SqliteMemoryRepository } from './packages/storage/src/index.ts';\n\nconst dir = mkdtempSync(join(tmpdir(), 'ultron-storage-hidden-'));\nconst repo = new SqliteMemoryRepository(join(dir, 'test.sqlite'));\nawait repo.migrate();\ntry {\n  for (let index = 0; index < 1002; index += 1) {\n    await repo.upsertNode(createMemoryNode({\n      type: 'semantic',\n      title: `Node ${index}`,\n      summary: `Broad limit node ${index}`,\n      body: `Searchable body ${index}`,\n      tags: ['limit'],\n      confidence: 0.8,\n      importance: 0.5,\n      source: 'hidden-test',\n      sourceConversationId: null,\n      ownerUserId: 'local-user',\n      projectId: 'ultron',\n      parentNodeId: null,\n      linkedNodeIds: [],\n      visibility: 'project',\n      sensitivity: 'low',\n      status: 'active',\n      metadata: {},\n      markdownPath: null\n    }));\n  }\n  assert.equal((await repo.listNodes({ ownerUserId: 'local-user', limit: 10_000 })).length, 1000);\n  assert.equal((await repo.listNodes({ ownerUserId: 'local-user', limit: 0 })).length, 250);\n  assert.equal((await repo.searchNodes({ ownerUserId: 'local-user', text: 'broad', limit: 10_000 })).length, 1000);\n  assert.equal((await repo.searchNodes({ ownerUserId: 'local-user', text: 'broad', limit: 0 })).length, 25);\n\n  for (let index = 0; index < 1002; index += 1) {\n    await repo.createChatThread(createChatThread({ title: `Thread ${index}`, ownerUserId: 'local-user', projectId: 'ultron' }));\n  }\n  assert.equal((await repo.listChatThreads({ ownerUserId: 'local-user', limit: 10_000 })).length, 1000);\n  assert.equal((await repo.listChatThreads({ ownerUserId: 'local-user', limit: 0 })).length, 100);\n\n  const thread = await repo.createChatThread(createChatThread({ title: 'Hidden chat', ownerUserId: 'local-user', projectId: 'ultron' }));\n  for (let index = 0; index < 1002; index += 1) {\n    await repo.appendChatMessage(createStoredChatMessage({ chatId: thread.id, role: index % 2 === 0 ? 'user' : 'assistant', content: `Message ${index}`, contextPacket: null }));\n  }\n  assert.equal((await repo.listChatMessages(thread.id, 10_000)).length, 1000);\n  assert.equal((await repo.listChatMessages(thread.id, 0)).length, 200);\n\n  for (let index = 0; index < 1002; index += 1) {\n    await repo.createAutomationSession(createAutomationSession({ ownerUserId: 'local-user', projectId: 'ultron', conversationId: null, kind: 'browser', goal: `Goal ${index}` }));\n  }\n  assert.equal((await repo.listAutomationSessions({ ownerUserId: 'local-user', limit: 10_000 })).length, 1000);\n  assert.equal((await repo.listAutomationSessions({ ownerUserId: 'local-user', limit: 0 })).length, 100);\n\n  const session = await repo.createAutomationSession(createAutomationSession({ ownerUserId: 'local-user', projectId: 'ultron', conversationId: null, kind: 'browser', goal: 'Hidden session' }));\n  for (let index = 0; index < 1002; index += 1) {\n    await repo.appendAutomationAction(createAutomationAction({ sessionId: session.id, parentActionId: null, sequence: index, actor: 'browser', targetKind: 'browser', targetRef: null, actionType: 'observe', input: {}, status: 'completed' }));\n  }\n  assert.equal((await repo.listAutomationActions(session.id, 10_000)).length, 1000);\n  assert.equal((await repo.listAutomationActions(session.id, 0)).length, 500);\n\n  assert.equal((await repo.listEvents({ limit: 10_000 })).length, 1000);\n  assert.equal((await repo.listEvents({ limit: 0 })).length, 100);\n} finally {\n  await repo.close();\n  rmSync(dir, { recursive: true, force: true });\n}\nJS",
+    "node <<'JS'\nconst { readFileSync } = require('node:fs');\nconst source = readFileSync('packages/storage/src/index.ts', 'utf8');\nconst count = (needle) => source.split(needle).length - 1;\nconst expected = new Map([\n  ['normalizeLimit(filter.limit, 250)', 2],\n  ['normalizeLimit(query.limit, 25)', 2],\n  ['normalizeLimit(filter.limit, 100)', 6],\n  ['normalizeLimit(limit, 200)', 4],\n  ['normalizeLimit(limit, 500)', 2]\n]);\nfor (const [needle, expectedCount] of expected) {\n  const actual = count(needle);\n  if (actual !== expectedCount) {\n    throw new Error(`${needle} expected ${expectedCount} occurrence(s), got ${actual}`);\n  }\n}\nfor (const forbidden of ['filter.limit ?? 250', 'query.limit ?? 25', 'filter.limit ?? 100']) {\n  if (source.includes(forbidden)) {\n    throw new Error(`raw fallback remained: ${forbidden}`);\n  }\n}\nJS"
+  ],
+  "expected_files": [
+    "packages/storage/src/index.ts"
+  ],
+  "forbidden_files": [
+    "packages/storage/src/index.test.ts"
+  ],
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "brain_queries": [
+    "storage list search APIs normalize invalid oversized limits",
+    "repository limits trust caller-provided values",
+    "bounded SQL LIMIT storage backends",
+    "query list limit hardening regression"
+  ],
+  "history_excerpt_lines": 40
+}
