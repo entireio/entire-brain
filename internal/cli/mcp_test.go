@@ -147,7 +147,7 @@ func TestMCPBrainBriefAndHistoryToolsUseIndexedHistory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sessionDir, "session.jsonl"), []byte(sessionLine), 0o600); err != nil {
 		t.Fatalf("write session: %v", err)
 	}
-	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, now); err != nil {
+	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, now, nil); err != nil {
 		t.Fatalf("write history index: %v", err)
 	}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}

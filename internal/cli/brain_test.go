@@ -89,7 +89,7 @@ func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sessionDir, "session.jsonl"), []byte(sessionLine), 0o600); err != nil {
 		t.Fatalf("write session: %v", err)
 	}
-	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, now); err != nil {
+	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, now, nil); err != nil {
 		t.Fatalf("write history index: %v", err)
 	}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: " M internal/auth/token.go\n?? notes.md\n"}
@@ -197,7 +197,7 @@ func TestBrainInspectDecisionsSearchesExportedText(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(storage.BrainDir, exportSessionsDirectory, "main", "session.jsonl"), []byte(`{"type":"agent_message","message":"Decision: keep prompt plus local validation instead of output schema."}`+"\n"), 0o600); err != nil {
 		t.Fatalf("write transcript: %v", err)
 	}
-	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), nil); err != nil {
 		t.Fatalf("write history index: %v", err)
 	}
 	manifest, err := loadBrainManifest(storage.BrainDir)
@@ -348,7 +348,7 @@ func TestBrainInspectParsesStructuredSessionHistory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sessionDir, "session.jsonl"), []byte(transcript.String()), 0o600); err != nil {
 		t.Fatalf("write transcript: %v", err)
 	}
-	source, err := writeBrainHistoryIndexAndSource(storage.BrainDir, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	source, err := writeBrainHistoryIndexAndSource(storage.BrainDir, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), nil)
 	if err != nil {
 		t.Fatalf("write history index: %v", err)
 	}

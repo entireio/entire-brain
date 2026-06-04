@@ -181,6 +181,9 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		seedOpts := refreshOpts.seed
 		seedOpts.update = true
 		seedOpts.outputExplicit = outputExplicit
+		seedOpts.progress = func(phase string) {
+			seedTask.Update("seed baseline: " + phase)
+		}
 		if outputExplicit {
 			seedOpts.outputDir = brainDir
 		}
@@ -196,7 +199,13 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	}
 	if refreshOpts.historyIndex && (refreshOpts.force || !historyIndexCurrent(brainDir, manifest)) {
 		historyTask := progress.Begin("history index")
-		historySource, err := writeBrainHistoryIndexAndSource(brainDir, opts.Now().UTC())
+		historyProgress := func(done, total int) {
+			if total <= 0 {
+				return
+			}
+			historyTask.Update(fmt.Sprintf("history index: %d/%d %s scanned", done, total, pluralUnit("session", total)))
+		}
+		historySource, err := writeBrainHistoryIndexAndSource(brainDir, opts.Now().UTC(), historyProgress)
 		if err != nil {
 			historyTask.Finish(err)
 			return err
@@ -226,7 +235,10 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			indexCmd := &cobra.Command{Use: "index"}
 			indexCmd.SetOut(io.Discard)
 			indexCmd.SetErr(io.Discard)
-			if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, semBinary: refreshOpts.semBinary, worktree: refreshOpts.semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit}, repoDir); err != nil {
+			semanticProgress := func(phase string) {
+				semanticTask.Update("semantic index: " + phase)
+			}
+			if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, semBinary: refreshOpts.semBinary, worktree: refreshOpts.semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit, progress: semanticProgress}, repoDir); err != nil {
 				semanticTask.Finish(err)
 				return err
 			}

@@ -132,6 +132,16 @@ type semanticIndexOptions struct {
 	worktree       bool
 	outputDir      string
 	outputExplicit bool
+	// progress, when set, is called at each phase boundary of the index
+	// (verifying provider, snapshotting, building store, …) so long-running
+	// indexing reports something more useful than a static spinner.
+	progress func(phase string)
+}
+
+func (o semanticIndexOptions) reportPhase(phase string) {
+	if o.progress != nil {
+		o.progress(phase)
+	}
 }
 
 type semanticResetOptions struct {
@@ -300,6 +310,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			return errors.New("--sem-binary must not be empty")
 		}
 		var doctorWarnings []semanticWarning
+		indexOpts.reportPhase("verifying provider")
 		noEgress, doctorWarnings = runSemanticDoctor(ctx, opts.Runner, repoDir, indexOpts.semBinary)
 		warnings = append(warnings, doctorWarnings...)
 		if !noEgress {
@@ -309,10 +320,12 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			}
 			return fmt.Errorf("%s: semantic provider no-egress status is not verified", code)
 		}
+		indexOpts.reportPhase("parsing sources")
 		raw, err = runSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts.semBinary, indexOpts.worktree, providerIgnoreFiles)
 		if err != nil {
 			return err
 		}
+		indexOpts.reportPhase("filtering snapshot")
 		header, counts, raw, err = filterSemanticSnapshot(raw, ignore, repoDir)
 		if err != nil {
 			return err
@@ -364,6 +377,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	if err := writeFileAtomic(snapshotPath, raw, 0o600); err != nil {
 		return fmt.Errorf("write semantic snapshot: %w", err)
 	}
+	indexOpts.reportPhase("building store")
 	generation, metrics, err := buildSemanticGeneration(storage.BrainDir, repoDir, snapshotID, raw, header, counts, opts.Now().UTC())
 	if err != nil {
 		return err
@@ -2047,7 +2061,7 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 	if source.Provider == "skipped" || semanticWarningsContainCode(source.Warnings, "provider_skipped") {
 		axes["semantic_completeness"] = staleAxis{State: "unsafe", Detail: "semantic facts unavailable"}
 	} else if len(source.PartialFailures) > 0 {
-		axes["semantic_completeness"] = staleAxis{State: "degraded", Detail: strconv.Itoa(len(source.PartialFailures)) + " partial failures"}
+		axes["semantic_completeness"] = semanticCompletenessAxis(source)
 	} else {
 		axes["semantic_completeness"] = staleAxis{State: "ok"}
 	}
@@ -2062,6 +2076,41 @@ func semanticWarningsContainCode(warnings []semanticWarning, code string) bool {
 		}
 	}
 	return false
+}
+
+// semanticParseErrorCode marks files where the tree-sitter parse produced error
+// nodes but symbols were still extracted (error-tolerant parse). A small number
+// of these is expected for any real codebase — newer language syntax the bundled
+// grammar version predates — and does not make the indexed facts unsafe to use.
+const semanticParseErrorCode = "E_PARSE_ERROR"
+
+// semanticParseErrorTolerance is the fraction of indexed files that may carry
+// only benign parse errors before the brain is reported as degraded. Below this
+// threshold the completeness axis stays ok; the failures remain recorded in the
+// semantic source so they can still be inspected and acted on. Above it, the
+// volume is high enough to suspect a grammar/provider problem worth surfacing.
+const semanticParseErrorTolerance = 0.10
+
+// semanticCompletenessAxis classifies partial provider failures. Failures that
+// are exclusively benign parse errors and stay under the tolerance fraction keep
+// the axis ok; anything else (a non-parse failure code, an uncountable file set,
+// or too many parse errors) degrades the brain.
+func semanticCompletenessAxis(source *semanticSourceManifest) staleAxis {
+	failures := len(source.PartialFailures)
+	parseErrors := 0
+	for _, failure := range source.PartialFailures {
+		if failure.Code == semanticParseErrorCode {
+			parseErrors++
+		}
+	}
+	if parseErrors == failures && source.Files > 0 {
+		fraction := float64(failures) / float64(source.Files)
+		if fraction < semanticParseErrorTolerance {
+			return staleAxis{State: "ok", Detail: fmt.Sprintf("%d/%d files had tolerated parse errors", failures, source.Files)}
+		}
+		return staleAxis{State: "degraded", Detail: fmt.Sprintf("%d partial failures in %.0f%% of files", failures, fraction*100)}
+	}
+	return staleAxis{State: "degraded", Detail: strconv.Itoa(failures) + " partial failures"}
 }
 
 func aggregateStaleSeverity(axes map[string]staleAxis) string {
@@ -2577,7 +2626,17 @@ func runSemanticBoundary(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if freshness.Severity != "ok" {
 		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
 	}
+	if len(result.Boundaries) == 0 && len(result.Relations) == 0 && len(result.Handlers) == 0 {
+		// Distinguish "the index has no such boundaries" from a silent failure:
+		// these surfaces only exist if the semantic provider emitted them.
+		fmt.Fprintf(cmd.OutOrStdout(), "no %s found in the semantic index\n", spec.Name)
+		return nil
+	}
 	for _, boundary := range result.Boundaries {
+		if boundary.FilePath == "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", boundary.Kind, displaySymbolName(boundary))
+			continue
+		}
 		fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s:%d-%d\n", boundary.Kind, displaySymbolName(boundary), boundary.FilePath, boundary.StartLine, boundary.EndLine)
 	}
 	for _, relation := range result.Relations {
@@ -2712,42 +2771,122 @@ func semanticSymbolsForFiles(brainDir string, source *semanticSourceManifest, fi
 	return findSemanticSymbolsForFiles(filepath.Join(brainDir, snapshotPath), files, limit)
 }
 
+// externalBoundaryRecord turns an "external:<kind>:<value>" node id into a
+// synthetic boundary record when its kind matches the spec. Providers emit
+// route/tool/workflow boundaries either as in-repo symbols (kind=route, with a
+// file path) or as external endpoint nodes (no file path); this recovers the
+// latter. Returns ok=false for non-external ids or kinds outside the set.
+func externalBoundaryRecord(id string, kindSet map[string]struct{}) (semanticRecord, bool) {
+	const prefix = "external:"
+	if !strings.HasPrefix(id, prefix) {
+		return semanticRecord{}, false
+	}
+	rest := id[len(prefix):]
+	colon := strings.IndexByte(rest, ':')
+	if colon < 0 {
+		return semanticRecord{}, false
+	}
+	kind := rest[:colon]
+	if !semanticKindInSet(kind, kindSet) {
+		return semanticRecord{}, false
+	}
+	name := rest[colon+1:]
+	if name == "" {
+		name = id
+	}
+	return semanticRecord{RecordType: "external", ID: id, Kind: kind, Name: name, QualifiedName: name}, true
+}
+
 func semanticBoundaryFacts(brainDir string, source *semanticSourceManifest, spec semanticBoundarySpec, limit int) (semanticBoundaryResult, error) {
 	symbolsByID, relations, err := loadSemanticBoundaryRecords(brainDir, source, spec.RelationTypes)
 	if err != nil {
 		return semanticBoundaryResult{}, err
 	}
 	kindSet := lowerSet(spec.SymbolKinds)
-	var result semanticBoundaryResult
-	seenBoundaries := map[string]struct{}{}
-	seenHandlers := map[string]struct{}{}
-	for _, symbol := range sortedSemanticSymbols(symbolsByID) {
-		if !semanticKindInSet(symbol.Kind, kindSet) {
-			continue
+
+	// isBoundaryEligible reports whether an endpoint could be a boundary —
+	// either a kind-tagged in-repo symbol or an external:<kind>:* node matching
+	// the spec. Used to keep limit-dropped boundaries from resurfacing as
+	// handlers.
+	isBoundaryEligible := func(id string) bool {
+		if symbol, ok := symbolsByID[id]; ok {
+			return semanticKindInSet(symbol.Kind, kindSet)
 		}
-		seenBoundaries[symbol.ID] = struct{}{}
-		result.Boundaries = append(result.Boundaries, symbol)
+		_, ok := externalBoundaryRecord(id, kindSet)
+		return ok
+	}
+
+	// Phase 1: gather boundary candidates. Providers emit boundaries either as
+	// in-repo symbols (kind=route, with a file path) or as external endpoint
+	// nodes referenced by the handler relations; collect both.
+	var candidates []semanticRecord
+	seenCandidate := map[string]struct{}{}
+	addCandidate := func(record semanticRecord) {
+		if record.ID == "" {
+			return
+		}
+		if _, ok := seenCandidate[record.ID]; ok {
+			return
+		}
+		seenCandidate[record.ID] = struct{}{}
+		candidates = append(candidates, record)
+	}
+	for _, symbol := range sortedSemanticSymbols(symbolsByID) {
+		if semanticKindInSet(symbol.Kind, kindSet) {
+			addCandidate(symbol)
+		}
+	}
+	externalByID := map[string]semanticRecord{}
+	var externalIDs []string
+	for _, relation := range relations {
+		for _, id := range []string{relation.FromID, relation.ToID} {
+			if _, ok := symbolsByID[id]; ok {
+				continue
+			}
+			if _, ok := externalByID[id]; ok {
+				continue
+			}
+			if record, ok := externalBoundaryRecord(id, kindSet); ok {
+				externalByID[id] = record
+				externalIDs = append(externalIDs, id)
+			}
+		}
+	}
+	sort.Strings(externalIDs)
+	for _, id := range externalIDs {
+		addCandidate(externalByID[id])
+	}
+
+	// Phase 2: apply the limit to the boundary set.
+	var result semanticBoundaryResult
+	included := map[string]struct{}{}
+	for _, record := range candidates {
 		if len(result.Boundaries) >= limit {
 			break
 		}
+		included[record.ID] = struct{}{}
+		result.Boundaries = append(result.Boundaries, record)
 	}
+
+	// Phase 3: keep relations that touch an included boundary; the other,
+	// non-boundary endpoint is its handler when it is a real indexed symbol.
+	seenHandlers := map[string]struct{}{}
 	for _, relation := range relations {
-		if _, fromBoundary := seenBoundaries[relation.FromID]; !fromBoundary {
-			if _, toBoundary := seenBoundaries[relation.ToID]; !toBoundary {
-				continue
-			}
+		_, fromIncluded := included[relation.FromID]
+		_, toIncluded := included[relation.ToID]
+		if !fromIncluded && !toIncluded {
+			continue
 		}
 		result.Relations = append(result.Relations, relation)
 		for _, id := range []string{relation.FromID, relation.ToID} {
-			symbol, ok := symbolsByID[id]
-			if !ok {
+			if _, ok := included[id]; ok {
 				continue
 			}
-			if semanticKindInSet(symbol.Kind, kindSet) {
-				if _, seen := seenBoundaries[id]; !seen && len(result.Boundaries) < limit {
-					seenBoundaries[id] = struct{}{}
-					result.Boundaries = append(result.Boundaries, symbol)
-				}
+			if isBoundaryEligible(id) {
+				continue
+			}
+			symbol, ok := symbolsByID[id]
+			if !ok {
 				continue
 			}
 			if _, seen := seenHandlers[id]; seen {

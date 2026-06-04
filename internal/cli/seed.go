@@ -50,6 +50,16 @@ type seedCommandOptions struct {
 	interactive        bool
 	noInteractive      bool
 	requireAgent       bool
+	// progress, when set, is called as seed synthesis advances (e.g. the agent
+	// quick/deep phases) so the long-running agent step reports more than a
+	// static spinner during refresh.
+	progress func(phase string)
+}
+
+func (o seedCommandOptions) reportProgress(phase string) {
+	if o.progress != nil {
+		o.progress(phase)
+	}
 }
 
 type seedSourceManifest struct {
@@ -1219,6 +1229,7 @@ func runSeedAgent(ctx context.Context, repoDir, outputDir string, scan seedScanR
 	if err != nil {
 		return manifest, err
 	}
+	opts.reportProgress(fmt.Sprintf("synthesizing with %s (quick)", opts.agent))
 	quick, quickArtifacts, err := runSeedAgentPhase(ctx, repoDir, outputDir, opts, "quick", opts.agentQuickTimeout, quickInput, []string{"quick-overview.md"})
 	manifest.Quick = quick
 	if err != nil {
@@ -1232,6 +1243,7 @@ func runSeedAgent(ctx context.Context, repoDir, outputDir string, scan seedScanR
 	if err != nil {
 		return manifest, err
 	}
+	opts.reportProgress(fmt.Sprintf("synthesizing with %s (deep)", opts.agent))
 	deep, _, err := runSeedAgentPhase(ctx, repoDir, outputDir, opts, "deep", opts.agentDeepTimeout, deepInput, []string{"overview.md", "architecture.md", "risks.md", "maintenance-guide.md", "open-questions.md"})
 	manifest.Deep = deep
 	if err != nil && opts.requireAgent {
