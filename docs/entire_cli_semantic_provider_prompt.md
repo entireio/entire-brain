@@ -78,6 +78,24 @@ builds the store. Emit incremental progress so long indexing is observable:
 Acceptance: a long snapshot emits monotonically increasing file progress on stderr
 without corrupting the NDJSON on stdout.
 
+## Problem 4 — No workflow boundaries (YAML / CI definitions not parsed)
+
+`entire brain workflows` is always empty because the provider emits no workflow
+boundaries. On entire.io the indexed languages are only TypeScript/JavaScript/
+Bash/SQL — **no YAML** — so the repo's 9+ `.github/workflows/*.yml` files are not
+parsed at all, and there are no `external:workflow:*` nodes nor
+`HANDLES_WORKFLOW`/`PART_OF_WORKFLOW` relations. (Routes and tools work because
+they're derived from TypeScript.)
+
+The consumer already handles the workflow boundary shape (external
+`external:workflow:<name>` nodes referenced by `HANDLES_WORKFLOW`/
+`PART_OF_WORKFLOW`, or kind-tagged `workflow`/`job`/`pipeline` symbols) — it just
+has nothing to list. Required: detect CI/workflow definitions (GitHub Actions
+`.github/workflows/*.yml`, and ideally other CI systems) and emit them as
+workflow boundaries with handler relations, the same way routes/tools are
+emitted. *Acceptance: `entire sem snapshot` on a repo with GitHub Actions emits
+`workflow` boundary nodes and the relations that wire jobs/steps to them.*
+
 ## Notes
 
 - Do **not** break the current stdout NDJSON schema or the `doctor` no-egress

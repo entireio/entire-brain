@@ -2626,7 +2626,17 @@ func runSemanticBoundary(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if freshness.Severity != "ok" {
 		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
 	}
+	if len(result.Boundaries) == 0 && len(result.Relations) == 0 && len(result.Handlers) == 0 {
+		// Distinguish "the index has no such boundaries" from a silent failure:
+		// these surfaces only exist if the semantic provider emitted them.
+		fmt.Fprintf(cmd.OutOrStdout(), "no %s found in the semantic index\n", spec.Name)
+		return nil
+	}
 	for _, boundary := range result.Boundaries {
+		if boundary.FilePath == "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", boundary.Kind, displaySymbolName(boundary))
+			continue
+		}
 		fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s:%d-%d\n", boundary.Kind, displaySymbolName(boundary), boundary.FilePath, boundary.StartLine, boundary.EndLine)
 	}
 	for _, relation := range result.Relations {
@@ -2761,42 +2771,122 @@ func semanticSymbolsForFiles(brainDir string, source *semanticSourceManifest, fi
 	return findSemanticSymbolsForFiles(filepath.Join(brainDir, snapshotPath), files, limit)
 }
 
+// externalBoundaryRecord turns an "external:<kind>:<value>" node id into a
+// synthetic boundary record when its kind matches the spec. Providers emit
+// route/tool/workflow boundaries either as in-repo symbols (kind=route, with a
+// file path) or as external endpoint nodes (no file path); this recovers the
+// latter. Returns ok=false for non-external ids or kinds outside the set.
+func externalBoundaryRecord(id string, kindSet map[string]struct{}) (semanticRecord, bool) {
+	const prefix = "external:"
+	if !strings.HasPrefix(id, prefix) {
+		return semanticRecord{}, false
+	}
+	rest := id[len(prefix):]
+	colon := strings.IndexByte(rest, ':')
+	if colon < 0 {
+		return semanticRecord{}, false
+	}
+	kind := rest[:colon]
+	if !semanticKindInSet(kind, kindSet) {
+		return semanticRecord{}, false
+	}
+	name := rest[colon+1:]
+	if name == "" {
+		name = id
+	}
+	return semanticRecord{RecordType: "external", ID: id, Kind: kind, Name: name, QualifiedName: name}, true
+}
+
 func semanticBoundaryFacts(brainDir string, source *semanticSourceManifest, spec semanticBoundarySpec, limit int) (semanticBoundaryResult, error) {
 	symbolsByID, relations, err := loadSemanticBoundaryRecords(brainDir, source, spec.RelationTypes)
 	if err != nil {
 		return semanticBoundaryResult{}, err
 	}
 	kindSet := lowerSet(spec.SymbolKinds)
-	var result semanticBoundaryResult
-	seenBoundaries := map[string]struct{}{}
-	seenHandlers := map[string]struct{}{}
-	for _, symbol := range sortedSemanticSymbols(symbolsByID) {
-		if !semanticKindInSet(symbol.Kind, kindSet) {
-			continue
+
+	// isBoundaryEligible reports whether an endpoint could be a boundary —
+	// either a kind-tagged in-repo symbol or an external:<kind>:* node matching
+	// the spec. Used to keep limit-dropped boundaries from resurfacing as
+	// handlers.
+	isBoundaryEligible := func(id string) bool {
+		if symbol, ok := symbolsByID[id]; ok {
+			return semanticKindInSet(symbol.Kind, kindSet)
 		}
-		seenBoundaries[symbol.ID] = struct{}{}
-		result.Boundaries = append(result.Boundaries, symbol)
+		_, ok := externalBoundaryRecord(id, kindSet)
+		return ok
+	}
+
+	// Phase 1: gather boundary candidates. Providers emit boundaries either as
+	// in-repo symbols (kind=route, with a file path) or as external endpoint
+	// nodes referenced by the handler relations; collect both.
+	var candidates []semanticRecord
+	seenCandidate := map[string]struct{}{}
+	addCandidate := func(record semanticRecord) {
+		if record.ID == "" {
+			return
+		}
+		if _, ok := seenCandidate[record.ID]; ok {
+			return
+		}
+		seenCandidate[record.ID] = struct{}{}
+		candidates = append(candidates, record)
+	}
+	for _, symbol := range sortedSemanticSymbols(symbolsByID) {
+		if semanticKindInSet(symbol.Kind, kindSet) {
+			addCandidate(symbol)
+		}
+	}
+	externalByID := map[string]semanticRecord{}
+	var externalIDs []string
+	for _, relation := range relations {
+		for _, id := range []string{relation.FromID, relation.ToID} {
+			if _, ok := symbolsByID[id]; ok {
+				continue
+			}
+			if _, ok := externalByID[id]; ok {
+				continue
+			}
+			if record, ok := externalBoundaryRecord(id, kindSet); ok {
+				externalByID[id] = record
+				externalIDs = append(externalIDs, id)
+			}
+		}
+	}
+	sort.Strings(externalIDs)
+	for _, id := range externalIDs {
+		addCandidate(externalByID[id])
+	}
+
+	// Phase 2: apply the limit to the boundary set.
+	var result semanticBoundaryResult
+	included := map[string]struct{}{}
+	for _, record := range candidates {
 		if len(result.Boundaries) >= limit {
 			break
 		}
+		included[record.ID] = struct{}{}
+		result.Boundaries = append(result.Boundaries, record)
 	}
+
+	// Phase 3: keep relations that touch an included boundary; the other,
+	// non-boundary endpoint is its handler when it is a real indexed symbol.
+	seenHandlers := map[string]struct{}{}
 	for _, relation := range relations {
-		if _, fromBoundary := seenBoundaries[relation.FromID]; !fromBoundary {
-			if _, toBoundary := seenBoundaries[relation.ToID]; !toBoundary {
-				continue
-			}
+		_, fromIncluded := included[relation.FromID]
+		_, toIncluded := included[relation.ToID]
+		if !fromIncluded && !toIncluded {
+			continue
 		}
 		result.Relations = append(result.Relations, relation)
 		for _, id := range []string{relation.FromID, relation.ToID} {
-			symbol, ok := symbolsByID[id]
-			if !ok {
+			if _, ok := included[id]; ok {
 				continue
 			}
-			if semanticKindInSet(symbol.Kind, kindSet) {
-				if _, seen := seenBoundaries[id]; !seen && len(result.Boundaries) < limit {
-					seenBoundaries[id] = struct{}{}
-					result.Boundaries = append(result.Boundaries, symbol)
-				}
+			if isBoundaryEligible(id) {
+				continue
+			}
+			symbol, ok := symbolsByID[id]
+			if !ok {
 				continue
 			}
 			if _, seen := seenHandlers[id]; seen {
