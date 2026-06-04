@@ -1268,6 +1268,44 @@ func TestSemanticIndexRedactsIgnoredPathsEmbeddedInRelationIDs(t *testing.T) {
 	}
 }
 
+func TestSemanticIndexKeepsRelationsWhenIgnorePatternMatchesRepoKey(t *testing.T) {
+	repoDir := t.TempDir()
+	// "repo" is a substring of the repo key (gh/example/repo) and of every
+	// symbol ID, but it must only ignore files literally named "repo".
+	if err := os.WriteFile(filepath.Join(repoDir, ".brainignore"), []byte("repo\n"), 0o600); err != nil {
+		t.Fatalf("write .brainignore: %v", err)
+	}
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshotWithIgnoredRelationID())
+	cmd := &cobra.Command{Use: "index"}
+	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	manifest, err := loadBrainManifest(filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo"))
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	if manifest.Sources.Semantic.Relations != 1 {
+		t.Fatalf("relation dropped because ignore pattern matched the repo key substring: %+v", manifest.Sources.Semantic)
+	}
+}
+
+func TestSemanticEndpointPath(t *testing.T) {
+	cases := map[string]string{
+		"gh/ashtom/entire-brain:Go:cmd/entire-brain/main.go:function:main": "cmd/entire-brain/main.go",
+		"gh/example/repo:go:secret/config.go:function:Secret":              "secret/config.go",
+		"external:import:archive/tar":                                      "",
+		"external:route:/repo":                                             "",
+		"public":                                                           "",
+		"":                                                                 "",
+	}
+	for id, want := range cases {
+		if got := semanticEndpointPath(id); got != want {
+			t.Fatalf("semanticEndpointPath(%q) = %q, want %q", id, got, want)
+		}
+	}
+}
+
 func TestSemanticIndexDoesNotTreatSecretDirectoryAsDefaultIgnore(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
