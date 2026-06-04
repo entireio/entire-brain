@@ -88,6 +88,19 @@ func TestSemanticIndexStoresProviderSnapshotAndManifest(t *testing.T) {
 	}
 }
 
+func TestValidateLiveSemanticHeaderAcceptsRepoKeyCaseOnlyDifference(t *testing.T) {
+	err := validateLiveSemanticHeader(
+		semanticHeader{RepoKey: "gh/suhaanthayyil/Ultron", Commit: "aaa111", Tree: "tree111"},
+		"gh/suhaanthayyil/ultron",
+		"aaa111",
+		"tree111",
+		false,
+	)
+	if err != nil {
+		t.Fatalf("case-only repo key mismatch should be accepted: %v", err)
+	}
+}
+
 func TestSemanticIndexRunsProviderCommandsWithTimeouts(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

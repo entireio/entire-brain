@@ -3,6 +3,26 @@
 This directory contains a repeatable harness for comparing Codex and Claude Code
 with and without Entire Brain.
 
+## Reproducing on another machine (portable paths)
+
+Task `repo_path` values are resolved portably so the suite runs without editing
+hard-coded home paths:
+
+- `~` and `$VARS`/`${VARS}` are expanded.
+- A **relative** `repo_path` is resolved against `$AGENT_BENCH_REPO_ROOT`
+  (default: the parent directory of this repo). The bundled tasks assume a
+  sibling layout: e.g. `repo_path: "cli"` → `<repos>/cli`, `repo_path: "../Ultron"`
+  → `<repos>/../Ultron`. Set `AGENT_BENCH_REPO_ROOT=/path/to/your/repos` to point
+  elsewhere, or use an absolute `repo_path`.
+- `path_prefix: "auto"` resolves to the directory of the host `node` (so the
+  tsx-based validations work without a hard-coded node path).
+- `setup_commands` get `$BENCH_SOURCE_REPO` = the resolved source repo path.
+
+Caveat: the Ultron **session-history** scenarios (`mcp_history`, `full_*`) need a
+repo that actually has Entire `.entire` session data; that data is machine-local
+and not committed. The semantic scenarios (`semantic_brain`, `mcp_semantic`) only
+need the source code and reproduce anywhere (e.g. `entireio/cli`).
+
 Each task creates a disposable git worktree, applies a known regression patch,
 commits that setup state, runs an agent, validates the fix, scores the run, and
 writes artifacts under `benchmarks/agent-brain/results/`.
@@ -50,6 +70,30 @@ python3 benchmarks/agent-brain/run.py run \
   --conditions no_brain,semantic_brain,full_brain \
   --repetitions 3 \
   --suite-name codex-mcp-smoke
+```
+
+MCP-specific conditions are separate from CLI/context-file delivery:
+
+- `semantic_cli`: CLI-delivered semantic brain, equivalent to the original
+  `semantic_brain` condition.
+- `full_cli_original`: original full-brain delivery with the generated
+  `.benchmark/brain-history-excerpt.md` file.
+- `full_cli_compact`: full Brain prep delivered through `brain brief` only:
+  compact history hits, likely files/tests, and action checklist; no raw
+  history excerpt file.
+- `mcp_semantic`: local `entire brain mcp` semantic tools only.
+- `mcp_history`: local `entire brain mcp` with `brain_brief` and
+  `brain_history`; no history excerpt file is provided as a shortcut.
+
+For a fast MCP session-history smoke on the local Ultron repo:
+
+```sh
+python3 benchmarks/agent-brain/run.py run \
+  --tasks ultron-history-youtube-media-verification.json \
+  --runners claude:sonnet:max \
+  --conditions no_brain,mcp_semantic,mcp_history \
+  --repetitions 1 \
+  --suite-name ultron-mcp-history-smoke
 ```
 
 For Phase 2 candidate screening, do not spend repetitions on tasks that are
@@ -119,12 +163,15 @@ The report command recomputes aggregate means and approximate Welch p-values:
 python3 benchmarks/agent-brain/run.py report codex-mcp-smoke
 ```
 
-Reports include quality-score deltas, success rates, mean agent seconds, total
+Reports include utility-score deltas, success rates, mean agent seconds, total
 tokens, turns, cost when available, and approximate Welch p-values for score,
-duration, tokens, turns, and cost. New records use `score.version = 2`, with
-separate `outcome`, `patch_focus`, `validation_discipline`,
-`runtime_efficiency`, and `brain_use` components. Do not compare v1 and v2 score
-means directly; rerun retained tasks after a scoring change.
+duration, tokens, turns, and cost. The score is not a pure correctness or model
+quality metric: pass/fail validation is primary, while `score.version = 2`
+combines separate `outcome`, `patch_focus`, `validation_discipline`,
+`runtime_efficiency`, and `brain_use` components. A lower-effort runner can
+therefore score above a higher-effort runner when both solve the task but the
+lower-effort run is faster or cheaper. Do not compare v1 and v2 score means
+directly; rerun retained tasks after a scoring change.
 
 Phase 2 scenario discovery is generated with `discover`:
 

@@ -259,6 +259,58 @@ class RunnerSpec:
     effort: str | None = None
 
 
+SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
+FULL_HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mcp_history"}
+CLI_HISTORY_EXCERPT_CONDITIONS = {"full_brain", "full_cli_original"}
+MCP_CONDITIONS = {"mcp_semantic", "mcp_history"}
+BENCHMARK_PRIVATE_PREFIXES = (".benchmark/", ".entire/", ".codex/")
+HARNESS_SCAFFOLD_PATHS = (
+    "benchmarks/agent-brain/tasks",
+    "benchmarks/agent-brain/results",
+    "benchmarks/agent-brain/cache",
+    "benchmarks/agent-brain/discovery",
+)
+AGENT_VISIBLE_SECRET_PATTERNS = (
+    '"validation"',
+    '"setup_commands"',
+    '"setup_replacements"',
+    '"post_brain_commands"',
+    '"post_brain_replacements"',
+    "hide_validation_from_agent",
+    "benchmarks/agent-brain/tasks",
+    "benchmarks/agent-brain/results",
+)
+AGENT_OUTPUT_SECRET_PATTERNS = (
+    '"validation"',
+    "hide_validation_from_agent",
+    "benchmarks/agent-brain/tasks",
+)
+
+
+def is_mcp_condition(condition: str) -> bool:
+    return condition in MCP_CONDITIONS
+
+
+def condition_prep_kind(condition: str) -> str:
+    if condition in FULL_HISTORY_CONDITIONS:
+        return "full_brain"
+    if condition in SEMANTIC_CONDITIONS:
+        return "semantic_brain"
+    return condition
+
+
+def condition_prepares_history(condition: str) -> bool:
+    return condition in FULL_HISTORY_CONDITIONS
+
+
+def condition_writes_history_excerpt(condition: str) -> bool:
+    return condition in CLI_HISTORY_EXCERPT_CONDITIONS
+
+
+def condition_copies_entire_history(condition: str) -> bool:
+    return condition_prepares_history(condition)
+
+
 def parse_runner_spec(value: str) -> RunnerSpec:
     value = value.strip()
     if not value:
@@ -361,7 +413,7 @@ def shell_cmd(
     env: dict[str, str],
     timeout: int | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    return run_cmd(["/bin/bash", "-lc", command], cwd=cwd, env=env, timeout=timeout)
+    return run_cmd(["/bin/bash", "-c", command], cwd=cwd, env=env, timeout=timeout)
 
 
 def load_tasks(patterns: list[str]) -> list[dict[str, Any]]:
@@ -381,6 +433,26 @@ def load_tasks(patterns: list[str]) -> list[dict[str, Any]]:
         task["_path"] = str(path)
         tasks.append(task)
     return tasks
+
+
+def resolve_repo_path(raw: str) -> pathlib.Path:
+    """Resolve a task `repo_path` portably so the benchmark is reproducible on any
+    machine (no hard-coded home paths). Order: expand `~` and `$VARS`/`${VARS}`,
+    then if the result is relative, resolve it against `$AGENT_BENCH_REPO_ROOT`
+    (default: the parent directory of this repo). Absolute paths pass through.
+    Example: repo_path `"cli"` -> `<repo-root>/../cli`; `"../Ultron"` -> sibling.
+    Set AGENT_BENCH_REPO_ROOT (or use absolute paths / `$VARS`) to point elsewhere."""
+    expanded = os.path.expanduser(os.path.expandvars(str(raw)))
+    if "$" in expanded:
+        raise RuntimeError(
+            f"unresolved environment variable in repo_path {raw!r}; set it before running "
+            f"(see benchmarks/agent-brain/README.md)"
+        )
+    path = pathlib.Path(expanded)
+    if not path.is_absolute():
+        base = pathlib.Path(os.environ.get("AGENT_BENCH_REPO_ROOT") or str(ROOT.parent))
+        path = base / path
+    return path
 
 
 def build_tools(run_root: pathlib.Path) -> dict[str, pathlib.Path]:
@@ -432,40 +504,98 @@ def file_sha256(path: pathlib.Path) -> str:
 
 
 def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path:
-    source = pathlib.Path(task["repo_path"])
+    source = resolve_repo_path(task["repo_path"])
     base = task.get("base_commit") or git_head(source)
     worktree = run_dir / "worktree"
-    run_cmd(["git", "worktree", "add", "--detach", str(worktree), base], cwd=source, check=True)
+    worktree.mkdir(parents=True, exist_ok=False)
+    archive = run_dir / "source.tar"
+    run_cmd(["git", "archive", "--format=tar", "-o", str(archive), base], cwd=source, check=True)
+    run_cmd(["tar", "-xf", str(archive), "-C", str(worktree)], cwd=run_dir, check=True)
+    archive.unlink(missing_ok=True)
+    run_cmd(["git", "init"], cwd=worktree, check=True)
+    copy_origin_remote(source, worktree)
     ignore_benchmark_plugin(worktree)
     patch = task.get("setup_patch", "")
     if patch:
         run_cmd(["git", "apply", "-"], cwd=worktree, input_text=patch, check=True)
     apply_replacements(worktree, task.get("setup_replacements", []), "setup")
+    setup_env = os.environ.copy()
+    setup_env["BENCH_SOURCE_REPO"] = str(source)  # portable handle to the source repo for setup_commands
     for command in task.get("setup_commands", []):
-        proc = shell_cmd(command, cwd=worktree, env=os.environ.copy(), timeout=120)
+        proc = shell_cmd(command, cwd=worktree, env=setup_env, timeout=120)
         if proc.returncode != 0:
             raise RuntimeError(
                 f"setup command failed ({proc.returncode}): {command}\n"
                 f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
             )
-    if patch or task.get("setup_replacements") or task.get("setup_commands"):
-        run_cmd(["git", "add", "-A"], cwd=worktree, check=True)
-        run_cmd(
-            [
-                "git",
-                "-c",
-                "user.name=Entire Brain Benchmark",
-                "-c",
-                "user.email=benchmark@example.invalid",
-                "commit",
-                "-m",
-                f"Benchmark setup for {task['id']}",
-            ],
-            cwd=worktree,
-            env=benchmark_git_env(),
-            check=True,
-        )
+    reset_agent_history_to_root(worktree, f"Benchmark agent baseline for {task['id']}", include_current_changes=True)
     return worktree
+
+
+def copy_origin_remote(source: pathlib.Path, worktree: pathlib.Path) -> None:
+    remote = run_cmd(["git", "remote", "get-url", "origin"], cwd=source)
+    url = remote.stdout.strip()
+    if remote.returncode == 0 and url:
+        run_cmd(["git", "remote", "add", "origin", url], cwd=worktree, check=True)
+
+
+def reset_agent_history_to_root(
+    worktree: pathlib.Path,
+    message: str,
+    *,
+    include_current_changes: bool = False,
+) -> dict[str, Any]:
+    """Make the current tree the visible baseline without exposing setup diffs."""
+    if include_current_changes:
+        run_cmd(["git", "add", "-A"], cwd=worktree, check=True)
+    status = run_cmd(["git", "status", "--porcelain"], cwd=worktree, check=True).stdout.strip()
+    if status and not include_current_changes:
+        raise RuntimeError(f"cannot reset benchmark history with dirty worktree:\n{status}")
+    tree = run_cmd(["git", "write-tree"], cwd=worktree, check=True).stdout.strip()
+    commit = run_cmd(
+        [
+            "git",
+            "-c",
+            "user.name=Entire Brain Benchmark",
+            "-c",
+            "user.email=benchmark@example.invalid",
+            "commit-tree",
+            tree,
+            "-m",
+            message,
+        ],
+        cwd=worktree,
+        env=benchmark_git_env(),
+        check=True,
+    ).stdout.strip()
+    run_cmd(["git", "reset", "--hard", commit], cwd=worktree, check=True)
+    run_cmd(["git", "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"], cwd=worktree, check=True)
+    run_cmd(["git", "prune", "--expire=now"], cwd=worktree, check=True)
+    head_line = run_cmd(["git", "rev-list", "--parents", "-n", "1", "HEAD"], cwd=worktree, check=True).stdout.strip()
+    parent_count = max(0, len(head_line.split()) - 1)
+    return {"root_commit": commit, "parent_count": parent_count}
+
+
+def copy_entire_history(source: pathlib.Path, worktree: pathlib.Path) -> None:
+    source_entire = source / ".entire"
+    if not source_entire.exists():
+        raise RuntimeError(f"copy_entire_history_from_source requested but {source_entire} is missing")
+    target_entire = worktree / ".entire"
+    target_entire.mkdir(parents=True, exist_ok=True)
+    for name in ("metadata", "settings.json", ".gitignore"):
+        src = source_entire / name
+        if not src.exists():
+            continue
+        dst = target_entire / name
+        if dst.exists():
+            if dst.is_dir():
+                shutil.rmtree(dst)
+            else:
+                dst.unlink()
+        if src.is_dir():
+            shutil.copytree(src, dst)
+        else:
+            shutil.copy2(src, dst)
 
 
 def ignore_benchmark_plugin(worktree: pathlib.Path) -> None:
@@ -476,10 +606,11 @@ def ignore_benchmark_plugin(worktree: pathlib.Path) -> None:
         exclude_path = worktree / exclude_path
     exclude_path.parent.mkdir(parents=True, exist_ok=True)
     existing = exclude_path.read_text() if exclude_path.exists() else ""
-    entry = ".benchmark/plugin/"
-    if entry not in existing.splitlines():
+    entries = [".benchmark/", ".entire/", ".codex/"]
+    missing = [entry for entry in entries if entry not in existing.splitlines()]
+    if missing:
         suffix = "" if existing.endswith("\n") or not existing else "\n"
-        exclude_path.write_text(existing + suffix + entry + "\n")
+        exclude_path.write_text(existing + suffix + "\n".join(missing) + "\n")
 
 
 def apply_post_brain_setup(task: dict[str, Any], worktree: pathlib.Path) -> bool:
@@ -495,25 +626,8 @@ def apply_post_brain_setup(task: dict[str, Any], worktree: pathlib.Path) -> bool
             raise RuntimeError(
                 f"post-brain command failed ({proc.returncode}): {command}\n"
                 f"stdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
-            )
-        changed = True
-    if changed:
-        run_cmd(["git", "add", "-A"], cwd=worktree, check=True)
-        run_cmd(
-            [
-                "git",
-                "-c",
-                "user.name=Entire Brain Benchmark",
-                "-c",
-                "user.email=benchmark@example.invalid",
-                "commit",
-                "-m",
-                f"Benchmark post-brain setup for {task['id']}",
-            ],
-            cwd=worktree,
-            env=benchmark_git_env(),
-            check=True,
         )
+        changed = True
     return changed
 
 
@@ -530,10 +644,246 @@ def apply_replacements(worktree: pathlib.Path, replacements: list[dict[str, str]
         path.write_text(data.replace(old, new, 1))
 
 
+def sanitize_agent_worktree(worktree: pathlib.Path) -> dict[str, Any]:
+    removed: list[str] = []
+    for rel in HARNESS_SCAFFOLD_PATHS:
+        path = worktree / rel
+        if not path.exists():
+            continue
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        removed.append(rel)
+    if not removed:
+        return {"removed_paths": [], "committed": False}
+    reset_agent_history_to_root(worktree, "Benchmark sanitized agent baseline", include_current_changes=True)
+    return {"removed_paths": removed, "committed": True}
+
+
+def secret_pattern_hits(text: str, patterns: tuple[str, ...] = AGENT_VISIBLE_SECRET_PATTERNS) -> list[str]:
+    lower = text.lower()
+    return sorted({pattern for pattern in patterns if pattern.lower() in lower})
+
+
+def agent_secret_preflight(worktree: pathlib.Path) -> dict[str, Any]:
+    findings: list[dict[str, Any]] = []
+    for rel in HARNESS_SCAFFOLD_PATHS:
+        path = worktree / rel
+        if path.exists():
+            findings.append({"kind": "harness_path_visible", "path": rel})
+    for rel in ("benchmarks/agent-brain/tasks", "benchmarks/agent-brain/results"):
+        path = worktree / rel
+        if not path.exists():
+            continue
+        for candidate in sorted(path.rglob("*")):
+            if not candidate.is_file() or candidate.is_symlink():
+                continue
+            try:
+                text = candidate.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            hits = secret_pattern_hits(text)
+            if hits:
+                findings.append(
+                    {
+                        "kind": "secret_pattern_visible",
+                        "path": str(candidate.relative_to(worktree)),
+                        "patterns": hits,
+                    }
+                )
+                if len(findings) >= 20:
+                    break
+    return {"ok": not findings, "findings": findings}
+
+
+def scrub_benchmark_secret_lines(path: pathlib.Path) -> tuple[int, int]:
+    try:
+        data = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return (0, 0)
+    lines = data.splitlines(keepends=True)
+    kept: list[str] = []
+    removed = 0
+    for line in lines:
+        if secret_pattern_hits(line):
+            removed += 1
+            continue
+        kept.append(line)
+    if removed:
+        path.write_text("".join(kept), encoding="utf-8")
+    return (removed, len(lines))
+
+
+def scrub_benchmark_secret_json(value: Any) -> tuple[Any, int]:
+    if isinstance(value, str):
+        if secret_pattern_hits(value):
+            return "[redacted benchmark scaffold]", 1
+        return value, 0
+    if isinstance(value, list):
+        scrubbed = []
+        changes = 0
+        for item in value:
+            next_item, count = scrub_benchmark_secret_json(item)
+            changes += count
+            scrubbed.append(next_item)
+        return scrubbed, changes
+    if isinstance(value, dict):
+        scrubbed = {}
+        changes = 0
+        for key, item in value.items():
+            if isinstance(key, str) and secret_pattern_hits(key):
+                changes += 1
+                continue
+            next_item, count = scrub_benchmark_secret_json(item)
+            changes += count
+            scrubbed[key] = next_item
+        return scrubbed, changes
+    return value, 0
+
+
+def sanitize_brain_history(plugin: pathlib.Path) -> dict[str, Any]:
+    brain_data = plugin / "data" / "brain"
+    if not brain_data.exists():
+        return {"ok": True, "files_checked": 0, "files_scrubbed": 0, "items_redacted": 0}
+    files_checked = 0
+    files_scrubbed = 0
+    items_redacted = 0
+    for path in sorted(brain_data.rglob("*")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        suffix = path.suffix.lower()
+        if suffix not in {".jsonl", ".json", ".md", ".txt"}:
+            continue
+        files_checked += 1
+        if suffix == ".json":
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+            except (OSError, json.JSONDecodeError):
+                removed, _ = scrub_benchmark_secret_lines(path)
+                if removed:
+                    files_scrubbed += 1
+                    items_redacted += removed
+                continue
+            scrubbed, changes = scrub_benchmark_secret_json(payload)
+            if changes:
+                path.write_text(json.dumps(scrubbed, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                files_scrubbed += 1
+                items_redacted += changes
+            continue
+        removed, _ = scrub_benchmark_secret_lines(path)
+        if removed:
+            files_scrubbed += 1
+            items_redacted += removed
+    return {
+        "ok": True,
+        "files_checked": files_checked,
+        "files_scrubbed": files_scrubbed,
+        "items_redacted": items_redacted,
+    }
+
+
+def hidden_validation_markers(task: dict[str, Any]) -> list[str]:
+    if not task.get("hide_validation_from_agent"):
+        return []
+    markers: list[str] = []
+    markers.extend(str(command) for command in task.get("validation", []) if command)
+    return [marker for marker in markers if len(marker.strip()) >= 12]
+
+
+def agent_output_leak_audit(task: dict[str, Any], stdout: str, stderr: str) -> dict[str, Any]:
+    text = stdout + "\n" + stderr
+    findings: list[dict[str, Any]] = []
+    pattern_hits = secret_pattern_hits(text, AGENT_OUTPUT_SECRET_PATTERNS)
+    if pattern_hits:
+        findings.append({"kind": "benchmark_secret_pattern_in_output", "patterns": pattern_hits})
+    marker_hits = []
+    for marker in hidden_validation_markers(task):
+        if marker in text:
+            marker_hits.append(hashlib.sha256(marker.encode()).hexdigest()[:16])
+    if marker_hits:
+        findings.append({"kind": "hidden_validation_marker_in_output", "marker_hashes": sorted(set(marker_hits))})
+    return {"ok": not findings, "findings": findings}
+
+
+def mcp_condition_audit(condition: str, agent_info: dict[str, Any]) -> dict[str, Any]:
+    if not is_mcp_condition(condition):
+        return {"ok": True, "required": False, "findings": []}
+    activity = agent_info.get("activity") if isinstance(agent_info.get("activity"), dict) else {}
+    findings: list[dict[str, Any]] = []
+    mcp_tool_names = list(activity.get("mcp_tool_names") or [])
+    if not agent_info.get("mcp", {}).get("enabled"):
+        findings.append({"kind": "mcp_not_enabled"})
+    if int(activity.get("mcp_tool_calls") or 0) <= 0:
+        findings.append({"kind": "no_mcp_tool_calls"})
+    if condition == "mcp_history":
+        for required in ("brain_brief", "brain_history"):
+            if not any(str(name).endswith(f"__{required}") or str(name) == required for name in mcp_tool_names):
+                findings.append({"kind": "missing_required_mcp_history_tool", "tool": required})
+    if int(activity.get("direct_brain_cli_calls") or 0) > 0:
+        findings.append({"kind": "direct_brain_cli_used_in_mcp_condition"})
+    return {
+        "ok": not findings,
+        "required": True,
+        "mcp_tool_calls": activity.get("mcp_tool_calls", 0),
+        "mcp_tool_names": mcp_tool_names,
+        "direct_brain_cli_calls": activity.get("direct_brain_cli_calls", 0),
+        "findings": findings,
+    }
+
+
 def remove_worktree(source: pathlib.Path, worktree: pathlib.Path) -> None:
     proc = run_cmd(["git", "worktree", "remove", "--force", str(worktree)], cwd=source)
     if proc.returncode != 0 and worktree.exists():
         shutil.rmtree(worktree, ignore_errors=True)
+
+
+CHECKPOINT_REF = "refs/heads/entire/checkpoints/v1"
+
+
+def prepare_condition_history(task: dict[str, Any], condition: str, worktree: pathlib.Path) -> None:
+    if not condition_copies_entire_history(condition):
+        return
+    source = resolve_repo_path(task["repo_path"])
+    if task.get("copy_entire_history_from_source"):
+        copy_entire_history(source, worktree)
+    if task.get("copy_checkpoint_ref_from_source"):
+        copy_checkpoint_ref(source, worktree)
+
+
+def copy_checkpoint_ref(source: pathlib.Path, worktree: pathlib.Path) -> None:
+    """Bring the Entire checkpoint branch (real session history, synced from the
+    checkpoint remote, e.g. entireio/cli-checkpoints) into the disposable worktree
+    so `entire brain export` materializes the same sessions the live repo sees.
+    The ref is removed again before the agent runs (remove_agent_visible_entire_history),
+    so the agent cannot read raw transcripts via git; only the indexed brain remains."""
+    probe = run_cmd(["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=source)
+    if probe.returncode != 0 or not probe.stdout.strip():
+        raise RuntimeError(
+            f"copy_checkpoint_ref_from_source requested but {source} has no {CHECKPOINT_REF}; "
+            f"run `entire brain refresh` there first to pull sessions from the checkpoint remote"
+        )
+    run_cmd(["git", "fetch", "--no-tags", str(source), f"+{CHECKPOINT_REF}:{CHECKPOINT_REF}"], cwd=worktree, check=True)
+    src_settings = source / ".entire" / "settings.json"
+    if src_settings.exists():
+        (worktree / ".entire").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_settings, worktree / ".entire" / "settings.json")
+
+
+def remove_agent_visible_entire_history(worktree: pathlib.Path) -> bool:
+    removed = False
+    target_entire = worktree / ".entire"
+    if target_entire.exists():
+        shutil.rmtree(target_entire)
+        removed = True
+    # Drop the Entire checkpoint branch so the agent cannot read raw session
+    # transcripts via git; the indexed brain stays under .benchmark/plugin.
+    if run_cmd(["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=worktree).returncode == 0:
+        run_cmd(["git", "update-ref", "-d", CHECKPOINT_REF], cwd=worktree)
+        run_cmd(["git", "reflog", "expire", "--expire=now", "--all"], cwd=worktree)
+        run_cmd(["git", "prune", "--expire=now"], cwd=worktree)
+        removed = True
+    return removed
 
 
 def run_plugin_dir(worktree: pathlib.Path) -> pathlib.Path:
@@ -556,6 +906,25 @@ def plugin_env(run_dir: pathlib.Path, worktree: pathlib.Path, tools: dict[str, p
     return env
 
 
+def apply_task_env(env: dict[str, str], task: dict[str, Any]) -> dict[str, str]:
+    # Expand ~ and $VARS so path_prefix is portable; "auto" / unset resolves the
+    # directory of the host `node` so tsx-based validations work without a hard-coded path.
+    def expand_prefix(raw: str) -> str:
+        value = os.path.expanduser(os.path.expandvars(str(raw)))
+        if value in ("auto", "") or "$" in value:
+            node = shutil.which("node")
+            return str(pathlib.Path(node).parent) if node else value
+        return value
+    path_prefixes = [expand_prefix(item) for item in task.get("path_prefixes", []) if item]
+    if task.get("path_prefix"):
+        path_prefixes.insert(0, expand_prefix(task["path_prefix"]))
+    path_prefixes = [p for p in path_prefixes if p]
+    if path_prefixes:
+        env = env.copy()
+        env["PATH"] = ":".join([*path_prefixes, env.get("PATH", "")])
+    return env
+
+
 def brain_cache_payload(
     task: dict[str, Any],
     condition: str,
@@ -563,15 +932,18 @@ def brain_cache_payload(
     tools: dict[str, pathlib.Path],
     checkpoint_limit: int,
 ) -> dict[str, Any]:
+    prep_kind = condition_prep_kind(condition)
     return {
-        "schema": 2,
+        "schema": 3,
         "repo": task.get("repo"),
-        "repo_path": str(pathlib.Path(task["repo_path"]).resolve()),
-        "base_ref": task.get("base_commit") or git_head(pathlib.Path(task["repo_path"])),
-        "condition": condition,
+        "repo_path": str(resolve_repo_path(task["repo_path"]).resolve()),
+        "base_ref": task.get("base_commit") or git_head(resolve_repo_path(task["repo_path"])),
+        "condition": prep_kind,
         "prepare_semantic": bool(task.get("prepare_semantic", True)),
-        "checkpoint_limit": checkpoint_limit if condition == "full_brain" else None,
-        "history_index": condition == "full_brain",
+        "checkpoint_limit": checkpoint_limit if condition_prepares_history(prep_kind) else None,
+        "history_index": condition_prepares_history(prep_kind),
+        "copy_entire_history_from_source": bool(task.get("copy_entire_history_from_source"))
+        and condition_copies_entire_history(condition),
         "setup_patch": task.get("setup_patch", ""),
         "setup_replacements": task.get("setup_replacements", []),
         "setup_commands": task.get("setup_commands", []),
@@ -610,7 +982,7 @@ def brain_prep_commands(task: dict[str, Any], condition: str, worktree: pathlib.
     commands = [[str(tools["brain"]), "seed", str(worktree), "--agent", "none", "--force"]]
     if task.get("prepare_semantic", True):
         commands.append([str(tools["brain"]), "index", str(worktree), "--sem-binary", str(tools["entire"]), "--force"])
-    if condition == "full_brain":
+    if condition_prepares_history(condition):
         commands.insert(0, [str(tools["brain"]), "export", "--checkpoint-limit", str(checkpoint_limit), "--history-index"])
     return commands
 
@@ -625,7 +997,7 @@ def prepare_brain(
     use_cache: bool = True,
     refresh_cache: bool = False,
 ) -> tuple[dict[str, str], dict[str, Any]]:
-    env = plugin_env(run_dir, worktree, tools)
+    env = apply_task_env(plugin_env(run_dir, worktree, tools), task)
     prep: dict[str, Any] = {"condition": condition, "commands": []}
     if condition == "no_brain":
         return env, prep
@@ -640,6 +1012,7 @@ def prepare_brain(
     if use_cache and cache_plugin.exists() and cache_meta.exists() and not refresh_cache:
         meta = json.loads(cache_meta.read_text())
         copy_cached_plugin(cache_plugin, plugin, meta.get("source_worktree", ""), str(worktree))
+        prep["history_sanitization"] = sanitize_brain_history(plugin)
         prep["cache"].update(
             {
                 "hit": True,
@@ -647,7 +1020,7 @@ def prepare_brain(
                 "created_at": meta.get("created_at"),
             }
         )
-        if condition == "full_brain" and task.get("history_excerpt", True):
+        if condition_writes_history_excerpt(condition) and task.get("history_excerpt", True):
             write_history_excerpt(task, worktree)
         return env, prep
 
@@ -666,6 +1039,7 @@ def prepare_brain(
         prep["commands"].append(entry)
         if proc.returncode != 0:
             raise RuntimeError(f"brain prep failed: {shlex.join(cmd)}\n{proc.stderr}")
+    prep["history_sanitization"] = sanitize_brain_history(plugin)
     if use_cache:
         tmp_entry = cache_entry.with_name(cache_entry.name + f".tmp-{os.getpid()}")
         if tmp_entry.exists():
@@ -688,7 +1062,7 @@ def prepare_brain(
         if cache_entry.exists():
             shutil.rmtree(cache_entry)
         tmp_entry.rename(cache_entry)
-    if condition == "full_brain" and task.get("history_excerpt", True):
+    if condition_writes_history_excerpt(condition) and task.get("history_excerpt", True):
         write_history_excerpt(task, worktree)
     return env, prep
 
@@ -1098,15 +1472,32 @@ def prompt_for(task: dict[str, Any], condition: str) -> str:
     validation = "\n".join(f"- `{cmd}`" for cmd in task.get("validation", []))
     expected = ", ".join(task.get("expected_files", []))
     queries = ", ".join(task.get("brain_queries", []))
+    brief_query = f"{task['id']}: {base[:120]}"
+    if queries:
+        brief_query = f"{brief_query} | {queries}"
+    brief_limit = " --limit 4" if condition == "full_cli_compact" else ""
+    brief_command = f'entire brain brief "{brief_query}" --json{brief_limit}'
+    top_level_entire_guard = (
+        "Do not run top-level `entire doctor`, `entire status`, `entire session`, "
+        "or `entire checkpoint`; they are not Brain context for this benchmark and may be interactive."
+    )
     semantic_available = task.get("prepare_semantic", True)
     if condition == "no_brain":
-        policy = """Do not use Entire Brain for this run. Do not run `entire brain`, `entire-brain`, or any brain MCP tool. Inspect the repository normally."""
-    elif condition == "semantic_brain" and semantic_available:
-        policy = f"""Use Entire Brain semantic context before editing. Start with `entire brain brief "{task['id']}: {base[:120]}" --json`, then use `search` or `inspect code`, `inspect context`, `inspect impact`, or `inspect tests` for the task. Useful query terms: {queries}. Do not inspect checkpoint transcripts or session history."""
-    elif condition == "semantic_brain":
+        policy = """Do not use Entire Brain for this run. Do not run `entire brain`, `entire-brain`, or any brain MCP tool. Do not inspect `.entire`, `.benchmark`, or Brain/session/checkpoint artifacts. Inspect the repository normally."""
+    elif condition in {"semantic_brain", "semantic_cli"} and semantic_available:
+        policy = f"""Use Entire Brain semantic context before editing. Your first context command must be `{brief_command}`. Then use likely_edit_files plus `search` or `inspect code`, `inspect context`, `inspect impact`, or `inspect tests` for the task. Use likely_test_files for validation context only. Useful query terms: {queries}. Do not inspect checkpoint transcripts or session history. {top_level_entire_guard}"""
+    elif condition in {"semantic_brain", "semantic_cli"}:
         policy = "Use the prepared Entire Brain seed context before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not rely on semantic query commands."
+    elif condition == "mcp_semantic" and semantic_available:
+        policy = f"""Use the Entire Brain MCP server before editing. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Then start with the `brain_stale` MCP tool, followed by `brain_query`, `brain_context`, `brain_impact`, or `brain_changes` for focused semantic context. Useful query terms: {queries}. Do not run the `entire brain` CLI and do not inspect checkpoint transcripts or session history."""
+    elif condition == "mcp_semantic":
+        policy = "Use the Entire Brain MCP server before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not run semantic CLI commands or inspect checkpoint transcripts."
+    elif condition == "mcp_history":
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Your first context action must be the MCP tool `mcp__entire_brain__brain_brief` / `brain_brief` for this task; then run exactly one `mcp__entire_brain__brain_history` / `brain_history` query with the useful query terms: {queries}. If `brain_brief` returns an `action_checklist` with exact current lines, apply those listed edits directly before any additional MCP calls or `rg`/`grep`/`find`; broaden only if the checklist is missing, ambiguous, or focused validation fails. Do not run the `entire brain` CLI and do not read `.benchmark/brain-history-excerpt.md`; this condition is testing MCP-delivered history. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING` instead of using grep or normal code search."""
+    elif condition == "full_cli_compact" and semantic_available:
+        policy = f"""Use the full Entire Brain before editing. Your first context command must be `{brief_command}`. In the JSON, treat `action_checklist` as the first-pass current-code inventory: open `likely_edit_files` directly, apply/verify the listed actions in those files first, and do not broaden to other files unless the checklist is missing, ambiguous, or validation fails. Avoid broad `rg`/`grep`/`find` unless that first pass is insufficient. Prefer `likely_test_files` for one focused validation command; if a test fails because of unrelated temp-file or project-environment setup, do not spend extra rounds debugging test infrastructure. This condition intentionally provides no raw history excerpt; do not inspect checkpoint/session files directly. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif semantic_available:
-        policy = f"""Use the full Entire Brain before editing. Start with `entire brain brief "{task['id']}: {base[:120]}" --json`, use semantic commands for code context, and inspect task-relevant checkpoint/session history if it can explain the behavior. Useful query terms: {queries}."""
+        policy = f"""Use the full Entire Brain before editing. Your first context command must be `{brief_command}`. In the JSON, prefer `action_checklist`, `likely_edit_files`, `likely_test_files`, and compact history hits before broad text search. Read `.benchmark/brain-history-excerpt.md` only if the brief does not give enough exact invariant or file guidance. Useful query terms: {queries}. {top_level_entire_guard}"""
     else:
         policy = f"""Use the full Entire Brain before editing. Semantic indexing is disabled for this large-repo benchmark condition, so focus on seed context and task-relevant checkpoint/session history. Useful history search terms: {queries}."""
         if task.get("history_excerpt", True):
@@ -1122,8 +1513,67 @@ def prompt_for(task: dict[str, Any], condition: str) -> str:
         parts.append(f"Validation commands to run before finishing:\n{validation}")
     else:
         parts.append("Run the focused tests you identify as relevant before finishing.")
-    parts.append("Keep the fix minimal. Do not commit changes. Finish with a short summary of what changed and which validation commands passed.")
+    parts.append("Keep the fix minimal. Do not edit tests unless the task explicitly asks for test changes. Do not commit changes. Finish with a short summary of what changed and which validation commands passed.")
     return "\n\n".join(parts).strip()
+
+
+def mcp_server_env(env: dict[str, str]) -> dict[str, str]:
+    keys = [
+        "ENTIRE_REPO_ROOT",
+        "ENTIRE_PLUGIN_CONFIG_DIR",
+        "ENTIRE_PLUGIN_DATA_DIR",
+        "ENTIRE_PLUGIN_STATE_DIR",
+        "ENTIRE_PLUGIN_CACHE_DIR",
+        "ENTIRE_BRAIN_MCP_DEBUG_LOG",
+    ]
+    server_env = {key: env[key] for key in keys if key in env}
+    if env.get("PATH"):
+        server_env["PATH"] = env["PATH"]
+    return server_env
+
+
+def claude_mcp_config(tools: dict[str, pathlib.Path], env: dict[str, str]) -> str:
+    return json.dumps(
+        {
+            "mcpServers": {
+                "entire_brain": {
+                    "type": "stdio",
+                    "command": str(tools["brain"]),
+                    "args": ["mcp"],
+                    "env": mcp_server_env(env),
+                }
+            }
+        },
+        separators=(",", ":"),
+    )
+
+
+def toml_quote(value: str) -> str:
+    return json.dumps(value)
+
+
+def codex_mcp_config_args(tools: dict[str, pathlib.Path], env: dict[str, str]) -> list[str]:
+    args = [
+        "--config",
+        f"mcp_servers.entire_brain.command={toml_quote(str(tools['brain']))}",
+        "--config",
+        'mcp_servers.entire_brain.args=["mcp"]',
+        "--config",
+        "mcp_servers.entire_brain.enabled=true",
+        "--config",
+        "mcp_servers.entire_brain.required=true",
+        "--config",
+        'mcp_servers.entire_brain.enabled_tools=["brain_stale","brain_brief","brain_query","brain_context","brain_impact","brain_changes","brain_history"]',
+        "--config",
+        'mcp_servers.entire_brain.default_tools_approval_mode="approve"',
+        "--config",
+        "mcp_servers.entire_brain.startup_timeout_sec=120",
+        "--config",
+        "mcp_servers.entire_brain.tool_timeout_sec=120",
+    ]
+    for key, value in sorted(mcp_server_env(env).items()):
+        args.extend(["--config", f"mcp_servers.entire_brain.env.{key}={toml_quote(value)}"])
+    return args
 
 
 def run_agent(
@@ -1132,11 +1582,16 @@ def run_agent(
     worktree: pathlib.Path,
     env: dict[str, str],
     run_dir: pathlib.Path,
+    condition: str,
+    tools: dict[str, pathlib.Path],
     timeout: int,
     claude_budget: float,
     pricing: dict[str, Any],
 ) -> dict[str, Any]:
     start = time.time()
+    mcp_enabled = is_mcp_condition(condition)
+    if mcp_enabled:
+        env = {**env, "ENTIRE_BRAIN_MCP_DEBUG_LOG": str(run_dir / "mcp-server.log")}
     if runner.agent == "codex":
         cmd = [
             "codex",
@@ -1150,6 +1605,8 @@ def run_agent(
             "--cd",
             str(worktree),
         ]
+        if mcp_enabled:
+            cmd.extend(codex_mcp_config_args(tools, env))
         if runner.model:
             cmd.extend(["--model", runner.model])
         if runner.effort:
@@ -1162,24 +1619,26 @@ def run_agent(
             "--no-session-persistence",
             "--strict-mcp-config",
             "--mcp-config",
-            '{"mcpServers":{}}',
+            claude_mcp_config(tools, env) if mcp_enabled else '{"mcpServers":{}}',
             "--disable-slash-commands",
             "--permission-mode",
             "bypassPermissions",
             "--output-format",
-            "json",
+            "stream-json" if mcp_enabled else "json",
         ]
         if runner.model:
             cmd.extend(["--model", runner.model])
         if runner.effort:
             cmd.extend(["--effort", runner.effort])
+        if mcp_enabled:
+            cmd.append("--verbose")
         if claude_budget > 0:
             cmd[1:1] = ["--max-budget-usd", str(claude_budget)]
         cmd.append(prompt)
     else:
         raise ValueError(f"unknown agent: {runner.agent}")
 
-    proc = run_cmd(cmd, cwd=worktree, env=env, timeout=timeout)
+    proc = run_cmd(cmd, cwd=worktree, env=env, input_text="", timeout=timeout)
     (run_dir / "agent.stdout").write_text(proc.stdout)
     (run_dir / "agent.stderr").write_text(proc.stderr)
     usage = extract_usage(runner.agent, proc.stdout, proc.stderr)
@@ -1197,7 +1656,12 @@ def run_agent(
             "model": runner.model,
             "effort": runner.effort,
         },
-        "isolation": ISOLATION.get(runner.agent, {}),
+        "isolation": {**ISOLATION.get(runner.agent, {}), "mcp": "entire-brain local stdio only" if mcp_enabled else ISOLATION.get(runner.agent, {}).get("mcp", "disabled")},
+        "mcp": {
+            "enabled": mcp_enabled,
+            "server": "entire-brain" if mcp_enabled else None,
+            "condition": condition,
+        },
         "cmd": cmd[:1] + ["..."],
         "returncode": proc.returncode,
         "seconds": time.time() - start,
@@ -1277,6 +1741,9 @@ def extract_usage(agent: str, stdout: str, stderr: str) -> dict[str, Any]:
         usage["output_tokens"] = (usage["output_tokens"] or 0) + walk_numbers(payload, {"output_tokens", "outputTokens"})
         usage["cache_read_tokens"] = (usage["cache_read_tokens"] or 0) + walk_numbers(payload, {"cache_read_tokens", "cacheReadInputTokens"})
         usage["cache_creation_tokens"] = (usage["cache_creation_tokens"] or 0) + walk_numbers(payload, {"cache_creation_tokens", "cacheCreationInputTokens"})
+        reported_cost = payload.get("total_cost_usd") or payload.get("totalCostUsd") or payload.get("cost_usd")
+        if isinstance(reported_cost, (int, float)):
+            usage["cost_usd"] = float(reported_cost)
     if turns:
         usage["turns"] = turns
     if usage["total_tokens"] is None:
@@ -1286,9 +1753,138 @@ def extract_usage(agent: str, stdout: str, stderr: str) -> dict[str, Any]:
     return usage
 
 
-def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
+def extract_tool_command(value: Any) -> str | None:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return value
+        return extract_tool_command(parsed)
+    if isinstance(value, dict):
+        for key in ("command", "cmd", "shell", "script"):
+            item = value.get(key)
+            if isinstance(item, str):
+                return item
+    return None
+
+
+def collect_json_tool_events(value: Any) -> list[dict[str, str | None]]:
+    events: list[dict[str, str | None]] = []
+    if isinstance(value, dict):
+        event_type = value.get("type")
+        name = value.get("name") or value.get("tool_name") or value.get("toolName")
+        if event_type == "mcp_tool_call":
+            server = value.get("server") or value.get("server_name") or value.get("serverName")
+            tool = value.get("tool") or value.get("tool_name") or value.get("toolName") or name
+            if isinstance(tool, str):
+                if isinstance(server, str) and server:
+                    name = f"mcp__{server}__{tool}"
+                else:
+                    name = tool
+        if event_type == "command_execution":
+            command = extract_tool_command(value)
+            if command:
+                events.append({"name": "Bash", "command": command})
+        if isinstance(name, str) and event_type in {"tool_use", "tool_call", "function_call", "mcp_tool_call"}:
+            command = extract_tool_command(value.get("input"))
+            if command is None:
+                command = extract_tool_command(value.get("arguments"))
+            if command is None:
+                command = extract_tool_command(value.get("params"))
+            events.append({"name": name, "command": command})
+        for item in value.values():
+            events.extend(collect_json_tool_events(item))
+    elif isinstance(value, list):
+        for item in value:
+            events.extend(collect_json_tool_events(item))
+    return events
+
+
+def structured_tool_events(stdout: str) -> list[dict[str, str | None]]:
+    events: list[dict[str, str | None]] = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        events.extend(collect_json_tool_events(payload))
+    return events
+
+
+def has_structured_json(stdout: str) -> bool:
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        return True
+    return False
+
+
+def collect_json_tool_names(value: Any) -> list[str]:
+    names: list[str] = []
+    for event in collect_json_tool_events(value):
+        name = event.get("name")
+        if isinstance(name, str):
+            names.append(name)
+    return names
+
+
+def structured_tool_names(stdout: str) -> list[str]:
+    names: list[str] = []
+    for event in structured_tool_events(stdout):
+        name = event.get("name")
+        if isinstance(name, str):
+            names.append(name)
+    return names
+
+
+def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
+    events = structured_tool_events(stdout)
+    if events:
+        commands = [
+            command
+            for event in events
+            for command in [event.get("command")]
+            if isinstance(command, str) and command.strip()
+        ]
+        return {
+            "source": "protocol_json",
+            "event_count": len(events),
+            "tool_names": [str(event["name"]) for event in events if isinstance(event.get("name"), str)],
+            "commands": commands,
+            "lower": "\n".join(commands).lower(),
+        }
+    if has_structured_json(stdout):
+        return {
+            "source": "protocol_json",
+            "event_count": 0,
+            "tool_names": [],
+            "commands": [],
+            "lower": "",
+        }
     text = stdout + "\n" + stderr
     lower = text.lower()
+    return {
+        "source": "text_fallback",
+        "event_count": 0,
+        "tool_names": re.findall(r"mcp__[a-z0-9_-]+__brain_(?:brief|history|query|context|impact|changes|stale)", lower),
+        "commands": [],
+        "lower": lower,
+    }
+
+
+def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
+    activity_source = structured_activity_source(stdout, stderr)
+    lower = activity_source["lower"]
+    command_text = "\n".join(activity_source["commands"])
+    command_lower = command_text.lower()
     known_brain_commands = {
         "brief",
         "export",
@@ -1305,43 +1901,73 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
     brain_commands = sorted(
         {
             command
-            for command in re.findall(r"\b(?:entire\s+brain|entire-brain)\s+([a-z][a-z-]*)", lower)
+            for command in re.findall(r"\b(?:entire\s+brain|entire-brain)\s+([a-z][a-z-]*)", command_lower)
             if command in known_brain_commands
         }
     )
+    tool_names = activity_source["tool_names"]
+    mcp_tool_names = [
+        name
+        for name in tool_names
+        if re.search(r"(?:^|__)brain_(?:brief|history|query|context|impact|changes|stale)$", name)
+    ]
+    direct_brain_cli_calls = len(re.findall(r"\b(?:entire\s+brain|entire-brain)\s+[a-z][a-z-]*", command_lower))
+    search_tool_calls = [name for name in tool_names if name in {"Grep", "Glob"}]
+    search_call_matches = re.findall(r"\b(?:git\s+grep|rg|grep|find)\b", command_lower)
     checked_brief = "brief" in brain_commands
-    checked_freshness = bool({"brief", "status", "stale"} & set(brain_commands))
+    if any(name.endswith("brain_brief") or name == "brain_brief" for name in mcp_tool_names):
+        checked_brief = True
+    checked_freshness = bool({"brief", "status", "stale"} & set(brain_commands)) or any(name.endswith("brain_stale") for name in mcp_tool_names)
     test_commands = sorted(
         set(
             re.findall(
-                r"\b(?:go test|pytest|npm (?:test|run test)|yarn test|pnpm test|cargo test|mvn test|gradle test|make test)\b",
-                lower,
+                r"\b(?:go test|pytest|npm (?:test|run test)|npx (?:jest|vitest)|vitest|jest|yarn test|pnpm test|cargo test|mvn test|gradle test|make test)\b",
+                command_lower,
             )
         )
     )
     return {
+        "activity_source": activity_source.get("source", "unknown"),
+        "structured_tool_event_count": activity_source.get("event_count", 0),
         "brain_commands": brain_commands,
-        "used_brain": bool(brain_commands),
+        "direct_brain_cli_calls": direct_brain_cli_calls,
+        "mcp_tool_names": sorted(set(mcp_tool_names)),
+        "mcp_tool_calls": len(mcp_tool_names),
+        "used_mcp": bool(mcp_tool_names),
+        "search_commands": sorted(set([*search_call_matches, *search_tool_calls])),
+        "search_calls": len(search_call_matches) + len(search_tool_calls),
+        "used_brain": bool(brain_commands) or bool(mcp_tool_names),
         "checked_brief": checked_brief,
         "checked_stale": "stale" in brain_commands,
         "checked_freshness": checked_freshness,
         "test_commands": test_commands,
         "ran_tests": bool(test_commands),
-        "checked_diff": bool(re.search(r"\bgit\s+(?:diff|status)\b", lower)),
+        "checked_diff": bool(re.search(r"\bgit\s+(?:diff|status)\b", command_lower)),
         "saw_index_locked": "index_locked" in lower or "semantic index lock" in lower,
     }
+
+
+def benchmark_private_path(path: str) -> bool:
+    clean = path.strip()
+    while clean.startswith("./"):
+        clean = clean[2:]
+    return any(clean == prefix.rstrip("/") or clean.startswith(prefix) for prefix in BENCHMARK_PRIVATE_PREFIXES)
 
 
 def changed_files(worktree: pathlib.Path) -> list[str]:
     tracked = run_cmd(["git", "diff", "--name-only"], cwd=worktree).stdout.splitlines()
     untracked = run_cmd(["git", "ls-files", "--others", "--exclude-standard"], cwd=worktree).stdout.splitlines()
-    return sorted({x.strip() for x in [*tracked, *untracked] if x.strip()})
+    return sorted({x.strip() for x in [*tracked, *untracked] if x.strip() and not benchmark_private_path(x)})
 
 
 def diff_stat(worktree: pathlib.Path) -> dict[str, Any]:
     stat = run_cmd(["git", "diff", "--shortstat"], cwd=worktree).stdout.strip()
     diff = run_cmd(["git", "diff", "--", "."], cwd=worktree).stdout
-    untracked = run_cmd(["git", "ls-files", "--others", "--exclude-standard"], cwd=worktree).stdout.splitlines()
+    untracked = [
+        rel
+        for rel in run_cmd(["git", "ls-files", "--others", "--exclude-standard"], cwd=worktree).stdout.splitlines()
+        if not benchmark_private_path(rel)
+    ]
     untracked_bytes = 0
     for rel in untracked:
         path = worktree / rel
@@ -1496,6 +2122,12 @@ def score(
             "agent_seconds": seconds,
             "total_tokens": tokens,
             "brain_commands": activity.get("brain_commands", []),
+            "mcp_tool_calls": activity.get("mcp_tool_calls", 0),
+            "mcp_tool_names": activity.get("mcp_tool_names", []),
+            "direct_brain_cli_calls": activity.get("direct_brain_cli_calls", 0),
+            "search_calls": activity.get("search_calls", 0),
+            "activity_source": activity.get("activity_source", "unknown"),
+            "structured_tool_event_count": activity.get("structured_tool_event_count", 0),
             "ran_tests": bool(activity.get("ran_tests")),
             "checked_diff": bool(activity.get("checked_diff")),
         },
@@ -1515,7 +2147,7 @@ def run_one(
     run_id = f"{task['id']}__{runner.id}__{condition}__r{repetition}"
     run_dir = suite_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
-    source = pathlib.Path(task["repo_path"])
+    source = resolve_repo_path(task["repo_path"])
     worktree: pathlib.Path | None = None
     record: dict[str, Any] = {
         "run_id": run_id,
@@ -1534,6 +2166,13 @@ def run_one(
     }
     try:
         worktree = create_worktree(task, run_dir)
+        worktree_sanitization = sanitize_agent_worktree(worktree)
+        record["agent_worktree_sanitization"] = worktree_sanitization
+        record["agent_baseline_history_reset"] = reset_agent_history_to_root(
+            worktree,
+            f"Benchmark agent baseline for {task['id']}",
+        )
+        prepare_condition_history(task, condition, worktree)
         env, prep = prepare_brain(
             task,
             condition,
@@ -1545,19 +2184,41 @@ def run_one(
             refresh_cache=args.refresh_brain_cache,
         )
         post_brain_changed = apply_post_brain_setup(task, worktree)
+        if post_brain_changed:
+            record["post_brain_baseline_history_reset"] = reset_agent_history_to_root(
+                worktree,
+                f"Benchmark post-brain agent baseline for {task['id']}",
+                include_current_changes=True,
+            )
+        agent_visible_entire_removed = False
+        if condition_copies_entire_history(condition):
+            agent_visible_entire_removed = remove_agent_visible_entire_history(worktree)
+        secret_preflight = agent_secret_preflight(worktree)
+        record["agent_secret_preflight"] = secret_preflight
+        if not secret_preflight["ok"]:
+            raise RuntimeError(f"agent-visible benchmark secrets failed preflight: {secret_preflight['findings'][:3]}")
         prompt = prompt_for(task, condition)
         (run_dir / "prompt.txt").write_text(prompt)
-        agent_info = run_agent(runner, prompt, worktree, env, run_dir, args.timeout, args.claude_budget, pricing)
+        agent_info = run_agent(runner, prompt, worktree, env, run_dir, condition, tools, args.timeout, args.claude_budget, pricing)
+        leak_audit = agent_output_leak_audit(
+            task,
+            (run_dir / "agent.stdout").read_text(encoding="utf-8", errors="ignore"),
+            (run_dir / "agent.stderr").read_text(encoding="utf-8", errors="ignore"),
+        )
+        mcp_audit = mcp_condition_audit(condition, agent_info)
         files = changed_files(worktree)
         validation = validate(task, worktree, env)
         diff = diff_stat(worktree)
         scoring = score(task, condition, agent_info, validation, files, diff)
         record.update(
             {
-                "ok": validation["ok"] and agent_info["returncode"] == 0,
+                "ok": validation["ok"] and agent_info["returncode"] == 0 and leak_audit["ok"] and mcp_audit["ok"],
                 "worktree": str(worktree),
                 "brain_prep": prep,
                 "post_brain_setup_applied": post_brain_changed,
+                "agent_visible_entire_history_removed": agent_visible_entire_removed,
+                "agent_leak_audit": leak_audit,
+                "mcp_condition_audit": mcp_audit,
                 "agent_info": agent_info,
                 "changed_files": files,
                 "diff_stat": diff,
@@ -1587,6 +2248,98 @@ def welch_p_value(a: list[float], b: list[float]) -> float | None:
         return 0.0 if mean_a != mean_b else 1.0
     z = abs(mean_a - mean_b) / se
     return math.erfc(z / math.sqrt(2))
+
+
+def relative_delta(condition: Any, baseline: Any) -> float | None:
+    if not isinstance(condition, (int, float)) or not isinstance(baseline, (int, float)):
+        return None
+    if baseline == 0:
+        return None
+    return (float(condition) - float(baseline)) / float(baseline)
+
+
+def improvement_ratio(condition: Any, baseline: Any) -> float | None:
+    delta = relative_delta(condition, baseline)
+    if delta is None:
+        return None
+    return -delta
+
+
+def brain_comparison_verdict(comparison: dict[str, Any]) -> dict[str, Any]:
+    n_condition = int(comparison.get("n_condition") or 0)
+    n_baseline = int(comparison.get("n_baseline") or 0)
+    score_delta = float(comparison.get("delta") or 0)
+    success_rate_condition = float(comparison.get("success_rate_condition") or 0)
+    success_rate_baseline = float(comparison.get("success_rate_baseline") or 0)
+    success_delta = success_rate_condition - success_rate_baseline
+    time_improvement = improvement_ratio(comparison.get("mean_agent_seconds_condition"), comparison.get("mean_agent_seconds_baseline"))
+    token_improvement = improvement_ratio(comparison.get("mean_total_tokens_condition"), comparison.get("mean_total_tokens_baseline"))
+    search_improvement = improvement_ratio(comparison.get("mean_search_calls_condition"), comparison.get("mean_search_calls_baseline"))
+    time_overhead = relative_delta(comparison.get("mean_agent_seconds_condition"), comparison.get("mean_agent_seconds_baseline"))
+    token_overhead = relative_delta(comparison.get("mean_total_tokens_condition"), comparison.get("mean_total_tokens_baseline"))
+
+    repeated = n_condition >= 3 and n_baseline >= 3
+    brain_validation_clean = success_rate_condition == 1.0
+    correctness_win = brain_validation_clean and (success_delta > 0 or score_delta >= 3)
+    equal_or_better = success_delta >= 0 and score_delta >= 0
+    efficiency_win = brain_validation_clean and equal_or_better and (
+        (isinstance(time_improvement, float) and time_improvement >= 0.20)
+        or (isinstance(token_improvement, float) and token_improvement >= 0.20)
+    )
+    search_win = brain_validation_clean and equal_or_better and isinstance(search_improvement, float) and search_improvement >= 0.20
+    both_solved = success_rate_condition == 1.0 and success_rate_baseline == 1.0
+    saturated = both_solved and abs(score_delta) <= 1 and not efficiency_win
+    overhead_bad = (
+        success_delta < 0
+        or score_delta < -1
+        or (isinstance(time_overhead, float) and time_overhead > 0.15)
+        or (isinstance(token_overhead, float) and token_overhead > 0.15)
+    )
+
+    reasons: list[str] = []
+    if not repeated:
+        reasons.append("pilot_n<3")
+    if not brain_validation_clean:
+        reasons.append("brain_validation_not_clean")
+    if both_solved:
+        reasons.append("both_conditions_passed")
+    if correctness_win:
+        reasons.append(f"score_or_success_improved={score_delta:+.1f}")
+    if efficiency_win:
+        reasons.append("time_or_tokens_improved>=20%")
+    if search_win:
+        reasons.append("search_calls_dropped>=20%")
+    if overhead_bad:
+        reasons.append("score_drop_or_overhead_exceeds_gate")
+
+    if correctness_win or efficiency_win:
+        verdict = "brain_positive"
+    elif saturated and overhead_bad:
+        verdict = "saturated/overhead_negative"
+    elif saturated:
+        verdict = "saturated/no_signal"
+    elif overhead_bad:
+        verdict = "brain_negative"
+    else:
+        verdict = "inconclusive"
+    if not repeated and verdict == "brain_positive":
+        verdict = "pilot_brain_positive"
+
+    return {
+        "verdict": verdict,
+        "proof_ready": repeated and verdict == "brain_positive",
+        "brain_positive_gate": {
+            "score_delta": score_delta,
+            "success_delta": success_delta,
+            "time_improvement_ratio": time_improvement,
+            "token_improvement_ratio": token_improvement,
+            "search_improvement_ratio": search_improvement,
+            "time_overhead_ratio": time_overhead,
+            "token_overhead_ratio": token_overhead,
+            "requires_repetitions_per_side": 3,
+        },
+        "verdict_reasons": reasons,
+    }
 
 
 def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[str, Any]:
@@ -1631,34 +2384,33 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
                         versions.add(version)
             return sorted(versions)
 
-        comparisons.append(
-            {
-                "task_id": task_id,
-                "agent": agent,
-                "runner": runner_id,
-                "condition": condition,
-                "baseline": "no_brain",
-                "n_condition": len(values),
-                "n_baseline": len(base),
-                "mean_condition": sum(values) / len(values),
-                "mean_baseline": sum(base) / len(base),
-                "delta": sum(values) / len(values) - sum(base) / len(base),
-                "p_value_approx": welch_p_value(values, base),
-                "score_versions_condition": score_versions(condition_records),
-                "score_versions_baseline": score_versions(base_records),
-                "mean_outcome_condition": mean_field(condition_records, ["score", "outcome"]),
-                "mean_outcome_baseline": mean_field(base_records, ["score", "outcome"]),
-                "mean_patch_focus_condition": mean_field(condition_records, ["score", "patch_focus"]),
-                "mean_patch_focus_baseline": mean_field(base_records, ["score", "patch_focus"]),
-                "mean_validation_discipline_condition": mean_field(condition_records, ["score", "validation_discipline"]),
-                "mean_validation_discipline_baseline": mean_field(base_records, ["score", "validation_discipline"]),
-                "mean_runtime_efficiency_condition": mean_field(condition_records, ["score", "runtime_efficiency"]),
-                "mean_runtime_efficiency_baseline": mean_field(base_records, ["score", "runtime_efficiency"]),
-                "mean_brain_use_condition": mean_field(condition_records, ["score", "brain_use"]),
-                "mean_brain_use_baseline": mean_field(base_records, ["score", "brain_use"]),
-                "mean_agent_seconds_condition": mean_field(condition_records, ["agent_info", "seconds"]),
-                "mean_agent_seconds_baseline": mean_field(base_records, ["agent_info", "seconds"]),
-                "p_value_agent_seconds": welch_p_value(
+        comparison = {
+            "task_id": task_id,
+            "agent": agent,
+            "runner": runner_id,
+            "condition": condition,
+            "baseline": "no_brain",
+            "n_condition": len(values),
+            "n_baseline": len(base),
+            "mean_condition": sum(values) / len(values),
+            "mean_baseline": sum(base) / len(base),
+            "delta": sum(values) / len(values) - sum(base) / len(base),
+            "p_value_approx": welch_p_value(values, base),
+            "score_versions_condition": score_versions(condition_records),
+            "score_versions_baseline": score_versions(base_records),
+            "mean_outcome_condition": mean_field(condition_records, ["score", "outcome"]),
+            "mean_outcome_baseline": mean_field(base_records, ["score", "outcome"]),
+            "mean_patch_focus_condition": mean_field(condition_records, ["score", "patch_focus"]),
+            "mean_patch_focus_baseline": mean_field(base_records, ["score", "patch_focus"]),
+            "mean_validation_discipline_condition": mean_field(condition_records, ["score", "validation_discipline"]),
+            "mean_validation_discipline_baseline": mean_field(base_records, ["score", "validation_discipline"]),
+            "mean_runtime_efficiency_condition": mean_field(condition_records, ["score", "runtime_efficiency"]),
+            "mean_runtime_efficiency_baseline": mean_field(base_records, ["score", "runtime_efficiency"]),
+            "mean_brain_use_condition": mean_field(condition_records, ["score", "brain_use"]),
+            "mean_brain_use_baseline": mean_field(base_records, ["score", "brain_use"]),
+            "mean_agent_seconds_condition": mean_field(condition_records, ["agent_info", "seconds"]),
+            "mean_agent_seconds_baseline": mean_field(base_records, ["agent_info", "seconds"]),
+            "p_value_agent_seconds": welch_p_value(
                     [
                         float(rec["agent_info"]["seconds"])
                         for rec in condition_records
@@ -1669,10 +2421,10 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
                         for rec in base_records
                         if isinstance(rec.get("agent_info", {}).get("seconds"), (int, float))
                     ],
-                ),
-                "mean_total_tokens_condition": mean_field(condition_records, ["agent_info", "usage", "total_tokens"]),
-                "mean_total_tokens_baseline": mean_field(base_records, ["agent_info", "usage", "total_tokens"]),
-                "p_value_total_tokens": welch_p_value(
+            ),
+            "mean_total_tokens_condition": mean_field(condition_records, ["agent_info", "usage", "total_tokens"]),
+            "mean_total_tokens_baseline": mean_field(base_records, ["agent_info", "usage", "total_tokens"]),
+            "p_value_total_tokens": welch_p_value(
                     [
                         float(rec["agent_info"]["usage"]["total_tokens"])
                         for rec in condition_records
@@ -1683,10 +2435,10 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
                         for rec in base_records
                         if isinstance(rec.get("agent_info", {}).get("usage", {}).get("total_tokens"), (int, float))
                     ],
-                ),
-                "mean_turns_condition": mean_field(condition_records, ["agent_info", "usage", "turns"]),
-                "mean_turns_baseline": mean_field(base_records, ["agent_info", "usage", "turns"]),
-                "p_value_turns": welch_p_value(
+            ),
+            "mean_turns_condition": mean_field(condition_records, ["agent_info", "usage", "turns"]),
+            "mean_turns_baseline": mean_field(base_records, ["agent_info", "usage", "turns"]),
+            "p_value_turns": welch_p_value(
                     [
                         float(rec["agent_info"]["usage"]["turns"])
                         for rec in condition_records
@@ -1697,10 +2449,10 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
                         for rec in base_records
                         if isinstance(rec.get("agent_info", {}).get("usage", {}).get("turns"), (int, float))
                     ],
-                ),
-                "mean_cost_usd_condition": mean_field(condition_records, ["agent_info", "usage", "cost_usd"]),
-                "mean_cost_usd_baseline": mean_field(base_records, ["agent_info", "usage", "cost_usd"]),
-                "p_value_cost_usd": welch_p_value(
+            ),
+            "mean_cost_usd_condition": mean_field(condition_records, ["agent_info", "usage", "cost_usd"]),
+            "mean_cost_usd_baseline": mean_field(base_records, ["agent_info", "usage", "cost_usd"]),
+            "p_value_cost_usd": welch_p_value(
                     [
                         float(rec["agent_info"]["usage"]["cost_usd"])
                         for rec in condition_records
@@ -1711,11 +2463,18 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
                         for rec in base_records
                         if isinstance(rec.get("agent_info", {}).get("usage", {}).get("cost_usd"), (int, float))
                     ],
-                ),
-                "success_rate_condition": sum(1 for rec in condition_records if rec.get("ok")) / len(condition_records),
-                "success_rate_baseline": sum(1 for rec in base_records if rec.get("ok")) / len(base_records),
-            }
-        )
+            ),
+            "mean_mcp_tool_calls_condition": mean_field(condition_records, ["agent_info", "activity", "mcp_tool_calls"]),
+            "mean_mcp_tool_calls_baseline": mean_field(base_records, ["agent_info", "activity", "mcp_tool_calls"]),
+            "mean_search_calls_condition": mean_field(condition_records, ["agent_info", "activity", "search_calls"]),
+            "mean_search_calls_baseline": mean_field(base_records, ["agent_info", "activity", "search_calls"]),
+            "mean_direct_brain_cli_calls_condition": mean_field(condition_records, ["agent_info", "activity", "direct_brain_cli_calls"]),
+            "mean_direct_brain_cli_calls_baseline": mean_field(base_records, ["agent_info", "activity", "direct_brain_cli_calls"]),
+            "success_rate_condition": sum(1 for rec in condition_records if rec.get("ok")) / len(condition_records),
+            "success_rate_baseline": sum(1 for rec in base_records if rec.get("ok")) / len(base_records),
+        }
+        comparison.update(brain_comparison_verdict(comparison))
+        comparisons.append(comparison)
     summary = {"records": len(records), "comparisons": comparisons}
     (suite_dir / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
     return summary
@@ -2115,7 +2874,7 @@ def cmd_prep(args: argparse.Namespace) -> int:
             run_id = f"{task['id']}__prep__{condition}"
             run_dir = suite_dir / run_id
             run_dir.mkdir(parents=True, exist_ok=False)
-            source = pathlib.Path(task["repo_path"])
+            source = resolve_repo_path(task["repo_path"])
             worktree: pathlib.Path | None = None
             record: dict[str, Any] = {
                 "run_id": run_id,
@@ -2126,6 +2885,7 @@ def cmd_prep(args: argparse.Namespace) -> int:
             }
             try:
                 worktree = create_worktree(task, run_dir)
+                prepare_condition_history(task, condition, worktree)
                 env, prep = prepare_brain(
                     task,
                     condition,
@@ -2182,7 +2942,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     tools = build_tools(suite_dir)
     failures = 0
     for task in tasks:
-        source = pathlib.Path(task["repo_path"])
+        source = resolve_repo_path(task["repo_path"])
         run_dir = suite_dir / task["id"]
         run_dir.mkdir(parents=True, exist_ok=True)
         worktree: pathlib.Path | None = None

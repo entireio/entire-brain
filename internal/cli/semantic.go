@@ -748,7 +748,7 @@ func validateLiveSemanticHeader(header semanticHeader, repoKey, commit, tree str
 	if header.RepoKey == "" {
 		return errors.New("semantic snapshot header missing repo_key")
 	}
-	if header.RepoKey != repoKey {
+	if !semanticRepoKeyEqual(header.RepoKey, repoKey) {
 		return fmt.Errorf("semantic snapshot repo_key %q does not match current repo %q", header.RepoKey, repoKey)
 	}
 	if header.Commit != "" && commit != "" && header.Commit != commit {
@@ -4720,7 +4720,7 @@ func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
 	if manifest.RepoKey == "" {
 		return nil, errors.New("bundle manifest missing repo_key")
 	}
-	if manifest.RepoKey != repoKey {
+	if !semanticRepoKeyEqual(manifest.RepoKey, repoKey) {
 		return nil, fmt.Errorf("bundle repo_key %q does not match current repo %q", manifest.RepoKey, repoKey)
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
@@ -4987,7 +4987,7 @@ func readSemanticSnapshotSummary(path, repoKey string) (semanticHeader, semantic
 	if header.RepoKey == "" {
 		return semanticHeader{}, semanticCounts{}, errors.New("semantic snapshot header missing repo_key")
 	}
-	if header.RepoKey != repoKey {
+	if !semanticRepoKeyEqual(header.RepoKey, repoKey) {
 		return semanticHeader{}, semanticCounts{}, fmt.Errorf("semantic snapshot repo_key %q does not match current repo %q", header.RepoKey, repoKey)
 	}
 	if err := validateSemanticSchema(header.SchemaVersion); err != nil {
@@ -5019,6 +5019,10 @@ func readSemanticSnapshotSummary(path, repoKey string) (semanticHeader, semantic
 		return semanticHeader{}, semanticCounts{}, err
 	}
 	return header, counts, nil
+}
+
+func semanticRepoKeyEqual(a, b string) bool {
+	return a == b || strings.EqualFold(a, b)
 }
 
 func validateSemanticSourceMatchesSnapshot(source *semanticSourceManifest, header semanticHeader, counts semanticCounts) error {

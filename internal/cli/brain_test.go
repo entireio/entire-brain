@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -112,6 +113,9 @@ func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	if !report.Status.Sources.Semantic || !report.Status.Sources.History || !report.Status.Live.Dirty {
 		t.Fatalf("brief did not report semantic source and dirty live state: %+v", report.Status)
 	}
+	if report.Status.Manifest != nil {
+		t.Fatalf("brief JSON should not emit full manifest: %+v", report.Status.Manifest)
+	}
 	if got := report.Status.Live.Unstaged; len(got) != 1 || got[0] != "internal/auth/token.go" {
 		t.Fatalf("unstaged = %+v", got)
 	}
@@ -123,6 +127,16 @@ func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	}
 	if len(report.History.Matches) == 0 || !strings.Contains(report.History.Matches[0].Excerpt, "mainline") {
 		t.Fatalf("brief missing ranked history match: %+v", report.History.Matches)
+	}
+	foundLikelyFile := false
+	for _, file := range report.LikelyEditFiles {
+		if file == "internal/auth/token.go" {
+			foundLikelyFile = true
+			break
+		}
+	}
+	if !foundLikelyFile {
+		t.Fatalf("brief missing likely edit file hint: %+v", report.LikelyEditFiles)
 	}
 	if len(report.Guidance) == 0 || !strings.Contains(strings.Join(report.Guidance, "\n"), "indexed snapshot") {
 		t.Fatalf("brief missing snapshot guidance: %+v", report.Guidance)
@@ -404,6 +418,241 @@ func TestRankHistoryRecordsUsesIdentifierTerms(t *testing.T) {
 	records = rankHistoryRecords(index, "history", "ENTIRE_REVIEW_*", 2)
 	if len(records) == 0 || records[0].Path != "sessions/main/review-env.jsonl" {
 		t.Fatalf("identifier-only query did not rank env record first: %+v", records)
+	}
+}
+
+func TestRankHistoryRecordsPrefersPreciseCodeFactsOverSetupLogs(t *testing.T) {
+	index := historyIndex{Records: []historyRecord{
+		{
+			Kind: "decision",
+			Path: "sessions/main/setup.jsonl",
+			Line: 10,
+			Summary: "You are the main coding agent. Start by running: entire status --detailed, entire doctor, entire session current, entire checkpoint list. " +
+				"Then inspect repository query limit normalization in the storage contract.",
+		},
+		{
+			Kind: "code_fact",
+			Path: "sessions/main/storage-fix.jsonl",
+			Line: 20,
+			Summary: "diff --git a/packages/storage/src/index.ts b/packages/storage/src/index.ts\n" +
+				"+const MAX_QUERY_LIMIT = 1_000;\n" +
+				"+const normalizeLimit = (value: number | undefined, fallback: number): number => Math.min(value, MAX_QUERY_LIMIT);\n" +
+				"+    const limit = normalizeLimit(filter.limit, 250);",
+		},
+	}}
+
+	records := rankHistoryRecords(index, "history", "repository query limit normalization normalizeLimit MAX_QUERY_LIMIT", 2)
+	if len(records) == 0 {
+		t.Fatal("expected ranked history records")
+	}
+	if records[0].Path != "sessions/main/storage-fix.jsonl" {
+		t.Fatalf("precise code fact did not rank first: %+v", records)
+	}
+
+	identifiers := historyIdentifierQueryTerms("normalizeLimit MAX_QUERY_LIMIT")
+	if !slices.Contains(identifiers, "NORMALIZELIMIT") || !slices.Contains(identifiers, "MAX_QUERY_LIMIT") {
+		t.Fatalf("identifier extraction missed camelCase or constant: %+v", identifiers)
+	}
+}
+
+func TestBrainBriefRawHistoryQueriesPrioritizeLimitIdentifiers(t *testing.T) {
+	queries := brainBriefRawHistoryQueries("Restore ULTRON storage APIs. repository query limit normalization, normalizeLimit, MAX_QUERY_LIMIT, listNodes searchNodes listAutomationActions")
+	if len(queries) < 2 {
+		t.Fatalf("expected focused raw history queries: %+v", queries)
+	}
+	if queries[0] != "MAX_QUERY_LIMIT" || queries[1] != "NORMALIZELIMIT" {
+		t.Fatalf("limit identifiers should rank first: %+v", queries)
+	}
+	if slices.Contains(queries, "ULTRON") || slices.Contains(queries, "APIS") {
+		t.Fatalf("generic identifiers should be filtered: %+v", queries)
+	}
+}
+
+func TestBrainBriefActionChecklistUsesHistoryAndCurrentLimitCode(t *testing.T) {
+	repoDir := t.TempDir()
+	sourcePath := filepath.Join(repoDir, "packages", "storage", "src", "index.ts")
+	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o700); err != nil {
+		t.Fatalf("mkdir source dir: %v", err)
+	}
+	source := `
+export class SqliteMemoryRepository {
+  async listNodes(filter = {}) {
+    const limit = filter.limit ?? 250;
+    return this.db.prepare("SELECT * FROM memory_nodes LIMIT ?").all(limit);
+  }
+
+  async listChatMessages(chatId: string, limit = 200) {
+    return this.db.prepare("SELECT * FROM chat_messages WHERE chat_id = ? LIMIT ?").all(chatId, limit);
+  }
+
+  async listAutomationActions(sessionId: string, limit = 500) {
+    return this.pool.query("SELECT * FROM automation_actions WHERE session_id = $1 LIMIT $2", [sessionId, limit]);
+  }
+}
+`
+	if err := os.WriteFile(sourcePath, []byte(source), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	report := brainBriefReport{
+		History: brainBriefHistory{Matches: []brainTextMatch{{
+			Excerpt: "diff --git a/packages/storage/src/index.ts b/packages/storage/src/index.ts +const MAX_QUERY_LIMIT = 1_000; +const normalizeLimit = (value, fallback) => Math.min(value, MAX_QUERY_LIMIT);",
+		}}},
+		LikelyEditFiles: []string{"packages/storage/src/index.ts"},
+	}
+	actions := brainBriefActionChecklist(repoDir, report, "repository query limit normalization")
+	joined := strings.Join(func() []string {
+		out := make([]string, 0, len(actions))
+		for _, action := range actions {
+			out = append(out, action.Symbol+" "+action.Action+" "+action.Evidence)
+		}
+		return out
+	}(), "\n")
+	if !strings.Contains(joined, "listNodes") || !strings.Contains(joined, "filter limit") {
+		t.Fatalf("missing filter-limit action: %+v", actions)
+	}
+	if !strings.Contains(joined, "listChatMessages") || !strings.Contains(joined, "SQL LIMIT path") {
+		t.Fatalf("missing sibling SQL LIMIT action: %+v", actions)
+	}
+	if !strings.Contains(joined, "listAutomationActions") || !strings.Contains(joined, "raw limit query argument") {
+		t.Fatalf("missing raw array limit action: %+v", actions)
+	}
+}
+
+func TestBrainBriefLikelyFilesExtractsDotSlashHistoryPaths(t *testing.T) {
+	report := brainBriefReport{
+		History: brainBriefHistory{Matches: []brainTextMatch{{
+			Excerpt: "tool output: ./packages/storage/src/index.ts: listAgentMessages(channelId: string, limit?: number): Promise<AgentMessage[]>;",
+		}}},
+	}
+	editFiles, _, _ := brainBriefLikelyFileGroups("", report, "")
+	if !slices.Contains(editFiles, "packages/storage/src/index.ts") {
+		t.Fatalf("expected packages/storage/src/index.ts from history excerpt, got %+v", editFiles)
+	}
+}
+
+func TestBrainBriefCurrentCodeFileCountsFindsProviderMetadataContractFile(t *testing.T) {
+	repoDir := t.TempDir()
+	target := filepath.Join(repoDir, "apps", "desktop", "src", "main", "agentic-decider.ts")
+	noise := filepath.Join(repoDir, "apps", "desktop", "src", "renderer", "components", "demoApi.ts")
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(noise), 0o700); err != nil {
+		t.Fatalf("mkdir noise: %v", err)
+	}
+	if err := os.WriteFile(target, []byte(`export function createAgenticDecider(llm) {
+  const reasoningEffort = "low";
+  return llm.generate([], {
+    reasoningEffort,
+    metadata: { purpose: "agentic_decision", step: perception.stepIndex },
+    previousResponseId: perception.previousResponseId
+  });
+}
+`), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	if err := os.WriteFile(noise, []byte(`export const demo = { metadata: { preview: true } };
+`), 0o600); err != nil {
+		t.Fatalf("write noise: %v", err)
+	}
+	counts := brainBriefCurrentCodeFileCounts(repoDir, "Responses API metadata values must be strings for the agentic decider provider contract")
+	if counts["apps/desktop/src/main/agentic-decider.ts"] <= counts["apps/desktop/src/renderer/components/demoApi.ts"] {
+		t.Fatalf("expected decider to outrank demo metadata: %+v", counts)
+	}
+	if _, ok := counts["apps/desktop/src/renderer/components/demoApi.ts"]; ok {
+		t.Fatalf("generic preview metadata should not be included: %+v", counts)
+	}
+	actions := brainBriefMetadataStringActions(repoDir, []string{
+		"apps/desktop/src/main/agentic-decider.ts",
+		"apps/desktop/src/renderer/components/demoApi.ts",
+	})
+	if len(actions) != 1 {
+		t.Fatalf("expected only primary decider metadata action, got %+v", actions)
+	}
+	if actions[0].File != "apps/desktop/src/main/agentic-decider.ts" ||
+		!strings.Contains(actions[0].Action, "Stringify the agentic_decision metadata step") {
+		t.Fatalf("unexpected primary action: %+v", actions[0])
+	}
+}
+
+func TestBrainBriefActionChecklistFindsSelfContainedAgenticPerception(t *testing.T) {
+	repoDir := t.TempDir()
+	target := filepath.Join(repoDir, "packages", "automation", "src", "index.ts")
+	noise := filepath.Join(repoDir, "apps", "desktop", "src", "main", "agentic-decider.ts")
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(noise), 0o700); err != nil {
+		t.Fatalf("mkdir noise: %v", err)
+	}
+	if err := os.WriteFile(target, []byte(`export class AutomationRuntime {
+  private async executeAgenticPlan() {
+    let previousResponseId: string | null = null;
+    const perception: AgenticPerception = {
+      goal,
+      history: [],
+      previousResponseId
+    };
+    previousResponseId = decision.previousResponseId ?? previousResponseId;
+  }
+}
+`), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	if err := os.WriteFile(noise, []byte(`export const createAgenticDecider = () => ({
+  decide(perception) {
+    return { previousResponseId: perception.previousResponseId };
+  }
+});
+`), 0o600); err != nil {
+		t.Fatalf("write noise: %v", err)
+	}
+	report := brainBriefReport{
+		LikelyEditFiles: []string{
+			"apps/desktop/src/main/agentic-decider.ts",
+			"packages/automation/src/index.ts",
+		},
+	}
+	counts := brainBriefCurrentCodeFileCounts(repoDir, "browser decision turns must stay self-contained after stale model state")
+	if counts["packages/automation/src/index.ts"] <= 0 {
+		t.Fatalf("expected automation file current-code count, got %+v", counts)
+	}
+	if _, ok := counts["apps/desktop/src/main/agentic-decider.ts"]; ok {
+		t.Fatalf("decider should not be a primary previous-response current-code target: %+v", counts)
+	}
+	actions := brainBriefActionChecklist(repoDir, report, "self-contained perception stopped chaining previous_response_id")
+	if len(actions) != 3 {
+		t.Fatalf("expected three primary automation actions, got %+v", actions)
+	}
+	var sawAccumulator, sawPerception, sawAssignment bool
+	for _, action := range actions {
+		if action.File != "packages/automation/src/index.ts" {
+			t.Fatalf("unexpected previous-response action file: %+v", action)
+		}
+		sawAccumulator = sawAccumulator || strings.Contains(action.Action, "response-id accumulator")
+		sawPerception = sawPerception ||
+			(strings.Contains(action.Action, "previousResponseId: null") &&
+				strings.Contains(action.Action, "Keep the `previousResponseId` key present") &&
+				strings.Contains(action.Action, "do not delete it"))
+		sawAssignment = sawAssignment || strings.Contains(action.Action, "Delete this browser-loop response-id carry-forward assignment")
+	}
+	if !sawAccumulator || !sawPerception || !sawAssignment {
+		t.Fatalf("missing previous-response actions: %+v", actions)
+	}
+}
+
+func TestBrainBriefAddsSiblingTestFiles(t *testing.T) {
+	repoDir := t.TempDir()
+	testPath := filepath.Join(repoDir, "packages", "storage", "src", "index.test.ts")
+	if err := os.MkdirAll(filepath.Dir(testPath), 0o700); err != nil {
+		t.Fatalf("mkdir test dir: %v", err)
+	}
+	if err := os.WriteFile(testPath, []byte("test('storage', () => {})\n"), 0o600); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+	tests := brainBriefAddSiblingTestFiles(repoDir, []string{"packages/storage/src/index.ts"}, nil)
+	if !slices.Contains(tests, "packages/storage/src/index.test.ts") {
+		t.Fatalf("expected sibling test file, got %+v", tests)
 	}
 }
 
