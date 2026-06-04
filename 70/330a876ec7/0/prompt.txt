@@ -1,0 +1,52 @@
+For "entire brain" or "entire brain --help", organize the commands into groups based on use case. Also review if all these commands are really needed for the user - don't show commands that are only used for the Entire CLI plugin interface.
+
+---
+
+What does completion do?
+
+---
+
+Remove all duplicates. Also remove completion, doctor, and config. Then move the 4 Build the brain into the Maintain section as those are really for that.
+
+---
+
+Next, make history-index, index, and seed sub commands of refresh. Rename history-index to sessions, to the new structure becomes refresh sessions, refersion index, and refresh seed.
+
+---
+
+Change the sections/order as follows:
+Create the brain:
+  path        Print the persistent brain path for a repo path or URL
+  refresh     Create or refresh the repository brain
+  status      Summarize brain availability, freshness, and live workspace state
+  workspace   Manage local multi-repo brain workspaces
+  
+Explore the brain:
+  brief       Build a bounded task packet from brain context and live state
+  guide       Print the recommended coding-agent brain command set
+  inspect     Run specialist brain inspection commands
+  mcp         Serve local brain tools over MCP stdio
+  search      Search the local semantic brain
+  show        Show one semantic brain record
+
+Maintain & share:
+  bundle      Import or export local brain bundles
+  export      Export latest known transcript for each Entire session
+  gc          Prune old local semantic overlays and snapshots
+  help        Help about any command
+  repair      Rebuild local semantic brain derived indexes
+  reset       Remove local generated brain data
+  stale       Report semantic brain freshness
+  version     Print plugin version
+
+---
+
+Which entire brain commands are hidden now?
+
+---
+
+Why not remove the Redundant aliases?
+
+---
+
+Nobody uses this tool so far. Unless there is an internal consumer (like the MCP server), it's safe to remove the duplicates.
