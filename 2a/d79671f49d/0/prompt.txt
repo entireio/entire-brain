@@ -1,0 +1,13 @@
+In /Users/thomi/Projects/entire.io, if I run "entire brain tools" I get no output. Same for "entire brain workflows". What's supposed to happen here?
+
+---
+
+Why does ingestion drop external nodes? Can you figure that from this project's brain?
+
+---
+
+Yes
+
+---
+
+entire brain workflows still doesn't work
