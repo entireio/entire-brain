@@ -73,7 +73,7 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		if !ok {
 			return err
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), filepath.Join(dirs.Data, brainDirName, filepath.FromSlash(key)))
+		fmt.Fprintln(cmd.OutOrStdout(), filepath.Join(dirs.Data, repoStoreDirName, filepath.FromSlash(key)))
 		return nil
 	}
 	if local {
@@ -98,7 +98,7 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		return err
 	}
 	if ok {
-		fmt.Fprintln(cmd.OutOrStdout(), filepath.Join(dirs.Data, brainDirName, filepath.FromSlash(key)))
+		fmt.Fprintln(cmd.OutOrStdout(), filepath.Join(dirs.Data, repoStoreDirName, filepath.FromSlash(key)))
 		return nil
 	}
 	return fmt.Errorf("target is neither an existing path nor a supported repo URL: %s", target)

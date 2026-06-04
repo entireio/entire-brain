@@ -68,7 +68,7 @@ Agent flags:
 Persistent output uses the same repo-key storage model as export:
 
 ```text
-${data}/brain/<repo-key>/
+${data}/repos/<repo-key>/
   manifest.json
   README.md
   seed/
@@ -219,7 +219,7 @@ README must always be produced from the combined manifest.
 Seed maintains state outside the durable brain output:
 
 ```text
-${state}/brain/<repo-key>/seed.json
+${state}/repos/<repo-key>/seed.json
 ```
 
 Cursor fields:

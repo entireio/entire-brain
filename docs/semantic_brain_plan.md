@@ -295,7 +295,7 @@ branch overlays.
 Recommended per-repo layout:
 
 ```text
-brain/<repo-key>/
+repos/<repo-key>/
   current.json
   manifest.json
   README.md

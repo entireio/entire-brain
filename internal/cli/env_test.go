@@ -83,10 +83,10 @@ func TestRepoStoragePathsUseKnownOriginDomain(t *testing.T) {
 	if storage.Key != "gh/entireio/cli" {
 		t.Fatalf("key = %q", storage.Key)
 	}
-	if storage.BrainDir != filepath.Join(env.PluginDataDir, brainDirName, "gh", "entireio", "cli") {
+	if storage.BrainDir != filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "entireio", "cli") {
 		t.Fatalf("brain dir = %q", storage.BrainDir)
 	}
-	if storage.HeadPath != filepath.Join(env.PluginStateDir, brainDirName, "gh", "entireio", "cli", brainHeadFileName) {
+	if storage.HeadPath != filepath.Join(env.PluginStateDir, repoStoreDirName, "gh", "entireio", "cli", brainHeadFileName) {
 		t.Fatalf("head path = %q", storage.HeadPath)
 	}
 }

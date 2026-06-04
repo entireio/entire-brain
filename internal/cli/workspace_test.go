@@ -22,7 +22,7 @@ func TestWorkspaceCreateAddRefreshAndQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workspace create: %v", err)
 	}
-	if !strings.Contains(out, filepath.Join(brainDirName, workspaceDirName, "payments-platform")) {
+	if !strings.Contains(out, filepath.Join(repoStoreDirName, workspaceDirName, "payments-platform")) {
 		t.Fatalf("create output = %q", out)
 	}
 	if _, err := execute(t, cmd, "workspace", "add", "payments-platform", repoDir, "--name", "api"); err != nil {
@@ -63,7 +63,7 @@ func TestWorkspaceRefreshReportsRepoSemanticFreshness(t *testing.T) {
 		t.Fatalf("index: %v", err)
 	}
 	manifest := mustSemanticSource(t, env)
-	storePath := filepath.Join(env.PluginDataDir, brainDirName, "gh", "example", "repo", filepath.FromSlash(manifest.StorePath))
+	storePath := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", filepath.FromSlash(manifest.StorePath))
 	if err := os.Remove(storePath); err != nil {
 		t.Fatalf("remove store: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestWorkspaceQueryAndImpactReportLockedSemanticIndex(t *testing.T) {
 	if _, err := execute(t, cmd, "workspace", "add", "payments-platform", repoDir, "--name", "api"); err != nil {
 		t.Fatalf("workspace add: %v", err)
 	}
-	brainDir := filepath.Join(env.PluginDataDir, brainDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
 	unlock, err := acquireSemanticIndexLock(brainDir)
 	if err != nil {
 		t.Fatalf("acquire lock: %v", err)
@@ -163,7 +163,7 @@ func TestWorkspaceStoresRepoKeyAndLocalPathHint(t *testing.T) {
 	if _, err := execute(t, cmd, "workspace", "add", "payments-platform", repoDir, "--name", "api"); err != nil {
 		t.Fatalf("workspace add: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(env.PluginDataDir, brainDirName, workspaceDirName, "payments-platform", workspaceManifestName))
+	data, err := os.ReadFile(filepath.Join(env.PluginDataDir, repoStoreDirName, workspaceDirName, "payments-platform", workspaceManifestName))
 	if err != nil {
 		t.Fatalf("read workspace: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestWorkspaceRejectsDotNamesBeforePathResolution(t *testing.T) {
 			t.Fatalf("workspace create accepted %q", name)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(env.PluginDataDir, brainDirName, exportManifestFileName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(env.PluginDataDir, repoStoreDirName, exportManifestFileName)); !os.IsNotExist(err) {
 		t.Fatalf("dot workspace wrote outside workspaces: %v", err)
 	}
 }
@@ -295,7 +295,7 @@ func TestWorkspaceRejectsDotRepoKeys(t *testing.T) {
 
 func TestWorkspaceRejectsSymlinkedWorkspacePath(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
-	workspacesRoot := filepath.Join(env.PluginDataDir, brainDirName, workspaceDirName)
+	workspacesRoot := filepath.Join(env.PluginDataDir, repoStoreDirName, workspaceDirName)
 	if err := os.MkdirAll(workspacesRoot, 0o700); err != nil {
 		t.Fatalf("mkdir workspaces: %v", err)
 	}
@@ -314,7 +314,7 @@ func TestWorkspaceRejectsSymlinkedWorkspacePath(t *testing.T) {
 
 func TestWorkspaceRejectsSymlinkedBrainRoot(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
-	brainRoot := filepath.Join(env.PluginDataDir, brainDirName)
+	brainRoot := filepath.Join(env.PluginDataDir, repoStoreDirName)
 	external := t.TempDir()
 	if err := os.Symlink(external, brainRoot); err != nil {
 		t.Fatalf("symlink brain root: %v", err)

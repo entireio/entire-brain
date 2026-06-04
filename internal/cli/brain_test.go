@@ -625,17 +625,17 @@ func TestBrainBriefActionChecklistFindsSelfContainedAgenticPerception(t *testing
 		t.Fatalf("expected three primary automation actions, got %+v", actions)
 	}
 	var sawAccumulator, sawPerception, sawAssignment bool
-		for _, action := range actions {
-			if action.File != "packages/automation/src/index.ts" {
-				t.Fatalf("unexpected previous-response action file: %+v", action)
-			}
-			sawAccumulator = sawAccumulator || strings.Contains(action.Action, "response-id accumulator")
-			sawPerception = sawPerception ||
-				(strings.Contains(action.Action, "previousResponseId: null") &&
-					strings.Contains(action.Action, "Keep the `previousResponseId` key present") &&
-					strings.Contains(action.Action, "do not delete it"))
-			sawAssignment = sawAssignment || strings.Contains(action.Action, "Delete this browser-loop response-id carry-forward assignment")
+	for _, action := range actions {
+		if action.File != "packages/automation/src/index.ts" {
+			t.Fatalf("unexpected previous-response action file: %+v", action)
 		}
+		sawAccumulator = sawAccumulator || strings.Contains(action.Action, "response-id accumulator")
+		sawPerception = sawPerception ||
+			(strings.Contains(action.Action, "previousResponseId: null") &&
+				strings.Contains(action.Action, "Keep the `previousResponseId` key present") &&
+				strings.Contains(action.Action, "do not delete it"))
+		sawAssignment = sawAssignment || strings.Contains(action.Action, "Delete this browser-loop response-id carry-forward assignment")
+	}
 	if !sawAccumulator || !sawPerception || !sawAssignment {
 		t.Fatalf("missing previous-response actions: %+v", actions)
 	}

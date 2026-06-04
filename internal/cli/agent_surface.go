@@ -1197,37 +1197,37 @@ func brainBriefPreviousResponseActionsForFile(rel, source string) []brainBriefAc
 		if strings.Contains(trimmed, "const perception: AgenticPerception =") {
 			inAgenticPerception = true
 		}
-			if strings.Contains(trimmed, "let previousResponseId") {
-				actions = append(actions, brainBriefAction{
-					File:     rel,
-					Symbol:   currentSymbol,
-					Action:   "Delete the loop-scoped browser response-id accumulator line; do not replace it with another accumulator. Each agentic perception turn must be built from fresh observed page state and recent local history.",
-					Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
-				})
+		if strings.Contains(trimmed, "let previousResponseId") {
+			actions = append(actions, brainBriefAction{
+				File:     rel,
+				Symbol:   currentSymbol,
+				Action:   "Delete the loop-scoped browser response-id accumulator line; do not replace it with another accumulator. Each agentic perception turn must be built from fresh observed page state and recent local history.",
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
+			})
+		}
+		if inAgenticPerception && (strings.Contains(trimmed, "previousResponseId:") || trimmed == "previousResponseId") {
+			action := "Replace this perception entry with the literal property `previousResponseId: null`. Keep the `previousResponseId` key present; do not delete it, use shorthand, or pass a variable from prior turns."
+			if strings.Contains(trimmed, "previousResponseId: null") {
+				action = "Preserve self-contained browser perception: keep the `previousResponseId` key present as literal null for each agentic browser turn."
 			}
-			if inAgenticPerception && (strings.Contains(trimmed, "previousResponseId:") || trimmed == "previousResponseId") {
-				action := "Replace this perception entry with the literal property `previousResponseId: null`. Keep the `previousResponseId` key present; do not delete it, use shorthand, or pass a variable from prior turns."
-				if strings.Contains(trimmed, "previousResponseId: null") {
-					action = "Preserve self-contained browser perception: keep the `previousResponseId` key present as literal null for each agentic browser turn."
-				}
-				actions = append(actions, brainBriefAction{
-					File:     rel,
-					Symbol:   currentSymbol,
-					Action:   action,
+			actions = append(actions, brainBriefAction{
+				File:     rel,
+				Symbol:   currentSymbol,
+				Action:   action,
 				Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
 			})
 		}
 		if inAgenticPerception && trimmed == "};" {
 			inAgenticPerception = false
 		}
-			if strings.Contains(trimmed, "previousResponseId =") && strings.Contains(trimmed, "decision.previousResponseId") {
-				actions = append(actions, brainBriefAction{
-					File:     rel,
-					Symbol:   currentSymbol,
-					Action:   "Delete this browser-loop response-id carry-forward assignment entirely; browser decider turns should not chain `decision.previousResponseId` into later perception turns.",
-					Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
-				})
-			}
+		if strings.Contains(trimmed, "previousResponseId =") && strings.Contains(trimmed, "decision.previousResponseId") {
+			actions = append(actions, brainBriefAction{
+				File:     rel,
+				Symbol:   currentSymbol,
+				Action:   "Delete this browser-loop response-id carry-forward assignment entirely; browser decider turns should not chain `decision.previousResponseId` into later perception turns.",
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
+			})
+		}
 	}
 	return actions
 }

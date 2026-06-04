@@ -30,7 +30,7 @@ const (
 	xdgCacheHome  = "XDG_CACHE_HOME"
 
 	xdgRootDir        = "entire"
-	brainDirName      = "brain"
+	repoStoreDirName  = "repos"
 	brainHeadFileName = "head.json"
 )
 
@@ -134,14 +134,14 @@ func repoStoragePaths(ctx context.Context, runner CommandRunner, env EntireEnv, 
 	if err != nil {
 		return repoStorage{}, err
 	}
-	brainRoot := filepath.Join(dirs.Data, brainDirName)
+	brainRoot := filepath.Join(dirs.Data, repoStoreDirName)
 	if err := rejectBrainRootPathSymlinks(brainRoot, filepath.FromSlash(key)); err != nil {
 		return repoStorage{}, err
 	}
 	return repoStorage{
 		Key:      key,
 		BrainDir: filepath.Join(brainRoot, filepath.FromSlash(key)),
-		HeadPath: filepath.Join(dirs.State, brainDirName, filepath.FromSlash(key), brainHeadFileName),
+		HeadPath: filepath.Join(dirs.State, repoStoreDirName, filepath.FromSlash(key), brainHeadFileName),
 	}, nil
 }
 
@@ -150,7 +150,7 @@ func brainDirForKey(env EntireEnv, key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	brainRoot := filepath.Join(dirs.Data, brainDirName)
+	brainRoot := filepath.Join(dirs.Data, repoStoreDirName)
 	if err := rejectBrainRootPathSymlinks(brainRoot, filepath.FromSlash(key)); err != nil {
 		return "", err
 	}
@@ -162,7 +162,7 @@ func headPathForKey(env EntireEnv, key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dirs.State, brainDirName, filepath.FromSlash(key), brainHeadFileName), nil
+	return filepath.Join(dirs.State, repoStoreDirName, filepath.FromSlash(key), brainHeadFileName), nil
 }
 
 func repoStorageKey(ctx context.Context, runner CommandRunner, configDir, repoDir string) (string, error) {

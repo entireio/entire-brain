@@ -462,7 +462,7 @@ func workspaceDir(env EntireEnv, name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	brainRoot := filepath.Join(dirs.Data, brainDirName)
+	brainRoot := filepath.Join(dirs.Data, repoStoreDirName)
 	if err := rejectBrainRootPathSymlinks(brainRoot, filepath.Join(workspaceDirName, name)); err != nil {
 		return "", err
 	}
