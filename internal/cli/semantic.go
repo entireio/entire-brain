@@ -816,7 +816,10 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 			continue
 		}
 		if record.RecordType == "relation" {
-			if ignore.MentionsIgnoredPath(record.FromID) || ignore.MentionsIgnoredPath(record.ToID) {
+			if p := semanticEndpointPath(record.FromID); p != "" && ignore.Ignored(p) {
+				continue
+			}
+			if p := semanticEndpointPath(record.ToID); p != "" && ignore.Ignored(p) {
 				continue
 			}
 			if _, ok := ignoredIDs[record.FromID]; ok {
@@ -864,6 +867,24 @@ func (r semanticRecord) semanticPath() string {
 		return r.FilePath
 	}
 	return r.Path
+}
+
+// semanticEndpointPath extracts the repository-relative file path encoded in a
+// semantic relation endpoint ID, or "" when the ID carries no path. Internal
+// IDs are "<repo-key>:<lang>:<path>:<kind>:<name>"; the repo key, language, and
+// kind segments never contain ":", so the path is always the third field.
+// External endpoints ("external:<kind>:<value>") carry no file path. Endpoint
+// IDs are filtered against the ignore set by file path so a substring in the
+// repo key or symbol name cannot accidentally redact unrelated relations.
+func semanticEndpointPath(id string) string {
+	if id == "" || strings.HasPrefix(id, "external:") {
+		return ""
+	}
+	parts := strings.Split(id, ":")
+	if len(parts) < 5 {
+		return ""
+	}
+	return parts[2]
 }
 
 func (r *semanticRecord) setSemanticPath(path string) {
