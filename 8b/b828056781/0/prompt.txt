@@ -298,3 +298,7 @@ Almost. I’m finishing the entireio/cli results now, then I’ll clean up the b
 ---
 
 finsih fully all tests; how to give reults; and give messgae o methodlgy; and ; maek usre fully ready for pr
+
+---
+
+make best pr ur choice; make message to homas on the cli reutls; u clone the entire-io/cli repo right? and what was the prolbem or did u do the right way? idk
