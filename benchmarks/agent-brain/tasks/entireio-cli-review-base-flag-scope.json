@@ -4,8 +4,8 @@
   "repo_path": "cli",
   "conditions": [
     "no_brain",
-    "semantic_brain",
-    "mcp_semantic"
+    "full_cli_compact",
+    "mcp_history"
   ],
   "prompt": "Fix the review scope regression: `entire review --base <ref>` must use the explicit base ref when collecting checkpoint context and composing the agent prompt/banner. Preserve the existing review checkpoint context behavior.",
   "hide_expected_from_agent": true,
@@ -32,5 +32,6 @@
     "reviewContextCommitMessages",
     "scopeBaseRef",
     "BaseFlagThreadsThroughToPromptAndBanner"
-  ]
+  ],
+  "copy_checkpoint_ref_from_source": true
 }

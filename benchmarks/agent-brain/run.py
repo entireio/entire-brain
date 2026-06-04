@@ -838,18 +838,52 @@ def remove_worktree(source: pathlib.Path, worktree: pathlib.Path) -> None:
         shutil.rmtree(worktree, ignore_errors=True)
 
 
+CHECKPOINT_REF = "refs/heads/entire/checkpoints/v1"
+
+
 def prepare_condition_history(task: dict[str, Any], condition: str, worktree: pathlib.Path) -> None:
-    if not task.get("copy_entire_history_from_source") or not condition_copies_entire_history(condition):
+    if not condition_copies_entire_history(condition):
         return
-    copy_entire_history(resolve_repo_path(task["repo_path"]), worktree)
+    source = resolve_repo_path(task["repo_path"])
+    if task.get("copy_entire_history_from_source"):
+        copy_entire_history(source, worktree)
+    if task.get("copy_checkpoint_ref_from_source"):
+        copy_checkpoint_ref(source, worktree)
+
+
+def copy_checkpoint_ref(source: pathlib.Path, worktree: pathlib.Path) -> None:
+    """Bring the Entire checkpoint branch (real session history, synced from the
+    checkpoint remote, e.g. entireio/cli-checkpoints) into the disposable worktree
+    so `entire brain export` materializes the same sessions the live repo sees.
+    The ref is removed again before the agent runs (remove_agent_visible_entire_history),
+    so the agent cannot read raw transcripts via git; only the indexed brain remains."""
+    probe = run_cmd(["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=source)
+    if probe.returncode != 0 or not probe.stdout.strip():
+        raise RuntimeError(
+            f"copy_checkpoint_ref_from_source requested but {source} has no {CHECKPOINT_REF}; "
+            f"run `entire brain refresh` there first to pull sessions from the checkpoint remote"
+        )
+    run_cmd(["git", "fetch", "--no-tags", str(source), f"+{CHECKPOINT_REF}:{CHECKPOINT_REF}"], cwd=worktree, check=True)
+    src_settings = source / ".entire" / "settings.json"
+    if src_settings.exists():
+        (worktree / ".entire").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_settings, worktree / ".entire" / "settings.json")
 
 
 def remove_agent_visible_entire_history(worktree: pathlib.Path) -> bool:
+    removed = False
     target_entire = worktree / ".entire"
-    if not target_entire.exists():
-        return False
-    shutil.rmtree(target_entire)
-    return True
+    if target_entire.exists():
+        shutil.rmtree(target_entire)
+        removed = True
+    # Drop the Entire checkpoint branch so the agent cannot read raw session
+    # transcripts via git; the indexed brain stays under .benchmark/plugin.
+    if run_cmd(["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=worktree).returncode == 0:
+        run_cmd(["git", "update-ref", "-d", CHECKPOINT_REF], cwd=worktree)
+        run_cmd(["git", "reflog", "expire", "--expire=now", "--all"], cwd=worktree)
+        run_cmd(["git", "prune", "--expire=now"], cwd=worktree)
+        removed = True
+    return removed
 
 
 def run_plugin_dir(worktree: pathlib.Path) -> pathlib.Path:
