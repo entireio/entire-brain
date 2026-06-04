@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "96c00cec1c77",
+  "strategy": "manual-commit",
+  "branch": "agent-brain-benchmark-proof",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/mcp_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/96/c00cec1c77/0/metadata.json",
+      "transcript": "/96/c00cec1c77/0/full.jsonl",
+      "content_hash": "/96/c00cec1c77/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 141,
+    "cache_creation_tokens": 5173,
+    "cache_read_tokens": 5473385,
+    "output_tokens": 2475,
+    "api_call_count": 6
+  }
+}
