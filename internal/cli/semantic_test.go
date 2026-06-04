@@ -839,7 +839,7 @@ func TestSemanticRepairRebuildsMissingStoreFromActiveSnapshot(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
@@ -861,7 +861,7 @@ func TestSemanticRepairRebuildsMissingStoreFromActiveSnapshot(t *testing.T) {
 	if _, err := os.Stat(storePath); err != nil {
 		t.Fatalf("store was not rebuilt: %v", err)
 	}
-	queryOut, err := execute(t, cmd, "query", "ValidateToken", "--json")
+	queryOut, err := execute(t, cmd, "search", "ValidateToken", "--json")
 	if err != nil {
 		t.Fatalf("query after repair: %v", err)
 	}
@@ -875,7 +875,7 @@ func TestSemanticResetRequiresForceAndSemanticOnlyPreservesManifest(t *testing.T
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	if _, err := execute(t, cmd, "reset", "--semantic-only"); err == nil || !strings.Contains(err.Error(), "--force") {
@@ -906,7 +906,7 @@ func TestSemanticResetForceRemovesBrainDirectory(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
@@ -923,16 +923,16 @@ func TestSemanticJSONErrorsUseStructuredEnvelope(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	for name, args := range map[string][]string{
-		"runtime":        {"query", "ValidateToken", "--json", "--limit", "0"},
-		"args":           {"query", "--json"},
-		"flags":          {"query", "--json", "--bogus"},
-		"flags-reversed": {"query", "--bogus", "--json"},
+		"runtime":        {"search", "ValidateToken", "--json", "--limit", "0"},
+		"args":           {"search", "--json"},
+		"flags":          {"search", "--json", "--bogus"},
+		"flags-reversed": {"search", "--bogus", "--json"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
 			out, err := execute(t, cmd, args...)
 			if err == nil {
-				t.Fatalf("query succeeded unexpectedly:\n%s", out)
+				t.Fatalf("search succeeded unexpectedly:\n%s", out)
 			}
 			var envelope commandJSONError
 			if decodeErr := json.Unmarshal([]byte(out), &envelope); decodeErr != nil {
@@ -998,7 +998,7 @@ func TestSemanticIndexReportsPluginDataWriteFailures(t *testing.T) {
 	env.PluginDataDir = dataFile
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err == nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err == nil {
 		t.Fatalf("index succeeded with file plugin data dir")
 	}
 }
@@ -1016,7 +1016,7 @@ func TestSemanticIndexReportsReadOnlyBrainDirectory(t *testing.T) {
 	defer func() { _ = os.Chmod(brainRoot, 0o700) }()
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err == nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err == nil {
 		t.Fatalf("index succeeded with read-only brain root")
 	}
 }
@@ -1816,23 +1816,23 @@ func TestSemanticBoundaryCommandsListRoutesToolsAndWorkflows(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	for _, tc := range []struct {
-		command string
-		want    string
+		kind string
+		want string
 	}{
-		{command: "routes", want: `"GET /tokens/{id}"`},
-		{command: "tools", want: `"brain refresh"`},
-		{command: "workflows", want: `"token validation"`},
+		{kind: "route", want: `"GET /tokens/{id}"`},
+		{kind: "tool", want: `"brain refresh"`},
+		{kind: "workflow", want: `"token validation"`},
 	} {
-		out, err := execute(t, cmd, tc.command, "--json")
+		out, err := execute(t, cmd, "inspect", "boundaries", "--kind", tc.kind, "--json")
 		if err != nil {
-			t.Fatalf("%s: %v", tc.command, err)
+			t.Fatalf("%s: %v", tc.kind, err)
 		}
 		if !strings.Contains(out, tc.want) {
-			t.Fatalf("%s output missing %s:\n%s", tc.command, tc.want, out)
+			t.Fatalf("%s output missing %s:\n%s", tc.kind, tc.want, out)
 		}
 	}
 }
@@ -1842,10 +1842,10 @@ func TestSemanticBoundaryLimitFiltersRelationsAndHandlers(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshotWithExtraRoute())
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	out, err := execute(t, cmd, "routes", "--limit", "1", "--json")
+	out, err := execute(t, cmd, "inspect", "boundaries", "--kind", "route", "--limit", "1", "--json")
 	if err != nil {
 		t.Fatalf("routes: %v", err)
 	}
@@ -1862,10 +1862,10 @@ func TestSemanticTestsSuggestsRelevantTests(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	out, err := execute(t, cmd, "tests", "ValidateToken", "--json")
+	out, err := execute(t, cmd, "inspect", "tests", "ValidateToken", "--json")
 	if err != nil {
 		t.Fatalf("tests: %v", err)
 	}

@@ -15,7 +15,7 @@ func TestWorkspaceCreateAddRefreshAndQuery(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
 
-	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	out, err := execute(t, cmd, "workspace", "create", "payments-platform")
@@ -59,7 +59,7 @@ func TestWorkspaceRefreshReportsRepoSemanticFreshness(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	manifest := mustSemanticSource(t, env)
@@ -94,7 +94,7 @@ func TestWorkspaceQueryAndImpactReportLockedSemanticIndex(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err != nil {
@@ -131,7 +131,7 @@ func TestWorkspaceRefreshRejectsMismatchedLocalPathHintRepoKey(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	manifest := workspaceManifest{
@@ -186,7 +186,7 @@ func TestWorkspaceAddStoresResolvedRepoRootForRelativeHint(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err != nil {

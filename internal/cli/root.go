@@ -58,36 +58,58 @@ agent can inspect to understand project history.`,
 		},
 	}
 
-	cmd.AddCommand(newDoctorCommand(opts))
-	cmd.AddCommand(newAgentStatusCommand(opts))
-	cmd.AddCommand(newBrainBriefCommand(opts))
-	cmd.AddCommand(newConfigCommand(opts.Env))
-	cmd.AddCommand(newExportCommand(opts))
-	cmd.AddCommand(newBrainGuideCommand())
-	cmd.AddCommand(newHistoryIndexCommand(opts))
-	cmd.AddCommand(newBrainInspectCommand(opts))
-	cmd.AddCommand(newMCPCommand(opts))
-	cmd.AddCommand(newSemanticBundleCommand(opts))
-	cmd.AddCommand(newSemanticChangesCommand(opts))
-	cmd.AddCommand(newSemanticContextCommand(opts))
-	cmd.AddCommand(newSemanticGCCommand(opts))
-	cmd.AddCommand(newSemanticImpactCommand(opts))
-	cmd.AddCommand(newSemanticIndexCommand(opts))
-	cmd.AddCommand(newSemanticQueryCommand(opts))
-	cmd.AddCommand(newSemanticRoutesCommand(opts))
-	cmd.AddCommand(newPathCommand(opts))
-	cmd.AddCommand(newRefreshCommand(opts))
-	cmd.AddCommand(newSemanticRepairCommand(opts))
-	cmd.AddCommand(newSemanticResetCommand(opts))
-	cmd.AddCommand(newBrainSearchCommand(opts))
-	cmd.AddCommand(newSeedCommand(opts))
-	cmd.AddCommand(newBrainShowCommand(opts))
-	cmd.AddCommand(newSemanticStaleCommand(opts))
-	cmd.AddCommand(newSemanticTestsCommand(opts))
-	cmd.AddCommand(newSemanticToolsCommand(opts))
-	cmd.AddCommand(newSemanticWorkflowsCommand(opts))
-	cmd.AddCommand(newWorkspaceCommand(opts))
-	cmd.AddCommand(newVersionCommand(opts.Version))
+	// The shell-completion generator targets the standalone binary name and is
+	// dead weight when dispatched as `entire brain`, so drop it entirely.
+	cmd.CompletionOptions.DisableDefaultCmd = true
+
+	cmd.AddGroup(
+		&cobra.Group{ID: "create", Title: "Create the brain:"},
+		&cobra.Group{ID: "explore", Title: "Explore the brain:"},
+		&cobra.Group{ID: "maintain", Title: "Maintain & share:"},
+	)
+
+	addGrouped := func(group string, c *cobra.Command) {
+		c.GroupID = group
+		cmd.AddCommand(c)
+	}
+	// addHidden registers commands kept out of help but still invocable: the
+	// Entire CLI host / MCP clients drive some programmatically, and the rest
+	// are redundant aliases fully covered by `search` and `inspect <sub>`.
+	addHidden := func(c *cobra.Command) {
+		c.Hidden = true
+		cmd.AddCommand(c)
+	}
+
+	// Create the brain — locate it, build/refresh it, manage workspaces.
+	addGrouped("create", newPathCommand(opts))
+	addGrouped("create", newRefreshCommand(opts))
+	addGrouped("create", newAgentStatusCommand(opts))
+	addGrouped("create", newWorkspaceCommand(opts))
+
+	// Explore the brain — task packets, search, records, specialist inspection.
+	addGrouped("explore", newBrainBriefCommand(opts))
+	addGrouped("explore", newBrainGuideCommand())
+	addGrouped("explore", newBrainInspectCommand(opts))
+	addGrouped("explore", newMCPCommand(opts))
+	addGrouped("explore", newBrainSearchCommand(opts))
+	addGrouped("explore", newBrainShowCommand(opts))
+
+	// Maintain & share — freshness, cleanup, portability, version.
+	// (Build stages live under `refresh`: sessions, index, seed.)
+	addGrouped("maintain", newSemanticBundleCommand(opts))
+	addGrouped("maintain", newExportCommand(opts))
+	addGrouped("maintain", newSemanticGCCommand(opts))
+	addGrouped("maintain", newSemanticRepairCommand(opts))
+	addGrouped("maintain", newSemanticResetCommand(opts))
+	addGrouped("maintain", newSemanticStaleCommand(opts))
+	addGrouped("maintain", newVersionCommand(opts.Version))
+
+	// Hidden plugin/config commands.
+	addHidden(newDoctorCommand(opts))
+	addHidden(newConfigCommand(opts.Env))
+
+	cmd.SetHelpCommandGroupID("maintain")
+
 	wrapJSONErrorRendering(cmd)
 	return cmd
 }

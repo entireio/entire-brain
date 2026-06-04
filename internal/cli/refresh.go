@@ -80,6 +80,11 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	for _, name := range []string{"checkpoint-limit", "entire-binary", "raw", "scope", "force-seed", "worktree", "agent-command", "semantic", "semantic-worktree", "history-index", "sem-binary", "all-branches", "force-all-branches"} {
 		_ = cmd.Flags().MarkHidden(name)
 	}
+	// Individual refresh stages, runnable on their own: `refresh` does all of
+	// them; these target a single source.
+	cmd.AddCommand(newHistoryIndexCommand(opts))  // refresh sessions
+	cmd.AddCommand(newSemanticIndexCommand(opts)) // refresh index
+	cmd.AddCommand(newSeedCommand(opts))          // refresh seed
 	return cmd
 }
 

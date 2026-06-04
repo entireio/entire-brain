@@ -99,8 +99,8 @@ type historyScanCacheEntry struct {
 
 func newHistoryIndexCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "history-index [path]",
-		Short: "Build the local session history decision/rationale index",
+		Use:   "sessions [path]",
+		Short: "Rebuild the session decision/rationale index from exported transcripts",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."

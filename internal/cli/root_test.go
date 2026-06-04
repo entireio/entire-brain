@@ -29,14 +29,62 @@ func TestRootWithoutCommandShowsHelp(t *testing.T) {
 	for _, want := range []string{
 		"entire-brain is an external-command plugin for the Entire CLI.",
 		"Usage:",
-		"Available Commands:",
+		// Commands are organized into use-case groups instead of one flat list.
+		"Create the brain:",
+		"Explore the brain:",
+		"Maintain & share:",
 		"brief",
 		"status",
+		"refresh",
+		"inspect",
+		"mcp",
+		"version",
 		"workspace",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("root output missing %q:\n%s", want, out)
 		}
+	}
+	// Absent from top-level help: hidden plugin/config commands and the dropped
+	// completion generator; removed redundant aliases; and the build stages that
+	// now live under `refresh` (sessions, index, seed).
+	for _, absent := range []string{
+		"  doctor ", "  config ", "  completion ",
+		"  query ", "  context ", "  impact ", "  changes ",
+		"  tests ", "  routes ", "  tools ", "  workflows ",
+		"  index ", "  seed ", "  sessions ", "  history-index ",
+	} {
+		if strings.Contains(out, absent) {
+			t.Fatalf("root output should not list %q:\n%s", absent, out)
+		}
+	}
+}
+
+func TestRedundantAliasesAreRemoved(t *testing.T) {
+	// The duplicate commands are unregistered (not just hidden): invoking them
+	// now fails. Canonical paths are `search` and `inspect <sub>`.
+	for _, alias := range []string{"query", "context", "impact", "changes", "tests", "routes", "tools", "workflows"} {
+		cmd := NewRootCommand(Options{Version: "test-version"})
+		if _, err := execute(t, cmd, alias); err == nil {
+			t.Fatalf("alias %q should be removed (expected unknown-command error)", alias)
+		}
+	}
+}
+
+func TestRefreshExposesBuildStageSubcommands(t *testing.T) {
+	cmd := NewRootCommand(Options{Version: "test-version"})
+	out, err := execute(t, cmd, "refresh", "--help")
+	if err != nil {
+		t.Fatalf("refresh --help: %v\n%s", err, out)
+	}
+	for _, want := range []string{"sessions", "index", "seed"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("refresh --help missing stage %q:\n%s", want, out)
+		}
+	}
+	// The renamed stage is `sessions`, not `history-index`.
+	if strings.Contains(out, "history-index") {
+		t.Fatalf("refresh --help should not mention history-index:\n%s", out)
 	}
 }
 

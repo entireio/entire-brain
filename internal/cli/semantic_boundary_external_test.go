@@ -30,29 +30,29 @@ func TestSemanticBoundaryCommandsResolveExternalNodes(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshotExternalNodes())
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 
 	type boundaryReport struct {
 		Boundary semanticBoundaryResult `json:"boundary"`
 	}
-	run := func(command string) boundaryReport {
+	run := func(kind string) boundaryReport {
 		t.Helper()
-		out, err := execute(t, cmd, command, "--json")
+		out, err := execute(t, cmd, "inspect", "boundaries", "--kind", kind, "--json")
 		if err != nil {
-			t.Fatalf("%s: %v", command, err)
+			t.Fatalf("%s: %v", kind, err)
 		}
 		var report boundaryReport
 		if err := json.Unmarshal([]byte(out), &report); err != nil {
-			t.Fatalf("parse %s json: %v\n%s", command, err, out)
+			t.Fatalf("parse %s json: %v\n%s", kind, err, out)
 		}
 		return report
 	}
 
 	// routes: the external:route node becomes the boundary (kind route, no file
 	// path, name from the endpoint value); the in-repo handler is listed.
-	routes := run("routes")
+	routes := run("route")
 	if len(routes.Boundary.Boundaries) != 1 {
 		t.Fatalf("routes boundaries = %+v", routes.Boundary.Boundaries)
 	}
@@ -68,7 +68,7 @@ func TestSemanticBoundaryCommandsResolveExternalNodes(t *testing.T) {
 
 	// tools: separate external:tool node; the route boundary/handler must not
 	// leak into the tool view (kind filtering).
-	tools := run("tools")
+	tools := run("tool")
 	if len(tools.Boundary.Boundaries) != 1 {
 		t.Fatalf("tools boundaries = %+v", tools.Boundary.Boundaries)
 	}
@@ -81,7 +81,7 @@ func TestSemanticBoundaryCommandsResolveExternalNodes(t *testing.T) {
 
 	// workflows: no workflow relations -> legitimately empty (not an error,
 	// and the import external node must never surface as a boundary).
-	workflows := run("workflows")
+	workflows := run("workflow")
 	if len(workflows.Boundary.Boundaries) != 0 || len(workflows.Boundary.Relations) != 0 {
 		t.Fatalf("workflows should be empty: %+v", workflows.Boundary)
 	}
@@ -90,7 +90,7 @@ func TestSemanticBoundaryCommandsResolveExternalNodes(t *testing.T) {
 	// so "no workflows" is distinguishable from a broken command. Use a fresh
 	// root command so the earlier --json flag does not carry over.
 	textCmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	out, err := execute(t, textCmd, "workflows")
+	out, err := execute(t, textCmd, "inspect", "boundaries", "--kind", "workflow")
 	if err != nil {
 		t.Fatalf("workflows text: %v", err)
 	}

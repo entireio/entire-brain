@@ -32,7 +32,7 @@ func TestSeedWritesDeterministicBrain(t *testing.T) {
 		},
 	})
 
-	out, err := execute(t, cmd, "seed", repoDir)
+	out, err := execute(t, cmd, "refresh", "seed", repoDir)
 	if err != nil {
 		t.Fatalf("seed: %v\n%s", err, out)
 	}
@@ -198,7 +198,7 @@ func TestSeedRejectsNonEmptyOutputUnlessForced(t *testing.T) {
 		Env:     EntireEnv{PluginConfigDir: filepath.Join(t.TempDir(), "config")},
 		Runner:  seedFixtureRunner(repoDir),
 	})
-	_, err := execute(t, cmd, "seed", "--output", outputDir, repoDir)
+	_, err := execute(t, cmd, "refresh", "seed", "--output", outputDir, repoDir)
 	if err == nil || !strings.Contains(err.Error(), "output directory is not empty") {
 		t.Fatalf("seed should reject non-empty output, got %v", err)
 	}
@@ -208,7 +208,7 @@ func TestSeedRejectsNonEmptyOutputUnlessForced(t *testing.T) {
 		Env:     EntireEnv{PluginConfigDir: filepath.Join(t.TempDir(), "config")},
 		Runner:  seedFixtureRunner(repoDir),
 	})
-	if _, err := execute(t, cmd, "seed", "--force", "--output", outputDir, repoDir); err != nil {
+	if _, err := execute(t, cmd, "refresh", "seed", "--force", "--output", outputDir, repoDir); err != nil {
 		t.Fatalf("seed --force: %v", err)
 	}
 }
@@ -222,7 +222,7 @@ func TestSeedWorktreeIncludesSelectedUntrackedDocs(t *testing.T) {
 	runner := seedFixtureRunner(repoDir)
 	runner.responses[fakeCommandKey("git", "ls-files", "--others", "--exclude-standard")] = fakeCommandResponse{stdout: "AGENTS.md\n.env.local\n"}
 	cmd := NewRootCommand(Options{Version: "test-version", Runner: runner})
-	if _, err := execute(t, cmd, "seed", "--worktree", "--output", outputDir, repoDir); err != nil {
+	if _, err := execute(t, cmd, "refresh", "seed", "--worktree", "--output", outputDir, repoDir); err != nil {
 		t.Fatalf("seed --worktree: %v", err)
 	}
 	var manifest exportManifest
@@ -255,7 +255,7 @@ python3 -c 'import json,sys; p=json.load(sys.stdin); phase=p["phase"]; arts={"qu
 		t.Fatalf("write agent: %v", err)
 	}
 	cmd := NewRootCommand(Options{Version: "test-version", Runner: seedFixtureRunner(repoDir)})
-	if _, err := execute(t, cmd, "seed", "--output", outputDir, "--agent", "command", "--agent-command", agent, repoDir); err != nil {
+	if _, err := execute(t, cmd, "refresh", "seed", "--output", outputDir, "--agent", "command", "--agent-command", agent, repoDir); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, seedDirName, seedAgentDirName, "quick-overview.md")); err != nil {
@@ -280,7 +280,7 @@ printf '{"schema_version":1,"status":"success","artifacts":{"../bad.md":"bad","q
 		t.Fatalf("write agent: %v", err)
 	}
 	cmd := NewRootCommand(Options{Version: "test-version", Runner: seedFixtureRunner(repoDir)})
-	out, err := execute(t, cmd, "seed", "--output", outputDir, "--agent", "command", "--agent-command", agent, "--require-agent", repoDir)
+	out, err := execute(t, cmd, "refresh", "seed", "--output", outputDir, "--agent", "command", "--agent-command", agent, "--require-agent", repoDir)
 	if err == nil {
 		t.Fatalf("seed should reject unsafe artifact:\n%s", out)
 	}

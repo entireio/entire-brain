@@ -2132,22 +2132,6 @@ type semanticQueryOptions struct {
 	json   bool
 }
 
-func newSemanticQueryCommand(opts Options) *cobra.Command {
-	queryOpts := semanticQueryOptions{limit: 20}
-	cmd := &cobra.Command{
-		Use:   "query <symbol-or-text>",
-		Short: "Search the local semantic brain",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSemanticQuery(cmd.Context(), cmd, opts, queryOpts, args[0])
-		},
-	}
-	cmd.Flags().IntVar(&queryOpts.limit, "limit", 20, "Maximum results to return")
-	cmd.Flags().IntVar(&queryOpts.offset, "offset", 0, "Results to skip before returning a page")
-	cmd.Flags().BoolVar(&queryOpts.json, "json", false, "Emit machine-readable JSON")
-	return cmd
-}
-
 type semanticContextOptions struct {
 	limit          int
 	offset         int
@@ -2167,23 +2151,6 @@ type semanticContent struct {
 	EndLine   int    `json:"end_line"`
 	Text      string `json:"text"`
 	Truncated bool   `json:"truncated,omitempty"`
-}
-
-func newSemanticContextCommand(opts Options) *cobra.Command {
-	contextOpts := semanticContextOptions{limit: 10}
-	cmd := &cobra.Command{
-		Use:   "context <symbol-or-text>",
-		Short: "Build local semantic context for a symbol or text query",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSemanticContext(cmd.Context(), cmd, opts, contextOpts, args[0])
-		},
-	}
-	cmd.Flags().IntVar(&contextOpts.limit, "limit", 10, "Maximum symbols to include")
-	cmd.Flags().IntVar(&contextOpts.offset, "offset", 0, "Symbols to skip before returning a page")
-	cmd.Flags().BoolVar(&contextOpts.includeContent, "include-content", false, "Include local source snippets for matched symbols")
-	cmd.Flags().BoolVar(&contextOpts.json, "json", false, "Emit machine-readable JSON")
-	return cmd
 }
 
 type semanticImpactOptions struct {
@@ -2241,97 +2208,6 @@ type semanticTestSuggestion struct {
 type semanticTestsResult struct {
 	Roots       []semanticRecord         `json:"roots"`
 	Suggestions []semanticTestSuggestion `json:"suggestions"`
-}
-
-func newSemanticChangesCommand(opts Options) *cobra.Command {
-	changesOpts := semanticChangesOptions{limit: 100}
-	cmd := &cobra.Command{
-		Use:   "changes",
-		Short: "Map local file changes to semantic symbols",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSemanticChanges(cmd.Context(), cmd, opts, changesOpts)
-		},
-	}
-	cmd.Flags().IntVar(&changesOpts.limit, "limit", 100, "Maximum symbols to include")
-	cmd.Flags().BoolVar(&changesOpts.json, "json", false, "Emit machine-readable JSON")
-	return cmd
-}
-
-func newSemanticRoutesCommand(opts Options) *cobra.Command {
-	return newSemanticBoundaryCommand(opts, semanticBoundarySpec{
-		Name:          "routes",
-		Use:           "routes",
-		Short:         "List local route boundaries and handlers",
-		SymbolKinds:   []string{"route", "http_route"},
-		RelationTypes: []string{"HANDLES_ROUTE"},
-	})
-}
-
-func newSemanticToolsCommand(opts Options) *cobra.Command {
-	return newSemanticBoundaryCommand(opts, semanticBoundarySpec{
-		Name:          "tools",
-		Use:           "tools",
-		Short:         "List local tool and CLI boundaries and handlers",
-		SymbolKinds:   []string{"tool", "mcp_tool", "cli_command", "command"},
-		RelationTypes: []string{"HANDLES_TOOL", "HANDLES_CLI", "HANDLES_COMMAND"},
-	})
-}
-
-func newSemanticWorkflowsCommand(opts Options) *cobra.Command {
-	return newSemanticBoundaryCommand(opts, semanticBoundarySpec{
-		Name:          "workflows",
-		Use:           "workflows",
-		Short:         "List local workflow boundaries and handlers",
-		SymbolKinds:   []string{"workflow", "job", "pipeline"},
-		RelationTypes: []string{"HANDLES_WORKFLOW", "PART_OF_WORKFLOW"},
-	})
-}
-
-func newSemanticBoundaryCommand(opts Options, spec semanticBoundarySpec) *cobra.Command {
-	boundaryOpts := semanticBoundaryOptions{limit: 50}
-	cmd := &cobra.Command{
-		Use:   spec.Use,
-		Short: spec.Short,
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSemanticBoundary(cmd.Context(), cmd, opts, boundaryOpts, spec)
-		},
-	}
-	cmd.Flags().IntVar(&boundaryOpts.limit, "limit", 50, "Maximum boundary symbols to include")
-	cmd.Flags().BoolVar(&boundaryOpts.json, "json", false, "Emit machine-readable JSON")
-	return cmd
-}
-
-func newSemanticTestsCommand(opts Options) *cobra.Command {
-	testsOpts := semanticTestsOptions{limit: 20}
-	cmd := &cobra.Command{
-		Use:   "tests <symbol-or-text>",
-		Short: "Suggest local tests relevant to a symbol or text query",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSemanticTests(cmd.Context(), cmd, opts, testsOpts, args[0])
-		},
-	}
-	cmd.Flags().IntVar(&testsOpts.limit, "limit", 20, "Maximum test suggestions to include")
-	cmd.Flags().BoolVar(&testsOpts.json, "json", false, "Emit machine-readable JSON")
-	return cmd
-}
-
-func newSemanticImpactCommand(opts Options) *cobra.Command {
-	impactOpts := semanticImpactOptions{limit: 20, depth: 1}
-	cmd := &cobra.Command{
-		Use:   "impact <symbol-or-text>",
-		Short: "Traverse local semantic relations for an impact set",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSemanticImpact(cmd.Context(), cmd, opts, impactOpts, args[0])
-		},
-	}
-	cmd.Flags().IntVar(&impactOpts.limit, "limit", 20, "Maximum symbols to include")
-	cmd.Flags().IntVar(&impactOpts.depth, "depth", 1, "Relation traversal depth")
-	cmd.Flags().BoolVar(&impactOpts.json, "json", false, "Emit machine-readable JSON")
-	return cmd
 }
 
 func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, queryOpts semanticQueryOptions, query string) error {

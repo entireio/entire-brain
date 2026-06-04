@@ -17,16 +17,16 @@ func TestPhase1SemanticCommandJSONContracts(t *testing.T) {
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{stdout: "M\tinternal/auth/token.go\n"}
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
 
-	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	assertPhase1NoNetworkCommands(t, runner, repoDir)
 
 	assertCommandJSONContains(t, cmd, "stale", []string{"--json"}, `"severity": "ok"`)
-	assertCommandJSONContains(t, cmd, "query", []string{"ValidateToken", "--json", "--limit", "2", "--offset", "0"}, `"results"`)
-	assertCommandJSONContains(t, cmd, "context", []string{"ValidateToken", "--json", "--limit", "2"}, `"relations"`)
-	assertCommandJSONContains(t, cmd, "impact", []string{"ValidateToken", "--json", "--depth", "1", "--limit", "2"}, `"roots"`)
-	assertCommandJSONContains(t, cmd, "changes", []string{"--json", "--limit", "2"}, `"internal/auth/token.go"`)
+	assertCommandJSONContains(t, cmd, "search", []string{"ValidateToken", "--json", "--limit", "2", "--offset", "0"}, `"results"`)
+	assertCommandJSONContains(t, cmd, "inspect", []string{"context", "ValidateToken", "--json", "--limit", "2"}, `"relations"`)
+	assertCommandJSONContains(t, cmd, "inspect", []string{"impact", "ValidateToken", "--json", "--depth", "1", "--limit", "2"}, `"roots"`)
+	assertCommandJSONContains(t, cmd, "inspect", []string{"changes", "--json", "--limit", "2"}, `"internal/auth/token.go"`)
 
 	bundlePath := filepath.Join(t.TempDir(), "brain.tar")
 	exportOut, err := execute(t, cmd, "bundle", "export", "--output", bundlePath)
@@ -50,7 +50,7 @@ func TestPhase1SemanticPerformanceSmoke(t *testing.T) {
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
 
 	start := time.Now()
-	if _, err := execute(t, cmd, "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > 30*time.Second {
@@ -58,7 +58,7 @@ func TestPhase1SemanticPerformanceSmoke(t *testing.T) {
 	}
 
 	start = time.Now()
-	if _, err := execute(t, cmd, "query", "ValidateToken", "--json", "--limit", "5"); err != nil {
+	if _, err := execute(t, cmd, "search", "ValidateToken", "--json", "--limit", "5"); err != nil {
 		t.Fatalf("query: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
