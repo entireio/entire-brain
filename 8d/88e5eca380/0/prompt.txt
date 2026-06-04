@@ -1,0 +1,16 @@
+finsihed rest then fully; u stopped some reason; if ther eno entire hsitory then has is it apples to apples;e plxian and acutaly use ur braina nd thinka nd finish fully
+
+---
+
+finish fully use ur brain'this is the ceo i am talking to and auctally think fully and th4rguhly no msihapes etc; read the cha thsit udner the context and finsih fulyl how he want sto and get the results we want; i also don't udnerstnad this eplxian to me fulyl and keep on going and finsih the goal fully; make reply to this fulyl and use and web search his avice fully etc; Yeah, that entireio/cli run isn't really a fair picture of the brain. Two things I got wrong there:
+
+The public entireio/cli clone has zero Entire sessions, so that run could only exercise the semantic half of the brain. The session-history side, which is where most of the gains came from, wasn't available. Testing the brain on a repo with no sessions is basically testing it with one hand tied behind its back.
+
+I ran the weakest setup. I used the raw semantic tools (brain_query/brain_context) instead of the brain_brief → action_checklist → likely_edit_files packet that was used in the Ultron experiments. So this was the brain's weakest delivery method on a repo with no history. The mixed result reflects that setup, not the brain's actual potential.
+
+For entireio/cli, the 0/3 result mainly shows that semantic search alone doesn't fix a hard regression. It helps with navigation and efficiency, though. Codex's search count dropped from 23 to 15 and token usage fell by about 40%.
+
+I'm re-running entireio/cli the proper way now using brain_brief-based delivery with the full Codex effort sweep (low/med/high/xhigh), so we can get a true apples-to-apples comparison. I'll post the updated charts shortly.
+Thomas — 12:25 PM
+The public entireio/cli clone has zero Entire sessions, so that run could only exercise the semantic half of the brain. The session-history side, which is where most of the gains came from, wasn't available.
+Why is that? "entire brain refresh" should pull them from the remote host.; and run 10 parrells to get full reuslts !!!! auctaly think

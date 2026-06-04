@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "8d88e5eca380",
+  "strategy": "manual-commit",
+  "branch": "agent-brain-benchmark-proof",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "benchmarks/agent-brain/tasks/entireio-cli-review-base-flag-scope.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/8d/88e5eca380/0/metadata.json",
+      "transcript": "/8d/88e5eca380/0/full.jsonl",
+      "content_hash": "/8d/88e5eca380/0/content_hash.txt",
+      "prompt": "/8d/88e5eca380/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 2505,
+    "cache_creation_tokens": 132474,
+    "cache_read_tokens": 31881404,
+    "output_tokens": 88168,
+    "api_call_count": 37
+  }
+}
