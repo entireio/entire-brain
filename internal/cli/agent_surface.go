@@ -823,15 +823,19 @@ func rankedBrainBriefLikelyFiles(counts map[string]int, limit int) []string {
 	return out
 }
 
-// brainBriefTaskTermStop drops generic words that don't help identify the file a
-// task is about.
+// brainBriefTaskTermStop is a generic English + generic-task-verb stopword list so
+// filename matching keys on meaningful nouns/identifiers, not filler words. Kept
+// deliberately generic (no words cherry-picked from particular task prompts).
 var brainBriefTaskTermStop = map[string]bool{
 	"the": true, "and": true, "for": true, "with": true, "when": true, "must": true,
-	"that": true, "this": true, "use": true, "using": true, "fix": true, "update": true,
-	"regression": true, "scope": true, "change": true, "ensure": true, "should": true,
-	"into": true, "from": true, "before": true, "after": true, "their": true, "your": true,
-	"agent": true, "session": true, "repository": true, "preserve": true, "existing": true,
-	"behavior": true, "composing": true, "collecting": true, "subsequent": true, "reads": true,
+	"that": true, "this": true, "these": true, "those": true, "into": true, "from": true,
+	"before": true, "after": true, "their": true, "your": true, "also": true, "than": true,
+	"then": true, "but": true, "are": true, "was": true, "will": true, "can": true,
+	"how": true, "why": true, "what": true, "where": true, "which": true, "should": true,
+	"does": true, "did": true, "has": true, "have": true, "had": true, "its": true,
+	"would": true, "need": true, "want": true, "use": true, "using": true, "used": true,
+	"add": true, "fix": true, "update": true, "change": true, "make": true, "ensure": true,
+	"run": true, "runs": true, "running": true, "set": true, "get": true,
 }
 
 var brainBriefTaskWordPattern = regexp.MustCompile(`[a-z0-9]{4,}`)

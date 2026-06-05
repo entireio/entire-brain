@@ -530,6 +530,27 @@ func TestBrainBriefLikelyFilesExtractsDotSlashHistoryPaths(t *testing.T) {
 	}
 }
 
+func TestBrainBriefTaskTermBonusFavorsBasenameMatch(t *testing.T) {
+	// The task-term ranking (experimental, post-campaign) must score a file whose
+	// BASENAME matches the task terms above one that only matches in the path, so the
+	// true target outranks a large distractor. Generic stopwords must not match.
+	terms := brainBriefFileMatchTerms("how does review checkpoint context choose the base ref")
+	if slices.Contains(terms, "how") || slices.Contains(terms, "does") || slices.Contains(terms, "the") {
+		t.Fatalf("generic stopwords leaked into match terms: %v", terms)
+	}
+	if !slices.Contains(terms, "review") || !slices.Contains(terms, "context") {
+		t.Fatalf("meaningful terms missing: %v", terms)
+	}
+	target := brainBriefTaskTermBonus("cmd/entire/cli/review_context.go", terms) // basename: review+context
+	distractor := brainBriefTaskTermBonus("cmd/entire/cli/review/tui_model.go", terms)
+	if target <= distractor {
+		t.Fatalf("expected basename match (review_context.go=%d) to outrank path-only match (tui_model.go=%d)", target, distractor)
+	}
+	if brainBriefTaskTermBonus("internal/unrelated/foo.go", terms) != 0 {
+		t.Fatalf("unrelated file should get 0 task-term bonus")
+	}
+}
+
 func TestBrainBriefCurrentCodeFileCountsFindsProviderMetadataContractFile(t *testing.T) {
 	repoDir := t.TempDir()
 	target := filepath.Join(repoDir, "apps", "desktop", "src", "main", "agentic-decider.ts")
