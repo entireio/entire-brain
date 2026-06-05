@@ -16,6 +16,7 @@ func newFactsCommand(opts Options) *cobra.Command {
 		Short: "Review, promote, and garbage-collect durable facts",
 		Args:  cobra.NoArgs,
 	}
+	cmd.AddCommand(newFactsTreeCommand(opts))
 	cmd.AddCommand(newFactsReviewCommand(opts))
 	cmd.AddCommand(newFactsPromoteCommand(opts))
 	cmd.AddCommand(newFactsGCCommand(opts))
