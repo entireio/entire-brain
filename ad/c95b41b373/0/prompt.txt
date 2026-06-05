@@ -543,3 +543,7 @@ finsih evyerhtign fully end to end
 /goal keep testing and improving; leave all toerh models expect opus 4.8; make separte mode; thenr esearch fully it arhchute and how it works; then eplxicitly optmize the
     brian for opus; and don't stop till opus is faste and less token by a decent margin on  mcp and sem and more score in at least mcp oly;; web searhc and think how to imrvoe sue that comacpt mode etc; but 
   at end of day iw ant these resutls no cheating etc
+
+---
+
+make full PR; clean up evryhting emtnions of thomas etc; and put gpt 5.5 in this coamcpt setting if u think ti will help it too etc; and apckaeg fully etc etc etv
