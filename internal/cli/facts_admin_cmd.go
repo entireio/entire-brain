@@ -19,6 +19,7 @@ func newFactsCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newFactsTreeCommand(opts))
 	cmd.AddCommand(newFactsEvalCommand(opts))
 	cmd.AddCommand(newFactsEvalGenCommand(opts))
+	cmd.AddCommand(newFactsEvalCompareCommand(opts))
 	cmd.AddCommand(newFactsReviewCommand(opts))
 	cmd.AddCommand(newFactsPromoteCommand(opts))
 	cmd.AddCommand(newFactsGCCommand(opts))
