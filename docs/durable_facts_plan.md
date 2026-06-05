@@ -496,3 +496,48 @@ parallel to the existing intake templates, and is rendered with the active
 taxonomy block before being passed to the seed agent (Codex, then Claude Code).
 The no-agent path applies the same gate as a deterministic keyword filter. The
 full template is `templates/entire-brain-distill.md`.
+
+## Appendix C: Known Limitations And Sharp Edges (Phase A)
+
+These surfaced while implementing and running Phase A. They are deliberate
+trade-offs or accepted constraints, not defects; each is recorded so a future
+change can revisit it intentionally.
+
+- **Reconcile roughly doubles agent calls.** The per-chunk merge/supersede pass
+  is on by default and adds one agent call per productive chunk (the chunk that
+  yielded facts is compared against the branch's existing same-path facts). On
+  large branches this is the dominant cost. It is the price of keeping the store
+  from filling with near-duplicates; runs predating reconcile show the
+  alternative (one focused 56-session branch distilled to ~1,270 facts, heavily
+  restated). Disable it case-by-case only if cost outweighs dedup quality.
+
+- **Reconcile compares candidates only against *existing* facts, not against
+  each other.** Two near-identical facts emitted from the *same* chunk both land
+  as `new` (they are only deduped on a later chunk/run, once one is "existing").
+  Within-chunk dedup was left out to keep the reconcile prompt bounded and the
+  unit one chunk.
+
+- **`keep-both` promotion into a dense branch can queue a very large proposal
+  set.** A same-path conflict queues one proposal per conflicting target fact,
+  so promoting into a branch already holding hundreds of facts at a path
+  produces O(source × same-path targets) proposals (observed ~1,100 from
+  promoting two facts into a ~2,300-fact branch). Prefer `prefer-source` /
+  `prefer-target` when promoting into a populated branch, or cap/summarize
+  keep-both proposals in a later revision.
+
+- **`--confidence 0` does not mean "auto-apply everything".** A threshold `<= 0`
+  falls back to the default (0.75), so there is no value that disables gating to
+  apply every merge/supersede unattended. Intentional for now (an explicit
+  always-apply mode is a future flag if wanted).
+
+- **Distilled facts have no commit anchor until Phase B.** Provenance for
+  distilled facts records the session, checkpoint, transcript path, and chunk
+  line, but not a commit SHA (only `remember` sets a commit). `inspect blame`
+  therefore shows `commit=<unset>` for distilled facts, and the commit-reach
+  freshness check has nothing to test for them until turn-level signed anchors
+  land in Phase B.
+
+- **Manifest chunk counts describe the last distill run only.** `chunks_scanned`
+  / `chunks_distilled` are not updated by `remember` / `facts review` /
+  `promote` / `gc` (those preserve the prior values), since those commands do not
+  process transcripts.
