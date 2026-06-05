@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "d0bbe5dc4773",
+  "strategy": "manual-commit",
+  "branch": "agent-brain-benchmark-proof",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/d0/bbe5dc4773/0/metadata.json",
+      "transcript": "/d0/bbe5dc4773/0/full.jsonl",
+      "content_hash": "/d0/bbe5dc4773/0/content_hash.txt",
+      "prompt": "/d0/bbe5dc4773/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 90883,
+    "cache_creation_tokens": 3394807,
+    "cache_read_tokens": 274762993,
+    "output_tokens": 911043,
+    "api_call_count": 565
+  }
+}
