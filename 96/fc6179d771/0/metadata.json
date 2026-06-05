@@ -1,0 +1,84 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "96fc6179d771",
+  "session_id": "3c8f3e78-b939-42b0-8ab8-aae534b6f768",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-05T17:29:53.312903Z",
+  "branch": "agent-brain-benchmark-proof",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "benchmarks/agent-brain/BUGFIX_HANDOFF.md",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_opus_matrix.sh",
+    "benchmarks/agent-brain/run_test.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8",
+  "turn_id": "7cf00df181e0",
+  "checkpoint_transcript_start": 236,
+  "transcript_lines_at_start": 236,
+  "token_usage": {
+    "input_tokens": 1979,
+    "cache_creation_tokens": 291038,
+    "cache_read_tokens": 15725349,
+    "output_tokens": 92064,
+    "api_call_count": 78
+  },
+  "session_metrics": {
+    "turn_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-05T17:29:53.140352Z",
+    "agent_lines": 91,
+    "agent_removed": 3,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 91,
+    "total_lines_changed": 94,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 17,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 17
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 17,
+      "user_lines_removed": 0,
+      "agent_lines_added": 59,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 17
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 17,
+      "user_lines_removed": 0,
+      "agent_lines_added": 59,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 17
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 17,
+      "user_lines_removed": 0,
+      "agent_lines_added": 59,
+      "agent_lines_removed": 3,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 17
+      }
+    }
+  ]
+}
