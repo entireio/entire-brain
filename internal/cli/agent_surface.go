@@ -836,9 +836,16 @@ var brainBriefTaskTermStop = map[string]bool{
 	"would": true, "need": true, "want": true, "use": true, "using": true, "used": true,
 	"add": true, "fix": true, "update": true, "change": true, "make": true, "ensure": true,
 	"run": true, "runs": true, "running": true, "set": true, "get": true,
+	// Common 3-char fillers (matched now that the floor is 3, so that strong
+	// 3-char identifiers like "api"/"cli" are kept while filler is dropped).
+	"not": true, "all": true, "any": true, "one": true, "two": true, "new": true,
+	"old": true, "via": true, "per": true, "off": true, "out": true, "now": true,
+	"yet": true, "way": true, "see": true, "let": true, "may": true, "you": true,
 }
 
-var brainBriefTaskWordPattern = regexp.MustCompile(`[a-z0-9]{4,}`)
+// Floor is 3 (not 4) so high-signal short identifiers like "api"/"cli" are not
+// skipped; common 3-char filler words are removed by brainBriefTaskTermStop above.
+var brainBriefTaskWordPattern = regexp.MustCompile(`[a-z0-9]{3,}`)
 
 // brainBriefFileMatchTerms extracts the significant lowercase tokens from a task
 // description used to bias likely_edit_files toward files named after the task.

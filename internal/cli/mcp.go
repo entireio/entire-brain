@@ -354,11 +354,9 @@ func readMCPMessage(reader *bufio.Reader) (mcpMessage, mcpFrameMode, error) {
 		line = strings.TrimRight(line, "\r\n")
 		if strings.HasPrefix(strings.TrimSpace(line), "{") {
 			trimmed := strings.TrimSpace(line)
-			// Bound the single-line (NDJSON) frame like the Content-Length path,
-			// and make a bad line recoverable instead of fatal to the session.
-			if len(trimmed) > maxMCPFrameBytes {
-				return mcpMessage{}, mcpFrameJSONLine, fmt.Errorf("%w: json line exceeds maximum frame size of %d bytes", errMCPRecoverable, maxMCPFrameBytes)
-			}
+			// readBoundedLine already caps the line at maxMCPFrameBytes (an oversize
+			// NDJSON frame is reported there), so the only failure left here is a
+			// malformed line, which we make recoverable instead of fatal.
 			var msg mcpMessage
 			if err := json.Unmarshal([]byte(trimmed), &msg); err != nil {
 				return mcpMessage{}, mcpFrameJSONLine, fmt.Errorf("%w: %v", errMCPRecoverable, err)
