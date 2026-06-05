@@ -1415,6 +1415,12 @@ func saveCheckpointMetadataCache(path string, cache *checkpointMetadataCache) {
 	if cache == nil {
 		return
 	}
+	// If nothing was cached this run (e.g. object-id resolution failed, which
+	// disables caching for the run), do not clobber a good on-disk cache with an
+	// empty blob map — that would silently defeat the cache on the next refresh.
+	if len(cache.next) == 0 && len(cache.prev) > 0 {
+		return
+	}
 	file := checkpointMetadataCacheFile{Version: checkpointMetadataCacheVersion, Blobs: cache.next}
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)

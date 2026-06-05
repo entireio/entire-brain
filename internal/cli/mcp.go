@@ -65,6 +65,17 @@ func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) erro
 			mcpDebugLog(debugLog, "eof")
 			return nil
 		}
+		if errors.Is(err, errMCPRecoverable) {
+			// Reply with a JSON-RPC parse error and keep serving; one bad frame
+			// must not kill the whole MCP session.
+			mcpDebugLog(debugLog, "parse_error: "+err.Error())
+			resp := mcpMessage{JSONRPC: "2.0", Error: &mcpError{Code: -32700, Message: "parse error"}}
+			if werr := writeMCPMessage(out, resp, frameMode); werr != nil {
+				mcpDebugLog(debugLog, "write_error: "+werr.Error())
+				return werr
+			}
+			continue
+		}
 		if err != nil {
 			mcpDebugLog(debugLog, "read_error: "+err.Error())
 			return err
@@ -289,6 +300,10 @@ func mcpPositiveInt(args map[string]any, key string, fallback int) (int, error) 
 	return 0, fmt.Errorf("%s must be an integer greater than zero", key)
 }
 
+// errMCPRecoverable marks a single malformed/oversized frame that should be
+// answered with a JSON-RPC parse error rather than terminating the session.
+var errMCPRecoverable = errors.New("recoverable mcp frame error")
+
 func readMCPMessage(reader *bufio.Reader) (mcpMessage, mcpFrameMode, error) {
 	length := -1
 	for {
@@ -298,9 +313,15 @@ func readMCPMessage(reader *bufio.Reader) (mcpMessage, mcpFrameMode, error) {
 		}
 		line = strings.TrimRight(line, "\r\n")
 		if strings.HasPrefix(strings.TrimSpace(line), "{") {
+			trimmed := strings.TrimSpace(line)
+			// Bound the single-line (NDJSON) frame like the Content-Length path,
+			// and make a bad line recoverable instead of fatal to the session.
+			if len(trimmed) > maxMCPFrameBytes {
+				return mcpMessage{}, mcpFrameJSONLine, fmt.Errorf("%w: json line exceeds maximum frame size of %d bytes", errMCPRecoverable, maxMCPFrameBytes)
+			}
 			var msg mcpMessage
-			if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &msg); err != nil {
-				return mcpMessage{}, "", err
+			if err := json.Unmarshal([]byte(trimmed), &msg); err != nil {
+				return mcpMessage{}, mcpFrameJSONLine, fmt.Errorf("%w: %v", errMCPRecoverable, err)
 			}
 			return msg, mcpFrameJSONLine, nil
 		}

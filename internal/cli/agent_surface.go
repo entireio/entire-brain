@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 )
@@ -1723,19 +1724,40 @@ func historyRawLineExcerpt(line, query string) string {
 	text := normalizeHistoryTextForExcerpt(line)
 	lower := strings.ToLower(text)
 	query = strings.ToLower(strings.TrimSpace(query))
-	idx := strings.Index(lower, query)
+	idx := -1
+	matchLen := len(query)
+	if query != "" {
+		idx = strings.Index(lower, query)
+	}
 	if idx == -1 {
-		normalizedQuery := normalizeHistorySearchText(query)
-		normalizedText := normalizeHistorySearchText(text)
-		if normalizedQuery != "" {
-			idx = strings.Index(normalizedText, normalizedQuery)
+		// The full query was not a literal substring. Locate the first significant
+		// query token directly in `lower` so the resulting offset stays valid for
+		// `text`. (Using an offset from normalizeHistorySearchText, which collapses
+		// punctuation/case and splits camelCase, would index a differently-sized
+		// string and misalign the window.)
+		for _, tok := range strings.Fields(query) {
+			if len(tok) < 3 {
+				continue
+			}
+			if at := strings.Index(lower, tok); at != -1 {
+				idx = at
+				matchLen = len(tok)
+				break
+			}
 		}
 	}
 	if idx == -1 {
 		return strings.TrimSpace(truncateString(text, 700))
 	}
 	start := max(0, idx-280)
-	end := min(len(text), idx+len(query)+620)
+	end := min(len(text), idx+matchLen+620)
+	// Snap the window to rune boundaries so the slice is valid UTF-8.
+	for start > 0 && !utf8.RuneStart(text[start]) {
+		start--
+	}
+	for end < len(text) && !utf8.RuneStart(text[end]) {
+		end++
+	}
 	return strings.TrimSpace(truncateString(text[start:end], 900))
 }
 
@@ -1834,11 +1856,23 @@ func agentSurfaceTarget(opts Options, args []string) string {
 }
 
 func truncateString(value string, max int) string {
+	if max <= 0 {
+		return ""
+	}
 	if len(value) <= max {
 		return value
 	}
-	if max <= 3 {
-		return value[:max]
+	// Cut on a rune boundary so we never split a multi-byte UTF-8 rune in
+	// real (non-ASCII) transcripts, which would emit invalid UTF-8.
+	limit := max
+	suffix := ""
+	if max > 3 {
+		limit = max - 3
+		suffix = "..."
 	}
-	return value[:max-3] + "..."
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(value[cut]) {
+		cut--
+	}
+	return value[:cut] + suffix
 }
