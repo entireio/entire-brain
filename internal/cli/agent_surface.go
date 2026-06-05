@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 )
@@ -541,12 +542,13 @@ var brainBriefPathPattern = regexp.MustCompile(`(?:^|[\s"'({\[])([A-Za-z0-9_@./-
 
 func brainBriefLikelyFileGroups(repoRoot string, report brainBriefReport, task string) ([]string, []string, []string) {
 	counts := map[string]int{}
+	taskTerms := brainBriefFileMatchTerms(task)
 	add := func(path string, weight int) {
 		clean, ok := cleanBrainBriefLikelyFile(path)
 		if !ok {
 			return
 		}
-		counts[clean] += weight + brainBriefLikelyFileBonus(clean)
+		counts[clean] += weight + brainBriefLikelyFileBonus(clean) + brainBriefTaskTermBonus(clean, taskTerms)
 	}
 	for _, symbol := range report.Semantic.Context.Symbols {
 		add(symbol.FilePath, 12)
@@ -843,6 +845,67 @@ func rankedBrainBriefLikelyFiles(counts map[string]int, limit int) []string {
 		out = append(out, file.path)
 	}
 	return out
+}
+
+// brainBriefTaskTermStop is a generic English + generic-task-verb stopword list so
+// filename matching keys on meaningful nouns/identifiers, not filler words. Kept
+// deliberately generic (no words cherry-picked from particular task prompts).
+var brainBriefTaskTermStop = map[string]bool{
+	"the": true, "and": true, "for": true, "with": true, "when": true, "must": true,
+	"that": true, "this": true, "these": true, "those": true, "into": true, "from": true,
+	"before": true, "after": true, "their": true, "your": true, "also": true, "than": true,
+	"then": true, "but": true, "are": true, "was": true, "will": true, "can": true,
+	"how": true, "why": true, "what": true, "where": true, "which": true, "should": true,
+	"does": true, "did": true, "has": true, "have": true, "had": true, "its": true,
+	"would": true, "need": true, "want": true, "use": true, "using": true, "used": true,
+	"add": true, "fix": true, "update": true, "change": true, "make": true, "ensure": true,
+	"run": true, "runs": true, "running": true, "set": true, "get": true,
+	// Common 3-char fillers (matched now that the floor is 3, so that strong
+	// 3-char identifiers like "api"/"cli" are kept while filler is dropped).
+	"not": true, "all": true, "any": true, "one": true, "two": true, "new": true,
+	"old": true, "via": true, "per": true, "off": true, "out": true, "now": true,
+	"yet": true, "way": true, "see": true, "let": true, "may": true, "you": true,
+}
+
+// Floor is 3 (not 4) so high-signal short identifiers like "api"/"cli" are not
+// skipped; common 3-char filler words are removed by brainBriefTaskTermStop above.
+var brainBriefTaskWordPattern = regexp.MustCompile(`[a-z0-9]{3,}`)
+
+// brainBriefFileMatchTerms extracts the significant lowercase tokens from a task
+// description used to bias likely_edit_files toward files named after the task.
+func brainBriefFileMatchTerms(task string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, word := range brainBriefTaskWordPattern.FindAllString(strings.ToLower(task), -1) {
+		if brainBriefTaskTermStop[word] || seen[word] {
+			continue
+		}
+		seen[word] = true
+		out = append(out, word)
+	}
+	return out
+}
+
+// brainBriefTaskTermBonus rewards a candidate file whose name matches the task's
+// significant terms — a strong "this file is what the task is about" signal that
+// the raw semantic-symbol density (which favors large files like TUIs) misses.
+func brainBriefTaskTermBonus(path string, terms []string) int {
+	if len(terms) == 0 {
+		return 0
+	}
+	lower := strings.ToLower(path)
+	base := strings.ToLower(filepath.Base(path))
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	score := 0
+	for _, term := range terms {
+		switch {
+		case strings.Contains(base, term):
+			score += 10 // basename match is the strongest locator
+		case strings.Contains(lower, term):
+			score += 3 // elsewhere in the path is weaker
+		}
+	}
+	return score
 }
 
 func brainBriefLikelyFileBonus(path string) int {
@@ -1748,19 +1811,40 @@ func historyRawLineExcerpt(line, query string) string {
 	text := normalizeHistoryTextForExcerpt(line)
 	lower := strings.ToLower(text)
 	query = strings.ToLower(strings.TrimSpace(query))
-	idx := strings.Index(lower, query)
+	idx := -1
+	matchLen := len(query)
+	if query != "" {
+		idx = strings.Index(lower, query)
+	}
 	if idx == -1 {
-		normalizedQuery := normalizeHistorySearchText(query)
-		normalizedText := normalizeHistorySearchText(text)
-		if normalizedQuery != "" {
-			idx = strings.Index(normalizedText, normalizedQuery)
+		// The full query was not a literal substring. Locate the first significant
+		// query token directly in `lower` so the resulting offset stays valid for
+		// `text`. (Using an offset from normalizeHistorySearchText, which collapses
+		// punctuation/case and splits camelCase, would index a differently-sized
+		// string and misalign the window.)
+		for _, tok := range strings.Fields(query) {
+			if len(tok) < 3 {
+				continue
+			}
+			if at := strings.Index(lower, tok); at != -1 {
+				idx = at
+				matchLen = len(tok)
+				break
+			}
 		}
 	}
 	if idx == -1 {
 		return strings.TrimSpace(truncateString(text, 700))
 	}
 	start := max(0, idx-280)
-	end := min(len(text), idx+len(query)+620)
+	end := min(len(text), idx+matchLen+620)
+	// Snap the window to rune boundaries so the slice is valid UTF-8.
+	for start > 0 && !utf8.RuneStart(text[start]) {
+		start--
+	}
+	for end < len(text) && !utf8.RuneStart(text[end]) {
+		end++
+	}
 	return strings.TrimSpace(truncateString(text[start:end], 900))
 }
 
@@ -1859,11 +1943,23 @@ func agentSurfaceTarget(opts Options, args []string) string {
 }
 
 func truncateString(value string, max int) string {
+	if max <= 0 {
+		return ""
+	}
 	if len(value) <= max {
 		return value
 	}
-	if max <= 3 {
-		return value[:max]
+	// Cut on a rune boundary so we never split a multi-byte UTF-8 rune in
+	// real (non-ASCII) transcripts, which would emit invalid UTF-8.
+	limit := max
+	suffix := ""
+	if max > 3 {
+		limit = max - 3
+		suffix = "..."
 	}
-	return value[:max-3] + "..."
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(value[cut]) {
+		cut--
+	}
+	return value[:cut] + suffix
 }

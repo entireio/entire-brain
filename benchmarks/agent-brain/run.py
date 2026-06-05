@@ -806,7 +806,17 @@ def agent_output_leak_audit(task: dict[str, Any], stdout: str, stderr: str) -> d
     return {"ok": not findings, "findings": findings}
 
 
-def mcp_condition_audit(condition: str, agent_info: dict[str, Any]) -> dict[str, Any]:
+def mcp_history_required_tools(runner: "RunnerSpec | None") -> tuple[str, ...]:
+    """Tools the mcp_history condition must call. Compact-delivery models (Opus /
+    gpt-5/5.5) are explicitly told in prompt_for to call brain_brief ONCE and NOT to
+    call brain_history (the compact brief already carries the history hits). Requiring
+    brain_history for them would contradict their own prompt and mis-flag correct runs
+    as failures, so those models only require brain_brief."""
+    compact = runner is not None and runner.model in (OPUS_COMPACT_MODELS | COMPACT_STRICT_MODELS)
+    return ("brain_brief",) if compact else ("brain_brief", "brain_history")
+
+
+def mcp_condition_audit(condition: str, agent_info: dict[str, Any], runner: "RunnerSpec | None" = None) -> dict[str, Any]:
     if not is_mcp_condition(condition):
         return {"ok": True, "required": False, "findings": []}
     activity = agent_info.get("activity") if isinstance(agent_info.get("activity"), dict) else {}
@@ -817,7 +827,7 @@ def mcp_condition_audit(condition: str, agent_info: dict[str, Any]) -> dict[str,
     if int(activity.get("mcp_tool_calls") or 0) <= 0:
         findings.append({"kind": "no_mcp_tool_calls"})
     if condition == "mcp_history":
-        for required in ("brain_brief", "brain_history"):
+        for required in mcp_history_required_tools(runner):
             if not any(str(name).endswith(f"__{required}") or str(name) == required for name in mcp_tool_names):
                 findings.append({"kind": "missing_required_mcp_history_tool", "tool": required})
     if int(activity.get("direct_brain_cli_calls") or 0) > 0:
@@ -925,6 +935,16 @@ def apply_task_env(env: dict[str, str], task: dict[str, Any]) -> dict[str, str]:
     return env
 
 
+def checkpoint_ref_sha_for_task(task: dict[str, Any]) -> str:
+    """SHA of the source repo's checkpoint-history ref, so a moving session
+    history invalidates the brain cache. The benchmark's thesis is that history
+    helps, so a static-content cache key (base_commit + tool SHAs) would risk
+    serving a stale brain if the checkpoint ref advanced between runs."""
+    source = resolve_repo_path(task["repo_path"])
+    proc = run_cmd(["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=source)
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
 def brain_cache_payload(
     task: dict[str, Any],
     condition: str,
@@ -942,6 +962,11 @@ def brain_cache_payload(
         "prepare_semantic": bool(task.get("prepare_semantic", True)),
         "checkpoint_limit": checkpoint_limit if condition_prepares_history(prep_kind) else None,
         "history_index": condition_prepares_history(prep_kind),
+        # Bind the cache to the actual checkpoint-history content for conditions
+        # that consume it, so a moving history is not silently reused.
+        "checkpoint_ref_sha": checkpoint_ref_sha_for_task(task)
+        if (condition_prepares_history(prep_kind) or task.get("copy_checkpoint_ref_from_source"))
+        else None,
         "copy_entire_history_from_source": bool(task.get("copy_entire_history_from_source"))
         and condition_copies_entire_history(condition),
         "setup_patch": task.get("setup_patch", ""),
@@ -979,9 +1004,9 @@ def copy_cached_plugin(cache_plugin: pathlib.Path, run_plugin: pathlib.Path, old
 
 
 def brain_prep_commands(task: dict[str, Any], condition: str, worktree: pathlib.Path, tools: dict[str, pathlib.Path], checkpoint_limit: int) -> list[list[str]]:
-    commands = [[str(tools["brain"]), "seed", str(worktree), "--agent", "none", "--force"]]
+    commands = [[str(tools["brain"]), "refresh", "seed", str(worktree), "--agent", "none", "--force"]]
     if task.get("prepare_semantic", True):
-        commands.append([str(tools["brain"]), "index", str(worktree), "--sem-binary", str(tools["entire"]), "--force"])
+        commands.append([str(tools["brain"]), "refresh", "index", str(worktree), "--sem-binary", str(tools["entire"]), "--force"])
     if condition_prepares_history(condition):
         commands.insert(0, [str(tools["brain"]), "export", "--checkpoint-limit", str(checkpoint_limit), "--history-index"])
     return commands
@@ -1467,7 +1492,28 @@ def matching_history_lines(files: list[pathlib.Path], query: str) -> list[tuple[
     return matches
 
 
-def prompt_for(task: dict[str, Any], condition: str) -> str:
+# Models that over-explore when handed the full MCP history blob (they spiral into extra
+# searches/tokens and occasionally fail). They get a compact, single-brain_brief, hard-stop
+# delivery instead — a compact packet plus explicit stop rules keeps stronger models on task.
+COMPACT_STRICT_MODELS = {"gpt-5.5", "gpt-5"}
+
+# Opus is already correctness-saturated but over-READS the brief's history blob
+# (MCP brain_brief defaults to limit=20 -> ~8KB of history dominates the packet,
+# inflating tokens +15-69% on MCP). Opus gets its own compact, bounded delivery:
+# a small-limit brief (top high-signal history only), no forced second history
+# call, hard stop, finite-context framing. Goal: keep Opus's review discipline
+# (score) while cutting tokens + time on BOTH MCP and CLI. Other models unchanged.
+OPUS_COMPACT_MODELS = {"opus", "claude-opus-4-8"}
+# gpt-5.5 was A/B-tested for this Opus-style trim (matched n=3, both cli tasks, 0 hard flags,
+# MCP server-log-verified): it HELPED on the CLI path (−35% cost / −36% tok, no quality loss)
+# but STARVED quality on MCP (−9.5 composite, 5/6 → 4/6 valid, with no token savings) — the
+# tiny limit:3 brief drops the one history hit it needs on the harder review task. gpt-5.5's
+# failure mode is under-context, not over-reading, so it keeps its COMPACT_STRICT MCP delivery
+# and is NOT added here. (A CLI-only adoption is a possible follow-up, but n=3 is too thin to
+# ship a per-path split on its own.)
+
+
+def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None" = None) -> str:
     base = task["prompt"].strip()
     validation = "\n".join(f"- `{cmd}`" for cmd in task.get("validation", []))
     expected = ", ".join(task.get("expected_files", []))
@@ -1477,6 +1523,9 @@ def prompt_for(task: dict[str, Any], condition: str) -> str:
         brief_query = f"{brief_query} | {queries}"
     brief_limit = " --limit 4" if condition == "full_cli_compact" else ""
     brief_command = f'entire brain brief "{brief_query}" --json{brief_limit}'
+    is_opus = runner is not None and runner.model in OPUS_COMPACT_MODELS
+    # Opus gets a deliberately tiny packet (top-2 history hits) on the CLI path.
+    opus_brief_command = f'entire brain brief "{brief_query}" --json --limit 2'
     top_level_entire_guard = (
         "Do not run top-level `entire doctor`, `entire status`, `entire session`, "
         "or `entire checkpoint`; they are not Brain context for this benchmark and may be interactive."
@@ -1492,8 +1541,17 @@ def prompt_for(task: dict[str, Any], condition: str) -> str:
         policy = f"""Use the Entire Brain MCP server before editing. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Then start with the `brain_stale` MCP tool, followed by `brain_query`, `brain_context`, `brain_impact`, or `brain_changes` for focused semantic context. Useful query terms: {queries}. Do not run the `entire brain` CLI and do not inspect checkpoint transcripts or session history."""
     elif condition == "mcp_semantic":
         policy = "Use the Entire Brain MCP server before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not run semantic CLI commands or inspect checkpoint transcripts."
+    elif condition == "mcp_history" and is_opus:
+        # Opus-only compact MCP: tiny brief (limit 3), no forced history blob, hard stop.
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Call `mcp__entire_brain__brain_brief` / `brain_brief` EXACTLY ONCE, passing a small limit (`limit: 3`) so the packet stays compact — it returns `likely_edit_files`, `likely_test_files`, and the top high-signal history hits, which is all the context you need. From `likely_edit_files`, open the single most relevant implementation file (not TUI or test scaffolding) and apply the fix, using the history hits for the exact invariant. Treat that one packet as sufficient: do NOT re-call `brain_brief`, do NOT call `brain_history`/`brain_query` or any other MCP tool, and do not re-read the packet. Run exactly one `likely_test_files` test, then finish. Keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Your context window is a finite budget — be concise and stop once the fix validates. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
+    elif condition == "mcp_history" and runner is not None and runner.model in COMPACT_STRICT_MODELS:
+        # Compact strict delivery: one brain_brief, no forced history blob, hard stop.
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Call `mcp__entire_brain__brain_brief` / `brain_brief` for this task EXACTLY ONCE — it already includes the relevant `likely_edit_files`, `likely_test_files`, and compact session-history hits, so you do NOT need a separate `brain_history` call. From `likely_edit_files`, open the single file most relevant to the described regression (prefer the core implementation file over TUI or test scaffolding) and make the fix there, using the history hits to get the exact invariant right. Verify with a few targeted searches inside that file if needed, then run one `likely_test_files` test and finish. Do NOT re-call `brain_brief` and do NOT call `brain_history`/`brain_query` or any other MCP tool; do not open unrelated files or spiral into broad repo-wide search (keep `rg`/`grep`/`find` to at most 5 targeted searches). Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history":
-        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Your first context action must be the MCP tool `mcp__entire_brain__brain_brief` / `brain_brief` for this task; then run exactly one `mcp__entire_brain__brain_history` / `brain_history` query with the useful query terms: {queries}. If `brain_brief` returns an `action_checklist` with exact current lines, apply those listed edits directly before any additional MCP calls or `rg`/`grep`/`find`; broaden only if the checklist is missing, ambiguous, or focused validation fails. Do not run the `entire brain` CLI and do not read `.benchmark/brain-history-excerpt.md`; this condition is testing MCP-delivered history. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING` instead of using grep or normal code search."""
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Your first context action must be the MCP tool `mcp__entire_brain__brain_brief` / `brain_brief` for this task; then run exactly one `mcp__entire_brain__brain_history` / `brain_history` query with the useful query terms: {queries}. From `likely_edit_files`, open the file most relevant to the described regression first (prefer the core implementation file over TUI or test scaffolding); apply the fix there before any additional MCP calls or `rg`/`grep`/`find`, and broaden only if it is clearly not the regression site or focused validation fails. Do not run the `entire brain` CLI and do not read `.benchmark/brain-history-excerpt.md`; this condition is testing MCP-delivered history. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING` instead of using grep or normal code search."""
+    elif condition == "full_cli_compact" and is_opus and semantic_available:
+        # Opus-only compact CLI: a tiny --limit 2 packet + hard stop, no re-reads.
+        policy = f"""Use the full Entire Brain before editing. Your first and only context command must be `{opus_brief_command}` — a deliberately compact packet. Open `likely_edit_files` directly and apply the fix there, using the top history hits for the exact invariant. Treat the packet as sufficient: do NOT re-run brief, do not broaden to other files, and do not inspect checkpoint/session files. Run exactly one `likely_test_files` test, then finish. Keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Your context window is a finite budget — be concise and stop once the fix validates. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif condition == "full_cli_compact" and semantic_available:
         policy = f"""Use the full Entire Brain before editing. Your first context command must be `{brief_command}`. In the JSON, treat `action_checklist` as the first-pass current-code inventory: open `likely_edit_files` directly, apply/verify the listed actions in those files first, and do not broaden to other files unless the checklist is missing, ambiguous, or validation fails. Avoid broad `rg`/`grep`/`find` unless that first pass is insufficient. Prefer `likely_test_files` for one focused validation command; if a test fails because of unrelated temp-file or project-environment setup, do not spend extra rounds debugging test infrastructure. This condition intentionally provides no raw history excerpt; do not inspect checkpoint/session files directly. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif semantic_available:
@@ -1656,6 +1714,10 @@ def run_agent(
             "model": runner.model,
             "effort": runner.effort,
         },
+        # The model the agent CLI actually reported running, parsed from its own
+        # JSON stream — makes model attribution self-evident per record (vs only
+        # the requested --model), addressing the "how do you know it was X" concern.
+        "resolved_model": extract_resolved_model(proc.stdout),
         "isolation": {**ISOLATION.get(runner.agent, {}), "mcp": "entire-brain local stdio only" if mcp_enabled else ISOLATION.get(runner.agent, {}).get("mcp", "disabled")},
         "mcp": {
             "enabled": mcp_enabled,
@@ -1843,6 +1905,26 @@ def structured_tool_names(stdout: str) -> list[str]:
         if isinstance(name, str):
             names.append(name)
     return names
+
+
+def extract_resolved_model(stdout: str) -> str | None:
+    """The model the agent CLI reported in its JSON output, when it exposes one.
+
+    Claude exposes the resolved model via `modelUsage` keys (output-verifiable).
+    Codex `exec --json` does NOT echo the resolved model and does not client-side
+    validate `--model`, so for codex this is normally None and attribution rests
+    on the explicit pinned `--model` flag (disclosed, not output-confirmed)."""
+    text = stdout or ""
+    m = re.search(r'"modelUsage"\s*:\s*\{\s*"([^"]+)"', text)
+    if m:
+        return m.group(1)
+    found = re.findall(r'"model"\s*:\s*"([^"]+)"', text)
+    if not found:
+        return None
+    counts: dict[str, int] = {}
+    for value in found:
+        counts[value] = counts.get(value, 0) + 1
+    return max(counts, key=lambda k: counts[k])
 
 
 def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
@@ -2197,7 +2279,7 @@ def run_one(
         record["agent_secret_preflight"] = secret_preflight
         if not secret_preflight["ok"]:
             raise RuntimeError(f"agent-visible benchmark secrets failed preflight: {secret_preflight['findings'][:3]}")
-        prompt = prompt_for(task, condition)
+        prompt = prompt_for(task, condition, runner)
         (run_dir / "prompt.txt").write_text(prompt)
         agent_info = run_agent(runner, prompt, worktree, env, run_dir, condition, tools, args.timeout, args.claude_budget, pricing)
         leak_audit = agent_output_leak_audit(
@@ -2205,7 +2287,7 @@ def run_one(
             (run_dir / "agent.stdout").read_text(encoding="utf-8", errors="ignore"),
             (run_dir / "agent.stderr").read_text(encoding="utf-8", errors="ignore"),
         )
-        mcp_audit = mcp_condition_audit(condition, agent_info)
+        mcp_audit = mcp_condition_audit(condition, agent_info, runner)
         files = changed_files(worktree)
         validation = validate(task, worktree, env)
         diff = diff_stat(worktree)
@@ -2236,18 +2318,80 @@ def run_one(
     return RunResult(record=record, run_dir=run_dir)
 
 
+def _betacf(a: float, b: float, x: float) -> float:
+    # Continued-fraction expansion of the incomplete beta (Numerical Recipes).
+    maxit, eps, fpmin = 200, 3.0e-12, 1.0e-300
+    qab, qap, qam = a + b, a + 1.0, a - 1.0
+    c = 1.0
+    d = 1.0 - qab * x / qap
+    if abs(d) < fpmin:
+        d = fpmin
+    d = 1.0 / d
+    h = d
+    for m in range(1, maxit + 1):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        if abs(d) < fpmin:
+            d = fpmin
+        c = 1.0 + aa / c
+        if abs(c) < fpmin:
+            c = fpmin
+        d = 1.0 / d
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        if abs(d) < fpmin:
+            d = fpmin
+        c = 1.0 + aa / c
+        if abs(c) < fpmin:
+            c = fpmin
+        d = 1.0 / d
+        de = d * c
+        h *= de
+        if abs(de - 1.0) < eps:
+            break
+    return h
+
+
+def _betai(a: float, b: float, x: float) -> float:
+    # Regularized incomplete beta function I_x(a, b).
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    lbeta = math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b)
+    bt = math.exp(lbeta + a * math.log(x) + b * math.log(1.0 - x))
+    if x < (a + 1.0) / (a + b + 2.0):
+        return bt * _betacf(a, b, x) / a
+    return 1.0 - bt * _betacf(b, a, 1.0 - x) / b
+
+
 def welch_p_value(a: list[float], b: list[float]) -> float | None:
+    """Two-sided Welch's t-test p-value using the Student-t distribution with
+    Welch-Satterthwaite degrees of freedom. A z/normal approximation (erfc) is
+    invalid at the small per-cell n here (df ~ 2-4 has far heavier tails), so we
+    use the proper t-distribution survival via the regularized incomplete beta."""
     if len(a) < 2 or len(b) < 2:
         return None
-    mean_a = sum(a) / len(a)
-    mean_b = sum(b) / len(b)
-    var_a = sum((x - mean_a) ** 2 for x in a) / (len(a) - 1)
-    var_b = sum((x - mean_b) ** 2 for x in b) / (len(b) - 1)
-    se = math.sqrt(var_a / len(a) + var_b / len(b))
-    if se == 0:
+    na, nb = len(a), len(b)
+    mean_a = sum(a) / na
+    mean_b = sum(b) / nb
+    var_a = sum((x - mean_a) ** 2 for x in a) / (na - 1)
+    var_b = sum((x - mean_b) ** 2 for x in b) / (nb - 1)
+    sa, sb = var_a / na, var_b / nb
+    se2 = sa + sb
+    if se2 == 0:
         return 0.0 if mean_a != mean_b else 1.0
-    z = abs(mean_a - mean_b) / se
-    return math.erfc(z / math.sqrt(2))
+    t = (mean_a - mean_b) / math.sqrt(se2)
+    denom = (sa * sa) / (na - 1) + (sb * sb) / (nb - 1)
+    if denom == 0:
+        return 1.0
+    df = se2 * se2 / denom
+    if df <= 0:
+        return 1.0
+    # Two-sided p = I_{df/(df+t^2)}(df/2, 1/2).
+    return _betai(df / 2.0, 0.5, df / (df + t * t))
 
 
 def relative_delta(condition: Any, baseline: Any) -> float | None:
@@ -2384,6 +2528,29 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
                         versions.add(version)
             return sorted(versions)
 
+        def score_core_values(recs: list[dict[str, Any]]) -> list[float]:
+            # Composite score minus the soft, condition-dependent components
+            # (brain_use auto-5 for no_brain; runtime_efficiency). Lets the
+            # comparison cite a delta/p-value that is NOT inflated by them.
+            out: list[float] = []
+            for rec in recs:
+                score = rec.get("score") if isinstance(rec.get("score"), dict) else {}
+                total = score.get("total")
+                if not isinstance(total, (int, float)):
+                    continue
+                soft = float(score.get("brain_use") or 0) + float(score.get("runtime_efficiency") or 0)
+                out.append(float(total) - soft)
+            return out
+
+        def pass_rate(recs: list[dict[str, Any]]) -> float | None:
+            if not recs:
+                return None
+            passed = sum(1 for rec in recs if isinstance(rec.get("validation"), dict) and rec["validation"].get("ok"))
+            return passed / len(recs)
+
+        score_core_condition = score_core_values(condition_records)
+        score_core_baseline = score_core_values(base_records)
+
         comparison = {
             "task_id": task_id,
             "agent": agent,
@@ -2396,6 +2563,13 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             "mean_baseline": sum(base) / len(base),
             "delta": sum(values) / len(values) - sum(base) / len(base),
             "p_value_approx": welch_p_value(values, base),
+            # Clean (soft-component-free) metrics: lead with these + token delta.
+            "pass_rate_condition": pass_rate(condition_records),
+            "pass_rate_baseline": pass_rate(base_records),
+            "mean_score_core_condition": (sum(score_core_condition) / len(score_core_condition)) if score_core_condition else None,
+            "mean_score_core_baseline": (sum(score_core_baseline) / len(score_core_baseline)) if score_core_baseline else None,
+            "delta_score_core": (sum(score_core_condition) / len(score_core_condition) - sum(score_core_baseline) / len(score_core_baseline)) if score_core_condition and score_core_baseline else None,
+            "p_value_score_core": welch_p_value(score_core_condition, score_core_baseline),
             "score_versions_condition": score_versions(condition_records),
             "score_versions_baseline": score_versions(base_records),
             "mean_outcome_condition": mean_field(condition_records, ["score", "outcome"]),
@@ -2475,7 +2649,40 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
         }
         comparison.update(brain_comparison_verdict(comparison))
         comparisons.append(comparison)
-    summary = {"records": len(records), "comparisons": comparisons}
+
+    # Holm-Bonferroni family-wise correction across every reported p-value in this
+    # suite (P1: individual p-values were uncorrected). The headline verdict stays
+    # validation-gated; adjusted values are written as `<field>_holm` so any p-value
+    # cited downstream is family-wise controlled, not raw.
+    p_fields = [
+        "p_value_approx", "p_value_score_core", "p_value_agent_seconds",
+        "p_value_total_tokens", "p_value_turns", "p_value_cost_usd",
+    ]
+    family: list[tuple[int, str, float]] = []
+    for ci, comp in enumerate(comparisons):
+        for field in p_fields:
+            value = comp.get(field)
+            if isinstance(value, (int, float)):
+                family.append((ci, field, float(value)))
+    if family:
+        order = sorted(range(len(family)), key=lambda i: family[i][2])
+        running = 0.0
+        for rank, idx in enumerate(order):
+            adjusted = min(1.0, (len(family) - rank) * family[idx][2])
+            running = max(running, adjusted)  # enforce step-down monotonicity
+            ci, field, _ = family[idx]
+            comparisons[ci][field + "_holm"] = running
+
+    summary = {
+        "records": len(records),
+        "comparisons": comparisons,
+        "stats_notes": {
+            "p_value_test": "two-sided Welch's t-test (Student-t, Welch-Satterthwaite df)",
+            "multiple_comparison_correction": "holm-bonferroni across all suite p-values; see <field>_holm",
+            "n_pvalues_in_family": len(family),
+            "headline_metric": "validation pass-rate + measured tokens; composite score and p-values are secondary",
+        },
+    }
     (suite_dir / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
     return summary
 

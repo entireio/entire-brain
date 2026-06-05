@@ -32,6 +32,22 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertFalse(run.condition_copies_entire_history("no_brain"))
         self.assertTrue(run.condition_copies_entire_history("full_cli_compact"))
 
+    def test_mcp_history_audit_matches_compact_prompt_history_tool_requirement(self):
+        # Compact-delivery models are told to call brain_brief ONCE and NOT brain_history;
+        # the audit must not then fail them for skipping brain_history.
+        self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="o", agent="claude", model="opus")), ("brain_brief",))
+        self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="g", agent="codex", model="gpt-5.5")), ("brain_brief",))
+        self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="s", agent="claude", model="sonnet")), ("brain_brief", "brain_history"))
+
+        brief_only = {"mcp": {"enabled": True}, "activity": {"mcp_tool_calls": 1, "mcp_tool_names": ["mcp__entire_brain__brain_brief"]}}
+        # Opus (compact): brief-only is a clean pass.
+        opus_audit = run.mcp_condition_audit("mcp_history", brief_only, run.RunnerSpec(id="o", agent="claude", model="opus"))
+        self.assertTrue(opus_audit["ok"], opus_audit)
+        # Sonnet (non-compact): brief-only must still be flagged for missing brain_history.
+        sonnet_audit = run.mcp_condition_audit("mcp_history", brief_only, run.RunnerSpec(id="s", agent="claude", model="sonnet"))
+        self.assertFalse(sonnet_audit["ok"])
+        self.assertIn("brain_history", [f.get("tool") for f in sonnet_audit["findings"]])
+
     def test_mcp_configs_include_local_brain_server_and_repo_env(self):
         env = {
             "ENTIRE_REPO_ROOT": "/repo",
@@ -73,10 +89,29 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("mcp__entire_brain__brain_brief", prompt)
         self.assertIn("before any shell search or file reads", prompt)
         self.assertIn("run exactly one `mcp__entire_brain__brain_history`", prompt)
-        self.assertIn("apply those listed edits directly before any additional MCP calls", prompt)
+        self.assertIn("apply the fix there before any additional MCP calls", prompt)
         self.assertIn("MCP_TOOLS_MISSING", prompt)
         self.assertIn("Do not run the `entire brain` CLI", prompt)
         self.assertIn("do not read `.benchmark/brain-history-excerpt.md`", prompt)
+
+    def test_mcp_history_compact_delivery_for_over_explorer_models(self):
+        # Model-adaptive: gpt-5.5 over-explores the full history blob, so it gets a
+        # compact single-brain_brief delivery with a hard stop (no forced brain_history).
+        task = {
+            "id": "task",
+            "prompt": "Fix the regression.",
+            "brain_queries": ["history term"],
+            "expected_files": ["pkg/file.ts"],
+            "validation": ["npm test"],
+        }
+        runner = run.parse_runner_spec("codex:gpt-5.5:medium")
+        prompt = run.prompt_for(task, "mcp_history", runner)
+        self.assertIn("EXACTLY ONCE", prompt)
+        self.assertIn("do NOT need a separate `brain_history` call", prompt)
+        self.assertIn("MCP_TOOLS_MISSING", prompt)
+        # A model NOT in the compact set keeps the richer history delivery.
+        guided = run.prompt_for(task, "mcp_history", run.parse_runner_spec("claude:sonnet:medium"))
+        self.assertIn("run exactly one `mcp__entire_brain__brain_history`", guided)
 
     def test_full_brain_prompt_uses_query_terms_in_initial_brief(self):
         task = {
@@ -515,6 +550,52 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertNotEqual(verdict["verdict"], "brain_positive")
         self.assertFalse(verdict["proof_ready"])
         self.assertIn("brain_validation_not_clean", verdict["verdict_reasons"])
+
+
+class OpusCompactModeTests(unittest.TestCase):
+    TASK = {"id": "t", "prompt": "Fix it.", "brain_queries": ["X"], "expected_files": ["a.go"], "validation": ["go test ./..."]}
+
+    def test_opus_mcp_is_compact_and_bounded(self):
+        p = run.prompt_for(self.TASK, "mcp_history", run.parse_runner_spec("claude:opus:high"))
+        self.assertIn("limit: 3", p)                       # tiny brief
+        self.assertIn("do NOT call `brain_history`", p)    # no forced history blob
+        self.assertIn("finite budget", p)
+        # other Claude models keep the standard MCP delivery (forced brain_history)
+        son = run.prompt_for(self.TASK, "mcp_history", run.parse_runner_spec("claude:sonnet:high"))
+        self.assertIn("run exactly one `mcp__entire_brain__brain_history`", son)
+        self.assertNotIn("limit: 3", son)
+
+    def test_opus_cli_uses_tiny_limit(self):
+        p = run.prompt_for(self.TASK, "full_cli_compact", run.parse_runner_spec("claude:opus:high"))
+        self.assertIn("--limit 2", p)
+        # haiku keeps the standard --limit 4 CLI delivery
+        hai = run.prompt_for(self.TASK, "full_cli_compact", run.parse_runner_spec("claude:haiku:high"))
+        self.assertIn("--limit 4", hai)
+        self.assertNotIn("--limit 2", hai)
+
+
+class StatsAndAttributionTests(unittest.TestCase):
+    def test_welch_p_value_is_t_test_not_normal(self):
+        # Clearly separated 3-vs-3 should be small but NOT the absurd ~0 the old
+        # z/erfc gave; overlapping samples must be clearly non-significant.
+        sep = run.welch_p_value([97.0, 97.0, 98.0], [84.0, 85.0, 86.0])
+        self.assertIsNotNone(sep)
+        self.assertLess(sep, 0.05)
+        self.assertGreater(sep, 1e-4)  # t-distribution at ~4 df, not a near-0 z-value
+        overlap = run.welch_p_value([95, 96, 94], [93, 95, 96])
+        self.assertGreater(overlap, 0.1)
+        self.assertEqual(run.welch_p_value([90, 90, 90], [90, 90, 90]), 1.0)
+        self.assertIsNone(run.welch_p_value([1.0], [2.0]))  # n<2
+
+    def test_extract_resolved_model(self):
+        # Claude exposes the resolved model via modelUsage keys.
+        claude = '{"type":"result","modelUsage":{"claude-haiku-4-5":{"inputTokens":10}}}'
+        self.assertEqual(run.extract_resolved_model(claude), "claude-haiku-4-5")
+        # Generic "model":"X" is picked up too.
+        self.assertEqual(run.extract_resolved_model('{"model":"gpt-x"}'), "gpt-x")
+        # Codex exec --json exposes no model field -> None (honest: not confirmed).
+        self.assertIsNone(run.extract_resolved_model('{"type":"item","text":"done"}'))
+        self.assertIsNone(run.extract_resolved_model(""))
 
 
 if __name__ == "__main__":

@@ -97,6 +97,12 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     search_calls = int(activity.get("search_calls") or 0)
     slog = server_log_toolcalls(run_dir)
     is_win = bool(rec.get("ok")) and (get(rec, "validation", "ok") is True)
+    # Compact-delivery models are instructed to call brain_brief ONCE and NOT
+    # brain_history (the compact brief already carries the top history hits).
+    # Mirrored here independently so a correct compact run is not flagged for a
+    # "missing" tool it was explicitly told not to call.
+    model = (get(rec, "runner", "model") or rec.get("agent") or "").lower()
+    compact = model in {"gpt-5.5", "gpt-5", "opus", "claude-opus-4-8"}
 
     # A. no_brain purity (HARD: no_brain must never touch Brain/MCP/CLI/private)
     if cond == "no_brain":
@@ -124,9 +130,11 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         if mcp_calls > 0 and not real:
             flags.append("B:mcp_calls_without_real_brain_names")
         if cond == "mcp_history" and mcp_calls > 0:
-            # Real MCP calls were made; not calling BOTH required tools is a
-            # protocol-partial NOTE (agent solved via brain_brief alone), not a cheat.
-            for req in ("brain_brief", "brain_history"):
+            # Required tools are model-aware: compact-delivery models (Opus/gpt-5.5)
+            # are told to call brain_brief only, so brief-only is COMPLETE for them,
+            # not a partial. Other models are expected to also call brain_history.
+            required = ("brain_brief",) if compact else ("brain_brief", "brain_history")
+            for req in required:
                 if not any(str(n).endswith(f"__{req}") or n == req for n in names):
                     notes.append(f"B:mcp_history_partial_missing_{req}")
         # server-log cross-check: recorded calls must be backed by real tools/call
