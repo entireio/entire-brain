@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "146bc9764dec",
+  "strategy": "manual-commit",
+  "branch": "claude/durable-facts-and-distill",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/facts_query.go",
+    "internal/cli/facts_read_cmd.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/14/6bc9764dec/0/metadata.json",
+      "transcript": "/14/6bc9764dec/0/full.jsonl",
+      "content_hash": "/14/6bc9764dec/0/content_hash.txt",
+      "prompt": "/14/6bc9764dec/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 21210,
+    "cache_creation_tokens": 4493363,
+    "cache_read_tokens": 109635259,
+    "output_tokens": 427446,
+    "api_call_count": 361
+  }
+}
