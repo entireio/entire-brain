@@ -49,7 +49,7 @@ func countFactProposals(brainDir string, branches []string) int {
 // updateFactSourceManifest recomputes sources.facts from the whole on-disk fact
 // store and writes it back. Commands that mutate facts outside the distill
 // pipeline (remember, facts review/promote/gc) call this so `status` and the
-// manifest stay accurate. Turn counts are preserved from the existing source
+// manifest stay accurate. Chunk counts are preserved from the existing source
 // (they describe the last distill run, not these edits).
 func updateFactSourceManifest(brainDir string, now time.Time) error {
 	byBranch, err := loadAllFactBranches(brainDir)
@@ -66,12 +66,12 @@ func updateFactSourceManifest(brainDir string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	turnsScanned, turnsDistilled := 0, 0
+	chunksScanned, chunksDistilled := 0, 0
 	if manifest.Sources != nil && manifest.Sources.Facts != nil {
-		turnsScanned = manifest.Sources.Facts.TurnsScanned
-		turnsDistilled = manifest.Sources.Facts.TurnsDistilled
+		chunksScanned = manifest.Sources.Facts.ChunksScanned
+		chunksDistilled = manifest.Sources.Facts.ChunksDistilled
 	}
-	source := summarizeFactSource(now, byBranch, turnsScanned, turnsDistilled, proposals, nil)
+	source := summarizeFactSource(now, byBranch, chunksScanned, chunksDistilled, proposals, nil)
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}
 	}

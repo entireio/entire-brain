@@ -225,8 +225,8 @@ func TestSummarizeFactSource(t *testing.T) {
 	if source.Verified != 1 || source.Unsigned != 2 {
 		t.Errorf("anchor counts wrong: verified=%d unsigned=%d", source.Verified, source.Unsigned)
 	}
-	if source.TurnsScanned != 100 || source.TurnsDistilled != 7 {
-		t.Errorf("turn counts wrong: scanned=%d distilled=%d", source.TurnsScanned, source.TurnsDistilled)
+	if source.ChunksScanned != 100 || source.ChunksDistilled != 7 {
+		t.Errorf("chunk counts wrong: scanned=%d distilled=%d", source.ChunksScanned, source.ChunksDistilled)
 	}
 	if len(source.Branches) != 2 || source.Branches[0] != "feature" || source.Branches[1] != "main" {
 		t.Errorf("branches not sorted: %v", source.Branches)

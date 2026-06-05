@@ -75,18 +75,6 @@ func removeString(values []string, target string) []string {
 	return out
 }
 
-// removeProposal returns proposals without the one matching the resolved pair.
-func removeProposal(proposals []factProposal, candidateID, targetID string) []factProposal {
-	out := proposals[:0:0]
-	for _, p := range proposals {
-		if p.CandidateID == candidateID && p.TargetID == targetID {
-			continue
-		}
-		out = append(out, p)
-	}
-	return out
-}
-
 // promoteFacts carries a source branch's active facts into a target set under
 // the given strategy, returning the merged set, any conflict proposals queued
 // (keep-both), and the number of facts promoted.

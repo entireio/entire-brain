@@ -137,7 +137,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		return nil
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "distilled %d facts (%d distilled, %d authored, %d superseded) across %d branch(es) from %d chunks; %d proposals queued for review\n",
-		source.Facts, source.Distilled, source.Authored, source.Superseded, len(source.Branches), source.TurnsScanned, source.Proposals)
+		source.Facts, source.Distilled, source.Authored, source.Superseded, len(source.Branches), source.ChunksScanned, source.Proposals)
 	return nil
 }
 

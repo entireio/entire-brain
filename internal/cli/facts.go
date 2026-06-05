@@ -40,19 +40,19 @@ var factPathPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z0-9_]+){2}$`)
 // factSourceManifest is recorded under sources.facts in the brain manifest,
 // parallel to historySourceManifest and the semantic source metadata.
 type factSourceManifest struct {
-	GeneratedAt    time.Time `json:"generated_at"`
-	TaxonomyPath   string    `json:"taxonomy_path"`
-	Branches       []string  `json:"branches,omitempty"`
-	Facts          int       `json:"facts"`
-	Distilled      int       `json:"distilled"`
-	Authored       int       `json:"authored"`
-	Superseded     int       `json:"superseded"`
-	Proposals      int       `json:"proposals"`
-	Verified       int       `json:"verified"`
-	Unsigned       int       `json:"unsigned"`
-	TurnsScanned   int       `json:"turns_scanned"`
-	TurnsDistilled int       `json:"turns_distilled"`
-	Warnings       []string  `json:"warnings,omitempty"`
+	GeneratedAt     time.Time `json:"generated_at"`
+	TaxonomyPath    string    `json:"taxonomy_path"`
+	Branches        []string  `json:"branches,omitempty"`
+	Facts           int       `json:"facts"`
+	Distilled       int       `json:"distilled"`
+	Authored        int       `json:"authored"`
+	Superseded      int       `json:"superseded"`
+	Proposals       int       `json:"proposals"`
+	Verified        int       `json:"verified"`
+	Unsigned        int       `json:"unsigned"`
+	ChunksScanned   int       `json:"chunks_scanned"`
+	ChunksDistilled int       `json:"chunks_distilled"`
+	Warnings        []string  `json:"warnings,omitempty"`
 }
 
 // factRecord is one durable, self-contained statement. The id is content
@@ -160,11 +160,15 @@ func factTopLevel(path string) string {
 // --- on-disk layout -------------------------------------------------------
 
 // factsBranchRelDir returns the brain-relative directory holding a branch's
-// facts, reusing the export branch slug rules so the facts layout lines up with
-// the sessions layout.
+// facts. The readable slug alone is not collision-free — distinct branches can
+// sanitize to the same slug (e.g. "evis/search" and "evis-search", or "Main"
+// and "main") — and two branches sharing a facts file would clobber each other
+// and break branch isolation. A short hash of the full branch name is appended
+// so each branch maps to a stable, unique directory while staying greppable.
 func factsBranchRelDir(branch string) string {
-	slug := safePathComponent(branch, "branch", 100)
-	return filepath.ToSlash(filepath.Join(factsDirName, slug))
+	slug := safePathComponent(branch, "branch", 80)
+	sum := sha256.Sum256([]byte(branch))
+	return filepath.ToSlash(filepath.Join(factsDirName, slug+"-"+hex.EncodeToString(sum[:4])))
 }
 
 func factsFileRelPath(branch string) string {
@@ -388,14 +392,14 @@ func factPathKnownTopLevel(taxonomy factTaxonomy, path string) bool {
 
 // summarizeFactSource folds a per-branch view of the fact store into the
 // source manifest recorded under sources.facts in the brain manifest.
-func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, turnsScanned, turnsDistilled, proposals int, warnings []string) *factSourceManifest {
+func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, chunksScanned, chunksDistilled, proposals int, warnings []string) *factSourceManifest {
 	source := &factSourceManifest{
-		GeneratedAt:    now,
-		TaxonomyPath:   factsTaxonomyPath,
-		Proposals:      proposals,
-		TurnsScanned:   turnsScanned,
-		TurnsDistilled: turnsDistilled,
-		Warnings:       append([]string(nil), warnings...),
+		GeneratedAt:     now,
+		TaxonomyPath:    factsTaxonomyPath,
+		Proposals:       proposals,
+		ChunksScanned:   chunksScanned,
+		ChunksDistilled: chunksDistilled,
+		Warnings:        append([]string(nil), warnings...),
 	}
 	branches := make([]string, 0, len(byBranch))
 	for branch := range byBranch {
