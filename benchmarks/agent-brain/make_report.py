@@ -46,8 +46,11 @@ CODEX_SUITE_GLOBS = [
     "ultron-metadata-gpt55-low-n3-*",
 ]
 CLAUDE_SUITE_GLOBS = ["claude-s1-n3-*", "claude-s2-n3-*"]
-# entireio/cli monorepo A/B (both agents, semantic conditions)
-CLI_SUITE_GLOBS = ["cli-monorepo-ab-*"]
+# entireio/cli proof, done properly: fresh clone + real sessions (entire brain refresh),
+# brain_brief/action_checklist delivery, full model x effort matrix, n=3.
+# (The stale semantic-only cli-monorepo-ab-* / cli-tr-* suites are intentionally excluded:
+# they had no real sessions and 0 valid runs.)
+CLI_SUITE_GLOBS = ["cliproof-tr-*", "cliproof-rv-*"]
 
 SCENARIO = {
     "ultron-history-agentic-self-contained-turns": "self-contained-turns",
@@ -56,6 +59,7 @@ SCENARIO = {
     "ultron-history-youtube-media-verification": "youtube-media",
     "entireio-cli-review-base-flag-scope": "cli-review-flag-scope",
     "entireio-cli-transcript-reresolve-updates-state": "cli-transcript-reresolve",
+    "entireio-cli-transcript-reresolve": "cli-transcript-reresolve",
 }
 
 COND_ORDER = ["no_brain", "semantic_brain", "full_cli_compact", "mcp_semantic", "mcp_history"]
@@ -113,6 +117,22 @@ def collect() -> list[dict[str, Any]]:
                 continue
             run_id = rec.get("run_id", "")
             if "__prep__" in run_id or (suite, run_id) in flagged:
+                continue
+            # Drop infra failures (non-zero exit, provider rate-limit/429 bail,
+            # or empty/zero output) so charts reflect real agent behavior, not quota.
+            rc = g(rec, "agent_info", "returncode")
+            tail = (g(rec, "agent_info", "stdout_tail", default="") or "") + (g(rec, "agent_info", "stderr_tail", default="") or "")
+            secs = g(rec, "agent_info", "seconds")
+            toks = g(rec, "agent_info", "usage", "total_tokens")
+            sc = g(rec, "score", "total")
+            if rc not in (0, None):
+                continue
+            if "session limit" in tail or '"api_error_status":429' in tail:
+                continue
+            # "didn't actually run" guard: no time AND no tokens (provider error / empty output)
+            if (not secs or secs < 1) and not toks:
+                continue
+            if (sc in (0, None)) and not toks:
                 continue
             act = g(rec, "agent_info", "activity", default={}) or {}
             rows.append({

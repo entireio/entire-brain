@@ -85,12 +85,21 @@ func TestCheckpointMetadataCacheRoundTripAndVersionGuard(t *testing.T) {
 	path := filepath.Join(dir, filepath.FromSlash(checkpointMetadataCachePath))
 
 	cache := newCheckpointMetadataCache(nil)
+	cache.active = true // a reader populated `next` this run, so the cache is persistable
 	cache.next["oid-1"] = []byte("hello")
 	saveCheckpointMetadataCache(path, cache)
 
 	reloaded := loadCheckpointMetadataCache(path)
 	if string(reloaded.prev["oid-1"]) != "hello" {
 		t.Fatalf("round-trip lost blob: %+v", reloaded.prev)
+	}
+
+	// Clobber guard: an inactive cache (caching disabled this run) must NOT
+	// overwrite the good on-disk cache with an empty blob map.
+	inactive := newCheckpointMetadataCache(nil)
+	saveCheckpointMetadataCache(path, inactive)
+	if guarded := loadCheckpointMetadataCache(path); string(guarded.prev["oid-1"]) != "hello" {
+		t.Fatalf("inactive cache clobbered good on-disk cache: %+v", guarded.prev)
 	}
 
 	// A version bump must invalidate the on-disk cache. Write a valid gzipped

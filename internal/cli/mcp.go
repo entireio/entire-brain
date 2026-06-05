@@ -65,6 +65,17 @@ func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) erro
 			mcpDebugLog(debugLog, "eof")
 			return nil
 		}
+		if errors.Is(err, errMCPRecoverable) {
+			// Reply with a JSON-RPC parse error and keep serving; one bad frame
+			// must not kill the whole MCP session.
+			mcpDebugLog(debugLog, "parse_error: "+err.Error())
+			resp := mcpMessage{JSONRPC: "2.0", Error: &mcpError{Code: -32700, Message: "parse error"}}
+			if werr := writeMCPMessage(out, resp, frameMode); werr != nil {
+				mcpDebugLog(debugLog, "write_error: "+werr.Error())
+				return werr
+			}
+			continue
+		}
 		if err != nil {
 			mcpDebugLog(debugLog, "read_error: "+err.Error())
 			return err
@@ -289,18 +300,66 @@ func mcpPositiveInt(args map[string]any, key string, fallback int) (int, error) 
 	return 0, fmt.Errorf("%s must be an integer greater than zero", key)
 }
 
+// errMCPRecoverable marks a single malformed/oversized frame that should be
+// answered with a JSON-RPC parse error rather than terminating the session.
+var errMCPRecoverable = errors.New("recoverable mcp frame error")
+
+// readBoundedLine reads one '\n'-terminated line while capping accumulated bytes
+// at max, so a newline-less giant frame cannot exhaust memory during the read
+// (ReadString would buffer it unbounded). On overflow it drains the remainder of
+// the line (bounded) to keep the stream aligned and returns errMCPRecoverable.
+func readBoundedLine(reader *bufio.Reader, max int) (string, error) {
+	var buf []byte
+	for {
+		chunk, err := reader.ReadSlice('\n')
+		if len(buf)+len(chunk) > max {
+			if err == bufio.ErrBufferFull {
+				drainMCPLine(reader)
+			}
+			return "", fmt.Errorf("%w: frame exceeds maximum size of %d bytes", errMCPRecoverable, max)
+		}
+		buf = append(buf, chunk...)
+		switch err {
+		case nil:
+			return string(buf), nil
+		case bufio.ErrBufferFull:
+			continue
+		default:
+			return string(buf), err
+		}
+	}
+}
+
+// drainMCPLine discards the rest of an over-long line up to a bounded number of
+// buffer-sized chunks, then gives up (a pathological newline-less stream stays
+// memory-safe; only stream realignment is best-effort).
+func drainMCPLine(reader *bufio.Reader) {
+	for i := 0; i < 64; i++ {
+		if _, err := reader.ReadSlice('\n'); err != bufio.ErrBufferFull {
+			return
+		}
+	}
+}
+
 func readMCPMessage(reader *bufio.Reader) (mcpMessage, mcpFrameMode, error) {
 	length := -1
 	for {
-		line, err := reader.ReadString('\n')
+		line, err := readBoundedLine(reader, maxMCPFrameBytes)
+		if errors.Is(err, errMCPRecoverable) {
+			return mcpMessage{}, mcpFrameJSONLine, err
+		}
 		if err != nil {
 			return mcpMessage{}, "", err
 		}
 		line = strings.TrimRight(line, "\r\n")
 		if strings.HasPrefix(strings.TrimSpace(line), "{") {
+			trimmed := strings.TrimSpace(line)
+			// readBoundedLine already caps the line at maxMCPFrameBytes (an oversize
+			// NDJSON frame is reported there), so the only failure left here is a
+			// malformed line, which we make recoverable instead of fatal.
 			var msg mcpMessage
-			if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &msg); err != nil {
-				return mcpMessage{}, "", err
+			if err := json.Unmarshal([]byte(trimmed), &msg); err != nil {
+				return mcpMessage{}, mcpFrameJSONLine, fmt.Errorf("%w: %v", errMCPRecoverable, err)
 			}
 			return msg, mcpFrameJSONLine, nil
 		}

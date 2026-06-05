@@ -11,9 +11,12 @@ The plugin binary is named `entire-brain` and is invoked through Entire as:
 entire brain
 ```
 
-All features are local-only (for now). They read local repositories and
-write local plugin data; they do not publish, hydrate, or serve brain data over
-the network.
+All generated brain data stays local (for now): features read local
+repositories and write local plugin data, and they do not publish or serve brain
+data over the network. The one network access is opt-in checkpoint discovery —
+when a repo configures a `checkpoint_remote`, `export`/`refresh` may `git fetch`
+the checkpoint history from that remote into a throwaway temp repo to build the
+brain. No other hydration occurs.
 
 ## Install
 
