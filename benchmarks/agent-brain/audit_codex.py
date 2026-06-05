@@ -130,9 +130,11 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         if mcp_calls > 0 and not real:
             flags.append("B:mcp_calls_without_real_brain_names")
         if cond == "mcp_history" and mcp_calls > 0:
-            # Real MCP calls were made; not calling BOTH required tools is a
-            # protocol-partial NOTE (agent solved via brain_brief alone), not a cheat.
-            for req in ("brain_brief", "brain_history"):
+            # Required tools are model-aware: compact-delivery models (Opus/gpt-5.5)
+            # are told to call brain_brief only, so brief-only is COMPLETE for them,
+            # not a partial. Other models are expected to also call brain_history.
+            required = ("brain_brief",) if compact else ("brain_brief", "brain_history")
+            for req in required:
                 if not any(str(n).endswith(f"__{req}") or n == req for n in names):
                     notes.append(f"B:mcp_history_partial_missing_{req}")
         # server-log cross-check: recorded calls must be backed by real tools/call
