@@ -17,11 +17,12 @@ import (
 // genuinely help the task (enables deterministic precision/recall). Without
 // labels, --judge has an agent decide relevance per surfaced fact.
 type evalTask struct {
-	ID       string   `json:"id"`
-	Task     string   `json:"task"`
-	Branch   string   `json:"branch,omitempty"`
-	K        int      `json:"k,omitempty"`
-	Relevant []string `json:"relevant,omitempty"`
+	ID        string   `json:"id"`
+	Task      string   `json:"task"`
+	Branch    string   `json:"branch,omitempty"`
+	QueryType string   `json:"query_type,omitempty"`
+	K         int      `json:"k,omitempty"`
+	Relevant  []string `json:"relevant,omitempty"`
 }
 
 // evalTaskResult is the per-task measurement. The headline metric is
