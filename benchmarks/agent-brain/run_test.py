@@ -94,9 +94,11 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("Do not run the `entire brain` CLI", prompt)
         self.assertIn("do not read `.benchmark/brain-history-excerpt.md`", prompt)
 
-    def test_mcp_history_compact_delivery_for_over_explorer_models(self):
-        # Model-adaptive: gpt-5.5 over-explores the full history blob, so it gets a
-        # compact single-brain_brief delivery with a hard stop (no forced brain_history).
+    def test_mcp_history_disciplined_delivery_for_gpt5x(self):
+        # gpt-5.5 under-contexts on MCP (brief names the file but not the invariant, and the old
+        # brief-only prompt banned brain_history). It now gets the "disciplined MCP" delivery:
+        # brief once + ONE targeted brain_history for the invariant + hard stop. Validated to lift
+        # gpt-5.5 mcp_history pass-rate 88%->100% with no score regression.
         task = {
             "id": "task",
             "prompt": "Fix the regression.",
@@ -104,14 +106,32 @@ class RunnerAndConditionTests(unittest.TestCase):
             "expected_files": ["pkg/file.ts"],
             "validation": ["npm test"],
         }
-        runner = run.parse_runner_spec("codex:gpt-5.5:medium")
-        prompt = run.prompt_for(task, "mcp_history", runner)
-        self.assertIn("EXACTLY ONCE", prompt)
-        self.assertIn("do NOT need a separate `brain_history` call", prompt)
+        prompt = run.prompt_for(task, "mcp_history", run.parse_runner_spec("codex:gpt-5.5:medium"))
+        self.assertIn("Step 1", prompt)
+        self.assertIn("brain_brief", prompt)
+        self.assertIn("Step 2", prompt)
+        self.assertIn("brain_history", prompt)  # the invariant lookup, restored (not banned)
+        self.assertIn("Hard stop", prompt)
         self.assertIn("MCP_TOOLS_MISSING", prompt)
-        # A model NOT in the compact set keeps the richer history delivery.
+        self.assertNotIn("do NOT need a separate `brain_history` call", prompt)  # old brief-only is gone
+        # A model NOT in the disciplined/compact set keeps the generic history delivery.
         guided = run.prompt_for(task, "mcp_history", run.parse_runner_spec("claude:sonnet:medium"))
         self.assertIn("run exactly one `mcp__entire_brain__brain_history`", guided)
+        self.assertNotIn("Hard stop", guided)
+
+    def test_disciplined_mcp_is_effort_aware_for_mini(self):
+        # gpt-5.4-mini gets the generic delivery at low/medium (it wins there) but the disciplined
+        # hard-stop at high/xhigh, where it spirals (token bloat). Validated: -32% tokens pooled,
+        # no validation regression.
+        task = {"id": "t", "prompt": "Fix.", "brain_queries": ["q"], "expected_files": ["f.go"], "validation": ["go test ./..."]}
+        low = run.prompt_for(task, "mcp_history", run.parse_runner_spec("codex:gpt-5.4-mini:low"))
+        high = run.prompt_for(task, "mcp_history", run.parse_runner_spec("codex:gpt-5.4-mini:high"))
+        xhigh = run.prompt_for(task, "mcp_history", run.parse_runner_spec("codex:gpt-5.4-mini:xhigh"))
+        self.assertNotIn("Hard stop", low)   # generic at low effort
+        self.assertIn("Hard stop", high)     # disciplined at high
+        self.assertIn("Hard stop", xhigh)    # disciplined at xhigh
+        self.assertTrue(run.wants_disciplined_mcp(run.parse_runner_spec("codex:gpt-5.4-mini:high")))
+        self.assertFalse(run.wants_disciplined_mcp(run.parse_runner_spec("codex:gpt-5.4-mini:medium")))
 
     def test_full_brain_prompt_uses_query_terms_in_initial_brief(self):
         task = {
