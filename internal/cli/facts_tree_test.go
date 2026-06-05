@@ -63,6 +63,24 @@ func TestBuildFactTreeIncludeAll(t *testing.T) {
 	}
 }
 
+func TestDistinctFactCountAcrossCategories(t *testing.T) {
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	// One fact carries two paths in DIFFERENT categories; node counts total path
+	// occurrences (so it appears in both), but distinctFactCount must count it once.
+	multi := factRecord{ID: "m", Paths: []string{"architecture.data.flow", "workflow.testing.rules"}, Status: factStatusActive, UpdatedAt: now}
+	single := treeFact("s", "project.tooling.stack", "single", 1, now)
+	tree := buildFactTree([]factRecord{multi, single}, false)
+
+	// Occurrence roll-up double-counts the multi-path fact (3 = 2 occurrences + 1).
+	if tree.Count != 3 {
+		t.Fatalf("node Count should total path occurrences (3), got %d", tree.Count)
+	}
+	// Distinct count is the real number of facts (2).
+	if got := distinctFactCount(tree); got != 2 {
+		t.Fatalf("distinctFactCount = %d, want 2", got)
+	}
+}
+
 func TestFilterTreeByPath(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	facts := []factRecord{

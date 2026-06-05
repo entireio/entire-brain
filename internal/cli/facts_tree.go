@@ -63,6 +63,22 @@ func buildFactTree(facts []factRecord, includeAll bool) *factTreeNode {
 	return root
 }
 
+// distinctFactCount returns the number of distinct facts under a tree. Node
+// Count fields total path occurrences (so a path-dense area reads as dense),
+// which double-counts a fact carried under two paths; the "N facts" header must
+// use this distinct count instead.
+func distinctFactCount(root *factTreeNode) int {
+	seen := map[string]struct{}{}
+	for _, cat := range root.Children {
+		for _, leaf := range cat.Children {
+			for _, f := range leaf.Facts {
+				seen[f.ID] = struct{}{}
+			}
+		}
+	}
+	return len(seen)
+}
+
 // sortFactsByImportance orders facts within a leaf by a crude importance proxy:
 // more provenance anchors first (corroborated by more sessions), then most
 // recently updated. This surfaces the load-bearing facts as a leaf's
@@ -185,11 +201,12 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 			if jsonOut {
 				return writeJSON(cmd, tree)
 			}
-			if tree.Count == 0 {
+			distinct := distinctFactCount(tree)
+			if distinct == 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "no facts on %s%s\n", resolvedBranch, pathSuffix(path))
 				return nil
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%d facts on %s%s\n", tree.Count, resolvedBranch, pathSuffix(path))
+			fmt.Fprintf(cmd.OutOrStdout(), "%d facts on %s%s\n", distinct, resolvedBranch, pathSuffix(path))
 			renderFactTree(cmd, tree, depth, leaves)
 			return nil
 		},

@@ -338,6 +338,7 @@ type queryExpanderFunc func(query string) (string, error)
 
 func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc) ([]evalTaskResult, error) {
 	results := make([]evalTaskResult, 0, len(tasks))
+	factsByBranch := map[string][]factRecord{} // load each branch's facts once per run
 	for _, task := range tasks {
 		branch := task.Branch
 		if branch == "" {
@@ -347,9 +348,14 @@ func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultB
 		if k <= 0 {
 			k = defaultK
 		}
-		facts, err := loadFacts(brainDir, branch)
-		if err != nil {
-			return nil, err
+		facts, ok := factsByBranch[branch]
+		if !ok {
+			loaded, err := loadFacts(brainDir, branch)
+			if err != nil {
+				return nil, err
+			}
+			facts = loaded
+			factsByBranch[branch] = facts
 		}
 		query := task.Task
 		if expander != nil {
@@ -371,10 +377,11 @@ func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultB
 			}
 			totalRelevant = len(relevant)
 		} else if judge && len(surfaced) > 0 {
-			relevant, err = judgeRelevance(ctx, run, repoDir, judgeArgs, task, surfaced, cache)
-			if err != nil {
-				return nil, err
+			judged, jerr := judgeRelevance(ctx, run, repoDir, judgeArgs, task, surfaced, cache)
+			if jerr != nil {
+				return nil, jerr
 			}
+			relevant = judged
 		} else {
 			relevant = map[string]struct{}{}
 		}
