@@ -136,8 +136,7 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		tab := strings.IndexByte(line, '\t')
-		if tab < 0 {
+		if !strings.ContainsRune(line, '\t') {
 			// Prose / preamble the template forbids; ignore quietly unless it
 			// looks like an attempted fact (contains a path-like token).
 			if strings.Contains(line, ".") && strings.Contains(line, " ") {
@@ -145,8 +144,7 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			}
 			continue
 		}
-		rawPaths := strings.Split(strings.TrimSpace(line[:tab]), ",")
-		text := strings.TrimSpace(line[tab+1:])
+		rawPaths, text := splitFactLine(line)
 		if text == "" {
 			continue
 		}
@@ -177,6 +175,44 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 		warnings = append(warnings, fmt.Sprintf("chunk produced more than %d facts; extra lines dropped", factsMaxPerChunk))
 	}
 	return records, warnings
+}
+
+// splitFactLine separates a distill output line into its path tokens and fact
+// text. The template specifies `path[,path]<TAB>fact`, but agents sometimes
+// separate multiple paths with tabs instead of commas (`path<TAB>path<TAB>fact`),
+// which would otherwise leak a path into the fact text. It therefore consumes
+// leading tab-separated fields for as long as each is a path-block (comma-joined
+// valid paths, no prose), and treats the remainder as the fact. Prose cannot
+// match the strict path pattern (it contains spaces), so a fact is never
+// mistaken for a path.
+func splitFactLine(line string) ([]string, string) {
+	fields := strings.Split(line, "\t")
+	var paths []string
+	i := 0
+	for i < len(fields)-1 { // always leave at least one field for the text
+		field := strings.TrimSpace(fields[i])
+		if !fieldLooksLikePaths(field) {
+			break
+		}
+		paths = append(paths, strings.Split(field, ",")...)
+		i++
+	}
+	text := strings.TrimSpace(strings.Join(fields[i:], " "))
+	return paths, text
+}
+
+// fieldLooksLikePaths reports whether a tab-separated field is entirely a
+// path-block: one or more comma-joined, syntactically valid taxonomy paths.
+func fieldLooksLikePaths(field string) bool {
+	if field == "" {
+		return false
+	}
+	for _, part := range strings.Split(field, ",") {
+		if !validFactPath(strings.ToLower(strings.TrimSpace(part))) {
+			return false
+		}
+	}
+	return true
 }
 
 // filterFactPathsByTaxonomy keeps only paths whose top-level category exists in

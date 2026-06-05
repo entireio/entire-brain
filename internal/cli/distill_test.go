@@ -143,6 +143,56 @@ func TestDistilledFactsFromOutput(t *testing.T) {
 	}
 }
 
+func TestDistilledFactsFromOutputTabSeparatedPaths(t *testing.T) {
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	taxonomy := defaultFactTaxonomy(now)
+	anchor := factAnchor{SessionID: "s1"}
+
+	// The agent separated two paths with a TAB instead of a comma. The second
+	// path must not leak into the fact text; both paths must be recovered.
+	output := "architecture.data.flow\tconstraints.invariants.general\tHook-supporting agents stamp their config with cli_version."
+	records, _ := distilledFactsFromOutput(output, taxonomy, anchor, "main", now)
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(records))
+	}
+	r := records[0]
+	if r.Text != "Hook-supporting agents stamp their config with cli_version." {
+		t.Fatalf("path leaked into text: %q", r.Text)
+	}
+	if len(r.Paths) != 2 || r.Paths[0] != "architecture.data.flow" || r.Paths[1] != "constraints.invariants.general" {
+		t.Fatalf("both tab-separated paths should be recovered: %v", r.Paths)
+	}
+}
+
+func TestSplitFactLine(t *testing.T) {
+	cases := []struct {
+		line  string
+		paths []string
+		text  string
+	}{
+		{"a.b.c\tfact text", []string{"a.b.c"}, "fact text"},
+		{"a.b.c,d.e.f\tfact text", []string{"a.b.c", "d.e.f"}, "fact text"},
+		{"a.b.c\td.e.f\tfact text", []string{"a.b.c", "d.e.f"}, "fact text"},
+		// A fact that itself contains a tab keeps everything after the paths.
+		{"a.b.c\tprose with\ta tab", []string{"a.b.c"}, "prose with a tab"},
+	}
+	for _, tc := range cases {
+		paths, text := splitFactLine(tc.line)
+		if text != tc.text {
+			t.Errorf("line %q: text = %q, want %q", tc.line, text, tc.text)
+		}
+		if len(paths) != len(tc.paths) {
+			t.Errorf("line %q: paths = %v, want %v", tc.line, paths, tc.paths)
+			continue
+		}
+		for i := range paths {
+			if paths[i] != tc.paths[i] {
+				t.Errorf("line %q: paths = %v, want %v", tc.line, paths, tc.paths)
+			}
+		}
+	}
+}
+
 func TestDistilledFactsFromOutputCapsPerChunk(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	taxonomy := defaultFactTaxonomy(now)
