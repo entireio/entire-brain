@@ -22,6 +22,7 @@ import (
 
 const (
 	brainBriefDefaultLimit      = 8
+	brainBriefFactsLimit        = 6
 	brainInspectHistoryMaxFiles = 1000
 	brainInspectHistoryMaxBytes = 512 * 1024
 	brainInspectHistoryMaxHits  = 25
@@ -68,6 +69,7 @@ type brainStatusSources struct {
 	Sessions bool `json:"sessions"`
 	Semantic bool `json:"semantic"`
 	History  bool `json:"history"`
+	Facts    bool `json:"facts"`
 }
 
 type brainLiveState struct {
@@ -89,6 +91,7 @@ type brainBriefReport struct {
 	Status          brainStatusReport  `json:"status"`
 	Semantic        brainBriefSemantic `json:"semantic"`
 	History         brainBriefHistory  `json:"history"`
+	Facts           []factRecord       `json:"facts,omitempty"`
 	ActionChecklist []brainBriefAction `json:"action_checklist,omitempty"`
 	LikelyEditFiles []string           `json:"likely_edit_files,omitempty"`
 	LikelyTestFiles []string           `json:"likely_test_files,omitempty"`
@@ -388,7 +391,12 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "brain: %s\n", report.Brain.Path)
 	fmt.Fprintf(cmd.OutOrStdout(), "repo: %s\n", report.Repo.Root)
-	fmt.Fprintf(cmd.OutOrStdout(), "sources: seed=%t sessions=%t semantic=%t history=%t\n", report.Sources.Seed, report.Sources.Sessions, report.Sources.Semantic, report.Sources.History)
+	fmt.Fprintf(cmd.OutOrStdout(), "sources: seed=%t sessions=%t semantic=%t history=%t facts=%t\n", report.Sources.Seed, report.Sources.Sessions, report.Sources.Semantic, report.Sources.History, report.Sources.Facts)
+	if report.Manifest != nil && report.Manifest.Sources != nil && report.Manifest.Sources.Facts != nil {
+		f := report.Manifest.Sources.Facts
+		fmt.Fprintf(cmd.OutOrStdout(), "facts: %d (%d distilled, %d authored, %d superseded) across %d branch(es); %d proposals pending\n",
+			f.Facts, f.Distilled, f.Authored, f.Superseded, len(f.Branches), f.Proposals)
+	}
 	if report.Freshness != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "freshness: %s\n", report.Freshness.Severity)
 	}
@@ -456,6 +464,17 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	} else if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Sessions != nil {
 		report.Warnings = append(report.Warnings, "history index missing; run `entire brain refresh`")
 	}
+	if status.Sources.Facts {
+		branch := status.Live.Branch
+		if branch == "" {
+			branch = distillDefaultBranch
+		}
+		if facts, factsErr := loadFacts(status.Brain.Path, branch); factsErr != nil {
+			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
+		} else {
+			report.Facts = rankFacts(facts, task, brainBriefFactsLimit, false)
+		}
+	}
 	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroups(status.Repo.Root, report, task)
 	report.LikelyTestFiles = brainBriefAddSiblingTestFiles(status.Repo.Root, report.LikelyEditFiles, report.LikelyTestFiles)
 	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
@@ -492,6 +511,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	}
 	for _, match := range report.History.Matches {
 		fmt.Fprintf(cmd.OutOrStdout(), "history %s:%d %s\n", match.Path, match.Line, match.Excerpt)
+	}
+	for _, fact := range report.Facts {
+		fmt.Fprintf(cmd.OutOrStdout(), "fact [%s] %s\n", strings.Join(fact.Paths, ","), fact.Text)
 	}
 	for _, item := range report.ActionChecklist {
 		location := item.File
@@ -1377,6 +1399,7 @@ func buildBrainStatusReport(ctx context.Context, opts Options, target string) (b
 		report.Sources.Sessions = manifest.Sources.Sessions != nil
 		report.Sources.Semantic = manifest.Sources.Semantic != nil
 		report.Sources.History = manifest.Sources.History != nil
+		report.Sources.Facts = manifest.Sources.Facts != nil
 	}
 	live, liveErr := brainLiveStateReport(ctx, opts.Runner, repoDir, storage.BrainDir, manifest)
 	if liveErr != nil {
