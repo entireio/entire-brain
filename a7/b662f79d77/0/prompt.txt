@@ -1,0 +1,108 @@
+Review all changes in this branch
+
+---
+
+Review all changes in this branch
+
+---
+
+Review all changes in this branch
+
+---
+
+Yes
+
+---
+
+Add your remaining findings to the plan doc. Then refresh the brain for this repo and run the distill process.
+
+---
+
+It’s not the CLI itself. Just update the entire-brain plugin that is installed with the CLI.
+
+---
+
+<task-notification>
+<task-id>b90owrgzg</task-id>
+<tool-use-id>toolu_01Be1oYqEVDjNvcWopENDo39</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/d770cc65-b914-4759-91e4-31397a99ba57/tasks/b90owrgzg.output</output-file>
+<status>completed</status>
+<summary>Background command "Rebuild all 18 brains via updated plugin" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+On entire.io and cli, pick 2-3 recent branches each and distill them
+
+---
+
+<task-notification>
+<task-id>b2xf28ybn</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/d770cc65-b914-4759-91e4-31397a99ba57/tasks/b2xf28ybn.output</output-file>
+<status>completed</status>
+<summary>Background command "Distill selected recent branches on entire.io and cli" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+While we are waiting, analyze the 525 facts from the branches. Are they actually helping you to review and understand these branches? Are they the best outcome for you to build on top of?
+
+---
+
+Yes. Also add a specific task to phase B to test and iterate on this under two assumptions:
+1. The primary audience of the brain are agents like you. Which means, the facts need to be clear,  useful, and not waste token budgets. 
+2. A human developer may read the facts, but they won’t read thousands of them and the information needs to be concise and have some for of hierarchy. For example, “use spaces, not tabs” could be nested under coding standards. 
+Think about the best way to do this, even for large monorepos, and challenge your own assumptions.
+
+---
+
+<task-notification>
+<task-id>bypk0ziq2</task-id>
+<tool-use-id>toolu_013jLVCdpCTH1fBMfoBi5anx</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/d770cc65-b914-4759-91e4-31397a99ba57/tasks/bypk0ziq2.output</output-file>
+<status>completed</status>
+<summary>Background command "Distill this repo's brain via native plugin" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+commit/push, then continue with phase B
+
+---
+
+A, then B/C
+
+---
+
+How to grow the eval set?
+
+---
+
+Make it so
+
+---
+
+Does it makes sense to now run evals / benchmarks against entire.io and entire-cli repos and their branches?
+
+---
+
+yes
+
+---
+
+<task-notification>
+<task-id>bhsgisrth</task-id>
+<tool-use-id>toolu_0167jKEthWPU7q69cAYp1ETU</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/d770cc65-b914-4759-91e4-31397a99ba57/tasks/bhsgisrth.output</output-file>
+<status>completed</status>
+<summary>Background command "Run cross-repo benchmark: gen + deterministic + judged eval per repo" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Can you do all three slices without pausing or do you need additional feedback from me?
+
+---
+
+Ok
