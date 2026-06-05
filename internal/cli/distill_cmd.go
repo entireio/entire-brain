@@ -49,14 +49,15 @@ func capWarnings(warnings []string, max int) []string {
 type distillAgentRunner func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error)
 
 type distillCommandOptions struct {
-	branch        string
-	force         bool
-	json          bool
-	agent         string
-	agentCommand  []string
-	timeout       time.Duration
-	maxChunkBytes int
-	run           distillAgentRunner
+	branch              string
+	force               bool
+	json                bool
+	agent               string
+	agentCommand        []string
+	timeout             time.Duration
+	maxChunkBytes       int
+	confidenceThreshold float64
+	run                 distillAgentRunner
 }
 
 // transcriptChunk is a line-numbered slice of one session transcript handed to
@@ -77,7 +78,7 @@ type distillCache struct {
 }
 
 func newDistillCommand(opts Options) *cobra.Command {
-	distillOpts := distillCommandOptions{agent: "auto", timeout: defaultDistillTimeout, maxChunkBytes: defaultDistillChunkSize}
+	distillOpts := distillCommandOptions{agent: "auto", timeout: defaultDistillTimeout, maxChunkBytes: defaultDistillChunkSize, confidenceThreshold: defaultFactConfidenceThreshold}
 	cmd := &cobra.Command{
 		Use:   "distill [path]",
 		Short: "Distill captured sessions into durable facts (agent-required)",
@@ -98,6 +99,7 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&distillOpts.json, "json", false, "Emit the fact source summary as JSON")
 	cmd.Flags().StringVar(&distillOpts.agent, "agent", "auto", "Distillation agent: auto, codex, claude-code, or command")
 	cmd.Flags().StringArrayVar(&distillOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
+	cmd.Flags().Float64Var(&distillOpts.confidenceThreshold, "confidence", defaultFactConfidenceThreshold, "Minimum agent confidence to auto-apply a merge/supersede; below this it is queued for review")
 	return cmd
 }
 
@@ -134,8 +136,8 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		fmt.Fprintln(cmd.OutOrStdout(), string(data))
 		return nil
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "distilled %d facts (%d distilled, %d authored) across %d branch(es) from %d chunks\n",
-		source.Facts, source.Distilled, source.Authored, len(source.Branches), source.TurnsScanned)
+	fmt.Fprintf(cmd.OutOrStdout(), "distilled %d facts (%d distilled, %d authored, %d superseded) across %d branch(es) from %d chunks; %d proposals queued for review\n",
+		source.Facts, source.Distilled, source.Authored, source.Superseded, len(source.Branches), source.TurnsScanned, source.Proposals)
 	return nil
 }
 
@@ -171,6 +173,14 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	if err != nil {
 		return nil, err
 	}
+	reconcileArgs, err := distillAgentCommandArgs(distillOpts.agent, distillOpts.agentCommand, reconcilePrompt())
+	if err != nil {
+		return nil, err
+	}
+	threshold := distillOpts.confidenceThreshold
+	if threshold <= 0 {
+		threshold = defaultFactConfidenceThreshold
+	}
 
 	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
 	// Chronological order so any future supersession chain reconstructs
@@ -181,6 +191,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	newCache := distillCache{Version: distillCacheVersion, Sessions: make(map[string]string, len(sessions))}
 
 	byBranch := map[string][]factRecord{}
+	proposalsByBranch := map[string][]factProposal{}
 	loaded := map[string]bool{}
 	var warnings []string
 	chunksScanned, chunksDistilled := 0, 0
@@ -253,12 +264,18 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			}
 			records, chunkWarnings := distilledFactsFromOutput(out, taxonomy, anchor, branch, now)
 			warnings = append(warnings, chunkWarnings...)
-			if len(records) > 0 {
-				chunksDistilled++
+			if len(records) == 0 {
+				continue
 			}
-			for _, record := range records {
-				byBranch[branch] = upsertFact(byBranch[branch], record)
-			}
+			chunksDistilled++
+			// Reconcile the chunk's candidates against the branch's active facts
+			// so near-duplicates merge and contradictions supersede instead of
+			// piling up. Low-confidence decisions are queued for review.
+			actions, recWarnings := reconcileChunkCandidates(ctx, distillOpts.run, reconcileArgs, records, byBranch[branch], repoDir, distillOpts.timeout)
+			warnings = append(warnings, recWarnings...)
+			var chunkProposals []factProposal
+			byBranch[branch], chunkProposals = applyFactActions(byBranch[branch], actions, threshold, now)
+			proposalsByBranch[branch] = append(proposalsByBranch[branch], chunkProposals...)
 		}
 		// Only cache a session as distilled when every chunk succeeded, so a
 		// session whose agent calls failed is retried on the next run rather
@@ -270,17 +287,33 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 
 	warnings = capWarnings(warnings, maxDistillWarnings)
 
+	totalProposals := 0
 	for branch, records := range byBranch {
 		if err := writeFacts(brainDir, branch, records); err != nil {
 			return nil, err
 		}
+		// Union this run's proposals with any already queued (a --force rebuild
+		// starts fresh since it rebuilds the distilled facts), then persist.
+		var prior []factProposal
+		if !distillOpts.force {
+			if loadedProposals, loadErr := loadFactProposals(brainDir, branch); loadErr != nil {
+				warnings = append(warnings, fmt.Sprintf("load proposals for %s: %v", branch, loadErr))
+			} else {
+				prior = loadedProposals
+			}
+		}
+		merged := dedupeProposals(append(prior, proposalsByBranch[branch]...))
+		if err := writeFactProposals(brainDir, branch, merged); err != nil {
+			return nil, err
+		}
+		totalProposals += len(merged)
 	}
 	if err := writeFactTaxonomy(brainDir, taxonomy); err != nil {
 		return nil, err
 	}
 	saveDistillCache(brainDir, newCache)
 
-	source := summarizeFactSource(now, byBranch, chunksScanned, chunksDistilled, warnings)
+	source := summarizeFactSource(now, byBranch, chunksScanned, chunksDistilled, totalProposals, warnings)
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}
 	}

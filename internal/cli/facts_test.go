@@ -209,9 +209,12 @@ func TestSummarizeFactSource(t *testing.T) {
 			{Origin: factOriginDistilled, Status: factStatusSuperseded, Provenance: []factAnchor{{SessionID: "s3"}}},
 		},
 	}
-	source := summarizeFactSource(now, byBranch, 100, 7, []string{"w"})
+	source := summarizeFactSource(now, byBranch, 100, 7, 4, []string{"w"})
 	if source.Facts != 3 {
 		t.Errorf("Facts = %d, want 3", source.Facts)
+	}
+	if source.Proposals != 4 {
+		t.Errorf("Proposals = %d, want 4", source.Proposals)
 	}
 	if source.Distilled != 2 || source.Authored != 1 {
 		t.Errorf("origin counts wrong: distilled=%d authored=%d", source.Distilled, source.Authored)

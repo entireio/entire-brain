@@ -47,6 +47,7 @@ type factSourceManifest struct {
 	Distilled      int       `json:"distilled"`
 	Authored       int       `json:"authored"`
 	Superseded     int       `json:"superseded"`
+	Proposals      int       `json:"proposals"`
 	Verified       int       `json:"verified"`
 	Unsigned       int       `json:"unsigned"`
 	TurnsScanned   int       `json:"turns_scanned"`
@@ -380,10 +381,11 @@ func factPathKnownTopLevel(taxonomy factTaxonomy, path string) bool {
 
 // summarizeFactSource folds a per-branch view of the fact store into the
 // source manifest recorded under sources.facts in the brain manifest.
-func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, turnsScanned, turnsDistilled int, warnings []string) *factSourceManifest {
+func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, turnsScanned, turnsDistilled, proposals int, warnings []string) *factSourceManifest {
 	source := &factSourceManifest{
 		GeneratedAt:    now,
 		TaxonomyPath:   factsTaxonomyPath,
+		Proposals:      proposals,
 		TurnsScanned:   turnsScanned,
 		TurnsDistilled: turnsDistilled,
 		Warnings:       append([]string(nil), warnings...),
