@@ -547,3 +547,52 @@ finsih evyerhtign fully end to end
 ---
 
 make full PR; clean up evryhting emtnions of thomas etc; and put gpt 5.5 in this coamcpt setting if u think ti will help it too etc; and apckaeg fully etc etc etv
+
+---
+
+finsih sentnence; I made a speiclzied brain for opus which gave it
+
+---
+
+js a question why am i not a contributer to etnire-brain repo
+
+---
+
+suhaanthayyil; remake pr or wtv
+
+---
+
+clean full go cache for sstorage; we don't need it right?
+
+---
+
+what are next models in line which need imrove ment
+
+---
+
+i don't ahv eaccess to gpt 5 so ingore /goal compleitly fix these two; idk if u want to smake speiclaied brains or jsut a genrla mode cuz idk if that is good etc etc; and idk if ewe should make opus mreo genenral etc;   #1 — GPT-5.5 on MCP ← the real open problem
+  - It's the only place the brain actively hurts quality: Brain-MCP gives −25–72% tokens but pass-rate −13 to +8 (volatile).
+  - Today's A/B proved its failure mode is under-context, not over-reading — the Opus-style trim made MCP worse (−9.5 score, starvation). So it needs the opposite of a trim:
+  sharper likely_edit_files ranking so the one right file is #1, a stronger action_checklist, and anti-spiral stop rules that don't starve it. Its CLI path already works (−35%
+  cost, no quality loss), so this fix is MCP-specific.
+  
+  #2 — GPT-5.4-mini at high / xhigh effort
+  - Weakest, most volatile baseline (no_brain 69–94%) → the most quality headroom. The brain rescues it at low effort (+17–19) but high/xhigh are mixed. Needs effort-aware 
+  delivery — figure out why the low-effort lift doesn't carry up (likely a weak-model spiral at high effort) and damp it. High ROI because there's real correctness to win here.
+
+---
+
+/goal ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── package-brain-benchmark-pr ──
+❯ i don't ahv eaccess to gpt 5 so ingore /goal compleitly fix these two; idk if u want to smake speiclaied brains or jsut a genrla mode cuz idk if that is good etc etc; and
+  idk if ewe should make opus mreo genenral etc;   #1 — GPT-5.5 on MCP ← the real open problem
+    - It's the only place the brain actively hurts quality: Brain-MCP gives −25–72% tokens but pass-rate −13 to +8 (volatile).
+    - Today's A/B proved its failure mode is under-context, not over-reading — the Opus-style trim made MCP worse (−9.5 score, starvation). So it needs the opposite of a
+  trim:
+    sharper likely_edit_files ranking so the one right file is #1, a stronger action_checklist, and anti-spiral stop rules that don't starve it. Its CLI path already works
+  (−35%
+    cost, no quality loss), so this fix is MCP-specific.
+
+    #2 — GPT-5.4-mini at high / xhigh effort
+    - Weakest, most volatile baseline (no_brain 69–94%) → the most quality headroom. The brain rescues it at low effort (+17–19) but high/xhigh are mixed. Needs effort-aware
+    delivery — figure out why the low-effort lift doesn't carry up (likely a weak-model spiral at high effort) and damp it. High ROI because there's real correctness to win
+  here.
