@@ -176,14 +176,16 @@ func parseJudgeOutput(output string, facts []factRecord) map[string]struct{} {
 
 func newFactsEvalCommand(opts Options) *cobra.Command {
 	var (
-		tasksFile  string
-		branch     string
-		k          int
-		judge      bool
-		agent      string
-		judgeCache string
-		jsonOut    bool
-		run        distillAgentRunner
+		tasksFile   string
+		branch      string
+		k           int
+		judge       bool
+		expand      bool
+		agent       string
+		judgeCache  string
+		expandCache string
+		jsonOut     bool
+		run         distillAgentRunner
 	)
 	cmd := &cobra.Command{
 		Use:   "eval --tasks <file>",
@@ -210,13 +212,13 @@ have the agent decide relevance per surfaced fact.`,
 			if err != nil {
 				return err
 			}
+			resolvedAgent := agent
+			if (judge || expand) && resolvedAgent == "auto" {
+				resolvedAgent = defaultRefreshAgent(cmd.Context(), opts.Runner, repoDir)
+			}
 			var judgeArgs []string
 			if judge {
-				resolved := agent
-				if resolved == "auto" {
-					resolved = defaultRefreshAgent(cmd.Context(), opts.Runner, repoDir)
-				}
-				judgeArgs, err = distillAgentCommandArgs(resolved, nil, judgePrompt())
+				judgeArgs, err = distillAgentCommandArgs(resolvedAgent, nil, judgePrompt())
 				if err != nil {
 					return fmt.Errorf("judge agent: %w", err)
 				}
@@ -224,9 +226,27 @@ have the agent decide relevance per surfaced fact.`,
 					run = execDistillAgent
 				}
 			}
-			results, err := runFactsEval(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, loadJudgeCache(judgeCache))
+			var expander queryExpanderFunc
+			expCache := loadExpansionCache(expandCache)
+			if expand {
+				expandArgs, expErr := distillAgentCommandArgs(resolvedAgent, nil, queryExpansionPrompt())
+				if expErr != nil {
+					return fmt.Errorf("expand agent: %w", expErr)
+				}
+				expRun := run
+				if expRun == nil {
+					expRun = execDistillAgent
+				}
+				expander = func(query string) (string, error) {
+					return expandQuery(cmd.Context(), expRun, expandArgs, repoDir, query, expCache)
+				}
+			}
+			results, err := runFactsEval(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, loadJudgeCache(judgeCache), expander)
 			if err != nil {
 				return err
+			}
+			if err := expCache.save(); err != nil {
+				return fmt.Errorf("save expansion cache: %w", err)
 			}
 			summary := summarizeEval(results)
 			if jsonOut {
@@ -242,6 +262,8 @@ have the agent decide relevance per surfaced fact.`,
 	cmd.Flags().BoolVar(&judge, "judge", false, "Use the agent to judge relevance when a task has no labels")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Judge agent: auto, codex, claude-code, or command")
 	cmd.Flags().StringVar(&judgeCache, "judge-cache", "", "Persist/reuse judge verdicts at this path so re-runs are deterministic and cheap")
+	cmd.Flags().BoolVar(&expand, "expand", false, "Expand each task query with agent-generated retrieval terms before recall")
+	cmd.Flags().StringVar(&expandCache, "expand-cache", "", "Persist/reuse query expansions at this path")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the summary as JSON")
 	return cmd
 }
@@ -310,7 +332,11 @@ func loadEvalTasks(path string) ([]evalTask, error) {
 	return tasks, nil
 }
 
-func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache) ([]evalTaskResult, error) {
+// queryExpanderFunc maps a task query to extra retrieval terms; nil disables
+// expansion.
+type queryExpanderFunc func(query string) (string, error)
+
+func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc) ([]evalTaskResult, error) {
 	results := make([]evalTaskResult, 0, len(tasks))
 	for _, task := range tasks {
 		branch := task.Branch
@@ -325,7 +351,15 @@ func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultB
 		if err != nil {
 			return nil, err
 		}
-		surfaced := rankFacts(facts, task.Task, k, false)
+		query := task.Task
+		if expander != nil {
+			if exp, expErr := expander(task.Task); expErr != nil {
+				return nil, fmt.Errorf("expand task %s: %w", task.ID, expErr)
+			} else {
+				query = expandedQuery(task.Task, exp)
+			}
+		}
+		surfaced := rankFacts(facts, query, k, false)
 
 		var relevant map[string]struct{}
 		totalRelevant := 0

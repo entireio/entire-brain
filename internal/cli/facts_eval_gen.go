@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -23,11 +24,14 @@ const (
 
 func newFactsEvalGenCommand(opts Options) *cobra.Command {
 	var (
-		out      string
-		limit    int
-		branch   string
-		minFacts int
-		maxFacts int
+		out        string
+		limit      int
+		branch     string
+		minFacts   int
+		maxFacts   int
+		refine     bool
+		agent      string
+		judgeCache string
 	)
 	cmd := &cobra.Command{
 		Use:   "eval-gen",
@@ -36,10 +40,14 @@ func newFactsEvalGenCommand(opts Options) *cobra.Command {
 becomes a task (its opening user request), and the facts whose provenance points
 back to that session are the ground-truth relevant set. No agent or hand labels
 needed. Each task is tagged with a query-type stratum (code/convention/howto/
-concept). Emits a tasks.json consumable by 'facts eval --tasks'.`,
+concept). Emits a tasks.json consumable by 'facts eval --tasks'.
+
+--refine judge-filters each task's provenance label set with the agent, keeping
+only facts genuinely relevant to the request — trading the recall-oriented "every
+session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, brainDir, _, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			repoDir, brainDir, _, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
 			if err != nil {
 				return err
 			}
@@ -53,6 +61,12 @@ concept). Emits a tasks.json consumable by 'facts eval --tasks'.`,
 			tasks, err := generateEvalTasks(brainDir, manifest, branch, minFacts, maxFacts, limit)
 			if err != nil {
 				return err
+			}
+			if refine {
+				tasks, err = refineEvalTaskLabels(cmd.Context(), opts, brainDir, repoDir, tasks, agent, judgeCache)
+				if err != nil {
+					return err
+				}
 			}
 			data, err := json.MarshalIndent(tasks, "", "  ")
 			if err != nil {
@@ -75,7 +89,72 @@ concept). Emits a tasks.json consumable by 'facts eval --tasks'.`,
 	cmd.Flags().StringVar(&branch, "branch", "", "Limit to one branch (default: all branches with facts)")
 	cmd.Flags().IntVar(&minFacts, "min-facts", 2, "Minimum relevant facts for a session to become a task")
 	cmd.Flags().IntVar(&maxFacts, "max-facts", 30, "Skip broad sessions with more relevant facts than this (diffuse targets); 0 = no cap")
+	cmd.Flags().BoolVar(&refine, "refine", false, "Judge-filter provenance labels to the genuinely-relevant subset (agent-required)")
+	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --refine: auto, codex, claude-code, or command")
+	cmd.Flags().StringVar(&judgeCache, "judge-cache", "", "Persist/reuse --refine verdicts at this path")
 	return cmd
+}
+
+// refineEvalTaskLabels judge-filters each task's provenance-labeled facts to the
+// subset the agent deems genuinely relevant to the request, re-tags the query
+// stratum from the surviving facts, and drops tasks left with no relevant facts.
+// Verdicts are cached so re-runs are cheap and deterministic.
+func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir string, tasks []evalTask, agent, cachePath string) ([]evalTask, error) {
+	resolved := agent
+	if resolved == "auto" {
+		resolved = defaultRefreshAgent(ctx, opts.Runner, repoDir)
+	}
+	judgeArgs, err := distillAgentCommandArgs(resolved, nil, judgePrompt())
+	if err != nil {
+		return nil, fmt.Errorf("refine agent: %w", err)
+	}
+	byBranch, err := loadAllFactBranches(brainDir)
+	if err != nil {
+		return nil, err
+	}
+	idToFact := map[string]factRecord{}
+	for _, recs := range byBranch {
+		for _, r := range recs {
+			idToFact[r.ID] = r
+		}
+	}
+	cache := loadJudgeCache(cachePath)
+	run := execDistillAgent
+	out := make([]evalTask, 0, len(tasks))
+	for _, t := range tasks {
+		facts := make([]factRecord, 0, len(t.Relevant))
+		for _, id := range t.Relevant {
+			if f, ok := idToFact[id]; ok {
+				facts = append(facts, f)
+			}
+		}
+		if len(facts) == 0 {
+			continue
+		}
+		relevant, err := judgeRelevance(ctx, run, repoDir, judgeArgs, t, facts, cache)
+		if err != nil {
+			return nil, err
+		}
+		ids := make([]string, 0, len(relevant))
+		kept := make([]factRecord, 0, len(relevant))
+		for _, f := range facts {
+			if _, ok := relevant[f.ID]; ok {
+				ids = append(ids, f.ID)
+				kept = append(kept, f)
+			}
+		}
+		if len(ids) == 0 {
+			continue // no genuinely-relevant facts: not a useful target
+		}
+		sort.Strings(ids)
+		t.Relevant = ids
+		t.QueryType = classifyQueryType(t.Task, kept)
+		out = append(out, t)
+	}
+	if err := cache.save(); err != nil {
+		return nil, fmt.Errorf("save refine cache: %w", err)
+	}
+	return out, nil
 }
 
 // generateEvalTasks builds provenance-labeled tasks: one per session that has

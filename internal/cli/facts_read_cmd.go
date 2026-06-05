@@ -41,6 +41,8 @@ func newRecallCommand(opts Options) *cobra.Command {
 		limit      int
 		includeAll bool
 		scope      string
+		expand     bool
+		agent      string
 		jsonOut    bool
 	)
 	cmd := &cobra.Command{
@@ -55,7 +57,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 			if err := validateScopeFlag(scope); err != nil {
 				return err
 			}
-			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
 			if err != nil {
 				return err
 			}
@@ -64,7 +66,23 @@ func newRecallCommand(opts Options) *cobra.Command {
 				return err
 			}
 			facts = filterFactsByScope(facts, scope)
-			matches := rankFacts(facts, query, limit, includeAll)
+			effectiveQuery := query
+			if expand && strings.TrimSpace(query) != "" {
+				resolved := agent
+				if resolved == "auto" {
+					resolved = defaultRefreshAgent(cmd.Context(), opts.Runner, repoDir)
+				}
+				expandArgs, expErr := distillAgentCommandArgs(resolved, nil, queryExpansionPrompt())
+				if expErr != nil {
+					return fmt.Errorf("expand agent: %w", expErr)
+				}
+				exp, expErr := expandQuery(cmd.Context(), execDistillAgent, expandArgs, repoDir, query, loadExpansionCache(""))
+				if expErr != nil {
+					return fmt.Errorf("expand query: %w", expErr)
+				}
+				effectiveQuery = expandedQuery(query, exp)
+			}
+			matches := rankFacts(facts, effectiveQuery, limit, includeAll)
 			if jsonOut {
 				return writeJSON(cmd, map[string]any{"branch": resolvedBranch, "query": query, "facts": matches})
 			}
@@ -82,6 +100,8 @@ func newRecallCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&limit, "k", 10, "Maximum facts to return")
 	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted facts")
 	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) facts")
+	cmd.Flags().BoolVar(&expand, "expand", false, "Expand the query with agent-generated retrieval terms before ranking")
+	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --expand: auto, codex, claude-code, or command")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	return cmd
 }
