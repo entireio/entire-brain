@@ -979,9 +979,9 @@ def copy_cached_plugin(cache_plugin: pathlib.Path, run_plugin: pathlib.Path, old
 
 
 def brain_prep_commands(task: dict[str, Any], condition: str, worktree: pathlib.Path, tools: dict[str, pathlib.Path], checkpoint_limit: int) -> list[list[str]]:
-    commands = [[str(tools["brain"]), "seed", str(worktree), "--agent", "none", "--force"]]
+    commands = [[str(tools["brain"]), "refresh", "seed", str(worktree), "--agent", "none", "--force"]]
     if task.get("prepare_semantic", True):
-        commands.append([str(tools["brain"]), "index", str(worktree), "--sem-binary", str(tools["entire"]), "--force"])
+        commands.append([str(tools["brain"]), "refresh", "index", str(worktree), "--sem-binary", str(tools["entire"]), "--force"])
     if condition_prepares_history(condition):
         commands.insert(0, [str(tools["brain"]), "export", "--checkpoint-limit", str(checkpoint_limit), "--history-index"])
     return commands
