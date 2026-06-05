@@ -213,9 +213,17 @@ Small top-level surface:
   entire brain brief "<task>" --json
   entire brain search "<query>" --json
   entire brain show <id> --json
+  entire brain recall "<query>" --json
   entire brain refresh [repo] --json
   entire brain guide
   entire brain path [repo]
+
+Durable facts (curated, provenance-anchored repo knowledge):
+  entire brain recall "<query>" [--scope local|cross-cutting] [--expand] --json
+  entire brain remember "<fact>" [--path category.sub.type] --json
+  entire brain facts tree [--path <prefix>] [--depth N]
+  entire brain inspect facts "<query>" --json
+  entire brain inspect blame <fact-id> --json
 
 Specialist tools:
   entire brain inspect code "<query>" --json
