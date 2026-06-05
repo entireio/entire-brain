@@ -97,6 +97,12 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     search_calls = int(activity.get("search_calls") or 0)
     slog = server_log_toolcalls(run_dir)
     is_win = bool(rec.get("ok")) and (get(rec, "validation", "ok") is True)
+    # Compact-delivery models are instructed to call brain_brief ONCE and NOT
+    # brain_history (the compact brief already carries the top history hits).
+    # Mirrored here independently so a correct compact run is not flagged for a
+    # "missing" tool it was explicitly told not to call.
+    model = (get(rec, "runner", "model") or rec.get("agent") or "").lower()
+    compact = model in {"gpt-5.5", "gpt-5", "opus", "claude-opus-4-8"}
 
     # A. no_brain purity (HARD: no_brain must never touch Brain/MCP/CLI/private)
     if cond == "no_brain":

@@ -806,7 +806,17 @@ def agent_output_leak_audit(task: dict[str, Any], stdout: str, stderr: str) -> d
     return {"ok": not findings, "findings": findings}
 
 
-def mcp_condition_audit(condition: str, agent_info: dict[str, Any]) -> dict[str, Any]:
+def mcp_history_required_tools(runner: "RunnerSpec | None") -> tuple[str, ...]:
+    """Tools the mcp_history condition must call. Compact-delivery models (Opus /
+    gpt-5/5.5) are explicitly told in prompt_for to call brain_brief ONCE and NOT to
+    call brain_history (the compact brief already carries the history hits). Requiring
+    brain_history for them would contradict their own prompt and mis-flag correct runs
+    as failures, so those models only require brain_brief."""
+    compact = runner is not None and runner.model in (OPUS_COMPACT_MODELS | COMPACT_STRICT_MODELS)
+    return ("brain_brief",) if compact else ("brain_brief", "brain_history")
+
+
+def mcp_condition_audit(condition: str, agent_info: dict[str, Any], runner: "RunnerSpec | None" = None) -> dict[str, Any]:
     if not is_mcp_condition(condition):
         return {"ok": True, "required": False, "findings": []}
     activity = agent_info.get("activity") if isinstance(agent_info.get("activity"), dict) else {}
@@ -817,7 +827,7 @@ def mcp_condition_audit(condition: str, agent_info: dict[str, Any]) -> dict[str,
     if int(activity.get("mcp_tool_calls") or 0) <= 0:
         findings.append({"kind": "no_mcp_tool_calls"})
     if condition == "mcp_history":
-        for required in ("brain_brief", "brain_history"):
+        for required in mcp_history_required_tools(runner):
             if not any(str(name).endswith(f"__{required}") or str(name) == required for name in mcp_tool_names):
                 findings.append({"kind": "missing_required_mcp_history_tool", "tool": required})
     if int(activity.get("direct_brain_cli_calls") or 0) > 0:
@@ -2270,7 +2280,7 @@ def run_one(
             (run_dir / "agent.stdout").read_text(encoding="utf-8", errors="ignore"),
             (run_dir / "agent.stderr").read_text(encoding="utf-8", errors="ignore"),
         )
-        mcp_audit = mcp_condition_audit(condition, agent_info)
+        mcp_audit = mcp_condition_audit(condition, agent_info, runner)
         files = changed_files(worktree)
         validation = validate(task, worktree, env)
         diff = diff_stat(worktree)

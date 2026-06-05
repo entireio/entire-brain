@@ -32,6 +32,22 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertFalse(run.condition_copies_entire_history("no_brain"))
         self.assertTrue(run.condition_copies_entire_history("full_cli_compact"))
 
+    def test_mcp_history_audit_matches_compact_prompt_history_tool_requirement(self):
+        # Compact-delivery models are told to call brain_brief ONCE and NOT brain_history;
+        # the audit must not then fail them for skipping brain_history.
+        self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="o", agent="claude", model="opus")), ("brain_brief",))
+        self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="g", agent="codex", model="gpt-5.5")), ("brain_brief",))
+        self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="s", agent="claude", model="sonnet")), ("brain_brief", "brain_history"))
+
+        brief_only = {"mcp": {"enabled": True}, "activity": {"mcp_tool_calls": 1, "mcp_tool_names": ["mcp__entire_brain__brain_brief"]}}
+        # Opus (compact): brief-only is a clean pass.
+        opus_audit = run.mcp_condition_audit("mcp_history", brief_only, run.RunnerSpec(id="o", agent="claude", model="opus"))
+        self.assertTrue(opus_audit["ok"], opus_audit)
+        # Sonnet (non-compact): brief-only must still be flagged for missing brain_history.
+        sonnet_audit = run.mcp_condition_audit("mcp_history", brief_only, run.RunnerSpec(id="s", agent="claude", model="sonnet"))
+        self.assertFalse(sonnet_audit["ok"])
+        self.assertIn("brain_history", [f.get("tool") for f in sonnet_audit["findings"]])
+
     def test_mcp_configs_include_local_brain_server_and_repo_env(self):
         env = {
             "ENTIRE_REPO_ROOT": "/repo",
