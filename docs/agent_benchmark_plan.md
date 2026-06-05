@@ -668,15 +668,17 @@ Model-attribution rules:
 - Codex CLI `0.135.0` has `--model`, but the *earlier* benchmark runs used
   `--ignore-user-config` and no `--model`. The user config default
   `gpt-5.5` therefore cannot be attributed to those older records.
-- RESOLVED for the cliproof proof set: every runner is pinned
-  `agent:model:effort`, so `run_agent` passes `--model gpt-5.5` /
-  `--model gpt-5.4-mini` explicitly (run.py, codex branch). The harness also now
-  records `resolved_model`, parsed from the agent CLI's own JSON stream — codex
-  echoes `"model":"gpt-5.5"` in its events, so the resolved model is verifiable
-  per record, not assumed.
-- Store the requested model, requested effort, CLI version, and the Codex model
-  cache timestamp or hash with each proof run. The resolved model is now exposed
-  via `agent_info.resolved_model` from the CLI output.
+- For the cliproof proof set, every runner is pinned `agent:model:effort`, so
+  `run_agent` passes `--model gpt-5.5` / `--model gpt-5.4-mini` explicitly
+  (run.py, codex branch) instead of relying on a user-config default.
+- Attribution confidence differs by agent, and we disclose it:
+  - Claude is OUTPUT-VERIFIABLE — its JSON exposes `modelUsage` keys
+    (e.g. `claude-haiku-4-5`), captured as `agent_info.resolved_model`.
+  - Codex is PINNED-BUT-NOT-OUTPUT-CONFIRMED — `codex exec --json` does not echo
+    the resolved model and does not client-side validate `--model` (an invalid
+    model string is accepted), so codex attribution rests on the explicit
+    `--model` flag, not on the output. `resolved_model` is therefore typically
+    null for codex. Do not claim per-record codex model verification.
 - Claude Code `2.1.159` exposes model aliases but not a full availability
   catalog. Store the requested alias/full name, requested effort, CLI version,
   and all `modelUsage` keys from Claude JSON output.

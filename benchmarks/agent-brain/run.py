@@ -1859,8 +1859,17 @@ def structured_tool_names(stdout: str) -> list[str]:
 
 
 def extract_resolved_model(stdout: str) -> str | None:
-    """The model the agent CLI reported in its JSON stream (most frequent value)."""
-    found = re.findall(r'"model"\s*:\s*"([^"]+)"', stdout or "")
+    """The model the agent CLI reported in its JSON output, when it exposes one.
+
+    Claude exposes the resolved model via `modelUsage` keys (output-verifiable).
+    Codex `exec --json` does NOT echo the resolved model and does not client-side
+    validate `--model`, so for codex this is normally None and attribution rests
+    on the explicit pinned `--model` flag (disclosed, not output-confirmed)."""
+    text = stdout or ""
+    m = re.search(r'"modelUsage"\s*:\s*\{\s*"([^"]+)"', text)
+    if m:
+        return m.group(1)
+    found = re.findall(r'"model"\s*:\s*"([^"]+)"', text)
     if not found:
         return None
     counts: dict[str, int] = {}
