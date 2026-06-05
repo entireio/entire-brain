@@ -1,0 +1,83 @@
+package cli
+
+import (
+	"os"
+	"path/filepath"
+	"time"
+)
+
+// loadAllFactBranches scans the facts directory and returns every stored fact
+// grouped by the branch recorded on each record (not the on-disk slug, which is
+// lossy). It is the basis for rebuilding the manifest after a single-branch
+// mutation and for whole-store operations like gc.
+func loadAllFactBranches(brainDir string) (map[string][]factRecord, error) {
+	root := filepath.Join(brainDir, factsDirName)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string][]factRecord{}, nil
+		}
+		return nil, err
+	}
+	byBranch := map[string][]factRecord{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		records, err := parseFactsFile(filepath.Join(root, entry.Name(), factsFileName))
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range records {
+			byBranch[record.Branch] = append(byBranch[record.Branch], record)
+		}
+	}
+	return byBranch, nil
+}
+
+// countFactProposals totals the pending proposals across the given branches.
+func countFactProposals(brainDir string, branches []string) int {
+	total := 0
+	for _, branch := range branches {
+		if proposals, err := loadFactProposals(brainDir, branch); err == nil {
+			total += len(proposals)
+		}
+	}
+	return total
+}
+
+// updateFactSourceManifest recomputes sources.facts from the whole on-disk fact
+// store and writes it back. Commands that mutate facts outside the distill
+// pipeline (remember, facts review/promote/gc) call this so `status` and the
+// manifest stay accurate. Turn counts are preserved from the existing source
+// (they describe the last distill run, not these edits).
+func updateFactSourceManifest(brainDir string, now time.Time) error {
+	byBranch, err := loadAllFactBranches(brainDir)
+	if err != nil {
+		return err
+	}
+	branches := make([]string, 0, len(byBranch))
+	for branch := range byBranch {
+		branches = append(branches, branch)
+	}
+	proposals := countFactProposals(brainDir, branches)
+
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return err
+	}
+	turnsScanned, turnsDistilled := 0, 0
+	if manifest.Sources != nil && manifest.Sources.Facts != nil {
+		turnsScanned = manifest.Sources.Facts.TurnsScanned
+		turnsDistilled = manifest.Sources.Facts.TurnsDistilled
+	}
+	source := summarizeFactSource(now, byBranch, turnsScanned, turnsDistilled, proposals, nil)
+	if manifest.Sources == nil {
+		manifest.Sources = &brainSources{}
+	}
+	manifest.Sources.Facts = source
+	if manifest.GeneratedAt.IsZero() {
+		manifest.GeneratedAt = now
+	}
+	return writeBrainManifestAndReadme(brainDir, *manifest)
+}

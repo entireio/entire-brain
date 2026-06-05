@@ -177,6 +177,13 @@ func factsFileRelPath(branch string) string {
 // surfaced rather than silently dropping records.
 func loadFacts(brainDir, branch string) ([]factRecord, error) {
 	path := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(branch)))
+	return parseFactsFile(path)
+}
+
+// parseFactsFile reads a facts.ndjson file at an absolute path. A missing file
+// yields an empty slice; a malformed line is a hard error so a corrupt store is
+// surfaced rather than silently dropping records.
+func parseFactsFile(path string) ([]factRecord, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -197,7 +204,7 @@ func loadFacts(brainDir, branch string) ([]factRecord, error) {
 		}
 		var record factRecord
 		if err := json.Unmarshal([]byte(text), &record); err != nil {
-			return nil, fmt.Errorf("parse %s line %d: %w", factsFileRelPath(branch), line, err)
+			return nil, fmt.Errorf("parse %s line %d: %w", filepath.Base(path), line, err)
 		}
 		records = append(records, record)
 	}

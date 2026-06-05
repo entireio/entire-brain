@@ -84,6 +84,7 @@ agent can inspect to understand project history.`,
 	addGrouped("create", newPathCommand(opts))
 	addGrouped("create", newRefreshCommand(opts))
 	addGrouped("create", newDistillCommand(opts))
+	addGrouped("create", newRememberCommand(opts))
 	addGrouped("create", newAgentStatusCommand(opts))
 	addGrouped("create", newWorkspaceCommand(opts))
 
