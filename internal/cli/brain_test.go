@@ -143,6 +143,16 @@ func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	}
 }
 
+func TestBrainBriefFactsCount(t *testing.T) {
+	// Compact requests shrink the facts section; default/large requests cap it.
+	cases := map[int]int{0: 1, 1: 1, 2: 2, 3: 3, 6: 6, 8: 6, 20: 6}
+	for limit, want := range cases {
+		if got := brainBriefFactsCount(limit); got != want {
+			t.Errorf("brainBriefFactsCount(%d) = %d, want %d", limit, got, want)
+		}
+	}
+}
+
 func TestBrainBriefIncludesMatchingFacts(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

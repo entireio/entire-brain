@@ -473,7 +473,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		if facts, factsErr := loadFacts(status.Brain.Path, branch); factsErr != nil {
 			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
 		} else {
-			report.Facts = rankFacts(facts, task, brainBriefFactsLimit, false)
+			report.Facts = rankFacts(facts, task, brainBriefFactsCount(briefOpts.limit), false)
 		}
 	}
 	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroups(status.Repo.Root, report, task)
@@ -539,6 +539,21 @@ func brainBriefOutputStatus(status brainStatusReport) brainStatusReport {
 }
 
 var brainBriefPathPattern = regexp.MustCompile(`(?:^|[\s"'({\[])([A-Za-z0-9_@./-]+\.[A-Za-z0-9][A-Za-z0-9._-]*)`)
+
+// brainBriefFactsCount sizes the brief's facts section to the requested brief
+// limit so a compact request (e.g. the Opus compact mode's limit 3, or the
+// MCP brain_brief limit) gets fewer facts instead of a fixed block. Facts are a
+// supplementary section, so they never exceed brainBriefFactsLimit and shrink
+// with the budget; at least one fact is kept whenever the section is shown.
+func brainBriefFactsCount(limit int) int {
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > brainBriefFactsLimit {
+		return brainBriefFactsLimit
+	}
+	return limit
+}
 
 func brainBriefLikelyFileGroups(repoRoot string, report brainBriefReport, task string) ([]string, []string, []string) {
 	counts := map[string]int{}
