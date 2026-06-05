@@ -154,6 +154,7 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 		depth      int
 		leaves     int
 		includeAll bool
+		scope      string
 		jsonOut    bool
 	)
 	cmd := &cobra.Command{
@@ -161,6 +162,9 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 		Short: "Show facts as a navigable hierarchy with progressive disclosure",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateScopeFlag(scope); err != nil {
+				return err
+			}
 			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
 			if err != nil {
 				return err
@@ -169,6 +173,7 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			facts = filterFactsByScope(facts, scope)
 			tree := buildFactTree(facts, includeAll)
 			if path != "" {
 				if pruned := filterTreeByPath(tree, path); pruned != nil {
@@ -194,6 +199,7 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&depth, "depth", 3, "Outline depth: 1=categories, 2=+paths, 3=+sample facts")
 	cmd.Flags().IntVar(&leaves, "leaves", 3, "Sample facts to show per path at depth 3")
 	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted facts")
+	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) facts")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the tree as JSON")
 	return cmd
 }

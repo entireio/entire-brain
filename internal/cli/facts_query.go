@@ -5,6 +5,10 @@ import (
 	"strings"
 )
 
+// factLocusBoost is added per shared code identifier between the query and a
+// fact (see locusOverlap) — a strong, high-precision signal.
+const factLocusBoost = 60
+
 // scoredFact pairs a fact with its query score for ranking.
 type scoredFact struct {
 	Record factRecord
@@ -38,9 +42,17 @@ func rankFacts(facts []factRecord, query string, limit int, includeAll bool) []f
 		return candidates
 	}
 
+	queryLocus := factLocus(query)
 	scored := make([]scoredFact, 0, len(candidates))
 	for _, f := range candidates {
-		if score := factQueryScore(f, query); score > 0 {
+		score := factQueryScore(f, query)
+		// Locus boost: a fact that names the same code identifier the query
+		// names is a high-precision match (the query is asking about that
+		// symbol/file/ref), so surface it even when prose overlap is thin.
+		if overlap := locusOverlap(queryLocus, f.Text); overlap > 0 {
+			score += overlap * factLocusBoost
+		}
+		if score > 0 {
 			scored = append(scored, scoredFact{Record: f, Score: score})
 		}
 	}

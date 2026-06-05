@@ -40,6 +40,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 		branch     string
 		limit      int
 		includeAll bool
+		scope      string
 		jsonOut    bool
 	)
 	cmd := &cobra.Command{
@@ -51,6 +52,9 @@ func newRecallCommand(opts Options) *cobra.Command {
 			if len(args) == 1 {
 				query = args[0]
 			}
+			if err := validateScopeFlag(scope); err != nil {
+				return err
+			}
 			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
 			if err != nil {
 				return err
@@ -59,6 +63,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			facts = filterFactsByScope(facts, scope)
 			matches := rankFacts(facts, query, limit, includeAll)
 			if jsonOut {
 				return writeJSON(cmd, map[string]any{"branch": resolvedBranch, "query": query, "facts": matches})
@@ -76,8 +81,19 @@ func newRecallCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to recall from (default: current branch)")
 	cmd.Flags().IntVar(&limit, "k", 10, "Maximum facts to return")
 	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted facts")
+	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) facts")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	return cmd
+}
+
+// validateScopeFlag rejects an unrecognized --scope value.
+func validateScopeFlag(scope string) error {
+	switch scope {
+	case "", factScopeLocal, factScopeCrossCutting:
+		return nil
+	default:
+		return fmt.Errorf("--scope must be %q or %q", factScopeLocal, factScopeCrossCutting)
+	}
 }
 
 func newInspectFactsCommand(opts Options) *cobra.Command {
