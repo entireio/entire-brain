@@ -1494,7 +1494,7 @@ def matching_history_lines(files: list[pathlib.Path], query: str) -> list[tuple[
 
 # Models that over-explore when handed the full MCP history blob (they spiral into extra
 # searches/tokens and occasionally fail). They get a compact, single-brain_brief, hard-stop
-# delivery instead — Suhaan's "compact packet + stop rules for stronger models" finding.
+# delivery instead — a compact packet plus explicit stop rules keeps stronger models on task.
 COMPACT_STRICT_MODELS = {"gpt-5.5", "gpt-5"}
 
 # Opus is already correctness-saturated but over-READS the brief's history blob
@@ -1504,6 +1504,13 @@ COMPACT_STRICT_MODELS = {"gpt-5.5", "gpt-5"}
 # call, hard stop, finite-context framing. Goal: keep Opus's review discipline
 # (score) while cutting tokens + time on BOTH MCP and CLI. Other models unchanged.
 OPUS_COMPACT_MODELS = {"opus", "claude-opus-4-8"}
+# gpt-5.5 was A/B-tested for this Opus-style trim (matched n=3, both cli tasks, 0 hard flags,
+# MCP server-log-verified): it HELPED on the CLI path (−35% cost / −36% tok, no quality loss)
+# but STARVED quality on MCP (−9.5 composite, 5/6 → 4/6 valid, with no token savings) — the
+# tiny limit:3 brief drops the one history hit it needs on the harder review task. gpt-5.5's
+# failure mode is under-context, not over-reading, so it keeps its COMPACT_STRICT MCP delivery
+# and is NOT added here. (A CLI-only adoption is a possible follow-up, but n=3 is too thin to
+# ship a per-path split on its own.)
 
 
 def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None" = None) -> str:
