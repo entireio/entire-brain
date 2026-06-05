@@ -3,7 +3,7 @@
   "checkpoint_id": "042ae6c1b089",
   "strategy": "manual-commit",
   "branch": "agent-brain-benchmark-proof",
-  "checkpoints_count": 0,
+  "checkpoints_count": 2,
   "files_touched": [
     "benchmarks/agent-brain/run.py",
     "benchmarks/agent-brain/run_test.py"
@@ -14,13 +14,19 @@
       "transcript": "/04/2ae6c1b089/0/full.jsonl",
       "content_hash": "/04/2ae6c1b089/0/content_hash.txt",
       "prompt": "/04/2ae6c1b089/0/prompt.txt"
+    },
+    {
+      "metadata": "/04/2ae6c1b089/1/metadata.json",
+      "transcript": "/04/2ae6c1b089/1/full.jsonl",
+      "content_hash": "/04/2ae6c1b089/1/content_hash.txt",
+      "prompt": "/04/2ae6c1b089/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 21767,
-    "cache_creation_tokens": 281672,
-    "cache_read_tokens": 3063718,
-    "output_tokens": 44049,
-    "api_call_count": 32
+    "input_tokens": 122181,
+    "cache_creation_tokens": 5547618,
+    "cache_read_tokens": 430272766,
+    "output_tokens": 1242430,
+    "api_call_count": 810
   }
 }
