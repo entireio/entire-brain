@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.7.4-nightly.202606040747.b98014a6",
+  "checkpoint_id": "245c3e1b5de0",
+  "strategy": "manual-commit",
+  "branch": "claude/durable-facts-and-distill",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/24/5c3e1b5de0/0/metadata.json",
+      "transcript": "/24/5c3e1b5de0/0/full.jsonl",
+      "content_hash": "/24/5c3e1b5de0/0/content_hash.txt",
+      "prompt": "/24/5c3e1b5de0/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 12880,
+    "cache_creation_tokens": 1735728,
+    "cache_read_tokens": 48122215,
+    "output_tokens": 246997,
+    "api_call_count": 228
+  }
+}
