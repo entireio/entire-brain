@@ -352,3 +352,28 @@ yeah, definitely the right kind of hard
 will have results soon!
 
  ; get fully to thomas goal and onyl tehre fully keep poptimzing amking it better; changeing the core rbainet c evyrehting to bette rthe models; and take snaspots so u don't  not mess anything up etc; adn keep testing, obcisiuly u shoud not test 360 times so find the best testing method for these pruposes and then keep testing tpozimg etc; if all results on asbic test lookign rela good i mean liek eveyrthing with brain psotivet and by a prertty good margin then run a full 360 test and give me these same grpahs etc; make sure to delte teh cache to save spac eon the macbook; and DON"T stop keep imrpoving!
+
+---
+
+fix al that and fix all this;  ⚠️  Still open (P1/P2 — not blocking, but know before presenting)
+
+  1. No multiple-comparison correction (no Holm/Bonferroni). Individual p-values are
+  now correct, but there's no family-wise control across cells×metrics. Mitigated
+  because the headline is now the validation-gated verdict, not p-values — as long as 
+  the deck leads with the verdict/pass-rate and treats p-values as secondary.
+  2. The mean/Welch comparison still runs on score.total (run.py:2438), which includes
+  the brain_use component. The proof gate is clean (validation-based), but if you quote
+  "mean score delta + p-value," that number still carries the soft component. Cleanest
+  framing: lead with pass rate + token delta; cite score as composite.
+  3. Cache key still omits session-history content (run.py brain_cache_payload keys on
+  base_commit + tool SHAs, not the checkpoint-ref SHA). Latent only — history is static
+  during this campaign — but for a "history-is-the-point" benchmark, add the ref SHA
+  or document --refresh-brain-cache was used.
+  
+  Minor residuals from the verifier (follow-up, not now): NDJSON cap is enforced after
+  buffering the line (memory bound during read still unbounded for a newline-less giant
+  line); export guard can't distinguish "caching disabled" from "legitimately zero
+  blobs." And three new behaviors lack tests (NDJSON recoverable path, export
+  clobber-guard, welch_p_value/extract_resolved_model).
+
+; and finsih cometply and then final goalc ometply
