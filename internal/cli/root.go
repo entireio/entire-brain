@@ -101,6 +101,7 @@ agent can inspect to understand project history.`,
 	// (Build stages live under `refresh`: sessions, index, seed.)
 	addGrouped("maintain", newSemanticBundleCommand(opts))
 	addGrouped("maintain", newExportCommand(opts))
+	addGrouped("maintain", newFactsCommand(opts))
 	addGrouped("maintain", newSemanticGCCommand(opts))
 	addGrouped("maintain", newSemanticRepairCommand(opts))
 	addGrouped("maintain", newSemanticResetCommand(opts))
