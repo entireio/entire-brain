@@ -81,7 +81,7 @@ func TestRunFactsEvalLabeledAndJudge(t *testing.T) {
 
 	// Labeled task: only f1 is relevant.
 	tasks := []evalTask{{ID: "t1", Task: "checkpoints v1.1 read ref", Branch: "main", Relevant: []string{f1.ID}}}
-	res, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil)
+	res, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""))
 	if err != nil {
 		t.Fatalf("runFactsEval: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestRunFactsEvalLabeledAndJudge(t *testing.T) {
 		return "1 yes\n", nil
 	}
 	tasksJ := []evalTask{{ID: "t2", Task: "checkpoints", Branch: "main"}}
-	resJ, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasksJ, 10, true, fakeRun, []string{"fake"})
+	resJ, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasksJ, 10, true, fakeRun, []string{"fake"}, loadJudgeCache(""))
 	if err != nil {
 		t.Fatalf("runFactsEval judge: %v", err)
 	}
@@ -109,6 +109,60 @@ func TestRunFactsEvalLabeledAndJudge(t *testing.T) {
 	}
 	if resJ[0].UsefulPer1k <= 0 {
 		t.Errorf("useful/1k should be > 0 when a fact was judged relevant")
+	}
+}
+
+func TestJudgeCacheReuse(t *testing.T) {
+	brainDir := t.TempDir()
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	p := normalizeFactPaths([]string{"architecture.data.flow"})
+	f := factRecord{ID: factRecordID("checkpoint v1.1 read ref", p), Paths: p, Text: "checkpoint v1.1 read ref", Branch: "main", Status: factStatusActive, UpdatedAt: now}
+	if err := writeFacts(brainDir, "main", []factRecord{f}); err != nil {
+		t.Fatal(err)
+	}
+	tasks := []evalTask{{ID: "t1", Task: "checkpoint read", Branch: "main"}}
+	cachePath := filepath.Join(t.TempDir(), "judge-cache.json")
+
+	calls := 0
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return "1 yes\n", nil
+	}
+	// First run: judges and writes the cache.
+	if _, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, true, run, []string{"fake"}, loadJudgeCache(cachePath)); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected 1 agent call on first run, got %d", calls)
+	}
+	if _, err := os.Stat(cachePath); err != nil {
+		t.Fatalf("cache not written: %v", err)
+	}
+	// Second run: served from cache, no agent call.
+	if _, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, true, run, []string{"fake"}, loadJudgeCache(cachePath)); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("second run should reuse cache, but agent was called again (calls=%d)", calls)
+	}
+}
+
+func TestSummarizeEvalByStratum(t *testing.T) {
+	results := []evalTaskResult{
+		{ID: "a", QueryType: queryTypeCode, Tokens: 100, Precision: 0.8, UsefulPer1k: 8},
+		{ID: "b", QueryType: queryTypeCode, Tokens: 200, Precision: 0.4, UsefulPer1k: 2},
+		{ID: "c", QueryType: queryTypeConcept, Tokens: 100, Precision: 0.2, UsefulPer1k: 2},
+	}
+	s := summarizeEval(results)
+	if len(s.ByStratum) != 2 {
+		t.Fatalf("expected 2 strata, got %d", len(s.ByStratum))
+	}
+	code := s.ByStratum[queryTypeCode]
+	if code.Tasks != 2 || code.MeanTokens != 150 || code.MeanPrecision < 0.59 || code.MeanPrecision > 0.61 {
+		t.Fatalf("code stratum aggregation wrong: %+v", code)
+	}
+	if s.ByStratum[queryTypeConcept].Tasks != 1 {
+		t.Fatalf("concept stratum should have 1 task")
 	}
 }
 

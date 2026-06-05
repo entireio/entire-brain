@@ -31,6 +31,7 @@ type evalTask struct {
 type evalTaskResult struct {
 	ID               string  `json:"id"`
 	Task             string  `json:"task"`
+	QueryType        string  `json:"query_type,omitempty"`
 	Surfaced         int     `json:"surfaced"`
 	Tokens           int     `json:"tokens"`
 	RelevantSurfaced int     `json:"relevant_surfaced"`
@@ -40,12 +41,21 @@ type evalTaskResult struct {
 	Labeled          bool    `json:"labeled"`
 }
 
+// evalStratum aggregates metrics for one query-type stratum.
+type evalStratum struct {
+	Tasks           int     `json:"tasks"`
+	MeanTokens      float64 `json:"mean_tokens"`
+	MeanPrecision   float64 `json:"mean_precision"`
+	MeanUsefulPer1k float64 `json:"mean_useful_per_1k"`
+}
+
 type evalSummary struct {
-	Tasks           int              `json:"tasks"`
-	MeanTokens      float64          `json:"mean_tokens"`
-	MeanPrecision   float64          `json:"mean_precision"`
-	MeanUsefulPer1k float64          `json:"mean_useful_per_1k"`
-	Results         []evalTaskResult `json:"results"`
+	Tasks           int                    `json:"tasks"`
+	MeanTokens      float64                `json:"mean_tokens"`
+	MeanPrecision   float64                `json:"mean_precision"`
+	MeanUsefulPer1k float64                `json:"mean_useful_per_1k"`
+	ByStratum       map[string]evalStratum `json:"by_stratum,omitempty"`
+	Results         []evalTaskResult       `json:"results"`
 }
 
 // estimateTokens is a deterministic ~4-chars-per-token estimate over the text
@@ -87,15 +97,32 @@ func summarizeEval(results []evalTaskResult) evalSummary {
 		return s
 	}
 	var tok, prec, useful float64
+	strata := map[string][]evalTaskResult{}
 	for _, r := range results {
 		tok += float64(r.Tokens)
 		prec += r.Precision
 		useful += r.UsefulPer1k
+		if r.QueryType != "" {
+			strata[r.QueryType] = append(strata[r.QueryType], r)
+		}
 	}
 	n := float64(len(results))
 	s.MeanTokens = tok / n
 	s.MeanPrecision = prec / n
 	s.MeanUsefulPer1k = useful / n
+	if len(strata) > 0 {
+		s.ByStratum = make(map[string]evalStratum, len(strata))
+		for qt, rs := range strata {
+			var t, p, u float64
+			for _, r := range rs {
+				t += float64(r.Tokens)
+				p += r.Precision
+				u += r.UsefulPer1k
+			}
+			m := float64(len(rs))
+			s.ByStratum[qt] = evalStratum{Tasks: len(rs), MeanTokens: t / m, MeanPrecision: p / m, MeanUsefulPer1k: u / m}
+		}
+	}
 	return s
 }
 
@@ -149,13 +176,14 @@ func parseJudgeOutput(output string, facts []factRecord) map[string]struct{} {
 
 func newFactsEvalCommand(opts Options) *cobra.Command {
 	var (
-		tasksFile string
-		branch    string
-		k         int
-		judge     bool
-		agent     string
-		jsonOut   bool
-		run       distillAgentRunner
+		tasksFile  string
+		branch     string
+		k          int
+		judge      bool
+		agent      string
+		judgeCache string
+		jsonOut    bool
+		run        distillAgentRunner
 	)
 	cmd := &cobra.Command{
 		Use:   "eval --tasks <file>",
@@ -196,7 +224,7 @@ have the agent decide relevance per surfaced fact.`,
 					run = execDistillAgent
 				}
 			}
-			results, err := runFactsEval(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs)
+			results, err := runFactsEval(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, loadJudgeCache(judgeCache))
 			if err != nil {
 				return err
 			}
@@ -213,8 +241,58 @@ have the agent decide relevance per surfaced fact.`,
 	cmd.Flags().IntVar(&k, "k", 10, "Facts to retrieve per task")
 	cmd.Flags().BoolVar(&judge, "judge", false, "Use the agent to judge relevance when a task has no labels")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Judge agent: auto, codex, claude-code, or command")
+	cmd.Flags().StringVar(&judgeCache, "judge-cache", "", "Persist/reuse judge verdicts at this path so re-runs are deterministic and cheap")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the summary as JSON")
 	return cmd
+}
+
+// judgeCache persists agent relevance verdicts keyed by "<taskID>\x00<factID>"
+// so judged evals are repeatable and only new (task, fact) pairs cost an agent
+// call. It makes judge-based A/Bs deterministic across runs.
+type judgeCache struct {
+	path    string
+	verdict map[string]bool
+	dirty   bool
+}
+
+func judgeCacheKey(taskID, factID string) string { return taskID + "\x00" + factID }
+
+func loadJudgeCache(path string) *judgeCache {
+	c := &judgeCache{path: path, verdict: map[string]bool{}}
+	if strings.TrimSpace(path) == "" {
+		return c
+	}
+	if data, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(data, &c.verdict)
+	}
+	return c
+}
+
+func (c *judgeCache) get(taskID, factID string) (bool, bool) {
+	if c == nil {
+		return false, false
+	}
+	v, ok := c.verdict[judgeCacheKey(taskID, factID)]
+	return v, ok
+}
+
+func (c *judgeCache) set(taskID, factID string, relevant bool) {
+	if c == nil {
+		return
+	}
+	c.verdict[judgeCacheKey(taskID, factID)] = relevant
+	c.dirty = true
+}
+
+func (c *judgeCache) save() error {
+	if c == nil || !c.dirty || strings.TrimSpace(c.path) == "" {
+		return nil
+	}
+	data, err := json.MarshalIndent(c.verdict, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(c.path, append(data, '\n'), 0o600)
 }
 
 func loadEvalTasks(path string) ([]evalTask, error) {
@@ -232,7 +310,7 @@ func loadEvalTasks(path string) ([]evalTask, error) {
 	return tasks, nil
 }
 
-func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string) ([]evalTaskResult, error) {
+func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache) ([]evalTaskResult, error) {
 	results := make([]evalTaskResult, 0, len(tasks))
 	for _, task := range tasks {
 		branch := task.Branch
@@ -259,20 +337,56 @@ func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultB
 			}
 			totalRelevant = len(relevant)
 		} else if judge && len(surfaced) > 0 {
-			out, judgeErr := run(ctx, repoDir, judgeArgs, judgeInput(task.Task, surfaced), defaultDistillTimeout)
-			if judgeErr != nil {
-				return nil, fmt.Errorf("judge task %s: %w", task.ID, judgeErr)
+			relevant, err = judgeRelevance(ctx, run, repoDir, judgeArgs, task, surfaced, cache)
+			if err != nil {
+				return nil, err
 			}
-			relevant = parseJudgeOutput(out, surfaced)
 		} else {
 			relevant = map[string]struct{}{}
 		}
 
 		res := evalMetrics(surfaced, relevant, totalRelevant)
-		res.ID, res.Task, res.Labeled = task.ID, task.Task, labeled
+		res.ID, res.Task, res.QueryType, res.Labeled = task.ID, task.Task, task.QueryType, labeled
 		results = append(results, res)
 	}
+	if err := cache.save(); err != nil {
+		return nil, fmt.Errorf("save judge cache: %w", err)
+	}
 	return results, nil
+}
+
+// judgeRelevance returns the set of surfaced-fact ids judged relevant for a
+// task, consulting the cache first and only asking the agent about the
+// uncached facts (then recording its verdicts). This makes judged evals cheap
+// to re-run and deterministic across runs.
+func judgeRelevance(ctx context.Context, run distillAgentRunner, repoDir string, judgeArgs []string, task evalTask, surfaced []factRecord, cache *judgeCache) (map[string]struct{}, error) {
+	relevant := map[string]struct{}{}
+	var uncached []factRecord
+	for _, f := range surfaced {
+		if v, ok := cache.get(task.ID, f.ID); ok {
+			if v {
+				relevant[f.ID] = struct{}{}
+			}
+			continue
+		}
+		uncached = append(uncached, f)
+	}
+	if len(uncached) == 0 {
+		return relevant, nil
+	}
+	out, err := run(ctx, repoDir, judgeArgs, judgeInput(task.Task, uncached), defaultDistillTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("judge task %s: %w", task.ID, err)
+	}
+	judged := parseJudgeOutput(out, uncached)
+	for _, f := range uncached {
+		_, isRel := judged[f.ID]
+		cache.set(task.ID, f.ID, isRel)
+		if isRel {
+			relevant[f.ID] = struct{}{}
+		}
+	}
+	return relevant, nil
 }
 
 func printEvalSummary(cmd *cobra.Command, s evalSummary) {
@@ -288,4 +402,16 @@ func printEvalSummary(cmd *cobra.Command, s evalSummary) {
 		fmt.Fprintf(out, "%-14s %8d %7.2f %7s %9.2f\n", truncateString(r.ID, 14), r.Tokens, r.Precision, recall, r.UsefulPer1k)
 	}
 	fmt.Fprintf(out, "%-14s %8.0f %7.2f %7s %9.2f\n", "MEAN", s.MeanTokens, s.MeanPrecision, "", s.MeanUsefulPer1k)
+	if len(s.ByStratum) > 0 {
+		fmt.Fprintf(out, "\n%-14s %8s %7s %7s %9s\n", "stratum", "tokens", "prec", "tasks", "useful/1k")
+		strata := make([]string, 0, len(s.ByStratum))
+		for qt := range s.ByStratum {
+			strata = append(strata, qt)
+		}
+		sort.Strings(strata)
+		for _, qt := range strata {
+			st := s.ByStratum[qt]
+			fmt.Fprintf(out, "%-14s %8.0f %7.2f %7d %9.2f\n", qt, st.MeanTokens, st.MeanPrecision, st.Tasks, st.MeanUsefulPer1k)
+		}
+	}
 }
