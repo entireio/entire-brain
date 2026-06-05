@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.7.4-nightly.202606040747.b98014a6",
+  "checkpoint_id": "334351aa43dc",
+  "session_id": "d770cc65-b914-4759-91e4-31397a99ba57",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-05T04:58:30.497918Z",
+  "branch": "claude/durable-facts-and-distill",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "09592292ba07",
+  "token_usage": {
+    "input_tokens": 13323,
+    "cache_creation_tokens": 1761033,
+    "cache_read_tokens": 59336669,
+    "output_tokens": 260826,
+    "api_call_count": 256
+  },
+  "session_metrics": {
+    "turn_count": 17
+  }
+}
