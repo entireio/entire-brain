@@ -408,11 +408,44 @@ def scatter3d(rows, colorby, fname, title):
     fig.tight_layout(rect=[0, 0, 1, 0.93]); fig.savefig(OUT / fname, dpi=140); plt.close(fig)
 
 
+def chart_quality_vs_efficiency(rows):
+    """The honest headline: QUALITY (validation pass-rate, hard data) on the left,
+    EFFICIENCY (mean tokens, measured) on the right — no composite score, which
+    mixes in brain_use/runtime-efficiency components and can mislead."""
+    G = group(rows, lambda r: (r["model"], r["condition"]))
+    models = model_sorted({k[0] for k in G})
+    fig, axes = plt.subplots(1, 2, figsize=(17, 5.4))
+    width = 0.8 / len(COND_ORDER)
+    x = np.arange(len(models))
+    # left: pass-rate (quality)
+    for ci, c in enumerate(COND_ORDER):
+        vals = [(100 * G[(m, c)]["valid"] / G[(m, c)]["n"]) if (m, c) in G else 0 for m in models]
+        offs = x + (ci - (len(COND_ORDER) - 1) / 2) * width
+        axes[0].bar(offs, vals, width=width, color=COND_COLOR[c], label=COND_LABEL[c])
+        for xi, v in zip(offs, vals):
+            axes[0].text(xi, v, f"{v:.0f}", ha="center", va="bottom", fontsize=7)
+    axes[0].set_ylim(0, 109); axes[0].set_title("QUALITY — validation pass-rate % (↑ better)", fontsize=12)
+    axes[0].legend(fontsize=8)
+    # right: tokens (efficiency/cost)
+    for ci, c in enumerate(COND_ORDER):
+        vals = [(G[(m, c)]["tokens"] / 1000) if (m, c) in G else 0 for m in models]
+        offs = x + (ci - (len(COND_ORDER) - 1) / 2) * width
+        axes[1].bar(offs, vals, width=width, color=COND_COLOR[c], label=COND_LABEL[c])
+        for xi, v in zip(offs, vals):
+            axes[1].text(xi, v, f"{v:.0f}k", ha="center", va="bottom", fontsize=7)
+    axes[1].set_title("EFFICIENCY — mean tokens, thousands (↓ better)", fontsize=12)
+    for ax in axes:
+        ax.set_xticks(x); ax.set_xticklabels([MODEL_SHORT.get(m, m) for m in models], fontsize=9)
+    fig.suptitle("Brain vs grep — measured quality and efficiency (no composite score)", fontsize=13)
+    fig.tight_layout(rect=[0, 0, 1, 0.95]); fig.savefig(OUT / "c0_quality_vs_efficiency.png", dpi=140); plt.close(fig)
+
+
 def main():
     rows = load_rows()
     print(f"loaded {len(rows)} integrity-clean cliproof records")
     build_tables(rows)
     # 2D
+    chart_quality_vs_efficiency(rows)
     chart_model_noeffort(rows)
     chart_agent_overall(rows)
     chart_brain_deltas(rows)
