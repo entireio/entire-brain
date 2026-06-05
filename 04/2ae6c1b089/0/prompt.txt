@@ -1,0 +1,63 @@
+ur my code review, debuggger agnet; read up on the repo adn udnerstand; and review the code fully liek a bugbto cursor or claude or coplit etc to review eveyrhtin  ebfore the CEO SEES it udnerstand full; spawn aget team subagent wtv  websearch allways use ur recoruse etc; and udenrstand thsi fuly et c et cetc
+
+---
+
+it is re run benchmark rn; cehck that evyerhting is fixed fully; full aduit
+
+---
+
+rerun full audit
+
+---
+
+test it fully and give resutls;  Honest update from actually running it: that "design decision" prompt didn't favor the brain — no_brain (read-only, 145s) gave an excellent answer by reading git history + 
+  committed docs/superpowers/specs/*.md. That's a real finding: on a well-documented repo like cli, a cold agent can read git log + design docs, so the brain's
+  session-transcript history competes with sources grep can reach. Also, inspect decisions is keyword-sensitive — my multi-word query ("memory-loop skill workflow source of
+  truth") returned no matches, while a single strong term ("review") returns rich results.
+  
+  So here's the honest guidance + the prompt most likely to actually benefit.
+  
+  What makes a prompt benefit from the brain (learned by dogfooding)
+
+  The brain wins decisively when the answer is (a) only in agent session transcripts (not in git messages or committed docs), or (b) the repo is big enough that finding the 
+  spot is the cost (brain = fewer tokens/searches). It does not beat a cold agent when the rationale is in committed docs/commit messages (cli has lots of those). And the query
+  must contain a strong identifier/keyword, not prose.
+
+  The prompt to ask (most likely to benefit)
+
+  Use a specific, subtle behavior tied to an identifier, phrased as a task, with brain queries that hit:
+
+  ▎ "In entire review, when --base <ref> is passed it must use that explicit base ref end-to-end. Verify the invariant: confirm scopeBaseRef is threaded into both the agent 
+  ▎ prompt and the banner, and identify the exact test that guards this. If it's broken, fix it minimally."
+  
+  Why this one benefits: it's a localization + invariant-recall task in a large file; the brain's search "scopeBaseRef" / inspect history 
+  "BaseFlagThreadsThroughToPromptAndBanner" jumps straight to review_context.go + the guarding test, where a cold agent burns tokens grepping. (This is the area the n=3
+  benchmark already showed brain-positive.)
+
+  Even stronger (if you want a brain-only-knowledge win): ask about a subtle regression, not documented code:
+
+  ▎ "There's a transcript-path re-resolution subtlety: when the resolver finds a relocated transcript, what must happen to session state, and what bug occurs if it doesn't? 
+  ▎ Answer from prior work, then verify in resolve_transcript.go."
+  
+  Steps to run the A/B (same task, both ways, compare)
+
+  # 1. Build a FRESH brain for the EXACT checkout (must match HEAD, or it refuses as stale)
+  cd /path/to/cli && entire brain refresh && entire brain status   # expect freshness: ok
+
+  # 2. NO-BRAIN  (agent may use code + git + docs, but NOT the brain)
+  cd /path/to/cli
+  codex exec --sandbox read-only "<the prompt above>" </dev/null          # time it, note 'tokens used'
+
+  # 3. WITH-BRAIN  (same prompt; tell it to use the brain to locate/recall)
+  codex exec --sandbox danger-full-access \
+    "This repo has an Entire Brain. First use: entire brain search scopeBaseRef \
+     and entire brain inspect history \"BaseFlagThreadsThroughToPromptAndBanner\" \
+     to locate code and recall the invariant. Then: <the prompt above>" </dev/null
+
+  # 4. Compare: wall-time, tokens used, # of grep/find calls, and correctness of the answer/edit.
+  #    Tip: query the brain with a SYMBOL/identifier (works great); avoid vague prose (weak brief).
+
+  Have I tried it myself? Yes — two real A/Bs, honestly:
+
+  - Locate task (gpt-5.4-mini): no_brain 25s/40k tok; with-brain 28s/49k tok — brain added ~21% tokens, same answer (a strong searcher didn't need it).
+  - Decision/rationale task: no_brain answered fully in 145s via git+docs (brain not decisive — the knowledge was committed).
