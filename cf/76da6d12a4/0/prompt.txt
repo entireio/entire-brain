@@ -1,0 +1,13 @@
+fix message; Also my PR for entire blame/why got approved, but still need to run some checks to merge, is this normal?
+
+---
+
+also js a quesiton would it irmpoe results to recode entire thing in rust
+
+---
+
+for the PR ONLY FIX these minor fixes; don't take in new code being writen by oyther cladue code agent; Minor, non-blocking notes
+mcp.go: the JSON-line check if len(trimmed) > maxMCPFrameBytes is unreachable — readBoundedLine already bounds the line at that same constant, so it can't trigger. Harmless, could be dropped.
+mcp.go: a recoverable error always reports frameMode = mcpFrameJSONLine, so the parse-error reply is line-framed even for a client using Content-Length framing. Acceptable (the frame was malformed), just noting it.
+likely_edit_files: the [a-z0-9]{4,} term pattern skips 3-char identifiers (api, cli, db) that are sometimes the strongest locator. Minor.
+; pr 3
