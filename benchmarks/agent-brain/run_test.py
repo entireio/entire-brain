@@ -536,5 +536,29 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("brain_validation_not_clean", verdict["verdict_reasons"])
 
 
+class StatsAndAttributionTests(unittest.TestCase):
+    def test_welch_p_value_is_t_test_not_normal(self):
+        # Clearly separated 3-vs-3 should be small but NOT the absurd ~0 the old
+        # z/erfc gave; overlapping samples must be clearly non-significant.
+        sep = run.welch_p_value([97.0, 97.0, 98.0], [84.0, 85.0, 86.0])
+        self.assertIsNotNone(sep)
+        self.assertLess(sep, 0.05)
+        self.assertGreater(sep, 1e-4)  # t-distribution at ~4 df, not a near-0 z-value
+        overlap = run.welch_p_value([95, 96, 94], [93, 95, 96])
+        self.assertGreater(overlap, 0.1)
+        self.assertEqual(run.welch_p_value([90, 90, 90], [90, 90, 90]), 1.0)
+        self.assertIsNone(run.welch_p_value([1.0], [2.0]))  # n<2
+
+    def test_extract_resolved_model(self):
+        # Claude exposes the resolved model via modelUsage keys.
+        claude = '{"type":"result","modelUsage":{"claude-haiku-4-5":{"inputTokens":10}}}'
+        self.assertEqual(run.extract_resolved_model(claude), "claude-haiku-4-5")
+        # Generic "model":"X" is picked up too.
+        self.assertEqual(run.extract_resolved_model('{"model":"gpt-x"}'), "gpt-x")
+        # Codex exec --json exposes no model field -> None (honest: not confirmed).
+        self.assertIsNone(run.extract_resolved_model('{"type":"item","text":"done"}'))
+        self.assertIsNone(run.extract_resolved_model(""))
+
+
 if __name__ == "__main__":
     unittest.main()

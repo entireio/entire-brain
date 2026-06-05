@@ -925,6 +925,16 @@ def apply_task_env(env: dict[str, str], task: dict[str, Any]) -> dict[str, str]:
     return env
 
 
+def checkpoint_ref_sha_for_task(task: dict[str, Any]) -> str:
+    """SHA of the source repo's checkpoint-history ref, so a moving session
+    history invalidates the brain cache. The benchmark's thesis is that history
+    helps, so a static-content cache key (base_commit + tool SHAs) would risk
+    serving a stale brain if the checkpoint ref advanced between runs."""
+    source = resolve_repo_path(task["repo_path"])
+    proc = run_cmd(["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=source)
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
 def brain_cache_payload(
     task: dict[str, Any],
     condition: str,
@@ -942,6 +952,11 @@ def brain_cache_payload(
         "prepare_semantic": bool(task.get("prepare_semantic", True)),
         "checkpoint_limit": checkpoint_limit if condition_prepares_history(prep_kind) else None,
         "history_index": condition_prepares_history(prep_kind),
+        # Bind the cache to the actual checkpoint-history content for conditions
+        # that consume it, so a moving history is not silently reused.
+        "checkpoint_ref_sha": checkpoint_ref_sha_for_task(task)
+        if (condition_prepares_history(prep_kind) or task.get("copy_checkpoint_ref_from_source"))
+        else None,
         "copy_entire_history_from_source": bool(task.get("copy_entire_history_from_source"))
         and condition_copies_entire_history(condition),
         "setup_patch": task.get("setup_patch", ""),
@@ -2479,6 +2494,29 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
                         versions.add(version)
             return sorted(versions)
 
+        def score_core_values(recs: list[dict[str, Any]]) -> list[float]:
+            # Composite score minus the soft, condition-dependent components
+            # (brain_use auto-5 for no_brain; runtime_efficiency). Lets the
+            # comparison cite a delta/p-value that is NOT inflated by them.
+            out: list[float] = []
+            for rec in recs:
+                score = rec.get("score") if isinstance(rec.get("score"), dict) else {}
+                total = score.get("total")
+                if not isinstance(total, (int, float)):
+                    continue
+                soft = float(score.get("brain_use") or 0) + float(score.get("runtime_efficiency") or 0)
+                out.append(float(total) - soft)
+            return out
+
+        def pass_rate(recs: list[dict[str, Any]]) -> float | None:
+            if not recs:
+                return None
+            passed = sum(1 for rec in recs if isinstance(rec.get("validation"), dict) and rec["validation"].get("ok"))
+            return passed / len(recs)
+
+        score_core_condition = score_core_values(condition_records)
+        score_core_baseline = score_core_values(base_records)
+
         comparison = {
             "task_id": task_id,
             "agent": agent,
@@ -2491,6 +2529,13 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             "mean_baseline": sum(base) / len(base),
             "delta": sum(values) / len(values) - sum(base) / len(base),
             "p_value_approx": welch_p_value(values, base),
+            # Clean (soft-component-free) metrics: lead with these + token delta.
+            "pass_rate_condition": pass_rate(condition_records),
+            "pass_rate_baseline": pass_rate(base_records),
+            "mean_score_core_condition": (sum(score_core_condition) / len(score_core_condition)) if score_core_condition else None,
+            "mean_score_core_baseline": (sum(score_core_baseline) / len(score_core_baseline)) if score_core_baseline else None,
+            "delta_score_core": (sum(score_core_condition) / len(score_core_condition) - sum(score_core_baseline) / len(score_core_baseline)) if score_core_condition and score_core_baseline else None,
+            "p_value_score_core": welch_p_value(score_core_condition, score_core_baseline),
             "score_versions_condition": score_versions(condition_records),
             "score_versions_baseline": score_versions(base_records),
             "mean_outcome_condition": mean_field(condition_records, ["score", "outcome"]),
@@ -2570,7 +2615,40 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
         }
         comparison.update(brain_comparison_verdict(comparison))
         comparisons.append(comparison)
-    summary = {"records": len(records), "comparisons": comparisons}
+
+    # Holm-Bonferroni family-wise correction across every reported p-value in this
+    # suite (P1: individual p-values were uncorrected). The headline verdict stays
+    # validation-gated; adjusted values are written as `<field>_holm` so any p-value
+    # cited downstream is family-wise controlled, not raw.
+    p_fields = [
+        "p_value_approx", "p_value_score_core", "p_value_agent_seconds",
+        "p_value_total_tokens", "p_value_turns", "p_value_cost_usd",
+    ]
+    family: list[tuple[int, str, float]] = []
+    for ci, comp in enumerate(comparisons):
+        for field in p_fields:
+            value = comp.get(field)
+            if isinstance(value, (int, float)):
+                family.append((ci, field, float(value)))
+    if family:
+        order = sorted(range(len(family)), key=lambda i: family[i][2])
+        running = 0.0
+        for rank, idx in enumerate(order):
+            adjusted = min(1.0, (len(family) - rank) * family[idx][2])
+            running = max(running, adjusted)  # enforce step-down monotonicity
+            ci, field, _ = family[idx]
+            comparisons[ci][field + "_holm"] = running
+
+    summary = {
+        "records": len(records),
+        "comparisons": comparisons,
+        "stats_notes": {
+            "p_value_test": "two-sided Welch's t-test (Student-t, Welch-Satterthwaite df)",
+            "multiple_comparison_correction": "holm-bonferroni across all suite p-values; see <field>_holm",
+            "n_pvalues_in_family": len(family),
+            "headline_metric": "validation pass-rate + measured tokens; composite score and p-values are secondary",
+        },
+    }
     (suite_dir / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
     return summary
 
