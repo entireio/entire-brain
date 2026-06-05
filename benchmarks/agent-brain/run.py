@@ -1665,6 +1665,10 @@ def run_agent(
             "model": runner.model,
             "effort": runner.effort,
         },
+        # The model the agent CLI actually reported running, parsed from its own
+        # JSON stream — makes model attribution self-evident per record (vs only
+        # the requested --model), addressing the "how do you know it was X" concern.
+        "resolved_model": extract_resolved_model(proc.stdout),
         "isolation": {**ISOLATION.get(runner.agent, {}), "mcp": "entire-brain local stdio only" if mcp_enabled else ISOLATION.get(runner.agent, {}).get("mcp", "disabled")},
         "mcp": {
             "enabled": mcp_enabled,
@@ -1852,6 +1856,17 @@ def structured_tool_names(stdout: str) -> list[str]:
         if isinstance(name, str):
             names.append(name)
     return names
+
+
+def extract_resolved_model(stdout: str) -> str | None:
+    """The model the agent CLI reported in its JSON stream (most frequent value)."""
+    found = re.findall(r'"model"\s*:\s*"([^"]+)"', stdout or "")
+    if not found:
+        return None
+    counts: dict[str, int] = {}
+    for value in found:
+        counts[value] = counts.get(value, 0) + 1
+    return max(counts, key=lambda k: counts[k])
 
 
 def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
@@ -2245,18 +2260,80 @@ def run_one(
     return RunResult(record=record, run_dir=run_dir)
 
 
+def _betacf(a: float, b: float, x: float) -> float:
+    # Continued-fraction expansion of the incomplete beta (Numerical Recipes).
+    maxit, eps, fpmin = 200, 3.0e-12, 1.0e-300
+    qab, qap, qam = a + b, a + 1.0, a - 1.0
+    c = 1.0
+    d = 1.0 - qab * x / qap
+    if abs(d) < fpmin:
+        d = fpmin
+    d = 1.0 / d
+    h = d
+    for m in range(1, maxit + 1):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        if abs(d) < fpmin:
+            d = fpmin
+        c = 1.0 + aa / c
+        if abs(c) < fpmin:
+            c = fpmin
+        d = 1.0 / d
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        if abs(d) < fpmin:
+            d = fpmin
+        c = 1.0 + aa / c
+        if abs(c) < fpmin:
+            c = fpmin
+        d = 1.0 / d
+        de = d * c
+        h *= de
+        if abs(de - 1.0) < eps:
+            break
+    return h
+
+
+def _betai(a: float, b: float, x: float) -> float:
+    # Regularized incomplete beta function I_x(a, b).
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    lbeta = math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b)
+    bt = math.exp(lbeta + a * math.log(x) + b * math.log(1.0 - x))
+    if x < (a + 1.0) / (a + b + 2.0):
+        return bt * _betacf(a, b, x) / a
+    return 1.0 - bt * _betacf(b, a, 1.0 - x) / b
+
+
 def welch_p_value(a: list[float], b: list[float]) -> float | None:
+    """Two-sided Welch's t-test p-value using the Student-t distribution with
+    Welch-Satterthwaite degrees of freedom. A z/normal approximation (erfc) is
+    invalid at the small per-cell n here (df ~ 2-4 has far heavier tails), so we
+    use the proper t-distribution survival via the regularized incomplete beta."""
     if len(a) < 2 or len(b) < 2:
         return None
-    mean_a = sum(a) / len(a)
-    mean_b = sum(b) / len(b)
-    var_a = sum((x - mean_a) ** 2 for x in a) / (len(a) - 1)
-    var_b = sum((x - mean_b) ** 2 for x in b) / (len(b) - 1)
-    se = math.sqrt(var_a / len(a) + var_b / len(b))
-    if se == 0:
+    na, nb = len(a), len(b)
+    mean_a = sum(a) / na
+    mean_b = sum(b) / nb
+    var_a = sum((x - mean_a) ** 2 for x in a) / (na - 1)
+    var_b = sum((x - mean_b) ** 2 for x in b) / (nb - 1)
+    sa, sb = var_a / na, var_b / nb
+    se2 = sa + sb
+    if se2 == 0:
         return 0.0 if mean_a != mean_b else 1.0
-    z = abs(mean_a - mean_b) / se
-    return math.erfc(z / math.sqrt(2))
+    t = (mean_a - mean_b) / math.sqrt(se2)
+    denom = (sa * sa) / (na - 1) + (sb * sb) / (nb - 1)
+    if denom == 0:
+        return 1.0
+    df = se2 * se2 / denom
+    if df <= 0:
+        return 1.0
+    # Two-sided p = I_{df/(df+t^2)}(df/2, 1/2).
+    return _betai(df / 2.0, 0.5, df / (df + t * t))
 
 
 def relative_delta(condition: Any, baseline: Any) -> float | None:

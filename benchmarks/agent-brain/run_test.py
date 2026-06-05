@@ -73,10 +73,29 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("mcp__entire_brain__brain_brief", prompt)
         self.assertIn("before any shell search or file reads", prompt)
         self.assertIn("run exactly one `mcp__entire_brain__brain_history`", prompt)
-        self.assertIn("apply those listed edits directly before any additional MCP calls", prompt)
+        self.assertIn("apply the fix there before any additional MCP calls", prompt)
         self.assertIn("MCP_TOOLS_MISSING", prompt)
         self.assertIn("Do not run the `entire brain` CLI", prompt)
         self.assertIn("do not read `.benchmark/brain-history-excerpt.md`", prompt)
+
+    def test_mcp_history_compact_delivery_for_over_explorer_models(self):
+        # Model-adaptive: gpt-5.5 over-explores the full history blob, so it gets a
+        # compact single-brain_brief delivery with a hard stop (no forced brain_history).
+        task = {
+            "id": "task",
+            "prompt": "Fix the regression.",
+            "brain_queries": ["history term"],
+            "expected_files": ["pkg/file.ts"],
+            "validation": ["npm test"],
+        }
+        runner = run.parse_runner_spec("codex:gpt-5.5:medium")
+        prompt = run.prompt_for(task, "mcp_history", runner)
+        self.assertIn("EXACTLY ONCE", prompt)
+        self.assertIn("do NOT need a separate `brain_history` call", prompt)
+        self.assertIn("MCP_TOOLS_MISSING", prompt)
+        # A model NOT in the compact set keeps the richer history delivery.
+        guided = run.prompt_for(task, "mcp_history", run.parse_runner_spec("claude:sonnet:medium"))
+        self.assertIn("run exactly one `mcp__entire_brain__brain_history`", guided)
 
     def test_full_brain_prompt_uses_query_terms_in_initial_brief(self):
         task = {
