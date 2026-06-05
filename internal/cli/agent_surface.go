@@ -518,12 +518,13 @@ var brainBriefPathPattern = regexp.MustCompile(`(?:^|[\s"'({\[])([A-Za-z0-9_@./-
 
 func brainBriefLikelyFileGroups(repoRoot string, report brainBriefReport, task string) ([]string, []string, []string) {
 	counts := map[string]int{}
+	taskTerms := brainBriefFileMatchTerms(task)
 	add := func(path string, weight int) {
 		clean, ok := cleanBrainBriefLikelyFile(path)
 		if !ok {
 			return
 		}
-		counts[clean] += weight + brainBriefLikelyFileBonus(clean)
+		counts[clean] += weight + brainBriefLikelyFileBonus(clean) + brainBriefTaskTermBonus(clean, taskTerms)
 	}
 	for _, symbol := range report.Semantic.Context.Symbols {
 		add(symbol.FilePath, 12)
@@ -820,6 +821,56 @@ func rankedBrainBriefLikelyFiles(counts map[string]int, limit int) []string {
 		out = append(out, file.path)
 	}
 	return out
+}
+
+// brainBriefTaskTermStop drops generic words that don't help identify the file a
+// task is about.
+var brainBriefTaskTermStop = map[string]bool{
+	"the": true, "and": true, "for": true, "with": true, "when": true, "must": true,
+	"that": true, "this": true, "use": true, "using": true, "fix": true, "update": true,
+	"regression": true, "scope": true, "change": true, "ensure": true, "should": true,
+	"into": true, "from": true, "before": true, "after": true, "their": true, "your": true,
+	"agent": true, "session": true, "repository": true, "preserve": true, "existing": true,
+	"behavior": true, "composing": true, "collecting": true, "subsequent": true, "reads": true,
+}
+
+var brainBriefTaskWordPattern = regexp.MustCompile(`[a-z0-9]{4,}`)
+
+// brainBriefFileMatchTerms extracts the significant lowercase tokens from a task
+// description used to bias likely_edit_files toward files named after the task.
+func brainBriefFileMatchTerms(task string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, word := range brainBriefTaskWordPattern.FindAllString(strings.ToLower(task), -1) {
+		if brainBriefTaskTermStop[word] || seen[word] {
+			continue
+		}
+		seen[word] = true
+		out = append(out, word)
+	}
+	return out
+}
+
+// brainBriefTaskTermBonus rewards a candidate file whose name matches the task's
+// significant terms — a strong "this file is what the task is about" signal that
+// the raw semantic-symbol density (which favors large files like TUIs) misses.
+func brainBriefTaskTermBonus(path string, terms []string) int {
+	if len(terms) == 0 {
+		return 0
+	}
+	lower := strings.ToLower(path)
+	base := strings.ToLower(filepath.Base(path))
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	score := 0
+	for _, term := range terms {
+		switch {
+		case strings.Contains(base, term):
+			score += 10 // basename match is the strongest locator
+		case strings.Contains(lower, term):
+			score += 3 // elsewhere in the path is weaker
+		}
+	}
+	return score
 }
 
 func brainBriefLikelyFileBonus(path string) int {
