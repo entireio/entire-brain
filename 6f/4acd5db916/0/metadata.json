@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "6f4acd5db916",
+  "session_id": "d770cc65-b914-4759-91e4-31397a99ba57",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-05T21:42:25.623751Z",
+  "branch": "claude/durable-facts-and-distill",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "f5c8b026871a",
+  "token_usage": {
+    "input_tokens": 36706,
+    "cache_creation_tokens": 4652465,
+    "cache_read_tokens": 186680104,
+    "output_tokens": 569195,
+    "api_call_count": 473
+  },
+  "session_metrics": {
+    "turn_count": 25
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-05T21:42:25.480795Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 142,
+    "human_modified": 11,
+    "human_removed": 0,
+    "total_committed": 142,
+    "total_lines_changed": 153,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 52,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 52
+      }
+    }
+  ]
+}
