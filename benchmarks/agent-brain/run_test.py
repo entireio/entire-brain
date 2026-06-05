@@ -536,6 +536,28 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("brain_validation_not_clean", verdict["verdict_reasons"])
 
 
+class OpusCompactModeTests(unittest.TestCase):
+    TASK = {"id": "t", "prompt": "Fix it.", "brain_queries": ["X"], "expected_files": ["a.go"], "validation": ["go test ./..."]}
+
+    def test_opus_mcp_is_compact_and_bounded(self):
+        p = run.prompt_for(self.TASK, "mcp_history", run.parse_runner_spec("claude:opus:high"))
+        self.assertIn("limit: 3", p)                       # tiny brief
+        self.assertIn("do NOT call `brain_history`", p)    # no forced history blob
+        self.assertIn("finite budget", p)
+        # other Claude models keep the standard MCP delivery (forced brain_history)
+        son = run.prompt_for(self.TASK, "mcp_history", run.parse_runner_spec("claude:sonnet:high"))
+        self.assertIn("run exactly one `mcp__entire_brain__brain_history`", son)
+        self.assertNotIn("limit: 3", son)
+
+    def test_opus_cli_uses_tiny_limit(self):
+        p = run.prompt_for(self.TASK, "full_cli_compact", run.parse_runner_spec("claude:opus:high"))
+        self.assertIn("--limit 2", p)
+        # haiku keeps the standard --limit 4 CLI delivery
+        hai = run.prompt_for(self.TASK, "full_cli_compact", run.parse_runner_spec("claude:haiku:high"))
+        self.assertIn("--limit 4", hai)
+        self.assertNotIn("--limit 2", hai)
+
+
 class StatsAndAttributionTests(unittest.TestCase):
     def test_welch_p_value_is_t_test_not_normal(self):
         # Clearly separated 3-vs-3 should be small but NOT the absurd ~0 the old

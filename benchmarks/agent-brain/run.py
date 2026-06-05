@@ -1487,6 +1487,14 @@ def matching_history_lines(files: list[pathlib.Path], query: str) -> list[tuple[
 # delivery instead — Suhaan's "compact packet + stop rules for stronger models" finding.
 COMPACT_STRICT_MODELS = {"gpt-5.5", "gpt-5"}
 
+# Opus is already correctness-saturated but over-READS the brief's history blob
+# (MCP brain_brief defaults to limit=20 -> ~8KB of history dominates the packet,
+# inflating tokens +15-69% on MCP). Opus gets its own compact, bounded delivery:
+# a small-limit brief (top high-signal history only), no forced second history
+# call, hard stop, finite-context framing. Goal: keep Opus's review discipline
+# (score) while cutting tokens + time on BOTH MCP and CLI. Other models unchanged.
+OPUS_COMPACT_MODELS = {"opus", "claude-opus-4-8"}
+
 
 def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None" = None) -> str:
     base = task["prompt"].strip()
@@ -1498,6 +1506,9 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
         brief_query = f"{brief_query} | {queries}"
     brief_limit = " --limit 4" if condition == "full_cli_compact" else ""
     brief_command = f'entire brain brief "{brief_query}" --json{brief_limit}'
+    is_opus = runner is not None and runner.model in OPUS_COMPACT_MODELS
+    # Opus gets a deliberately tiny packet (top-2 history hits) on the CLI path.
+    opus_brief_command = f'entire brain brief "{brief_query}" --json --limit 2'
     top_level_entire_guard = (
         "Do not run top-level `entire doctor`, `entire status`, `entire session`, "
         "or `entire checkpoint`; they are not Brain context for this benchmark and may be interactive."
@@ -1513,11 +1524,17 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
         policy = f"""Use the Entire Brain MCP server before editing. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Then start with the `brain_stale` MCP tool, followed by `brain_query`, `brain_context`, `brain_impact`, or `brain_changes` for focused semantic context. Useful query terms: {queries}. Do not run the `entire brain` CLI and do not inspect checkpoint transcripts or session history."""
     elif condition == "mcp_semantic":
         policy = "Use the Entire Brain MCP server before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not run semantic CLI commands or inspect checkpoint transcripts."
+    elif condition == "mcp_history" and is_opus:
+        # Opus-only compact MCP: tiny brief (limit 3), no forced history blob, hard stop.
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Call `mcp__entire_brain__brain_brief` / `brain_brief` EXACTLY ONCE, passing a small limit (`limit: 3`) so the packet stays compact — it returns `likely_edit_files`, `likely_test_files`, and the top high-signal history hits, which is all the context you need. From `likely_edit_files`, open the single most relevant implementation file (not TUI or test scaffolding) and apply the fix, using the history hits for the exact invariant. Treat that one packet as sufficient: do NOT re-call `brain_brief`, do NOT call `brain_history`/`brain_query` or any other MCP tool, and do not re-read the packet. Run exactly one `likely_test_files` test, then finish. Keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Your context window is a finite budget — be concise and stop once the fix validates. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history" and runner is not None and runner.model in COMPACT_STRICT_MODELS:
         # Compact strict delivery: one brain_brief, no forced history blob, hard stop.
         policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Call `mcp__entire_brain__brain_brief` / `brain_brief` for this task EXACTLY ONCE — it already includes the relevant `likely_edit_files`, `likely_test_files`, and compact session-history hits, so you do NOT need a separate `brain_history` call. From `likely_edit_files`, open the single file most relevant to the described regression (prefer the core implementation file over TUI or test scaffolding) and make the fix there, using the history hits to get the exact invariant right. Verify with a few targeted searches inside that file if needed, then run one `likely_test_files` test and finish. Do NOT re-call `brain_brief` and do NOT call `brain_history`/`brain_query` or any other MCP tool; do not open unrelated files or spiral into broad repo-wide search (keep `rg`/`grep`/`find` to at most 5 targeted searches). Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history":
         policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Your first context action must be the MCP tool `mcp__entire_brain__brain_brief` / `brain_brief` for this task; then run exactly one `mcp__entire_brain__brain_history` / `brain_history` query with the useful query terms: {queries}. From `likely_edit_files`, open the file most relevant to the described regression first (prefer the core implementation file over TUI or test scaffolding); apply the fix there before any additional MCP calls or `rg`/`grep`/`find`, and broaden only if it is clearly not the regression site or focused validation fails. Do not run the `entire brain` CLI and do not read `.benchmark/brain-history-excerpt.md`; this condition is testing MCP-delivered history. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING` instead of using grep or normal code search."""
+    elif condition == "full_cli_compact" and is_opus and semantic_available:
+        # Opus-only compact CLI: a tiny --limit 2 packet + hard stop, no re-reads.
+        policy = f"""Use the full Entire Brain before editing. Your first and only context command must be `{opus_brief_command}` — a deliberately compact packet. Open `likely_edit_files` directly and apply the fix there, using the top history hits for the exact invariant. Treat the packet as sufficient: do NOT re-run brief, do not broaden to other files, and do not inspect checkpoint/session files. Run exactly one `likely_test_files` test, then finish. Keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Your context window is a finite budget — be concise and stop once the fix validates. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif condition == "full_cli_compact" and semantic_available:
         policy = f"""Use the full Entire Brain before editing. Your first context command must be `{brief_command}`. In the JSON, treat `action_checklist` as the first-pass current-code inventory: open `likely_edit_files` directly, apply/verify the listed actions in those files first, and do not broaden to other files unless the checklist is missing, ambiguous, or validation fails. Avoid broad `rg`/`grep`/`find` unless that first pass is insufficient. Prefer `likely_test_files` for one focused validation command; if a test fails because of unrelated temp-file or project-environment setup, do not spend extra rounds debugging test infrastructure. This condition intentionally provides no raw history excerpt; do not inspect checkpoint/session files directly. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif semantic_available:
