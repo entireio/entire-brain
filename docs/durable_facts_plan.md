@@ -326,9 +326,15 @@ tamper signal.
   provenance, `facts review`, `facts promote`, and `facts gc`. Branch scoping is
   per indexed branch; promotion is manual.
 - **Phase B (with CLI change #1):** turn-level `blame` and the `verify` command,
-  anchored to signed checkpoints.
-- **Phase C (with CLI change #2):** the shared derived-knowledge store contract.
-- **Phase D (optional):** fact-layer embedding recall.
+  anchored to signed checkpoints. **Plus the fact-quality and structure work**
+  driven by the Phase A output analysis: locus-indexed facts, scope tiering, and
+  a synthesized hierarchy, validated by the audience-driven evaluation loop. See
+  Appendix D — this is the highest-leverage Phase B work, not the signing.
+- **Phase C (with CLI change #2):** the shared derived-knowledge store contract,
+  extended so the locus/kind index and synthesized hierarchy from Appendix D are
+  part of the contract other plugins consume.
+- **Phase D (optional):** fact-layer embedding recall — now scoped to retrieve
+  within a code locus / hierarchy node rather than over a flat per-branch list.
 
 Each phase is independently useful and ships behind the existing local-only
 boundary.
@@ -541,3 +547,117 @@ change can revisit it intentionally.
   / `chunks_distilled` are not updated by `remember` / `facts review` /
   `promote` / `gc` (those preserve the prior values), since those commands do not
   process transcripts.
+
+## Appendix D: Fact Quality And Structure (Phase B/C)
+
+Phase A proves the pipeline produces durable, provenance-anchored facts. It does
+not prove they are in the *best shape to build on*. This appendix records what
+the first real corpus looks like, the redesign it argues for, and a concrete
+evaluation loop to drive that redesign. This is the highest-leverage Phase B
+work.
+
+### What the Phase A corpus actually looks like (measured)
+
+From distilling six recent branches across two repos (entire.io and the CLI
+monorepo), 524 facts:
+
+- **The taxonomy under-discriminates.** 46–68% of every branch's facts fall into
+  just two catch-all paths (`constraints.invariants.general` and
+  `architecture.data.flow`). Path-based recall is coarse for the majority.
+- **Cross-cutting facts re-distill per branch and never dedupe.** Zero facts
+  share an id across the six branches: branch isolation plus content-derived ids
+  mean repo/user-level facts (TDD process, review etiquette, formatting) are
+  re-extracted, reworded, and stored again on every branch. This class grows
+  linearly with branch count and dilutes the branch-specific signal.
+- **Output is a flat list with no altitude.** 38–189 atomic facts per branch,
+  unordered, unranked. The best ~15–20 carry most of the value; the long tail is
+  low-marginal. There is no structure mapping facts to the change or to the code.
+- **A few status facts leak the durability gate** ("is being implemented
+  test-first", "remaining follow-up work includes…") — present-tense, stale in a
+  month.
+
+The high-signal subset (design rationale, invariants, gotchas) is genuinely
+useful — better than git log or raw transcripts for the *why*. The structure
+around it is the problem.
+
+### Two audiences, two hard constraints
+
+1. **Agents are the primary consumer.** The metric is *useful facts surfaced per
+   task within a token budget*, not total facts. Volume is a cost, not a virtue.
+   Retrieval must return a small, deduped set scoped to the code being touched.
+2. **Humans are a secondary consumer who will not read thousands.** They need
+   conciseness and hierarchy: facts must roll up into a navigable outline —
+   "use spaces, not tabs" sits under coding-standards → formatting — readable
+   top-down with drill-down, never a flat dump.
+
+### Challenging Phase A's assumptions
+
+- *"More facts = better memory."* Wrong for both audiences. Precision and
+  token-efficiency dominate; prefer fewer, higher-altitude facts with the
+  specifics nested beneath them.
+- *"The branch is the scope."* The branch is provenance and recency, not the
+  home. Merged knowledge should graduate to a **code locus** and be visible
+  regardless of branch; branch-scoping is only for unmerged/experimental
+  isolation.
+- *"A fixed flat taxonomy is the index."* It conflates three axes. The right
+  model is two keys plus a label: **WHERE** (code locus — a path/glob/package/
+  symbol, derived from the repo structure, dynamic) and **KIND** (a small fixed
+  set: decision / invariant / gotcha / preference / convention), with **topic**
+  as a roll-up label. Today's single taxonomy mashes where + kind + topic into
+  one string, which is why two buckets swallow most facts.
+- *"Atomic facts are the deliverable."* They are the substrate (leaves). The
+  deliverable is a synthesized, hierarchical outline whose section summaries roll
+  the leaves up.
+
+### Direction: locus-indexed facts under a synthesized hierarchy
+
+- **Index every fact by (locus, kind);** topic/taxonomy becomes a secondary
+  label. Tie locus into the existing semantic index so "changed files → relevant
+  facts" works directly, and recall returns "the 8 facts about the package you
+  are editing," not "200 facts on this branch."
+- **Tier by the structure axis:** monorepo root → workspace/app/package →
+  module → symbol. Cross-cutting facts live once at the root ("conventions");
+  subsystem facts live at their package. No per-branch (or per-package)
+  re-distillation of cross-cutting knowledge.
+- **Synthesize a living hierarchical outline** (a generated, always-current
+  conventions/architecture map): each node carries a concise summary that rolls
+  up its children; leaves are atomic facts with provenance. An agent loads the
+  root plus the relevant subtree for its task (progressive disclosure, bounded
+  tokens); a human reads the outline and drills down.
+- **This is the only thing that scales to large monorepos.** A flat global list
+  is both unloadable (token budget) and unreadable (human). A tree mirroring the
+  code structure lets both audiences scope to the slice they care about, keeps
+  retrieval bounded, and keeps cross-cutting facts from duplicating per package
+  or per branch.
+
+### Phase B task: audience-driven evaluation and iteration loop
+
+Build an evaluation harness and iterate fact production against the two
+audiences, on a large monorepo (the CLI / entire.io) where the scaling pressure
+is real. Treat fact count as a cost to minimize, not a goal.
+
+1. **Metrics.**
+   - *Agent (token-efficiency + lift):* over a set of held-out tasks ("review
+     branch X", "where/how do I change Y"), measure precision@k and tokens spent
+     by what `recall`/`brief` surfaces, and the **outcome lift** versus a
+     no-facts control — does the fact set change the agent's plan, catch a known
+     gotcha, or cut exploration. Target metric: **useful-facts-per-1k-tokens**
+     and task-success delta, never fact count.
+   - *Human (conciseness + hierarchy):* can a developer grasp a subsystem from
+     ≤1 page / ≤N leaves; is the outline navigable; time-to-orient. Spot-check
+     that leaves nest under the correct headings (the "spaces not tabs under
+     coding-standards → formatting" test).
+2. **A/B the structures on one corpus:** (a) flat Phase A facts, (b) locus-
+   indexed + scope-tiered, (c) + synthesized hierarchical outline. Run the
+   held-out tasks through each and compare on the metrics above.
+3. **Iterate:** tighten the durability gate, raise altitude / merge where recall
+   surfaces redundant low-value facts, evolve the locus/kind model, and
+   re-measure. Loop until useful-facts-per-1k-tokens and human time-to-orient
+   both improve and hold.
+4. **Stress the monorepo case explicitly:** thousands of facts across many
+   packages — verify retrieval stays bounded and scoped, the outline stays
+   navigable, and cross-cutting facts do not duplicate per package or branch.
+
+The deliverable of this task is not "more facts" but a structure and a retrieval
+path that demonstrably help an agent finish a task in fewer tokens and let a
+human orient in one screen.
