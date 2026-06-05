@@ -246,6 +246,8 @@ func newBrainInspectCommand(opts Options) *cobra.Command {
 		cmd.AddCommand(newInspectHistoryCommand(opts, kind))
 	}
 	cmd.AddCommand(newInspectBoundariesCommand(opts))
+	cmd.AddCommand(newInspectFactsCommand(opts))
+	cmd.AddCommand(newInspectBlameCommand(opts))
 	return cmd
 }
 
