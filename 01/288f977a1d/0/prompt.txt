@@ -1,0 +1,44 @@
+We're continuing the durable-facts work on the stacked branch
+  `claude/durable-facts-phase-d` (branched off `claude/durable-facts-and-distill`,
+  which is up as PR #5). Before doing anything, read these two docs in full:
+
+    - docs/durable_facts_handover.md   ← operational state, start here
+    - docs/durable_facts_plan.md       ← design + phasing (see Phase D / Appendix D)                      
+
+  Context in one paragraph: Phase A/B is feature-complete and in review. An eval
+  harness (facts eval-gen / eval / eval-compare) was used to measure retrieval on
+  a 121-task, 3-repo provenance-labeled benchmark. Two levers are CLOSED negatives
+  — do not re-litigate them: query expansion (d=0.10, p=0.26 at n=121) and lexical
+  ranking/k tuning (no headroom). The decisive finding: lexical recall ceiling is
+  0.667 while recall@10 is 0.244, so the only remaining headroom is semantic.
+
+  Your task: scope and begin **Phase D (embeddings)**. It must address both
+  measured failure modes — lift the 0.667 reachability ceiling AND rerank within
+  the reachable set. Hard constraint: the brain is local-only and must stay
+  offline-capable, so no network-dependent embedding calls in the default path.
+
+  Start by investigating and recommending a local embedding backend (a bundled
+  small local model vs. reusing whatever `entire-sem` already provides) — present
+  the options with trade-offs before writing code. Don't implement until we agree
+  on the backend.
+
+  When you do build, measure every change against the existing harness with the
+  same paired-t rigor (eval-compare). The benchmark and repro commands are in the
+  handover; persisted artifacts are at ~/.local/share/entire/facts-benchmark/.
+
+  Work in small, committed slices on this branch. Start by confirming you've read
+  both docs and giving me the backend options.
+
+  Two things worth knowing about it:
+  - It front-loads the "don't re-litigate the closed negatives" guard, so the new session doesn't waste a cycle rediscovering
+  that expansion/weight-tuning are dead ends. 
+  - It stops the agent before code — backend choice is the one open blocker and is genuinely your call, so the prompt forces an
+  options-first pause rather than letting it pick a backend unilaterally.
+
+---
+
+I am leaning to option A, but would like to understand the difference to alternatives, for example https://github.com/tobi/qmd
+
+---
+
+Ok, go with option A. If you need to run evals on Claude, use the Sonnet models, and on Codex, use the Spark model. I have plenty of usage left on those.
