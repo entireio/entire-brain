@@ -184,6 +184,11 @@ func mcpToolDefinitions() []map[string]any {
 			"description": "Search indexed Entire session history, decisions, validation notes, tool paths, or architecture facts.",
 			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "History query"), "kind": stringArg("kind", "history, decisions, sessions, validation, tool-paths, or architecture")}},
 		},
+		{
+			"name":        "brain_regressions",
+			"description": "Flag suspected regressions: lines the session history asserts but the current tree dropped or changed (with file:line, expected value, confidence, and provenance).",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "Task description plus the failing symbols/identifiers"), "limit": integerArg("limit", "Maximum suspected regressions")}},
+		},
 	}
 }
 
@@ -249,6 +254,11 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			} else {
 				err = runBrainHistoryInspect(ctx, cmd, opts, kind, query, true)
 			}
+		}
+	case "brain_regressions":
+		err = requireMCPQuery(query)
+		if err == nil {
+			err = runRegressionDetect(ctx, cmd, opts, regressionDetectorOptions{limit: limit, json: true}, query)
 		}
 	default:
 		err = fmt.Errorf("unknown tool: %s", params.Name)
