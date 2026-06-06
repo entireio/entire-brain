@@ -1,0 +1,4 @@
+# Embedded template assets are compiled into the binary via go:embed, so their
+# bytes must be identical on every platform. Force LF so a Windows checkout does
+# not turn them into CRLF (which leaked a stray "\r" into the distill prompt).
+templates/** text eol=lf

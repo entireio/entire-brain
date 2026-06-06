@@ -97,7 +97,7 @@ func TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions(t *testing.T) {
 		t.Fatalf("claude-code args: %v", err)
 	}
 	joined := strings.Join(args, "\x00")
-	for _, want := range []string{"claude", "--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "\x00\x00", "--system-prompt"} {
+	for _, want := range []string{"claude", "--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "\x00\x00", "--system-prompt"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("claude-code args missing %q: %#v", want, args)
 		}
@@ -153,7 +153,7 @@ func TestSeedAgentClaudePhaseUsesPATHStdinAndWritesArtifacts(t *testing.T) {
 		}
 		assertSeedAgentArtifact(t, outputDir, name, want)
 	}
-	assertFakeSeedAgentLog(t, logDir, "claude", "deep", input, []string{"--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt"})
+	assertFakeSeedAgentLog(t, logDir, "claude", "deep", input, []string{"--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt"})
 }
 
 func TestValidateSeedAgentOutputRequiresSuccessSchema(t *testing.T) {
@@ -587,7 +587,7 @@ func validateArgs(base, phase string, args []string) {
 		want := []string{"exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only"}
 		requirePrefix(base, args, want)
 	} else {
-		want := []string{"--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt"}
+		want := []string{"--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt"}
 		requirePrefix(base, args, want)
 	}
 	if len(args) == 0 || !strings.Contains(args[len(args)-1], "For phase \""+phase+"\"") || !strings.Contains(args[len(args)-1], "return only raw JSON") {
