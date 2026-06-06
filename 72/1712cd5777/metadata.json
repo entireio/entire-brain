@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "721712cd5777",
+  "strategy": "manual-commit",
+  "branch": "claude/regression-radar",
+  "checkpoints_count": 2,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/72/1712cd5777/0/metadata.json",
+      "transcript": "/72/1712cd5777/0/full.jsonl",
+      "content_hash": "/72/1712cd5777/0/content_hash.txt",
+      "prompt": "/72/1712cd5777/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 184104,
+    "cache_creation_tokens": 10400729,
+    "cache_read_tokens": 851704185,
+    "output_tokens": 2408959,
+    "api_call_count": 1585
+  }
+}
