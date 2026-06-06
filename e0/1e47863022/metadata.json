@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "e01e47863022",
+  "strategy": "manual-commit",
+  "branch": "claude/brain-agent-ux-improvements",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/e0/1e47863022/0/metadata.json",
+      "transcript": "/e0/1e47863022/0/full.jsonl",
+      "content_hash": "/e0/1e47863022/0/content_hash.txt",
+      "prompt": "/e0/1e47863022/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 11008,
+    "cache_creation_tokens": 690831,
+    "cache_read_tokens": 26888296,
+    "output_tokens": 132526,
+    "api_call_count": 173
+  }
+}

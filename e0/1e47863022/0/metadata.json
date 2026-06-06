@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "e01e47863022",
+  "session_id": "dcc6c5a1-6066-4db5-ab94-5502213f12e8",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-06T22:33:03.732457Z",
+  "branch": "claude/brain-agent-ux-improvements",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "8d43da9dd52b",
+  "token_usage": {
+    "input_tokens": 11008,
+    "cache_creation_tokens": 690831,
+    "cache_read_tokens": 26888296,
+    "output_tokens": 132526,
+    "api_call_count": 173
+  },
+  "session_metrics": {
+    "turn_count": 4
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
