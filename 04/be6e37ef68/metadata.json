@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "04be6e37ef68",
+  "strategy": "manual-commit",
+  "branch": "claude/regression-radar",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/mcp_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/04/be6e37ef68/0/metadata.json",
+      "transcript": "/04/be6e37ef68/0/full.jsonl",
+      "content_hash": "/04/be6e37ef68/0/content_hash.txt",
+      "prompt": "/04/be6e37ef68/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 157575,
+    "cache_creation_tokens": 8011936,
+    "cache_read_tokens": 647235869,
+    "output_tokens": 1876497,
+    "api_call_count": 1191
+  }
+}
