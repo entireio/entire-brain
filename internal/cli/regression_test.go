@@ -124,6 +124,22 @@ func TestRegressionIntactInvariantNotFlagged(t *testing.T) {
 	}
 }
 
+func TestBrainReviewMapsAnomalyToFinding(t *testing.T) {
+	if regressionSeverity(0.85) != "high" || regressionSeverity(0.65) != "medium" || regressionSeverity(0.4) != "low" {
+		t.Fatal("severity thresholds wrong")
+	}
+	f := anomalyToReviewFinding(regressionAnomaly{
+		File: "pkg/review_context.go", Line: 412, Kind: "changed", Identifier: "scopebaseref",
+		Expected: `scopeBaseRef+"..HEAD"`, Current: `"master..HEAD"`, Confidence: 0.8, Evidence: "sessions/x.jsonl:1",
+	})
+	if f.Severity != "high" || f.File != "pkg/review_context.go" || f.Line != 412 {
+		t.Fatalf("finding fields wrong: %+v", f)
+	}
+	if !strings.Contains(f.Title, "Suspected regression") || !strings.Contains(f.Detail, `scopeBaseRef+"..HEAD"`) || !strings.Contains(f.Detail, "master..HEAD") {
+		t.Fatalf("finding title/detail wrong: %+v", f)
+	}
+}
+
 func TestRegressionDeletionIsOptIn(t *testing.T) {
 	session := `{"text":"in pkg/resolve_transcript.go set state.TranscriptPath = resolved so later reads work"}`
 	// current file uses TranscriptPath but the assignment is gone.

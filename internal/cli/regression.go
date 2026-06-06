@@ -599,3 +599,120 @@ func newInspectRegressionsCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&ro.locationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
 	return cmd
 }
+
+// ---- Diff-less review: a review-shaped presentation over the regression detector ----
+//
+// The building block `entire review` would consume when entire-brain is installed: instead of a
+// branch-vs-base diff, it reviews the current working tree against the brain's memory and reports
+// suspected regressions as review findings. Same detector, reviewer-facing framing.
+
+type reviewFinding struct {
+	Severity   string  `json:"severity"` // high | medium | low (from detector confidence)
+	File       string  `json:"file"`
+	Line       int     `json:"line,omitempty"`
+	Title      string  `json:"title"`
+	Detail     string  `json:"detail"`
+	Evidence   string  `json:"evidence"`
+	Confidence float64 `json:"confidence"`
+}
+
+type reviewReport struct {
+	GeneratedAt time.Time       `json:"generated_at"`
+	Mode        string          `json:"mode"`
+	Query       string          `json:"query"`
+	RepoPath    string          `json:"repo_path"`
+	BrainPath   string          `json:"brain_path"`
+	Summary     string          `json:"summary"`
+	Findings    []reviewFinding `json:"findings"`
+	Warnings    []string        `json:"warnings,omitempty"`
+}
+
+func regressionSeverity(conf float64) string {
+	switch {
+	case conf >= 0.8:
+		return "high"
+	case conf >= 0.6:
+		return "medium"
+	default:
+		return "low"
+	}
+}
+
+func anomalyToReviewFinding(a regressionAnomaly) reviewFinding {
+	detail := "suspected regression at this location — verify against the brain's history."
+	if a.Expected != "" {
+		detail = fmt.Sprintf("history shows `%s`; current is `%s` — verify this change is intentional (could also be a rename).", a.Expected, a.Current)
+	}
+	return reviewFinding{
+		Severity:   regressionSeverity(a.Confidence),
+		File:       a.File,
+		Line:       a.Line,
+		Title:      fmt.Sprintf("Suspected regression: `%s` %s", a.Identifier, a.Kind),
+		Detail:     detail,
+		Evidence:   a.Evidence,
+		Confidence: a.Confidence,
+	}
+}
+
+func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro regressionDetectorOptions, query string) error {
+	if ro.limit <= 0 {
+		ro.limit = 20
+	}
+	target := agentSurfaceTarget(opts, nil)
+	status, err := buildBrainStatusReport(ctx, opts, target)
+	if err != nil {
+		return err
+	}
+	var semSource *semanticSourceManifest
+	if status.Manifest != nil && status.Manifest.Sources != nil {
+		semSource = status.Manifest.Sources.Semantic
+	}
+	anomalies, _, warnings := detectRegressionAnomalies(status.Brain.Path, status.Repo.Root, semSource, query, ro.limit, ro.includeDeletions)
+	findings := make([]reviewFinding, 0, len(anomalies))
+	for _, a := range anomalies {
+		findings = append(findings, anomalyToReviewFinding(a))
+	}
+	summary := "Diff-less review: no suspected regressions (current tree matches the brain's memory)."
+	if len(findings) > 0 {
+		summary = fmt.Sprintf("Diff-less review: %d suspected regression(s) — verify each before acting.", len(findings))
+	}
+	report := reviewReport{
+		GeneratedAt: opts.Now().UTC(),
+		Mode:        "diff-less (brain memory vs current tree)",
+		Query:       query,
+		RepoPath:    status.Repo.Root,
+		BrainPath:   status.Brain.Path,
+		Summary:     summary,
+		Findings:    findings,
+		Warnings:    warnings,
+	}
+	if ro.json {
+		return writeJSON(cmd, report)
+	}
+	out := cmd.OutOrStdout()
+	fmt.Fprintln(out, report.Summary)
+	for _, f := range findings {
+		fmt.Fprintf(out, "\n  [%s] %s\n    %s:%d\n    %s\n    evidence: %s\n",
+			strings.ToUpper(f.Severity), f.Title, f.File, f.Line, f.Detail, f.Evidence)
+	}
+	for _, w := range warnings {
+		fmt.Fprintf(out, "  note: %s\n", w)
+	}
+	return nil
+}
+
+func newBrainReviewCommand(opts Options) *cobra.Command {
+	ro := regressionDetectorOptions{limit: 20}
+	cmd := &cobra.Command{
+		Use:   "review <query>",
+		Short: "Diff-less review: flag suspected regressions in the current tree vs the brain's memory",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runBrainReview(cmd.Context(), cmd, opts, ro, args[0])
+		},
+	}
+	cmd.Flags().IntVar(&ro.limit, "limit", 20, "Maximum findings")
+	cmd.Flags().BoolVar(&ro.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&ro.includeDeletions, "include-deletions", false, "Also flag deleted assignments (lower confidence, noisier)")
+	return cmd
+}

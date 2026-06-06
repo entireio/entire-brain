@@ -90,6 +90,7 @@ agent can inspect to understand project history.`,
 	addGrouped("explore", newBrainBriefCommand(opts))
 	addGrouped("explore", newBrainGuideCommand())
 	addGrouped("explore", newBrainInspectCommand(opts))
+	addGrouped("explore", newBrainReviewCommand(opts))
 	addGrouped("explore", newMCPCommand(opts))
 	addGrouped("explore", newBrainSearchCommand(opts))
 	addGrouped("explore", newBrainShowCommand(opts))

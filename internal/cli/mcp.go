@@ -189,6 +189,11 @@ func mcpToolDefinitions() []map[string]any {
 			"description": "Flag suspected regressions: lines the session history asserts but the current tree changed (default) or, with include_deletions, deleted (file:line, expected value, confidence, provenance).",
 			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "Task description plus the failing symbols/identifiers"), "limit": integerArg("limit", "Maximum suspected regressions"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (higher recall, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}},
 		},
+		{
+			"name":        "brain_review",
+			"description": "Diff-less review: review the current working tree against the brain's memory (no branch-vs-base diff) and return severity-ranked suspected-regression findings with provenance. The building block `entire review` consumes when the brain is installed.",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}}},
+		},
 	}
 }
 
@@ -261,6 +266,12 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			inc, _ := params.Arguments["include_deletions"].(bool)
 			loc, _ := params.Arguments["location_only"].(bool)
 			err = runRegressionDetect(ctx, cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, query)
+		}
+	case "brain_review":
+		err = requireMCPQuery(query)
+		if err == nil {
+			inc, _ := params.Arguments["include_deletions"].(bool)
+			err = runBrainReview(ctx, cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc}, query)
 		}
 	default:
 		err = fmt.Errorf("unknown tool: %s", params.Name)
