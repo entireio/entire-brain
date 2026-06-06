@@ -11,16 +11,22 @@ import (
 // nor the semantic list can unilaterally dominate the fusion.
 const rrfK = 60.0
 
-// semanticReranker holds the embedder and a per-run cache of fact vectors.
-// Fact ids are content-derived, so a vector is valid for the life of the fact;
-// the cache makes an eval over many queries embed each fact at most once.
+// semanticReranker holds the embedder and a cache of fact vectors. Fact ids are
+// content-derived, so a vector is valid for the life of the fact: the in-memory
+// cache makes an eval over many queries embed each fact at most once, and an
+// optional disk store (recall/brief) carries vectors across CLI invocations.
 type semanticReranker struct {
-	e     Embedder
-	cache map[string][]float32
+	e       Embedder
+	cache   map[string][]float32
+	store   *embedStore     // nil => in-memory only (eval, tests)
+	touched map[string]bool // ids seen this run; nil unless disk-backed
+	dirty   bool            // a new vector was embedded this run
 }
 
 // newSemanticReranker returns nil when no embedder is available, so callers can
 // pass the result straight to rankFactsFused and get the pure-lexical path.
+// This variant is in-memory only — used by eval and tests, which should not
+// read or write a persistent cache.
 func newSemanticReranker(e Embedder) *semanticReranker {
 	if e == nil {
 		return nil
@@ -28,13 +34,47 @@ func newSemanticReranker(e Embedder) *semanticReranker {
 	return &semanticReranker{e: e, cache: map[string][]float32{}}
 }
 
+// newSemanticRerankerForBranch adds a disk-backed vector cache under
+// facts/<branch>/embeddings/ so recall and brief reuse vectors across
+// invocations instead of re-embedding the branch each time.
+func newSemanticRerankerForBranch(e Embedder, brainDir, branch string) *semanticReranker {
+	rr := newSemanticReranker(e)
+	if rr == nil {
+		return nil
+	}
+	rr.store = newEmbedStore(brainDir, branch, e.ID(), e.Dim())
+	rr.cache = rr.store.load()
+	rr.touched = map[string]bool{}
+	return rr
+}
+
 func (s *semanticReranker) factVector(f factRecord) []float32 {
+	if s.touched != nil {
+		s.touched[f.ID] = true
+	}
 	if v, ok := s.cache[f.ID]; ok {
 		return v
 	}
 	v := s.e.Embed(f.Text)
 	s.cache[f.ID] = v
+	s.dirty = true
 	return v
+}
+
+// flush persists vectors embedded this run when disk-backed. It writes only the
+// ids touched this run, so facts removed or superseded since the last run are
+// pruned from the cache on rewrite. Best-effort: a cache is never load-bearing.
+func (s *semanticReranker) flush() error {
+	if s == nil || s.store == nil || !s.dirty {
+		return nil
+	}
+	out := make(map[string][]float32, len(s.touched))
+	for id := range s.touched {
+		if v, ok := s.cache[id]; ok {
+			out[id] = v
+		}
+	}
+	return s.store.save(out)
 }
 
 // rankFactsFused ranks facts by Reciprocal Rank Fusion of a lexical list and a

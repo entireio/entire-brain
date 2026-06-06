@@ -85,12 +85,18 @@ func newRecallCommand(opts Options) *cobra.Command {
 			}
 			// Semantic rerank is on by default (the measured Phase D win); it
 			// degrades silently to lexical when the embedder can't load, so a
-			// missing/corrupt model never breaks recall.
+			// missing/corrupt model never breaks recall. The disk-backed cache
+			// avoids re-embedding the branch on every invocation.
 			var rr *semanticReranker
 			if !noSemantic {
-				rr = newSemanticReranker(defaultEmbedder())
+				if e := defaultEmbedder(); e != nil {
+					rr = newSemanticRerankerForBranch(e, brainDir, resolvedBranch)
+				}
 			}
 			matches := rankFactsFused(facts, effectiveQuery, limit, includeAll, rr)
+			if rr != nil {
+				_ = rr.flush() // best-effort cache persist
+			}
 			if jsonOut {
 				return writeJSON(cmd, map[string]any{"branch": resolvedBranch, "query": query, "facts": matches})
 			}

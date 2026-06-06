@@ -711,12 +711,18 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
 		} else {
 			// Semantic rerank on by default; nil reranker (embedder
-			// unavailable or --no-semantic) falls back to lexical ranking.
+			// unavailable or --no-semantic) falls back to lexical ranking. The
+			// disk-backed cache avoids re-embedding the branch each brief.
 			var rr *semanticReranker
 			if !briefOpts.noSemantic {
-				rr = newSemanticReranker(defaultEmbedder())
+				if e := defaultEmbedder(); e != nil {
+					rr = newSemanticRerankerForBranch(e, status.Brain.Path, branch)
+				}
 			}
 			report.Facts = rankFactsFused(facts, task, brainBriefFactsCount(briefOpts.limit), false, rr)
+			if rr != nil {
+				_ = rr.flush() // best-effort cache persist
+			}
 		}
 	}
 	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroups(status.Repo.Root, report, task)
