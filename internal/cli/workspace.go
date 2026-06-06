@@ -786,7 +786,9 @@ func workspaceFreshnessWarning(f workspaceRepoFreshness) string {
 	case "degraded":
 		return "freshness degraded — brain/index may be stale; verify findings"
 	case "missing-brain":
-		return "no brain for this repo — nothing to compare against"
+		// No export manifest at the brain root. The detector still scans raw sessions (the real
+		// mirrored-sessions brains are exactly this shape), so this qualifies rather than blocks.
+		return "no export manifest — scanned raw sessions only (run `entire brain refresh` for a full brain)"
 	case "missing-semantic":
 		return "semantic index missing — scanned raw sessions only"
 	case "unknown":

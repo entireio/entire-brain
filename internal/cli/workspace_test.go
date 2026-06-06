@@ -402,6 +402,40 @@ func TestWorkspaceReviewFlagsRegressedRepoOnly(t *testing.T) {
 	}
 }
 
+func TestWorkspaceReviewTextOutputRendersFindingsAndFreshness(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+
+	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
+	regressed := "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
+	repoA := writeWorkspaceBrainRepo(t, env, "gh/example/repoa", session, "pkg/review_context.go", regressed)
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos:         []workspaceRepo{{RepoKey: "gh/example/repoa", Name: "a", LocalPathHint: repoA}},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	// Text mode (no --json): must render the summary, the per-repo freshness label, and the finding.
+	out, err := execute(t, cmd, "workspace", "review", "related", "fix scopeBaseRef base scope")
+	if err != nil {
+		t.Fatalf("workspace review (text): %v", err)
+	}
+	for _, want := range []string{"Cross-repo diff-less review:", "gh/example/repoa", "[", "Suspected regression", "review_context.go"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("text review output missing %q:\n%s", want, out)
+		}
+	}
+	// Sessions-only brain → "missing-brain" freshness, but a finding still renders; the warning must
+	// be the accurate "scanned raw sessions only" form, not a misleading "nothing to compare".
+	if strings.Contains(out, "nothing to compare") {
+		t.Fatalf("misleading missing-brain warning surfaced despite a real finding:\n%s", out)
+	}
+}
+
 func TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
