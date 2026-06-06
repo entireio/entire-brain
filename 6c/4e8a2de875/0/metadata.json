@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "6c4e8a2de875",
+  "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-06T22:27:26.403317Z",
+  "branch": "claude/regression-radar",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8",
+  "turn_id": "602906e7a706",
+  "token_usage": {
+    "input_tokens": 178658,
+    "cache_creation_tokens": 10309234,
+    "cache_read_tokens": 810638751,
+    "output_tokens": 2340114,
+    "api_call_count": 1530
+  },
+  "session_metrics": {
+    "turn_count": 66
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 28,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 28
+      }
+    }
+  ]
+}
