@@ -4070,3 +4070,74 @@ func bundleSHA256(t *testing.T, path string) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
+
+func TestSemanticWarningUnmarshalProviderKeys(t *testing.T) {
+	// The semantic provider emits file_path / effect_on_semantic_completeness;
+	// entire-brain's canonical keys are path / effect. Both must round-trip.
+	cases := []struct {
+		name       string
+		input      string
+		wantPath   string
+		wantEffect string
+	}{
+		{
+			name:       "provider keys",
+			input:      `{"code":"E_PARSE_ERROR","severity":"warning","file_path":"supabase/migrations/x.sql","effect_on_semantic_completeness":"file parsed with syntax errors","detail":"tree-sitter syntax error nodes present"}`,
+			wantPath:   "supabase/migrations/x.sql",
+			wantEffect: "file parsed with syntax errors",
+		},
+		{
+			name:       "canonical keys",
+			input:      `{"code":"default_branch_unknown","severity":"warning","path":"a/b.go","effect":"freshness","detail":"d"}`,
+			wantPath:   "a/b.go",
+			wantEffect: "freshness",
+		},
+		{
+			name:       "canonical wins over provider",
+			input:      `{"code":"c","path":"canonical","file_path":"provider","effect":"eff","effect_on_semantic_completeness":"provider-eff"}`,
+			wantPath:   "canonical",
+			wantEffect: "eff",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var w semanticWarning
+			if err := json.Unmarshal([]byte(tc.input), &w); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if w.Path != tc.wantPath {
+				t.Errorf("path = %q, want %q", w.Path, tc.wantPath)
+			}
+			if w.Effect != tc.wantEffect {
+				t.Errorf("effect = %q, want %q", w.Effect, tc.wantEffect)
+			}
+		})
+	}
+}
+
+func TestSemanticWarningProviderKeysRoundTripThroughHeader(t *testing.T) {
+	// filterSemanticSnapshot parses the provider header then re-marshals it as the
+	// stored snapshot header. The failing file path must survive that round-trip.
+	header := `{"schema_version":"1.0","provider":"entire-sem","repo_key":"k","commit":"c","tree":"t","languages":["SQL"],"capabilities":[],"warnings":[],"partial_failures":[{"code":"E_PARSE_ERROR","severity":"warning","file_path":"db/x.sql","effect_on_semantic_completeness":"incomplete","detail":"tree-sitter syntax error nodes present"}]}`
+	var h semanticHeader
+	if err := json.Unmarshal([]byte(header), &h); err != nil {
+		t.Fatalf("unmarshal header: %v", err)
+	}
+	if len(h.PartialFailures) != 1 {
+		t.Fatalf("partial failures = %d, want 1", len(h.PartialFailures))
+	}
+	if got := h.PartialFailures[0].Path; got != "db/x.sql" {
+		t.Fatalf("partial failure path = %q, want db/x.sql", got)
+	}
+	out, err := json.Marshal(h)
+	if err != nil {
+		t.Fatalf("marshal header: %v", err)
+	}
+	var h2 semanticHeader
+	if err := json.Unmarshal(out, &h2); err != nil {
+		t.Fatalf("re-unmarshal header: %v", err)
+	}
+	if got := h2.PartialFailures[0].Path; got != "db/x.sql" {
+		t.Fatalf("round-tripped partial failure path = %q, want db/x.sql", got)
+	}
+}

@@ -89,6 +89,31 @@ type semanticWarning struct {
 	Detail   string `json:"detail,omitempty"`
 }
 
+// UnmarshalJSON accepts both entire-brain's canonical keys (path, effect) and the
+// semantic provider's wire keys (file_path, effect_on_semantic_completeness). The
+// provider attaches the failing file to each partial failure via file_path; without
+// this alias those fields are silently dropped, leaving degraded brains unable to
+// report which files failed to parse. Canonical keys win when both are present.
+func (w *semanticWarning) UnmarshalJSON(data []byte) error {
+	type alias semanticWarning
+	var raw struct {
+		alias
+		ProviderPath   string `json:"file_path"`
+		ProviderEffect string `json:"effect_on_semantic_completeness"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*w = semanticWarning(raw.alias)
+	if w.Path == "" {
+		w.Path = raw.ProviderPath
+	}
+	if w.Effect == "" {
+		w.Effect = raw.ProviderEffect
+	}
+	return nil
+}
+
 type semanticHeader struct {
 	SchemaVersion   string            `json:"schema_version"`
 	Provider        string            `json:"provider"`
