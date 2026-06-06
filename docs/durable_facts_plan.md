@@ -168,10 +168,12 @@ to bound cost and to make turn-level provenance free.
   is required. Records `origin=authored`. Provenance points at the current HEAD
   checkpoint when one exists; if HEAD has no checkpoint (dirty worktree, capture
   off), the anchor records the commit only and the fact is still stored.
-- `entire brain recall "<query>" [--branch <b>] [--k N] [--json]` — retrieve
-  facts. Keyword + taxonomy ranking by default (see Recall Ranking); embedding
-  rerank when the fact-layer index exists (Phase D). Default `k=10`,
-  `active`-only unless `--all`.
+- `entire brain recall "<query>" [--branch <b>] [--k N] [--scope
+  local|cross-cutting] [--expand] [--all] [--json]` — retrieve facts. Keyword +
+  taxonomy + code-locus ranking by default (see Recall Ranking and Appendix D);
+  `--scope` restricts to code vs how-we-work facts; `--expand` has the agent
+  rewrite the query into the facts' vocabulary first. Default `k=10`,
+  `active`-only unless `--all`. Embedding rerank is still Phase D (not shipped).
 - `entire brain distill [--since <ref>] [--branch <b>] [--force] [--json]` —
   batch distillation over captured sessions for the current branch (see
   Distillation Model). Idempotent: facts collapse by content-derived id.
@@ -190,14 +192,27 @@ to bound cost and to make turn-level provenance free.
 - `entire brain inspect blame <fact-id> [--json]` — show the originating
   session, commit, and checkpoint anchors for a fact (Phase A: checkpoint
   granularity; Phase B adds the turn anchor).
+- `entire brain facts retract <fact-id> [--branch <b>]` — mark a fact no longer
+  true (status `retracted`, auditable, not deleted); `facts gc` prunes it later.
+
+Shipped beyond the original Phase A list, from the Appendix D fact-quality work:
+
+- `entire brain facts tree [--path <prefix>] [--depth N] [--scope ...]` — a
+  navigable hierarchy with progressive disclosure (the distinct-fact header over
+  per-node occurrence counts; see Appendix D).
+- `entire brain facts eval-gen [--refine] [--max-facts N]`, `facts eval
+  [--judge] [--expand]`, and `facts eval-compare --a --b` — the retrieval
+  evaluation harness: a provenance-labeled (optionally judge-refined) benchmark,
+  per-stratum precision/recall/useful-per-1k metrics, and a paired t-test with
+  Holm correction for honest A/Bs.
 
 `entire brain verify` is Phase B (see Phasing): full anchor verification needs
 the turn-level signed anchors from Entire CLI change #1.
 
-`brief` is extended to include the top matching `active` facts for the task
-(capped at ~6), in a section clearly separated from derived history. `status`
-reports fact counts per branch, pending supersession proposals, and orphan
-counts.
+`brief` includes the top matching `active` facts for the task in a section
+separated from derived history, sized to the requested `--limit` so a compact
+request stays compact (not a fixed block). `status` reports fact counts per
+branch, pending supersession proposals, and orphan counts.
 
 ## Decisions Are Distilled Facts
 
@@ -320,11 +335,23 @@ tamper signal.
 
 ## Phasing
 
+> **Status (shipped):** Phase A is complete — fact store, distill with
+> agent-judged merge/supersede reconcile, `remember`/`recall`/`inspect facts`/
+> `inspect blame`/`facts review`/`promote`/`gc`/`retract`, and brief/status
+> integration. Several Appendix D structural pieces also shipped: `facts tree`,
+> scope tiering and code-locus ranking (`recall --scope`), agent query expansion
+> (`recall --expand`), and the evaluation harness (`eval-gen`/`eval`/
+> `eval-compare`). Still open: embeddings (Phase D, pending a local backend), the
+> synthesized hierarchy summaries, and turn-level signing (Phase B, needs Entire
+> CLI changes). Measured so far on a small corpus: query expansion is a medium,
+> consistent, zero-token-cost effect (Cohen's d ~0.47) but not yet significant
+> at n≈8 — the case for growing the benchmark.
+
 - **Phase A (Entire Brain only, no CLI changes):** fact store, `remember` /
   `recall` / `inspect facts` / `inspect blame`, the quality gate, the taxonomy,
   `distill` (agent-required) over captured sessions with checkpoint-level
-  provenance, `facts review`, `facts promote`, and `facts gc`. Branch scoping is
-  per indexed branch; promotion is manual.
+  provenance, `facts review`, `facts promote`, `facts retract`, and `facts gc`.
+  Branch scoping is per indexed branch; promotion is manual.
 - **Phase B (with CLI change #1):** turn-level `blame` and the `verify` command,
   anchored to signed checkpoints. **Plus the fact-quality and structure work**
   driven by the Phase A output analysis: locus-indexed facts, scope tiering, and
