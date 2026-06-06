@@ -1538,6 +1538,14 @@ def wants_disciplined_mcp(runner: "RunnerSpec | None") -> bool:
     return False
 
 
+# Experimental, env-gated A/B (default OFF): the "regression radar" delivery — the agent calls the
+# new brain_regressions MCP tool, which pre-computes the suspected regressed line + expected value,
+# and just restores it. Measures whether handing the agent the bug (vs making it hunt) lifts the
+# review pass-rate over the shipped disciplined delivery.
+def wants_regression_radar(runner: "RunnerSpec | None") -> bool:
+    return os.environ.get("BENCH_REGRESSION_RADAR") == "1"
+
+
 def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None" = None) -> str:
     base = task["prompt"].strip()
     validation = "\n".join(f"- `{cmd}`" for cmd in task.get("validation", []))
@@ -1566,6 +1574,10 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
         policy = f"""Use the Entire Brain MCP server before editing. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Then start with the `brain_stale` MCP tool, followed by `brain_query`, `brain_context`, `brain_impact`, or `brain_changes` for focused semantic context. Useful query terms: {queries}. Do not run the `entire brain` CLI and do not inspect checkpoint transcripts or session history."""
     elif condition == "mcp_semantic":
         policy = "Use the Entire Brain MCP server before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not run semantic CLI commands or inspect checkpoint transcripts."
+    elif condition == "mcp_history" and wants_regression_radar(runner):
+        # Regression-radar A/B: the brain pre-computes the suspected regressed line; the agent just
+        # restores it (instead of hunting the file + invariant itself).
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a REGRESSION. Call `mcp__entire_brain__brain_regressions` / `brain_regressions` EXACTLY ONCE with these failing terms: `{queries}`. It returns suspected regressions, each with a `file`, `line`, the `expected` value (what the code should be) and the `current` value. Open the top finding's `file` at its `line` and restore `expected` exactly in place of `current`. Then run exactly one relevant test and FINISH. If `brain_regressions` returns no anomalies, call `brain_brief` ONCE and fix the single most likely `likely_edit_files` file. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history" and wants_disciplined_mcp(runner):
         # Disciplined MCP (gpt-5.5 all efforts; gpt-5.4-mini high/xhigh): brief once + ONE
         # targeted brain_history for the exact invariant + open likely_edit_files[0] + one
@@ -1660,7 +1672,7 @@ def codex_mcp_config_args(tools: dict[str, pathlib.Path], env: dict[str, str]) -
         "--config",
         "mcp_servers.entire_brain.required=true",
         "--config",
-        'mcp_servers.entire_brain.enabled_tools=["brain_stale","brain_brief","brain_query","brain_context","brain_impact","brain_changes","brain_history"]',
+        'mcp_servers.entire_brain.enabled_tools=["brain_stale","brain_brief","brain_query","brain_context","brain_impact","brain_changes","brain_history","brain_regressions"]',
         "--config",
         'mcp_servers.entire_brain.default_tools_approval_mode="approve"',
         "--config",
