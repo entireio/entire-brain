@@ -83,6 +83,8 @@ agent can inspect to understand project history.`,
 	// Create the brain — locate it, build/refresh it, manage workspaces.
 	addGrouped("create", newPathCommand(opts))
 	addGrouped("create", newRefreshCommand(opts))
+	addGrouped("create", newDistillCommand(opts))
+	addGrouped("create", newRememberCommand(opts))
 	addGrouped("create", newAgentStatusCommand(opts))
 	addGrouped("create", newWorkspaceCommand(opts))
 
@@ -91,6 +93,7 @@ agent can inspect to understand project history.`,
 	addGrouped("explore", newBrainGuideCommand())
 	addGrouped("explore", newBrainInspectCommand(opts))
 	addGrouped("explore", newMCPCommand(opts))
+	addGrouped("explore", newRecallCommand(opts))
 	addGrouped("explore", newBrainSearchCommand(opts))
 	addGrouped("explore", newBrainShowCommand(opts))
 
@@ -98,6 +101,7 @@ agent can inspect to understand project history.`,
 	// (Build stages live under `refresh`: sessions, index, seed.)
 	addGrouped("maintain", newSemanticBundleCommand(opts))
 	addGrouped("maintain", newExportCommand(opts))
+	addGrouped("maintain", newFactsCommand(opts))
 	addGrouped("maintain", newSemanticGCCommand(opts))
 	addGrouped("maintain", newSemanticRepairCommand(opts))
 	addGrouped("maintain", newSemanticResetCommand(opts))
