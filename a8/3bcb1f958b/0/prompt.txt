@@ -1,0 +1,246 @@
+Review all changes in this branch
+
+---
+
+Review all changes in this branch
+
+---
+
+Review all changes in this branch
+
+---
+
+Yes
+
+---
+
+Add your remaining findings to the plan doc. Then refresh the brain for this repo and run the distill process.
+
+---
+
+It’s not the CLI itself. Just update the entire-brain plugin that is installed with the CLI.
+
+---
+
+<task-notification>
+<task-id>b90owrgzg</task-id>
+<tool-use-id>toolu_01Be1oYqEVDjNvcWopENDo39</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/d770cc65-b914-4759-91e4-31397a99ba57/tasks/b90owrgzg.output</output-file>
+<status>completed</status>
+<summary>Background command "Rebuild all 18 brains via updated plugin" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+On entire.io and cli, pick 2-3 recent branches each and distill them
+
+---
+
+<task-notification>
+<task-id>b2xf28ybn</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/d770cc65-b914-4759-91e4-31397a99ba57/tasks/b2xf28ybn.output</output-file>
+<status>completed</status>
+<summary>Background command "Distill selected recent branches on entire.io and cli" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+While we are waiting, analyze the 525 facts from the branches. Are they actually helping you to review and understand these branches? Are they the best outcome for you to build on top of?
+
+---
+
+Yes. Also add a specific task to phase B to test and iterate on this under two assumptions:
+1. The primary audience of the brain are agents like you. Which means, the facts need to be clear,  useful, and not waste token budgets. 
+2. A human developer may read the facts, but they won’t read thousands of them and the information needs to be concise and have some for of hierarchy. For example, “use spaces, not tabs” could be nested under coding standards. 
+Think about the best way to do this, even for large monorepos, and challenge your own assumptions.
+
+---
+
+<task-notification>
+<task-id>bypk0ziq2</task-id>
+<tool-use-id>toolu_013jLVCdpCTH1fBMfoBi5anx</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/d770cc65-b914-4759-91e4-31397a99ba57/tasks/bypk0ziq2.output</output-file>
+<status>completed</status>
+<summary>Background command "Distill this repo's brain via native plugin" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+commit/push, then continue with phase B
+
+---
+
+A, then B/C
+
+---
+
+How to grow the eval set?
+
+---
+
+Make it so
+
+---
+
+Does it makes sense to now run evals / benchmarks against entire.io and entire-cli repos and their branches?
+
+---
+
+yes
+
+---
+
+<task-notification>
+<task-id>bhsgisrth</task-id>
+<tool-use-id>toolu_0167jKEthWPU7q69cAYp1ETU</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/d770cc65-b914-4759-91e4-31397a99ba57/tasks/bhsgisrth.output</output-file>
+<status>completed</status>
+<summary>Background command "Run cross-repo benchmark: gen + deterministic + judged eval per repo" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Can you do all three slices without pausing or do you need additional feedback from me?
+
+---
+
+Ok
+
+---
+
+<task-notification>
+<task-id>btd8llo81</task-id>
+<tool-use-id>toolu_01RKcisfF1FETkRXMDeFkkQf</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/d770cc65-b914-4759-91e4-31397a99ba57/tasks/btd8llo81.output</output-file>
+<status>completed</status>
+<summary>Background command "Run refine + expansion A/B on real corpus" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Grow the benchmark next, cost is not an issue.
+
+---
+
+While we are waiting, look at this PR: https://github.com/ashtom/entire-brain/pull/3 – It’s again “main”, but consider your changes and future plan for this branch and how the PR aligns with it.
+
+---
+
+What is needed to merge #3 to main?
+
+---
+
+Yes, review the PR and post a review comment on it
+
+---
+
+PR is merged to main. Do you want to wait for distillation to finish or merge into your branch now?
+
+---
+
+Work on the two follow-ups next
+
+---
+
+Review PR #4 now
+
+---
+
+What else can you do while we are waiting?
+
+---
+
+Go 2 first, then 1
+
+---
+
+Yup
+
+---
+
+Hold
+
+---
+
+Can we speed up the background processing by splitting it into parallel workers?
+
+---
+
+<task-notification>
+<task-id>b2oa1vtbd</task-id>
+<tool-use-id>toolu_01Cr6ZFS9nmaHCHHvskNVR6H</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/d770cc65-b914-4759-91e4-31397a99ba57/tasks/b2oa1vtbd.output</output-file>
+<status>completed</status>
+<summary>Background command "Launch 28 branches across 6 parallel workers" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>buhgt5uo2</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/d770cc65-b914-4759-91e4-31397a99ba57/tasks/buhgt5uo2.output</output-file>
+<status>completed</status>
+<summary>Background command "Run plugin distill on review-cutover without timeout" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+A
+
+---
+
+<task-notification>
+<task-id>bvw2h3vv1</task-id>
+<tool-use-id>toolu_01MZVHV1xjfV71BWEkkpnvPW</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/d770cc65-b914-4759-91e4-31397a99ba57/tasks/bvw2h3vv1.output</output-file>
+<status>completed</status>
+<summary>Background command "Launch 8-branch recovery via claude-code, 2 workers" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Try again now?
+
+---
+
+<task-notification>
+<task-id>b0t0ou3xe</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/d770cc65-b914-4759-91e4-31397a99ba57/tasks/b0t0ou3xe.output</output-file>
+<status>killed</status>
+<summary>Background command "Run base+expand A/B for all three repos" was stopped</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bwhztl1ej</task-id>
+<tool-use-id>toolu_01MxsD65FXgveDu1uonVz1ZP</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/d770cc65-b914-4759-91e4-31397a99ba57/tasks/bwhztl1ej.output</output-file>
+<status>killed</status>
+<summary>Background command "Final test/lint, commit, push B/C" was stopped</summary>
+</task-notification>
+
+---
+
+Continue
+
+---
+
+<task-notification>
+<task-id>b7hi2l4y1</task-id>
+<tool-use-id>toolu_01VYc4CztGtRu1WbNNR9RFjS</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/d770cc65-b914-4759-91e4-31397a99ba57/tasks/b7hi2l4y1.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for A/B run to complete" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+What do you suggest as next step?
+
+---
+
+Ok, create handover doc, so we can move this to a new stacked branch.
