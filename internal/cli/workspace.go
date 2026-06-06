@@ -80,16 +80,46 @@ type workspaceImpactResult struct {
 	Error     string                 `json:"error,omitempty"`
 }
 
+type workspaceSummary struct {
+	Name  string `json:"name"`
+	Repos int    `json:"repos"`
+}
+
+type workspaceRegressionResult struct {
+	RepoKey   string                 `json:"repo_key"`
+	Name      string                 `json:"name,omitempty"`
+	Freshness workspaceRepoFreshness `json:"freshness"`
+	RepoPath  string                 `json:"repo_path,omitempty"`
+	Anomalies []regressionAnomaly    `json:"anomalies"`
+	Warnings  []string               `json:"warnings,omitempty"`
+	Error     string                 `json:"error,omitempty"`
+}
+
+type workspaceReviewResult struct {
+	RepoKey   string                 `json:"repo_key"`
+	Name      string                 `json:"name,omitempty"`
+	Freshness workspaceRepoFreshness `json:"freshness"`
+	RepoPath  string                 `json:"repo_path,omitempty"`
+	Summary   string                 `json:"summary"`
+	Findings  []reviewFinding        `json:"findings"`
+	Warnings  []string               `json:"warnings,omitempty"`
+	Error     string                 `json:"error,omitempty"`
+}
+
 func newWorkspaceCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "workspace",
 		Short: "Manage local multi-repo brain workspaces",
 	}
 	cmd.AddCommand(newWorkspaceCreateCommand(opts))
+	cmd.AddCommand(newWorkspaceListCommand(opts))
 	cmd.AddCommand(newWorkspaceAddCommand(opts))
+	cmd.AddCommand(newWorkspaceRemoveCommand(opts))
 	cmd.AddCommand(newWorkspaceRefreshCommand(opts))
 	cmd.AddCommand(newWorkspaceQueryCommand(opts))
 	cmd.AddCommand(newWorkspaceImpactCommand(opts))
+	cmd.AddCommand(newWorkspaceRegressionsCommand(opts))
+	cmd.AddCommand(newWorkspaceReviewCommand(opts))
 	return cmd
 }
 
@@ -578,5 +608,301 @@ func writeJSON(cmd *cobra.Command, value any) error {
 		return err
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), string(data))
+	return nil
+}
+
+// ---- workspace list / remove (ergonomics) ----
+
+func newWorkspaceListCommand(opts Options) *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List local workspaces",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkspaceList(cmd, opts, asJSON)
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit machine-readable JSON")
+	return cmd
+}
+
+func runWorkspaceList(cmd *cobra.Command, opts Options, asJSON bool) error {
+	dirs, err := resolvePluginDirs(opts.Env)
+	if err != nil {
+		return err
+	}
+	root := filepath.Join(dirs.Data, repoStoreDirName, workspaceDirName)
+	entries, err := os.ReadDir(root)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	var summaries []workspaceSummary
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		manifest, err := loadWorkspaceManifest(opts.Env, e.Name())
+		if err != nil {
+			// Skip directories that are not valid workspaces (unreadable, bad name, schema drift).
+			continue
+		}
+		summaries = append(summaries, workspaceSummary{Name: manifest.Name, Repos: len(manifest.Repos)})
+	}
+	sort.Slice(summaries, func(i, j int) bool { return summaries[i].Name < summaries[j].Name })
+	if asJSON {
+		return writeJSON(cmd, struct {
+			Workspaces []workspaceSummary `json:"workspaces"`
+		}{Workspaces: summaries})
+	}
+	if len(summaries) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "No workspaces.")
+		return nil
+	}
+	for _, s := range summaries {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s\t%d repo(s)\n", s.Name, s.Repos)
+	}
+	return nil
+}
+
+func newWorkspaceRemoveCommand(opts Options) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "remove <workspace> [repo-key]",
+		Short: "Remove a repo from a workspace, or delete the whole workspace",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repoKey := ""
+			if len(args) == 2 {
+				repoKey = args[1]
+			}
+			return runWorkspaceRemove(cmd, opts, args[0], repoKey)
+		},
+	}
+	return cmd
+}
+
+func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey string) error {
+	if repoKey == "" {
+		// workspaceDir validates the name and rejects symlinked paths, so RemoveAll stays inside the store.
+		dir, err := workspaceDir(opts.Env, workspaceName)
+		if err != nil {
+			return err
+		}
+		if _, err := os.Stat(filepath.Join(dir, workspaceManifestName)); err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("workspace not found: %s", workspaceName)
+			}
+			return err
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "removed workspace %s\n", workspaceName)
+		return nil
+	}
+	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	if err != nil {
+		return err
+	}
+	kept := make([]workspaceRepo, 0, len(manifest.Repos))
+	removed := false
+	for _, r := range manifest.Repos {
+		if r.RepoKey == repoKey {
+			removed = true
+			continue
+		}
+		kept = append(kept, r)
+	}
+	if !removed {
+		return fmt.Errorf("repo not in workspace %s: %s", workspaceName, repoKey)
+	}
+	manifest.Repos = kept
+	manifest.Freshness = nil
+	if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "removed %s from %s\n", repoKey, workspaceName)
+	return nil
+}
+
+// ---- workspace regressions / review (cross-repo diff-less review) ----
+//
+// Unlike query/impact, these tolerate a sessions-only brain: detectRegressionAnomalies reads RAW
+// sessions and uses the semantic index only when present, so a missing export manifest / semantic
+// index is not fatal — the detector degrades to a raw-session scan. Each repo is scanned
+// independently (one repo's missing/locked brain never aborts the others), then aggregated by
+// repo_key, mirroring runWorkspaceQuery.
+
+func newWorkspaceRegressionsCommand(opts Options) *cobra.Command {
+	ro := regressionDetectorOptions{limit: 20}
+	cmd := &cobra.Command{
+		Use:   "regressions <workspace> <query>",
+		Short: "Flag suspected regressions across workspace repos (brain memory vs each current tree)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkspaceRegressions(cmd, opts, ro, args[0], args[1])
+		},
+	}
+	cmd.Flags().IntVar(&ro.limit, "limit", 20, "Maximum suspected regressions per repo")
+	cmd.Flags().BoolVar(&ro.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&ro.includeDeletions, "include-deletions", false, "Also flag deleted assignments (higher recall, noisier)")
+	cmd.Flags().BoolVar(&ro.locationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
+	return cmd
+}
+
+func newWorkspaceReviewCommand(opts Options) *cobra.Command {
+	ro := regressionDetectorOptions{limit: 20}
+	cmd := &cobra.Command{
+		Use:   "review <workspace> <query>",
+		Short: "Diff-less review across workspace repos: suspected regressions as severity-ranked findings",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkspaceReview(cmd, opts, ro, args[0], args[1])
+		},
+	}
+	cmd.Flags().IntVar(&ro.limit, "limit", 20, "Maximum findings per repo")
+	cmd.Flags().BoolVar(&ro.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&ro.includeDeletions, "include-deletions", false, "Also flag deleted assignments (lower confidence, noisier)")
+	cmd.Flags().BoolVar(&ro.locationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
+	return cmd
+}
+
+// scanWorkspaceRepoRegressions runs the regression detector for a single workspace repo and returns
+// the resolved working-tree path, anomalies, warnings, and a per-repo error string (empty on success).
+func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo workspaceRepo, ro regressionDetectorOptions, query string) (string, []regressionAnomaly, []string, string) {
+	brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
+	if err != nil {
+		return "", nil, nil, err.Error()
+	}
+	if repo.LocalPathHint == "" {
+		return "", nil, nil, "no local_path_hint (re-add the repo to record its working tree)"
+	}
+	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
+	if err != nil {
+		return "", nil, nil, err.Error()
+	}
+	if !local {
+		return "", nil, nil, "local_path_hint unavailable"
+	}
+	// Semantic source is optional: a sessions-only brain (no export manifest) still scans.
+	var semSource *semanticSourceManifest
+	if source, srcErr := workspaceSemanticSource(brainDir); srcErr == nil {
+		semSource = source
+	}
+	anomalies, _, warnings := detectRegressionAnomalies(brainDir, repoDir, semSource, query, ro.limit, ro.includeDeletions)
+	if ro.locationOnly {
+		for i := range anomalies {
+			anomalies[i].Expected = ""
+			anomalies[i].Current = ""
+			anomalies[i].Reason = "suspected regression site (location only)"
+		}
+	}
+	return repoDir, anomalies, warnings, ""
+}
+
+func runWorkspaceRegressions(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, workspaceName, query string) error {
+	if ro.limit <= 0 {
+		return errors.New("--limit must be greater than zero")
+	}
+	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	if err != nil {
+		return err
+	}
+	var results []workspaceRegressionResult
+	for _, repo := range manifest.Repos {
+		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
+		result := workspaceRegressionResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
+		repoPath, anomalies, warnings, scanErr := scanWorkspaceRepoRegressions(cmd.Context(), opts, repo, ro, query)
+		result.RepoPath = repoPath
+		result.Anomalies = anomalies
+		result.Warnings = warnings
+		result.Error = scanErr
+		results = append(results, result)
+	}
+	if ro.json {
+		return writeJSON(cmd, struct {
+			Workspace string                      `json:"workspace"`
+			Results   []workspaceRegressionResult `json:"results"`
+		}{Workspace: manifest.Name, Results: results})
+	}
+	out := cmd.OutOrStdout()
+	total := 0
+	for _, result := range results {
+		for _, a := range result.Anomalies {
+			total++
+			fmt.Fprintf(out, "%s %s:%d [%s, conf %.2f] %s\n", result.RepoKey, a.File, a.Line, a.Kind, a.Confidence, a.Identifier)
+			if a.Expected != "" {
+				fmt.Fprintf(out, "    expected: %s\n    current:  %s\n", a.Expected, a.Current)
+			}
+		}
+		if result.Error != "" {
+			fmt.Fprintf(out, "%s error %s\n", result.RepoKey, result.Error)
+		}
+	}
+	if total == 0 {
+		fmt.Fprintf(out, "No suspected regressions across %d repo(s) in %q.\n", len(results), manifest.Name)
+	}
+	return nil
+}
+
+func runWorkspaceReview(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, workspaceName, query string) error {
+	if ro.limit <= 0 {
+		return errors.New("--limit must be greater than zero")
+	}
+	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	if err != nil {
+		return err
+	}
+	var results []workspaceReviewResult
+	reposWithFindings := 0
+	totalFindings := 0
+	for _, repo := range manifest.Repos {
+		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
+		result := workspaceReviewResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
+		repoPath, anomalies, warnings, scanErr := scanWorkspaceRepoRegressions(cmd.Context(), opts, repo, ro, query)
+		result.RepoPath = repoPath
+		result.Warnings = warnings
+		result.Error = scanErr
+		for _, a := range anomalies {
+			result.Findings = append(result.Findings, anomalyToReviewFinding(a))
+		}
+		if len(result.Findings) > 0 {
+			reposWithFindings++
+			totalFindings += len(result.Findings)
+			result.Summary = fmt.Sprintf("%d suspected regression(s) — verify each before acting.", len(result.Findings))
+		} else {
+			result.Summary = "no suspected regressions (current tree matches the brain's memory)."
+		}
+		results = append(results, result)
+	}
+	summary := fmt.Sprintf("Cross-repo diff-less review: %d suspected regression(s) across %d/%d repo(s).", totalFindings, reposWithFindings, len(results))
+	if ro.json {
+		return writeJSON(cmd, struct {
+			Workspace string                  `json:"workspace"`
+			Mode      string                  `json:"mode"`
+			Summary   string                  `json:"summary"`
+			Results   []workspaceReviewResult `json:"results"`
+		}{Workspace: manifest.Name, Mode: "diff-less (brain memory vs current tree)", Summary: summary, Results: results})
+	}
+	out := cmd.OutOrStdout()
+	fmt.Fprintln(out, summary)
+	for _, result := range results {
+		if len(result.Findings) == 0 && result.Error == "" {
+			continue
+		}
+		label := result.RepoKey
+		if result.Name != "" {
+			label = result.Name + " (" + result.RepoKey + ")"
+		}
+		fmt.Fprintf(out, "\n%s\n", label)
+		if result.Error != "" {
+			fmt.Fprintf(out, "  error: %s\n", result.Error)
+			continue
+		}
+		for _, f := range result.Findings {
+			fmt.Fprintf(out, "  [%s] %s\n    %s:%d\n    %s\n    evidence: %s\n",
+				strings.ToUpper(f.Severity), f.Title, f.File, f.Line, f.Detail, f.Evidence)
+		}
+	}
 	return nil
 }

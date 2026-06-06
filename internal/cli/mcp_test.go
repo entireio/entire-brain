@@ -158,6 +158,57 @@ func TestMCPBrainReviewTool(t *testing.T) {
 	}
 }
 
+func TestMCPBrainWorkspaceReviewTool(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
+
+	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
+	regressed := "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
+	repoA := writeWorkspaceBrainRepo(t, env, "gh/example/repoa", session, "pkg/review_context.go", regressed)
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos:         []workspaceRepo{{RepoKey: "gh/example/repoa", Name: "a", LocalPathHint: repoA}},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_workspace_review","arguments":{"workspace":"related","query":"review scopeBaseRef base scope"}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	listData, _ := json.Marshal(responses[0]["result"])
+	for _, want := range []string{"brain_workspace_review", "brain_workspace_regressions", "location_only"} {
+		if !strings.Contains(string(listData), want) {
+			t.Fatalf("tools/list missing %q: %s", want, listData)
+		}
+	}
+	callData, _ := json.Marshal(responses[1])
+	for _, want := range []string{"diff-less", "Suspected regression", "review_context.go", "gh/example/repoa"} {
+		if !strings.Contains(string(callData), want) {
+			t.Fatalf("brain_workspace_review result missing %q: %s", want, callData)
+		}
+	}
+}
+
+func TestMCPBrainWorkspaceToolRequiresWorkspace(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	opts := Options{Version: "test-version", Env: env, Runner: &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}, Now: time.Now}
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_workspace_review","arguments":{"query":"x"}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	if !strings.Contains(out.String(), "workspace is required") {
+		t.Fatalf("expected workspace-required error: %s", out.String())
+	}
+}
+
 func TestMCPInitializeEchoesClientProtocolVersion(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`)
 	var out bytes.Buffer

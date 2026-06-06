@@ -194,6 +194,16 @@ func mcpToolDefinitions() []map[string]any {
 			"description": "Diff-less review: review the current working tree against the brain's memory (no branch-vs-base diff) and return severity-ranked suspected-regression findings with provenance. The building block `entire review` consumes when the brain is installed.",
 			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}}},
 		},
+		{
+			"name":        "brain_workspace_regressions",
+			"description": "Flag suspected regressions across every repo in a local multi-repo workspace (each brain's memory vs that repo's current tree). Tolerates sessions-only brains; results are aggregated by repo_key.",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"workspace", "query"}, "properties": map[string]any{"workspace": stringArg("workspace", "Workspace name"), "query": stringArg("query", "Task description plus the failing symbols/identifiers"), "limit": integerArg("limit", "Maximum suspected regressions per repo"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (higher recall, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}},
+		},
+		{
+			"name":        "brain_workspace_review",
+			"description": "Cross-repo diff-less review: review each repo's current tree in a local workspace against its brain's memory and return severity-ranked suspected-regression findings per repo. The multi-brain building block `entire review` could consume across related repos.",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"workspace", "query"}, "properties": map[string]any{"workspace": stringArg("workspace", "Workspace name"), "query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings per repo"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}},
+		},
 	}
 }
 
@@ -206,6 +216,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	cmd := &cobra.Command{Use: params.Name}
 	cmd.SetOut(&out)
 	cmd.SetErr(io.Discard)
+	cmd.SetContext(ctx)
 	limit, err := mcpPositiveInt(params.Arguments, "limit", 20)
 	if err != nil {
 		return nil, err
@@ -272,6 +283,28 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if err == nil {
 			inc, _ := params.Arguments["include_deletions"].(bool)
 			err = runBrainReview(ctx, cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc}, query)
+		}
+	case "brain_workspace_regressions":
+		workspace := strings.TrimSpace(mcpString(params.Arguments, "workspace"))
+		err = requireMCPQuery(query)
+		if err == nil && workspace == "" {
+			err = errors.New("workspace is required")
+		}
+		if err == nil {
+			inc, _ := params.Arguments["include_deletions"].(bool)
+			loc, _ := params.Arguments["location_only"].(bool)
+			err = runWorkspaceRegressions(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, workspace, query)
+		}
+	case "brain_workspace_review":
+		workspace := strings.TrimSpace(mcpString(params.Arguments, "workspace"))
+		err = requireMCPQuery(query)
+		if err == nil && workspace == "" {
+			err = errors.New("workspace is required")
+		}
+		if err == nil {
+			inc, _ := params.Arguments["include_deletions"].(bool)
+			loc, _ := params.Arguments["location_only"].(bool)
+			err = runWorkspaceReview(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, workspace, query)
 		}
 	default:
 		err = fmt.Errorf("unknown tool: %s", params.Name)

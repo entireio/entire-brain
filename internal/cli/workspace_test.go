@@ -328,6 +328,181 @@ func TestWorkspaceRejectsSymlinkedBrainRoot(t *testing.T) {
 	}
 }
 
+// writeWorkspaceBrainRepo builds a sessions-only brain at brainDirForKey(env, key) plus a working
+// tree, so the cross-repo regression/review fan-out can be exercised without a semantic index.
+func writeWorkspaceBrainRepo(t *testing.T, env EntireEnv, key, sessionText, repoRel, fileBody string) string {
+	t.Helper()
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, filepath.FromSlash(key))
+	sessDir := filepath.Join(brainDir, "sessions")
+	if err := os.MkdirAll(sessDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessDir, "s.jsonl"), []byte(sessionText+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	repoDir := t.TempDir()
+	full := filepath.Join(repoDir, filepath.FromSlash(repoRel))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte(fileBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return repoDir
+}
+
+func TestWorkspaceReviewFlagsRegressedRepoOnly(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+
+	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
+	regressed := "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
+	clean := "package x\nfunc f() string {\n\treturn scopeBaseRef + \"..HEAD\"\n}\n"
+	repoA := writeWorkspaceBrainRepo(t, env, "gh/example/repoa", session, "pkg/review_context.go", regressed)
+	repoB := writeWorkspaceBrainRepo(t, env, "gh/example/repob", session, "pkg/review_context.go", clean)
+
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos: []workspaceRepo{
+			{RepoKey: "gh/example/repoa", Name: "a", LocalPathHint: repoA},
+			{RepoKey: "gh/example/repob", Name: "b", LocalPathHint: repoB},
+		},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	out, err := execute(t, cmd, "workspace", "review", "related", "fix scopeBaseRef base scope", "--json")
+	if err != nil {
+		t.Fatalf("workspace review: %v", err)
+	}
+	var payload struct {
+		Summary string                  `json:"summary"`
+		Results []workspaceReviewResult `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("parse review json: %v\n%s", err, out)
+	}
+	if !strings.Contains(payload.Summary, "1 suspected regression(s) across 1/2 repo(s)") {
+		t.Fatalf("summary = %q", payload.Summary)
+	}
+	byKey := map[string]workspaceReviewResult{}
+	for _, r := range payload.Results {
+		byKey[r.RepoKey] = r
+	}
+	a, b := byKey["gh/example/repoa"], byKey["gh/example/repob"]
+	if len(a.Findings) != 1 || a.Findings[0].Severity != "high" || !strings.Contains(a.Findings[0].File, "review_context.go") {
+		t.Fatalf("repoa findings wrong: %+v", a)
+	}
+	if len(b.Findings) != 0 {
+		t.Fatalf("repob (clean) should have no findings: %+v", b)
+	}
+}
+
+func TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+
+	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
+	regressed := "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
+	repoA := writeWorkspaceBrainRepo(t, env, "gh/example/repoa", session, "pkg/review_context.go", regressed)
+	// A repo registered with a real working tree but NO brain prepped (missing-brain).
+	missingTree := t.TempDir()
+
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos: []workspaceRepo{
+			{RepoKey: "gh/example/repoa", Name: "a", LocalPathHint: repoA},
+			{RepoKey: "gh/example/missing", Name: "missing", LocalPathHint: missingTree},
+		},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	out, err := execute(t, cmd, "workspace", "regressions", "related", "fix scopeBaseRef base scope", "--json", "--location-only")
+	if err != nil {
+		t.Fatalf("workspace regressions: %v", err)
+	}
+	var payload struct {
+		Results []workspaceRegressionResult `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("parse regressions json: %v\n%s", err, out)
+	}
+	byKey := map[string]workspaceRegressionResult{}
+	for _, r := range payload.Results {
+		byKey[r.RepoKey] = r
+	}
+	a := byKey["gh/example/repoa"]
+	if len(a.Anomalies) != 1 || a.Anomalies[0].Kind != "changed" {
+		t.Fatalf("repoa anomalies wrong: %+v", a)
+	}
+	if a.Anomalies[0].Expected != "" || a.Anomalies[0].Current != "" {
+		t.Fatalf("--location-only must blank expected/current: %+v", a.Anomalies[0])
+	}
+	// The missing-brain repo must not abort the run; it just yields no anomalies.
+	m := byKey["gh/example/missing"]
+	if len(m.Anomalies) != 0 {
+		t.Fatalf("missing-brain repo should yield no anomalies: %+v", m)
+	}
+}
+
+func TestWorkspaceListAndRemove(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+
+	repoA := writeWorkspaceBrainRepo(t, env, "gh/example/repoa", `{"text":"x"}`, "a.go", "package x\n")
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos: []workspaceRepo{
+			{RepoKey: "gh/example/repoa", Name: "a", LocalPathHint: repoA},
+			{RepoKey: "gh/example/repob", Name: "b", LocalPathHint: repoA},
+		},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	listOut, err := execute(t, cmd, "workspace", "list", "--json")
+	if err != nil {
+		t.Fatalf("workspace list: %v", err)
+	}
+	if !strings.Contains(listOut, `"name": "related"`) || !strings.Contains(listOut, `"repos": 2`) {
+		t.Fatalf("list output = %s", listOut)
+	}
+
+	if _, err := execute(t, cmd, "workspace", "remove", "related", "gh/example/repob"); err != nil {
+		t.Fatalf("workspace remove repo: %v", err)
+	}
+	reloaded, err := loadWorkspaceManifest(env, "related")
+	if err != nil {
+		t.Fatalf("load workspace: %v", err)
+	}
+	if len(reloaded.Repos) != 1 || reloaded.Repos[0].RepoKey != "gh/example/repoa" {
+		t.Fatalf("repo not removed: %+v", reloaded.Repos)
+	}
+
+	// Removing a repo that is not present is an error.
+	if _, err := execute(t, cmd, "workspace", "remove", "related", "gh/example/nope"); err == nil {
+		t.Fatalf("remove of absent repo should error")
+	}
+
+	// Removing the whole workspace deletes it.
+	if _, err := execute(t, cmd, "workspace", "remove", "related"); err != nil {
+		t.Fatalf("workspace remove all: %v", err)
+	}
+	if _, err := loadWorkspaceManifest(env, "related"); err == nil {
+		t.Fatalf("workspace should be gone")
+	}
+}
+
 func TestWorkspaceRefreshReportsMissingBrains(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	manifest := workspaceManifest{
