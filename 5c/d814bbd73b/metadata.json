@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "5cd814bbd73b",
+  "strategy": "manual-commit",
+  "branch": "claude/semantic-warning-path-fix",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/5c/d814bbd73b/0/metadata.json",
+      "transcript": "/5c/d814bbd73b/0/full.jsonl",
+      "content_hash": "/5c/d814bbd73b/0/content_hash.txt",
+      "prompt": "/5c/d814bbd73b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8262,
+    "cache_creation_tokens": 97000,
+    "cache_read_tokens": 5626510,
+    "output_tokens": 44114,
+    "api_call_count": 78
+  }
+}

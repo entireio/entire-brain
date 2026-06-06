@@ -1,0 +1,29 @@
+Why is freshness degraded here?
+➜  podcasts git:(main) pwd
+/Users/thomi/Projects/podcasts
+➜  podcasts git:(main) entire brain refresh
++ export sessions: 331/331 checkpoints, 57 sessions done
++ locate brain: gh/ashtom/podcasts done
+refresh: seed baseline: 24 documents, 1 entrypoint, 44 commands skipped
+refresh: history index: 28568 records, 120 decisions, 25869 tool calls skipped
++ check semantic index: 3013 symbols, 103008 relations, 332 files: current done
+refresh: semantic index: 3013 symbols, 103008 relations, 332 files skipped
+refreshed brain: /Users/thomi/.local/share/entire/plugins/data/brain/repos/gh/ashtom/podcasts
+brain: /Users/thomi/.local/share/entire/plugins/data/brain/repos/gh/ashtom/podcasts
+repo: /Users/thomi/Projects/podcasts
+sources: seed=true sessions=true semantic=true history=true facts=false
+freshness: degraded
+live: branch=main head=4e4de7126832e454a50180d7debd8a995e224013 dirty=false
+
+---
+
+entire brain semantic stale --json
+unknown command "semantic" for "entire-brain"
+
+---
+
+Yes, do that, but also investigate why those 125 files can't be parsed
+
+---
+
+For entire-sem, give me a task description for another agent, then continue with the entire-brain fix
