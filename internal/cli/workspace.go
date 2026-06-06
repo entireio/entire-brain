@@ -767,6 +767,16 @@ func newWorkspaceReviewCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
+// workspaceFreshnessBlocksScan reports whether a repo's brain↔working-tree pairing is too unsafe to
+// scan. "unsafe" is the state workspaceRepoFreshnessForRepo assigns when the local_path_hint's
+// repo_key no longer matches the registered repo_key (the repo moved/was replaced) — running the
+// detector then would compare one repo's brain against an UNRELATED tree and manufacture bogus
+// "regressions". Missing-brain / missing-semantic / unknown / degraded are safe to scan (they just
+// yield no anomalies or a still-valid pairing), so only "unsafe" blocks.
+func workspaceFreshnessBlocksScan(freshness workspaceRepoFreshness) bool {
+	return freshness.State == "unsafe"
+}
+
 // scanWorkspaceRepoRegressions runs the regression detector for a single workspace repo and returns
 // the resolved working-tree path, anomalies, warnings, and a per-repo error string (empty on success).
 func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo workspaceRepo, ro regressionDetectorOptions, query string) (string, []regressionAnomaly, []string, string) {
@@ -812,11 +822,15 @@ func runWorkspaceRegressions(cmd *cobra.Command, opts Options, ro regressionDete
 	for _, repo := range manifest.Repos {
 		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
 		result := workspaceRegressionResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
-		repoPath, anomalies, warnings, scanErr := scanWorkspaceRepoRegressions(cmd.Context(), opts, repo, ro, query)
-		result.RepoPath = repoPath
-		result.Anomalies = anomalies
-		result.Warnings = warnings
-		result.Error = scanErr
+		if workspaceFreshnessBlocksScan(freshness) {
+			result.Error = "skipped (unsafe): " + freshness.Detail
+		} else {
+			repoPath, anomalies, warnings, scanErr := scanWorkspaceRepoRegressions(cmd.Context(), opts, repo, ro, query)
+			result.RepoPath = repoPath
+			result.Anomalies = anomalies
+			result.Warnings = warnings
+			result.Error = scanErr
+		}
 		results = append(results, result)
 	}
 	if ro.json {
@@ -859,6 +873,12 @@ func runWorkspaceReview(cmd *cobra.Command, opts Options, ro regressionDetectorO
 	for _, repo := range manifest.Repos {
 		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
 		result := workspaceReviewResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
+		if workspaceFreshnessBlocksScan(freshness) {
+			result.Error = "skipped (unsafe): " + freshness.Detail
+			result.Summary = "skipped: brain and working tree cannot be trusted to match."
+			results = append(results, result)
+			continue
+		}
 		repoPath, anomalies, warnings, scanErr := scanWorkspaceRepoRegressions(cmd.Context(), opts, repo, ro, query)
 		result.RepoPath = repoPath
 		result.Warnings = warnings

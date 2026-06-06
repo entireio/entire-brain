@@ -125,14 +125,19 @@ func TestRegressionIntactInvariantNotFlagged(t *testing.T) {
 }
 
 func TestBrainReviewMapsAnomalyToFinding(t *testing.T) {
-	if regressionSeverity(0.85) != "high" || regressionSeverity(0.65) != "medium" || regressionSeverity(0.4) != "low" {
-		t.Fatal("severity thresholds wrong")
+	// Honest severity: nothing the heuristic detector emits is "high" — that tier is reserved for a
+	// future high-confidence (locus+recency) signal. changed (0.8) is rename-ambiguous -> medium;
+	// deleted (0.65) is noisier/opt-in -> low.
+	if regressionSeverity(0.95) != "high" || regressionSeverity(0.8) != "medium" || regressionSeverity(0.65) != "low" {
+		t.Fatalf("severity thresholds wrong: %s/%s/%s", regressionSeverity(0.95), regressionSeverity(0.8), regressionSeverity(0.65))
 	}
 	f := anomalyToReviewFinding(regressionAnomaly{
 		File: "pkg/review_context.go", Line: 412, Kind: "changed", Identifier: "scopebaseref",
 		Expected: `scopeBaseRef+"..HEAD"`, Current: `"master..HEAD"`, Confidence: 0.8, Evidence: "sessions/x.jsonl:1",
 	})
-	if f.Severity != "high" || f.File != "pkg/review_context.go" || f.Line != 412 {
+	// A hedged "could be a rename" changed-finding must NOT surface as HIGH — the machine severity
+	// must not contradict the prose hedge.
+	if f.Severity != "medium" || f.File != "pkg/review_context.go" || f.Line != 412 {
 		t.Fatalf("finding fields wrong: %+v", f)
 	}
 	if !strings.Contains(f.Title, "Suspected regression") || !strings.Contains(f.Detail, `scopeBaseRef+"..HEAD"`) || !strings.Contains(f.Detail, "master..HEAD") {

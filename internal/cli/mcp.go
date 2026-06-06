@@ -191,8 +191,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_review",
-			"description": "Diff-less review: review the current working tree against the brain's memory (no branch-vs-base diff) and return severity-ranked suspected-regression findings with provenance. The building block `entire review` consumes when the brain is installed.",
-			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}}},
+			"description": "Diff-less review (schema_version contract): review the current working tree against the brain's memory (no branch-vs-base diff) and return severity-ranked suspected-regression findings with provenance. The stable contract `entire review`'s diff-less mode consumes when entire-brain is installed.",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}},
 		},
 		{
 			"name":        "brain_workspace_regressions",
@@ -282,7 +282,8 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		err = requireMCPQuery(query)
 		if err == nil {
 			inc, _ := params.Arguments["include_deletions"].(bool)
-			err = runBrainReview(ctx, cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc}, query)
+			loc, _ := params.Arguments["location_only"].(bool)
+			err = runBrainReview(ctx, cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, query)
 		}
 	case "brain_workspace_regressions":
 		workspace := strings.TrimSpace(mcpString(params.Arguments, "workspace"))

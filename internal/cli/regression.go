@@ -600,14 +600,21 @@ func newInspectRegressionsCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-// ---- Diff-less review: a review-shaped presentation over the regression detector ----
+// ---- Diff-less review: the stable contract `entire review`'s diff-less mode consumes ----
 //
-// The building block `entire review` would consume when entire-brain is installed: instead of a
-// branch-vs-base diff, it reviews the current working tree against the brain's memory and reports
-// suspected regressions as review findings. Same detector, reviewer-facing framing.
+// This is the machine contract, not a human verb. When entire-brain is installed, `entire review`
+// gains a diff-less mode (cli side) that shells `entire-brain review <query> --json` and folds these
+// findings into the review prompt — reviewing the working tree against the brain's memory instead of
+// a branch-vs-base diff, the same graceful upgrade entire-brain gets from entire-sem. The cli consumer
+// currently lives on a held branch off Peyton's in-flight `entire review` redesign (a moving target),
+// so this command is hidden (see root.go); `reviewReport.schema_version` is what the consumer binds to.
+
+// reviewReportSchemaVersion is the contract version `entire review` binds to. Bump on any
+// breaking change to reviewReport / reviewFinding (field rename/removal/semantics).
+const reviewReportSchemaVersion = 1
 
 type reviewFinding struct {
-	Severity   string  `json:"severity"` // high | medium | low (from detector confidence)
+	Severity   string  `json:"severity"` // high (reserved) | medium (changed) | low (deleted)
 	File       string  `json:"file"`
 	Line       int     `json:"line,omitempty"`
 	Title      string  `json:"title"`
@@ -617,21 +624,27 @@ type reviewFinding struct {
 }
 
 type reviewReport struct {
-	GeneratedAt time.Time       `json:"generated_at"`
-	Mode        string          `json:"mode"`
-	Query       string          `json:"query"`
-	RepoPath    string          `json:"repo_path"`
-	BrainPath   string          `json:"brain_path"`
-	Summary     string          `json:"summary"`
-	Findings    []reviewFinding `json:"findings"`
-	Warnings    []string        `json:"warnings,omitempty"`
+	SchemaVersion int             `json:"schema_version"`
+	GeneratedAt   time.Time       `json:"generated_at"`
+	Mode          string          `json:"mode"`
+	Query         string          `json:"query"`
+	RepoPath      string          `json:"repo_path"`
+	BrainPath     string          `json:"brain_path"`
+	Summary       string          `json:"summary"`
+	Findings      []reviewFinding `json:"findings"`
+	Warnings      []string        `json:"warnings,omitempty"`
 }
 
+// regressionSeverity maps detector confidence to a review severity. Every finding the current
+// heuristic detector emits is *suspected* — `changed` (0.8) is precise but rename-ambiguous and
+// `deleted` (0.65) is noisier/opt-in — so none warrant "high". That tier is reserved for a future
+// high-confidence signal (a durable fact bound to a locus with recency), so the machine severity
+// never contradicts the "could be a rename — verify" hedge: changed -> medium, deleted -> low.
 func regressionSeverity(conf float64) string {
 	switch {
-	case conf >= 0.8:
-		return "high"
-	case conf >= 0.6:
+	case conf >= 0.9:
+		return "high" // reserved: no heuristic finding reaches this today
+	case conf >= 0.7:
 		return "medium"
 	default:
 		return "low"
@@ -668,6 +681,15 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 		semSource = status.Manifest.Sources.Semantic
 	}
 	anomalies, _, warnings := detectRegressionAnomalies(status.Brain.Path, status.Repo.Root, semSource, query, ro.limit, ro.includeDeletions)
+	if ro.locationOnly {
+		// Parity with `inspect regressions --location-only`: hand the suspected site, not the fix,
+		// so a fair consumer/A-B measures detection rather than pasting a harness-computed value.
+		for i := range anomalies {
+			anomalies[i].Expected = ""
+			anomalies[i].Current = ""
+			anomalies[i].Reason = "suspected regression site (location only)"
+		}
+	}
 	findings := make([]reviewFinding, 0, len(anomalies))
 	for _, a := range anomalies {
 		findings = append(findings, anomalyToReviewFinding(a))
@@ -677,14 +699,15 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 		summary = fmt.Sprintf("Diff-less review: %d suspected regression(s) — verify each before acting.", len(findings))
 	}
 	report := reviewReport{
-		GeneratedAt: opts.Now().UTC(),
-		Mode:        "diff-less (brain memory vs current tree)",
-		Query:       query,
-		RepoPath:    status.Repo.Root,
-		BrainPath:   status.Brain.Path,
-		Summary:     summary,
-		Findings:    findings,
-		Warnings:    warnings,
+		SchemaVersion: reviewReportSchemaVersion,
+		GeneratedAt:   opts.Now().UTC(),
+		Mode:          "diff-less (brain memory vs current tree)",
+		Query:         query,
+		RepoPath:      status.Repo.Root,
+		BrainPath:     status.Brain.Path,
+		Summary:       summary,
+		Findings:      findings,
+		Warnings:      warnings,
 	}
 	if ro.json {
 		return writeJSON(cmd, report)
@@ -714,5 +737,6 @@ func newBrainReviewCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&ro.limit, "limit", 20, "Maximum findings")
 	cmd.Flags().BoolVar(&ro.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().BoolVar(&ro.includeDeletions, "include-deletions", false, "Also flag deleted assignments (lower confidence, noisier)")
+	cmd.Flags().BoolVar(&ro.locationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
 	return cmd
 }

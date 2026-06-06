@@ -393,7 +393,8 @@ func TestWorkspaceReviewFlagsRegressedRepoOnly(t *testing.T) {
 		byKey[r.RepoKey] = r
 	}
 	a, b := byKey["gh/example/repoa"], byKey["gh/example/repob"]
-	if len(a.Findings) != 1 || a.Findings[0].Severity != "high" || !strings.Contains(a.Findings[0].File, "review_context.go") {
+	// changed-findings are "medium" (hedged "could be a rename"), not "high" — see regressionSeverity.
+	if len(a.Findings) != 1 || a.Findings[0].Severity != "medium" || !strings.Contains(a.Findings[0].File, "review_context.go") {
 		t.Fatalf("repoa findings wrong: %+v", a)
 	}
 	if len(b.Findings) != 0 {
@@ -449,6 +450,79 @@ func TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain(t *testing.T) {
 	m := byKey["gh/example/missing"]
 	if len(m.Anomalies) != 0 {
 		t.Fatalf("missing-brain repo should yield no anomalies: %+v", m)
+	}
+}
+
+func TestWorkspaceFreshnessBlocksScan(t *testing.T) {
+	// Only an unsafe brain<->tree pairing (repo moved / key mismatch) blocks the scan; the rest are
+	// safe to scan (they just yield no anomalies or a still-valid pairing).
+	for _, st := range []string{"ok", "degraded", "missing-brain", "missing-semantic", "unknown", ""} {
+		if workspaceFreshnessBlocksScan(workspaceRepoFreshness{State: st}) {
+			t.Errorf("state %q should NOT block the scan", st)
+		}
+	}
+	if !workspaceFreshnessBlocksScan(workspaceRepoFreshness{State: "unsafe"}) {
+		t.Error("unsafe state must block the scan")
+	}
+}
+
+func TestWorkspaceRegressionsSkipsUnsafeRepo(t *testing.T) {
+	// A stale local_path_hint whose repo_key no longer matches the registered key means the brain
+	// (by key) and the tree (by hint) can't be trusted to match — scanning would compare one repo's
+	// memory against an unrelated tree and manufacture bogus regressions. The scan must be skipped.
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	// Seed a session asserting the invariant + a regressed working tree, so a scan WOULD fire.
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	if err := os.MkdirAll(filepath.Join(brainDir, "sessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, "sessions", "s.jsonl"),
+		[]byte(`{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\""}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoDir, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "pkg", "review_context.go"),
+		[]byte("package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos:         []workspaceRepo{{RepoKey: "gh/example/repo", Name: "api", LocalPathHint: repoDir}},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+	// Flip the remote so the hint's repo_key no longer matches the registered key -> unsafe.
+	runner.responses[fakeCommandKey("git", "remote", "get-url", "origin")] = fakeCommandResponse{stdout: "git@github.com:other/repo.git\n"}
+
+	out, err := execute(t, cmd, "workspace", "regressions", "related", "fix scopeBaseRef base scope", "--json")
+	if err != nil {
+		t.Fatalf("workspace regressions: %v", err)
+	}
+	var payload struct {
+		Results []workspaceRegressionResult `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("parse json: %v\n%s", err, out)
+	}
+	if len(payload.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(payload.Results))
+	}
+	r := payload.Results[0]
+	if len(r.Anomalies) != 0 {
+		t.Fatalf("unsafe repo must be skipped (no anomalies despite a real regression), got %+v", r.Anomalies)
+	}
+	if !strings.Contains(r.Error, "unsafe") {
+		t.Fatalf("expected an unsafe-skip error, got %q", r.Error)
 	}
 }
 
