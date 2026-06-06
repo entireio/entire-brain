@@ -1,0 +1,61 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "a4136c8409d5",
+  "session_id": "3c8f3e78-b939-42b0-8ab8-aae534b6f768",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-06T19:15:03.697931Z",
+  "branch": "claude/regression-radar",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/regression.go",
+    "internal/cli/regression_test.go",
+    "internal/cli/root.go"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "aa975f566e54",
+  "token_usage": {
+    "input_tokens": 36270,
+    "cache_creation_tokens": 2217572,
+    "cache_read_tokens": 29893165,
+    "output_tokens": 189293,
+    "api_call_count": 150
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-06T19:15:03.668974Z",
+    "agent_lines": 116,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 7,
+    "total_committed": 116,
+    "total_lines_changed": 123,
+    "agent_percentage": 94.3089430894309,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 246,
+      "user_lines_removed": 7,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 27,
+        "internal/cli/mcp.go": 16,
+        "internal/cli/regression.go": 153,
+        "internal/cli/regression_test.go": 49,
+        "internal/cli/root.go": 1
+      },
+      "user_removed_per_file": {
+        "internal/cli/mcp.go": 3,
+        "internal/cli/regression.go": 4
+      }
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+js ntoe thsi down' we don't ened to do anythign right?; Reviewed end-to-end. Merge-ready — no blockers. CI green (24/24), MERGEABLE/CLEAN, and it's a tight, well-tested change confined to the benchmark harness (run.py + run_test.py); no product code touched.
+
+What I checked
+Routing precedence is correct. The new mcp_history and wants_disciplined_mcp(runner) branch sits ahead of the is_opus and COMPACT_STRICT_MODELS branches, so gpt-5.5/gpt-5 (all efforts) and gpt-5.4-mini (high/xhigh) get the disciplined delivery, Opus still falls through to its compact branch (disjoint sets, no double-match), and sonnet/low-effort-mini get the generic delivery. The two new unit tests pin exactly this, including the effort split for mini.
+Audit floor stays consistent. mcp_history_required_tools keeps the floor at brain_brief for compact models even though the disciplined prompt asks for brain_history — the right call: a run that fixes correctly from the brief alone shouldn't be failed for skipping the history lookup. For gpt-5.4-mini (not in either compact set) the audit requires both tools, which matches what the disciplined prompt asks of it. No prompt/audit mismatch.
+Diagnosis and methodology are sound and honest — root-caused from real transcripts and confirmed by regenerating the exact brief (file ranked #1 but the compound-query history section missed the scopeBaseRef..HEAD invariant, and the old prompt banned the lookup that has it), matched/integrity-audited A/B, MCP server-log-verified, and the gpt-5.4-mini "quality already saturated, win is token bloat" caveat is stated plainly.
+Minor, non-blocking
+The COMPACT_STRICT_MODELS prompt branch in prompt_for is now unreachable for its only two members (both are caught first by wants_disciplined_mcp). The comment flags it as an intentional fallback for a future deliberately-excluded compact model — fine, just noting it's currently dead.
+The headline 88%→100% is the review task flipping 4/5 → 5/5 (n=5) — directional, and you disclose it. The token deltas are the more robust signal.
+Note for the durable-facts branch (not a gate)
+Zero conflict with my branch — it's benchmark-only, and I don't touch benchmarks/. Worth flagging that this PR's core finding — the brief's compound-query history section dilutes a precise identifier, while a focused lookup retrieves it cleanly — independently corroborates the facts-retrieval work: it's the same gap my eval surfaced (keyword recall misses the exact fact), and the same reason locus-weighting and query expansion help. Good convergence.
+
+Nice, surgical fix. Happy to see it merge.
+
+🤖 Claude Code–assisted review
+
+---
+
+do full aduit on newrgresion radar feautre expiscaly and evreyhting else
+
+---
+
+make reply; SuhaanT — Yesterday at 8:49 PM
+Do you think an idea like a brain that acts as an active reviewer (diffing the current code against what past sessions say it used to be, then flagging the
+suspected regressed line with the expected value) would be useful, or not the right shape?
+Thomas — 1:17 AM
+How is that different to “entire review”?
+Thomas — 1:59 AM
+I like how entire-brain, entire-sem, and entire-replay-lab are separate building blocks.
+SuhaanT — 9:52 AM
+review needs a diff to review; this needs only the brain's memory, so it catches drift that isn't in any current diff.
+SuhaanT — 9:52 AM
+Yes me to
+Thomas — 2:57 PM
+Hm, but semantically it still should be combined with entire review, I think? It's a bit like entire-brain uses entire-sem when it's installed -> it gains more power. entire review could do the same when entire-brain/sem is installed, allowing a diff-less mode.
+Thomas — 3:11 PM
+entire labs also has investigate, have you seen it? It's kinda like review, but for brainstorming with multiple agent. Same applies there, it would be more powerful with the brain.
+And we haven't really looked into what you can do with multiple brains, i.e. for multiple repos that relate to each other.
