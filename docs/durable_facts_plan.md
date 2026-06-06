@@ -195,7 +195,8 @@ to bound cost and to make turn-level provenance free.
   local|cross-cutting] [--expand] [--all] [--json]` — retrieve facts. Keyword +
   taxonomy + code-locus ranking by default (see Recall Ranking and Appendix D);
   `--scope` restricts to code vs how-we-work facts; `--expand` has the agent
-  rewrite the query into the facts' vocabulary first. Default `k=10`,
+  rewrite the query into the facts' vocabulary first (opt-in/experimental — the
+  benchmark shows no significant retrieval gain at n=121; see Phasing). Default `k=10`,
   `active`-only unless `--all`. Embedding rerank is still Phase D (not shipped).
 - `entire brain distill [--since <ref>] [--branch <b>] [--force] [--json]` —
   batch distillation over captured sessions for the current branch (see
@@ -388,9 +389,23 @@ tamper signal.
 > (`recall --expand`), and the evaluation harness (`eval-gen`/`eval`/
 > `eval-compare`). Still open: embeddings (Phase D, pending a local backend), the
 > synthesized hierarchy summaries, and turn-level signing (Phase B, needs Entire
-> CLI changes). Measured so far on a small corpus: query expansion is a medium,
-> consistent, zero-token-cost effect (Cohen's d ~0.47) but not yet significant
-> at n≈8 — the case for growing the benchmark.
+> CLI changes).
+>
+> **Query expansion — resolved (negative).** The early "medium, consistent
+> effect (Cohen's d ~0.47)" was a small-sample artifact of the n≈8 entire-brain
+> benchmark. After growing the corpus to a provenance-labeled benchmark of **121
+> tasks across three repos** (entire-brain, entire-cli, entire.io), the
+> `recall --expand` lift on the headline metric (useful-facts-per-1k) is
+> **+0.205, t=1.14, p=0.26, Cohen's d=0.10** — not significant, and the effect
+> size collapsed by ~5×. No query-type stratum shows a significant gain (concept
+> d=0.17, convention d=0.33 at n=12, howto/code ≈ 0 or negative); on the original
+> entire-brain set the sign even flips (d=−0.46). Expansion costs ~3% more tokens
+> (+15.9, p=0.019, the only raw-significant delta, a cost not a benefit). The
+> sign also flipped on the original set as n grew, which is the textbook
+> signature of an underpowered estimate regressing to zero. **Decision:** keep
+> `recall --expand` opt-in/experimental; do not promote it to default. The
+> harness itself (`eval-gen`/`eval`/`eval-compare`) is the durable win — it
+> turned a plausible-looking lift into a measured non-result.
 
 - **Phase A (Entire Brain only, no CLI changes):** fact store, `remember` /
   `recall` / `inspect facts` / `inspect blame`, the quality gate, the taxonomy,
