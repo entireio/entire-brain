@@ -53,28 +53,68 @@ doc's Phasing block.
 **Conclusion:** every lexical lever is exhausted. The only remaining retrieval
 headroom is **semantic (Phase D embeddings)**.
 
-## Next work on this branch — Phase D (embeddings)
+## Phase D (embeddings) — in progress on this branch
 
-Evidence-backed because embeddings address *both* measured failure modes:
+Backend decided and a first significant win landed. Embeddings address *both*
+measured failure modes:
 
 - **Lift the 0.667 reachability ceiling** — semantic recall of the ~33% of
   relevant facts no query term reaches (incl. the 18% of tasks at zero).
 - **Close the 0.244→0.667 ranking gap** — rerank within the reachable set, where
   lexical scoring ties relevant and irrelevant facts together.
 
-Suggested first steps:
-1. **Pick a local embedding backend** (the open blocker in the plan). Constraint:
-   the brain is local-only and must stay offline-capable — no network-dependent
-   embedding calls in the default path. Options to evaluate: a bundled small
-   local model vs. reuse of whatever `entire-sem` already has.
-2. **Scope retrieval shape:** embed facts at ingest; rerank *within* a code
-   locus / taxonomy node rather than over a flat per-branch list (see plan
-   Appendix D / Phase D).
-3. **Measure against the existing harness** — the benchmark and `eval-compare`
-   are ready; target lifting recall@10 toward the 0.667 ceiling *and* pushing the
-   ceiling itself up. Report with the same paired-t rigor.
+### Backend decision: Option A — pure-Go static embeddings (agreed)
 
-Do **not** re-litigate expansion or weight tuning — both are closed negatives.
+`entire-sem` provides **no embedder** (it is a tree-sitter structural provider:
+symbols + relations + FTS; `entire sem` has no `embed` command and there are no
+vectors anywhere in the stack). So "reuse entire-sem" was a non-option for
+embeddings. The chosen backend is a **bundled Model2Vec static model** run in
+pure Go — no cgo, no ONNX/llama.cpp runtime, no network, single static binary —
+behind an `Embedder` interface so a transformer bi-encoder (ONNX) or a
+provider-shelled embedder can replace it later *if* the harness shows headroom.
+(Rejected: llama.cpp/GGUF, sqlite-vec — a C extension incompatible with the
+pure-Go `modernc.org/sqlite` — and auto-download, which breaks offline-default.)
+
+### Landed slices
+
+1. **Static embedding backend** (`internal/cli/embed.go`, `embed_accents.go`,
+   root `embedmodel.go` + `assets/embedmodel.bin`, converter
+   `scripts/convert_embedmodel.py`). BERT WordPiece → mean-pool → L2-normalize,
+   int8-quantized table, golden-parity tested against reference vectors.
+2. **RRF fusion** (`embed_rank.go`): `rankFactsFused` fuses a lexical list with
+   a semantic list that ranks the *entire* active candidate set (the lever
+   against the reachability ceiling). `recall --semantic` / `eval --semantic`,
+   default off. Nil reranker == existing lexical `rankFacts`.
+3. **Measured + model adoption.** base reproduces the handover exactly
+   (recall@10=0.244, useful/1k=3.53). potion-base-8M was only directional
+   (useful/1k p=0.082). **potion-retrieval-32M** (retrieval-tuned, swapped behind
+   the interface) is a real win over the 121-task benchmark:
+
+   | metric | base | semantic | Δ | p | Holm |
+   |---|---|---|---|---|---|
+   | useful_per_1k | 3.531 | 3.990 | +0.459 | 0.005 | **sig** |
+   | precision | 0.218 | 0.243 | +0.025 | 0.013 | **sig** |
+   | recall@10 | 0.244 | 0.276 | +0.032 | 0.043 | marginal |
+   | tokens | 536.7 | 542.6 | +5.9 | 0.363 | n.s. |
+
+   Headline metric +13% and precision survive Holm; recall is raw-significant;
+   **no significant token cost** (contrast: expansion was cost-only). Repro:
+   `~/.local/share/entire/facts-benchmark/run_semantic_ab.sh` (deterministic, no
+   agent). Pooled summaries persisted as `combined_semantic_*.json`.
+
+### Open next steps (each its own measured slice)
+
+- **Recall is the soft spot** (+0.032, marginal under Holm). Levers to A/B,
+  guarding against overfitting the single 121-task set: RRF weighting (favor
+  semantic), a cosine floor for precision, smaller RRF `k0`, embedding fact
+  paths alongside text, locus/taxonomy-scoped reranking (plan Appendix D).
+- **Default-on policy + brief integration** + disk-persisted embedding cache
+  under `facts/<branch>/embeddings/` (currently an in-memory per-run cache).
+- **Asset size:** 32.9MB int8 — revisit (harder quantization / smaller model)
+  only if it becomes a distribution concern; the win justifies it for now.
+
+Do **not** re-litigate expansion or lexical weight tuning — both are closed
+negatives.
 
 ## Reproducing the evaluation
 

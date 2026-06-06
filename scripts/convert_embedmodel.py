@@ -37,7 +37,7 @@ import numpy as np
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="minishlab/potion-base-8M")
+    ap.add_argument("--model", default="minishlab/potion-retrieval-32M")
     ap.add_argument("--out", default="assets/embedmodel.bin")
     ap.add_argument("--golden", default="internal/cli/testdata/embed_golden.json")
     args = ap.parse_args()

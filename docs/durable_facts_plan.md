@@ -346,6 +346,22 @@ available, `recall` uses keyword and taxonomy matching. Consistent with the
 Semantic Brain Plan, any embedding model must run with a local-only backend in
 Phase 1.
 
+**Shipped backend (Phase D).** The embedder is a bundled **Model2Vec static
+model** (`assets/embedmodel.bin`, converted offline by
+`scripts/convert_embedmodel.py`) decoded and run entirely in pure Go:
+BERT-WordPiece tokenize → gather per-token vectors → mean-pool → L2-normalize,
+over an int8-quantized table. This is the only backend that fits the brain's
+pure-Go, cgo-free, offline, single-static-binary shape; a transformer bi-encoder
+(ONNX) or a `entire sem embed` provider command remain drop-in alternatives
+behind the `Embedder` interface, to be adopted only if the harness shows the
+static model leaves recall headroom. Brute-force cosine over the (small) active
+fact set is used rather than an ANN index or `sqlite-vec` (a C extension
+incompatible with the pure-Go `modernc.org/sqlite`). Ranking blends the lexical
+and semantic lists with Reciprocal Rank Fusion (k=60); the semantic list ranks
+the *entire* active candidate set so a term-disjoint relevant fact can still
+surface, attacking the 0.667 reachability ceiling rather than only reranking
+within it.
+
 ## Outcome-Weighted Confidence (Optional, Future)
 
 Confidence in Phase A is asserted once, by the agent, at distillation time and
@@ -447,8 +463,18 @@ tamper signal.
 - **Phase C (with CLI change #2):** the shared derived-knowledge store contract,
   extended so the locus/kind index and synthesized hierarchy from Appendix D are
   part of the contract other plugins consume.
-- **Phase D (optional):** fact-layer embedding recall — now scoped to retrieve
-  within a code locus / hierarchy node rather than over a flat per-branch list.
+- **Phase D (in progress):** fact-layer embedding recall. **Backend: a bundled
+  Model2Vec static model run in pure Go** (no cgo/ONNX/network; single static
+  binary), behind an `Embedder` interface so a transformer bi-encoder or a
+  provider-shelled embedder can replace it on measured evidence. `entire-sem`
+  was evaluated and rejected as a backend — it is a structural (tree-sitter)
+  provider with no embedder. Retrieval blends lexical + semantic via Reciprocal
+  Rank Fusion, with the semantic list ranking the full active set to lift the
+  0.667 reachability ceiling (not just rerank). Measured win over the 121-task
+  benchmark with `potion-retrieval-32M`: useful-per-1k +0.459 (p=0.005, Holm),
+  precision +0.025 (p=0.013, Holm), recall@10 +0.032 (p=0.043), no token cost.
+  Still open: recall-focused fusion tuning, default-on + brief integration,
+  disk-persisted embeddings, and the locus/hierarchy-scoped retrieval below.
 - **Phase E (optional):** outcome-weighted confidence — adjust and decay
   `confidence` from recall-then-commit outcomes, riding on the provenance anchors
   already recorded (see Outcome-Weighted Confidence). Drift only routes a fact to
