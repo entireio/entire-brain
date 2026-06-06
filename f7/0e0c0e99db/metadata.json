@@ -3,11 +3,8 @@
   "checkpoint_id": "f70e0c0e99db",
   "strategy": "manual-commit",
   "branch": "claude/durable-facts-and-distill",
-  "checkpoints_count": 5,
-  "files_touched": [
-    "internal/cli/distill.go",
-    "internal/cli/distill_test.go"
-  ],
+  "checkpoints_count": 0,
+  "files_touched": null,
   "sessions": [
     {
       "metadata": "/f7/0e0c0e99db/0/metadata.json",
@@ -17,10 +14,10 @@
     }
   ],
   "token_usage": {
-    "input_tokens": 46846,
-    "cache_creation_tokens": 7479663,
-    "cache_read_tokens": 261367957,
-    "output_tokens": 683506,
-    "api_call_count": 563
+    "input_tokens": 419,
+    "cache_creation_tokens": 5761,
+    "cache_read_tokens": 3774477,
+    "output_tokens": 4542,
+    "api_call_count": 4
   }
 }
