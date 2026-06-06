@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"math"
 	"os"
 	"testing"
 
@@ -18,21 +17,8 @@ func testEmbedder(t *testing.T) *staticEmbedder {
 	return e
 }
 
-func cosine(a, b []float32) float64 {
-	if len(a) != len(b) {
-		return 0
-	}
-	var dot, na, nb float64
-	for i := range a {
-		dot += float64(a[i]) * float64(b[i])
-		na += float64(a[i]) * float64(a[i])
-		nb += float64(b[i]) * float64(b[i])
-	}
-	if na == 0 || nb == 0 {
-		return 0
-	}
-	return dot / (math.Sqrt(na) * math.Sqrt(nb))
-}
+// cosine aliases the production helper so the tests exercise the same code.
+func cosine(a, b []float32) float64 { return cosineFloat32(a, b) }
 
 // TestEmbedGoldenParity is the load-bearing correctness check: the pure-Go
 // tokenizer + pooling must reproduce the reference Model2Vec embeddings (up to

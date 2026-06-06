@@ -41,6 +41,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 		limit      int
 		includeAll bool
 		scope      string
+		semantic   bool
 		expand     bool
 		agent      string
 		jsonOut    bool
@@ -82,7 +83,14 @@ func newRecallCommand(opts Options) *cobra.Command {
 				}
 				effectiveQuery = expandedQuery(query, exp)
 			}
-			matches := rankFacts(facts, effectiveQuery, limit, includeAll)
+			var rr *semanticReranker
+			if semantic {
+				rr = newSemanticReranker(defaultEmbedder())
+				if rr == nil {
+					return fmt.Errorf("--semantic requested but the embedding backend is unavailable")
+				}
+			}
+			matches := rankFactsFused(facts, effectiveQuery, limit, includeAll, rr)
 			if jsonOut {
 				return writeJSON(cmd, map[string]any{"branch": resolvedBranch, "query": query, "facts": matches})
 			}
@@ -100,6 +108,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&limit, "k", 10, "Maximum facts to return")
 	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted facts")
 	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) facts")
+	cmd.Flags().BoolVar(&semantic, "semantic", false, "Rerank with the local embedding backend (RRF fusion of lexical + semantic)")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand the query with agent-generated retrieval terms before ranking")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --expand: auto, codex, claude-code, or command")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
