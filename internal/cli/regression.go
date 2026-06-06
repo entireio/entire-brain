@@ -52,13 +52,14 @@ type regressionAnomaly struct {
 }
 
 type regressionReport struct {
-	GeneratedAt time.Time           `json:"generated_at"`
-	Query       string              `json:"query"`
-	RepoPath    string              `json:"repo_path"`
-	BrainPath   string              `json:"brain_path"`
-	Anomalies   []regressionAnomaly `json:"anomalies"`
-	Scanned     int                 `json:"scanned_files"`
-	Warnings    []string            `json:"warnings,omitempty"`
+	SchemaVersion int                 `json:"schema_version"` // shares reviewReportSchemaVersion; see docs/diffless_review_seam.md
+	GeneratedAt   time.Time           `json:"generated_at"`
+	Query         string              `json:"query"`
+	RepoPath      string              `json:"repo_path"`
+	BrainPath     string              `json:"brain_path"`
+	Anomalies     []regressionAnomaly `json:"anomalies"`
+	Scanned       int                 `json:"scanned_files"`
+	Warnings      []string            `json:"warnings,omitempty"`
 }
 
 type regressionDetectorOptions struct {
@@ -270,7 +271,7 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 	var warnings []string
 	ids := brainBriefRawHistoryQueries(query)
 	if len(ids) == 0 {
-		return nil, 0, []string{"no code identifiers found in query; pass the failing symbols/terms"}
+		return []regressionAnomaly{}, 0, []string{"no code identifiers found in query; pass the failing symbols/terms"}
 	}
 
 	candidateFiles := map[string]struct{}{}
@@ -300,7 +301,7 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 		candidateFiles[f] = struct{}{}
 	}
 	if len(changes) == 0 && len(deletes) == 0 {
-		return nil, 0, append(warnings, "history holds no precise code assertions for these identifiers")
+		return []regressionAnomaly{}, 0, append(warnings, "history holds no precise code assertions for these identifiers")
 	}
 
 	// Load all candidate files once.
@@ -334,7 +335,7 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 		files = append(files, candFile{clean: clean, lines: lines, norm: norm, semantic: isSem, rank: rank, isTest: regressionIsTestPath(clean)})
 	}
 	if len(files) == 0 {
-		return nil, 0, append(warnings, "no current files to verify against (semantic index missing?)")
+		return []regressionAnomaly{}, 0, append(warnings, "no current files to verify against (semantic index missing?)")
 	}
 	// Deterministic, locus-prioritized order: implementation before tests, then by semantic rank
 	// (the strongest fix-site first), then path — so a finding lands on the actual fix site, not a
@@ -447,6 +448,9 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 	if len(anomalies) > regressionMaxAnomalies {
 		anomalies = anomalies[:regressionMaxAnomalies]
 	}
+	if anomalies == nil {
+		anomalies = []regressionAnomaly{}
+	}
 	return anomalies, len(files), warnings
 }
 
@@ -556,13 +560,14 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 		}
 	}
 	report := regressionReport{
-		GeneratedAt: opts.Now().UTC(),
-		Query:       query,
-		RepoPath:    status.Repo.Root,
-		BrainPath:   status.Brain.Path,
-		Anomalies:   anomalies,
-		Scanned:     scanned,
-		Warnings:    warnings,
+		SchemaVersion: reviewReportSchemaVersion,
+		GeneratedAt:   opts.Now().UTC(),
+		Query:         query,
+		RepoPath:      status.Repo.Root,
+		BrainPath:     status.Brain.Path,
+		Anomalies:     anomalies,
+		Scanned:       scanned,
+		Warnings:      warnings,
 	}
 	if ro.json {
 		return writeJSON(cmd, report)
@@ -600,14 +605,16 @@ func newInspectRegressionsCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-// ---- Diff-less review: the versioned contract `entire review` / `labs investigate` consume ----
+// ---- Diff-less review: the versioned contract `entire review` / `labs investigate` are INTENDED to
+//      consume (cross-repo, NOT yet wired) ----
 //
 // This is the machine contract, not a human verb (the human review surface is `entire review` in the
-// cli; this command is hidden — see root.go). When entire-brain is installed the cli's `entire review`
-// gains a diff-less mode that shells `entire-brain review <query> --json`, checks
-// reviewReport.schema_version, and folds these findings into the review prompt — reviewing the working
-// tree against the brain's memory instead of a branch-vs-base diff (the graceful upgrade entire-brain
-// gets from entire-sem). Full contract + consumer design: docs/diffless_review_seam.md.
+// cli; this command is hidden — see root.go). When wired, the cli's `entire review` WOULD gain a
+// diff-less mode that shells `entire-brain review <query> --json`, checks reviewReport.schema_version,
+// and folds these findings into the review prompt — reviewing the working tree against the brain's
+// memory instead of a branch-vs-base diff (the graceful upgrade entire-brain gets from entire-sem).
+// That cli mode is prototyped on a held branch, NOT landed. Full contract + consumer design:
+// docs/diffless_review_seam.md.
 //
 // Consumer status (cross-repo, in entireio/cli — NOT in this repo, do not claim either is shipped):
 //   - `entire review`            : prototyped on a held branch off Peyton's review redesign; NOT landed.
@@ -618,8 +625,9 @@ func newInspectRegressionsCommand(opts Options) *cobra.Command {
 // agent sees them. No diff concept there, so it fires whenever the brain is installed. Design lives in
 // docs/diffless_review_seam.md; the cli-side hook is prototyped on the held branch, not landed here.
 
-// reviewReportSchemaVersion is the contract version `entire review` binds to. Bump on any
-// breaking change to reviewReport / reviewFinding (field rename/removal/semantics).
+// reviewReportSchemaVersion is the contract version `entire review` is intended to bind to (the
+// consumer is not yet landed; see above). Bump on any breaking change to reviewReport / reviewFinding
+// (field rename/removal/semantics).
 const reviewReportSchemaVersion = 1
 
 type reviewFinding struct {

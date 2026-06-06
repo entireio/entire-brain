@@ -1,10 +1,14 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/spf13/cobra"
 )
 
 func TestRegressionExtractSignals(t *testing.T) {
@@ -143,6 +147,101 @@ func TestBrainReviewMapsAnomalyToFinding(t *testing.T) {
 	if !strings.Contains(f.Title, "Suspected regression") || !strings.Contains(f.Detail, `scopeBaseRef+"..HEAD"`) || !strings.Contains(f.Detail, "master..HEAD") {
 		t.Fatalf("finding title/detail wrong: %+v", f)
 	}
+
+	// Location-only branch: Expected/Current blanked → generic detail, no expected/current leak.
+	loc := anomalyToReviewFinding(regressionAnomaly{
+		File: "pkg/review_context.go", Line: 412, Kind: "changed", Identifier: "scopebaseref",
+		Expected: "", Current: "", Confidence: 0.8, Evidence: "sessions/x.jsonl:1",
+	})
+	if !strings.Contains(loc.Detail, "verify against the brain's history") || strings.Contains(loc.Detail, "history shows") {
+		t.Fatalf("location-only finding must use the generic detail (no expected/current), got %q", loc.Detail)
+	}
+}
+
+func TestInspectRegressionsCommandJSONAndLocationOnly(t *testing.T) {
+	// Exercises the `inspect regressions` CLI command end to end (runRegressionDetect via cobra),
+	// the regressionReport JSON envelope + its schema_version, and the --location-only flag wiring —
+	// none of which the detector-direct tests cover.
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	for _, k := range [][]string{{"git", "status", "--porcelain"}, {"git", "status", "--porcelain", "--untracked-files=all"}, {"git", "diff", "--shortstat", "HEAD"}, {"git", "diff", "--name-status", "-M", "-C", "HEAD"}} {
+		runner.responses[fakeCommandKey(k[0], k[1:]...)] = fakeCommandResponse{}
+	}
+	mk := func() *cobra.Command {
+		return NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	}
+	if _, err := execute(t, mk(), "refresh", "index", "--sem-binary", "entire"); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	if err := os.MkdirAll(filepath.Join(brainDir, "sessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, "sessions", "s.jsonl"),
+		[]byte(`{"text":"in pkg/review_context.go the scope range is scopeBaseRef+\"..HEAD\""}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoDir, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "pkg", "review_context.go"),
+		[]byte("package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := execute(t, mk(), "inspect", "regressions", "fix scopeBaseRef base scope review", "--json")
+	if err != nil {
+		t.Fatalf("inspect regressions --json: %v", err)
+	}
+	var rep regressionReport
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatalf("parse regressionReport: %v\n%s", err, out)
+	}
+	if rep.SchemaVersion != reviewReportSchemaVersion {
+		t.Fatalf("regressionReport schema_version = %d, want %d", rep.SchemaVersion, reviewReportSchemaVersion)
+	}
+	if !strings.Contains(out, `"schema_version"`) {
+		t.Fatalf("regressionReport JSON missing the literal schema_version tag:\n%s", out)
+	}
+	if len(rep.Anomalies) != 1 || rep.Anomalies[0].Kind != "changed" || !strings.Contains(rep.Anomalies[0].File, "review_context.go") {
+		t.Fatalf("anomalies wrong: %+v", rep.Anomalies)
+	}
+	if rep.Anomalies[0].Expected == "" {
+		t.Fatalf("expected should be populated without --location-only: %+v", rep.Anomalies[0])
+	}
+
+	locOut, err := execute(t, mk(), "inspect", "regressions", "fix scopeBaseRef base scope review", "--json", "--location-only")
+	if err != nil {
+		t.Fatalf("inspect regressions --location-only: %v", err)
+	}
+	var locRep regressionReport
+	if err := json.Unmarshal([]byte(locOut), &locRep); err != nil {
+		t.Fatalf("parse location-only report: %v\n%s", err, locOut)
+	}
+	if len(locRep.Anomalies) != 1 || locRep.Anomalies[0].Expected != "" || locRep.Anomalies[0].Current != "" {
+		t.Fatalf("--location-only flag must blank expected/current through the command: %+v", locRep.Anomalies)
+	}
+}
+
+func TestRegressionDetectorWarnings(t *testing.T) {
+	// Each user-facing "found nothing" diagnostic path returns a specific warning + a non-nil slice.
+	// (1) no extractable identifier in the query.
+	brainDir, repoRoot := writeRegressionFixture(t, `{"text":"x"}`, "a.go", "package a\n")
+	an, _, w := detectRegressionAnomalies(brainDir, repoRoot, nil, "the and for with", 20, false)
+	if an == nil || len(an) != 0 || len(w) == 0 || !strings.Contains(w[0], "no code identifiers") {
+		t.Fatalf("expected non-nil empty slice + no-identifiers warning, got an=%+v w=%v", an, w)
+	}
+	// (2) identifier present, but history holds no precise code assertion.
+	brainDir, repoRoot = writeRegressionFixture(t, `{"text":"we touched scopeBaseRef somewhere in prose"}`, "a.go", "package a\n")
+	if _, _, w := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef", 20, false); len(w) == 0 || !strings.Contains(w[len(w)-1], "no precise code assertions") {
+		t.Fatalf("expected no-precise-assertions warning, got %v", w)
+	}
+	// (3) a precise assertion names a file that does not exist in the current tree.
+	brainDir, repoRoot = writeRegressionFixture(t, `{"text":"in pkg/gone.go the range is scopeBaseRef+\"..HEAD\""}`, "other.go", "package x\n")
+	if _, _, w := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false); len(w) == 0 || !strings.Contains(w[len(w)-1], "no current files") {
+		t.Fatalf("expected no-current-files warning, got %v", w)
+	}
 }
 
 func TestRegressionDeletionIsOptIn(t *testing.T) {
@@ -158,5 +257,13 @@ func TestRegressionDeletionIsOptIn(t *testing.T) {
 	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, q, 20, true)
 	if len(an) != 1 || an[0].Kind != "deleted" {
 		t.Fatalf("expected one deleted anomaly with --include-deletions, got %+v", an)
+	}
+	// location-only on a DELETED-kind finding: the commands blank Expected/Current before rendering
+	// (regression.go), and the mapping must then fall back to the generic detail — no leak. (The
+	// command-level blanking itself is covered for the changed kind in TestMCPBrainReviewTool.)
+	del := an[0]
+	del.Expected, del.Current = "", ""
+	if f := anomalyToReviewFinding(del); strings.Contains(f.Detail, "history shows") {
+		t.Fatalf("location-only deleted finding must not leak expected/current: %q", f.Detail)
 	}
 }

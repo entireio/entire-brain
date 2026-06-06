@@ -379,11 +379,16 @@ func TestWorkspaceReviewFlagsRegressedRepoOnly(t *testing.T) {
 		t.Fatalf("workspace review: %v", err)
 	}
 	var payload struct {
-		Summary string                  `json:"summary"`
-		Results []workspaceReviewResult `json:"results"`
+		SchemaVersion int                     `json:"schema_version"`
+		Mode          string                  `json:"mode"`
+		Summary       string                  `json:"summary"`
+		Results       []workspaceReviewResult `json:"results"`
 	}
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
 		t.Fatalf("parse review json: %v\n%s", err, out)
+	}
+	if payload.SchemaVersion != reviewReportSchemaVersion || payload.Mode != "diff-less (brain memory vs current tree)" {
+		t.Fatalf("review envelope schema_version/mode wrong: v=%d mode=%q", payload.SchemaVersion, payload.Mode)
 	}
 	if !strings.Contains(payload.Summary, "1 suspected regression(s) across 1/2 repo(s)") {
 		t.Fatalf("summary = %q", payload.Summary)
@@ -399,6 +404,13 @@ func TestWorkspaceReviewFlagsRegressedRepoOnly(t *testing.T) {
 	}
 	if len(b.Findings) != 0 {
 		t.Fatalf("repob (clean) should have no findings: %+v", b)
+	}
+	// The clean repo must NOT be falsely summarized; and Findings serializes as [] not null.
+	if !strings.Contains(b.Summary, "no suspected regressions") {
+		t.Fatalf("clean repo summary wrong: %q", b.Summary)
+	}
+	if !strings.Contains(out, `"findings": []`) {
+		t.Fatalf("empty findings must serialize as [] not null:\n%s", out)
 	}
 }
 
@@ -488,15 +500,16 @@ func TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain(t *testing.T) {
 }
 
 func TestWorkspaceFreshnessBlocksScan(t *testing.T) {
-	// Only an unsafe brain<->tree pairing (repo moved / key mismatch) blocks the scan; the rest are
-	// safe to scan (they just yield no anomalies or a still-valid pairing).
-	for _, st := range []string{"ok", "degraded", "missing-brain", "missing-semantic", "unknown", ""} {
+	// Only an untrusted brain<->tree pairing (PairingUnsafe) blocks the scan. State alone does NOT —
+	// a stale/broken semantic index (even State "unsafe") over a valid pairing is still scannable
+	// from raw sessions, and blocking it would drop real findings.
+	for _, st := range []string{"ok", "degraded", "missing-brain", "missing-semantic", "unknown", "unsafe", ""} {
 		if workspaceFreshnessBlocksScan(workspaceRepoFreshness{State: st}) {
-			t.Errorf("state %q should NOT block the scan", st)
+			t.Errorf("state %q without PairingUnsafe should NOT block the scan", st)
 		}
 	}
-	if !workspaceFreshnessBlocksScan(workspaceRepoFreshness{State: "unsafe"}) {
-		t.Error("unsafe state must block the scan")
+	if !workspaceFreshnessBlocksScan(workspaceRepoFreshness{State: "unsafe", PairingUnsafe: true}) {
+		t.Error("PairingUnsafe must block the scan")
 	}
 }
 
@@ -578,14 +591,13 @@ func TestWorkspaceFreshnessWarning(t *testing.T) {
 	if workspaceFreshnessWarning(workspaceRepoFreshness{State: "ok"}) != "" {
 		t.Error("ok freshness should not warn")
 	}
-	for _, st := range []string{"degraded", "missing-brain", "missing-semantic", "unknown"} {
+	// A scanned repo with a non-ideal state gets a loud warning. "unsafe" here means a stale/broken
+	// index over a still-valid pairing (a genuine pairing block sets PairingUnsafe and never reaches
+	// this warning path), so it warns "scanned raw sessions only" rather than being silent.
+	for _, st := range []string{"degraded", "missing-brain", "missing-semantic", "unknown", "unsafe"} {
 		if workspaceFreshnessWarning(workspaceRepoFreshness{State: st}) == "" {
 			t.Errorf("state %q should produce a loud warning", st)
 		}
-	}
-	// "unsafe" never reaches the warning path (it blocks the scan), so it is intentionally empty here.
-	if workspaceFreshnessWarning(workspaceRepoFreshness{State: "unsafe"}) != "" {
-		t.Error("unsafe is handled as a skip, not a scan-warning")
 	}
 }
 

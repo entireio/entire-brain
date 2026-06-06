@@ -152,7 +152,9 @@ func TestMCPBrainReviewTool(t *testing.T) {
 		t.Fatalf("tools/list missing brain_review/location_only: %s", listData)
 	}
 	callData, _ := json.Marshal(responses[1])
-	for _, want := range []string{"diff-less", "Suspected regression", "review_context.go", "master..HEAD"} {
+	// schema_version is the load-bearing contract field cross-repo consumers bind to; a silent rename
+	// (e.g. to schemaVersion) or a dropped field must fail here, not pass CI green.
+	for _, want := range []string{"diff-less", "Suspected regression", "review_context.go", "master..HEAD", "schema_version"} {
 		if !strings.Contains(string(callData), want) {
 			t.Fatalf("brain_review result missing %q: %s", want, callData)
 		}

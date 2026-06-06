@@ -108,7 +108,7 @@ entire brain workspace review <ws> "<query>"                  # same, review-sha
   `docs/diffless_review_seam.md`.
 
 `entire brain review` is hidden because it is the **machine contract**, not a human verb. The intended
-human surfaces are the cli's `entire review` (a diff-less mode that turns on when the brain is installed)
+human surfaces are the cli's `entire review` (a diff-less mode that *would* turn on when the brain is installed)
 and `entire labs investigate`. Those consumers live in the `entireio/cli` repo and are **not yet wired**
 (review is prototyped on a held branch; investigate is designed only) — see `docs/diffless_review_seam.md`.
 

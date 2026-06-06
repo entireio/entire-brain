@@ -1,4 +1,4 @@
-# Diff-less review seam: the contract `entire review` and `entire labs investigate` consume
+# Diff-less review seam: the contract `entire review` and `entire labs investigate` are intended to consume (cross-repo, not yet wired)
 
 ## What this is
 
