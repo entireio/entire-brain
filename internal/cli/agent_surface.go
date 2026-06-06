@@ -222,6 +222,7 @@ Durable facts (curated, provenance-anchored repo knowledge):
   entire brain recall "<query>" [--scope local|cross-cutting] [--expand] --json
   entire brain remember "<fact>" [--path category.sub.type] --json
   entire brain facts tree [--path <prefix>] [--depth N]
+  entire brain facts retract <fact-id> --json
   entire brain inspect facts "<query>" --json
   entire brain inspect blame <fact-id> --json
 
