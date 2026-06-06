@@ -149,6 +149,7 @@ type semanticRecord struct {
 	Reason          string   `json:"reason"`
 	StableIDVersion string   `json:"stable_id_version"`
 	Blob            string   `json:"blob"`
+	Score           int      `json:"score,omitempty"`
 }
 
 type semanticIndexOptions struct {
@@ -2679,6 +2680,10 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 	if err != nil {
 		return err
 	}
+	result.Roots = nonNilRecords(result.Roots)
+	if result.Suggestions == nil {
+		result.Suggestions = []semanticTestSuggestion{}
+	}
 	if testsOpts.json {
 		data, err := json.MarshalIndent(struct {
 			Freshness staleReport         `json:"freshness"`
@@ -3122,9 +3127,26 @@ LIMIT ? OFFSET ?`
 		if err := rows.Scan(&record.ID, &record.Kind, &record.Name, &record.QualifiedName, &record.FilePath, &record.StartLine, &record.EndLine, &record.Signature, &record.Language, &record.StableIDVersion, &hits); err != nil {
 			return nil, err
 		}
+		record.Score = hits
 		results = append(results, record)
 	}
 	return results, rows.Err()
+}
+
+// semanticQueryLooksLikePath reports whether a query is a file path rather than
+// free text. Path queries must resolve exactly: tokenizing "missing/file.ts"
+// into ["missing","file"] would otherwise match half the index on the common
+// token "file" and report a bogus blast radius for a path that does not exist.
+func semanticQueryLooksLikePath(query string) bool {
+	query = strings.TrimSpace(query)
+	if strings.ContainsAny(query, "/\\") {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(query)) {
+	case ".go", ".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".sql", ".java", ".rb", ".mjs", ".cjs":
+		return true
+	}
+	return false
 }
 
 func findSemanticSymbolsInSQLite(storePath, query string, limit, offset int) ([]semanticRecord, error) {
@@ -3164,7 +3186,7 @@ LIMIT ? OFFSET ?`, literal, literal, literal, literal, query, query, limit, offs
 	// nothing and the query is multi-word. This leaves every single-symbol and
 	// substring lookup untouched while making natural-language queries (and the
 	// task strings `brief` passes here) match on their content words.
-	if len(results) == 0 {
+	if len(results) == 0 && !semanticQueryLooksLikePath(query) {
 		tokens := semanticQueryTokens(query)
 		if len(tokens) > 1 {
 			return findSemanticSymbolsTokenizedSQLite(db, tokens, limit, offset)
