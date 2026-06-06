@@ -192,12 +192,15 @@ to bound cost and to make turn-level provenance free.
   checkpoint when one exists; if HEAD has no checkpoint (dirty worktree, capture
   off), the anchor records the commit only and the fact is still stored.
 - `entire brain recall "<query>" [--branch <b>] [--k N] [--scope
-  local|cross-cutting] [--expand] [--all] [--json]` — retrieve facts. Keyword +
-  taxonomy + code-locus ranking by default (see Recall Ranking and Appendix D);
-  `--scope` restricts to code vs how-we-work facts; `--expand` has the agent
-  rewrite the query into the facts' vocabulary first (opt-in/experimental — the
-  benchmark shows no significant retrieval gain at n=121; see Phasing). Default `k=10`,
-  `active`-only unless `--all`. Embedding rerank is still Phase D (not shipped).
+  local|cross-cutting] [--no-semantic] [--expand] [--all] [--json]` — retrieve
+  facts. Ranking fuses keyword + taxonomy + code-locus with **embedding rerank
+  (on by default, Phase D)** via RRF (see Recall Ranking and Appendix D);
+  `--no-semantic` falls back to lexical-only, and recall degrades to lexical
+  automatically when the embedder is unavailable. `--scope` restricts to code vs
+  how-we-work facts; `--expand` has the agent rewrite the query into the facts'
+  vocabulary first (opt-in/experimental — the benchmark shows no significant
+  retrieval gain at n=121; see Phasing). Default `k=10`, `active`-only unless
+  `--all`.
 - `entire brain distill [--since <ref>] [--branch <b>] [--force] [--json]` —
   batch distillation over captured sessions for the current branch (see
   Distillation Model). Idempotent: facts collapse by content-derived id.
@@ -267,8 +270,10 @@ and history rank consistently. A fact's score combines:
 
 `recall` returns `active` facts for the current branch plus any facts promoted
 into it, default `k=10`. `brief` caps facts at ~6 and presents them separately
-from history. Embedding rerank (Phase D) replaces only the scoring step; the
-filtering and branch rules are unchanged.
+from history. Embedding rerank (Phase D, **on by default** in `recall` and
+`brief`) replaces only the scoring step — it fuses the semantic list with the
+lexical one via RRF; the filtering and branch rules are unchanged, and it
+degrades to lexical when the embedder is unavailable or `--no-semantic` is set.
 
 ## Redaction And Export
 

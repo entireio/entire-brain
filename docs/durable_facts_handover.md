@@ -120,10 +120,21 @@ a stronger embedder / cross-encoder reranker (heavier, evidence-gated) or in
 fact-quality/structure work (Appendix D: taxonomy under-discrimination,
 locus-indexed facts) — a different axis from retrieval scoring.
 
+### Default-on (shipped)
+
+`recall` and `brief` now rerank semantically **by default** (RRF fusion),
+degrading silently to lexical when the embedder is unavailable; `--no-semantic`
+opts out. `eval` keeps `--semantic` explicit so the base-vs-semantic A/B still
+measures both arms. Latency note: each invocation that uses semantics pays a
+~58ms one-time decode of the 33MB embedded model (lexical never loads it), plus
+fact-embedding (~50–100ms on a 200–375-fact branch). Acceptable interactively;
+the disk cache below removes the per-call fact-embedding cost.
+
 ### Open next steps (each its own measured slice)
 
-- **Default-on policy + brief integration** + disk-persisted embedding cache
-  under `facts/<branch>/embeddings/` (currently an in-memory per-run cache).
+- **Disk-persisted embedding cache** under `facts/<branch>/embeddings/`
+  (model-id-keyed, atomic writes) — currently vectors are an in-memory per-run
+  cache, so each CLI invocation re-embeds the branch's facts.
 - **Stronger-embedder / cross-encoder rerank** — only if a measured target
   justifies the weight; the `Embedder` interface already supports the swap.
 - **Asset size:** 32.9MB int8 — revisit (harder quantization / smaller model)

@@ -35,8 +35,9 @@ type agentStatusOptions struct {
 }
 
 type brainBriefOptions struct {
-	json  bool
-	limit int
+	json       bool
+	limit      int
+	noSemantic bool
 }
 
 type brainShowOptions struct {
@@ -372,6 +373,7 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&briefOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum semantic records per section")
+	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Disable embedding rerank for facts; use lexical ranking only")
 	return cmd
 }
 
@@ -708,7 +710,13 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		if facts, factsErr := loadFacts(status.Brain.Path, branch); factsErr != nil {
 			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
 		} else {
-			report.Facts = rankFacts(facts, task, brainBriefFactsCount(briefOpts.limit), false)
+			// Semantic rerank on by default; nil reranker (embedder
+			// unavailable or --no-semantic) falls back to lexical ranking.
+			var rr *semanticReranker
+			if !briefOpts.noSemantic {
+				rr = newSemanticReranker(defaultEmbedder())
+			}
+			report.Facts = rankFactsFused(facts, task, brainBriefFactsCount(briefOpts.limit), false, rr)
 		}
 	}
 	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroups(status.Repo.Root, report, task)
