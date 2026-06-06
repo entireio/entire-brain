@@ -1,0 +1,46 @@
+Codex reviewed the branch and has the following findings:
+
+---
+
+Findings                                                                    
+                                                                              
+  • P1:  distill --branch  rewrites  sources.facts  from only the filtered    
+  branch. In distill_cmd.go /Users/thomi/Projects/entire-                     
+  brain/internal/cli/distill_cmd.go:223, non-matching sessions are skipped, so
+   byBranch  contains only the requested branch. Later distill_cmd.go         
+  /Users/thomi/Projects/entire-brain/internal/cli/distill_cmd.go:316          
+  summarizes that partial map and replaces  manifest.Sources.Facts , dropping 
+  counts/branch listings/proposals for facts that still exist on disk. Add    
+  coverage for branch-limited distill preserving the whole-store manifest,    
+  probably by scanning all fact branches before writing the summary.          
+  • P1: Incremental distill can reuse stale facts after transcript            
+  content/mode changes. The cache check happens before reading the transcript 
+  at distill_cmd.go /Users/thomi/Projects/entire-                             
+  brain/internal/cli/distill_cmd.go:236, and the fingerprint at distill_cmd.go
+  /Users/thomi/Projects/entire-brain/internal/cli/distill_cmd.go:372 only     
+  includes session id, checkpoint, path, and branch. If refresh rewrites the  
+  same transcript path with different content, for example compact vs raw mode
+  or exporter fixes, distill skips the session and leaves old extracted facts.
+  Include transcript mode and/or a transcript content hash in the fingerprint,
+  and add a test that changing transcript bytes under the same                
+  session/checkpoint/path re-runs the agent.                                  
+  • P2:  --agent command  is advertised for recall/eval flows but cannot be   
+  configured.  distillAgentCommandArgs("command", nil, ...)  always errors    
+  because  --agent-command  is required (distill.go                           
+  /Users/thomi/Projects/entire-brain/internal/cli/distill.go:100).  recall -- 
+  expand  passes  nil  at facts_read_cmd.go /Users/thomi/Projects/entire-     
+  brain/internal/cli/facts_read_cmd.go:76 while advertising  command  at      
+  facts_read_cmd.go /Users/thomi/Projects/entire-                             
+  brain/internal/cli/facts_read_cmd.go:119;  facts eval  and  eval-gen --     
+  refine  do the same at facts_eval.go /Users/thomi/Projects/entire-          
+  brain/internal/cli/facts_eval.go:222 and facts_eval_gen.go                  
+  /Users/thomi/Projects/entire-brain/internal/cli/facts_eval_gen.go:107.      
+  Either add  --agent-command  plumbing to these commands or remove  command  
+  from their accepted/help text.                                              
+  • P3:  remember --path  accepts unknown taxonomy top-levels. Explicit paths 
+  are only syntactically normalized at facts_write_cmd.go                     
+  /Users/thomi/Projects/entire-brain/internal/cli/facts_write_cmd.go:101,     
+  unlike agent classification, which filters against the active taxonomy. That
+  lets users create immediately-orphaned facts under categories the system    
+  treats as invalid. Filter explicit paths through  filterFactPathsByTaxonomy 
+  and test that  remember --path nonsense.foo.bar  is rejected.
