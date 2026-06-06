@@ -524,6 +524,35 @@ func TestWorkspaceRegressionsSkipsUnsafeRepo(t *testing.T) {
 	if !strings.Contains(r.Error, "unsafe") {
 		t.Fatalf("expected an unsafe-skip error, got %q", r.Error)
 	}
+
+	// Text output must also surface the unsafe state + skip, and must NOT print a bogus finding.
+	// Use a fresh command: cobra flag state (--json) persists on a reused root command.
+	textCmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	textOut, err := execute(t, textCmd, "workspace", "regressions", "related", "fix scopeBaseRef base scope")
+	if err != nil {
+		t.Fatalf("workspace regressions (text): %v", err)
+	}
+	if !strings.Contains(textOut, "[unsafe]") || !strings.Contains(textOut, "skipped (unsafe)") {
+		t.Fatalf("text output must surface unsafe freshness + skip:\n%s", textOut)
+	}
+	if strings.Contains(textOut, "review_context.go") {
+		t.Fatalf("unsafe repo must not emit a finding in text:\n%s", textOut)
+	}
+}
+
+func TestWorkspaceFreshnessWarning(t *testing.T) {
+	if workspaceFreshnessWarning(workspaceRepoFreshness{State: "ok"}) != "" {
+		t.Error("ok freshness should not warn")
+	}
+	for _, st := range []string{"degraded", "missing-brain", "missing-semantic", "unknown"} {
+		if workspaceFreshnessWarning(workspaceRepoFreshness{State: st}) == "" {
+			t.Errorf("state %q should produce a loud warning", st)
+		}
+	}
+	// "unsafe" never reaches the warning path (it blocks the scan), so it is intentionally empty here.
+	if workspaceFreshnessWarning(workspaceRepoFreshness{State: "unsafe"}) != "" {
+		t.Error("unsafe is handled as a skip, not a scan-warning")
+	}
 }
 
 func TestWorkspaceListAndRemove(t *testing.T) {

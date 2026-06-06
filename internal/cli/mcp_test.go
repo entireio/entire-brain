@@ -140,21 +140,30 @@ func TestMCPBrainReviewTool(t *testing.T) {
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`) +
-		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_review","arguments":{"query":"review scopeBaseRef base scope"}}}`)
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_review","arguments":{"query":"review scopeBaseRef base scope"}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_review","arguments":{"query":"review scopeBaseRef base scope","location_only":true}}}`)
 	var out bytes.Buffer
 	if err := runMCP(cmd.Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp: %v", err)
 	}
 	responses := readMCPResponses(t, out.String())
 	listData, _ := json.Marshal(responses[0]["result"])
-	if !strings.Contains(string(listData), "brain_review") {
-		t.Fatalf("tools/list missing brain_review: %s", listData)
+	if !strings.Contains(string(listData), "brain_review") || !strings.Contains(string(listData), "location_only") {
+		t.Fatalf("tools/list missing brain_review/location_only: %s", listData)
 	}
 	callData, _ := json.Marshal(responses[1])
-	for _, want := range []string{"diff-less", "Suspected regression", "review_context.go"} {
+	for _, want := range []string{"diff-less", "Suspected regression", "review_context.go", "master..HEAD"} {
 		if !strings.Contains(string(callData), want) {
 			t.Fatalf("brain_review result missing %q: %s", want, callData)
 		}
+	}
+	// location_only must still localize the finding but NOT leak the expected/current values.
+	locData, _ := json.Marshal(responses[2])
+	if !strings.Contains(string(locData), "review_context.go") {
+		t.Fatalf("brain_review --location-only dropped the file location: %s", locData)
+	}
+	if strings.Contains(string(locData), "master..HEAD") || strings.Contains(string(locData), `scopeBaseRef+`) {
+		t.Fatalf("brain_review location_only leaked expected/current values: %s", locData)
 	}
 }
 

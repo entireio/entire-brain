@@ -600,14 +600,23 @@ func newInspectRegressionsCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-// ---- Diff-less review: the stable contract `entire review`'s diff-less mode consumes ----
+// ---- Diff-less review: the versioned contract `entire review` / `labs investigate` consume ----
 //
-// This is the machine contract, not a human verb. When entire-brain is installed, `entire review`
-// gains a diff-less mode (cli side) that shells `entire-brain review <query> --json` and folds these
-// findings into the review prompt — reviewing the working tree against the brain's memory instead of
-// a branch-vs-base diff, the same graceful upgrade entire-brain gets from entire-sem. The cli consumer
-// currently lives on a held branch off Peyton's in-flight `entire review` redesign (a moving target),
-// so this command is hidden (see root.go); `reviewReport.schema_version` is what the consumer binds to.
+// This is the machine contract, not a human verb (the human review surface is `entire review` in the
+// cli; this command is hidden — see root.go). When entire-brain is installed the cli's `entire review`
+// gains a diff-less mode that shells `entire-brain review <query> --json`, checks
+// reviewReport.schema_version, and folds these findings into the review prompt — reviewing the working
+// tree against the brain's memory instead of a branch-vs-base diff (the graceful upgrade entire-brain
+// gets from entire-sem). Full contract + consumer design: docs/diffless_review_seam.md.
+//
+// Consumer status (cross-repo, in entireio/cli — NOT in this repo, do not claim either is shipped):
+//   - `entire review`            : prototyped on a held branch off Peyton's review redesign; NOT landed.
+//   - `entire labs investigate`  : DESIGNED, NOT WIRED.
+//
+// TODO(diffless-seam): wire `entire labs investigate` to consume this contract — fold the suspected
+// regressions for the investigation topic into the per-turn shared context so every brainstorming
+// agent sees them. No diff concept there, so it fires whenever the brain is installed. Design lives in
+// docs/diffless_review_seam.md; the cli-side hook is prototyped on the held branch, not landed here.
 
 // reviewReportSchemaVersion is the contract version `entire review` binds to. Bump on any
 // breaking change to reviewReport / reviewFinding (field rename/removal/semantics).

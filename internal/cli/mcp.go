@@ -191,7 +191,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_review",
-			"description": "Diff-less review (schema_version contract): review the current working tree against the brain's memory (no branch-vs-base diff) and return severity-ranked suspected-regression findings with provenance. The stable contract `entire review`'s diff-less mode consumes when entire-brain is installed.",
+			"description": "Diff-less review (versioned schema_version contract): review the current working tree against the brain's memory (no branch-vs-base diff) and return severity-ranked suspected-regression findings with provenance. The contract `entire review`'s diff-less mode and `labs investigate` are intended to bind to; those consumers are cross-repo (entireio/cli) and not yet landed. See docs/diffless_review_seam.md.",
 			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}},
 		},
 		{
@@ -201,7 +201,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_workspace_review",
-			"description": "Cross-repo diff-less review: review each repo's current tree in a local workspace against its brain's memory and return severity-ranked suspected-regression findings per repo. The multi-brain building block `entire review` could consume across related repos.",
+			"description": "Cross-repo diff-less review: review each repo's current tree in a local workspace against its brain's memory and return severity-ranked suspected-regression findings per repo. The multi-brain extension of the same versioned contract; consumers are cross-repo (entireio/cli) and not yet landed. See docs/diffless_review_seam.md.",
 			"inputSchema": map[string]any{"type": "object", "required": []string{"workspace", "query"}, "properties": map[string]any{"workspace": stringArg("workspace", "Workspace name"), "query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings per repo"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}},
 		},
 	}

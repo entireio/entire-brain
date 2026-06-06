@@ -777,6 +777,29 @@ func workspaceFreshnessBlocksScan(freshness workspaceRepoFreshness) bool {
 	return freshness.State == "unsafe"
 }
 
+// workspaceFreshnessWarning returns a loud, human-facing annotation for a repo that is scannable but
+// not "ok" (so the result is qualified rather than silently trusted), or "" for ok. Surfaced in both
+// JSON (prepended to result.Warnings) and text output. "unsafe" never reaches here — it blocks the
+// scan in workspaceFreshnessBlocksScan and is reported as a skip instead.
+func workspaceFreshnessWarning(f workspaceRepoFreshness) string {
+	switch f.State {
+	case "degraded":
+		return "freshness degraded — brain/index may be stale; verify findings"
+	case "missing-brain":
+		return "no brain for this repo — nothing to compare against"
+	case "missing-semantic":
+		return "semantic index missing — scanned raw sessions only"
+	case "unknown":
+		detail := f.Detail
+		if detail == "" {
+			detail = "could not resolve repo state"
+		}
+		return "freshness unknown — " + detail
+	default:
+		return ""
+	}
+}
+
 // scanWorkspaceRepoRegressions runs the regression detector for a single workspace repo and returns
 // the resolved working-tree path, anomalies, warnings, and a per-repo error string (empty on success).
 func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo workspaceRepo, ro regressionDetectorOptions, query string) (string, []regressionAnomaly, []string, string) {
@@ -830,6 +853,9 @@ func runWorkspaceRegressions(cmd *cobra.Command, opts Options, ro regressionDete
 			result.Anomalies = anomalies
 			result.Warnings = warnings
 			result.Error = scanErr
+			if warn := workspaceFreshnessWarning(freshness); warn != "" {
+				result.Warnings = append([]string{warn}, result.Warnings...)
+			}
 		}
 		results = append(results, result)
 	}
@@ -842,15 +868,26 @@ func runWorkspaceRegressions(cmd *cobra.Command, opts Options, ro regressionDete
 	out := cmd.OutOrStdout()
 	total := 0
 	for _, result := range results {
+		// Surface per-repo freshness so a stale/degraded pairing is never silently trusted.
+		state := result.Freshness.State
+		if state == "" {
+			state = "unknown"
+		}
+		if len(result.Anomalies) > 0 || result.Error != "" || state != "ok" {
+			fmt.Fprintf(out, "%s [%s]\n", result.RepoKey, state)
+		}
+		if result.Error != "" {
+			fmt.Fprintf(out, "  %s\n", result.Error)
+		}
+		for _, w := range result.Warnings {
+			fmt.Fprintf(out, "  warning: %s\n", w)
+		}
 		for _, a := range result.Anomalies {
 			total++
-			fmt.Fprintf(out, "%s %s:%d [%s, conf %.2f] %s\n", result.RepoKey, a.File, a.Line, a.Kind, a.Confidence, a.Identifier)
+			fmt.Fprintf(out, "  %s:%d [%s, conf %.2f] %s\n", a.File, a.Line, a.Kind, a.Confidence, a.Identifier)
 			if a.Expected != "" {
 				fmt.Fprintf(out, "    expected: %s\n    current:  %s\n", a.Expected, a.Current)
 			}
-		}
-		if result.Error != "" {
-			fmt.Fprintf(out, "%s error %s\n", result.RepoKey, result.Error)
 		}
 	}
 	if total == 0 {
@@ -883,6 +920,9 @@ func runWorkspaceReview(cmd *cobra.Command, opts Options, ro regressionDetectorO
 		result.RepoPath = repoPath
 		result.Warnings = warnings
 		result.Error = scanErr
+		if warn := workspaceFreshnessWarning(freshness); warn != "" {
+			result.Warnings = append([]string{warn}, result.Warnings...)
+		}
 		for _, a := range anomalies {
 			result.Findings = append(result.Findings, anomalyToReviewFinding(a))
 		}
@@ -907,17 +947,25 @@ func runWorkspaceReview(cmd *cobra.Command, opts Options, ro regressionDetectorO
 	out := cmd.OutOrStdout()
 	fmt.Fprintln(out, summary)
 	for _, result := range results {
-		if len(result.Findings) == 0 && result.Error == "" {
+		// Surface per-repo freshness so a stale/degraded or skipped pairing is visible, not silent.
+		state := result.Freshness.State
+		if state == "" {
+			state = "unknown"
+		}
+		if len(result.Findings) == 0 && result.Error == "" && len(result.Warnings) == 0 && state == "ok" {
 			continue
 		}
 		label := result.RepoKey
 		if result.Name != "" {
 			label = result.Name + " (" + result.RepoKey + ")"
 		}
-		fmt.Fprintf(out, "\n%s\n", label)
+		fmt.Fprintf(out, "\n%s [%s]\n", label, state)
 		if result.Error != "" {
 			fmt.Fprintf(out, "  error: %s\n", result.Error)
 			continue
+		}
+		for _, w := range result.Warnings {
+			fmt.Fprintf(out, "  warning: %s\n", w)
 		}
 		for _, f := range result.Findings {
 			fmt.Fprintf(out, "  [%s] %s\n    %s:%d\n    %s\n    evidence: %s\n",
