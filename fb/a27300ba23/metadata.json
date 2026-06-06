@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "fba27300ba23",
+  "strategy": "manual-commit",
+  "branch": "claude/regression-radar",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/audit_codex.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fb/a27300ba23/0/metadata.json",
+      "transcript": "/fb/a27300ba23/0/full.jsonl",
+      "content_hash": "/fb/a27300ba23/0/content_hash.txt",
+      "prompt": "/fb/a27300ba23/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 173938,
+    "cache_creation_tokens": 9525762,
+    "cache_read_tokens": 755800334,
+    "output_tokens": 2227841,
+    "api_call_count": 1441
+  }
+}
