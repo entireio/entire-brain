@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "3b5b2b037a40",
+  "strategy": "manual-commit",
+  "branch": "claude/brain-agent-ux-improvements",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_test.go",
+    "internal/cli/history.go",
+    "internal/cli/mcp.go",
+    "internal/cli/root.go",
+    "internal/cli/semantic.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/3b/5b2b037a40/0/metadata.json",
+      "transcript": "/3b/5b2b037a40/0/full.jsonl",
+      "content_hash": "/3b/5b2b037a40/0/content_hash.txt",
+      "prompt": "/3b/5b2b037a40/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 9019,
+    "cache_creation_tokens": 146702,
+    "cache_read_tokens": 9787835,
+    "output_tokens": 68668,
+    "api_call_count": 92
+  }
+}

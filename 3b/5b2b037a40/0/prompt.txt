@@ -1,0 +1,9 @@
+You are allowed to read the code of this repo, but not any other repo, not on GitHub and not on this machine. I want you to understand how entire-brain works and then use the brain for the project in /Users/thomi/Projects/podcasts – again, without reading it's code. Explain how you are using the brain and what you learn about the podcasts project.
+
+---
+
+Based on your learnings about the podcast project from its brain, do you have any suggestions on how to improve entire-brain for your usage of entire-brain? As in, how would you change entire-brain's approach to make your life easier?
+
+---
+
+Great list. Create a stacked PR from this branch and implement all improvements. Test the results by refreshing the brain for podcasts, spinning of a Claude instance running Sonnet, check if the brain is more helpful. Rinse and repeat until you can't find any more improvements.

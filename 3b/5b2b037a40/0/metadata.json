@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "3b5b2b037a40",
+  "session_id": "dcc6c5a1-6066-4db5-ab94-5502213f12e8",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-06T21:18:42.45785Z",
+  "branch": "claude/brain-agent-ux-improvements",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/history.go",
+    "internal/cli/agent_surface.go",
+    "internal/cli/mcp.go",
+    "internal/cli/brain_test.go",
+    "internal/cli/semantic.go",
+    "internal/cli/root.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "02f04f6c60a4",
+  "token_usage": {
+    "input_tokens": 9019,
+    "cache_creation_tokens": 146702,
+    "cache_read_tokens": 9787835,
+    "output_tokens": 68668,
+    "api_call_count": 92
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-06T21:18:42.440223Z",
+    "agent_lines": 488,
+    "agent_removed": 61,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 488,
+    "total_lines_changed": 549,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
