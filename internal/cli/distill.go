@@ -40,7 +40,12 @@ func stripTemplateFrontmatter(content string) string {
 	lines := strings.Split(content, "\n")
 	for i := 1; i < len(lines); i++ {
 		if strings.TrimSpace(lines[i]) == "---" {
-			return strings.TrimLeft(strings.Join(lines[i+1:], "\n"), "\n")
+			// Trim leading CR as well as LF: on Windows the template is checked out
+			// with CRLF endings, so splitting on "\n" leaves a stray "\r" on the
+			// blank line after the closing delimiter — trimming only "\n" would
+			// leave the body starting with "\r\n" (breaking the prefix the agent
+			// runners expect and re-introducing a leading dash risk).
+			return strings.TrimLeft(strings.Join(lines[i+1:], "\n"), "\r\n")
 		}
 	}
 	return content // no closing delimiter; leave as-is
