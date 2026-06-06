@@ -129,6 +129,22 @@ func promoteFacts(source, target []factRecord, strategy, intoBranch string, now 
 	return result, proposals, promoted
 }
 
+// retractFact marks a fact retracted (no longer true) without deleting it, so
+// the change stays auditable; `facts gc` prunes retracted facts later. Returns
+// whether the fact was found, and whether its status actually changed.
+func retractFact(facts []factRecord, id string, now time.Time) (found, changed bool) {
+	i := indexOfFact(facts, id)
+	if i < 0 {
+		return false, false
+	}
+	if facts[i].Status == factStatusRetracted {
+		return true, false
+	}
+	facts[i].Status = factStatusRetracted
+	facts[i].UpdatedAt = now
+	return true, true
+}
+
 // activeConflictIndexes returns indexes of active facts that share a taxonomy
 // path with candidate but have a different id (a genuine same-path conflict).
 func activeConflictIndexes(facts []factRecord, candidate factRecord) []int {

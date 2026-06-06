@@ -150,6 +150,7 @@ Manage the fact store:
 ```sh
 entire brain facts review                   # resolve queued merge/supersede proposals
 entire brain facts promote --from <branch> --strategy keep-both
+entire brain facts retract <fact-id>        # mark a fact no longer true (gc prunes later)
 entire brain facts gc --force               # prune retracted/old-superseded; report orphans
 ```
 

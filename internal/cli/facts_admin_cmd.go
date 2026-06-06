@@ -22,7 +22,56 @@ func newFactsCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newFactsEvalCompareCommand(opts))
 	cmd.AddCommand(newFactsReviewCommand(opts))
 	cmd.AddCommand(newFactsPromoteCommand(opts))
+	cmd.AddCommand(newFactsRetractCommand(opts))
 	cmd.AddCommand(newFactsGCCommand(opts))
+	return cmd
+}
+
+func newFactsRetractCommand(opts Options) *cobra.Command {
+	var (
+		branch  string
+		jsonOut bool
+	)
+	cmd := &cobra.Command{
+		Use:   "retract <fact-id>",
+		Short: "Mark a fact as retracted (no longer true); pruned later by gc",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			factID := args[0]
+			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			if err != nil {
+				return err
+			}
+			facts, err := loadFacts(brainDir, resolvedBranch)
+			if err != nil {
+				return err
+			}
+			now := opts.Now().UTC()
+			found, changed := retractFact(facts, factID, now)
+			if !found {
+				return fmt.Errorf("no fact %s on %s", factID, resolvedBranch)
+			}
+			if changed {
+				if err := writeFacts(brainDir, resolvedBranch, facts); err != nil {
+					return err
+				}
+				if err := updateFactSourceManifest(brainDir, now); err != nil {
+					return err
+				}
+			}
+			if jsonOut {
+				return writeJSON(cmd, map[string]any{"id": factID, "branch": resolvedBranch, "status": factStatusRetracted, "changed": changed})
+			}
+			if changed {
+				fmt.Fprintf(cmd.OutOrStdout(), "retracted %s on %s (run `facts gc --force` to prune)\n", factID, resolvedBranch)
+			} else {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s on %s was already retracted\n", factID, resolvedBranch)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch the fact belongs to (default: current branch)")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the result as JSON")
 	return cmd
 }
 
