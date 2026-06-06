@@ -121,7 +121,7 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     # B. mcp authenticity
     if cond in MCP_CONDITIONS:
         names = activity.get("mcp_tool_names") or []
-        real = [n for n in names if re.search(r"(?:^|__)brain_(?:brief|history|query|context|impact|changes|stale)$", str(n))]
+        real = [n for n in names if re.search(r"(?:^|__)brain_(?:brief|history|query|context|impact|changes|stale|regressions|review|workspace_regressions|workspace_review)$", str(n))]
         if mcp_calls <= 0:
             # An mcp run with no tool calls is an HONEST FAILURE (note), UNLESS it was
             # counted as a passing/win result -> then it is a HARD flag (false win).

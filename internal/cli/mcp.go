@@ -184,6 +184,26 @@ func mcpToolDefinitions() []map[string]any {
 			"description": "Search indexed Entire session history, decisions, validation notes, tool paths, or architecture facts.",
 			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "History query"), "kind": stringArg("kind", "history, decisions, sessions, validation, tool-paths, or architecture")}},
 		},
+		{
+			"name":        "brain_regressions",
+			"description": "Flag suspected regressions: lines the session history asserts but the current tree changed (default) or, with include_deletions, deleted (file:line, expected value, confidence, provenance).",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "Task description plus the failing symbols/identifiers"), "limit": integerArg("limit", "Maximum suspected regressions"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (higher recall, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}},
+		},
+		{
+			"name":        "brain_review",
+			"description": "Diff-less review (versioned schema_version contract): review the current working tree against the brain's memory (no branch-vs-base diff) and return severity-ranked suspected-regression findings with provenance. The contract `entire review`'s diff-less mode and `labs investigate` are intended to bind to; those consumers are cross-repo (entireio/cli) and not yet landed. See docs/diffless_review_seam.md.",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}},
+		},
+		{
+			"name":        "brain_workspace_regressions",
+			"description": "Flag suspected regressions across every repo in a local multi-repo workspace (each brain's memory vs that repo's current tree). Tolerates sessions-only brains; results are aggregated by repo_key.",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"workspace", "query"}, "properties": map[string]any{"workspace": stringArg("workspace", "Workspace name"), "query": stringArg("query", "Task description plus the failing symbols/identifiers"), "limit": integerArg("limit", "Maximum suspected regressions per repo"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (higher recall, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}},
+		},
+		{
+			"name":        "brain_workspace_review",
+			"description": "Cross-repo diff-less review: review each repo's current tree in a local workspace against its brain's memory and return severity-ranked suspected-regression findings per repo. The multi-brain extension of the same versioned contract; consumers are cross-repo (entireio/cli) and not yet landed. See docs/diffless_review_seam.md.",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"workspace", "query"}, "properties": map[string]any{"workspace": stringArg("workspace", "Workspace name"), "query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings per repo"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}},
+		},
 	}
 }
 
@@ -196,6 +216,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	cmd := &cobra.Command{Use: params.Name}
 	cmd.SetOut(&out)
 	cmd.SetErr(io.Discard)
+	cmd.SetContext(ctx)
 	limit, err := mcpPositiveInt(params.Arguments, "limit", 20)
 	if err != nil {
 		return nil, err
@@ -249,6 +270,42 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			} else {
 				err = runBrainHistoryInspect(ctx, cmd, opts, kind, query, true)
 			}
+		}
+	case "brain_regressions":
+		err = requireMCPQuery(query)
+		if err == nil {
+			inc, _ := params.Arguments["include_deletions"].(bool)
+			loc, _ := params.Arguments["location_only"].(bool)
+			err = runRegressionDetect(ctx, cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, query)
+		}
+	case "brain_review":
+		err = requireMCPQuery(query)
+		if err == nil {
+			inc, _ := params.Arguments["include_deletions"].(bool)
+			loc, _ := params.Arguments["location_only"].(bool)
+			err = runBrainReview(ctx, cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, query)
+		}
+	case "brain_workspace_regressions":
+		workspace := strings.TrimSpace(mcpString(params.Arguments, "workspace"))
+		err = requireMCPQuery(query)
+		if err == nil && workspace == "" {
+			err = errors.New("workspace is required")
+		}
+		if err == nil {
+			inc, _ := params.Arguments["include_deletions"].(bool)
+			loc, _ := params.Arguments["location_only"].(bool)
+			err = runWorkspaceRegressions(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, workspace, query)
+		}
+	case "brain_workspace_review":
+		workspace := strings.TrimSpace(mcpString(params.Arguments, "workspace"))
+		err = requireMCPQuery(query)
+		if err == nil && workspace == "" {
+			err = errors.New("workspace is required")
+		}
+		if err == nil {
+			inc, _ := params.Arguments["include_deletions"].(bool)
+			loc, _ := params.Arguments["location_only"].(bool)
+			err = runWorkspaceReview(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, workspace, query)
 		}
 	default:
 		err = fmt.Errorf("unknown tool: %s", params.Name)

@@ -39,9 +39,15 @@ type workspaceRepo struct {
 }
 
 type workspaceRepoFreshness struct {
-	RepoKey        string `json:"repo_key"`
-	Name           string `json:"name,omitempty"`
-	State          string `json:"state"`
+	RepoKey string `json:"repo_key"`
+	Name    string `json:"name,omitempty"`
+	State   string `json:"state"`
+	// PairingUnsafe is the scan-block signal: true only when the brain<->tree IDENTITY can't be
+	// trusted (the local_path_hint's repo_key no longer matches, or it could not be derived), so a
+	// regression scan would compare one repo's brain against an unrelated tree. This is distinct from
+	// State == "unsafe", which also covers a stale/broken semantic index (a valid pairing the scan
+	// can still run against raw sessions). See workspaceFreshnessBlocksScan.
+	PairingUnsafe  bool   `json:"pairing_unsafe,omitempty"`
 	Detail         string `json:"detail,omitempty"`
 	ContractState  string `json:"contract_state,omitempty"`
 	ContractDetail string `json:"contract_detail,omitempty"`
@@ -80,16 +86,46 @@ type workspaceImpactResult struct {
 	Error     string                 `json:"error,omitempty"`
 }
 
+type workspaceSummary struct {
+	Name  string `json:"name"`
+	Repos int    `json:"repos"`
+}
+
+type workspaceRegressionResult struct {
+	RepoKey   string                 `json:"repo_key"`
+	Name      string                 `json:"name,omitempty"`
+	Freshness workspaceRepoFreshness `json:"freshness"`
+	RepoPath  string                 `json:"repo_path,omitempty"`
+	Anomalies []regressionAnomaly    `json:"anomalies"`
+	Warnings  []string               `json:"warnings,omitempty"`
+	Error     string                 `json:"error,omitempty"`
+}
+
+type workspaceReviewResult struct {
+	RepoKey   string                 `json:"repo_key"`
+	Name      string                 `json:"name,omitempty"`
+	Freshness workspaceRepoFreshness `json:"freshness"`
+	RepoPath  string                 `json:"repo_path,omitempty"`
+	Summary   string                 `json:"summary"`
+	Findings  []reviewFinding        `json:"findings"`
+	Warnings  []string               `json:"warnings,omitempty"`
+	Error     string                 `json:"error,omitempty"`
+}
+
 func newWorkspaceCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "workspace",
 		Short: "Manage local multi-repo brain workspaces",
 	}
 	cmd.AddCommand(newWorkspaceCreateCommand(opts))
+	cmd.AddCommand(newWorkspaceListCommand(opts))
 	cmd.AddCommand(newWorkspaceAddCommand(opts))
+	cmd.AddCommand(newWorkspaceRemoveCommand(opts))
 	cmd.AddCommand(newWorkspaceRefreshCommand(opts))
 	cmd.AddCommand(newWorkspaceQueryCommand(opts))
 	cmd.AddCommand(newWorkspaceImpactCommand(opts))
+	cmd.AddCommand(newWorkspaceRegressionsCommand(opts))
+	cmd.AddCommand(newWorkspaceReviewCommand(opts))
 	return cmd
 }
 
@@ -410,12 +446,17 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 	}
 	hintKey, err := repoStorageKey(ctx, opts.Runner, dirs.Config, repoDir)
 	if err != nil {
+		// Can't derive the tree's repo_key → can't verify the pairing → unsafe to scan.
 		status.State = "unsafe"
+		status.PairingUnsafe = true
 		status.Detail = err.Error()
 		return status
 	}
 	if hintKey != repo.RepoKey {
+		// The tree the hint points at is a DIFFERENT repo than the registered brain → scanning would
+		// manufacture bogus regressions. This is the genuine block case.
 		status.State = "unsafe"
+		status.PairingUnsafe = true
 		status.Detail = "local_path_hint repo_key mismatch: " + hintKey
 		return status
 	}
@@ -427,6 +468,9 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		status.ContractDetail = "semantic freshness unavailable"
 		return status
 	}
+	// State reflects overall freshness for display (refresh/query/impact). The brain<->tree IDENTITY
+	// was already verified above, so semantic staleness here does NOT set PairingUnsafe — the scan
+	// (which reads raw sessions) is still safe to run; only the index is stale.
 	status.State = report.Severity
 	if axis, ok := report.Axes["snapshot"]; ok {
 		status.Detail = axis.Detail
@@ -578,5 +622,382 @@ func writeJSON(cmd *cobra.Command, value any) error {
 		return err
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), string(data))
+	return nil
+}
+
+// ---- workspace list / remove (ergonomics) ----
+
+func newWorkspaceListCommand(opts Options) *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List local workspaces",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkspaceList(cmd, opts, asJSON)
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit machine-readable JSON")
+	return cmd
+}
+
+func runWorkspaceList(cmd *cobra.Command, opts Options, asJSON bool) error {
+	dirs, err := resolvePluginDirs(opts.Env)
+	if err != nil {
+		return err
+	}
+	root := filepath.Join(dirs.Data, repoStoreDirName, workspaceDirName)
+	entries, err := os.ReadDir(root)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	var summaries []workspaceSummary
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		manifest, err := loadWorkspaceManifest(opts.Env, e.Name())
+		if err != nil {
+			// Skip directories that are not valid workspaces (unreadable, bad name, schema drift).
+			continue
+		}
+		summaries = append(summaries, workspaceSummary{Name: manifest.Name, Repos: len(manifest.Repos)})
+	}
+	sort.Slice(summaries, func(i, j int) bool { return summaries[i].Name < summaries[j].Name })
+	if asJSON {
+		return writeJSON(cmd, struct {
+			Workspaces []workspaceSummary `json:"workspaces"`
+		}{Workspaces: summaries})
+	}
+	if len(summaries) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "No workspaces.")
+		return nil
+	}
+	for _, s := range summaries {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s\t%d repo(s)\n", s.Name, s.Repos)
+	}
+	return nil
+}
+
+func newWorkspaceRemoveCommand(opts Options) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "remove <workspace> [repo-key]",
+		Short: "Remove a repo from a workspace, or delete the whole workspace",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repoKey := ""
+			if len(args) == 2 {
+				repoKey = args[1]
+			}
+			return runWorkspaceRemove(cmd, opts, args[0], repoKey)
+		},
+	}
+	return cmd
+}
+
+func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey string) error {
+	if repoKey == "" {
+		// workspaceDir validates the name and rejects symlinked paths, so RemoveAll stays inside the store.
+		dir, err := workspaceDir(opts.Env, workspaceName)
+		if err != nil {
+			return err
+		}
+		if _, err := os.Stat(filepath.Join(dir, workspaceManifestName)); err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("workspace not found: %s", workspaceName)
+			}
+			return err
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "removed workspace %s\n", workspaceName)
+		return nil
+	}
+	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	if err != nil {
+		return err
+	}
+	kept := make([]workspaceRepo, 0, len(manifest.Repos))
+	removed := false
+	for _, r := range manifest.Repos {
+		if r.RepoKey == repoKey {
+			removed = true
+			continue
+		}
+		kept = append(kept, r)
+	}
+	if !removed {
+		return fmt.Errorf("repo not in workspace %s: %s", workspaceName, repoKey)
+	}
+	manifest.Repos = kept
+	manifest.Freshness = nil
+	if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "removed %s from %s\n", repoKey, workspaceName)
+	return nil
+}
+
+// ---- workspace regressions / review (cross-repo diff-less review) ----
+//
+// Unlike query/impact, these tolerate a sessions-only brain: detectRegressionAnomalies reads RAW
+// sessions and uses the semantic index only when present, so a missing export manifest / semantic
+// index is not fatal — the detector degrades to a raw-session scan. Each repo is scanned
+// independently (one repo's missing/locked brain never aborts the others), then aggregated by
+// repo_key, mirroring runWorkspaceQuery.
+
+func newWorkspaceRegressionsCommand(opts Options) *cobra.Command {
+	ro := regressionDetectorOptions{limit: 20}
+	cmd := &cobra.Command{
+		Use:   "regressions <workspace> <query>",
+		Short: "Flag suspected regressions across workspace repos (brain memory vs each current tree)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkspaceRegressions(cmd, opts, ro, args[0], args[1])
+		},
+	}
+	cmd.Flags().IntVar(&ro.limit, "limit", 20, "Maximum suspected regressions per repo")
+	cmd.Flags().BoolVar(&ro.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&ro.includeDeletions, "include-deletions", false, "Also flag deleted assignments (higher recall, noisier)")
+	cmd.Flags().BoolVar(&ro.locationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
+	return cmd
+}
+
+func newWorkspaceReviewCommand(opts Options) *cobra.Command {
+	ro := regressionDetectorOptions{limit: 20}
+	cmd := &cobra.Command{
+		Use:   "review <workspace> <query>",
+		Short: "Diff-less review across workspace repos: suspected regressions as severity-ranked findings",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkspaceReview(cmd, opts, ro, args[0], args[1])
+		},
+	}
+	cmd.Flags().IntVar(&ro.limit, "limit", 20, "Maximum findings per repo")
+	cmd.Flags().BoolVar(&ro.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&ro.includeDeletions, "include-deletions", false, "Also flag deleted assignments (lower confidence, noisier)")
+	cmd.Flags().BoolVar(&ro.locationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
+	return cmd
+}
+
+// workspaceFreshnessBlocksScan reports whether a repo's brain↔working-tree pairing is too unsafe to
+// scan. It blocks ONLY on PairingUnsafe — the local_path_hint's repo_key no longer matches (the repo
+// moved/was replaced) or could not be derived — because scanning would then compare one repo's brain
+// against an UNRELATED tree and manufacture bogus "regressions". It deliberately does NOT block on
+// State == "unsafe" alone: a valid pairing with a stale/broken semantic index is still scannable (the
+// detector reads raw sessions regardless of index age) — blocking those would drop real findings.
+func workspaceFreshnessBlocksScan(freshness workspaceRepoFreshness) bool {
+	return freshness.PairingUnsafe
+}
+
+// workspaceFreshnessWarning returns a loud, human-facing annotation for a repo that is scannable but
+// not "ok" (so the result is qualified rather than silently trusted), or "" for ok. Surfaced in both
+// JSON (prepended to result.Warnings) and text output. "unsafe" never reaches here — it blocks the
+// scan in workspaceFreshnessBlocksScan and is reported as a skip instead.
+func workspaceFreshnessWarning(f workspaceRepoFreshness) string {
+	switch f.State {
+	case "unsafe":
+		// Reached only for a SCANNED repo (PairingUnsafe blocks before this), so "unsafe" here means
+		// a stale/broken semantic index over a still-valid pairing — the scan ran on raw sessions.
+		return "semantic index unsafe/stale — scanned raw sessions only; verify findings"
+	case "degraded":
+		return "freshness degraded — brain/index may be stale; verify findings"
+	case "missing-brain":
+		// No export manifest at the brain root. The detector still scans raw sessions (the real
+		// mirrored-sessions brains are exactly this shape), so this qualifies rather than blocks.
+		return "no export manifest — scanned raw sessions only (run `entire brain refresh` for a full brain)"
+	case "missing-semantic":
+		return "semantic index missing — scanned raw sessions only"
+	case "unknown":
+		detail := f.Detail
+		if detail == "" {
+			detail = "could not resolve repo state"
+		}
+		return "freshness unknown — " + detail
+	default:
+		return ""
+	}
+}
+
+// scanWorkspaceRepoRegressions runs the regression detector for a single workspace repo and returns
+// the resolved working-tree path, anomalies, warnings, and a per-repo error string (empty on success).
+func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo workspaceRepo, ro regressionDetectorOptions, query string) (string, []regressionAnomaly, []string, string) {
+	brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
+	if err != nil {
+		return "", nil, nil, err.Error()
+	}
+	if repo.LocalPathHint == "" {
+		return "", nil, nil, "no local_path_hint (re-add the repo to record its working tree)"
+	}
+	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
+	if err != nil {
+		return "", nil, nil, err.Error()
+	}
+	if !local {
+		return "", nil, nil, "local_path_hint unavailable"
+	}
+	// Semantic source is optional: a sessions-only brain (no export manifest) still scans.
+	var semSource *semanticSourceManifest
+	if source, srcErr := workspaceSemanticSource(brainDir); srcErr == nil {
+		semSource = source
+	}
+	anomalies, _, warnings := detectRegressionAnomalies(brainDir, repoDir, semSource, query, ro.limit, ro.includeDeletions)
+	if ro.locationOnly {
+		for i := range anomalies {
+			anomalies[i].Expected = ""
+			anomalies[i].Current = ""
+			anomalies[i].Reason = "suspected regression site (location only)"
+		}
+	}
+	return repoDir, anomalies, warnings, ""
+}
+
+func runWorkspaceRegressions(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, workspaceName, query string) error {
+	if ro.limit <= 0 {
+		return errors.New("--limit must be greater than zero")
+	}
+	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	if err != nil {
+		return err
+	}
+	var results []workspaceRegressionResult
+	for _, repo := range manifest.Repos {
+		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
+		result := workspaceRegressionResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
+		if workspaceFreshnessBlocksScan(freshness) {
+			result.Error = "skipped (unsafe): " + freshness.Detail
+		} else {
+			repoPath, anomalies, warnings, scanErr := scanWorkspaceRepoRegressions(cmd.Context(), opts, repo, ro, query)
+			result.RepoPath = repoPath
+			result.Anomalies = anomalies
+			result.Warnings = warnings
+			result.Error = scanErr
+			if warn := workspaceFreshnessWarning(freshness); warn != "" {
+				result.Warnings = append([]string{warn}, result.Warnings...)
+			}
+		}
+		results = append(results, result)
+	}
+	if ro.json {
+		return writeJSON(cmd, struct {
+			Workspace     string                      `json:"workspace"`
+			SchemaVersion int                         `json:"schema_version"`
+			Results       []workspaceRegressionResult `json:"results"`
+		}{Workspace: manifest.Name, SchemaVersion: reviewReportSchemaVersion, Results: results})
+	}
+	out := cmd.OutOrStdout()
+	total := 0
+	for _, result := range results {
+		// Surface per-repo freshness so a stale/degraded pairing is never silently trusted.
+		state := result.Freshness.State
+		if state == "" {
+			state = "unknown"
+		}
+		if len(result.Anomalies) > 0 || result.Error != "" || state != "ok" {
+			fmt.Fprintf(out, "%s [%s]\n", result.RepoKey, state)
+		}
+		if result.Error != "" {
+			fmt.Fprintf(out, "  %s\n", result.Error)
+		}
+		for _, w := range result.Warnings {
+			fmt.Fprintf(out, "  warning: %s\n", w)
+		}
+		for _, a := range result.Anomalies {
+			total++
+			fmt.Fprintf(out, "  %s:%d [%s, conf %.2f] %s\n", a.File, a.Line, a.Kind, a.Confidence, a.Identifier)
+			if a.Expected != "" {
+				fmt.Fprintf(out, "    expected: %s\n    current:  %s\n", a.Expected, a.Current)
+			}
+		}
+	}
+	if total == 0 {
+		fmt.Fprintf(out, "No suspected regressions across %d repo(s) in %q.\n", len(results), manifest.Name)
+	}
+	return nil
+}
+
+func runWorkspaceReview(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, workspaceName, query string) error {
+	if ro.limit <= 0 {
+		return errors.New("--limit must be greater than zero")
+	}
+	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	if err != nil {
+		return err
+	}
+	var results []workspaceReviewResult
+	reposWithFindings := 0
+	totalFindings := 0
+	for _, repo := range manifest.Repos {
+		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
+		result := workspaceReviewResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
+		if workspaceFreshnessBlocksScan(freshness) {
+			result.Error = "skipped (unsafe): " + freshness.Detail
+			result.Summary = "skipped: brain and working tree cannot be trusted to match."
+			results = append(results, result)
+			continue
+		}
+		repoPath, anomalies, warnings, scanErr := scanWorkspaceRepoRegressions(cmd.Context(), opts, repo, ro, query)
+		result.RepoPath = repoPath
+		result.Warnings = warnings
+		result.Error = scanErr
+		if warn := workspaceFreshnessWarning(freshness); warn != "" {
+			result.Warnings = append([]string{warn}, result.Warnings...)
+		}
+		result.Findings = []reviewFinding{} // [] not null in JSON, even when empty
+		for _, a := range anomalies {
+			result.Findings = append(result.Findings, anomalyToReviewFinding(a))
+		}
+		switch {
+		case scanErr != "":
+			// A scan error means the repo wasn't reviewed — don't claim it matches the brain's memory.
+			result.Summary = "not reviewed: " + scanErr
+		case len(result.Findings) > 0:
+			reposWithFindings++
+			totalFindings += len(result.Findings)
+			result.Summary = fmt.Sprintf("%d suspected regression(s) — verify each before acting.", len(result.Findings))
+		default:
+			result.Summary = "no suspected regressions (current tree matches the brain's memory)."
+		}
+		results = append(results, result)
+	}
+	summary := fmt.Sprintf("Cross-repo diff-less review: %d suspected regression(s) across %d/%d repo(s).", totalFindings, reposWithFindings, len(results))
+	if ro.json {
+		return writeJSON(cmd, struct {
+			Workspace     string                  `json:"workspace"`
+			SchemaVersion int                     `json:"schema_version"`
+			Mode          string                  `json:"mode"`
+			Summary       string                  `json:"summary"`
+			Results       []workspaceReviewResult `json:"results"`
+		}{Workspace: manifest.Name, SchemaVersion: reviewReportSchemaVersion, Mode: "diff-less (brain memory vs current tree)", Summary: summary, Results: results})
+	}
+	out := cmd.OutOrStdout()
+	fmt.Fprintln(out, summary)
+	for _, result := range results {
+		// Surface per-repo freshness so a stale/degraded or skipped pairing is visible, not silent.
+		state := result.Freshness.State
+		if state == "" {
+			state = "unknown"
+		}
+		if len(result.Findings) == 0 && result.Error == "" && len(result.Warnings) == 0 && state == "ok" {
+			continue
+		}
+		label := result.RepoKey
+		if result.Name != "" {
+			label = result.Name + " (" + result.RepoKey + ")"
+		}
+		fmt.Fprintf(out, "\n%s [%s]\n", label, state)
+		if result.Error != "" {
+			fmt.Fprintf(out, "  error: %s\n", result.Error)
+			continue
+		}
+		for _, w := range result.Warnings {
+			fmt.Fprintf(out, "  warning: %s\n", w)
+		}
+		for _, f := range result.Findings {
+			fmt.Fprintf(out, "  [%s] %s\n    %s:%d\n    %s\n    evidence: %s\n",
+				strings.ToUpper(f.Severity), f.Title, f.File, f.Line, f.Detail, f.Evidence)
+		}
+	}
 	return nil
 }
