@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import pathlib
 import sys
 import tempfile
@@ -264,6 +265,47 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("mcp__entire_brain__brain_brief", activity["mcp_tool_names"])
         self.assertEqual(activity["direct_brain_cli_calls"], 0)
         self.assertTrue(activity["checked_brief"])
+
+    def test_activity_counts_brain_regressions_and_review_mcp_calls(self):
+        # Regression guard: the radar tools (brain_regressions / brain_review) must be counted as
+        # MCP tool calls. They were omitted from the parser allowlist, so every radar arm scored
+        # mcp_tool_calls=0 and the condition audit falsely reported "no_mcp_tool_calls" even though
+        # the agent had called brain_regressions (proved by the MCP server logs).
+        for tool in ("brain_regressions", "brain_review", "brain_workspace_review"):
+            stdout = json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "name": f"mcp__entire_brain__{tool}",
+                                "input": {"query": "scopeBaseRef base scope review"},
+                            }
+                        ]
+                    },
+                }
+            )
+            activity = run.extract_agent_activity(stdout, "")
+            self.assertEqual(activity["mcp_tool_calls"], 1, tool)
+            self.assertIn(f"mcp__entire_brain__{tool}", activity["mcp_tool_names"])
+            self.assertTrue(activity["used_mcp"], tool)
+
+    def test_radar_mcp_history_audit_requires_brain_regressions(self):
+        # Under a radar delivery, the agent calls brain_regressions (not brain_brief). The audit's
+        # required-tool floor must follow suit, or a correct radar run is mis-flagged as a failure.
+        os.environ["BENCH_RADAR_LOCATION_ONLY"] = "1"
+        try:
+            runner = run.RunnerSpec(id="o", agent="claude", model="opus")
+            agent_info = {
+                "mcp": {"enabled": True},
+                "activity": {"mcp_tool_calls": 1, "mcp_tool_names": ["mcp__entire_brain__brain_regressions"]},
+            }
+            audit = run.mcp_condition_audit("mcp_history", agent_info, runner)
+            self.assertTrue(audit["ok"], audit)
+            self.assertEqual(run.mcp_history_required_tools(runner), ("brain_regressions",))
+        finally:
+            del os.environ["BENCH_RADAR_LOCATION_ONLY"]
 
     def test_activity_counts_codex_command_execution_events(self):
         stdout = json.dumps(

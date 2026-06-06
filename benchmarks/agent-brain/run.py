@@ -811,7 +811,14 @@ def mcp_history_required_tools(runner: "RunnerSpec | None") -> tuple[str, ...]:
     delivery is told NOT to call brain_history, and the gpt-5.x disciplined delivery DOES call
     brain_history but can also fix correctly from the brief alone — in both cases requiring
     brain_history would mis-flag a correct run as a failure (the under-reporting bug). So these
-    models only require brain_brief; all other models still require both."""
+    models only require brain_brief; all other models still require both.
+
+    Radar deliveries (location-only / answer-assisted) reshape the mcp_history condition: the
+    policy tells the agent to call brain_regressions instead of brain_brief/brain_history, so
+    brain_regressions is the required floor there (requiring brain_brief would mis-flag a correct
+    radar run — the bug that made every radar arm look like it bypassed the brain)."""
+    if wants_radar_location_only(runner) or wants_regression_radar(runner):
+        return ("brain_regressions",)
     compact = runner is not None and runner.model in (OPUS_COMPACT_MODELS | COMPACT_STRICT_MODELS)
     return ("brain_brief",) if compact else ("brain_brief", "brain_history")
 
@@ -2019,7 +2026,7 @@ def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
     return {
         "source": "text_fallback",
         "event_count": 0,
-        "tool_names": re.findall(r"mcp__[a-z0-9_-]+__brain_(?:brief|history|query|context|impact|changes|stale)", lower),
+        "tool_names": re.findall(r"mcp__[a-z0-9_-]+__brain_(?:brief|history|query|context|impact|changes|stale|regressions|review|workspace_regressions|workspace_review)", lower),
         "commands": [],
         "lower": lower,
     }
@@ -2054,7 +2061,7 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
     mcp_tool_names = [
         name
         for name in tool_names
-        if re.search(r"(?:^|__)brain_(?:brief|history|query|context|impact|changes|stale)$", name)
+        if re.search(r"(?:^|__)brain_(?:brief|history|query|context|impact|changes|stale|regressions|review|workspace_regressions|workspace_review)$", name)
     ]
     direct_brain_cli_calls = len(re.findall(r"\b(?:entire\s+brain|entire-brain)\s+[a-z][a-z-]*", command_lower))
     search_tool_calls = [name for name in tool_names if name in {"Grep", "Glob"}]
