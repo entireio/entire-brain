@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -217,6 +218,11 @@ func TestDistillAgentCommandArgs(t *testing.T) {
 	claude, err := distillAgentCommandArgs("claude-code", nil, "PROMPT")
 	if err != nil || claude[0] != "claude" || claude[len(claude)-1] != "PROMPT" {
 		t.Fatalf("claude args wrong: %v err=%v", claude, err)
+	}
+	// The empty MCP config must be {"mcpServers":{}} — bare {} is rejected by the
+	// current claude CLI ("mcpServers: expected record, received undefined").
+	if !slices.Contains(claude, `{"mcpServers":{}}`) {
+		t.Fatalf("claude args missing valid empty mcp-config: %v", claude)
 	}
 	cmd, err := distillAgentCommandArgs("command", []string{"my-agent", "--flag"}, "PROMPT")
 	if err != nil || len(cmd) != 2 || cmd[0] != "my-agent" {
