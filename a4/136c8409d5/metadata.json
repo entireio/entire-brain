@@ -3,7 +3,7 @@
   "checkpoint_id": "a4136c8409d5",
   "strategy": "manual-commit",
   "branch": "claude/regression-radar",
-  "checkpoints_count": 1,
+  "checkpoints_count": 3,
   "files_touched": [
     "internal/cli/mcp.go",
     "internal/cli/mcp_test.go",
@@ -17,13 +17,19 @@
       "transcript": "/a4/136c8409d5/0/full.jsonl",
       "content_hash": "/a4/136c8409d5/0/content_hash.txt",
       "prompt": "/a4/136c8409d5/0/prompt.txt"
+    },
+    {
+      "metadata": "/a4/136c8409d5/1/metadata.json",
+      "transcript": "/a4/136c8409d5/1/full.jsonl",
+      "content_hash": "/a4/136c8409d5/1/content_hash.txt",
+      "prompt": "/a4/136c8409d5/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 36270,
-    "cache_creation_tokens": 2217572,
-    "cache_read_tokens": 29893165,
-    "output_tokens": 189293,
-    "api_call_count": 150
+    "input_tokens": 197021,
+    "cache_creation_tokens": 11188971,
+    "cache_read_tokens": 706263823,
+    "output_tokens": 2118785,
+    "api_call_count": 1373
   }
 }
