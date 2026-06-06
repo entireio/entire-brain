@@ -123,16 +123,21 @@ type brainShowReport struct {
 }
 
 type brainTextMatch struct {
-	Path    string `json:"path"`
-	Line    int    `json:"line"`
-	Excerpt string `json:"excerpt"`
+	Path         string   `json:"path"`
+	Line         int      `json:"line"`
+	Excerpt      string   `json:"excerpt"`
+	Timestamp    string   `json:"timestamp,omitempty"`
+	Score        int      `json:"score,omitempty"`
+	MatchedTerms []string `json:"matched_terms,omitempty"`
 }
 
 type brainHistoryInspectReport struct {
 	Kind       string           `json:"kind"`
 	Query      string           `json:"query"`
+	QueryTerms []string         `json:"query_terms,omitempty"`
 	BrainPath  string           `json:"brain_path"`
 	Matches    []brainTextMatch `json:"matches"`
+	Partial    bool             `json:"partial,omitempty"`
 	Truncated  bool             `json:"truncated,omitempty"`
 	Scanned    int              `json:"scanned_files"`
 	ScanErrors []string         `json:"scan_errors,omitempty"`
@@ -151,6 +156,208 @@ func newAgentStatusCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&statusOpts.json, "json", false, "Emit machine-readable JSON")
 	return cmd
+}
+
+type brainOverviewReport struct {
+	GeneratedAt     time.Time             `json:"generated_at"`
+	Repo            brainStatusRepo       `json:"repo"`
+	Brain           brainStatusBrain      `json:"brain"`
+	Freshness       brainOverviewFresh    `json:"freshness"`
+	Sources         brainStatusSources    `json:"sources"`
+	Live            brainLiveState        `json:"live"`
+	Semantic        brainOverviewSemantic `json:"semantic"`
+	Boundaries      map[string]int        `json:"boundaries,omitempty"`
+	Entrypoints     []string              `json:"entrypoints,omitempty"`
+	Commands        []seedCommand         `json:"commands,omitempty"`
+	Documents       []string              `json:"key_documents,omitempty"`
+	RecentDecisions []brainTextMatch      `json:"recent_decisions,omitempty"`
+	Warnings        []string              `json:"warnings,omitempty"`
+}
+
+type brainOverviewFresh struct {
+	Severity string `json:"severity"`
+	Summary  string `json:"summary,omitempty"`
+}
+
+type brainOverviewSemantic struct {
+	Files     int `json:"files"`
+	Symbols   int `json:"symbols"`
+	Relations int `json:"relations"`
+}
+
+func newBrainOverviewCommand(opts Options) *cobra.Command {
+	var jsonOut bool
+	var decisions int
+	cmd := &cobra.Command{
+		Use:   "overview [path]",
+		Short: "Summarize what the project is: stack, boundaries, commands, and recent decisions",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target := agentSurfaceTarget(opts, args)
+			return runBrainOverview(cmd.Context(), cmd, opts, target, jsonOut, decisions)
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().IntVar(&decisions, "decisions", 5, "Number of recent decisions to include")
+	return cmd
+}
+
+func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, target string, jsonOut bool, decisions int) error {
+	status, err := buildBrainStatusReport(ctx, opts, target)
+	if err != nil {
+		return err
+	}
+	report := brainOverviewReport{
+		GeneratedAt: opts.Now().UTC(),
+		Repo:        status.Repo,
+		Brain:       status.Brain,
+		Sources:     status.Sources,
+		Live:        status.Live,
+		Warnings:    status.Warnings,
+		Boundaries:  map[string]int{},
+	}
+	if status.Freshness != nil {
+		report.Freshness = brainOverviewFresh{
+			Severity: status.Freshness.Severity,
+			Summary:  freshnessSummary(*status.Freshness),
+		}
+	}
+	if status.Manifest != nil && status.Manifest.Sources != nil {
+		if sem := status.Manifest.Sources.Semantic; sem != nil {
+			report.Semantic = brainOverviewSemantic{Files: sem.Files, Symbols: sem.Symbols, Relations: sem.Relations}
+			for _, kind := range []string{"route", "tool", "workflow"} {
+				spec, specErr := inspectBoundarySpec(kind)
+				if specErr != nil {
+					continue
+				}
+				facts, factsErr := semanticBoundaryFacts(status.Brain.Path, sem, spec, 10000)
+				if factsErr != nil {
+					continue
+				}
+				report.Boundaries[spec.Name] = len(facts.Boundaries)
+			}
+		}
+		if seed := status.Manifest.Sources.Seed; seed != nil {
+			report.Entrypoints = seed.Entrypoints
+			report.Commands = seed.Commands
+			for _, doc := range seed.Documents {
+				report.Documents = append(report.Documents, doc.Path)
+			}
+		}
+		if status.Manifest.Sources.History != nil {
+			report.RecentDecisions = recentDecisionMatches(status.Brain.Path, status.Manifest.Sources.History, decisions)
+		}
+	}
+	if jsonOut {
+		return writeJSON(cmd, report)
+	}
+	renderBrainOverviewText(cmd, report)
+	return nil
+}
+
+// recentDecisionMatches returns the most recent decision records so an agent can
+// see how the project's design has been steered, newest first.
+func recentDecisionMatches(brainDir string, source *historySourceManifest, limit int) []brainTextMatch {
+	if limit <= 0 {
+		return nil
+	}
+	index, err := loadBrainHistoryIndex(brainDir, source)
+	if err != nil {
+		return nil
+	}
+	var decisions []historyRecord
+	for _, record := range index.Records {
+		if record.Kind == "decision" {
+			decisions = append(decisions, record)
+		}
+	}
+	sort.SliceStable(decisions, func(i, j int) bool {
+		left, leftOK := historyRecordTimestamp(decisions[i].Path)
+		right, rightOK := historyRecordTimestamp(decisions[j].Path)
+		if leftOK && rightOK && !left.Equal(right) {
+			return left.After(right)
+		}
+		return leftOK && !rightOK
+	})
+	seen := map[string]struct{}{}
+	var matches []brainTextMatch
+	for _, record := range decisions {
+		key := normalizeHistorySearchText(record.Summary)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		match := historyRecordTextMatch(record)
+		match.Excerpt = strings.TrimSpace(truncateString(match.Excerpt, 280))
+		matches = append(matches, match)
+		if len(matches) >= limit {
+			break
+		}
+	}
+	return matches
+}
+
+func renderBrainOverviewText(cmd *cobra.Command, report brainOverviewReport) {
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "repo: %s (%s)\n", report.Repo.Root, report.Repo.Key)
+	fmt.Fprintf(out, "freshness: %s", report.Freshness.Severity)
+	if report.Freshness.Summary != "" {
+		fmt.Fprintf(out, " — %s", report.Freshness.Summary)
+	}
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "semantic: %d files, %d symbols, %d relations\n", report.Semantic.Files, report.Semantic.Symbols, report.Semantic.Relations)
+	if len(report.Boundaries) > 0 {
+		fmt.Fprintf(out, "boundaries: routes=%d tools=%d workflows=%d\n", report.Boundaries["routes"], report.Boundaries["tools"], report.Boundaries["workflows"])
+	}
+	if len(report.Commands) > 0 {
+		fmt.Fprintln(out, "commands:")
+		for _, c := range report.Commands {
+			fmt.Fprintf(out, "  %s: %s\n", c.Name, c.Command)
+		}
+	}
+	if len(report.Entrypoints) > 0 {
+		fmt.Fprintf(out, "entrypoints: %s\n", strings.Join(report.Entrypoints, ", "))
+	}
+	if len(report.Documents) > 0 {
+		fmt.Fprintf(out, "key documents: %s\n", strings.Join(report.Documents, ", "))
+	}
+	if len(report.RecentDecisions) > 0 {
+		fmt.Fprintln(out, "recent decisions:")
+		for _, d := range report.RecentDecisions {
+			when := d.Timestamp
+			if len(when) >= 10 {
+				when = when[:10]
+			}
+			fmt.Fprintf(out, "  [%s] %s\n", when, d.Excerpt)
+		}
+	}
+}
+
+// freshnessSummary collapses the freshness axes into a single human line: "ok"
+// when everything is current, otherwise the non-ok axes and their details. This
+// is the compact freshness view callers can show instead of the full axis map.
+func freshnessSummary(report staleReport) string {
+	if report.Severity == "ok" {
+		return "all axes current"
+	}
+	keys := make([]string, 0, len(report.Axes))
+	for key := range report.Axes {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var parts []string
+	for _, key := range keys {
+		axis := report.Axes[key]
+		if axis.State == "ok" || axis.State == "clean" {
+			continue
+		}
+		if axis.Detail != "" {
+			parts = append(parts, fmt.Sprintf("%s=%s (%s)", key, axis.State, axis.Detail))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s=%s", key, axis.State))
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 func newBrainBriefCommand(opts Options) *cobra.Command {
@@ -205,11 +412,15 @@ func newBrainGuideCommand() *cobra.Command {
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Fprintln(cmd.OutOrStdout(), strings.TrimSpace(`
-Start with:
+Orient first (what is this project?):
+  entire brain overview [repo] --json
+
+Then, for a task:
   entire brain brief "<task>" --json
 
 Small top-level surface:
   entire brain status [repo] --json
+  entire brain overview [repo] --json
   entire brain brief "<task>" --json
   entire brain search "<query>" --json
   entire brain show <id> --json
@@ -217,6 +428,7 @@ Small top-level surface:
   entire brain refresh [repo] --json
   entire brain guide
   entire brain path [repo]
+  entire brain stale [repo] --blind-spots   # files the semantic index could not parse
 
 Durable facts (curated, provenance-anchored repo knowledge):
   entire brain recall "<query>" [--scope local|cross-cutting] [--expand] --json
@@ -239,6 +451,14 @@ Specialist tools:
   entire brain inspect tool-paths "<query>" --json
   entire brain inspect architecture "<query>" --json
   entire brain inspect boundaries --kind route|tool|workflow --json
+
+Search tips:
+  - Specialist text searches are tokenized: phrase a natural-language
+    question and the brain ranks records by overlapping terms.
+  - Results carry score, matched_terms, and a timestamp; query_terms shows
+    exactly what was searched so a thin result is debuggable.
+  - Add --relax to any inspect text search for best-effort partial matches
+    when a strict search returns nothing.
 `))
 		},
 	}
@@ -346,15 +566,17 @@ func newInspectTestsCommand(opts Options) *cobra.Command {
 
 func newInspectHistoryCommand(opts Options, kind string) *cobra.Command {
 	var jsonOut bool
+	var relax bool
 	cmd := &cobra.Command{
 		Use:   kind + " <query>",
 		Short: "Search exported brain " + kind + " text",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBrainHistoryInspect(cmd.Context(), cmd, opts, kind, args[0], jsonOut)
+			return runBrainHistoryInspect(cmd.Context(), cmd, opts, kind, args[0], jsonOut, relax)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&relax, "relax", false, "Return best-effort partial matches when a strict search finds nothing")
 	return cmd
 }
 
@@ -1424,7 +1646,7 @@ func runBrainShow(ctx context.Context, cmd *cobra.Command, opts Options, showOpt
 	return nil
 }
 
-func runBrainHistoryInspect(ctx context.Context, cmd *cobra.Command, opts Options, kind, query string, jsonOut bool) error {
+func runBrainHistoryInspect(ctx context.Context, cmd *cobra.Command, opts Options, kind, query string, jsonOut, relax bool) error {
 	target := agentSurfaceTarget(opts, nil)
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
@@ -1437,18 +1659,27 @@ func runBrainHistoryInspect(ctx context.Context, cmd *cobra.Command, opts Option
 	if err != nil {
 		return err
 	}
-	report, err := inspectBrainText(storage.BrainDir, kind, query)
+	report, err := inspectBrainText(storage.BrainDir, kind, query, relax)
 	if err != nil {
 		return err
 	}
 	if jsonOut {
 		return writeJSON(cmd, report)
 	}
+	if report.Partial {
+		fmt.Fprintf(cmd.OutOrStdout(), "(partial: best-effort matches, no record covered the full query)\n")
+	}
 	for _, match := range report.Matches {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s:%d: %s\n", match.Path, match.Line, match.Excerpt)
 	}
 	if len(report.Matches) == 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "no %s matches for %q\n", kind, query)
+		if len(report.QueryTerms) > 0 {
+			fmt.Fprintf(cmd.OutOrStdout(), "searched terms: %s\n", strings.Join(report.QueryTerms, ", "))
+			if !relax {
+				fmt.Fprintf(cmd.OutOrStdout(), "retry with --relax for best-effort partial matches\n")
+			}
+		}
 	}
 	return nil
 }
@@ -1641,13 +1872,13 @@ func findSemanticRecordByIDOrNameSnapshot(path, idOrName string) (semanticRecord
 	return semanticRecord{}, fmt.Errorf("semantic record not found: %s", idOrName)
 }
 
-func inspectBrainText(brainDir, kind, query string) (brainHistoryInspectReport, error) {
+func inspectBrainText(brainDir, kind, query string, relax bool) (brainHistoryInspectReport, error) {
 	report := brainHistoryInspectReport{Kind: kind, Query: query, BrainPath: brainDir}
 	query = strings.ToLower(strings.TrimSpace(query))
 	if query == "" {
 		return report, errors.New("query must not be empty")
 	}
-	if indexed, ok := inspectBrainHistoryIndex(brainDir, kind, query); ok {
+	if indexed, ok := inspectBrainHistoryIndex(brainDir, kind, query, relax); ok {
 		return indexed, nil
 	}
 	return inspectBrainRawText(brainDir, kind, query, brainInspectHistoryMaxHits)
@@ -1703,11 +1934,15 @@ func inspectBrainRawText(brainDir, kind, query string, maxHits int) (brainHistor
 			if !historyTextMatchesQuery(line, query) {
 				continue
 			}
-			report.Matches = append(report.Matches, brainTextMatch{
+			rawMatch := brainTextMatch{
 				Path:    relSlash,
 				Line:    lineNo,
 				Excerpt: historyRawLineExcerpt(line, query),
-			})
+			}
+			if ts, ok := historyRecordTimestamp(relSlash); ok {
+				rawMatch.Timestamp = ts.Format(time.RFC3339)
+			}
+			report.Matches = append(report.Matches, rawMatch)
 			if len(report.Matches) >= maxHits {
 				report.Truncated = true
 				return filepath.SkipAll
@@ -1881,7 +2116,7 @@ func normalizeHistoryTextForExcerpt(text string) string {
 	return text
 }
 
-func inspectBrainHistoryIndex(brainDir, kind, query string) (brainHistoryInspectReport, bool) {
+func inspectBrainHistoryIndex(brainDir, kind, query string, relax bool) (brainHistoryInspectReport, bool) {
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil || manifest.Sources == nil || manifest.Sources.History == nil {
 		return brainHistoryInspectReport{}, false
@@ -1890,10 +2125,25 @@ func inspectBrainHistoryIndex(brainDir, kind, query string) (brainHistoryInspect
 	if err != nil {
 		return brainHistoryInspectReport{}, false
 	}
-	report := brainHistoryInspectReport{Kind: kind, Query: query, BrainPath: brainDir, Scanned: len(index.Records)}
-	records := inspectHistoryRecords(index, kind, query, brainInspectHistoryMaxHits)
-	for _, record := range records {
-		report.Matches = append(report.Matches, historyRecordTextMatch(record))
+	report := brainHistoryInspectReport{
+		Kind:       kind,
+		Query:      query,
+		QueryTerms: historyQueryAllTerms(query),
+		BrainPath:  brainDir,
+		Scanned:    len(index.Records),
+	}
+	// All specialist kinds now go through the tokenized ranker, so a
+	// natural-language question ("why did we choose supabase for the queue")
+	// matches on overlapping terms instead of requiring the whole phrase as a
+	// literal substring. When the strict pass finds nothing and --relax is set,
+	// retry with a single-term threshold and flag the result as partial.
+	scored := rankHistoryRecordsScored(index, kind, query, brainInspectHistoryMaxHits, 0)
+	if len(scored) == 0 && relax {
+		scored = rankHistoryRecordsScored(index, kind, query, brainInspectHistoryMaxHits, 1)
+		report.Partial = len(scored) > 0
+	}
+	for _, item := range scored {
+		report.Matches = append(report.Matches, historyScoredRecordTextMatch(item, query))
 	}
 	if len(report.Matches) >= brainInspectHistoryMaxHits {
 		report.Truncated = true
@@ -1901,43 +2151,23 @@ func inspectBrainHistoryIndex(brainDir, kind, query string) (brainHistoryInspect
 	return report, true
 }
 
-func inspectHistoryRecords(index historyIndex, kind, query string, limit int) []historyRecord {
-	switch kind {
-	case "history", "sessions", "architecture":
-		return rankHistoryRecords(index, kind, query, limit)
-	default:
-		allowed := historyInspectKinds(kind)
-		var records []historyRecord
-		seen := map[string]struct{}{}
-		for _, record := range index.Records {
-			if len(allowed) > 0 {
-				if _, ok := allowed[record.Kind]; !ok {
-					continue
-				}
-			}
-			if !historyRecordMatchesQuery(record, query) {
-				continue
-			}
-			matchKey := normalizeHistorySearchText(record.Summary)
-			if _, ok := seen[matchKey]; ok {
-				continue
-			}
-			seen[matchKey] = struct{}{}
-			records = append(records, record)
-			if len(records) >= limit {
-				break
-			}
-		}
-		return records
-	}
-}
-
 func historyRecordTextMatch(record historyRecord) brainTextMatch {
-	return brainTextMatch{
+	match := brainTextMatch{
 		Path:    record.Path,
 		Line:    record.Line,
 		Excerpt: record.Summary,
 	}
+	if ts, ok := historyRecordTimestamp(record.Path); ok {
+		match.Timestamp = ts.Format(time.RFC3339)
+	}
+	return match
+}
+
+func historyScoredRecordTextMatch(item scoredHistoryRecord, query string) brainTextMatch {
+	match := historyRecordTextMatch(item.Record)
+	match.Score = item.Score
+	match.MatchedTerms = historyRecordMatchedTerms(item.Record, query)
+	return match
 }
 
 func historyInspectKinds(kind string) map[string]struct{} {

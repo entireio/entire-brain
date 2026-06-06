@@ -89,6 +89,7 @@ agent can inspect to understand project history.`,
 	addGrouped("create", newWorkspaceCommand(opts))
 
 	// Explore the brain — task packets, search, records, specialist inspection.
+	addGrouped("explore", newBrainOverviewCommand(opts))
 	addGrouped("explore", newBrainBriefCommand(opts))
 	addGrouped("explore", newBrainGuideCommand())
 	addGrouped("explore", newBrainInspectCommand(opts))

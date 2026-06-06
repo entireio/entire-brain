@@ -911,7 +911,65 @@ func historyRecordMatchesQuery(record historyRecord, query string) bool {
 	return historyTextMatchesQuery(record.Summary+" "+strings.Join(record.Terms, " ")+" "+record.Path, query)
 }
 
+// historyRecordTimestamp recovers the session capture time encoded in the
+// exported transcript path (sessions/<branch>/YYYYMMDDThhmmssZ_...jsonl) so
+// callers can order records by recency and report when a record was produced.
+// Records sourced from non-session paths (seed/manifest) have no timestamp.
+func historyRecordTimestamp(path string) (time.Time, bool) {
+	base := filepath.Base(filepath.FromSlash(path))
+	if len(base) < 16 {
+		return time.Time{}, false
+	}
+	stamp := base[:16]
+	parsed, err := time.Parse("20060102T150405Z", stamp)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return parsed.UTC(), true
+}
+
+// historyRecordMatchedTerms reports which query tokens and identifiers actually
+// appear in a record. Returning these makes a match explainable to an agent and
+// turns a zero/low-signal result into an actionable "these terms hit, these did
+// not" diagnostic instead of an opaque miss.
+func historyRecordMatchedTerms(record historyRecord, query string) []string {
+	recordText := normalizeHistorySearchText(record.Summary + " " + strings.Join(record.Terms, " ") + " " + record.Path)
+	recordRaw := strings.ToUpper(record.Summary + " " + strings.Join(record.Terms, " ") + " " + record.Path)
+	seen := map[string]struct{}{}
+	var matched []string
+	for _, term := range historyQueryTerms(query) {
+		if strings.Contains(recordText, term) {
+			if _, ok := seen[term]; !ok {
+				seen[term] = struct{}{}
+				matched = append(matched, term)
+			}
+		}
+	}
+	for _, identifier := range historyIdentifierQueryTerms(query) {
+		if strings.Contains(recordRaw, identifier) {
+			key := strings.ToLower(identifier)
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				matched = append(matched, identifier)
+			}
+		}
+	}
+	return matched
+}
+
 func rankHistoryRecords(index historyIndex, kind, query string, limit int) []historyRecord {
+	scored := rankHistoryRecordsScored(index, kind, query, limit, 0)
+	records := make([]historyRecord, 0, len(scored))
+	for _, item := range scored {
+		records = append(records, item.Record)
+	}
+	return records
+}
+
+// rankHistoryRecordsScored ranks records and returns the scores so callers can
+// surface why a record matched. minMatches relaxes the term-coverage threshold
+// (0 = strict default, 1 = best-effort partial matching).
+func rankHistoryRecordsScored(index historyIndex, kind, query string, limit, minMatches int) []scoredHistoryRecord {
 	if limit <= 0 {
 		return nil
 	}
@@ -924,7 +982,7 @@ func rankHistoryRecords(index historyIndex, kind, query string, limit int) []his
 				continue
 			}
 		}
-		score := historyRecordQueryScore(record, query)
+		score := historyRecordQueryScoreMin(record, query, minMatches)
 		if score == 0 {
 			continue
 		}
@@ -941,6 +999,17 @@ func rankHistoryRecords(index historyIndex, kind, query string, limit int) []his
 		if left.Score != right.Score {
 			return left.Score > right.Score
 		}
+		// Among equally-scored records, prefer the most recent session so
+		// "what is the current state of X" surfaces the latest decision first
+		// instead of an arbitrary older one.
+		leftTime, leftOK := historyRecordTimestamp(left.Record.Path)
+		rightTime, rightOK := historyRecordTimestamp(right.Record.Path)
+		if leftOK && rightOK && !leftTime.Equal(rightTime) {
+			return leftTime.After(rightTime)
+		}
+		if leftOK != rightOK {
+			return leftOK
+		}
 		if historyKindRank(left.Record.Kind) != historyKindRank(right.Record.Kind) {
 			return historyKindRank(left.Record.Kind) > historyKindRank(right.Record.Kind)
 		}
@@ -955,14 +1024,18 @@ func rankHistoryRecords(index historyIndex, kind, query string, limit int) []his
 	if len(scored) > limit {
 		scored = scored[:limit]
 	}
-	records := make([]historyRecord, 0, len(scored))
-	for _, item := range scored {
-		records = append(records, item.Record)
-	}
-	return records
+	return scored
 }
 
 func historyRecordQueryScore(record historyRecord, query string) int {
+	return historyRecordQueryScoreMin(record, query, 0)
+}
+
+// historyRecordQueryScoreMin scores a record against a query. minMatches
+// overrides the default term-coverage threshold: pass 0 for the strict default
+// (precise specialist lookups) or 1 to accept best-effort partial matches for
+// natural-language questions that would otherwise return nothing.
+func historyRecordQueryScoreMin(record historyRecord, query string, minMatches int) int {
 	score := 0
 	if historyRecordMatchesQuery(record, query) {
 		score += 200
@@ -997,7 +1070,11 @@ func historyRecordQueryScore(record historyRecord, query string) int {
 	if requiredTermCount == 0 {
 		requiredTermCount = len(identifiers)
 	}
-	if effectiveMatches < historyRequiredQueryMatches(requiredTermCount) {
+	required := historyRequiredQueryMatches(requiredTermCount)
+	if minMatches > 0 && minMatches < required {
+		required = minMatches
+	}
+	if effectiveMatches < required {
 		if score < 200 {
 			return 0
 		}
@@ -1127,6 +1204,29 @@ func historyQueryTerms(query string) []string {
 		terms = append(terms, term)
 	}
 	return terms
+}
+
+// historyQueryAllTerms returns the union of word tokens and identifier tokens a
+// query reduces to after stopword removal. Surfacing these lets an agent see
+// exactly what the brain searched for, so a thin or empty result is debuggable
+// (e.g. an over-specific phrase reduced to one weak term) instead of opaque.
+func historyQueryAllTerms(query string) []string {
+	seen := map[string]struct{}{}
+	var all []string
+	for _, term := range historyQueryTerms(query) {
+		if _, ok := seen[term]; !ok {
+			seen[term] = struct{}{}
+			all = append(all, term)
+		}
+	}
+	for _, identifier := range historyIdentifierQueryTerms(query) {
+		key := strings.ToLower(identifier)
+		if _, ok := seen[key]; !ok {
+			seen[key] = struct{}{}
+			all = append(all, identifier)
+		}
+	}
+	return all
 }
 
 func historyIdentifierQueryTerms(query string) []string {

@@ -1933,6 +1933,7 @@ type staleAxis struct {
 
 func newSemanticStaleCommand(opts Options) *cobra.Command {
 	var jsonOut bool
+	var blindSpots bool
 	cmd := &cobra.Command{
 		Use:   "stale [path]",
 		Short: "Report semantic brain freshness",
@@ -1945,20 +1946,94 @@ func newSemanticStaleCommand(opts Options) *cobra.Command {
 			if len(args) == 1 {
 				target = args[0]
 			}
-			return runSemanticStale(cmd.Context(), cmd, opts, target, jsonOut)
+			return runSemanticStale(cmd.Context(), cmd, opts, target, jsonOut, blindSpots)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&blindSpots, "blind-spots", false, "List the files the semantic provider failed to fully index")
 	return cmd
 }
 
-func runSemanticStale(ctx context.Context, cmd *cobra.Command, opts Options, target string, jsonOut bool) error {
+// staleReportWithBlindSpots augments a freshness report with the concrete list
+// of files the semantic provider could not fully index, so an agent knows
+// exactly where its semantic answers are untrustworthy instead of only seeing
+// an aggregate "N partial failures" count.
+type staleReportWithBlindSpots struct {
+	staleReport
+	BlindSpots []brainBlindSpot `json:"blind_spots,omitempty"`
+}
+
+type brainBlindSpot struct {
+	Path   string `json:"path"`
+	Code   string `json:"code,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
+func brainBlindSpotsForRepo(ctx context.Context, opts Options, target string) ([]brainBlindSpot, error) {
+	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	if err != nil {
+		return nil, err
+	}
+	if !local {
+		return nil, fmt.Errorf("blind-spots requires a local repository path: %s", target)
+	}
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		return nil, err
+	}
+	manifest, err := loadBrainManifest(storage.BrainDir)
+	if err != nil {
+		return nil, err
+	}
+	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
+		return nil, nil
+	}
+	seen := map[string]struct{}{}
+	var spots []brainBlindSpot
+	unknownPaths := 0
+	for _, failure := range manifest.Sources.Semantic.PartialFailures {
+		if strings.TrimSpace(failure.Path) == "" {
+			unknownPaths++
+			continue
+		}
+		key := failure.Path + "|" + failure.Code
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		spots = append(spots, brainBlindSpot{Path: failure.Path, Code: failure.Code, Detail: failure.Detail})
+	}
+	sort.Slice(spots, func(i, j int) bool { return spots[i].Path < spots[j].Path })
+	// Brains indexed before file paths were preserved on partial failures only
+	// record the count. Surface that explicitly so the gap reads as "refresh to
+	// locate these" rather than "only one file affected".
+	if unknownPaths > 0 {
+		spots = append(spots, brainBlindSpot{
+			Code:   "E_PATH_UNAVAILABLE",
+			Detail: fmt.Sprintf("%d partial failures without a recorded path; run `entire brain refresh` to locate them", unknownPaths),
+		})
+	}
+	return spots, nil
+}
+
+func runSemanticStale(ctx context.Context, cmd *cobra.Command, opts Options, target string, jsonOut, blindSpots bool) error {
 	report, err := semanticStaleReport(ctx, opts, target)
 	if err != nil {
 		return err
 	}
+	var spots []brainBlindSpot
+	if blindSpots {
+		spots, err = brainBlindSpotsForRepo(ctx, opts, target)
+		if err != nil {
+			return err
+		}
+	}
 	if jsonOut {
-		data, err := json.MarshalIndent(report, "", "  ")
+		var payload any = report
+		if blindSpots {
+			payload = staleReportWithBlindSpots{staleReport: report, BlindSpots: spots}
+		}
+		data, err := json.MarshalIndent(payload, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -1978,6 +2053,20 @@ func runSemanticStale(ctx context.Context, cmd *cobra.Command, opts Options, tar
 			fmt.Fprintf(cmd.OutOrStdout(), " (%s)", axis.Detail)
 		}
 		fmt.Fprintln(cmd.OutOrStdout())
+	}
+	if blindSpots {
+		if len(spots) == 0 {
+			fmt.Fprintln(cmd.OutOrStdout(), "blind-spots: none")
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "blind-spots: %d files not fully indexed\n", len(spots))
+			for _, spot := range spots {
+				fmt.Fprintf(cmd.OutOrStdout(), "  %s", spot.Path)
+				if spot.Code != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), " [%s]", spot.Code)
+				}
+				fmt.Fprintln(cmd.OutOrStdout())
+			}
+		}
 	}
 	return nil
 }
