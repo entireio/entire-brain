@@ -116,6 +116,29 @@ still exists, the fact remains valid. A fact whose top-level category no longer
 exists is reported as an orphan in `status` and is never auto-deleted; it is
 re-pathed only when distillation re-derives it or the user re-`remember`s it.
 
+### Classify At Ingestion, Without Locking In
+
+A reasonable objection to classifying during distillation is *premature
+ontology*: committing a fact to a taxonomy path at ingestion bakes in an
+interpretation the future may not want, the way labeling a customer email a
+"complaint" forecloses reading it later as a feature request. Extract-and-discard
+memory systems cannot recover from this — the path chosen at ingestion is all
+that survives, so the standard mitigation is to keep ingestion semantic and defer
+ontology to retrieval.
+
+The brain is not exposed to that failure mode, for a structural reason rather
+than a clever one: **classification happens on a derived view, never on the
+system of record.** The signed transcript is retained in full, so a fact's path
+is only ever a current best label over ground truth that is still present. When
+the taxonomy changes, when a path proves wrong, or when a later session reframes
+an earlier decision, re-distillation re-derives the fact and re-paths it from the
+source; because the id is content-derived, the corrected fact replaces the old
+one. The brain therefore keeps the retrieval precision of ingestion-time
+classification without the lock-in, because nothing downstream of the transcript
+is load-bearing. Deferring the ontology is one way to avoid premature
+commitment; making the ontology cheap to redo is another, and it is the one the
+derive-and-cite principle already pays for.
+
 ## The Quality Gate
 
 Distillation and authored capture both pass through one quality gate whose
@@ -322,6 +345,28 @@ available, `recall` uses keyword and taxonomy matching. Consistent with the
 Semantic Brain Plan, any embedding model must run with a local-only backend in
 Phase 1.
 
+## Outcome-Weighted Confidence (Optional, Future)
+
+Confidence in Phase A is asserted once, by the agent, at distillation time and
+never moves. That is enough to gate auto-supersession (see Appendix A), but it
+leaves the highest-value signal on the table: whether a fact, once recalled,
+actually helped the work.
+
+Because every fact already anchors to the commit it was derived against, that
+feedback loop is mostly a join the brain can already compute. A fact recalled
+into a `brief` immediately before a checkpoint that was reverted, reworked, or
+abandoned did not earn its confidence; one recalled before a clean merge did. An
+outcome-weighted pass can nudge confidence from that history, decay confidence on
+facts that stop being recalled at all, and surface facts whose confidence has
+drifted below the supersession threshold.
+
+This stays inside the plan's principles: it changes only the `confidence` field,
+it is derived from provenance the brain already records, and it needs no new
+capture and no network. It is deferred because it depends on the brain observing
+enough recall-then-outcome cycles to be more signal than noise, and because
+confidence drift must never silently retract a fact — a fact that drifts low is
+routed to `facts review`, exactly as a low-confidence supersession is today.
+
 ## Freshness And Provenance Reporting
 
 Fact freshness reuses the existing freshness model. A fact whose originating
@@ -362,6 +407,10 @@ tamper signal.
   part of the contract other plugins consume.
 - **Phase D (optional):** fact-layer embedding recall — now scoped to retrieve
   within a code locus / hierarchy node rather than over a flat per-branch list.
+- **Phase E (optional):** outcome-weighted confidence — adjust and decay
+  `confidence` from recall-then-commit outcomes, riding on the provenance anchors
+  already recorded (see Outcome-Weighted Confidence). Drift only routes a fact to
+  `facts review`; it never auto-retracts.
 
 Each phase is independently useful and ships behind the existing local-only
 boundary.
