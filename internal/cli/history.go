@@ -1307,6 +1307,12 @@ func historyQueryStopword(term string) bool {
 	case "behavior", "before", "entire", "fix", "fresh", "parent", "run",
 		"runs", "setting", "value", "values":
 		return true
+	// Common question/filler words an agent naturally types in a
+	// natural-language query but that carry no retrieval signal. Dropping them
+	// keeps high-specificity terms from being diluted in the match threshold.
+	case "why", "did", "done", "over", "instead", "we", "our", "what",
+		"which", "would", "could", "about", "than", "via", "want", "need":
+		return true
 	default:
 		return false
 	}

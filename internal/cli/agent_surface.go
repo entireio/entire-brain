@@ -519,7 +519,7 @@ func newInspectContextCommand(opts Options) *cobra.Command {
 }
 
 func newInspectImpactCommand(opts Options) *cobra.Command {
-	impactOpts := semanticImpactOptions{limit: 20, depth: 1}
+	impactOpts := semanticImpactOptions{limit: 200, depth: 1}
 	cmd := &cobra.Command{
 		Use:   "impact <symbol-or-text>",
 		Short: "Traverse semantic relations for an impact set",
@@ -528,7 +528,10 @@ func newInspectImpactCommand(opts Options) *cobra.Command {
 			return runSemanticImpact(cmd.Context(), cmd, opts, impactOpts, args[0])
 		},
 	}
-	cmd.Flags().IntVar(&impactOpts.limit, "limit", 20, "Maximum symbols to include")
+	// The impact set shares one budget with the matched roots, so a file query
+	// that resolves to many roots can fill the budget before any downstream
+	// neighbor is added. A generous default keeps room for the impacted set.
+	cmd.Flags().IntVar(&impactOpts.limit, "limit", 200, "Maximum symbols to include")
 	cmd.Flags().IntVar(&impactOpts.depth, "depth", 1, "Relation traversal depth")
 	cmd.Flags().BoolVar(&impactOpts.json, "json", false, "Emit machine-readable JSON")
 	return cmd
@@ -1662,6 +1665,9 @@ func runBrainHistoryInspect(ctx context.Context, cmd *cobra.Command, opts Option
 	report, err := inspectBrainText(storage.BrainDir, kind, query, relax)
 	if err != nil {
 		return err
+	}
+	if report.Matches == nil {
+		report.Matches = []brainTextMatch{}
 	}
 	if jsonOut {
 		return writeJSON(cmd, report)

@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
 	_ "modernc.org/sqlite"
@@ -2259,6 +2260,16 @@ type semanticContextResult struct {
 	Content   []semanticContent `json:"content,omitempty"`
 }
 
+// nonNilRecords guarantees a JSON array (`[]`) rather than `null` for an empty
+// result, so consumers can use one uniform shape across every brain command
+// instead of special-casing null per field.
+func nonNilRecords(records []semanticRecord) []semanticRecord {
+	if records == nil {
+		return []semanticRecord{}
+	}
+	return records
+}
+
 type semanticContent struct {
 	Path      string `json:"path"`
 	StartLine int    `json:"start_line"`
@@ -2378,7 +2389,7 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 			Freshness  staleReport      `json:"freshness"`
 			Pagination semanticPage     `json:"pagination"`
 			Results    []semanticRecord `json:"results"`
-		}{Freshness: freshness, Pagination: semanticPage{Limit: queryOpts.limit, Offset: queryOpts.offset, Count: len(results)}, Results: results}, "", "  ")
+		}{Freshness: freshness, Pagination: semanticPage{Limit: queryOpts.limit, Offset: queryOpts.offset, Count: len(results)}, Results: nonNilRecords(results)}, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -2427,7 +2438,7 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 	if err != nil {
 		return err
 	}
-	result := semanticContextResult{Symbols: symbols, Relations: relations}
+	result := semanticContextResult{Symbols: nonNilRecords(symbols), Relations: nonNilRecords(relations)}
 	if contextOpts.includeContent {
 		result.Content = semanticContextContent(repoDir, symbols)
 	}
@@ -2488,7 +2499,7 @@ func runSemanticImpact(ctx context.Context, cmd *cobra.Command, opts Options, im
 	if err != nil {
 		return err
 	}
-	result := semanticImpactResult{Roots: roots, Symbols: symbols, Relations: relations}
+	result := semanticImpactResult{Roots: nonNilRecords(roots), Symbols: nonNilRecords(symbols), Relations: nonNilRecords(relations)}
 	if impactOpts.json {
 		data, err := json.MarshalIndent(struct {
 			Freshness staleReport          `json:"freshness"`
@@ -2602,6 +2613,9 @@ func runSemanticBoundary(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if err != nil {
 		return err
 	}
+	result.Boundaries = nonNilRecords(result.Boundaries)
+	result.Handlers = nonNilRecords(result.Handlers)
+	result.Relations = nonNilRecords(result.Relations)
 	if boundaryOpts.json {
 		data, err := json.MarshalIndent(struct {
 			Freshness staleReport            `json:"freshness"`
@@ -3033,6 +3047,86 @@ type semanticPage struct {
 	Count  int `json:"count"`
 }
 
+// semanticQueryTokens reduces a free-text query to the distinct identifier-ish
+// tokens worth searching the symbol index for. It powers the tokenized fallback
+// so a natural-language task ("change how feeds are refreshed") matches symbols
+// on its content words instead of only as a verbatim substring.
+func semanticQueryTokens(query string) []string {
+	seen := map[string]struct{}{}
+	var tokens []string
+	for _, raw := range strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
+		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_')
+	}) {
+		raw = strings.Trim(raw, "_")
+		if len(raw) < 3 {
+			continue
+		}
+		if historyQueryStopword(raw) {
+			continue
+		}
+		if _, ok := seen[raw]; ok {
+			continue
+		}
+		seen[raw] = struct{}{}
+		tokens = append(tokens, raw)
+		if len(tokens) >= 8 {
+			break
+		}
+	}
+	return tokens
+}
+
+// findSemanticSymbolsTokenizedSQLite ranks symbols by how many query tokens
+// appear in their full-text body. It is the fallback for multi-word queries that
+// never appear verbatim in any one symbol, ordered by token-overlap so the most
+// relevant symbols come first.
+func findSemanticSymbolsTokenizedSQLite(db *sql.DB, tokens []string, limit, offset int) ([]semanticRecord, error) {
+	if len(tokens) == 0 {
+		return nil, nil
+	}
+	var conds, score strings.Builder
+	args := make([]any, 0, len(tokens)*2+2)
+	for i := range tokens {
+		if i > 0 {
+			conds.WriteString(" OR ")
+			score.WriteString(" + ")
+		}
+		conds.WriteString("instr(lower(f.text), ?) > 0")
+		score.WriteString("(CASE WHEN instr(lower(f.text), ?) > 0 THEN 1 ELSE 0 END)")
+	}
+	// Token args are consumed once for the score expression and once for the
+	// WHERE clause, in that order.
+	for _, token := range tokens {
+		args = append(args, token)
+	}
+	for _, token := range tokens {
+		args = append(args, token)
+	}
+	args = append(args, limit, offset)
+	q := `SELECT s.id, s.kind, s.name, s.qualified_name, s.file_path, s.start_line, s.end_line, s.signature, s.language, s.stable_id_version, (` + score.String() + `) AS hits
+FROM symbols s
+JOIN symbol_fts f ON f.id = s.id
+WHERE ` + conds.String() + `
+ORDER BY hits DESC, s.qualified_name
+LIMIT ? OFFSET ?`
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var results []semanticRecord
+	for rows.Next() {
+		var record semanticRecord
+		record.RecordType = "symbol"
+		var hits int
+		if err := rows.Scan(&record.ID, &record.Kind, &record.Name, &record.QualifiedName, &record.FilePath, &record.StartLine, &record.EndLine, &record.Signature, &record.Language, &record.StableIDVersion, &hits); err != nil {
+			return nil, err
+		}
+		results = append(results, record)
+	}
+	return results, rows.Err()
+}
+
 func findSemanticSymbolsInSQLite(storePath, query string, limit, offset int) ([]semanticRecord, error) {
 	db, err := sql.Open("sqlite", storePath)
 	if err != nil {
@@ -3040,12 +3134,16 @@ func findSemanticSymbolsInSQLite(storePath, query string, limit, offset int) ([]
 	}
 	defer db.Close()
 	literal := strings.ToLower(strings.TrimSpace(query))
+	// Match the full-text body OR an exact id/qualified-name. The id branch lets
+	// an agent paste a record id straight from `search`/`overview` results into
+	// `context`/`impact` and get that exact symbol, instead of an empty result
+	// because the colon-delimited id never appears as a substring of the body.
 	rows, err := db.Query(`SELECT s.id, s.kind, s.name, s.qualified_name, s.file_path, s.start_line, s.end_line, s.signature, s.language, s.stable_id_version
 FROM symbols s
 JOIN symbol_fts f ON f.id = s.id
-WHERE instr(lower(f.text), ?) > 0
-ORDER BY CASE WHEN lower(s.name) = lower(?) THEN 0 WHEN lower(s.qualified_name) = lower(?) THEN 1 ELSE 2 END, s.qualified_name
-LIMIT ? OFFSET ?`, literal, query, query, limit, offset)
+WHERE instr(lower(f.text), ?) > 0 OR lower(s.id) = ? OR lower(s.qualified_name) = ?
+ORDER BY CASE WHEN lower(s.id) = ? THEN 0 WHEN lower(s.name) = lower(?) THEN 1 WHEN lower(s.qualified_name) = lower(?) THEN 2 ELSE 3 END, s.qualified_name
+LIMIT ? OFFSET ?`, literal, literal, literal, literal, query, query, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -3059,7 +3157,20 @@ LIMIT ? OFFSET ?`, literal, query, query, limit, offset)
 		}
 		results = append(results, record)
 	}
-	return results, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Fall back to token-overlap ranking only when the verbatim query matched
+	// nothing and the query is multi-word. This leaves every single-symbol and
+	// substring lookup untouched while making natural-language queries (and the
+	// task strings `brief` passes here) match on their content words.
+	if len(results) == 0 {
+		tokens := semanticQueryTokens(query)
+		if len(tokens) > 1 {
+			return findSemanticSymbolsTokenizedSQLite(db, tokens, limit, offset)
+		}
+	}
+	return results, nil
 }
 
 func findSemanticSymbols(snapshotPath, query string, limit, offset int) ([]semanticRecord, error) {
@@ -3087,6 +3198,18 @@ func findSemanticSymbols(snapshotPath, query string, limit, offset int) ([]seman
 			return nil, err
 		}
 		if record.RecordType != "symbol" {
+			continue
+		}
+		if strings.ToLower(record.ID) == query {
+			if seen < offset {
+				seen++
+				continue
+			}
+			results = append(results, record)
+			seen++
+			if len(results) >= limit {
+				break
+			}
 			continue
 		}
 		fields := []string{record.Name, record.QualifiedName, record.Signature, record.FilePath}
