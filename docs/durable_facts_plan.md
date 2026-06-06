@@ -406,6 +406,33 @@ tamper signal.
 > `recall --expand` opt-in/experimental; do not promote it to default. The
 > harness itself (`eval-gen`/`eval`/`eval-compare`) is the durable win — it
 > turned a plausible-looking lift into a measured non-result.
+>
+> **Retrieval tuning — resolved (no lexical headroom).** Sweeping the two
+> remaining deterministic knobs on the same 121-task benchmark found no win:
+> - **k (facts per query):** useful-per-1k is monotone *decreasing* in k
+>   (k=5→4.44, k=10→3.53, k=30→2.83) while recall rises (0.16→0.24→0.46). There
+>   is no free optimum — the headline metric just trades against recall, and is
+>   gameable by shrinking k. Default k=10 is a defensible middle, not a tunable
+>   win. (Caveat worth noting: useful-per-1k alone cannot pick k; it needs a
+>   recall floor.)
+> - **Ranking weights (locus / substring / term / path / all-terms):** a 16-cell
+>   grid moved recall@10 by at most **+0.006** (noise); the verbatim-substring
+>   weight changed results by *zero* (terse queries never appear verbatim in
+>   facts). Inert.
+>
+> The reason both are inert is the decisive measurement: the **lexical recall
+> ceiling is 0.667** (retrieve *everything* that scores > 0 and you still miss a
+> third of the relevant facts; 18% of tasks have *zero* lexically-reachable
+> relevant facts), yet recall@10 is only 0.244. The 0.244→0.667 gap is a
+> *ranking* gap among reachable facts — but lexical features don't *separate* a
+> relevant fact from an irrelevant one that shares a term, so no weight
+> combination reranks them up. **Conclusion:** every lexical lever is exhausted;
+> the only remaining headroom is semantic. This is now an evidence-backed case
+> for **Phase D embeddings**, which address *both* failure modes — lifting the
+> 0.667 reachability ceiling (semantic recall of lexically-invisible facts) and
+> reranking within the reachable set (the 0.244→0.667 gap). Phase A/B retrieval
+> should be considered feature-complete; the next real gain requires the
+> embedding backend.
 
 - **Phase A (Entire Brain only, no CLI changes):** fact store, `remember` /
   `recall` / `inspect facts` / `inspect blame`, the quality gate, the taxonomy,
