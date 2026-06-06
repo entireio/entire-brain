@@ -35,7 +35,6 @@ import (
 // not contain anywhere.
 
 const (
-	regressionMaxRawHits   = 60
 	regressionMaxFileBytes = 1 << 20
 	regressionMaxAnomalies = 50
 )
