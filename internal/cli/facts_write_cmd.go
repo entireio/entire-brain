@@ -103,7 +103,16 @@ func resolveRememberPaths(ctx context.Context, opts Options, rememberOpts rememb
 		if len(paths) == 0 {
 			return nil, fmt.Errorf("--path %q is not a valid taxonomy path (category.subcategory.type)", rememberOpts.path)
 		}
-		return paths, nil
+		// Explicit paths must sit under a known top-level category, exactly like
+		// agent-classified ones — otherwise --path can mint immediately-orphaned
+		// facts the rest of the system treats as invalid. New three-level paths
+		// under an existing category are still allowed.
+		var warnings []string
+		filtered := filterFactPathsByTaxonomy(paths, taxonomy, &warnings)
+		if len(filtered) == 0 {
+			return nil, fmt.Errorf("--path %q is not under a known taxonomy category (%s)", rememberOpts.path, strings.Join(sortedTaxonomyTopLevels(taxonomy), ", "))
+		}
+		return filtered, nil
 	}
 
 	agent := rememberOpts.agent

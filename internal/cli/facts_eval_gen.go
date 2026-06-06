@@ -29,9 +29,10 @@ func newFactsEvalGenCommand(opts Options) *cobra.Command {
 		branch     string
 		minFacts   int
 		maxFacts   int
-		refine     bool
-		agent      string
-		judgeCache string
+		refine       bool
+		agent        string
+		agentCommand []string
+		judgeCache   string
 	)
 	cmd := &cobra.Command{
 		Use:   "eval-gen",
@@ -63,7 +64,7 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 				return err
 			}
 			if refine {
-				tasks, err = refineEvalTaskLabels(cmd.Context(), opts, brainDir, repoDir, tasks, agent, judgeCache)
+				tasks, err = refineEvalTaskLabels(cmd.Context(), opts, brainDir, repoDir, tasks, agent, agentCommand, judgeCache)
 				if err != nil {
 					return err
 				}
@@ -91,6 +92,7 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 	cmd.Flags().IntVar(&maxFacts, "max-facts", 30, "Skip broad sessions with more relevant facts than this (diffuse targets); 0 = no cap")
 	cmd.Flags().BoolVar(&refine, "refine", false, "Judge-filter provenance labels to the genuinely-relevant subset (agent-required)")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --refine: auto, codex, claude-code, or command")
+	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&judgeCache, "judge-cache", "", "Persist/reuse --refine verdicts at this path")
 	return cmd
 }
@@ -99,12 +101,12 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 // subset the agent deems genuinely relevant to the request, re-tags the query
 // stratum from the surviving facts, and drops tasks left with no relevant facts.
 // Verdicts are cached so re-runs are cheap and deterministic.
-func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir string, tasks []evalTask, agent, cachePath string) ([]evalTask, error) {
+func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir string, tasks []evalTask, agent string, agentCommand []string, cachePath string) ([]evalTask, error) {
 	resolved := agent
 	if resolved == "auto" {
 		resolved = defaultRefreshAgent(ctx, opts.Runner, repoDir)
 	}
-	judgeArgs, err := distillAgentCommandArgs(resolved, nil, judgePrompt())
+	judgeArgs, err := distillAgentCommandArgs(resolved, agentCommand, judgePrompt())
 	if err != nil {
 		return nil, fmt.Errorf("refine agent: %w", err)
 	}

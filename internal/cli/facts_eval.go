@@ -179,11 +179,12 @@ func newFactsEvalCommand(opts Options) *cobra.Command {
 		tasksFile   string
 		branch      string
 		k           int
-		judge       bool
-		semantic    bool
-		expand      bool
-		agent       string
-		judgeCache  string
+		judge        bool
+		semantic     bool
+		expand       bool
+		agent        string
+		agentCommand []string
+		judgeCache   string
 		expandCache string
 		jsonOut     bool
 		run         distillAgentRunner
@@ -219,7 +220,7 @@ have the agent decide relevance per surfaced fact.`,
 			}
 			var judgeArgs []string
 			if judge {
-				judgeArgs, err = distillAgentCommandArgs(resolvedAgent, nil, judgePrompt())
+				judgeArgs, err = distillAgentCommandArgs(resolvedAgent, agentCommand, judgePrompt())
 				if err != nil {
 					return fmt.Errorf("judge agent: %w", err)
 				}
@@ -230,7 +231,7 @@ have the agent decide relevance per surfaced fact.`,
 			var expander queryExpanderFunc
 			expCache := loadExpansionCache(expandCache)
 			if expand {
-				expandArgs, expErr := distillAgentCommandArgs(resolvedAgent, nil, queryExpansionPrompt())
+				expandArgs, expErr := distillAgentCommandArgs(resolvedAgent, agentCommand, queryExpansionPrompt())
 				if expErr != nil {
 					return fmt.Errorf("expand agent: %w", expErr)
 				}
@@ -268,7 +269,8 @@ have the agent decide relevance per surfaced fact.`,
 	cmd.Flags().StringVar(&branch, "branch", "", "Default branch for tasks that omit one (default: current branch)")
 	cmd.Flags().IntVar(&k, "k", 10, "Facts to retrieve per task")
 	cmd.Flags().BoolVar(&judge, "judge", false, "Use the agent to judge relevance when a task has no labels")
-	cmd.Flags().StringVar(&agent, "agent", "auto", "Judge agent: auto, codex, claude-code, or command")
+	cmd.Flags().StringVar(&agent, "agent", "auto", "Judge/expand agent: auto, codex, claude-code, or command")
+	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&judgeCache, "judge-cache", "", "Persist/reuse judge verdicts at this path so re-runs are deterministic and cheap")
 	cmd.Flags().BoolVar(&semantic, "semantic", false, "Rerank with the local embedding backend (RRF fusion of lexical + semantic)")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand each task query with agent-generated retrieval terms before recall")

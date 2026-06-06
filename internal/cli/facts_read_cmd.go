@@ -41,10 +41,11 @@ func newRecallCommand(opts Options) *cobra.Command {
 		limit      int
 		includeAll bool
 		scope      string
-		noSemantic bool
-		expand     bool
-		agent      string
-		jsonOut    bool
+		noSemantic   bool
+		expand       bool
+		agent        string
+		agentCommand []string
+		jsonOut      bool
 	)
 	cmd := &cobra.Command{
 		Use:   "recall <query>",
@@ -73,7 +74,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 				if resolved == "auto" {
 					resolved = defaultRefreshAgent(cmd.Context(), opts.Runner, repoDir)
 				}
-				expandArgs, expErr := distillAgentCommandArgs(resolved, nil, queryExpansionPrompt())
+				expandArgs, expErr := distillAgentCommandArgs(resolved, agentCommand, queryExpansionPrompt())
 				if expErr != nil {
 					return fmt.Errorf("expand agent: %w", expErr)
 				}
@@ -117,6 +118,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&noSemantic, "no-semantic", false, "Disable embedding rerank; rank with lexical + taxonomy only")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand the query with agent-generated retrieval terms before ranking")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --expand: auto, codex, claude-code, or command")
+	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	return cmd
 }

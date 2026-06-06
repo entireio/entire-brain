@@ -42,6 +42,17 @@ func TestResolveRememberPathsExplicit(t *testing.T) {
 	if _, err := resolveRememberPaths(context.Background(), Options{}, rememberCommandOptions{path: "not-a-path"}, "/repo", "f", tax); err == nil {
 		t.Fatalf("expected error for invalid --path")
 	}
+	// Syntactically valid but under an unknown top-level category is rejected,
+	// just like agent classification — no immediately-orphaned facts via --path.
+	if _, err := resolveRememberPaths(context.Background(), Options{}, rememberCommandOptions{path: "nonsense.foo.bar"}, "/repo", "f", tax); err == nil {
+		t.Fatalf("expected error for --path under unknown taxonomy category")
+	}
+	// A new three-level path under a KNOWN top-level is still allowed (the
+	// taxonomy permits inventing paths under existing categories).
+	got, err := resolveRememberPaths(context.Background(), Options{}, rememberCommandOptions{path: "preferences.newarea.flavor"}, "/repo", "f", tax)
+	if err != nil || len(got) != 1 || got[0] != "preferences.newarea.flavor" {
+		t.Fatalf("new path under known category should be allowed: %v err=%v", got, err)
+	}
 }
 
 func TestResolveRememberPathsAgentClassification(t *testing.T) {
