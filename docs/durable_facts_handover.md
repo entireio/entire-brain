@@ -102,19 +102,35 @@ pure-Go `modernc.org/sqlite` — and auto-download, which breaks offline-default
    `~/.local/share/entire/facts-benchmark/run_semantic_ab.sh` (deterministic, no
    agent). Pooled summaries persisted as `combined_semantic_*.json`.
 
+### Fusion tuning — resolved (no lever)
+
+Recall was the soft spot (+0.032, marginal under Holm), so the obvious knobs
+were swept over the 121-task benchmark (potion-retrieval-32M): a 3×3 RRF grid
+(`k0 ∈ {10,30,60} × wSem ∈ {1,2,3}`) plus embedding taxonomy paths into the
+fact vector. **All are non-levers.** Every cell beats base, but cells differ
+from each other by ≤0.012 recall and ≤0.05 useful/1k — noise at n=121. The best
+cell (k30,w3) vs the shipped default (k60,w1) is recall +0.012 (p=0.16, n.s.)
+and useful +0.047 (p=0.59, n.s.); embedding paths slightly raises recall but
+*lowers* useful/1k. Picking any cell would overfit one task set. The principled
+default (k0=60, equal weight, text-only) stands; the env-knob build used for the
+sweep was discarded. Full grid: `facts-benchmark/semantic_fusion_sweep.md`.
+
+**Takeaway:** the remaining recall headroom is *not* in fusion tuning. It is in
+a stronger embedder / cross-encoder reranker (heavier, evidence-gated) or in
+fact-quality/structure work (Appendix D: taxonomy under-discrimination,
+locus-indexed facts) — a different axis from retrieval scoring.
+
 ### Open next steps (each its own measured slice)
 
-- **Recall is the soft spot** (+0.032, marginal under Holm). Levers to A/B,
-  guarding against overfitting the single 121-task set: RRF weighting (favor
-  semantic), a cosine floor for precision, smaller RRF `k0`, embedding fact
-  paths alongside text, locus/taxonomy-scoped reranking (plan Appendix D).
 - **Default-on policy + brief integration** + disk-persisted embedding cache
   under `facts/<branch>/embeddings/` (currently an in-memory per-run cache).
+- **Stronger-embedder / cross-encoder rerank** — only if a measured target
+  justifies the weight; the `Embedder` interface already supports the swap.
 - **Asset size:** 32.9MB int8 — revisit (harder quantization / smaller model)
   only if it becomes a distribution concern; the win justifies it for now.
 
-Do **not** re-litigate expansion or lexical weight tuning — both are closed
-negatives.
+Do **not** re-litigate expansion, lexical weight tuning, or **RRF fusion
+tuning** — all three are closed negatives.
 
 ## Reproducing the evaluation
 

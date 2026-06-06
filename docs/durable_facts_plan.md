@@ -473,8 +473,12 @@ tamper signal.
   0.667 reachability ceiling (not just rerank). Measured win over the 121-task
   benchmark with `potion-retrieval-32M`: useful-per-1k +0.459 (p=0.005, Holm),
   precision +0.025 (p=0.013, Holm), recall@10 +0.032 (p=0.043), no token cost.
-  Still open: recall-focused fusion tuning, default-on + brief integration,
-  disk-persisted embeddings, and the locus/hierarchy-scoped retrieval below.
+  Fusion tuning (RRF `k0`/weights grid, embedding taxonomy paths) was then swept
+  and is a **measured non-lever** — cells differ by ≤0.012 recall (noise at
+  n=121), so the principled default (k0=60, equal weight) stands. Still open:
+  default-on + brief integration, disk-persisted embeddings, a stronger
+  embedder/cross-encoder rerank (evidence-gated), and the locus/hierarchy-scoped
+  retrieval below.
 - **Phase E (optional):** outcome-weighted confidence — adjust and decay
   `confidence` from recall-then-commit outcomes, riding on the provenance anchors
   already recorded (see Outcome-Weighted Confidence). Drift only routes a fact to
