@@ -143,6 +143,69 @@ func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	}
 }
 
+func TestBrainBriefFactsCount(t *testing.T) {
+	// Compact requests shrink the facts section; default/large requests cap it.
+	cases := map[int]int{0: 1, 1: 1, 2: 2, 3: 3, 6: 6, 8: 6, 20: 6}
+	for limit, want := range cases {
+		if got := brainBriefFactsCount(limit); got != want {
+			t.Errorf("brainBriefFactsCount(%d) = %d, want %d", limit, got, want)
+		}
+	}
+}
+
+func TestBrainBriefIncludesMatchingFacts(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+
+	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	// Seed a fact on the live branch (the fixture runner reports "feature")
+	// and record it in the manifest. brief scopes facts to the current branch.
+	paths := normalizeFactPaths([]string{"architecture.boundaries.rationale"})
+	fact := factRecord{
+		ID:        factRecordID("ValidateToken review default scope is mainline by design.", paths),
+		Paths:     paths,
+		Text:      "ValidateToken review default scope is mainline by design.",
+		Branch:    "feature",
+		Origin:    factOriginDistilled,
+		Status:    factStatusActive,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := writeFacts(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
+		t.Fatalf("write facts: %v", err)
+	}
+	if err := updateFactSourceManifest(storage.BrainDir, now); err != nil {
+		t.Fatalf("update manifest: %v", err)
+	}
+	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
+
+	cmd := NewRootCommand(opts)
+	out, err := execute(t, cmd, "brief", "ValidateToken", "--json")
+	if err != nil {
+		t.Fatalf("brief: %v\n%s", err, out)
+	}
+	var report brainBriefReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("parse brief json: %v\n%s", err, out)
+	}
+	if !report.Status.Sources.Facts {
+		t.Fatalf("brief should report the facts source: %+v", report.Status.Sources)
+	}
+	if len(report.Facts) == 0 || report.Facts[0].ID != fact.ID {
+		t.Fatalf("brief should include the matching fact, got %+v", report.Facts)
+	}
+}
+
 func TestBrainSearchShowAndInspectAliases(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -527,6 +590,27 @@ func TestBrainBriefLikelyFilesExtractsDotSlashHistoryPaths(t *testing.T) {
 	editFiles, _, _ := brainBriefLikelyFileGroups("", report, "")
 	if !slices.Contains(editFiles, "packages/storage/src/index.ts") {
 		t.Fatalf("expected packages/storage/src/index.ts from history excerpt, got %+v", editFiles)
+	}
+}
+
+func TestBrainBriefTaskTermBonusFavorsBasenameMatch(t *testing.T) {
+	// The task-term ranking (experimental, post-campaign) must score a file whose
+	// BASENAME matches the task terms above one that only matches in the path, so the
+	// true target outranks a large distractor. Generic stopwords must not match.
+	terms := brainBriefFileMatchTerms("how does review checkpoint context choose the base ref")
+	if slices.Contains(terms, "how") || slices.Contains(terms, "does") || slices.Contains(terms, "the") {
+		t.Fatalf("generic stopwords leaked into match terms: %v", terms)
+	}
+	if !slices.Contains(terms, "review") || !slices.Contains(terms, "context") {
+		t.Fatalf("meaningful terms missing: %v", terms)
+	}
+	target := brainBriefTaskTermBonus("cmd/entire/cli/review_context.go", terms) // basename: review+context
+	distractor := brainBriefTaskTermBonus("cmd/entire/cli/review/tui_model.go", terms)
+	if target <= distractor {
+		t.Fatalf("expected basename match (review_context.go=%d) to outrank path-only match (tui_model.go=%d)", target, distractor)
+	}
+	if brainBriefTaskTermBonus("internal/unrelated/foo.go", terms) != 0 {
+		t.Fatalf("unrelated file should get 0 task-term bonus")
 	}
 }
 

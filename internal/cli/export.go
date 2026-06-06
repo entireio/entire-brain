@@ -963,6 +963,7 @@ func loadCheckpointSnapshotFromGitDir(ctx context.Context, runner CommandRunner,
 		if oidOut, _, oidErr := runner.Run(ctx, gitDir, "git", "ls-tree", "-r", ref); oidErr == nil {
 			reader.oids = treePathOIDs(oidOut)
 			reader.cache = cache
+			cache.active = true // caching genuinely ran this pass; safe to persist
 		}
 	}
 	selected, checkpointCount, warnings, err := readCheckpointSnapshotMetadata(ctx, reader, transcriptFileName, treePaths, limit, branchDestinations, progress)
@@ -1375,8 +1376,9 @@ const checkpointMetadataCachePath = "export/checkpoint-metadata-cache.json.gz"
 // entries loaded from disk; next accumulates the entries actually seen this
 // run and is what gets persisted (so blobs for dropped checkpoints age out).
 type checkpointMetadataCache struct {
-	prev map[string][]byte
-	next map[string][]byte
+	prev   map[string][]byte
+	next   map[string][]byte
+	active bool // true once a reader actually populated `next` this run
 }
 
 type checkpointMetadataCacheFile struct {
@@ -1413,6 +1415,13 @@ func loadCheckpointMetadataCache(path string) *checkpointMetadataCache {
 
 func saveCheckpointMetadataCache(path string, cache *checkpointMetadataCache) {
 	if cache == nil {
+		return
+	}
+	// If caching never actually ran this pass (e.g. object-id resolution failed),
+	// do not clobber a good on-disk cache with an empty blob map — that would
+	// silently defeat the cache on the next refresh. The `active` flag cleanly
+	// distinguishes "caching disabled" from "legitimately zero blobs".
+	if !cache.active {
 		return
 	}
 	file := checkpointMetadataCacheFile{Version: checkpointMetadataCacheVersion, Blobs: cache.next}

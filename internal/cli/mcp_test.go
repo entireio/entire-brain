@@ -209,6 +209,28 @@ func TestMCPToolCallRejectsInvalidDepth(t *testing.T) {
 	}
 }
 
+func TestMCPRecoversFromMalformedJSONLineFrame(t *testing.T) {
+	// A malformed json-line frame must NOT terminate the session: it should yield a
+	// JSON-RPC parse error (-32700) and the next valid frame must still be served.
+	input := `{"jsonrpc":"2.0","id":1,"method":` + "\n" + // truncated => invalid JSON
+		`{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}` + "\n"
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("session should survive a malformed frame, got err: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	if len(responses) != 2 {
+		t.Fatalf("expected parse-error + initialize responses, got %d: %q", len(responses), out.String())
+	}
+	errObj, ok := responses[0]["error"].(map[string]any)
+	if !ok || errObj["code"].(float64) != -32700 {
+		t.Fatalf("first response should be parse error -32700, got %v", responses[0])
+	}
+	if responses[1]["result"] == nil {
+		t.Fatalf("second response should be a valid initialize result, got %v", responses[1])
+	}
+}
+
 func TestMCPRejectsOversizedAndNegativeFrames(t *testing.T) {
 	if _, _, err := readMCPMessage(bufio.NewReader(strings.NewReader(fmt.Sprintf("Content-Length: %d\r\n\r\n", maxMCPFrameBytes+1)))); err == nil || !strings.Contains(err.Error(), "exceeds maximum") {
 		t.Fatalf("oversized frame err = %v", err)

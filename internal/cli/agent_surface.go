@@ -16,12 +16,14 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 )
 
 const (
 	brainBriefDefaultLimit      = 8
+	brainBriefFactsLimit        = 6
 	brainInspectHistoryMaxFiles = 1000
 	brainInspectHistoryMaxBytes = 512 * 1024
 	brainInspectHistoryMaxHits  = 25
@@ -68,6 +70,7 @@ type brainStatusSources struct {
 	Sessions bool `json:"sessions"`
 	Semantic bool `json:"semantic"`
 	History  bool `json:"history"`
+	Facts    bool `json:"facts"`
 }
 
 type brainLiveState struct {
@@ -89,6 +92,7 @@ type brainBriefReport struct {
 	Status          brainStatusReport  `json:"status"`
 	Semantic        brainBriefSemantic `json:"semantic"`
 	History         brainBriefHistory  `json:"history"`
+	Facts           []factRecord       `json:"facts,omitempty"`
 	ActionChecklist []brainBriefAction `json:"action_checklist,omitempty"`
 	LikelyEditFiles []string           `json:"likely_edit_files,omitempty"`
 	LikelyTestFiles []string           `json:"likely_test_files,omitempty"`
@@ -209,9 +213,18 @@ Small top-level surface:
   entire brain brief "<task>" --json
   entire brain search "<query>" --json
   entire brain show <id> --json
+  entire brain recall "<query>" --json
   entire brain refresh [repo] --json
   entire brain guide
   entire brain path [repo]
+
+Durable facts (curated, provenance-anchored repo knowledge):
+  entire brain recall "<query>" [--scope local|cross-cutting] [--expand] --json
+  entire brain remember "<fact>" [--path category.sub.type] --json
+  entire brain facts tree [--path <prefix>] [--depth N]
+  entire brain facts retract <fact-id> --json
+  entire brain inspect facts "<query>" --json
+  entire brain inspect blame <fact-id> --json
 
 Specialist tools:
   entire brain inspect code "<query>" --json
@@ -246,6 +259,8 @@ func newBrainInspectCommand(opts Options) *cobra.Command {
 		cmd.AddCommand(newInspectHistoryCommand(opts, kind))
 	}
 	cmd.AddCommand(newInspectBoundariesCommand(opts))
+	cmd.AddCommand(newInspectFactsCommand(opts))
+	cmd.AddCommand(newInspectBlameCommand(opts))
 	return cmd
 }
 
@@ -386,7 +401,12 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "brain: %s\n", report.Brain.Path)
 	fmt.Fprintf(cmd.OutOrStdout(), "repo: %s\n", report.Repo.Root)
-	fmt.Fprintf(cmd.OutOrStdout(), "sources: seed=%t sessions=%t semantic=%t history=%t\n", report.Sources.Seed, report.Sources.Sessions, report.Sources.Semantic, report.Sources.History)
+	fmt.Fprintf(cmd.OutOrStdout(), "sources: seed=%t sessions=%t semantic=%t history=%t facts=%t\n", report.Sources.Seed, report.Sources.Sessions, report.Sources.Semantic, report.Sources.History, report.Sources.Facts)
+	if report.Manifest != nil && report.Manifest.Sources != nil && report.Manifest.Sources.Facts != nil {
+		f := report.Manifest.Sources.Facts
+		fmt.Fprintf(cmd.OutOrStdout(), "facts: %d (%d distilled, %d authored, %d superseded) across %d branch(es); %d proposals pending\n",
+			f.Facts, f.Distilled, f.Authored, f.Superseded, len(f.Branches), f.Proposals)
+	}
 	if report.Freshness != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "freshness: %s\n", report.Freshness.Severity)
 	}
@@ -454,6 +474,17 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	} else if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Sessions != nil {
 		report.Warnings = append(report.Warnings, "history index missing; run `entire brain refresh`")
 	}
+	if status.Sources.Facts {
+		branch := status.Live.Branch
+		if branch == "" {
+			branch = distillDefaultBranch
+		}
+		if facts, factsErr := loadFacts(status.Brain.Path, branch); factsErr != nil {
+			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
+		} else {
+			report.Facts = rankFacts(facts, task, brainBriefFactsCount(briefOpts.limit), false)
+		}
+	}
 	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroups(status.Repo.Root, report, task)
 	report.LikelyTestFiles = brainBriefAddSiblingTestFiles(status.Repo.Root, report.LikelyEditFiles, report.LikelyTestFiles)
 	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
@@ -491,6 +522,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	for _, match := range report.History.Matches {
 		fmt.Fprintf(cmd.OutOrStdout(), "history %s:%d %s\n", match.Path, match.Line, match.Excerpt)
 	}
+	for _, fact := range report.Facts {
+		fmt.Fprintf(cmd.OutOrStdout(), "fact [%s] %s\n", strings.Join(fact.Paths, ","), fact.Text)
+	}
 	for _, item := range report.ActionChecklist {
 		location := item.File
 		if item.Symbol != "" {
@@ -515,14 +549,30 @@ func brainBriefOutputStatus(status brainStatusReport) brainStatusReport {
 
 var brainBriefPathPattern = regexp.MustCompile(`(?:^|[\s"'({\[])([A-Za-z0-9_@./-]+\.[A-Za-z0-9][A-Za-z0-9._-]*)`)
 
+// brainBriefFactsCount sizes the brief's facts section to the requested brief
+// limit so a compact request (e.g. the Opus compact mode's limit 3, or the
+// MCP brain_brief limit) gets fewer facts instead of a fixed block. Facts are a
+// supplementary section, so they never exceed brainBriefFactsLimit and shrink
+// with the budget; at least one fact is kept whenever the section is shown.
+func brainBriefFactsCount(limit int) int {
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > brainBriefFactsLimit {
+		return brainBriefFactsLimit
+	}
+	return limit
+}
+
 func brainBriefLikelyFileGroups(repoRoot string, report brainBriefReport, task string) ([]string, []string, []string) {
 	counts := map[string]int{}
+	taskTerms := brainBriefFileMatchTerms(task)
 	add := func(path string, weight int) {
 		clean, ok := cleanBrainBriefLikelyFile(path)
 		if !ok {
 			return
 		}
-		counts[clean] += weight + brainBriefLikelyFileBonus(clean)
+		counts[clean] += weight + brainBriefLikelyFileBonus(clean) + brainBriefTaskTermBonus(clean, taskTerms)
 	}
 	for _, symbol := range report.Semantic.Context.Symbols {
 		add(symbol.FilePath, 12)
@@ -819,6 +869,67 @@ func rankedBrainBriefLikelyFiles(counts map[string]int, limit int) []string {
 		out = append(out, file.path)
 	}
 	return out
+}
+
+// brainBriefTaskTermStop is a generic English + generic-task-verb stopword list so
+// filename matching keys on meaningful nouns/identifiers, not filler words. Kept
+// deliberately generic (no words cherry-picked from particular task prompts).
+var brainBriefTaskTermStop = map[string]bool{
+	"the": true, "and": true, "for": true, "with": true, "when": true, "must": true,
+	"that": true, "this": true, "these": true, "those": true, "into": true, "from": true,
+	"before": true, "after": true, "their": true, "your": true, "also": true, "than": true,
+	"then": true, "but": true, "are": true, "was": true, "will": true, "can": true,
+	"how": true, "why": true, "what": true, "where": true, "which": true, "should": true,
+	"does": true, "did": true, "has": true, "have": true, "had": true, "its": true,
+	"would": true, "need": true, "want": true, "use": true, "using": true, "used": true,
+	"add": true, "fix": true, "update": true, "change": true, "make": true, "ensure": true,
+	"run": true, "runs": true, "running": true, "set": true, "get": true,
+	// Common 3-char fillers (matched now that the floor is 3, so that strong
+	// 3-char identifiers like "api"/"cli" are kept while filler is dropped).
+	"not": true, "all": true, "any": true, "one": true, "two": true, "new": true,
+	"old": true, "via": true, "per": true, "off": true, "out": true, "now": true,
+	"yet": true, "way": true, "see": true, "let": true, "may": true, "you": true,
+}
+
+// Floor is 3 (not 4) so high-signal short identifiers like "api"/"cli" are not
+// skipped; common 3-char filler words are removed by brainBriefTaskTermStop above.
+var brainBriefTaskWordPattern = regexp.MustCompile(`[a-z0-9]{3,}`)
+
+// brainBriefFileMatchTerms extracts the significant lowercase tokens from a task
+// description used to bias likely_edit_files toward files named after the task.
+func brainBriefFileMatchTerms(task string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, word := range brainBriefTaskWordPattern.FindAllString(strings.ToLower(task), -1) {
+		if brainBriefTaskTermStop[word] || seen[word] {
+			continue
+		}
+		seen[word] = true
+		out = append(out, word)
+	}
+	return out
+}
+
+// brainBriefTaskTermBonus rewards a candidate file whose name matches the task's
+// significant terms — a strong "this file is what the task is about" signal that
+// the raw semantic-symbol density (which favors large files like TUIs) misses.
+func brainBriefTaskTermBonus(path string, terms []string) int {
+	if len(terms) == 0 {
+		return 0
+	}
+	lower := strings.ToLower(path)
+	base := strings.ToLower(filepath.Base(path))
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	score := 0
+	for _, term := range terms {
+		switch {
+		case strings.Contains(base, term):
+			score += 10 // basename match is the strongest locator
+		case strings.Contains(lower, term):
+			score += 3 // elsewhere in the path is weaker
+		}
+	}
+	return score
 }
 
 func brainBriefLikelyFileBonus(path string) int {
@@ -1375,6 +1486,7 @@ func buildBrainStatusReport(ctx context.Context, opts Options, target string) (b
 		report.Sources.Sessions = manifest.Sources.Sessions != nil
 		report.Sources.Semantic = manifest.Sources.Semantic != nil
 		report.Sources.History = manifest.Sources.History != nil
+		report.Sources.Facts = manifest.Sources.Facts != nil
 	}
 	live, liveErr := brainLiveStateReport(ctx, opts.Runner, repoDir, storage.BrainDir, manifest)
 	if liveErr != nil {
@@ -1723,19 +1835,40 @@ func historyRawLineExcerpt(line, query string) string {
 	text := normalizeHistoryTextForExcerpt(line)
 	lower := strings.ToLower(text)
 	query = strings.ToLower(strings.TrimSpace(query))
-	idx := strings.Index(lower, query)
+	idx := -1
+	matchLen := len(query)
+	if query != "" {
+		idx = strings.Index(lower, query)
+	}
 	if idx == -1 {
-		normalizedQuery := normalizeHistorySearchText(query)
-		normalizedText := normalizeHistorySearchText(text)
-		if normalizedQuery != "" {
-			idx = strings.Index(normalizedText, normalizedQuery)
+		// The full query was not a literal substring. Locate the first significant
+		// query token directly in `lower` so the resulting offset stays valid for
+		// `text`. (Using an offset from normalizeHistorySearchText, which collapses
+		// punctuation/case and splits camelCase, would index a differently-sized
+		// string and misalign the window.)
+		for _, tok := range strings.Fields(query) {
+			if len(tok) < 3 {
+				continue
+			}
+			if at := strings.Index(lower, tok); at != -1 {
+				idx = at
+				matchLen = len(tok)
+				break
+			}
 		}
 	}
 	if idx == -1 {
 		return strings.TrimSpace(truncateString(text, 700))
 	}
 	start := max(0, idx-280)
-	end := min(len(text), idx+len(query)+620)
+	end := min(len(text), idx+matchLen+620)
+	// Snap the window to rune boundaries so the slice is valid UTF-8.
+	for start > 0 && !utf8.RuneStart(text[start]) {
+		start--
+	}
+	for end < len(text) && !utf8.RuneStart(text[end]) {
+		end++
+	}
 	return strings.TrimSpace(truncateString(text[start:end], 900))
 }
 
@@ -1834,11 +1967,23 @@ func agentSurfaceTarget(opts Options, args []string) string {
 }
 
 func truncateString(value string, max int) string {
+	if max <= 0 {
+		return ""
+	}
 	if len(value) <= max {
 		return value
 	}
-	if max <= 3 {
-		return value[:max]
+	// Cut on a rune boundary so we never split a multi-byte UTF-8 rune in
+	// real (non-ASCII) transcripts, which would emit invalid UTF-8.
+	limit := max
+	suffix := ""
+	if max > 3 {
+		limit = max - 3
+		suffix = "..."
 	}
-	return value[:max-3] + "..."
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(value[cut]) {
+		cut--
+	}
+	return value[:cut] + suffix
 }

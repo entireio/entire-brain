@@ -2,8 +2,8 @@
 
 Entire Brain is an external-command plugin for the Entire CLI. It builds a
 local, inspectable "brain" for a repository from Entire session history, seeded
-repository context, a local history index, and optional semantic facts from
-`entire-sem`.
+repository context, a local history index, optional semantic facts from
+`entire-sem`, and a curated layer of durable facts distilled from past sessions.
 
 The plugin binary is named `entire-brain` and is invoked through Entire as:
 
@@ -11,9 +11,12 @@ The plugin binary is named `entire-brain` and is invoked through Entire as:
 entire brain
 ```
 
-All features are local-only (for now). They read local repositories and
-write local plugin data; they do not publish, hydrate, or serve brain data over
-the network.
+All generated brain data stays local (for now): features read local
+repositories and write local plugin data, and they do not publish or serve brain
+data over the network. The one network access is opt-in checkpoint discovery —
+when a repo configures a `checkpoint_remote`, `export`/`refresh` may `git fetch`
+the checkpoint history from that remote into a throwaway temp repo to build the
+brain. No other hydration occurs.
 
 ## Install
 
@@ -92,8 +95,9 @@ entire brain show <semantic-id> --json
 ```
 
 `brief` is the agent-facing entry point: it combines brain availability,
-freshness, live git state, semantic context and test suggestions, and matching
-history records. `status`, `search`, and `show` provide smaller top-level
+freshness, live git state, semantic context and test suggestions, matching
+history records, and the top matching durable facts for the task (sized to the
+requested `--limit`). `status`, `search`, and `show` provide smaller top-level
 queries for agents and scripts.
 
 For deeper inspection:
@@ -107,8 +111,54 @@ entire brain inspect changes --json
 entire brain inspect tests "main" --json
 entire brain inspect decisions "semantic" --json
 entire brain inspect history "semantic" --json
+entire brain inspect facts "checkpoint" --json
+entire brain inspect blame <fact-id> --json
 entire brain inspect boundaries --kind tool --json
 ```
+
+### Durable Facts
+
+The brain also keeps a curated **durable-facts** layer: short, self-contained,
+provenance-anchored statements about how work on the repo should be done —
+resolved decisions and their *why*, standing rules, stated preferences, and
+non-obvious constraints. Unlike the history index (read-only excerpts), facts
+are distilled, deduplicated, branch-scoped, and agent-writable, and every fact
+traces back to the signed session/checkpoint it came from. Like the rest of the
+brain, facts stay local and are never published.
+
+```sh
+entire brain distill --agent codex          # extract facts from captured sessions
+entire brain remember "Prefer table-driven tests" --path preferences.coding.style
+entire brain recall "account deletion" --k 5
+entire brain recall "MirrorCommittedMetadataRef" --expand   # agent expands the query first
+entire brain facts tree --depth 1           # navigable map of what the brain knows
+entire brain facts tree --path constraints  # drill into a category
+```
+
+`distill` is agent-required: it sends line-numbered transcript chunks to the
+seed agent (Codex, then Claude Code) under a strict quality gate, then reconciles
+each candidate against the branch's existing facts so near-duplicates merge and
+contradictions supersede (low-confidence calls are queued for review). It is
+incremental by default; `--force` rebuilds. `remember` authors a fact directly
+(the agent classifies it when `--path` is omitted). `recall` retrieves by
+keyword + taxonomy + code-locus match, scoped to the current branch; `--scope
+local|cross-cutting` separates code facts from how-we-work facts, and `--expand`
+has the agent rewrite the query into the facts' vocabulary first.
+
+Manage the fact store:
+
+```sh
+entire brain facts review                   # resolve queued merge/supersede proposals
+entire brain facts promote --from <branch> --strategy keep-both
+entire brain facts retract <fact-id>        # mark a fact no longer true (gc prunes later)
+entire brain facts gc --force               # prune retracted/old-superseded; report orphans
+```
+
+The fact store also ships an evaluation harness for measuring retrieval quality
+(`facts eval-gen` builds a provenance-labeled benchmark from the brain's own
+sessions, `facts eval` reports precision / recall / useful-facts-per-1k-tokens,
+and `facts eval-compare` does a paired t-test with Holm correction). See
+`docs/durable_facts_plan.md` for the full design.
 
 ## Storage
 
