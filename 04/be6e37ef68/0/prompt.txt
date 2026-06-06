@@ -670,3 +670,121 @@ run A/B idc abt cost
 <status>completed</status>
 <summary>Background command "Launch regression-radar A/B in background" completed (exit code 0)</summary>
 </task-notification>
+
+---
+
+Thomas — 1:17 AM
+How is that different to “entire review”?
+Thomas — 1:59 AM
+I like how entire-brain, entire-sem, and entire-replay-lab are separate building blocks.
+
+---
+
+now test it n=1 on ipus, hakiu, osnnet, 5.5 5.4 mini all on max effort
+
+---
+
+do same task for no brain and brain mcp and comapre then
+
+---
+
+give summary of results one sentce
+
+---
+
+average token and cost and speed saving, brain mcp and non rbain
+
+---
+
+give opus spefic stats
+
+---
+
+i thought we optimzed brain for opusl did that not kick or smth ; fix
+
+---
+
+/plan fix cometply;   Regression Radar — Full Audit
+  
+  Verdict: the detector is a solid, safe, well-tested artifact — but it is NOT ready to
+  be presented as proven, because the A/B that justifies it is circular and the "0 
+  false alarms" claim is degenerate. Fix the eval, not the engine.
+
+  ✅ What's genuinely solid (verified)
+
+  - Engine design is sound and narrow: two high-precision shapes
+  (operand-survives/id-swapped changed; assignment-absent-everywhere deleted, opt-in).
+  Real precision guards: comment-skip, test-skip, global-presence check,
+  locus-prioritized ordering, confidence scoring.
+  - Read-only & safe: no writes; RE2 regexes (no ReDoS); path-traversal guard is sound
+  — I tested it independently: a/../../etc/passwd, foo/../../../etc/passwd, absolute
+  paths all blocked or contained, zero escapes.
+  - Tests are real, not tautological: 4/4 pass, including a genuine clean-tree negative
+  (exercises the presence guard) and the opt-in-deletion test. Determinism/UTF-8/CRLF
+  handling verified safe.
+
+  🔴 Blocking problem: the eval can't honestly demonstrate the benefit
+
+  1. The A/B is circular (CRITICAL, verified). run.py:1580 tells the agent: "…restore 
+  expected exactly in place of current," and mcp.go:261 returns
+  file/line/expected/current. The harness computes the fix and the agent pastes it —
+  this measures transcription, not detection. (In fairness: the arm is explicitly
+  Experimental, env-gated A/B (default OFF) with honest comments — the danger is only
+  if its pass-rate lift gets surfaced as a "radar win." Finding #8: nothing flags it as
+  answer-assisted in the report.)
+  2. "0 false alarms" is degenerate (CRITICAL, verified). regression_eval.py:62 =
+  len(clean) on the same 2 tuned tasks, against a tree that still holds the invariant —
+  the guard suppresses by construction. It's not a precision measurement; it can't
+  return non-zero.
+  3. Unproven marginal value. The detector reads expected straight from history that
+  already contains the answer — so its value over a plain brain_history grep is
+  currently unmeasured. Needs a brain_history-only control arm.
+
+  ⚠️  The "precise / 0 false alarms" claim breaks on routine cases
+
+  I confirmed by reasoning + the reviewers reproduced these — none are in the eval:
+  - Benign rename → confident false alarm. scopeBaseRef→baseRef (invariant intact)
+  flags the renamed line at conf 0.85 (regression.go:369-391). Renames are routine.
+  - Operand collision — a short fragment like ..head reused elsewhere flags an
+  unrelated file (:345-353).
+  - Deletion path reports a present-but-RHS-renamed assignment as "absent everywhere"
+  (:398-419) — factually false output (bounded: off over MCP, but the eval passes
+  --include-deletions).
+  - Silent recall holes: literal embedding the id (foo+"foobar"), all-lowercase
+  identifiers never extracted, 41+ char literals dropped by the {2,40} cap.
+
+  Severity-ranked real issues (deduped from 17)
+
+  ┌──────┬──────────────────────────┬───────────────────────────────────────────────┐
+  │ Sev  │          Where           │                     Issue                     │
+  ├──────┼──────────────────────────┼───────────────────────────────────────────────┤
+  │ Crit │ run.py:1580 + mcp.go:261 │ A/B leaks the answer (paste expected) → not a │
+  │      │                          │  detection measurement                        │
+  ├──────┼──────────────────────────┼───────────────────────────────────────────────┤
+  │ Crit │ regression_eval.py:55-73 │ Recall on fitted n=2 tuning set; no held-out  │
+  │      │                          │ tasks                                         │
+  ├──────┼──────────────────────────┼───────────────────────────────────────────────┤
+  │ Crit │ regression_eval.py:61-63 │ "0 false alarms" can't be non-zero by         │
+  │      │                          │ construction                                  │
+  ├──────┼──────────────────────────┼───────────────────────────────────────────────┤
+  │ High │ regression.go:369-391    │ Benign rename → conf-0.85 false positive      │
+  ├──────┼──────────────────────────┼───────────────────────────────────────────────┤
+  │      │                          │ anyLineBoth lacks the comment/test filter the │
+  │ High │ regression.go:345-353    │  emit loop has → a stale comment/test copy    │
+  │      │                          │ suppresses a real regression                  │
+  ├──────┼──────────────────────────┼───────────────────────────────────────────────┤
+  │ High │ mcp_test.go              │ brain_regressions has zero test coverage (not │
+  │      │                          │  even asserted in tools/list)                 │
+  ├──────┼──────────────────────────┼───────────────────────────────────────────────┤
+  │      │                          │ Range regex over-captures abutting            │
+  │ Med  │ regression.go:124        │ identifiers; {2,40} silently drops long       │ 
+  │      │                          │ literals                                      │
+  ├──────┼──────────────────────────┼───────────────────────────────────────────────┤
+  │ Med  │ mcp.go:189               │ Description promises "dropped or changed" but │
+  │      │                          │  deletions are unreachable over MCP           │ 
+  ├──────┼──────────────────────────┼───────────────────────────────────────────────┤
+  │ Med  │ regression.go:304-317    │ Skips the per-component symlink check other   │
+  │      │                          │ repo reads enforce (bounded: read-only/local) │ 
+  └──────┴──────────────────────────┴───────────────────────────────────────────────┘
+
+; and then re run n=1 max effort
