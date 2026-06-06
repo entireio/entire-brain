@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "cb83a2bcdc30",
+  "strategy": "manual-commit",
+  "branch": "claude/regression-radar",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/agent_surface.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/cb/83a2bcdc30/0/metadata.json",
+      "transcript": "/cb/83a2bcdc30/0/full.jsonl",
+      "content_hash": "/cb/83a2bcdc30/0/content_hash.txt",
+      "prompt": "/cb/83a2bcdc30/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 139,
+    "cache_creation_tokens": 319831,
+    "cache_read_tokens": 1269122,
+    "output_tokens": 4483,
+    "api_call_count": 5
+  }
+}
