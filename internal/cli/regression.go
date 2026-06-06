@@ -65,6 +65,7 @@ type regressionDetectorOptions struct {
 	limit            int
 	json             bool
 	includeDeletions bool // deletions are higher-recall but noisier (no recency data); opt-in
+	locationOnly     bool // emit file:line only, NOT expected/current — so a fair A/B can't paste the answer
 }
 
 type changeSignal struct {
@@ -121,7 +122,10 @@ func regressionDespace(s string) string {
 // noise and common tokens don't leak in.
 func regressionExtractSignals(id, excerpt, ev string) ([]changeSignal, []deleteSignal) {
 	q := regexp.QuoteMeta(id)
-	changeRe := regexp.MustCompile(`(?i)` + q + `\s*\+?\s*(?:"([^"]{2,40})"|([A-Za-z0-9_]*\.\.[A-Za-z0-9_]+))`)
+	// Known recall limits (documented, not silently dropped): literals >80 chars are skipped, an
+	// all-lowercase identifier is never extracted as a query id upstream, and a literal that embeds
+	// the id (e.g. `foo+"foobar"`) won't match. These bound recall, not precision.
+	changeRe := regexp.MustCompile(`(?i)` + q + `\s*\+?\s*(?:"([^"]{2,80})"|([A-Za-z0-9_]*\.\.[A-Za-z0-9_]+))`)
 	assignRe := regexp.MustCompile(`(?i)((?:[A-Za-z0-9_]+\.)*[A-Za-z0-9_]*` + q + `[A-Za-z0-9_]*)\s*(:?=)\s*([A-Za-z0-9_."'\[\]()+\-* ]{1,48})`)
 
 	var changes []changeSignal
@@ -307,6 +311,9 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 			continue
 		}
 		full := filepath.Join(repoRoot, clean)
+		if err := rejectSymlinkPathComponents(repoRoot, clean); err != nil {
+			continue // per-component symlink guard, matching the brain's other repo reads
+		}
 		info, err := os.Stat(full)
 		if err != nil || info.IsDir() || info.Size() > regressionMaxFileBytes {
 			continue
@@ -342,9 +349,17 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 		return files[i].clean < files[j].clean
 	})
 
+	// "invariant still holds" check — must use the SAME comment/test filter as the emit loop, or a
+	// stale comment/test copy of `operand+id` would falsely suppress a real regression (false negative).
 	anyLineBoth := func(a, b string) bool {
 		for _, f := range files {
-			for _, n := range f.norm {
+			if f.isTest {
+				continue
+			}
+			for i, n := range f.norm {
+				if regressionIsComment(f.lines[i]) {
+					continue
+				}
 				if strings.Contains(n, a) && strings.Contains(n, b) {
 					return true
 				}
@@ -369,6 +384,10 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 		if anyLineBoth(c.operand, c.id) {
 			continue // invariant still holds somewhere
 		}
+		// Likely-rename guard: if the operand is still concatenated to SOME identifier
+		// (`<ident> + "...operand..."`, structure preserved), the invariant is intact under a renamed
+		// symbol, not regressed — only flag when the operand now sits in a bare/hardcoded literal.
+		renameRe := regexp.MustCompile(`[a-z_][a-z0-9_]*\s*\+\s*"[^"]*` + regexp.QuoteMeta(c.operand))
 		for _, f := range files { // locate the swap: operand present, identifier gone
 			if f.isTest {
 				continue // a test's `..HEAD` is not the regressed implementation site
@@ -379,11 +398,14 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 					continue // prose mentions of a range like `main...HEAD` are not the regression
 				}
 				if strings.Contains(n, c.operand) && !strings.Contains(n, c.id) {
+					if renameRe.MatchString(strings.ToLower(f.lines[i])) {
+						continue // operand still concatenated to an identifier → benign rename, not a regression
+					}
 					anomalies = append(anomalies, regressionAnomaly{
 						File: f.clean, Line: i + 1, Kind: "changed",
 						Current: strings.TrimSpace(f.lines[i]), Expected: c.raw,
-						Identifier: c.id, Confidence: 0.85, Evidence: c.ev,
-						Reason: fmt.Sprintf("history asserts %q; this line keeps %q but dropped %q", c.raw, c.operand, c.id),
+						Identifier: c.id, Confidence: 0.8, Evidence: c.ev,
+						Reason: fmt.Sprintf("suspected regression: history asserts %q; this line keeps %q but dropped %q (could also be a rename — verify)", c.raw, c.operand, c.id),
 					})
 					found = true
 					break
@@ -524,6 +546,15 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 		semSource = status.Manifest.Sources.Semantic
 	}
 	anomalies, scanned, warnings := detectRegressionAnomalies(status.Brain.Path, status.Repo.Root, semSource, query, ro.limit, ro.includeDeletions)
+	if ro.locationOnly {
+		// Hand only the suspected location, not the fix — so a fair A/B measures detection, not
+		// the agent pasting a harness-computed `expected`.
+		for i := range anomalies {
+			anomalies[i].Expected = ""
+			anomalies[i].Current = ""
+			anomalies[i].Reason = "suspected regression site (location only)"
+		}
+	}
 	report := regressionReport{
 		GeneratedAt: opts.Now().UTC(),
 		Query:       query,
@@ -565,5 +596,6 @@ func newInspectRegressionsCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&ro.limit, "limit", 20, "Maximum suspected regressions to return")
 	cmd.Flags().BoolVar(&ro.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().BoolVar(&ro.includeDeletions, "include-deletions", false, "Also flag deleted assignments (higher recall, noisier)")
+	cmd.Flags().BoolVar(&ro.locationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
 	return cmd
 }

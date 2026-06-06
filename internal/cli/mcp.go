@@ -186,8 +186,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_regressions",
-			"description": "Flag suspected regressions: lines the session history asserts but the current tree dropped or changed (with file:line, expected value, confidence, and provenance).",
-			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "Task description plus the failing symbols/identifiers"), "limit": integerArg("limit", "Maximum suspected regressions")}},
+			"description": "Flag suspected regressions: lines the session history asserts but the current tree changed (default) or, with include_deletions, deleted (file:line, expected value, confidence, provenance).",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "Task description plus the failing symbols/identifiers"), "limit": integerArg("limit", "Maximum suspected regressions"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (higher recall, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}},
 		},
 	}
 }
@@ -258,7 +258,9 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	case "brain_regressions":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runRegressionDetect(ctx, cmd, opts, regressionDetectorOptions{limit: limit, json: true}, query)
+			inc, _ := params.Arguments["include_deletions"].(bool)
+			loc, _ := params.Arguments["location_only"].(bool)
+			err = runRegressionDetect(ctx, cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, query)
 		}
 	default:
 		err = fmt.Errorf("unknown tool: %s", params.Name)

@@ -1546,6 +1546,13 @@ def wants_regression_radar(runner: "RunnerSpec | None") -> bool:
     return os.environ.get("BENCH_REGRESSION_RADAR") == "1"
 
 
+# Location-only radar (the FAIR detection arm): brain_regressions hands the suspected file:line but
+# NOT the expected/current value, so the agent must apply the fix itself — de-leaks the circular A/B
+# where the agent simply pasted the harness-computed answer.
+def wants_radar_location_only(runner: "RunnerSpec | None") -> bool:
+    return os.environ.get("BENCH_RADAR_LOCATION_ONLY") == "1"
+
+
 def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None" = None) -> str:
     base = task["prompt"].strip()
     validation = "\n".join(f"- `{cmd}`" for cmd in task.get("validation", []))
@@ -1574,9 +1581,14 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
         policy = f"""Use the Entire Brain MCP server before editing. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Then start with the `brain_stale` MCP tool, followed by `brain_query`, `brain_context`, `brain_impact`, or `brain_changes` for focused semantic context. Useful query terms: {queries}. Do not run the `entire brain` CLI and do not inspect checkpoint transcripts or session history."""
     elif condition == "mcp_semantic":
         policy = "Use the Entire Brain MCP server before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not run semantic CLI commands or inspect checkpoint transcripts."
+    elif condition == "mcp_history" and wants_radar_location_only(runner):
+        # FAIR radar arm: brain_regressions(location_only) hands the suspected file:line but NOT the
+        # fix — the agent must determine and apply the change itself (de-leaked detection test).
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a REGRESSION. Call `mcp__entire_brain__brain_regressions` / `brain_regressions` EXACTLY ONCE with `location_only: true` and these failing terms: `{queries}`. It returns the suspected `file` and `line` of the regression but NOT the fix. Open that `file` at that `line`, work out what the code should be by reading the surrounding code, and apply the fix yourself. Then run exactly one relevant test and FINISH. If it returns no anomalies, call `brain_brief` ONCE and fix the single most likely `likely_edit_files` file. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 3 targeted in-file searches. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history" and wants_regression_radar(runner):
-        # Regression-radar A/B: the brain pre-computes the suspected regressed line; the agent just
-        # restores it (instead of hunting the file + invariant itself).
+        # ANSWER-ASSISTED radar arm (UPPER BOUND, not a fair detection measure): brain_regressions
+        # hands file/line/expected/current and the agent pastes `expected`. Useful only to bound the
+        # ceiling; the detector's real marginal value is the location-only arm vs the history control.
         policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a REGRESSION. Call `mcp__entire_brain__brain_regressions` / `brain_regressions` EXACTLY ONCE with these failing terms: `{queries}`. It returns suspected regressions, each with a `file`, `line`, the `expected` value (what the code should be) and the `current` value. Open the top finding's `file` at its `line` and restore `expected` exactly in place of `current`. Then run exactly one relevant test and FINISH. If `brain_regressions` returns no anomalies, call `brain_brief` ONCE and fix the single most likely `likely_edit_files` file. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history" and wants_disciplined_mcp(runner):
         # Disciplined MCP (gpt-5.5 all efforts; gpt-5.4-mini high/xhigh): brief once + ONE

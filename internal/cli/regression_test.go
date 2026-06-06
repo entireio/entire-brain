@@ -91,6 +91,39 @@ func TestRegressionDetectsChangedOperand(t *testing.T) {
 	}
 }
 
+func TestRegressionBenignRenameNotFlagged(t *testing.T) {
+	// scopeBaseRef renamed to baseRef everywhere; the invariant is intact (`<ident> + "..HEAD"`).
+	// The detector must NOT report a rename as a regression (the audit's conf-0.85 false positive).
+	session := `{"text":"pkg/review_context.go builds the range as scopeBaseRef+\"..HEAD\""}`
+	body := "package x\nfunc f(baseRef string) string {\n\treturn baseRef + \"..HEAD\"\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/review_context.go", body)
+	if an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false); len(an) != 0 {
+		t.Fatalf("benign rename (operand still concatenated to an identifier) must not flag: %+v", an)
+	}
+}
+
+func TestRegressionCommentCopyDoesNotSuppress(t *testing.T) {
+	// Real code regressed to a literal, but a stale COMMENT still shows the old invariant. The
+	// "invariant still holds" check must skip comments, or it suppresses the real regression.
+	session := `{"text":"pkg/review_context.go uses scopeBaseRef+\"..HEAD\" for the range"}`
+	body := "package x\n// historical: scopeBaseRef+\"..HEAD\"\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/review_context.go", body)
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false)
+	if len(an) != 1 || an[0].Kind != "changed" || !strings.Contains(an[0].Current, "master..HEAD") {
+		t.Fatalf("a comment copy of the invariant must not suppress the real regression: %+v", an)
+	}
+}
+
+func TestRegressionIntactInvariantNotFlagged(t *testing.T) {
+	// Invariant intact in real code AND a bare `..HEAD` literal collides elsewhere → no flag.
+	session := `{"text":"pkg/review_context.go scopeBaseRef+\"..HEAD\""}`
+	body := "package x\nfunc f() string {\n\trng := scopeBaseRef + \"..HEAD\"\n\t_ = \"origin/main..HEAD\"\n\treturn rng\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/review_context.go", body)
+	if an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false); len(an) != 0 {
+		t.Fatalf("intact invariant must not flag despite an operand collision elsewhere: %+v", an)
+	}
+}
+
 func TestRegressionDeletionIsOptIn(t *testing.T) {
 	session := `{"text":"in pkg/resolve_transcript.go set state.TranscriptPath = resolved so later reads work"}`
 	// current file uses TranscriptPath but the assignment is gone.
