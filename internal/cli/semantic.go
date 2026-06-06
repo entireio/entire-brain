@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"math"
 	"os"
 	pathpkg "path"
 	"path/filepath"
@@ -3081,13 +3082,46 @@ func semanticQueryTokens(query string) []string {
 	return tokens
 }
 
-// findSemanticSymbolsTokenizedSQLite ranks symbols by how many query tokens
-// appear in their full-text body. It is the fallback for multi-word queries that
-// never appear verbatim in any one symbol, ordered by token-overlap so the most
-// relevant symbols come first.
+// tokenIDFWeight scores a token by inverse document frequency: a token matching
+// few symbols (e.g. "authentication") is far more discriminating than one
+// matching many (e.g. "handler", "work"), so it must contribute more to a
+// symbol's relevance. Returns a small positive integer for use as a SQL literal
+// weight. Smoothed so a token matching nothing still ranks above none.
+func tokenIDFWeight(total, df int) int {
+	if total < 0 {
+		total = 0
+	}
+	if df < 0 {
+		df = 0
+	}
+	idf := math.Log(float64(total+1)/float64(df+1)) + 1
+	weight := int(math.Round(idf * 10))
+	if weight < 1 {
+		weight = 1
+	}
+	return weight
+}
+
+// findSemanticSymbolsTokenizedSQLite ranks symbols by the inverse-document-
+// frequency-weighted sum of query tokens appearing in their full-text body. It
+// is the fallback for multi-word queries that never appear verbatim in any one
+// symbol; weighting by rarity keeps a specific term (matched by few symbols)
+// from being tied with a generic filler term (matched by many).
 func findSemanticSymbolsTokenizedSQLite(db *sql.DB, tokens []string, limit, offset int) ([]semanticRecord, error) {
 	if len(tokens) == 0 {
 		return nil, nil
+	}
+	var total int
+	if err := db.QueryRow(`SELECT count(*) FROM symbols`).Scan(&total); err != nil {
+		return nil, err
+	}
+	weights := make([]int, len(tokens))
+	for i, token := range tokens {
+		var df int
+		if err := db.QueryRow(`SELECT count(*) FROM symbol_fts WHERE instr(lower(text), ?) > 0`, token).Scan(&df); err != nil {
+			return nil, err
+		}
+		weights[i] = tokenIDFWeight(total, df)
 	}
 	var conds, score strings.Builder
 	args := make([]any, 0, len(tokens)*2+2)
@@ -3097,7 +3131,8 @@ func findSemanticSymbolsTokenizedSQLite(db *sql.DB, tokens []string, limit, offs
 			score.WriteString(" + ")
 		}
 		conds.WriteString("instr(lower(f.text), ?) > 0")
-		score.WriteString("(CASE WHEN instr(lower(f.text), ?) > 0 THEN 1 ELSE 0 END)")
+		// Weights are computed integers, safe to inline as SQL literals.
+		fmt.Fprintf(&score, "(CASE WHEN instr(lower(f.text), ?) > 0 THEN %d ELSE 0 END)", weights[i])
 	}
 	// Token args are consumed once for the score expression and once for the
 	// WHERE clause, in that order.
