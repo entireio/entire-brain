@@ -1002,3 +1002,7 @@ Foundation PR for the entire review redesign. Pure-additive: no behavior change 
 JFYI
 For multi-repo, entire-brain already has a workspace command. Codex built that in phase 1, but haven't tried it myself.
 ;
+
+---
+
+/goal keep testing and imrpoving till we get the results i wantl and once we get that run full 360 wtv runs; get the resutls; fidn the issues fix, find the new stuff add etc etc
