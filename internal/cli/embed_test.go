@@ -163,3 +163,15 @@ func TestLoadStaticEmbedderRejectsBadUnkID(t *testing.T) {
 		t.Fatal("expected out-of-range unkID to be rejected at load")
 	}
 }
+
+func TestLoadStaticEmbedderRejectsOversizedHeader(t *testing.T) {
+	// Patch the dim field (offset 14: magic[4] + version[4] + nameLen[2] +
+	// "test"[4]) to a value far larger than the file, simulating a corrupt
+	// header. The preflight must reject it rather than attempt a giant
+	// allocation before take() discovers the truncation.
+	raw := encodeTestModel([]string{"[UNK]", "a"}, 4, 0)
+	binary.LittleEndian.PutUint32(raw[14:], 1<<30)
+	if _, err := loadStaticEmbedder(raw); err == nil {
+		t.Fatal("expected oversized header to be rejected before allocation")
+	}
+}

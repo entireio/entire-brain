@@ -79,6 +79,16 @@ func loadStaticEmbedder(raw []byte) (*staticEmbedder, error) {
 	if unkID < 0 || int(unkID) >= vocabSize {
 		return nil, fmt.Errorf("embed model: unkID %d out of range [0,%d)", unkID, vocabSize)
 	}
+	// Preflight the header sizes against the actual file length before any
+	// allocation: a corrupt/malformed header could otherwise request a giant
+	// vocab map / scales / matrix (or overflow vocabSize*dim) before take()
+	// discovers the truncation, defeating the graceful degrade-to-lexical path.
+	// The file is an upper bound on every section, and dividing avoids computing
+	// the (potentially overflowing) products: scales need dim*4 bytes, the vocab
+	// needs ≥vocabSize*2 (a uint16 length per token), the matrix vocabSize*dim.
+	if n := len(raw); dim > n/4 || vocabSize > n/2 || vocabSize > n/dim {
+		return nil, fmt.Errorf("embed model: header sizes (dim=%d vocab=%d) exceed file length %d", dim, vocabSize, n)
+	}
 	vocab := make(map[string]int32, vocabSize)
 	for i := 0; i < vocabSize; i++ {
 		tok := string(r.take(int(r.u16())))
