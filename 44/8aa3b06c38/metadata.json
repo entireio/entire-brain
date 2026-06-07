@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "448aa3b06c38",
+  "strategy": "manual-commit",
+  "branch": "claude/thomas-asks",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/root.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/44/8aa3b06c38/0/metadata.json",
+      "transcript": "/44/8aa3b06c38/0/full.jsonl",
+      "content_hash": "/44/8aa3b06c38/0/content_hash.txt",
+      "prompt": "/44/8aa3b06c38/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 202673,
+    "cache_creation_tokens": 12268177,
+    "cache_read_tokens": 925526932,
+    "output_tokens": 2525252,
+    "api_call_count": 1669
+  }
+}
