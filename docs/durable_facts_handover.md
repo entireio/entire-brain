@@ -7,13 +7,11 @@ and what to do next.
 
 ## Branch topology
 
-- **Feature branch:** `claude/durable-facts-and-distill` → **PR #5** (open, base `main`).
-  34 commits / 42 files. This is Phase A + the shipped Appendix-D structural and
-  evaluation pieces. Treat it as feature-complete and in review.
-- **This stacked branch:** `claude/durable-facts-phase-d`, branched off
-  `claude/durable-facts-and-distill` @ `1b725f4`. New work goes here. When the
-  feature PR merges, rebase this onto `main`; until then its PR should target
-  `claude/durable-facts-and-distill`.
+- **Base work (merged):** `claude/durable-facts-and-distill` landed via **PR #5**.
+  Phase A + the shipped Appendix-D structural and evaluation pieces are now on
+  `main`.
+- **This branch:** `claude/durable-facts-phase-d` → **PR #9**, rebased onto and
+  targeting `main` (no longer stacked). New Phase D work goes here.
 
 ## What's landed (feature-complete on the base branch)
 
@@ -83,8 +81,10 @@ pure-Go `modernc.org/sqlite` — and auto-download, which breaks offline-default
    int8-quantized table, golden-parity tested against reference vectors.
 2. **RRF fusion** (`embed_rank.go`): `rankFactsFused` fuses a lexical list with
    a semantic list that ranks the *entire* active candidate set (the lever
-   against the reachability ceiling). `recall --semantic` / `eval --semantic`,
-   default off. Nil reranker == existing lexical `rankFacts`.
+   against the reachability ceiling). It first landed flag-gated, then shipped
+   default-on for `recall`/`brief` (`--no-semantic` to opt out) while `eval`
+   keeps `--semantic` explicit for the A/B — see *Default-on + disk cache* below.
+   Nil reranker == existing lexical `rankFacts`.
 3. **Measured + model adoption.** base reproduces the handover exactly
    (recall@10=0.244, useful/1k=3.53). potion-base-8M was only directional
    (useful/1k p=0.082). **potion-retrieval-32M** (retrieval-tuned, swapped behind

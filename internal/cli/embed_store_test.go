@@ -153,6 +153,46 @@ func TestRerankerRetainPreservesOutOfScopeVectors(t *testing.T) {
 	}
 }
 
+// TestRerankerFlushPrunesWithoutDirtyEmbed guards the prune-without-embed fix: a
+// run that embeds nothing new (no dirty) but sees fewer facts (one departed the
+// branch) must still rewrite the cache to drop the stale vector.
+func TestRerankerFlushPrunesWithoutDirtyEmbed(t *testing.T) {
+	e := defaultEmbedder()
+	if e == nil {
+		t.Skip("embedding backend unavailable")
+	}
+	dir := t.TempDir()
+	now := time.Now()
+	facts := []factRecord{
+		{ID: "fact:a", Text: "indentation uses spaces", Status: factStatusActive, UpdatedAt: now},
+		{ID: "fact:b", Text: "tokens are validated per request", Status: factStatusActive, UpdatedAt: now},
+	}
+	// Seed both vectors on disk.
+	rr := newSemanticRerankerForBranch(e, dir, "main")
+	_ = rankFactsFused(facts, "whitespace policy", 5, false, rr)
+	if err := rr.flush(); err != nil {
+		t.Fatalf("seed flush: %v", err)
+	}
+
+	// fact:b leaves the branch. This run loads the cache, retains only the
+	// remaining fact, and embeds nothing new — so dirty stays false.
+	rr2 := newSemanticRerankerForBranch(e, dir, "main")
+	rr2.retain(facts[:1])
+	if rr2.dirty {
+		t.Fatalf("no embed happened; dirty should be false")
+	}
+	if err := rr2.flush(); err != nil {
+		t.Fatalf("prune flush: %v", err)
+	}
+	got := newEmbedStore(dir, "main", e.ID(), e.Dim()).load()
+	if _, ok := got["fact:b"]; ok {
+		t.Errorf("departed fact:b should be pruned even without a dirty embed; have %v", keysOf(got))
+	}
+	if len(got) != 1 {
+		t.Errorf("expected 1 vector after prune, got %d", len(got))
+	}
+}
+
 func keysOf(m map[string][]float32) []string {
 	ks := make([]string, 0, len(m))
 	for k := range m {

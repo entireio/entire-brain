@@ -76,12 +76,12 @@ func (s *semanticReranker) retain(facts []factRecord) {
 	}
 }
 
-// flush persists vectors embedded this run when disk-backed. It writes only the
-// ids touched this run (embedded via factVector or marked present via retain),
-// so facts removed or superseded since the last run are pruned from the cache on
-// rewrite. Best-effort: a cache is never load-bearing.
+// flush persists vectors when disk-backed. It writes only the ids touched this
+// run (embedded via factVector or marked present via retain), so facts removed
+// or superseded since the last run are pruned from the cache on rewrite.
+// Best-effort: a cache is never load-bearing.
 func (s *semanticReranker) flush() error {
-	if s == nil || s.store == nil || !s.dirty {
+	if s == nil || s.store == nil {
 		return nil
 	}
 	out := make(map[string][]float32, len(s.touched))
@@ -89,6 +89,14 @@ func (s *semanticReranker) flush() error {
 		if v, ok := s.cache[id]; ok {
 			out[id] = v
 		}
+	}
+	// Rewrite when a new vector was embedded (dirty) or when the loaded cache
+	// holds vectors for facts no longer present this run (out ⊂ cache → stale
+	// entries to prune). Skipping both means the on-disk file already matches —
+	// so a pure cache-hit run with no departures does no I/O, but a removal-only
+	// run still prunes even though nothing new was embedded.
+	if !s.dirty && len(out) == len(s.cache) {
+		return nil
 	}
 	return s.store.save(out)
 }
