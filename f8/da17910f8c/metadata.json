@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "f8da17910f8c",
+  "strategy": "manual-commit",
+  "branch": "feat/distill-speedups",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_cmd_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f8/da17910f8c/0/metadata.json",
+      "transcript": "/f8/da17910f8c/0/full.jsonl",
+      "content_hash": "/f8/da17910f8c/0/content_hash.txt",
+      "prompt": "/f8/da17910f8c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 425,
+    "cache_creation_tokens": 33376,
+    "cache_read_tokens": 7911665,
+    "output_tokens": 28589,
+    "api_call_count": 19
+  }
+}
