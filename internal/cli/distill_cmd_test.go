@@ -171,6 +171,11 @@ func TestRunDistillForBrainReportsProgress(t *testing.T) {
 		if u.SessionsDone != i+1 {
 			t.Errorf("update %d: SessionsDone = %d, want %d", i, u.SessionsDone, i+1)
 		}
+		// Emitted after each session, so the cumulative fact count must include the
+		// session just processed (each fixture session yields one fact).
+		if u.Facts != i+1 {
+			t.Errorf("update %d: Facts = %d, want %d (count must include the session just processed)", i, u.Facts, i+1)
+		}
 		if u.Branch == "" {
 			t.Errorf("update %d: empty branch", i)
 		}

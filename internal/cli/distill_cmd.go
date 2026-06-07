@@ -280,8 +280,13 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		ensureBranch(branch)
 
 		sessionsDone++
-		if distillOpts.progress != nil {
-			distillOpts.progress(distillProgress{SessionsDone: sessionsDone, SessionsTotal: totalSessions, Branch: branch, Facts: factsFound})
+		// Report once per session, at every exit path, so the running fact count
+		// includes the session just processed (an emit at session start would lag
+		// by one session and always show 0 for a single-session run).
+		reportProgress := func() {
+			if distillOpts.progress != nil {
+				distillOpts.progress(distillProgress{SessionsDone: sessionsDone, SessionsTotal: totalSessions, Branch: branch, Facts: factsFound})
+			}
 		}
 
 		// Read the transcript before the cache check so the fingerprint can hash
@@ -291,6 +296,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		content, readErr := readBrainRelativeFile(brainDir, session.TranscriptPath)
 		if readErr != nil {
 			warnings = append(warnings, fmt.Sprintf("read transcript %s: %v", session.TranscriptPath, readErr))
+			reportProgress()
 			continue // not cached: retried next run
 		}
 
@@ -298,6 +304,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		if !distillOpts.force {
 			if prev, ok := prevCache.Sessions[session.SessionID]; ok && prev == fingerprint {
 				newCache.Sessions[session.SessionID] = prev // unchanged; retain in cache and keep existing facts
+				reportProgress()
 				continue
 			}
 		}
@@ -345,6 +352,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		if !sessionFailed {
 			newCache.Sessions[session.SessionID] = fingerprint
 		}
+		reportProgress()
 	}
 
 	warnings = capWarnings(warnings, maxDistillWarnings)
