@@ -243,7 +243,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			continue // not cached: retried next run
 		}
 
-		fingerprint := distillSessionFingerprint(session, content)
+		fingerprint := distillSessionFingerprint(session, branch, content)
 		if !distillOpts.force {
 			if prev, ok := prevCache.Sessions[session.SessionID]; ok && prev == fingerprint {
 				newCache.Sessions[session.SessionID] = prev // unchanged; retain in cache and keep existing facts
@@ -385,17 +385,20 @@ func chunkTranscript(content string, maxBytes int) []transcriptChunk {
 }
 
 // distillSessionFingerprint is the incremental-skip signal for one session. It
-// hashes the session identity (id, latest checkpoint, transcript path, branch)
-// together with a digest of the transcript bytes, so any content change — even
-// one that keeps the same checkpoint, such as a compact↔raw re-export or an
-// exporter fix — invalidates the cache and forces a re-distill.
-func distillSessionFingerprint(session exportSession, content string) string {
+// hashes the session identity (id, latest checkpoint, transcript path, resolved
+// branch) together with a digest of the transcript bytes, so any content change
+// — even one that keeps the same checkpoint, such as a compact↔raw re-export or
+// an exporter fix — invalidates the cache and forces a re-distill. The branch is
+// the *resolved* one the facts are written under (session.Branch may be empty
+// and fall back to the manifest default), so a default-branch change re-keys the
+// session instead of letting a stale cache skip it.
+func distillSessionFingerprint(session exportSession, branch, content string) string {
 	contentSum := sha256.Sum256([]byte(content))
 	sum := sha256.Sum256([]byte(strings.Join([]string{
 		session.SessionID,
 		session.LatestCheckpoint,
 		filepath.ToSlash(session.TranscriptPath),
-		session.Branch,
+		branch,
 		hex.EncodeToString(contentSum[:]),
 	}, "\x00")))
 	return "sha256:" + hex.EncodeToString(sum[:])

@@ -115,3 +115,48 @@ func TestRerankerDiskCacheReusesVectors(t *testing.T) {
 		t.Errorf("expected prune to 1 touched vector, got %d", len(got))
 	}
 }
+
+// TestRerankerRetainPreservesOutOfScopeVectors guards the scope-flush fix: a
+// scoped run that ranks only a subset must not prune the cached vectors of the
+// facts it didn't rank, as long as those facts still exist in the branch.
+func TestRerankerRetainPreservesOutOfScopeVectors(t *testing.T) {
+	e := defaultEmbedder()
+	if e == nil {
+		t.Skip("embedding backend unavailable")
+	}
+	dir := t.TempDir()
+	now := time.Now()
+	facts := []factRecord{
+		{ID: "fact:a", Text: "indentation uses spaces", Status: factStatusActive, UpdatedAt: now},
+		{ID: "fact:b", Text: "tokens are validated per request", Status: factStatusActive, UpdatedAt: now},
+	}
+	// Seed the cache with both vectors.
+	rr := newSemanticRerankerForBranch(e, dir, "main")
+	_ = rankFactsFused(facts, "whitespace policy", 5, false, rr)
+	if err := rr.flush(); err != nil {
+		t.Fatalf("seed flush: %v", err)
+	}
+
+	// A scoped run ranks only fact:a but retains the full branch set, then
+	// embeds a new fact so the flush actually rewrites the file.
+	rr2 := newSemanticRerankerForBranch(e, dir, "main")
+	scoped := facts[:1] // simulate --scope dropping fact:b
+	_ = rankFactsFused(scoped, "whitespace policy", 5, false, rr2)
+	rr2.retain(facts)                                              // full branch fact set
+	_ = rr2.factVector(factRecord{ID: "fact:c", Text: "new fact"}) // force dirty
+	if err := rr2.flush(); err != nil {
+		t.Fatalf("scoped flush: %v", err)
+	}
+	got := newEmbedStore(dir, "main", e.ID(), e.Dim()).load()
+	if _, ok := got["fact:b"]; !ok {
+		t.Errorf("retain should preserve out-of-scope fact:b across flush; cache has %d entries: %v", len(got), keysOf(got))
+	}
+}
+
+func keysOf(m map[string][]float32) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	return ks
+}

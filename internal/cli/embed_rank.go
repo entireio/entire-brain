@@ -62,9 +62,24 @@ func (s *semanticReranker) factVector(f factRecord) []float32 {
 	return v
 }
 
+// retain marks ids as present this run for prune purposes, without forcing an
+// embed. Callers pass the full branch fact set (before scope/status filtering)
+// so flush keeps every still-present fact's cached vector and prunes only facts
+// that genuinely left the branch — otherwise a scoped recall, which ranks only a
+// subset, would prune the rest and thrash the cache on the next unscoped run.
+func (s *semanticReranker) retain(facts []factRecord) {
+	if s == nil || s.touched == nil {
+		return
+	}
+	for _, f := range facts {
+		s.touched[f.ID] = true
+	}
+}
+
 // flush persists vectors embedded this run when disk-backed. It writes only the
-// ids touched this run, so facts removed or superseded since the last run are
-// pruned from the cache on rewrite. Best-effort: a cache is never load-bearing.
+// ids touched this run (embedded via factVector or marked present via retain),
+// so facts removed or superseded since the last run are pruned from the cache on
+// rewrite. Best-effort: a cache is never load-bearing.
 func (s *semanticReranker) flush() error {
 	if s == nil || s.store == nil || !s.dirty {
 		return nil

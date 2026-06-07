@@ -721,7 +721,8 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			}
 			report.Facts = rankFactsFused(facts, task, brainBriefFactsCount(briefOpts.limit), false, rr)
 			if rr != nil {
-				_ = rr.flush() // best-effort cache persist
+				rr.retain(facts) // keep every present fact's vector; prune only departed facts
+				_ = rr.flush()   // best-effort cache persist
 			}
 		}
 	}

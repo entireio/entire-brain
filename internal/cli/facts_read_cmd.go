@@ -63,11 +63,11 @@ func newRecallCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			facts, err := loadFacts(brainDir, resolvedBranch)
+			allFacts, err := loadFacts(brainDir, resolvedBranch)
 			if err != nil {
 				return err
 			}
-			facts = filterFactsByScope(facts, scope)
+			facts := filterFactsByScope(allFacts, scope)
 			effectiveQuery := query
 			if expand && strings.TrimSpace(query) != "" {
 				resolved := agent
@@ -96,7 +96,8 @@ func newRecallCommand(opts Options) *cobra.Command {
 			}
 			matches := rankFactsFused(facts, effectiveQuery, limit, includeAll, rr)
 			if rr != nil {
-				_ = rr.flush() // best-effort cache persist
+				rr.retain(allFacts) // keep every present fact's vector; prune only departed facts
+				_ = rr.flush()      // best-effort cache persist
 			}
 			if jsonOut {
 				return writeJSON(cmd, map[string]any{"branch": resolvedBranch, "query": query, "facts": matches})
