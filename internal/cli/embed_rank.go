@@ -175,7 +175,8 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 
 // cosineFloat32 is the cosine similarity of two vectors. Vectors from the
 // static embedder are already unit length, but guarding the norms keeps it
-// correct for the zero vector (empty/all-unknown text) — which yields 0.
+// correct for the zero vector (text that tokenizes to nothing, e.g.
+// empty/whitespace-only) — which yields 0.
 func cosineFloat32(a, b []float32) float64 {
 	if len(a) != len(b) {
 		return 0

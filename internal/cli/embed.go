@@ -17,8 +17,10 @@ import (
 // static model (staticEmbedder), but a transformer bi-encoder (ONNX) or a
 // provider-shelled embedder can drop in behind this interface without touching
 // the ranking path, once the eval harness shows the static model leaves recall
-// headroom. Embed returns a slice of length Dim(); for empty/all-unknown input
-// it returns the zero vector (callers treat a zero vector as "no signal").
+// headroom. Embed returns a slice of length Dim(); input that tokenizes to
+// nothing (empty/whitespace-only) returns the zero vector, which callers treat
+// as "no signal". Unknown words map to [UNK] and so still yield a non-zero
+// vector.
 type Embedder interface {
 	Embed(text string) []float32
 	Dim() int
