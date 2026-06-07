@@ -1294,24 +1294,41 @@ func historyShortQueryTerm(term string) bool {
 	}
 }
 
+// genericQueryStopwords are generic English fillers and generic task verbs with
+// no retrieval signal. It is the SINGLE source of truth shared by every query
+// tokenizer in the package — history/semantic specialist search
+// (historyQueryStopword) and brain-brief filename matching
+// (brainBriefFileMatchTerms) — so the common list never drifts between the two.
+// Each call site layers only its own domain-specific noise words on top; those
+// legitimately differ (e.g. "regression"/"preserve" are noise for free-text
+// history search but valid filename-match terms like regression.go for brief).
+var genericQueryStopwords = map[string]bool{
+	"and": true, "are": true, "before": true, "but": true, "can": true,
+	"did": true, "does": true, "fix": true, "for": true, "from": true,
+	"has": true, "have": true, "how": true, "into": true, "its": true,
+	"make": true, "must": true, "need": true, "new": true, "not": true,
+	"run": true, "runs": true, "should": true, "than": true, "that": true,
+	"the": true, "then": true, "this": true, "use": true, "via": true,
+	"want": true, "what": true, "when": true, "where": true, "which": true,
+	"why": true, "with": true, "would": true,
+}
+
 func historyQueryStopword(term string) bool {
+	if genericQueryStopwords[term] {
+		return true
+	}
+	// History/semantic-search-specific noise words layered on the generic set:
+	// natural-language filler plus domain verbs/nouns ("regression", "preserve",
+	// "restore", ...) that carry no signal for a free-text record search.
 	switch term {
-	case "a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "can",
-		"current", "do", "does", "during", "existing", "for", "from", "has",
-		"have", "how", "in", "into", "is", "it", "its", "keep", "local",
-		"make", "must", "new", "not", "of", "on", "only", "or", "other",
-		"previous", "prior", "preserve", "regression", "restore", "same",
-		"should", "task", "that", "the", "then", "this", "to", "use",
-		"when", "where", "with", "without":
+	case "a", "an", "as", "at", "be", "been", "by", "current", "do",
+		"during", "existing", "in", "is", "it", "keep", "local", "of", "on",
+		"only", "or", "other", "previous", "prior", "preserve", "regression",
+		"restore", "same", "task", "to", "without":
 		return true
-	case "behavior", "before", "entire", "fix", "fresh", "parent", "run",
-		"runs", "setting", "value", "values":
+	case "behavior", "entire", "fresh", "parent", "setting", "value", "values":
 		return true
-	// Common question/filler words an agent naturally types in a
-	// natural-language query but that carry no retrieval signal. Dropping them
-	// keeps high-specificity terms from being diluted in the match threshold.
-	case "why", "did", "done", "over", "instead", "we", "our", "what",
-		"which", "would", "could", "about", "than", "via", "want", "need":
+	case "done", "over", "instead", "we", "our", "could", "about":
 		return true
 	default:
 		return false

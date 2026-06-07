@@ -173,6 +173,41 @@ func TestSemanticQueryTokensDropsStopwordsAndShortTerms(t *testing.T) {
 	}
 }
 
+// TestQueryStopwordRegimesShareGenericBase locks in the reconciliation of the
+// two token regimes: history/semantic search (historyQueryStopword) and
+// brain-brief filename matching (brainBriefFileMatchTermStop) consult ONE shared
+// generic-stopword set, but each keeps its own domain layer. It guards against
+// the lists silently drifting apart again, and against the divergence being
+// "fixed" into a single list (which would regress one regime).
+func TestQueryStopwordRegimesShareGenericBase(t *testing.T) {
+	// Generic fillers must be stopwords for BOTH regimes (shared source of truth).
+	for _, w := range []string{"the", "and", "with", "fix", "should", "when"} {
+		if !genericQueryStopwords[w] {
+			t.Errorf("%q must be in the shared genericQueryStopwords set", w)
+		}
+		if !historyQueryStopword(w) {
+			t.Errorf("history regime must treat generic %q as a stopword", w)
+		}
+		if !brainBriefFileMatchTermStop(w) {
+			t.Errorf("brief regime must treat generic %q as a stopword", w)
+		}
+	}
+	// Intentional divergence: domain nouns are noise for free-text history
+	// search but are valid filename-match terms for the brief (e.g.
+	// "regression" must still match regression.go).
+	for _, w := range []string{"regression", "preserve", "restore"} {
+		if !historyQueryStopword(w) {
+			t.Errorf("history regime should drop domain word %q", w)
+		}
+		if brainBriefFileMatchTermStop(w) {
+			t.Errorf("brief regime must KEEP domain word %q as a filename term", w)
+		}
+		if genericQueryStopwords[w] {
+			t.Errorf("domain word %q must not leak into the shared generic set", w)
+		}
+	}
+}
+
 func TestHistoryRecordTimestampParsesSessionPath(t *testing.T) {
 	ts, ok := historyRecordTimestamp("sessions/main/20260606T070424Z_codex_abc.jsonl")
 	if !ok {

@@ -1097,28 +1097,33 @@ func rankedBrainBriefLikelyFiles(counts map[string]int, limit int) []string {
 	return out
 }
 
-// brainBriefTaskTermStop is a generic English + generic-task-verb stopword list so
-// filename matching keys on meaningful nouns/identifiers, not filler words. Kept
-// deliberately generic (no words cherry-picked from particular task prompts).
-var brainBriefTaskTermStop = map[string]bool{
-	"the": true, "and": true, "for": true, "with": true, "when": true, "must": true,
-	"that": true, "this": true, "these": true, "those": true, "into": true, "from": true,
-	"before": true, "after": true, "their": true, "your": true, "also": true, "than": true,
-	"then": true, "but": true, "are": true, "was": true, "will": true, "can": true,
-	"how": true, "why": true, "what": true, "where": true, "which": true, "should": true,
-	"does": true, "did": true, "has": true, "have": true, "had": true, "its": true,
-	"would": true, "need": true, "want": true, "use": true, "using": true, "used": true,
-	"add": true, "fix": true, "update": true, "change": true, "make": true, "ensure": true,
-	"run": true, "runs": true, "running": true, "set": true, "get": true,
+// brainBriefFileMatchStop holds the filename-matching-specific stopwords layered
+// on top of the shared genericQueryStopwords (see history.go) — mostly extra
+// task verbs ("add"/"update"/"change"/"ensure") and short fillers. Domain nouns
+// like "regression"/"preserve" are deliberately ABSENT (unlike
+// historyQueryStopword) because they are strong filename-match terms here, e.g.
+// a "fix the regression detector" task should still match regression.go.
+var brainBriefFileMatchStop = map[string]bool{
+	"these": true, "those": true, "after": true, "their": true, "your": true,
+	"also": true, "was": true, "will": true, "had": true, "using": true,
+	"used": true, "add": true, "update": true, "change": true, "ensure": true,
+	"running": true, "set": true, "get": true,
 	// Common 3-char fillers (matched now that the floor is 3, so that strong
 	// 3-char identifiers like "api"/"cli" are kept while filler is dropped).
-	"not": true, "all": true, "any": true, "one": true, "two": true, "new": true,
-	"old": true, "via": true, "per": true, "off": true, "out": true, "now": true,
-	"yet": true, "way": true, "see": true, "let": true, "may": true, "you": true,
+	"all": true, "any": true, "one": true, "two": true, "old": true,
+	"per": true, "off": true, "out": true, "now": true, "yet": true,
+	"way": true, "see": true, "let": true, "may": true, "you": true,
+}
+
+// brainBriefFileMatchTermStop reports whether a task token is filler for
+// filename matching: a generic English/task stopword (shared, single source of
+// truth) or a filename-matching-specific filler.
+func brainBriefFileMatchTermStop(word string) bool {
+	return genericQueryStopwords[word] || brainBriefFileMatchStop[word]
 }
 
 // Floor is 3 (not 4) so high-signal short identifiers like "api"/"cli" are not
-// skipped; common 3-char filler words are removed by brainBriefTaskTermStop above.
+// skipped; common 3-char filler words are removed by brainBriefFileMatchTermStop.
 var brainBriefTaskWordPattern = regexp.MustCompile(`[a-z0-9]{3,}`)
 
 // brainBriefFileMatchTerms extracts the significant lowercase tokens from a task
@@ -1127,7 +1132,7 @@ func brainBriefFileMatchTerms(task string) []string {
 	seen := map[string]bool{}
 	out := []string{}
 	for _, word := range brainBriefTaskWordPattern.FindAllString(strings.ToLower(task), -1) {
-		if brainBriefTaskTermStop[word] || seen[word] {
+		if brainBriefFileMatchTermStop(word) || seen[word] {
 			continue
 		}
 		seen[word] = true
