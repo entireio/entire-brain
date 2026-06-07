@@ -193,6 +193,28 @@ func TestDistilledFactsFromOutputLiteralTabEscape(t *testing.T) {
 	}
 }
 
+// Only the first literal `\t` is the path/fact separator; a later `\t` belongs
+// to the fact text and must be left untouched (not converted to a tab, which
+// would split the text into a spurious extra field).
+func TestDistilledFactsFromOutputLiteralTabEscapeFirstOnly(t *testing.T) {
+	now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	taxonomy := defaultFactTaxonomy(now)
+	anchor := factAnchor{SessionID: "s1"}
+
+	output := `constraints.invariants.general\tColumns are separated by\ta tab character.`
+	records, warnings := distilledFactsFromOutput(output, taxonomy, anchor, "main", now)
+	if len(records) != 1 {
+		t.Fatalf("line with a \\t inside the fact text should be recovered: got %d records, warnings=%v", len(records), warnings)
+	}
+	// The second `\t` stays literal in the text — it is not the separator.
+	if got := records[0].Text; got != `Columns are separated by\ta tab character.` {
+		t.Fatalf("only the first \\t should be the separator; text wrong: %q", got)
+	}
+	if len(records[0].Paths) != 1 || records[0].Paths[0] != "constraints.invariants.general" {
+		t.Fatalf("path wrong: %v", records[0].Paths)
+	}
+}
+
 func TestSplitFactLine(t *testing.T) {
 	cases := []struct {
 		line  string

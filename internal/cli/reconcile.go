@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -231,19 +232,23 @@ func parseReconcileActions(output string, candidates, existing []factRecord) ([]
 	return actions, warnings
 }
 
-// isNumericToken reports whether a token parses as a float, used to tell a
-// trailing confidence value apart from a "-" placeholder or missing field.
+// isNumericToken reports whether a token parses as a finite float, used to tell
+// a trailing confidence value apart from a "-" placeholder or missing field.
+// NaN/±Inf are rejected: ParseFloat accepts them, but a NaN confidence would
+// silently bypass the low-confidence gate downstream (every comparison with NaN
+// is false), so they must not be treated as a numeric confidence.
 func isNumericToken(token string) bool {
-	_, err := strconv.ParseFloat(token, 64)
-	return err == nil
+	value, err := strconv.ParseFloat(token, 64)
+	return err == nil && !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
 // parseConfidence reads a confidence token, clamped to [0,1]; unparseable
-// values default to 0 so an unreadable confidence is treated as low (and thus
-// queued for review rather than auto-applied).
+// values (including NaN/±Inf, which would otherwise slip past the [0,1] clamp
+// and the auto-apply threshold) default to 0 so an unreadable confidence is
+// treated as low and queued for review rather than auto-applied.
 func parseConfidence(token string) float64 {
 	value, err := strconv.ParseFloat(token, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
 		return 0
 	}
 	if value < 0 {

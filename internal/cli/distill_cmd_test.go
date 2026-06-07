@@ -309,6 +309,56 @@ func TestRunDistillForBrainRetriesFailedSessions(t *testing.T) {
 	}
 }
 
+// A session with an empty branch field is distilled under the manifest default
+// branch, so a `--branch <default>` run must include it rather than filtering it
+// out on the raw (empty) session.Branch before the default is resolved.
+func TestRunDistillForBrainBranchFilterResolvesDefault(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	sessions := []exportSession{
+		{SessionID: "s1", Branch: "", LatestCheckpoint: "cp1", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: now.Add(-2 * time.Hour)},
+		{SessionID: "s2", Branch: "feature", LatestCheckpoint: "cp2", TranscriptPath: "sessions/branches/feature/s2.jsonl", CreatedAt: now.Add(-1 * time.Hour)},
+	}
+	for _, s := range sessions {
+		path := filepath.Join(brainDir, filepath.FromSlash(s.TranscriptPath))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("turn one\nturn two\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	var inputs []string
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		inputs = append(inputs, string(input))
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, branch: "main", maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("runDistillForBrain: %v", err)
+	}
+	// The empty-branch session (resolved to main) must have been distilled; the
+	// feature session must not. distillCalls == 1.
+	if len(inputs) != 1 {
+		t.Fatalf("expected only the default-branch session distilled, got %d agent calls", len(inputs))
+	}
+	mainFacts, err := loadFacts(brainDir, "main")
+	if err != nil || len(mainFacts) != 1 {
+		t.Fatalf("empty-branch session not distilled under default branch: %d facts (%v)", len(mainFacts), err)
+	}
+}
+
 func TestRunDistillForBrainBranchLimitedPreservesManifest(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := writeDistillFixture(t, now)

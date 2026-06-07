@@ -106,11 +106,43 @@ func TestParseReconcileActionsTolerantFormats(t *testing.T) {
 }
 
 func TestParseConfidence(t *testing.T) {
-	cases := map[string]float64{"0.5": 0.5, "1.0": 1.0, "-2": 0, "5": 1, "abc": 0, "": 0}
+	// NaN/±Inf parse via ParseFloat but must default to 0: a NaN confidence would
+	// slip past the [0,1] clamp and silently bypass the auto-apply threshold.
+	cases := map[string]float64{"0.5": 0.5, "1.0": 1.0, "-2": 0, "5": 1, "abc": 0, "": 0, "NaN": 0, "Inf": 0, "-Inf": 0}
 	for in, want := range cases {
 		if got := parseConfidence(in); got != want {
 			t.Errorf("parseConfidence(%q) = %v, want %v", in, got, want)
 		}
+	}
+}
+
+func TestIsNumericTokenRejectsNonFinite(t *testing.T) {
+	for _, tok := range []string{"NaN", "Inf", "+Inf", "-Inf", "infinity"} {
+		if isNumericToken(tok) {
+			t.Errorf("isNumericToken(%q) = true, want false (non-finite must not count as a confidence)", tok)
+		}
+	}
+	for _, tok := range []string{"0", "0.5", "1.0", "-2"} {
+		if !isNumericToken(tok) {
+			t.Errorf("isNumericToken(%q) = false, want true", tok)
+		}
+	}
+}
+
+// A "new" line whose trailing token is NaN must keep the default confidence of
+// 1.0 (NaN is not treated as a numeric confidence) rather than letting a NaN
+// reach the action.
+func TestParseReconcileActionsRejectsNaNConfidence(t *testing.T) {
+	now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	candidates := []factRecord{factFor(t, "c1", []string{"project.tooling.stack"}, now)}
+	existing := []factRecord{factFor(t, "e1", []string{"project.tooling.stack"}, now)}
+
+	actions, _ := parseReconcileActions("1 merge 1 NaN", candidates, existing)
+	if len(actions) != 1 {
+		t.Fatalf("expected 1 action, got %d", len(actions))
+	}
+	if actions[0].Kind != factActionMerge || actions[0].Confidence != 0 {
+		t.Errorf("NaN confidence on merge must clamp to 0 (queued for review): %+v", actions[0])
 	}
 }
 

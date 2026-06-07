@@ -236,11 +236,27 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	var warnings []string
 	chunksScanned, chunksDistilled := 0, 0
 
+	// resolveBranch maps a session to the branch its facts are written under,
+	// falling back to the manifest default (then distillDefaultBranch) when the
+	// session's branch field is empty. The --branch filter must compare against
+	// this resolved value, not session.Branch, so sessions with an empty branch
+	// are not silently excluded from a `--branch <default>` run.
+	resolveBranch := func(session exportSession) string {
+		branch := session.Branch
+		if branch == "" {
+			branch = strings.TrimSpace(manifest.DefaultBranch)
+		}
+		if branch == "" {
+			branch = distillDefaultBranch
+		}
+		return branch
+	}
+
 	// Denominator for progress: sessions that pass the branch filter. Cached
 	// (unchanged) sessions still advance the counter so the line reaches N/N.
 	totalSessions := 0
 	for _, session := range sessions {
-		if distillOpts.branch != "" && session.Branch != distillOpts.branch {
+		if distillOpts.branch != "" && resolveBranch(session) != distillOpts.branch {
 			continue
 		}
 		totalSessions++
@@ -272,15 +288,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	}
 
 	for _, session := range sessions {
-		if distillOpts.branch != "" && session.Branch != distillOpts.branch {
+		branch := resolveBranch(session)
+		if distillOpts.branch != "" && branch != distillOpts.branch {
 			continue
-		}
-		branch := session.Branch
-		if branch == "" {
-			branch = strings.TrimSpace(manifest.DefaultBranch)
-		}
-		if branch == "" {
-			branch = distillDefaultBranch
 		}
 		ensureBranch(branch)
 
