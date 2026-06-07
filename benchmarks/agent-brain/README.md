@@ -3,6 +3,35 @@
 This directory contains a repeatable harness for comparing Codex and Claude Code
 with and without Entire Brain.
 
+## Stable panel (`panel`) + the stability gate
+
+"Is benchmarking stable?" is answered with a **committed panel manifest** plus a **printed
+per-task verdict**, not ad-hoc flags:
+
+```sh
+python3 run.py panel full          # runs panels/full.json, prints a stability verdict per task/condition
+```
+
+A panel manifest (`panels/full.json`) is the run config as data: the retained task list, **pinned**
+`agent:model:effort` runners (unpinned runners are rejected in preflight — defaults drift and aren't
+visible in artifacts), the conditions, and `repetitions` (>=4). `panel` preflights the manifest, then
+expands it into the existing `run` code path — no new run mechanics.
+
+The **stability gate** (in `summarize`, so `run`/`panel`/`report` all show it) tags each
+(task, condition vs `no_brain`) comparison:
+
+- `brain_positive_stable` — a real, repetition-robust win: a token reduction significant at p<0.05
+  **and** surviving the drop of the single best/worst rep, **or** a pass-rate lift that survives the
+  same drop-one test.
+- `saturated` — both arms already pass 100% (no quality headroom; only efficiency can differ).
+- `noisy` — a delta exists but isn't significant / doesn't survive drop-one.
+
+Each comparison also carries `coefficient_of_variation_total_tokens` / `_score`. **Honesty note:** agent
+sampling is inherently non-deterministic; the harness-controllable variance (base commit, setup commit,
+semantic cache, parentless baseline) is already pinned, so stability comes from **repetitions + CV +
+drop-one**, not a fake seed. The gate can only *downgrade* a result to saturated/noisy — it never
+manufactures significance — and the headline stays validation pass-rate + measured tokens.
+
 ## Reproducing on another machine (portable paths)
 
 Task `repo_path` values are resolved portably so the suite runs without editing
