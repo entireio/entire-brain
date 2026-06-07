@@ -50,13 +50,32 @@ type watchSteps struct {
 	distill     func(context.Context) error
 }
 
-func newWatchCommand(opts Options) *cobra.Command {
-	w := watchCommandOptions{
+// defaultWatchOptions are the shared defaults for `watch` and `workspace watch`.
+func defaultWatchOptions() watchCommandOptions {
+	return watchCommandOptions{
 		interval:     5 * time.Minute,
 		distillEvery: 24 * time.Hour,
 		distillAgent: "codex",
 		seedAgent:    "none",
 	}
+}
+
+// bindWatchFlags registers the watch flags on a command, shared so `watch` and `workspace watch` expose
+// the identical token-frugality controls.
+func bindWatchFlags(cmd *cobra.Command, w *watchCommandOptions) {
+	cmd.Flags().DurationVar(&w.interval, "interval", w.interval, "Poll interval between ticks")
+	cmd.Flags().BoolVar(&w.once, "once", false, "Run a single pass and exit (no daemon loop)")
+	cmd.Flags().BoolVar(&w.distill, "distill", false, "Also run distill (SPENDS TOKENS) when new sessions land and --distill-every has elapsed")
+	cmd.Flags().DurationVar(&w.distillEvery, "distill-every", w.distillEvery, "Minimum interval between distill runs")
+	cmd.Flags().StringVar(&w.distillAgent, "agent", w.distillAgent, "Agent for the distill step (used only with --distill)")
+	cmd.Flags().StringVar(&w.seedAgent, "seed-agent", w.seedAgent, "Seed synthesis agent for the deterministic refresh (none = no tokens)")
+	cmd.Flags().StringVar(&w.model, "model", "", "Fast/cheap model for the gated agent steps (distill/seed)")
+	cmd.Flags().StringVar(&w.effort, "effort", "", "Reasoning effort for the gated agent steps")
+	cmd.Flags().IntVar(&w.budget, "budget", 0, "Max distill invocations this process; 0 = unlimited (a token-spend cap)")
+}
+
+func newWatchCommand(opts Options) *cobra.Command {
+	w := defaultWatchOptions()
 	cmd := &cobra.Command{
 		Use:   "watch [path]",
 		Short: "Keep the brain fresh automatically (deterministic refresh is free; agent steps are gated)",
@@ -69,15 +88,7 @@ func newWatchCommand(opts Options) *cobra.Command {
 			return runWatch(cmd.Context(), cmd, opts, w, target)
 		},
 	}
-	cmd.Flags().DurationVar(&w.interval, "interval", 5*time.Minute, "Poll interval between ticks")
-	cmd.Flags().BoolVar(&w.once, "once", false, "Run a single pass and exit (no daemon loop)")
-	cmd.Flags().BoolVar(&w.distill, "distill", false, "Also run distill (SPENDS TOKENS) when new sessions land and --distill-every has elapsed")
-	cmd.Flags().DurationVar(&w.distillEvery, "distill-every", 24*time.Hour, "Minimum interval between distill runs")
-	cmd.Flags().StringVar(&w.distillAgent, "agent", "codex", "Agent for the distill step (used only with --distill)")
-	cmd.Flags().StringVar(&w.seedAgent, "seed-agent", "none", "Seed synthesis agent for the deterministic refresh (none = no tokens)")
-	cmd.Flags().StringVar(&w.model, "model", "", "Fast/cheap model for the gated agent steps (distill/seed)")
-	cmd.Flags().StringVar(&w.effort, "effort", "", "Reasoning effort for the gated agent steps")
-	cmd.Flags().IntVar(&w.budget, "budget", 0, "Max distill invocations this process; 0 = unlimited (a token-spend cap)")
+	bindWatchFlags(cmd, &w)
 	return cmd
 }
 
@@ -101,12 +112,7 @@ func runWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchComm
 		return err
 	}
 	cursorPath := filepath.Join(filepath.Dir(storage.HeadPath), "watch.json")
-	steps := watchSteps{
-		now:         now,
-		fingerprint: func(c context.Context) string { return watchFingerprint(c, opts.Runner, repoDir) },
-		refresh:     func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, w, repoDir) },
-		distill:     func(c context.Context) error { return watchDistill(c, cmd, opts, w, repoDir) },
-	}
+	steps := watchStepsForRepo(cmd, opts, w, repoDir, now)
 	fmt.Fprintf(cmd.OutOrStdout(), "[watch] %s — interval %s, distill=%v (every %s, agent=%s, model=%q, budget=%d)\n",
 		storage.Key, w.interval, w.distill, w.distillEvery, w.distillAgent, w.model, w.budget)
 	return watchLoop(ctx, cmd.OutOrStdout(), w, cursorPath, steps)
@@ -118,33 +124,7 @@ func watchLoop(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		cursor := loadWatchCursor(cursorPath)
-		fp := steps.fingerprint(ctx)
-		changed := fp != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero()
-		if changed {
-			if err := steps.refresh(ctx); err != nil {
-				fmt.Fprintf(out, "[watch] refresh failed: %v\n", err)
-			} else {
-				cursor.LastFingerprint = fp
-				cursor.LastRefreshAt = steps.now().UTC()
-				_ = saveWatchCursor(cursorPath, cursor)
-				fmt.Fprintln(out, "[watch] refreshed (deterministic, no agent tokens)")
-			}
-			if ok, reason := watchShouldDistill(w, cursor, agentCalls, steps.now().UTC()); w.distill && !ok {
-				fmt.Fprintf(out, "[watch] distill skipped: %s\n", reason)
-			} else if ok {
-				if err := steps.distill(ctx); err != nil {
-					fmt.Fprintf(out, "[watch] distill failed: %v\n", err)
-				} else {
-					cursor.LastDistillAt = steps.now().UTC()
-					agentCalls++
-					_ = saveWatchCursor(cursorPath, cursor)
-					fmt.Fprintln(out, "[watch] distilled facts (agent step; spent tokens)")
-				}
-			}
-		} else {
-			fmt.Fprintln(out, "[watch] no change; nothing to do")
-		}
+		watchTick(ctx, out, w, cursorPath, steps, &agentCalls)
 		if w.once {
 			return nil
 		}
@@ -153,6 +133,49 @@ func watchLoop(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 			return ctx.Err()
 		case <-time.After(w.interval):
 		}
+	}
+}
+
+// watchTick runs one pass: cheap change detection, then (only on change) the free deterministic refresh
+// and the gated distill. agentCalls is shared across ticks/members so --budget caps total token spend.
+func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursorPath string, steps watchSteps, agentCalls *int) {
+	cursor := loadWatchCursor(cursorPath)
+	fp := steps.fingerprint(ctx)
+	changed := fp != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero()
+	if !changed {
+		fmt.Fprintln(out, "[watch] no change; nothing to do")
+		return
+	}
+	if err := steps.refresh(ctx); err != nil {
+		fmt.Fprintf(out, "[watch] refresh failed: %v\n", err)
+	} else {
+		cursor.LastFingerprint = fp
+		cursor.LastRefreshAt = steps.now().UTC()
+		_ = saveWatchCursor(cursorPath, cursor)
+		fmt.Fprintln(out, "[watch] refreshed (deterministic, no agent tokens)")
+	}
+	if ok, reason := watchShouldDistill(w, cursor, *agentCalls, steps.now().UTC()); w.distill && !ok {
+		fmt.Fprintf(out, "[watch] distill skipped: %s\n", reason)
+	} else if ok {
+		if err := steps.distill(ctx); err != nil {
+			fmt.Fprintf(out, "[watch] distill failed: %v\n", err)
+		} else {
+			cursor.LastDistillAt = steps.now().UTC()
+			*agentCalls++
+			_ = saveWatchCursor(cursorPath, cursor)
+			fmt.Fprintln(out, "[watch] distilled facts (agent step; spent tokens)")
+		}
+	}
+}
+
+// watchStepsForRepo builds the per-repo side effects (fingerprint/refresh/distill) the watch loop drives.
+// Shared by the single-repo `watch` and the workspace fan-out so both stay token-frugal the same way.
+func watchStepsForRepo(cmd *cobra.Command, opts Options, w watchCommandOptions, repoDir string, now func() time.Time) watchSteps {
+	return watchSteps{
+		now:         now,
+		fingerprint: func(c context.Context) string { return watchFingerprint(c, opts.Runner, repoDir) },
+		refresh:     func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, w, repoDir) },
+		distill:     func(c context.Context) error { return watchDistill(c, cmd, opts, w, repoDir) },
 	}
 }
 

@@ -92,10 +92,13 @@ entire brain workspace add platform ../web --name web
 entire brain workspace refresh platform
 entire brain workspace query platform "checkout" --json
 entire brain workspace impact platform "checkout" --json
+entire brain workspace watch platform --once          # fan the token-frugal daemon over every member
 ```
 
 Workspaces coordinate already-local repo brains by repo key and local path hint.
-They do not sync or publish generated brain data.
+They do not sync or publish generated brain data. `workspace watch` runs the same
+deterministic-refresh-is-free / agent-steps-are-gated loop as `watch` across every member repo, with a
+single `--budget` shared across all members so a workspace tick can't multiply token spend by repo count.
 
 ### Use MCP Locally
 

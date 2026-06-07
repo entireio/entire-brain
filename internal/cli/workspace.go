@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -122,6 +123,7 @@ func newWorkspaceCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newWorkspaceAddCommand(opts))
 	cmd.AddCommand(newWorkspaceRemoveCommand(opts))
 	cmd.AddCommand(newWorkspaceRefreshCommand(opts))
+	cmd.AddCommand(newWorkspaceWatchCommand(opts))
 	cmd.AddCommand(newWorkspaceQueryCommand(opts))
 	cmd.AddCommand(newWorkspaceImpactCommand(opts))
 	cmd.AddCommand(newWorkspaceRegressionsCommand(opts))
@@ -176,6 +178,78 @@ func newWorkspaceRefreshCommand(opts Options) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runWorkspaceRefresh(cmd.Context(), cmd, opts, args[0])
 		},
+	}
+}
+
+func newWorkspaceWatchCommand(opts Options) *cobra.Command {
+	w := defaultWatchOptions()
+	cmd := &cobra.Command{
+		Use:   "watch <workspace>",
+		Short: "Keep every repo in a workspace fresh automatically (deterministic refresh is free; agent steps gated)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkspaceWatch(cmd.Context(), cmd, opts, w, args[0])
+		},
+	}
+	bindWatchFlags(cmd, &w)
+	return cmd
+}
+
+// runWorkspaceWatch fans the WS3 watch loop over every member repo, reusing the same per-repo
+// deterministic-refresh + gated-distill + per-repo cursor. The --budget cap is shared across all members
+// so a workspace tick can't blow the token budget by multiplying across repos.
+func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, workspaceName string) error {
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
+	out := cmd.OutOrStdout()
+	repoTick := func(repoDir string, agentCalls *int) {
+		storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+		if err != nil {
+			fmt.Fprintf(out, "  skipped: %v\n", err)
+			return
+		}
+		cursorPath := filepath.Join(filepath.Dir(storage.HeadPath), "watch.json")
+		watchTick(ctx, out, w, cursorPath, watchStepsForRepo(cmd, opts, w, repoDir, now), agentCalls)
+	}
+	return workspaceWatchLoop(ctx, out, opts, w, workspaceName, repoTick)
+}
+
+// workspaceWatchLoop iterates the workspace members, resolving each to a local repo and handing it to
+// repoTick with a single shared agentCalls counter (so --budget caps total token spend across the whole
+// workspace, not per-repo). repoTick is injected so the fan-out is testable without a real refresh.
+func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watchCommandOptions, workspaceName string, repoTick func(repoDir string, agentCalls *int)) error {
+	if w.interval <= 0 {
+		w.interval = 5 * time.Minute
+	}
+	agentCalls := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "[watch] workspace %s — %d repos, distill=%v (budget=%d)\n", manifest.Name, len(manifest.Repos), w.distill, w.budget)
+		for _, repo := range manifest.Repos {
+			repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
+			if err != nil || !local {
+				fmt.Fprintf(out, "[watch] %s: skipped (no resolvable local path)\n", repo.RepoKey)
+				continue
+			}
+			fmt.Fprintf(out, "[watch] %s:\n", repo.RepoKey)
+			repoTick(repoDir, &agentCalls)
+		}
+		if w.once {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(w.interval):
+		}
 	}
 }
 

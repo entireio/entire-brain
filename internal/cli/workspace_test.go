@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,6 +10,49 @@ import (
 	"testing"
 	"time"
 )
+
+func TestWorkspaceWatchFansOverMembersWithSharedBudget(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	repoA := writeWorkspaceBrainRepo(t, env, "gh/example/repoa", `{"text":"x"}`, "a.go", "package x\n")
+	repoB := writeWorkspaceBrainRepo(t, env, "gh/example/repob", `{"text":"x"}`, "b.go", "package x\n")
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "ws",
+		Repos: []workspaceRepo{
+			{RepoKey: "gh/example/repoa", LocalPathHint: repoA},
+			{RepoKey: "gh/example/repob", LocalPathHint: repoB},
+		},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	var ticked []string
+	var seen []int
+	repoTick := func(repoDir string, agentCalls *int) {
+		ticked = append(ticked, repoDir)
+		seen = append(seen, *agentCalls)
+		*agentCalls++ // simulate a token-spending step to prove the counter is shared, not per-repo
+	}
+	w := defaultWatchOptions()
+	w.once = true
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
+	out := &bytes.Buffer{}
+	if err := workspaceWatchLoop(context.Background(), out, opts, w, "ws", repoTick); err != nil {
+		t.Fatalf("workspaceWatchLoop: %v", err)
+	}
+	if len(ticked) != 2 {
+		t.Fatalf("expected both members ticked, got %v", ticked)
+	}
+	// The --budget counter is SHARED across members: the second member sees the first's increment.
+	if len(seen) != 2 || seen[0] != 0 || seen[1] != 1 {
+		t.Fatalf("agentCalls must be shared across members (not reset per repo), saw %v", seen)
+	}
+	if !strings.Contains(out.String(), "gh/example/repoa") || !strings.Contains(out.String(), "gh/example/repob") {
+		t.Fatalf("both repo keys should be reported:\n%s", out.String())
+	}
+}
 
 func TestWorkspaceCreateAddRefreshAndQuery(t *testing.T) {
 	repoDir := t.TempDir()

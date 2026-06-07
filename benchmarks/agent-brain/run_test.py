@@ -692,6 +692,15 @@ class PanelAndStabilityTests(unittest.TestCase):
             rs = run.parse_runner_spec(spec)
             self.assertTrue(rs.model and rs.effort, f"{spec} must be pinned")
 
+    def test_full_panel_declares_cross_repo_workspace_coverage(self):
+        # WS4: the multi-repo coverage gap is declared in the manifest (not silently missing), and the
+        # extra field is inert for the runner (preflight still passes).
+        panel = run.load_panel("full")
+        ws = panel.get("workspace_tasks", [])
+        self.assertGreaterEqual(len(ws), 1)
+        self.assertTrue(any("status" in t for t in ws))
+        self.assertEqual(run.panel_preflight(panel), [])
+
     def test_coefficient_of_variation_and_drop_one(self):
         self.assertIsNone(run.coefficient_of_variation([5.0]))  # n<2
         self.assertEqual(run.coefficient_of_variation([10.0, 10.0, 10.0]), 0.0)

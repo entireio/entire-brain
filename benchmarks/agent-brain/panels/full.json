@@ -16,5 +16,12 @@
     "github-cli-auth-env-token.json",
     "github-cli-repo-name-trims-dotgit.json",
     "github-cli-http-scopes-suggestion.json"
+  ],
+  "workspace_tasks": [
+    {
+      "id": "cross-repo-plugin-dispatch",
+      "status": "declared-not-runnable",
+      "note": "Cross-repo workspace scenario per agent_benchmark_plan.md (\"Cross-repo workspace tasks\"): break a plugin dispatch / env assumption where the fix could plausibly live in entire-brain OR ../cli, and measure whether the multi-brain workspace localizes it. NOT yet wired into the panel runner — a runnable workspace task needs the workspace harness (two pinned member repos + a hidden cross-repo regression). Tracked here so the panel's multi-repo coverage gap is explicit, not silently missing."
+    }
   ]
 }
