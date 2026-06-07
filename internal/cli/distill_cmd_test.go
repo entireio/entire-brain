@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -184,6 +185,32 @@ func TestRunDistillForBrainReportsProgress(t *testing.T) {
 	// The label is human-readable and reflects the counts.
 	if got := distillProgressLabel(updates[1]); !strings.Contains(got, "2/2 done") {
 		t.Errorf("label = %q, want it to contain %q", got, "2/2 done")
+	}
+}
+
+// The distill label must not match progressCountPattern, or the non-TTY throttle
+// would treat same-fact-count sessions as the same status and suppress the
+// documented per-session progress line.
+func TestDistillProgressLabelNotThrottled(t *testing.T) {
+	label := distillProgressLabel(distillProgress{SessionsDone: 12, SessionsTotal: 55, Branch: "main", Facts: 0})
+	if progressCountPattern.MatchString(label) {
+		t.Errorf("label %q matches progressCountPattern; per-session updates would be throttled", label)
+	}
+}
+
+// On non-TTY output, two cached/zero-fact sessions in quick succession must each
+// emit a progress line rather than collapsing under the same-status throttle.
+func TestDistillProgressEmitsPerSessionNonTTY(t *testing.T) {
+	var buf bytes.Buffer // not an *os.File -> non-TTY path (no spinner)
+	task := newProgress(&buf, "distill").Begin("distill sessions")
+	task.Update(distillProgressLabel(distillProgress{SessionsDone: 1, SessionsTotal: 3, Branch: "main", Facts: 0}))
+	task.Update(distillProgressLabel(distillProgress{SessionsDone: 2, SessionsTotal: 3, Branch: "main", Facts: 0}))
+	out := buf.String()
+	if c := strings.Count(out, "1/3 done"); c != 1 {
+		t.Errorf("expected exactly one line for session 1, got %d in %q", c, out)
+	}
+	if c := strings.Count(out, "2/3 done"); c != 1 {
+		t.Errorf("expected exactly one line for session 2 despite unchanged fact count, got %d in %q", c, out)
 	}
 }
 

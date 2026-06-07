@@ -165,13 +165,17 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 }
 
 // distillProgressLabel renders a distillProgress as a refresh-style line, e.g.
-// "distill sessions: 12/55 done (main), 87 facts found".
+// "distill sessions 12/55 done (main), 87 facts found". The count is deliberately
+// NOT preceded by ": " so the label does not match progressCountPattern: distill
+// reports once per session (coarse granularity), and matching that pattern would
+// let the non-TTY throttle collapse same-fact-count sessions into a single status
+// and suppress per-session lines. (Guarded by TestDistillProgressLabelNotThrottled.)
 func distillProgressLabel(p distillProgress) string {
 	label := "distill sessions"
 	if p.SessionsTotal <= 0 {
 		return label
 	}
-	label += fmt.Sprintf(": %d/%d done", p.SessionsDone, p.SessionsTotal)
+	label += fmt.Sprintf(" %d/%d done", p.SessionsDone, p.SessionsTotal)
 	if p.Branch != "" {
 		label += " (" + p.Branch + ")"
 	}
