@@ -1,0 +1,60 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "e8c4718db661",
+  "session_id": "9c4046a3-bdbd-4ab9-befa-b226f6117d87",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-07T06:58:44.210639Z",
+  "branch": "feat/distill-speedups",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/distill.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "8e0b08dac095",
+  "checkpoint_transcript_start": 1845,
+  "transcript_lines_at_start": 1845,
+  "token_usage": {
+    "input_tokens": 425,
+    "cache_creation_tokens": 29604,
+    "cache_read_tokens": 8594514,
+    "output_tokens": 20104,
+    "api_call_count": 19
+  },
+  "session_metrics": {
+    "turn_count": 62
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-07T06:58:44.165162Z",
+    "agent_lines": 56,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 56,
+    "total_lines_changed": 56,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 1,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 57,
+      "agent_lines_removed": 0
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+Ok, now repeat the process with the gpt-5.3-codex-spark model. Compare the facts afterwards.
