@@ -73,6 +73,38 @@ func TestParseReconcileActionsDegradesToNew(t *testing.T) {
 	}
 }
 
+func TestParseReconcileActionsTolerantFormats(t *testing.T) {
+	now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	candidates := []factRecord{
+		factFor(t, "c1", []string{"project.tooling.stack"}, now),
+		factFor(t, "c2", []string{"project.tooling.stack"}, now),
+		factFor(t, "c3", []string{"project.tooling.stack"}, now),
+	}
+	existing := []factRecord{factFor(t, "e1", []string{"project.tooling.stack"}, now)}
+
+	// c1: "new" missing the "-" placeholder (gpt-5.3-codex-spark form).
+	// c2: "new" with neither placeholder nor confidence.
+	// c3: merge with the confidence omitted -> conf 0 (queued for review).
+	out := "1 new 1.0\n2 new\n3 merge 1"
+	actions, warnings := parseReconcileActions(out, candidates, existing)
+	if len(actions) != 3 {
+		t.Fatalf("expected 3 actions, got %d (warnings=%v)", len(actions), warnings)
+	}
+	if actions[0].Kind != factActionNew || actions[0].Confidence != 1.0 {
+		t.Errorf("c1 should be new@1.0: %+v", actions[0])
+	}
+	if actions[1].Kind != factActionNew || actions[1].Confidence != 1.0 {
+		t.Errorf("c2 should be new@1.0: %+v", actions[1])
+	}
+	if actions[2].Kind != factActionMerge || actions[2].TargetID != existing[0].ID || actions[2].Confidence != 0 {
+		t.Errorf("c3 should be merge->e1 @0 (queued): %+v", actions[2])
+	}
+	// These tolerant forms must NOT warn — they are accepted, not degraded.
+	if len(warnings) != 0 {
+		t.Errorf("tolerant forms should not warn: %v", warnings)
+	}
+}
+
 func TestParseConfidence(t *testing.T) {
 	cases := map[string]float64{"0.5": 0.5, "1.0": 1.0, "-2": 0, "5": 1, "abc": 0, "": 0}
 	for in, want := range cases {
