@@ -74,6 +74,9 @@ func loadStaticEmbedder(raw []byte) (*staticEmbedder, error) {
 	if dim <= 0 || vocabSize <= 0 {
 		return nil, errors.New("embed model: empty dim/vocab")
 	}
+	if unkID < 0 || int(unkID) >= vocabSize {
+		return nil, fmt.Errorf("embed model: unkID %d out of range [0,%d)", unkID, vocabSize)
+	}
 	vocab := make(map[string]int32, vocabSize)
 	for i := 0; i < vocabSize; i++ {
 		tok := string(r.take(int(r.u16())))

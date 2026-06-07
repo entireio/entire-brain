@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/json"
+	"math"
 	"os"
 	"testing"
 
@@ -118,5 +121,45 @@ func TestStripAccent(t *testing.T) {
 func TestDefaultEmbedderLoads(t *testing.T) {
 	if defaultEmbedder() == nil {
 		t.Fatal("bundled embed model failed to load")
+	}
+}
+
+// encodeTestModel builds a minimal valid embedmodel.bin byte layout (matching
+// the format in scripts/convert_embedmodel.py) so the header-validation paths
+// can be exercised without the 32 MB bundled asset.
+func encodeTestModel(vocab []string, dim int, unkID uint32) []byte {
+	var b bytes.Buffer
+	b.WriteString(embedModelMagic)
+	_ = binary.Write(&b, binary.LittleEndian, uint32(1)) // version
+	_ = binary.Write(&b, binary.LittleEndian, uint16(len("test")))
+	b.WriteString("test")
+	_ = binary.Write(&b, binary.LittleEndian, uint32(dim))
+	_ = binary.Write(&b, binary.LittleEndian, uint32(len(vocab)))
+	_ = binary.Write(&b, binary.LittleEndian, uint32(1)) // dtype int8
+	_ = binary.Write(&b, binary.LittleEndian, uint32(0)) // flags
+	_ = binary.Write(&b, binary.LittleEndian, unkID)
+	_ = binary.Write(&b, binary.LittleEndian, uint16(len("##")))
+	b.WriteString("##")
+	for _, tok := range vocab {
+		_ = binary.Write(&b, binary.LittleEndian, uint16(len(tok)))
+		b.WriteString(tok)
+	}
+	for i := 0; i < dim; i++ {
+		_ = binary.Write(&b, binary.LittleEndian, math.Float32bits(1.0)) // scales
+	}
+	b.Write(make([]byte, len(vocab)*dim)) // zero int8 matrix
+	return b.Bytes()
+}
+
+func TestLoadStaticEmbedderRejectsBadUnkID(t *testing.T) {
+	vocab := []string{"[UNK]", "hello", "world"}
+	// A valid unkID loads cleanly.
+	if _, err := loadStaticEmbedder(encodeTestModel(vocab, 4, 0)); err != nil {
+		t.Fatalf("valid model should load: %v", err)
+	}
+	// An out-of-range unkID must fail the load rather than panic later in Embed
+	// (out-of-bounds matrix slice) on an unknown token.
+	if _, err := loadStaticEmbedder(encodeTestModel(vocab, 4, uint32(len(vocab)))); err == nil {
+		t.Fatal("expected out-of-range unkID to be rejected at load")
 	}
 }
