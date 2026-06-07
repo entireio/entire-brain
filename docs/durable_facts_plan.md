@@ -192,12 +192,15 @@ to bound cost and to make turn-level provenance free.
   checkpoint when one exists; if HEAD has no checkpoint (dirty worktree, capture
   off), the anchor records the commit only and the fact is still stored.
 - `entire brain recall "<query>" [--branch <b>] [--k N] [--scope
-  local|cross-cutting] [--expand] [--all] [--json]` — retrieve facts. Keyword +
-  taxonomy + code-locus ranking by default (see Recall Ranking and Appendix D);
-  `--scope` restricts to code vs how-we-work facts; `--expand` has the agent
-  rewrite the query into the facts' vocabulary first (opt-in/experimental — the
-  benchmark shows no significant retrieval gain at n=121; see Phasing). Default `k=10`,
-  `active`-only unless `--all`. Embedding rerank is still Phase D (not shipped).
+  local|cross-cutting] [--no-semantic] [--expand] [--all] [--json]` — retrieve
+  facts. Ranking fuses keyword + taxonomy + code-locus with **embedding rerank
+  (on by default, Phase D)** via RRF (see Recall Ranking and Appendix D);
+  `--no-semantic` falls back to lexical-only, and recall degrades to lexical
+  automatically when the embedder is unavailable. `--scope` restricts to code vs
+  how-we-work facts; `--expand` has the agent rewrite the query into the facts'
+  vocabulary first (opt-in/experimental — the benchmark shows no significant
+  retrieval gain at n=121; see Phasing). Default `k=10`, `active`-only unless
+  `--all`.
 - `entire brain distill [--since <ref>] [--branch <b>] [--force] [--json]` —
   batch distillation over captured sessions for the current branch (see
   Distillation Model). Idempotent: facts collapse by content-derived id.
@@ -267,8 +270,10 @@ and history rank consistently. A fact's score combines:
 
 `recall` returns `active` facts for the current branch plus any facts promoted
 into it, default `k=10`. `brief` caps facts at ~6 and presents them separately
-from history. Embedding rerank (Phase D) replaces only the scoring step; the
-filtering and branch rules are unchanged.
+from history. Embedding rerank (Phase D, **on by default** in `recall` and
+`brief`) replaces only the scoring step — it fuses the semantic list with the
+lexical one via RRF; the filtering and branch rules are unchanged, and it
+degrades to lexical when the embedder is unavailable or `--no-semantic` is set.
 
 ## Redaction And Export
 
@@ -345,6 +350,22 @@ database. The index lives under `facts/<branch>/embeddings/` and is rebuilt by
 available, `recall` uses keyword and taxonomy matching. Consistent with the
 Semantic Brain Plan, any embedding model must run with a local-only backend in
 Phase 1.
+
+**Shipped backend (Phase D).** The embedder is a bundled **Model2Vec static
+model** (`assets/embedmodel.bin`, converted offline by
+`scripts/convert_embedmodel.py`) decoded and run entirely in pure Go:
+BERT-WordPiece tokenize → gather per-token vectors → mean-pool → L2-normalize,
+over an int8-quantized table. This is the only backend that fits the brain's
+pure-Go, cgo-free, offline, single-static-binary shape; a transformer bi-encoder
+(ONNX) or a `entire sem embed` provider command remain drop-in alternatives
+behind the `Embedder` interface, to be adopted only if the harness shows the
+static model leaves recall headroom. Brute-force cosine over the (small) active
+fact set is used rather than an ANN index or `sqlite-vec` (a C extension
+incompatible with the pure-Go `modernc.org/sqlite`). Ranking blends the lexical
+and semantic lists with Reciprocal Rank Fusion (k=60); the semantic list ranks
+the *entire* active candidate set so a term-disjoint relevant fact can still
+surface, attacking the 0.667 reachability ceiling rather than only reranking
+within it.
 
 ## Outcome-Weighted Confidence (Optional, Future)
 
@@ -447,8 +468,22 @@ tamper signal.
 - **Phase C (with CLI change #2):** the shared derived-knowledge store contract,
   extended so the locus/kind index and synthesized hierarchy from Appendix D are
   part of the contract other plugins consume.
-- **Phase D (optional):** fact-layer embedding recall — now scoped to retrieve
-  within a code locus / hierarchy node rather than over a flat per-branch list.
+- **Phase D (in progress):** fact-layer embedding recall. **Backend: a bundled
+  Model2Vec static model run in pure Go** (no cgo/ONNX/network; single static
+  binary), behind an `Embedder` interface so a transformer bi-encoder or a
+  provider-shelled embedder can replace it on measured evidence. `entire-sem`
+  was evaluated and rejected as a backend — it is a structural (tree-sitter)
+  provider with no embedder. Retrieval blends lexical + semantic via Reciprocal
+  Rank Fusion, with the semantic list ranking the full active set to lift the
+  0.667 reachability ceiling (not just rerank). Measured win over the 121-task
+  benchmark with `potion-retrieval-32M`: useful-per-1k +0.459 (p=0.005, Holm),
+  precision +0.025 (p=0.013, Holm), recall@10 +0.032 (p=0.043), no token cost.
+  Fusion tuning (RRF `k0`/weights grid, embedding taxonomy paths) was then swept
+  and is a **measured non-lever** — cells differ by ≤0.012 recall (noise at
+  n=121), so the principled default (k0=60, equal weight) stands. Still open:
+  default-on + brief integration, disk-persisted embeddings, a stronger
+  embedder/cross-encoder rerank (evidence-gated), and the locus/hierarchy-scoped
+  retrieval below.
 - **Phase E (optional):** outcome-weighted confidence — adjust and decay
   `confidence` from recall-then-commit outcomes, riding on the provenance anchors
   already recorded (see Outcome-Weighted Confidence). Drift only routes a fact to

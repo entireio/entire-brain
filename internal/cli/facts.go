@@ -379,6 +379,18 @@ func factTaxonomyTopLevels(taxonomy factTaxonomy) map[string]struct{} {
 	return tops
 }
 
+// sortedTaxonomyTopLevels returns the taxonomy's top-level categories sorted
+// alphabetically, for stable user-facing messages (e.g. rejecting an explicit
+// --path under an unknown category).
+func sortedTaxonomyTopLevels(taxonomy factTaxonomy) []string {
+	cats := make([]string, 0, len(taxonomy.Categories))
+	for category := range taxonomy.Categories {
+		cats = append(cats, category)
+	}
+	sort.Strings(cats)
+	return cats
+}
+
 // factPathKnownTopLevel reports whether path's top-level category exists in the
 // taxonomy. This is the conservative drift check: a fact keeps its assigned
 // paths literally, and only its top-level category must still exist for it to
