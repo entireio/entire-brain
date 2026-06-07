@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "3043e5049df5",
+  "strategy": "manual-commit",
+  "branch": "claude/durable-facts-phase-d",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/embed.go",
+    "internal/cli/embed_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/30/43e5049df5/0/metadata.json",
+      "transcript": "/30/43e5049df5/0/full.jsonl",
+      "content_hash": "/30/43e5049df5/0/content_hash.txt",
+      "prompt": "/30/43e5049df5/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 143,
+    "cache_creation_tokens": 6968,
+    "cache_read_tokens": 1006978,
+    "output_tokens": 6539,
+    "api_call_count": 7
+  }
+}
