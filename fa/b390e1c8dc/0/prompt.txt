@@ -1189,3 +1189,370 @@ now finsih up htis feaure cometply get it ready for pr; do allt esting graphs et
 ... (truncated 13593 chars, full result in /private/tmp/claude-501/-Users-suhaan-Documents-Coding-entire-brain/af861ed9-9e1d-41a7-8400-b53c2995aed8/tasks/w14n1rbps.output)</result>
 <usage><agent_count>4</agent_count><subagent_tokens>442002</subagent_tokens><tool_uses>85</tool_uses><duration_ms>224141</duration_ms></usage>
 </task-notification>
+
+---
+
+make PR
+
+---
+
+clear all go cahce probs aorund 100gb or so from all these runs
+
+---
+
+find other junk ot reove and js lmk abt it
+
+---
+
+deleted all then; leave codex
+
+---
+
+/plan  ULTRATHINK. Do not write a line of code until you have produced and I have approved a
+  plan.
+
+  ROLE
+  You are a senior staff engineer joining Entire, a platform reimagining the software
+  development lifecycle for the agent era. Three pillars: (1) Version Control for
+  Agents,
+  (2) a Semantic Reasoning Layer (shared, pluggable agent memory), (3) an AI-native
+  SDLC.
+  You are owning the Phase-2 completion of the Semantic Reasoning Layer.
+
+  REPOS (read them before planning — do not trust this summary, verify it):
+  - entire-brain (github ashtom/entire-brain, also local) — the brain: durable memory
+  built
+    from sessions/seed/semantic/history; consumer of the provider; MCP-first.
+  - entire-sem (github suhaanthayyil/entire-sem, clone locally) — the swappable
+  semantic
+    provider (tree-sitter graph behind a versioned NDJSON contract).
+  - entire CLI (github entireio/cli, sibling checkout) — the version-control-of-record:
+    signed checkpoints, sessions, transcripts, rewind/resume. CROSS-REPO; changes here
+  are
+    heavier and need coordination.
+
+  CURRENT STATE (verify against `git log`/PRs; this is my read as of Jun 7 2026):
+  - entire-sem: provider contract + YAML + PostgreSQL + ignore-files all MERGED.
+  - entire-brain: durable facts Phases A & D (distill/remember/recall/reconcile/eval +
+    local pure-Go static embeddings with RRF rerank), regression-radar/diff-less
+  review,
+    multi-brain workspaces, agent-UX search — all MERGED to main. Distill-perf PR open.
+  - Local layer is ~70% done. The gaps are below.
+
+  HARD CONSTRAINTS (non-negotiable — a plan that violates these is wrong):
+  1. NO-EGRESS BY DEFAULT. Phase-1 commands must never touch the network. Any Phase-2
+     network feature must be STRICTLY OPT-IN, fail-closed, audited, and documented.
+  Preserve
+     the `NoEgressVerified` guarantee — it is the product's differentiator.
+  2. PROVIDER BOUNDARY. Parsing/semantics live in entire-sem behind the versioned
+  contract.
+     Don't put parser logic in the brain. Bump SchemaVersion on any contract change.
+  3. EVERYTHING INSPECTABLE + COMMIT-ADDRESSED + BRANCH-AWARE. Generated artifacts stay
+     local by default, never auto-committed.
+  4. TESTS FOR EVERY BEHAVIOR CHANGE. go build/vet/gofmt clean; CI green on
+  mac/linux/windows.
+     Count-asserting tests, negative cases, and fail-closed tests — not happy-path
+  only.
+  5. BENCHMARK INTEGRITY IS SACRED (see workstream 2). No demos-as-proof, no answer
+  leakage,
+     no circular A/Bs, no composite-score headlines. Pass-rate + measured tokens lead.
+  6. HONESTY OVER OPTIMISM. Label what is built vs aspirational. Never claim a
+  capability the
+     code doesn't have. If something is cross-repo or blocked, say so.
+
+  THE FOUR WORKSTREAMS — plan all four, sequence them, expose dependencies:
+
+  1) FACTS PHASE B — verifiable provenance (`entire brain verify`)
+     Goal: facts are not just blameable (data present) but machine-VERIFIED against
+  checkpoint
+     signatures, at TURN granularity. Today TurnID is captured in export but no verify
+  command
+     exists, and signing is checkpoint-granularity.
+     Deliver: `entire brain verify` that re-derives/verifies each fact's anchors
+     (session/commit/turn/checkpoint) against the signed source; turn-level signed
+  anchors
+     (this likely needs an additive, backward-compatible change in the entire CLI —
+  scope that
+     cross-repo dependency explicitly and propose the CLI-side contract). Honor the
+  "derive and
+     cite, never extract and discard" principle. Tests: tampered fact fails
+  verification;
+     intact fact passes; missing anchor degrades gracefully.
+
+  2) BENCHMARK PHASE 2 — prove it (the credibility moat, currently the biggest hole)
+     Target: 20 statistically-significant brain-positive UNIQUE scenarios in EACH layer
+     (A: project-native w/ session data; B: GitHub-CLI project-native — currently ~0;
+     C: SWE-bench-style), on Claude's DEFAULT model. Current retained: single digits,
+  no
+     discovery ledger.
+     Methodology (enforce, do not weaken): A/B with hidden validation; no_brain purity
+  verified
+     (zero brain/MCP touch); brain usage verified against MCP server logs; fair arms
+  only (no
+     pasting harness-computed answers); Welch t-test + Holm correction; lead with
+     measured tokens, never composite score; honest negatives reported. Counting rules:
+  a  
+     scenario = one task/shape/prompt/base-commit/hidden-validation; reps and
+  model/effort
+     matrices are evidence, NOT extra scenarios.
+     Deliver: a scenario-discovery factory that mines candidates from the NEW
+  capabilities
+     (facts/recall, regression-radar/diff-less review, history-only tasks) + a
+  committed
+     discovery ledger (>20 candidates/layer with hypotheses), then runs them to
+  significance.
+     Unblock Layer B first (it's near zero).
+     
+  3) SEMANTIC PHASE 2 — shared & distributed brain (not started)
+     Goal: move beyond one machine WITHOUT breaking no-egress. Sequence: (a) shared
+  baselines
+     (publish/hydrate commit-addressed artifacts, integrity checks, opt-in, CI
+  default-branch
+     baselines); (b) remote workspace hydration (validate
+  schema/provider/commit/checksum,
+     never clobber newer local state without --force, local overlays stay local); (c)
+  team
+     policy + security (publish-allow policy, path/symbol redaction, publish/hydrate
+  audit
+     metadata); (d) hosted enrichment OPT-IN (embeddings/summaries off-machine behind
+  explicit
+     policy — gate hardest, this is the no-egress boundary); (e) remote
+  serving/discovery
+     (remote MCP/HTTP only after stdio is stable, baseline registry, cross-machine
+  workspace
+     sync). Each step explicit opt-in + audited.
+     
+  4) PLATFORM SIDE — OUT OF SCOPE here, but map the seams. Pillar 1 (distributed VC
+  database
+     at scale) and Pillar 3 (AI-native UI / 4-nines) live in repos you can't see. Do
+  NOT plan
+     their internals. DO identify the contracts/seams this work must expose so the
+  platform can
+     consume it (e.g. the versioned snapshot/fact JSON, the publish/hydrate artifact
+  format),
+     and flag anything that would constrain them.
+     
+  METHODOLOGY (this is the "ultra plan" part):
+  - First, READ the three repos and CORRECT my state summary where it's wrong. Cite
+  file:line.
+  - Produce a PLAN before any code: for each workstream give (a) current state
+  verified, 
+    (b) milestones with acceptance criteria, (c) dependencies (esp. cross-repo CLI work
+  for #1),
+    (d) risks + the failure mode that worries you most, (e) test strategy, (f) rough
+  effort/size.
+  - SEQUENCE the four with a critical path and a recommended order, with reasoning.
+  Identify
+    what unblocks the most / de-risks the vision fastest.
+  - ADVERSARIALLY review your own plan: where could it overclaim, break no-egress,
+  produce a
+    circular benchmark, or paint the platform team into a corner? Fix those before
+  presenting.
+  - Call out explicitly what you will NOT do and why.
+  - Then STOP and present the plan for approval (ExitPlanMode). Implement only after
+  approval,
+    one workstream at a time, tests-first, smallest reviewable PRs, honest commit
+  messages.
+  
+  Begin by reading the repos and producing the verified-state + plan. Think hard.
+
+---
+
+The remote ultraplan session produced a plan and is waiting for approval. Tell the user to open https://claude.ai/code/REDACTED?from=cli to review it.
+
+---
+
+Ultraplan approved — executing in Claude Code on the web. Follow along at: https://claude.ai/code/REDACTED?from=cli
+
+Results will land as a pull request when the remote session finishes. There is nothing to do here.
+
+---
+
+/plan ultrathink  this put into proepr todo and pahses and finsih fully end to end fully imlmeneted; # Plan: Build everything Thomas asked for in chat
+
+## Context
+
+Thomas (repo owner, `ashtom`) dropped four asks across the chat. Decoded against the
+actual `entire-brain` codebase, they are:
+
+1. **Run distill with a fast/cheap model** (he just merged PR #10 = `entire brain distill`).
+   Today the agent argv is **hard-coded** in `distill.go`/`seed.go` with **no model/effort
+   selection** — the only escape is `--agent command --agent-command ...`. Gap is real.
+2. **"Stable benchmarking is the biggest rock."** The Python harness in
+   `benchmarks/agent-brain/` already does repetitions + Welch p-values + isolation, but
+   there is **no one-shot "full panel" entry point** and **no variance/stability gate** —
+   so "run a full panel benchmark on the new brain" is ad-hoc flags, and results read as
+   `n=1`/saturated/noisy.
+3. **A daemon to auto-refresh the brain**, but he's "not sure about the right design,
+   especially as it burns tokens." No watch/daemon/cron code exists anywhere today;
+   `refresh` is fully manual.
+4. **"Look into multi-repo."** Already shipped as `workspace` (`internal/cli/workspace.go`):
+   create/add/refresh/query/impact/regressions/review. So this is **harden + integrate**,
+   not greenfield.
+
+Goal: a single coherent build that delivers all four, in dependency order, reusing the
+existing building blocks rather than adding parallel machinery.
+
+## Dependency shape
+
+```mermaid
+graph TD
+    WS1["WS1 · Model/effort selection<br/>distill + seed + reconcile argv"] --> WS3
+    WS1 --> WS2
+    WS3["WS3 · Token-aware refresh daemon<br/>entire brain watch"] --> WS4
+    WS2["WS2 · Stable benchmark panel<br/>run.py panel + stability gate"] -.cost claims.-> WS1
+    WS4["WS4 · Multi-repo deepening<br/>workspace watch + panel coverage"]
+```
+
+Build order: **WS1 → (WS2 ‖ WS3) → WS4**. WS1 is small and unblocks the token-frugal
+daemon and honest cost claims. WS2 (Python) can proceed in parallel once WS1 lands.
+
+---
+
+## WS1 — Fast/cheap model selection for agent-backed commands (do first, smallest)
+
+The same two argv builders back **distill, reconcile, and seed**:
+- `distillAgentCommandArgs(agent, agentCommand, prompt)` — `internal/cli/distill.go:105`
+  (also used for reconcile via `reconcileArgs` in `distill_cmd.go:176`).
+- `seedAgentCommandArgs(repoDir, phase, opts)` — `internal/cli/seed.go:1434`.
+
+Both emit fixed `codex exec ...` / `claude --print ...` slices.
+
+**Changes**
+1. Add `model string, effort string` parameters to `distillAgentCommandArgs` and thread
+   them into the argv:
+   - codex branch (`distill.go:113`): insert `--model <model>` and
+     `--config model_reasoning_effort=<effort>` (the harness already uses this exact
+     codex effort form — `benchmarks/agent-brain/README.md:131`) right after `exec`,
+     only when non-empty.
+   - claude-code branch (`distill.go:115`): insert `--model <model>` and `--effort <effort>`
+     (claude effort form the harness uses — README:133) when non-empty.
+2. Add `--model` and `--effort` flags in `newDistillCommand` (`distill_cmd.go:96-103`),
+   store on `distillCommandOptions`, pass into both `distillAgentCommandArgs` calls
+   (`distill_cmd.go:172` and `:176`) so **reconcile inherits the same cheap model**.
+3. Mirror the same flags + threading on the seed path: add `model`/`effort` to
+   `seedCommandOptions`, wire flags in the seed command, and into `seedAgentCommandArgs`
+   (`seed.go:1441-1444`). `refresh` already forwards seed options
+   (`refresh.go:66`), so add pass-through `--seed-model`/`--seed-effort` flags on
+   `newRefreshCommand` (`refresh.go:35`) that set `refreshOpts.seed.model/effort`.
+4. README: in the Durable-Facts block (README.md:179-186) show
+   `entire brain distill --agent codex --model gpt-5.4-mini` and note the cheap-model
+   recommendation Thomas made.
+
+**Tests** (extend existing table-driven tests): add model/effort cases to the argv tests
+in `seed_test.go` (`TestSeedAgentCommandArgs*`) and `distill_cmd_test.go`/`distill_test.go`
+— assert the flags appear for codex/claude and are omitted when empty.
+
+---
+
+## WS2 — Stable benchmark panel (the "biggest rock")
+
+Everything is in `benchmarks/agent-brain/run.py` (subcommands `run`/`prep`/`report`/
+`discover`; `welch_p_value` at `run.py:2440`; per-run records carry repetition/isolation).
+What's missing is a *reproducible panel* and a *stability verdict*.
+
+**Changes**
+1. **Committed panel manifest** — `benchmarks/agent-brain/panels/full.json`: the retained
+   task list, runner specs (must be **pinned** `agent:model:effort` per
+   `docs/agent_benchmark_plan.md:617`), conditions
+   (`no_brain,semantic_brain,full_brain`), and `repetitions` (≥4, the doc's
+   `proof_minimum`). This is "the full panel benchmark on the new brain" as data, not flags.
+2. **`run.py panel <name>` subcommand** (new `argparse` subparser near the others): loads
+   the manifest, **preflights** it (refuse if any runner is unpinned, or any task's brain
+   prep is stale), warms brain prep via the existing `prep` path so prep variance doesn't
+   pollute timing, then drives the existing `run` code path for each
+   task×runner×condition×repetition. No new run mechanics — it's an expander over the
+   manifest into the path that already exists.
+3. **Stability gate in `report`/`panel` output**: for each metric already aggregated
+   (score, agent_seconds, tokens, turns, cost) add, per task/condition, the
+   **coefficient of variation** across repetitions and a `stable` boolean =
+   *significant at p<0.05 AND the brain delta survives dropping the single best/worst
+   repetition* (the doc's own acceptance criterion,
+   `agent_benchmark_plan.md:386`). Tag each task `brain_positive_stable` /
+   `saturated` / `noisy`. This turns "is benchmarking stable?" into a printed verdict.
+4. Document the panel + stability gate in `docs/agent_benchmark_plan.md` (Phase 2/3
+   acceptance) and `benchmarks/agent-brain/README.md` (how to run the panel).
+
+Honesty note to encode in the report text: agent sampling is inherently non-deterministic;
+harness-controllable variance (base commit, setup commit, semantic cache) is already
+pinned, so stability is achieved by **repetitions + CV reporting + the drop-one-outlier
+test**, not by a fake seed.
+
+---
+
+## WS3 — Token-aware refresh daemon: `entire brain watch`
+
+Greenfield, but built entirely as an orchestration loop over existing functions. The
+token-frugality is structural: **deterministic refresh is free; agent steps are gated.**
+
+**New command** `internal/cli/watch.go` (+ `watch_test.go`), registered in `root.go`
+under the `create` group next to refresh (`root.go:85`).
+
+**Loop behavior** (per tick, default `--interval 5m`; `--once` for a single pass):
+1. **Detect change cheaply (no tokens):** compare the checkpoint ref
+   (`refs/heads/entire/checkpoints/v1`) HEAD and the `.entire/` session-dir mtime against a
+   persisted cursor; also reuse `semanticRefreshNeeded` (`refresh.go:404`) /
+   `stale`. If nothing changed, sleep.
+2. **Deterministic refresh (no agent tokens):** run refresh with `--agent none --semantic
+   --history-index` — keeps semantic + history index fresh for free. Reuse `runRefresh`
+   by constructing `newRefreshCommand(opts)` with `SetArgs([... "--agent","none"])` and a
+   buffered output (cleanest reuse of existing flag defaults), or call `runRefresh`
+   directly with a populated `refreshCommandOptions`.
+3. **Token-spending steps, gated:** seed synthesis and `distill` run only when (a)
+   explicitly enabled (`--distill`, `--seed-agent` default `none`), AND (b) the
+   min-interval since the last token spend has elapsed (`--distill-every`, default 24h),
+   AND (c) under the cheap model from **WS1** (`--model`/`--effort`, default to a cheap
+   model). Reuse `runDistill` (`distill_cmd.go:106`).
+4. **Persist a cursor** at `ENTIRE_PLUGIN_STATE_DIR/repos/<repo-key>/watch.json` recording
+   last-deterministic-refresh ref/mtime and last-distill timestamp, so a restart never
+   re-spends tokens. Repo-key + state dir come from `repoStoragePaths` (used in
+   `distill_cmd.go:114`).
+
+**Trigger mechanism:** start with **polling** (zero new deps) — note fsnotify as a
+later enhancement in the doc but don't add the dependency now.
+
+**Flags:** `--interval`, `--once`, `--distill` (default off), `--distill-every`,
+`--seed-agent` (default `none`), `--model`, `--effort`, `--budget` (optional cap that
+stops further agent calls this run).
+
+README: add a "Keep the brain fresh automatically" subsection under "Create Or Refresh A
+Brain" (README.md:33) explaining the free-vs-token split and the cheap-model default.
+
+---
+
+## WS4 — Multi-repo deepening (integrate, don't rebuild)
+
+Workspace is feature-complete (`workspace.go`, surfaced in README:65-78). The deepening
+that the other asks imply:
+
+1. **`entire brain workspace watch <ws>`** — add a watch subcommand to the workspace group
+   (`workspace.go:120-128`) that fans the WS3 daemon loop over each member repo, reusing
+   the same per-repo deterministic-refresh + gated-distill logic and the per-member
+   freshness already computed in `newWorkspaceRefreshCommand` (`workspace.go:171`).
+2. **Benchmark coverage:** add the **cross-repo workspace scenarios** the benchmark plan
+   already calls for (`agent_benchmark_plan.md:705` "Cross-repo workspace tasks") to the
+   WS2 panel manifest, so multi-repo value is measured, not asserted.
+
+If Thomas wants *new* workspace capabilities beyond watch + benchmark coverage, scope that
+separately — it isn't implied by the chat.
+
+---
+
+## Verification
+
+- **WS1:** `mise run test` (argv tests). Manual:
+  `go run ./cmd/entire-brain distill --agent codex --model gpt-5.4-mini --json` (with the
+  dev XDG env block from README:240) and confirm the spawned argv carries `--model`
+  (assert in test; the agent itself need not run).
+- **WS2:** `python3 benchmarks/agent-brain/run.py panel full` on a small manifest;
+  confirm preflight rejects an unpinned runner, the run emits per-task `coefficient_of_variation`
+  and `stable`/`saturated`/`noisy` tags, and `report` reproduces the same verdict from
+  stored records.
+- **WS3:** `go run ./cmd/entire-brain watch --once --interval 1s` in a repo with `.entire/`
+  data → asserts: deterministic refresh ran, **no agent invoked** (default), cursor written;
+  second `--once` with no changes is a no-op. With `--distill --distill-every 0 --model <cheap>`,
+  assert distill is invoked once and the cursor's distill timestamp advances. Cover with
+  `watch_test.go` using the injectable `CommandRunner`/`distillAgentRunner` fakes already in the codebase.
+- **WS4:** `workspace watch <ws> --once` across two local repos → each member deterministically
+  refreshed, no tokens by default; panel manifest includes ≥1 workspace task.
+- Full gate before PR: `mise run check` (lint, race tests, Phase 1 suite, cross-builds).
