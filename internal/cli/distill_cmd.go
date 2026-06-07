@@ -315,7 +315,16 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			continue // not cached: retried next run
 		}
 
-		fingerprint := distillSessionFingerprint(session, branch, content)
+		// Strip tool calls/outputs and meta records up front: this is the actual
+		// input the agent distills (they carry no durable facts and dominate the
+		// transcript bytes, so removing them cuts chunk count — and agent calls —
+		// sharply). Blanked records keep their line slot so provenance anchors stay
+		// aligned to the original transcript. Fingerprinting this preprocessed input
+		// (not the raw bytes) means churn confined to stripped tool I/O no longer
+		// invalidates the cache and forces a needless re-distill.
+		distillInput := preprocessTranscriptForDistill(content)
+
+		fingerprint := distillSessionFingerprint(session, branch, distillInput)
 		if !distillOpts.force {
 			if prev, ok := prevCache.Sessions[session.SessionID]; ok && prev == fingerprint {
 				newCache.Sessions[session.SessionID] = prev // unchanged; retain in cache and keep existing facts
@@ -324,12 +333,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			}
 		}
 
-		// Strip tool calls/outputs and meta records before chunking: they carry no
-		// durable facts (the quality gate emits nothing for them) and dominate the
-		// transcript bytes, so removing them cuts chunk count — and agent calls —
-		// sharply. Blanked records keep their line slot so provenance anchors stay
-		// aligned to the original transcript.
-		chunks := chunkTranscript(preprocessTranscriptForDistill(content), distillOpts.maxChunkBytes)
+		chunks := chunkTranscript(distillInput, distillOpts.maxChunkBytes)
 		sessionFailed := false
 		for _, chunk := range chunks {
 			chunksScanned++
@@ -559,11 +563,13 @@ func chunkTranscript(content string, maxBytes int) []transcriptChunk {
 
 // distillSessionFingerprint is the incremental-skip signal for one session. It
 // hashes the session identity (id, latest checkpoint, transcript path, resolved
-// branch) together with a digest of the transcript bytes, so any content change
-// — even one that keeps the same checkpoint, such as a compact↔raw re-export or
-// an exporter fix — invalidates the cache and forces a re-distill. The branch is
-// the *resolved* one the facts are written under (session.Branch may be empty
-// and fall back to the manifest default), so a default-branch change re-keys the
+// branch) together with a digest of the *preprocessed* distill input (tool I/O
+// and meta records already stripped), so any change to what the agent actually
+// distills — even one that keeps the same checkpoint, such as a compact↔raw
+// re-export or an exporter fix — invalidates the cache and forces a re-distill,
+// while churn confined to stripped tool I/O does not. The branch is the
+// *resolved* one the facts are written under (session.Branch may be empty and
+// fall back to the manifest default), so a default-branch change re-keys the
 // session instead of letting a stale cache skip it.
 func distillSessionFingerprint(session exportSession, branch, content string) string {
 	contentSum := sha256.Sum256([]byte(content))
