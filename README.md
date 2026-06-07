@@ -177,13 +177,20 @@ traces back to the signed session/checkpoint it came from. Like the rest of the
 brain, facts stay local and are never published.
 
 ```sh
-entire brain distill --agent codex          # extract facts from captured sessions
+entire brain distill --agent codex                         # extract facts from captured sessions
+entire brain distill --agent codex --model gpt-5.4-mini --effort low   # run it on a fast/cheap model
 entire brain remember "Prefer table-driven tests" --path preferences.coding.style
 entire brain recall "account deletion" --k 5
 entire brain recall "MirrorCommittedMetadataRef" --expand   # agent expands the query first
 entire brain facts tree --depth 1           # navigable map of what the brain knows
 entire brain facts tree --path constraints  # drill into a category
 ```
+
+`distill` runs one agent call per transcript chunk, so it is worth running on a **fast/cheap model**:
+`--model`/`--effort` pin the model + reasoning effort for both the distill and reconcile agent calls
+(codex: `--model <m> --config model_reasoning_effort=<e>`; claude-code: `--model <m> --effort <e>`).
+The same `--model`/`--effort` flags exist on `seed`, and `refresh` forwards them as `--seed-model`/
+`--seed-effort`, so a full `entire brain refresh` can synthesize its seed cheaply too.
 
 `distill` is agent-required: it sends line-numbered transcript chunks to the
 seed agent (Codex, then Claude Code) under a strict quality gate, then reconciles

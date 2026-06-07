@@ -142,6 +142,28 @@ func injectAgentModel(args []string, agent, model string) []string {
 	return args
 }
 
+// injectAgentEffort pins the reasoning effort for a codex/claude-code argv built by
+// distillAgentCommandArgs/seedAgentCommandArgs — codex via `--config model_reasoning_effort=<e>`,
+// claude-code via `--effort <e>` (the same forms the benchmark harness uses). It mirrors
+// injectAgentModel: a no-op for an empty effort, the `command` agent, or an unrecognized shape,
+// and inserts early so the trailing prompt argument stays last.
+func injectAgentEffort(args []string, agent, effort string) []string {
+	if effort == "" {
+		return args
+	}
+	switch agent {
+	case "codex":
+		if len(args) >= 2 && args[0] == "codex" && args[1] == "exec" {
+			return append(args[:2:2], append([]string{"--config", "model_reasoning_effort=" + effort}, args[2:]...)...)
+		}
+	case "claude-code":
+		if len(args) >= 1 && args[0] == "claude" {
+			return append(args[:1:1], append([]string{"--effort", effort}, args[1:]...)...)
+		}
+	}
+	return args
+}
+
 // distilledFactsFromOutput parses the agent's line-based output for one
 // transcript chunk into fact records. Each emitted line is
 // `path[,path]<TAB>fact`. Lines are dropped (with a warning) when they have no
