@@ -1124,7 +1124,12 @@ func brainBriefFileMatchTermStop(word string) bool {
 
 // Floor is 3 (not 4) so high-signal short identifiers like "api"/"cli" are not
 // skipped; common 3-char filler words are removed by brainBriefFileMatchTermStop.
-var brainBriefTaskWordPattern = regexp.MustCompile(`[a-z0-9]{3,}`)
+// The class is Unicode-aware (\p{L}\p{N}, not just [a-z0-9]) so a non-Latin or
+// accented task ("café", "認証") still yields terms — matching the history-search
+// tokenizer (normalizeHistorySearchText), which is already Unicode-aware. Input
+// is lowercased first; foreign tokens simply aren't in the (English) stopword
+// maps, so they pass through as content terms rather than being silently dropped.
+var brainBriefTaskWordPattern = regexp.MustCompile(`[\p{L}\p{N}]{3,}`)
 
 // brainBriefFileMatchTerms extracts the significant lowercase tokens from a task
 // description used to bias likely_edit_files toward files named after the task.

@@ -208,6 +208,32 @@ func TestQueryStopwordRegimesShareGenericBase(t *testing.T) {
 	}
 }
 
+// TestBrainBriefFileMatchTermsExtractsNonLatin asserts the brief tokenizer is
+// Unicode-aware: a non-Latin or accented task still yields content terms (the
+// English stopword list just doesn't match them, so they pass through) rather
+// than the old [a-z0-9] regex silently extracting nothing.
+func TestBrainBriefFileMatchTermsExtractsNonLatin(t *testing.T) {
+	// Accented Latin: "café" must survive whole, not be truncated to "caf".
+	if terms := brainBriefFileMatchTerms("rework the café authentication flow"); !containsToken(terms, "café") {
+		t.Errorf("accented term dropped/truncated: %v", terms)
+	}
+	// Non-Latin scripts (Japanese, Cyrillic) must extract terms, not vanish.
+	if terms := brainBriefFileMatchTerms("認証 トークン の検証"); len(terms) == 0 {
+		t.Error("Japanese task extracted zero terms (tokenizer not Unicode-aware)")
+	}
+	if terms := brainBriefFileMatchTerms("исправить проверку токена"); len(terms) == 0 {
+		t.Error("Cyrillic task extracted zero terms (tokenizer not Unicode-aware)")
+	}
+	// ASCII behavior is unchanged: English stopwords still dropped, content kept.
+	terms := brainBriefFileMatchTerms("update the auth token validator")
+	if containsToken(terms, "the") || containsToken(terms, "update") {
+		t.Errorf("English stopwords leaked: %v", terms)
+	}
+	if !containsToken(terms, "auth") || !containsToken(terms, "validator") {
+		t.Errorf("English content terms dropped: %v", terms)
+	}
+}
+
 func TestHistoryRecordTimestampParsesSessionPath(t *testing.T) {
 	ts, ok := historyRecordTimestamp("sessions/main/20260606T070424Z_codex_abc.jsonl")
 	if !ok {
