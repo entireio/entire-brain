@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -95,6 +96,121 @@ func TestRunDistillForBrainWritesFactsAndManifest(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(factsTaxonomyPath))); err != nil {
 		t.Errorf("taxonomy snapshot not written: %v", err)
+	}
+}
+
+func TestPreprocessTranscriptForDistillStripsTools(t *testing.T) {
+	// One record per line, mixing both transcript dialects. Tool calls, tool
+	// outputs, and meta must be dropped; human + assistant text must survive.
+	lines := []string{
+		`{"type":"session_meta","payload":{"big":"x"}}`,                                                                                           // meta -> drop
+		`{"type":"event_msg","payload":{"type":"user_message","message":"always use tabs"}}`,                                                      // human -> keep
+		`{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{}"}}`,                                             // tool call -> drop
+		`{"type":"response_item","payload":{"type":"function_call_output","output":"huge command output here"}}`,                                  // tool output -> drop
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"text","text":"decided to keep it"}]}}`,        // assistant -> keep
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"mixed turn"},{"type":"tool_use","name":"bash","input":{"cmd":"ls"}}]}}`, // keep text, drop tool_use
+		`{"type":"user","message":{"content":[{"type":"tool_result","content":"result blob"}]}}`,                                                  // tool output -> drop
+		`not json at all`, // non-JSON -> passthrough
+	}
+	out := preprocessTranscriptForDistill(strings.Join(lines, "\n"))
+	got := strings.Split(out, "\n")
+
+	if len(got) != len(lines) {
+		t.Fatalf("line count changed: got %d, want %d (provenance would break)", len(got), len(lines))
+	}
+	want := []string{
+		"",                   // session_meta dropped
+		"always use tabs",    // user_message kept
+		"",                   // function_call dropped
+		"",                   // function_call_output dropped
+		"decided to keep it", // assistant message kept
+		"mixed turn",         // assistant text kept, tool_use stripped
+		"",                   // tool_result dropped
+		"not json at all",    // passthrough
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("line %d: got %q, want %q", i+1, got[i], want[i])
+		}
+	}
+
+	// No tool noise should remain anywhere in the output.
+	for _, needle := range []string{"function_call", "tool_use", "tool_result", "session_meta", "command output", "result blob", "ls"} {
+		if strings.Contains(out, needle) {
+			t.Errorf("preprocessed output still contains tool/meta token %q", needle)
+		}
+	}
+}
+
+func TestRunDistillForBrainReportsProgress(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+
+	fakeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return "preferences.coding.style\tThe user prefers concise commits.\n", nil
+	}
+	var updates []distillProgress
+	opts := distillCommandOptions{
+		agent: "command", agentCommand: []string{"fake"}, run: fakeRun,
+		maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute,
+		progress: func(p distillProgress) { updates = append(updates, p) },
+	}
+
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("runDistillForBrain: %v", err)
+	}
+
+	// The fixture has two sessions; progress must fire once per session with a
+	// stable total and a monotonically increasing done count that reaches it.
+	if len(updates) != 2 {
+		t.Fatalf("expected 2 progress updates, got %d (%+v)", len(updates), updates)
+	}
+	for i, u := range updates {
+		if u.SessionsTotal != 2 {
+			t.Errorf("update %d: SessionsTotal = %d, want 2", i, u.SessionsTotal)
+		}
+		if u.SessionsDone != i+1 {
+			t.Errorf("update %d: SessionsDone = %d, want %d", i, u.SessionsDone, i+1)
+		}
+		// Emitted after each session, so the cumulative fact count must include the
+		// session just processed (each fixture session yields one fact).
+		if u.Facts != i+1 {
+			t.Errorf("update %d: Facts = %d, want %d (count must include the session just processed)", i, u.Facts, i+1)
+		}
+		if u.Branch == "" {
+			t.Errorf("update %d: empty branch", i)
+		}
+	}
+
+	// The label is human-readable and reflects the counts.
+	if got := distillProgressLabel(updates[1]); !strings.Contains(got, "2/2 done") {
+		t.Errorf("label = %q, want it to contain %q", got, "2/2 done")
+	}
+}
+
+// The distill label must not match progressCountPattern, or the non-TTY throttle
+// would treat same-fact-count sessions as the same status and suppress the
+// documented per-session progress line.
+func TestDistillProgressLabelNotThrottled(t *testing.T) {
+	label := distillProgressLabel(distillProgress{SessionsDone: 12, SessionsTotal: 55, Branch: "main", Facts: 0})
+	if progressCountPattern.MatchString(label) {
+		t.Errorf("label %q matches progressCountPattern; per-session updates would be throttled", label)
+	}
+}
+
+// On non-TTY output, two cached/zero-fact sessions in quick succession must each
+// emit a progress line rather than collapsing under the same-status throttle.
+func TestDistillProgressEmitsPerSessionNonTTY(t *testing.T) {
+	var buf bytes.Buffer // not an *os.File -> non-TTY path (no spinner)
+	task := newProgress(&buf, "distill").Begin("distill sessions")
+	task.Update(distillProgressLabel(distillProgress{SessionsDone: 1, SessionsTotal: 3, Branch: "main", Facts: 0}))
+	task.Update(distillProgressLabel(distillProgress{SessionsDone: 2, SessionsTotal: 3, Branch: "main", Facts: 0}))
+	out := buf.String()
+	if c := strings.Count(out, "1/3 done"); c != 1 {
+		t.Errorf("expected exactly one line for session 1, got %d in %q", c, out)
+	}
+	if c := strings.Count(out, "2/3 done"); c != 1 {
+		t.Errorf("expected exactly one line for session 2 despite unchanged fact count, got %d in %q", c, out)
 	}
 }
 
@@ -220,6 +336,56 @@ func TestRunDistillForBrainRetriesFailedSessions(t *testing.T) {
 	}
 }
 
+// A session with an empty branch field is distilled under the manifest default
+// branch, so a `--branch <default>` run must include it rather than filtering it
+// out on the raw (empty) session.Branch before the default is resolved.
+func TestRunDistillForBrainBranchFilterResolvesDefault(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	sessions := []exportSession{
+		{SessionID: "s1", Branch: "", LatestCheckpoint: "cp1", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: now.Add(-2 * time.Hour)},
+		{SessionID: "s2", Branch: "feature", LatestCheckpoint: "cp2", TranscriptPath: "sessions/branches/feature/s2.jsonl", CreatedAt: now.Add(-1 * time.Hour)},
+	}
+	for _, s := range sessions {
+		path := filepath.Join(brainDir, filepath.FromSlash(s.TranscriptPath))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("turn one\nturn two\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	var inputs []string
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		inputs = append(inputs, string(input))
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, branch: "main", maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("runDistillForBrain: %v", err)
+	}
+	// The empty-branch session (resolved to main) must have been distilled; the
+	// feature session must not. distillCalls == 1.
+	if len(inputs) != 1 {
+		t.Fatalf("expected only the default-branch session distilled, got %d agent calls", len(inputs))
+	}
+	mainFacts, err := loadFacts(brainDir, "main")
+	if err != nil || len(mainFacts) != 1 {
+		t.Fatalf("empty-branch session not distilled under default branch: %d facts (%v)", len(mainFacts), err)
+	}
+}
+
 func TestRunDistillForBrainBranchLimitedPreservesManifest(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := writeDistillFixture(t, now)
@@ -322,6 +488,80 @@ func TestRunDistillForBrainRedistillsOnContentChange(t *testing.T) {
 	}
 	if transcriptChunks != 1 {
 		t.Fatalf("content change should re-distill exactly the changed session, got %d transcript chunks", transcriptChunks)
+	}
+}
+
+// The cache fingerprint is computed over the preprocessed distill input, so
+// rewriting only stripped tool I/O must NOT force a re-distill, while changing
+// the surviving conversation text must.
+func TestRunDistillForBrainCacheIgnoresStrippedToolChurn(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	session := exportSession{SessionID: "s1", Branch: "main", LatestCheckpoint: "cp1", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: now.Add(-time.Hour)}
+	transcript := filepath.Join(brainDir, filepath.FromSlash(session.TranscriptPath))
+	if err := os.MkdirAll(filepath.Dir(transcript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	withToolOutput := func(blob string) string {
+		return strings.Join([]string{
+			`{"type":"event_msg","payload":{"type":"user_message","message":"always use tabs"}}`,
+			`{"type":"response_item","payload":{"type":"function_call_output","output":"` + blob + `"}}`,
+		}, "\n") + "\n"
+	}
+	if err := os.WriteFile(transcript, []byte(withToolOutput("first command output")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{session}}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	var transcriptChunks int
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		if strings.Contains(string(input), "always use") {
+			transcriptChunks++
+		}
+		return "preferences.coding.style\tThe user prefers tabs.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if transcriptChunks != 1 {
+		t.Fatalf("first run should distill the session once, got %d", transcriptChunks)
+	}
+
+	// Rewrite only the (stripped) tool output: the distill input is unchanged, so
+	// the session must stay cached.
+	if err := os.WriteFile(transcript, []byte(withToolOutput("a completely different and much longer command output blob")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	transcriptChunks = 0
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("tool-churn run: %v", err)
+	}
+	if transcriptChunks != 0 {
+		t.Fatalf("tool-I/O-only churn should not re-distill, got %d transcript chunks", transcriptChunks)
+	}
+
+	// Change the surviving conversation text: the distill input changes, so the
+	// session must re-distill.
+	changed := strings.Replace(withToolOutput("a completely different and much longer command output blob"), "always use tabs", "always use spaces", 1)
+	if err := os.WriteFile(transcript, []byte(changed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	transcriptChunks = 0
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("content-change run: %v", err)
+	}
+	if transcriptChunks != 1 {
+		t.Fatalf("conversation-text change should re-distill, got %d transcript chunks", transcriptChunks)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -168,7 +169,12 @@ func parseReconcileActions(output string, candidates, existing []factRecord) ([]
 			continue
 		}
 		fields := strings.Fields(line)
-		if len(fields) < 4 {
+		// Need at least "<candidate#> <decision>". The canonical form is
+		// "<candidate#> <decision> <existing#-or-dash> <confidence>", but lighter
+		// models (gpt-5.3-codex-spark) drop the "-" placeholder for new
+		// ("3 new 1.0") or omit a trailing confidence; handle those per kind below
+		// instead of rejecting the whole line.
+		if len(fields) < 2 {
 			warnings = append(warnings, "reconcile: malformed line: "+truncateString(line, 80))
 			continue
 		}
@@ -179,16 +185,34 @@ func parseReconcileActions(output string, candidates, existing []factRecord) ([]
 		}
 		candidate := candidates[ci-1]
 		kind := strings.ToLower(fields[1])
-		confidence := parseConfidence(fields[3])
 		switch kind {
 		case factActionNew:
+			// Tolerate a missing "-" placeholder. Confidence is the last field when
+			// it is numeric; otherwise default to 1.0 (the prompt's value for new).
+			confidence := 1.0
+			if len(fields) >= 3 {
+				if last := fields[len(fields)-1]; isNumericToken(last) {
+					confidence = parseConfidence(last)
+				}
+			}
 			decided[ci] = factAction{Kind: factActionNew, Confidence: confidence, Candidate: candidate}
 		case factActionMerge, factActionSupersede:
-			ei, err := strconv.Atoi(fields[2])
-			if err != nil || ei < 1 || ei > len(existing) {
+			if len(fields) < 3 {
+				warnings = append(warnings, fmt.Sprintf("reconcile: %s missing existing number, treating candidate %d as new", kind, ci))
+				decided[ci] = factAction{Kind: factActionNew, Confidence: 1.0, Candidate: candidate}
+				continue
+			}
+			ei, eerr := strconv.Atoi(fields[2])
+			if eerr != nil || ei < 1 || ei > len(existing) {
 				warnings = append(warnings, fmt.Sprintf("reconcile: %s with bad existing number, treating candidate %d as new", kind, ci))
 				decided[ci] = factAction{Kind: factActionNew, Confidence: 1.0, Candidate: candidate}
 				continue
+			}
+			// A missing confidence stays 0 so the action is queued for review
+			// rather than auto-applied.
+			confidence := 0.0
+			if len(fields) >= 4 {
+				confidence = parseConfidence(fields[3])
 			}
 			decided[ci] = factAction{Kind: kind, TargetID: existing[ei-1].ID, Confidence: confidence, Candidate: candidate}
 		default:
@@ -208,12 +232,23 @@ func parseReconcileActions(output string, candidates, existing []factRecord) ([]
 	return actions, warnings
 }
 
+// isNumericToken reports whether a token parses as a finite float, used to tell
+// a trailing confidence value apart from a "-" placeholder or missing field.
+// NaN/±Inf are rejected: ParseFloat accepts them, but a NaN confidence would
+// silently bypass the low-confidence gate downstream (every comparison with NaN
+// is false), so they must not be treated as a numeric confidence.
+func isNumericToken(token string) bool {
+	value, err := strconv.ParseFloat(token, 64)
+	return err == nil && !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
 // parseConfidence reads a confidence token, clamped to [0,1]; unparseable
-// values default to 0 so an unreadable confidence is treated as low (and thus
-// queued for review rather than auto-applied).
+// values (including NaN/±Inf, which would otherwise slip past the [0,1] clamp
+// and the auto-apply threshold) default to 0 so an unreadable confidence is
+// treated as low and queued for review rather than auto-applied.
 func parseConfidence(token string) float64 {
 	value, err := strconv.ParseFloat(token, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
 		return 0
 	}
 	if value < 0 {

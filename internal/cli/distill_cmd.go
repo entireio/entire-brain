@@ -57,7 +57,22 @@ type distillCommandOptions struct {
 	timeout             time.Duration
 	maxChunkBytes       int
 	confidenceThreshold float64
+	model               string
 	run                 distillAgentRunner
+	// progress, when set, is called as each session is processed so the command
+	// can render a spinner/progress line. It is nil in tests and for callers
+	// that do not want progress output.
+	progress func(distillProgress)
+}
+
+// distillProgress reports how far the distillation loop has advanced. Distill
+// runs one agent call per transcript chunk and can take minutes, so this drives
+// a refresh-style progress line.
+type distillProgress struct {
+	SessionsDone  int
+	SessionsTotal int
+	Branch        string
+	Facts         int // candidate facts the agent has produced so far
 }
 
 // transcriptChunk is a line-numbered slice of one session transcript handed to
@@ -100,6 +115,7 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&distillOpts.agent, "agent", "auto", "Distillation agent: auto, codex, claude-code, or command")
 	cmd.Flags().StringArrayVar(&distillOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().Float64Var(&distillOpts.confidenceThreshold, "confidence", defaultFactConfidenceThreshold, "Minimum agent confidence to auto-apply a merge/supersede; below this it is queued for review")
+	cmd.Flags().StringVar(&distillOpts.model, "model", "", "Override the agent model for codex/claude-code (e.g. gpt-5.3-codex-spark)")
 	return cmd
 }
 
@@ -124,7 +140,14 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	if distillOpts.run == nil {
 		distillOpts.run = execDistillAgent
 	}
+	// Progress goes to stderr so it never corrupts the --json summary on stdout.
+	progress := newProgress(cmd.ErrOrStderr(), "distill")
+	task := progress.Begin("distill sessions")
+	distillOpts.progress = func(p distillProgress) {
+		task.Update(distillProgressLabel(p))
+	}
 	source, err := runDistillForBrain(ctx, repoDir, storage.BrainDir, distillOpts, opts.Now().UTC())
+	task.Finish(err)
 	if err != nil {
 		return err
 	}
@@ -139,6 +162,24 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	fmt.Fprintf(cmd.OutOrStdout(), "distilled %d facts (%d distilled, %d authored, %d superseded) across %d branch(es) from %d chunks; %d proposals queued for review\n",
 		source.Facts, source.Distilled, source.Authored, source.Superseded, len(source.Branches), source.ChunksScanned, source.Proposals)
 	return nil
+}
+
+// distillProgressLabel renders a distillProgress as a refresh-style line, e.g.
+// "distill sessions 12/55 done (main), 87 facts found". The count is deliberately
+// NOT preceded by ": " so the label does not match progressCountPattern: distill
+// reports once per session (coarse granularity), and matching that pattern would
+// let the non-TTY throttle collapse same-fact-count sessions into a single status
+// and suppress per-session lines. (Guarded by TestDistillProgressLabelNotThrottled.)
+func distillProgressLabel(p distillProgress) string {
+	label := "distill sessions"
+	if p.SessionsTotal <= 0 {
+		return label
+	}
+	label += fmt.Sprintf(" %d/%d done", p.SessionsDone, p.SessionsTotal)
+	if p.Branch != "" {
+		label += " (" + p.Branch + ")"
+	}
+	return label + fmt.Sprintf(", %s found", pluralCount(p.Facts, "fact"))
 }
 
 // runDistillForBrain is the agent-driven distillation engine, operating on an
@@ -177,6 +218,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	if err != nil {
 		return nil, err
 	}
+	// Pin the agent model when --model is set (e.g. gpt-5.3-codex-spark).
+	args = injectAgentModel(args, distillOpts.agent, distillOpts.model)
+	reconcileArgs = injectAgentModel(reconcileArgs, distillOpts.agent, distillOpts.model)
 	threshold := distillOpts.confidenceThreshold
 	if threshold <= 0 {
 		threshold = defaultFactConfidenceThreshold
@@ -195,6 +239,33 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	loaded := map[string]bool{}
 	var warnings []string
 	chunksScanned, chunksDistilled := 0, 0
+
+	// resolveBranch maps a session to the branch its facts are written under,
+	// falling back to the manifest default (then distillDefaultBranch) when the
+	// session's branch field is empty. The --branch filter must compare against
+	// this resolved value, not session.Branch, so sessions with an empty branch
+	// are not silently excluded from a `--branch <default>` run.
+	resolveBranch := func(session exportSession) string {
+		branch := session.Branch
+		if branch == "" {
+			branch = strings.TrimSpace(manifest.DefaultBranch)
+		}
+		if branch == "" {
+			branch = distillDefaultBranch
+		}
+		return branch
+	}
+
+	// Denominator for progress: sessions that pass the branch filter. Cached
+	// (unchanged) sessions still advance the counter so the line reaches N/N.
+	totalSessions := 0
+	for _, session := range sessions {
+		if distillOpts.branch != "" && resolveBranch(session) != distillOpts.branch {
+			continue
+		}
+		totalSessions++
+	}
+	sessionsDone, factsFound := 0, 0
 
 	// ensureBranch lazily loads a branch's existing facts. On --force the
 	// previously distilled facts are dropped so they are rebuilt from scratch;
@@ -221,17 +292,21 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	}
 
 	for _, session := range sessions {
-		if distillOpts.branch != "" && session.Branch != distillOpts.branch {
+		branch := resolveBranch(session)
+		if distillOpts.branch != "" && branch != distillOpts.branch {
 			continue
 		}
-		branch := session.Branch
-		if branch == "" {
-			branch = strings.TrimSpace(manifest.DefaultBranch)
-		}
-		if branch == "" {
-			branch = distillDefaultBranch
-		}
 		ensureBranch(branch)
+
+		sessionsDone++
+		// Report once per session, at every exit path, so the running fact count
+		// includes the session just processed (an emit at session start would lag
+		// by one session and always show 0 for a single-session run).
+		reportProgress := func() {
+			if distillOpts.progress != nil {
+				distillOpts.progress(distillProgress{SessionsDone: sessionsDone, SessionsTotal: totalSessions, Branch: branch, Facts: factsFound})
+			}
+		}
 
 		// Read the transcript before the cache check so the fingerprint can hash
 		// the actual bytes: a re-export that rewrites the same path with different
@@ -240,18 +315,29 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		content, readErr := readBrainRelativeFile(brainDir, session.TranscriptPath)
 		if readErr != nil {
 			warnings = append(warnings, fmt.Sprintf("read transcript %s: %v", session.TranscriptPath, readErr))
+			reportProgress()
 			continue // not cached: retried next run
 		}
 
-		fingerprint := distillSessionFingerprint(session, branch, content)
+		// Strip tool calls/outputs and meta records up front: this is the actual
+		// input the agent distills (they carry no durable facts and dominate the
+		// transcript bytes, so removing them cuts chunk count — and agent calls —
+		// sharply). Blanked records keep their line slot so provenance anchors stay
+		// aligned to the original transcript. Fingerprinting this preprocessed input
+		// (not the raw bytes) means churn confined to stripped tool I/O no longer
+		// invalidates the cache and forces a needless re-distill.
+		distillInput := preprocessTranscriptForDistill(content)
+
+		fingerprint := distillSessionFingerprint(session, branch, distillInput)
 		if !distillOpts.force {
 			if prev, ok := prevCache.Sessions[session.SessionID]; ok && prev == fingerprint {
 				newCache.Sessions[session.SessionID] = prev // unchanged; retain in cache and keep existing facts
+				reportProgress()
 				continue
 			}
 		}
 
-		chunks := chunkTranscript(content, distillOpts.maxChunkBytes)
+		chunks := chunkTranscript(distillInput, distillOpts.maxChunkBytes)
 		sessionFailed := false
 		for _, chunk := range chunks {
 			chunksScanned++
@@ -272,6 +358,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			if len(records) == 0 {
 				continue
 			}
+			factsFound += len(records)
 			chunksDistilled++
 			// Reconcile the chunk's candidates against the branch's active facts
 			// so near-duplicates merge and contradictions supersede instead of
@@ -288,6 +375,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		if !sessionFailed {
 			newCache.Sessions[session.SessionID] = fingerprint
 		}
+		reportProgress()
 	}
 
 	warnings = capWarnings(warnings, maxDistillWarnings)
@@ -345,6 +433,99 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	return source, nil
 }
 
+// preprocessTranscriptForDistill strips tool calls and tool outputs (plus
+// session/meta records) from a JSONL transcript before chunking, leaving only the
+// human and assistant conversation text that the quality gate actually mines for
+// facts. Each input line maps to exactly one output line: a dropped record
+// becomes a blank line, which chunkTranscript skips while still incrementing the
+// line counter, so a distilled fact's provenance anchor keeps pointing at the
+// correct line in the original transcript. Lines that are not JSON objects (for
+// example an already-rendered/compact transcript) are passed through unchanged so
+// the preprocessor is safe for any transcript format.
+func preprocessTranscriptForDistill(content string) string {
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			lines[i] = ""
+			continue
+		}
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(line), &obj); err != nil {
+			continue // not JSONL; leave the line as-is
+		}
+		// Collapse the kept text onto a single line so one record stays one line
+		// and the line numbering (provenance) is preserved.
+		lines[i] = strings.Join(strings.Fields(distillConversationText(obj)), " ")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// distillConversationText returns the human/assistant text worth distilling from
+// one transcript record, or "" for tool calls, tool outputs, reasoning, and
+// session/meta records. It mirrors the record routing in
+// extractHistoryJSONFragments (codex `event_msg`/`response_item` and Claude
+// `assistant`/`user` shapes) but deliberately keeps user turns — where standing
+// rules and preferences live — and discards everything tool-related.
+func distillConversationText(obj map[string]any) string {
+	switch jsonString(obj["type"]) {
+	case "agent_message":
+		return jsonString(obj["message"])
+	case "event_msg":
+		payload := jsonMap(obj["payload"])
+		switch jsonString(payload["type"]) {
+		case "agent_message", "user_message":
+			return jsonString(payload["message"])
+		case "task_complete":
+			return jsonString(payload["last_agent_message"])
+		}
+		return "" // task_started, exec_command_end, patch_apply_end, ...
+	case "response_item":
+		payload := jsonMap(obj["payload"])
+		if jsonString(payload["type"]) != "message" {
+			return "" // function_call, custom_tool_call, function_call_output, reasoning
+		}
+		if role := jsonString(payload["role"]); role != "assistant" && role != "user" {
+			return ""
+		}
+		return distillTextBlocks(payload["content"])
+	case "assistant", "user":
+		return distillTextBlocks(jsonMap(obj["message"])["content"])
+	case "session_meta", "turn_context", "permission-mode", "progress":
+		return ""
+	default:
+		return jsonString(obj["message"])
+	}
+}
+
+// distillTextBlocks pulls plain text out of a message "content" field, keeping
+// text blocks and dropping tool_use / tool_result blocks. content may be a plain
+// string (a bare user/assistant message) or an array of typed blocks.
+func distillTextBlocks(content any) string {
+	switch value := content.(type) {
+	case string:
+		return value
+	case []any:
+		var parts []string
+		for _, item := range value {
+			block := jsonMap(item)
+			if len(block) == 0 {
+				continue
+			}
+			switch jsonString(block["type"]) {
+			case "tool_use", "tool_result":
+				continue // tool call / tool output
+			default:
+				if text := firstNonEmptyString(block["text"], block["input_text"], block["output_text"], block["content"]); text != "" {
+					parts = append(parts, text)
+				}
+			}
+		}
+		return strings.Join(parts, " ")
+	default:
+		return ""
+	}
+}
+
 // chunkTranscript splits a transcript into line-numbered chunks no larger than
 // maxBytes (measured on the rendered, line-numbered text). A single line that
 // exceeds maxBytes still becomes its own chunk rather than being dropped, so no
@@ -386,11 +567,13 @@ func chunkTranscript(content string, maxBytes int) []transcriptChunk {
 
 // distillSessionFingerprint is the incremental-skip signal for one session. It
 // hashes the session identity (id, latest checkpoint, transcript path, resolved
-// branch) together with a digest of the transcript bytes, so any content change
-// — even one that keeps the same checkpoint, such as a compact↔raw re-export or
-// an exporter fix — invalidates the cache and forces a re-distill. The branch is
-// the *resolved* one the facts are written under (session.Branch may be empty
-// and fall back to the manifest default), so a default-branch change re-keys the
+// branch) together with a digest of the *preprocessed* distill input (tool I/O
+// and meta records already stripped), so any change to what the agent actually
+// distills — even one that keeps the same checkpoint, such as a compact↔raw
+// re-export or an exporter fix — invalidates the cache and forces a re-distill,
+// while churn confined to stripped tool I/O does not. The branch is the
+// *resolved* one the facts are written under (session.Branch may be empty and
+// fall back to the manifest default), so a default-branch change re-keys the
 // session instead of letting a stale cache skip it.
 func distillSessionFingerprint(session exportSession, branch, content string) string {
 	contentSum := sha256.Sum256([]byte(content))

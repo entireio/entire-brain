@@ -172,6 +172,49 @@ func TestDistilledFactsFromOutputTabSeparatedPaths(t *testing.T) {
 	}
 }
 
+func TestDistilledFactsFromOutputLiteralTabEscape(t *testing.T) {
+	now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	taxonomy := defaultFactTaxonomy(now)
+	anchor := factAnchor{SessionID: "s1"}
+
+	// gpt-5.3-codex-spark sometimes writes the separator as a literal backslash-t
+	// escape instead of a real tab. The line must still be recovered, not dropped.
+	output := `constraints.invariants.general\tThe CLI stores version_check.json under ~/.config/entire.`
+	records, warnings := distilledFactsFromOutput(output, taxonomy, anchor, "main", now)
+	if len(records) != 1 {
+		t.Fatalf("literal \\t line should be recovered: got %d records, warnings=%v", len(records), warnings)
+	}
+	r := records[0]
+	if r.Text != "The CLI stores version_check.json under ~/.config/entire." {
+		t.Fatalf("text wrong after \\t recovery: %q", r.Text)
+	}
+	if len(r.Paths) != 1 || r.Paths[0] != "constraints.invariants.general" {
+		t.Fatalf("path wrong after \\t recovery: %v", r.Paths)
+	}
+}
+
+// Only the first literal `\t` is the path/fact separator; a later `\t` belongs
+// to the fact text and must be left untouched (not converted to a tab, which
+// would split the text into a spurious extra field).
+func TestDistilledFactsFromOutputLiteralTabEscapeFirstOnly(t *testing.T) {
+	now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	taxonomy := defaultFactTaxonomy(now)
+	anchor := factAnchor{SessionID: "s1"}
+
+	output := `constraints.invariants.general\tColumns are separated by\ta tab character.`
+	records, warnings := distilledFactsFromOutput(output, taxonomy, anchor, "main", now)
+	if len(records) != 1 {
+		t.Fatalf("line with a \\t inside the fact text should be recovered: got %d records, warnings=%v", len(records), warnings)
+	}
+	// The second `\t` stays literal in the text — it is not the separator.
+	if got := records[0].Text; got != `Columns are separated by\ta tab character.` {
+		t.Fatalf("only the first \\t should be the separator; text wrong: %q", got)
+	}
+	if len(records[0].Paths) != 1 || records[0].Paths[0] != "constraints.invariants.general" {
+		t.Fatalf("path wrong: %v", records[0].Paths)
+	}
+}
+
 func TestSplitFactLine(t *testing.T) {
 	cases := []struct {
 		line  string
@@ -243,6 +286,35 @@ func TestDistillAgentCommandArgs(t *testing.T) {
 	}
 	if _, err := distillAgentCommandArgs("bogus", nil, "PROMPT"); err == nil {
 		t.Errorf("expected error for unsupported agent")
+	}
+}
+
+func TestInjectAgentModel(t *testing.T) {
+	codex, _ := distillAgentCommandArgs("codex", nil, "PROMPT")
+	got := injectAgentModel(codex, "codex", "gpt-5.3-codex-spark")
+	if got[0] != "codex" || got[1] != "exec" || got[2] != "--model" || got[3] != "gpt-5.3-codex-spark" {
+		t.Fatalf("codex model not inserted after exec: %v", got)
+	}
+	if got[len(got)-1] != "PROMPT" {
+		t.Fatalf("prompt must stay last: %v", got)
+	}
+
+	claude, _ := distillAgentCommandArgs("claude-code", nil, "PROMPT")
+	gotc := injectAgentModel(claude, "claude-code", "sonnet")
+	if gotc[0] != "claude" || gotc[1] != "--model" || gotc[2] != "sonnet" {
+		t.Fatalf("claude model not inserted after claude: %v", gotc)
+	}
+	if gotc[len(gotc)-1] != "PROMPT" {
+		t.Fatalf("prompt must stay last: %v", gotc)
+	}
+
+	// Empty model and the `command` agent are no-ops.
+	if base, _ := distillAgentCommandArgs("codex", nil, "PROMPT"); !slices.Equal(injectAgentModel(base, "codex", ""), base) {
+		t.Errorf("empty model should be a no-op")
+	}
+	cmd, _ := distillAgentCommandArgs("command", []string{"my-agent"}, "PROMPT")
+	if !slices.Equal(injectAgentModel(cmd, "command", "x"), cmd) {
+		t.Errorf("command agent should be a no-op for model injection")
 	}
 }
 
