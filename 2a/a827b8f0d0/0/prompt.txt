@@ -1,0 +1,45 @@
+Review the changes https://github.com/ashtom/entire-brain/pull/7 – consider the still open PRs 5 and 6 as well as the changes in this branch
+
+---
+
+What to merge first, 5 or 7?
+
+---
+
+5 shows GitHub Actions errors. Fix those.
+
+---
+
+Cherry-ick it
+
+---
+
+5 is merged. Now which one next, 6 or 7?
+
+---
+
+Ok, then go ahead with 7
+
+---
+
+Yes, merge 7 and tee up 6
+
+---
+
+Merge #8, then reconcile the token regimes for #6
+
+---
+
+Hm, is the English word list a problem or do we just assume that the agent will always query in English?
+
+---
+
+Fold it into #6 now
+
+---
+
+yes, merge away
+
+---
+
+What about the claude/durable-facts-phase-d branch we are on?
