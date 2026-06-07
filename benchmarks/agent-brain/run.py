@@ -2586,9 +2586,10 @@ def coefficient_of_variation(vals: list[float]) -> float | None:
 
 def delta_survives_drop_one(cond: list[float], base: list[float], lower_is_better: bool) -> bool:
     """The brain advantage still points the right way after removing the single MOST brain-favourable
-    repetition from each arm — so one lucky/unlucky run cannot carry the verdict. This is the doc's
-    'repeatable enough to survive one obvious outlier' criterion (agent_benchmark_plan.md), applied
-    conservatively (worst-case for the brain claim)."""
+    repetition from each arm — so one lucky/unlucky run cannot carry the verdict. This is a one-sided
+    drop-one robustness check (NOT a full leave-one-out jackknife): it drops only the most-favourable rep,
+    which is the conservative worst-case for the brain claim, matching the doc's 'repeatable enough to
+    survive one obvious outlier' criterion (agent_benchmark_plan.md)."""
     if len(cond) < 2 or len(base) < 2:
         return False
     c = sorted(cond)
@@ -2609,23 +2610,31 @@ def comparison_stability(
 ) -> dict[str, Any]:
     """Per (task, runner, condition) stability verdict vs the no_brain baseline. NOT a significance
     manufacturer: it can only DOWNGRADE a result to saturated/noisy. A `brain_positive_stable` tag
-    requires a real, repetition-robust win (token reduction significant at p<0.05 + drop-one survival,
-    OR a pass-rate lift that survives drop-one). Saturated = both arms already pass 100% (no headroom)."""
+    requires a real, repetition-robust win (a token reduction significant at p<0.05 using the MORE
+    conservative of the raw Welch p and the Holm family-wise-adjusted p, plus drop-one survival, OR a
+    pass-rate lift that survives drop-one). Saturated = both arms already pass 100% (no headroom)."""
     cond_tokens = metric_values(condition_records, ["agent_info", "usage", "total_tokens"])
     base_tokens = metric_values(base_records, ["agent_info", "usage", "total_tokens"])
     cond_scores = metric_values(condition_records, ["score", "total"])
     cond_pass = [1.0 if isinstance(r.get("validation"), dict) and r["validation"].get("ok") else 0.0 for r in condition_records]
     base_pass = [1.0 if isinstance(r.get("validation"), dict) and r["validation"].get("ok") else 0.0 for r in base_records]
 
-    p_tokens = comparison.get("p_value_total_tokens")
+    # Gate on the MORE conservative (larger) of the raw Welch p and the Holm family-wise-adjusted p.
+    # The Holm value is attached by summarize() before this runs; without it (e.g. a lone comparison)
+    # we fall back to raw. This means a token win that loses significance under multiple-comparison
+    # correction is NOT tagged stable on its raw p alone.
+    raw_p = comparison.get("p_value_total_tokens")
+    holm_p = comparison.get("p_value_total_tokens_holm")
+    candidates = [p for p in (raw_p, holm_p) if isinstance(p, (int, float))]
+    eff_p = max(candidates) if candidates else None
+    tokens_significant = eff_p is not None and eff_p < 0.05
     tokens_lower = (
         isinstance(comparison.get("mean_total_tokens_condition"), (int, float))
         and isinstance(comparison.get("mean_total_tokens_baseline"), (int, float))
         and comparison["mean_total_tokens_condition"] < comparison["mean_total_tokens_baseline"]
     )
     token_win_stable = bool(
-        isinstance(p_tokens, (int, float))
-        and p_tokens < 0.05
+        tokens_significant
         and tokens_lower
         and delta_survives_drop_one(cond_tokens, base_tokens, lower_is_better=True)
     )
@@ -2650,7 +2659,9 @@ def comparison_stability(
     return {
         "coefficient_of_variation_total_tokens": coefficient_of_variation(cond_tokens),
         "coefficient_of_variation_score": coefficient_of_variation(cond_scores),
-        "tokens_significant_p_lt_0_05": bool(isinstance(p_tokens, (int, float)) and p_tokens < 0.05),
+        "tokens_p_raw": raw_p,
+        "tokens_p_holm": holm_p,
+        "tokens_significant_p_lt_0_05": tokens_significant,  # uses max(raw, holm)
         "token_win_survives_drop_one": token_win_stable,
         "pass_rate_lift_survives_drop_one": pass_lift_stable,
         "saturated": saturated,
@@ -2669,6 +2680,7 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
         metrics.setdefault(key, []).append(rec)
 
     comparisons = []
+    stability_inputs: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]] = []
     for (task_id, agent, runner_id, condition), values in groups.items():
         if condition == "no_brain":
             continue
@@ -2820,8 +2832,10 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             "success_rate_baseline": sum(1 for rec in base_records if rec.get("ok")) / len(base_records),
         }
         comparison.update(brain_comparison_verdict(comparison))
-        comparison["stability"] = comparison_stability(condition_records, base_records, comparison)
         comparisons.append(comparison)
+        # Stability is attached AFTER the Holm correction below, so the gate can use the family-wise
+        # adjusted p (not the raw Welch p). Keep the records this comparison needs for that pass.
+        stability_inputs.append((condition_records, base_records))
 
     # Holm-Bonferroni family-wise correction across every reported p-value in this
     # suite (P1: individual p-values were uncorrected). The headline verdict stays
@@ -2846,6 +2860,12 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             ci, field, _ = family[idx]
             comparisons[ci][field + "_holm"] = running
 
+    # Now that the Holm-adjusted p-values exist, attach the stability verdict — the gate uses the
+    # family-wise adjusted p (see comparison_stability), so a result that is only raw-significant
+    # cannot be tagged brain_positive_stable.
+    for comp, (cond_recs, base_recs) in zip(comparisons, stability_inputs):
+        comp["stability"] = comparison_stability(cond_recs, base_recs, comp)
+
     stability_tags: dict[str, int] = {}
     for comp in comparisons:
         tag = comp.get("stability", {}).get("tag")
@@ -2862,8 +2882,9 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             "n_pvalues_in_family": len(family),
             "headline_metric": "validation pass-rate + measured tokens; composite score and p-values are secondary",
             "stability": "per comparison: coefficient_of_variation + tag (brain_positive_stable requires a "
-            "p<0.05 token win or pass-rate lift that survives dropping the single best/worst rep; saturated = "
-            "both arms pass 100%; noisy otherwise). The gate only downgrades; it never manufactures significance.",
+            "token win significant at p<0.05 using max(raw Welch p, Holm-adjusted p), or a pass-rate lift, "
+            "that survives dropping the single most-favourable rep; saturated = both arms pass 100%; noisy "
+            "otherwise). The gate only downgrades; it never manufactures significance.",
         },
     }
     (suite_dir / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))

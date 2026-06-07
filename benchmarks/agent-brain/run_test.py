@@ -737,6 +737,27 @@ class PanelAndStabilityTests(unittest.TestCase):
                  "p_value_total_tokens": 0.4, "pass_rate_condition": 0.25, "pass_rate_baseline": 0.0}
         self.assertEqual(run.comparison_stability(cond3, base3, comp3)["tag"], "noisy")
 
+    def test_stability_gates_on_holm_not_raw_p(self):
+        # The sharpest attack on the gate: a raw-significant token win that loses significance under
+        # family-wise (Holm) correction must NOT be tagged brain_positive_stable.
+        cond = [_rec(t) for t in (400, 420, 410, 405)]
+        base = [_rec(t) for t in (900, 950, 910, 940)]
+        comp = {
+            "mean_total_tokens_condition": 408.75,
+            "mean_total_tokens_baseline": 925.0,
+            "p_value_total_tokens": 0.04,       # raw: significant
+            "p_value_total_tokens_holm": 0.9,   # family-wise: NOT significant
+            "pass_rate_condition": 1.0,
+            "pass_rate_baseline": 1.0,
+        }
+        st = run.comparison_stability(cond, base, comp)
+        self.assertFalse(st["tokens_significant_p_lt_0_05"])
+        self.assertFalse(st["token_win_survives_drop_one"])
+        self.assertNotEqual(st["tag"], "brain_positive_stable")
+        # Same data, Holm also significant -> the win is real and tags stable.
+        comp["p_value_total_tokens_holm"] = 0.04
+        self.assertEqual(run.comparison_stability(cond, base, comp)["tag"], "brain_positive_stable")
+
     def test_summarize_attaches_stability_and_is_reproducible(self):
         records = []
         for tokens in (400, 420, 410, 405):
