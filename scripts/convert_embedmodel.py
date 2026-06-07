@@ -91,7 +91,10 @@ def main() -> int:
     for tok in id_to_tok:
         tb = tok.encode("utf-8")
         out += struct.pack("<H", len(tb)) + tb
-    out += scales.tobytes()
+    # Force little-endian float32 for the scales so the bytes match the Go
+    # loader (LittleEndian -> Float32frombits) regardless of the host's native
+    # endianness. q is int8 (single bytes), so its byte order is irrelevant.
+    out += scales.astype("<f4").tobytes()
     out += q.tobytes()
 
     outp = Path(args.out)
