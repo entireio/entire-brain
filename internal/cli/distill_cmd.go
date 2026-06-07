@@ -58,6 +58,20 @@ type distillCommandOptions struct {
 	maxChunkBytes       int
 	confidenceThreshold float64
 	run                 distillAgentRunner
+	// progress, when set, is called as each session is processed so the command
+	// can render a spinner/progress line. It is nil in tests and for callers
+	// that do not want progress output.
+	progress func(distillProgress)
+}
+
+// distillProgress reports how far the distillation loop has advanced. Distill
+// runs one agent call per transcript chunk and can take minutes, so this drives
+// a refresh-style progress line.
+type distillProgress struct {
+	SessionsDone  int
+	SessionsTotal int
+	Branch        string
+	Facts         int // candidate facts the agent has produced so far
 }
 
 // transcriptChunk is a line-numbered slice of one session transcript handed to
@@ -124,7 +138,14 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	if distillOpts.run == nil {
 		distillOpts.run = execDistillAgent
 	}
+	// Progress goes to stderr so it never corrupts the --json summary on stdout.
+	progress := newProgress(cmd.ErrOrStderr(), "distill")
+	task := progress.Begin("distill sessions")
+	distillOpts.progress = func(p distillProgress) {
+		task.Update(distillProgressLabel(p))
+	}
 	source, err := runDistillForBrain(ctx, repoDir, storage.BrainDir, distillOpts, opts.Now().UTC())
+	task.Finish(err)
 	if err != nil {
 		return err
 	}
@@ -139,6 +160,20 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	fmt.Fprintf(cmd.OutOrStdout(), "distilled %d facts (%d distilled, %d authored, %d superseded) across %d branch(es) from %d chunks; %d proposals queued for review\n",
 		source.Facts, source.Distilled, source.Authored, source.Superseded, len(source.Branches), source.ChunksScanned, source.Proposals)
 	return nil
+}
+
+// distillProgressLabel renders a distillProgress as a refresh-style line, e.g.
+// "distill sessions: 12/55 done (main), 87 facts found".
+func distillProgressLabel(p distillProgress) string {
+	label := "distill sessions"
+	if p.SessionsTotal <= 0 {
+		return label
+	}
+	label += fmt.Sprintf(": %d/%d done", p.SessionsDone, p.SessionsTotal)
+	if p.Branch != "" {
+		label += " (" + p.Branch + ")"
+	}
+	return label + fmt.Sprintf(", %s found", pluralCount(p.Facts, "fact"))
 }
 
 // runDistillForBrain is the agent-driven distillation engine, operating on an
@@ -196,6 +231,17 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	var warnings []string
 	chunksScanned, chunksDistilled := 0, 0
 
+	// Denominator for progress: sessions that pass the branch filter. Cached
+	// (unchanged) sessions still advance the counter so the line reaches N/N.
+	totalSessions := 0
+	for _, session := range sessions {
+		if distillOpts.branch != "" && session.Branch != distillOpts.branch {
+			continue
+		}
+		totalSessions++
+	}
+	sessionsDone, factsFound := 0, 0
+
 	// ensureBranch lazily loads a branch's existing facts. On --force the
 	// previously distilled facts are dropped so they are rebuilt from scratch;
 	// authored facts are always preserved.
@@ -233,6 +279,11 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		}
 		ensureBranch(branch)
 
+		sessionsDone++
+		if distillOpts.progress != nil {
+			distillOpts.progress(distillProgress{SessionsDone: sessionsDone, SessionsTotal: totalSessions, Branch: branch, Facts: factsFound})
+		}
+
 		// Read the transcript before the cache check so the fingerprint can hash
 		// the actual bytes: a re-export that rewrites the same path with different
 		// content (e.g. compact vs raw mode, or an exporter fix) under the same
@@ -251,7 +302,12 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			}
 		}
 
-		chunks := chunkTranscript(content, distillOpts.maxChunkBytes)
+		// Strip tool calls/outputs and meta records before chunking: they carry no
+		// durable facts (the quality gate emits nothing for them) and dominate the
+		// transcript bytes, so removing them cuts chunk count — and agent calls —
+		// sharply. Blanked records keep their line slot so provenance anchors stay
+		// aligned to the original transcript.
+		chunks := chunkTranscript(preprocessTranscriptForDistill(content), distillOpts.maxChunkBytes)
 		sessionFailed := false
 		for _, chunk := range chunks {
 			chunksScanned++
@@ -272,6 +328,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			if len(records) == 0 {
 				continue
 			}
+			factsFound += len(records)
 			chunksDistilled++
 			// Reconcile the chunk's candidates against the branch's active facts
 			// so near-duplicates merge and contradictions supersede instead of
@@ -343,6 +400,99 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		return nil, err
 	}
 	return source, nil
+}
+
+// preprocessTranscriptForDistill strips tool calls and tool outputs (plus
+// session/meta records) from a JSONL transcript before chunking, leaving only the
+// human and assistant conversation text that the quality gate actually mines for
+// facts. Each input line maps to exactly one output line: a dropped record
+// becomes a blank line, which chunkTranscript skips while still incrementing the
+// line counter, so a distilled fact's provenance anchor keeps pointing at the
+// correct line in the original transcript. Lines that are not JSON objects (for
+// example an already-rendered/compact transcript) are passed through unchanged so
+// the preprocessor is safe for any transcript format.
+func preprocessTranscriptForDistill(content string) string {
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			lines[i] = ""
+			continue
+		}
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(line), &obj); err != nil {
+			continue // not JSONL; leave the line as-is
+		}
+		// Collapse the kept text onto a single line so one record stays one line
+		// and the line numbering (provenance) is preserved.
+		lines[i] = strings.Join(strings.Fields(distillConversationText(obj)), " ")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// distillConversationText returns the human/assistant text worth distilling from
+// one transcript record, or "" for tool calls, tool outputs, reasoning, and
+// session/meta records. It mirrors the record routing in
+// extractHistoryJSONFragments (codex `event_msg`/`response_item` and Claude
+// `assistant`/`user` shapes) but deliberately keeps user turns — where standing
+// rules and preferences live — and discards everything tool-related.
+func distillConversationText(obj map[string]any) string {
+	switch jsonString(obj["type"]) {
+	case "agent_message":
+		return jsonString(obj["message"])
+	case "event_msg":
+		payload := jsonMap(obj["payload"])
+		switch jsonString(payload["type"]) {
+		case "agent_message", "user_message":
+			return jsonString(payload["message"])
+		case "task_complete":
+			return jsonString(payload["last_agent_message"])
+		}
+		return "" // task_started, exec_command_end, patch_apply_end, ...
+	case "response_item":
+		payload := jsonMap(obj["payload"])
+		if jsonString(payload["type"]) != "message" {
+			return "" // function_call, custom_tool_call, function_call_output, reasoning
+		}
+		if role := jsonString(payload["role"]); role != "assistant" && role != "user" {
+			return ""
+		}
+		return distillTextBlocks(payload["content"])
+	case "assistant", "user":
+		return distillTextBlocks(jsonMap(obj["message"])["content"])
+	case "session_meta", "turn_context", "permission-mode", "progress":
+		return ""
+	default:
+		return jsonString(obj["message"])
+	}
+}
+
+// distillTextBlocks pulls plain text out of a message "content" field, keeping
+// text blocks and dropping tool_use / tool_result blocks. content may be a plain
+// string (a bare user/assistant message) or an array of typed blocks.
+func distillTextBlocks(content any) string {
+	switch value := content.(type) {
+	case string:
+		return value
+	case []any:
+		var parts []string
+		for _, item := range value {
+			block := jsonMap(item)
+			if len(block) == 0 {
+				continue
+			}
+			switch jsonString(block["type"]) {
+			case "tool_use", "tool_result":
+				continue // tool call / tool output
+			default:
+				if text := firstNonEmptyString(block["text"], block["input_text"], block["output_text"], block["content"]); text != "" {
+					parts = append(parts, text)
+				}
+			}
+		}
+		return strings.Join(parts, " ")
+	default:
+		return ""
+	}
 }
 
 // chunkTranscript splits a transcript into line-numbered chunks no larger than

@@ -17,6 +17,7 @@ const clearTerminalLine = "\r\033[2K"
 
 type refreshProgress struct {
 	out     io.Writer
+	prefix  string
 	spinner bool
 	mu      sync.Mutex
 }
@@ -32,12 +33,20 @@ type refreshProgressTask struct {
 }
 
 func newRefreshProgress(out io.Writer) *refreshProgress {
+	return newProgress(out, "refresh")
+}
+
+// newProgress builds a progress reporter whose non-TTY lines are prefixed with
+// the given command name (for example "refresh" or "distill"). On a TTY it
+// renders a single in-place spinner line instead.
+func newProgress(out io.Writer, prefix string) *refreshProgress {
 	spinner := false
 	if file, ok := out.(*os.File); ok {
 		spinner = isatty.IsTerminal(file.Fd())
 	}
 	return &refreshProgress{
 		out:     out,
+		prefix:  prefix,
 		spinner: spinner,
 	}
 }
@@ -64,7 +73,7 @@ func (p *refreshProgress) Begin(label string) *refreshProgressTask {
 		task.startSpinner()
 		return task
 	}
-	fmt.Fprintf(p.out, "refresh: %s\n", label)
+	fmt.Fprintf(p.out, "%s: %s\n", p.prefix, label)
 	return task
 }
 
@@ -72,7 +81,7 @@ func (p *refreshProgress) Skip(label string) {
 	if p == nil || p.out == nil {
 		return
 	}
-	fmt.Fprintf(p.out, "refresh: %s skipped\n", label)
+	fmt.Fprintf(p.out, "%s: %s skipped\n", p.prefix, label)
 }
 
 func (t *refreshProgressTask) Update(label string) {
@@ -84,7 +93,7 @@ func (t *refreshProgressTask) Update(label string) {
 	if t.progress.spinner {
 		fmt.Fprintf(t.progress.out, "%s%s", clearTerminalLine, spinnerLine('|', label))
 	} else if t.shouldPrintUpdate(label) {
-		fmt.Fprintf(t.progress.out, "refresh: %s\n", label)
+		fmt.Fprintf(t.progress.out, "%s: %s\n", t.progress.prefix, label)
 		t.lastPrinted = label
 		t.lastStatus = progressStatusKey(label)
 		t.lastPrintAt = time.Now()
@@ -118,14 +127,14 @@ func (t *refreshProgressTask) Finish(err error) {
 			fmt.Fprintf(t.progress.out, "%s! %s failed\n", clearTerminalLine, t.label)
 			return
 		}
-		fmt.Fprintf(t.progress.out, "refresh: %s failed\n", t.label)
+		fmt.Fprintf(t.progress.out, "%s: %s failed\n", t.progress.prefix, t.label)
 		return
 	}
 	if t.progress.spinner {
 		fmt.Fprintf(t.progress.out, "%s+ %s done\n", clearTerminalLine, t.label)
 		return
 	}
-	fmt.Fprintf(t.progress.out, "refresh: %s done\n", t.label)
+	fmt.Fprintf(t.progress.out, "%s: %s done\n", t.progress.prefix, t.label)
 }
 
 func (t *refreshProgressTask) startSpinner() {

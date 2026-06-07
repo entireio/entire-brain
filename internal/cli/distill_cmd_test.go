@@ -98,6 +98,90 @@ func TestRunDistillForBrainWritesFactsAndManifest(t *testing.T) {
 	}
 }
 
+func TestPreprocessTranscriptForDistillStripsTools(t *testing.T) {
+	// One record per line, mixing both transcript dialects. Tool calls, tool
+	// outputs, and meta must be dropped; human + assistant text must survive.
+	lines := []string{
+		`{"type":"session_meta","payload":{"big":"x"}}`,                                                                                           // meta -> drop
+		`{"type":"event_msg","payload":{"type":"user_message","message":"always use tabs"}}`,                                                      // human -> keep
+		`{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{}"}}`,                                             // tool call -> drop
+		`{"type":"response_item","payload":{"type":"function_call_output","output":"huge command output here"}}`,                                  // tool output -> drop
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"text","text":"decided to keep it"}]}}`,        // assistant -> keep
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"mixed turn"},{"type":"tool_use","name":"bash","input":{"cmd":"ls"}}]}}`, // keep text, drop tool_use
+		`{"type":"user","message":{"content":[{"type":"tool_result","content":"result blob"}]}}`,                                                  // tool output -> drop
+		`not json at all`, // non-JSON -> passthrough
+	}
+	out := preprocessTranscriptForDistill(strings.Join(lines, "\n"))
+	got := strings.Split(out, "\n")
+
+	if len(got) != len(lines) {
+		t.Fatalf("line count changed: got %d, want %d (provenance would break)", len(got), len(lines))
+	}
+	want := []string{
+		"",                   // session_meta dropped
+		"always use tabs",    // user_message kept
+		"",                   // function_call dropped
+		"",                   // function_call_output dropped
+		"decided to keep it", // assistant message kept
+		"mixed turn",         // assistant text kept, tool_use stripped
+		"",                   // tool_result dropped
+		"not json at all",    // passthrough
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("line %d: got %q, want %q", i+1, got[i], want[i])
+		}
+	}
+
+	// No tool noise should remain anywhere in the output.
+	for _, needle := range []string{"function_call", "tool_use", "tool_result", "session_meta", "command output", "result blob", "ls"} {
+		if strings.Contains(out, needle) {
+			t.Errorf("preprocessed output still contains tool/meta token %q", needle)
+		}
+	}
+}
+
+func TestRunDistillForBrainReportsProgress(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+
+	fakeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return "preferences.coding.style\tThe user prefers concise commits.\n", nil
+	}
+	var updates []distillProgress
+	opts := distillCommandOptions{
+		agent: "command", agentCommand: []string{"fake"}, run: fakeRun,
+		maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute,
+		progress: func(p distillProgress) { updates = append(updates, p) },
+	}
+
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("runDistillForBrain: %v", err)
+	}
+
+	// The fixture has two sessions; progress must fire once per session with a
+	// stable total and a monotonically increasing done count that reaches it.
+	if len(updates) != 2 {
+		t.Fatalf("expected 2 progress updates, got %d (%+v)", len(updates), updates)
+	}
+	for i, u := range updates {
+		if u.SessionsTotal != 2 {
+			t.Errorf("update %d: SessionsTotal = %d, want 2", i, u.SessionsTotal)
+		}
+		if u.SessionsDone != i+1 {
+			t.Errorf("update %d: SessionsDone = %d, want %d", i, u.SessionsDone, i+1)
+		}
+		if u.Branch == "" {
+			t.Errorf("update %d: empty branch", i)
+		}
+	}
+
+	// The label is human-readable and reflects the counts.
+	if got := distillProgressLabel(updates[1]); !strings.Contains(got, "2/2 done") {
+		t.Errorf("label = %q, want it to contain %q", got, "2/2 done")
+	}
+}
+
 func TestRunDistillForBrainIncrementalSkipsUnchanged(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := writeDistillFixture(t, now)
