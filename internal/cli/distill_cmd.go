@@ -57,6 +57,7 @@ type distillCommandOptions struct {
 	timeout             time.Duration
 	maxChunkBytes       int
 	confidenceThreshold float64
+	model               string
 	run                 distillAgentRunner
 	// progress, when set, is called as each session is processed so the command
 	// can render a spinner/progress line. It is nil in tests and for callers
@@ -114,6 +115,7 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&distillOpts.agent, "agent", "auto", "Distillation agent: auto, codex, claude-code, or command")
 	cmd.Flags().StringArrayVar(&distillOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().Float64Var(&distillOpts.confidenceThreshold, "confidence", defaultFactConfidenceThreshold, "Minimum agent confidence to auto-apply a merge/supersede; below this it is queued for review")
+	cmd.Flags().StringVar(&distillOpts.model, "model", "", "Override the agent model for codex/claude-code (e.g. gpt-5.3-codex-spark)")
 	return cmd
 }
 
@@ -212,6 +214,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	if err != nil {
 		return nil, err
 	}
+	// Pin the agent model when --model is set (e.g. gpt-5.3-codex-spark).
+	args = injectAgentModel(args, distillOpts.agent, distillOpts.model)
+	reconcileArgs = injectAgentModel(reconcileArgs, distillOpts.agent, distillOpts.model)
 	threshold := distillOpts.confidenceThreshold
 	if threshold <= 0 {
 		threshold = defaultFactConfidenceThreshold

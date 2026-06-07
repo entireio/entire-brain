@@ -120,6 +120,28 @@ func distillAgentCommandArgs(agent string, agentCommand []string, prompt string)
 	}
 }
 
+// injectAgentModel inserts a `--model <model>` flag into a codex/claude-code argv
+// so the distill run can pin a specific model (e.g. gpt-5.3-codex-spark). It is a
+// no-op for an empty model or any other agent (the `command` agent carries its
+// own argv). The flag is inserted early — after `codex exec` / after `claude` —
+// where both CLIs accept it, ahead of the trailing prompt argument.
+func injectAgentModel(args []string, agent, model string) []string {
+	if model == "" {
+		return args
+	}
+	switch agent {
+	case "codex":
+		if len(args) >= 2 && args[0] == "codex" && args[1] == "exec" {
+			return append(args[:2:2], append([]string{"--model", model}, args[2:]...)...)
+		}
+	case "claude-code":
+		if len(args) >= 1 && args[0] == "claude" {
+			return append(args[:1:1], append([]string{"--model", model}, args[1:]...)...)
+		}
+	}
+	return args
+}
+
 // distilledFactsFromOutput parses the agent's line-based output for one
 // transcript chunk into fact records. Each emitted line is
 // `path[,path]<TAB>fact`. Lines are dropped (with a warning) when they have no

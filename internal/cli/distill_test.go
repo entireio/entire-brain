@@ -246,6 +246,35 @@ func TestDistillAgentCommandArgs(t *testing.T) {
 	}
 }
 
+func TestInjectAgentModel(t *testing.T) {
+	codex, _ := distillAgentCommandArgs("codex", nil, "PROMPT")
+	got := injectAgentModel(codex, "codex", "gpt-5.3-codex-spark")
+	if got[0] != "codex" || got[1] != "exec" || got[2] != "--model" || got[3] != "gpt-5.3-codex-spark" {
+		t.Fatalf("codex model not inserted after exec: %v", got)
+	}
+	if got[len(got)-1] != "PROMPT" {
+		t.Fatalf("prompt must stay last: %v", got)
+	}
+
+	claude, _ := distillAgentCommandArgs("claude-code", nil, "PROMPT")
+	gotc := injectAgentModel(claude, "claude-code", "sonnet")
+	if gotc[0] != "claude" || gotc[1] != "--model" || gotc[2] != "sonnet" {
+		t.Fatalf("claude model not inserted after claude: %v", gotc)
+	}
+	if gotc[len(gotc)-1] != "PROMPT" {
+		t.Fatalf("prompt must stay last: %v", gotc)
+	}
+
+	// Empty model and the `command` agent are no-ops.
+	if base, _ := distillAgentCommandArgs("codex", nil, "PROMPT"); !slices.Equal(injectAgentModel(base, "codex", ""), base) {
+		t.Errorf("empty model should be a no-op")
+	}
+	cmd, _ := distillAgentCommandArgs("command", []string{"my-agent"}, "PROMPT")
+	if !slices.Equal(injectAgentModel(cmd, "command", "x"), cmd) {
+		t.Errorf("command agent should be a no-op for model injection")
+	}
+}
+
 func containsWarning(warnings []string, substr string) bool {
 	for _, w := range warnings {
 		if strings.Contains(w, substr) {
