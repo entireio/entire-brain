@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "fab390e1c8dc",
+  "strategy": "manual-commit",
+  "branch": "claude/thomas-asks",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "README.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fa/b390e1c8dc/0/metadata.json",
+      "transcript": "/fa/b390e1c8dc/0/full.jsonl",
+      "content_hash": "/fa/b390e1c8dc/0/content_hash.txt",
+      "prompt": "/fa/b390e1c8dc/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 199415,
+    "cache_creation_tokens": 12229235,
+    "cache_read_tokens": 908117953,
+    "output_tokens": 2494455,
+    "api_call_count": 1651
+  }
+}
