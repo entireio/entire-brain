@@ -77,11 +77,16 @@ not a quota**:
   **deterministic refresh** — sessions, semantic index, and history index, with the seed agent set to
   `none` — which spends **zero agent tokens**.
 - The only token-spending step, `--distill` (optionally seed synthesis via `--seed-agent`), is **off by
-  default**. When enabled it runs at most once per `--distill-every`, on the cheap `--model`/`--effort`
-  from WS1, capped by `--budget`. A persisted cursor (`<state>/repos/<repo-key>/watch.json`) means a
-  restart never re-refreshes unchanged state or re-distills within the interval.
+  default**, and only ever runs on a brain that was actually refreshed this tick (a failed refresh skips
+  it). When enabled it runs at most once per `--distill-every`, on the cheap `--model`/`--effort`, and
+  `--budget N` caps it to N distill runs per process (each spends tokens; the count resets on restart —
+  the durable guard is `--distill-every` + the cursor). A persisted cursor
+  (`<state>/repos/<repo-key>/watch.json`) means a restart never re-refreshes unchanged state or
+  re-distills within the interval.
 
-So the default daemon is free; you opt into token spend explicitly and bound it.
+So the default daemon is free; you opt into token spend explicitly and bound it. Run **one watcher per
+repo** — the cursor write is atomic, so concurrent watchers won't corrupt it, but they may do redundant
+refreshes.
 
 ### Work Across Multiple Repos
 

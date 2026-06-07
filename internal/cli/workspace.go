@@ -197,13 +197,16 @@ func newWorkspaceWatchCommand(opts Options) *cobra.Command {
 
 // runWorkspaceWatch fans the WS3 watch loop over every member repo, reusing the same per-repo
 // deterministic-refresh + gated-distill + per-repo cursor. The --budget cap is shared across all members
-// so a workspace tick can't blow the token budget by multiplying across repos.
+// so the --budget distill-run cap (and thus token spend) can't be multiplied across repos.
 func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, workspaceName string) error {
 	now := opts.Now
 	if now == nil {
 		now = time.Now
 	}
 	out := cmd.OutOrStdout()
+	// Stop cleanly between ticks on SIGINT/SIGTERM (same as single-repo watch).
+	ctx, stop := watchSignalContext(ctx)
+	defer stop()
 	repoTick := func(repoDir string, agentCalls *int) {
 		storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 		if err != nil {
@@ -225,8 +228,9 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 	}
 	agentCalls := 0
 	for {
-		if err := ctx.Err(); err != nil {
-			return err
+		if ctx.Err() != nil {
+			fmt.Fprintln(out, "[watch] stopping")
+			return nil
 		}
 		manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 		if err != nil {
@@ -247,7 +251,8 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			fmt.Fprintln(out, "[watch] stopping")
+			return nil
 		case <-time.After(w.interval):
 		}
 	}

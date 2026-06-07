@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -110,10 +111,53 @@ func TestWatchLoopDistillWhenEnabledAndElapsed(t *testing.T) {
 
 func TestWatchFingerprintUsesRefs(t *testing.T) {
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("git", "rev-parse", "--verify", "--quiet", v1MainRef): {stdout: "ckSHA\n"},
-		fakeCommandKey("git", "rev-parse", "--verify", "--quiet", "HEAD"):    {stdout: "headSHA\n"},
+		fakeCommandKey("git", "rev-parse", "--verify", "--quiet", v1MainRef):   {stdout: "ckSHA\n"},
+		fakeCommandKey("git", "rev-parse", "--verify", "--quiet", v1OriginRef): {stdout: "originSHA\n"},
+		fakeCommandKey("git", "rev-parse", "--verify", "--quiet", "HEAD"):      {stdout: "headSHA\n"},
 	}}
-	if got := watchFingerprint(context.Background(), runner, "/repo"); got != "ckSHA:headSHA" {
-		t.Fatalf("fingerprint = %q, want ckSHA:headSHA", got)
+	if got := watchFingerprint(context.Background(), runner, "/repo"); got != "ckSHA:originSHA:headSHA" {
+		t.Fatalf("fingerprint = %q, want ckSHA:originSHA:headSHA (incl. fetched origin checkpoint ref)", got)
+	}
+}
+
+func TestWatchTickSkipsDistillWhenRefreshFails(t *testing.T) {
+	cursorPath := filepath.Join(t.TempDir(), "watch.json")
+	now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	var refreshed, distilled int
+	steps := watchSteps{
+		now:         func() time.Time { return now },
+		fingerprint: func(context.Context) string { return "ck:orig:head" },
+		refresh:     func(context.Context) error { refreshed++; return errors.New("export failed") },
+		distill:     func(context.Context) error { distilled++; return nil },
+	}
+	w := watchCommandOptions{distill: true, distillEvery: 0} // distill WOULD fire if the block were reached
+	calls := 0
+	watchTick(context.Background(), &bytes.Buffer{}, w, cursorPath, steps, &calls)
+	if refreshed != 1 {
+		t.Fatalf("refresh should be attempted once, got %d", refreshed)
+	}
+	if distilled != 0 {
+		t.Fatalf("distill MUST NOT run after a failed refresh (no token spend on an unrefreshed brain), got %d", distilled)
+	}
+	if calls != 0 {
+		t.Fatalf("budget counter must not advance on failed refresh, got %d", calls)
+	}
+	// Cursor must NOT advance, so the next tick retries the free refresh and never re-distills on failure.
+	if c := loadWatchCursor(cursorPath); !c.LastRefreshAt.IsZero() || c.LastFingerprint != "" {
+		t.Fatalf("cursor must not advance on failed refresh (else thrash): %+v", c)
+	}
+}
+
+func TestWatchLoopStopsOnContextCancel(t *testing.T) {
+	cursorPath := filepath.Join(t.TempDir(), "watch.json")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled — the daemon loop must exit cleanly without ticking
+	var refreshed, distilled int
+	w := watchCommandOptions{interval: time.Hour} // not --once: would loop forever if cancel weren't honored
+	if err := watchLoop(ctx, &bytes.Buffer{}, w, cursorPath, fakeWatchSteps("ck", &refreshed, &distilled)); err != nil {
+		t.Fatalf("graceful shutdown must return nil, got %v", err)
+	}
+	if refreshed != 0 {
+		t.Fatalf("a cancelled context must not tick, got %d refreshes", refreshed)
 	}
 }

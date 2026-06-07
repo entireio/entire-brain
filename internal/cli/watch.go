@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -29,7 +31,7 @@ type watchCommandOptions struct {
 	seedAgent    string
 	model        string
 	effort       string
-	budget       int // max distill (token-spending) invocations this process; 0 = unlimited
+	budget       int // cap on distill runs this process (each spends tokens); 0 = unlimited; resets on restart
 }
 
 // watchCursor persists across restarts so the daemon never re-refreshes unchanged state and never
@@ -71,7 +73,7 @@ func bindWatchFlags(cmd *cobra.Command, w *watchCommandOptions) {
 	cmd.Flags().StringVar(&w.seedAgent, "seed-agent", w.seedAgent, "Seed synthesis agent for the deterministic refresh (none = no tokens)")
 	cmd.Flags().StringVar(&w.model, "model", "", "Fast/cheap model for the gated agent steps (distill/seed)")
 	cmd.Flags().StringVar(&w.effort, "effort", "", "Reasoning effort for the gated agent steps")
-	cmd.Flags().IntVar(&w.budget, "budget", 0, "Max distill invocations this process; 0 = unlimited (a token-spend cap)")
+	cmd.Flags().IntVar(&w.budget, "budget", 0, "Cap on distill runs this process, each of which spends tokens; 0 = unlimited. Counts reset on restart — the durable guard against re-spend is --distill-every + the cursor.")
 }
 
 func newWatchCommand(opts Options) *cobra.Command {
@@ -113,16 +115,28 @@ func runWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchComm
 	}
 	cursorPath := filepath.Join(filepath.Dir(storage.HeadPath), "watch.json")
 	steps := watchStepsForRepo(cmd, opts, w, repoDir, now)
+	// Wire SIGINT/SIGTERM so a long-running daemon stops cleanly between ticks instead of being killed
+	// mid-refresh; this is what makes the loop's ctx-cancel paths live (the root command runs with a
+	// Background context otherwise).
+	ctx, stop := watchSignalContext(ctx)
+	defer stop()
 	fmt.Fprintf(cmd.OutOrStdout(), "[watch] %s — interval %s, distill=%v (every %s, agent=%s, model=%q, budget=%d)\n",
 		storage.Key, w.interval, w.distill, w.distillEvery, w.distillAgent, w.model, w.budget)
 	return watchLoop(ctx, cmd.OutOrStdout(), w, cursorPath, steps)
 }
 
+// watchSignalContext returns a context cancelled on SIGINT/SIGTERM so `watch` and `workspace watch`
+// shut down cleanly between ticks (finish the current tick, then return) rather than dying abruptly.
+func watchSignalContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+}
+
 func watchLoop(ctx context.Context, out io.Writer, w watchCommandOptions, cursorPath string, steps watchSteps) error {
 	agentCalls := 0
 	for {
-		if err := ctx.Err(); err != nil {
-			return err
+		if ctx.Err() != nil {
+			fmt.Fprintln(out, "[watch] stopping")
+			return nil
 		}
 		watchTick(ctx, out, w, cursorPath, steps, &agentCalls)
 		if w.once {
@@ -130,7 +144,8 @@ func watchLoop(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			fmt.Fprintln(out, "[watch] stopping")
+			return nil
 		case <-time.After(w.interval):
 		}
 	}
@@ -147,13 +162,16 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		return
 	}
 	if err := steps.refresh(ctx); err != nil {
-		fmt.Fprintf(out, "[watch] refresh failed: %v\n", err)
-	} else {
-		cursor.LastFingerprint = fp
-		cursor.LastRefreshAt = steps.now().UTC()
-		_ = saveWatchCursor(cursorPath, cursor)
-		fmt.Fprintln(out, "[watch] refreshed (deterministic, no agent tokens)")
+		// Refresh failed: do NOT spend tokens distilling an unrefreshed brain, and do NOT advance the
+		// cursor. The next tick retries the (free) refresh; distill only ever runs on a brain that was
+		// actually refreshed this tick — so a persistent refresh failure can never re-distill.
+		fmt.Fprintf(out, "[watch] refresh failed (skipping distill this tick): %v\n", err)
+		return
 	}
+	cursor.LastFingerprint = fp
+	cursor.LastRefreshAt = steps.now().UTC()
+	_ = saveWatchCursor(cursorPath, cursor)
+	fmt.Fprintln(out, "[watch] refreshed (deterministic, no agent tokens)")
 	if ok, reason := watchShouldDistill(w, cursor, *agentCalls, steps.now().UTC()); w.distill && !ok {
 		fmt.Fprintf(out, "[watch] distill skipped: %s\n", reason)
 	} else if ok {
@@ -195,8 +213,10 @@ func watchShouldDistill(w watchCommandOptions, cursor watchCursor, agentCalls in
 	return true, ""
 }
 
-// watchFingerprint is a token-free change signal: the checkpoint ref HEAD + the worktree HEAD. When
-// both are unchanged since the cursor, there is nothing new to ingest.
+// watchFingerprint is a token-free change signal: the local checkpoint ref, the fetched (origin)
+// checkpoint ref, and the worktree HEAD. Including the origin ref means a `git fetch` that brings in
+// checkpoint activity from elsewhere also triggers a refresh. When all are unchanged since the cursor,
+// there is nothing new to ingest.
 func watchFingerprint(ctx context.Context, runner CommandRunner, repoDir string) string {
 	rev := func(ref string) string {
 		if runner == nil {
@@ -208,7 +228,7 @@ func watchFingerprint(ctx context.Context, runner CommandRunner, repoDir string)
 		}
 		return strings.TrimSpace(string(out))
 	}
-	return rev(v1MainRef) + ":" + rev("HEAD")
+	return rev(v1MainRef) + ":" + rev(v1OriginRef) + ":" + rev("HEAD")
 }
 
 // watchDeterministicRefresh refreshes sessions + semantic + history index with the seed agent gated by
