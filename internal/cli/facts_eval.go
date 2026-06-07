@@ -176,18 +176,18 @@ func parseJudgeOutput(output string, facts []factRecord) map[string]struct{} {
 
 func newFactsEvalCommand(opts Options) *cobra.Command {
 	var (
-		tasksFile   string
-		branch      string
-		k           int
+		tasksFile    string
+		branch       string
+		k            int
 		judge        bool
 		semantic     bool
 		expand       bool
 		agent        string
 		agentCommand []string
 		judgeCache   string
-		expandCache string
-		jsonOut     bool
-		run         distillAgentRunner
+		expandCache  string
+		jsonOut      bool
+		run          distillAgentRunner
 	)
 	cmd := &cobra.Command{
 		Use:   "eval --tasks <file>",

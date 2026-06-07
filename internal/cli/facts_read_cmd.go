@@ -37,10 +37,10 @@ func resolveFactsTarget(ctx context.Context, opts Options, target, branchOverrid
 
 func newRecallCommand(opts Options) *cobra.Command {
 	var (
-		branch     string
-		limit      int
-		includeAll bool
-		scope      string
+		branch       string
+		limit        int
+		includeAll   bool
+		scope        string
 		noSemantic   bool
 		expand       bool
 		agent        string

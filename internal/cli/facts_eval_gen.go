@@ -24,11 +24,11 @@ const (
 
 func newFactsEvalGenCommand(opts Options) *cobra.Command {
 	var (
-		out        string
-		limit      int
-		branch     string
-		minFacts   int
-		maxFacts   int
+		out          string
+		limit        int
+		branch       string
+		minFacts     int
+		maxFacts     int
 		refine       bool
 		agent        string
 		agentCommand []string
