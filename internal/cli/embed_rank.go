@@ -3,6 +3,7 @@ package cli
 import (
 	"math"
 	"sort"
+	"strings"
 )
 
 // rrfK is the Reciprocal Rank Fusion constant. 60 is the canonical value from
@@ -89,10 +90,10 @@ func (s *semanticReranker) flush() error {
 //   - Ranking within reach: a fact strong in both lists fuses above one strong
 //     in only one, reordering the lexically-reachable set by meaning.
 //
-// An empty query keeps the lexical path's recency listing (no query vector to
-// compare against).
+// An empty (or whitespace-only) query keeps the lexical path's recency listing
+// (no query vector to compare against), matching rankFacts exactly.
 func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool, rr *semanticReranker) []factRecord {
-	if rr == nil || query == "" {
+	if rr == nil || strings.TrimSpace(query) == "" {
 		return rankFacts(facts, query, limit, includeAll)
 	}
 	if limit <= 0 {

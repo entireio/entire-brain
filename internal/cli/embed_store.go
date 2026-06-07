@@ -70,13 +70,23 @@ func (s *embedStore) load() map[string][]float32 {
 // save atomically writes the given vectors. The caller passes only the vectors
 // for facts present this run, so removed/superseded facts are pruned on rewrite.
 func (s *embedStore) save(vecs map[string][]float32) error {
+	// Count the entries we will actually write (skipping any wrong-dim vector)
+	// so the header count matches the body exactly — a mismatch would make the
+	// next load() see a truncated file and force an unnecessary rebuild.
+	count := 0
+	for _, vec := range vecs {
+		if len(vec) == s.dim {
+			count++
+		}
+	}
+
 	var buf bytes.Buffer
 	buf.WriteString(embedStoreMagic)
 	id := []byte(s.modelID)
 	_ = binary.Write(&buf, binary.LittleEndian, uint16(len(id)))
 	buf.Write(id)
 	_ = binary.Write(&buf, binary.LittleEndian, uint32(s.dim))
-	_ = binary.Write(&buf, binary.LittleEndian, uint32(len(vecs)))
+	_ = binary.Write(&buf, binary.LittleEndian, uint32(count))
 	for factID, vec := range vecs {
 		if len(vec) != s.dim {
 			continue

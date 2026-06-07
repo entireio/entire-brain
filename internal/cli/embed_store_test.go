@@ -30,6 +30,27 @@ func TestEmbedStoreRoundTrip(t *testing.T) {
 	}
 }
 
+// TestEmbedStoreSkipsWrongDimWithoutCorruptingCount guards the header-count fix:
+// a wrong-dim vector is skipped on write, and the header count must reflect only
+// the entries actually written so load() does not see the file as truncated.
+func TestEmbedStoreSkipsWrongDimWithoutCorruptingCount(t *testing.T) {
+	dir := t.TempDir()
+	s := newEmbedStore(dir, "main", "test-model", 3)
+	if err := s.save(map[string][]float32{
+		"fact:ok":  {0.1, 0.2, 0.3},
+		"fact:bad": {1, 2}, // wrong dim: skipped, must not be counted
+	}); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got := newEmbedStore(dir, "main", "test-model", 3).load()
+	if len(got) != 1 {
+		t.Fatalf("loaded %d vectors, want 1 (wrong-dim skipped, count intact)", len(got))
+	}
+	if _, ok := got["fact:ok"]; !ok {
+		t.Errorf("valid vector missing after round-trip: %v", got)
+	}
+}
+
 func TestEmbedStoreInvalidatesOnModelOrDimChange(t *testing.T) {
 	dir := t.TempDir()
 	if err := newEmbedStore(dir, "main", "model-A", 3).save(map[string][]float32{"fact:a": {1, 2, 3}}); err != nil {

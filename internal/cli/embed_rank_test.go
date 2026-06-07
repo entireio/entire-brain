@@ -33,6 +33,31 @@ func TestRankFactsFusedReachesTermDisjoint(t *testing.T) {
 	}
 }
 
+// TestRankFactsFusedWhitespaceQueryIsLexical guards that a whitespace-only query
+// takes the recency-listing path (matching rankFacts) rather than the semantic
+// fusion path, even with a live reranker.
+func TestRankFactsFusedWhitespaceQueryIsLexical(t *testing.T) {
+	now := time.Now()
+	facts := []factRecord{
+		{ID: "a", Text: "retry backoff doubles each attempt", Status: factStatusActive, UpdatedAt: now},
+		{ID: "b", Text: "unrelated fact about colors", Status: factStatusActive, UpdatedAt: now.Add(time.Hour)},
+	}
+	rr := newSemanticReranker(defaultEmbedder())
+	if rr == nil {
+		t.Skip("embedding backend unavailable")
+	}
+	got := rankFactsFused(facts, "   ", 10, false, rr)
+	want := rankFacts(facts, "   ", 10, false)
+	if len(got) != len(want) {
+		t.Fatalf("whitespace query diverged: got %d want %d", len(got), len(want))
+	}
+	for i := range got {
+		if got[i].ID != want[i].ID {
+			t.Fatalf("whitespace query order diverged at %d: %s vs %s", i, got[i].ID, want[i].ID)
+		}
+	}
+}
+
 // TestRankFactsFusedNilIsLexical guarantees the nil-reranker path is exactly the
 // existing lexical ranking, so callers without an embedder are unaffected.
 func TestRankFactsFusedNilIsLexical(t *testing.T) {
