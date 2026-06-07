@@ -62,6 +62,27 @@ worktree represented. Bundle export rejects worktree-backed semantic indexes.
 without touching seed or session sources. `reset --force` removes the generated
 brain directory for the repo.
 
+### Keep The Brain Fresh Automatically
+
+```sh
+entire brain watch                       # poll every 5m; deterministic refresh only (NO tokens)
+entire brain watch --once                # single pass (handy for a cron/CI hook)
+entire brain watch --distill --distill-every 24h --model gpt-5.4-mini --effort low --budget 1
+```
+
+`watch` keeps the brain current without manual refreshes, and its token-frugality is **structural,
+not a quota**:
+
+- It detects new work cheaply (the checkpoint ref + worktree HEAD), and on a change runs a
+  **deterministic refresh** — sessions, semantic index, and history index, with the seed agent set to
+  `none` — which spends **zero agent tokens**.
+- The only token-spending step, `--distill` (optionally seed synthesis via `--seed-agent`), is **off by
+  default**. When enabled it runs at most once per `--distill-every`, on the cheap `--model`/`--effort`
+  from WS1, capped by `--budget`. A persisted cursor (`<state>/repos/<repo-key>/watch.json`) means a
+  restart never re-refreshes unchanged state or re-distills within the interval.
+
+So the default daemon is free; you opt into token spend explicitly and bound it.
+
 ### Work Across Multiple Repos
 
 ```sh
