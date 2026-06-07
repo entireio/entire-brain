@@ -163,6 +163,14 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
+		// Some models (seen with gpt-5.3-codex-spark) emit the separator as a
+		// literal backslash-t escape instead of a real tab character. Recover it:
+		// convert literal `\t` to a real tab when no real tab is present. The
+		// leading field is still validated as a taxonomy path below, so a wrongful
+		// conversion cannot manufacture a bogus fact.
+		if !strings.ContainsRune(line, '\t') && strings.Contains(line, `\t`) {
+			line = strings.ReplaceAll(line, `\t`, "\t")
+		}
 		if !strings.ContainsRune(line, '\t') {
 			// Prose / preamble the template forbids; ignore quietly unless it
 			// looks like an attempted fact (contains a path-like token).

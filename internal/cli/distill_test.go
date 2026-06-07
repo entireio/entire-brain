@@ -172,6 +172,27 @@ func TestDistilledFactsFromOutputTabSeparatedPaths(t *testing.T) {
 	}
 }
 
+func TestDistilledFactsFromOutputLiteralTabEscape(t *testing.T) {
+	now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	taxonomy := defaultFactTaxonomy(now)
+	anchor := factAnchor{SessionID: "s1"}
+
+	// gpt-5.3-codex-spark sometimes writes the separator as a literal backslash-t
+	// escape instead of a real tab. The line must still be recovered, not dropped.
+	output := `constraints.invariants.general\tThe CLI stores version_check.json under ~/.config/entire.`
+	records, warnings := distilledFactsFromOutput(output, taxonomy, anchor, "main", now)
+	if len(records) != 1 {
+		t.Fatalf("literal \\t line should be recovered: got %d records, warnings=%v", len(records), warnings)
+	}
+	r := records[0]
+	if r.Text != "The CLI stores version_check.json under ~/.config/entire." {
+		t.Fatalf("text wrong after \\t recovery: %q", r.Text)
+	}
+	if len(r.Paths) != 1 || r.Paths[0] != "constraints.invariants.general" {
+		t.Fatalf("path wrong after \\t recovery: %v", r.Paths)
+	}
+}
+
 func TestSplitFactLine(t *testing.T) {
 	cases := []struct {
 		line  string
