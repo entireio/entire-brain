@@ -220,6 +220,111 @@ func TestRunDistillForBrainRetriesFailedSessions(t *testing.T) {
 	}
 }
 
+func TestRunDistillForBrainBranchLimitedPreservesManifest(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+
+	// Seed an authored fact on the feature branch. A `--branch main` distill must
+	// not drop it (or the feature branch) from the manifest summary.
+	paths := normalizeFactPaths([]string{"workflow.testing.rules"})
+	authored := factRecord{
+		ID:        factRecordID("Feature work needs integration tests.", paths),
+		Paths:     paths,
+		Text:      "Feature work needs integration tests.",
+		Branch:    "feature",
+		Origin:    factOriginAuthored,
+		Status:    factStatusActive,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := writeFacts(brainDir, "feature", []factRecord{authored}); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls int
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, branch: "main", maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+
+	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
+	if err != nil {
+		t.Fatalf("runDistillForBrain: %v", err)
+	}
+	// Only the main session should have been distilled.
+	if calls != 1 {
+		t.Fatalf("expected only the main session distilled, got %d agent calls", calls)
+	}
+
+	// The returned summary and the persisted manifest must both reflect the whole
+	// store: the feature branch and its authored fact survive a main-only run.
+	hasFeature := false
+	for _, b := range source.Branches {
+		if b == "feature" {
+			hasFeature = true
+		}
+	}
+	if !hasFeature {
+		t.Fatalf("branch-limited distill dropped feature branch from summary: %v", source.Branches)
+	}
+	if source.Facts != 2 || source.Authored != 1 || source.Distilled != 1 {
+		t.Fatalf("summary lost whole-store counts: %+v", source)
+	}
+
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil || manifest.Sources == nil || manifest.Sources.Facts == nil {
+		t.Fatalf("manifest facts source not written: %v", err)
+	}
+	if manifest.Sources.Facts.Facts != 2 || manifest.Sources.Facts.Authored != 1 {
+		t.Errorf("manifest dropped facts from untouched branch: %+v", manifest.Sources.Facts)
+	}
+	// The feature branch's authored fact must remain on disk untouched.
+	featureFacts, err := loadFacts(brainDir, "feature")
+	if err != nil || len(featureFacts) != 1 {
+		t.Fatalf("feature facts disturbed by main-only distill: %d (%v)", len(featureFacts), err)
+	}
+}
+
+func TestRunDistillForBrainRedistillsOnContentChange(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+
+	// Count only transcript-chunk invocations (those carry the line-numbered
+	// transcript on stdin), so the reconcile agent's calls don't skew the tally.
+	var transcriptChunks int
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		if strings.Contains(string(input), "\tturn one") {
+			transcriptChunks++
+		}
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	if transcriptChunks != 2 {
+		t.Fatalf("first run should distill both sessions, got %d transcript chunks", transcriptChunks)
+	}
+
+	// Rewrite the main transcript bytes WITHOUT touching session id, checkpoint,
+	// path, or branch — the scenario a compact↔raw re-export or exporter fix
+	// produces. Incremental distill must notice and re-run only that session.
+	mainTranscript := filepath.Join(brainDir, filepath.FromSlash("sessions/main/s1.jsonl"))
+	if err := os.WriteFile(mainTranscript, []byte("turn one\nturn two\nturn three\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	transcriptChunks = 0
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if transcriptChunks != 1 {
+		t.Fatalf("content change should re-distill exactly the changed session, got %d transcript chunks", transcriptChunks)
+	}
+}
+
 func TestRunDistillForBrainNoSessions(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := t.TempDir()

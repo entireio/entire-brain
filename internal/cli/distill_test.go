@@ -62,6 +62,13 @@ func TestStripTemplateFrontmatter(t *testing.T) {
 	if got := stripTemplateFrontmatter(open); got != open {
 		t.Fatalf("unterminated frontmatter changed: %q", got)
 	}
+	// CRLF line endings (Windows checkout): the body must not start with a stray
+	// "\r" left over from splitting on "\n". Regression guard for the Windows CI
+	// failure in TestRenderDistillPromptStripsFrontmatter.
+	crlf := "---\r\nname: x\r\ndescription: y\r\n---\r\n\r\nBody starts here.\r\n"
+	if got := stripTemplateFrontmatter(crlf); got != "Body starts here.\r\n" {
+		t.Fatalf("crlf content not stripped cleanly: %q", got)
+	}
 }
 
 func TestCapWarnings(t *testing.T) {

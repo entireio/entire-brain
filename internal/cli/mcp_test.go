@@ -35,6 +35,191 @@ func TestMCPInitializeAndToolsList(t *testing.T) {
 	}
 }
 
+func TestMCPToolsListIncludesRegressions(t *testing.T) {
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	data, _ := json.Marshal(responses[1]["result"])
+	for _, want := range []string{"brain_regressions", "include_deletions"} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("tools/list missing %q: %s", want, data)
+		}
+	}
+}
+
+func TestMCPBrainRegressionsTool(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	storage, err := repoStoragePaths(cmd.Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	// History asserts the invariant and names the file; the current tree has the regressed literal.
+	sessionDir := filepath.Join(storage.BrainDir, exportSessionsDirectory, "main")
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		t.Fatalf("mkdir session dir: %v", err)
+	}
+	sessionLine := `{"type":"agent_message","message":"in pkg/review_context.go the scope range is scopeBaseRef+\"..HEAD\""}` + "\n"
+	if err := os.WriteFile(filepath.Join(sessionDir, "session.jsonl"), []byte(sessionLine), 0o600); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
+	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, now, nil); err != nil {
+		t.Fatalf("write history index: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoDir, "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir pkg: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "pkg", "review_context.go"),
+		[]byte("package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"), 0o600); err != nil {
+		t.Fatalf("write repo file: %v", err)
+	}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
+
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"fix scopeBaseRef base scope review","limit":5}}}`)
+	var out bytes.Buffer
+	if err := runMCP(cmd.Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	data, _ := json.Marshal(readMCPResponses(t, out.String()))
+	for _, want := range []string{"review_context.go", "changed", "master..HEAD"} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("brain_regressions result missing %q: %s", want, data)
+		}
+	}
+}
+
+func TestMCPBrainReviewTool(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	storage, err := repoStoragePaths(cmd.Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	sessionDir := filepath.Join(storage.BrainDir, exportSessionsDirectory, "main")
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		t.Fatalf("mkdir session dir: %v", err)
+	}
+	sessionLine := `{"type":"agent_message","message":"in pkg/review_context.go the scope range is scopeBaseRef+\"..HEAD\""}` + "\n"
+	if err := os.WriteFile(filepath.Join(sessionDir, "session.jsonl"), []byte(sessionLine), 0o600); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
+	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, now, nil); err != nil {
+		t.Fatalf("write history index: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoDir, "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir pkg: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "pkg", "review_context.go"),
+		[]byte("package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"), 0o600); err != nil {
+		t.Fatalf("write repo file: %v", err)
+	}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
+
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_review","arguments":{"query":"review scopeBaseRef base scope"}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_review","arguments":{"query":"review scopeBaseRef base scope","location_only":true}}}`)
+	var out bytes.Buffer
+	if err := runMCP(cmd.Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	listData, _ := json.Marshal(responses[0]["result"])
+	if !strings.Contains(string(listData), "brain_review") || !strings.Contains(string(listData), "location_only") {
+		t.Fatalf("tools/list missing brain_review/location_only: %s", listData)
+	}
+	callData, _ := json.Marshal(responses[1])
+	// schema_version is the load-bearing contract field cross-repo consumers bind to; a silent rename
+	// (e.g. to schemaVersion) or a dropped field must fail here, not pass CI green.
+	for _, want := range []string{"diff-less", "Suspected regression", "review_context.go", "master..HEAD", "schema_version"} {
+		if !strings.Contains(string(callData), want) {
+			t.Fatalf("brain_review result missing %q: %s", want, callData)
+		}
+	}
+	// location_only must still localize the finding but NOT leak the expected/current values.
+	locData, _ := json.Marshal(responses[2])
+	if !strings.Contains(string(locData), "review_context.go") {
+		t.Fatalf("brain_review --location-only dropped the file location: %s", locData)
+	}
+	if strings.Contains(string(locData), "master..HEAD") || strings.Contains(string(locData), `scopeBaseRef+`) {
+		t.Fatalf("brain_review location_only leaked expected/current values: %s", locData)
+	}
+}
+
+func TestMCPBrainWorkspaceReviewTool(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
+
+	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
+	regressed := "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
+	repoA := writeWorkspaceBrainRepo(t, env, "gh/example/repoa", session, "pkg/review_context.go", regressed)
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos:         []workspaceRepo{{RepoKey: "gh/example/repoa", Name: "a", LocalPathHint: repoA}},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_workspace_review","arguments":{"workspace":"related","query":"review scopeBaseRef base scope"}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	listData, _ := json.Marshal(responses[0]["result"])
+	for _, want := range []string{"brain_workspace_review", "brain_workspace_regressions", "location_only"} {
+		if !strings.Contains(string(listData), want) {
+			t.Fatalf("tools/list missing %q: %s", want, listData)
+		}
+	}
+	callData, _ := json.Marshal(responses[1])
+	for _, want := range []string{"diff-less", "Suspected regression", "review_context.go", "gh/example/repoa"} {
+		if !strings.Contains(string(callData), want) {
+			t.Fatalf("brain_workspace_review result missing %q: %s", want, callData)
+		}
+	}
+}
+
+func TestMCPBrainWorkspaceToolRequiresWorkspace(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	opts := Options{Version: "test-version", Env: env, Runner: &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}, Now: time.Now}
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_workspace_review","arguments":{"query":"x"}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	if !strings.Contains(out.String(), "workspace is required") {
+		t.Fatalf("expected workspace-required error: %s", out.String())
+	}
+}
+
 func TestMCPInitializeEchoesClientProtocolVersion(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`)
 	var out bytes.Buffer

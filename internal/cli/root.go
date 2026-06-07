@@ -89,6 +89,7 @@ agent can inspect to understand project history.`,
 	addGrouped("create", newWorkspaceCommand(opts))
 
 	// Explore the brain — task packets, search, records, specialist inspection.
+	addGrouped("explore", newBrainOverviewCommand(opts))
 	addGrouped("explore", newBrainBriefCommand(opts))
 	addGrouped("explore", newBrainGuideCommand())
 	addGrouped("explore", newBrainInspectCommand(opts))
@@ -107,6 +108,11 @@ agent can inspect to understand project history.`,
 	addGrouped("maintain", newSemanticResetCommand(opts))
 	addGrouped("maintain", newSemanticStaleCommand(opts))
 	addGrouped("maintain", newVersionCommand(opts.Version))
+
+	// Hidden: `review` is the machine contract `entire review`'s diff-less mode shells
+	// (`entire-brain review --json`), NOT a human-facing verb — per Thomas, the human
+	// review surface is `entire review` in the cli, not a standalone brain command.
+	addHidden(newBrainReviewCommand(opts))
 
 	// Hidden plugin/config commands.
 	addHidden(newDoctorCommand(opts))

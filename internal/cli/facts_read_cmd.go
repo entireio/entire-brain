@@ -37,13 +37,15 @@ func resolveFactsTarget(ctx context.Context, opts Options, target, branchOverrid
 
 func newRecallCommand(opts Options) *cobra.Command {
 	var (
-		branch     string
-		limit      int
-		includeAll bool
-		scope      string
-		expand     bool
-		agent      string
-		jsonOut    bool
+		branch       string
+		limit        int
+		includeAll   bool
+		scope        string
+		noSemantic   bool
+		expand       bool
+		agent        string
+		agentCommand []string
+		jsonOut      bool
 	)
 	cmd := &cobra.Command{
 		Use:   "recall <query>",
@@ -61,18 +63,18 @@ func newRecallCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			facts, err := loadFacts(brainDir, resolvedBranch)
+			allFacts, err := loadFacts(brainDir, resolvedBranch)
 			if err != nil {
 				return err
 			}
-			facts = filterFactsByScope(facts, scope)
+			facts := filterFactsByScope(allFacts, scope)
 			effectiveQuery := query
 			if expand && strings.TrimSpace(query) != "" {
 				resolved := agent
 				if resolved == "auto" {
 					resolved = defaultRefreshAgent(cmd.Context(), opts.Runner, repoDir)
 				}
-				expandArgs, expErr := distillAgentCommandArgs(resolved, nil, queryExpansionPrompt())
+				expandArgs, expErr := distillAgentCommandArgs(resolved, agentCommand, queryExpansionPrompt())
 				if expErr != nil {
 					return fmt.Errorf("expand agent: %w", expErr)
 				}
@@ -82,7 +84,21 @@ func newRecallCommand(opts Options) *cobra.Command {
 				}
 				effectiveQuery = expandedQuery(query, exp)
 			}
-			matches := rankFacts(facts, effectiveQuery, limit, includeAll)
+			// Semantic rerank is on by default (the measured Phase D win); it
+			// degrades silently to lexical when the embedder can't load, so a
+			// missing/corrupt model never breaks recall. The disk-backed cache
+			// avoids re-embedding the branch on every invocation.
+			var rr *semanticReranker
+			if !noSemantic {
+				if e := defaultEmbedder(); e != nil {
+					rr = newSemanticRerankerForBranch(e, brainDir, resolvedBranch)
+				}
+			}
+			matches := rankFactsFused(facts, effectiveQuery, limit, includeAll, rr)
+			if rr != nil {
+				rr.retain(allFacts) // keep every present fact's vector; prune only departed facts
+				_ = rr.flush()      // best-effort cache persist
+			}
 			if jsonOut {
 				return writeJSON(cmd, map[string]any{"branch": resolvedBranch, "query": query, "facts": matches})
 			}
@@ -100,8 +116,10 @@ func newRecallCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&limit, "k", 10, "Maximum facts to return")
 	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted facts")
 	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) facts")
+	cmd.Flags().BoolVar(&noSemantic, "no-semantic", false, "Disable embedding rerank; rank with lexical + taxonomy only")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand the query with agent-generated retrieval terms before ranking")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --expand: auto, codex, claude-code, or command")
+	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	return cmd
 }

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"math"
 	"os"
 	pathpkg "path"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
 	_ "modernc.org/sqlite"
@@ -89,6 +91,31 @@ type semanticWarning struct {
 	Detail   string `json:"detail,omitempty"`
 }
 
+// UnmarshalJSON accepts both entire-brain's canonical keys (path, effect) and the
+// semantic provider's wire keys (file_path, effect_on_semantic_completeness). The
+// provider attaches the failing file to each partial failure via file_path; without
+// this alias those fields are silently dropped, leaving degraded brains unable to
+// report which files failed to parse. Canonical keys win when both are present.
+func (w *semanticWarning) UnmarshalJSON(data []byte) error {
+	type alias semanticWarning
+	var raw struct {
+		alias
+		ProviderPath   string `json:"file_path"`
+		ProviderEffect string `json:"effect_on_semantic_completeness"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*w = semanticWarning(raw.alias)
+	if w.Path == "" {
+		w.Path = raw.ProviderPath
+	}
+	if w.Effect == "" {
+		w.Effect = raw.ProviderEffect
+	}
+	return nil
+}
+
 type semanticHeader struct {
 	SchemaVersion   string            `json:"schema_version"`
 	Provider        string            `json:"provider"`
@@ -123,6 +150,7 @@ type semanticRecord struct {
 	Reason          string   `json:"reason"`
 	StableIDVersion string   `json:"stable_id_version"`
 	Blob            string   `json:"blob"`
+	Score           int      `json:"score,omitempty"`
 }
 
 type semanticIndexOptions struct {
@@ -1908,6 +1936,7 @@ type staleAxis struct {
 
 func newSemanticStaleCommand(opts Options) *cobra.Command {
 	var jsonOut bool
+	var blindSpots bool
 	cmd := &cobra.Command{
 		Use:   "stale [path]",
 		Short: "Report semantic brain freshness",
@@ -1920,20 +1949,94 @@ func newSemanticStaleCommand(opts Options) *cobra.Command {
 			if len(args) == 1 {
 				target = args[0]
 			}
-			return runSemanticStale(cmd.Context(), cmd, opts, target, jsonOut)
+			return runSemanticStale(cmd.Context(), cmd, opts, target, jsonOut, blindSpots)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&blindSpots, "blind-spots", false, "List the files the semantic provider failed to fully index")
 	return cmd
 }
 
-func runSemanticStale(ctx context.Context, cmd *cobra.Command, opts Options, target string, jsonOut bool) error {
+// staleReportWithBlindSpots augments a freshness report with the concrete list
+// of files the semantic provider could not fully index, so an agent knows
+// exactly where its semantic answers are untrustworthy instead of only seeing
+// an aggregate "N partial failures" count.
+type staleReportWithBlindSpots struct {
+	staleReport
+	BlindSpots []brainBlindSpot `json:"blind_spots,omitempty"`
+}
+
+type brainBlindSpot struct {
+	Path   string `json:"path"`
+	Code   string `json:"code,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
+func brainBlindSpotsForRepo(ctx context.Context, opts Options, target string) ([]brainBlindSpot, error) {
+	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	if err != nil {
+		return nil, err
+	}
+	if !local {
+		return nil, fmt.Errorf("blind-spots requires a local repository path: %s", target)
+	}
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		return nil, err
+	}
+	manifest, err := loadBrainManifest(storage.BrainDir)
+	if err != nil {
+		return nil, err
+	}
+	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
+		return nil, nil
+	}
+	seen := map[string]struct{}{}
+	var spots []brainBlindSpot
+	unknownPaths := 0
+	for _, failure := range manifest.Sources.Semantic.PartialFailures {
+		if strings.TrimSpace(failure.Path) == "" {
+			unknownPaths++
+			continue
+		}
+		key := failure.Path + "|" + failure.Code
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		spots = append(spots, brainBlindSpot{Path: failure.Path, Code: failure.Code, Detail: failure.Detail})
+	}
+	sort.Slice(spots, func(i, j int) bool { return spots[i].Path < spots[j].Path })
+	// Brains indexed before file paths were preserved on partial failures only
+	// record the count. Surface that explicitly so the gap reads as "refresh to
+	// locate these" rather than "only one file affected".
+	if unknownPaths > 0 {
+		spots = append(spots, brainBlindSpot{
+			Code:   "E_PATH_UNAVAILABLE",
+			Detail: fmt.Sprintf("%d partial failures without a recorded path; run `entire brain refresh` to locate them", unknownPaths),
+		})
+	}
+	return spots, nil
+}
+
+func runSemanticStale(ctx context.Context, cmd *cobra.Command, opts Options, target string, jsonOut, blindSpots bool) error {
 	report, err := semanticStaleReport(ctx, opts, target)
 	if err != nil {
 		return err
 	}
+	var spots []brainBlindSpot
+	if blindSpots {
+		spots, err = brainBlindSpotsForRepo(ctx, opts, target)
+		if err != nil {
+			return err
+		}
+	}
 	if jsonOut {
-		data, err := json.MarshalIndent(report, "", "  ")
+		var payload any = report
+		if blindSpots {
+			payload = staleReportWithBlindSpots{staleReport: report, BlindSpots: spots}
+		}
+		data, err := json.MarshalIndent(payload, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -1953,6 +2056,20 @@ func runSemanticStale(ctx context.Context, cmd *cobra.Command, opts Options, tar
 			fmt.Fprintf(cmd.OutOrStdout(), " (%s)", axis.Detail)
 		}
 		fmt.Fprintln(cmd.OutOrStdout())
+	}
+	if blindSpots {
+		if len(spots) == 0 {
+			fmt.Fprintln(cmd.OutOrStdout(), "blind-spots: none")
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "blind-spots: %d files not fully indexed\n", len(spots))
+			for _, spot := range spots {
+				fmt.Fprintf(cmd.OutOrStdout(), "  %s", spot.Path)
+				if spot.Code != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), " [%s]", spot.Code)
+				}
+				fmt.Fprintln(cmd.OutOrStdout())
+			}
+		}
 	}
 	return nil
 }
@@ -2145,6 +2262,16 @@ type semanticContextResult struct {
 	Content   []semanticContent `json:"content,omitempty"`
 }
 
+// nonNilRecords guarantees a JSON array (`[]`) rather than `null` for an empty
+// result, so consumers can use one uniform shape across every brain command
+// instead of special-casing null per field.
+func nonNilRecords(records []semanticRecord) []semanticRecord {
+	if records == nil {
+		return []semanticRecord{}
+	}
+	return records
+}
+
 type semanticContent struct {
 	Path      string `json:"path"`
 	StartLine int    `json:"start_line"`
@@ -2264,7 +2391,7 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 			Freshness  staleReport      `json:"freshness"`
 			Pagination semanticPage     `json:"pagination"`
 			Results    []semanticRecord `json:"results"`
-		}{Freshness: freshness, Pagination: semanticPage{Limit: queryOpts.limit, Offset: queryOpts.offset, Count: len(results)}, Results: results}, "", "  ")
+		}{Freshness: freshness, Pagination: semanticPage{Limit: queryOpts.limit, Offset: queryOpts.offset, Count: len(results)}, Results: nonNilRecords(results)}, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -2313,7 +2440,7 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 	if err != nil {
 		return err
 	}
-	result := semanticContextResult{Symbols: symbols, Relations: relations}
+	result := semanticContextResult{Symbols: nonNilRecords(symbols), Relations: nonNilRecords(relations)}
 	if contextOpts.includeContent {
 		result.Content = semanticContextContent(repoDir, symbols)
 	}
@@ -2374,7 +2501,7 @@ func runSemanticImpact(ctx context.Context, cmd *cobra.Command, opts Options, im
 	if err != nil {
 		return err
 	}
-	result := semanticImpactResult{Roots: roots, Symbols: symbols, Relations: relations}
+	result := semanticImpactResult{Roots: nonNilRecords(roots), Symbols: nonNilRecords(symbols), Relations: nonNilRecords(relations)}
 	if impactOpts.json {
 		data, err := json.MarshalIndent(struct {
 			Freshness staleReport          `json:"freshness"`
@@ -2488,6 +2615,9 @@ func runSemanticBoundary(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if err != nil {
 		return err
 	}
+	result.Boundaries = nonNilRecords(result.Boundaries)
+	result.Handlers = nonNilRecords(result.Handlers)
+	result.Relations = nonNilRecords(result.Relations)
 	if boundaryOpts.json {
 		data, err := json.MarshalIndent(struct {
 			Freshness staleReport            `json:"freshness"`
@@ -2550,6 +2680,10 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 	result, err := semanticTestFacts(storage.BrainDir, manifest.Sources.Semantic, query, testsOpts.limit)
 	if err != nil {
 		return err
+	}
+	result.Roots = nonNilRecords(result.Roots)
+	if result.Suggestions == nil {
+		result.Suggestions = []semanticTestSuggestion{}
 	}
 	if testsOpts.json {
 		data, err := json.MarshalIndent(struct {
@@ -2919,6 +3053,137 @@ type semanticPage struct {
 	Count  int `json:"count"`
 }
 
+// semanticQueryTokens reduces a free-text query to the distinct identifier-ish
+// tokens worth searching the symbol index for. It powers the tokenized fallback
+// so a natural-language task ("change how feeds are refreshed") matches symbols
+// on its content words instead of only as a verbatim substring.
+func semanticQueryTokens(query string) []string {
+	seen := map[string]struct{}{}
+	var tokens []string
+	for _, raw := range strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
+		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_')
+	}) {
+		raw = strings.Trim(raw, "_")
+		if len(raw) < 3 {
+			continue
+		}
+		if historyQueryStopword(raw) {
+			continue
+		}
+		if _, ok := seen[raw]; ok {
+			continue
+		}
+		seen[raw] = struct{}{}
+		tokens = append(tokens, raw)
+		if len(tokens) >= 8 {
+			break
+		}
+	}
+	return tokens
+}
+
+// tokenIDFWeight scores a token by inverse document frequency: a token matching
+// few symbols (e.g. "authentication") is far more discriminating than one
+// matching many (e.g. "handler", "work"), so it must contribute more to a
+// symbol's relevance. Returns a small positive integer for use as a SQL literal
+// weight. Smoothed so a token matching nothing still ranks above none.
+func tokenIDFWeight(total, df int) int {
+	if total < 0 {
+		total = 0
+	}
+	if df < 0 {
+		df = 0
+	}
+	idf := math.Log(float64(total+1)/float64(df+1)) + 1
+	weight := int(math.Round(idf * 10))
+	if weight < 1 {
+		weight = 1
+	}
+	return weight
+}
+
+// findSemanticSymbolsTokenizedSQLite ranks symbols by the inverse-document-
+// frequency-weighted sum of query tokens appearing in their full-text body. It
+// is the fallback for multi-word queries that never appear verbatim in any one
+// symbol; weighting by rarity keeps a specific term (matched by few symbols)
+// from being tied with a generic filler term (matched by many).
+func findSemanticSymbolsTokenizedSQLite(db *sql.DB, tokens []string, limit, offset int) ([]semanticRecord, error) {
+	if len(tokens) == 0 {
+		return nil, nil
+	}
+	var total int
+	if err := db.QueryRow(`SELECT count(*) FROM symbols`).Scan(&total); err != nil {
+		return nil, err
+	}
+	weights := make([]int, len(tokens))
+	for i, token := range tokens {
+		var df int
+		if err := db.QueryRow(`SELECT count(*) FROM symbol_fts WHERE instr(lower(text), ?) > 0`, token).Scan(&df); err != nil {
+			return nil, err
+		}
+		weights[i] = tokenIDFWeight(total, df)
+	}
+	var conds, score strings.Builder
+	args := make([]any, 0, len(tokens)*2+2)
+	for i := range tokens {
+		if i > 0 {
+			conds.WriteString(" OR ")
+			score.WriteString(" + ")
+		}
+		conds.WriteString("instr(lower(f.text), ?) > 0")
+		// Weights are computed integers, safe to inline as SQL literals.
+		fmt.Fprintf(&score, "(CASE WHEN instr(lower(f.text), ?) > 0 THEN %d ELSE 0 END)", weights[i])
+	}
+	// Token args are consumed once for the score expression and once for the
+	// WHERE clause, in that order.
+	for _, token := range tokens {
+		args = append(args, token)
+	}
+	for _, token := range tokens {
+		args = append(args, token)
+	}
+	args = append(args, limit, offset)
+	q := `SELECT s.id, s.kind, s.name, s.qualified_name, s.file_path, s.start_line, s.end_line, s.signature, s.language, s.stable_id_version, (` + score.String() + `) AS hits
+FROM symbols s
+JOIN symbol_fts f ON f.id = s.id
+WHERE ` + conds.String() + `
+ORDER BY hits DESC, s.qualified_name
+LIMIT ? OFFSET ?`
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var results []semanticRecord
+	for rows.Next() {
+		var record semanticRecord
+		record.RecordType = "symbol"
+		var hits int
+		if err := rows.Scan(&record.ID, &record.Kind, &record.Name, &record.QualifiedName, &record.FilePath, &record.StartLine, &record.EndLine, &record.Signature, &record.Language, &record.StableIDVersion, &hits); err != nil {
+			return nil, err
+		}
+		record.Score = hits
+		results = append(results, record)
+	}
+	return results, rows.Err()
+}
+
+// semanticQueryLooksLikePath reports whether a query is a file path rather than
+// free text. Path queries must resolve exactly: tokenizing "missing/file.ts"
+// into ["missing","file"] would otherwise match half the index on the common
+// token "file" and report a bogus blast radius for a path that does not exist.
+func semanticQueryLooksLikePath(query string) bool {
+	query = strings.TrimSpace(query)
+	if strings.ContainsAny(query, "/\\") {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(query)) {
+	case ".go", ".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".sql", ".java", ".rb", ".mjs", ".cjs":
+		return true
+	}
+	return false
+}
+
 func findSemanticSymbolsInSQLite(storePath, query string, limit, offset int) ([]semanticRecord, error) {
 	db, err := sql.Open("sqlite", storePath)
 	if err != nil {
@@ -2926,12 +3191,16 @@ func findSemanticSymbolsInSQLite(storePath, query string, limit, offset int) ([]
 	}
 	defer db.Close()
 	literal := strings.ToLower(strings.TrimSpace(query))
+	// Match the full-text body OR an exact id/qualified-name. The id branch lets
+	// an agent paste a record id straight from `search`/`overview` results into
+	// `context`/`impact` and get that exact symbol, instead of an empty result
+	// because the colon-delimited id never appears as a substring of the body.
 	rows, err := db.Query(`SELECT s.id, s.kind, s.name, s.qualified_name, s.file_path, s.start_line, s.end_line, s.signature, s.language, s.stable_id_version
 FROM symbols s
 JOIN symbol_fts f ON f.id = s.id
-WHERE instr(lower(f.text), ?) > 0
-ORDER BY CASE WHEN lower(s.name) = lower(?) THEN 0 WHEN lower(s.qualified_name) = lower(?) THEN 1 ELSE 2 END, s.qualified_name
-LIMIT ? OFFSET ?`, literal, query, query, limit, offset)
+WHERE instr(lower(f.text), ?) > 0 OR lower(s.id) = ? OR lower(s.qualified_name) = ?
+ORDER BY CASE WHEN lower(s.id) = ? THEN 0 WHEN lower(s.name) = lower(?) THEN 1 WHEN lower(s.qualified_name) = lower(?) THEN 2 ELSE 3 END, s.qualified_name
+LIMIT ? OFFSET ?`, literal, literal, literal, literal, query, query, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -2945,7 +3214,20 @@ LIMIT ? OFFSET ?`, literal, query, query, limit, offset)
 		}
 		results = append(results, record)
 	}
-	return results, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Fall back to token-overlap ranking only when the verbatim query matched
+	// nothing and the query is multi-word. This leaves every single-symbol and
+	// substring lookup untouched while making natural-language queries (and the
+	// task strings `brief` passes here) match on their content words.
+	if len(results) == 0 && !semanticQueryLooksLikePath(query) {
+		tokens := semanticQueryTokens(query)
+		if len(tokens) > 1 {
+			return findSemanticSymbolsTokenizedSQLite(db, tokens, limit, offset)
+		}
+	}
+	return results, nil
 }
 
 func findSemanticSymbols(snapshotPath, query string, limit, offset int) ([]semanticRecord, error) {
@@ -2973,6 +3255,18 @@ func findSemanticSymbols(snapshotPath, query string, limit, offset int) ([]seman
 			return nil, err
 		}
 		if record.RecordType != "symbol" {
+			continue
+		}
+		if strings.ToLower(record.ID) == query {
+			if seen < offset {
+				seen++
+				continue
+			}
+			results = append(results, record)
+			seen++
+			if len(results) >= limit {
+				break
+			}
 			continue
 		}
 		fields := []string{record.Name, record.QualifiedName, record.Signature, record.FilePath}
