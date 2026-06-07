@@ -1,0 +1,48 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "ce8b3cfd6295",
+  "session_id": "b34b5014-004e-449c-b2d3-db91bf7ab0e9",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-07T12:54:25.423205Z",
+  "branch": "feat/distill-speedups",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/reconcile.go",
+    "internal/cli/distill.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/reconcile_test.go",
+    "internal/cli/distill_cmd_test.go",
+    "internal/cli/distill_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "a72758884172",
+  "token_usage": {
+    "input_tokens": 6969,
+    "cache_creation_tokens": 69298,
+    "cache_read_tokens": 1101027,
+    "output_tokens": 11355,
+    "api_call_count": 22
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-07T12:54:25.411084Z",
+    "agent_lines": 142,
+    "agent_removed": 21,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 142,
+    "total_lines_changed": 163,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
