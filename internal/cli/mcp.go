@@ -228,7 +228,8 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if opts.Env.RepoRoot != "" {
 			target = opts.Env.RepoRoot
 		}
-		err = runSemanticStale(ctx, cmd, opts, target, true)
+		blindSpots, _ := params.Arguments["blind_spots"].(bool)
+		err = runSemanticStale(ctx, cmd, opts, target, true, blindSpots)
 	case "brain_brief":
 		task := mcpString(params.Arguments, "task")
 		if strings.TrimSpace(task) == "" {
@@ -268,7 +269,8 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			if !validMCPHistoryKind(kind) {
 				err = fmt.Errorf("kind must be history, decisions, sessions, validation, tool-paths, or architecture")
 			} else {
-				err = runBrainHistoryInspect(ctx, cmd, opts, kind, query, true)
+				relax, _ := params.Arguments["relax"].(bool)
+				err = runBrainHistoryInspect(ctx, cmd, opts, kind, query, true, relax)
 			}
 		}
 	case "brain_regressions":

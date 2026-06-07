@@ -428,7 +428,12 @@ func TestBrainInspectParsesStructuredSessionHistory(t *testing.T) {
 		wantLen int
 	}{
 		{args: []string{"inspect", "decisions", "manual commit", "--json"}, want: "AttributionBaseCommit", wantLen: 1},
-		{args: []string{"inspect", "decisions", "manual stable", "--json"}, wantLen: 0},
+		// Tokenized matching surfaces the decision record because both query
+		// terms ("manual" via manual_commit, "stable" via attribution stable)
+		// appear in it — a relevant hit the old substring matcher missed.
+		{args: []string{"inspect", "decisions", "manual stable", "--json"}, want: "AttributionBaseCommit", wantLen: 1},
+		// No decision record contains both "fake" and "metadata", so the
+		// two-term threshold still correctly yields nothing.
 		{args: []string{"inspect", "decisions", "fake metadata", "--json"}, wantLen: 0},
 		{args: []string{"inspect", "validation", "go test", "--json"}, want: "go test", wantLen: 1},
 		{args: []string{"inspect", "tool-paths", "apply_patch", "--json"}, want: "apply_patch", wantLen: 1},

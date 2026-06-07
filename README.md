@@ -120,11 +120,19 @@ entire brain search "README" --json
 entire brain show <semantic-id> --json
 ```
 
-`brief` is the agent-facing entry point: it combines brain availability,
-freshness, live git state, semantic context and test suggestions, matching
-history records, and the top matching durable facts for the task (sized to the
-requested `--limit`). `status`, `search`, and `show` provide smaller top-level
-queries for agents and scripts.
+`overview` is the fastest way to orient on an unfamiliar repo: it returns a
+single project map — stack stats, route/tool/workflow counts, build/test
+commands, entrypoints, key documents, and recent decisions newest-first.
+
+```sh
+entire brain overview --json
+```
+
+`brief` is the per-task entry point: it combines brain availability, freshness,
+live git state, semantic context and test suggestions, matching history records,
+and the top matching durable facts for the task (sized to the requested
+`--limit`). `status`, `search`, and `show` provide smaller top-level queries for
+agents and scripts.
 
 For deeper inspection:
 
@@ -140,6 +148,22 @@ entire brain inspect history "semantic" --json
 entire brain inspect facts "checkpoint" --json
 entire brain inspect blame <fact-id> --json
 entire brain inspect boundaries --kind tool --json
+```
+
+Specialist text searches (`decisions`, `validation`, `tool-paths`,
+`architecture`, `history`, `sessions`) are tokenized and ranked: phrase a
+natural-language question and the brain ranks records by overlapping terms.
+Results carry `score`, `matched_terms`, and a `timestamp`, and the report
+carries `query_terms` so a thin result is debuggable. Add `--relax` for
+best-effort partial matches when a strict search returns nothing. Semantic
+`search` falls back to token-overlap ranking for multi-word queries and accepts
+a record id (from `search`/`overview`) for `context`/`impact`.
+
+Use `stale --blind-spots` to list the files the semantic provider could not
+fully index, so an agent knows where its semantic answers are untrustworthy:
+
+```sh
+entire brain stale --blind-spots
 ```
 
 ### Durable Facts
