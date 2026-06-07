@@ -26,7 +26,8 @@ The **stability gate** (in `summarize`, so `run`/`panel`/`report` all show it) t
 - `saturated` — both arms already pass 100% (no quality headroom; only efficiency can differ).
 - `noisy` — a delta exists but isn't significant / doesn't survive drop-one.
 
-Each comparison also carries `coefficient_of_variation_total_tokens` / `_score`. **Honesty note:** agent
+Each comparison also carries the coefficient of variation for tokens and score, for **both** the
+condition and the baseline arm (`..._condition` / `..._baseline`). **Honesty note:** agent
 sampling is inherently non-deterministic; the harness-controllable variance (base commit, setup commit,
 semantic cache, parentless baseline) is already pinned, so stability comes from **repetitions + CV +
 drop-one**, not a fake seed. The gate can only *downgrade* a result to saturated/noisy — it never

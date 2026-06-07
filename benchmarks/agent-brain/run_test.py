@@ -774,7 +774,8 @@ class PanelAndStabilityTests(unittest.TestCase):
         self.assertEqual(len(s1["comparisons"]), 1)
         stab = s1["comparisons"][0]["stability"]
         self.assertEqual(stab["tag"], "brain_positive_stable")
-        self.assertIsNotNone(stab["coefficient_of_variation_total_tokens"])
+        self.assertIsNotNone(stab["coefficient_of_variation_total_tokens_condition"])
+        self.assertIsNotNone(stab["coefficient_of_variation_total_tokens_baseline"])
         self.assertEqual(s1["stability_tags"], {"brain_positive_stable": 1})
         # Reproducible: same records -> identical stability verdict.
         self.assertEqual(s1["comparisons"][0]["stability"], s2["comparisons"][0]["stability"])

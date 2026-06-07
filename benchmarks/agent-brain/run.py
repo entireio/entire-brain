@@ -2657,8 +2657,11 @@ def comparison_stability(
         tag = "noisy"
 
     return {
-        "coefficient_of_variation_total_tokens": coefficient_of_variation(cond_tokens),
-        "coefficient_of_variation_score": coefficient_of_variation(cond_scores),
+        # CV is reported for BOTH arms (a noisy baseline matters as much as a noisy condition).
+        "coefficient_of_variation_total_tokens_condition": coefficient_of_variation(cond_tokens),
+        "coefficient_of_variation_total_tokens_baseline": coefficient_of_variation(base_tokens),
+        "coefficient_of_variation_score_condition": coefficient_of_variation(cond_scores),
+        "coefficient_of_variation_score_baseline": coefficient_of_variation(metric_values(base_records, ["score", "total"])),
         "tokens_p_raw": raw_p,
         "tokens_p_holm": holm_p,
         "tokens_significant_p_lt_0_05": tokens_significant,  # uses max(raw, holm)
