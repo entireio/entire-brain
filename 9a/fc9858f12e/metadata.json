@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "9afc9858f12e",
+  "strategy": "manual-commit",
+  "branch": "claude/thomas-asks",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "docs/agent_benchmark_plan.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9a/fc9858f12e/0/metadata.json",
+      "transcript": "/9a/fc9858f12e/0/full.jsonl",
+      "content_hash": "/9a/fc9858f12e/0/content_hash.txt",
+      "prompt": "/9a/fc9858f12e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 225007,
+    "cache_creation_tokens": 12563709,
+    "cache_read_tokens": 940007292,
+    "output_tokens": 2561935,
+    "api_call_count": 1704
+  }
+}
