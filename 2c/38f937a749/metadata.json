@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "2c38f937a749",
+  "strategy": "manual-commit",
+  "branch": "feat/stage1a-derived-index",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/embed_rank.go",
+    "internal/cli/facts_fts.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2c/38f937a749/0/metadata.json",
+      "transcript": "/2c/38f937a749/0/full.jsonl",
+      "content_hash": "/2c/38f937a749/0/content_hash.txt",
+      "prompt": "/2c/38f937a749/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 2139,
+    "cache_creation_tokens": 345092,
+    "cache_read_tokens": 9745251,
+    "output_tokens": 39515,
+    "api_call_count": 36
+  }
+}
