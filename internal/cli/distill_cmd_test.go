@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -613,5 +614,57 @@ func TestChunkTranscript(t *testing.T) {
 	one := chunkTranscript(big+"\n", 10)
 	if len(one) != 1 {
 		t.Errorf("oversized single line should be one chunk, got %d", len(one))
+	}
+}
+
+// TestRunDistillForBrainAbortsOnSystematicAgentFailure locks in the fail-fast
+// guard: when every agent call errors (e.g. an invalid --model) and nothing has
+// distilled, distill aborts within a few calls with the agent's own error rather
+// than churning silently through every session reporting "0 facts found".
+func TestRunDistillForBrainAbortsOnSystematicAgentFailure(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	var sessions []exportSession
+	for i := 0; i < 8; i++ {
+		id := fmt.Sprintf("s%d", i)
+		tp := fmt.Sprintf("sessions/main/%s.jsonl", id)
+		p := filepath.Join(brainDir, filepath.FromSlash(tp))
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("turn one\nturn two\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sessions = append(sessions, exportSession{SessionID: id, Branch: "main", LatestCheckpoint: "cp" + id, TranscriptPath: tp, CreatedAt: now.Add(-time.Duration(i) * time.Hour)})
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls int
+	failRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return "", fmt.Errorf("agent failed: exit status 1: model 'bogus-4.6' may not exist")
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: failRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+
+	_, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
+	if err == nil {
+		t.Fatal("expected distill to abort on systematic agent failure")
+	}
+	if !strings.Contains(err.Error(), "distill aborted") || !strings.Contains(err.Error(), "--model") {
+		t.Fatalf("abort error should be actionable (mention --model): %v", err)
+	}
+	if !strings.Contains(err.Error(), "may not exist") {
+		t.Fatalf("abort should surface the agent's own error: %v", err)
+	}
+	if calls != distillAgentAbortThreshold {
+		t.Fatalf("expected abort at %d calls, not churning all 8 sessions; got %d", distillAgentAbortThreshold, calls)
 	}
 }

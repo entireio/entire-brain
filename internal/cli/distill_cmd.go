@@ -29,6 +29,13 @@ const (
 	// every agent call failing) cannot balloon the manifest with one warning
 	// per chunk.
 	maxDistillWarnings = 50
+
+	// distillAgentAbortThreshold aborts a run once this many agent calls have all
+	// failed with nothing distilled yet. A misconfiguration (an invalid --model, a
+	// missing agent, an auth error) fails every call identically; surfacing it
+	// after a few attempts beats churning silently through every session reporting
+	// "0 facts found".
+	distillAgentAbortThreshold = 5
 )
 
 // capWarnings truncates a warning list to max entries, replacing the overflow
@@ -269,6 +276,10 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		totalSessions++
 	}
 	sessionsDone, factsFound := 0, 0
+	// Track agent-call outcomes so a misconfiguration that fails every call (e.g.
+	// an invalid --model) aborts fast with the agent's own error, instead of
+	// silently churning through every session reporting "0 facts found".
+	agentFailures, anyAgentSuccess := 0, false
 
 	// ensureBranch lazily loads a branch's existing facts. On --force the
 	// previously distilled facts are dropped so they are rebuilt from scratch;
@@ -354,8 +365,17 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			if runErr != nil {
 				warnings = append(warnings, fmt.Sprintf("agent failed on %s:%d: %v", session.SessionID, chunk.StartLine, runErr))
 				sessionFailed = true
+				agentFailures++
+				// Fail fast on a misconfiguration: nothing has distilled yet and the
+				// agent keeps failing, so every call is almost certainly erroring the
+				// same way (bad --model, missing agent, auth). Abort with the agent's
+				// own error instead of churning through every remaining session.
+				if !anyAgentSuccess && agentFailures >= distillAgentAbortThreshold {
+					return nil, fmt.Errorf("distill aborted after %d agent failures with no facts distilled — check --agent and --model. Last error: %v", agentFailures, runErr)
+				}
 				continue
 			}
+			anyAgentSuccess = true
 			records, chunkWarnings := distilledFactsFromOutput(out, taxonomy, anchor, branch, now)
 			warnings = append(warnings, chunkWarnings...)
 			if len(records) == 0 {
