@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"strings"
 	"sync"
 	"unicode"
@@ -281,6 +282,13 @@ var (
 
 func defaultEmbedder() Embedder {
 	defaultEmbedderOnce.Do(func() {
+		// Stage 1b spike: ENTIRE_BRAIN_EMBEDDER=ollama swaps the bundled Model2Vec
+		// static model for EmbeddingGemma via a local Ollama server, so the
+		// transformer embedder can be A/B'd against the baseline on `facts eval`.
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")), "ollama") {
+			defaultEmbedderInst = newOllamaEmbedder()
+			return
+		}
 		e, err := loadStaticEmbedder(entirebrain.EmbedModel)
 		if err == nil {
 			defaultEmbedderInst = e

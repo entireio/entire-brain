@@ -62,6 +62,23 @@ func (s *semanticReranker) factVector(f factRecord) []float32 {
 	return v
 }
 
+// queryEmbedder is implemented by embedders (e.g. EmbeddingGemma) that embed a
+// search query with a different instruction prefix than a document. Embedders
+// without the asymmetry (the Model2Vec static model) simply omit it.
+type queryEmbedder interface {
+	EmbedQuery(text string) []float32
+}
+
+// embedQuery embeds the query, using the embedder's query-specific prefix when it
+// has one, so a document/query asymmetry (EmbeddingGemma) is honored without
+// changing the symmetric Model2Vec path.
+func (s *semanticReranker) embedQuery(query string) []float32 {
+	if qe, ok := s.e.(queryEmbedder); ok {
+		return qe.EmbedQuery(query)
+	}
+	return s.e.Embed(query)
+}
+
 // retain marks ids as present this run for prune purposes, without forcing an
 // embed. Callers pass the full branch fact set (before scope/status filtering)
 // so flush keeps every still-present fact's cached vector and prunes only facts
@@ -128,7 +145,7 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		cos float64
 	}
 	queryLocus := factLocus(query)
-	qvec := rr.e.Embed(query)
+	qvec := rr.embedQuery(query)
 	candidates := make([]factRecord, 0, len(facts))
 	for _, f := range facts {
 		if !includeAll && f.Status != factStatusActive {
