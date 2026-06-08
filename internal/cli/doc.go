@@ -144,6 +144,15 @@ func writeDocIndexAndSource(brainDir string, now time.Time) (*docSourceManifest,
 	return source, nil
 }
 
+// newDocEmbedStore is the disk-backed vector cache for doc chunks, mirroring the
+// fact embed store: keyed by doc id, headered with the embedder model+dim so a
+// model switch triggers a clean rebuild. This is the pure-Go stand-in for
+// sqlite-vec — brute-force cosine over a cached set, fast at the brain's scale.
+func newDocEmbedStore(brainDir, modelID string, dim int) *embedStore {
+	dir := filepath.Join(brainDir, docDirName, embedStoreDirName)
+	return &embedStore{path: filepath.Join(dir, embedStoreFileName), modelID: modelID, dim: dim}
+}
+
 func loadDocIndex(brainDir string) (docIndex, error) {
 	var index docIndex
 	data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(docIndexPath)))

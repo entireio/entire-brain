@@ -66,14 +66,18 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 			lists = append(lists, factsToUnified(rankFacts(active, query, limit*2, false)))
 		case modeVector:
 			if e != nil {
-				lists = append(lists, factsToUnified(factsVectorRanked(active, query, e, limit*2)))
+				lists = append(lists, factsToUnified(factsVectorRanked(brainDir, branch, active, query, e, limit*2)))
 			}
 		case modeHybrid:
 			var rr *semanticReranker
 			if e != nil {
-				rr = newSemanticReranker(e)
+				rr = newSemanticRerankerForBranch(e, brainDir, branch)
 			}
 			lists = append(lists, factsToUnified(rankFactsFused(active, query, limit*2, false, rr)))
+			if rr != nil {
+				rr.retain(active)
+				_ = rr.flush()
+			}
 		}
 	}
 
@@ -92,7 +96,7 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 	if index, err := loadDocIndex(brainDir); err == nil && len(index.Records) > 0 {
 		if mode == modeVector {
 			if e != nil {
-				lists = append(lists, docsVectorRanked(index, query, e, limit*2))
+				lists = append(lists, docsVectorRanked(brainDir, index, query, e, limit*2))
 			}
 		} else if scored, ok := rankDocsViaFTS(brainDir, index, query, limit*2); ok {
 			lists = append(lists, docsToUnified(scored))
@@ -102,15 +106,27 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 	return rrfMergeUnified(lists, limit)
 }
 
-func factsVectorRanked(facts []factRecord, query string, e Embedder, limit int) []factRecord {
+func factsVectorRanked(brainDir, branch string, facts []factRecord, query string, e Embedder, limit int) []factRecord {
+	store := newEmbedStore(brainDir, branch, e.ID(), e.Dim())
+	cache := store.load()
+	dirty := false
 	qv := embedQueryWith(e, query)
 	type sc struct {
 		i   int
 		cos float64
 	}
 	scored := make([]sc, len(facts))
-	for i := range facts {
-		scored[i] = sc{i, cosineFloat32(qv, e.Embed(facts[i].Text))}
+	for i, f := range facts {
+		v, ok := cache[f.ID]
+		if !ok {
+			v = e.Embed(f.Text)
+			cache[f.ID] = v
+			dirty = true
+		}
+		scored[i] = sc{i, cosineFloat32(qv, v)}
+	}
+	if dirty {
+		_ = store.save(cache)
 	}
 	sort.Slice(scored, func(a, b int) bool { return scored[a].cos > scored[b].cos })
 	out := make([]factRecord, 0, min(limit, len(scored)))
@@ -123,15 +139,27 @@ func factsVectorRanked(facts []factRecord, query string, e Embedder, limit int) 
 	return out
 }
 
-func docsVectorRanked(index docIndex, query string, e Embedder, limit int) []unifiedResult {
+func docsVectorRanked(brainDir string, index docIndex, query string, e Embedder, limit int) []unifiedResult {
+	store := newDocEmbedStore(brainDir, e.ID(), e.Dim())
+	cache := store.load()
+	dirty := false
 	qv := embedQueryWith(e, query)
 	type sc struct {
 		i   int
 		cos float64
 	}
 	scored := make([]sc, len(index.Records))
-	for i := range index.Records {
-		scored[i] = sc{i, cosineFloat32(qv, e.Embed(index.Records[i].Text))}
+	for i, r := range index.Records {
+		v, ok := cache[r.ID]
+		if !ok {
+			v = e.Embed(r.Text)
+			cache[r.ID] = v
+			dirty = true
+		}
+		scored[i] = sc{i, cosineFloat32(qv, v)}
+	}
+	if dirty {
+		_ = store.save(cache)
 	}
 	sort.Slice(scored, func(a, b int) bool { return scored[a].cos > scored[b].cos })
 	out := make([]unifiedResult, 0, min(limit, len(scored)))
