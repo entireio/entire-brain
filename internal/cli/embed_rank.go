@@ -124,24 +124,44 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 	}
 	type cand struct {
 		rec factRecord
-		lex int
+		lex float64
 		cos float64
 	}
 	queryLocus := factLocus(query)
 	qvec := rr.e.Embed(query)
-	cands := make([]cand, 0, len(facts))
+	candidates := make([]factRecord, 0, len(facts))
 	for _, f := range facts {
 		if !includeAll && f.Status != factStatusActive {
 			continue
 		}
-		score := factQueryScore(f, query)
-		if overlap := locusOverlap(queryLocus, f.Text); overlap > 0 {
-			score += overlap * factLocusBoost
-		}
-		cands = append(cands, cand{rec: f, lex: score, cos: cosineFloat32(qvec, rr.factVector(f))})
+		candidates = append(candidates, f)
 	}
-	if len(cands) == 0 {
+	if len(candidates) == 0 {
 		return nil
+	}
+	// Lexical arm: the hand-rolled token-overlap scorer (plus the code locus
+	// boost) by default. The opt-in FTS5 BM25 arm (ENTIRE_BRAIN_FACTS_BM25=1) is
+	// IDF-weighted with no coverage gate; it measured at parity on the facts
+	// baseline, so it stays off by default and falls back here if its in-memory
+	// index can't be built.
+	var bm25 map[string]float64
+	haveBM25 := false
+	if factsBM25Enabled() {
+		bm25, haveBM25 = factsFTSScores(candidates, query)
+	}
+	cands := make([]cand, 0, len(candidates))
+	for _, f := range candidates {
+		var lex float64
+		if haveBM25 {
+			lex = bm25[f.ID]
+		} else {
+			score := factQueryScore(f, query)
+			if overlap := locusOverlap(queryLocus, f.Text); overlap > 0 {
+				score += overlap * factLocusBoost
+			}
+			lex = float64(score)
+		}
+		cands = append(cands, cand{rec: f, lex: lex, cos: cosineFloat32(qvec, rr.factVector(f))})
 	}
 
 	// Lexical ranks: only facts with a positive lexical score are "retrieved"
