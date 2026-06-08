@@ -1,0 +1,37 @@
+Review the alignment plan ../alignment.md
+
+---
+
+Hm, I think similar to QMD, brain should have both: plain text files organized in folders (in QMD, those are added by the user, while we create them via the CLI), and the sqlite for retrieval. librarian should then follow the same approach.
+
+---
+
+Give me pros/cons on each option
+
+---
+
+Keep B
+
+---
+
+Word
+
+---
+
+Create a branch and let's get started
+
+---
+
+Which approach do you recommend?
+
+---
+
+Yes, go with option 1
+
+---
+
+Let's try the lighter lexical fix before we make the decision
+
+---
+
+Yes

@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "3874929c2060",
+  "strategy": "manual-commit",
+  "branch": "feat/stage1a-derived-index",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/history_fts.go",
+    "internal/cli/history_fts_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/38/74929c2060/0/metadata.json",
+      "transcript": "/38/74929c2060/0/full.jsonl",
+      "content_hash": "/38/74929c2060/0/content_hash.txt",
+      "prompt": "/38/74929c2060/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 9403,
+    "cache_creation_tokens": 398335,
+    "cache_read_tokens": 10749790,
+    "output_tokens": 152955,
+    "api_call_count": 77
+  }
+}
