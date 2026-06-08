@@ -690,8 +690,14 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
 		} else {
 			var indexedMatches []brainTextMatch
-			for _, record := range rankHistoryRecords(index, "history", task, briefOpts.limit) {
-				indexedMatches = append(indexedMatches, historyRecordTextMatch(record))
+			if scored, ok := rankHistoryViaFTS(status.Brain.Path, index, "history", task, briefOpts.limit); ok {
+				for _, s := range scored {
+					indexedMatches = append(indexedMatches, historyRecordTextMatch(s.Record))
+				}
+			} else {
+				for _, record := range rankHistoryRecords(index, "history", task, briefOpts.limit) {
+					indexedMatches = append(indexedMatches, historyRecordTextMatch(record))
+				}
 			}
 			rawMatches, rawErr := brainBriefRawHistoryMatches(status.Brain.Path, task, nil, briefOpts.limit)
 			if rawErr != nil {
