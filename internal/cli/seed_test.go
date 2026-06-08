@@ -110,6 +110,31 @@ func TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions(t *testing.T) {
 	}
 }
 
+func TestSeedAgentCommandArgsAcceptModelAndEffort(t *testing.T) {
+	// Seed reuses the distill injectors (applied in runSeedAgentPhase), so a full refresh can run
+	// seed synthesis on a fast/cheap model + effort. Prompt must stay last after injection.
+	codex, _ := seedAgentCommandArgs("/repo", "quick", seedCommandOptions{agent: "codex"})
+	codex = injectAgentEffort(injectAgentModel(codex, "codex", "gpt-5.4-mini"), "codex", "low")
+	joined := strings.Join(codex, "\x00")
+	for _, want := range []string{"--model\x00gpt-5.4-mini", "--config\x00model_reasoning_effort=low"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("seed codex args missing %q: %#v", want, codex)
+		}
+	}
+	if !strings.Contains(codex[len(codex)-1], "return only raw JSON") {
+		t.Fatalf("seed prompt must stay last after injection: %#v", codex)
+	}
+
+	claude, _ := seedAgentCommandArgs("/repo", "deep", seedCommandOptions{agent: "claude-code"})
+	claude = injectAgentEffort(injectAgentModel(claude, "claude-code", "haiku"), "claude-code", "low")
+	joinedc := strings.Join(claude, "\x00")
+	for _, want := range []string{"--model\x00haiku", "--effort\x00low"} {
+		if !strings.Contains(joinedc, want) {
+			t.Fatalf("seed claude args missing %q: %#v", want, claude)
+		}
+	}
+}
+
 func TestSeedAgentCodexPhaseUsesPATHStdinAndWritesArtifacts(t *testing.T) {
 	repoDir := seedFixtureRepo(t)
 	outputDir := t.TempDir()

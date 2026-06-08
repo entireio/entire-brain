@@ -71,13 +71,15 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&refreshOpts.seed.force, "force-seed", false, "Force seed refresh")
 	cmd.Flags().BoolVar(&refreshOpts.seed.worktree, "worktree", false, "Include selected untracked instruction/docs files in seed")
 	cmd.Flags().StringArrayVar(&refreshOpts.seed.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
+	cmd.Flags().StringVar(&refreshOpts.seed.model, "seed-model", "", "Override the agent model for seed synthesis (e.g. a fast/cheap model)")
+	cmd.Flags().StringVar(&refreshOpts.seed.effort, "seed-effort", "", "Override the reasoning effort for seed synthesis (e.g. low)")
 	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", true, "Refresh the local semantic index after session and seed refresh")
 	cmd.Flags().BoolVar(&refreshOpts.semanticWorktree, "semantic-worktree", false, "Allow semantic indexing of the current dirty worktree")
 	cmd.Flags().BoolVar(&refreshOpts.historyIndex, "history-index", true, "Build a decision/rationale index from exported sessions")
 	cmd.Flags().StringVar(&refreshOpts.semBinary, "sem-binary", "entire", "Entire CLI binary that exposes `sem` provider commands")
 	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
 	cmd.Flags().BoolVar(&refreshOpts.forceAllBranches, "force-all-branches", false, "Allow all local branches instead of the bounded recent-branch default")
-	for _, name := range []string{"checkpoint-limit", "entire-binary", "raw", "scope", "force-seed", "worktree", "agent-command", "semantic", "semantic-worktree", "history-index", "sem-binary", "all-branches", "force-all-branches"} {
+	for _, name := range []string{"checkpoint-limit", "entire-binary", "raw", "scope", "force-seed", "worktree", "agent-command", "seed-model", "seed-effort", "semantic", "semantic-worktree", "history-index", "sem-binary", "all-branches", "force-all-branches"} {
 		_ = cmd.Flags().MarkHidden(name)
 	}
 	// Individual refresh stages, runnable on their own: `refresh` does all of

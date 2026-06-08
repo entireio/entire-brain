@@ -43,6 +43,8 @@ type seedCommandOptions struct {
 	worktree           bool
 	agent              string
 	agentCommand       []string
+	model              string
+	effort             string
 	agentQuickTimeout  time.Duration
 	agentDeepTimeout   time.Duration
 	agentTimeoutAction string
@@ -220,6 +222,8 @@ func newSeedCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&seedOpts.worktree, "worktree", false, "Include selected untracked instruction/docs files")
 	cmd.Flags().StringVar(&seedOpts.agent, "agent", "none", "Agent synthesis mode: none, command, codex, or claude-code")
 	cmd.Flags().StringArrayVar(&seedOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
+	cmd.Flags().StringVar(&seedOpts.model, "model", "", "Override the agent model for codex/claude-code seed synthesis (e.g. a fast/cheap model)")
+	cmd.Flags().StringVar(&seedOpts.effort, "effort", "", "Override the reasoning effort for codex/claude-code seed synthesis (e.g. low)")
 	cmd.Flags().DurationVar(&seedOpts.agentQuickTimeout, "agent-quick-timeout", 2*time.Minute, "Timeout for quick agent synthesis")
 	cmd.Flags().DurationVar(&seedOpts.agentDeepTimeout, "agent-deep-timeout", 10*time.Minute, "Timeout for deep agent synthesis")
 	cmd.Flags().StringVar(&seedOpts.agentTimeoutAction, "agent-timeout-action", "keep-quick", "Deep timeout action: keep-quick, continue, or fail")
@@ -1297,6 +1301,9 @@ func runSeedAgentPhase(ctx context.Context, repoDir, outputDir string, opts seed
 		phaseManifest.Status = "failed"
 		return phaseManifest, nil, err
 	}
+	// Pin a fast/cheap model + effort for seed synthesis when requested (no-ops when empty),
+	// reusing the same injectors as distill so a full refresh can run cheaply end to end.
+	args = injectAgentEffort(injectAgentModel(args, opts.agent, opts.model), opts.agent, opts.effort)
 	for {
 		runCtx, cancel := context.WithTimeout(ctx, timeout)
 		command := exec.CommandContext(runCtx, args[0], args[1:]...)

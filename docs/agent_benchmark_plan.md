@@ -385,6 +385,13 @@ Treat a retained scenario as brain-positive only when:
 - the effect is repeatable with enough repetitions to survive one obvious
   outlier.
 
+This acceptance is **enforced in code** by the stable-panel path: a committed manifest
+(`benchmarks/agent-brain/panels/full.json`) pins `agent:model:effort` runners (preflight rejects
+unpinned ones), and the stability gate in `summarize` tags each comparison `brain_positive_stable`
+(p<0.05 token win or pass-rate lift that survives dropping the single best/worst rep),
+`saturated` (both arms pass 100%), or `noisy`, alongside a coefficient of variation. Run it with
+`python3 run.py panel full`. The gate can only downgrade a result — it never manufactures significance.
+
 A unique scenario is one task/problem shape with one prompt, base commit, hidden
 validation setup, and layer assignment. Repeating the same scenario on the same
 model proves or rejects that scenario; it does not create more scenarios.

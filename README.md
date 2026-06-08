@@ -62,6 +62,35 @@ worktree represented. Bundle export rejects worktree-backed semantic indexes.
 without touching seed or session sources. `reset --force` removes the generated
 brain directory for the repo.
 
+### Keep The Brain Fresh Automatically
+
+```sh
+entire brain watch                       # poll every 5m; deterministic refresh only (NO tokens)
+entire brain watch --once                # single pass (handy for a cron/CI hook)
+entire brain watch --distill --distill-every 24h --model gpt-5.4-mini --effort low --budget 1
+```
+
+`watch` keeps the brain current without manual refreshes, and its token-frugality is **structural,
+not a quota**:
+
+- It detects new work cheaply (local + origin checkpoint refs + worktree HEAD), and on a change runs a
+  **deterministic refresh** — sessions, semantic index, and history index, with the seed agent **always**
+  `none` — which spends **zero agent tokens**.
+- The token-spending work — `--distill` and/or agent seed synthesis (`--seed-agent codex|claude-code`) —
+  is **off by default** and only ever runs on a brain that was actually refreshed this tick (a failed
+  refresh skips it). When enabled, **both steps share one gate**: they run at most once per
+  `--distill-every`, on the cheap `--model`/`--effort`, and `--budget N` caps the *number of gated agent
+  runs* per process. So `--seed-agent` is bounded exactly like `--distill` — it is **not** per-change
+  spend. A persisted cursor (`<state>/repos/<repo-key>/watch.json`) means a restart never re-refreshes
+  unchanged state or re-runs the agent work within the interval. (Budget counts reset on restart; the
+  durable guard is `--distill-every` + the cursor. A transient failure of one gated step is best-effort —
+  it retries on the next interval, not every tick.)
+
+So the default daemon is free; you opt into token spend explicitly and bound it. Run **one watcher per
+repo** — the cursor write is atomic, so concurrent watchers won't corrupt it, but they may do redundant
+refreshes. On a very active repo with a short `--interval`, note that the free refresh re-indexes on
+every commit, so the semantic reindex can be CPU/IO-heavy; widen `--interval` if that matters.
+
 ### Work Across Multiple Repos
 
 ```sh
@@ -71,10 +100,13 @@ entire brain workspace add platform ../web --name web
 entire brain workspace refresh platform
 entire brain workspace query platform "checkout" --json
 entire brain workspace impact platform "checkout" --json
+entire brain workspace watch platform --once          # fan the token-frugal daemon over every member
 ```
 
 Workspaces coordinate already-local repo brains by repo key and local path hint.
-They do not sync or publish generated brain data.
+They do not sync or publish generated brain data. `workspace watch` runs the same
+deterministic-refresh-is-free / agent-steps-are-gated loop as `watch` across every member repo, with a
+single `--budget` shared across all members so a workspace tick can't multiply token spend by repo count.
 
 ### Use MCP Locally
 
@@ -177,13 +209,20 @@ traces back to the signed session/checkpoint it came from. Like the rest of the
 brain, facts stay local and are never published.
 
 ```sh
-entire brain distill --agent codex          # extract facts from captured sessions
+entire brain distill --agent codex                         # extract facts from captured sessions
+entire brain distill --agent codex --model gpt-5.4-mini --effort low   # run it on a fast/cheap model
 entire brain remember "Prefer table-driven tests" --path preferences.coding.style
 entire brain recall "account deletion" --k 5
 entire brain recall "MirrorCommittedMetadataRef" --expand   # agent expands the query first
 entire brain facts tree --depth 1           # navigable map of what the brain knows
 entire brain facts tree --path constraints  # drill into a category
 ```
+
+`distill` runs one agent call per transcript chunk, so it is worth running on a **fast/cheap model**:
+`--model`/`--effort` pin the model + reasoning effort for both the distill and reconcile agent calls
+(codex: `--model <m> --config model_reasoning_effort=<e>`; claude-code: `--model <m> --effort <e>`).
+The same `--model`/`--effort` flags exist on `seed`, and `refresh` forwards them as `--seed-model`/
+`--seed-effort`, so a full `entire brain refresh` can synthesize its seed cheaply too.
 
 `distill` is agent-required: it sends line-numbered transcript chunks to the
 seed agent (Codex, then Claude Code) under a strict quality gate, then reconciles

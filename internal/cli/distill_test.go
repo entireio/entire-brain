@@ -318,6 +318,41 @@ func TestInjectAgentModel(t *testing.T) {
 	}
 }
 
+func TestInjectAgentEffort(t *testing.T) {
+	codex, _ := distillAgentCommandArgs("codex", nil, "PROMPT")
+	got := injectAgentEffort(codex, "codex", "low")
+	if got[0] != "codex" || got[1] != "exec" || got[2] != "--config" || got[3] != "model_reasoning_effort=low" {
+		t.Fatalf("codex effort not inserted as --config after exec: %v", got)
+	}
+	if got[len(got)-1] != "PROMPT" {
+		t.Fatalf("prompt must stay last: %v", got)
+	}
+
+	claude, _ := distillAgentCommandArgs("claude-code", nil, "PROMPT")
+	gotc := injectAgentEffort(claude, "claude-code", "low")
+	if gotc[0] != "claude" || gotc[1] != "--effort" || gotc[2] != "low" {
+		t.Fatalf("claude effort not inserted after claude: %v", gotc)
+	}
+	if gotc[len(gotc)-1] != "PROMPT" {
+		t.Fatalf("prompt must stay last: %v", gotc)
+	}
+
+	// Empty effort and the `command` agent are no-ops.
+	if base, _ := distillAgentCommandArgs("codex", nil, "PROMPT"); !slices.Equal(injectAgentEffort(base, "codex", ""), base) {
+		t.Errorf("empty effort should be a no-op")
+	}
+	cmd, _ := distillAgentCommandArgs("command", []string{"my-agent"}, "PROMPT")
+	if !slices.Equal(injectAgentEffort(cmd, "command", "x"), cmd) {
+		t.Errorf("command agent should be a no-op for effort injection")
+	}
+
+	// model + effort compose (the distill/seed path applies both): both flags present, prompt last.
+	both := injectAgentEffort(injectAgentModel(codex, "codex", "gpt-5.4-mini"), "codex", "low")
+	if !slices.Contains(both, "--model") || !slices.Contains(both, "gpt-5.4-mini") || !slices.Contains(both, "model_reasoning_effort=low") || both[len(both)-1] != "PROMPT" {
+		t.Fatalf("model+effort should compose with prompt last: %v", both)
+	}
+}
+
 func containsWarning(warnings []string, substr string) bool {
 	for _, w := range warnings {
 		if strings.Contains(w, substr) {

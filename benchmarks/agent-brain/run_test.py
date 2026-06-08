@@ -660,5 +660,126 @@ class StatsAndAttributionTests(unittest.TestCase):
         self.assertIsNone(run.extract_resolved_model(""))
 
 
+def _rec(tokens, *, ok=True, score=90):
+    return {
+        "task_id": "t",
+        "agent": "claude",
+        "runner": {"id": "claude-sonnet-high"},
+        "condition": None,  # set by caller
+        "agent_info": {"usage": {"total_tokens": tokens}},
+        "score": {"total": score},
+        "validation": {"ok": ok},
+        "ok": True,
+    }
+
+
+class PanelAndStabilityTests(unittest.TestCase):
+    def test_panel_preflight_rejects_unpinned_and_thin_panels(self):
+        errors = run.panel_preflight(
+            {"runners": ["codex", "claude:claude-sonnet-4-6:high"], "tasks": [], "conditions": ["full_brain"], "repetitions": 1}
+        )
+        joined = " | ".join(errors)
+        self.assertIn("not fully pinned", joined)  # unpinned codex runner
+        self.assertIn("no tasks", joined)
+        self.assertIn("proof_minimum", joined)  # repetitions < 4
+        self.assertIn("no_brain baseline", joined)  # missing baseline
+
+    def test_panel_preflight_accepts_committed_full_manifest(self):
+        panel = run.load_panel("full")
+        self.assertEqual(run.panel_preflight(panel), [])
+        self.assertGreaterEqual(len(run.load_tasks(panel["tasks"])), 1)
+        for spec in panel["runners"]:
+            rs = run.parse_runner_spec(spec)
+            self.assertTrue(rs.model and rs.effort, f"{spec} must be pinned")
+
+    def test_full_panel_declares_cross_repo_workspace_coverage(self):
+        # WS4: the multi-repo coverage gap is declared in the manifest (not silently missing), and the
+        # extra field is inert for the runner (preflight still passes).
+        panel = run.load_panel("full")
+        ws = panel.get("workspace_tasks", [])
+        self.assertGreaterEqual(len(ws), 1)
+        self.assertTrue(any("status" in t for t in ws))
+        self.assertEqual(run.panel_preflight(panel), [])
+
+    def test_coefficient_of_variation_and_drop_one(self):
+        self.assertIsNone(run.coefficient_of_variation([5.0]))  # n<2
+        self.assertEqual(run.coefficient_of_variation([10.0, 10.0, 10.0]), 0.0)
+        self.assertGreater(run.coefficient_of_variation([10.0, 20.0, 30.0]), 0.0)
+        # A token win that is wide enough survives dropping the most favourable rep from each arm.
+        self.assertTrue(run.delta_survives_drop_one([400, 410, 420, 405], [900, 950, 910, 940], lower_is_better=True))
+        # A coin-flip overlap does not.
+        self.assertFalse(run.delta_survives_drop_one([400, 999], [401, 998], lower_is_better=True))
+
+    def test_comparison_stability_tags(self):
+        # Stable token win: brain cheaper, significant, survives drop-one -> brain_positive_stable.
+        cond = [_rec(t) for t in (400, 420, 410, 405)]
+        base = [_rec(t) for t in (900, 950, 910, 940)]
+        comp = {
+            "mean_total_tokens_condition": 408.75,
+            "mean_total_tokens_baseline": 925.0,
+            "p_value_total_tokens": run.welch_p_value([400, 420, 410, 405], [900, 950, 910, 940]),
+            "pass_rate_condition": 1.0,
+            "pass_rate_baseline": 1.0,
+        }
+        self.assertEqual(run.comparison_stability(cond, base, comp)["tag"], "brain_positive_stable")
+
+        # Saturated: both pass 100%, tokens equal/noisy -> not a win, just saturated.
+        cond2 = [_rec(t) for t in (500, 900, 500, 900)]
+        base2 = [_rec(t) for t in (500, 900, 500, 900)]
+        comp2 = {"mean_total_tokens_condition": 700.0, "mean_total_tokens_baseline": 700.0,
+                 "p_value_total_tokens": 0.9, "pass_rate_condition": 1.0, "pass_rate_baseline": 1.0}
+        self.assertEqual(run.comparison_stability(cond2, base2, comp2)["tag"], "saturated")
+
+        # Noisy: one lucky pass (1/4) that does NOT survive drop-one, tokens not significant, headroom left.
+        cond3 = [_rec(t, ok=(i == 0)) for i, t in enumerate((500, 520, 510, 505))]
+        base3 = [_rec(t, ok=False) for t in (800, 820, 810, 805)]
+        comp3 = {"mean_total_tokens_condition": 508.75, "mean_total_tokens_baseline": 808.75,
+                 "p_value_total_tokens": 0.4, "pass_rate_condition": 0.25, "pass_rate_baseline": 0.0}
+        self.assertEqual(run.comparison_stability(cond3, base3, comp3)["tag"], "noisy")
+
+    def test_stability_gates_on_holm_not_raw_p(self):
+        # The sharpest attack on the gate: a raw-significant token win that loses significance under
+        # family-wise (Holm) correction must NOT be tagged brain_positive_stable.
+        cond = [_rec(t) for t in (400, 420, 410, 405)]
+        base = [_rec(t) for t in (900, 950, 910, 940)]
+        comp = {
+            "mean_total_tokens_condition": 408.75,
+            "mean_total_tokens_baseline": 925.0,
+            "p_value_total_tokens": 0.04,       # raw: significant
+            "p_value_total_tokens_holm": 0.9,   # family-wise: NOT significant
+            "pass_rate_condition": 1.0,
+            "pass_rate_baseline": 1.0,
+        }
+        st = run.comparison_stability(cond, base, comp)
+        self.assertFalse(st["tokens_significant_p_lt_0_05"])
+        self.assertFalse(st["token_win_survives_drop_one"])
+        self.assertNotEqual(st["tag"], "brain_positive_stable")
+        # Same data, Holm also significant -> the win is real and tags stable.
+        comp["p_value_total_tokens_holm"] = 0.04
+        self.assertEqual(run.comparison_stability(cond, base, comp)["tag"], "brain_positive_stable")
+
+    def test_summarize_attaches_stability_and_is_reproducible(self):
+        records = []
+        for tokens in (400, 420, 410, 405):
+            r = _rec(tokens)
+            r["condition"] = "full_brain"
+            records.append(r)
+        for tokens in (900, 950, 910, 940):
+            r = _rec(tokens)
+            r["condition"] = "no_brain"
+            records.append(r)
+        with tempfile.TemporaryDirectory() as d1, tempfile.TemporaryDirectory() as d2:
+            s1 = run.summarize(records, pathlib.Path(d1))
+            s2 = run.summarize(records, pathlib.Path(d2))  # report re-summarizes stored records
+        self.assertEqual(len(s1["comparisons"]), 1)
+        stab = s1["comparisons"][0]["stability"]
+        self.assertEqual(stab["tag"], "brain_positive_stable")
+        self.assertIsNotNone(stab["coefficient_of_variation_total_tokens_condition"])
+        self.assertIsNotNone(stab["coefficient_of_variation_total_tokens_baseline"])
+        self.assertEqual(s1["stability_tags"], {"brain_positive_stable": 1})
+        # Reproducible: same records -> identical stability verdict.
+        self.assertEqual(s1["comparisons"][0]["stability"], s2["comparisons"][0]["stability"])
+
+
 if __name__ == "__main__":
     unittest.main()

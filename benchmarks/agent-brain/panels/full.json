@@ -1,0 +1,27 @@
+{
+  "name": "full",
+  "description": "The committed full-panel benchmark for the new brain (facts/distill + semantic + history). This manifest IS the run config: `python3 run.py panel full` expands it into the existing run path and prints a per-task stability verdict. Runners are fully pinned (agent:model:effort) so the proof is reproducible and the model is visible in the artifacts. Conditions intersect each task's own conditions (history-only tasks run no_brain+full_brain; semantic tasks add semantic_brain).",
+  "runners": [
+    "claude:claude-sonnet-4-6:high",
+    "codex:gpt-5.5:high"
+  ],
+  "conditions": ["no_brain", "semantic_brain", "full_brain"],
+  "repetitions": 4,
+  "tasks": [
+    "entire-brain-query-default-limit.json",
+    "entire-brain-mcp-tool-name.json",
+    "entire-brain-history-github-visibility.json",
+    "entire-brain-history-codex-schema-contract.json",
+    "entire-cli-plugin-env-xdg-prefix.json",
+    "github-cli-auth-env-token.json",
+    "github-cli-repo-name-trims-dotgit.json",
+    "github-cli-http-scopes-suggestion.json"
+  ],
+  "workspace_tasks": [
+    {
+      "id": "cross-repo-plugin-dispatch",
+      "status": "declared-not-runnable",
+      "note": "Cross-repo workspace scenario per agent_benchmark_plan.md (\"Cross-repo workspace tasks\"): break a plugin dispatch / env assumption where the fix could plausibly live in entire-brain OR ../cli, and measure whether the multi-brain workspace localizes it. NOT yet wired into the panel runner — a runnable workspace task needs the workspace harness (two pinned member repos + a hidden cross-repo regression). Tracked here so the panel's multi-repo coverage gap is explicit, not silently missing."
+    }
+  ]
+}

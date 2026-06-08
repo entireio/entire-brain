@@ -2556,6 +2556,123 @@ def brain_comparison_verdict(comparison: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def metric_values(recs: list[dict[str, Any]], path: list[str]) -> list[float]:
+    """Numeric values at a nested path across records (missing/non-numeric dropped)."""
+    vals: list[float] = []
+    for rec in recs:
+        value: Any = rec
+        for part in path:
+            if not isinstance(value, dict):
+                value = None
+                break
+            value = value.get(part)
+        if isinstance(value, (int, float)):
+            vals.append(float(value))
+    return vals
+
+
+def coefficient_of_variation(vals: list[float]) -> float | None:
+    """Sample CV (stddev / |mean|). None below n=2 or at a zero mean. A spread measure that is
+    comparable across metrics of different magnitude — the per-cell noise signal for the stability gate."""
+    vals = [v for v in vals if isinstance(v, (int, float))]
+    if len(vals) < 2:
+        return None
+    mean = sum(vals) / len(vals)
+    if mean == 0:
+        return None
+    var = sum((v - mean) ** 2 for v in vals) / (len(vals) - 1)
+    return (var**0.5) / abs(mean)
+
+
+def delta_survives_drop_one(cond: list[float], base: list[float], lower_is_better: bool) -> bool:
+    """The brain advantage still points the right way after removing the single MOST brain-favourable
+    repetition from each arm — so one lucky/unlucky run cannot carry the verdict. This is a one-sided
+    drop-one robustness check (NOT a full leave-one-out jackknife): it drops only the most-favourable rep,
+    which is the conservative worst-case for the brain claim, matching the doc's 'repeatable enough to
+    survive one obvious outlier' criterion (agent_benchmark_plan.md)."""
+    if len(cond) < 2 or len(base) < 2:
+        return False
+    c = sorted(cond)
+    b = sorted(base)
+    if lower_is_better:
+        # Brain wants a LOW condition value and is helped by a HIGH baseline; drop the most favourable of
+        # each (lowest cond, highest base) and require the mean delta to survive.
+        c_adj, b_adj = c[1:], b[:-1]
+        return (sum(c_adj) / len(c_adj)) < (sum(b_adj) / len(b_adj))
+    c_adj, b_adj = c[:-1], b[1:]
+    return (sum(c_adj) / len(c_adj)) > (sum(b_adj) / len(b_adj))
+
+
+def comparison_stability(
+    condition_records: list[dict[str, Any]],
+    base_records: list[dict[str, Any]],
+    comparison: dict[str, Any],
+) -> dict[str, Any]:
+    """Per (task, runner, condition) stability verdict vs the no_brain baseline. NOT a significance
+    manufacturer: it can only DOWNGRADE a result to saturated/noisy. A `brain_positive_stable` tag
+    requires a real, repetition-robust win (a token reduction significant at p<0.05 using the MORE
+    conservative of the raw Welch p and the Holm family-wise-adjusted p, plus drop-one survival, OR a
+    pass-rate lift that survives drop-one). Saturated = both arms already pass 100% (no headroom)."""
+    cond_tokens = metric_values(condition_records, ["agent_info", "usage", "total_tokens"])
+    base_tokens = metric_values(base_records, ["agent_info", "usage", "total_tokens"])
+    cond_scores = metric_values(condition_records, ["score", "total"])
+    base_scores = metric_values(base_records, ["score", "total"])
+    cond_pass = [1.0 if isinstance(r.get("validation"), dict) and r["validation"].get("ok") else 0.0 for r in condition_records]
+    base_pass = [1.0 if isinstance(r.get("validation"), dict) and r["validation"].get("ok") else 0.0 for r in base_records]
+
+    # Gate on the MORE conservative (larger) of the raw Welch p and the Holm family-wise-adjusted p.
+    # The Holm value is attached by summarize() before this runs; without it (e.g. a lone comparison)
+    # we fall back to raw. This means a token win that loses significance under multiple-comparison
+    # correction is NOT tagged stable on its raw p alone.
+    raw_p = comparison.get("p_value_total_tokens")
+    holm_p = comparison.get("p_value_total_tokens_holm")
+    candidates = [p for p in (raw_p, holm_p) if isinstance(p, (int, float))]
+    eff_p = max(candidates) if candidates else None
+    tokens_significant = eff_p is not None and eff_p < 0.05
+    tokens_lower = (
+        isinstance(comparison.get("mean_total_tokens_condition"), (int, float))
+        and isinstance(comparison.get("mean_total_tokens_baseline"), (int, float))
+        and comparison["mean_total_tokens_condition"] < comparison["mean_total_tokens_baseline"]
+    )
+    token_win_stable = bool(
+        tokens_significant
+        and tokens_lower
+        and delta_survives_drop_one(cond_tokens, base_tokens, lower_is_better=True)
+    )
+
+    pass_cond = comparison.get("pass_rate_condition")
+    pass_base = comparison.get("pass_rate_baseline")
+    pass_lift_stable = bool(
+        pass_cond is not None
+        and pass_base is not None
+        and pass_cond > pass_base
+        and delta_survives_drop_one(cond_pass, base_pass, lower_is_better=False)
+    )
+
+    saturated = pass_cond == 1.0 and pass_base == 1.0
+    if token_win_stable or pass_lift_stable:
+        tag = "brain_positive_stable"
+    elif saturated:
+        tag = "saturated"
+    else:
+        tag = "noisy"
+
+    return {
+        # CV is reported for BOTH arms (a noisy baseline matters as much as a noisy condition).
+        "coefficient_of_variation_total_tokens_condition": coefficient_of_variation(cond_tokens),
+        "coefficient_of_variation_total_tokens_baseline": coefficient_of_variation(base_tokens),
+        "coefficient_of_variation_score_condition": coefficient_of_variation(cond_scores),
+        "coefficient_of_variation_score_baseline": coefficient_of_variation(base_scores),
+        "tokens_p_raw": raw_p,
+        "tokens_p_holm": holm_p,
+        "tokens_significant_p_lt_0_05": tokens_significant,  # uses max(raw, holm)
+        "token_win_survives_drop_one": token_win_stable,
+        "pass_rate_lift_survives_drop_one": pass_lift_stable,
+        "saturated": saturated,
+        "tag": tag,
+    }
+
+
 def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[str, Any]:
     groups: dict[tuple[str, str, str, str], list[float]] = {}
     metrics: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
@@ -2567,6 +2684,7 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
         metrics.setdefault(key, []).append(rec)
 
     comparisons = []
+    stability_inputs: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]] = []
     for (task_id, agent, runner_id, condition), values in groups.items():
         if condition == "no_brain":
             continue
@@ -2719,6 +2837,9 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
         }
         comparison.update(brain_comparison_verdict(comparison))
         comparisons.append(comparison)
+        # Stability is attached AFTER the Holm correction below, so the gate can use the family-wise
+        # adjusted p (not the raw Welch p). Keep the records this comparison needs for that pass.
+        stability_inputs.append((condition_records, base_records))
 
     # Holm-Bonferroni family-wise correction across every reported p-value in this
     # suite (P1: individual p-values were uncorrected). The headline verdict stays
@@ -2743,14 +2864,31 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             ci, field, _ = family[idx]
             comparisons[ci][field + "_holm"] = running
 
+    # Now that the Holm-adjusted p-values exist, attach the stability verdict — the gate uses the
+    # family-wise adjusted p (see comparison_stability), so a result that is only raw-significant
+    # cannot be tagged brain_positive_stable.
+    for comp, (cond_recs, base_recs) in zip(comparisons, stability_inputs):
+        comp["stability"] = comparison_stability(cond_recs, base_recs, comp)
+
+    stability_tags: dict[str, int] = {}
+    for comp in comparisons:
+        tag = comp.get("stability", {}).get("tag")
+        if tag:
+            stability_tags[tag] = stability_tags.get(tag, 0) + 1
+
     summary = {
         "records": len(records),
         "comparisons": comparisons,
+        "stability_tags": stability_tags,
         "stats_notes": {
             "p_value_test": "two-sided Welch's t-test (Student-t, Welch-Satterthwaite df)",
             "multiple_comparison_correction": "holm-bonferroni across all suite p-values; see <field>_holm",
             "n_pvalues_in_family": len(family),
             "headline_metric": "validation pass-rate + measured tokens; composite score and p-values are secondary",
+            "stability": "per comparison: coefficient_of_variation + tag (brain_positive_stable requires a "
+            "token win significant at p<0.05 using max(raw Welch p, Holm-adjusted p), or a pass-rate lift, "
+            "that survives dropping the single most-favourable rep; saturated = both arms pass 100%; noisy "
+            "otherwise). The gate only downgrades; it never manufactures significance.",
         },
     }
     (suite_dir / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
@@ -3135,6 +3273,70 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+PANEL_DIR = BENCH_ROOT / "panels"
+
+
+def load_panel(name: str) -> dict[str, Any]:
+    path = pathlib.Path(name) if name.endswith(".json") else PANEL_DIR / f"{name}.json"
+    if not path.exists():
+        raise FileNotFoundError(f"panel manifest not found: {path}")
+    return json.loads(path.read_text())
+
+
+def panel_preflight(panel: dict[str, Any]) -> list[str]:
+    """Reject a panel that cannot produce a proof-grade result BEFORE spending tokens: runners must be
+    fully pinned (agent:model:effort — defaults drift and are not visible in artifacts), there must be a
+    no_brain baseline + tasks, and repetitions must reach the proof minimum so the stability gate has the
+    n to drop an outlier."""
+    errors: list[str] = []
+    runners = panel.get("runners", [])
+    if not runners:
+        errors.append("panel has no runners")
+    for spec in runners:
+        try:
+            rs = parse_runner_spec(str(spec))
+        except ValueError as exc:
+            errors.append(f"runner {spec!r}: {exc}")
+            continue
+        if not rs.model or not rs.effort:
+            errors.append(
+                f"runner {spec!r} is not fully pinned (need agent:model:effort) — "
+                "unpinned runners are not allowed for proof claims"
+            )
+    if not panel.get("tasks"):
+        errors.append("panel has no tasks")
+    reps = int(panel.get("repetitions", 0) or 0)
+    if reps < 4:
+        errors.append(f"repetitions {reps} < 4 (proof_minimum); the stability gate needs enough reps to drop an outlier")
+    if "no_brain" not in panel.get("conditions", []):
+        errors.append("conditions must include the no_brain baseline")
+    return errors
+
+
+def cmd_panel(args: argparse.Namespace) -> int:
+    panel = load_panel(args.name)
+    errors = panel_preflight(panel)
+    if errors:
+        for e in errors:
+            print(f"panel preflight: {e}", file=sys.stderr)
+        return 2
+    # The committed manifest IS the run config (reproducible) — expand it into the existing run path.
+    # No new run mechanics; the stability verdict comes from summarize().
+    args.tasks = panel["tasks"]
+    args.runners = ",".join(str(r) for r in panel["runners"])
+    args.agents = ""
+    args.conditions = ",".join(panel["conditions"])
+    args.repetitions = int(panel["repetitions"])
+    if not getattr(args, "suite_name", None):
+        args.suite_name = f"panel-{slugify(args.name)}-{dt.datetime.now(dt.UTC).strftime('%Y%m%dT%H%M%SZ')}"
+    print(
+        f"panel {args.name}: {len(args.tasks)} tasks x {len(panel['runners'])} pinned runners x "
+        f"{len(panel['conditions'])} conditions x {args.repetitions} reps",
+        flush=True,
+    )
+    return cmd_run(args)
+
+
 def cmd_prep(args: argparse.Namespace) -> int:
     tasks = load_tasks(args.tasks)
     conditions = [x.strip() for x in args.conditions.split(",") if x.strip()]
@@ -3281,6 +3483,20 @@ def main() -> int:
     run_p.add_argument("--no-brain-cache", action="store_true", help="Rebuild brain prep artifacts in every run")
     run_p.add_argument("--refresh-brain-cache", action="store_true", help="Overwrite cached brain prep artifacts")
     run_p.set_defaults(func=cmd_run)
+
+    panel_p = sub.add_parser("panel", help="Run a committed, reproducible benchmark panel + print a stability verdict")
+    panel_p.add_argument("name", help="Panel manifest under panels/ (name without .json, or a path to a .json)")
+    panel_p.add_argument("--suite-name")
+    panel_p.add_argument("--timeout", type=int, default=1800)
+    panel_p.add_argument("--claude-budget", type=float, default=0.0, help="Claude max budget in USD; 0 disables the cap")
+    panel_p.add_argument("--pricing-file", help="JSON price map for estimated cost when the agent does not report cost")
+    panel_p.add_argument("--pricing-json", help="Inline JSON price map for estimated cost when the agent does not report cost")
+    panel_p.add_argument("--checkpoint-limit", type=int, default=200)
+    panel_p.add_argument("--keep-worktrees", action="store_true")
+    panel_p.add_argument("--no-brain-cache", action="store_true", help="Rebuild brain prep artifacts in every run")
+    panel_p.add_argument("--refresh-brain-cache", action="store_true", help="Overwrite cached brain prep artifacts")
+    panel_p.add_argument("--stop-after-no-brain-score", type=float)
+    panel_p.set_defaults(func=cmd_panel)
 
     prep_p = sub.add_parser("prep")
     prep_p.add_argument("--tasks", nargs="*", default=[])
