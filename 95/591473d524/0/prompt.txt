@@ -1,0 +1,21 @@
+What do you need for the quantitative history-semantic retrieval eval?
+
+---
+
+So for the 5 layers: facts, history, semantic, seed, and sessions, how do you query them (if at all) in the ranker?
+
+---
+
+I get the feeling you and I are not aligned on what seed does. It was intended to describe the functional changes in commits that don't have Entire session data. Is that not the case? What's the agent used for then?
+
+---
+
+Ok, so where in /Users/thomi/.local/share/entire/plugins/data/brain/repos/gh/ashtom/podcasts/seed is this outcome of the seed run? history-gaps.md lists commits without sessions, but where did agent put the analysis of each commit?
+
+---
+
+Why is your dev build writing to a different path?
+
+---
+
+I removed the shadow store. Implement a fix so you always use the real brain. Also refresh the seeds for entire-brain and podcasts.
