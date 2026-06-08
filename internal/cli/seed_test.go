@@ -199,6 +199,11 @@ func TestValidateSeedAgentOutputRequiresSuccessSchema(t *testing.T) {
 	if err := validateSeedAgentOutput(seedAgentOutput{SchemaVersion: 1, Status: "success"}, "quick"); err != nil {
 		t.Fatalf("valid output rejected: %v", err)
 	}
+	// Regression: a non-"success" but non-failure status (codex models emit "ok")
+	// must be accepted — gating on the exact "success" string made synthesis flaky.
+	if err := validateSeedAgentOutput(seedAgentOutput{SchemaVersion: 1, Status: "ok"}, "quick"); err != nil {
+		t.Fatalf("status \"ok\" should be accepted: %v", err)
+	}
 }
 
 func TestValidateSeedAgentArtifactSetRejectsExtras(t *testing.T) {
