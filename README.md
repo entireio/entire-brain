@@ -73,20 +73,23 @@ entire brain watch --distill --distill-every 24h --model gpt-5.4-mini --effort l
 `watch` keeps the brain current without manual refreshes, and its token-frugality is **structural,
 not a quota**:
 
-- It detects new work cheaply (the checkpoint ref + worktree HEAD), and on a change runs a
-  **deterministic refresh** — sessions, semantic index, and history index, with the seed agent set to
+- It detects new work cheaply (local + origin checkpoint refs + worktree HEAD), and on a change runs a
+  **deterministic refresh** — sessions, semantic index, and history index, with the seed agent **always**
   `none` — which spends **zero agent tokens**.
-- The only token-spending step, `--distill` (optionally seed synthesis via `--seed-agent`), is **off by
-  default**, and only ever runs on a brain that was actually refreshed this tick (a failed refresh skips
-  it). When enabled it runs at most once per `--distill-every`, on the cheap `--model`/`--effort`, and
-  `--budget N` caps it to N distill runs per process (each spends tokens; the count resets on restart —
-  the durable guard is `--distill-every` + the cursor). A persisted cursor
-  (`<state>/repos/<repo-key>/watch.json`) means a restart never re-refreshes unchanged state or
-  re-distills within the interval.
+- The token-spending work — `--distill` and/or agent seed synthesis (`--seed-agent codex|claude-code`) —
+  is **off by default** and only ever runs on a brain that was actually refreshed this tick (a failed
+  refresh skips it). When enabled, **both steps share one gate**: they run at most once per
+  `--distill-every`, on the cheap `--model`/`--effort`, and `--budget N` caps the *number of gated agent
+  runs* per process. So `--seed-agent` is bounded exactly like `--distill` — it is **not** per-change
+  spend. A persisted cursor (`<state>/repos/<repo-key>/watch.json`) means a restart never re-refreshes
+  unchanged state or re-runs the agent work within the interval. (Budget counts reset on restart; the
+  durable guard is `--distill-every` + the cursor. A transient failure of one gated step is best-effort —
+  it retries on the next interval, not every tick.)
 
 So the default daemon is free; you opt into token spend explicitly and bound it. Run **one watcher per
 repo** — the cursor write is atomic, so concurrent watchers won't corrupt it, but they may do redundant
-refreshes.
+refreshes. On a very active repo with a short `--interval`, note that the free refresh re-indexes on
+every commit, so the semantic reindex can be CPU/IO-heavy; widen `--interval` if that matters.
 
 ### Work Across Multiple Repos
 

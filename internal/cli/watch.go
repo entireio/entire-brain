@@ -16,12 +16,12 @@ import (
 )
 
 // watch keeps the brain fresh automatically. Token-frugality is structural, not a quota:
-// the deterministic refresh (sessions + semantic index + history index, seed agent "none") spends
-// ZERO agent tokens and runs whenever the checkpoint/HEAD fingerprint changes; the only token-spending
-// step (distill, optionally seed synthesis) is OFF by default and, when enabled, runs at most once per
-// --distill-every, on the cheap --model/--effort, capped by --budget, and a persisted cursor means a
-// restart never re-spends within the interval.
-
+// the deterministic refresh (sessions + semantic index + history index, seed agent ALWAYS "none") spends
+// ZERO agent tokens and runs whenever the checkpoint/HEAD fingerprint changes. The ONLY token-spending
+// work — distill and/or agent seed synthesis (--seed-agent) — is OFF by default and, when enabled, runs
+// at most once per --distill-every, on the cheap --model/--effort, capped by --budget, and a persisted
+// cursor means a restart never re-spends within the interval. Both token steps share the one gate, so
+// --seed-agent is bounded exactly like --distill (it is NOT per-change spend).
 type watchCommandOptions struct {
 	interval     time.Duration
 	once         bool
@@ -31,24 +31,26 @@ type watchCommandOptions struct {
 	seedAgent    string
 	model        string
 	effort       string
-	budget       int // cap on distill runs this process (each spends tokens); 0 = unlimited; resets on restart
+	budget       int // cap on gated agent runs this process (distill + seed; each spends tokens); 0 = unlimited; resets on restart
 }
 
 // watchCursor persists across restarts so the daemon never re-refreshes unchanged state and never
-// re-distills within --distill-every after a restart.
+// re-runs the gated agent work within --distill-every after a restart.
 type watchCursor struct {
-	LastFingerprint string    `json:"last_fingerprint"`
-	LastRefreshAt   time.Time `json:"last_refresh_at,omitempty"`
-	LastDistillAt   time.Time `json:"last_distill_at,omitempty"`
+	LastFingerprint  string    `json:"last_fingerprint"`
+	LastRefreshAt    time.Time `json:"last_refresh_at,omitempty"`
+	LastAgentSpendAt time.Time `json:"last_agent_spend_at,omitempty"`
 }
 
 // watchSteps are the side-effecting operations of one tick. Injected so the loop's gating logic
-// (change detection, distill interval/budget, cursor persistence) is unit-testable without running a
-// real refresh/distill.
+// (change detection, agent interval/budget, cursor persistence) is unit-testable without running a real
+// refresh/seed/distill. refresh is ALWAYS the free (seed-agent none) deterministic refresh; seed and
+// distill are the gated, token-spending steps.
 type watchSteps struct {
 	now         func() time.Time
 	fingerprint func(context.Context) string
 	refresh     func(context.Context) error
+	seed        func(context.Context) error
 	distill     func(context.Context) error
 }
 
@@ -67,13 +69,13 @@ func defaultWatchOptions() watchCommandOptions {
 func bindWatchFlags(cmd *cobra.Command, w *watchCommandOptions) {
 	cmd.Flags().DurationVar(&w.interval, "interval", w.interval, "Poll interval between ticks")
 	cmd.Flags().BoolVar(&w.once, "once", false, "Run a single pass and exit (no daemon loop)")
-	cmd.Flags().BoolVar(&w.distill, "distill", false, "Also run distill (SPENDS TOKENS) when new sessions land and --distill-every has elapsed")
-	cmd.Flags().DurationVar(&w.distillEvery, "distill-every", w.distillEvery, "Minimum interval between distill runs")
+	cmd.Flags().BoolVar(&w.distill, "distill", false, "Run distill (SPENDS TOKENS) when new sessions land — gated by --distill-every + --budget")
+	cmd.Flags().DurationVar(&w.distillEvery, "distill-every", w.distillEvery, "Minimum interval between gated agent runs (distill and/or seed synthesis)")
 	cmd.Flags().StringVar(&w.distillAgent, "agent", w.distillAgent, "Agent for the distill step (used only with --distill)")
-	cmd.Flags().StringVar(&w.seedAgent, "seed-agent", w.seedAgent, "Seed synthesis agent for the deterministic refresh (none = no tokens)")
+	cmd.Flags().StringVar(&w.seedAgent, "seed-agent", w.seedAgent, "Agent for gated seed synthesis (SPENDS TOKENS); none = deterministic seed only. Bounded by --distill-every + --budget, NOT per-change")
 	cmd.Flags().StringVar(&w.model, "model", "", "Fast/cheap model for the gated agent steps (distill/seed)")
-	cmd.Flags().StringVar(&w.effort, "effort", "", "Reasoning effort for the gated agent steps")
-	cmd.Flags().IntVar(&w.budget, "budget", 0, "Cap on distill runs this process, each of which spends tokens; 0 = unlimited. Counts reset on restart — the durable guard against re-spend is --distill-every + the cursor.")
+	cmd.Flags().StringVar(&w.effort, "effort", "", "Reasoning effort for the gated agent steps (codex --config model_reasoning_effort=, claude --effort)")
+	cmd.Flags().IntVar(&w.budget, "budget", 0, "Cap on gated agent runs this process (distill + seed; each spends tokens); 0 = unlimited. Counts reset on restart — the durable guard against re-spend is --distill-every + the cursor.")
 }
 
 func newWatchCommand(opts Options) *cobra.Command {
@@ -151,8 +153,9 @@ func watchLoop(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 	}
 }
 
-// watchTick runs one pass: cheap change detection, then (only on change) the free deterministic refresh
-// and the gated distill. agentCalls is shared across ticks/members so --budget caps total token spend.
+// watchTick runs one pass: cheap change detection, then (only on change) the free deterministic refresh,
+// then the GATED token-spending work (seed synthesis and/or distill). agentCalls is shared across
+// ticks/members so --budget caps total token spend across the whole run.
 func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursorPath string, steps watchSteps, agentCalls *int) {
 	cursor := loadWatchCursor(cursorPath)
 	fp := steps.fingerprint(ctx)
@@ -162,49 +165,74 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		return
 	}
 	if err := steps.refresh(ctx); err != nil {
-		// Refresh failed: do NOT spend tokens distilling an unrefreshed brain, and do NOT advance the
-		// cursor. The next tick retries the (free) refresh; distill only ever runs on a brain that was
-		// actually refreshed this tick — so a persistent refresh failure can never re-distill.
-		fmt.Fprintf(out, "[watch] refresh failed (skipping distill this tick): %v\n", err)
+		// Refresh failed: do NOT spend tokens on an unrefreshed brain, and do NOT advance the cursor.
+		// The next tick retries the (free) refresh; the gated agent work only ever runs on a brain that
+		// was actually refreshed this tick — so a persistent refresh failure can never re-spend.
+		fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
 		return
 	}
 	cursor.LastFingerprint = fp
 	cursor.LastRefreshAt = steps.now().UTC()
 	_ = saveWatchCursor(cursorPath, cursor)
 	fmt.Fprintln(out, "[watch] refreshed (deterministic, no agent tokens)")
-	if ok, reason := watchShouldDistill(w, cursor, *agentCalls, steps.now().UTC()); w.distill && !ok {
-		fmt.Fprintf(out, "[watch] distill skipped: %s\n", reason)
-	} else if ok {
+
+	if !w.agentWorkEnabled() {
+		return
+	}
+	if ok, reason := watchShouldSpend(w, cursor, *agentCalls, steps.now().UTC()); !ok {
+		fmt.Fprintf(out, "[watch] agent work skipped: %s\n", reason)
+		return
+	}
+	// Gated token-spending work: agent seed synthesis and/or distill, at most once per --distill-every,
+	// counted against --budget. A transient failure of one step is intentionally best-effort: we still
+	// advance the spend cursor + budget below so a failed step retries on the NEXT interval, not every
+	// tick (and a step that already burned tokens before failing can't be re-run for free).
+	if w.seedAgent != "none" {
+		if err := steps.seed(ctx); err != nil {
+			fmt.Fprintf(out, "[watch] seed synthesis failed: %v\n", err)
+		} else {
+			fmt.Fprintln(out, "[watch] synthesized seed (agent step; spent tokens)")
+		}
+	}
+	if w.distill {
 		if err := steps.distill(ctx); err != nil {
 			fmt.Fprintf(out, "[watch] distill failed: %v\n", err)
 		} else {
-			cursor.LastDistillAt = steps.now().UTC()
-			*agentCalls++
-			_ = saveWatchCursor(cursorPath, cursor)
 			fmt.Fprintln(out, "[watch] distilled facts (agent step; spent tokens)")
 		}
 	}
+	*agentCalls++
+	cursor.LastAgentSpendAt = steps.now().UTC()
+	_ = saveWatchCursor(cursorPath, cursor)
 }
 
-// watchStepsForRepo builds the per-repo side effects (fingerprint/refresh/distill) the watch loop drives.
-// Shared by the single-repo `watch` and the workspace fan-out so both stay token-frugal the same way.
+// agentWorkEnabled reports whether any token-spending step is turned on.
+func (w watchCommandOptions) agentWorkEnabled() bool {
+	return w.distill || w.seedAgent != "none"
+}
+
+// watchStepsForRepo builds the per-repo side effects the watch loop drives. refresh is ALWAYS the free
+// (seed-agent none) deterministic refresh; seed and distill are the gated token steps. Shared by the
+// single-repo `watch` and the workspace fan-out so both stay token-frugal the same way.
 func watchStepsForRepo(cmd *cobra.Command, opts Options, w watchCommandOptions, repoDir string, now func() time.Time) watchSteps {
 	return watchSteps{
 		now:         now,
 		fingerprint: func(c context.Context) string { return watchFingerprint(c, opts.Runner, repoDir) },
-		refresh:     func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, w, repoDir) },
+		refresh:     func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, repoDir) },
+		seed:        func(c context.Context) error { return watchSeed(c, cmd, opts, w, repoDir) },
 		distill:     func(c context.Context) error { return watchDistill(c, cmd, opts, w, repoDir) },
 	}
 }
 
-// watchShouldDistill decides whether the token-spending distill step runs this tick: only when
-// --distill is set AND --distill-every has elapsed since the last distill (cursor-tracked across
-// restarts) AND the --budget cap is not yet reached. This is the structural token-frugality guarantee.
-func watchShouldDistill(w watchCommandOptions, cursor watchCursor, agentCalls int, now time.Time) (bool, string) {
-	if !w.distill {
-		return false, "disabled"
+// watchShouldSpend decides whether the token-spending agent work (seed and/or distill) runs this tick:
+// only when at least one is enabled AND --distill-every has elapsed since the last agent spend
+// (cursor-tracked across restarts) AND the --budget cap is not yet reached. This is the structural
+// token-frugality guarantee — it bounds seed synthesis exactly like distill.
+func watchShouldSpend(w watchCommandOptions, cursor watchCursor, agentCalls int, now time.Time) (bool, string) {
+	if !w.agentWorkEnabled() {
+		return false, "no agent steps enabled"
 	}
-	if !(cursor.LastDistillAt.IsZero() || now.Sub(cursor.LastDistillAt) >= w.distillEvery) {
+	if !(cursor.LastAgentSpendAt.IsZero() || now.Sub(cursor.LastAgentSpendAt) >= w.distillEvery) {
 		return false, "--distill-every not elapsed"
 	}
 	if w.budget > 0 && agentCalls >= w.budget {
@@ -231,9 +259,10 @@ func watchFingerprint(ctx context.Context, runner CommandRunner, repoDir string)
 	return rev(v1MainRef) + ":" + rev(v1OriginRef) + ":" + rev("HEAD")
 }
 
-// watchDeterministicRefresh refreshes sessions + semantic + history index with the seed agent gated by
-// --seed-agent (default "none" = no tokens). It reuses runRefresh, pointing it at repoDir via the env.
-func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, repoDir string) error {
+// watchDeterministicRefresh refreshes sessions + semantic + history index with the seed agent ALWAYS
+// "none" — so it spends ZERO agent tokens and is safe to run on every change. Agent seed synthesis is a
+// separate, gated step (watchSeed). It reuses runRefresh, pointing it at repoDir via the env.
+func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string) error {
 	perRepo := opts
 	perRepo.Env.RepoRoot = repoDir
 	refreshOpts := refreshCommandOptions{
@@ -249,9 +278,7 @@ func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Opt
 			maxFileBytes:       defaultSeedMaxFileBytes,
 			maxFiles:           defaultSeedMaxFiles,
 			format:             "markdown+json",
-			agent:              w.seedAgent,
-			model:              w.model,
-			effort:             w.effort,
+			agent:              "none", // free: deterministic seed only; agent seed is gated via watchSeed
 			agentQuickTimeout:  2 * time.Minute,
 			agentDeepTimeout:   10 * time.Minute,
 			agentTimeoutAction: "keep-quick",
@@ -263,6 +290,31 @@ func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Opt
 	sub.SetOut(cmd.OutOrStdout())
 	sub.SetErr(cmd.ErrOrStderr())
 	return runRefresh(ctx, sub, perRepo, refreshOpts)
+}
+
+// watchSeed is the GATED agent seed synthesis step: it re-synthesizes the seed on the cheap --model/
+// --effort using --seed-agent, run at most once per --distill-every and counted against --budget (see
+// watchShouldSpend). Reuses runSeed; --update refreshes the existing seed in place.
+func watchSeed(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, repoDir string) error {
+	seedOpts := seedCommandOptions{
+		update:             true,
+		includeTests:       true,
+		maxFileBytes:       defaultSeedMaxFileBytes,
+		maxFiles:           defaultSeedMaxFiles,
+		format:             "markdown+json",
+		agent:              w.seedAgent,
+		model:              w.model,
+		effort:             w.effort,
+		agentQuickTimeout:  2 * time.Minute,
+		agentDeepTimeout:   10 * time.Minute,
+		agentTimeoutAction: "keep-quick",
+		agentMaxInputBytes: defaultAgentMaxInput,
+	}
+	sub := &cobra.Command{}
+	sub.SetContext(ctx)
+	sub.SetOut(cmd.OutOrStdout())
+	sub.SetErr(cmd.ErrOrStderr())
+	return runSeed(ctx, sub, opts, seedOpts, repoDir)
 }
 
 func watchDistill(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, repoDir string) error {

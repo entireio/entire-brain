@@ -2616,6 +2616,7 @@ def comparison_stability(
     cond_tokens = metric_values(condition_records, ["agent_info", "usage", "total_tokens"])
     base_tokens = metric_values(base_records, ["agent_info", "usage", "total_tokens"])
     cond_scores = metric_values(condition_records, ["score", "total"])
+    base_scores = metric_values(base_records, ["score", "total"])
     cond_pass = [1.0 if isinstance(r.get("validation"), dict) and r["validation"].get("ok") else 0.0 for r in condition_records]
     base_pass = [1.0 if isinstance(r.get("validation"), dict) and r["validation"].get("ok") else 0.0 for r in base_records]
 
@@ -2661,7 +2662,7 @@ def comparison_stability(
         "coefficient_of_variation_total_tokens_condition": coefficient_of_variation(cond_tokens),
         "coefficient_of_variation_total_tokens_baseline": coefficient_of_variation(base_tokens),
         "coefficient_of_variation_score_condition": coefficient_of_variation(cond_scores),
-        "coefficient_of_variation_score_baseline": coefficient_of_variation(metric_values(base_records, ["score", "total"])),
+        "coefficient_of_variation_score_baseline": coefficient_of_variation(base_scores),
         "tokens_p_raw": raw_p,
         "tokens_p_holm": holm_p,
         "tokens_significant_p_lt_0_05": tokens_significant,  # uses max(raw, holm)
