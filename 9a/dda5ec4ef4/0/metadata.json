@@ -1,0 +1,52 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "9adda5ec4ef4",
+  "session_id": "93850a3b-823a-4400-affb-afd0a1ad0282",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-08T10:52:52.74666Z",
+  "branch": "feat/stage1b-transformer-embedder",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_cmd_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "70f39620a7ae",
+  "checkpoint_transcript_start": 1568,
+  "transcript_lines_at_start": 1568,
+  "token_usage": {
+    "input_tokens": 2767,
+    "cache_creation_tokens": 70782,
+    "cache_read_tokens": 19833290,
+    "output_tokens": 64008,
+    "api_call_count": 46
+  },
+  "session_metrics": {
+    "turn_count": 26
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-08T10:52:52.701411Z",
+    "agent_lines": 73,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 73,
+    "total_lines_changed": 73,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 1,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1
+      }
+    }
+  ]
+}

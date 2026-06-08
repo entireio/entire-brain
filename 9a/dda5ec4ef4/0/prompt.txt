@@ -1,0 +1,13 @@
+Push, don't craete a PR yet. Then compare both plan and implementation so far against QMD. Explain where went a different direction and why.
+
+---
+
+Yes, fold it into the alignment doc but make clear that we may still consider this at a later stage. Then next question: Would it make sense to benchmark with more than just this one repo?
+
+---
+
+Yes, script the harness and try it on /Users/thomi/Projects/podcasts
+
+---
+
+Running entire brain distill --agent claude-code --model sonnet-4.6 on /Users/thomi/Projects/entire-cli doesn't seem to find any facts, even 30 sessions in. Why?
