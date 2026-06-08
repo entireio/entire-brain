@@ -1,0 +1,9 @@
+Push. Split the distill fix into its own PR. Then, going back to the layer table and which layers use the embedder, the last remaining we haven't tested yet is the seed layer. Refresh the seeds for podcast and entire-brain with the agent option set to codex, then try the embedder on it.
+
+---
+
+Continue
+
+---
+
+Yes
