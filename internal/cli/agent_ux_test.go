@@ -97,7 +97,7 @@ func TestSearchPathQueryDoesNotTriggerTokenFallback(t *testing.T) {
 func TestSearchEmptyResultsEmitArrayNotNull(t *testing.T) {
 	_, _, opts := indexFixtureBrain(t, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(opts)
-	out, err := execute(t, cmd, "search", "zzqqxxnomatch", "--json")
+	out, err := execute(t, cmd, "inspect", "code", "zzqqxxnomatch", "--json")
 	if err != nil {
 		t.Fatalf("search: %v\n%s", err, out)
 	}

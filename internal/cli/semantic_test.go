@@ -874,7 +874,7 @@ func TestSemanticRepairRebuildsMissingStoreFromActiveSnapshot(t *testing.T) {
 	if _, err := os.Stat(storePath); err != nil {
 		t.Fatalf("store was not rebuilt: %v", err)
 	}
-	queryOut, err := execute(t, cmd, "search", "ValidateToken", "--json")
+	queryOut, err := execute(t, cmd, "inspect", "code", "ValidateToken", "--json")
 	if err != nil {
 		t.Fatalf("query after repair: %v", err)
 	}
@@ -936,10 +936,10 @@ func TestSemanticJSONErrorsUseStructuredEnvelope(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	for name, args := range map[string][]string{
-		"runtime":        {"search", "ValidateToken", "--json", "--limit", "0"},
-		"args":           {"search", "--json"},
-		"flags":          {"search", "--json", "--bogus"},
-		"flags-reversed": {"search", "--bogus", "--json"},
+		"runtime":        {"inspect", "code", "ValidateToken", "--json", "--limit", "0"},
+		"args":           {"inspect", "code", "--json"},
+		"flags":          {"inspect", "code", "--json", "--bogus"},
+		"flags-reversed": {"inspect", "code", "--bogus", "--json"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
@@ -963,8 +963,8 @@ func TestSemanticFlagErrorsStayPlainTextWithoutJSON(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	for name, args := range map[string][]string{
-		"omitted":    {"query", "ValidateToken", "--bogus"},
-		"false-flag": {"query", "ValidateToken", "--json=false", "--limit", "0"},
+		"omitted":    {"inspect", "code", "ValidateToken", "--bogus"},
+		"false-flag": {"inspect", "code", "ValidateToken", "--json=false", "--limit", "0"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})

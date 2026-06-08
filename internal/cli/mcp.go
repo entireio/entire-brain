@@ -161,8 +161,28 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_query",
-			"description": "Search local semantic symbols.",
-			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum symbols")}},
+			"description": "Hybrid search (lexical + semantic, RRF) across the brain's facts, history, and docs. The default retrieval; results carry ids for brain_get.",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "Natural-language or keyword query"), "limit": integerArg("limit", "Maximum results")}},
+		},
+		{
+			"name":        "brain_search",
+			"description": "Lexical (BM25) search across the brain's facts, history, and docs — precise keyword/identifier matching.",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "Keyword query"), "limit": integerArg("limit", "Maximum results")}},
+		},
+		{
+			"name":        "brain_vsearch",
+			"description": "Vector (semantic) search across the brain's facts and docs — conceptual/paraphrased queries.",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "Conceptual query"), "limit": integerArg("limit", "Maximum results")}},
+		},
+		{
+			"name":        "brain_get",
+			"description": "Fetch one item in full by its id (fact:… | history:… | doc:…), e.g. from a search result.",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"id"}, "properties": map[string]any{"id": stringArg("id", "Prefixed item id")}},
+		},
+		{
+			"name":        "brain_multi_get",
+			"description": "Fetch multiple items in full by their ids.",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"ids"}, "properties": map[string]any{"ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "title": "ids", "description": "Prefixed item ids"}}},
 		},
 		{
 			"name":        "brain_context",
@@ -240,7 +260,31 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	case "brain_query":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runSemanticQuery(ctx, cmd, opts, semanticQueryOptions{limit: limit, json: true}, query)
+			err = runRetrieve(ctx, cmd, opts, query, modeHybrid, limit, "", true)
+		}
+	case "brain_search":
+		err = requireMCPQuery(query)
+		if err == nil {
+			err = runRetrieve(ctx, cmd, opts, query, modeLexical, limit, "", true)
+		}
+	case "brain_vsearch":
+		err = requireMCPQuery(query)
+		if err == nil {
+			err = runRetrieve(ctx, cmd, opts, query, modeVector, limit, "", true)
+		}
+	case "brain_get":
+		id := strings.TrimSpace(mcpString(params.Arguments, "id"))
+		if id == "" {
+			err = errors.New("id is required")
+		} else {
+			err = runGet(ctx, cmd, opts, []string{id}, "", true)
+		}
+	case "brain_multi_get":
+		ids := mcpStringSlice(params.Arguments, "ids")
+		if len(ids) == 0 {
+			err = errors.New("ids is required")
+		} else {
+			err = runGet(ctx, cmd, opts, ids, "", true)
 		}
 	case "brain_context":
 		err = requireMCPQuery(query)
@@ -339,6 +383,20 @@ func mcpString(args map[string]any, key string) string {
 		return value
 	}
 	return ""
+}
+
+func mcpStringSlice(args map[string]any, key string) []string {
+	raw, ok := args[key].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func mcpPositiveInt(args map[string]any, key string, fallback int) (int, error) {

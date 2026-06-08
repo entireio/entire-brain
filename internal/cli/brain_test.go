@@ -218,12 +218,12 @@ func TestBrainSearchShowAndInspectAliases(t *testing.T) {
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 	cmd := NewRootCommand(opts)
-	out, err := execute(t, cmd, "search", "ValidateToken", "--json")
+	out, err := execute(t, cmd, "inspect", "code", "ValidateToken", "--json")
 	if err != nil {
-		t.Fatalf("search: %v\n%s", err, out)
+		t.Fatalf("inspect code: %v\n%s", err, out)
 	}
 	if !strings.Contains(out, `"name": "ValidateToken"`) {
-		t.Fatalf("search output missing symbol:\n%s", out)
+		t.Fatalf("inspect code output missing symbol:\n%s", out)
 	}
 
 	cmd = NewRootCommand(opts)
