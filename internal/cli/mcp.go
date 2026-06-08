@@ -200,9 +200,19 @@ func mcpToolDefinitions() []map[string]any {
 			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"limit": integerArg("limit", "Maximum symbols")}},
 		},
 		{
-			"name":        "brain_history",
-			"description": "Search indexed Entire session history, decisions, validation notes, tool paths, or architecture facts.",
-			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "History query"), "kind": stringArg("kind", "history, decisions, sessions, validation, tool-paths, or architecture")}},
+			"name":        "brain_code",
+			"description": "Search semantic code facts (the symbol graph) by name or description — find where a symbol lives.",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results")}},
+		},
+		{
+			"name":        "brain_tests",
+			"description": "Suggest tests relevant to a symbol or query, derived from semantic relations.",
+			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum test suggestions")}},
+		},
+		{
+			"name":        "brain_boundaries",
+			"description": "List route, tool, or workflow boundary symbols — entry-point enumeration.",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"kind": stringArg("kind", "route, tool, or workflow (default: tool)"), "limit": integerArg("limit", "Maximum boundary symbols")}},
 		},
 		{
 			"name":        "brain_regressions",
@@ -303,19 +313,26 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		}
 	case "brain_changes":
 		err = runSemanticChanges(ctx, cmd, opts, semanticChangesOptions{limit: limit, json: true})
-	case "brain_history":
+	case "brain_code":
 		err = requireMCPQuery(query)
 		if err == nil {
-			kind := strings.TrimSpace(mcpString(params.Arguments, "kind"))
-			if kind == "" {
-				kind = "history"
-			}
-			if !validMCPHistoryKind(kind) {
-				err = fmt.Errorf("kind must be history, decisions, sessions, validation, tool-paths, or architecture")
-			} else {
-				relax, _ := params.Arguments["relax"].(bool)
-				err = runBrainHistoryInspect(ctx, cmd, opts, kind, query, true, relax)
-			}
+			err = runSemanticQuery(ctx, cmd, opts, semanticQueryOptions{limit: limit, json: true}, query)
+		}
+	case "brain_tests":
+		err = requireMCPQuery(query)
+		if err == nil {
+			err = runSemanticTests(ctx, cmd, opts, semanticTestsOptions{limit: limit, json: true}, query)
+		}
+	case "brain_boundaries":
+		kind := strings.TrimSpace(mcpString(params.Arguments, "kind"))
+		if kind == "" {
+			kind = "tool"
+		}
+		spec, specErr := inspectBoundarySpec(kind)
+		if specErr != nil {
+			err = specErr
+		} else {
+			err = runSemanticBoundary(ctx, cmd, opts, semanticBoundaryOptions{limit: limit, json: true}, spec)
 		}
 	case "brain_regressions":
 		err = requireMCPQuery(query)
@@ -360,15 +377,6 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		return nil, err
 	}
 	return map[string]any{"content": []map[string]any{{"type": "text", "text": out.String()}}}, nil
-}
-
-func validMCPHistoryKind(kind string) bool {
-	switch kind {
-	case "history", "decisions", "sessions", "validation", "tool-paths", "architecture":
-		return true
-	default:
-		return false
-	}
 }
 
 func requireMCPQuery(query string) error {

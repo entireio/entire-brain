@@ -14,7 +14,7 @@ import (
 )
 
 // history_fts.go builds a derived FTS5 BM25 index over the history records and
-// ranks inspect/brain_history queries with it. It is a rebuildable artifact, a
+// ranks the history arm of the unified search/query verbs with it. It is a rebuildable artifact, a
 // sibling of history/index.json (the truth): deleting the .sqlite file forces a
 // clean rebuild on the next query, and any open/build/query failure falls back
 // to the substring scorer, so the index is an optimization, never load-bearing.

@@ -156,7 +156,7 @@ func writeBrainHistoryIndexAndSource(outputDir string, now time.Time, progress h
 	if err := writeFileAtomic(filepath.Join(outputDir, filepath.FromSlash(historyIndexPath)), data, 0o600); err != nil {
 		return nil, fmt.Errorf("write history index: %w", err)
 	}
-	// Build the derived BM25 index alongside its truth so inspect/brain_history
+	// Build the derived BM25 index alongside its truth so the search/query verbs
 	// do not pay a first-query rebuild. Best-effort: the query path rebuilds it
 	// lazily on any failure, so this must never fail the refresh.
 	if db, ftsErr := openHistoryFTS(outputDir, index); ftsErr == nil {

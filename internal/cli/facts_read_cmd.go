@@ -134,51 +134,6 @@ func validateScopeFlag(scope string) error {
 	}
 }
 
-func newInspectFactsCommand(opts Options) *cobra.Command {
-	var (
-		branch     string
-		limit      int
-		includeAll bool
-		jsonOut    bool
-	)
-	cmd := &cobra.Command{
-		Use:   "facts <query>",
-		Short: "Search durable repository facts",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			query := ""
-			if len(args) == 1 {
-				query = args[0]
-			}
-			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
-			if err != nil {
-				return err
-			}
-			facts, err := loadFacts(brainDir, resolvedBranch)
-			if err != nil {
-				return err
-			}
-			matches := rankFacts(facts, query, limit, includeAll)
-			if jsonOut {
-				return writeJSON(cmd, map[string]any{"branch": resolvedBranch, "query": query, "facts": matches})
-			}
-			if len(matches) == 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "no fact matches for %q on %s\n", query, resolvedBranch)
-				return nil
-			}
-			for _, f := range matches {
-				printFactLine(cmd, f)
-			}
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch to inspect (default: current branch)")
-	cmd.Flags().IntVar(&limit, "limit", 20, "Maximum facts to return")
-	cmd.Flags().BoolVar(&includeAll, "all", true, "Include superseded and retracted facts")
-	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
-	return cmd
-}
-
 func newInspectBlameCommand(opts Options) *cobra.Command {
 	var (
 		branch  string
