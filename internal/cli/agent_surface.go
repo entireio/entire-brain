@@ -484,6 +484,7 @@ func newBrainInspectCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newInspectRegressionsCommand(opts))
 	cmd.AddCommand(newInspectFactsCommand(opts))
 	cmd.AddCommand(newInspectBlameCommand(opts))
+	cmd.AddCommand(newInspectDocsCommand(opts))
 	return cmd
 }
 

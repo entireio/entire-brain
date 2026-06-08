@@ -223,6 +223,20 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	} else if refreshOpts.historyIndex {
 		progress.Skip(refreshHistoryLabel(existingHistorySource(manifest)))
 	}
+	if refreshOpts.historyIndex {
+		// Doc index: retrievable chunks of the brain's own markdown (seed summaries
+		// + copied repo docs). Derived from seed, rebuilt each refresh; best-effort
+		// so a doc failure never fails the refresh.
+		docTask := progress.Begin("doc index")
+		if docSource, derr := writeDocIndexAndSource(brainDir, opts.Now().UTC()); derr != nil {
+			docTask.Update("doc index: skipped (" + derr.Error() + ")")
+			docTask.Finish(nil)
+		} else {
+			docTask.Update(fmt.Sprintf("doc index: %d chunks / %d files", docSource.Records, docSource.Files))
+			docTask.Finish(nil)
+			manifest, _ = loadBrainManifest(brainDir)
+		}
+	}
 	if refreshOpts.semantic {
 		semanticCheckTask := progress.Begin(refreshSemanticCheckLabel(manifest))
 		needSemantic, err := semanticRefreshNeeded(ctx, opts, brainDir, repoDir, manifest, refreshOpts.semanticWorktree)
