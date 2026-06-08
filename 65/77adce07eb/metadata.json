@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "6577adce07eb",
+  "strategy": "manual-commit",
+  "branch": "feat/stage1b-transformer-embedder",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/chunk_eval_experiment_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/65/77adce07eb/0/metadata.json",
+      "transcript": "/65/77adce07eb/0/full.jsonl",
+      "content_hash": "/65/77adce07eb/0/content_hash.txt",
+      "prompt": "/65/77adce07eb/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 3288,
+    "cache_creation_tokens": 130888,
+    "cache_read_tokens": 36751694,
+    "output_tokens": 129274,
+    "api_call_count": 64
+  }
+}
