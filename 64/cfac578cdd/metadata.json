@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "64cfac578cdd",
+  "strategy": "manual-commit",
+  "branch": "claude/brain-watch-and-panel",
+  "checkpoints_count": 2,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/64/cfac578cdd/0/metadata.json",
+      "transcript": "/64/cfac578cdd/0/full.jsonl",
+      "content_hash": "/64/cfac578cdd/0/content_hash.txt",
+      "prompt": "/64/cfac578cdd/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 232895,
+    "cache_creation_tokens": 12798685,
+    "cache_read_tokens": 1004633033,
+    "output_tokens": 2756549,
+    "api_call_count": 1850
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "64cfac578cdd",
+  "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-08T00:06:53.402536Z",
+  "branch": "claude/brain-watch-and-panel",
+  "checkpoints_count": 2,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8",
+  "turn_id": "f825eaa512e9",
+  "token_usage": {
+    "input_tokens": 232895,
+    "cache_creation_tokens": 12798685,
+    "cache_read_tokens": 1004633033,
+    "output_tokens": 2756549,
+    "api_call_count": 1850
+  },
+  "session_metrics": {
+    "turn_count": 81
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 30,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 30
+      }
+    }
+  ]
+}
