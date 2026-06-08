@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "74795597166e",
+  "strategy": "manual-commit",
+  "branch": "feat/stage1b-transformer-embedder",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/history.go",
+    "internal/cli/history_eval_experiment_test.go",
+    "internal/cli/history_request_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/74/795597166e/0/metadata.json",
+      "transcript": "/74/795597166e/0/full.jsonl",
+      "content_hash": "/74/795597166e/0/content_hash.txt",
+      "prompt": "/74/795597166e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 21348,
+    "cache_creation_tokens": 1321871,
+    "cache_read_tokens": 105810400,
+    "output_tokens": 487084,
+    "api_call_count": 305
+  }
+}

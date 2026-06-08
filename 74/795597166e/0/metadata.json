@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "74795597166e",
+  "session_id": "93850a3b-823a-4400-affb-afd0a1ad0282",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-08T12:23:57.091263Z",
+  "branch": "feat/stage1b-transformer-embedder",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/history.go",
+    "internal/cli/history_eval_experiment_test.go",
+    "internal/cli/history_request_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "d948aee191ad",
+  "token_usage": {
+    "input_tokens": 21348,
+    "cache_creation_tokens": 1321871,
+    "cache_read_tokens": 105810400,
+    "output_tokens": 487084,
+    "api_call_count": 305
+  },
+  "session_metrics": {
+    "turn_count": 38
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-08T12:23:57.036316Z",
+    "agent_lines": 332,
+    "agent_removed": 2,
+    "human_added": 34,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 366,
+    "total_lines_changed": 368,
+    "agent_percentage": 90.76086956521739,
+    "metric_version": 2
+  }
+}

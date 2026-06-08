@@ -1,0 +1,45 @@
+The command "entire brain distill" extracts fact from the Entire session logs. Are you also benchmarking the other components of the brain, e.g. seed, semantic information, etc?
+
+---
+
+Hm, you sure history has the user prompts in it? A quick inspection didn't seem like it.
+
+---
+
+What was the reason that history was implemented?
+
+---
+
+Ok, let's park this thought for now. facts is created by stripping tool calls from the raw sessions, then running claude-code or codex over it. What if we keep the stripping, but skip the agent run and instead use the embedder on these stripped logs?
+
+---
+
+Yes, build it
+
+---
+
+<task-notification>
+<task-id>b2ft374ee</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/93850a3b-823a-4400-affb-afd0a1ad0282/tasks/b2ft374ee.output</output-file>
+<status>failed</status>
+<summary>Background command "EmbeddingGemma confirm + podcasts generalization" failed with exit code 1</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bucoge5ck</task-id>
+<tool-use-id>toolu_0125vZYNqRm2G27qTTw5zftD</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/93850a3b-823a-4400-affb-afd0a1ad0282/tasks/bucoge5ck.output</output-file>
+<status>completed</status>
+<summary>Background command "Podcasts EmbeddingGemma chunk eval (confirm gap-closing)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Keep it. Now repeat the experiment with the history layer, but before you do that, add the user prompts to it for both entire-cli and podcasts.
+
+---
+
+Ok, go with #1.
