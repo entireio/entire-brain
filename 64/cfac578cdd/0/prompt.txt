@@ -1644,3 +1644,27 @@ fix
   conservative; rename/doc only.
   - No file lock for concurrent watchers (single daemon is safe); CV reported for
   condition arm only; WS4 fan-out covered transitively. All LOW.; and run full stabel panel etc
+
+---
+
+stop it and make pr; and make messgae discord for thoams on the pr shor consie; etc
+
+---
+
+fix; Reviewed the four features — clean, well-factored, and unusually well-tested (the injected watchSteps/repoTick seams make the gating logic verifiable without real refresh/distill, and the Holm-gated stability gate is carefully "downgrade-only"). One substantive issue and a few minor notes below.
+
+Please address: --seed-agent spends tokens outside the --budget/--distill-every gate
+The headline invariant is "the deterministic refresh spends ZERO agent tokens … you opt into token spend explicitly and bound it." That holds for the default (seedAgent: "none"), but breaks when --seed-agent codex|claude-code is set:
+
+internal/cli/watch.go:1045 wires seed.agent = w.seedAgent into watchDeterministicRefresh, so seed synthesis runs as part of the refresh, which fires on every fingerprint change.
+The bounding only covers distill: watchShouldDistill gates --distill/--distill-every/--budget, and the budget counter *agentCalls++ advances only after a successful distill (watch.go:980). Seed synthesis is never counted or throttled.
+Net effect: entire brain watch --seed-agent codex (no --distill) spends agent tokens on every commit/checkpoint change, ignoring --budget and --distill-every — the exact surprise the feature is meant to prevent. The README also files --seed-agent under the --distill bullet, implying it's bound the same way.
+
+Suggest either (a) route seed synthesis through the same interval/budget gate as distill, or (b) explicitly document that --seed-agent is per-change, unbounded spend not covered by --budget/--distill-every. A test on this token path would also close the one untested seam.
+
+Minor (non-blocking)
+Transient distill failure is swallowed until the next change. In watchTick (watch.go:969-984) a successful refresh advances cursor.LastFingerprint before distill runs; if distill then fails, the next tick sees no change and short-circuits, so distill isn't retried until the next fingerprint-changing event. Probably fine for a best-effort step — worth a one-line comment so it reads as intentional.
+--effort for claude-code assumes a claude --effort <e> flag exists (distill.go:590). The codex --config model_reasoning_effort= form is well-established; please confirm the installed claude CLI actually accepts --effort, or that path fails on every gated call.
+HEAD in the fingerprint means a deterministic (token-free) refresh on every commit; on an active repo with a short --interval the semantic reindex can be CPU/IO-heavy. Worth a note in the "one watcher per repo" guidance.
+Trivial: comparison_stability recomputes metric_values(base_records, ["score","total"]) for ..._score_baseline (run.py:263) instead of reusing the existing local.
+Otherwise LGTM — happy to approve once the --seed-agent bounding is reconciled (gated or documented).
