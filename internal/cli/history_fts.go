@@ -194,6 +194,11 @@ func rankHistoryViaFTS(brainDir string, index historyIndex, kind, query string, 
 			args = append(args, k)
 		}
 		sb.WriteString(" AND kind IN (" + strings.Join(placeholders, ",") + ")")
+	} else {
+		// User-prompt records add noise to general ranking (measured: they displace
+		// relevant content without improving recall). Surface them only via the
+		// explicit `requests` kind, not the broad history/sessions sweep.
+		sb.WriteString(" AND kind != 'request'")
 	}
 	sb.WriteString(" ORDER BY bm25(history_fts) LIMIT ?")
 	args = append(args, limit*4) // over-fetch so summary dedup still fills limit

@@ -31,7 +31,8 @@ const (
 	// historyScanCacheVersion gates reuse of cached per-file scan results.
 	// Bump it whenever the history record extraction/classification logic
 	// changes so stale cached records are discarded on the next refresh.
-	historyScanCacheVersion = 1
+	// v2: index user prompts as "request" records.
+	historyScanCacheVersion = 2
 )
 
 type historySourceManifest struct {
@@ -44,6 +45,7 @@ type historySourceManifest struct {
 	Validations         int       `json:"validations"`
 	ToolCalls           int       `json:"tool_calls"`
 	CodeFacts           int       `json:"code_facts"`
+	Requests            int       `json:"requests"`
 	Warnings            []string  `json:"warnings,omitempty"`
 }
 
@@ -267,6 +269,8 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 			source.ToolCalls++
 		case "code_fact":
 			source.CodeFacts++
+		case "request":
+			source.Requests++
 		}
 	}
 	return index, source, nil
@@ -428,6 +432,24 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 		if text == "" {
 			continue
 		}
+		// User prompts get their own extraction path, ahead of the narrative
+		// keyword filter, so a plain request ("add a subcommand") is not dropped
+		// for lacking decision/learning vocabulary. They anchor a session in the
+		// user's own words — the register agent task queries arrive in.
+		for _, fragment := range extractUserRequestFragments(text) {
+			ft := strings.TrimSpace(fragment.Text)
+			if ft == "" {
+				continue
+			}
+			records = append(records, historyRecord{
+				ID:      historyRecordID(rel, lineNumber, "request", ft),
+				Kind:    "request",
+				Path:    rel,
+				Line:    lineNumber,
+				Summary: truncateString(cleanHistorySummary(ft), 700),
+				Terms:   historyTerms(ft),
+			})
+		}
 		if !historyLineMayContainIndexedContent(text) {
 			continue
 		}
@@ -460,6 +482,75 @@ func extractHistoryFragments(line string, allowRawText bool) []historyFragment {
 		return []historyFragment{{Text: line, Source: "text"}}
 	}
 	return extractHistoryJSONFragments(obj)
+}
+
+// extractUserRequestFragments pulls the human's prompt text from a transcript
+// line across codex and claude formats, as "user_request" fragments. It runs
+// before the narrative keyword filter and deliberately skips tool results (which
+// also arrive under role "user" in Claude) and tool calls, so only the user's
+// actual requests are indexed.
+func extractUserRequestFragments(line string) []historyFragment {
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(line), &obj); err != nil {
+		return nil
+	}
+	switch jsonString(obj["type"]) {
+	case "event_msg": // codex
+		payload := jsonMap(obj["payload"])
+		if jsonString(payload["type"]) == "user_message" {
+			return userRequestFragment(jsonString(payload["message"]))
+		}
+	case "response_item": // codex
+		payload := jsonMap(obj["payload"])
+		if jsonString(payload["type"]) == "message" && jsonString(payload["role"]) == "user" {
+			return userRequestFragment(userTextFromContent(payload["content"]))
+		}
+	case "user": // claude
+		message := jsonMap(obj["message"])
+		if message != nil {
+			return userRequestFragment(userTextFromContent(message["content"]))
+		}
+		return userRequestFragment(userTextFromContent(obj["content"]))
+	}
+	return nil
+}
+
+func userRequestFragment(text string) []historyFragment {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	return []historyFragment{{Text: text, Source: "user_request"}}
+}
+
+// userTextFromContent extracts human text from a message content value, skipping
+// tool_result/tool_use blocks (not user prompts). Content is either a plain
+// string or an array of typed blocks.
+func userTextFromContent(content any) string {
+	switch v := content.(type) {
+	case string:
+		return v
+	case []any:
+		var parts []string
+		for _, item := range v {
+			block := jsonMap(item)
+			if block == nil {
+				if s := jsonString(item); s != "" {
+					parts = append(parts, s)
+				}
+				continue
+			}
+			switch jsonString(block["type"]) {
+			case "tool_result", "tool_use":
+				continue
+			default:
+				if s := jsonString(block["text"]); s != "" {
+					parts = append(parts, s)
+				}
+			}
+		}
+		return strings.Join(parts, " ")
+	}
+	return ""
 }
 
 func extractHistoryJSONFragments(obj map[string]any) []historyFragment {
@@ -987,6 +1078,10 @@ func rankHistoryRecordsScored(index historyIndex, kind, query string, limit, min
 			if _, ok := allowed[record.Kind]; !ok {
 				continue
 			}
+		} else if record.Kind == "request" {
+			// Keep user-prompt records out of general ranking (they add noise);
+			// they surface only via the explicit `requests` kind.
+			continue
 		}
 		score := historyRecordQueryScoreMin(record, query, minMatches)
 		if score == 0 {
@@ -1177,6 +1272,8 @@ func historyKindRank(kind string) int {
 	switch kind {
 	case "decision":
 		return 40
+	case "request":
+		return 34
 	case "architecture":
 		return 32
 	case "code_fact":

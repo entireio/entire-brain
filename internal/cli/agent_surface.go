@@ -477,7 +477,7 @@ func newBrainInspectCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newInspectImpactCommand(opts))
 	cmd.AddCommand(newInspectChangesCommand(opts))
 	cmd.AddCommand(newInspectTestsCommand(opts))
-	for _, kind := range []string{"decisions", "history", "sessions", "validation", "tool-paths", "architecture"} {
+	for _, kind := range []string{"decisions", "requests", "history", "sessions", "validation", "tool-paths", "architecture"} {
 		cmd.AddCommand(newInspectHistoryCommand(opts, kind))
 	}
 	cmd.AddCommand(newInspectBoundariesCommand(opts))
@@ -2216,6 +2216,8 @@ func historyInspectKinds(kind string) map[string]struct{} {
 	switch kind {
 	case "decisions":
 		return map[string]struct{}{"decision": {}}
+	case "requests":
+		return map[string]struct{}{"request": {}}
 	case "validation":
 		return map[string]struct{}{"validation": {}}
 	case "tool-paths":

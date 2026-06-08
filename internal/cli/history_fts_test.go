@@ -95,6 +95,35 @@ func TestHistoryFTSKindFilter(t *testing.T) {
 	}
 }
 
+// TestHistoryFTSRequestGating verifies user-prompt ("request") records are kept
+// out of general history ranking (they add noise) but surface via the explicit
+// `requests` kind.
+func TestHistoryFTSRequestGating(t *testing.T) {
+	brainDir := t.TempDir()
+	index := historyIndex{
+		GeneratedAt: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		Records: []historyRecord{
+			{ID: "d1", Kind: "decision", Path: "sessions/main/20260601T000000Z_a.jsonl", Line: 1,
+				Summary: "We chose FTS5 BM25 for history ranking."},
+			{ID: "r1", Kind: "request", Path: "sessions/main/20260601T000000Z_a.jsonl", Line: 2,
+				Summary: "How does history ranking work, should we use BM25?"},
+		},
+	}
+	general, ok := rankHistoryViaFTS(brainDir, index, "history", "history ranking bm25", 25)
+	if !ok {
+		t.Fatal("general ok=false")
+	}
+	for _, s := range general {
+		if s.Record.Kind == "request" {
+			t.Fatalf("request record leaked into general history ranking: %v", ftsExcerpts(general))
+		}
+	}
+	reqs, ok := rankHistoryViaFTS(brainDir, index, "requests", "history ranking bm25", 25)
+	if !ok || len(reqs) == 0 || reqs[0].Record.ID != "r1" {
+		t.Fatalf("requests kind should surface r1, got ok=%v %v", ok, ftsExcerpts(reqs))
+	}
+}
+
 // TestHistoryFTSRebuildDeterministic verifies the derived index is a rebuildable
 // artifact: a second open over the same truth returns identical ranking.
 func TestHistoryFTSRebuildDeterministic(t *testing.T) {
