@@ -1,0 +1,5 @@
+Hm, keeping inspect <kind> seems like you ignored what I wanted. Explain how and when a coding agent would use each of them.
+
+---
+
+Yes, cut the 9. Bucket A has 3 without MCP mapping. How would you call those?
