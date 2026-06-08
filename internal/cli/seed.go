@@ -1400,8 +1400,14 @@ func validateSeedAgentOutput(out seedAgentOutput, phase string) error {
 	if out.SchemaVersion != 1 {
 		return fmt.Errorf("agent %s output has unsupported schema_version %d", phase, out.SchemaVersion)
 	}
-	if out.Status != "success" {
-		return fmt.Errorf("agent %s output status %q is not success", phase, out.Status)
+	// status is the agent's self-reported outcome; accept any non-failure value
+	// (models reasonably emit "success", "ok", "complete", …) because the artifact
+	// set is validated separately and is the real success signal. Only an explicit
+	// failure status is rejected — gating on the exact string "success" made
+	// synthesis flaky (codex models returned "ok" and were wrongly rejected).
+	switch strings.ToLower(strings.TrimSpace(out.Status)) {
+	case "error", "fail", "failed", "failure":
+		return fmt.Errorf("agent %s output reported failure status %q", phase, out.Status)
 	}
 	return nil
 }
@@ -1457,6 +1463,7 @@ func seedAgentCommandArgs(repoDir, phase string, opts seedCommandOptions) ([]str
 func seedAgentPrompt(phase string) string {
 	required := strings.Join(seedAgentRequiredArtifacts(phase), ", ")
 	common := fmt.Sprintf(`Read the JSON seed packet on stdin and return only raw JSON with keys schema_version, status, model, artifacts, and warnings.
+schema_version must be the integer 1 and status must be the string "success".
 artifacts must be an object whose keys are artifact filenames and values are markdown content.
 For phase %q, artifacts must include exactly these required filenames: %s.
 Do not include markdown fences or prose outside the JSON object.
