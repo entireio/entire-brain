@@ -1,0 +1,29 @@
+Got it, I am not worried about the real store, it's mostly experimental anyway. Assuming seed works correctly now (did you run it with --agent ?), why would you not index the .md files just like QMD does?
+
+---
+
+<task-notification>
+<task-id>bjuzg9xjv</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/93850a3b-823a-4400-affb-afd0a1ad0282/tasks/bjuzg9xjv.output</output-file>
+<status>completed</status>
+<summary>Background command "Refresh seeds (codex) on real store for both repos" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Ok, add that as task #7. One other question: QMD has three commands for querying - search, vsearch, and query - as well as get and multi-get. All of them take a --json parameter. How does this compare to our command structure?
+
+---
+
+Ok, task #8 is then to refactor the command structure: offer the same commands as QMD; adapt the MCP server accordingly. Keep the specialised calls as fallback if distillation hasn't been run, but review how many of those you really need. For each command, give me an explanation how you as coding agent would use it, which layer it queries, and if it's exposes in the MCP server.
+
+---
+
+1) I want the same verbs as qmd.
+2) Yes
+Suggest on how you sequence all remaining tasks.
+
+---
+
+/goal Implement phases 0, 1, 2, and 3. Check your work based on the podcast and entire-brain brains. Commit/push at least after each phase. When done with all phases, validate the results with the brain for entire-cli (3077 distilled facts). Don't stop halfway, I will be sleeping. If you need a decision, follow your own recommendation and summarize those decisions at the end.
