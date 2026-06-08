@@ -1,0 +1,74 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "92911ce7dd03",
+  "session_id": "93850a3b-823a-4400-affb-afd0a1ad0282",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-08T10:23:05.123592Z",
+  "branch": "feat/stage1b-transformer-embedder",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/embed.go",
+    "internal/cli/embed_ollama.go",
+    "internal/cli/embed_rank.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "832842b61825",
+  "checkpoint_transcript_start": 1162,
+  "transcript_lines_at_start": 1162,
+  "token_usage": {
+    "input_tokens": 2451,
+    "cache_creation_tokens": 66723,
+    "cache_read_tokens": 15318619,
+    "output_tokens": 58832,
+    "api_call_count": 44
+  },
+  "session_metrics": {
+    "turn_count": 22
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-08T10:23:05.087971Z",
+    "agent_lines": 115,
+    "agent_removed": 1,
+    "human_added": 54,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 169,
+    "total_lines_changed": 170,
+    "agent_percentage": 68.23529411764706,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 1,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/scheduled_tasks.lock": 1
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 109,
+      "agent_lines_removed": 1
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 109,
+      "agent_lines_removed": 1
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 116,
+      "agent_lines_removed": 1
+    }
+  ]
+}

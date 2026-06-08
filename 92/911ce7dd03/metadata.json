@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "92911ce7dd03",
+  "strategy": "manual-commit",
+  "branch": "feat/stage1b-transformer-embedder",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/embed.go",
+    "internal/cli/embed_ollama.go",
+    "internal/cli/embed_rank.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/92/911ce7dd03/0/metadata.json",
+      "transcript": "/92/911ce7dd03/0/full.jsonl",
+      "content_hash": "/92/911ce7dd03/0/content_hash.txt",
+      "prompt": "/92/911ce7dd03/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 2451,
+    "cache_creation_tokens": 66723,
+    "cache_read_tokens": 15318619,
+    "output_tokens": 58832,
+    "api_call_count": 44
+  }
+}
