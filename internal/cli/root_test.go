@@ -103,7 +103,7 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	for _, want := range []string{
 		"ENTIRE_PLUGIN_DATA_DIR=<unset>",
 		"plugin config dir: writable (" + filepath.Join(xdg, "config", "entire") + ")",
-		"plugin data dir: writable (" + filepath.Join(xdg, "data", "entire") + ")",
+		"plugin data dir: writable (" + filepath.Join(xdg, "data", "entire", "plugins", "data", pluginDataName) + ")",
 		"plugin state dir: writable (" + filepath.Join(xdg, "state", "entire") + ")",
 		"plugin cache dir: writable (" + filepath.Join(xdg, "cache", "entire") + ")",
 	} {
