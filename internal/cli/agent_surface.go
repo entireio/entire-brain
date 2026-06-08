@@ -2163,15 +2163,20 @@ func inspectBrainHistoryIndex(brainDir, kind, query string, relax bool) (brainHi
 		BrainPath:  brainDir,
 		Scanned:    len(index.Records),
 	}
-	// All specialist kinds now go through the tokenized ranker, so a
-	// natural-language question ("why did we choose supabase for the queue")
-	// matches on overlapping terms instead of requiring the whole phrase as a
-	// literal substring. When the strict pass finds nothing and --relax is set,
-	// retry with a single-term threshold and flag the result as partial.
-	scored := rankHistoryRecordsScored(index, kind, query, brainInspectHistoryMaxHits, 0)
-	if len(scored) == 0 && relax {
-		scored = rankHistoryRecordsScored(index, kind, query, brainInspectHistoryMaxHits, 1)
-		report.Partial = len(scored) > 0
+	// Rank with the derived BM25 index: IDF-weighted term scoring surfaces a
+	// natural-language question's relevant records ("reasons we picked one
+	// embedding approach") without the hard term-coverage gate the substring
+	// scorer needed, while honest empties (no query term present) still return
+	// nothing. The index is an optimization — on any failure rankHistoryViaFTS
+	// returns ok=false and we fall back to the substring scorer, whose --relax
+	// path keeps its single-term threshold and partial flag.
+	scored, ok := rankHistoryViaFTS(brainDir, index, kind, query, brainInspectHistoryMaxHits)
+	if !ok {
+		scored = rankHistoryRecordsScored(index, kind, query, brainInspectHistoryMaxHits, 0)
+		if len(scored) == 0 && relax {
+			scored = rankHistoryRecordsScored(index, kind, query, brainInspectHistoryMaxHits, 1)
+			report.Partial = len(scored) > 0
+		}
 	}
 	for _, item := range scored {
 		report.Matches = append(report.Matches, historyScoredRecordTextMatch(item, query))
