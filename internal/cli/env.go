@@ -32,6 +32,12 @@ const (
 	xdgRootDir        = "entire"
 	repoStoreDirName  = "repos"
 	brainHeadFileName = "head.json"
+
+	// pluginDataName is this plugin's namespace under the host's plugin data
+	// root. The host dispatches the brain with ENTIRE_PLUGIN_DATA_DIR set to
+	// <xdg_data>/entire/plugins/data/brain; run standalone (dev), we mirror that
+	// suffix so the binary targets the real brain store, not a shadow one.
+	pluginDataName = "brain"
 )
 
 var repoKeyUnsafeChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
@@ -82,6 +88,14 @@ func resolvePluginDirs(env EntireEnv) (pluginDirs, error) {
 	dataDir, err := resolveXDGDir(env.PluginDataDir, envPluginDataDir, xdgDataHome, filepath.Join(".local", "share", xdgRootDir))
 	if err != nil {
 		return pluginDirs{}, fmt.Errorf("resolve plugin data dir: %w", err)
+	}
+	if env.PluginDataDir == "" {
+		// No host-supplied data dir (standalone/dev run). Mirror the host's
+		// plugin-data layout — <xdg_data>/entire/plugins/data/brain — so the brain
+		// resolves to the same store the installed plugin uses rather than a shadow
+		// XDG store. Only the data dir is namespaced; the host leaves config/state/
+		// cache unset, so their XDG fallbacks already match.
+		dataDir = filepath.Join(dataDir, "plugins", "data", pluginDataName)
 	}
 	stateDir, err := resolveXDGDir(env.PluginStateDir, envPluginStateDir, xdgStateHome, filepath.Join(".local", "state", xdgRootDir))
 	if err != nil {

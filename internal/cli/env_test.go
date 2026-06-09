@@ -52,7 +52,10 @@ func TestResolvePluginDirsUsesXDGDefaultsUnderEntireRoot(t *testing.T) {
 	if dirs.Config != filepath.Join(xdg, "config", "entire") {
 		t.Fatalf("Config = %q", dirs.Config)
 	}
-	if dirs.Data != filepath.Join(xdg, "data", "entire") {
+	// Data mirrors the host's plugin-data namespace so a standalone/dev run hits
+	// the real brain store; config/state/cache stay at the bare XDG root (the host
+	// leaves those env vars unset too).
+	if dirs.Data != filepath.Join(xdg, "data", "entire", "plugins", "data", pluginDataName) {
 		t.Fatalf("Data = %q", dirs.Data)
 	}
 	if dirs.State != filepath.Join(xdg, "state", "entire") {
