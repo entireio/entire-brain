@@ -96,6 +96,29 @@ facts the `facts` field is empty until facts are distilled or `promote`d onto it
 Appendix D's "merged knowledge graduates to a code locus, visible regardless of
 branch" is the larger fix and is not in B2.
 
+### B3 — synthesized hierarchical outline (landed)
+
+`facts/<branch>/outline.json` — a locus-tiered tree (`internal/cli`, `docs`, …)
+built deterministically from the facts' loci; cross-cutting and non-file facts
+home at the root. `facts outline` fills each node with a one-sentence agent
+rollup summary, **incremental** by a bottom-up subtree fingerprint (only changed
+subtrees re-summarize), gated on `--model`/`--effort`/`--budget`, best-effort
+(a failed call leaves a node unsummarized), and `--agent none` builds
+structure-only with zero tokens. `facts map [--path --depth]` renders it
+summary-first with progressive disclosure; it **always rebuilds the structure
+from live facts** and overlays a stored summary only when the node fingerprint
+still matches, so the map is never structurally stale and no outline run is
+required to see it.
+
+**On the live `main` corpus (948 facts):** 31 nodes; the only deep tier is
+`internal/cli` (48 facts) — **most facts (≈880) home at the root** because their
+text names no concrete source file. So the locus tiering is honest but **shallow
+on this corpus**: durable facts here are mostly conceptual/cross-cutting, not
+file-anchored. That's a real input-quality signal for B4 — the outline's value
+depends on facts carrying a code locus, which the current distilled corpus often
+lacks. A taxonomy-fallback tier (group rootless facts by category) is a candidate
+enhancement if the eval wants more structure.
+
 ## Branch topology
 
 - **Base work (merged):** `claude/durable-facts-and-distill` landed via **PR #5**.

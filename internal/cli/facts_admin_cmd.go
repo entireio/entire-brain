@@ -25,6 +25,8 @@ func newFactsCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newFactsRetractCommand(opts))
 	cmd.AddCommand(newFactsGCCommand(opts))
 	cmd.AddCommand(newFactsReclassifyCommand(opts))
+	cmd.AddCommand(newFactsOutlineCommand(opts))
+	cmd.AddCommand(newFactsMapCommand(opts))
 	return cmd
 }
 
@@ -353,6 +355,116 @@ func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir, branch strin
 		}
 	}
 	return nil
+}
+
+func newFactsOutlineCommand(opts Options) *cobra.Command {
+	var (
+		gen     outlineGenOptions
+		branch  string
+		jsonOut bool
+	)
+	gen.agent = "auto"
+	gen.minFacts = 2
+	cmd := &cobra.Command{
+		Use:   "outline",
+		Short: "Generate the synthesized hierarchical fact outline (agent rollup summaries)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			if err != nil {
+				return err
+			}
+			facts, err := loadFacts(brainDir, resolvedBranch)
+			if err != nil {
+				return err
+			}
+			resolved := gen
+			if resolved.agent == "auto" {
+				resolved.agent = defaultRefreshAgent(cmd.Context(), opts.Runner, repoDir)
+			}
+			now := opts.Now().UTC()
+			outline, regenerated, err := generateFactOutline(cmd.Context(), repoDir, brainDir, resolvedBranch, facts, resolved, now)
+			if err != nil {
+				return err
+			}
+			if err := writeFactOutline(brainDir, resolvedBranch, outline); err != nil {
+				return err
+			}
+			if jsonOut {
+				return writeJSON(cmd, map[string]any{"branch": resolvedBranch, "nodes": len(outline.Nodes), "regenerated": regenerated})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "outline for %s: %d node(s), %d summary(ies) regenerated\n", resolvedBranch, len(outline.Nodes), regenerated)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch to outline (default: current branch)")
+	cmd.Flags().StringVar(&gen.agent, "agent", "auto", "Agent for summaries: auto, codex, claude-code, command, or none")
+	cmd.Flags().StringArrayVar(&gen.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
+	cmd.Flags().StringVar(&gen.model, "model", "", "Override the agent model (pairs with --effort for a cheap run)")
+	cmd.Flags().StringVar(&gen.effort, "effort", "", "Override the reasoning effort for codex/claude-code")
+	cmd.Flags().IntVar(&gen.budget, "budget", 0, "Max agent summary calls this run (0 = unlimited)")
+	cmd.Flags().IntVar(&gen.minFacts, "min-facts", 2, "Skip nodes whose subtree has fewer facts than this")
+	cmd.Flags().BoolVar(&gen.force, "force", false, "Re-summarize every node, ignoring unchanged fingerprints")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the outline summary as JSON")
+	return cmd
+}
+
+func newFactsMapCommand(opts Options) *cobra.Command {
+	var (
+		branch  string
+		path    string
+		depth   int
+		jsonOut bool
+	)
+	cmd := &cobra.Command{
+		Use:   "map",
+		Short: "Render the synthesized fact outline (summaries + structure) with progressive disclosure",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			if err != nil {
+				return err
+			}
+			// Always rebuild the structure from the live facts (it is deterministic
+			// and never stale), then overlay stored summaries only where the node's
+			// fingerprint still matches — so a summary for a changed subtree is
+			// hidden rather than shown stale, and no `facts outline` run is required
+			// to see the map.
+			facts, err := loadFacts(brainDir, resolvedBranch)
+			if err != nil {
+				return err
+			}
+			outline := buildFactOutlineTree(resolvedBranch, facts, opts.Now().UTC())
+			if stored, storedErr := loadFactOutline(brainDir, resolvedBranch); storedErr == nil {
+				for key, n := range outline.Nodes {
+					if s, ok := stored.Nodes[key]; ok && s.Fingerprint == n.Fingerprint && s.Summary != "" {
+						n.Summary = s.Summary
+						outline.Nodes[key] = n
+					}
+				}
+			}
+			node := path
+			if _, ok := outline.Nodes[node]; !ok {
+				return fmt.Errorf("no outline node %q on %s", path, resolvedBranch)
+			}
+			if jsonOut {
+				return writeJSON(cmd, outline)
+			}
+			var b strings.Builder
+			renderFactOutline(&b, outline, node, depth)
+			if b.Len() == 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "no facts on %s\n", resolvedBranch)
+				return nil
+			}
+			fmt.Fprint(cmd.OutOrStdout(), b.String())
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch to map (default: current branch)")
+	cmd.Flags().StringVar(&path, "path", "", "Drill into a node key (a directory tier, e.g. internal/cli)")
+	cmd.Flags().IntVar(&depth, "depth", 0, "Levels to render below the node (0 = all)")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the outline as JSON")
+	return cmd
 }
 
 func runFactsGC(cmd *cobra.Command, opts Options, brainDir, branch string, force bool, retain time.Duration, jsonOut bool) error {
