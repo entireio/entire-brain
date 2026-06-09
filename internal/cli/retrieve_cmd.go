@@ -112,6 +112,11 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	if err != nil {
 		return err
 	}
+	// Normalize empty collections to [] so --json emits arrays, not null, matching
+	// the repo's JSON contract (see TestInspectCodeEmptyResultsEmitArrayNotNull).
+	if found == nil {
+		found = []unifiedResult{}
+	}
 	if missing == nil {
 		missing = []string{}
 	}
