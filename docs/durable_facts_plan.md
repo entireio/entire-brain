@@ -3,15 +3,16 @@
 This plan describes how Entire Brain can grow from a read-only derivation layer
 over captured sessions into a curated, branch-aware, blameable **durable fact
 memory** — without abandoning the property that makes Entire's data trustworthy:
-every fact is a view over retained, signed source, not a standalone artifact you
-have to trust.
+every fact is a view over retained session/checkpoint source, not a standalone
+artifact you have to trust.
 
 Entire already captures more raw context than most agent-memory systems: full
 session transcripts, checkpoints tied to commits, multiple agents, rewind and
 resume. Entire Brain already *derives* read-only history records and decisions
 from that corpus. What is missing is a distilled, deduplicated, agent-writable
 fact layer that survives across sessions, is scoped to a branch, and can be
-traced back to the exact signed turn it came from.
+traced back to retained anchors today. Full cryptographic turn-level proof still
+depends on future Entire CLI turn signing.
 
 ## Core Principle: Derive And Cite, Never Extract And Discard
 
@@ -40,10 +41,11 @@ already anchors the source; the brain only has to cite it.
 - Add a batch `distill` pass that turns captured Entire sessions into durable
   facts under a strict quality gate, instead of relying on per-turn capture.
 - Classify facts into a stable, shallow taxonomy so `brief`, `recall`, and
-  `inspect decisions` stay precise as the corpus grows.
+  unified `search` / `query` results stay precise as the corpus grows.
 - Scope facts to a branch and promote/merge them when the code branch merges.
-- Give every fact provenance: blame to the originating signed turn, and verify
-  against the existing checkpoint signature.
+- Give every fact provenance: blame to retained session/checkpoint anchors, with
+  local verification now and cryptographic turn verification after CLI-side turn
+  signing lands.
 - Add embedding-based recall over the fact layer only (a small, high-value
   corpus), keeping the brain's "not a code vector DB" stance intact.
 
@@ -105,10 +107,12 @@ classifier may invent a new *three-level* path only under an existing top-level
 category. User-extendable top-level categories are a later phase. The brain owns
 `taxonomy.json` and regenerates it from the embedded default on `refresh`.
 
-Classification is performed by the seed agent (Codex, then Claude Code) as part
-of distillation — it is not a separate deterministic step. The no-agent path
-does not classify or distill at all (see Distillation Model); it leaves the
-deterministic decision extractor as the fallback knowledge source.
+Classification is performed by the selected fact agent as part of distillation
+or authored `remember` classification — it is not a separate deterministic step.
+`auto` prefers Codex, then Claude Code, while `command` and loopback `ollama`
+support local deployments. The no-agent path does not classify or distill at all
+(see Distillation Model); it leaves the deterministic decision extractor as the
+fallback knowledge source.
 
 Taxonomy drift is handled conservatively. Facts store their assigned paths
 literally. If the taxonomy changes between runs and a fact's top-level category
@@ -129,7 +133,7 @@ ontology to retrieval.
 The brain is not exposed to that failure mode, for a structural reason rather
 than a clever one: **classification happens on a derived view, never on the
 system of record.** The signed transcript is retained in full, so a fact's path
-is only ever a current best label over ground truth that is still present. When
+is only ever a current best label over retained source that is still present. When
 the taxonomy changes, when a path proves wrong, or when a later session reframes
 an earlier decision, re-distillation re-derives the fact and re-paths it from the
 source; because the id is content-derived, the corrected fact replaces the old
@@ -169,9 +173,11 @@ to bound cost and to make turn-level provenance free.
   per-turn LLM call is needed. One agent invocation per chunk means a full
   rebuild is on the order of the session count (~hundreds of calls), not the
   turn count (tens of thousands).
-- **Agent required.** Distillation needs the seed agent (Codex, then Claude
-  Code). With no agent, `distill` is a no-op and the deterministic decision
-  extractor remains the knowledge source (see Decisions Are Distilled Facts).
+- **Agent required.** Distillation needs an explicit fact agent (`codex`,
+  `claude-code`, `command`, or loopback `ollama`; `auto` chooses a local CLI
+  when available). With `--agent none`, `distill` is a no-op and the
+  deterministic decision extractor remains the knowledge source (see Decisions
+  Are Distilled Facts).
 - **Incremental by default; full rebuild only on `--force`.** Incremental runs
   skip sessions whose fingerprint is unchanged (reusing the history index's
   session-fingerprint approach). `refresh --force` / `distill --force` recompute
@@ -187,8 +193,8 @@ to bound cost and to make turn-level provenance free.
 ## Commands (Entire Brain)
 
 - `entire brain remember "<fact>" [--path <a.b.c>] [--branch <b>]` — author a
-  fact. Without `--path`, the seed agent classifies it; with no agent, `--path`
-  is required. Records `origin=authored`. Provenance points at the current HEAD
+  fact. Without `--path`, the selected fact agent classifies it; with no agent,
+  `--path` is required. Records `origin=authored`. Provenance points at the current HEAD
   checkpoint when one exists; if HEAD has no checkpoint (dirty worktree, capture
   off), the anchor records the commit only and the fact is still stored.
 - `entire brain recall "<query>" [--branch <b>] [--k N] [--scope
@@ -233,8 +239,10 @@ Shipped beyond the original Phase A list, from the Appendix D fact-quality work:
   per-stratum precision/recall/useful-per-1k metrics, and a paired t-test with
   Holm correction for honest A/Bs.
 
-`entire brain verify` is Phase B (see Phasing): full anchor verification needs
-the turn-level signed anchors from Entire CLI change #1.
+`entire brain verify` now performs local retained-source verification at the
+granularity available in the brain export: checkpoint/session/transcript/line
+anchors. Full cryptographic turn verification remains Phase B and needs the
+turn-level signed anchors from Entire CLI change #1.
 
 `brief` includes the top matching `active` facts for the task in a section
 separated from derived history, sized to the requested `--limit` so a compact
@@ -391,14 +399,13 @@ routed to `facts review`, exactly as a low-confidence supersession is today.
 
 ## Freshness And Provenance Reporting
 
-Fact freshness reuses the existing freshness model. A fact whose originating
-commit is no longer reachable in local refs is surfaced in `status` and
-downgraded in `brief`. Phase A reports anchors at checkpoint granularity only;
-cryptographic per-anchor results (`verified` / `unsigned` / `tampered`) arrive
-with `verify` in Phase B once turn-level signed anchors exist. Until then the
-brain never claims `tampered` — an anchor it cannot cryptographically check is
-reported `unsigned`, so the absence of turn-level signing never produces a false
-tamper signal.
+Fact freshness reuses the existing freshness model. A fact whose retained source
+anchor is no longer available locally is surfaced in `status`, `verify`, and
+downgraded in `brief`. The shipped `verify` command reports checkpoint/export
+granularity verdicts (`verified`, `stale`, `orphaned`, `unverifiable-here`).
+Cryptographic turn-level results arrive later with Entire CLI turn signing; until
+then the brain reports that limitation explicitly instead of claiming tamper
+proof it cannot perform.
 
 ## Phasing
 
@@ -408,9 +415,9 @@ tamper signal.
 > integration. Several Appendix D structural pieces also shipped: `facts tree`,
 > scope tiering and code-locus ranking (`recall --scope`), agent query expansion
 > (`recall --expand`), and the evaluation harness (`eval-gen`/`eval`/
-> `eval-compare`). Still open: embeddings (Phase D, pending a local backend), the
-> synthesized hierarchy summaries, and turn-level signing (Phase B, needs Entire
-> CLI changes).
+> `eval-compare`). The local embedding backend for semantic recall has shipped;
+> still open: synthesized hierarchy summaries and turn-level signing (Phase B,
+> needs Entire CLI changes).
 >
 > **Query expansion — resolved (negative).** The early "medium, consistent
 > effect (Cohen's d ~0.47)" was a small-sample artifact of the n≈8 entire-brain
@@ -626,9 +633,10 @@ type factPathDef struct {
 
 Each `distill` fact records one or more `factAnchor`s at checkpoint granularity,
 drawn from the session manifest the brain already exports (`session_id`,
-`commit`, `checkpoint_id`, `transcript_path`, and the line offset of the source
-turn within the transcript). The line offset is captured in Phase A even though
-the cryptographic turn anchor is not — so when Entire CLI change #1 lands,
+`checkpoint_id`, `transcript_path`, and the line offset of the source turn within
+the transcript). Authored facts may also record the current commit when no
+session/checkpoint source is retained. The line offset is captured in Phase A
+even though the cryptographic turn anchor is not — so when Entire CLI change #1 lands,
 existing facts already point at the right turn. In Phase A `inspect blame`
 displays these anchors and `status`/`facts gc` flag facts whose commit is no
 longer reachable in local refs. There is no `verify` command and no `tampered`
@@ -641,20 +649,20 @@ signing never produces a false tamper signal.
 |---|---|---|
 | `remember` | `taxonomy.json` | one `factRecord` (`origin=authored`) |
 | `distill` | session transcripts, existing `facts.ndjson`, `taxonomy.json` | new/merged `factRecord`s (`origin=distilled`), `factSourceManifest` |
-| `recall` / `inspect facts` | `facts.ndjson` (+ embeddings, Phase D) | — |
+| `recall` / `inspect facts` | `facts.ndjson` (+ local embeddings) | — |
 | `inspect blame` | `facts.ndjson` | — |
 | `facts review` | `facts.ndjson` (pending proposals) | resolved `Status` / `SupersededBy` |
 | `facts promote` | source + target `facts.ndjson` | merged target `facts.ndjson` |
 | `facts gc` | `facts.ndjson`, `taxonomy.json`, local git refs | pruned `facts.ndjson` |
-| `verify` *(Phase B)* | `facts.ndjson`, signatures | `Verified` flag on anchors |
+| `verify` | `facts.ndjson`, exported sessions/checkpoints/transcripts | local per-fact verdicts; turn-signature limitations reported explicitly |
 
 ## Appendix B: The Distill Prompt
 
 The distillation quality gate is shipped as a template under `templates/`,
 parallel to the existing intake templates, and is rendered with the active
-taxonomy block before being passed to the seed agent (Codex, then Claude Code).
-The no-agent path applies the same gate as a deterministic keyword filter. The
-full template is `templates/entire-brain-distill.md`.
+taxonomy block before being passed to the selected fact agent. The no-agent path
+does not distill; it keeps deterministic decision extraction as the fallback
+knowledge source. The full template is `templates/entire-brain-distill.md`.
 
 ## Appendix C: Known Limitations And Sharp Edges (Phase A)
 
@@ -735,7 +743,7 @@ around it is the problem.
 
 ### Two audiences, two hard constraints
 
-1. **Agents are the primary consumer.** The metric is *useful facts surfaced per
+1. **Agents are the primary consumer.** The metric is *useful retained facts per
    task within a token budget*, not total facts. Volume is a cost, not a virtue.
    Retrieval must return a small, deduped set scoped to the code being touched.
 2. **Humans are a secondary consumer who will not read thousands.** They need

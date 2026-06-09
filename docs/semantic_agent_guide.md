@@ -6,13 +6,13 @@ of the answer, not as decoration.
 Recommended intake flow:
 
 1. Run `entire brain stale --json` and check `severity`.
-2. Use `entire brain query <symbol> --json --limit 20 --offset 0` to find
+2. Use `entire brain inspect code <symbol> --json --limit 20 --offset 0` to find
    candidate symbols.
-3. Use `entire brain context <symbol> --json --include-content=false` for
+3. Use `entire brain inspect context <symbol> --json --include-content=false` for
    relation-aware context.
-4. Use `entire brain routes --json`, `entire brain tools --json`, or
-   `entire brain workflows --json` when the task is about project boundaries.
-5. Use `entire brain tests <symbol> --json` before choosing validation
+4. Use `entire brain inspect boundaries --kind route --json`, `entire brain inspect boundaries --kind tool --json`, or
+   `entire brain inspect boundaries --kind workflow --json` when the task is about project boundaries.
+5. Use `entire brain inspect tests <symbol> --json` before choosing validation
    commands for a changed symbol.
 6. Use `entire brain workspace query <workspace> <query> --json` only for
    local workspaces that already list local repo path hints.
@@ -20,8 +20,8 @@ Recommended intake flow:
    tool calls instead of direct CLI commands.
 8. Refresh with `entire brain refresh` when `stale` reports unsafe semantic
    data.
-9. Use `index --worktree` only when uncommitted code is intentionally part of
-   the question.
+9. Use `entire brain refresh index --worktree` only when uncommitted code is
+   intentionally part of the question.
 
 Do not publish semantic artifacts or send semantic context to remote services in
 phase 1.

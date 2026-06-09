@@ -285,20 +285,20 @@ func repoDomainSlug(configDir, host string) (string, error) {
 		return slug, nil
 	}
 
-	cfg, err := config.Load(configDir)
+	var slug string
+	_, err := config.Update(configDir, func(cfg *config.Config) error {
+		if cfg.DomainSlugs == nil {
+			cfg.DomainSlugs = make(map[string]string)
+		}
+		if existing := cfg.DomainSlugs[host]; existing != "" {
+			slug = existing
+			return nil
+		}
+		slug = generateDomainSlug(host, cfg.DomainSlugs)
+		cfg.DomainSlugs[host] = slug
+		return nil
+	})
 	if err != nil {
-		return "", err
-	}
-	if cfg.DomainSlugs == nil {
-		cfg.DomainSlugs = make(map[string]string)
-	}
-	if slug := cfg.DomainSlugs[host]; slug != "" {
-		return slug, nil
-	}
-
-	slug := generateDomainSlug(host, cfg.DomainSlugs)
-	cfg.DomainSlugs[host] = slug
-	if err := config.Save(configDir, cfg); err != nil {
 		return "", err
 	}
 	return slug, nil

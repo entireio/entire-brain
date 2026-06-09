@@ -13,6 +13,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func TestDefaultRefreshAgentHonorsNoEgressMode(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("codex", "--version"):  {stdout: "codex 1.0"},
+		fakeCommandKey("claude", "--version"): {stdout: "claude 1.0"},
+	}}
+	if got := defaultRefreshAgent(context.Background(), runner, t.TempDir()); got != "none" {
+		t.Fatalf("defaultRefreshAgent in no-egress mode = %q, want none", got)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("no-egress auto-selection should not probe hosted agents, calls=%+v", runner.calls)
+	}
+}
+
 func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 	repoDir := seedFixtureRepo(t)
 	dataDir := filepath.Join(t.TempDir(), "data")

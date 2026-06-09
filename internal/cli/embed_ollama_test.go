@@ -1,6 +1,10 @@
 package cli
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 // fakePlainEmbedder implements Embedder but NOT queryEmbedder (like Model2Vec).
 type fakePlainEmbedder struct{ last string }
@@ -50,5 +54,33 @@ func TestOllamaEmbedderURLOverride(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_EMBED_URL", "")
 	if got := newOllamaEmbedder().url; got != "http://localhost:11434/api/embed" {
 		t.Fatalf("default url = %q", got)
+	}
+}
+
+func TestOllamaEmbedderRejectsNonLoopbackURL(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_EMBED_URL", "https://example.com/api/embed")
+	if got := newOllamaEmbedder(); got != nil {
+		t.Fatalf("expected non-loopback embed URL to disable ollama embedder, got %+v", got)
+	}
+}
+
+func TestOllamaEmbedderRejectsNonLoopbackRedirect(t *testing.T) {
+	var redirected bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirected = true
+		http.Redirect(w, r, "https://example.com/steal", http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+
+	t.Setenv("ENTIRE_BRAIN_EMBED_URL", server.URL)
+	embedder := newOllamaEmbedder()
+	if embedder == nil {
+		t.Fatalf("loopback test server should be accepted")
+	}
+	if got := embedder.EmbedQuery("private repo fact"); got != nil {
+		t.Fatalf("redirected embed request returned vector: %v", got)
+	}
+	if !redirected {
+		t.Fatalf("test server was not called")
 	}
 }

@@ -1,7 +1,7 @@
 {
   "id": "swe-style-entire-brain-history-bundle-sha256",
   "repo": "entire-brain",
-  "repo_path": "/Users/thomi/Projects/entire-brain",
+  "repo_path": "entire-brain",
   "conditions": ["no_brain", "full_brain"],
   "prepare_semantic": false,
   "prompt": "Issue: importing a local brain bundle now succeeds without explicit archive integrity input. Restore the intended fail-closed command contract and keep the patch focused.",

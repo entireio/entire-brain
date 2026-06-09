@@ -476,6 +476,9 @@ func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir 
 }
 
 func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir string) string {
+	if brainNoEgressMode() {
+		return "none"
+	}
 	if commandLooksAvailable(ctx, runner, repoDir, "codex") {
 		return "codex"
 	}
@@ -513,7 +516,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.SnapshotPath == "" {
-		return errors.New("semantic index missing; run `entire brain index --force` first")
+		return errors.New("semantic index missing; run `entire brain refresh index --force` first")
 	}
 	defaultBranch, _ := detectDefaultBranch(ctx, opts.Runner, repoDir)
 	defaultHead := ""

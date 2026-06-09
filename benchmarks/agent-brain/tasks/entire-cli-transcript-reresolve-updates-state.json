@@ -1,7 +1,7 @@
 {
   "id": "entire-cli-transcript-reresolve-updates-state",
   "repo": "entire-cli",
-  "repo_path": "/Users/thomi/Projects/cli",
+  "repo_path": "cli",
   "conditions": ["no_brain", "semantic_brain", "full_brain"],
   "prompt": "Fix the transcript re-resolution regression. When an agent relocates a transcript and the resolver finds the new path, session state must be updated so subsequent reads use the resolved path without repeating discovery.",
   "hide_expected_from_agent": true,

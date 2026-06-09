@@ -1,7 +1,7 @@
 {
   "id": "swe-style-entire-brain-history-claude-bare-auth",
   "repo": "entire-brain",
-  "repo_path": "/Users/thomi/Projects/entire-brain",
+  "repo_path": "entire-brain",
   "conditions": [
     "no_brain",
     "full_brain"

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// retrieve.go is the unified retrieval layer behind the qmd-aligned verbs
+// retrieve.go is the unified retrieval layer behind the qmd-inspired verbs
 // (search/vsearch/query). It ranks across the brain's text layers — facts,
 // history, docs — and merges the per-source ranked lists with RRF. Each layer
 // keeps its own best ranker; RRF fuses them by rank so their incomparable raw

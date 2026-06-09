@@ -1,7 +1,7 @@
 {
   "id": "entireio-cli-transcript-reresolve",
   "repo": "entire-cli",
-  "repo_path": "/Users/suhaan/Documents/Coding/cli-bench",
+  "repo_path": "cli-bench",
   "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
   "conditions": [
     "no_brain",

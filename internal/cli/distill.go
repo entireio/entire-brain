@@ -103,6 +103,9 @@ func factTaxonomyBlock(taxonomy factTaxonomy) string {
 // the agent's system prompt and the transcript chunk is supplied on stdin. The
 // no-agent mode ("none") has no command — distillation is agent-required.
 func distillAgentCommandArgs(agent string, agentCommand []string, prompt string) ([]string, error) {
+	if err := rejectAgentForNoEgress(agent); err != nil {
+		return nil, err
+	}
 	switch agent {
 	case "command":
 		if len(agentCommand) == 0 {

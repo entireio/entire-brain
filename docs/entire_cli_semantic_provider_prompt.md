@@ -80,7 +80,7 @@ without corrupting the NDJSON on stdout.
 
 ## Problem 4 — No workflow boundaries (YAML / CI definitions not parsed)
 
-`entire brain workflows` is always empty because the provider emits no workflow
+`entire brain inspect workflows` is always empty because the provider emits no workflow
 boundaries. On entire.io the indexed languages are only TypeScript/JavaScript/
 Bash/SQL — **no YAML** — so the repo's 9+ `.github/workflows/*.yml` files are not
 parsed at all, and there are no `external:workflow:*` nodes nor

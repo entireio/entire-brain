@@ -286,7 +286,9 @@ func defaultEmbedder() Embedder {
 		// static model for EmbeddingGemma via a local Ollama server, so the
 		// transformer embedder can be A/B'd against the baseline on `facts eval`.
 		if strings.EqualFold(strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")), "ollama") {
-			defaultEmbedderInst = newOllamaEmbedder()
+			if e := newOllamaEmbedder(); e != nil {
+				defaultEmbedderInst = e
+			}
 			return
 		}
 		e, err := loadStaticEmbedder(entirebrain.EmbedModel)

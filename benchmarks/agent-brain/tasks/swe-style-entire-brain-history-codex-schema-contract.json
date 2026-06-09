@@ -1,7 +1,7 @@
 {
   "id": "swe-style-entire-brain-history-codex-schema-contract",
   "repo": "entire-brain",
-  "repo_path": "/Users/thomi/Projects/entire-brain",
+  "repo_path": "entire-brain",
   "conditions": ["no_brain", "full_brain"],
   "prepare_semantic": false,
   "prompt": "Issue: Codex seed-agent runs are failing against the current structured-output contract. The command shape appears to have regressed to an older compatibility mode. Restore the intended behavior and add focused coverage so the regression cannot come back.",

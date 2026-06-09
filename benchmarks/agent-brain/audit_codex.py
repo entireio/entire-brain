@@ -98,7 +98,7 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     slog = server_log_toolcalls(run_dir)
     is_win = bool(rec.get("ok")) and (get(rec, "validation", "ok") is True)
     # Compact-delivery models are instructed to call brain_brief ONCE and NOT
-    # brain_history (the compact brief already carries the top history hits).
+    # brain_search (the compact brief already carries the top history hits).
     # Mirrored here independently so a correct compact run is not flagged for a
     # "missing" tool it was explicitly told not to call.
     model = (get(rec, "runner", "model") or rec.get("agent") or "").lower()
@@ -121,7 +121,7 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     # B. mcp authenticity
     if cond in MCP_CONDITIONS:
         names = activity.get("mcp_tool_names") or []
-        real = [n for n in names if re.search(r"(?:^|__)brain_(?:brief|history|query|context|impact|changes|stale|regressions|review|workspace_regressions|workspace_review)$", str(n))]
+        real = [n for n in names if re.search(r"(?:^|__)brain_(?:brief|query|search|vsearch|get|multi_get|context|impact|changes|stale|regressions|review|workspace_regressions|workspace_review)$", str(n))]
         if mcp_calls <= 0:
             # An mcp run with no tool calls is an HONEST FAILURE (note), UNLESS it was
             # counted as a passing/win result -> then it is a HARD flag (false win).
@@ -132,8 +132,8 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         if cond == "mcp_history" and mcp_calls > 0:
             # Required tools are model-aware: compact-delivery models (Opus/gpt-5.5)
             # are told to call brain_brief only, so brief-only is COMPLETE for them,
-            # not a partial. Other models are expected to also call brain_history.
-            required = ("brain_brief",) if compact else ("brain_brief", "brain_history")
+            # not a partial. Other models are expected to also call brain_search.
+            required = ("brain_brief",) if compact else ("brain_brief", "brain_search")
             for req in required:
                 if not any(str(n).endswith(f"__{req}") or n == req for n in names):
                     notes.append(f"B:mcp_history_partial_missing_{req}")

@@ -1,7 +1,7 @@
 {
   "id": "entire-cli-plugin-env-xdg-prefix",
   "repo": "entire-cli",
-  "repo_path": "/Users/thomi/Projects/cli",
+  "repo_path": "cli",
   "conditions": ["no_brain", "semantic_brain", "full_brain"],
   "prompt": "Fix the plugin environment regression. External Entire plugins should still receive the documented XDG_* environment namespace while credential-like variables remain filtered unless explicitly overridden.",
   "hide_expected_from_agent": true,

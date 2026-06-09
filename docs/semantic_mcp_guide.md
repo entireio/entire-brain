@@ -7,7 +7,7 @@ Available tools:
 
 - `brain_stale`
 - `brain_brief`
-- Unified retrieval (qmd-aligned): `brain_query` (hybrid lexical+vector, RRF),
+- Unified retrieval (qmd-inspired): `brain_query` (hybrid lexical+vector, RRF),
   `brain_search` (lexical), `brain_vsearch` (vector), `brain_get`, `brain_multi_get`
 - Symbol graph: `brain_code`, `brain_context`, `brain_impact`, `brain_changes`,
   `brain_tests`, `brain_boundaries`

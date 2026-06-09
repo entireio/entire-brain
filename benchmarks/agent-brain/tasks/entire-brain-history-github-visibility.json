@@ -1,7 +1,7 @@
 {
   "id": "entire-brain-history-github-visibility",
   "repo": "entire-brain",
-  "repo_path": "/Users/thomi/Projects/entire-brain",
+  "repo_path": "entire-brain",
   "conditions": ["no_brain", "full_brain"],
   "prepare_semantic": false,
   "prompt": "A previous review found that one built-in ignore rule overmatched repository metadata and hid workflow/tooling files from semantic snapshots. A regression brought that overmatch back. Restore the intended default visibility from project history.",

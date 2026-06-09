@@ -98,7 +98,7 @@ agent can inspect to understand project history.`,
 	addGrouped("explore", newMCPCommand(opts))
 	addGrouped("explore", newRecallCommand(opts))
 	addGrouped("explore", newVerifyCommand(opts))
-	// qmd-aligned retrieval over the unified text index (facts + history + docs).
+	// qmd-inspired retrieval over the unified text index (facts + history + docs).
 	// Symbol/code search stays at `inspect code`.
 	addGrouped("explore", newQueryCommand(opts))
 	addGrouped("explore", newSearchCommand(opts))

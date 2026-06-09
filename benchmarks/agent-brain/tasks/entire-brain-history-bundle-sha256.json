@@ -1,7 +1,7 @@
 {
   "id": "entire-brain-history-bundle-sha256",
   "repo": "entire-brain",
-  "repo_path": "/Users/thomi/Projects/entire-brain",
+  "repo_path": "entire-brain",
   "conditions": ["no_brain", "full_brain"],
   "prepare_semantic": false,
   "prompt": "A previous safety review established that local bundle import must fail closed unless the caller supplies explicit archive integrity material. A regression relaxed that command contract. Restore the intended behavior from project history.",
