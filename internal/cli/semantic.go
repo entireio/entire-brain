@@ -2755,6 +2755,12 @@ func neighborCandidateIDs(symbols, relations []semanticRecord) []string {
 	return ids
 }
 
+// resolveContextNeighbors materializes the relation endpoints that are not
+// already in symbols into full records, so an agent gets "who calls this / what
+// this calls" without a follow-up query per bare from_id/to_id. symbolsByID need
+// only contain the candidate endpoints (see neighborCandidateIDs); ordering
+// follows the relations and the result is capped at limit to bound fan-out on a
+// hot symbol.
 func resolveContextNeighbors(symbols, relations []semanticRecord, symbolsByID map[string]semanticRecord, limit int) []semanticRecord {
 	if limit <= 0 || len(relations) == 0 || len(symbolsByID) == 0 {
 		return nil
