@@ -155,14 +155,28 @@ pooled (n=118).** Pooled paired t-test vs flat (Holm, alpha=0.05):
 So the second repo didn't just add power, it **changed the conclusion**: scoped is
 validated and cheaper; outline is an orientation tool, not a ranking improvement.
 
+**Recall-floor scoped — investigated, NEGATIVE result.** The obvious fix for
+scoped's recall cost — put the locus matches first, then backfill flat-ranked
+facts up to k (`--arm scoped-floor`) — **measured identical to flat** on the
+pooled set (1.233 useful/1k, 0.088 precision, 0.261 recall, 724 tokens — flat's
+exact numbers). Why it can't work: scoped's win *is* returning fewer facts (a
+smaller token denominator and higher per-fact precision); padding back to k
+gives that advantage straight back. useful/1k = relevant/tokens, and the
+backfill facts are only ~flat-precision (~9%) relevant, so by construction they
+cannot lift useful/1k. **The precision/token win and full recall are different
+operating points on the tradeoff curve — no padding reconciles them.** The
+`scoped-floor` arm is kept in the eval harness as the recorded dead-end.
+
 **Decisions / next steps:**
 
 - **Default stays `flat`; `scoped` is the recommended arm for token-constrained
-  agent retrieval** (opt-in via `--arm scoped`). Not defaulted yet because the
-  useful/1k gain is Holm-marginal and the recall cost is real — a third
-  corpus, or a **recall-floor scoped** (fall back to flat-ranking the remainder
-  when scoped returns < k) that keeps the precision/token win without the recall
-  loss, would justify making it default.
+  agent retrieval** (opt-in via `--arm scoped`). Making scoped the default is now
+  a **product judgment** — high-precision/cheap (scoped) vs high-recall (flat) —
+  not something a clever arm resolves, since the recall floor is a dead end. A
+  third corpus would firm up the Holm-marginal useful/1k gain; a genuinely
+  different lever (e.g. backfilling with *semantically*-reranked rather than
+  flat-ranked facts, which might clear flat's precision bar) is the only
+  remaining idea for getting recall back without losing the win.
 - The gotcha-labeling question (deferred post-B4) can stay deferred: the *win came
   from locus scoping, not kind* — kind labels did not drive the result — so better
   gotcha labels are not on the critical path to the measured gain.

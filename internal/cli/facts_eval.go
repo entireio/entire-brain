@@ -284,7 +284,7 @@ have the agent decide relevance per surfaced fact.`,
 	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&judgeCache, "judge-cache", "", "Persist/reuse judge verdicts at this path so re-runs are deterministic and cheap")
 	cmd.Flags().BoolVar(&semantic, "semantic", false, "Rerank with the local embedding backend (RRF fusion of lexical + semantic)")
-	cmd.Flags().StringVar(&arm, "arm", "flat", "Retrieval structure to evaluate: flat | scoped (locus) | outline")
+	cmd.Flags().StringVar(&arm, "arm", "flat", "Retrieval structure to evaluate: flat | scoped (locus) | scoped-floor | outline")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand each task query with agent-generated retrieval terms before recall")
 	cmd.Flags().StringVar(&expandCache, "expand-cache", "", "Persist/reuse query expansions at this path")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the summary as JSON")

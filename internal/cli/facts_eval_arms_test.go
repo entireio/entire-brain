@@ -6,13 +6,44 @@ import (
 )
 
 func TestSelectRetrievalArm(t *testing.T) {
-	for _, name := range []string{"", "flat", "scoped", "outline"} {
+	for _, name := range []string{"", "flat", "scoped", "scoped-floor", "outline"} {
 		if _, err := selectRetrievalArm(name); err != nil {
 			t.Errorf("selectRetrievalArm(%q) errored: %v", name, err)
 		}
 	}
 	if _, err := selectRetrievalArm("bogus"); err == nil {
 		t.Error("expected an error for an unknown arm")
+	}
+}
+
+func TestScopedFloorRecoversToK(t *testing.T) {
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	facts := []factRecord{
+		// One locus match for "ValidateToken"; the rest are relevant prose with no locus.
+		{ID: "loc", Status: factStatusActive, Paths: []string{"architecture.data.flow"}, Locus: []string{"validatetoken"}, Text: "`ValidateToken` checks expiry.", UpdatedAt: now},
+		{ID: "p1", Status: factStatusActive, Paths: []string{"architecture.data.flow"}, Text: "token expiry is handled centrally.", UpdatedAt: now},
+		{ID: "p2", Status: factStatusActive, Paths: []string{"architecture.data.flow"}, Text: "token expiry uses a grace window.", UpdatedAt: now},
+	}
+	// Hard scoped narrows to the single locus match.
+	hard := scopedArm(facts, "ValidateToken expiry token", 5, nil)
+	if len(hard) != 1 || hard[0].ID != "loc" {
+		t.Fatalf("hard scoped should return only the locus match, got %+v", hard)
+	}
+	// scoped-floor keeps the locus match first, then backfills flat-ranked facts.
+	floor := scopedFloorArm(facts, "ValidateToken expiry token", 5, nil)
+	if len(floor) <= 1 {
+		t.Fatalf("scoped-floor should backfill beyond the single locus match, got %+v", floor)
+	}
+	if floor[0].ID != "loc" {
+		t.Fatalf("scoped-floor should keep the locus match on top, got %+v", floor)
+	}
+	// No duplicates.
+	seen := map[string]bool{}
+	for _, f := range floor {
+		if seen[f.ID] {
+			t.Fatalf("scoped-floor returned a duplicate: %s", f.ID)
+		}
+		seen[f.ID] = true
 	}
 }
 
