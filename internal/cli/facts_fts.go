@@ -57,19 +57,17 @@ func factsFTSScores(facts []factRecord, query string) (map[string]float64, bool)
 	if err != nil {
 		return nil, false
 	}
+	defer func() { _ = tx.Rollback() }() // no-op after a successful Commit
 	ins, err := tx.Prepare(`INSERT INTO facts_fts(content, id) VALUES (?, ?)`)
 	if err != nil {
-		_ = tx.Rollback()
 		return nil, false
 	}
+	defer func() { _ = ins.Close() }()
 	for _, f := range facts {
 		if _, err := ins.Exec(factsFTSContent(f), f.ID); err != nil {
-			_ = ins.Close()
-			_ = tx.Rollback()
 			return nil, false
 		}
 	}
-	_ = ins.Close()
 	if err := tx.Commit(); err != nil {
 		return nil, false
 	}

@@ -31,10 +31,14 @@ for repo in "$@"; do
   echo "### $name ($repo)"
 
   echo "  [1/5] refresh (deterministic)"
-  (cd "$repo" && "$EB" refresh --agent none) >"$OUT/$name.refresh.log" 2>&1
+  if ! (cd "$repo" && "$EB" refresh --agent none) >"$OUT/$name.refresh.log" 2>&1; then
+    echo "  SKIP: refresh failed (see $OUT/$name.refresh.log)"; continue
+  fi
 
   echo "  [2/5] distill ($MODEL, cheap)"
-  (cd "$repo" && "$EB" distill --branch main --model "$MODEL" --effort low) >"$OUT/$name.distill.log" 2>&1
+  if ! (cd "$repo" && "$EB" distill --branch main --model "$MODEL" --effort low) >"$OUT/$name.distill.log" 2>&1; then
+    echo "  SKIP: distill failed (see $OUT/$name.distill.log)"; continue
+  fi
   if ! (cd "$repo" && "$EB" status 2>/dev/null | grep -q "facts=true"); then
     echo "  SKIP: no facts after distill (see $OUT/$name.distill.log)"; continue
   fi

@@ -80,6 +80,9 @@ func docFTSFresh(db *sql.DB, index docIndex) bool {
 		}
 		got[k] = v
 	}
+	if rows.Err() != nil {
+		return false // a driver error mid-iteration must read as stale, not fresh
+	}
 	return got["schema"] == docFTSSchema && got["fingerprint"] == docFTSFingerprint(index)
 }
 

@@ -124,6 +124,9 @@ func historyFTSFresh(db *sql.DB, index historyIndex) bool {
 		}
 		got[k] = v
 	}
+	if rows.Err() != nil {
+		return false // a driver error mid-iteration must read as stale, not fresh
+	}
 	return got["schema"] == historyFTSSchema && got["fingerprint"] == historyFTSFingerprint(index)
 }
 
