@@ -71,6 +71,17 @@ paired evals show a significant lift for the metric being claimed. Do not compar
 explicit-label recall with `source_match` proxy credit unless
 `--allow-proxy-comparison` is called out.
 
+Local baseline smoke collected on this repo: `go run ./cmd/entire-brain refresh
+sessions` indexed 39,242 history records. A source-session task set generated
+with `facts eval-gen --source sessions --limit 8` had
+`tasks_sha256=sha256:8453817d5a9bb87e33e266e6b18e0fa832ea07934f9e2d1534e0c658f65321f7`.
+Against that task file, `raw-sessions` returned mean 42,124.75 tokens and
+source-match proxy useful/1k of 0.0148; `history` returned mean 921.25 tokens
+and source-match proxy useful/1k of 1.0342; `query` had no relevance labels for
+the surfaced mixed-source rows; `facts` surfaced zero rows because this local
+brain has no durable facts. This validates the offline eval plumbing and the
+token-cost contrast, but it is not facts-vs-raw release proof.
+
 Blocked evidence collection: paired `facts eval` runs for `facts`, `history`,
 `query`, and `raw-sessions` over the same labeled or explicitly proxy-authorized
 task set are still required.
