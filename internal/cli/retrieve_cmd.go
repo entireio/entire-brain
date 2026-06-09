@@ -61,10 +61,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		return nil
 	}
 	for _, r := range results {
-		ex := strings.Join(strings.Fields(r.Text), " ")
-		if len(ex) > 200 {
-			ex = ex[:200]
-		}
+		ex := truncateString(strings.Join(strings.Fields(r.Text), " "), 200)
 		loc := r.Path
 		if r.Line > 0 {
 			loc = fmt.Sprintf("%s:%d", r.Path, r.Line)

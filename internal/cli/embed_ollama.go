@@ -26,10 +26,12 @@ type ollamaEmbedder struct {
 	hc    *http.Client
 }
 
+const defaultOllamaEmbedModel = "embeddinggemma"
+
 func newOllamaEmbedder() *ollamaEmbedder {
 	model := os.Getenv("ENTIRE_BRAIN_OLLAMA_MODEL")
 	if model == "" {
-		model = "embeddinggemma"
+		model = defaultOllamaEmbedModel
 	}
 	// Default to Ollama's embed API; ENTIRE_BRAIN_EMBED_URL points instead at any
 	// endpoint that accepts {"model","input"} and returns {"embeddings":[[...]]}
@@ -47,9 +49,18 @@ func newOllamaEmbedder() *ollamaEmbedder {
 
 func (o *ollamaEmbedder) ID() string { return "ollama:" + o.model }
 
+// embeddingGemmaDim is EmbeddingGemma-300M's output dimension. Seeding it for the
+// default model avoids a network probe (and its timeout latency when the embed
+// server is down) before the first real embedding.
+const embeddingGemmaDim = 768
+
 func (o *ollamaEmbedder) Dim() int {
 	if o.dim == 0 {
-		o.embed("title: none | text: probe")
+		if o.model == defaultOllamaEmbedModel {
+			o.dim = embeddingGemmaDim
+		} else {
+			o.embed("title: none | text: probe") // unknown model: discover the dim
+		}
 	}
 	return o.dim
 }

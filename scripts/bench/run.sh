@@ -45,11 +45,15 @@ for repo in "$@"; do
   if [ "${n:-0}" -lt 3 ]; then echo "  SKIP: only ${n:-0} tasks"; continue; fi
 
   echo "  [4/5] eval Model2Vec"
-  (cd "$repo" && "$EB" facts eval --tasks "$OUT/$name.tasks.json" --branch main --k 10 --semantic --json) >"$OUT/$name.m2v.json" 2>/dev/null
+  if ! (cd "$repo" && "$EB" facts eval --tasks "$OUT/$name.tasks.json" --branch main --k 10 --semantic --json) >"$OUT/$name.m2v.json" 2>"$OUT/$name.m2v.log"; then
+    echo "  SKIP: Model2Vec eval failed (see $OUT/$name.m2v.log)"; continue
+  fi
 
   echo "  [5/5] eval EmbeddingGemma"
-  (cd "$repo" && ENTIRE_BRAIN_EMBEDDER=ollama ENTIRE_BRAIN_EMBED_URL="$EMBED_URL" \
-    "$EB" facts eval --tasks "$OUT/$name.tasks.json" --branch main --k 10 --semantic --json) >"$OUT/$name.gemma.json" 2>/dev/null
+  if ! (cd "$repo" && ENTIRE_BRAIN_EMBEDDER=ollama ENTIRE_BRAIN_EMBED_URL="$EMBED_URL" \
+    "$EB" facts eval --tasks "$OUT/$name.tasks.json" --branch main --k 10 --semantic --json) >"$OUT/$name.gemma.json" 2>"$OUT/$name.gemma.log"; then
+    echo "  SKIP: EmbeddingGemma eval failed (see $OUT/$name.gemma.log)"; continue
+  fi
 
   echo "  done: $n tasks -> $OUT/$name.{m2v,gemma}.json"
 done
