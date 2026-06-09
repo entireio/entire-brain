@@ -51,6 +51,22 @@ func TestMCPToolsListIncludesRegressions(t *testing.T) {
 	}
 }
 
+func TestMCPToolsListAdvertisesBlindSpots(t *testing.T) {
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	data, _ := json.Marshal(responses[1]["result"])
+	// brain_stale reads blind_spots at call time; the schema must advertise it so
+	// an MCP client can discover the option.
+	if !strings.Contains(string(data), "blind_spots") {
+		t.Fatalf("tools/list missing brain_stale blind_spots: %s", data)
+	}
+}
+
 func TestMCPBrainRegressionsTool(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
