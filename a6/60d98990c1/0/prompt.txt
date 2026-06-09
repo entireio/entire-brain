@@ -1,0 +1,5 @@
+commit docs/worktree_overlay_seam.md
+
+---
+
+For the last 24h or so, I have been runnning entire brain distill --agent claude-code --model claude-haiku-4-5 in /Users/thomi/Projects/entire.io. It's been extremely slow, currently at distill sessions 2107/2640 done (main), 1897 facts found. Figure out why?

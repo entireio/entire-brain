@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "a660d98990c1",
+  "session_id": "cd23ebc0-bd98-4e6c-bfb4-ce649d8bb322",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-09T16:08:02.080854Z",
+  "branch": "feat/fact-quality-appendix-d",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/durable_facts_handover.md",
+    "internal/cli/facts_eval.go",
+    "internal/cli/facts_eval_arms.go",
+    "internal/cli/facts_eval_arms_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "619226eb4f74",
+  "checkpoint_transcript_start": 282,
+  "transcript_lines_at_start": 282,
+  "token_usage": {
+    "input_tokens": 292,
+    "cache_creation_tokens": 29057,
+    "cache_read_tokens": 1621207,
+    "output_tokens": 12488,
+    "api_call_count": 17
+  },
+  "session_metrics": {
+    "turn_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-09T16:08:02.06349Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 81,
+    "human_modified": 8,
+    "human_removed": 0,
+    "total_committed": 81,
+    "total_lines_changed": 89,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
