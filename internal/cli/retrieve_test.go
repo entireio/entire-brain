@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/spf13/cobra"
 )
 
 // emptyEmbedder stands in for an unavailable backend (e.g. Ollama down): every
@@ -123,5 +126,39 @@ func TestQMDOutputFormatAlias(t *testing.T) {
 	}
 	if _, err := outputWantsJSON(false, "xml"); err == nil {
 		t.Fatal("unknown --format should error")
+	}
+}
+
+func TestQMDAliasesLimitAndFormatJSON(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	paths := normalizeFactPaths([]string{"architecture.data.flow"})
+	facts := []factRecord{
+		{ID: factRecordID("alpha checkpoint retrieval contract", paths), Text: "alpha checkpoint retrieval contract", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
+		{ID: factRecordID("alpha checkpoint second result", paths), Text: "alpha checkpoint second result", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
+	}
+	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := execute(t, NewRootCommand(opts), "search", "alpha checkpoint", "-n", "1", "--format", "json")
+	if err != nil {
+		t.Fatalf("search -n --format json: %v\n%s", err, out)
+	}
+	var payload struct {
+		Results []unifiedResult `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("decode search JSON: %v\n%s", err, out)
+	}
+	if len(payload.Results) != 1 {
+		t.Fatalf("-n alias should limit results to 1, got %d: %+v", len(payload.Results), payload.Results)
 	}
 }

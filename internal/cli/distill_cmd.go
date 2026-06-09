@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -817,6 +818,9 @@ func runDistillExtraction(ctx context.Context, repoDir string, args []string, wo
 	}
 	var wg sync.WaitGroup
 	indexes := make(chan int)
+	var agentFailures atomic.Int32
+	var anyAgentSuccess atomic.Bool
+	var stop atomic.Bool
 	for range jobs {
 		wg.Add(1)
 		go func() {
@@ -825,10 +829,25 @@ func runDistillExtraction(ctx context.Context, repoDir string, args []string, wo
 				item := work[i]
 				out, err := distillOpts.run(ctx, repoDir, args, []byte(item.Chunk.Text), distillOpts.timeout)
 				results[i] = distillChunkResult{Output: out, Err: err, Completed: true}
+				if err != nil {
+					if !anyAgentSuccess.Load() && agentFailures.Add(1) >= distillAgentAbortThreshold {
+						stop.Store(true)
+					}
+					continue
+				}
+				anyAgentSuccess.Store(true)
 			}
 		}()
 	}
+	// Dispatch a small window past the serial abort threshold before honoring a
+	// parallel stop signal. That keeps ordered mixed runs from dropping a nearby
+	// success while still preventing a systemic agent failure from traversing a
+	// large repository.
+	minDispatchBeforeAbort := distillAgentAbortThreshold + jobs
 	for i := range work {
+		if i >= minDispatchBeforeAbort && stop.Load() {
+			break
+		}
 		indexes <- i
 	}
 	close(indexes)

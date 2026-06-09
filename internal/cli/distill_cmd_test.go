@@ -99,6 +99,12 @@ func TestRunDistillForBrainWritesFactsAndManifest(t *testing.T) {
 	if manifest.Sources.Facts.Facts != 2 {
 		t.Errorf("manifest facts count = %d, want 2", manifest.Sources.Facts.Facts)
 	}
+	if manifest.Sources.Facts.PreprocessedBytes <= 0 {
+		t.Errorf("manifest preprocessed bytes should be recorded, got %d", manifest.Sources.Facts.PreprocessedBytes)
+	}
+	if manifest.Sources.Facts.ExtractionSeconds < 0 || manifest.Sources.Facts.ReconcileSeconds < 0 || manifest.Sources.Facts.WriteSeconds < 0 {
+		t.Errorf("manifest timing fields should be non-negative: %+v", manifest.Sources.Facts)
+	}
 	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(factsTaxonomyPath))); err != nil {
 		t.Errorf("taxonomy snapshot not written: %v", err)
 	}
@@ -883,6 +889,56 @@ func TestRunDistillForBrainAbortsOnSystematicAgentFailure(t *testing.T) {
 	}
 	if calls != distillAgentAbortThreshold {
 		t.Fatalf("expected abort at %d calls, not churning all 8 sessions; got %d", distillAgentAbortThreshold, calls)
+	}
+}
+
+func TestRunDistillForBrainParallelAbortsOnSystematicAgentFailure(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	var sessions []exportSession
+	for i := 0; i < 24; i++ {
+		id := fmt.Sprintf("s%d", i)
+		tp := fmt.Sprintf("sessions/main/%s.jsonl", id)
+		p := filepath.Join(brainDir, filepath.FromSlash(tp))
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("turn one\nturn two\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sessions = append(sessions, exportSession{SessionID: id, Branch: "main", LatestCheckpoint: "cp" + id, TranscriptPath: tp, CreatedAt: now.Add(-time.Duration(i) * time.Minute)})
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls int32
+	failRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		atomic.AddInt32(&calls, 1)
+		time.Sleep(2 * time.Millisecond)
+		return "", fmt.Errorf("agent failed: exit status 1: model 'bogus-4.6' may not exist")
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: failRun, jobs: 4, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+
+	_, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
+	if err == nil {
+		t.Fatal("expected parallel distill to abort on systematic agent failure")
+	}
+	if !strings.Contains(err.Error(), "distill aborted") || !strings.Contains(err.Error(), "--model") {
+		t.Fatalf("abort error should be actionable (mention --model): %v", err)
+	}
+	got := atomic.LoadInt32(&calls)
+	if got >= int32(len(sessions)) {
+		t.Fatalf("parallel distill churned through every failing session; calls=%d sessions=%d", got, len(sessions))
+	}
+	if got > int32(distillAgentAbortThreshold+opts.jobs+1) {
+		t.Fatalf("parallel distill should stop near the abort threshold; got %d calls", got)
 	}
 }
 
