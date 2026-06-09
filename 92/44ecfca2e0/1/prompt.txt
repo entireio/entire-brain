@@ -1,0 +1,35 @@
+commit/push
+
+---
+
+Review the entire brain for this repo. Give me a summary of each brain layer.
+
+---
+
+Tell me more about the verification path
+
+---
+
+Two questions:
+1. What is still to do in phase A?
+2. Explain in more detail what phase B does?
+
+---
+
+Do "Part B — Fact-quality & structure (the high-leverage half)" first, it doesn't need the CLI change.
+
+---
+
+Review B1
+
+---
+
+So does the gotcha inference still under-fire or what/s the new metric?
+
+---
+
+Build it in one go.
+
+---
+
+Build the full A/B

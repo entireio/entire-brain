@@ -3,7 +3,7 @@
   "checkpoint_id": "9244ecfca2e0",
   "strategy": "manual-commit",
   "branch": "feat/fact-quality-appendix-d",
-  "checkpoints_count": 4,
+  "checkpoints_count": 5,
   "files_touched": [
     "docs/durable_facts_handover.md",
     "internal/cli/facts_eval.go",
@@ -16,13 +16,19 @@
       "transcript": "/92/44ecfca2e0/0/full.jsonl",
       "content_hash": "/92/44ecfca2e0/0/content_hash.txt",
       "prompt": "/92/44ecfca2e0/0/prompt.txt"
+    },
+    {
+      "metadata": "/92/44ecfca2e0/1/metadata.json",
+      "transcript": "/92/44ecfca2e0/1/full.jsonl",
+      "content_hash": "/92/44ecfca2e0/1/content_hash.txt",
+      "prompt": "/92/44ecfca2e0/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 570,
-    "cache_creation_tokens": 29192,
-    "cache_read_tokens": 1210754,
-    "output_tokens": 16694,
-    "api_call_count": 27
+    "input_tokens": 46528,
+    "cache_creation_tokens": 1121139,
+    "cache_read_tokens": 96767040,
+    "output_tokens": 276554,
+    "api_call_count": 363
   }
 }
