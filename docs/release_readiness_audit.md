@@ -122,6 +122,15 @@ for this checkout, not agent usefulness.
 Blocked evidence collection: semantic benchmark/proof records must still be
 retained and audited before usefulness claims graduate from draft language.
 
+Negative replay-lab pilot: `python3 benchmarks/agent-brain/run.py run --tasks
+entire-brain-semantic-completeness-tolerance.json --runners
+codex:gpt-5.4-mini:low --conditions no_brain,semantic_brain --repetitions 3
+--suite-name release-local-semantic-proof-20260609T2305Z` completed, but the
+summary was `brain_negative` (`proof_ready=false`, stability `noisy`). The
+independent audit rejected it with 0 proof-ready comparisons and 3 hard
+`E:agent_leak_audit_failed` flags. This suite is a negative pilot, not release
+evidence.
+
 ## QMD Alignment
 
 The current Entire Brain retrieval surface keeps the qmd-inspired core verbs:
@@ -265,3 +274,6 @@ claims require a new provenance-complete `release-*` run (or a deliberately copi
 release-candidate subset) that passes `python3 benchmarks/agent-brain/audit_codex.py
 --suite-glob 'release-*' --out-dir benchmarks/agent-brain/evidence/release
 --fail-on-flags --min-suites <n> --min-records <n> --min-proof-ready <n>`.
+The local `release-local-semantic-proof-20260609T2305Z` pilot is also not release
+proof because its audited comparison was not proof-ready and the suite had hard
+leak-audit flags.
