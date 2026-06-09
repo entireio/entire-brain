@@ -42,6 +42,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 		includeAll   bool
 		scope        string
 		kind         string
+		locus        string
 		noSemantic   bool
 		expand       bool
 		agent        string
@@ -71,7 +72,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			facts := filterFactsByKind(filterFactsByScope(allFacts, scope), kind)
+			facts := filterFactsByLocus(filterFactsByKind(filterFactsByScope(allFacts, scope), kind), locus)
 			effectiveQuery := query
 			if expand && strings.TrimSpace(query) != "" {
 				resolved := agent
@@ -121,6 +122,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted facts")
 	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) facts")
 	cmd.Flags().StringVar(&kind, "kind", "", "Restrict to one kind: decision|invariant|gotcha|preference|convention")
+	cmd.Flags().StringVar(&locus, "locus", "", "Restrict to facts about a code locus (a path or symbol, e.g. internal/cli/facts.go or factRecord)")
 	cmd.Flags().BoolVar(&noSemantic, "no-semantic", false, "Disable embedding rerank; rank with lexical + taxonomy only")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand the query with agent-generated retrieval terms before ranking")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --expand: auto, codex, claude-code, or command")

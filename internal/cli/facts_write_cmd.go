@@ -75,6 +75,7 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		ID:         factRecordID(text, paths),
 		Paths:      paths,
 		Kind:       kind,
+		Locus:      factLocus(text),
 		Text:       text,
 		Branch:     branch,
 		Origin:     factOriginAuthored,

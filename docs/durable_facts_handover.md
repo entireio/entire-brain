@@ -67,6 +67,35 @@ allocates nothing on the hot path; `reclassify` always refreshes the manifest;
 deliberate — it stops an inference-fallback from clobbering an agent label across
 runs — but it means agent re-labels are not automatically picked up.
 
+Gotcha-labeling quality on the existing corpus is **deferred to a post-B4 call**
+(the eval decides whether kind labels lift retrieval before we invest in agent
+backfill).
+
+### B2 — stored LOCUS + semantic tie-in (landed)
+
+Added `Locus []string` to `factRecord` — the code identifiers/paths a fact is
+about (WHERE). Computed at creation via the existing `factLocus(text)` and
+backfilled by `facts reclassify` (locus is purely a function of text, so it is
+always reconciled; kind only when missing). Surfaces:
+
+- **`inspect changes` → relevant facts:** `factsRelevantToChange` matches a
+  fact's locus against the changed files and the semantic symbols defined in
+  them, so `inspect changes --json` gains a `facts` field — "what the brain knows
+  about the code you're touching".
+- **`recall --locus <path|symbol>`** filters facts by locus.
+- Ranking (`recall`/`brief`) now reads the stored locus
+  (`locusOverlapTokens(queryLocus, factLocusOf(f))`) instead of recomputing it
+  per query.
+
+Backfilled the live `main` corpus: 797/948 facts carry a locus (the rest are
+pure prose with no identifiers).
+
+**Branch-scoping note:** `inspect changes` reads facts for the *current* branch
+(consistent with `recall`/`brief`), so on a feature branch with no distilled
+facts the `facts` field is empty until facts are distilled or `promote`d onto it.
+Appendix D's "merged knowledge graduates to a code locus, visible regardless of
+branch" is the larger fix and is not in B2.
+
 ## Branch topology
 
 - **Base work (merged):** `claude/durable-facts-and-distill` landed via **PR #5**.

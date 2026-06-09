@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -145,25 +146,55 @@ func factKindOrInferred(f factRecord) string {
 	return inferFactKind(f.Paths, f.Text)
 }
 
-// reclassifyFacts backfills the deterministic KIND onto facts in place and
-// returns the count changed. By default it only fills facts lacking a valid
-// kind (the migration case); force recomputes every fact's kind from scratch
-// (e.g. after the inference rules change). It deliberately does NOT bump
-// UpdatedAt — kind is additive metadata, not a content edit, so the backfill
-// must stay invisible to recency ranking and the gc retention window.
+// reclassifyFacts backfills the deterministic derived fields — KIND and LOCUS —
+// onto facts in place and returns the count of facts changed. KIND is filled
+// only when missing/invalid (force recomputes it, e.g. after the inference rules
+// change); LOCUS is purely a function of the text, so it is always reconciled to
+// the computed set. It deliberately does NOT bump UpdatedAt — these are additive
+// metadata, not a content edit, so the backfill stays invisible to recency
+// ranking and the gc retention window.
 func reclassifyFacts(facts []factRecord, force bool) int {
 	changed := 0
 	for i := range facts {
-		if !force && validFactKind(facts[i].Kind) {
-			continue
+		dirty := false
+		if force || !validFactKind(facts[i].Kind) {
+			if want := inferFactKind(facts[i].Paths, facts[i].Text); facts[i].Kind != want {
+				facts[i].Kind = want
+				dirty = true
+			}
 		}
-		want := inferFactKind(facts[i].Paths, facts[i].Text)
-		if facts[i].Kind != want {
-			facts[i].Kind = want
+		if want := nilIfEmpty(factLocus(facts[i].Text)); !equalStrings(facts[i].Locus, want) {
+			facts[i].Locus = want
+			dirty = true
+		}
+		if dirty {
 			changed++
 		}
 	}
 	return changed
+}
+
+// nilIfEmpty normalizes an empty slice to nil so an absent locus is omitted from
+// JSON (omitempty) and compares equal across runs.
+func nilIfEmpty(s []string) []string {
+	if len(s) == 0 {
+		return nil
+	}
+	return s
+}
+
+// equalStrings reports whether two string slices are element-wise equal. Both
+// loci are produced by factLocus (sorted, deduped), so order is canonical.
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // filterFactsByKind keeps only facts of the requested KIND (matching on the
@@ -219,10 +250,113 @@ func factLocus(text string) []string {
 
 var backtickSpanPattern = regexp.MustCompile("`([^`]+)`")
 
+// factLocusOf returns a fact's stored locus, falling back to deriving it from
+// the text for facts authored before the locus field existed (or never
+// backfilled). Read surfaces use this so locus matching works regardless of
+// whether `reclassify` has run.
+func factLocusOf(f factRecord) []string {
+	if len(f.Locus) > 0 {
+		return f.Locus
+	}
+	return factLocus(f.Text)
+}
+
+// factsRelevantToChange ranks active facts whose locus names a changed file or a
+// symbol defined in those files — the "changed files → relevant facts" tie-in
+// between the durable-facts locus and the semantic graph. files are the changed
+// paths; symbols are the semantic symbols in those files (already resolved by
+// the caller). Ranked by overlap count, then recency, capped at limit.
+func factsRelevantToChange(files []string, symbols []semanticRecord, facts []factRecord, limit int) []factRecord {
+	if limit <= 0 {
+		limit = 10
+	}
+	target := map[string]struct{}{}
+	add := func(s string) {
+		if s = strings.ToLower(strings.TrimSpace(s)); len(s) >= 3 {
+			target[s] = struct{}{}
+		}
+	}
+	for _, f := range files {
+		add(f)
+		add(filepath.Base(f))
+	}
+	for _, s := range symbols {
+		add(s.Name)
+		add(s.QualifiedName)
+	}
+	if len(target) == 0 {
+		return nil
+	}
+	type scored struct {
+		rec factRecord
+		n   int
+	}
+	var hits []scored
+	for _, f := range facts {
+		if f.Status != factStatusActive {
+			continue
+		}
+		n := 0
+		for _, tok := range factLocusOf(f) {
+			if _, ok := target[tok]; ok {
+				n++
+			}
+		}
+		if n > 0 {
+			hits = append(hits, scored{f, n})
+		}
+	}
+	sort.SliceStable(hits, func(i, j int) bool {
+		if hits[i].n != hits[j].n {
+			return hits[i].n > hits[j].n
+		}
+		return hits[i].rec.UpdatedAt.After(hits[j].rec.UpdatedAt)
+	})
+	out := make([]factRecord, 0, min(limit, len(hits)))
+	for _, h := range hits {
+		out = append(out, h.rec)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+// filterFactsByLocus keeps facts whose locus intersects the query's locus (a
+// path/glob/symbol). An empty query returns all. The query is run through
+// factLocus so a path or CamelCase symbol normalizes the same way the stored
+// loci did.
+func filterFactsByLocus(facts []factRecord, locus string) []factRecord {
+	locus = strings.TrimSpace(locus)
+	if locus == "" {
+		return facts
+	}
+	want := map[string]struct{}{strings.ToLower(locus): {}}
+	for _, t := range factLocus(locus) {
+		want[t] = struct{}{}
+	}
+	out := facts[:0:0]
+	for _, f := range facts {
+		for _, t := range factLocusOf(f) {
+			if _, ok := want[t]; ok {
+				out = append(out, f)
+				break
+			}
+		}
+	}
+	return out
+}
+
 // locusOverlap counts identifiers shared between a query's locus and a fact's
-// locus — the strength of the "they name the same code" signal.
+// locus derived from its text — the strength of the "they name the same code"
+// signal. Prefer locusOverlapTokens when the fact's locus is already stored.
 func locusOverlap(queryLocus []string, factText string) int {
-	if len(queryLocus) == 0 {
+	return locusOverlapTokens(queryLocus, factLocus(factText))
+}
+
+// locusOverlapTokens counts identifiers shared between two locus token sets.
+func locusOverlapTokens(queryLocus, factLocus []string) int {
+	if len(queryLocus) == 0 || len(factLocus) == 0 {
 		return 0
 	}
 	want := make(map[string]struct{}, len(queryLocus))
@@ -230,7 +364,7 @@ func locusOverlap(queryLocus []string, factText string) int {
 		want[q] = struct{}{}
 	}
 	n := 0
-	for _, f := range factLocus(factText) {
+	for _, f := range factLocus {
 		if _, ok := want[f]; ok {
 			n++
 		}

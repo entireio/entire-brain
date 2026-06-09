@@ -230,6 +230,7 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			ID:         factRecordID(text, paths),
 			Paths:      paths,
 			Kind:       kind,
+			Locus:      factLocus(text),
 			Text:       text,
 			Branch:     branch,
 			Origin:     factOriginDistilled,

@@ -185,3 +185,66 @@ func TestFactRecordIDIgnoresKind(t *testing.T) {
 		t.Fatal("id must be non-empty")
 	}
 }
+
+func TestFactsRelevantToChange(t *testing.T) {
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	facts := []factRecord{
+		// Names a symbol defined in a changed file → relevant.
+		{ID: "a", Text: "`MirrorCommittedMetadataRef` must stay best-effort.", Status: factStatusActive, UpdatedAt: now},
+		// Names the changed file path → relevant.
+		{ID: "b", Text: "internal/cli/strategy.go owns the mirror budget.", Status: factStatusActive, UpdatedAt: now},
+		// Unrelated → not relevant.
+		{ID: "c", Text: "The CLI prefers table-driven tests.", Status: factStatusActive, UpdatedAt: now},
+		// Relevant but superseded → excluded.
+		{ID: "d", Text: "`MirrorCommittedMetadataRef` was renamed.", Status: factStatusSuperseded, UpdatedAt: now},
+	}
+	files := []string{"internal/cli/strategy.go"}
+	symbols := []semanticRecord{{Name: "MirrorCommittedMetadataRef", QualifiedName: "strategy.MirrorCommittedMetadataRef", FilePath: "internal/cli/strategy.go"}}
+	got := factsRelevantToChange(files, symbols, facts, 10)
+	ids := map[string]bool{}
+	for _, f := range got {
+		ids[f.ID] = true
+	}
+	if !ids["a"] || !ids["b"] {
+		t.Fatalf("expected facts a and b relevant, got %v", ids)
+	}
+	if ids["c"] {
+		t.Fatalf("unrelated fact c should not be relevant")
+	}
+	if ids["d"] {
+		t.Fatalf("superseded fact d must be excluded")
+	}
+}
+
+func TestFilterFactsByLocus(t *testing.T) {
+	facts := []factRecord{
+		{ID: "sym", Text: "`ValidateToken` returns an error.", Status: factStatusActive},
+		{ID: "path", Text: "internal/auth/token.go holds the validator.", Status: factStatusActive},
+		{ID: "other", Text: "Caching is best-effort.", Status: factStatusActive},
+	}
+	if got := filterFactsByLocus(facts, "ValidateToken"); len(got) != 1 || got[0].ID != "sym" {
+		t.Fatalf("symbol locus filter wrong: %+v", got)
+	}
+	if got := filterFactsByLocus(facts, "internal/auth/token.go"); len(got) != 1 || got[0].ID != "path" {
+		t.Fatalf("path locus filter wrong: %+v", got)
+	}
+	if got := filterFactsByLocus(facts, ""); len(got) != 3 {
+		t.Fatalf("empty locus should keep all")
+	}
+}
+
+func TestReclassifyFactsFillsLocus(t *testing.T) {
+	facts := []factRecord{
+		{ID: "a", Paths: []string{"architecture.data.flow"}, Text: "`MirrorCommittedMetadataRef` is best-effort."},
+	}
+	if changed := reclassifyFacts(facts, false); changed != 1 {
+		t.Fatalf("expected the fact to be backfilled, changed=%d", changed)
+	}
+	if len(facts[0].Locus) == 0 || facts[0].Locus[0] != "mirrorcommittedmetadataref" {
+		t.Fatalf("locus not backfilled: %v", facts[0].Locus)
+	}
+	// Idempotent: a second pass changes nothing (kind + locus already set).
+	if changed := reclassifyFacts(facts, false); changed != 0 {
+		t.Fatalf("reclassify should be idempotent, changed=%d", changed)
+	}
+}

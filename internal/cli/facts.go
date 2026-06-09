@@ -61,9 +61,10 @@ type factSourceManifest struct {
 // is idempotent and dedupe is a map lookup.
 type factRecord struct {
 	ID           string       `json:"id"`
-	Paths        []string     `json:"paths"`          // 1-2 taxonomy paths (topic label)
-	Kind         string       `json:"kind,omitempty"` // decision|invariant|gotcha|preference|convention
-	Text         string       `json:"text"`           // third person about the user
+	Paths        []string     `json:"paths"`           // 1-2 taxonomy paths (topic label)
+	Kind         string       `json:"kind,omitempty"`  // decision|invariant|gotcha|preference|convention
+	Locus        []string     `json:"locus,omitempty"` // code identifiers/paths the fact is about (WHERE)
+	Text         string       `json:"text"`            // third person about the user
 	Branch       string       `json:"branch"`
 	Origin       string       `json:"origin"` // "distilled" | "authored"
 	Status       string       `json:"status"` // "active" | "superseded" | "retracted"
