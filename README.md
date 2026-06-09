@@ -158,7 +158,7 @@ facts, indexed history, and docs — and return ids you can fetch in full:
 
 ```sh
 entire brain query "how does checkpointing work" --json   # hybrid (lexical + vector, RRF) — the default
-entire brain search "checkpoint" --json                   # lexical keyword (BM25 over history + docs)
+entire brain search "checkpoint" --json                   # lexical keyword (facts + BM25 history/docs)
 entire brain vsearch "preventing data races" --json       # vector / semantic (facts + docs)
 entire brain get fact:<id> --json                         # fetch one item by id (fact:… | history:… | doc:…)
 entire brain multi-get fact:<id> doc:<id> --json          # fetch several by id
@@ -276,8 +276,8 @@ layers; it does not write embedding caches or call an embedder. See
 `docs/durable_facts_plan.md` for the full design.
 
 For semantic release checks, `entire brain semantic-audit --json` reports the
-semantic provider/schema state, counts, freshness axes, and blind spots in one
-local audit payload.
+semantic provider/schema state, counts, language/symbol/relation coverage,
+freshness axes, and blind spots in one local audit payload.
 
 ## Storage
 

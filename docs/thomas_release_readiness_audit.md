@@ -41,8 +41,10 @@ Evidence added:
   those fields.
 - The eval `query` arm is read-only and lexical inside the harness, so it does
   not write embedding caches or call an embedder while measuring baselines.
-- Eval summaries include `retriever` and `latency_ms`; `eval-compare` includes a
-  per-metric winner and explicit claim text.
+- Eval summaries include `retriever`, `latency_ms`, and `relevance_source`
+  (`explicit_label`, `source_match`, `judge`, or `none`), so facts-vs-raw charts
+  cannot confuse source-match proxy credit with labeled recall.
+- `eval-compare` includes a per-metric winner and explicit claim text.
 
 Claim policy: do not say facts are better than raw sessions unless paired evals
 show a significant lift for the metric being claimed.
@@ -54,8 +56,9 @@ Thomas questioned whether tree-sitter and semantic indexing actually work.
 Evidence added:
 
 - `entire brain semantic-audit --json` reports provider/schema state, files,
-  symbols, relations, warnings, partial failures, freshness axes, and blind
-  spots from the local semantic manifest/store.
+  symbols, relations, language counts, symbol-kind counts, relation-type counts,
+  warnings, partial failures, freshness axes, and blind spots from the local
+  semantic manifest/store.
 - The full benchmark panel now includes
   `entire-brain-semantic-completeness-tolerance`, a semantic freshness task whose
   prompt does not name the implementation file.
@@ -74,12 +77,12 @@ retrieval surface keeps the qmd-inspired core verbs:
 - `get`
 - `multi-get`
 
-Compatibility subset added:
+QMD-inspired aliases added:
 
 - `--format json|cli` as an alias for JSON/CLI output selection.
 - `-n` / `--number` as an alias for result count on search verbs.
 
-Sources checked:
+Sources checked during the local audit:
 
 - [QMD README](https://github.com/tobi/qmd/blob/main/README.md) documents
   `search`, `vsearch`, `query`, `get`, `multi-get`, and `--json -n 10` for
@@ -87,13 +90,15 @@ Sources checked:
 - [QMD v2.5.3 release notes](https://github.com/tobi/qmd/releases/tag/v2.5.3)
   prefer `--format <kind>` while preserving legacy boolean output flags.
 
-Intentional differences:
+Intentional differences and unpinned areas:
 
 - Entire Brain sources are repo brain layers, not arbitrary QMD collections.
 - `--branch` remains fact-branch-specific.
 - `query` is hybrid over local brain layers; it is not a remote or hosted search.
 - QMD formats beyond `json` and `cli` (`csv`, `md`, `xml`, `files`) are not
   implemented in this pass.
+- This is not a pinned upstream compatibility suite; release claims should say
+  "QMD-inspired aliases" unless a fixture-backed QMD contract test is added.
 
 ## Release Narrative
 
@@ -117,6 +122,8 @@ Release claims must stay local-first and evidence-backed:
 - Eval-generated tasks now retain `source_session_id` and
   `source_transcript_path`; raw/history retrievers can receive source-granularity
   relevance credit without claiming recall labels they do not have.
+- Eval result JSON now includes `relevance_source`, making explicit labels,
+  source-match proxy credit, judge credit, and no-label tasks distinguishable.
 - Eval's `query` arm is read-only and lexical in the harness, avoiding accidental
   embedder calls and cache writes during baseline measurement.
 - `eval-compare` rejects duplicate/mismatched task ids, skips recall where it is
@@ -147,4 +154,5 @@ Release evidence still to collect on the target repo(s):
 - Paired `entire brain facts eval --retriever facts|history|query|raw-sessions`
   runs over the same labeled task set.
 - `entire brain semantic-audit --json` from the release candidate brain.
-- Benchmark panel or retained proof subset from `benchmarks/agent-brain`.
+- Benchmark panel or retained proof subset from `benchmarks/agent-brain`, audited
+  with `audit_codex.py --fail-on-flags` and committed as sanitized evidence.

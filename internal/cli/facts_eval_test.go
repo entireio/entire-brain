@@ -92,6 +92,9 @@ func TestRunFactsEvalLabeledAndJudge(t *testing.T) {
 	if res[0].RelevantSurfaced != 1 {
 		t.Fatalf("expected f1 surfaced and counted, got %+v", res[0])
 	}
+	if res[0].RelevanceSource != evalRelevanceExplicitLabel {
+		t.Fatalf("labeled eval relevance source = %q, want %q", res[0].RelevanceSource, evalRelevanceExplicitLabel)
+	}
 
 	// Judge mode: fake agent marks the first surfaced fact relevant.
 	fakeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -107,6 +110,9 @@ func TestRunFactsEvalLabeledAndJudge(t *testing.T) {
 	}
 	if resJ[0].RelevantSurfaced != 1 {
 		t.Errorf("judge should have marked one fact relevant, got %d", resJ[0].RelevantSurfaced)
+	}
+	if resJ[0].RelevanceSource != evalRelevanceJudge {
+		t.Errorf("judge relevance source = %q, want %q", resJ[0].RelevanceSource, evalRelevanceJudge)
 	}
 	if resJ[0].UsefulPer1k <= 0 {
 		t.Errorf("useful/1k should be > 0 when a fact was judged relevant")
@@ -156,7 +162,7 @@ func TestRunFactsEvalRetrieverArms(t *testing.T) {
 	}
 
 	tasks := []evalTask{{ID: "t1", Task: "alpha checkpoint guidance", Branch: "main", Relevant: []string{fact.ID}, SourceSessionID: session.SessionID, SourceTranscriptPath: transcriptRel}}
-	for _, retriever := range []string{evalRetrieverFacts, evalRetrieverHistory, evalRetrieverRawSessions} {
+	for _, retriever := range []string{evalRetrieverFacts, evalRetrieverHistory, evalRetrieverQuery, evalRetrieverRawSessions} {
 		res, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), nil, nil, retriever)
 		if err != nil {
 			t.Fatalf("%s eval: %v", retriever, err)
@@ -167,11 +173,17 @@ func TestRunFactsEvalRetrieverArms(t *testing.T) {
 		if res[0].RelevantSurfaced != 1 || res[0].Tokens == 0 {
 			t.Fatalf("%s should surface its relevant item with tokens, got %+v", retriever, res[0])
 		}
-		if retriever == evalRetrieverFacts && !res[0].Labeled {
-			t.Fatalf("facts should retain fact-id labels: %+v", res[0])
+		if (retriever == evalRetrieverFacts || retriever == evalRetrieverQuery) && !res[0].Labeled {
+			t.Fatalf("%s should retain explicit relevance labels: %+v", retriever, res[0])
 		}
-		if retriever != evalRetrieverFacts && res[0].Labeled {
+		if (retriever == evalRetrieverFacts || retriever == evalRetrieverQuery) && res[0].RelevanceSource != evalRelevanceExplicitLabel {
+			t.Fatalf("%s relevance source = %q, want %q", retriever, res[0].RelevanceSource, evalRelevanceExplicitLabel)
+		}
+		if retriever != evalRetrieverFacts && retriever != evalRetrieverQuery && res[0].Labeled {
 			t.Fatalf("%s source-match relevance should not claim recall labels: %+v", retriever, res[0])
+		}
+		if (retriever == evalRetrieverHistory || retriever == evalRetrieverRawSessions) && res[0].RelevanceSource != evalRelevanceSourceMatch {
+			t.Fatalf("%s relevance source = %q, want %q", retriever, res[0].RelevanceSource, evalRelevanceSourceMatch)
 		}
 	}
 }

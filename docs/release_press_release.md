@@ -37,8 +37,8 @@ actually improve task outcomes instead of relying on demos or anecdotes.
 - Facts-vs-raw recall quality, using paired `facts eval --retriever` comparisons.
 - Semantic usefulness, using semantic-audit output plus benchmark tasks where
   semantic context changes file/test localization or agent efficiency.
-- Replay-lab evidence, using retained benchmark scenarios with repeated runs and
-  stable verdicts.
+- Replay-lab evidence, using retained benchmark scenarios with repeated runs,
+  stable verdicts, and a committed `audit_codex.py --fail-on-flags` report.
 
 ## Blocked Or Access-Dependent
 

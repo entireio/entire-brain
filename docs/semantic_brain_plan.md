@@ -164,11 +164,12 @@ entire brain get <result-id> --json
 entire brain inspect boundaries --kind route|tool|workflow --json
 ```
 
-Workspace use should keep the same front door:
+Workspace use has its own front door:
 
 ```sh
-entire brain brief "<task>" --workspace <name> --json
-entire brain status --workspace <name> --json
+entire brain workspace query <name> "<symbol-or-query>" --json
+entire brain workspace impact <name> "<symbol-or-query>" --json
+entire brain workspace refresh <name> --json
 ```
 
 Each command should provide concise human output and a stable `--json` mode.

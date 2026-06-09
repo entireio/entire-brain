@@ -640,29 +640,54 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 		unlock()
 		return err
 	}
-	tombstone := storage.BrainDir + ".reset-" + strconv.FormatInt(time.Now().UnixNano(), 10)
-	if err := os.Rename(storage.BrainDir, tombstone); err != nil {
-		unlockBrain()
-		unlock()
-		return fmt.Errorf("move brain directory for reset: %w", err)
-	}
-	if err := os.MkdirAll(storage.BrainDir, 0o700); err != nil {
-		unlockBrain()
-		unlock()
-		return fmt.Errorf("recreate brain directory after reset: %w", err)
-	}
-	if err := syncParentDir(storage.BrainDir); err != nil {
+	if err := resetBrainDirectoryContents(storage.BrainDir); err != nil {
 		unlockBrain()
 		unlock()
 		return err
 	}
 	unlockBrain()
 	unlock()
-	if err := os.RemoveAll(tombstone); err != nil {
-		return fmt.Errorf("remove brain directory: %w", err)
+	if err := removeAllWithRetry(filepath.Join(storage.BrainDir, brainLockDirName)); err != nil {
+		return fmt.Errorf("remove reset lock directory: %w", err)
+	}
+	if err := syncParentDir(storage.BrainDir); err != nil {
+		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "reset brain: %s\n", storage.BrainDir)
 	return nil
+}
+
+func resetBrainDirectoryContents(brainDir string) error {
+	entries, err := os.ReadDir(brainDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return os.MkdirAll(brainDir, 0o700)
+		}
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if name == brainLockDirName {
+			continue
+		}
+		if err := removeAllWithRetry(filepath.Join(brainDir, name)); err != nil {
+			return fmt.Errorf("remove brain entry %s: %w", name, err)
+		}
+	}
+	return syncParentDir(brainDir)
+}
+
+func removeAllWithRetry(path string) error {
+	var last error
+	for attempt := 0; attempt < 5; attempt++ {
+		if err := os.RemoveAll(path); err != nil {
+			last = err
+			time.Sleep(time.Duration(attempt+1) * 20 * time.Millisecond)
+			continue
+		}
+		return nil
+	}
+	return last
 }
 
 type semanticCounts struct {

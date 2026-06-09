@@ -38,6 +38,7 @@ type evalTaskResult struct {
 	Task             string  `json:"task"`
 	QueryType        string  `json:"query_type,omitempty"`
 	Retriever        string  `json:"retriever,omitempty"`
+	RelevanceSource  string  `json:"relevance_source,omitempty"`
 	Surfaced         int     `json:"surfaced"`
 	Tokens           int     `json:"tokens"`
 	LatencyMS        int64   `json:"latency_ms"`
@@ -72,6 +73,11 @@ const (
 	evalRetrieverHistory     = "history"
 	evalRetrieverQuery       = "query"
 	evalRetrieverRawSessions = "raw-sessions"
+
+	evalRelevanceExplicitLabel = "explicit_label"
+	evalRelevanceSourceMatch   = "source_match"
+	evalRelevanceJudge         = "judge"
+	evalRelevanceNone          = "none"
 )
 
 type evalRetrievedItem struct {
@@ -604,13 +610,13 @@ func rawSessionChunkID(session exportSession, chunk transcriptChunk) string {
 	return fmt.Sprintf("raw:%s:%d-%d", shortSessionID(session.SessionID), chunk.StartLine, chunk.EndLine)
 }
 
-func evalLabelsForRetriever(task evalTask, retriever string, surfaced []evalRetrievedItem) (map[string]struct{}, int, bool) {
+func evalLabelsForRetriever(task evalTask, retriever string, surfaced []evalRetrievedItem) (map[string]struct{}, int, bool, string) {
 	explicit := relevantIDsForRetriever(task.Relevant, retriever)
 	if len(explicit) > 0 {
-		return explicit, len(explicit), true
+		return explicit, len(explicit), true, evalRelevanceExplicitLabel
 	}
 	if retriever == evalRetrieverFacts || retriever == evalRetrieverQuery {
-		return map[string]struct{}{}, 0, false
+		return map[string]struct{}{}, 0, false, evalRelevanceNone
 	}
 	sourceMatches := map[string]struct{}{}
 	for _, item := range surfaced {
@@ -618,7 +624,10 @@ func evalLabelsForRetriever(task evalTask, retriever string, surfaced []evalRetr
 			sourceMatches[item.ID] = struct{}{}
 		}
 	}
-	return sourceMatches, 0, false
+	if taskHasEvalSourceAnchor(task) {
+		return sourceMatches, 0, false, evalRelevanceSourceMatch
+	}
+	return sourceMatches, 0, false, evalRelevanceNone
 }
 
 func relevantIDsForRetriever(ids []string, retriever string) map[string]struct{} {
@@ -665,6 +674,10 @@ func evalItemMatchesTaskSource(task evalTask, item evalRetrievedItem) bool {
 		}
 	}
 	return path == transcript
+}
+
+func taskHasEvalSourceAnchor(task evalTask) bool {
+	return strings.TrimSpace(task.SourceSessionID) != "" || strings.TrimSpace(task.SourceTranscriptPath) != ""
 }
 
 // queryExpanderFunc maps a task query to extra retrieval terms; nil disables
@@ -714,18 +727,20 @@ func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultB
 		}
 		latencyMS := time.Since(started).Milliseconds()
 
-		relevant, totalRelevant, labeled := evalLabelsForRetriever(task, retriever, surfaced)
+		relevant, totalRelevant, labeled, relevanceSource := evalLabelsForRetriever(task, retriever, surfaced)
 		if !labeled && len(relevant) == 0 && judge && len(surfaced) > 0 {
 			judged, jerr := judgeRelevanceItems(ctx, run, repoDir, judgeArgs, task, surfaced, cache)
 			if jerr != nil {
 				return nil, jerr
 			}
 			relevant = judged
+			relevanceSource = evalRelevanceJudge
 		}
 
 		res := evalItemMetrics(surfaced, relevant, totalRelevant)
 		res.ID, res.Task, res.QueryType, res.Labeled = task.ID, task.Task, task.QueryType, labeled
 		res.Retriever = retriever
+		res.RelevanceSource = relevanceSource
 		res.LatencyMS = latencyMS
 		results = append(results, res)
 	}

@@ -14,6 +14,13 @@ assert SPEC.loader is not None
 sys.modules[SPEC.name] = run
 SPEC.loader.exec_module(run)
 
+AUDIT_PATH = pathlib.Path(__file__).with_name("audit_codex.py")
+AUDIT_SPEC = importlib.util.spec_from_file_location("agent_brain_audit", AUDIT_PATH)
+audit_codex = importlib.util.module_from_spec(AUDIT_SPEC)
+assert AUDIT_SPEC.loader is not None
+sys.modules[AUDIT_SPEC.name] = audit_codex
+AUDIT_SPEC.loader.exec_module(audit_codex)
+
 
 class RunnerAndConditionTests(unittest.TestCase):
     def test_parse_runner_spec_accepts_codex_claude_and_rejects_gemini(self):
@@ -809,6 +816,60 @@ class PanelAndStabilityTests(unittest.TestCase):
         self.assertEqual(s1["stability_tags"], {"brain_positive_stable": 1})
         # Reproducible: same records -> identical stability verdict.
         self.assertEqual(s1["comparisons"][0]["stability"], s2["comparisons"][0]["stability"])
+
+
+class CodexAuditScriptTests(unittest.TestCase):
+    def _write_records(self, root: pathlib.Path, suite: str, records: list[dict]) -> pathlib.Path:
+        suite_dir = root / suite
+        suite_dir.mkdir(parents=True)
+        (suite_dir / "records.ndjson").write_text("\n".join(json.dumps(r) for r in records) + "\n")
+        return suite_dir
+
+    def _record(self, *, used_brain: bool = False) -> dict:
+        return {
+            "run_id": "r1",
+            "condition": "no_brain",
+            "ok": True,
+            "validation": {"ok": True, "results": [{"command": "go test ./...", "ok": True}]},
+            "agent_info": {"activity": {
+                "used_brain": used_brain,
+                "mcp_tool_calls": 0,
+                "direct_brain_cli_calls": 0,
+                "search_calls": 0,
+            }},
+            "agent_baseline_history_reset": {"parent_count": 0},
+            "agent_secret_preflight": {"ok": True},
+            "agent_leak_audit": {"ok": True},
+            "brain_prep": {"condition": "no_brain"},
+            "changed_files": ["internal/cli/example.go"],
+            "score": {
+                "version": 2,
+                "outcome": 40,
+                "patch_focus": 20,
+                "validation_discipline": 20,
+                "runtime_efficiency": 10,
+                "brain_use": 10,
+                "total": 100,
+            },
+        }
+
+    def test_audit_codex_supports_subset_output_and_fail_on_flags(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            self._write_records(results_dir, "clean-suite", [self._record()])
+            self._write_records(results_dir, "dirty-suite", [self._record(used_brain=True)])
+
+            clean = audit_codex.build_audit_report(results_dir, ["clean-*"])
+            self.assertEqual(clean["totals"]["suites"], 1)
+            self.assertEqual(clean["totals"]["hard_flags"], 0)
+            audit_codex.write_audit_report(clean, out_dir)
+            self.assertTrue((out_dir / "codex-audit-report.json").exists())
+            self.assertEqual(audit_codex.main(["--results", str(results_dir), "--suite-glob", "clean-*", "--out-dir", str(out_dir), "--fail-on-flags"]), 0)
+
+            dirty = audit_codex.build_audit_report(results_dir, ["dirty-*"])
+            self.assertEqual(dirty["totals"]["hard_flags"], 1)
+            self.assertEqual(audit_codex.main(["--results", str(results_dir), "--suite-glob", "dirty-*", "--out-dir", str(out_dir), "--fail-on-flags"]), 1)
 
 
 if __name__ == "__main__":

@@ -230,9 +230,18 @@ A/B/C scenarios, not a Phase 2 layer.
 
 The discovery ledger is not the same as statistical proof. It records why each
 scenario should favor the brain, which brain source should matter, which metric
-should retain the scenario, and which repetitions are needed. Existing repeated
-agent-run proof signals from local `results/*/summary.json` files are folded
-into the report separately.
+should retain the scenario, and which repetitions are needed. Local
+`results/*/summary.json` files are ignored working artifacts; treat them as
+leads until a retained subset is audited and committed. For release evidence,
+run:
+
+```sh
+python3 benchmarks/agent-brain/audit_codex.py \
+  --results <retained-results-dir> \
+  --out-dir <proof-output-dir> \
+  --suite-glob '<suite-pattern>' \
+  --fail-on-flags
+```
 
 For a SWE-bench-style matrix, tag tasks with `source` and `suite_tags`. The
 current harness already supports the essential SWE shape: issue prompt,

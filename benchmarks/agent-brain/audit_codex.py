@@ -22,6 +22,8 @@ Suite-level:
 """
 from __future__ import annotations
 
+import argparse
+import fnmatch
 import json
 import pathlib
 import re
@@ -32,9 +34,6 @@ from typing import Any
 BENCH = pathlib.Path(__file__).resolve().parent
 RESULTS = BENCH / "results"
 TASK_DIR = BENCH / "tasks"
-
-# Suites to audit. Default: every suite that has a records.ndjson.
-SUITE_GLOBS = ["*"]
 
 MCP_CONDITIONS = {"mcp_semantic", "mcp_history"}
 SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
@@ -238,14 +237,19 @@ def audit_summary(suite_dir: pathlib.Path) -> list[dict[str, Any]]:
     return out
 
 
-def main() -> int:
-    suites = sorted(d for d in RESULTS.iterdir() if d.is_dir() and (d / "records.ndjson").exists())
+def suite_matches(name: str, suite_globs: list[str]) -> bool:
+    return any(fnmatch.fnmatch(name, pattern) for pattern in suite_globs)
+
+
+def build_audit_report(results_dir: pathlib.Path, suite_globs: list[str]) -> dict[str, Any]:
+    suites = sorted(
+        d for d in results_dir.iterdir()
+        if d.is_dir() and (d / "records.ndjson").exists() and suite_matches(d.name, suite_globs)
+    )
     report: dict[str, Any] = {"suites": {}, "totals": {}}
     total_records = 0
     total_flags = 0
     flag_kinds: dict[str, int] = defaultdict(int)
-    md_rows: list[str] = []
-
     note_kinds: dict[str, int] = defaultdict(int)
     mcp_verified_count = 0
     for suite in suites:
@@ -270,35 +274,35 @@ def main() -> int:
             "n_flagged_records": len(suite_flags),
             "n_mcp_verified": sum(1 for a in rec_audits if a["mcp_verified"]),
         }
-        comp_flags = sum(1 for c in comp_audits if not c["pass"])
-        status = "PASS" if not suite_flags and comp_flags == 0 else "FLAG"
-        md_rows.append(f"| {suite.name} | {len(rec_audits)} | {len(suite_flags)} | {status} |")
-
     report["totals"] = {
-        "suites": len([s for s in report["suites"]]),
+        "suites": len(report["suites"]),
         "records": total_records,
         "hard_flags": total_flags,
         "mcp_verified_records": mcp_verified_count,
         "flag_kinds": dict(sorted(flag_kinds.items(), key=lambda x: -x[1])),
         "note_kinds": dict(sorted(note_kinds.items(), key=lambda x: -x[1])),
     }
+    return report
 
-    (RESULTS / "codex-audit-report.json").write_text(json.dumps(report, indent=2))
 
+def render_audit_markdown(report: dict[str, Any]) -> str:
+    total_records = report["totals"]["records"]
+    total_flags = report["totals"]["hard_flags"]
+    mcp_verified_count = report["totals"]["mcp_verified_records"]
     md = ["# Codex Benchmark Audit (independent re-check)", "",
           f"- Suites audited: **{report['totals']['suites']}**",
           f"- Agent records audited (prep excluded): **{total_records}**",
           f"- **Hard integrity flags: {total_flags}**",
           f"- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **{mcp_verified_count}**",
           ""]
-    if flag_kinds:
+    if report["totals"]["flag_kinds"]:
         md.append("## Hard integrity flags (potential cheating/bias)")
         for k, v in report["totals"]["flag_kinds"].items():
             md.append(f"- `{k}`: {v}")
         md.append("")
     else:
         md.append("## Hard integrity flags\n\n**None.** No record failed an integrity re-check.\n")
-    if note_kinds:
+    if report["totals"]["note_kinds"]:
         md.append("## Soft notes (honest failures / context, NOT cheating)")
         for k, v in report["totals"]["note_kinds"].items():
             md.append(f"- `{k}`: {v}")
@@ -306,7 +310,10 @@ def main() -> int:
     md.append("## Per-suite")
     md.append("| Suite | Records | Flagged | Status |")
     md.append("|---|---|---|---|")
-    md.extend(md_rows)
+    for sname, sdata in report["suites"].items():
+        comp_flags = sum(1 for c in sdata["comparisons"] if not c["pass"])
+        status = "PASS" if sdata["n_flagged_records"] == 0 and comp_flags == 0 else "FLAG"
+        md.append(f"| {sname} | {sdata['n_records']} | {sdata['n_flagged_records']} | {status} |")
     md.append("")
     # Detail every flagged record
     md.append("## Flagged records (detail)")
@@ -324,10 +331,37 @@ def main() -> int:
             md.append(f"- COMPARISON {c['task']}/{c['runner']}/{c['condition']} verdict={c['verdict']} -> {', '.join(c['flags'])}")
     if not any_flag:
         md.append("None. All audited records passed independent re-checks.")
-    (RESULTS / "codex-audit-report.md").write_text("\n".join(md) + "\n")
+    return "\n".join(md) + "\n"
 
-    print("\n".join(md[:12]))
-    print(f"\nWrote {RESULTS/'codex-audit-report.json'} and codex-audit-report.md")
+
+def write_audit_report(report: dict[str, Any], out_dir: pathlib.Path) -> pathlib.Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    json_path = out_dir / "codex-audit-report.json"
+    json_path.write_text(json.dumps(report, indent=2))
+    (out_dir / "codex-audit-report.md").write_text(render_audit_markdown(report))
+    return json_path
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Audit Entire Brain benchmark records for integrity flags.")
+    parser.add_argument("--results", type=pathlib.Path, default=RESULTS, help="Directory containing benchmark suite result directories")
+    parser.add_argument("--out-dir", type=pathlib.Path, default=None, help="Directory for codex-audit-report.{json,md}; defaults to --results")
+    parser.add_argument("--suite-glob", action="append", default=None, help="Only audit suites whose directory name matches this glob; repeatable")
+    parser.add_argument("--fail-on-flags", action="store_true", help="Exit nonzero when any hard integrity flag is found")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    results_dir = args.results.resolve()
+    out_dir = (args.out_dir or results_dir).resolve()
+    report = build_audit_report(results_dir, args.suite_glob or ["*"])
+    json_path = write_audit_report(report, out_dir)
+    md = render_audit_markdown(report)
+    print("\n".join(md.splitlines()[:12]))
+    print(f"\nWrote {json_path} and codex-audit-report.md")
+    if args.fail_on_flags and report["totals"]["hard_flags"] > 0:
+        return 1
     return 0
 
 

@@ -300,13 +300,15 @@ entire brain path [repo]
 ```
 
 Specialist/debug commands live under `inspect`, for example
-`inspect code`, `inspect tests`, `inspect decisions`, `inspect history`,
-`inspect validation`, and `inspect tool-paths`. Workspace use keeps the same
-front door:
+`inspect code`, `inspect context`, `inspect impact`, `inspect changes`,
+`inspect tests`, `inspect boundaries`, `inspect regressions`, and
+`inspect blame`. Workspace use has its own front door:
 
 ```sh
-entire brain brief "<task>" --workspace <name> --json
-entire brain status --workspace <name> --json
+entire brain workspace query <name> "<symbol-or-query>" --json
+entire brain workspace impact <name> "<symbol-or-query>" --json
+entire brain workspace refresh <name> --json
+entire brain workspace watch <name>
 ```
 
 `brief` should be implemented as a context-graph query that ranks code facts,
@@ -314,10 +316,10 @@ history facts, validation recipes, and live-state overlays into one bounded
 task packet.
 
 For full-history repositories, `brief` must include ranked `history.matches`
-for the task prompt. Broad specialist reads such as `inspect history`,
-`inspect sessions`, and `inspect architecture` should use the same ranked
-history matcher. Narrow reads such as `inspect decisions` may remain stricter
-so exact decision queries do not become noisy.
+for the task prompt. Broad reads should go through `search`, `query`, `get`, and
+`multi-get`, while semantic/code reads should use the current `inspect`
+subcommands. Decision-like rationale is now a fact/history retrieval concern,
+not a separate `inspect decisions` surface.
 
 History ranking must preserve identifier signal. Terms such as
 `ENTIRE_REVIEW_*`, `ENTIRE_PLUGIN_ENV`, `XDG_*`, camel-case invariants, and
@@ -492,11 +494,12 @@ Current pilot-filtering status:
   a possible token/time efficiency signal at `n=1`, but `review-prompt`,
   `transcript-reresolve`, and the checkpoint-history `review-provenance-strip`
   task did not produce a retained correctness signal.
-- GitHub CLI semantic pilots produced two retained Codex candidates with five
+- GitHub CLI semantic pilots produced two local Codex candidate leads with five
   repetitions per condition: `github-cli-repo-name-trims-dotgit` and
-  `github-cli-http-scopes-suggestion`. Both improved mean score, time, tokens,
-  and patch locality under semantic brain. They now need Claude and alternate
-  Codex runner coverage before final claims.
+  `github-cli-http-scopes-suggestion`. Treat those ignored local results as
+  leads, not release evidence, until a retained subset is committed and
+  `audit_codex.py --fail-on-flags` passes against it. They also need Claude and
+  alternate Codex runner coverage before final claims.
 - A one-run Claude Code pilot on those two GitHub CLI candidates saturated:
   Claude scored 100 in both no-brain and semantic-brain conditions, and
   semantic-brain added overhead. Treat these as Codex-retained tasks unless

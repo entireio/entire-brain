@@ -6,12 +6,13 @@ lexical arm and same provenance-labeled task set per repo, so the delta isolates
 the embedder. This is the gate for the Stage 1b cgo bet (see `../../` and the
 alignment plan's "Embedder gate").
 
-## Result (2026-06-08)
+## Historical Local Result (2026-06-08)
 
-EmbeddingGemma beats Model2Vec **+14% useful/1k pooled** over 60 tasks on two
-diverse repos (`entire-brain` +15%, `podcasts` +13%) — the gain generalizes
-beyond the one repo, magnitude-weighted from a few large wins + zero-rescues
-(near-even win/loss count).
+An operator-run sweep observed EmbeddingGemma beating Model2Vec by **+14%
+useful/1k pooled** over 60 tasks on two repos (`entire-brain` +15%, `podcasts`
++13%). The raw artifacts are not committed here, so treat this as a historical
+local note, not release evidence. Re-run the current harness and commit
+sanitized summaries before using the number in public claims.
 
 ## Run it
 
@@ -19,7 +20,8 @@ beyond the one repo, magnitude-weighted from a few large wins + zero-rescues
 # 1. build the brain binary
 (cd ../.. && go build -o entire-brain ./cmd/entire-brain)
 
-# 2. start the EmbeddingGemma embed server (qmd's runner, no cgo)
+# 2. optionally start the EmbeddingGemma embed server (qmd's runner, no cgo).
+#    This setup downloads a model; skip it for offline/no-egress release checks.
 npm install node-llama-cpp
 curl -L -o /tmp/eg.gguf \
   https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/main/embeddinggemma-300M-Q8_0.gguf

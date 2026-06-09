@@ -2,7 +2,10 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -30,6 +33,32 @@ func TestSemanticAuditReportsCountsFreshnessAndBlindSpots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage: %v", err)
 	}
+	storeRel := filepath.ToSlash(filepath.Join(semanticDirName, "audit", "semantic.sqlite"))
+	storePath := filepath.Join(storage.BrainDir, filepath.FromSlash(storeRel))
+	if err := os.MkdirAll(filepath.Dir(storePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeSemanticSQLite(db); err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`INSERT INTO symbols(id, kind, name, qualified_name, file_path, start_line, end_line, signature, language, stable_id_version) VALUES ('s1', 'function', 'A', 'A', 'a.go', 1, 2, '', 'go', 'v1')`,
+		`INSERT INTO symbols(id, kind, name, qualified_name, file_path, start_line, end_line, signature, language, stable_id_version) VALUES ('s2', 'struct', 'B', 'B', 'b.go', 1, 2, '', 'go', 'v1')`,
+		`INSERT INTO symbols(id, kind, name, qualified_name, file_path, start_line, end_line, signature, language, stable_id_version) VALUES ('s3', 'function', 'C', 'C', 'c.ts', 1, 2, '', 'typescript', 'v1')`,
+		`INSERT INTO relations(from_id, to_id, type, confidence, reason, warning_codes) VALUES ('s1', 's2', 'calls', 1, '', '[]')`,
+		`INSERT INTO relations(from_id, to_id, type, confidence, reason, warning_codes) VALUES ('s3', 's1', 'imports', 1, '', '[]')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
 	manifest := exportManifest{
 		SchemaVersion: brainManifestSchemaVersion,
 		Sources: &brainSources{Semantic: &semanticSourceManifest{
@@ -38,9 +67,11 @@ func TestSemanticAuditReportsCountsFreshnessAndBlindSpots(t *testing.T) {
 			SchemaVersion:    "1.0",
 			Commit:           "headsha",
 			Branch:           "main",
+			StorePath:        storeRel,
 			Files:            2,
 			Symbols:          3,
 			Relations:        4,
+			Capabilities:     []string{"relations", "symbols"},
 			NoEgressVerified: true,
 			PartialFailures: []semanticWarning{{
 				Code: "E_PARSE_ERROR", Path: "src/broken.ts", Detail: "tree-sitter syntax error nodes present",
@@ -63,6 +94,15 @@ func TestSemanticAuditReportsCountsFreshnessAndBlindSpots(t *testing.T) {
 	}
 	if len(report.BlindSpots) != 1 || report.BlindSpots[0].Path != "src/broken.ts" {
 		t.Fatalf("blind spots missing: %+v", report.BlindSpots)
+	}
+	if got := semanticAuditCountSummary(report.Languages); got != "go=2, typescript=1" {
+		t.Fatalf("language coverage = %q", got)
+	}
+	if got := semanticAuditCountSummary(report.SymbolKinds); got != "function=2, struct=1" {
+		t.Fatalf("symbol-kind coverage = %q", got)
+	}
+	if got := semanticAuditCountSummary(report.RelationTypes); got != "calls=1, imports=1" {
+		t.Fatalf("relation-type coverage = %q", got)
 	}
 }
 

@@ -20,8 +20,8 @@ and what to do next.
   (agent-required) with agent-judged **merge/supersede reconcile**, incremental
   cache (cache-on-success only).
 - **Read/write surface:** `remember`, `recall` (keyword + taxonomy + code-locus
-  ranking; `--scope`; `--expand`), `inspect facts` / `inspect blame`,
-  `facts tree`, `facts review` / `promote` / `retract` / `gc`. `brief` and
+  ranking; `--scope`; `--expand`), unified `search`/`query`/`get`,
+  `inspect blame`, `facts tree`, `facts review` / `promote` / `retract` / `gc`. `brief` and
   `status` integrate facts (brief sizes to `--limit`).
 - **Evaluation harness:** `facts eval-gen` (provenance-labeled benchmark from the
   brain's own sessions), `facts eval` (precision / recall / **useful-per-1k**),
@@ -98,9 +98,10 @@ pure-Go `modernc.org/sqlite` — and auto-download, which breaks offline-default
    | tokens | 536.7 | 542.6 | +5.9 | 0.363 | n.s. |
 
    Headline metric +13% and precision survive Holm; recall is raw-significant;
-   **no significant token cost** (contrast: expansion was cost-only). Repro:
-   `~/.local/share/entire/facts-benchmark/run_semantic_ab.sh` (deterministic, no
-   agent). Pooled summaries persisted as `combined_semantic_*.json`.
+   **no significant token cost** (contrast: expansion was cost-only). These were
+   local handover measurements, not committed release evidence; rerun the current
+   `facts eval --retriever ...` harness and commit sanitized summaries before
+   using them in public claims.
 
 ### Fusion tuning — resolved (no lever)
 
@@ -152,10 +153,10 @@ tuning** — all three are closed negatives.
 
 ## Reproducing the evaluation
 
-Persisted benchmark artifacts (survive reboot):
-`~/.local/share/entire/facts-benchmark/` — the three `*_raw.json` task sets,
-base/expand summaries, expand caches, and the driver scripts (`run_ab.sh`,
-`ksweep.sh`, `pool.py`).
+Historical benchmark artifacts were kept under a local
+`~/.local/share/entire/facts-benchmark/` directory. Treat those paths as operator
+notes only: they are not part of this repository and are not release evidence
+until rerun with the current harness and checked in as sanitized summaries.
 
 Brain stores live at
 `~/.local/share/entire/plugins/data/brain/repos/gh/<org>/<repo>`.

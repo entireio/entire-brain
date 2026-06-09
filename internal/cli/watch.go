@@ -28,6 +28,7 @@ type watchCommandOptions struct {
 	distill      bool
 	distillEvery time.Duration
 	distillAgent string
+	distillJobs  int
 	seedAgent    string
 	model        string
 	effort       string
@@ -62,6 +63,7 @@ func defaultWatchOptions() watchCommandOptions {
 		interval:     5 * time.Minute,
 		distillEvery: 24 * time.Hour,
 		distillAgent: "codex",
+		distillJobs:  1,
 		seedAgent:    "none",
 	}
 }
@@ -74,6 +76,7 @@ func bindWatchFlags(cmd *cobra.Command, w *watchCommandOptions) {
 	cmd.Flags().BoolVar(&w.distill, "distill", false, "Run distill (SPENDS TOKENS) when new sessions land — gated by --distill-every + --budget")
 	cmd.Flags().DurationVar(&w.distillEvery, "distill-every", w.distillEvery, "Minimum interval between gated agent runs (distill and/or seed synthesis)")
 	cmd.Flags().StringVar(&w.distillAgent, "agent", w.distillAgent, "Agent for the distill step (used only with --distill)")
+	cmd.Flags().IntVar(&w.distillJobs, "jobs", w.distillJobs, "Parallel distill extraction jobs when --distill is enabled; reconciliation and writes remain deterministic")
 	cmd.Flags().StringVar(&w.seedAgent, "seed-agent", w.seedAgent, "Agent for gated seed synthesis (SPENDS TOKENS); none = deterministic seed only. Bounded by --distill-every + --budget, NOT per-change")
 	cmd.Flags().StringVar(&w.model, "model", "", "Fast/cheap model for the gated agent steps (distill/seed)")
 	cmd.Flags().StringVar(&w.effort, "effort", "", "Reasoning effort for the gated agent steps (codex --config model_reasoning_effort=, claude --effort)")
@@ -102,6 +105,9 @@ func runWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchComm
 	if w.interval <= 0 {
 		w.interval = 5 * time.Minute
 	}
+	if w.distillJobs <= 0 {
+		return fmt.Errorf("--jobs must be greater than 0")
+	}
 	now := opts.Now
 	if now == nil {
 		now = time.Now
@@ -124,8 +130,8 @@ func runWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchComm
 	// Background context otherwise).
 	ctx, stop := watchSignalContext(ctx)
 	defer stop()
-	fmt.Fprintf(cmd.OutOrStdout(), "[watch] %s — interval %s, distill=%v (every %s, agent=%s, model=%q, budget=%d)\n",
-		storage.Key, w.interval, w.distill, w.distillEvery, w.distillAgent, w.model, w.budget)
+	fmt.Fprintf(cmd.OutOrStdout(), "[watch] %s — interval %s, distill=%v (every %s, agent=%s, jobs=%d, model=%q, budget=%d)\n",
+		storage.Key, w.interval, w.distill, w.distillEvery, w.distillAgent, w.distillJobs, w.model, w.budget)
 	return watchLoop(ctx, cmd.OutOrStdout(), w, cursorPath, steps)
 }
 
@@ -370,19 +376,28 @@ func watchSeed(ctx context.Context, cmd *cobra.Command, opts Options, w watchCom
 }
 
 func watchDistill(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, repoDir string) error {
-	distillOpts := distillCommandOptions{
+	distillOpts := watchDistillOptions(w)
+	sub := &cobra.Command{}
+	sub.SetContext(ctx)
+	sub.SetOut(cmd.OutOrStdout())
+	sub.SetErr(cmd.ErrOrStderr())
+	return runDistill(ctx, sub, opts, distillOpts, repoDir)
+}
+
+func watchDistillOptions(w watchCommandOptions) distillCommandOptions {
+	jobs := w.distillJobs
+	if jobs <= 0 {
+		jobs = 1
+	}
+	return distillCommandOptions{
 		agent:               w.distillAgent,
 		model:               w.model,
 		effort:              w.effort,
 		timeout:             defaultDistillTimeout,
 		maxChunkBytes:       defaultDistillChunkSize,
 		confidenceThreshold: defaultFactConfidenceThreshold,
+		jobs:                jobs,
 	}
-	sub := &cobra.Command{}
-	sub.SetContext(ctx)
-	sub.SetOut(cmd.OutOrStdout())
-	sub.SetErr(cmd.ErrOrStderr())
-	return runDistill(ctx, sub, opts, distillOpts, repoDir)
 }
 
 func loadWatchCursor(path string) watchCursor {

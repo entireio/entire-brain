@@ -220,8 +220,9 @@ to bound cost and to make turn-level provenance free.
 - `entire brain facts gc [--branch <b>] [--force]` — prune `retracted` facts and
   `superseded` facts older than a retention window, and report orphaned-branch
   and orphaned-taxonomy facts. Parallels the semantic `gc`.
-- `entire brain inspect facts "<query>" [--json]` — read-only listing, parallel
-  to existing `inspect decisions`.
+- `entire brain recall "<query>" [--json]` plus the unified retrieval verbs
+  (`search`, `query`, `get`, `multi-get`) — read-only fact and brain-source
+  lookup without a separate `inspect facts` command.
 - `entire brain inspect blame <fact-id> [--json]` — show the originating
   session, commit, and checkpoint anchors for a fact (Phase A: checkpoint
   granularity; Phase B adds the turn anchor).
@@ -260,10 +261,11 @@ two parallel knowledge sets — they are the same concept at two quality levels.
 The decision: **distillation is the canonical decision source when an agent is
 available; the deterministic excerpt extractor is the no-agent fallback.** A
 distilled fact under a decision taxonomy path (for example
-`architecture.boundaries.rationale`) *is* a decision. `brief` and
-`inspect decisions` read from the fact layer when facts exist for the branch,
-and fall back to the deterministic extractor otherwise — never both, so the same
-rationale is never double-counted. This is distinct from `entire recap`,
+`architecture.boundaries.rationale`) *is* a decision. `brief`, `recall`, and the
+unified retrieval verbs read from the fact layer when facts exist for the
+branch, while history search remains the deterministic excerpt fallback — never
+both as duplicate decision surfaces, so the same rationale is not double-counted.
+This is distinct from `entire recap`,
 `dispatch`, and `activity`, which are user-readable, time-bound summaries rather
 than the brain's agent-readable context graph; those are unaffected.
 
@@ -410,8 +412,8 @@ proof it cannot perform.
 ## Phasing
 
 > **Status (shipped):** Phase A is complete — fact store, distill with
-> agent-judged merge/supersede reconcile, `remember`/`recall`/`inspect facts`/
-> `inspect blame`/`facts review`/`promote`/`gc`/`retract`, and brief/status
+> agent-judged merge/supersede reconcile, `remember`/`recall`/unified retrieval/
+> `inspect blame`/`verify`/`facts review`/`promote`/`gc`/`retract`, and brief/status
 > integration. Several Appendix D structural pieces also shipped: `facts tree`,
 > scope tiering and code-locus ranking (`recall --scope`), agent query expansion
 > (`recall --expand`), and the evaluation harness (`eval-gen`/`eval`/
@@ -463,15 +465,16 @@ proof it cannot perform.
 > embedding backend.
 
 - **Phase A (Entire Brain only, no CLI changes):** fact store, `remember` /
-  `recall` / `inspect facts` / `inspect blame`, the quality gate, the taxonomy,
+  `recall` / unified retrieval / `inspect blame`, the quality gate, the taxonomy,
   `distill` (agent-required) over captured sessions with checkpoint-level
-  provenance, `facts review`, `facts promote`, `facts retract`, and `facts gc`.
-  Branch scoping is per indexed branch; promotion is manual.
-- **Phase B (with CLI change #1):** turn-level `blame` and the `verify` command,
-  anchored to signed checkpoints. **Plus the fact-quality and structure work**
+  provenance, local retained-source `verify`, `facts review`, `facts promote`,
+  `facts retract`, and `facts gc`. Branch scoping is per indexed branch;
+  promotion is manual.
+- **Phase B (with CLI change #1):** cryptographic turn-level `verify` and blame
+  anchored to signed turn data. **Plus the fact-quality and structure work**
   driven by the Phase A output analysis: locus-indexed facts, scope tiering, and
   a synthesized hierarchy, validated by the audience-driven evaluation loop. See
-  Appendix D — this is the highest-leverage Phase B work, not the signing.
+  Appendix D — this is the highest-leverage Phase B work, not just signing.
 - **Phase C (with CLI change #2):** the shared derived-knowledge store contract,
   extended so the locus/kind index and synthesized hierarchy from Appendix D are
   part of the contract other plugins consume.
@@ -638,10 +641,11 @@ the transcript). Authored facts may also record the current commit when no
 session/checkpoint source is retained. The line offset is captured in Phase A
 even though the cryptographic turn anchor is not — so when Entire CLI change #1 lands,
 existing facts already point at the right turn. In Phase A `inspect blame`
-displays these anchors and `status`/`facts gc` flag facts whose commit is no
-longer reachable in local refs. There is no `verify` command and no `tampered`
-claim until Phase B adds signature-checked anchors, so the absence of turn-level
-signing never produces a false tamper signal.
+displays these anchors, `verify` checks retained local checkpoint/session/
+transcript sources where available, and `status`/`facts gc` flag facts whose
+commit is no longer reachable in local refs. There is no cryptographic turn
+tamper claim until Phase B adds signature-checked turn anchors, so the absence
+of turn-level signing never produces a false tamper signal.
 
 ### Command-To-Type Mapping
 
@@ -649,7 +653,7 @@ signing never produces a false tamper signal.
 |---|---|---|
 | `remember` | `taxonomy.json` | one `factRecord` (`origin=authored`) |
 | `distill` | session transcripts, existing `facts.ndjson`, `taxonomy.json` | new/merged `factRecord`s (`origin=distilled`), `factSourceManifest` |
-| `recall` / `inspect facts` | `facts.ndjson` (+ local embeddings) | — |
+| `recall` / `search` / `query` / `get` | `facts.ndjson` (+ local embeddings and unified brain sources) | — |
 | `inspect blame` | `facts.ndjson` | — |
 | `facts review` | `facts.ndjson` (pending proposals) | resolved `Status` / `SupersededBy` |
 | `facts promote` | source + target `facts.ndjson` | merged target `facts.ndjson` |
@@ -697,12 +701,13 @@ change can revisit it intentionally.
   apply every merge/supersede unattended. Intentional for now (an explicit
   always-apply mode is a future flag if wanted).
 
-- **Distilled facts have no commit anchor until Phase B.** Provenance for
+- **Distilled facts have no commit anchor until turn signing lands.** Provenance for
   distilled facts records the session, checkpoint, transcript path, and chunk
   line, but not a commit SHA (only `remember` sets a commit). `inspect blame`
-  therefore shows `commit=<unset>` for distilled facts, and the commit-reach
-  freshness check has nothing to test for them until turn-level signed anchors
-  land in Phase B.
+  therefore shows `commit=<unset>` for distilled facts, while `verify` can still
+  check retained checkpoint/session/transcript sources at local export
+  granularity. Commit/turn-signature freshness for distilled facts remains gated
+  on the future signed-turn anchor.
 
 - **Manifest chunk counts describe the last distill run only.** `chunks_scanned`
   / `chunks_distilled` are not updated by `remember` / `facts review` /

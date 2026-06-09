@@ -8,10 +8,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 func TestWatchShouldSpend(t *testing.T) {
@@ -116,6 +119,39 @@ func TestWatchLoopDistillWhenEnabledAndElapsed(t *testing.T) {
 	}
 	if got := readWatchCursor(t, cursor); got.LastAgentSpendAt.IsZero() {
 		t.Fatalf("agent-spend timestamp must advance so a restart does not re-spend: %+v", got)
+	}
+}
+
+func TestWatchDistillOptionsDefaultAndExplicitJobs(t *testing.T) {
+	defaultOpts := watchDistillOptions(defaultWatchOptions())
+	if defaultOpts.jobs != 1 {
+		t.Fatalf("default watch distill jobs = %d, want 1", defaultOpts.jobs)
+	}
+	explicit := defaultWatchOptions()
+	explicit.distillJobs = 4
+	explicit.distillAgent = "ollama"
+	explicit.model = "local-model"
+	got := watchDistillOptions(explicit)
+	if got.jobs != 4 || got.agent != "ollama" || got.model != "local-model" {
+		t.Fatalf("watch distill options not propagated: %+v", got)
+	}
+}
+
+func TestRunWatchRejectsInvalidJobsBeforeWork(t *testing.T) {
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	err := runWatch(context.Background(), cmd, Options{}, watchCommandOptions{
+		once:        true,
+		distill:     true,
+		distillJobs: 0,
+		seedAgent:   "none",
+	}, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "--jobs must be greater than 0") {
+		t.Fatalf("expected invalid jobs error, got %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("watch should fail before printing/running work, got %q", out.String())
 	}
 }
 
