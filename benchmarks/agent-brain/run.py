@@ -701,6 +701,15 @@ def run_config_provenance(
             "BENCH_RADAR_LOCATION_ONLY": os.environ.get("BENCH_RADAR_LOCATION_ONLY"),
         },
     }
+    panel_name = getattr(args, "panel_name", None)
+    panel_path = getattr(args, "panel_path", None)
+    panel_config_sha256 = getattr(args, "panel_config_sha256", None)
+    if panel_name or panel_path or panel_config_sha256:
+        payload["panel"] = {
+            "name": panel_name,
+            "path": panel_path,
+            "config_sha256": panel_config_sha256,
+        }
     payload["fingerprint"] = stable_json_sha256(payload)
     return payload
 
@@ -3668,8 +3677,12 @@ def cmd_run(args: argparse.Namespace) -> int:
 PANEL_DIR = BENCH_ROOT / "panels"
 
 
+def panel_manifest_path(name: str) -> pathlib.Path:
+    return pathlib.Path(name) if name.endswith(".json") else PANEL_DIR / f"{name}.json"
+
+
 def load_panel(name: str) -> dict[str, Any]:
-    path = pathlib.Path(name) if name.endswith(".json") else PANEL_DIR / f"{name}.json"
+    path = panel_manifest_path(name)
     if not path.exists():
         raise FileNotFoundError(f"panel manifest not found: {path}")
     return json.loads(path.read_text())
@@ -3706,6 +3719,7 @@ def panel_preflight(panel: dict[str, Any]) -> list[str]:
 
 
 def cmd_panel(args: argparse.Namespace) -> int:
+    panel_path = panel_manifest_path(args.name)
     panel = load_panel(args.name)
     errors = panel_preflight(panel)
     if errors:
@@ -3719,6 +3733,9 @@ def cmd_panel(args: argparse.Namespace) -> int:
     args.agents = ""
     args.conditions = ",".join(panel["conditions"])
     args.repetitions = int(panel["repetitions"])
+    args.panel_name = str(panel.get("name") or args.name)
+    args.panel_path = display_path(panel_path)
+    args.panel_config_sha256 = file_sha256(panel_path)
     if not getattr(args, "suite_name", None):
         args.suite_name = f"panel-{slugify(args.name)}-{dt.datetime.now(dt.UTC).strftime('%Y%m%dT%H%M%SZ')}"
     print(

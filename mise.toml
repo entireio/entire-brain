@@ -20,11 +20,17 @@ description = "Run deterministic Phase 1 semantic brain contract tests"
 run = "ENTIRE_BRAIN_PHASE1_CI=1 go test -race ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'"
 
 [tasks."release:evidence"]
-description = "Fail unless retained replay-lab benchmark evidence is provenance-complete and audit-clean"
+description = "Fail unless release-candidate replay-lab evidence is provenance-complete, audit-clean, and proof-ready"
 run = '''
 set -e
 python3 benchmarks/agent-brain/run_test.py
-python3 benchmarks/agent-brain/audit_codex.py --fail-on-flags --min-suites 1 --min-records 1
+python3 benchmarks/agent-brain/audit_codex.py \
+  --suite-glob 'release-*' \
+  --out-dir benchmarks/agent-brain/evidence/release \
+  --fail-on-flags \
+  --min-suites 1 \
+  --min-records 1 \
+  --min-proof-ready 1
 '''
 
 [tasks.build]

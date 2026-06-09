@@ -237,8 +237,8 @@ The discovery ledger is not the same as statistical proof. It records why each
 scenario should favor the brain, which brain source should matter, which metric
 should retain the scenario, and which repetitions are needed. Local
 `results/*/summary.json` files are ignored working artifacts; treat them as
-leads until a retained subset is audited and committed. For release evidence,
-run:
+leads until a retained subset is audited and committed under
+`benchmarks/agent-brain/evidence/release`. For release evidence, run:
 
 ```sh
 python3 benchmarks/agent-brain/audit_codex.py \
@@ -247,7 +247,8 @@ python3 benchmarks/agent-brain/audit_codex.py \
   --suite-glob '<suite-pattern>' \
   --fail-on-flags \
   --min-suites <n> \
-  --min-records <n>
+  --min-records <n> \
+  --min-proof-ready <n>
 ```
 
 The repo-level release gate is:
@@ -256,12 +257,23 @@ The repo-level release gate is:
 mise run release:evidence
 ```
 
+That gate intentionally audits only suite directories matching `release-*` and
+requires at least one stable `proof_ready` comparison. Historical, exploratory,
+or quarantine suites can remain under `results/` for reference, but they cannot
+satisfy a release proof claim unless they are copied or regenerated as an
+explicit release-candidate suite and pass the audit.
+
+The release evidence manifest lives at
+`benchmarks/agent-brain/evidence/release/manifest.json`; it records the citable
+suite pattern and minimum proof thresholds. Do not cite benchmark results from
+outside that retained lane.
+
 Audit mode treats missing or malformed provenance as a hard integrity flag. A
 release audit must therefore be able to show, per record, which harness revision,
 source base/head commits, task config hash, runner/config fingerprint, and tool
 hashes produced the result. The current retained `results/` panel is quarantine
-evidence and intentionally fails this gate until a provenance-complete retained
-subset replaces or filters it.
+evidence and intentionally fails a full all-results audit until a
+provenance-complete retained subset replaces or filters it.
 
 For a SWE-bench-style matrix, tag tasks with `source` and `suite_tags`. The
 current harness already supports the essential SWE shape: issue prompt,

@@ -190,14 +190,17 @@ repo/access/artifacts are available:
   runs over the same labeled or explicitly proxy-allowed task set.
 - `entire brain semantic-audit --json` from the release candidate brain.
 - Benchmark panel or retained proof subset from `benchmarks/agent-brain`, audited
-  with `audit_codex.py --fail-on-flags` and committed as sanitized evidence.
+  with `audit_codex.py --fail-on-flags` and committed under
+  `benchmarks/agent-brain/evidence/release` as sanitized evidence.
 - `mise run release:evidence` must pass before any replay-lab proof claim; it runs
-  benchmark harness self-tests and then `audit_codex.py --fail-on-flags
-  --min-suites 1 --min-records 1`.
+  benchmark harness self-tests and then audits explicit `release-*` suites with
+  `audit_codex.py --fail-on-flags --min-suites 1 --min-records 1
+  --min-proof-ready 1`, writing the audit report to the retained evidence lane.
 
 Current retained benchmark caveat: `benchmarks/agent-brain/results/codex-audit-report.md`
 is quarantine/reference evidence, not release proof. The retained panel reports hard
 integrity flags and zero provenance-complete agent records, so public replay-lab
-claims require a new provenance-complete run (or a filtered suite subset) that passes
-`python3 benchmarks/agent-brain/audit_codex.py --fail-on-flags --min-suites <n>
---min-records <n>`.
+claims require a new provenance-complete `release-*` run (or a deliberately copied
+release-candidate subset) that passes `python3 benchmarks/agent-brain/audit_codex.py
+--suite-glob 'release-*' --out-dir benchmarks/agent-brain/evidence/release
+--fail-on-flags --min-suites <n> --min-records <n> --min-proof-ready <n>`.

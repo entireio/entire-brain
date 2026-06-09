@@ -296,7 +296,9 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
 
     return {
         "run_id": run_id,
+        "task_id": rec.get("task_id"),
         "condition": cond,
+        "repetition": rec.get("repetition"),
         "runner": get(rec, "runner", "id", default=rec.get("agent")),
         "model": get(rec, "runner", "model"),
         "effort": get(rec, "runner", "effort"),
@@ -353,6 +355,50 @@ def audit_summary(suite_dir: pathlib.Path) -> list[dict[str, Any]]:
     return out
 
 
+def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, Any]]) -> dict[str, Any]:
+    task = comp.get("task")
+    runner = comp.get("runner")
+    condition = comp.get("condition")
+    required_condition = int(comp.get("n_condition") or 0)
+    required_baseline = int(comp.get("n_baseline") or 0)
+
+    def matches(record: dict[str, Any], cond: str) -> bool:
+        return (
+            record.get("pass")
+            and get(record, "provenance", "ok")
+            and record.get("ok") is True
+            and record.get("valid") is True
+            and record.get("task_id") == task
+            and record.get("runner") == runner
+            and record.get("condition") == cond
+        )
+
+    condition_matches = [r for r in rec_audits if matches(r, condition)]
+    baseline_matches = [r for r in rec_audits if matches(r, "no_brain")]
+    condition_run_ids = {r.get("run_id") for r in condition_matches if r.get("run_id")}
+    baseline_run_ids = {r.get("run_id") for r in baseline_matches if r.get("run_id")}
+    condition_repetitions = {r.get("repetition") for r in condition_matches if r.get("repetition") is not None}
+    baseline_repetitions = {r.get("repetition") for r in baseline_matches if r.get("repetition") is not None}
+    return {
+        "condition_records": len(condition_matches),
+        "baseline_records": len(baseline_matches),
+        "condition_unique_run_ids": len(condition_run_ids),
+        "baseline_unique_run_ids": len(baseline_run_ids),
+        "condition_unique_repetitions": len(condition_repetitions),
+        "baseline_unique_repetitions": len(baseline_repetitions),
+        "required_condition": required_condition,
+        "required_baseline": required_baseline,
+        "ok": (
+            len(condition_run_ids) >= required_condition
+            and len(baseline_run_ids) >= required_baseline
+            and len(condition_repetitions) >= required_condition
+            and len(baseline_repetitions) >= required_baseline
+            and required_condition > 0
+            and required_baseline > 0
+        ),
+    }
+
+
 def suite_matches(name: str, suite_globs: list[str]) -> bool:
     return any(fnmatch.fnmatch(name, pattern) for pattern in suite_globs)
 
@@ -369,16 +415,25 @@ def build_audit_report(results_dir: pathlib.Path, suite_globs: list[str]) -> dic
     note_kinds: dict[str, int] = defaultdict(int)
     mcp_verified_count = 0
     provenance_ok_count = 0
+    proof_ready_count = 0
     for suite in suites:
         recs = [r for r in load_records(suite) if "__prep__" not in r.get("run_id", "")]
         if not recs:
             continue
         rec_audits = [audit_record(r, suite) for r in recs]
         comp_audits = audit_summary(suite)
+        for comp in comp_audits:
+            backing = proof_ready_record_backing(comp, rec_audits)
+            comp["record_backing"] = backing
+            if comp.get("proof_ready") and not backing["ok"]:
+                comp["flags"].append("G:proof_ready_without_matching_records")
+                comp["pass"] = False
         suite_flags = [a for a in rec_audits if not a["pass"]]
+        suite_proofs = sum(1 for c in comp_audits if c.get("proof_ready") and c.get("pass"))
         total_records += len(rec_audits)
         mcp_verified_count += sum(1 for a in rec_audits if a["mcp_verified"])
         provenance_ok_count += sum(1 for a in rec_audits if get(a, "provenance", "ok"))
+        proof_ready_count += suite_proofs
         for a in rec_audits:
             for f in a["flags"]:
                 total_flags += 1
@@ -396,6 +451,7 @@ def build_audit_report(results_dir: pathlib.Path, suite_globs: list[str]) -> dic
             "n_flagged_records": len(suite_flags),
             "n_mcp_verified": sum(1 for a in rec_audits if a["mcp_verified"]),
             "n_provenance_ok": sum(1 for a in rec_audits if get(a, "provenance", "ok")),
+            "n_proof_ready_comparisons": suite_proofs,
         }
     report["totals"] = {
         "suites": len(report["suites"]),
@@ -403,10 +459,39 @@ def build_audit_report(results_dir: pathlib.Path, suite_globs: list[str]) -> dic
         "hard_flags": total_flags,
         "mcp_verified_records": mcp_verified_count,
         "provenance_ok_records": provenance_ok_count,
+        "proof_ready_comparisons": proof_ready_count,
         "flag_kinds": dict(sorted(flag_kinds.items(), key=lambda x: -x[1])),
         "note_kinds": dict(sorted(note_kinds.items(), key=lambda x: -x[1])),
     }
     return report
+
+
+def build_gate_status(report: dict[str, Any], min_suites: int, min_records: int, min_proof_ready: int) -> dict[str, Any]:
+    totals = report["totals"]
+    failures: list[str] = []
+    suites = int(totals.get("suites") or 0)
+    records = int(totals.get("records") or 0)
+    proof_ready = int(totals.get("proof_ready_comparisons") or 0)
+    hard_flags = int(totals.get("hard_flags") or 0)
+    if suites < min_suites:
+        failures.append(f"suites {suites} < required {min_suites}")
+    if records < min_records:
+        failures.append(f"records {records} < required {min_records}")
+    if proof_ready < min_proof_ready:
+        failures.append(f"proof_ready_comparisons {proof_ready} < required {min_proof_ready}")
+    if hard_flags > 0:
+        failures.append(f"hard_flags {hard_flags} > 0")
+    return {
+        "status": "fail" if failures else "pass",
+        "release_evidence": not failures,
+        "requirements": {
+            "min_suites": min_suites,
+            "min_records": min_records,
+            "min_proof_ready": min_proof_ready,
+            "hard_flags": 0,
+        },
+        "failures": failures,
+    }
 
 
 def render_audit_markdown(report: dict[str, Any]) -> str:
@@ -414,13 +499,25 @@ def render_audit_markdown(report: dict[str, Any]) -> str:
     total_flags = report["totals"]["hard_flags"]
     mcp_verified_count = report["totals"]["mcp_verified_records"]
     provenance_ok_count = report["totals"].get("provenance_ok_records", 0)
+    proof_ready_count = report["totals"].get("proof_ready_comparisons", 0)
     md = ["# Codex Benchmark Audit (independent re-check)", "",
           f"- Suites audited: **{report['totals']['suites']}**",
           f"- Agent records audited (prep excluded): **{total_records}**",
           f"- **Hard integrity flags: {total_flags}**",
           f"- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **{mcp_verified_count}**",
           f"- Records with required provenance (source base/head + harness/config/tool hashes): **{provenance_ok_count}/{total_records}**",
+          f"- Stable proof-ready comparisons: **{proof_ready_count}**",
           ""]
+    gate_status = report.get("gate_status")
+    if isinstance(gate_status, dict):
+        md.append("## Release Gate")
+        if gate_status.get("release_evidence"):
+            md.append("**PASS.** This audit satisfies the configured release-evidence gate.")
+        else:
+            md.append("**NOT RELEASE EVIDENCE.** This audit does not satisfy the configured release-evidence gate.")
+        for failure in gate_status.get("failures") or []:
+            md.append(f"- {failure}")
+        md.append("")
     if report["totals"]["flag_kinds"]:
         md.append("## Hard integrity flags (potential cheating/bias)")
         for k, v in report["totals"]["flag_kinds"].items():
@@ -476,6 +573,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--fail-on-flags", action="store_true", help="Exit nonzero when any hard integrity flag is found")
     parser.add_argument("--min-suites", type=int, default=1, help="Minimum audited non-empty suites required when --fail-on-flags is set")
     parser.add_argument("--min-records", type=int, default=1, help="Minimum audited agent records required when --fail-on-flags is set")
+    parser.add_argument("--min-proof-ready", type=int, default=0, help="Minimum stable proof-ready comparisons required when --fail-on-flags is set")
     return parser.parse_args(argv)
 
 
@@ -484,20 +582,19 @@ def main(argv: list[str] | None = None) -> int:
     results_dir = args.results.resolve()
     out_dir = (args.out_dir or results_dir).resolve()
     report = build_audit_report(results_dir, args.suite_glob or ["*"])
+    gate_status = None
+    if args.fail_on_flags:
+        gate_status = build_gate_status(report, args.min_suites, args.min_records, args.min_proof_ready)
+        report["gate_status"] = gate_status
     json_path = write_audit_report(report, out_dir)
     md = render_audit_markdown(report)
     print("\n".join(md.splitlines()[:12]))
     print(f"\nWrote {json_path} and codex-audit-report.md")
-    if args.fail_on_flags:
-        if report["totals"]["suites"] < args.min_suites or report["totals"]["records"] < args.min_records:
-            print(
-                f"\nAudit evidence is empty/thin: suites={report['totals']['suites']} records={report['totals']['records']} "
-                f"(minimum suites={args.min_suites} records={args.min_records})",
-                file=sys.stderr,
-            )
-            return 1
-        if report["totals"]["hard_flags"] > 0:
-            return 1
+    if args.fail_on_flags and gate_status and gate_status["status"] != "pass":
+        print("\nAudit is not release evidence:", file=sys.stderr)
+        for failure in gate_status["failures"]:
+            print(f"- {failure}", file=sys.stderr)
+        return 1
     return 0
 
 

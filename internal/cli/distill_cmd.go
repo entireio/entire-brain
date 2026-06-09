@@ -1311,8 +1311,16 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	var tr *http.Transport
+	if dt, ok := http.DefaultTransport.(*http.Transport); ok {
+		tr = dt.Clone()
+	} else {
+		tr = &http.Transport{}
+	}
+	tr.Proxy = nil
 	client := &http.Client{
-		Timeout: timeout,
+		Timeout:   timeout,
+		Transport: tr,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if !isLoopbackHTTPURL(req.URL) {
 				return fmt.Errorf("ollama redirect must stay loopback-only: %s", req.URL.String())

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1342,6 +1343,35 @@ func TestExecOllamaDistillAgentUsesLoopbackGenerateAPI(t *testing.T) {
 	}
 	if sawModel != "llama3.2" || sawSystem != "system prompt" || sawPrompt != "chunk input" {
 		t.Fatalf("unexpected request model/system/prompt: %q %q %q", sawModel, sawSystem, sawPrompt)
+	}
+}
+
+func TestExecOllamaDistillAgentIgnoresProxyTransport(t *testing.T) {
+	var proxyCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"response":"project.local\tLoopback stayed local.\n"}`)
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = &http.Transport{
+		Proxy: func(*http.Request) (*url.URL, error) {
+			proxyCalls.Add(1)
+			return nil, fmt.Errorf("proxy should not be used for loopback ollama distill")
+		},
+	}
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	out, err := execOllamaDistillAgent(context.Background(), t.TempDir(), []string{"ollama", "llama3.2", "system"}, []byte("input"), time.Second)
+	if err != nil {
+		t.Fatalf("ollama runner should ignore proxy transport: %v", err)
+	}
+	if !strings.Contains(out, "Loopback stayed local") {
+		t.Fatalf("unexpected output %q", out)
+	}
+	if proxyCalls.Load() != 0 {
+		t.Fatalf("ollama distill consulted proxy %d times", proxyCalls.Load())
 	}
 }
 

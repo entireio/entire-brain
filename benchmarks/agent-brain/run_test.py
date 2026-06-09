@@ -805,6 +805,58 @@ class PanelAndStabilityTests(unittest.TestCase):
         self.assertTrue(any("status" in t for t in ws))
         self.assertEqual(run.panel_preflight(panel), [])
 
+    def test_run_config_provenance_includes_panel_manifest_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            panel_path = root / "release-panel.json"
+            panel_path.write_text(json.dumps({
+                "name": "release-panel",
+                "tasks": ["t"],
+                "runners": ["codex:gpt-test:low"],
+                "conditions": ["no_brain", "full_brain"],
+                "repetitions": 4,
+            }))
+            args = argparse.Namespace(
+                tasks=["t"],
+                agents="",
+                runners="codex:gpt-test:low",
+                conditions="no_brain,full_brain",
+                repetitions=4,
+                checkpoint_limit=None,
+                no_brain_cache=False,
+                refresh_brain_cache=False,
+                timeout=120,
+                claude_budget=None,
+                stop_after_no_brain_score=None,
+                pricing_file=None,
+                pricing_json=None,
+                panel_name="release-panel",
+                panel_path=run.display_path(panel_path),
+                panel_config_sha256=run.file_sha256(panel_path),
+            )
+            payload = run.run_config_provenance(
+                "run",
+                run.parse_runner_spec("codex:gpt-test:low"),
+                "full_brain",
+                1,
+                root / "suite",
+                args,
+            )
+            self.assertEqual(payload["panel"]["name"], "release-panel")
+            self.assertEqual(payload["panel"]["path"], run.display_path(panel_path))
+            self.assertEqual(payload["panel"]["config_sha256"], run.file_sha256(panel_path))
+
+            args.panel_config_sha256 = "f" * 64
+            changed = run.run_config_provenance(
+                "run",
+                run.parse_runner_spec("codex:gpt-test:low"),
+                "full_brain",
+                1,
+                root / "suite",
+                args,
+            )
+            self.assertNotEqual(payload["fingerprint"], changed["fingerprint"])
+
     def test_coefficient_of_variation_and_drop_one(self):
         self.assertIsNone(run.coefficient_of_variation([5.0]))  # n<2
         self.assertEqual(run.coefficient_of_variation([10.0, 10.0, 10.0]), 0.0)
@@ -954,7 +1006,7 @@ class CodexAuditScriptTests(unittest.TestCase):
 
     def _write_records(self, root: pathlib.Path, suite: str, records: list[dict]) -> pathlib.Path:
         suite_dir = root / suite
-        suite_dir.mkdir(parents=True)
+        suite_dir.mkdir(parents=True, exist_ok=True)
         (suite_dir / "records.ndjson").write_text("\n".join(json.dumps(r) for r in records) + "\n")
         return suite_dir
 
@@ -995,12 +1047,15 @@ class CodexAuditScriptTests(unittest.TestCase):
             },
         }
 
-    def _record(self, *, used_brain: bool = False) -> dict:
+    def _record(self, *, used_brain: bool = False, condition: str = "no_brain", repetition: int = 1, run_id: str = "r1") -> dict:
+        provenance = self._provenance()
+        provenance["run_config"]["condition"] = condition
+        provenance["run_config"]["repetition"] = repetition
         return {
-            "run_id": "r1",
+            "run_id": run_id,
             "task_id": "t",
-            "condition": "no_brain",
-            "repetition": 1,
+            "condition": condition,
+            "repetition": repetition,
             "agent": "codex",
             "runner": {"id": "codex", "agent": "codex", "model": "gpt-test", "effort": "low"},
             "ok": True,
@@ -1014,7 +1069,7 @@ class CodexAuditScriptTests(unittest.TestCase):
             "agent_baseline_history_reset": {"parent_count": 0},
             "agent_secret_preflight": {"ok": True},
             "agent_leak_audit": {"ok": True},
-            "brain_prep": {"condition": "no_brain"},
+            "brain_prep": {"condition": condition},
             "changed_files": ["internal/cli/example.go"],
             "score": {
                 "version": 2,
@@ -1025,7 +1080,7 @@ class CodexAuditScriptTests(unittest.TestCase):
                 "brain_use": 10,
                 "total": 100,
             },
-            "provenance": self._provenance(),
+            "provenance": provenance,
         }
 
     def test_audit_codex_supports_subset_output_and_fail_on_flags(self):
@@ -1038,9 +1093,66 @@ class CodexAuditScriptTests(unittest.TestCase):
             clean = audit_codex.build_audit_report(results_dir, ["clean-*"])
             self.assertEqual(clean["totals"]["suites"], 1)
             self.assertEqual(clean["totals"]["hard_flags"], 0)
+            self.assertEqual(clean["totals"]["proof_ready_comparisons"], 0)
             audit_codex.write_audit_report(clean, out_dir)
             self.assertTrue((out_dir / "codex-audit-report.json").exists())
             self.assertEqual(audit_codex.main(["--results", str(results_dir), "--suite-glob", "clean-*", "--out-dir", str(out_dir), "--fail-on-flags"]), 0)
+            self.assertEqual(
+                audit_codex.main(["--results", str(results_dir), "--suite-glob", "clean-*", "--out-dir", str(out_dir), "--fail-on-flags", "--min-proof-ready", "1"]),
+                1,
+            )
+            thin_gate = json.loads((out_dir / "codex-audit-report.json").read_text())["gate_status"]
+            self.assertFalse(thin_gate["release_evidence"])
+            self.assertIn("proof_ready_comparisons 0 < required 1", thin_gate["failures"])
+            self.assertIn("NOT RELEASE EVIDENCE", (out_dir / "codex-audit-report.md").read_text())
+
+            clean_suite = results_dir / "clean-suite"
+            (clean_suite / "summary.json").write_text(json.dumps({
+                "comparisons": [{
+                    "task_id": "t",
+                    "runner": "codex",
+                    "condition": "full_brain",
+                    "verdict": "brain_positive",
+                    "proof_ready": True,
+                    "n_condition": 3,
+                    "n_baseline": 3,
+                    "stability": {"tag": "brain_positive_stable"},
+                }]
+            }))
+            stale_summary = audit_codex.build_audit_report(results_dir, ["clean-*"])
+            self.assertEqual(stale_summary["totals"]["proof_ready_comparisons"], 0)
+            flags = stale_summary["suites"]["clean-suite"]["comparisons"][0]["flags"]
+            self.assertIn("G:proof_ready_without_matching_records", flags)
+            self.assertEqual(
+                audit_codex.main(["--results", str(results_dir), "--suite-glob", "clean-*", "--out-dir", str(out_dir), "--fail-on-flags", "--min-proof-ready", "1"]),
+                1,
+            )
+
+            duplicate_records = []
+            for i in range(3):
+                duplicate_records.append(self._record(condition="no_brain", repetition=1, run_id=f"dup-base-{i}"))
+                duplicate_records.append(self._record(condition="full_brain", repetition=1, run_id=f"dup-brain-{i}"))
+            self._write_records(results_dir, "clean-suite", duplicate_records)
+            duplicate_report = audit_codex.build_audit_report(results_dir, ["clean-*"])
+            self.assertEqual(duplicate_report["totals"]["proof_ready_comparisons"], 0)
+            duplicate_backing = duplicate_report["suites"]["clean-suite"]["comparisons"][0]["record_backing"]
+            self.assertEqual(duplicate_backing["condition_unique_repetitions"], 1)
+
+            proof_records = []
+            for i in range(1, 4):
+                proof_records.append(self._record(condition="no_brain", repetition=i, run_id=f"base-{i}"))
+                proof_records.append(self._record(condition="full_brain", repetition=i, run_id=f"brain-{i}"))
+            self._write_records(results_dir, "clean-suite", proof_records)
+            proof_clean = audit_codex.build_audit_report(results_dir, ["clean-*"])
+            self.assertEqual(proof_clean["totals"]["hard_flags"], 0)
+            self.assertEqual(proof_clean["totals"]["proof_ready_comparisons"], 1)
+            self.assertEqual(
+                audit_codex.main(["--results", str(results_dir), "--suite-glob", "clean-*", "--out-dir", str(out_dir), "--fail-on-flags", "--min-proof-ready", "1"]),
+                0,
+            )
+            passing_gate = json.loads((out_dir / "codex-audit-report.json").read_text())["gate_status"]
+            self.assertTrue(passing_gate["release_evidence"])
+            self.assertEqual(passing_gate["failures"], [])
 
             dirty = audit_codex.build_audit_report(results_dir, ["dirty-*"])
             self.assertEqual(dirty["totals"]["hard_flags"], 1)
@@ -1070,7 +1182,11 @@ class CodexAuditScriptTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
             results_dir = pathlib.Path(results)
             out_dir = pathlib.Path(out)
-            suite_dir = self._write_records(results_dir, "proof-suite", [self._record()])
+            proof_records = []
+            for i in range(1, 4):
+                proof_records.append(self._record(condition="no_brain", repetition=i, run_id=f"base-{i}"))
+                proof_records.append(self._record(condition="full_brain", repetition=i, run_id=f"brain-{i}"))
+            suite_dir = self._write_records(results_dir, "proof-suite", proof_records)
             (suite_dir / "summary.json").write_text(json.dumps({
                 "comparisons": [{
                     "task_id": "t",

@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "release_citable_suite_globs": [
+    "release-*"
+  ],
+  "minimums": {
+    "suites": 1,
+    "records": 1,
+    "proof_ready_comparisons": 1,
+    "hard_flags": 0
+  },
+  "quarantine_note": "Historical suites in benchmarks/agent-brain/results are not release-citable until regenerated or copied into an explicit release-* suite and re-audited."
+}
