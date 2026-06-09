@@ -301,6 +301,19 @@ The parent Entire CLI supplies these directories:
 Repo keys come from the repository origin. For example,
 `github.com/entireio/cli` becomes `gh/entireio/cli`.
 
+### Environment toggles
+
+Optional `ENTIRE_BRAIN_*` variables tune retrieval and diagnostics. All are
+off/default unless set; none are required for normal use.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `ENTIRE_BRAIN_EMBEDDER` | (unset → Model2Vec) | Set to `ollama` to use the transformer embedder (EmbeddingGemma) for the vector arm instead of the bundled Model2Vec model. Falls back to Model2Vec with a stderr notice if the server is unreachable. See [Semantic embedder](#semantic-embedder-vector-arm). |
+| `ENTIRE_BRAIN_OLLAMA_MODEL` | `embeddinggemma` | Model name requested from the embed server when `ENTIRE_BRAIN_EMBEDDER=ollama`. |
+| `ENTIRE_BRAIN_EMBED_URL` | `http://localhost:11434/api/embed` | Embed endpoint (Ollama, or qmd's node-llama-cpp server). Must accept `{"model","input"}` and return `{"embeddings":[[…]]}`. |
+| `ENTIRE_BRAIN_FACTS_BM25` | (unset → token-overlap) | `1`/`true`/`yes`/`on` switches the facts **lexical** arm to FTS5 BM25. Experimental; measured at parity with the default scorer, kept for A/B'ing the lexical engine. |
+| `ENTIRE_BRAIN_MCP_DEBUG_LOG` | (unset) | Path to a file the stdio MCP adapter appends frame-level debug lines to. Diagnostics only. |
+
 ## Development
 
 For development without installing:
