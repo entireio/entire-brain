@@ -2726,6 +2726,35 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 // full records instead of bare from_id/to_id ids it would otherwise have to
 // resolve with a follow-up query per neighbor. Order follows the relations and
 // the result is capped at limit to bound fan-out on a hot symbol.
+// neighborCandidateIDs returns the relation endpoint ids that are not already in
+// symbols — the only ids neighbor materialization needs to load, so resolution
+// stays proportional to the fan-out rather than the whole symbol table. Ordered
+// (relations order) and deduped.
+func neighborCandidateIDs(symbols, relations []semanticRecord) []string {
+	inSymbols := make(map[string]struct{}, len(symbols))
+	for _, symbol := range symbols {
+		inSymbols[symbol.ID] = struct{}{}
+	}
+	seen := map[string]struct{}{}
+	var ids []string
+	for _, relation := range relations {
+		for _, id := range []string{relation.FromID, relation.ToID} {
+			if id == "" {
+				continue
+			}
+			if _, ok := inSymbols[id]; ok {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 func resolveContextNeighbors(symbols, relations []semanticRecord, symbolsByID map[string]semanticRecord, limit int) []semanticRecord {
 	if limit <= 0 || len(relations) == 0 || len(symbolsByID) == 0 {
 		return nil
@@ -2776,8 +2805,8 @@ func semanticContextFacts(brainDir string, source *semanticSourceManifest, query
 			return nil, nil, nil, err
 		}
 		var neighbors []semanticRecord
-		if len(relations) > 0 {
-			symbolsByID, err := loadSemanticSymbolsByIDSQLite(storePath)
+		if ids := neighborCandidateIDs(symbols, relations); len(ids) > 0 {
+			symbolsByID, err := loadSemanticSymbolsByIDsSQLite(storePath, ids)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -2802,8 +2831,8 @@ func semanticContextFacts(brainDir string, source *semanticSourceManifest, query
 		return nil, nil, nil, err
 	}
 	var neighbors []semanticRecord
-	if len(relations) > 0 {
-		symbolsByID, err := loadSemanticSymbolsByIDSnapshot(fullPath)
+	if ids := neighborCandidateIDs(symbols, relations); len(ids) > 0 {
+		symbolsByID, err := loadSemanticSymbolsByIDsSnapshot(fullPath, ids)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -3508,6 +3537,54 @@ func loadSemanticSymbolsByIDSQLite(storePath string) (map[string]semanticRecord,
 	return symbols, rows.Err()
 }
 
+// loadSemanticSymbolsByIDsSQLite loads only the requested symbol ids via an
+// indexed `id IN (...)` lookup (chunked to stay under SQLite's parameter cap),
+// so neighbor materialization is O(fan-out), not O(total symbols).
+func loadSemanticSymbolsByIDsSQLite(storePath string, ids []string) (map[string]semanticRecord, error) {
+	out := map[string]semanticRecord{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	db, err := sql.Open("sqlite", storePath)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	const chunk = 900
+	for start := 0; start < len(ids); start += chunk {
+		end := start + chunk
+		if end > len(ids) {
+			end = len(ids)
+		}
+		batch := ids[start:end]
+		placeholders := make([]string, len(batch))
+		args := make([]any, len(batch))
+		for i, id := range batch {
+			placeholders[i] = "?"
+			args[i] = id
+		}
+		if err := func() error {
+			rows, err := db.Query(`SELECT id, kind, name, qualified_name, file_path, start_line, end_line, signature, language, stable_id_version FROM symbols WHERE id IN (`+strings.Join(placeholders, ",")+`)`, args...)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var record semanticRecord
+				record.RecordType = "symbol"
+				if err := rows.Scan(&record.ID, &record.Kind, &record.Name, &record.QualifiedName, &record.FilePath, &record.StartLine, &record.EndLine, &record.Signature, &record.Language, &record.StableIDVersion); err != nil {
+					return err
+				}
+				out[record.ID] = record
+			}
+			return rows.Err()
+		}(); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
 func traverseSemanticImpactSnapshot(snapshotPath string, roots []semanticRecord, depth, limit int) ([]semanticRecord, []semanticRecord, error) {
 	if len(roots) == 0 {
 		return nil, nil, nil
@@ -3585,6 +3662,52 @@ func loadSemanticSymbolsByIDSnapshot(snapshotPath string) (map[string]semanticRe
 		}
 	}
 	return symbols, scanner.Err()
+}
+
+// loadSemanticSymbolsByIDsSnapshot scans the snapshot but retains only the
+// requested ids and stops as soon as all are found, so neighbor materialization
+// does not build a map of every symbol just to look up a handful of endpoints.
+func loadSemanticSymbolsByIDsSnapshot(snapshotPath string, ids []string) (map[string]semanticRecord, error) {
+	out := map[string]semanticRecord{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	want := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		want[id] = struct{}{}
+	}
+	f, err := os.Open(snapshotPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	scanner := newSemanticScanner(f)
+	first := true
+	for scanner.Scan() {
+		if first {
+			first = false
+			continue
+		}
+		text := bytes.TrimSpace(scanner.Bytes())
+		if len(text) == 0 {
+			continue
+		}
+		var record semanticRecord
+		if err := json.Unmarshal(text, &record); err != nil {
+			return nil, err
+		}
+		if record.RecordType != "symbol" {
+			continue
+		}
+		if _, ok := want[record.ID]; !ok {
+			continue
+		}
+		out[record.ID] = record
+		if len(out) == len(want) {
+			break
+		}
+	}
+	return out, scanner.Err()
 }
 
 func findSemanticSymbolsForFilesSQLite(storePath string, files []string, limit int) ([]semanticRecord, error) {
