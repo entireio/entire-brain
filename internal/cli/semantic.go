@@ -2721,11 +2721,6 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 	return nil
 }
 
-// resolveContextNeighbors materializes the relation endpoints that are not
-// already in symbols, so an agent gets "who calls this / what this calls" as
-// full records instead of bare from_id/to_id ids it would otherwise have to
-// resolve with a follow-up query per neighbor. Order follows the relations and
-// the result is capped at limit to bound fan-out on a hot symbol.
 // neighborCandidateIDs returns the relation endpoint ids that are not already in
 // symbols — the only ids neighbor materialization needs to load, so resolution
 // stays proportional to the fan-out rather than the whole symbol table. Ordered

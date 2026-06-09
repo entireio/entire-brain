@@ -184,11 +184,11 @@ ENTIRE_BRAIN_EMBEDDER=ollama entire brain query "preventing data races" --json
   `ENTIRE_BRAIN_EMBED_URL` (default `http://localhost:11434/api/embed`) override
   the model and endpoint. The endpoint just needs to accept `{"model","input"}`
   and return `{"embeddings":[[…]]}`.
-- **Graceful fallback:** if the opt-in is set but the embed server is
-  unreachable, the brain falls back to the bundled Model2Vec model (one
-  consistent vector space) and prints a one-line notice on stderr — it never
-  silently drops the semantic arm. Switching embedders re-namespaces the vector
-  cache, so the two never mix.
+- **Graceful fallback:** if the opt-in is set but the embed server does not
+  return an embedding (unreachable, wrong model, or an error response), the brain
+  falls back to the bundled Model2Vec model (one consistent vector space) and
+  prints a one-line notice on stderr — it never silently drops the semantic arm.
+  Switching embedders re-namespaces the vector cache, so the two never mix.
 
 This is the Stage 1b transformer embedder available **without cgo** today; the
 in-process single-binary form is deferred (tracked in the alignment plan outside this repository).
@@ -308,7 +308,7 @@ off/default unless set; none are required for normal use.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `ENTIRE_BRAIN_EMBEDDER` | (unset → Model2Vec) | Set to `ollama` to use the transformer embedder (EmbeddingGemma) for the vector arm instead of the bundled Model2Vec model. Falls back to Model2Vec with a stderr notice if the server is unreachable. See [Semantic embedder](#semantic-embedder-vector-arm). |
+| `ENTIRE_BRAIN_EMBEDDER` | (unset → Model2Vec) | Set to `ollama` to use the transformer embedder (EmbeddingGemma) for the vector arm instead of the bundled Model2Vec model. Falls back to Model2Vec with a stderr notice if the server does not return an embedding (unreachable, wrong model, or error response). See [Semantic embedder](#semantic-embedder-vector-arm). |
 | `ENTIRE_BRAIN_OLLAMA_MODEL` | `embeddinggemma` | Model name requested from the embed server when `ENTIRE_BRAIN_EMBEDDER=ollama`. |
 | `ENTIRE_BRAIN_EMBED_URL` | `http://localhost:11434/api/embed` | Embed endpoint (Ollama, or qmd's node-llama-cpp server). Must accept `{"model","input"}` and return `{"embeddings":[[…]]}`. |
 | `ENTIRE_BRAIN_FACTS_BM25` | (unset → token-overlap) | `1`/`true`/`yes`/`on` switches the facts **lexical** arm to FTS5 BM25. Experimental; measured at parity with the default scorer, kept for A/B'ing the lexical engine. |
