@@ -3,7 +3,7 @@
   "checkpoint_id": "18e359b5b495",
   "strategy": "manual-commit",
   "branch": "feat/fact-quality-appendix-d",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "internal/cli/facts_admin_cmd.go",
     "internal/cli/strategy.go"
@@ -14,13 +14,19 @@
       "transcript": "/18/e359b5b495/0/full.jsonl",
       "content_hash": "/18/e359b5b495/0/content_hash.txt",
       "prompt": "/18/e359b5b495/0/prompt.txt"
+    },
+    {
+      "metadata": "/18/e359b5b495/1/metadata.json",
+      "transcript": "/18/e359b5b495/1/full.jsonl",
+      "content_hash": "/18/e359b5b495/1/content_hash.txt",
+      "prompt": "/18/e359b5b495/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 6544,
-    "cache_creation_tokens": 30535,
-    "cache_read_tokens": 19496,
-    "output_tokens": 1864,
-    "api_call_count": 2
+    "input_tokens": 51330,
+    "cache_creation_tokens": 1084501,
+    "cache_read_tokens": 79599573,
+    "output_tokens": 237792,
+    "api_call_count": 306
   }
 }
