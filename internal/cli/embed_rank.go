@@ -60,7 +60,9 @@ func (s *semanticReranker) factVector(f factRecord) []float32 {
 	// Cache only a full-dimension vector. A transient embed failure (nil/short)
 	// must not be cached, or every later call this process would reuse the empty
 	// result and never retry; returning it uncached lets a later call re-embed.
-	if len(v) == s.e.Dim() {
+	// Require Dim()>0 too: a failed dimension probe can report 0, which a nil
+	// vector (len 0) would otherwise satisfy and get cached.
+	if d := s.e.Dim(); d > 0 && len(v) == d {
 		s.cache[f.ID] = v
 		s.dirty = true
 	}

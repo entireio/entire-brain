@@ -434,9 +434,14 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 		}
 		// Unmarshal each JSONL line at most once and reuse the parsed object for
 		// both the request pass and the narrative pass — re-parsing per line doubled
-		// the JSON decode cost on large histories during refresh.
+		// the JSON decode cost on large histories during refresh. Only transcript
+		// records are JSON objects, so skip the decode for raw .md/.txt lines that
+		// can't be one (cheap leading-'{' check) rather than paying a failed Unmarshal.
 		var obj map[string]any
-		parsed := json.Unmarshal([]byte(text), &obj) == nil
+		parsed := false
+		if strings.HasPrefix(text, "{") {
+			parsed = json.Unmarshal([]byte(text), &obj) == nil
+		}
 
 		// User prompts get their own extraction path, ahead of the narrative
 		// keyword filter, so a plain request ("add a subcommand") is not dropped
