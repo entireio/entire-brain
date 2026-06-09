@@ -310,7 +310,7 @@ func TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON(t *testing.T) 
 	}
 }
 
-func TestMCPBrainBriefAndHistoryToolsUseIndexedHistory(t *testing.T) {
+func TestMCPBrainBriefAndQueryToolsUseIndexedHistory(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())

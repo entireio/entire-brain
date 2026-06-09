@@ -377,22 +377,6 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-func newBrainSearchCommand(opts Options) *cobra.Command {
-	queryOpts := semanticQueryOptions{limit: 20}
-	cmd := &cobra.Command{
-		Use:   "search <symbol-or-text>",
-		Short: "Search the local semantic brain",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSemanticQuery(cmd.Context(), cmd, opts, queryOpts, args[0])
-		},
-	}
-	cmd.Flags().IntVar(&queryOpts.limit, "limit", 20, "Maximum results to return")
-	cmd.Flags().IntVar(&queryOpts.offset, "offset", 0, "Results to skip before returning a page")
-	cmd.Flags().BoolVar(&queryOpts.json, "json", false, "Emit machine-readable JSON")
-	return cmd
-}
-
 func newBrainShowCommand(opts Options) *cobra.Command {
 	showOpts := brainShowOptions{}
 	cmd := &cobra.Command{
