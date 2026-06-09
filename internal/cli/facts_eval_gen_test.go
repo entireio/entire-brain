@@ -124,6 +124,9 @@ func TestGenerateEvalTasksFromProvenance(t *testing.T) {
 	if s1.Task == "" || s1.Branch != "main" {
 		t.Fatalf("s1 task/branch wrong: %+v", s1)
 	}
+	if s1.SourceSessionID != "s1" || s1.SourceTranscriptPath != "sessions/main/s1.jsonl" {
+		t.Fatalf("s1 source anchor wrong: %+v", s1)
+	}
 	// s2's relevant fact is cross-cutting → convention stratum.
 	if byID["s2"].QueryType != queryTypeConvention {
 		t.Errorf("s2 should be convention, got %q", byID["s2"].QueryType)

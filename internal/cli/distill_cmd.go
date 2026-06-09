@@ -8,11 +8,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -66,6 +70,8 @@ type distillCommandOptions struct {
 	confidenceThreshold float64
 	model               string
 	effort              string
+	dryRun              bool
+	jobs                int
 	run                 distillAgentRunner
 	// progress, when set, is called as each session is processed so the command
 	// can render a spinner/progress line. It is nil in tests and for callers
@@ -100,6 +106,88 @@ type distillCache struct {
 	Sessions map[string]string `json:"sessions"`
 }
 
+type distillPlan struct {
+	Manifest           *exportManifest
+	PrevCache          distillCache
+	Sessions           []distillSessionPlan
+	Work               []distillChunkWork
+	BranchOrder        []string
+	TotalSessions      int
+	CachedSessions     int
+	SessionsToDistill  int
+	MissingTranscripts int
+	RawBytes           int64
+	PreprocessedBytes  int64
+	Chunks             int
+	Warnings           []string
+}
+
+type distillSessionPlan struct {
+	Session           exportSession
+	Branch            string
+	Fingerprint       string
+	Cached            bool
+	ReadFailed        bool
+	RawBytes          int
+	PreprocessedBytes int
+	ChunkIndexes      []int
+}
+
+type distillChunkWork struct {
+	SessionIndex int
+	ChunkIndex   int
+	Branch       string
+	Session      exportSession
+	Chunk        transcriptChunk
+	Anchor       factAnchor
+}
+
+type distillChunkResult struct {
+	Output    string
+	Err       error
+	Completed bool
+}
+
+type distillDryRunReport struct {
+	GeneratedAt                   time.Time              `json:"generated_at"`
+	BrainPath                     string                 `json:"brain_path"`
+	Branch                        string                 `json:"branch,omitempty"`
+	Force                         bool                   `json:"force"`
+	MaxChunkBytes                 int                    `json:"max_chunk_bytes"`
+	Sessions                      int                    `json:"sessions"`
+	CachedSessions                int                    `json:"cached_sessions"`
+	SessionsToDistill             int                    `json:"sessions_to_distill"`
+	MissingTranscripts            int                    `json:"missing_transcripts"`
+	RawBytes                      int64                  `json:"raw_bytes"`
+	PreprocessedBytes             int64                  `json:"preprocessed_bytes"`
+	Chunks                        int                    `json:"chunks"`
+	ExtractionAgentCalls          int                    `json:"extraction_agent_calls"`
+	ReconcileAgentCallsUpperBound int                    `json:"reconcile_agent_calls_upper_bound"`
+	EstimatedAgentCallsUpperBound int                    `json:"estimated_agent_calls_upper_bound"`
+	Branches                      []distillDryRunBranch  `json:"branches"`
+	LargestSessions               []distillDryRunSession `json:"largest_sessions"`
+	Warnings                      []string               `json:"warnings,omitempty"`
+}
+
+type distillDryRunBranch struct {
+	Branch            string `json:"branch"`
+	Sessions          int    `json:"sessions"`
+	CachedSessions    int    `json:"cached_sessions"`
+	SessionsToDistill int    `json:"sessions_to_distill"`
+	Chunks            int    `json:"chunks"`
+	PreprocessedBytes int64  `json:"preprocessed_bytes"`
+}
+
+type distillDryRunSession struct {
+	SessionID         string `json:"session_id"`
+	Branch            string `json:"branch"`
+	Transcript        string `json:"transcript"`
+	Cached            bool   `json:"cached"`
+	Chunks            int    `json:"chunks"`
+	RawBytes          int    `json:"raw_bytes"`
+	PreprocessedBytes int    `json:"preprocessed_bytes"`
+}
+
 func newDistillCommand(opts Options) *cobra.Command {
 	distillOpts := distillCommandOptions{agent: "auto", timeout: defaultDistillTimeout, maxChunkBytes: defaultDistillChunkSize, confidenceThreshold: defaultFactConfidenceThreshold}
 	cmd := &cobra.Command{
@@ -120,11 +208,13 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&distillOpts.branch, "branch", "", "Limit distillation to a single branch (default: all exported branches)")
 	cmd.Flags().BoolVar(&distillOpts.force, "force", false, "Recompute all distilled facts from scratch instead of skipping unchanged sessions")
 	cmd.Flags().BoolVar(&distillOpts.json, "json", false, "Emit the fact source summary as JSON")
-	cmd.Flags().StringVar(&distillOpts.agent, "agent", "auto", "Distillation agent: auto, codex, claude-code, or command")
+	cmd.Flags().StringVar(&distillOpts.agent, "agent", "auto", "Distillation agent: auto, codex, claude-code, ollama, or command")
 	cmd.Flags().StringArrayVar(&distillOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().Float64Var(&distillOpts.confidenceThreshold, "confidence", defaultFactConfidenceThreshold, "Minimum agent confidence to auto-apply a merge/supersede; below this it is queued for review")
-	cmd.Flags().StringVar(&distillOpts.model, "model", "", "Override the agent model for codex/claude-code (e.g. a fast/cheap model like gpt-5.4-mini)")
-	cmd.Flags().StringVar(&distillOpts.effort, "effort", "", "Override the reasoning effort for codex/claude-code (e.g. low) — pairs with --model for a cheap run")
+	cmd.Flags().StringVar(&distillOpts.model, "model", "", "Override the agent model for codex/claude-code, or select the local Ollama model")
+	cmd.Flags().StringVar(&distillOpts.effort, "effort", "", "Override the reasoning effort for codex/claude-code (e.g. low)")
+	cmd.Flags().BoolVar(&distillOpts.dryRun, "dry-run", false, "Estimate distill work without calling an agent or writing facts")
+	cmd.Flags().IntVar(&distillOpts.jobs, "jobs", 1, "Parallel extraction jobs; reconciliation and writes remain deterministic")
 	return cmd
 }
 
@@ -140,14 +230,28 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	if err != nil {
 		return err
 	}
+	if distillOpts.dryRun {
+		report, err := buildDistillDryRunReport(storage.BrainDir, distillOpts, opts.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if distillOpts.json {
+			return writeJSON(cmd, report)
+		}
+		printDistillDryRunReport(cmd, report)
+		return nil
+	}
 	if distillOpts.agent == "auto" {
 		distillOpts.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
 	}
 	if distillOpts.agent == "none" {
 		return errors.New("distillation requires an agent (codex or claude-code); none found on PATH")
 	}
+	if distillOpts.jobs <= 0 {
+		return fmt.Errorf("--jobs must be greater than 0")
+	}
 	if distillOpts.run == nil {
-		distillOpts.run = execDistillAgent
+		distillOpts.run = defaultDistillAgentRunner(distillOpts.agent)
 	}
 	// Progress goes to stderr so it never corrupts the --json summary on stdout.
 	progress := newProgress(cmd.ErrOrStderr(), "distill")
@@ -236,45 +340,26 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		threshold = defaultFactConfidenceThreshold
 	}
 
-	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
-	// Chronological order so any future supersession chain reconstructs
-	// deterministically regardless of incremental vs --force.
-	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].CreatedAt.Before(sessions[j].CreatedAt) })
-
-	prevCache := loadDistillCache(brainDir)
-	newCache := distillCache{Version: distillCacheVersion, Sessions: make(map[string]string, len(sessions))}
+	plan, err := buildDistillPlan(brainDir, manifest, distillOpts)
+	if err != nil {
+		return nil, err
+	}
+	newCache := distillCache{Version: distillCacheVersion, Sessions: make(map[string]string, len(plan.PrevCache.Sessions))}
+	if strings.TrimSpace(distillOpts.branch) != "" {
+		for sessionID, fingerprint := range plan.PrevCache.Sessions {
+			newCache.Sessions[sessionID] = fingerprint
+		}
+		for _, sessionPlan := range plan.Sessions {
+			delete(newCache.Sessions, sessionPlan.Session.SessionID)
+		}
+	}
 
 	byBranch := map[string][]factRecord{}
 	proposalsByBranch := map[string][]factProposal{}
 	loaded := map[string]bool{}
-	var warnings []string
-	chunksScanned, chunksDistilled := 0, 0
-
-	// resolveBranch maps a session to the branch its facts are written under,
-	// falling back to the manifest default (then distillDefaultBranch) when the
-	// session's branch field is empty. The --branch filter must compare against
-	// this resolved value, not session.Branch, so sessions with an empty branch
-	// are not silently excluded from a `--branch <default>` run.
-	resolveBranch := func(session exportSession) string {
-		branch := session.Branch
-		if branch == "" {
-			branch = strings.TrimSpace(manifest.DefaultBranch)
-		}
-		if branch == "" {
-			branch = distillDefaultBranch
-		}
-		return branch
-	}
-
-	// Denominator for progress: sessions that pass the branch filter. Cached
-	// (unchanged) sessions still advance the counter so the line reaches N/N.
-	totalSessions := 0
-	for _, session := range sessions {
-		if distillOpts.branch != "" && resolveBranch(session) != distillOpts.branch {
-			continue
-		}
-		totalSessions++
-	}
+	warnings := append([]string(nil), plan.Warnings...)
+	chunksScanned, chunksDistilled := len(plan.Work), 0
+	failedChunks := 0
 	sessionsDone, factsFound := 0, 0
 	// Track agent-call outcomes so a misconfiguration that fails every call (e.g.
 	// an invalid --model) aborts fast with the agent's own error, instead of
@@ -305,12 +390,25 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		loaded[branch] = true
 	}
 
-	for _, session := range sessions {
-		branch := resolveBranch(session)
-		if distillOpts.branch != "" && branch != distillOpts.branch {
-			continue
-		}
+	for _, branch := range plan.BranchOrder {
 		ensureBranch(branch)
+	}
+
+	extractionStarted := time.Now()
+	results := runDistillExtraction(ctx, repoDir, args, plan.Work, distillOpts)
+	extractionSeconds := time.Since(extractionStarted).Seconds()
+	anyExtractionSuccess := false
+	for _, result := range results {
+		if result.Completed && result.Err == nil {
+			anyExtractionSuccess = true
+			break
+		}
+	}
+
+	reconcileStarted := time.Now()
+	sessionFailed := map[int]bool{}
+	for sessionIndex, sessionPlan := range plan.Sessions {
+		branch := sessionPlan.Branch
 
 		sessionsDone++
 		// Report once per session, at every exit path, so the running fact count
@@ -318,65 +416,39 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		// by one session and always show 0 for a single-session run).
 		reportProgress := func() {
 			if distillOpts.progress != nil {
-				distillOpts.progress(distillProgress{SessionsDone: sessionsDone, SessionsTotal: totalSessions, Branch: branch, Facts: factsFound})
+				distillOpts.progress(distillProgress{SessionsDone: sessionsDone, SessionsTotal: plan.TotalSessions, Branch: branch, Facts: factsFound})
 			}
 		}
 
-		// Read the transcript before the cache check so the fingerprint can hash
-		// the actual bytes: a re-export that rewrites the same path with different
-		// content (e.g. compact vs raw mode, or an exporter fix) under the same
-		// checkpoint must invalidate the cache and re-run the agent.
-		content, readErr := readBrainRelativeFile(brainDir, session.TranscriptPath)
-		if readErr != nil {
-			warnings = append(warnings, fmt.Sprintf("read transcript %s: %v", session.TranscriptPath, readErr))
+		if sessionPlan.ReadFailed {
 			reportProgress()
-			continue // not cached: retried next run
+			continue
+		}
+		if sessionPlan.Cached {
+			newCache.Sessions[sessionPlan.Session.SessionID] = sessionPlan.Fingerprint
+			reportProgress()
+			continue
 		}
 
-		// Strip tool calls/outputs and meta records up front: this is the actual
-		// input the agent distills (they carry no durable facts and dominate the
-		// transcript bytes, so removing them cuts chunk count — and agent calls —
-		// sharply). Blanked records keep their line slot so provenance anchors stay
-		// aligned to the original transcript. Fingerprinting this preprocessed input
-		// (not the raw bytes) means churn confined to stripped tool I/O no longer
-		// invalidates the cache and forces a needless re-distill.
-		distillInput := preprocessTranscriptForDistill(content)
-
-		fingerprint := distillSessionFingerprint(session, branch, distillInput)
-		if !distillOpts.force {
-			if prev, ok := prevCache.Sessions[session.SessionID]; ok && prev == fingerprint {
-				newCache.Sessions[session.SessionID] = prev // unchanged; retain in cache and keep existing facts
-				reportProgress()
-				continue
-			}
-		}
-
-		chunks := chunkTranscript(distillInput, distillOpts.maxChunkBytes)
-		sessionFailed := false
-		for _, chunk := range chunks {
-			chunksScanned++
-			anchor := factAnchor{
-				SessionID:    session.SessionID,
-				CheckpointID: session.LatestCheckpoint,
-				Transcript:   filepath.ToSlash(session.TranscriptPath),
-				Line:         chunk.StartLine,
-			}
-			out, runErr := distillOpts.run(ctx, repoDir, args, []byte(chunk.Text), distillOpts.timeout)
-			if runErr != nil {
-				warnings = append(warnings, fmt.Sprintf("agent failed on %s:%d: %v", session.SessionID, chunk.StartLine, runErr))
-				sessionFailed = true
+		for _, workIndex := range sessionPlan.ChunkIndexes {
+			work := plan.Work[workIndex]
+			result := results[workIndex]
+			if result.Err != nil {
+				warnings = append(warnings, fmt.Sprintf("agent failed on %s:%d: %v", work.Session.SessionID, work.Chunk.StartLine, result.Err))
+				sessionFailed[sessionIndex] = true
+				failedChunks++
 				agentFailures++
 				// Fail fast on a misconfiguration: nothing has distilled yet and the
 				// agent keeps failing, so every call is almost certainly erroring the
 				// same way (bad --model, missing agent, auth). Abort with the agent's
 				// own error instead of churning through every remaining session.
-				if !anyAgentSuccess && agentFailures >= distillAgentAbortThreshold {
-					return nil, fmt.Errorf("distill aborted after %d agent failures with no facts distilled — check --agent and --model. Last error: %v", agentFailures, runErr)
+				if !anyExtractionSuccess && !anyAgentSuccess && agentFailures >= distillAgentAbortThreshold {
+					return nil, fmt.Errorf("distill aborted after %d agent failures with no facts distilled — check --agent and --model. Last error: %v", agentFailures, result.Err)
 				}
 				continue
 			}
 			anyAgentSuccess = true
-			records, chunkWarnings := distilledFactsFromOutput(out, taxonomy, anchor, branch, now)
+			records, chunkWarnings := distilledFactsFromOutput(result.Output, taxonomy, work.Anchor, branch, now)
 			warnings = append(warnings, chunkWarnings...)
 			if len(records) == 0 {
 				continue
@@ -395,14 +467,16 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		// Only cache a session as distilled when every chunk succeeded, so a
 		// session whose agent calls failed is retried on the next run rather
 		// than being silently treated as done.
-		if !sessionFailed {
-			newCache.Sessions[session.SessionID] = fingerprint
+		if !sessionFailed[sessionIndex] {
+			newCache.Sessions[sessionPlan.Session.SessionID] = sessionPlan.Fingerprint
 		}
 		reportProgress()
 	}
+	reconcileSeconds := time.Since(reconcileStarted).Seconds()
 
 	warnings = capWarnings(warnings, maxDistillWarnings)
 
+	writeStarted := time.Now()
 	for branch, records := range byBranch {
 		if err := writeFacts(brainDir, branch, records); err != nil {
 			return nil, err
@@ -443,6 +517,12 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	totalProposals := countFactProposals(brainDir, branchNames)
 
 	source := summarizeFactSource(now, allBranches, chunksScanned, chunksDistilled, totalProposals, warnings)
+	source.CacheHits = plan.CachedSessions
+	source.FailedChunks = failedChunks
+	source.PreprocessedBytes = plan.PreprocessedBytes
+	source.ExtractionSeconds = extractionSeconds
+	source.ReconcileSeconds = reconcileSeconds
+	source.WriteSeconds = time.Since(writeStarted).Seconds()
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}
 	}
@@ -454,6 +534,231 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		return nil, err
 	}
 	return source, nil
+}
+
+func buildDistillDryRunReport(brainDir string, distillOpts distillCommandOptions, now time.Time) (distillDryRunReport, error) {
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return distillDryRunReport{}, err
+	}
+	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
+		return distillDryRunReport{}, errors.New("no exported sessions; run `entire brain refresh` first")
+	}
+	plan, err := buildDistillPlan(brainDir, manifest, distillOpts)
+	if err != nil {
+		return distillDryRunReport{}, err
+	}
+	report := distillDryRunReport{
+		GeneratedAt:                   now,
+		BrainPath:                     brainDir,
+		Branch:                        strings.TrimSpace(distillOpts.branch),
+		Force:                         distillOpts.force,
+		MaxChunkBytes:                 distillOpts.maxChunkBytes,
+		Sessions:                      plan.TotalSessions,
+		CachedSessions:                plan.CachedSessions,
+		SessionsToDistill:             plan.SessionsToDistill,
+		MissingTranscripts:            plan.MissingTranscripts,
+		RawBytes:                      plan.RawBytes,
+		PreprocessedBytes:             plan.PreprocessedBytes,
+		Chunks:                        plan.Chunks,
+		ExtractionAgentCalls:          plan.Chunks,
+		ReconcileAgentCallsUpperBound: plan.Chunks,
+		EstimatedAgentCallsUpperBound: plan.Chunks * 2,
+		Warnings:                      capWarnings(plan.Warnings, maxDistillWarnings),
+	}
+	if report.MaxChunkBytes <= 0 {
+		report.MaxChunkBytes = defaultDistillChunkSize
+	}
+	branchStats := map[string]*distillDryRunBranch{}
+	for _, branch := range plan.BranchOrder {
+		branchStats[branch] = &distillDryRunBranch{Branch: branch}
+	}
+	for _, session := range plan.Sessions {
+		stat := branchStats[session.Branch]
+		stat.Sessions++
+		stat.PreprocessedBytes += int64(session.PreprocessedBytes)
+		if session.Cached {
+			stat.CachedSessions++
+		} else if !session.ReadFailed {
+			stat.SessionsToDistill++
+			stat.Chunks += len(session.ChunkIndexes)
+		}
+		report.LargestSessions = append(report.LargestSessions, distillDryRunSession{
+			SessionID:         session.Session.SessionID,
+			Branch:            session.Branch,
+			Transcript:        filepath.ToSlash(session.Session.TranscriptPath),
+			Cached:            session.Cached,
+			Chunks:            len(session.ChunkIndexes),
+			RawBytes:          session.RawBytes,
+			PreprocessedBytes: session.PreprocessedBytes,
+		})
+	}
+	for _, branch := range plan.BranchOrder {
+		report.Branches = append(report.Branches, *branchStats[branch])
+	}
+	sort.Slice(report.LargestSessions, func(i, j int) bool {
+		if report.LargestSessions[i].Chunks != report.LargestSessions[j].Chunks {
+			return report.LargestSessions[i].Chunks > report.LargestSessions[j].Chunks
+		}
+		return report.LargestSessions[i].PreprocessedBytes > report.LargestSessions[j].PreprocessedBytes
+	})
+	if len(report.LargestSessions) > 10 {
+		report.LargestSessions = report.LargestSessions[:10]
+	}
+	if report.Branches == nil {
+		report.Branches = []distillDryRunBranch{}
+	}
+	if report.LargestSessions == nil {
+		report.LargestSessions = []distillDryRunSession{}
+	}
+	return report, nil
+}
+
+func printDistillDryRunReport(cmd *cobra.Command, report distillDryRunReport) {
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "distill dry-run: %d sessions, %d cached, %d to distill, %d chunks\n",
+		report.Sessions, report.CachedSessions, report.SessionsToDistill, report.Chunks)
+	fmt.Fprintf(out, "estimated agent calls: %d extraction + up to %d reconcile = up to %d total\n",
+		report.ExtractionAgentCalls, report.ReconcileAgentCallsUpperBound, report.EstimatedAgentCallsUpperBound)
+	fmt.Fprintf(out, "bytes: %d raw, %d preprocessed\n", report.RawBytes, report.PreprocessedBytes)
+	for _, branch := range report.Branches {
+		fmt.Fprintf(out, "branch %s: %d sessions, %d cached, %d chunks\n",
+			branch.Branch, branch.Sessions, branch.CachedSessions, branch.Chunks)
+	}
+	if len(report.Warnings) > 0 {
+		for _, warning := range report.Warnings {
+			fmt.Fprintf(out, "warning: %s\n", warning)
+		}
+	}
+}
+
+func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts distillCommandOptions) (distillPlan, error) {
+	if distillOpts.maxChunkBytes <= 0 {
+		distillOpts.maxChunkBytes = defaultDistillChunkSize
+	}
+	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
+	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].CreatedAt.Before(sessions[j].CreatedAt) })
+	prevCache := loadDistillCache(brainDir)
+	branchSeen := map[string]struct{}{}
+	plan := distillPlan{Manifest: manifest, PrevCache: prevCache}
+	for _, session := range sessions {
+		branch := resolveDistillBranch(manifest, session)
+		if distillOpts.branch != "" && branch != distillOpts.branch {
+			continue
+		}
+		if _, ok := branchSeen[branch]; !ok {
+			branchSeen[branch] = struct{}{}
+			plan.BranchOrder = append(plan.BranchOrder, branch)
+		}
+		sessionPlan := distillSessionPlan{Session: session, Branch: branch}
+		plan.TotalSessions++
+
+		content, readErr := readBrainRelativeFile(brainDir, session.TranscriptPath)
+		if readErr != nil {
+			sessionPlan.ReadFailed = true
+			plan.MissingTranscripts++
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("read transcript %s: %v", session.TranscriptPath, readErr))
+			plan.Sessions = append(plan.Sessions, sessionPlan)
+			continue
+		}
+		distillInput := preprocessTranscriptForDistill(content)
+		sessionPlan.RawBytes = len(content)
+		sessionPlan.PreprocessedBytes = len(distillInput)
+		plan.RawBytes += int64(sessionPlan.RawBytes)
+		plan.PreprocessedBytes += int64(sessionPlan.PreprocessedBytes)
+		sessionPlan.Fingerprint = distillSessionFingerprint(session, branch, distillInput)
+		if !distillOpts.force {
+			if prev, ok := prevCache.Sessions[session.SessionID]; ok && prev == sessionPlan.Fingerprint {
+				sessionPlan.Cached = true
+				plan.CachedSessions++
+				plan.Sessions = append(plan.Sessions, sessionPlan)
+				continue
+			}
+		}
+		chunks := chunkTranscript(distillInput, distillOpts.maxChunkBytes)
+		plan.SessionsToDistill++
+		for chunkIndex, chunk := range chunks {
+			workIndex := len(plan.Work)
+			sessionPlan.ChunkIndexes = append(sessionPlan.ChunkIndexes, workIndex)
+			plan.Work = append(plan.Work, distillChunkWork{
+				SessionIndex: len(plan.Sessions),
+				ChunkIndex:   chunkIndex,
+				Branch:       branch,
+				Session:      session,
+				Chunk:        chunk,
+				Anchor: factAnchor{
+					SessionID:    session.SessionID,
+					CheckpointID: session.LatestCheckpoint,
+					Transcript:   filepath.ToSlash(session.TranscriptPath),
+					Line:         chunk.StartLine,
+				},
+			})
+		}
+		plan.Chunks += len(chunks)
+		plan.Sessions = append(plan.Sessions, sessionPlan)
+	}
+	sort.Strings(plan.BranchOrder)
+	return plan, nil
+}
+
+func resolveDistillBranch(manifest *exportManifest, session exportSession) string {
+	branch := session.Branch
+	if branch == "" && manifest != nil {
+		branch = strings.TrimSpace(manifest.DefaultBranch)
+	}
+	if branch == "" {
+		branch = distillDefaultBranch
+	}
+	return branch
+}
+
+func runDistillExtraction(ctx context.Context, repoDir string, args []string, work []distillChunkWork, distillOpts distillCommandOptions) []distillChunkResult {
+	results := make([]distillChunkResult, len(work))
+	if len(work) == 0 {
+		return results
+	}
+	jobs := distillOpts.jobs
+	if jobs <= 0 {
+		jobs = 1
+	}
+	if jobs > len(work) {
+		jobs = len(work)
+	}
+	if jobs == 1 {
+		agentFailures, anyAgentSuccess := 0, false
+		for i, item := range work {
+			out, err := distillOpts.run(ctx, repoDir, args, []byte(item.Chunk.Text), distillOpts.timeout)
+			results[i] = distillChunkResult{Output: out, Err: err, Completed: true}
+			if err != nil {
+				agentFailures++
+				if !anyAgentSuccess && agentFailures >= distillAgentAbortThreshold {
+					break
+				}
+				continue
+			}
+			anyAgentSuccess = true
+		}
+		return results
+	}
+	var wg sync.WaitGroup
+	indexes := make(chan int)
+	for range jobs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range indexes {
+				item := work[i]
+				out, err := distillOpts.run(ctx, repoDir, args, []byte(item.Chunk.Text), distillOpts.timeout)
+				results[i] = distillChunkResult{Output: out, Err: err, Completed: true}
+			}
+		}()
+	}
+	for i := range work {
+		indexes <- i
+	}
+	close(indexes)
+	wg.Wait()
+	return results
 }
 
 // preprocessTranscriptForDistill strips tool calls and tool outputs (plus
@@ -685,6 +990,13 @@ func saveDistillCache(brainDir string, cache distillCache) {
 // execDistillAgent is the real distillAgentRunner: it runs the agent with the
 // transcript chunk on stdin and returns stdout, bounded by a timeout and an
 // output-size cap.
+func defaultDistillAgentRunner(agent string) distillAgentRunner {
+	if agent == "ollama" {
+		return execOllamaDistillAgent
+	}
+	return execDistillAgent
+}
+
 func execDistillAgent(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 	if len(args) == 0 {
 		return "", errors.New("distill: empty agent command")
@@ -712,4 +1024,91 @@ func execDistillAgent(ctx context.Context, dir string, args []string, input []by
 		return "", fmt.Errorf("agent output exceeds %d bytes", distillMaxOutputBytes)
 	}
 	return stdout.String(), nil
+}
+
+func execOllamaDistillAgent(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+	_ = dir
+	if len(args) < 3 || args[0] != "ollama" {
+		return "", errors.New("distill: invalid ollama runner arguments")
+	}
+	model := strings.TrimSpace(args[1])
+	if model == "" {
+		return "", errors.New("distill: --agent ollama requires --model")
+	}
+	endpoint := strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_OLLAMA_URL"))
+	if endpoint == "" {
+		endpoint = "http://127.0.0.1:11434/api/generate"
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return "", fmt.Errorf("distill: parse ollama url: %w", err)
+	}
+	if !isLoopbackHTTPURL(u) {
+		return "", fmt.Errorf("distill: ollama url must be loopback-only: %s", endpoint)
+	}
+	body, err := json.Marshal(map[string]any{
+		"model":  model,
+		"system": args[2],
+		"prompt": string(input),
+		"stream": false,
+	})
+	if err != nil {
+		return "", err
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(runCtx, http.MethodPost, u.String(), bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if !isLoopbackHTTPURL(req.URL) {
+				return fmt.Errorf("ollama redirect must stay loopback-only: %s", req.URL.String())
+			}
+			return nil
+		},
+	}
+	resp, err := client.Do(req)
+	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+		return "", fmt.Errorf("ollama timed out after %s", timeout)
+	}
+	if err != nil {
+		return "", fmt.Errorf("ollama request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, distillMaxOutputBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > distillMaxOutputBytes {
+		return "", fmt.Errorf("ollama output exceeds %d bytes", distillMaxOutputBytes)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("ollama returned HTTP %d: %s", resp.StatusCode, truncateAgentWarning(string(data)))
+	}
+	var parsed struct {
+		Response string `json:"response"`
+		Error    string `json:"error"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return "", fmt.Errorf("parse ollama response: %w", err)
+	}
+	if parsed.Error != "" {
+		return "", fmt.Errorf("ollama error: %s", parsed.Error)
+	}
+	return parsed.Response, nil
+}
+
+func isLoopbackHTTPURL(u *url.URL) bool {
+	if u == nil {
+		return false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+	host := strings.Trim(strings.ToLower(u.Hostname()), "[]")
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }

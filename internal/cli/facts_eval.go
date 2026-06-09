@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -17,12 +19,14 @@ import (
 // genuinely help the task (enables deterministic precision/recall). Without
 // labels, --judge has an agent decide relevance per surfaced fact.
 type evalTask struct {
-	ID        string   `json:"id"`
-	Task      string   `json:"task"`
-	Branch    string   `json:"branch,omitempty"`
-	QueryType string   `json:"query_type,omitempty"`
-	K         int      `json:"k,omitempty"`
-	Relevant  []string `json:"relevant,omitempty"`
+	ID                   string   `json:"id"`
+	Task                 string   `json:"task"`
+	Branch               string   `json:"branch,omitempty"`
+	QueryType            string   `json:"query_type,omitempty"`
+	K                    int      `json:"k,omitempty"`
+	Relevant             []string `json:"relevant,omitempty"`
+	SourceSessionID      string   `json:"source_session_id,omitempty"`
+	SourceTranscriptPath string   `json:"source_transcript_path,omitempty"`
 }
 
 // evalTaskResult is the per-task measurement. The headline metric is
@@ -32,11 +36,13 @@ type evalTaskResult struct {
 	ID               string  `json:"id"`
 	Task             string  `json:"task"`
 	QueryType        string  `json:"query_type,omitempty"`
+	Retriever        string  `json:"retriever,omitempty"`
 	Surfaced         int     `json:"surfaced"`
 	Tokens           int     `json:"tokens"`
+	LatencyMS        int64   `json:"latency_ms"`
 	RelevantSurfaced int     `json:"relevant_surfaced"`
 	Precision        float64 `json:"precision"`
-	Recall           float64 `json:"recall,omitempty"`
+	Recall           float64 `json:"recall"`
 	UsefulPer1k      float64 `json:"useful_per_1k"`
 	Labeled          bool    `json:"labeled"`
 }
@@ -50,12 +56,27 @@ type evalStratum struct {
 }
 
 type evalSummary struct {
+	Retriever       string                 `json:"retriever,omitempty"`
 	Tasks           int                    `json:"tasks"`
 	MeanTokens      float64                `json:"mean_tokens"`
+	MeanLatencyMS   float64                `json:"mean_latency_ms"`
 	MeanPrecision   float64                `json:"mean_precision"`
 	MeanUsefulPer1k float64                `json:"mean_useful_per_1k"`
 	ByStratum       map[string]evalStratum `json:"by_stratum,omitempty"`
 	Results         []evalTaskResult       `json:"results"`
+}
+
+const (
+	evalRetrieverFacts       = "facts"
+	evalRetrieverHistory     = "history"
+	evalRetrieverQuery       = "query"
+	evalRetrieverRawSessions = "raw-sessions"
+)
+
+type evalRetrievedItem struct {
+	ID   string
+	Text string
+	Path string
 }
 
 // estimateTokens is a deterministic ~4-chars-per-token estimate over the text
@@ -69,13 +90,29 @@ func estimateTokens(facts []factRecord) int {
 	return (chars + 3) / 4
 }
 
+func estimateRetrievedTokens(items []evalRetrievedItem) int {
+	chars := 0
+	for _, item := range items {
+		chars += len(item.Text) + len(item.Path) + 4
+	}
+	return (chars + 3) / 4
+}
+
 // evalMetrics computes the per-task metrics given the surfaced facts and the set
 // of relevant fact ids. totalRelevant is the size of the ground-truth relevant
 // set (for recall); pass 0 when relevance came from a judge (recall undefined).
 func evalMetrics(surfaced []factRecord, relevant map[string]struct{}, totalRelevant int) evalTaskResult {
-	res := evalTaskResult{Surfaced: len(surfaced), Tokens: estimateTokens(surfaced)}
-	for _, f := range surfaced {
-		if _, ok := relevant[f.ID]; ok {
+	items := make([]evalRetrievedItem, len(surfaced))
+	for i, f := range surfaced {
+		items[i] = evalRetrievedItem{ID: f.ID, Text: f.Text, Path: strings.Join(f.Paths, ",")}
+	}
+	return evalItemMetrics(items, relevant, totalRelevant)
+}
+
+func evalItemMetrics(surfaced []evalRetrievedItem, relevant map[string]struct{}, totalRelevant int) evalTaskResult {
+	res := evalTaskResult{Surfaced: len(surfaced), Tokens: estimateRetrievedTokens(surfaced)}
+	for _, item := range surfaced {
+		if _, ok := relevant[item.ID]; ok {
 			res.RelevantSurfaced++
 		}
 	}
@@ -96,10 +133,12 @@ func summarizeEval(results []evalTaskResult) evalSummary {
 	if len(results) == 0 {
 		return s
 	}
-	var tok, prec, useful float64
+	s.Retriever = results[0].Retriever
+	var tok, latency, prec, useful float64
 	strata := map[string][]evalTaskResult{}
 	for _, r := range results {
 		tok += float64(r.Tokens)
+		latency += float64(r.LatencyMS)
 		prec += r.Precision
 		useful += r.UsefulPer1k
 		if r.QueryType != "" {
@@ -108,6 +147,7 @@ func summarizeEval(results []evalTaskResult) evalSummary {
 	}
 	n := float64(len(results))
 	s.MeanTokens = tok / n
+	s.MeanLatencyMS = latency / n
 	s.MeanPrecision = prec / n
 	s.MeanUsefulPer1k = useful / n
 	if len(strata) > 0 {
@@ -151,6 +191,15 @@ func judgeInput(task string, facts []factRecord) []byte {
 	return []byte(b.String())
 }
 
+func judgeInputItems(task string, items []evalRetrievedItem) []byte {
+	var b strings.Builder
+	fmt.Fprintf(&b, "TASK: %s\n\nFACTS\n", task)
+	for i, item := range items {
+		fmt.Fprintf(&b, "%d [%s] %s\n", i+1, item.Path, item.Text)
+	}
+	return []byte(b.String())
+}
+
 // parseJudgeOutput returns the set of surfaced-fact ids the agent marked
 // relevant. An unparseable or missing line defaults to not-relevant, so a judge
 // hiccup never inflates the usefulness metric.
@@ -172,6 +221,24 @@ func parseJudgeOutput(output string, facts []factRecord) map[string]struct{} {
 	return relevant
 }
 
+func parseJudgeOutputItems(output string, items []evalRetrievedItem) map[string]struct{} {
+	relevant := map[string]struct{}{}
+	for _, raw := range strings.Split(output, "\n") {
+		fields := strings.Fields(strings.TrimSpace(raw))
+		if len(fields) < 2 {
+			continue
+		}
+		n, err := strconv.Atoi(fields[0])
+		if err != nil || n < 1 || n > len(items) {
+			continue
+		}
+		if strings.EqualFold(fields[1], "yes") {
+			relevant[items[n-1].ID] = struct{}{}
+		}
+	}
+	return relevant
+}
+
 // --- command --------------------------------------------------------------
 
 func newFactsEvalCommand(opts Options) *cobra.Command {
@@ -186,6 +253,7 @@ func newFactsEvalCommand(opts Options) *cobra.Command {
 		agentCommand []string
 		judgeCache   string
 		expandCache  string
+		retriever    string
 		jsonOut      bool
 		run          distillAgentRunner
 	)
@@ -225,7 +293,7 @@ have the agent decide relevance per surfaced fact.`,
 					return fmt.Errorf("judge agent: %w", err)
 				}
 				if run == nil {
-					run = execDistillAgent
+					run = defaultDistillAgentRunner(resolvedAgent)
 				}
 			}
 			var expander queryExpanderFunc
@@ -237,7 +305,7 @@ have the agent decide relevance per surfaced fact.`,
 				}
 				expRun := run
 				if expRun == nil {
-					expRun = execDistillAgent
+					expRun = defaultDistillAgentRunner(resolvedAgent)
 				}
 				expander = func(query string) (string, error) {
 					return expandQuery(cmd.Context(), expRun, expandArgs, repoDir, query, expCache)
@@ -250,7 +318,10 @@ have the agent decide relevance per surfaced fact.`,
 					return fmt.Errorf("--semantic requested but the embedding backend is unavailable")
 				}
 			}
-			results, err := runFactsEval(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, loadJudgeCache(judgeCache), expander, rr)
+			if retriever == "" {
+				retriever = evalRetrieverFacts
+			}
+			results, err := runFactsEval(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, loadJudgeCache(judgeCache), expander, rr, retriever)
 			if err != nil {
 				return err
 			}
@@ -269,12 +340,13 @@ have the agent decide relevance per surfaced fact.`,
 	cmd.Flags().StringVar(&branch, "branch", "", "Default branch for tasks that omit one (default: current branch)")
 	cmd.Flags().IntVar(&k, "k", 10, "Facts to retrieve per task")
 	cmd.Flags().BoolVar(&judge, "judge", false, "Use the agent to judge relevance when a task has no labels")
-	cmd.Flags().StringVar(&agent, "agent", "auto", "Judge/expand agent: auto, codex, claude-code, or command")
+	cmd.Flags().StringVar(&agent, "agent", "auto", "Judge/expand agent: auto, codex, claude-code, ollama, or command")
 	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&judgeCache, "judge-cache", "", "Persist/reuse judge verdicts at this path so re-runs are deterministic and cheap")
 	cmd.Flags().BoolVar(&semantic, "semantic", false, "Rerank with the local embedding backend (RRF fusion of lexical + semantic)")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand each task query with agent-generated retrieval terms before recall")
 	cmd.Flags().StringVar(&expandCache, "expand-cache", "", "Persist/reuse query expansions at this path")
+	cmd.Flags().StringVar(&retriever, "retriever", evalRetrieverFacts, "Retrieval arm: facts, history, query, or raw-sessions")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the summary as JSON")
 	return cmd
 }
@@ -343,11 +415,257 @@ func loadEvalTasks(path string) ([]evalTask, error) {
 	return tasks, nil
 }
 
+func validateEvalRetriever(retriever string) error {
+	switch retriever {
+	case evalRetrieverFacts, evalRetrieverHistory, evalRetrieverQuery, evalRetrieverRawSessions:
+		return nil
+	default:
+		return fmt.Errorf("--retriever must be one of facts, history, query, raw-sessions")
+	}
+}
+
+func retrieveEvalItems(brainDir, branch, query string, limit int, retriever string, facts []factRecord, rr *semanticReranker) ([]evalRetrievedItem, error) {
+	switch retriever {
+	case evalRetrieverFacts:
+		return factsToEvalItems(rankFactsFused(facts, query, limit, false, rr)), nil
+	case evalRetrieverHistory:
+		manifest, err := loadBrainManifest(brainDir)
+		if err != nil {
+			return nil, err
+		}
+		if manifest.Sources == nil || manifest.Sources.History == nil {
+			return nil, nil
+		}
+		index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+		if err != nil {
+			return nil, err
+		}
+		return historyScoredToEvalItems(rankHistoryRecordsScored(index, "history", query, limit, 0)), nil
+	case evalRetrieverQuery:
+		results, err := retrieveEvalUnifiedLexical(brainDir, branch, query, limit, facts)
+		if err != nil {
+			return nil, err
+		}
+		return unifiedToEvalItems(results), nil
+	case evalRetrieverRawSessions:
+		return rankRawSessionChunks(brainDir, branch, query, limit)
+	default:
+		return nil, fmt.Errorf("unsupported retriever %q", retriever)
+	}
+}
+
+func retrieveEvalUnifiedLexical(brainDir, branch, query string, limit int, facts []factRecord) ([]unifiedResult, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	var lists [][]unifiedResult
+	active := make([]factRecord, 0, len(facts))
+	for _, f := range facts {
+		if f.Status == factStatusActive {
+			active = append(active, f)
+		}
+	}
+	if len(active) > 0 {
+		lists = append(lists, factsToUnified(rankFacts(active, query, limit*2, false)))
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return nil, err
+	}
+	if manifest.Sources != nil && manifest.Sources.History != nil {
+		index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+		if err != nil {
+			return nil, fmt.Errorf("load history index: %w", err)
+		}
+		if scored := rankHistoryRecordsScored(index, "history", query, limit*2, 0); len(scored) > 0 {
+			lists = append(lists, historyToUnified(scored))
+		}
+	}
+	docIdx, derr := loadDocIndex(brainDir)
+	switch {
+	case derr == nil && len(docIdx.Records) > 0:
+		if scored := rankDocsLexical(docIdx, query, limit*2); len(scored) > 0 {
+			lists = append(lists, docsToUnified(scored))
+		}
+	case derr != nil && !os.IsNotExist(derr):
+		return nil, fmt.Errorf("load doc index: %w", derr)
+	}
+	return rrfMergeUnified(lists, limit), nil
+}
+
+func factsToEvalItems(facts []factRecord) []evalRetrievedItem {
+	items := make([]evalRetrievedItem, len(facts))
+	for i, f := range facts {
+		items[i] = evalRetrievedItem{ID: f.ID, Text: f.Text, Path: strings.Join(f.Paths, ",")}
+	}
+	return items
+}
+
+func historyScoredToEvalItems(scored []scoredHistoryRecord) []evalRetrievedItem {
+	items := make([]evalRetrievedItem, len(scored))
+	for i, s := range scored {
+		items[i] = evalRetrievedItem{ID: s.Record.ID, Text: s.Record.Summary, Path: fmt.Sprintf("%s:%d", s.Record.Path, s.Record.Line)}
+	}
+	return items
+}
+
+func unifiedToEvalItems(results []unifiedResult) []evalRetrievedItem {
+	items := make([]evalRetrievedItem, len(results))
+	for i, r := range results {
+		path := r.Path
+		if r.Line > 0 {
+			path = fmt.Sprintf("%s:%d", r.Path, r.Line)
+		}
+		items[i] = evalRetrievedItem{ID: r.ID, Text: r.Text, Path: path}
+	}
+	return items
+}
+
+type scoredEvalItem struct {
+	Item  evalRetrievedItem
+	Score int
+	Order int
+}
+
+func rankRawSessionChunks(brainDir, branch, query string, limit int) ([]evalRetrievedItem, error) {
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return nil, err
+	}
+	if manifest.Sources == nil || manifest.Sources.Sessions == nil {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	var scored []scoredEvalItem
+	order := 0
+	for _, session := range manifest.Sources.Sessions.Sessions {
+		sessionBranch := session.Branch
+		if sessionBranch == "" {
+			sessionBranch = manifest.DefaultBranch
+		}
+		if sessionBranch == "" {
+			sessionBranch = distillDefaultBranch
+		}
+		if branch != "" && sessionBranch != branch {
+			continue
+		}
+		content, err := readBrainRelativeFile(brainDir, session.TranscriptPath)
+		if err != nil {
+			return nil, fmt.Errorf("read raw session transcript %s: %w", session.TranscriptPath, err)
+		}
+		for _, chunk := range chunkLines(preprocessTranscriptForDistill(content), defaultDistillChunkSize, false) {
+			record := historyRecord{
+				ID:      rawSessionChunkID(session, chunk),
+				Kind:    "raw-session",
+				Path:    filepath.ToSlash(session.TranscriptPath),
+				Line:    chunk.StartLine,
+				Summary: chunk.Text,
+			}
+			score := historyRecordQueryScoreMin(record, query, 0)
+			if score == 0 {
+				continue
+			}
+			scored = append(scored, scoredEvalItem{
+				Item:  evalRetrievedItem{ID: record.ID, Text: record.Summary, Path: fmt.Sprintf("%s:%d", record.Path, record.Line)},
+				Score: score,
+				Order: order,
+			})
+			order++
+		}
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].Score != scored[j].Score {
+			return scored[i].Score > scored[j].Score
+		}
+		return scored[i].Order < scored[j].Order
+	})
+	if len(scored) > limit {
+		scored = scored[:limit]
+	}
+	items := make([]evalRetrievedItem, len(scored))
+	for i, s := range scored {
+		items[i] = s.Item
+	}
+	return items, nil
+}
+
+func rawSessionChunkID(session exportSession, chunk transcriptChunk) string {
+	return fmt.Sprintf("raw:%s:%d-%d", shortSessionID(session.SessionID), chunk.StartLine, chunk.EndLine)
+}
+
+func evalLabelsForRetriever(task evalTask, retriever string, surfaced []evalRetrievedItem) (map[string]struct{}, int, bool) {
+	explicit := relevantIDsForRetriever(task.Relevant, retriever)
+	if len(explicit) > 0 {
+		return explicit, len(explicit), true
+	}
+	if retriever == evalRetrieverFacts || retriever == evalRetrieverQuery {
+		return map[string]struct{}{}, 0, false
+	}
+	sourceMatches := map[string]struct{}{}
+	for _, item := range surfaced {
+		if evalItemMatchesTaskSource(task, item) {
+			sourceMatches[item.ID] = struct{}{}
+		}
+	}
+	return sourceMatches, 0, false
+}
+
+func relevantIDsForRetriever(ids []string, retriever string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		switch retriever {
+		case evalRetrieverFacts:
+			if strings.HasPrefix(id, "fact:") || (!strings.Contains(id, ":") && !strings.HasPrefix(id, "raw:")) {
+				out[id] = struct{}{}
+			}
+		case evalRetrieverHistory:
+			if strings.HasPrefix(id, "history:") {
+				out[id] = struct{}{}
+			}
+		case evalRetrieverRawSessions:
+			if strings.HasPrefix(id, "raw:") {
+				out[id] = struct{}{}
+			}
+		case evalRetrieverQuery:
+			out[id] = struct{}{}
+		}
+	}
+	return out
+}
+
+func evalItemMatchesTaskSource(task evalTask, item evalRetrievedItem) bool {
+	sessionID := strings.TrimSpace(task.SourceSessionID)
+	if sessionID != "" && strings.HasPrefix(item.ID, "raw:"+shortSessionID(sessionID)+":") {
+		return true
+	}
+	transcript := filepath.ToSlash(strings.TrimSpace(task.SourceTranscriptPath))
+	if transcript == "" {
+		return false
+	}
+	path := filepath.ToSlash(strings.TrimSpace(item.Path))
+	if idx := strings.LastIndex(path, ":"); idx > 0 {
+		suffix := path[idx+1:]
+		if _, err := strconv.Atoi(suffix); err == nil {
+			path = path[:idx]
+		}
+	}
+	return path == transcript
+}
+
 // queryExpanderFunc maps a task query to extra retrieval terms; nil disables
 // expansion.
 type queryExpanderFunc func(query string) (string, error)
 
-func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, rr *semanticReranker) ([]evalTaskResult, error) {
+func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, rr *semanticReranker, retriever string) ([]evalTaskResult, error) {
+	if err := validateEvalRetriever(retriever); err != nil {
+		return nil, err
+	}
 	results := make([]evalTaskResult, 0, len(tasks))
 	factsByBranch := map[string][]factRecord{} // load each branch's facts once per run
 	for _, task := range tasks {
@@ -359,14 +677,18 @@ func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultB
 		if k <= 0 {
 			k = defaultK
 		}
-		facts, ok := factsByBranch[branch]
-		if !ok {
-			loaded, err := loadFacts(brainDir, branch)
-			if err != nil {
-				return nil, err
+		var facts []factRecord
+		if retriever == evalRetrieverFacts || retriever == evalRetrieverQuery {
+			var ok bool
+			facts, ok = factsByBranch[branch]
+			if !ok {
+				loaded, err := loadFacts(brainDir, branch)
+				if err != nil {
+					return nil, err
+				}
+				facts = loaded
+				factsByBranch[branch] = facts
 			}
-			facts = loaded
-			factsByBranch[branch] = facts
 		}
 		query := task.Task
 		if expander != nil {
@@ -376,29 +698,26 @@ func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultB
 				query = expandedQuery(task.Task, exp)
 			}
 		}
-		surfaced := rankFactsFused(facts, query, k, false, rr)
+		started := time.Now()
+		surfaced, err := retrieveEvalItems(brainDir, branch, query, k, retriever, facts, rr)
+		if err != nil {
+			return nil, fmt.Errorf("retrieve task %s: %w", task.ID, err)
+		}
+		latencyMS := time.Since(started).Milliseconds()
 
-		var relevant map[string]struct{}
-		totalRelevant := 0
-		labeled := len(task.Relevant) > 0
-		if labeled {
-			relevant = make(map[string]struct{}, len(task.Relevant))
-			for _, id := range task.Relevant {
-				relevant[id] = struct{}{}
-			}
-			totalRelevant = len(relevant)
-		} else if judge && len(surfaced) > 0 {
-			judged, jerr := judgeRelevance(ctx, run, repoDir, judgeArgs, task, surfaced, cache)
+		relevant, totalRelevant, labeled := evalLabelsForRetriever(task, retriever, surfaced)
+		if !labeled && len(relevant) == 0 && judge && len(surfaced) > 0 {
+			judged, jerr := judgeRelevanceItems(ctx, run, repoDir, judgeArgs, task, surfaced, cache)
 			if jerr != nil {
 				return nil, jerr
 			}
 			relevant = judged
-		} else {
-			relevant = map[string]struct{}{}
 		}
 
-		res := evalMetrics(surfaced, relevant, totalRelevant)
+		res := evalItemMetrics(surfaced, relevant, totalRelevant)
 		res.ID, res.Task, res.QueryType, res.Labeled = task.ID, task.Task, task.QueryType, labeled
+		res.Retriever = retriever
+		res.LatencyMS = latencyMS
 		results = append(results, res)
 	}
 	if err := cache.save(); err != nil {
@@ -441,9 +760,42 @@ func judgeRelevance(ctx context.Context, run distillAgentRunner, repoDir string,
 	return relevant, nil
 }
 
+func judgeRelevanceItems(ctx context.Context, run distillAgentRunner, repoDir string, judgeArgs []string, task evalTask, surfaced []evalRetrievedItem, cache *judgeCache) (map[string]struct{}, error) {
+	relevant := map[string]struct{}{}
+	var uncached []evalRetrievedItem
+	for _, item := range surfaced {
+		if v, ok := cache.get(task.ID, item.ID); ok {
+			if v {
+				relevant[item.ID] = struct{}{}
+			}
+			continue
+		}
+		uncached = append(uncached, item)
+	}
+	if len(uncached) == 0 {
+		return relevant, nil
+	}
+	out, err := run(ctx, repoDir, judgeArgs, judgeInputItems(task.Task, uncached), defaultDistillTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("judge task %s: %w", task.ID, err)
+	}
+	judged := parseJudgeOutputItems(out, uncached)
+	for _, item := range uncached {
+		_, isRel := judged[item.ID]
+		cache.set(task.ID, item.ID, isRel)
+		if isRel {
+			relevant[item.ID] = struct{}{}
+		}
+	}
+	return relevant, nil
+}
+
 func printEvalSummary(cmd *cobra.Command, s evalSummary) {
 	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "%-14s %8s %7s %7s %9s\n", "task", "tokens", "prec", "recall", "useful/1k")
+	if s.Retriever != "" {
+		fmt.Fprintf(out, "retriever: %s\n", s.Retriever)
+	}
+	fmt.Fprintf(out, "%-14s %8s %8s %7s %7s %9s\n", "task", "tokens", "lat(ms)", "prec", "recall", "useful/1k")
 	rows := append([]evalTaskResult(nil), s.Results...)
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 	for _, r := range rows {
@@ -451,9 +803,9 @@ func printEvalSummary(cmd *cobra.Command, s evalSummary) {
 		if r.Labeled {
 			recall = fmt.Sprintf("%.2f", r.Recall)
 		}
-		fmt.Fprintf(out, "%-14s %8d %7.2f %7s %9.2f\n", truncateString(r.ID, 14), r.Tokens, r.Precision, recall, r.UsefulPer1k)
+		fmt.Fprintf(out, "%-14s %8d %8d %7.2f %7s %9.2f\n", truncateString(r.ID, 14), r.Tokens, r.LatencyMS, r.Precision, recall, r.UsefulPer1k)
 	}
-	fmt.Fprintf(out, "%-14s %8.0f %7.2f %7s %9.2f\n", "MEAN", s.MeanTokens, s.MeanPrecision, "", s.MeanUsefulPer1k)
+	fmt.Fprintf(out, "%-14s %8.0f %8.0f %7.2f %7s %9.2f\n", "MEAN", s.MeanTokens, s.MeanLatencyMS, s.MeanPrecision, "", s.MeanUsefulPer1k)
 	if len(s.ByStratum) > 0 {
 		fmt.Fprintf(out, "\n%-14s %8s %7s %7s %9s\n", "stratum", "tokens", "prec", "tasks", "useful/1k")
 		strata := make([]string, 0, len(s.ByStratum))

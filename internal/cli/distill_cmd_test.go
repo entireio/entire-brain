@@ -3,10 +3,14 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -221,7 +225,9 @@ func TestRunDistillForBrainIncrementalSkipsUnchanged(t *testing.T) {
 
 	var calls int
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
-		calls++
+		if strings.Contains(string(input), "turn one") {
+			calls++
+		}
 		return "project.tooling.stack\tThe project uses Go.\n", nil
 	}
 	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
@@ -247,6 +253,129 @@ func TestRunDistillForBrainIncrementalSkipsUnchanged(t *testing.T) {
 	}
 	if calls <= firstCalls {
 		t.Fatalf("--force did not reprocess sessions")
+	}
+}
+
+func TestDistillDryRunCountsChunksWithoutAgent(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+
+	report, err := buildDistillDryRunReport(brainDir, distillCommandOptions{maxChunkBytes: defaultDistillChunkSize}, now)
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if report.Sessions != 2 || report.SessionsToDistill != 2 || report.Chunks != 2 {
+		t.Fatalf("unexpected dry-run counts: %+v", report)
+	}
+	if report.ExtractionAgentCalls != 2 || report.EstimatedAgentCallsUpperBound != 4 {
+		t.Fatalf("unexpected agent-call estimate: %+v", report)
+	}
+	if report.PreprocessedBytes == 0 || len(report.Branches) != 2 || len(report.LargestSessions) != 2 {
+		t.Fatalf("dry-run report missing cost drivers: %+v", report)
+	}
+}
+
+func TestRunDistillForBrainParallelExtractionMatchesSerial(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	serialBrain := writeDistillFixture(t, now)
+	parallelBrain := writeDistillFixture(t, now)
+
+	runSerial := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	serialOpts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: runSerial, jobs: 1, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), serialBrain, serialOpts, now); err != nil {
+		t.Fatalf("serial distill: %v", err)
+	}
+
+	var active, maxActive int32
+	runParallel := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		if strings.Contains(string(input), "\tturn one") {
+			current := atomic.AddInt32(&active, 1)
+			for {
+				seen := atomic.LoadInt32(&maxActive)
+				if current <= seen || atomic.CompareAndSwapInt32(&maxActive, seen, current) {
+					break
+				}
+			}
+			time.Sleep(25 * time.Millisecond)
+			atomic.AddInt32(&active, -1)
+		}
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	parallelOpts := serialOpts
+	parallelOpts.run = runParallel
+	parallelOpts.jobs = 4
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), parallelBrain, parallelOpts, now); err != nil {
+		t.Fatalf("parallel distill: %v", err)
+	}
+	if atomic.LoadInt32(&maxActive) < 2 {
+		t.Fatalf("--jobs did not run extraction concurrently; maxActive=%d", maxActive)
+	}
+	for _, branch := range []string{"main", "feature"} {
+		serialFacts, err := loadFacts(serialBrain, branch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parallelFacts, err := loadFacts(parallelBrain, branch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(serialFacts) != len(parallelFacts) || serialFacts[0].ID != parallelFacts[0].ID {
+			t.Fatalf("parallel output changed %s facts: serial=%+v parallel=%+v", branch, serialFacts, parallelFacts)
+		}
+	}
+}
+
+func TestRunDistillForBrainParallelDoesNotAbortAfterOrderedFailures(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	var sessions []exportSession
+	for i := 0; i < 6; i++ {
+		id := fmt.Sprintf("s%d", i)
+		tp := fmt.Sprintf("sessions/main/%s.jsonl", id)
+		path := filepath.Join(brainDir, filepath.FromSlash(tp))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		text := "success chunk"
+		if i < distillAgentAbortThreshold {
+			text = "fail chunk"
+		}
+		if err := os.WriteFile(path, []byte(text+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sessions = append(sessions, exportSession{SessionID: id, Branch: "main", LatestCheckpoint: "cp" + id, TranscriptPath: tp, CreatedAt: now.Add(time.Duration(i) * time.Minute)})
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	var calls int32
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		if strings.Contains(string(input), "chunk") {
+			atomic.AddInt32(&calls, 1)
+		}
+		if strings.Contains(string(input), "fail chunk") {
+			return "", fmt.Errorf("ordered failure")
+		}
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, jobs: 4, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
+	if err != nil {
+		t.Fatalf("parallel distill should keep later successes instead of aborting: %v", err)
+	}
+	if calls != int32(len(sessions)) {
+		t.Fatalf("expected every parallel chunk to complete, got %d calls", calls)
+	}
+	if source.FailedChunks != distillAgentAbortThreshold || source.Facts == 0 {
+		t.Fatalf("unexpected mixed success summary: %+v", source)
 	}
 }
 
@@ -450,6 +579,42 @@ func TestRunDistillForBrainBranchLimitedPreservesManifest(t *testing.T) {
 	featureFacts, err := loadFacts(brainDir, "feature")
 	if err != nil || len(featureFacts) != 1 {
 		t.Fatalf("feature facts disturbed by main-only distill: %d (%v)", len(featureFacts), err)
+	}
+}
+
+func TestRunDistillForBrainBranchLimitedPreservesUntouchedCache(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+
+	var calls int
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, jobs: 1, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("full distill: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("first run should distill both sessions, got %d", calls)
+	}
+
+	calls = 0
+	mainOnly := opts
+	mainOnly.branch = "main"
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, mainOnly, now); err != nil {
+		t.Fatalf("main-only distill: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("main-only run should use cache, got %d calls", calls)
+	}
+
+	calls = 0
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("post-branch all distill: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("branch-limited run dropped untouched cache entries; all-branch reran %d chunks", calls)
 	}
 }
 
@@ -666,5 +831,62 @@ func TestRunDistillForBrainAbortsOnSystematicAgentFailure(t *testing.T) {
 	}
 	if calls != distillAgentAbortThreshold {
 		t.Fatalf("expected abort at %d calls, not churning all 8 sessions; got %d", distillAgentAbortThreshold, calls)
+	}
+}
+
+func TestExecOllamaDistillAgentUsesLoopbackGenerateAPI(t *testing.T) {
+	var sawModel, sawSystem, sawPrompt string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/generate" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		var req struct {
+			Model  string `json:"model"`
+			System string `json:"system"`
+			Prompt string `json:"prompt"`
+			Stream bool   `json:"stream"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		sawModel, sawSystem, sawPrompt = req.Model, req.System, req.Prompt
+		if req.Stream {
+			t.Fatal("ollama distill must request non-streaming output")
+		}
+		fmt.Fprint(w, `{"response":"project.tooling.stack\tThe project uses Go.\n"}`)
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	out, err := execOllamaDistillAgent(context.Background(), t.TempDir(), []string{"ollama", "llama3.2", "system prompt"}, []byte("chunk input"), time.Second)
+	if err != nil {
+		t.Fatalf("ollama runner: %v", err)
+	}
+	if !strings.Contains(out, "project.tooling.stack") {
+		t.Fatalf("unexpected output %q", out)
+	}
+	if sawModel != "llama3.2" || sawSystem != "system prompt" || sawPrompt != "chunk input" {
+		t.Fatalf("unexpected request model/system/prompt: %q %q %q", sawModel, sawSystem, sawPrompt)
+	}
+}
+
+func TestExecOllamaDistillAgentRejectsNonLoopbackURL(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", "https://example.com/api/generate")
+	_, err := execOllamaDistillAgent(context.Background(), t.TempDir(), []string{"ollama", "llama3.2", "system"}, []byte("input"), time.Second)
+	if err == nil || !strings.Contains(err.Error(), "loopback-only") {
+		t.Fatalf("expected loopback rejection, got %v", err)
+	}
+}
+
+func TestExecOllamaDistillAgentRejectsNonLoopbackRedirect(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://example.com/api/generate", http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	_, err := execOllamaDistillAgent(context.Background(), t.TempDir(), []string{"ollama", "llama3.2", "system"}, []byte("input"), time.Second)
+	if err == nil || !strings.Contains(err.Error(), "redirect must stay loopback-only") {
+		t.Fatalf("expected redirect loopback rejection, got %v", err)
 	}
 }

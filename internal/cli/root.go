@@ -116,6 +116,7 @@ agent can inspect to understand project history.`,
 	addGrouped("maintain", newSemanticRepairCommand(opts))
 	addGrouped("maintain", newSemanticResetCommand(opts))
 	addGrouped("maintain", newSemanticStaleCommand(opts))
+	addGrouped("maintain", newSemanticAuditCommand(opts))
 	addGrouped("maintain", newVersionCommand(opts.Version))
 
 	// Hidden: `review` is the machine contract `entire review`'s diff-less mode shells
@@ -208,6 +209,19 @@ func wrapJSONErrorRendering(cmd *cobra.Command) {
 }
 
 func commandWantsJSONError(cmd *cobra.Command) bool {
+	if flag := cmd.Flags().Lookup("format"); flag != nil && flag.Changed {
+		if wants, ok := commandFormatFlagWantsJSON(flag.Value.String()); ok {
+			return wants
+		}
+	}
+	if flag := cmd.InheritedFlags().Lookup("format"); flag != nil && flag.Changed {
+		if wants, ok := commandFormatFlagWantsJSON(flag.Value.String()); ok {
+			return wants
+		}
+	}
+	if wants, ok := commandRawFormatWantsJSON(append(cmd.Flags().Args(), commandRawArgs(cmd)...)); ok {
+		return wants
+	}
 	if flag := cmd.Flags().Lookup("json"); flag != nil && flag.Changed {
 		return commandJSONFlagEnabled(flag.Value.String())
 	}
@@ -224,6 +238,32 @@ func commandWantsJSONError(cmd *cobra.Command) bool {
 		}
 	}
 	return false
+}
+
+func commandFormatFlagWantsJSON(value string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "json":
+		return true, true
+	case "cli", "text":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func commandRawFormatWantsJSON(args []string) (bool, bool) {
+	for i, arg := range args {
+		if arg == "--format" {
+			if i+1 >= len(args) {
+				return false, false
+			}
+			return commandFormatFlagWantsJSON(args[i+1])
+		}
+		if strings.HasPrefix(arg, "--format=") {
+			return commandFormatFlagWantsJSON(strings.TrimPrefix(arg, "--format="))
+		}
+	}
+	return false, false
 }
 
 func commandJSONFlagEnabled(value string) bool {

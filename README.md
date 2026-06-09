@@ -150,7 +150,7 @@ and `entire labs investigate`. Those consumers live in the `entireio/cli` repo a
 
 ### Ask The Brain
 
-The qmd-aligned retrieval verbs rank across the brain's text layers — durable
+The qmd-inspired retrieval verbs rank across the brain's text layers — durable
 facts, indexed history, and docs — and return ids you can fetch in full:
 
 ```sh
@@ -162,7 +162,9 @@ entire brain multi-get fact:<id> doc:<id> --json          # fetch several by id
 ```
 
 All five accept `--json`; `search`/`vsearch`/`query` also take `--limit` and
-`--branch`. Every result carries an `id` you can pass to `get`/`multi-get`.
+`--branch`. QMD-style aliases are also accepted for the supported formats:
+`--format json|cli` and `-n` for result count on search verbs. Every result
+carries an `id` you can pass to `get`/`multi-get`.
 
 `overview` is the fastest way to orient on an unfamiliar repo: it returns a
 single project map — stack stats, route/tool/workflow counts, build/test
@@ -218,6 +220,9 @@ brain, facts stay local and are never published.
 
 ```sh
 entire brain distill --agent codex                         # extract facts from captured sessions
+entire brain distill --dry-run --json                      # estimate sessions/chunks/calls without agent work
+entire brain distill --agent codex --jobs 4                # parallelize extraction, reconcile deterministically
+entire brain distill --agent ollama --model llama3.2       # local loopback Ollama
 entire brain distill --agent codex --model gpt-5.4-mini --effort low   # run it on a fast/cheap model
 entire brain remember "Prefer table-driven tests" --path preferences.coding.style
 entire brain recall "account deletion" --k 5
@@ -254,8 +259,16 @@ entire brain facts gc --force               # prune retracted/old-superseded; re
 The fact store also ships an evaluation harness for measuring retrieval quality
 (`facts eval-gen` builds a provenance-labeled benchmark from the brain's own
 sessions, `facts eval` reports precision / recall / useful-facts-per-1k-tokens,
-and `facts eval-compare` does a paired t-test with Holm correction). See
-`docs/durable_facts_plan.md` for the full design.
+and `facts eval-compare` does a paired t-test with Holm correction). Use
+`facts eval --retriever facts|history|query|raw-sessions` to compare distilled
+facts against raw/session baselines before claiming a recall lift. The eval
+`query` arm is a read-only lexical unified baseline over local brain layers; it
+does not write embedding caches or call an embedder. See `docs/durable_facts_plan.md`
+for the full design.
+
+For semantic release checks, `entire brain semantic-audit --json` reports the
+semantic provider/schema state, counts, freshness axes, and blind spots in one
+local audit payload.
 
 ## Storage
 

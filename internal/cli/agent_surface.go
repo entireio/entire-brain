@@ -405,8 +405,8 @@ Orient first (what is this project?):
 Then, for a task:
   entire brain brief "<task>" --json
 
-Retrieval (qmd-aligned verbs; search/vsearch/query take --json/--limit/--branch,
-get/multi-get take --json/--branch):
+Retrieval (qmd-inspired verbs; search/vsearch/query take --json/--format json|cli/--limit/-n/--branch,
+get/multi-get take --json/--format json|cli/--branch):
   entire brain query "<query>" --json       # hybrid (lexical+vector, RRF) — the default
   entire brain search "<query>" --json      # lexical keyword over facts + history + docs (BM25 for history/docs)
   entire brain vsearch "<query>" --json     # vector/semantic over facts + docs
@@ -422,8 +422,10 @@ Small top-level surface:
   entire brain guide
   entire brain path [repo]
   entire brain stale [repo] --blind-spots   # files the semantic index could not parse
+  entire brain semantic-audit [repo] --json # semantic coverage/freshness/blind spots
 
 Durable facts (curated, provenance-anchored repo knowledge):
+  entire brain distill --dry-run --json
   entire brain recall "<query>" [--scope local|cross-cutting] [--expand] --json
   entire brain remember "<fact>" [--path category.sub.type] --json
   entire brain verify [<fact-id | query>] --json

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -209,11 +210,13 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 			continue
 		}
 		tasks = append(tasks, evalTask{
-			ID:        shortSessionID(s.SessionID),
-			Task:      request,
-			Branch:    s.Branch,
-			QueryType: classifyQueryType(request, facts),
-			Relevant:  uniqueFactIDs(facts),
+			ID:                   shortSessionID(s.SessionID),
+			Task:                 request,
+			Branch:               s.Branch,
+			QueryType:            classifyQueryType(request, facts),
+			Relevant:             uniqueFactIDs(facts),
+			SourceSessionID:      s.SessionID,
+			SourceTranscriptPath: filepath.ToSlash(s.TranscriptPath),
 		})
 	}
 	tasks = dedupeEvalTasks(tasks)

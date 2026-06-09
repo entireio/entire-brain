@@ -113,6 +113,8 @@ func distillAgentCommandArgs(agent string, agentCommand []string, prompt string)
 		return []string{"codex", "exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", prompt}, nil
 	case "claude-code":
 		return []string{"claude", "--print", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", "--system-prompt", prompt}, nil
+	case "ollama":
+		return []string{"ollama", "", prompt}, nil
 	case "none", "":
 		return nil, errors.New("distillation requires an agent; --agent none has nothing to run")
 	default:
@@ -137,6 +139,12 @@ func injectAgentModel(args []string, agent, model string) []string {
 	case "claude-code":
 		if len(args) >= 1 && args[0] == "claude" {
 			return append(args[:1:1], append([]string{"--model", model}, args[1:]...)...)
+		}
+	case "ollama":
+		if len(args) >= 3 && args[0] == "ollama" {
+			out := append([]string(nil), args...)
+			out[1] = model
+			return out
 		}
 	}
 	return args
