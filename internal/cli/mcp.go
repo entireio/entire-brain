@@ -400,8 +400,12 @@ func mcpStringSlice(args map[string]any, key string) []string {
 	}
 	out := make([]string, 0, len(raw))
 	for _, v := range raw {
-		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
-			out = append(out, s)
+		if s, ok := v.(string); ok {
+			// Append the trimmed value so validation (non-empty) and downstream id
+			// resolution see the same string — " doc:abc " must resolve, not 404.
+			if trimmed := strings.TrimSpace(s); trimmed != "" {
+				out = append(out, trimmed)
+			}
 		}
 	}
 	return out

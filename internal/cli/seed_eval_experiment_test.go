@@ -75,7 +75,7 @@ func TestSeedRetrievalExperiment(t *testing.T) {
 		if rErr != nil {
 			return nil
 		}
-		for _, c := range chunkTranscript(string(data), chunkBytes) {
+		for _, c := range chunkLines(string(data), chunkBytes, false) {
 			seedChunks = append(seedChunks, chunk{strings.ToLower(c.Text), len(c.Text) / 4, e.Embed(c.Text)})
 		}
 		return nil

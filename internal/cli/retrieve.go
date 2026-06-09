@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"fmt"
+	"os"
 	"sort"
 	"strings"
 )
@@ -320,20 +322,36 @@ func getUnifiedBatch(brainDir, branch string, ids []string) (found []unifiedResu
 	}
 	histByID := map[string]historyRecord{}
 	if wantHistory {
-		if manifest, err := loadBrainManifest(brainDir); err == nil && manifest.Sources != nil && manifest.Sources.History != nil {
-			if index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History); err == nil {
-				for _, r := range index.Records {
-					histByID[r.ID] = r
-				}
+		// A corrupt manifest, or a history index the manifest declares but that is
+		// missing/unreadable, is a real storage problem — surface it rather than
+		// reporting every history:* id as "not found". A brain with no history source
+		// (nil) legitimately has no such records, so leave histByID empty.
+		manifest, err := loadBrainManifest(brainDir)
+		if err != nil {
+			return nil, nil, err
+		}
+		if manifest.Sources != nil && manifest.Sources.History != nil {
+			index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+			if err != nil {
+				return nil, nil, fmt.Errorf("load history index: %w", err)
+			}
+			for _, r := range index.Records {
+				histByID[r.ID] = r
 			}
 		}
 	}
 	docByID := map[string]docRecord{}
 	if wantDoc {
-		if index, err := loadDocIndex(brainDir); err == nil {
+		// A never-built doc index is not an error (doc:* ids just report "not
+		// found"); a corrupt/unreadable one is — surface it.
+		index, err := loadDocIndex(brainDir)
+		switch {
+		case err == nil:
 			for _, r := range index.Records {
 				docByID[r.ID] = r
 			}
+		case !os.IsNotExist(err):
+			return nil, nil, fmt.Errorf("load doc index: %w", err)
 		}
 	}
 	for _, id := range ids {
