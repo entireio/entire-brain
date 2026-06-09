@@ -423,7 +423,7 @@ Then, for a task:
 Retrieval (qmd-aligned verbs; search/vsearch/query take --json/--limit/--branch,
 get/multi-get take --json/--branch):
   entire brain query "<query>" --json       # hybrid (lexical+vector, RRF) — the default
-  entire brain search "<query>" --json      # lexical BM25 over facts + history + docs
+  entire brain search "<query>" --json      # lexical keyword over facts + history + docs (BM25 for history/docs)
   entire brain vsearch "<query>" --json     # vector/semantic over facts + docs
   entire brain get <id> --json              # fetch one item by id (fact:… | history:… | doc:…)
   entire brain multi-get <id>... --json     # fetch several by id

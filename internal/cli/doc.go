@@ -67,26 +67,33 @@ func firstHeading(text string) string {
 
 // loadDocRecordsFromSeed scans every markdown file under brain/seed and chunks it
 // into doc records. Size-based chunking (qmd-style) keeps it simple and robust.
-func loadDocRecordsFromSeed(brainDir string) ([]docRecord, int, error) {
+// Per-file walk/read failures are collected as warnings (not hard errors, so one
+// unreadable file doesn't lose the whole index) and surfaced via the manifest.
+func loadDocRecordsFromSeed(brainDir string) (records []docRecord, files int, warnings []string, err error) {
 	seedDir := filepath.Join(brainDir, seedDirName)
-	if _, err := os.Stat(seedDir); err != nil {
-		return nil, 0, nil // no seed yet; not an error
+	if _, statErr := os.Stat(seedDir); statErr != nil {
+		return nil, 0, nil, nil // no seed yet; not an error
 	}
-	var records []docRecord
-	files := 0
-	err := filepath.WalkDir(seedDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(path), ".md") {
+	relTo := func(path string) string {
+		if rel, relErr := filepath.Rel(brainDir, path); relErr == nil {
+			return filepath.ToSlash(rel)
+		}
+		return path
+	}
+	err = filepath.WalkDir(seedDir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			warnings = append(warnings, fmt.Sprintf("walk %s: %v", relTo(path), walkErr))
+			return nil
+		}
+		if d.IsDir() || !strings.HasSuffix(strings.ToLower(path), ".md") {
 			return nil
 		}
 		data, rErr := os.ReadFile(path)
 		if rErr != nil {
+			warnings = append(warnings, fmt.Sprintf("read %s: %v", relTo(path), rErr))
 			return nil
 		}
-		rel, relErr := filepath.Rel(brainDir, path)
-		if relErr != nil {
-			rel = path
-		}
-		rel = filepath.ToSlash(rel)
+		rel := relTo(path)
 		files++
 		for _, c := range chunkLines(string(data), maxDocChunkBytes, false) {
 			text := strings.TrimSpace(c.Text)
@@ -103,13 +110,13 @@ func loadDocRecordsFromSeed(brainDir string) ([]docRecord, int, error) {
 		}
 		return nil
 	})
-	return records, files, err
+	return records, files, warnings, err
 }
 
 // writeDocIndexAndSource builds and persists the doc index + manifest source from
 // the seed markdown. It mirrors writeBrainHistoryIndexAndSource.
 func writeDocIndexAndSource(brainDir string, now time.Time) (*docSourceManifest, error) {
-	records, files, err := loadDocRecordsFromSeed(brainDir)
+	records, files, warnings, err := loadDocRecordsFromSeed(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +129,7 @@ func writeDocIndexAndSource(brainDir string, now time.Time) (*docSourceManifest,
 	if err := writeFileAtomic(filepath.Join(brainDir, filepath.FromSlash(docIndexPath)), data, 0o600); err != nil {
 		return nil, fmt.Errorf("write doc index: %w", err)
 	}
-	source := &docSourceManifest{GeneratedAt: now, IndexPath: docIndexPath, Records: len(records), Files: files}
+	source := &docSourceManifest{GeneratedAt: now, IndexPath: docIndexPath, Records: len(records), Files: files, Warnings: warnings}
 	// Build the derived BM25 index alongside its truth (best-effort).
 	if db, ftsErr := openDocFTS(brainDir, index); ftsErr == nil {
 		_ = db.Close()

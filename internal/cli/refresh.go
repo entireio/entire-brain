@@ -235,7 +235,11 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			docTask.Update("doc index: skipped (" + derr.Error() + ")")
 			docTask.Finish(nil)
 		} else {
-			docTask.Update(fmt.Sprintf("doc index: %d chunks / %d files", docSource.Records, docSource.Files))
+			docLabel := fmt.Sprintf("doc index: %d chunks / %d files", docSource.Records, docSource.Files)
+			if n := len(docSource.Warnings); n > 0 {
+				docLabel += fmt.Sprintf(" (%d %s)", n, pluralUnit("warning", n))
+			}
+			docTask.Update(docLabel)
 			docTask.Finish(nil)
 			manifest, _ = loadBrainManifest(brainDir)
 		}

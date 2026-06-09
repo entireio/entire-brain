@@ -432,28 +432,42 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 		if text == "" {
 			continue
 		}
+		// Unmarshal each JSONL line at most once and reuse the parsed object for
+		// both the request pass and the narrative pass — re-parsing per line doubled
+		// the JSON decode cost on large histories during refresh.
+		var obj map[string]any
+		parsed := json.Unmarshal([]byte(text), &obj) == nil
+
 		// User prompts get their own extraction path, ahead of the narrative
 		// keyword filter, so a plain request ("add a subcommand") is not dropped
 		// for lacking decision/learning vocabulary. They anchor a session in the
 		// user's own words — the register agent task queries arrive in.
-		for _, fragment := range extractUserRequestFragments(text) {
-			ft := strings.TrimSpace(fragment.Text)
-			if ft == "" {
-				continue
+		if parsed {
+			for _, fragment := range extractUserRequestFragmentsFromObj(obj) {
+				ft := strings.TrimSpace(fragment.Text)
+				if ft == "" {
+					continue
+				}
+				records = append(records, historyRecord{
+					ID:      historyRecordID(rel, lineNumber, "request", ft),
+					Kind:    "request",
+					Path:    rel,
+					Line:    lineNumber,
+					Summary: truncateString(cleanHistorySummary(ft), 700),
+					Terms:   historyTerms(ft),
+				})
 			}
-			records = append(records, historyRecord{
-				ID:      historyRecordID(rel, lineNumber, "request", ft),
-				Kind:    "request",
-				Path:    rel,
-				Line:    lineNumber,
-				Summary: truncateString(cleanHistorySummary(ft), 700),
-				Terms:   historyTerms(ft),
-			})
 		}
 		if !historyLineMayContainIndexedContent(text) {
 			continue
 		}
-		for _, fragment := range extractHistoryFragments(text, allowRawText) {
+		var fragments []historyFragment
+		if parsed {
+			fragments = extractHistoryJSONFragments(obj)
+		} else if allowRawText {
+			fragments = []historyFragment{{Text: text, Source: "text"}}
+		}
+		for _, fragment := range fragments {
 			fragment.Text = strings.TrimSpace(fragment.Text)
 			if fragment.Text == "" {
 				continue
@@ -473,27 +487,22 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 	return records, scanner.Err()
 }
 
-func extractHistoryFragments(line string, allowRawText bool) []historyFragment {
-	var obj map[string]any
-	if err := json.Unmarshal([]byte(line), &obj); err != nil {
-		if !allowRawText {
-			return nil
-		}
-		return []historyFragment{{Text: line, Source: "text"}}
-	}
-	return extractHistoryJSONFragments(obj)
-}
-
 // extractUserRequestFragments pulls the human's prompt text from a transcript
 // line across codex and claude formats, as "user_request" fragments. It runs
 // before the narrative keyword filter and deliberately skips tool results (which
 // also arrive under role "user" in Claude) and tool calls, so only the user's
-// actual requests are indexed.
+// actual requests are indexed. scanHistoryFile parses the line itself and uses
+// extractUserRequestFragmentsFromObj to avoid a second unmarshal; this string form
+// is kept for direct callers (tests).
 func extractUserRequestFragments(line string) []historyFragment {
 	var obj map[string]any
 	if err := json.Unmarshal([]byte(line), &obj); err != nil {
 		return nil
 	}
+	return extractUserRequestFragmentsFromObj(obj)
+}
+
+func extractUserRequestFragmentsFromObj(obj map[string]any) []historyFragment {
 	switch jsonString(obj["type"]) {
 	case "event_msg": // codex
 		payload := jsonMap(obj["payload"])
