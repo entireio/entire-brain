@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>b8s1kbssf</task-id>
+<tool-use-id>toolu_015gVjG2tXo6uvapz2J4d72j</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/93850a3b-823a-4400-affb-afd0a1ad0282/tasks/b8s1kbssf.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll up to 20 min for round-6 Copilot review" completed (exit code 0)</summary>
+</task-notification>
