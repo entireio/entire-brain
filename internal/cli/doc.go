@@ -20,11 +20,10 @@ import (
 // rebuildable artifact, like the history index.
 
 const (
-	docDirName        = "docs"
-	docIndexFileName  = "index.json"
-	docIndexPath      = docDirName + "/" + docIndexFileName
-	maxDocChunkBytes  = 3000 // ~750 tokens, qmd-scale chunks
-	docSummaryMaxSize = 700
+	docDirName       = "docs"
+	docIndexFileName = "index.json"
+	docIndexPath     = docDirName + "/" + docIndexFileName
+	maxDocChunkBytes = 3000 // ~750 tokens, qmd-scale chunks
 )
 
 type docSourceManifest struct {
@@ -43,7 +42,7 @@ type docIndex struct {
 type docRecord struct {
 	ID      string `json:"id"`
 	Path    string `json:"path"`    // brain-relative markdown path
-	Heading string `json:"heading"` // nearest section heading, for context
+	Heading string `json:"heading"` // first markdown heading within the chunk, if any (empty when the chunk starts mid-section)
 	Line    int    `json:"line"`    // 1-based start line in the file
 	Text    string `json:"text"`
 }
