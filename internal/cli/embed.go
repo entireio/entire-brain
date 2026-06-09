@@ -280,19 +280,40 @@ var (
 	defaultEmbedderInst Embedder
 )
 
+// configuredEmbedder resolves the process embedder from ENTIRE_BRAIN_EMBEDDER,
+// returning the embedder plus an optional human warning when an opt-in could not
+// be honored. ENTIRE_BRAIN_EMBEDDER=ollama swaps the bundled Model2Vec static
+// model for EmbeddingGemma served over a local Ollama (or node-llama-cpp) HTTP
+// endpoint. When that opt-in is selected but the server is unreachable, it falls
+// back to the bundled Model2Vec model — keeping a single consistent vector space
+// (and cache namespace) — rather than silently degrading the semantic arm to
+// lexical-only, and reports the fallback so the user knows their opt-in did not
+// take effect.
+func configuredEmbedder() (Embedder, string) {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")), "ollama") {
+		o := newOllamaEmbedder()
+		if o.reachable() {
+			return o, ""
+		}
+		warn := fmt.Sprintf("ENTIRE_BRAIN_EMBEDDER=ollama set but the embed server at %s is unreachable; falling back to the bundled Model2Vec embedder", o.url)
+		if e, err := loadStaticEmbedder(entirebrain.EmbedModel); err == nil {
+			return e, warn
+		}
+		return nil, warn
+	}
+	if e, err := loadStaticEmbedder(entirebrain.EmbedModel); err == nil {
+		return e, ""
+	}
+	return nil, ""
+}
+
 func defaultEmbedder() Embedder {
 	defaultEmbedderOnce.Do(func() {
-		// Stage 1b spike: ENTIRE_BRAIN_EMBEDDER=ollama swaps the bundled Model2Vec
-		// static model for EmbeddingGemma via a local Ollama server, so the
-		// transformer embedder can be A/B'd against the baseline on `facts eval`.
-		if strings.EqualFold(strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")), "ollama") {
-			defaultEmbedderInst = newOllamaEmbedder()
-			return
+		e, warn := configuredEmbedder()
+		if warn != "" {
+			fmt.Fprintln(os.Stderr, "entire-brain: "+warn)
 		}
-		e, err := loadStaticEmbedder(entirebrain.EmbedModel)
-		if err == nil {
-			defaultEmbedderInst = e
-		}
+		defaultEmbedderInst = e
 	})
 	return defaultEmbedderInst
 }

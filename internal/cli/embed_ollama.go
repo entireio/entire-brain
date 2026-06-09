@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -60,6 +61,31 @@ func newOllamaEmbedder() *ollamaEmbedder {
 }
 
 func (o *ollamaEmbedder) ID() string { return "ollama:" + o.model }
+
+// reachable reports whether the embed server answers within a short timeout. The
+// selector uses it to fall back to the bundled Model2Vec model — one consistent
+// vector space — instead of silently degrading the semantic arm to lexical when
+// the opt-in server is not running. The short context timeout overrides the
+// client's longer per-embed timeout so an absent server fails fast.
+func (o *ollamaEmbedder) reachable() bool {
+	body, err := json.Marshal(map[string]any{"model": o.model, "input": "title: none | text: probe"})
+	if err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.url, bytes.NewReader(body))
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := o.hc.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
 
 // embeddingGemmaDim is EmbeddingGemma-300M's output dimension. Seeding it for the
 // default model avoids a network probe (and its timeout latency when the embed

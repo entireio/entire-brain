@@ -1,6 +1,11 @@
 package cli
 
-import "testing"
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 // fakePlainEmbedder implements Embedder but NOT queryEmbedder (like Model2Vec).
 type fakePlainEmbedder struct{ last string }
@@ -39,6 +44,54 @@ func TestEmbedQueryFallsBackToEmbed(t *testing.T) {
 	}
 	if fe.last != "find facts" {
 		t.Fatalf("query should route to Embed: %q", fe.last)
+	}
+}
+
+func TestConfiguredEmbedderUsesOllamaWhenReachable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"embeddings": [][]float32{{0.1, 0.2}}})
+	}))
+	defer srv.Close()
+	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "ollama")
+	t.Setenv("ENTIRE_BRAIN_EMBED_URL", srv.URL)
+	e, warn := configuredEmbedder()
+	if _, ok := e.(*ollamaEmbedder); !ok {
+		t.Fatalf("expected the ollama embedder when reachable, got %T", e)
+	}
+	if warn != "" {
+		t.Fatalf("no warning expected when reachable, got %q", warn)
+	}
+}
+
+func TestConfiguredEmbedderFallsBackWhenOllamaUnreachable(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "ollama")
+	// Port 1 refuses immediately, so the probe fails fast and the selector must
+	// fall back to the bundled Model2Vec model rather than returning the (dead)
+	// ollama embedder or silently dropping the semantic arm.
+	t.Setenv("ENTIRE_BRAIN_EMBED_URL", "http://127.0.0.1:1/api/embed")
+	e, warn := configuredEmbedder()
+	if e == nil {
+		t.Fatal("expected a fallback embedder, got nil")
+	}
+	if _, ok := e.(*ollamaEmbedder); ok {
+		t.Fatal("expected fallback to the static embedder, got the ollama embedder")
+	}
+	if warn == "" {
+		t.Fatal("expected a fallback warning when the opt-in server is unreachable")
+	}
+}
+
+func TestConfiguredEmbedderDefaultsToStatic(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "")
+	e, warn := configuredEmbedder()
+	if e == nil {
+		t.Fatal("expected the bundled static embedder by default")
+	}
+	if _, ok := e.(*ollamaEmbedder); ok {
+		t.Fatal("default must not select the ollama embedder")
+	}
+	if warn != "" {
+		t.Fatalf("no warning expected on the default path, got %q", warn)
 	}
 }
 

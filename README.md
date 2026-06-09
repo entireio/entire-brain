@@ -164,6 +164,35 @@ entire brain multi-get fact:<id> doc:<id> --json          # fetch several by id
 All five accept `--json`; `search`/`vsearch`/`query` also take `--limit` and
 `--branch`. Every result carries an `id` you can pass to `get`/`multi-get`.
 
+#### Semantic embedder (vector arm)
+
+The vector arm behind `vsearch`/`query` embeds with a **bundled, pure-Go
+Model2Vec** static model by default — zero config, no daemon, fully offline. For
+higher recall you can opt into a **transformer embedder (EmbeddingGemma-300M)**
+served over a local HTTP endpoint (Ollama, or qmd's node-llama-cpp server):
+
+```sh
+ollama pull embeddinggemma                       # one-time
+ENTIRE_BRAIN_EMBEDDER=ollama entire brain query "preventing data races" --json
+```
+
+- `ENTIRE_BRAIN_EMBEDDER=ollama` selects the transformer arm. It measured **+14%
+  useful-facts-per-1k-tokens** over Model2Vec on the facts eval (pooled across
+  repos), driven mostly by *reachability* — it surfaces conceptually-related
+  facts that share no query term.
+- `ENTIRE_BRAIN_OLLAMA_MODEL` (default `embeddinggemma`) and
+  `ENTIRE_BRAIN_EMBED_URL` (default `http://localhost:11434/api/embed`) override
+  the model and endpoint. The endpoint just needs to accept `{"model","input"}`
+  and return `{"embeddings":[[…]]}`.
+- **Graceful fallback:** if the opt-in is set but the embed server is
+  unreachable, the brain falls back to the bundled Model2Vec model (one
+  consistent vector space) and prints a one-line notice on stderr — it never
+  silently drops the semantic arm. Switching embedders re-namespaces the vector
+  cache, so the two never mix.
+
+This is the Stage 1b transformer embedder available **without cgo** today; the
+in-process single-binary form is deferred (see `../alignment.md`).
+
 `overview` is the fastest way to orient on an unfamiliar repo: it returns a
 single project map — stack stats, route/tool/workflow counts, build/test
 commands, entrypoints, key documents, and recent decisions newest-first.
