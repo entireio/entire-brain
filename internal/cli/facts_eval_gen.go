@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -77,7 +78,7 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 				_, err = cmd.OutOrStdout().Write(data)
 				return err
 			}
-			if err := writeFileAtomic(out, data, 0o600); err != nil {
+			if err := os.WriteFile(out, data, 0o600); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "wrote %d tasks to %s\n", len(tasks), out)

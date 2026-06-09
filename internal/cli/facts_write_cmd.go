@@ -72,20 +72,18 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		UpdatedAt:  now,
 	}
 
-	if err := withBrainWriteLock(brainDir, func() error {
-		facts, err := loadFacts(brainDir, branch)
-		if err != nil {
-			return err
-		}
-		facts = upsertFact(facts, record)
-		if err := writeFacts(brainDir, branch, facts); err != nil {
-			return err
-		}
-		if err := writeFactTaxonomy(brainDir, taxonomy); err != nil {
-			return err
-		}
-		return updateFactSourceManifestLocked(brainDir, now)
-	}); err != nil {
+	facts, err := loadFacts(brainDir, branch)
+	if err != nil {
+		return err
+	}
+	facts = upsertFact(facts, record)
+	if err := writeFacts(brainDir, branch, facts); err != nil {
+		return err
+	}
+	if err := writeFactTaxonomy(brainDir, taxonomy); err != nil {
+		return err
+	}
+	if err := updateFactSourceManifest(brainDir, now); err != nil {
 		return err
 	}
 

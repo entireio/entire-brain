@@ -121,16 +121,6 @@ func loadDocRecordsFromSeed(brainDir string) (records []docRecord, files int, wa
 // writeDocIndexAndSource builds and persists the doc index + manifest source from
 // the seed markdown. It mirrors writeBrainHistoryIndexAndSource.
 func writeDocIndexAndSource(brainDir string, now time.Time) (*docSourceManifest, error) {
-	var source *docSourceManifest
-	err := withBrainWriteLock(brainDir, func() error {
-		var runErr error
-		source, runErr = writeDocIndexAndSourceLocked(brainDir, now)
-		return runErr
-	})
-	return source, err
-}
-
-func writeDocIndexAndSourceLocked(brainDir string, now time.Time) (*docSourceManifest, error) {
 	records, files, warnings, err := loadDocRecordsFromSeed(brainDir)
 	if err != nil {
 		return nil, err

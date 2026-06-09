@@ -288,70 +288,59 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	if scan.Coverage != nil && scan.Coverage.MissingSessionCommits > 0 {
 		scan.Warnings = append(scan.Warnings, fmt.Sprintf("%d commits after oldest session have no Entire checkpoint trailer; see seed/history-gaps.md", scan.Coverage.MissingSessionCommits))
 	}
-	var seedManifest *seedSourceManifest
-	commitSeed := func() error {
-		if err := writeSeedArtifacts(outputDir, scan); err != nil {
-			return err
-		}
+	if err := writeSeedArtifacts(outputDir, scan); err != nil {
+		return err
+	}
 
-		seedManifest = &seedSourceManifest{
-			GeneratedAt:       opts.Now().UTC(),
-			Commit:            scan.Commit,
-			WorktreeMode:      seedWorktreeMode(seedOpts),
-			FileFingerprint:   scan.Fingerprint,
-			SummaryPath:       filepath.ToSlash(filepath.Join(seedDirName, "repo-overview.md")),
-			Documents:         scan.Docs,
-			Entrypoints:       scan.Entrypoints,
-			Commands:          scan.Commands,
-			HistoryBaseline:   buildSeedHistoryBaseline(ctx, opts.Runner, repoDir, outputDir),
-			HistoryCoverage:   scan.Coverage,
-			Warnings:          scan.Warnings,
-			DeterministicPath: []string{"seed/repo-overview.md", "seed/architecture.md", "seed/commands.md", "seed/conventions.md", "seed/risks.md", "seed/history-gaps.md", "seed/file-index.json"},
-		}
+	seedManifest := &seedSourceManifest{
+		GeneratedAt:       opts.Now().UTC(),
+		Commit:            scan.Commit,
+		WorktreeMode:      seedWorktreeMode(seedOpts),
+		FileFingerprint:   scan.Fingerprint,
+		SummaryPath:       filepath.ToSlash(filepath.Join(seedDirName, "repo-overview.md")),
+		Documents:         scan.Docs,
+		Entrypoints:       scan.Entrypoints,
+		Commands:          scan.Commands,
+		HistoryBaseline:   buildSeedHistoryBaseline(ctx, opts.Runner, repoDir, outputDir),
+		HistoryCoverage:   scan.Coverage,
+		Warnings:          scan.Warnings,
+		DeterministicPath: []string{"seed/repo-overview.md", "seed/architecture.md", "seed/commands.md", "seed/conventions.md", "seed/risks.md", "seed/history-gaps.md", "seed/file-index.json"},
+	}
 
-		if seedOpts.agent != "none" {
-			agentManifest, err := runSeedAgent(ctx, repoDir, outputDir, scan, seedOpts)
-			if err != nil {
-				if seedOpts.requireAgent {
-					return err
-				}
-				seedManifest.Warnings = append(seedManifest.Warnings, err.Error())
-			}
-			if agentManifest != nil {
-				seedManifest.Agent = agentManifest
-			}
-		}
-
-		if err := writeBrainSeedSourceLocked(outputDir, storage.Key, seedManifest); err != nil {
-			return err
-		}
-		if persistentSeed {
-			cursor := seedCursor{
-				SchemaVersion:                  1,
-				UpdatedAt:                      seedManifest.GeneratedAt,
-				RepoRoot:                       repoDir,
-				RepoKey:                        storage.Key,
-				LastCommit:                     scan.Commit,
-				WorktreeMode:                   seedManifest.WorktreeMode,
-				Files:                          scan.Files,
-				DeterministicPacketFingerprint: scan.Fingerprint,
-			}
-			if seedManifest.Agent != nil {
-				cursor.QuickAgent = seedManifest.Agent.Quick
-				cursor.DeepAgent = seedManifest.Agent.Deep
-			}
-			if err := writeSeedCursor(storage.HeadPath, cursor); err != nil {
+	if seedOpts.agent != "none" {
+		agentManifest, err := runSeedAgent(ctx, repoDir, outputDir, scan, seedOpts)
+		if err != nil {
+			if seedOpts.requireAgent {
 				return err
 			}
+			seedManifest.Warnings = append(seedManifest.Warnings, err.Error())
 		}
-		return nil
+		if agentManifest != nil {
+			seedManifest.Agent = agentManifest
+		}
+	}
+
+	if err := writeBrainSeedSource(outputDir, storage.Key, seedManifest); err != nil {
+		return err
 	}
 	if persistentSeed {
-		if err := withBrainWriteLock(outputDir, commitSeed); err != nil {
+		cursor := seedCursor{
+			SchemaVersion:                  1,
+			UpdatedAt:                      seedManifest.GeneratedAt,
+			RepoRoot:                       repoDir,
+			RepoKey:                        storage.Key,
+			LastCommit:                     scan.Commit,
+			WorktreeMode:                   seedManifest.WorktreeMode,
+			Files:                          scan.Files,
+			DeterministicPacketFingerprint: scan.Fingerprint,
+		}
+		if seedManifest.Agent != nil {
+			cursor.QuickAgent = seedManifest.Agent.Quick
+			cursor.DeepAgent = seedManifest.Agent.Deep
+		}
+		if err := writeSeedCursor(storage.HeadPath, cursor); err != nil {
 			return err
 		}
-	} else if err := commitSeed(); err != nil {
-		return err
 	}
 
 	out := cmd.OutOrStdout()
@@ -696,22 +685,22 @@ func writeSeedArtifacts(outputDir string, scan seedScanResult) error {
 	if err := writeJSONFile(filepath.Join(outputDir, seedDirName, "file-index.json"), scan.Files); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(outputDir, seedDirName, "repo-overview.md"), []byte(renderSeedOverview(scan)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, seedDirName, "repo-overview.md"), []byte(renderSeedOverview(scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(outputDir, seedDirName, "architecture.md"), []byte(renderSeedArchitecture(scan)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, seedDirName, "architecture.md"), []byte(renderSeedArchitecture(scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(outputDir, seedDirName, "commands.md"), []byte(renderSeedCommands(scan)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, seedDirName, "commands.md"), []byte(renderSeedCommands(scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(outputDir, seedDirName, "conventions.md"), []byte(renderSeedConventions(scan)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, seedDirName, "conventions.md"), []byte(renderSeedConventions(scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(outputDir, seedDirName, "risks.md"), []byte(renderSeedRisks(scan)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, seedDirName, "risks.md"), []byte(renderSeedRisks(scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(outputDir, seedDirName, "history-gaps.md"), []byte(renderSeedHistoryGaps(scan)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, seedDirName, "history-gaps.md"), []byte(renderSeedHistoryGaps(scan)), 0o600); err != nil {
 		return err
 	}
 	for _, doc := range scan.Docs {
@@ -728,7 +717,7 @@ func writeSeedArtifacts(outputDir string, scan seedScanResult) error {
 			data = data[:defaultSeedMaxFileBytes]
 			data = append(data, []byte("\n\n[truncated]\n")...)
 		}
-		if err := writeFileAtomic(dst, data, 0o600); err != nil {
+		if err := os.WriteFile(dst, data, 0o600); err != nil {
 			return err
 		}
 	}
@@ -1538,7 +1527,7 @@ func writeAgentArtifacts(outputDir string, artifacts map[string]string) ([]strin
 		if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
 			return nil, err
 		}
-		if err := writeFileAtomic(abs, []byte(content), 0o600); err != nil {
+		if err := os.WriteFile(abs, []byte(content), 0o600); err != nil {
 			return nil, err
 		}
 		written = append(written, filepath.ToSlash(rel))

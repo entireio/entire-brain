@@ -153,10 +153,8 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	// An explicit --output target writes a throwaway brain, so caching is skipped.
 	var metadataCache *checkpointMetadataCache
 	var metadataCachePath string
-	var metadataCacheBrainDir string
 	if !outputExplicit {
 		if storage, storageErr := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir); storageErr == nil {
-			metadataCacheBrainDir = storage.BrainDir
 			metadataCachePath = filepath.Join(storage.BrainDir, filepath.FromSlash(checkpointMetadataCachePath))
 			metadataCache = loadCheckpointMetadataCache(metadataCachePath)
 		}
@@ -171,11 +169,8 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			checkpointsScanned = loadedSnapshot.CheckpointCount
 			warnings = append(warnings, snapshotWarnings...)
 			reportExportProgress(exportOpts.progress, checkpointsScanned, checkpointsScanned, len(selected))
-			if metadataCachePath != "" && metadataCacheBrainDir != "" {
-				_ = withBrainWriteLock(metadataCacheBrainDir, func() error {
-					saveCheckpointMetadataCache(metadataCachePath, metadataCache)
-					return nil
-				})
+			if metadataCachePath != "" {
+				saveCheckpointMetadataCache(metadataCachePath, metadataCache)
 			}
 		} else if !errors.Is(snapshotErr, errCheckpointSnapshotUnavailable) {
 			warnings = append(warnings, "direct checkpoint export unavailable: "+snapshotErr.Error())
@@ -279,79 +274,52 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		cursor = loadExportCursor(cursorFile)
 	}
 
-	if persistentBrain {
-		if err := withBrainWriteLock(outputDir, func() error {
-			var err error
-			outputDir, err = prepareExportDir(outputDir, true)
-			if err != nil {
-				return err
-			}
-			if err := ensureExportDirectories(outputDir, branchDirs); err != nil {
-				return err
-			}
-			var transcriptWarnings []string
-			if snapshot != nil {
-				sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
-				if err != nil {
-					return err
-				}
-			} else {
-				transcriptWarnings, err = writeSessionTranscripts(ctx, opts.Runner, repoDir, outputDir, exportOpts.entireBinary, exportOpts.rawTranscript, sessions, branchDirs, cursor)
-				if err != nil {
-					return err
-				}
-			}
-			manifest.Warnings = usefulExportWarnings(append(manifest.Warnings, transcriptWarnings...), exportOpts.debug)
-			manifest.Sessions = sessions
-			manifest.Branches = summarizeBranchExports(sessions, branchDirs, defaultBranch)
-			if err := cleanupStaleSessionFiles(outputDir, sessions); err != nil {
-				return err
-			}
-			if err := writeBrainSessionSourceLocked(outputDir, repoKey, manifest); err != nil {
-				return err
-			}
-			if exportOpts.historyIndex {
-				if _, err := writeBrainHistoryIndexAndSourceLocked(outputDir, opts.Now().UTC(), nil); err != nil {
-					return err
-				}
-			}
-			if err := writeExportCursor(cursorFile, manifest); err != nil {
-				return err
-			}
-			return nil
-		}); err != nil {
-			return err
-		}
-	} else {
-		outputDir, err = prepareExportDir(outputDir, false)
+	outputDir, err = prepareExportDir(outputDir, persistentBrain)
+	if err != nil {
+		return err
+	}
+	if err := ensureExportDirectories(outputDir, branchDirs); err != nil {
+		return err
+	}
+
+	var transcriptWarnings []string
+	if snapshot != nil {
+		sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
 		if err != nil {
 			return err
 		}
-		if err := ensureExportDirectories(outputDir, branchDirs); err != nil {
+	} else {
+		transcriptWarnings, err = writeSessionTranscripts(ctx, opts.Runner, repoDir, outputDir, exportOpts.entireBinary, exportOpts.rawTranscript, sessions, branchDirs, cursor)
+		if err != nil {
 			return err
 		}
-		var transcriptWarnings []string
-		if snapshot != nil {
-			sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
-			if err != nil {
-				return err
-			}
-		} else {
-			transcriptWarnings, err = writeSessionTranscripts(ctx, opts.Runner, repoDir, outputDir, exportOpts.entireBinary, exportOpts.rawTranscript, sessions, branchDirs, cursor)
-			if err != nil {
-				return err
-			}
+	}
+	manifest.Warnings = usefulExportWarnings(append(manifest.Warnings, transcriptWarnings...), exportOpts.debug)
+	manifest.Sessions = sessions
+	manifest.Branches = summarizeBranchExports(sessions, branchDirs, defaultBranch)
+	if persistentBrain {
+		if err := cleanupStaleSessionFiles(outputDir, sessions); err != nil {
+			return err
 		}
-		manifest.Warnings = usefulExportWarnings(append(manifest.Warnings, transcriptWarnings...), exportOpts.debug)
-		manifest.Sessions = sessions
-		manifest.Branches = summarizeBranchExports(sessions, branchDirs, defaultBranch)
+	}
+
+	if persistentBrain {
+		if err := writeBrainSessionSource(outputDir, repoKey, manifest); err != nil {
+			return err
+		}
+	} else {
 		if err := writeBrainManifestAndReadme(outputDir, manifest); err != nil {
 			return err
 		}
-		if exportOpts.historyIndex {
-			if _, err := writeBrainHistoryIndexAndSourceLocked(outputDir, opts.Now().UTC(), nil); err != nil {
-				return err
-			}
+	}
+	if exportOpts.historyIndex {
+		if _, err := writeBrainHistoryIndexAndSource(outputDir, opts.Now().UTC(), nil); err != nil {
+			return err
+		}
+	}
+	if persistentBrain {
+		if err := writeExportCursor(cursorFile, manifest); err != nil {
+			return err
 		}
 	}
 
@@ -1727,7 +1695,7 @@ func writeTranscriptFile(outputDir, relPath string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
 		return fmt.Errorf("create transcript directory: %w", err)
 	}
-	if err := writeFileAtomic(abs, data, 0o600); err != nil {
+	if err := os.WriteFile(abs, data, 0o600); err != nil {
 		return err
 	}
 	return nil
@@ -1810,7 +1778,7 @@ func writeJSONFile(path string, value any) error {
 		return fmt.Errorf("encode %s: %w", filepath.Base(path), err)
 	}
 	data = append(data, '\n')
-	if err := writeFileAtomic(path, data, 0o600); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
 	}
 	return nil
