@@ -100,18 +100,16 @@ Implemented audit surfaces:
 Claim policy: do not say semantic indexing works globally. Say which languages,
 relations, and freshness states are covered, and show blind spots.
 
-Local smoke evidence collected on this repo after the provider compatibility fix:
-`go run ./cmd/entire-brain refresh index --sem-binary entire --force --worktree`
+Local clean evidence collected on this repo after the provider compatibility
+fix: `go run ./cmd/entire-brain refresh index --sem-binary entire --force`
 indexed 134 files, 2,217 symbols, and 14,616 relations; `go run
-./cmd/entire-brain semantic-audit --json --fail-on unsafe` passed with zero blind
-spots. The retained warnings were `provider_ignore_file_unsupported` and
-`W_WORKTREE_SNAPSHOT`, so this is a compatibility proof and local coverage smoke,
-not the clean release-candidate evidence.
+./cmd/entire-brain semantic-audit --json --fail-on unsafe` passed with freshness
+`ok`, worktree state `clean`, zero blind spots, and one retained warning:
+`provider_ignore_file_unsupported`. This proves local coverage and audit health
+for this checkout, not agent usefulness.
 
-Blocked evidence collection: `entire brain semantic-audit --json` must still be
-run from a clean release-candidate brain, and semantic benchmark/proof records
-must be retained and audited before usefulness claims graduate from draft
-language.
+Blocked evidence collection: semantic benchmark/proof records must still be
+retained and audited before usefulness claims graduate from draft language.
 
 ## QMD Alignment
 
