@@ -24,6 +24,7 @@ func newFactsCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newFactsPromoteCommand(opts))
 	cmd.AddCommand(newFactsRetractCommand(opts))
 	cmd.AddCommand(newFactsGCCommand(opts))
+	cmd.AddCommand(newFactsReclassifyCommand(opts))
 	return cmd
 }
 
@@ -292,6 +293,61 @@ func newFactsGCCommand(opts Options) *cobra.Command {
 	cmd.Flags().DurationVar(&retain, "retain", defaultFactRetention, "Retain superseded facts updated within this window")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the gc summary as JSON")
 	return cmd
+}
+
+func newFactsReclassifyCommand(opts Options) *cobra.Command {
+	var (
+		branch  string
+		force   bool
+		jsonOut bool
+	)
+	cmd := &cobra.Command{
+		Use:   "reclassify",
+		Short: "Backfill the deterministic KIND onto facts missing one (no agent)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			if err != nil {
+				return err
+			}
+			return runFactsReclassify(cmd, opts, brainDir, resolvedBranch, force, jsonOut)
+		},
+	}
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch to reclassify (default: current branch)")
+	cmd.Flags().BoolVar(&force, "force", false, "Recompute every fact's kind (default: only fill facts missing a valid kind)")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the reclassify summary as JSON")
+	return cmd
+}
+
+func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir, branch string, force, jsonOut bool) error {
+	facts, err := loadFacts(brainDir, branch)
+	if err != nil {
+		return err
+	}
+	changed := reclassifyFacts(facts, force)
+	now := opts.Now().UTC()
+	if changed > 0 {
+		if err := writeFacts(brainDir, branch, facts); err != nil {
+			return err
+		}
+		if err := updateFactSourceManifest(brainDir, now); err != nil {
+			return err
+		}
+	}
+	byKind := map[string]int{}
+	for _, f := range facts {
+		byKind[factKindOrInferred(f)]++
+	}
+	if jsonOut {
+		return writeJSON(cmd, map[string]any{"branch": branch, "changed": changed, "facts": len(facts), "by_kind": byKind})
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "reclassified %d of %d fact(s) on %s\n", changed, len(facts), branch)
+	for _, kind := range []string{factKindDecision, factKindInvariant, factKindGotcha, factKindPreference, factKindConvention} {
+		if byKind[kind] > 0 {
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-11s %d\n", kind, byKind[kind])
+		}
+	}
+	return nil
 }
 
 func runFactsGC(cmd *cobra.Command, opts Options, brainDir, branch string, force bool, retain time.Duration, jsonOut bool) error {

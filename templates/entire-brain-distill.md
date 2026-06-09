@@ -67,7 +67,16 @@ Turns that should almost always produce NOTHING:
 When — and only when — you have a fact that passes all four checks, output ONE
 line per fact in exactly this format:
 
-    <taxonomy-path>[,<taxonomy-path>]<TAB><fact>
+    <kind><TAB><taxonomy-path>[,<taxonomy-path>]<TAB><fact>
+
+The leading <kind> is exactly ONE of these five words — the *shape* of the claim,
+independent of its topic:
+
+  - decision   — a resolved choice and its rationale (why X over Y)
+  - invariant  — a rule that must always hold; a hard constraint
+  - gotcha     — a non-obvious trap, footgun, or surprising behavior
+  - preference — how the user likes work done (style, tooling taste)
+  - convention — a standing process or formatting norm
 
 ${TAXONOMY_BLOCK}
 
@@ -75,7 +84,9 @@ ${TAXONOMY_BLOCK}
 
 - Output 0–6 lines. ZERO is the default and expected outcome. Prove a fact earns
   its slot before emitting it.
-- Each line is exactly: path<TAB>fact, using a real tab character.
+- Each line is exactly: kind<TAB>path<TAB>fact, using real tab characters. The
+  kind is one of the five words above; if genuinely unsure of the kind, you may
+  omit it and emit path<TAB>fact — it will be inferred.
 - EXACTLY three levels: category.subcategory.type (e.g.
   preferences.coding.style). Each segment is lowercase letters, digits, and
   underscores only — NO hyphens, NO uppercase, NO spaces. Use "ci_cd" not
@@ -97,4 +108,4 @@ ${TAXONOMY_BLOCK}
   standing rule expressed AS feedback ("don't do X anymore", "from now on do Y")
   IS durable — capture it. The test is whether the rule applies to future turns.
 - NO preamble, NO explanation, NO bullets or numbering, NO "no facts found"
-  message — only path<TAB>fact lines, or a completely empty response.
+  message — only kind<TAB>path<TAB>fact lines, or a completely empty response.

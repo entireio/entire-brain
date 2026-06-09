@@ -151,6 +151,43 @@ func TestDistilledFactsFromOutput(t *testing.T) {
 	}
 }
 
+func TestDistilledFactsFromOutputKindColumn(t *testing.T) {
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	taxonomy := defaultFactTaxonomy(now)
+	anchor := factAnchor{SessionID: "s1"}
+
+	output := strings.Join([]string{
+		// New 3-field form: explicit kind column.
+		"gotcha\tconstraints.invariants.general\tThe advisory lock must be released before the rename.",
+		// Legacy 2-field form: kind inferred from taxonomy (preferences → preference).
+		"preferences.coding.style\tThe user prefers tabs over spaces.",
+		// Kind column with two tab-separated paths after it.
+		"decision\tarchitecture.data.flow\tconstraints.invariants.general\tThe index is derived from the ndjson truth.",
+	}, "\n")
+
+	records, _ := distilledFactsFromOutput(output, taxonomy, anchor, "main", now)
+	if len(records) != 3 {
+		t.Fatalf("expected 3 records, got %d (%+v)", len(records), records)
+	}
+	byText := map[string]factRecord{}
+	for _, r := range records {
+		byText[r.Text] = r
+	}
+	if got := byText["The advisory lock must be released before the rename."]; got.Kind != factKindGotcha {
+		t.Errorf("explicit kind column not honored: %q", got.Kind)
+	}
+	if got := byText["The user prefers tabs over spaces."]; got.Kind != factKindPreference {
+		t.Errorf("legacy line should infer preference, got %q", got.Kind)
+	}
+	idx := byText["The index is derived from the ndjson truth."]
+	if idx.Kind != factKindDecision {
+		t.Errorf("kind column before two paths not honored: %q", idx.Kind)
+	}
+	if len(idx.Paths) != 2 {
+		t.Errorf("both paths after the kind column should survive: %v", idx.Paths)
+	}
+}
+
 func TestDistilledFactsFromOutputTabSeparatedPaths(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	taxonomy := defaultFactTaxonomy(now)

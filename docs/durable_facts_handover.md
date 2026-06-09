@@ -32,6 +32,25 @@ two-bucket problem Part B attacks. Repro: `facts eval-gen --branch main` then
 `facts eval --tasks <f> --branch main --k 10 --json` (± `--semantic`),
 deterministic, no agent.
 
+### B1 — first-class KIND dimension (landed)
+
+Added `Kind` to `factRecord` (additive metadata — **not** in the id hash, so ids /
+provenance / vector cache are stable). Closed set
+`decision|invariant|gotcha|preference|convention`. Hybrid source: the distill /
+`remember` prompts emit a leading `kind<TAB>` column (parser tolerant of the
+legacy 2-field form), and `inferFactKind` (taxonomy prior + high-precision text
+cues) backfills the rest for free. New surfaces: `facts reclassify` (no-agent
+backfill), `recall --kind`, `facts tree --kind`, `[kind]` in `recall`/`blame`,
+`by_kind` in the manifest, kind on unified `brain_get`/search results.
+
+**Backfill on the live `main` corpus (948 facts):** invariant 414, decision 273,
+convention 196, preference 64, **gotcha 1**. The kind axis discriminates far
+better than the two taxonomy buckets, but the deterministic `gotcha` cue
+**under-fires** (1) — gotchas are the highest-value class and the hardest to
+detect from a path/keyword prior, so the agent-labeled path (distill prompt) is
+where that recall comes from going forward. B4 measures whether kind filtering
+lifts useful/1k despite the inference being coarse.
+
 ## Branch topology
 
 - **Base work (merged):** `claude/durable-facts-and-distill` landed via **PR #5**.

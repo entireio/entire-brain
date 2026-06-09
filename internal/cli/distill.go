@@ -166,7 +166,9 @@ func injectAgentEffort(args []string, agent, effort string) []string {
 
 // distilledFactsFromOutput parses the agent's line-based output for one
 // transcript chunk into fact records. Each emitted line is
-// `path[,path]<TAB>fact`. Lines are dropped (with a warning) when they have no
+// `[kind<TAB>]path[,path]<TAB>fact` — the leading KIND column is optional and
+// falls back to deterministic inference when absent or invalid. Lines are
+// dropped (with a warning) when they have no
 // tab, no syntactically valid path, or no path whose top-level category exists
 // in the active taxonomy — the taxonomy's top levels are fixed, so a path under
 // an unknown category cannot be trusted. Output is capped at factsMaxPerChunk;
@@ -203,7 +205,15 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			}
 			continue
 		}
-		rawPaths, text := splitFactLine(line)
+		// Optional leading KIND column (`kind<TAB>path[,path]<TAB>fact`). Pop it
+		// only when doing so still yields valid paths, so a line without a kind
+		// column — or a degenerate literal-`\t` line — parses exactly as before.
+		kind, rest := splitKindField(line)
+		rawPaths, text := splitFactLine(rest)
+		if kind != "" && len(normalizeFactPaths(rawPaths)) == 0 {
+			kind = ""
+			rawPaths, text = splitFactLine(line)
+		}
 		if text == "" {
 			continue
 		}
@@ -218,9 +228,13 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			continue
 		}
 		text = truncateString(text, distillFactMaxTextSize)
+		if kind == "" {
+			kind = inferFactKind(paths, text) // agent omitted/violated kind → deterministic fallback
+		}
 		records = append(records, factRecord{
 			ID:         factRecordID(text, paths),
 			Paths:      paths,
+			Kind:       kind,
 			Text:       text,
 			Branch:     branch,
 			Origin:     factOriginDistilled,
@@ -234,6 +248,19 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 		warnings = append(warnings, fmt.Sprintf("chunk produced more than %d facts; extra lines dropped", factsMaxPerChunk))
 	}
 	return records, warnings
+}
+
+// splitKindField pops a leading KIND token from a distill line when present:
+// the line is `kind<TAB>rest` and `kind` is one of the closed KIND set. Returns
+// ("", line) for the legacy 2-field `path<TAB>fact` form, since a path-block
+// (which always contains dots) can never be a bare kind word — so old and new
+// formats are unambiguous.
+func splitKindField(line string) (string, string) {
+	fields := strings.SplitN(line, "\t", 2)
+	if len(fields) == 2 && validFactKind(fields[0]) {
+		return strings.ToLower(strings.TrimSpace(fields[0])), fields[1]
+	}
+	return "", line
 }
 
 // splitFactLine separates a distill output line into its path tokens and fact

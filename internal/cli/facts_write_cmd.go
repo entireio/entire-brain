@@ -10,6 +10,7 @@ import (
 
 type rememberCommandOptions struct {
 	path         string
+	kind         string
 	branch       string
 	agent        string
 	agentCommand []string
@@ -28,6 +29,7 @@ func newRememberCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&rememberOpts.path, "path", "", "Taxonomy path(s), comma-separated (e.g. preferences.coding.style). If omitted, the agent classifies the fact")
+	cmd.Flags().StringVar(&rememberOpts.kind, "kind", "", "Fact kind: decision|invariant|gotcha|preference|convention. If omitted, it is inferred")
 	cmd.Flags().StringVar(&rememberOpts.branch, "branch", "", "Branch to store the fact on (default: current branch)")
 	cmd.Flags().StringVar(&rememberOpts.agent, "agent", "auto", "Agent used to classify when --path is omitted: auto, codex, claude-code, command, or none")
 	cmd.Flags().StringArrayVar(&rememberOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
@@ -55,6 +57,14 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		return err
 	}
 
+	kind := strings.ToLower(strings.TrimSpace(rememberOpts.kind))
+	if kind != "" && !validFactKind(kind) {
+		return fmt.Errorf("--kind %q must be one of decision|invariant|gotcha|preference|convention", rememberOpts.kind)
+	}
+	if kind == "" {
+		kind = inferFactKind(paths, text)
+	}
+
 	anchor := factAnchor{}
 	if commit, gitErr := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD"); gitErr == nil {
 		anchor.Commit = strings.TrimSpace(commit)
@@ -63,6 +73,7 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 	record := factRecord{
 		ID:         factRecordID(text, paths),
 		Paths:      paths,
+		Kind:       kind,
 		Text:       text,
 		Branch:     branch,
 		Origin:     factOriginAuthored,
@@ -90,7 +101,7 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 	if rememberOpts.json {
 		return writeJSON(cmd, record)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "remembered %s [%s] on %s\n", record.ID, strings.Join(paths, ","), branch)
+	fmt.Fprintf(cmd.OutOrStdout(), "remembered %s [%s] %s on %s\n", record.ID, kind, strings.Join(paths, ","), branch)
 	return nil
 }
 
