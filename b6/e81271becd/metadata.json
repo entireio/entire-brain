@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "b6e81271becd",
+  "strategy": "manual-commit",
+  "branch": "feat/fact-quality-appendix-d",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/facts_read_cmd.go",
+    "internal/cli/semantic.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b6/e81271becd/0/metadata.json",
+      "transcript": "/b6/e81271becd/0/full.jsonl",
+      "content_hash": "/b6/e81271becd/0/content_hash.txt",
+      "prompt": "/b6/e81271becd/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 35917,
+    "cache_creation_tokens": 1001119,
+    "cache_read_tokens": 63725530,
+    "output_tokens": 196935,
+    "api_call_count": 269
+  }
+}
