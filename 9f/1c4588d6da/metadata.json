@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "9f1c4588d6da",
+  "strategy": "manual-commit",
+  "branch": "harvest/agent-ux-and-embedder-ux",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "README.md",
+    "internal/cli/agent_surface.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9f/1c4588d6da/0/metadata.json",
+      "transcript": "/9f/1c4588d6da/0/full.jsonl",
+      "content_hash": "/9f/1c4588d6da/0/content_hash.txt",
+      "prompt": "/9f/1c4588d6da/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 47188,
+    "cache_creation_tokens": 1165863,
+    "cache_read_tokens": 127576538,
+    "output_tokens": 314728,
+    "api_call_count": 394
+  }
+}
