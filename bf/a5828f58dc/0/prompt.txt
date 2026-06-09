@@ -1,0 +1,5 @@
+Is ENTIRE_BRAIN_EMBEDDER=ollama documented in the README?
+
+---
+
+Yes
