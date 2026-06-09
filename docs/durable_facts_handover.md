@@ -51,6 +51,22 @@ detect from a path/keyword prior, so the agent-labeled path (distill prompt) is
 where that recall comes from going forward. B4 measures whether kind filtering
 lifts useful/1k despite the inference being coarse.
 
+**B1 review fixes (applied).** A high-effort review found the kind column could
+silently *drop* facts; fixed with a robust `parseFactLine` grammar that recovers
+a fact whether the agent emits an exact kind, a near-miss synonym, or no kind
+(plus kind-aware literal-`\t` recovery). Also: `remember --kind` now wins on an
+existing fact and reports the persisted kind; `inferFactKind` tie-breaks by
+kind-priority (a `constraints.*` co-tag infers invariant, not decision) and
+allocates nothing on the hot path; `reclassify` always refreshes the manifest;
+`by_kind` counts active facts only.
+
+**Known limitation (by design):** a re-distill where the agent emits a
+*different valid* kind for an existing fact does not overwrite the stored kind
+(the anti-thrash rule in `upsertFact` only fills an absent/invalid one). Use
+`facts reclassify --force` or `remember --kind` to change a stored kind. This is
+deliberate — it stops an inference-fallback from clobbering an agent label across
+runs — but it means agent re-labels are not automatically picked up.
+
 ## Branch topology
 
 - **Base work (merged):** `claude/durable-facts-and-distill` landed via **PR #5**.

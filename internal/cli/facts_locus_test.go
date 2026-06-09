@@ -105,6 +105,11 @@ func TestInferFactKind(t *testing.T) {
 		{"gotcha cue overrides preference", []string{"preferences.coding.style"}, "footgun: never embed the prod URL", factKindGotcha},
 		{"invariant cue with no taxonomy", nil, "the cursor must always be monotonic", factKindInvariant},
 		{"default decision with no signal", nil, "the team shipped the feature", factKindDecision},
+		// Multi-path tie-break: the invariant signal of constraints.* must win over
+		// an alphabetically-earlier architecture co-tag (not be dropped), in both
+		// path orderings.
+		{"co-tag picks higher-priority kind", []string{"architecture.boundaries.rationale", "constraints.invariants.general"}, "the boundary holds", factKindInvariant},
+		{"co-tag order-independent", []string{"constraints.invariants.general", "architecture.boundaries.rationale"}, "the boundary holds", factKindInvariant},
 	}
 	for _, c := range cases {
 		if got := inferFactKind(c.paths, c.text); got != c.want {

@@ -440,7 +440,12 @@ func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, chunks
 			if record.Status == factStatusSuperseded {
 				source.Superseded++
 			}
-			source.ByKind[factKindOrInferred(record)]++
+			// by_kind counts only active facts, matching what recall/tree surface
+			// (superseded/retracted facts are not retrievable), so the histogram
+			// answers "what kinds can I recall" rather than paralleling Facts.
+			if record.Status == factStatusActive {
+				source.ByKind[factKindOrInferred(record)]++
+			}
 			for _, anchor := range record.Provenance {
 				if anchor.Verified {
 					source.Verified++

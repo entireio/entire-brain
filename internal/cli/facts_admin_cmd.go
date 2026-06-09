@@ -330,13 +330,18 @@ func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir, branch strin
 		if err := writeFacts(brainDir, branch, facts); err != nil {
 			return err
 		}
-		if err := updateFactSourceManifest(brainDir, now); err != nil {
-			return err
-		}
+	}
+	// Always refresh the manifest, even on a no-op reclassify: a store predating
+	// the by_kind field has valid kinds but a stale/absent histogram that only a
+	// manifest rebuild repairs.
+	if err := updateFactSourceManifest(brainDir, now); err != nil {
+		return err
 	}
 	byKind := map[string]int{}
 	for _, f := range facts {
-		byKind[factKindOrInferred(f)]++
+		if f.Status == factStatusActive {
+			byKind[factKindOrInferred(f)]++
+		}
 	}
 	if jsonOut {
 		return writeJSON(cmd, map[string]any{"branch": branch, "changed": changed, "facts": len(facts), "by_kind": byKind})

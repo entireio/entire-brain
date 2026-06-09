@@ -57,10 +57,11 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		return err
 	}
 
-	kind := strings.ToLower(strings.TrimSpace(rememberOpts.kind))
-	if kind != "" && !validFactKind(kind) {
-		return fmt.Errorf("--kind %q must be one of decision|invariant|gotcha|preference|convention", rememberOpts.kind)
+	if err := validateKindFlag(rememberOpts.kind); err != nil {
+		return err
 	}
+	explicitKind := strings.ToLower(strings.TrimSpace(rememberOpts.kind))
+	kind := explicitKind
 	if kind == "" {
 		kind = inferFactKind(paths, text)
 	}
@@ -88,6 +89,17 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		return err
 	}
 	facts = upsertFact(facts, record)
+	// An explicit --kind is a deliberate human correction and must win even when
+	// the fact already exists, where upsertFact's anti-thrash rule would
+	// otherwise keep the stored kind. The reported kind is then always the one
+	// actually persisted, never a discarded request.
+	storedKind := kind
+	if i := indexOfFact(facts, record.ID); i >= 0 {
+		if explicitKind != "" {
+			facts[i].Kind = explicitKind
+		}
+		storedKind = factKindOrInferred(facts[i])
+	}
 	if err := writeFacts(brainDir, branch, facts); err != nil {
 		return err
 	}
@@ -98,10 +110,11 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		return err
 	}
 
+	record.Kind = storedKind // report what was actually persisted
 	if rememberOpts.json {
 		return writeJSON(cmd, record)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "remembered %s [%s] %s on %s\n", record.ID, kind, strings.Join(paths, ","), branch)
+	fmt.Fprintf(cmd.OutOrStdout(), "remembered %s [%s] %s on %s\n", record.ID, storedKind, strings.Join(paths, ","), branch)
 	return nil
 }
 

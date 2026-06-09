@@ -74,11 +74,41 @@ var gotchaCues = []string{"gotcha", "footgun", "pitfall", "careful", "watch out"
 
 var invariantCues = []string{"must not", "must always", "must ", "never ", "always ", "is required", "are required", "invariant", "guaranteed", "may not ", "cannot ", "has to "}
 
+// topLevelToKind maps a taxonomy top-level category to its default KIND, or ""
+// for an unknown category.
+func topLevelToKind(topLevel string) string {
+	switch topLevel {
+	case "preferences":
+		return factKindPreference
+	case "workflow":
+		return factKindConvention
+	case "constraints":
+		return factKindInvariant
+	case "architecture", "project":
+		return factKindDecision
+	}
+	return ""
+}
+
+// factKindPriority breaks ties when a multi-path fact maps to several kinds: the
+// more specific/actionable kind wins, so a constraint co-tagged with
+// architecture infers invariant rather than the weaker decision default.
+var factKindPriority = map[string]int{
+	factKindGotcha:     5,
+	factKindInvariant:  4,
+	factKindPreference: 3,
+	factKindConvention: 2,
+	factKindDecision:   1,
+}
+
 // inferFactKind deterministically classifies a fact's KIND from its taxonomy
 // paths (the prior) refined by a few high-precision text cues. This is the
 // no-agent backfill path and the fallback when the agent omits/violates the
-// kind; it is heuristic by design — B4's eval is the guardrail. Text cues win
-// over the prior so a constraint phrased as a trap surfaces as a gotcha.
+// kind; it is heuristic by design — B4's eval is the guardrail. A gotcha cue
+// wins over everything (a constraint phrased as a trap is a gotcha); otherwise
+// the highest-priority kind across the fact's paths wins, so the invariant
+// signal of a `constraints.*` path is never lost to an alphabetically-earlier
+// co-tag. Allocates nothing — the hot read path calls this per fact.
 func inferFactKind(paths []string, text string) string {
 	lower := strings.ToLower(text)
 	for _, cue := range gotchaCues {
@@ -86,18 +116,14 @@ func inferFactKind(paths []string, text string) string {
 			return factKindGotcha
 		}
 	}
-	// The taxonomy prior, from the dominant top-level across the fact's paths.
-	switch factPrimaryTopLevel(paths) {
-	case "preferences":
-		return factKindPreference
-	case "workflow":
-		return factKindConvention
-	case "architecture":
-		return factKindDecision
-	case "project":
-		return factKindDecision
-	case "constraints":
-		return factKindInvariant
+	best := ""
+	for _, p := range paths {
+		if k := topLevelToKind(factTopLevel(p)); k != "" && (best == "" || factKindPriority[k] > factKindPriority[best]) {
+			best = k
+		}
+	}
+	if best != "" {
+		return best
 	}
 	// No (or unknown) taxonomy signal: let an invariant cue pull it off the
 	// decision default.
@@ -107,32 +133,6 @@ func inferFactKind(paths []string, text string) string {
 		}
 	}
 	return factKindDecision
-}
-
-// factPrimaryTopLevel returns the most common taxonomy top-level among paths
-// (first wins on a tie via sorted iteration), or "" when there are none.
-func factPrimaryTopLevel(paths []string) string {
-	if len(paths) == 0 {
-		return ""
-	}
-	counts := map[string]int{}
-	for _, p := range paths {
-		if tl := factTopLevel(p); tl != "" {
-			counts[tl]++
-		}
-	}
-	best, bestN := "", 0
-	tops := make([]string, 0, len(counts))
-	for tl := range counts {
-		tops = append(tops, tl)
-	}
-	sort.Strings(tops)
-	for _, tl := range tops {
-		if counts[tl] > bestN {
-			best, bestN = tl, counts[tl]
-		}
-	}
-	return best
 }
 
 // factKindOrInferred returns a fact's stored Kind when present and valid, else

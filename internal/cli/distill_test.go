@@ -188,6 +188,30 @@ func TestDistilledFactsFromOutputKindColumn(t *testing.T) {
 	}
 }
 
+func TestDistilledFactsFromOutputUnrecognizedKindRecovered(t *testing.T) {
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	taxonomy := defaultFactTaxonomy(now)
+	anchor := factAnchor{SessionID: "s1"}
+
+	// The agent prepends a leading word that is NOT in the closed kind set (a
+	// synonym). The valid path must still be recovered — the fact is kept and the
+	// kind inferred — rather than dropped because the leading token isn't a kind.
+	output := "rule\tconstraints.invariants.general\tThe lock is released before the rename."
+	records, _ := distilledFactsFromOutput(output, taxonomy, anchor, "main", now)
+	if len(records) != 1 {
+		t.Fatalf("synonym-led line should be recovered, got %d records", len(records))
+	}
+	if records[0].Paths[0] != "constraints.invariants.general" {
+		t.Fatalf("path not recovered: %v", records[0].Paths)
+	}
+	if records[0].Kind != factKindInvariant { // inferred from constraints.*
+		t.Fatalf("kind should be inferred for an unrecognized leading word, got %q", records[0].Kind)
+	}
+	if records[0].Text != "The lock is released before the rename." {
+		t.Fatalf("the synonym word leaked into text: %q", records[0].Text)
+	}
+}
+
 func TestDistilledFactsFromOutputTabSeparatedPaths(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	taxonomy := defaultFactTaxonomy(now)
