@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "1cd476c6418f",
+  "session_id": "e9599ec7-8b1c-4ac7-a5ea-c621e7388a78",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-09T11:28:42.920203Z",
+  "branch": "harvest/agent-ux-and-embedder-ux",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "d5eb72d9df17",
+  "checkpoint_transcript_start": 324,
+  "transcript_lines_at_start": 324,
+  "token_usage": {
+    "input_tokens": 592,
+    "cache_creation_tokens": 10083,
+    "cache_read_tokens": 1855752,
+    "output_tokens": 5739,
+    "api_call_count": 16
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-09T11:28:42.904842Z",
+    "agent_lines": 49,
+    "agent_removed": 4,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 49,
+    "total_lines_changed": 53,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
