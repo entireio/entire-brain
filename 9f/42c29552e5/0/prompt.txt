@@ -1,0 +1,5 @@
+Review all docs and ../alignment.md and suggest what we do next
+
+---
+
+Take the whole A+B as one pass. Test and commit along the way.
