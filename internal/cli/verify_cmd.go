@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	verifySchemaVersion = 1
+	verifySchemaVersion         = 1
+	statusVerificationFactLimit = 10
 
 	verifyVerdictVerified           = "verified"
 	verifyVerdictStale              = "stale"
@@ -26,10 +27,11 @@ const (
 var errVerifyIssues = errors.New("verification found stale or orphaned facts")
 
 type verifyCommandOptions struct {
-	branch string
-	limit  int
-	all    bool
-	json   bool
+	branch   string
+	limit    int
+	maxFacts int
+	all      bool
+	json     bool
 }
 
 type verifyReport struct {
@@ -155,7 +157,7 @@ func buildVerifyReport(ctx context.Context, opts Options, repoDir, brainDir, rep
 	if err != nil {
 		return verifyReport{}, err
 	}
-	selected, query, err := selectFactsForVerify(allFacts, target, verifyOpts)
+	selected, query, capped, err := selectFactsForVerify(allFacts, target, verifyOpts)
 	if err != nil {
 		return verifyReport{}, err
 	}
@@ -182,21 +184,24 @@ func buildVerifyReport(ctx context.Context, opts Options, repoDir, brainDir, rep
 		report.Results = append(report.Results, result)
 		addVerifyResultToSummary(&report.Summary, result)
 	}
+	if capped {
+		report.Warnings = append(report.Warnings, fmt.Sprintf("fact verification capped at %d active facts for status; run entire brain verify for full verification", verifyOpts.maxFacts))
+	}
 	report.Warnings = append(report.Warnings, vctx.snapshotWarnings...)
 	return report, nil
 }
 
-func selectFactsForVerify(facts []factRecord, target string, opts verifyCommandOptions) ([]factRecord, string, error) {
+func selectFactsForVerify(facts []factRecord, target string, opts verifyCommandOptions) ([]factRecord, string, bool, error) {
 	target = strings.TrimSpace(target)
 	if strings.HasPrefix(target, "fact:") {
 		i := indexOfFact(facts, target)
 		if i < 0 {
-			return nil, "", fmt.Errorf("no fact %s", target)
+			return nil, "", false, fmt.Errorf("no fact %s", target)
 		}
-		return []factRecord{facts[i]}, "", nil
+		return []factRecord{facts[i]}, "", false, nil
 	}
 	if target != "" {
-		return rankFacts(facts, target, opts.limit, opts.all), target, nil
+		return rankFacts(facts, target, opts.limit, opts.all), target, false, nil
 	}
 	selected := make([]factRecord, 0, len(facts))
 	for _, fact := range facts {
@@ -204,7 +209,10 @@ func selectFactsForVerify(facts []factRecord, target string, opts verifyCommandO
 			selected = append(selected, fact)
 		}
 	}
-	return selected, "", nil
+	if opts.maxFacts > 0 && len(selected) > opts.maxFacts {
+		return selected[:opts.maxFacts], "", true, nil
+	}
+	return selected, "", false, nil
 }
 
 func (v *verifyContext) verifyFact(fact factRecord) verifyFactResult {
@@ -525,16 +533,16 @@ func reasonForAnchorVerdict(verdict string) string {
 	}
 }
 
-func verificationSummaryForBranch(ctx context.Context, opts Options, repoDir, brainDir, branch string) (verifySummary, error) {
+func verificationSummaryForBranch(ctx context.Context, opts Options, repoDir, brainDir, branch string) (verifySummary, []string, error) {
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
-		return verifySummary{}, err
+		return verifySummary{}, nil, err
 	}
-	report, err := buildVerifyReport(ctx, opts, repoDir, brainDir, storage.Key, branch, verifyCommandOptions{limit: 10}, "")
+	report, err := buildVerifyReport(ctx, opts, repoDir, brainDir, storage.Key, branch, verifyCommandOptions{limit: 10, maxFacts: statusVerificationFactLimit}, "")
 	if err != nil {
-		return verifySummary{}, err
+		return verifySummary{}, nil, err
 	}
-	return report.Summary, nil
+	return report.Summary, report.Warnings, nil
 }
 
 func populateBrainStatusVerification(ctx context.Context, opts Options, report *brainStatusReport) {
@@ -545,12 +553,13 @@ func populateBrainStatusVerification(ctx context.Context, opts Options, report *
 	if branch == "" {
 		branch = distillDefaultBranch
 	}
-	summary, err := verificationSummaryForBranch(ctx, opts, report.Repo.Root, report.Brain.Path, branch)
+	summary, warnings, err := verificationSummaryForBranch(ctx, opts, report.Repo.Root, report.Brain.Path, branch)
 	if err != nil {
 		report.Warnings = append(report.Warnings, "fact verification unavailable: "+err.Error())
 		return
 	}
 	report.Verification = &summary
+	report.Warnings = append(report.Warnings, warnings...)
 }
 
 func renderVerifyReportText(cmd *cobra.Command, report verifyReport) {

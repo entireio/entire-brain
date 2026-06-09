@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -360,5 +361,60 @@ func TestStatusIncludesVerificationSummary(t *testing.T) {
 	}
 	if report.Verification == nil || report.Verification.UnverifiableHere != 1 {
 		t.Fatalf("missing verification summary: %+v", report.Verification)
+	}
+}
+
+func TestStatusVerificationIsCapped(t *testing.T) {
+	f := newVerifyFixture(t)
+	f.runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "headsha\n"}
+	f.runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
+	f.runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
+	f.runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	f.runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
+	f.writeSessions(t, []exportSession{{
+		SessionID:        "sess-expensive",
+		Branch:           "main",
+		LatestCheckpoint: "aaa111aaa111",
+		SessionIndex:     0,
+		CreatedAt:        f.now,
+		TranscriptPath:   "sessions/main/expensive.jsonl",
+	}})
+	f.writeBrainFile(t, "sessions/main/expensive.jsonl", "expensive checkpoint transcript\n")
+
+	facts := make([]factRecord, 0, statusVerificationFactLimit+1)
+	for i := 0; i < statusVerificationFactLimit; i++ {
+		facts = append(facts, verifyFactFixture(
+			fmt.Sprintf("fact:status-capped-%02d", i),
+			fmt.Sprintf("aaa status capped fact %02d", i),
+			"main",
+			factOriginAuthored,
+			factStatusActive,
+			f.now,
+			nil,
+		))
+	}
+	facts = append(facts, verifyFactFixture("fact:status-expensive", "zzz status should not verify this checkpoint fact", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+		SessionID: "sess-expensive", CheckpointID: "aaa111aaa111", Transcript: "sessions/main/expensive.jsonl", Line: 1,
+	}}))
+	f.writeFacts(t, "main", facts)
+
+	cmd := NewRootCommand(f.opts)
+	out, err := execute(t, cmd, "status", "--json")
+	if err != nil {
+		t.Fatalf("status: %v\n%s", err, out)
+	}
+	var report brainStatusReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("parse status json: %v\n%s", err, out)
+	}
+	if report.Verification == nil || report.Verification.Facts != statusVerificationFactLimit {
+		t.Fatalf("status verification should be capped at %d facts, got %+v", statusVerificationFactLimit, report.Verification)
+	}
+	if !strings.Contains(strings.Join(report.Warnings, "\n"), "fact verification capped") {
+		t.Fatalf("missing capped verification warning: %+v", report.Warnings)
+	}
+	if fakeRunnerCalled(f.runner, "git", "ls-tree", "-r", "--name-only", v1MainRef) ||
+		fakeRunnerCalled(f.runner, "git", "ls-tree", "-r", "--name-only", v1OriginRef) {
+		t.Fatalf("status should not load checkpoint refs beyond capped facts: %+v", f.runner.calls)
 	}
 }
