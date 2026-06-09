@@ -223,6 +223,75 @@ func TestRunFactsEvalRetrieverArms(t *testing.T) {
 	}
 }
 
+func TestRunFactsEvalBranchScopesHistoryAndQuery(t *testing.T) {
+	brainDir := t.TempDir()
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	mainRel := "sessions/main/s1.jsonl"
+	featureRel := "sessions/branches/feature/s2.jsonl"
+	for rel, text := range map[string]string{
+		mainRel:    "main-only-token checkpoint guidance",
+		featureRel: "feature-only-token checkpoint guidance",
+	} {
+		path := filepath.Join(brainDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	history := historyIndex{GeneratedAt: now, Records: []historyRecord{
+		{ID: "history:main", Kind: "decision", Path: mainRel, Line: 1, Summary: "main-only-token checkpoint guidance"},
+		{ID: "history:feature", Kind: "decision", Path: featureRel, Line: 1, Summary: "feature-only-token checkpoint guidance"},
+	}}
+	historyData, err := json.Marshal(history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), historyData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		DefaultBranch: "main",
+		Sources: &brainSources{
+			Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
+				{SessionID: "s1", Branch: "main", TranscriptPath: mainRel, CreatedAt: now},
+				{SessionID: "s2", Branch: "feature", TranscriptPath: featureRel, CreatedAt: now.Add(time.Minute)},
+			}},
+			History: &historySourceManifest{GeneratedAt: now, IndexPath: historyIndexPath, Records: 2, Decisions: 2},
+		},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	mainTask := []evalTask{{ID: "main", Task: "feature-only-token", Branch: "main"}}
+	for _, retriever := range []string{evalRetrieverHistory, evalRetrieverQuery, evalRetrieverRawSessions} {
+		res, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", mainTask, 10, false, nil, nil, loadJudgeCache(""), nil, nil, retriever)
+		if err != nil {
+			t.Fatalf("%s main branch eval: %v", retriever, err)
+		}
+		if len(res) != 1 || res[0].Surfaced != 0 {
+			t.Fatalf("%s leaked feature-branch evidence into main task: %+v", retriever, res)
+		}
+	}
+
+	featureTask := []evalTask{{ID: "feature", Task: "feature-only-token", Branch: "feature"}}
+	for _, retriever := range []string{evalRetrieverHistory, evalRetrieverQuery, evalRetrieverRawSessions} {
+		res, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", featureTask, 10, false, nil, nil, loadJudgeCache(""), nil, nil, retriever)
+		if err != nil {
+			t.Fatalf("%s feature branch eval: %v", retriever, err)
+		}
+		if len(res) != 1 || res[0].Surfaced == 0 {
+			t.Fatalf("%s should surface feature-branch evidence for feature task: %+v", retriever, res)
+		}
+	}
+}
+
 func TestRunFactsEvalSourceMatchMissDoesNotAutoJudge(t *testing.T) {
 	brainDir := t.TempDir()
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)

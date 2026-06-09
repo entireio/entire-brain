@@ -2,6 +2,7 @@ package cli
 
 import (
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -141,6 +142,33 @@ func TestCompareEvalSummariesRequiresMatchedTaskSets(t *testing.T) {
 	}
 	if len(missingFromA) != 0 || len(missingFromB) != 1 || missingFromB[0] != "t2" {
 		t.Fatalf("unexpected missing id report: missingFromA=%v missingFromB=%v", missingFromA, missingFromB)
+	}
+}
+
+func TestCompareEvalSummariesRejectsTaskHashMismatch(t *testing.T) {
+	a := evalSummary{
+		RunConfig: &evalRunConfig{TasksSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		Results: []evalTaskResult{{
+			ID: "t1", Task: "same", Precision: 1, UsefulPer1k: 1, Tokens: 100,
+			Labeled: true, RelevanceSource: evalRelevanceExplicitLabel,
+		}},
+	}
+	b := evalSummary{
+		RunConfig: &evalRunConfig{TasksSHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+		Results: []evalTaskResult{{
+			ID: "t1", Task: "same", Precision: 1, UsefulPer1k: 2, Tokens: 120,
+			Labeled: true, RelevanceSource: evalRelevanceExplicitLabel,
+		}},
+	}
+	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil || !strings.Contains(err.Error(), "tasks_sha256") {
+		t.Fatalf("expected tasks_sha256 mismatch error, got %v", err)
+	}
+	comps, n, _, _, err := compareEvalSummariesInternalWithOptions(a, b, 0.05, evalCompareOptions{AllowTaskHashMismatch: true})
+	if err != nil {
+		t.Fatalf("explicit task hash mismatch override should allow comparison: %v", err)
+	}
+	if n != 1 || len(comps) == 0 {
+		t.Fatalf("unexpected comparison after override: n=%d comps=%+v", n, comps)
 	}
 }
 

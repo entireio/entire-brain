@@ -592,6 +592,7 @@ func retrieveEvalItems(brainDir, branch, query string, limit int, retriever stri
 		if err != nil {
 			return nil, err
 		}
+		index = filterHistoryIndexForEvalBranch(index, branch, manifest)
 		return historyScoredToEvalItems(rankHistoryRecordsScored(index, "history", query, limit, 0)), nil
 	case evalRetrieverQuery:
 		results, err := retrieveEvalUnifiedLexical(brainDir, branch, query, limit, facts)
@@ -629,6 +630,7 @@ func retrieveEvalUnifiedLexical(brainDir, branch, query string, limit int, facts
 		if err != nil {
 			return nil, fmt.Errorf("load history index: %w", err)
 		}
+		index = filterHistoryIndexForEvalBranch(index, branch, manifest)
 		if scored := rankHistoryRecordsScored(index, "history", query, limit*2, 0); len(scored) > 0 {
 			lists = append(lists, historyToUnified(scored))
 		}
@@ -643,6 +645,27 @@ func retrieveEvalUnifiedLexical(brainDir, branch, query string, limit int, facts
 		return nil, fmt.Errorf("load doc index: %w", derr)
 	}
 	return rrfMergeUnified(lists, limit), nil
+}
+
+func filterHistoryIndexForEvalBranch(index historyIndex, branch string, manifest *exportManifest) historyIndex {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return index
+	}
+	branchByPath := historyBranchByTranscriptPath(manifest)
+	filtered := make([]historyRecord, 0, len(index.Records))
+	for _, record := range index.Records {
+		recordBranch := strings.TrimSpace(record.Branch)
+		if recordBranch == "" {
+			recordBranch = historyRecordBranchForPath(record.Path, branchByPath)
+			record.Branch = recordBranch
+		}
+		if recordBranch == branch {
+			filtered = append(filtered, record)
+		}
+	}
+	index.Records = filtered
+	return index
 }
 
 func factsToEvalItems(facts []factRecord) []evalRetrievedItem {

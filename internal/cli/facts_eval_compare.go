@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -39,7 +40,20 @@ func compareEvalSummariesWithOptions(a, b evalSummary, alpha float64, allowProxy
 	return comparisons, n, err
 }
 
+type evalCompareOptions struct {
+	AllowProxyComparison  bool
+	AllowMissingTasks     bool
+	AllowTaskHashMismatch bool
+}
+
 func compareEvalSummariesInternal(a, b evalSummary, alpha float64, allowProxyComparison, allowMissingTasks bool) ([]metricComparison, int, []string, []string, error) {
+	return compareEvalSummariesInternalWithOptions(a, b, alpha, evalCompareOptions{AllowProxyComparison: allowProxyComparison, AllowMissingTasks: allowMissingTasks})
+}
+
+func compareEvalSummariesInternalWithOptions(a, b evalSummary, alpha float64, opts evalCompareOptions) ([]metricComparison, int, []string, []string, error) {
+	if err := validateEvalSummaryTaskHashes(a, b, opts.AllowTaskHashMismatch); err != nil {
+		return nil, 0, nil, nil, err
+	}
 	aByID, err := evalResultsByID(a.Results, "A")
 	if err != nil {
 		return nil, 0, nil, nil, err
@@ -49,7 +63,7 @@ func compareEvalSummariesInternal(a, b evalSummary, alpha float64, allowProxyCom
 		return nil, 0, nil, nil, err
 	}
 	missingFromA, missingFromB := missingEvalTaskIDs(aByID, bByID)
-	if !allowMissingTasks && (len(missingFromA) > 0 || len(missingFromB) > 0) {
+	if !opts.AllowMissingTasks && (len(missingFromA) > 0 || len(missingFromB) > 0) {
 		return nil, 0, missingFromA, missingFromB, fmt.Errorf("eval task id sets differ: %d missing from A, %d missing from B (pass --allow-missing-tasks to compare shared ids only)", len(missingFromA), len(missingFromB))
 	}
 	var ids []string
@@ -85,7 +99,7 @@ func compareEvalSummariesInternal(a, b evalSummary, alpha float64, allowProxyCom
 			if m.include != nil && !m.include(ar, br) {
 				continue
 			}
-			if m.requiresSameTruth && !allowProxyComparison && !evalRelevanceSourcesComparable(ar, br) {
+			if m.requiresSameTruth && !opts.AllowProxyComparison && !evalRelevanceSourcesComparable(ar, br) {
 				return nil, 0, missingFromA, missingFromB, fmt.Errorf("task %q compares %s with different relevance sources (A=%s labeled=%t, B=%s labeled=%t); rerun with comparable labels/judging or pass --allow-proxy-comparison", id, m.name, valueOrUnset(ar.RelevanceSource), ar.Labeled, valueOrUnset(br.RelevanceSource), br.Labeled)
 			}
 			av = append(av, m.get(ar))
@@ -106,6 +120,25 @@ func compareEvalSummariesInternal(a, b evalSummary, alpha float64, allowProxyCom
 		comparisons[i].Claim = evalMetricClaim(comparisons[i])
 	}
 	return comparisons, len(ids), missingFromA, missingFromB, nil
+}
+
+func validateEvalSummaryTaskHashes(a, b evalSummary, allowMismatch bool) error {
+	if allowMismatch {
+		return nil
+	}
+	aHash := evalSummaryTasksSHA256(a)
+	bHash := evalSummaryTasksSHA256(b)
+	if aHash == "" || bHash == "" || aHash == bHash {
+		return nil
+	}
+	return fmt.Errorf("eval run_config.tasks_sha256 values differ (A=%s, B=%s); rerun over the same tasks file or pass --allow-task-hash-mismatch", aHash, bHash)
+}
+
+func evalSummaryTasksSHA256(s evalSummary) string {
+	if s.RunConfig == nil {
+		return ""
+	}
+	return strings.TrimSpace(s.RunConfig.TasksSHA256)
 }
 
 func missingEvalTaskIDs(aByID, bByID map[string]evalTaskResult) ([]string, []string) {
@@ -204,12 +237,13 @@ func loadEvalSummary(path string) (evalSummary, error) {
 
 func newFactsEvalCompareCommand(opts Options) *cobra.Command {
 	var (
-		aPath                string
-		bPath                string
-		alpha                float64
-		jsonOut              bool
-		allowProxyComparison bool
-		allowMissingTasks    bool
+		aPath                 string
+		bPath                 string
+		alpha                 float64
+		jsonOut               bool
+		allowProxyComparison  bool
+		allowMissingTasks     bool
+		allowTaskHashMismatch bool
 	)
 	cmd := &cobra.Command{
 		Use:   "eval-compare --a <A.json> --b <B.json>",
@@ -219,8 +253,9 @@ retrieval configs, e.g. base vs --expand) and reports, per metric, the paired
 mean delta, a two-sided Student-t p-value, Cohen's d, and a Holm-Bonferroni
 family-wise significance verdict. Relevance metrics require comparable
 relevance_source/labeled values unless --allow-proxy-comparison is explicit. Task
-IDs must match exactly unless --allow-missing-tasks is explicit. Use it to report
-a lift honestly instead of eyeballing two means.`,
+IDs and non-empty task-file hashes must match exactly unless the corresponding
+override is explicit. Use it to report a lift honestly instead of eyeballing two
+means.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if aPath == "" || bPath == "" {
@@ -234,7 +269,12 @@ a lift honestly instead of eyeballing two means.`,
 			if err != nil {
 				return err
 			}
-			comparisons, n, missingFromA, missingFromB, err := compareEvalSummariesInternal(a, b, alpha, allowProxyComparison, allowMissingTasks)
+			compareOpts := evalCompareOptions{
+				AllowProxyComparison:  allowProxyComparison,
+				AllowMissingTasks:     allowMissingTasks,
+				AllowTaskHashMismatch: allowTaskHashMismatch,
+			}
+			comparisons, n, missingFromA, missingFromB, err := compareEvalSummariesInternalWithOptions(a, b, alpha, compareOpts)
 			if err != nil {
 				return err
 			}
@@ -242,7 +282,7 @@ a lift honestly instead of eyeballing two means.`,
 				return fmt.Errorf("the two runs share no task ids to compare")
 			}
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{"n": n, "alpha": alpha, "a_retriever": a.Retriever, "b_retriever": b.Retriever, "allow_proxy_comparison": allowProxyComparison, "allow_missing_tasks": allowMissingTasks, "missing_from_a": missingFromA, "missing_from_b": missingFromB, "metrics": comparisons})
+				return writeJSON(cmd, map[string]any{"n": n, "alpha": alpha, "a_retriever": a.Retriever, "b_retriever": b.Retriever, "a_tasks_sha256": evalSummaryTasksSHA256(a), "b_tasks_sha256": evalSummaryTasksSHA256(b), "allow_proxy_comparison": allowProxyComparison, "allow_missing_tasks": allowMissingTasks, "allow_task_hash_mismatch": allowTaskHashMismatch, "missing_from_a": missingFromA, "missing_from_b": missingFromB, "metrics": comparisons})
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "paired A/B over %d shared tasks (Holm-corrected at alpha=%.2f)\n", n, alpha)
@@ -254,6 +294,9 @@ a lift honestly instead of eyeballing two means.`,
 			}
 			if allowMissingTasks && (len(missingFromA) > 0 || len(missingFromB) > 0) {
 				fmt.Fprintf(out, "warning: comparing shared ids only; missing_from_a=%d missing_from_b=%d\n", len(missingFromA), len(missingFromB))
+			}
+			if allowTaskHashMismatch {
+				fmt.Fprintln(out, "warning: task file hashes differ or were explicitly ignored; label-set equality is not guaranteed")
 			}
 			fmt.Fprintf(out, "%-14s %9s %9s %9s %8s %7s %8s %-6s %s\n", "metric", "A", "B", "delta", "t", "p", "cohen_d", "winner", "claim")
 			for _, c := range comparisons {
@@ -272,5 +315,6 @@ a lift honestly instead of eyeballing two means.`,
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the comparison as JSON")
 	cmd.Flags().BoolVar(&allowProxyComparison, "allow-proxy-comparison", false, "Allow relevance metrics to compare runs with different relevance sources")
 	cmd.Flags().BoolVar(&allowMissingTasks, "allow-missing-tasks", false, "Compare only shared task ids when eval runs have missing tasks")
+	cmd.Flags().BoolVar(&allowTaskHashMismatch, "allow-task-hash-mismatch", false, "Allow comparison when non-empty eval run_config.tasks_sha256 values differ")
 	return cmd
 }

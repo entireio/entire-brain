@@ -45,6 +45,9 @@ Implemented eval surfaces:
   populate those fields.
 - The eval `query` arm is read-only and lexical inside the harness, so it does
   not write embedding caches or call an embedder while measuring baselines.
+- History and unified-query eval arms filter session-derived history by the
+  task branch, matching the branch scope already used by facts and raw-session
+  retrievers.
 - Eval summaries include `retriever`, `latency_ms`, and `relevance_source`
   (`explicit_label`, `partial_explicit_label`, `mixed_explicit_source_match`,
   `source_match`, `judge`, or `none`), so charts can separate source-match proxy
@@ -52,6 +55,9 @@ Implemented eval surfaces:
   source types.
 - `eval-compare` includes a per-metric winner and explicit claim text, and now
   rejects mixed relevance sources unless `--allow-proxy-comparison` is explicit.
+- `eval-compare` also rejects differing non-empty `run_config.tasks_sha256`
+  values unless `--allow-task-hash-mismatch` is explicit, so same-id eval runs
+  with different task labels cannot masquerade as paired proof.
 
 Claim policy: do not say facts are better than raw/preprocessed sessions unless
 paired evals show a significant lift for the metric being claimed. Do not compare
@@ -150,6 +156,12 @@ Release claims must stay local-first and evidence-backed:
 - `eval-compare` now fails closed on mixed relevance sources unless
   `--allow-proxy-comparison` is passed, so proxy-vs-label comparisons are visible
   in command history and JSON output.
+- `eval-compare` now fails closed on task-file hash mismatches unless
+  `--allow-task-hash-mismatch` is passed, so same-id/different-label eval files
+  cannot produce quiet significance claims.
+- History/query eval arms now branch-filter session-derived history records,
+  including legacy history records that need branch inference from their
+  transcript path.
 - Eval's `query` arm is read-only and lexical in the harness, avoiding accidental
   embedder calls and cache writes during baseline measurement.
 - `eval-compare` rejects duplicate/mismatched task ids, skips recall where it is

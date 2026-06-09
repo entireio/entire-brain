@@ -63,6 +63,7 @@ type historyIndex struct {
 type historyRecord struct {
 	ID      string   `json:"id"`
 	Kind    string   `json:"kind"`
+	Branch  string   `json:"branch,omitempty"`
 	Path    string   `json:"path"`
 	Line    int      `json:"line"`
 	Summary string   `json:"summary"`
@@ -210,6 +211,8 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 
 	prevCache := loadHistoryScanCache(outputDir)
 	newCache := historyScanCache{Version: historyScanCacheVersion, Files: make(map[string]historyScanCacheEntry, len(files))}
+	manifest, _ := loadBrainManifest(outputDir)
+	branchByPath := historyBranchByTranscriptPath(manifest)
 
 	total := len(files)
 	if progress != nil {
@@ -237,6 +240,7 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 			}
 			records = scanned
 		}
+		records = annotateHistoryRecordBranches(records, rel, branchByPath)
 		// Only files that scanned cleanly (or were reused) are cached; a file
 		// that errored is left out so the next refresh retries it.
 		newCache.Files[rel] = historyScanCacheEntry{Size: file.Size, ModUnixNano: file.ModUnixNano, Records: records}
@@ -287,6 +291,69 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 		}
 	}
 	return index, source, nil
+}
+
+func historyBranchByTranscriptPath(manifest *exportManifest) map[string]string {
+	out := map[string]string{}
+	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
+		return out
+	}
+	defaultBranch := strings.TrimSpace(manifest.Sources.Sessions.DefaultBranch)
+	if defaultBranch == "" {
+		defaultBranch = strings.TrimSpace(manifest.DefaultBranch)
+	}
+	if defaultBranch == "" {
+		defaultBranch = distillDefaultBranch
+	}
+	for _, session := range manifest.Sources.Sessions.Sessions {
+		rel := filepath.ToSlash(strings.TrimSpace(session.TranscriptPath))
+		if rel == "" {
+			continue
+		}
+		branch := strings.TrimSpace(session.Branch)
+		if branch == "" {
+			branch = defaultBranch
+		}
+		out[rel] = branch
+	}
+	return out
+}
+
+func annotateHistoryRecordBranches(records []historyRecord, rel string, branchByPath map[string]string) []historyRecord {
+	branch := historyRecordBranchForPath(rel, branchByPath)
+	if branch == "" {
+		return records
+	}
+	out := append([]historyRecord(nil), records...)
+	for i := range out {
+		if out[i].Branch == "" {
+			out[i].Branch = branch
+		}
+	}
+	return out
+}
+
+func historyRecordBranchForPath(path string, branchByPath map[string]string) string {
+	rel := filepath.ToSlash(strings.TrimSpace(path))
+	if rel == "" {
+		return ""
+	}
+	if branch := strings.TrimSpace(branchByPath[rel]); branch != "" {
+		return branch
+	}
+	if strings.HasPrefix(rel, "sessions/branches/") {
+		rest := strings.TrimPrefix(rel, "sessions/branches/")
+		if idx := strings.Index(rest, "/"); idx > 0 {
+			return rest[:idx]
+		}
+	}
+	if strings.HasPrefix(rel, "sessions/") {
+		rest := strings.TrimPrefix(rel, "sessions/")
+		if idx := strings.Index(rest, "/"); idx > 0 {
+			return rest[:idx]
+		}
+	}
+	return ""
 }
 
 // loadHistoryScanCache reads the per-file scan cache. It always returns a
