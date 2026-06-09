@@ -74,3 +74,40 @@ func TestRRFMergeUnifiedFavorsCrossListMatches(t *testing.T) {
 		t.Fatalf("expected b (in both lists) ranked first, got %v", out)
 	}
 }
+
+func TestFactsVectorRankedRanksActiveButCachesAll(t *testing.T) {
+	dir := t.TempDir()
+	e := defaultEmbedder()
+	facts := []factRecord{
+		{ID: "fact:act", Text: "active checkpoint logic", Status: factStatusActive},
+		{ID: "fact:sup", Text: "superseded note", Status: factStatusSuperseded},
+	}
+	out := factsVectorRanked(dir, "main", facts, "checkpoint", e, 10)
+	// vsearch ranks active facts only.
+	if len(out) != 1 || out[0].ID != "fact:act" {
+		t.Fatalf("expected only the active fact ranked, got %v", out)
+	}
+	// But every present fact is cached on the shared store, matching the reranker's
+	// retain-all convention (so vsearch doesn't churn the recall/brief cache).
+	cache := newEmbedStore(dir, "main", e.ID(), e.Dim()).load()
+	if _, ok := cache["fact:act"]; !ok {
+		t.Fatal("active fact vector should be cached")
+	}
+	if _, ok := cache["fact:sup"]; !ok {
+		t.Fatal("superseded fact vector should still be cached, not evicted")
+	}
+}
+
+func TestPruneToPresentDropsDeparted(t *testing.T) {
+	cache := map[string][]float32{"a": {1}, "b": {2}, "gone": {3}}
+	present := map[string]struct{}{"a": {}, "b": {}}
+	if !pruneToPresent(cache, present) {
+		t.Fatal("expected pruneToPresent to report a removal")
+	}
+	if _, ok := cache["gone"]; ok {
+		t.Fatal("departed id should be pruned")
+	}
+	if len(cache) != 2 {
+		t.Fatalf("expected 2 entries after prune, got %d", len(cache))
+	}
+}

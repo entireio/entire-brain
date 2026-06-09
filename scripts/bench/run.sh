@@ -20,6 +20,12 @@ mkdir -p "$OUT"
 
 [ -x "$EB" ] || { echo "build the binary first: (cd $REPO_ROOT && go build -o entire-brain ./cmd/entire-brain)"; exit 1; }
 
+if [ "$#" -eq 0 ]; then
+  echo "usage: scripts/bench/run.sh <repo-path> [<repo-path> ...]" >&2
+  echo "  (no repos given — nothing to benchmark)" >&2
+  exit 2
+fi
+
 for repo in "$@"; do
   name=$(basename "$repo")
   echo "### $name ($repo)"

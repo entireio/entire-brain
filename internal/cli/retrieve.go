@@ -71,7 +71,9 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 			lists = append(lists, factsToUnified(rankFacts(active, query, limit*2, false)))
 		case modeVector:
 			if e != nil {
-				lists = append(lists, factsToUnified(factsVectorRanked(brainDir, branch, active, query, e, limit*2)))
+				// Pass the full set: factsVectorRanked ranks active facts but caches
+				// (and prunes) every present fact, matching the reranker's shared store.
+				lists = append(lists, factsToUnified(factsVectorRanked(brainDir, branch, all, query, e, limit*2)))
 			}
 		case modeHybrid:
 			var rr *semanticReranker
@@ -103,20 +105,27 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 		}
 	}
 
-	// Docs — all modes.
+	// Docs — lexical (search/query) and/or vector (vsearch/query). In hybrid mode
+	// docs join BOTH arms, mirroring facts: a paraphrased doc query surfaces via the
+	// vector arm, and docs still appear if the doc FTS index can't be opened.
 	if index, err := loadDocIndex(brainDir); err == nil && len(index.Records) > 0 {
-		if mode == modeVector {
-			if e != nil {
-				lists = append(lists, docsVectorRanked(brainDir, index, query, e, limit*2))
+		if mode != modeVector {
+			if scored, ok := rankDocsViaFTS(brainDir, index, query, limit*2); ok {
+				lists = append(lists, docsToUnified(scored))
 			}
-		} else if scored, ok := rankDocsViaFTS(brainDir, index, query, limit*2); ok {
-			lists = append(lists, docsToUnified(scored))
+		}
+		if mode != modeLexical && e != nil {
+			lists = append(lists, docsVectorRanked(brainDir, index, query, e, limit*2))
 		}
 	}
 
 	return rrfMergeUnified(lists, limit), nil
 }
 
+// factsVectorRanked ranks active facts by cosine. facts is the full present set
+// (all statuses): active facts are ranked, but every present fact is embedded and
+// retained in the shared cache so this path keeps the same vectors the recall/brief
+// reranker does — and departed facts are pruned so the on-disk cache stays bounded.
 func factsVectorRanked(brainDir, branch string, facts []factRecord, query string, e Embedder, limit int) []factRecord {
 	// An empty query vector means the embedder is unavailable (e.g. Ollama down).
 	// Return no semantic results rather than an arbitrary top-N: every cosine
@@ -128,12 +137,14 @@ func factsVectorRanked(brainDir, branch string, facts []factRecord, query string
 	store := newEmbedStore(brainDir, branch, e.ID(), e.Dim())
 	cache := store.load()
 	dirty := false
+	present := make(map[string]struct{}, len(facts))
 	type sc struct {
-		i   int
+		rec factRecord
 		cos float64
 	}
 	scored := make([]sc, 0, len(facts))
-	for i, f := range facts {
+	for _, f := range facts {
+		present[f.ID] = struct{}{}
 		v, ok := cache[f.ID]
 		if !ok {
 			v = e.Embed(f.Text)
@@ -142,23 +153,37 @@ func factsVectorRanked(brainDir, branch string, facts []factRecord, query string
 				dirty = true
 			}
 		}
-		if len(v) != len(qv) {
-			continue // skip rather than score a degenerate vector as 0
+		if f.Status != factStatusActive || len(v) != len(qv) {
+			continue // rank active facts only; skip degenerate vectors
 		}
-		scored = append(scored, sc{i, cosineFloat32(qv, v)})
+		scored = append(scored, sc{f, cosineFloat32(qv, v)})
 	}
-	if dirty {
+	if saved := pruneToPresent(cache, present); dirty || saved {
 		_ = store.save(cache)
 	}
 	sort.Slice(scored, func(a, b int) bool { return scored[a].cos > scored[b].cos })
 	out := make([]factRecord, 0, min(limit, len(scored)))
 	for _, s := range scored {
-		out = append(out, facts[s.i])
+		out = append(out, s.rec)
 		if len(out) >= limit {
 			break
 		}
 	}
 	return out
+}
+
+// pruneToPresent drops cache entries whose id is no longer in present, keeping the
+// on-disk vector cache bounded to the current corpus. Reports whether it removed
+// anything (so callers save even when no new vector was embedded).
+func pruneToPresent(cache map[string][]float32, present map[string]struct{}) bool {
+	removed := false
+	for id := range cache {
+		if _, ok := present[id]; !ok {
+			delete(cache, id)
+			removed = true
+		}
+	}
+	return removed
 }
 
 func docsVectorRanked(brainDir string, index docIndex, query string, e Embedder, limit int) []unifiedResult {
@@ -171,12 +196,14 @@ func docsVectorRanked(brainDir string, index docIndex, query string, e Embedder,
 	store := newDocEmbedStore(brainDir, e.ID(), e.Dim())
 	cache := store.load()
 	dirty := false
+	present := make(map[string]struct{}, len(index.Records))
 	type sc struct {
 		i   int
 		cos float64
 	}
 	scored := make([]sc, 0, len(index.Records))
 	for i, r := range index.Records {
+		present[r.ID] = struct{}{}
 		v, ok := cache[r.ID]
 		if !ok {
 			v = e.Embed(r.Text)
@@ -190,7 +217,9 @@ func docsVectorRanked(brainDir string, index docIndex, query string, e Embedder,
 		}
 		scored = append(scored, sc{i, cosineFloat32(qv, v)})
 	}
-	if dirty {
+	// Doc ids are content-derived, so any rebuild churns them; prune departed ids
+	// so the cache stays bounded to the current doc corpus.
+	if saved := pruneToPresent(cache, present); dirty || saved {
 		_ = store.save(cache)
 	}
 	sort.Slice(scored, func(a, b int) bool { return scored[a].cos > scored[b].cos })

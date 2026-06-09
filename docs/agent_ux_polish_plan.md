@@ -88,8 +88,13 @@ commands, assert the rendered/serialized set is deduped/disambiguated.
 from `params.Arguments`), but the tool `inputSchema` definitions
 (mcp.go:142–174) do not declare them, so an MCP client cannot discover them.
 
+> Superseded (qmd-retrieval refactor): `brain_history` and `runBrainHistoryInspect`
+> were removed — history is now a source within the unified `brain_query`/`brain_search`
+> verbs, so the `brain_history`/`relax` item below no longer applies. The `brain_stale`
+> `blind_spots` item still stands.
+
 **Proposed change.** In the tool definitions (`internal/cli/mcp.go`):
-- `brain_history`: add `relax` (boolean) to `properties`.
+- `brain_history`: add `relax` (boolean) to `properties`. *(obsolete — tool removed)*
 - `brain_stale`: add `blind_spots` (boolean) to `properties`.
 - Add a `booleanArg` helper alongside the existing `stringArg`/`integerArg`.
 
