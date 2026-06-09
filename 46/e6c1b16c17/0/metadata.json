@@ -1,0 +1,72 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "46e6c1b16c17",
+  "session_id": "3c8f3e78-b939-42b0-8ab8-aae534b6f768",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-09T16:09:21.288801Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "go.mod",
+    "internal/cli/atomic_replace_unix.go",
+    "internal/cli/atomic_replace_windows.go",
+    "internal/cli/brain.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/doc.go",
+    "internal/cli/export.go",
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_concurrency_test.go",
+    "internal/cli/facts_eval.go",
+    "internal/cli/facts_eval_gen.go",
+    "internal/cli/facts_expand.go",
+    "internal/cli/facts_manifest.go",
+    "internal/cli/facts_write_cmd.go",
+    "internal/cli/filelock.go",
+    "internal/cli/filelock_test.go",
+    "internal/cli/filelock_unix.go",
+    "internal/cli/filelock_windows.go",
+    "internal/cli/history.go",
+    "internal/cli/seed.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_test.go",
+    "internal/cli/watch.go",
+    "internal/cli/watch_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "710445314460",
+  "token_usage": {
+    "input_tokens": 63118,
+    "cache_creation_tokens": 7407250,
+    "cache_read_tokens": 95628086,
+    "output_tokens": 382423,
+    "api_call_count": 285
+  },
+  "session_metrics": {
+    "turn_count": 14
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-09T16:09:21.228907Z",
+    "agent_lines": 141,
+    "agent_removed": 77,
+    "human_added": 256,
+    "human_modified": 23,
+    "human_removed": 0,
+    "total_committed": 420,
+    "total_lines_changed": 497,
+    "agent_percentage": 43.86317907444668,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 32,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 32
+      }
+    }
+  ]
+}
