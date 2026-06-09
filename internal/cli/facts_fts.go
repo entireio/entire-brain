@@ -50,6 +50,10 @@ func factsFTSScores(facts []factRecord, query string) (map[string]float64, bool)
 		return nil, false
 	}
 	defer db.Close()
+	// A :memory: database is per-connection; pin a single connection so CREATE,
+	// INSERT, and SELECT all see the same table instead of intermittently landing
+	// on a fresh (empty) connection.
+	db.SetMaxOpenConns(1)
 	if _, err := db.Exec(`CREATE VIRTUAL TABLE facts_fts USING fts5(content, id UNINDEXED, tokenize='porter unicode61')`); err != nil {
 		return nil, false
 	}

@@ -52,6 +52,9 @@ func openDocFTS(brainDir string, index docIndex) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Pin a single connection so connection-scoped PRAGMAs (busy_timeout) below
+	// apply to every query/build, not just whichever pooled connection ran them.
+	db.SetMaxOpenConns(1)
 	for _, pragma := range []string{"PRAGMA busy_timeout=5000;", "PRAGMA journal_mode=WAL;"} {
 		if _, err := db.Exec(pragma); err != nil {
 			db.Close()

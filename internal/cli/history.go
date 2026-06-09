@@ -435,23 +435,25 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 		if text == "" {
 			continue
 		}
-		// Unmarshal each JSONL line at most once for the narrative pass — re-parsing
-		// per line doubled the JSON decode cost on large histories during refresh.
-		// Only transcript records are JSON objects, so skip the decode for raw
-		// .md/.txt lines that can't be one (cheap leading-'{' check).
-		var obj map[string]any
-		parsed := false
-		if strings.HasPrefix(text, "{") {
-			parsed = json.Unmarshal([]byte(text), &obj) == nil
-		}
-
+		// Apply the cheap keyword fast-path BEFORE the JSON decode: most transcript
+		// lines are irrelevant to indexing, so on a large history this skips the
+		// per-line Unmarshal for the majority of records.
 		if !historyLineMayContainIndexedContent(text) {
 			continue
 		}
+		// Decode at most once for the narrative pass. Only transcript records are
+		// JSON objects, so skip the decode for raw .md/.txt lines that can't be one
+		// (cheap leading-'{' check); those fall through to the raw-text path.
 		var fragments []historyFragment
-		if parsed {
-			fragments = extractHistoryJSONFragments(obj)
-		} else if allowRawText {
+		parsedOK := false
+		if strings.HasPrefix(text, "{") {
+			var obj map[string]any
+			if json.Unmarshal([]byte(text), &obj) == nil {
+				fragments = extractHistoryJSONFragments(obj)
+				parsedOK = true
+			}
+		}
+		if !parsedOK && allowRawText {
 			fragments = []historyFragment{{Text: text, Source: "text"}}
 		}
 		for _, fragment := range fragments {
