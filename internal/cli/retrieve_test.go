@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,7 +130,7 @@ func TestQMDOutputFormatAlias(t *testing.T) {
 	}
 }
 
-func TestQMDAliasesLimitAndFormatJSON(t *testing.T) {
+func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
@@ -148,17 +149,66 @@ func TestQMDAliasesLimitAndFormatJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := execute(t, NewRootCommand(opts), "search", "alpha checkpoint", "-n", "1", "--format", "json")
+	for _, tc := range []struct {
+		name       string
+		args       []string
+		wantResult bool
+		wantLimit  bool
+	}{
+		{name: "search short number json", args: []string{"search", "alpha checkpoint", "-n", "1", "--format", "json"}, wantResult: true, wantLimit: true},
+		{name: "query long number json", args: []string{"query", "alpha checkpoint", "--number", "1", "--format", "json"}, wantResult: true, wantLimit: true},
+		{name: "vsearch format json", args: []string{"vsearch", "alpha checkpoint", "-n", "1", "--format", "json"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := execute(t, NewRootCommand(opts), tc.args...)
+			if err != nil {
+				t.Fatalf("%s: %v\n%s", strings.Join(tc.args, " "), err, out)
+			}
+			var payload struct {
+				Results []unifiedResult `json:"results"`
+			}
+			if err := json.Unmarshal([]byte(out), &payload); err != nil {
+				t.Fatalf("decode retrieval JSON: %v\n%s", err, out)
+			}
+			if tc.wantResult && len(payload.Results) == 0 {
+				t.Fatalf("expected results for %s, got none", tc.name)
+			}
+			if tc.wantLimit && len(payload.Results) != 1 {
+				t.Fatalf("number alias should limit results to 1, got %d: %+v", len(payload.Results), payload.Results)
+			}
+			if len(payload.Results) > 1 {
+				t.Fatalf("number alias should cap results at 1, got %d", len(payload.Results))
+			}
+		})
+	}
+
+	getOut, err := execute(t, NewRootCommand(opts), "get", facts[0].ID, "--format", "json")
 	if err != nil {
-		t.Fatalf("search -n --format json: %v\n%s", err, out)
+		t.Fatalf("get --format json: %v\n%s", err, getOut)
 	}
-	var payload struct {
+	var getPayload struct {
 		Results []unifiedResult `json:"results"`
+		Missing []string        `json:"missing"`
 	}
-	if err := json.Unmarshal([]byte(out), &payload); err != nil {
-		t.Fatalf("decode search JSON: %v\n%s", err, out)
+	if err := json.Unmarshal([]byte(getOut), &getPayload); err != nil {
+		t.Fatalf("decode get JSON: %v\n%s", err, getOut)
 	}
-	if len(payload.Results) != 1 {
-		t.Fatalf("-n alias should limit results to 1, got %d: %+v", len(payload.Results), payload.Results)
+	if len(getPayload.Results) != 1 || getPayload.Results[0].ID != facts[0].ID || len(getPayload.Missing) != 0 {
+		t.Fatalf("unexpected get payload: %+v", getPayload)
+	}
+
+	multiOut, err := execute(t, NewRootCommand(opts), "multi-get", facts[1].ID, "fact:missing", "--format", "json")
+	if err != nil {
+		t.Fatalf("multi-get --format json: %v\n%s", err, multiOut)
+	}
+	var multiPayload struct {
+		Results []unifiedResult `json:"results"`
+		Missing []string        `json:"missing"`
+	}
+	if err := json.Unmarshal([]byte(multiOut), &multiPayload); err != nil {
+		t.Fatalf("decode multi-get JSON: %v\n%s", err, multiOut)
+	}
+	if len(multiPayload.Results) != 1 || multiPayload.Results[0].ID != facts[1].ID || len(multiPayload.Missing) != 1 || multiPayload.Missing[0] != "fact:missing" {
+		t.Fatalf("unexpected multi-get payload: %+v", multiPayload)
 	}
 }

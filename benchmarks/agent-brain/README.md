@@ -85,6 +85,11 @@ generation metrics, command durations, and cache hit/miss metadata.
 
 Each `record.json` includes:
 
+- `provenance` with the harness HEAD, source repo HEAD, source base commit used
+  for the archived worktree, task config hash, runner/config fingerprint, and
+  tool binary hashes. If a task omits `base_commit`, the recorded source base
+  must match the recorded source HEAD. If a task pins `base_commit`, the base
+  commit is recorded separately from source HEAD.
 - `agent_info.seconds` for wall-clock agent duration.
 - `brain_prep.commands[].seconds` for seed/export/index setup cost.
 - `validation.results[].seconds` for validation command duration.
@@ -242,6 +247,11 @@ python3 benchmarks/agent-brain/audit_codex.py \
   --suite-glob '<suite-pattern>' \
   --fail-on-flags
 ```
+
+Audit mode treats missing or malformed provenance as a hard integrity flag. A
+release audit must therefore be able to show, per record, which harness revision,
+source base/head commits, task config hash, runner/config fingerprint, and tool
+hashes produced the result.
 
 For a SWE-bench-style matrix, tag tasks with `source` and `suite_tags`. The
 current harness already supports the essential SWE shape: issue prompt,

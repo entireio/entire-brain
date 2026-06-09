@@ -20,6 +20,9 @@ const (
 	queryTypeConvention = "convention" // about how work is done (cross-cutting)
 	queryTypeHowto      = "howto"      // where/how do I change X
 	queryTypeConcept    = "concept"    // natural-language conceptual question
+
+	evalGenSourceFacts    = "facts"
+	evalGenSourceSessions = "sessions"
 )
 
 func newFactsEvalGenCommand(opts Options) *cobra.Command {
@@ -33,6 +36,7 @@ func newFactsEvalGenCommand(opts Options) *cobra.Command {
 		agent        string
 		agentCommand []string
 		judgeCache   string
+		source       string
 	)
 	cmd := &cobra.Command{
 		Use:   "eval-gen",
@@ -45,7 +49,11 @@ func newFactsEvalGenCommand(opts Options) *cobra.Command {
 	stratum (code/convention/howto/concept). Emits a tasks.json consumable by
 	'facts eval --tasks'.
 
---refine judge-filters each task's provenance label set with the agent, keeping
+	--source sessions emits tasks directly from exported sessions, including sessions
+	with zero distilled facts. Those tasks have source anchors but no relevance labels,
+	so use --judge or human labels before making relevance claims.
+
+	--refine judge-filters each task's provenance label set with the agent, keeping
 only facts genuinely relevant to the request — trading the recall-oriented "every
 session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 		Args: cobra.NoArgs,
@@ -61,7 +69,18 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 			if manifest.Sources == nil || manifest.Sources.Sessions == nil {
 				return fmt.Errorf("no exported sessions; run `entire brain refresh` first")
 			}
-			tasks, err := generateEvalTasks(brainDir, manifest, branch, minFacts, maxFacts, limit)
+			var tasks []evalTask
+			switch strings.TrimSpace(source) {
+			case "", evalGenSourceFacts:
+				tasks, err = generateEvalTasks(brainDir, manifest, branch, minFacts, maxFacts, limit)
+			case evalGenSourceSessions:
+				if refine {
+					return fmt.Errorf("--refine requires --source facts; session-derived tasks have no fact labels to refine")
+				}
+				tasks, err = generateSessionEvalTasks(brainDir, manifest, branch, limit)
+			default:
+				return fmt.Errorf("--source must be facts or sessions")
+			}
 			if err != nil {
 				return err
 			}
@@ -92,6 +111,7 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 	cmd.Flags().StringVar(&branch, "branch", "", "Limit to one branch (default: all branches with facts)")
 	cmd.Flags().IntVar(&minFacts, "min-facts", 2, "Minimum relevant facts for a session to become a task")
 	cmd.Flags().IntVar(&maxFacts, "max-facts", 30, "Skip broad sessions with more relevant facts than this (diffuse targets); 0 = no cap")
+	cmd.Flags().StringVar(&source, "source", evalGenSourceFacts, "Task source: facts (provenance-labeled) or sessions (source-anchored, unlabeled)")
 	cmd.Flags().BoolVar(&refine, "refine", false, "Judge-filter provenance labels to the genuinely-relevant subset (agent-required)")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --refine: auto, codex, claude-code, or command")
 	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
@@ -169,7 +189,7 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 	if err != nil {
 		return nil, err
 	}
-	// session id -> the facts that cite it (deduped per session).
+	// branch+session id -> the facts that cite it (deduped per session).
 	sessionFacts := map[string][]factRecord{}
 	for b, recs := range byBranch {
 		if branch != "" && b != branch {
@@ -185,17 +205,19 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 					continue
 				}
 				seen[a.SessionID] = struct{}{}
-				sessionFacts[a.SessionID] = append(sessionFacts[a.SessionID], r)
+				sessionFacts[evalSessionFactKey(b, a.SessionID)] = append(sessionFacts[evalSessionFactKey(b, a.SessionID)], r)
 			}
 		}
 	}
 
 	var tasks []evalTask
+	idCollisions := evalSessionIDCollisions(manifest, branch)
 	for _, s := range manifest.Sources.Sessions.Sessions {
-		if branch != "" && s.Branch != branch {
+		resolvedBranch := resolveDistillBranch(manifest, s)
+		if branch != "" && resolvedBranch != branch {
 			continue
 		}
-		facts := sessionFacts[s.SessionID]
+		facts := sessionFacts[evalSessionFactKey(resolvedBranch, s.SessionID)]
 		if len(facts) < minFacts {
 			continue
 		}
@@ -211,9 +233,9 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 			continue
 		}
 		tasks = append(tasks, evalTask{
-			ID:                   shortSessionID(s.SessionID),
+			ID:                   evalTaskIDForSession(s.SessionID, resolvedBranch, idCollisions),
 			Task:                 request,
-			Branch:               s.Branch,
+			Branch:               resolvedBranch,
 			QueryType:            classifyQueryType(request, facts),
 			Relevant:             uniqueFactIDs(facts),
 			SourceSessionID:      s.SessionID,
@@ -221,6 +243,79 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 		})
 	}
 	tasks = dedupeEvalTasks(tasks)
+	sort.SliceStable(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
+	if limit > 0 && len(tasks) > limit {
+		tasks = sampleAcrossStrata(tasks, limit)
+	}
+	return tasks, nil
+}
+
+func evalSessionFactKey(branch, sessionID string) string {
+	return branch + "\x00" + sessionID
+}
+
+func evalSessionIDCollisions(manifest *exportManifest, branch string) map[string]bool {
+	collisions := map[string]bool{}
+	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
+		return collisions
+	}
+	counts := map[string]int{}
+	for _, s := range manifest.Sources.Sessions.Sessions {
+		resolvedBranch := resolveDistillBranch(manifest, s)
+		if branch != "" && resolvedBranch != branch {
+			continue
+		}
+		counts[shortSessionID(s.SessionID)]++
+	}
+	for id, count := range counts {
+		if count > 1 {
+			collisions[id] = true
+		}
+	}
+	return collisions
+}
+
+func evalTaskIDForSession(sessionID, branch string, collisions map[string]bool) string {
+	id := shortSessionID(sessionID)
+	if !collisions[id] {
+		return id
+	}
+	cleanBranch := strings.NewReplacer("/", "_", "\\", "_", " ", "_", "\x00", "_").Replace(strings.TrimSpace(branch))
+	if cleanBranch == "" {
+		cleanBranch = "branch"
+	}
+	return cleanBranch + ":" + id
+}
+
+func generateSessionEvalTasks(brainDir string, manifest *exportManifest, branch string, limit int) ([]evalTask, error) {
+	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
+		return nil, fmt.Errorf("no exported sessions; run `entire brain refresh` first")
+	}
+	var tasks []evalTask
+	idCollisions := evalSessionIDCollisions(manifest, branch)
+	for _, s := range manifest.Sources.Sessions.Sessions {
+		resolvedBranch := resolveDistillBranch(manifest, s)
+		if branch != "" && resolvedBranch != branch {
+			continue
+		}
+		content, readErr := readBrainRelativeFile(brainDir, s.TranscriptPath)
+		if readErr != nil {
+			continue
+		}
+		request := firstUserRequest(content)
+		if request == "" {
+			continue
+		}
+		tasks = append(tasks, evalTask{
+			ID:                   evalTaskIDForSession(s.SessionID, resolvedBranch, idCollisions),
+			Task:                 request,
+			Branch:               resolvedBranch,
+			QueryType:            classifyQueryType(request, nil),
+			Relevant:             []string{},
+			SourceSessionID:      s.SessionID,
+			SourceTranscriptPath: filepath.ToSlash(s.TranscriptPath),
+		})
+	}
 	sort.SliceStable(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
 	if limit > 0 && len(tasks) > limit {
 		tasks = sampleAcrossStrata(tasks, limit)

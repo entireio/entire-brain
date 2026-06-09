@@ -39,6 +39,8 @@ MCP_CONDITIONS = {"mcp_semantic", "mcp_history"}
 SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
 HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mcp_history"}
 BRAIN_CONDITIONS = SEMANTIC_CONDITIONS | HISTORY_CONDITIONS
+COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def load_records(suite_dir: pathlib.Path) -> list[dict[str, Any]]:
@@ -79,6 +81,111 @@ def get(d: Any, *path, default=None):
             return default
         cur = cur.get(p)
     return cur if cur is not None else default
+
+
+def is_commit_sha(value: Any) -> bool:
+    return isinstance(value, str) and bool(COMMIT_RE.fullmatch(value))
+
+
+def is_sha256(value: Any) -> bool:
+    return isinstance(value, str) and bool(SHA256_RE.fullmatch(value))
+
+
+def audit_commit_metadata(prov: dict[str, Any], label: str, *path: str) -> tuple[list[str], str | None]:
+    flags: list[str] = []
+    meta = get(prov, *path)
+    field = ".".join(path)
+    if not isinstance(meta, dict):
+        return [f"H:provenance_missing_{label}"], None
+    if meta.get("available") is False:
+        return [f"H:provenance_{label}_unavailable"], None
+    commit = meta.get("commit")
+    if not is_commit_sha(commit):
+        flags.append(f"H:provenance_bad_{label}_commit")
+        commit = None
+    parents = meta.get("parents")
+    parent_count = meta.get("parent_count")
+    if parents is not None and not isinstance(parents, list):
+        flags.append(f"H:provenance_bad_{field}_parents")
+    if parent_count is not None and not isinstance(parent_count, int):
+        flags.append(f"H:provenance_bad_{field}_parent_count")
+    return flags, commit
+
+
+def audit_record_provenance(rec: dict[str, Any]) -> tuple[list[str], list[str], dict[str, Any]]:
+    flags: list[str] = []
+    notes: list[str] = []
+    prov = rec.get("provenance")
+    if not isinstance(prov, dict):
+        return ["H:provenance_missing"], [], {"present": False, "ok": False}
+
+    if prov.get("schema") != 1:
+        flags.append("H:provenance_bad_schema")
+
+    harness_flags, harness_head = audit_commit_metadata(prov, "harness_head", "harness", "head")
+    base_flags, source_base = audit_commit_metadata(prov, "source_base", "source", "base")
+    head_flags, source_head = audit_commit_metadata(prov, "source_head", "source", "head")
+    flags.extend(harness_flags)
+    flags.extend(base_flags)
+    flags.extend(head_flags)
+
+    base_ref = get(prov, "source", "base_ref")
+    base_ref_source = get(prov, "source", "base_ref_source")
+    if not isinstance(base_ref, str) or not base_ref:
+        flags.append("H:provenance_missing_source_base_ref")
+    if base_ref_source not in {"task.base_commit", "source_head"}:
+        flags.append("H:provenance_bad_source_base_ref_source")
+
+    task_id = get(prov, "task", "id")
+    if task_id != rec.get("task_id"):
+        flags.append("H:provenance_task_id_mismatch")
+    if not is_sha256(get(prov, "task", "config_sha256")):
+        flags.append("H:provenance_missing_task_config_sha256")
+
+    task_base = get(prov, "task", "base_commit")
+    if task_base:
+        if is_commit_sha(task_base):
+            if source_base and task_base != source_base:
+                flags.append("H:provenance_task_base_commit_mismatch")
+        else:
+            notes.append("H:task_base_commit_not_full_sha")
+    elif source_base and source_head and source_base != source_head:
+        flags.append("H:provenance_unpinned_base_head_mismatch")
+
+    run_condition = get(prov, "run_config", "condition")
+    if run_condition != rec.get("condition"):
+        flags.append("H:provenance_condition_mismatch")
+    if rec.get("repetition") is not None and get(prov, "run_config", "repetition") != rec.get("repetition"):
+        flags.append("H:provenance_repetition_mismatch")
+    rec_runner = get(rec, "runner", "id", default=rec.get("agent"))
+    prov_runner = get(prov, "run_config", "runner", "id")
+    if rec_runner and prov_runner and rec_runner != prov_runner:
+        flags.append("H:provenance_runner_mismatch")
+    if not is_sha256(get(prov, "run_config", "fingerprint")):
+        flags.append("H:provenance_missing_run_config_fingerprint")
+    if not is_sha256(prov.get("fingerprint")):
+        flags.append("H:provenance_missing_record_fingerprint")
+
+    for tool in ("brain", "sem"):
+        if not is_sha256(get(prov, "tools", tool, "sha256")):
+            flags.append(f"H:provenance_missing_{tool}_tool_sha256")
+
+    if get(prov, "harness", "dirty", "dirty") is True:
+        notes.append("H:harness_dirty")
+    if get(prov, "source", "dirty", "dirty") is True:
+        notes.append("H:source_dirty")
+
+    summary = {
+        "present": True,
+        "ok": not any(flag.startswith("H:") for flag in flags),
+        "harness_head": harness_head,
+        "source_base": source_base,
+        "source_head": source_head,
+        "task_config_sha256": get(prov, "task", "config_sha256"),
+        "run_config_fingerprint": get(prov, "run_config", "fingerprint"),
+        "record_fingerprint": prov.get("fingerprint"),
+    }
+    return flags, notes, summary
 
 
 def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]:
@@ -175,6 +282,12 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     if vres is not None and len(vres) == 0 and cond != "no_brain":
         notes.append("F:no_validation_commands_run")
 
+    # H. provenance completeness (HARD). Release evidence must name the exact
+    # harness/source revisions and run config that produced each record.
+    provenance_flags, provenance_notes, provenance_summary = audit_record_provenance(rec)
+    flags.extend(provenance_flags)
+    notes.extend(provenance_notes)
+
     # Classify a record as an integrity-verified MCP proof datapoint
     mcp_verified = (
         cond in MCP_CONDITIONS and mcp_calls > 0 and bool(get(rec, "mcp_condition_audit", "ok"))
@@ -195,6 +308,7 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         "search_calls": search_calls,
         "parent_count": pc,
         "mcp_verified": mcp_verified,
+        "provenance": provenance_summary,
         "flags": flags,
         "notes": notes,
         "pass": not flags,
@@ -221,6 +335,8 @@ def audit_summary(suite_dir: pathlib.Path) -> list[dict[str, Any]]:
             flags.append(f"G:unmatched_n(cond={nc},base={nb})")
         if comp.get("proof_ready") and not (nc >= 3 and nb >= 3):
             flags.append("G:proof_ready_without_n3")
+        if comp.get("proof_ready") and get(comp, "stability", "tag") != "brain_positive_stable":
+            flags.append("G:proof_ready_without_stable_gate")
         out.append({
             "task": comp.get("task_id"),
             "runner": comp.get("runner"),
@@ -252,6 +368,7 @@ def build_audit_report(results_dir: pathlib.Path, suite_globs: list[str]) -> dic
     flag_kinds: dict[str, int] = defaultdict(int)
     note_kinds: dict[str, int] = defaultdict(int)
     mcp_verified_count = 0
+    provenance_ok_count = 0
     for suite in suites:
         recs = [r for r in load_records(suite) if "__prep__" not in r.get("run_id", "")]
         if not recs:
@@ -261,24 +378,31 @@ def build_audit_report(results_dir: pathlib.Path, suite_globs: list[str]) -> dic
         suite_flags = [a for a in rec_audits if not a["pass"]]
         total_records += len(rec_audits)
         mcp_verified_count += sum(1 for a in rec_audits if a["mcp_verified"])
+        provenance_ok_count += sum(1 for a in rec_audits if get(a, "provenance", "ok"))
         for a in rec_audits:
             for f in a["flags"]:
                 total_flags += 1
                 flag_kinds[f.split("(")[0]] += 1
             for n in a["notes"]:
                 note_kinds[n.split("(")[0]] += 1
+        for c in comp_audits:
+            for f in c["flags"]:
+                total_flags += 1
+                flag_kinds[f.split("(")[0]] += 1
         report["suites"][suite.name] = {
             "records": rec_audits,
             "comparisons": comp_audits,
             "n_records": len(rec_audits),
             "n_flagged_records": len(suite_flags),
             "n_mcp_verified": sum(1 for a in rec_audits if a["mcp_verified"]),
+            "n_provenance_ok": sum(1 for a in rec_audits if get(a, "provenance", "ok")),
         }
     report["totals"] = {
         "suites": len(report["suites"]),
         "records": total_records,
         "hard_flags": total_flags,
         "mcp_verified_records": mcp_verified_count,
+        "provenance_ok_records": provenance_ok_count,
         "flag_kinds": dict(sorted(flag_kinds.items(), key=lambda x: -x[1])),
         "note_kinds": dict(sorted(note_kinds.items(), key=lambda x: -x[1])),
     }
@@ -289,11 +413,13 @@ def render_audit_markdown(report: dict[str, Any]) -> str:
     total_records = report["totals"]["records"]
     total_flags = report["totals"]["hard_flags"]
     mcp_verified_count = report["totals"]["mcp_verified_records"]
+    provenance_ok_count = report["totals"].get("provenance_ok_records", 0)
     md = ["# Codex Benchmark Audit (independent re-check)", "",
           f"- Suites audited: **{report['totals']['suites']}**",
           f"- Agent records audited (prep excluded): **{total_records}**",
           f"- **Hard integrity flags: {total_flags}**",
           f"- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **{mcp_verified_count}**",
+          f"- Records with required provenance (source base/head + harness/config/tool hashes): **{provenance_ok_count}/{total_records}**",
           ""]
     if report["totals"]["flag_kinds"]:
         md.append("## Hard integrity flags (potential cheating/bias)")
@@ -308,12 +434,12 @@ def render_audit_markdown(report: dict[str, Any]) -> str:
             md.append(f"- `{k}`: {v}")
         md.append("")
     md.append("## Per-suite")
-    md.append("| Suite | Records | Flagged | Status |")
-    md.append("|---|---|---|---|")
+    md.append("| Suite | Records | Flagged | Provenance OK | Status |")
+    md.append("|---|---:|---:|---:|---|")
     for sname, sdata in report["suites"].items():
         comp_flags = sum(1 for c in sdata["comparisons"] if not c["pass"])
         status = "PASS" if sdata["n_flagged_records"] == 0 and comp_flags == 0 else "FLAG"
-        md.append(f"| {sname} | {sdata['n_records']} | {sdata['n_flagged_records']} | {status} |")
+        md.append(f"| {sname} | {sdata['n_records']} | {sdata['n_flagged_records']} | {sdata.get('n_provenance_ok', 0)} | {status} |")
     md.append("")
     # Detail every flagged record
     md.append("## Flagged records (detail)")
@@ -348,6 +474,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--out-dir", type=pathlib.Path, default=None, help="Directory for codex-audit-report.{json,md}; defaults to --results")
     parser.add_argument("--suite-glob", action="append", default=None, help="Only audit suites whose directory name matches this glob; repeatable")
     parser.add_argument("--fail-on-flags", action="store_true", help="Exit nonzero when any hard integrity flag is found")
+    parser.add_argument("--min-suites", type=int, default=1, help="Minimum audited non-empty suites required when --fail-on-flags is set")
+    parser.add_argument("--min-records", type=int, default=1, help="Minimum audited agent records required when --fail-on-flags is set")
     return parser.parse_args(argv)
 
 
@@ -360,8 +488,16 @@ def main(argv: list[str] | None = None) -> int:
     md = render_audit_markdown(report)
     print("\n".join(md.splitlines()[:12]))
     print(f"\nWrote {json_path} and codex-audit-report.md")
-    if args.fail_on_flags and report["totals"]["hard_flags"] > 0:
-        return 1
+    if args.fail_on_flags:
+        if report["totals"]["suites"] < args.min_suites or report["totals"]["records"] < args.min_records:
+            print(
+                f"\nAudit evidence is empty/thin: suites={report['totals']['suites']} records={report['totals']['records']} "
+                f"(minimum suites={args.min_suites} records={args.min_records})",
+                file=sys.stderr,
+            )
+            return 1
+        if report["totals"]["hard_flags"] > 0:
+            return 1
     return 0
 
 

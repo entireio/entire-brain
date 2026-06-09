@@ -1,3 +1,4 @@
+import argparse
 import importlib.util
 import json
 import os
@@ -696,6 +697,72 @@ class StatsAndAttributionTests(unittest.TestCase):
         self.assertIsNone(run.extract_resolved_model('{"type":"item","text":"done"}'))
         self.assertIsNone(run.extract_resolved_model(""))
 
+    def test_record_provenance_captures_source_base_head_and_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            run.run_cmd(["git", "init"], cwd=repo, check=True)
+            (repo / "file.txt").write_text("one\n")
+            run.run_cmd(["git", "add", "file.txt"], cwd=repo, check=True)
+            run.run_cmd(
+                ["git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "init"],
+                cwd=repo,
+                env=run.benchmark_git_env(),
+                check=True,
+            )
+            head = run.run_cmd(["git", "rev-parse", "HEAD"], cwd=repo, check=True).stdout.strip()
+            tools_dir = root / "tools"
+            tools_dir.mkdir()
+            tools = {}
+            for name in ("brain", "sem", "entire"):
+                path = tools_dir / name
+                path.write_text(f"{name}\n")
+                tools[name] = path
+            tools["bin"] = tools_dir
+            task = {
+                "id": "t",
+                "repo": "tmp",
+                "repo_path": str(repo),
+                "conditions": ["no_brain"],
+                "prompt": "Fix it.",
+                "validation": [],
+            }
+            bound, source, base = run.bind_task_base_commit(task)
+            args = argparse.Namespace(
+                checkpoint_limit=17,
+                no_brain_cache=False,
+                refresh_brain_cache=False,
+                timeout=123,
+                claude_budget=0.0,
+                stop_after_no_brain_score=None,
+                pricing_file=None,
+                pricing_json=None,
+            )
+            prov = run.build_record_provenance(
+                bound,
+                run.RunnerSpec(id="codex-gpt-test-low", agent="codex", model="gpt-test", effort="low"),
+                "no_brain",
+                1,
+                root / "suite",
+                tools,
+                args,
+                command="run",
+                source=source,
+                base=base,
+            )
+            self.assertEqual(prov["source"]["base"]["commit"], head)
+            self.assertEqual(prov["source"]["head"]["commit"], head)
+            self.assertEqual(prov["source"]["base_ref_source"], "source_head")
+            self.assertEqual(prov["run_config"]["checkpoint_limit"], 17)
+            self.assertRegex(prov["run_config"]["fingerprint"], r"^[0-9a-f]{64}$")
+            self.assertRegex(prov["tools"]["brain"]["sha256"], r"^[0-9a-f]{64}$")
+
+            summary = run.suite_provenance([{"provenance": prov}])
+            self.assertEqual(summary["records_with_provenance"], 1)
+            self.assertEqual(summary["sources"][0]["base_commit"], head)
+            self.assertEqual(summary["run_configs"][0]["condition"], "no_brain")
+
 
 def _rec(tokens, *, ok=True, score=90):
     return {
@@ -817,18 +884,84 @@ class PanelAndStabilityTests(unittest.TestCase):
         # Reproducible: same records -> identical stability verdict.
         self.assertEqual(s1["comparisons"][0]["stability"], s2["comparisons"][0]["stability"])
 
+    def test_summarize_requires_stable_tag_for_proof_ready(self):
+        records = []
+        for tokens in (200, 2000, 200, 2000):
+            r = _rec(tokens)
+            r["condition"] = "full_brain"
+            records.append(r)
+        for tokens in (1500, 1500, 1500, 1500):
+            r = _rec(tokens)
+            r["condition"] = "no_brain"
+            records.append(r)
+        with tempfile.TemporaryDirectory() as d:
+            summary = run.summarize(records, pathlib.Path(d))
+        comp = summary["comparisons"][0]
+        self.assertEqual(comp["verdict"], "brain_positive")
+        self.assertTrue(comp["candidate_proof_ready"])
+        self.assertNotEqual(comp["stability"]["tag"], "brain_positive_stable")
+        self.assertFalse(comp["proof_ready"])
+
 
 class CodexAuditScriptTests(unittest.TestCase):
+    SOURCE_SHA = "1" * 40
+    TOOL_SHA = "2" * 64
+    TASK_SHA = "3" * 64
+    CONFIG_SHA = "4" * 64
+    RECORD_SHA = "5" * 64
+    HARNESS_SHA = "6" * 40
+
     def _write_records(self, root: pathlib.Path, suite: str, records: list[dict]) -> pathlib.Path:
         suite_dir = root / suite
         suite_dir.mkdir(parents=True)
         (suite_dir / "records.ndjson").write_text("\n".join(json.dumps(r) for r in records) + "\n")
         return suite_dir
 
+    def _provenance(self) -> dict:
+        return {
+            "schema": 1,
+            "fingerprint": self.RECORD_SHA,
+            "harness": {
+                "head": {"available": True, "commit": self.HARNESS_SHA, "parents": [], "parent_count": 0},
+                "dirty": {"available": True, "dirty": False},
+            },
+            "source": {
+                "repo": "example",
+                "repo_path_input": "/repo",
+                "repo_path_resolved": "/repo",
+                "base_ref": "HEAD",
+                "base_ref_source": "source_head",
+                "base": {"available": True, "commit": self.SOURCE_SHA, "parents": [], "parent_count": 0},
+                "head": {"available": True, "commit": self.SOURCE_SHA, "parents": [], "parent_count": 0},
+                "dirty": {"available": True, "dirty": False},
+            },
+            "task": {
+                "id": "t",
+                "path": "benchmarks/agent-brain/tasks/t.json",
+                "config_sha256": self.TASK_SHA,
+                "base_commit": None,
+            },
+            "run_config": {
+                "command": "run",
+                "condition": "no_brain",
+                "repetition": 1,
+                "runner": {"id": "codex", "agent": "codex", "model": "gpt-test", "effort": "low"},
+                "fingerprint": self.CONFIG_SHA,
+            },
+            "tools": {
+                "brain": {"sha256": self.TOOL_SHA},
+                "sem": {"sha256": self.TOOL_SHA},
+            },
+        }
+
     def _record(self, *, used_brain: bool = False) -> dict:
         return {
             "run_id": "r1",
+            "task_id": "t",
             "condition": "no_brain",
+            "repetition": 1,
+            "agent": "codex",
+            "runner": {"id": "codex", "agent": "codex", "model": "gpt-test", "effort": "low"},
             "ok": True,
             "validation": {"ok": True, "results": [{"command": "go test ./...", "ok": True}]},
             "agent_info": {"activity": {
@@ -851,6 +984,7 @@ class CodexAuditScriptTests(unittest.TestCase):
                 "brain_use": 10,
                 "total": 100,
             },
+            "provenance": self._provenance(),
         }
 
     def test_audit_codex_supports_subset_output_and_fail_on_flags(self):
@@ -870,6 +1004,50 @@ class CodexAuditScriptTests(unittest.TestCase):
             dirty = audit_codex.build_audit_report(results_dir, ["dirty-*"])
             self.assertEqual(dirty["totals"]["hard_flags"], 1)
             self.assertEqual(audit_codex.main(["--results", str(results_dir), "--suite-glob", "dirty-*", "--out-dir", str(out_dir), "--fail-on-flags"]), 1)
+
+            self.assertEqual(audit_codex.main(["--results", str(results_dir), "--suite-glob", "missing-*", "--out-dir", str(out_dir), "--fail-on-flags"]), 1)
+
+    def test_audit_codex_fails_missing_and_inconsistent_provenance(self):
+        with tempfile.TemporaryDirectory() as results:
+            results_dir = pathlib.Path(results)
+            legacy = self._record()
+            legacy.pop("provenance")
+            self._write_records(results_dir, "legacy-suite", [legacy])
+
+            legacy_report = audit_codex.build_audit_report(results_dir, ["legacy-*"])
+            self.assertEqual(legacy_report["totals"]["hard_flags"], 1)
+            self.assertIn("H:provenance_missing", legacy_report["suites"]["legacy-suite"]["records"][0]["flags"])
+
+            mismatch = self._record()
+            mismatch["provenance"]["source"]["head"]["commit"] = "7" * 40
+            self._write_records(results_dir, "mismatch-suite", [mismatch])
+            mismatch_report = audit_codex.build_audit_report(results_dir, ["mismatch-*"])
+            flags = mismatch_report["suites"]["mismatch-suite"]["records"][0]["flags"]
+            self.assertIn("H:provenance_unpinned_base_head_mismatch", flags)
+
+    def test_audit_codex_flags_proof_ready_without_stability(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            suite_dir = self._write_records(results_dir, "proof-suite", [self._record()])
+            (suite_dir / "summary.json").write_text(json.dumps({
+                "comparisons": [{
+                    "task_id": "t",
+                    "runner": "codex",
+                    "condition": "full_brain",
+                    "verdict": "brain_positive",
+                    "proof_ready": True,
+                    "n_condition": 3,
+                    "n_baseline": 3,
+                    "stability": {"tag": "noisy"},
+                }]
+            }))
+
+            report = audit_codex.build_audit_report(results_dir, ["proof-*"])
+            self.assertEqual(report["totals"]["hard_flags"], 1)
+            flags = report["suites"]["proof-suite"]["comparisons"][0]["flags"]
+            self.assertIn("G:proof_ready_without_stable_gate", flags)
+            self.assertEqual(audit_codex.main(["--results", str(results_dir), "--suite-glob", "proof-*", "--out-dir", str(out_dir), "--fail-on-flags"]), 1)
 
 
 if __name__ == "__main__":

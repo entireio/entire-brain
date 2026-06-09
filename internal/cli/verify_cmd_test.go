@@ -131,6 +131,15 @@ func parseVerifyReport(t *testing.T, out string) verifyReport {
 	return report
 }
 
+func findVerifyCheck(checks []verifyCheck, name string) verifyCheck {
+	for _, check := range checks {
+		if check.Name == name {
+			return check
+		}
+	}
+	return verifyCheck{}
+}
+
 func TestVerifyDistilledFactAtCheckpointGranularity(t *testing.T) {
 	f := newVerifyFixture(t)
 	const checkpointID = "aaa111aaa111"
@@ -182,6 +191,36 @@ func TestVerifyReportsOrphanedAnchorAndStillEmitsJSON(t *testing.T) {
 	report := parseVerifyReport(t, out)
 	if report.Summary.Orphaned != 1 || report.Results[0].Verdict != verifyVerdictOrphaned {
 		t.Fatalf("expected orphaned report, got %+v", report)
+	}
+}
+
+func TestVerifySessionLookupIsBranchScoped(t *testing.T) {
+	f := newVerifyFixture(t)
+	mainTranscript := "sessions/main/shared.jsonl"
+	featureTranscript := "sessions/feature/shared.jsonl"
+	f.writeBrainFile(t, mainTranscript, `{"type":"user_message","message":"main checkpoint"}`+"\n")
+	f.writeBrainFile(t, featureTranscript, `{"type":"user_message","message":"feature checkpoint"}`+"\n")
+	f.writeSessions(t, []exportSession{
+		{SessionID: "shared", Branch: "main", LatestCheckpoint: "cp-main", TranscriptPath: mainTranscript, CreatedAt: f.now},
+		{SessionID: "shared", Branch: "feature", LatestCheckpoint: "cp-feature", TranscriptPath: featureTranscript, CreatedAt: f.now.Add(time.Minute)},
+	})
+	fact := verifyFactFixture("fact:feature", "Feature branch fact cites shared session.", "feature", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+		SessionID: "shared", CheckpointID: "cp-main", Transcript: featureTranscript, Line: 1,
+	}})
+	f.writeFacts(t, "feature", []factRecord{fact})
+
+	cmd := NewRootCommand(f.opts)
+	out, err := execute(t, cmd, "verify", "fact:feature", "--branch", "feature", "--json")
+	if err == nil || !errors.Is(err, errVerifyIssues) {
+		t.Fatalf("expected stale/orphaned verify issue, got %v\n%s", err, out)
+	}
+	report := parseVerifyReport(t, out)
+	if report.Results[0].Verdict != verifyVerdictStale {
+		t.Fatalf("feature fact should compare against feature session, got %+v", report.Results[0])
+	}
+	sessionCheck := findVerifyCheck(report.Results[0].Anchors[0].Checks, "session")
+	if sessionCheck.Verdict != verifyVerdictStale || !strings.Contains(sessionCheck.Reason, "cp-feature") {
+		t.Fatalf("session check should report feature checkpoint, got %+v", sessionCheck)
 	}
 }
 

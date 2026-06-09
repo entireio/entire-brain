@@ -121,6 +121,7 @@ type distillPlan struct {
 	PreprocessedBytes  int64
 	Chunks             int
 	Warnings           []string
+	CacheSalt          string
 }
 
 type distillSessionPlan struct {
@@ -240,6 +241,9 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	if err != nil {
 		return err
 	}
+	if distillOpts.agent == "auto" {
+		distillOpts.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
+	}
 	if distillOpts.dryRun {
 		report, err := buildDistillDryRunReport(storage.BrainDir, distillOpts, opts.Now().UTC())
 		if err != nil {
@@ -250,9 +254,6 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		}
 		printDistillDryRunReport(cmd, report)
 		return nil
-	}
-	if distillOpts.agent == "auto" {
-		distillOpts.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
 	}
 	if distillOpts.agent == "none" {
 		return errors.New("distillation requires an agent (codex or claude-code); none found on PATH")
@@ -348,7 +349,8 @@ func prepareDistillRun(brainDir string, distillOpts distillCommandOptions, now t
 	if err != nil {
 		return distillRunPreparation{}, err
 	}
-	reconcileArgs, err := distillAgentCommandArgs(distillOpts.agent, distillOpts.agentCommand, reconcilePrompt())
+	reconcilePromptText := reconcilePrompt()
+	reconcileArgs, err := distillAgentCommandArgs(distillOpts.agent, distillOpts.agentCommand, reconcilePromptText)
 	if err != nil {
 		return distillRunPreparation{}, err
 	}
@@ -361,7 +363,8 @@ func prepareDistillRun(brainDir string, distillOpts distillCommandOptions, now t
 		threshold = defaultFactConfidenceThreshold
 	}
 
-	plan, err := buildDistillPlan(brainDir, manifest, distillOpts)
+	cacheSalt := distillCacheSalt(prompt, reconcilePromptText, threshold, distillOpts)
+	plan, err := buildDistillPlan(brainDir, manifest, distillOpts, cacheSalt)
 	if err != nil {
 		return distillRunPreparation{}, err
 	}
@@ -407,7 +410,8 @@ func commitDistillResultsLocked(ctx context.Context, repoDir, brainDir string, d
 		newCache.Sessions[sessionID] = fingerprint
 	}
 	for _, sessionPlan := range plan.Sessions {
-		delete(newCache.Sessions, sessionPlan.Session.SessionID)
+		delete(newCache.Sessions, distillSessionCacheKey(sessionPlan.Branch, sessionPlan.Session.SessionID))
+		delete(newCache.Sessions, sessionPlan.Session.SessionID) // legacy pre-branch-scoped key
 	}
 
 	byBranch := map[string][]factRecord{}
@@ -421,6 +425,7 @@ func commitDistillResultsLocked(ctx context.Context, repoDir, brainDir string, d
 	// an invalid --model) aborts fast with the agent's own error, instead of
 	// silently churning through every session reporting "0 facts found".
 	agentFailures, anyAgentSuccess := 0, false
+	var lastAgentErr error
 
 	// ensureBranch lazily loads a branch's existing facts. On --force the
 	// previously distilled facts are dropped so they are rebuilt from scratch;
@@ -478,7 +483,7 @@ func commitDistillResultsLocked(ctx context.Context, repoDir, brainDir string, d
 			continue
 		}
 		if sessionPlan.Cached {
-			newCache.Sessions[sessionPlan.Session.SessionID] = sessionPlan.Fingerprint
+			newCache.Sessions[distillSessionCacheKey(sessionPlan.Branch, sessionPlan.Session.SessionID)] = sessionPlan.Fingerprint
 			reportProgress()
 			continue
 		}
@@ -501,6 +506,7 @@ func commitDistillResultsLocked(ctx context.Context, repoDir, brainDir string, d
 				// agent keeps failing, so every call is almost certainly erroring the
 				// same way (bad --model, missing agent, auth). Abort with the agent's
 				// own error instead of churning through every remaining session.
+				lastAgentErr = result.Err
 				if !anyExtractionSuccess && !anyAgentSuccess && agentFailures >= distillAgentAbortThreshold {
 					return nil, fmt.Errorf("distill aborted after %d agent failures with no facts distilled — check --agent and --model. Last error: %v", agentFailures, result.Err)
 				}
@@ -527,11 +533,14 @@ func commitDistillResultsLocked(ctx context.Context, repoDir, brainDir string, d
 		// session whose agent calls failed is retried on the next run rather
 		// than being silently treated as done.
 		if !sessionFailed[sessionIndex] {
-			newCache.Sessions[sessionPlan.Session.SessionID] = sessionPlan.Fingerprint
+			newCache.Sessions[distillSessionCacheKey(sessionPlan.Branch, sessionPlan.Session.SessionID)] = sessionPlan.Fingerprint
 		}
 		reportProgress()
 	}
 	reconcileSeconds := time.Since(reconcileStarted).Seconds()
+	if chunksScanned > 0 && agentFailures > 0 && !anyAgentSuccess {
+		return nil, fmt.Errorf("distill failed: all %d agent calls failed with no successful extraction — check --agent and --model. Last error: %v", agentFailures, lastAgentErr)
+	}
 
 	warnings = capWarnings(warnings, maxDistillWarnings)
 
@@ -603,7 +612,11 @@ func buildDistillDryRunReport(brainDir string, distillOpts distillCommandOptions
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
 		return distillDryRunReport{}, errors.New("no exported sessions; run `entire brain refresh` first")
 	}
-	plan, err := buildDistillPlan(brainDir, manifest, distillOpts)
+	cacheSalt, err := distillCacheSaltForBrain(brainDir, distillOpts, now)
+	if err != nil {
+		return distillDryRunReport{}, err
+	}
+	plan, err := buildDistillPlan(brainDir, manifest, distillOpts, cacheSalt)
 	if err != nil {
 		return distillDryRunReport{}, err
 	}
@@ -691,7 +704,7 @@ func printDistillDryRunReport(cmd *cobra.Command, report distillDryRunReport) {
 	}
 }
 
-func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts distillCommandOptions) (distillPlan, error) {
+func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts distillCommandOptions, cacheSalt string) (distillPlan, error) {
 	if distillOpts.maxChunkBytes <= 0 {
 		distillOpts.maxChunkBytes = defaultDistillChunkSize
 	}
@@ -699,7 +712,7 @@ func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts dis
 	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].CreatedAt.Before(sessions[j].CreatedAt) })
 	prevCache := loadDistillCache(brainDir)
 	branchSeen := map[string]struct{}{}
-	plan := distillPlan{Manifest: manifest, PrevCache: prevCache}
+	plan := distillPlan{Manifest: manifest, PrevCache: prevCache, CacheSalt: cacheSalt}
 	for _, session := range sessions {
 		branch := resolveDistillBranch(manifest, session)
 		if distillOpts.branch != "" && branch != distillOpts.branch {
@@ -725,9 +738,14 @@ func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts dis
 		sessionPlan.PreprocessedBytes = len(distillInput)
 		plan.RawBytes += int64(sessionPlan.RawBytes)
 		plan.PreprocessedBytes += int64(sessionPlan.PreprocessedBytes)
-		sessionPlan.Fingerprint = distillSessionFingerprint(session, branch, distillInput)
+		sessionPlan.Fingerprint = distillSessionFingerprint(session, branch, distillInput, plan.CacheSalt)
 		if !distillOpts.force {
-			if prev, ok := prevCache.Sessions[session.SessionID]; ok && prev == sessionPlan.Fingerprint {
+			cacheKey := distillSessionCacheKey(branch, session.SessionID)
+			prev, ok := prevCache.Sessions[cacheKey]
+			if !ok {
+				prev, ok = prevCache.Sessions[session.SessionID] // legacy pre-branch-scoped cache key
+			}
+			if ok && prev == sessionPlan.Fingerprint {
 				sessionPlan.Cached = true
 				plan.CachedSessions++
 				plan.Sessions = append(plan.Sessions, sessionPlan)
@@ -769,7 +787,7 @@ func ensureDistillPlanSourceFresh(brainDir string, plan distillPlan) error {
 		if err != nil {
 			return fmt.Errorf("distill source changed before commit: read transcript %s: %w", sessionPlan.Session.TranscriptPath, err)
 		}
-		fingerprint := distillSessionFingerprint(sessionPlan.Session, sessionPlan.Branch, preprocessTranscriptForDistill(content))
+		fingerprint := distillSessionFingerprint(sessionPlan.Session, sessionPlan.Branch, preprocessTranscriptForDistill(content), plan.CacheSalt)
 		if fingerprint != sessionPlan.Fingerprint {
 			return fmt.Errorf("distill source changed before commit for session %s; rerun distill", sessionPlan.Session.SessionID)
 		}
@@ -1024,16 +1042,64 @@ func chunkLines(content string, maxBytes int, numberLines bool) []transcriptChun
 // *resolved* one the facts are written under (session.Branch may be empty and
 // fall back to the manifest default), so a default-branch change re-keys the
 // session instead of letting a stale cache skip it.
-func distillSessionFingerprint(session exportSession, branch, content string) string {
+func distillSessionFingerprint(session exportSession, branch, content, cacheSalt string) string {
 	contentSum := sha256.Sum256([]byte(content))
 	sum := sha256.Sum256([]byte(strings.Join([]string{
 		session.SessionID,
 		session.LatestCheckpoint,
 		filepath.ToSlash(session.TranscriptPath),
 		branch,
+		cacheSalt,
 		hex.EncodeToString(contentSum[:]),
 	}, "\x00")))
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func distillCacheSaltForBrain(brainDir string, distillOpts distillCommandOptions, now time.Time) (string, error) {
+	taxonomy, err := loadFactTaxonomy(brainDir, now)
+	if err != nil {
+		return "", err
+	}
+	prompt, err := renderDistillPrompt(taxonomy)
+	if err != nil {
+		return "", err
+	}
+	threshold := distillOpts.confidenceThreshold
+	if threshold <= 0 {
+		threshold = defaultFactConfidenceThreshold
+	}
+	return distillCacheSalt(prompt, reconcilePrompt(), threshold, distillOpts), nil
+}
+
+func distillCacheSalt(prompt, reconcilePromptText string, threshold float64, distillOpts distillCommandOptions) string {
+	data, err := json.Marshal(struct {
+		Version         int     `json:"version"`
+		Prompt          string  `json:"prompt"`
+		ReconcilePrompt string  `json:"reconcile_prompt"`
+		Threshold       float64 `json:"threshold"`
+		Agent           string  `json:"agent"`
+		AgentCommand    string  `json:"agent_command,omitempty"`
+		Model           string  `json:"model,omitempty"`
+		Effort          string  `json:"effort,omitempty"`
+	}{
+		Version:         distillCacheVersion,
+		Prompt:          prompt,
+		ReconcilePrompt: reconcilePromptText,
+		Threshold:       threshold,
+		Agent:           distillOpts.agent,
+		AgentCommand:    strings.Join(distillOpts.agentCommand, "\x00"),
+		Model:           distillOpts.model,
+		Effort:          distillOpts.effort,
+	})
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func distillSessionCacheKey(branch, sessionID string) string {
+	return url.PathEscape(branch) + "/" + url.PathEscape(sessionID)
 }
 
 func factTaxonomyFingerprint(taxonomy factTaxonomy) string {
@@ -1109,12 +1175,19 @@ func execDistillAgent(ctx context.Context, dir string, args []string, input []by
 	command := exec.CommandContext(runCtx, args[0], args[1:]...)
 	command.Dir = dir
 	command.Stdin = bytes.NewReader(input)
-	var stdout, stderr bytes.Buffer
+	stdout := newCappedDistillBuffer(distillMaxOutputBytes)
+	stderr := newCappedDistillBuffer(distillMaxOutputBytes)
 	command.Stdout = &stdout
 	command.Stderr = &stderr
 	err := command.Run()
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		return "", fmt.Errorf("agent timed out after %s", timeout)
+	}
+	if stdout.Exceeded() {
+		return "", fmt.Errorf("agent output exceeds %d bytes", distillMaxOutputBytes)
+	}
+	if stderr.Exceeded() {
+		return "", fmt.Errorf("agent stderr exceeds %d bytes", distillMaxOutputBytes)
 	}
 	if err != nil {
 		warning := strings.TrimSpace(stderr.String())
@@ -1123,10 +1196,42 @@ func execDistillAgent(ctx context.Context, dir string, args []string, input []by
 		}
 		return "", fmt.Errorf("agent failed: %w: %s", err, truncateAgentWarning(warning))
 	}
-	if stdout.Len() > distillMaxOutputBytes {
-		return "", fmt.Errorf("agent output exceeds %d bytes", distillMaxOutputBytes)
-	}
 	return stdout.String(), nil
+}
+
+type cappedDistillBuffer struct {
+	limit    int
+	exceeded bool
+	buf      bytes.Buffer
+}
+
+func newCappedDistillBuffer(limit int) cappedDistillBuffer {
+	return cappedDistillBuffer{limit: limit}
+}
+
+func (w *cappedDistillBuffer) Write(p []byte) (int, error) {
+	if w.limit <= 0 {
+		w.exceeded = true
+		return len(p), nil
+	}
+	remaining := w.limit - w.buf.Len()
+	if remaining > 0 {
+		if len(p) <= remaining {
+			_, _ = w.buf.Write(p)
+			return len(p), nil
+		}
+		_, _ = w.buf.Write(p[:remaining])
+	}
+	w.exceeded = true
+	return len(p), nil
+}
+
+func (w *cappedDistillBuffer) String() string {
+	return w.buf.String()
+}
+
+func (w *cappedDistillBuffer) Exceeded() bool {
+	return w.exceeded
 }
 
 func execOllamaDistillAgent(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {

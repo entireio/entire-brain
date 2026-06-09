@@ -2,21 +2,22 @@
 
 ## Headline
 
-Entire prepares a local brain for software teams: durable repo memory, semantic
-code understanding, and replayable tests for whether agents get better with
-both.
+Entire prepares a local brain for software teams: durable repo memory,
+audit-reported semantic code context, and replayable tests for measuring agent
+outcomes.
 
 ## Customer Promise
 
 Agents should not start every task as if the repository has no past. Entire
-Brain turns local sessions, checkpoints, docs, semantic code facts, and curated
-durable facts into an inspectable memory layer that stays on the developer's
+Brain turns local sessions, checkpoints, docs, semantic provider records, and
+curated durable facts into an inspectable memory layer that stays on the developer's
 machine.
 
 `entire-brain` gives agents a qmd-inspired retrieval surface over the repo's
-local memory. `entire-sem` gives agents a semantic map of code structure, relations,
-boundaries, and likely tests. `entire-replay-lab` measures whether those tools
-actually improve task outcomes instead of relying on demos or anecdotes.
+local memory. `entire-sem` gives agents an audit-reported map of code structure,
+relations, boundaries, and likely tests when provider coverage is fresh enough
+for the target repo. `entire-replay-lab` measures whether those tools improve
+task outcomes instead of relying on demos or anecdotes.
 
 ## What Is Shipped
 
@@ -34,7 +35,8 @@ actually improve task outcomes instead of relying on demos or anecdotes.
 
 - Distill performance on a large session repo, using `distill --dry-run --json`
   and a timed run with cache/timing fields.
-- Facts-vs-raw recall quality, using paired `facts eval --retriever` comparisons.
+- Facts-vs-session retrieval quality, using paired `facts eval --retriever`
+  comparisons with shared labels or explicit proxy-comparison opt-in.
 - Semantic usefulness, using semantic-audit output plus benchmark tasks where
   semantic context changes file/test localization or agent efficiency.
 - Replay-lab evidence, using retained benchmark scenarios with repeated runs,
@@ -44,6 +46,8 @@ actually improve task outcomes instead of relying on demos or anecdotes.
 
 - Backend-specific audits wait for backend access.
 - Slack/onboarding-dependent release workflow details wait for workspace access.
+- Large-repo distill timing, paired facts evals, release-candidate semantic
+  audit output, and retained benchmark audit artifacts are still pending.
 - Full turn-level cryptographic fact verification still depends on CLI-side turn
   signing.
 - Generated fact-at-checkpoint creation remains a future CLI/checkpoint pipeline
@@ -51,16 +55,19 @@ actually improve task outcomes instead of relying on demos or anecdotes.
 
 ## Future Claims We Should Not Make Yet
 
-- Do not claim facts are always better than raw sessions.
-- Do not claim tree-sitter understands every file.
+- Do not claim facts beat raw/preprocessed sessions except for the specific
+  paired eval metric and relevance source being cited.
+- Do not claim tree-sitter or semantic indexing covers every file or language.
 - Do not claim multi-agent collaboration is complete.
 - Do not claim replay-lab proves universal agent improvement across all tasks.
 
 ## Release Checklist
 
-- Shipped: local retrieval, semantic index consumption, durable facts, fact
+- Shipped: local retrieval, semantic index consumption, durable facts, anchor
   verification, eval harness, benchmark harness.
-- Proven: fill from audit evidence after green distill/eval/benchmark runs.
-- Blocked: backend/Slack access, turn signing, checkpoint-time fact generation.
+- Proven: pending; fill only from retained distill/eval/semantic-audit/benchmark
+  evidence.
+- Blocked: target large-repo evidence, backend/Slack access, turn signing,
+  checkpoint-time fact generation.
 - Future: distributed/shared brain, team artifact hydration, multi-agent write
   coordination beyond local safety.

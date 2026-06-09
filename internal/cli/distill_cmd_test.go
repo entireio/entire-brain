@@ -495,12 +495,8 @@ func TestRunDistillForBrainRetriesFailedSessions(t *testing.T) {
 		return "", context.DeadlineExceeded
 	}
 	failOpts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: failRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
-	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, failOpts, now)
-	if err != nil {
-		t.Fatalf("first run: %v", err)
-	}
-	if source.Facts != 0 {
-		t.Fatalf("expected 0 facts after total failure, got %d", source.Facts)
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, failOpts, now); err == nil || !strings.Contains(err.Error(), "all 2 agent calls failed") {
+		t.Fatalf("first run should fail when every attempted agent call failed, got %v", err)
 	}
 
 	// Second run (no --force): failed sessions must be retried, not skipped as
@@ -512,7 +508,7 @@ func TestRunDistillForBrainRetriesFailedSessions(t *testing.T) {
 	}
 	okOpts := failOpts
 	okOpts.run = okRun
-	source, err = runDistillForBrain(context.Background(), t.TempDir(), brainDir, okOpts, now)
+	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, okOpts, now)
 	if err != nil {
 		t.Fatalf("retry run: %v", err)
 	}
@@ -597,7 +593,9 @@ func TestRunDistillForBrainBranchLimitedPreservesManifest(t *testing.T) {
 
 	var calls int
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
-		calls++
+		if strings.Contains(string(input), "\tturn ") {
+			calls++
+		}
 		return "project.tooling.stack\tThe project uses Go.\n", nil
 	}
 	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, branch: "main", maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
@@ -646,7 +644,9 @@ func TestRunDistillForBrainBranchLimitedPreservesUntouchedCache(t *testing.T) {
 
 	var calls int
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
-		calls++
+		if strings.Contains(string(input), "\tturn ") {
+			calls++
+		}
 		return "project.tooling.stack\tThe project uses Go.\n", nil
 	}
 	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, jobs: 1, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
@@ -673,6 +673,164 @@ func TestRunDistillForBrainBranchLimitedPreservesUntouchedCache(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Fatalf("branch-limited run dropped untouched cache entries; all-branch reran %d chunks", calls)
+	}
+}
+
+func TestRunDistillForBrainCacheKeysIncludeBranch(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	sessions := []exportSession{
+		{SessionID: "shared", Branch: "main", LatestCheckpoint: "cp-main", TranscriptPath: "sessions/main/shared.jsonl", CreatedAt: now.Add(-2 * time.Hour)},
+		{SessionID: "shared", Branch: "feature", LatestCheckpoint: "cp-feature", TranscriptPath: "sessions/branches/feature/shared.jsonl", CreatedAt: now.Add(-1 * time.Hour)},
+	}
+	for _, session := range sessions {
+		path := filepath.Join(brainDir, filepath.FromSlash(session.TranscriptPath))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("turn for "+session.Branch+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls int
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, jobs: 1, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("first distill: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("first run should distill both branch-scoped sessions, got %d", calls)
+	}
+	cache := loadDistillCache(brainDir)
+	if _, ok := cache.Sessions["shared"]; ok {
+		t.Fatalf("legacy unscoped cache key should be migrated away: %+v", cache.Sessions)
+	}
+	for _, session := range sessions {
+		key := distillSessionCacheKey(session.Branch, session.SessionID)
+		if cache.Sessions[key] == "" {
+			t.Fatalf("missing branch-scoped cache key %q in %+v", key, cache.Sessions)
+		}
+	}
+
+	calls = 0
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("cached distill: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("duplicate session ids on different branches should both be cached, reran %d chunks", calls)
+	}
+}
+
+func TestRunDistillForBrainCacheInvalidatesOnTaxonomyChange(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+
+	var calls int
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		if strings.Contains(string(input), "\tturn ") {
+			calls++
+		}
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, jobs: 1, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("first distill: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("first run should distill both sessions, got %d", calls)
+	}
+
+	calls = 0
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("cached distill: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("unchanged taxonomy should use cache, got %d calls", calls)
+	}
+
+	taxonomy, err := loadFactTaxonomy(brainDir, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taxonomy.Categories["project"] = "Updated project/tooling taxonomy wording."
+	if err := writeFactTaxonomy(brainDir, taxonomy); err != nil {
+		t.Fatal(err)
+	}
+
+	calls = 0
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("taxonomy-changed distill: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("taxonomy/prompt change should re-distill both sessions, got %d calls", calls)
+	}
+}
+
+func TestRunDistillForBrainCacheInvalidatesOnAgentConfigChange(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+
+	var calls int
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		if strings.Contains(string(input), "\tturn ") {
+			calls++
+		}
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, model: "small", effort: "low", run: run, jobs: 1, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("first distill: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("first run should distill both sessions, got %d", calls)
+	}
+
+	calls = 0
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("cached distill: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("same agent config should use cache, got %d calls", calls)
+	}
+
+	changed := opts
+	changed.model = "large"
+	calls = 0
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, changed, now); err != nil {
+		t.Fatalf("model-changed distill: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("model change should re-distill both sessions, got %d calls", calls)
+	}
+
+	calls = 0
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, changed, now); err != nil {
+		t.Fatalf("model-changed cached distill: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("unchanged new model should use cache, got %d calls", calls)
+	}
+
+	changed.effort = "high"
+	calls = 0
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, changed, now); err != nil {
+		t.Fatalf("effort-changed distill: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("effort change should re-distill both sessions, got %d calls", calls)
 	}
 }
 
@@ -940,6 +1098,52 @@ func TestRunDistillForBrainParallelAbortsOnSystematicAgentFailure(t *testing.T) 
 	if got > int32(distillAgentAbortThreshold+opts.jobs+1) {
 		t.Fatalf("parallel distill should stop near the abort threshold; got %d calls", got)
 	}
+}
+
+func TestExecDistillAgentCapsCommandStdoutStreaming(t *testing.T) {
+	_, err := execDistillAgent(context.Background(), t.TempDir(), []string{
+		os.Args[0], "-test.run=TestDistillCommandOutputLimitHelper", "--", "distill-output-helper", "stdout",
+	}, []byte("input"), 10*time.Second)
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("agent output exceeds %d bytes", distillMaxOutputBytes)) {
+		t.Fatalf("expected stdout cap error, got %v", err)
+	}
+}
+
+func TestExecDistillAgentCapsCommandStderrStreaming(t *testing.T) {
+	_, err := execDistillAgent(context.Background(), t.TempDir(), []string{
+		os.Args[0], "-test.run=TestDistillCommandOutputLimitHelper", "--", "distill-output-helper", "stderr",
+	}, []byte("input"), 10*time.Second)
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("agent stderr exceeds %d bytes", distillMaxOutputBytes)) {
+		t.Fatalf("expected stderr cap error, got %v", err)
+	}
+}
+
+func TestExecDistillAgentDrainsAfterOutputCap(t *testing.T) {
+	_, err := execDistillAgent(context.Background(), t.TempDir(), []string{
+		os.Args[0], "-test.run=TestDistillCommandOutputLimitHelper", "--", "distill-output-helper", "stdout-sleep",
+	}, []byte("input"), 2*time.Second)
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("agent output exceeds %d bytes", distillMaxOutputBytes)) {
+		t.Fatalf("expected output cap error instead of timeout, got %v", err)
+	}
+}
+
+func TestDistillCommandOutputLimitHelper(t *testing.T) {
+	if len(os.Args) < 3 || os.Args[len(os.Args)-2] != "distill-output-helper" {
+		return
+	}
+	payload := bytes.Repeat([]byte("x"), distillMaxOutputBytes+4096)
+	switch os.Args[len(os.Args)-1] {
+	case "stdout":
+		_, _ = os.Stdout.Write(payload)
+	case "stdout-sleep":
+		_, _ = os.Stdout.Write(payload)
+		time.Sleep(100 * time.Millisecond)
+	case "stderr":
+		_, _ = os.Stderr.Write(payload)
+	default:
+		t.Fatalf("unknown distill output helper target %q", os.Args[len(os.Args)-1])
+	}
+	os.Exit(0)
 }
 
 func TestExecOllamaDistillAgentUsesLoopbackGenerateAPI(t *testing.T) {

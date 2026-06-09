@@ -224,8 +224,12 @@ func (v *verifyContext) verifyFact(fact factRecord) verifyFactResult {
 		result.Reason = "fact has no retained source anchor"
 		return result
 	}
+	factBranch := fact.Branch
+	if factBranch == "" {
+		factBranch = v.branch
+	}
 	for _, anchor := range fact.Provenance {
-		anchorResult := v.verifyAnchor(anchor)
+		anchorResult := v.verifyAnchor(anchor, factBranch)
 		result.Anchors = append(result.Anchors, anchorResult)
 		result.Verdict = worseVerifyVerdict(result.Verdict, anchorResult.Verdict)
 	}
@@ -233,7 +237,7 @@ func (v *verifyContext) verifyFact(fact factRecord) verifyFactResult {
 	return result
 }
 
-func (v *verifyContext) verifyAnchor(anchor factAnchor) verifyAnchorResult {
+func (v *verifyContext) verifyAnchor(anchor factAnchor, factBranch string) verifyAnchorResult {
 	result := verifyAnchorResult{Anchor: anchor, Verdict: verifyVerdictVerified, Reason: "anchor resolved locally", Checks: []verifyCheck{}}
 	hasRetainedSource := strings.TrimSpace(anchor.SessionID) != "" ||
 		strings.TrimSpace(anchor.CheckpointID) != "" ||
@@ -254,7 +258,7 @@ func (v *verifyContext) verifyAnchor(anchor factAnchor) verifyAnchorResult {
 		return result
 	}
 
-	session, sessionFound, sessionCheck := v.verifyExportedSession(anchor)
+	session, sessionFound, sessionCheck := v.verifyExportedSession(anchor, factBranch)
 	result.addCheck(sessionCheck)
 	if !sessionFound {
 		result.Reason = sessionCheck.Reason
@@ -328,7 +332,7 @@ func (v *verifyContext) verifyCommit(commit string) verifyCheck {
 	return verifyCheck{Name: "commit", Verdict: verifyVerdictVerified, Reason: "commit exists and is reachable from local refs"}
 }
 
-func (v *verifyContext) verifyExportedSession(anchor factAnchor) (exportSession, bool, verifyCheck) {
+func (v *verifyContext) verifyExportedSession(anchor factAnchor, factBranch string) (exportSession, bool, verifyCheck) {
 	sessionID := strings.TrimSpace(anchor.SessionID)
 	if sessionID == "" {
 		return exportSession{}, false, verifyCheck{Name: "session", Verdict: verifyVerdictOrphaned, Reason: "anchor has no session_id"}
@@ -338,15 +342,22 @@ func (v *verifyContext) verifyExportedSession(anchor factAnchor) (exportSession,
 	}
 	var bySession []exportSession
 	for _, session := range v.manifest.Sources.Sessions.Sessions {
-		if session.SessionID == sessionID {
-			bySession = append(bySession, session)
-			if anchor.CheckpointID == "" || session.LatestCheckpoint == anchor.CheckpointID {
-				return session, true, verifyCheck{Name: "session", Verdict: verifyVerdictVerified, Reason: "session is present in exported sessions"}
-			}
+		if session.SessionID != sessionID {
+			continue
+		}
+		if factBranch != "" && resolveDistillBranch(v.manifest, session) != factBranch {
+			continue
+		}
+		bySession = append(bySession, session)
+		if anchor.CheckpointID == "" || session.LatestCheckpoint == anchor.CheckpointID {
+			return session, true, verifyCheck{Name: "session", Verdict: verifyVerdictVerified, Reason: "session is present in exported sessions"}
 		}
 	}
 	if len(bySession) > 0 {
 		return bySession[0], true, verifyCheck{Name: "session", Verdict: verifyVerdictStale, Reason: fmt.Sprintf("session is now exported at checkpoint %s", bySession[0].LatestCheckpoint)}
+	}
+	if factBranch != "" {
+		return exportSession{}, false, verifyCheck{Name: "session", Verdict: verifyVerdictOrphaned, Reason: fmt.Sprintf("session is missing from exported sessions on branch %s", factBranch)}
 	}
 	return exportSession{}, false, verifyCheck{Name: "session", Verdict: verifyVerdictOrphaned, Reason: "session is missing from exported sessions"}
 }

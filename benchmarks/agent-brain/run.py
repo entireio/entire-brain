@@ -82,7 +82,7 @@ PHASE2_PROJECT_TOPICS = [
         "repo": "entire-brain",
         "repo_path": str(ROOT),
         "area": "brain command surface",
-        "queries": ["brief", "inspect decisions", "agent surface"],
+        "queries": ["brief", "query decisions", "agent surface"],
         "brain_source": "hybrid",
         "signal": "The brief command should locate semantic code and warn about snapshot/live-state boundaries before edits.",
     },
@@ -545,9 +545,230 @@ def file_sha256(path: pathlib.Path) -> str:
     return h.hexdigest()
 
 
+def text_sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def stable_json_sha256(value: Any) -> str:
+    data = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    return text_sha256(data)
+
+
+def git_commit_metadata(repo: pathlib.Path, ref: str) -> dict[str, Any]:
+    fmt = "%H%x00%P%x00%cI%x00%an%x00%s"
+    proc = run_cmd(["git", "show", "-s", f"--format={fmt}", ref], cwd=repo)
+    if proc.returncode != 0:
+        return {
+            "ref": ref,
+            "available": False,
+            "error": (proc.stderr or proc.stdout)[-1000:],
+        }
+    parts = proc.stdout.rstrip("\n").split("\x00", 4)
+    if len(parts) != 5:
+        return {"ref": ref, "available": False, "error": "unexpected git show output"}
+    parents = parts[1].split() if parts[1] else []
+    return {
+        "ref": ref,
+        "available": True,
+        "commit": parts[0],
+        "parents": parents,
+        "parent_count": len(parents),
+        "committer_date": parts[2],
+        "author_name": parts[3],
+        "subject": parts[4],
+    }
+
+
+def git_dirty_metadata(repo: pathlib.Path) -> dict[str, Any]:
+    status = run_cmd(["git", "status", "--porcelain=v1"], cwd=repo)
+    if status.returncode != 0:
+        return {
+            "available": False,
+            "dirty": None,
+            "error": (status.stderr or status.stdout)[-1000:],
+        }
+    lines = status.stdout.splitlines()
+    diff = run_cmd(["git", "diff", "--binary", "--no-ext-diff", "HEAD", "--"], cwd=repo)
+    diff_text = diff.stdout if diff.returncode == 0 else ""
+    return {
+        "available": True,
+        "dirty": bool(lines),
+        "status_entries": lines[:200],
+        "status_count": len(lines),
+        "status_sha256": text_sha256(status.stdout),
+        "tracked_diff_sha256": text_sha256(diff_text),
+    }
+
+
+def git_remote_url(repo: pathlib.Path) -> str | None:
+    proc = run_cmd(["git", "remote", "get-url", "origin"], cwd=repo)
+    url = proc.stdout.strip()
+    return url if proc.returncode == 0 and url else None
+
+
+def display_path(path: pathlib.Path) -> str:
+    try:
+        return str(path.resolve().relative_to(ROOT))
+    except ValueError:
+        return str(path.resolve())
+
+
+def task_file_sha256(task: dict[str, Any]) -> str | None:
+    raw = task.get("_path")
+    if not raw:
+        return None
+    path = pathlib.Path(str(raw))
+    if not path.exists() or not path.is_file():
+        return None
+    return file_sha256(path)
+
+
+def task_config_payload(task: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in task.items() if not str(k).startswith("_")}
+
+
+def task_config_sha256(task: dict[str, Any]) -> str:
+    return task_file_sha256(task) or stable_json_sha256(task_config_payload(task))
+
+
+def bind_task_base_commit(task: dict[str, Any]) -> tuple[dict[str, Any], pathlib.Path, dict[str, Any]]:
+    source = resolve_repo_path(task["repo_path"])
+    base_ref = str(task.get("base_commit") or "HEAD")
+    base = git_commit_metadata(source, base_ref)
+    bound = dict(task)
+    if base.get("available") and base.get("commit"):
+        bound["_resolved_base_commit"] = base["commit"]
+    return bound, source, base
+
+
+def tools_provenance(tools: dict[str, pathlib.Path]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for name, path in sorted(tools.items()):
+        entry: dict[str, Any] = {"path": str(path), "exists": path.exists()}
+        if path.exists() and path.is_file():
+            entry["sha256"] = file_sha256(path)
+        out[name] = entry
+    return out
+
+
+def runner_payload(runner: RunnerSpec | None) -> dict[str, Any] | None:
+    if runner is None:
+        return None
+    return {
+        "id": runner.id,
+        "agent": runner.agent,
+        "model": runner.model,
+        "effort": runner.effort,
+    }
+
+
+def run_config_provenance(
+    command: str,
+    runner: RunnerSpec | None,
+    condition: str,
+    repetition: int | None,
+    suite_dir: pathlib.Path,
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    pricing_json = getattr(args, "pricing_json", None)
+    payload: dict[str, Any] = {
+        "command": command,
+        "suite": suite_dir.name,
+        "condition": condition,
+        "repetition": repetition,
+        "runner": runner_payload(runner),
+        "checkpoint_limit": getattr(args, "checkpoint_limit", None),
+        "brain_cache": {
+            "enabled": not bool(getattr(args, "no_brain_cache", False)),
+            "refresh": bool(getattr(args, "refresh_brain_cache", False)),
+        },
+        "requested": {
+            "tasks": getattr(args, "tasks", None),
+            "agents": getattr(args, "agents", None),
+            "runners": getattr(args, "runners", None),
+            "conditions": getattr(args, "conditions", None),
+            "repetitions": getattr(args, "repetitions", None),
+        },
+        "timeout": getattr(args, "timeout", None),
+        "claude_budget": getattr(args, "claude_budget", None),
+        "stop_after_no_brain_score": getattr(args, "stop_after_no_brain_score", None),
+        "pricing": {
+            "file": getattr(args, "pricing_file", None),
+            "inline_sha256": text_sha256(pricing_json) if pricing_json else None,
+        },
+        "env_flags": {
+            "BENCH_REGRESSION_RADAR": os.environ.get("BENCH_REGRESSION_RADAR"),
+            "BENCH_RADAR_LOCATION_ONLY": os.environ.get("BENCH_RADAR_LOCATION_ONLY"),
+        },
+    }
+    payload["fingerprint"] = stable_json_sha256(payload)
+    return payload
+
+
+def build_record_provenance(
+    task: dict[str, Any],
+    runner: RunnerSpec | None,
+    condition: str,
+    repetition: int | None,
+    suite_dir: pathlib.Path,
+    tools: dict[str, pathlib.Path],
+    args: argparse.Namespace,
+    *,
+    command: str,
+    source: pathlib.Path,
+    base: dict[str, Any],
+) -> dict[str, Any]:
+    task_path = pathlib.Path(str(task["_path"])) if task.get("_path") else None
+    source_head = git_commit_metadata(source, "HEAD")
+    task_base = task.get("base_commit")
+    payload: dict[str, Any] = {
+        "schema": 1,
+        "captured_at": dt.datetime.now(dt.UTC).isoformat(),
+        "harness": {
+            "repo_path": str(ROOT),
+            "head": git_commit_metadata(ROOT, "HEAD"),
+            "dirty": git_dirty_metadata(ROOT),
+        },
+        "source": {
+            "repo": task.get("repo"),
+            "repo_path_input": task.get("repo_path"),
+            "repo_path_resolved": str(source.resolve()),
+            "origin_url": git_remote_url(source),
+            "base_ref": str(task_base or "HEAD"),
+            "base_ref_source": "task.base_commit" if task_base else "source_head",
+            "base": base,
+            "head": source_head,
+            "dirty": git_dirty_metadata(source),
+        },
+        "task": {
+            "id": task.get("id"),
+            "path": display_path(task_path) if task_path else None,
+            "config_sha256": task_config_sha256(task),
+            "base_commit": task_base,
+        },
+        "run_config": run_config_provenance(command, runner, condition, repetition, suite_dir, args),
+        "tools": tools_provenance(tools),
+    }
+    payload["fingerprint"] = stable_json_sha256(
+        {
+            "harness_head": payload["harness"]["head"].get("commit"),
+            "source_base": payload["source"]["base"].get("commit"),
+            "source_head": payload["source"]["head"].get("commit"),
+            "task": payload["task"],
+            "run_config": payload["run_config"]["fingerprint"],
+            "tools": {
+                name: entry.get("sha256")
+                for name, entry in payload["tools"].items()
+                if isinstance(entry, dict)
+            },
+        }
+    )
+    return payload
+
+
 def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path:
     source = resolve_repo_path(task["repo_path"])
-    base = task.get("base_commit") or git_head(source)
+    base = task.get("_resolved_base_commit") or task.get("base_commit") or git_head(source)
     worktree = run_dir / "worktree"
     worktree.mkdir(parents=True, exist_ok=False)
     archive = run_dir / "source.tar"
@@ -1006,7 +1227,7 @@ def brain_cache_payload(
         "schema": 3,
         "repo": task.get("repo"),
         "repo_path": str(resolve_repo_path(task["repo_path"]).resolve()),
-        "base_ref": task.get("base_commit") or git_head(resolve_repo_path(task["repo_path"])),
+        "base_ref": task.get("_resolved_base_commit") or task.get("base_commit") or git_head(resolve_repo_path(task["repo_path"])),
         "condition": prep_kind,
         "prepare_semantic": bool(task.get("prepare_semantic", True)),
         "checkpoint_limit": checkpoint_limit if condition_prepares_history(prep_kind) else None,
@@ -1241,6 +1462,74 @@ def prep_record_summary(record: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+def unique_json_values(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    keyed = {json.dumps(value, sort_keys=True, separators=(",", ":"), default=str): value for value in values}
+    return [keyed[key] for key in sorted(keyed)]
+
+
+def suite_provenance(records: list[dict[str, Any]]) -> dict[str, Any]:
+    provenances = [record.get("provenance") for record in records if isinstance(record.get("provenance"), dict)]
+    sources = []
+    harnesses = []
+    tasks = []
+    run_configs = []
+    for prov in provenances:
+        source = prov.get("source") if isinstance(prov.get("source"), dict) else {}
+        harness = prov.get("harness") if isinstance(prov.get("harness"), dict) else {}
+        task = prov.get("task") if isinstance(prov.get("task"), dict) else {}
+        run_config = prov.get("run_config") if isinstance(prov.get("run_config"), dict) else {}
+        sources.append(
+            {
+                "repo": source.get("repo"),
+                "repo_path_input": source.get("repo_path_input"),
+                "repo_path_resolved": source.get("repo_path_resolved"),
+                "base_ref": source.get("base_ref"),
+                "base_ref_source": source.get("base_ref_source"),
+                "base_commit": (source.get("base") or {}).get("commit") if isinstance(source.get("base"), dict) else None,
+                "head_commit": (source.get("head") or {}).get("commit") if isinstance(source.get("head"), dict) else None,
+                "dirty": (source.get("dirty") or {}).get("dirty") if isinstance(source.get("dirty"), dict) else None,
+            }
+        )
+        harnesses.append(
+            {
+                "repo_path": harness.get("repo_path"),
+                "head_commit": (harness.get("head") or {}).get("commit") if isinstance(harness.get("head"), dict) else None,
+                "dirty": (harness.get("dirty") or {}).get("dirty") if isinstance(harness.get("dirty"), dict) else None,
+            }
+        )
+        tasks.append(
+            {
+                "id": task.get("id"),
+                "path": task.get("path"),
+                "config_sha256": task.get("config_sha256"),
+                "base_commit": task.get("base_commit"),
+            }
+        )
+        run_configs.append(
+            {
+                "command": run_config.get("command"),
+                "condition": run_config.get("condition"),
+                "runner": run_config.get("runner"),
+                "checkpoint_limit": run_config.get("checkpoint_limit"),
+                "brain_cache": run_config.get("brain_cache"),
+                "requested": run_config.get("requested"),
+                "fingerprint": run_config.get("fingerprint"),
+            }
+        )
+    payload = {
+        "schema": 1,
+        "records": len(records),
+        "records_with_provenance": len(provenances),
+        "missing_record_provenance": len(records) - len(provenances),
+        "harnesses": unique_json_values(harnesses),
+        "sources": unique_json_values(sources),
+        "tasks": unique_json_values(tasks),
+        "run_configs": unique_json_values(run_configs),
+    }
+    payload["fingerprint"] = stable_json_sha256(payload)
+    return payload
+
+
 def summarize_prep(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[str, Any]:
     summary_records = []
     for record in records:
@@ -1276,6 +1565,7 @@ def summarize_prep(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> di
         "records": len(records),
         "ok": sum(1 for record in records if record.get("ok")),
         "failed": sum(1 for record in records if not record.get("ok")),
+        "provenance": suite_provenance(records),
         "prep": summary_records,
     }
     (suite_dir / "prep-summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
@@ -2343,10 +2633,10 @@ def run_one(
     args: argparse.Namespace,
     pricing: dict[str, Any],
 ) -> RunResult:
+    task, source, base_provenance = bind_task_base_commit(task)
     run_id = f"{task['id']}__{runner.id}__{condition}__r{repetition}"
     run_dir = suite_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
-    source = resolve_repo_path(task["repo_path"])
     worktree: pathlib.Path | None = None
     record: dict[str, Any] = {
         "run_id": run_id,
@@ -2362,6 +2652,18 @@ def run_one(
         "condition": condition,
         "repetition": repetition,
         "started_at": dt.datetime.now(dt.UTC).isoformat(),
+        "provenance": build_record_provenance(
+            task,
+            runner,
+            condition,
+            repetition,
+            suite_dir,
+            tools,
+            args,
+            command="run",
+            source=source,
+            base=base_provenance,
+        ),
     }
     try:
         worktree = create_worktree(task, run_dir)
@@ -2920,6 +3222,8 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
     # cannot be tagged brain_positive_stable.
     for comp, (cond_recs, base_recs) in zip(comparisons, stability_inputs):
         comp["stability"] = comparison_stability(cond_recs, base_recs, comp)
+        comp["candidate_proof_ready"] = bool(comp.get("proof_ready"))
+        comp["proof_ready"] = bool(comp.get("candidate_proof_ready") and comp["stability"].get("tag") == "brain_positive_stable")
 
     stability_tags: dict[str, int] = {}
     for comp in comparisons:
@@ -2931,6 +3235,7 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
         "records": len(records),
         "comparisons": comparisons,
         "stability_tags": stability_tags,
+        "provenance": suite_provenance(records),
         "stats_notes": {
             "p_value_test": "two-sided Welch's t-test (Student-t, Welch-Satterthwaite df)",
             "multiple_comparison_correction": "holm-bonferroni across all suite p-values; see <field>_holm",
@@ -3401,10 +3706,10 @@ def cmd_prep(args: argparse.Namespace) -> int:
         for condition in conditions:
             if condition == "no_brain" or condition not in task.get("conditions", []):
                 continue
+            task, source, base_provenance = bind_task_base_commit(task)
             run_id = f"{task['id']}__prep__{condition}"
             run_dir = suite_dir / run_id
             run_dir.mkdir(parents=True, exist_ok=False)
-            source = resolve_repo_path(task["repo_path"])
             worktree: pathlib.Path | None = None
             record: dict[str, Any] = {
                 "run_id": run_id,
@@ -3412,6 +3717,18 @@ def cmd_prep(args: argparse.Namespace) -> int:
                 "repo": task["repo"],
                 "condition": condition,
                 "started_at": dt.datetime.now(dt.UTC).isoformat(),
+                "provenance": build_record_provenance(
+                    task,
+                    None,
+                    condition,
+                    None,
+                    suite_dir,
+                    tools,
+                    args,
+                    command="prep",
+                    source=source,
+                    base=base_provenance,
+                ),
             }
             try:
                 worktree = create_worktree(task, run_dir)

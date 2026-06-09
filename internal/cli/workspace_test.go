@@ -60,6 +60,15 @@ func TestWorkspaceWatchFansOverMembersWithSharedBudget(t *testing.T) {
 	}
 }
 
+func TestWorkspaceWatchRejectsInvalidJobsBeforeWork(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	cmd := NewRootCommand(Options{Version: "test", Env: env, Runner: &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}, Now: time.Now})
+	_, err := execute(t, cmd, "workspace", "watch", "ws", "--once", "--jobs", "0")
+	if err == nil || !strings.Contains(err.Error(), "--jobs must be greater than 0") {
+		t.Fatalf("expected invalid jobs error, got %v", err)
+	}
+}
+
 func TestWorkspaceCreateAddRefreshAndQuery(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

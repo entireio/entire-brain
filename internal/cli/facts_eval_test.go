@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -186,6 +187,74 @@ func TestRunFactsEvalRetrieverArms(t *testing.T) {
 			t.Fatalf("%s relevance source = %q, want %q", retriever, res[0].RelevanceSource, evalRelevanceSourceMatch)
 		}
 	}
+
+	calls := 0
+	judgeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return "1 no\n", nil
+	}
+	res, err := runFactsEvalWithOptions(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, true, judgeRun, []string{"fake"}, loadJudgeCache(""), nil, nil, evalRetrieverRawSessions, factsEvalRunOptions{JudgeSourceMatches: true})
+	if err != nil {
+		t.Fatalf("raw-session judged source matches: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected judge call for source-match row, got %d", calls)
+	}
+	if len(res) != 1 || res[0].RelevanceSource != evalRelevanceJudge || res[0].RelevantSurfaced != 0 {
+		t.Fatalf("judge should replace source-match proxy relevance, got %+v", res)
+	}
+}
+
+func TestRunFactsEvalSourceMatchMissDoesNotAutoJudge(t *testing.T) {
+	brainDir := t.TempDir()
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	transcriptRel := "sessions/main/s1.jsonl"
+	if err := os.MkdirAll(filepath.Join(brainDir, filepath.Dir(transcriptRel)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(transcriptRel)), []byte("alpha raw checkpoint guidance"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	history := historyIndex{GeneratedAt: now, Records: []historyRecord{{
+		ID: "history:other", Kind: "decision", Path: "sessions/main/other.jsonl", Line: 1, Summary: "alpha history checkpoint guidance",
+	}}}
+	historyData, err := json.Marshal(history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), historyData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		DefaultBranch: "main",
+		Sources: &brainSources{
+			Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{{SessionID: "session-one", Branch: "main", TranscriptPath: transcriptRel, CreatedAt: now}}},
+			History:  &historySourceManifest{GeneratedAt: now, IndexPath: historyIndexPath, Records: 1, Decisions: 1},
+		},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	tasks := []evalTask{{ID: "t1", Task: "alpha checkpoint guidance", Branch: "main", SourceSessionID: "session-one", SourceTranscriptPath: transcriptRel}}
+	calls := 0
+	judgeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return "1 yes\n", nil
+	}
+	res, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, true, judgeRun, []string{"fake"}, loadJudgeCache(""), nil, nil, evalRetrieverHistory)
+	if err != nil {
+		t.Fatalf("history eval: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("source-match proxy miss should not call judge without --judge-source-matches; calls=%d", calls)
+	}
+	if len(res) != 1 || res[0].RelevanceSource != evalRelevanceSourceMatch || res[0].RelevantSurfaced != 0 {
+		t.Fatalf("expected source-match miss with zero relevance, got %+v", res)
+	}
 }
 
 func TestJudgeCacheReuse(t *testing.T) {
@@ -220,6 +289,77 @@ func TestJudgeCacheReuse(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("second run should reuse cache, but agent was called again (calls=%d)", calls)
+	}
+}
+
+func TestJudgeCacheInvalidatesWhenTaskTextChanges(t *testing.T) {
+	cache := loadJudgeCache("")
+	item := evalRetrievedItem{ID: "raw:s1:1-1", Path: "sessions/main/s1.jsonl:1", Text: "checkpoint setup"}
+	calls := 0
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		if calls == 1 {
+			return "1 yes\n", nil
+		}
+		return "1 no\n", nil
+	}
+	first, err := judgeRelevanceItems(context.Background(), run, "/repo", []string{"fake"}, evalTask{ID: "t1", Task: "old task"}, evalRetrieverRawSessions, []evalRetrievedItem{item}, cache)
+	if err != nil {
+		t.Fatalf("first judge: %v", err)
+	}
+	if _, ok := first[item.ID]; !ok {
+		t.Fatalf("first verdict should be relevant")
+	}
+	second, err := judgeRelevanceItems(context.Background(), run, "/repo", []string{"fake"}, evalTask{ID: "t1", Task: "new task"}, evalRetrieverRawSessions, []evalRetrievedItem{item}, cache)
+	if err != nil {
+		t.Fatalf("second judge: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("changed task text should bypass cached verdict; calls=%d", calls)
+	}
+	if _, ok := second[item.ID]; ok {
+		t.Fatalf("second verdict should reflect fresh no judgment, got %+v", second)
+	}
+}
+
+func TestJudgeCacheInvalidatesWhenRetrievedTextChanges(t *testing.T) {
+	cache := loadJudgeCache("")
+	task := evalTask{ID: "t1", Task: "check checkpoint setup"}
+	oldItem := evalRetrievedItem{ID: "raw:s1:1-1", Path: "sessions/main/s1.jsonl:1", Text: "old checkpoint setup"}
+	newItem := evalRetrievedItem{ID: "raw:s1:1-1", Path: "sessions/main/s1.jsonl:1", Text: "new checkpoint setup"}
+	calls := 0
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		if calls == 1 {
+			return "1 yes\n", nil
+		}
+		return "1 no\n", nil
+	}
+	if _, err := judgeRelevanceItems(context.Background(), run, "/repo", []string{"fake"}, task, evalRetrieverRawSessions, []evalRetrievedItem{oldItem}, cache); err != nil {
+		t.Fatalf("first judge: %v", err)
+	}
+	second, err := judgeRelevanceItems(context.Background(), run, "/repo", []string{"fake"}, task, evalRetrieverRawSessions, []evalRetrievedItem{newItem}, cache)
+	if err != nil {
+		t.Fatalf("second judge: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("changed retrieved text should bypass cached verdict; calls=%d", calls)
+	}
+	if _, ok := second[newItem.ID]; ok {
+		t.Fatalf("second verdict should reflect fresh no judgment, got %+v", second)
+	}
+}
+
+func TestFactsEvalRejectsJudgeSourceMatchesWithoutJudge(t *testing.T) {
+	dir := t.TempDir()
+	tasksPath := filepath.Join(dir, "tasks.json")
+	if err := os.WriteFile(tasksPath, []byte(`[{"id":"t1","task":"check retrieval"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := newFactsEvalCommand(Options{})
+	_, err := execute(t, cmd, "--tasks", tasksPath, "--judge-source-matches")
+	if err == nil || !strings.Contains(err.Error(), "--judge-source-matches requires --judge") {
+		t.Fatalf("expected --judge-source-matches validation error, got %v", err)
 	}
 }
 

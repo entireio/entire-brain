@@ -2196,7 +2196,7 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
 		} else if err := rejectSymlinkPathComponents(storage.BrainDir, storePath); err != nil {
 			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
-		} else if err := validateSemanticSQLiteStore(filepath.Join(storage.BrainDir, storePath), source.Symbols, source.Relations); err != nil {
+		} else if err := validateSemanticSQLiteStore(filepath.Join(storage.BrainDir, storePath), source.Files, source.Symbols, source.Relations); err != nil {
 			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
 		} else {
 			axes["store"] = staleAxis{State: "ok", Detail: source.StorePath}
@@ -3115,7 +3115,7 @@ func validateSemanticDeclaredStore(brainDir string, source *semanticSourceManife
 		return "", err
 	}
 	fullPath := filepath.Join(brainDir, storePath)
-	if err := validateSemanticSQLiteStore(fullPath, source.Symbols, source.Relations); err != nil {
+	if err := validateSemanticSQLiteStore(fullPath, source.Files, source.Symbols, source.Relations); err != nil {
 		return "", err
 	}
 	return fullPath, nil
@@ -5197,7 +5197,7 @@ func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
 	}
 	if manifest.Sources.Semantic.StorePath != "" {
 		storeFullPath := filepath.Join(root, filepath.FromSlash(manifest.Sources.Semantic.StorePath))
-		if err := validateSemanticSQLiteStore(storeFullPath, manifest.Sources.Semantic.Symbols, manifest.Sources.Semantic.Relations); err != nil {
+		if err := validateSemanticSQLiteStore(storeFullPath, manifest.Sources.Semantic.Files, manifest.Sources.Semantic.Symbols, manifest.Sources.Semantic.Relations); err != nil {
 			return nil, err
 		}
 	}
@@ -5254,7 +5254,7 @@ func validateImportedGenerationEntries(root string, source *semanticSourceManife
 	})
 }
 
-func validateSemanticSQLiteStore(path string, expectedSymbols, expectedRelations int) error {
+func validateSemanticSQLiteStore(path string, expectedFiles, expectedSymbols, expectedRelations int) error {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return fmt.Errorf("semantic sqlite store missing: %w", err)
@@ -5277,6 +5277,10 @@ func validateSemanticSQLiteStore(path string, expectedSymbols, expectedRelations
 	if integrity != "ok" {
 		return fmt.Errorf("semantic sqlite integrity check failed: %s", integrity)
 	}
+	files, err := semanticSQLiteTableCount(db, "files")
+	if err != nil {
+		return err
+	}
 	symbols, err := semanticSQLiteTableCount(db, "symbols")
 	if err != nil {
 		return err
@@ -5284,6 +5288,9 @@ func validateSemanticSQLiteStore(path string, expectedSymbols, expectedRelations
 	relations, err := semanticSQLiteTableCount(db, "relations")
 	if err != nil {
 		return err
+	}
+	if expectedFiles > 0 && files != expectedFiles {
+		return fmt.Errorf("semantic sqlite file count %d does not match manifest %d", files, expectedFiles)
 	}
 	if symbols != expectedSymbols {
 		return fmt.Errorf("semantic sqlite symbol count %d does not match manifest %d", symbols, expectedSymbols)

@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -255,6 +257,7 @@ func newFactsEvalCommand(opts Options) *cobra.Command {
 		branch       string
 		k            int
 		judge        bool
+		judgeSource  bool
 		semantic     bool
 		expand       bool
 		agent        string
@@ -277,10 +280,12 @@ func newFactsEvalCommand(opts Options) *cobra.Command {
 The tasks file is a JSON array:
   [{"id":"t1","task":"how does X work","branch":"main","k":10,
     "relevant":["fact:abc","fact:def"]}]
-	With retriever-specific "relevant" ids, metrics are deterministic. Generated
-	source-session labels give source-match credit for history/raw arms but do not
-	define recall. Without labels, pass --judge to have the agent decide relevance
-	per surfaced item.`,
+			With retriever-specific "relevant" ids, metrics are deterministic. Generated
+			source-session labels give source-match credit for history/preprocessed-session
+			arms but do not define recall. Without labels, pass --judge to have the agent
+			decide relevance per surfaced item. With source-session tasks, pass
+			--judge --judge-source-matches to replace source-overlap proxy credit with
+			judge-labeled relevance for history/preprocessed-session arms.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(tasksFile) == "" {
@@ -289,6 +294,9 @@ The tasks file is a JSON array:
 			tasks, err := loadEvalTasks(tasksFile)
 			if err != nil {
 				return err
+			}
+			if judgeSource && !judge {
+				return fmt.Errorf("--judge-source-matches requires --judge")
 			}
 			repoDir, brainDir, defaultBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
 			if err != nil {
@@ -335,7 +343,7 @@ The tasks file is a JSON array:
 			if retriever == "" {
 				retriever = evalRetrieverFacts
 			}
-			results, err := runFactsEval(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, loadJudgeCache(judgeCache), expander, rr, retriever)
+			results, err := runFactsEvalWithOptions(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, loadJudgeCache(judgeCache), expander, rr, retriever, factsEvalRunOptions{JudgeSourceMatches: judgeSource})
 			if err != nil {
 				return err
 			}
@@ -354,6 +362,7 @@ The tasks file is a JSON array:
 	cmd.Flags().StringVar(&branch, "branch", "", "Default branch for tasks that omit one (default: current branch)")
 	cmd.Flags().IntVar(&k, "k", 10, "Facts to retrieve per task")
 	cmd.Flags().BoolVar(&judge, "judge", false, "Use the agent to judge relevance when a task has no labels")
+	cmd.Flags().BoolVar(&judgeSource, "judge-source-matches", false, "With --judge, judge source-match proxy rows instead of counting transcript/session overlap as relevance")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Judge/expand agent: auto, codex, claude-code, ollama, or command")
 	cmd.Flags().StringVar(&model, "model", "", "Model for codex/claude-code/ollama judge and expand calls")
 	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
@@ -366,16 +375,29 @@ The tasks file is a JSON array:
 	return cmd
 }
 
-// judgeCache persists agent relevance verdicts keyed by "<taskID>\x00<factID>"
-// so judged evals are repeatable and only new (task, fact) pairs cost an agent
-// call. It makes judge-based A/Bs deterministic across runs.
+// judgeCache persists agent relevance verdicts keyed by a digest of the task,
+// retriever, and surfaced item content. That keeps judged evals repeatable while
+// avoiding stale verdict reuse when task wording or raw-session text changes.
 type judgeCache struct {
 	path    string
 	verdict map[string]bool
 	dirty   bool
 }
 
-func judgeCacheKey(taskID, factID string) string { return taskID + "\x00" + factID }
+func judgeCacheKey(task evalTask, retriever string, item evalRetrievedItem) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{
+		"v2",
+		task.ID,
+		task.Task,
+		task.Branch,
+		task.QueryType,
+		retriever,
+		item.ID,
+		item.Path,
+		item.Text,
+	}, "\x00")))
+	return task.ID + "\x00" + retriever + "\x00" + item.ID + "\x00sha256:" + hex.EncodeToString(sum[:])
+}
 
 func loadJudgeCache(path string) *judgeCache {
 	c := &judgeCache{path: path, verdict: map[string]bool{}}
@@ -388,19 +410,19 @@ func loadJudgeCache(path string) *judgeCache {
 	return c
 }
 
-func (c *judgeCache) get(taskID, factID string) (bool, bool) {
+func (c *judgeCache) get(task evalTask, retriever string, item evalRetrievedItem) (bool, bool) {
 	if c == nil {
 		return false, false
 	}
-	v, ok := c.verdict[judgeCacheKey(taskID, factID)]
+	v, ok := c.verdict[judgeCacheKey(task, retriever, item)]
 	return v, ok
 }
 
-func (c *judgeCache) set(taskID, factID string, relevant bool) {
+func (c *judgeCache) set(task evalTask, retriever string, item evalRetrievedItem, relevant bool) {
 	if c == nil {
 		return
 	}
-	c.verdict[judgeCacheKey(taskID, factID)] = relevant
+	c.verdict[judgeCacheKey(task, retriever, item)] = relevant
 	c.dirty = true
 }
 
@@ -684,7 +706,15 @@ func taskHasEvalSourceAnchor(task evalTask) bool {
 // expansion.
 type queryExpanderFunc func(query string) (string, error)
 
+type factsEvalRunOptions struct {
+	JudgeSourceMatches bool
+}
+
 func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, rr *semanticReranker, retriever string) ([]evalTaskResult, error) {
+	return runFactsEvalWithOptions(ctx, opts, brainDir, repoDir, defaultBranch, tasks, defaultK, judge, run, judgeArgs, cache, expander, rr, retriever, factsEvalRunOptions{})
+}
+
+func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, rr *semanticReranker, retriever string, runOpts factsEvalRunOptions) ([]evalTaskResult, error) {
 	if err := validateEvalRetriever(retriever); err != nil {
 		return nil, err
 	}
@@ -728,8 +758,12 @@ func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultB
 		latencyMS := time.Since(started).Milliseconds()
 
 		relevant, totalRelevant, labeled, relevanceSource := evalLabelsForRetriever(task, retriever, surfaced)
-		if !labeled && len(relevant) == 0 && judge && len(surfaced) > 0 {
-			judged, jerr := judgeRelevanceItems(ctx, run, repoDir, judgeArgs, task, surfaced, cache)
+		shouldJudge := judge && len(surfaced) > 0 && !labeled && relevanceSource != evalRelevanceSourceMatch
+		if judge && len(surfaced) > 0 && !labeled && runOpts.JudgeSourceMatches && relevanceSource == evalRelevanceSourceMatch {
+			shouldJudge = true
+		}
+		if shouldJudge {
+			judged, jerr := judgeRelevanceItems(ctx, run, repoDir, judgeArgs, task, retriever, surfaced, cache)
 			if jerr != nil {
 				return nil, jerr
 			}
@@ -758,7 +792,8 @@ func judgeRelevance(ctx context.Context, run distillAgentRunner, repoDir string,
 	relevant := map[string]struct{}{}
 	var uncached []factRecord
 	for _, f := range surfaced {
-		if v, ok := cache.get(task.ID, f.ID); ok {
+		item := evalRetrievedItem{ID: f.ID, Text: f.Text, Path: strings.Join(f.Paths, ",")}
+		if v, ok := cache.get(task, evalRetrieverFacts, item); ok {
 			if v {
 				relevant[f.ID] = struct{}{}
 			}
@@ -775,8 +810,9 @@ func judgeRelevance(ctx context.Context, run distillAgentRunner, repoDir string,
 	}
 	judged := parseJudgeOutput(out, uncached)
 	for _, f := range uncached {
+		item := evalRetrievedItem{ID: f.ID, Text: f.Text, Path: strings.Join(f.Paths, ",")}
 		_, isRel := judged[f.ID]
-		cache.set(task.ID, f.ID, isRel)
+		cache.set(task, evalRetrieverFacts, item, isRel)
 		if isRel {
 			relevant[f.ID] = struct{}{}
 		}
@@ -784,11 +820,11 @@ func judgeRelevance(ctx context.Context, run distillAgentRunner, repoDir string,
 	return relevant, nil
 }
 
-func judgeRelevanceItems(ctx context.Context, run distillAgentRunner, repoDir string, judgeArgs []string, task evalTask, surfaced []evalRetrievedItem, cache *judgeCache) (map[string]struct{}, error) {
+func judgeRelevanceItems(ctx context.Context, run distillAgentRunner, repoDir string, judgeArgs []string, task evalTask, retriever string, surfaced []evalRetrievedItem, cache *judgeCache) (map[string]struct{}, error) {
 	relevant := map[string]struct{}{}
 	var uncached []evalRetrievedItem
 	for _, item := range surfaced {
-		if v, ok := cache.get(task.ID, item.ID); ok {
+		if v, ok := cache.get(task, retriever, item); ok {
 			if v {
 				relevant[item.ID] = struct{}{}
 			}
@@ -806,7 +842,7 @@ func judgeRelevanceItems(ctx context.Context, run distillAgentRunner, repoDir st
 	judged := parseJudgeOutputItems(out, uncached)
 	for _, item := range uncached {
 		_, isRel := judged[item.ID]
-		cache.set(task.ID, item.ID, isRel)
+		cache.set(task, retriever, item, isRel)
 		if isRel {
 			relevant[item.ID] = struct{}{}
 		}

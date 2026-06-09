@@ -2,12 +2,9 @@
 
 ## 2026-05-31
 
-Branch: `phase-1-semantic-brain`
-
-Initial release 1 commit: `7f7f659` (`Implement semantic brain fresh index`),
-pushed to `origin/phase-1-semantic-brain`. Follow-up release-1 hardening commit:
-`f244a1f` (`Harden semantic brain release one`), also pushed to
-`origin/phase-1-semantic-brain`.
+Release 1 chronology keeps commit references for local history only:
+`7f7f659` (`Implement semantic brain fresh index`) and `f244a1f`
+(`Harden semantic brain release one`).
 
 ### Release 1: Fresh Semantic Index
 
@@ -399,8 +396,7 @@ Completed validation for this gap-closure pass:
   edge-cases, bundle redaction/import consistency gaps, and one-letter SCP
   parsing regressions. All were fixed. The final `entire review` reported no
   actionable findings.
-- Commit/push and GitHub Actions follow-up on all three operating systems are
-  next.
+- Cross-OS GitHub Actions follow-up remains next.
 
 ## Agent Brain Benchmark Progress
 
@@ -531,24 +527,13 @@ Latest resumed benchmark results:
 
 Model matrix and attribution learnings:
 
-- Codex CLI is `0.135.0`. The local Codex model cache, fetched on 2026-06-01,
-  lists `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`,
-  `gpt-5.3-codex-spark`, `gpt-5.2`, and hidden `codex-auto-review`; all list
-  `low`, `medium`, `high`, and `xhigh` reasoning levels.
-- Existing Codex benchmark records are not model-attributable. The harness ran
-  Codex with `--ignore-user-config` and no `--model`, so the user config
-  default `gpt-5.5` did not pin those runs. Future proof runs must use explicit
-  specs such as `codex:gpt-5.5:medium` or `codex:gpt-5.3-codex:medium`.
-- Claude Code is `2.1.159`. Its help exposes `--model` aliases such as
-  `sonnet` and `opus`, plus full model names such as `claude-opus-4-8`, but it
-  does not expose a full local availability catalog.
-- Claude artifacts do expose resolved `modelUsage` keys. Prior `sonnet` runs
-  resolved to `claude-sonnet-4-6`; recent/default Claude retained pilots used
-  `claude-opus-4-8[1m]`; `claude-haiku-4-5-20251001` appeared as auxiliary
-  usage in some runs.
+- Existing Codex benchmark records are not model-attributable because the
+  harness did not pin a requested model. Future proof runs must record requested
+  runner/model/effort explicitly.
 - The next matrix should report requested model/effort separately from resolved
-  model usage. For Codex, resolved model remains unknown unless the CLI exposes
-  it; for Claude, use `modelUsage` keys as the resolved-model source.
+  model usage when the runner exposes it. Claude artifacts expose
+  `modelUsage` keys; use those as the resolved-model source while keeping
+  aliases/requested specs separate.
 
 Latest session-inspect fix:
 
@@ -572,9 +557,10 @@ Latest session-inspect fix:
     validations, 20,000 tool calls; index time 27.42s with an explicit warning
     that only the newest 311 session files / 535,058,459 bytes were scanned
     before the scan budget skipped older sessions.
-  - Representative non-zero probes: `inspect decisions "source_signal"`,
-    `inspect validation "go test"`, `inspect tool-paths "apply_patch"`,
-    `inspect architecture "checkpoint"`, and `inspect sessions "transcript"`.
+  - Representative non-zero probes at the time used the old history `inspect`
+    labels for decisions, validation, tool paths, architecture, and sessions;
+    current broad retrieval should use `search`, `query`, `get`, and
+    `multi-get`.
 
 Latest brain optimization for Layer A scenarios:
 
@@ -608,9 +594,9 @@ Latest brain optimization for Layer A scenarios:
   - Manual attribution-base drift now surfaces the `AttributionBaseCommit` /
     `RealignAttributionBase` invariant and the `human_added` failure mode in
     top `brief.history` matches.
-  - `inspect decisions "AttributionBaseCommit"` returns nonzero results, and
-    `inspect architecture/history` can expose both rationale and source-derived
-    code facts for the scenario.
+  - The old `inspect decisions "AttributionBaseCommit"` probe returned nonzero
+    results, and current `search` / `query` reads can expose both rationale and
+    source-derived code facts for the scenario.
 - Live `entire-brain` history-only validation is healthier but not yet enough
   to retain broad history-specific candidates by itself. For example, a
   seed-agent schema-contract prompt returns history matches, but the top match
@@ -653,3 +639,17 @@ Next benchmark step:
   the current `entire-cli` semantic/history pilots are mostly saturated.
 - Import real SWE-bench Lite/Verified cases only after the local retained-task
   matrix is stable.
+
+Release claim hygiene notes:
+
+- Facts-vs-session claims remain pending until paired `facts eval --retriever
+  facts|history|query|raw-sessions` runs use the same labeled or explicitly
+  proxy-authorized task set.
+- The `raw-sessions` retriever is a preprocessed session-chunk baseline;
+  source-session matches are provenance/proxy evidence, not recall labels.
+- Semantic/tree-sitter claims should cite `semantic-audit` counts, freshness,
+  file-language/symbol/relation coverage, blind spots, and retained benchmark
+  records. Current evidence is local and scoped, not global parser coverage.
+- Remaining blocked evidence: large-repo distill dry-run/timed runs, paired facts
+  evals, release-candidate semantic audit output, and audited benchmark/proof
+  records.

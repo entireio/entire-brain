@@ -31,6 +31,10 @@ type metricComparison struct {
 // across the metric family at level alpha. A and B must be the same tasks under
 // two retrieval configs (e.g. base vs --expand).
 func compareEvalSummaries(a, b evalSummary, alpha float64) ([]metricComparison, int, error) {
+	return compareEvalSummariesWithOptions(a, b, alpha, false)
+}
+
+func compareEvalSummariesWithOptions(a, b evalSummary, alpha float64, allowProxyComparison bool) ([]metricComparison, int, error) {
 	aByID, err := evalResultsByID(a.Results, "A")
 	if err != nil {
 		return nil, 0, err
@@ -51,15 +55,16 @@ func compareEvalSummaries(a, b evalSummary, alpha float64) ([]metricComparison, 
 	sort.Strings(ids)
 
 	metrics := []struct {
-		name    string
-		get     func(evalTaskResult) float64
-		include func(evalTaskResult, evalTaskResult) bool
+		name              string
+		get               func(evalTaskResult) float64
+		include           func(evalTaskResult, evalTaskResult) bool
+		requiresSameTruth bool
 	}{
-		{"precision", func(r evalTaskResult) float64 { return r.Precision }, nil},
-		{"recall", func(r evalTaskResult) float64 { return r.Recall }, func(a, b evalTaskResult) bool { return a.Labeled && b.Labeled }},
-		{"useful_per_1k", func(r evalTaskResult) float64 { return r.UsefulPer1k }, nil},
-		{"tokens", func(r evalTaskResult) float64 { return float64(r.Tokens) }, nil},
-		{"latency_ms", func(r evalTaskResult) float64 { return float64(r.LatencyMS) }, nil},
+		{"precision", func(r evalTaskResult) float64 { return r.Precision }, nil, true},
+		{"recall", func(r evalTaskResult) float64 { return r.Recall }, func(a, b evalTaskResult) bool { return a.Labeled && b.Labeled }, true},
+		{"useful_per_1k", func(r evalTaskResult) float64 { return r.UsefulPer1k }, nil, true},
+		{"tokens", func(r evalTaskResult) float64 { return float64(r.Tokens) }, nil, false},
+		{"latency_ms", func(r evalTaskResult) float64 { return float64(r.LatencyMS) }, nil, false},
 	}
 
 	comparisons := make([]metricComparison, 0, len(metrics))
@@ -70,6 +75,9 @@ func compareEvalSummaries(a, b evalSummary, alpha float64) ([]metricComparison, 
 			ar, br := aByID[id], bByID[id]
 			if m.include != nil && !m.include(ar, br) {
 				continue
+			}
+			if m.requiresSameTruth && !allowProxyComparison && !evalRelevanceSourcesComparable(ar, br) {
+				return nil, 0, fmt.Errorf("task %q compares %s with different relevance sources (A=%s labeled=%t, B=%s labeled=%t); rerun with comparable labels/judging or pass --allow-proxy-comparison", id, m.name, valueOrUnset(ar.RelevanceSource), ar.Labeled, valueOrUnset(br.RelevanceSource), br.Labeled)
 			}
 			av = append(av, m.get(ar))
 			bv = append(bv, m.get(br))
@@ -89,6 +97,10 @@ func compareEvalSummaries(a, b evalSummary, alpha float64) ([]metricComparison, 
 		comparisons[i].Claim = evalMetricClaim(comparisons[i])
 	}
 	return comparisons, len(ids), nil
+}
+
+func evalRelevanceSourcesComparable(a, b evalTaskResult) bool {
+	return a.Labeled == b.Labeled && a.RelevanceSource == b.RelevanceSource
 }
 
 func evalResultsByID(results []evalTaskResult, label string) (map[string]evalTaskResult, error) {
@@ -163,10 +175,11 @@ func loadEvalSummary(path string) (evalSummary, error) {
 
 func newFactsEvalCompareCommand(opts Options) *cobra.Command {
 	var (
-		aPath   string
-		bPath   string
-		alpha   float64
-		jsonOut bool
+		aPath                string
+		bPath                string
+		alpha                float64
+		jsonOut              bool
+		allowProxyComparison bool
 	)
 	cmd := &cobra.Command{
 		Use:   "eval-compare --a <A.json> --b <B.json>",
@@ -174,8 +187,9 @@ func newFactsEvalCompareCommand(opts Options) *cobra.Command {
 		Long: `eval-compare reads two 'facts eval --json' summaries over the SAME tasks (two
 retrieval configs, e.g. base vs --expand) and reports, per metric, the paired
 mean delta, a two-sided Student-t p-value, Cohen's d, and a Holm-Bonferroni
-family-wise significance verdict. Use it to report a lift honestly instead of
-eyeballing two means.`,
+family-wise significance verdict. Relevance metrics require comparable
+relevance_source/labeled values unless --allow-proxy-comparison is explicit. Use
+it to report a lift honestly instead of eyeballing two means.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if aPath == "" || bPath == "" {
@@ -189,7 +203,7 @@ eyeballing two means.`,
 			if err != nil {
 				return err
 			}
-			comparisons, n, err := compareEvalSummaries(a, b, alpha)
+			comparisons, n, err := compareEvalSummariesWithOptions(a, b, alpha, allowProxyComparison)
 			if err != nil {
 				return err
 			}
@@ -197,12 +211,15 @@ eyeballing two means.`,
 				return fmt.Errorf("the two runs share no task ids to compare")
 			}
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{"n": n, "alpha": alpha, "a_retriever": a.Retriever, "b_retriever": b.Retriever, "metrics": comparisons})
+				return writeJSON(cmd, map[string]any{"n": n, "alpha": alpha, "a_retriever": a.Retriever, "b_retriever": b.Retriever, "allow_proxy_comparison": allowProxyComparison, "metrics": comparisons})
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "paired A/B over %d shared tasks (Holm-corrected at alpha=%.2f)\n", n, alpha)
 			if a.Retriever != "" || b.Retriever != "" {
 				fmt.Fprintf(out, "A=%s B=%s\n", valueOrUnset(a.Retriever), valueOrUnset(b.Retriever))
+			}
+			if allowProxyComparison {
+				fmt.Fprintln(out, "warning: relevance metrics may mix explicit labels, source-match proxies, and/or judge labels")
 			}
 			fmt.Fprintf(out, "%-14s %9s %9s %9s %8s %7s %8s %-6s %s\n", "metric", "A", "B", "delta", "t", "p", "cohen_d", "winner", "claim")
 			for _, c := range comparisons {
@@ -219,5 +236,6 @@ eyeballing two means.`,
 	cmd.Flags().StringVar(&bPath, "b", "", "Comparison eval summary JSON")
 	cmd.Flags().Float64Var(&alpha, "alpha", 0.05, "Family-wise significance level for Holm correction")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the comparison as JSON")
+	cmd.Flags().BoolVar(&allowProxyComparison, "allow-proxy-comparison", false, "Allow relevance metrics to compare runs with different relevance sources")
 	return cmd
 }

@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -14,25 +12,28 @@ import (
 )
 
 type semanticAuditReport struct {
-	GeneratedAt   time.Time            `json:"generated_at"`
-	Repo          brainStatusRepo      `json:"repo"`
-	BrainPath     string               `json:"brain_path"`
-	Provider      string               `json:"provider,omitempty"`
-	Version       string               `json:"provider_version,omitempty"`
-	Schema        string               `json:"schema_version,omitempty"`
-	Snapshot      string               `json:"snapshot_path,omitempty"`
-	Store         string               `json:"store_path,omitempty"`
-	Files         int                  `json:"files"`
-	Symbols       int                  `json:"symbols"`
-	Relations     int                  `json:"relations"`
-	Warnings      int                  `json:"warnings"`
-	Failures      int                  `json:"partial_failures"`
-	Capabilities  []string             `json:"capabilities,omitempty"`
-	Languages     []semanticAuditCount `json:"languages,omitempty"`
-	SymbolKinds   []semanticAuditCount `json:"symbol_kinds,omitempty"`
-	RelationTypes []semanticAuditCount `json:"relation_types,omitempty"`
-	Freshness     staleReport          `json:"freshness"`
-	BlindSpots    []brainBlindSpot     `json:"blind_spots"`
+	GeneratedAt           time.Time            `json:"generated_at"`
+	Repo                  brainStatusRepo      `json:"repo"`
+	BrainPath             string               `json:"brain_path"`
+	Provider              string               `json:"provider,omitempty"`
+	Version               string               `json:"provider_version,omitempty"`
+	Schema                string               `json:"schema_version,omitempty"`
+	Snapshot              string               `json:"snapshot_path,omitempty"`
+	Store                 string               `json:"store_path,omitempty"`
+	Files                 int                  `json:"files"`
+	Symbols               int                  `json:"symbols"`
+	Relations             int                  `json:"relations"`
+	Warnings              int                  `json:"warnings"`
+	Failures              int                  `json:"partial_failures"`
+	WarningDetails        []semanticWarning    `json:"warning_details,omitempty"`
+	PartialFailureDetails []semanticWarning    `json:"partial_failure_details,omitempty"`
+	Capabilities          []string             `json:"capabilities,omitempty"`
+	FileLanguages         []semanticAuditCount `json:"file_languages,omitempty"`
+	Languages             []semanticAuditCount `json:"languages,omitempty"`
+	SymbolKinds           []semanticAuditCount `json:"symbol_kinds,omitempty"`
+	RelationTypes         []semanticAuditCount `json:"relation_types,omitempty"`
+	Freshness             staleReport          `json:"freshness"`
+	BlindSpots            []brainBlindSpot     `json:"blind_spots"`
 }
 
 type semanticAuditCount struct {
@@ -76,8 +77,23 @@ func runSemanticAudit(ctx context.Context, cmd *cobra.Command, opts Options, tar
 	}
 	fmt.Fprintf(out, "coverage: %d files, %d symbols, %d relations, %d warnings, %d partial failures\n",
 		report.Files, report.Symbols, report.Relations, report.Warnings, report.Failures)
+	if len(report.WarningDetails) > 0 {
+		fmt.Fprintln(out, "warnings:")
+		for _, warning := range report.WarningDetails {
+			fmt.Fprintf(out, "  %s\n", semanticAuditWarningSummary(warning))
+		}
+	}
+	if len(report.PartialFailureDetails) > 0 {
+		fmt.Fprintln(out, "partial-failures:")
+		for _, failure := range report.PartialFailureDetails {
+			fmt.Fprintf(out, "  %s\n", semanticAuditWarningSummary(failure))
+		}
+	}
+	if len(report.FileLanguages) > 0 {
+		fmt.Fprintf(out, "file-languages: %s\n", semanticAuditCountSummary(report.FileLanguages))
+	}
 	if len(report.Languages) > 0 {
-		fmt.Fprintf(out, "languages: %s\n", semanticAuditCountSummary(report.Languages))
+		fmt.Fprintf(out, "symbol-languages: %s\n", semanticAuditCountSummary(report.Languages))
 	}
 	if len(report.RelationTypes) > 0 {
 		fmt.Fprintf(out, "relation-types: %s\n", semanticAuditCountSummary(report.RelationTypes))
@@ -156,11 +172,14 @@ func buildSemanticAuditReport(ctx context.Context, opts Options, target string) 
 		report.Relations = source.Relations
 		report.Warnings = len(source.Warnings)
 		report.Failures = len(source.PartialFailures)
+		report.WarningDetails = semanticWarningDetails(source.Warnings)
+		report.PartialFailureDetails = semanticWarningDetails(source.PartialFailures)
 		report.Capabilities = sortedStringCopy(source.Capabilities)
-		coverage, covErr := semanticAuditStoreCoverage(storage.BrainDir, source)
+		coverage, covErr := semanticAuditStoreCoverage(storage.BrainDir, source, freshness)
 		if covErr != nil {
 			return semanticAuditReport{}, covErr
 		}
+		report.FileLanguages = coverage.FileLanguages
 		report.Languages = coverage.Languages
 		report.SymbolKinds = coverage.SymbolKinds
 		report.RelationTypes = coverage.RelationTypes
@@ -169,27 +188,44 @@ func buildSemanticAuditReport(ctx context.Context, opts Options, target string) 
 }
 
 type semanticAuditCoverage struct {
+	FileLanguages []semanticAuditCount
 	Languages     []semanticAuditCount
 	SymbolKinds   []semanticAuditCount
 	RelationTypes []semanticAuditCount
 }
 
-func semanticAuditStoreCoverage(brainDir string, source *semanticSourceManifest) (semanticAuditCoverage, error) {
+func semanticAuditStoreCoverage(brainDir string, source *semanticSourceManifest, freshness staleReport) (semanticAuditCoverage, error) {
 	if source == nil || strings.TrimSpace(source.StorePath) == "" {
 		return semanticAuditCoverage{}, nil
 	}
-	storePath := filepath.Join(brainDir, filepath.FromSlash(source.StorePath))
-	if _, err := os.Stat(storePath); err != nil {
-		if os.IsNotExist(err) {
+	if axis, ok := freshness.Axes["store"]; ok && axis.State != "ok" {
+		return semanticAuditCoverage{}, nil
+	}
+	storePath, err := validateSemanticDeclaredStore(brainDir, source)
+	if err != nil {
+		if axis, ok := freshness.Axes["store"]; ok && axis.State != "ok" {
 			return semanticAuditCoverage{}, nil
 		}
-		return semanticAuditCoverage{}, fmt.Errorf("stat semantic store: %w", err)
+		return semanticAuditCoverage{}, fmt.Errorf("validate semantic store for audit: %w", err)
 	}
 	db, err := sql.Open("sqlite", storePath)
 	if err != nil {
 		return semanticAuditCoverage{}, fmt.Errorf("open semantic store: %w", err)
 	}
 	defer db.Close()
+	fileLanguages, err := semanticAuditCountQuery(db, `SELECT CASE
+WHEN path GLOB '*.go' THEN 'go'
+WHEN path GLOB '*.ts' THEN 'typescript'
+WHEN path GLOB '*.tsx' THEN 'typescript'
+WHEN path GLOB '*.js' THEN 'javascript'
+WHEN path GLOB '*.jsx' THEN 'javascript'
+WHEN path GLOB '*.py' THEN 'python'
+WHEN path GLOB '*.rs' THEN 'rust'
+WHEN path GLOB '*.md' THEN 'markdown'
+ELSE 'unknown' END AS coverage_name, COUNT(*) FROM files GROUP BY 1 ORDER BY 1`)
+	if err != nil {
+		return semanticAuditCoverage{}, fmt.Errorf("read semantic file languages: %w", err)
+	}
 	languages, err := semanticAuditCountQuery(db, `SELECT CASE WHEN trim(language) = '' THEN 'unknown' ELSE language END AS coverage_name, COUNT(*) FROM symbols GROUP BY 1 ORDER BY 1`)
 	if err != nil {
 		return semanticAuditCoverage{}, fmt.Errorf("read semantic languages: %w", err)
@@ -202,7 +238,7 @@ func semanticAuditStoreCoverage(brainDir string, source *semanticSourceManifest)
 	if err != nil {
 		return semanticAuditCoverage{}, fmt.Errorf("read semantic relation types: %w", err)
 	}
-	return semanticAuditCoverage{Languages: languages, SymbolKinds: kinds, RelationTypes: relationTypes}, nil
+	return semanticAuditCoverage{FileLanguages: fileLanguages, Languages: languages, SymbolKinds: kinds, RelationTypes: relationTypes}, nil
 }
 
 func semanticAuditCountQuery(db *sql.DB, query string) ([]semanticAuditCount, error) {
@@ -231,6 +267,30 @@ func semanticAuditCountSummary(items []semanticAuditCount) string {
 		parts = append(parts, fmt.Sprintf("%s=%d", item.Name, item.Count))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func semanticAuditWarningSummary(warning semanticWarning) string {
+	parts := []string{valueOrUnset(warning.Code)}
+	if warning.Severity != "" {
+		parts = append(parts, warning.Severity)
+	}
+	if warning.Path != "" {
+		parts = append(parts, warning.Path)
+	}
+	if warning.Effect != "" {
+		parts = append(parts, warning.Effect)
+	}
+	if warning.Detail != "" {
+		parts = append(parts, warning.Detail)
+	}
+	return strings.Join(parts, " | ")
+}
+
+func semanticWarningDetails(warnings []semanticWarning) []semanticWarning {
+	if len(warnings) == 0 {
+		return nil
+	}
+	return append([]semanticWarning(nil), warnings...)
 }
 
 func sortedStringCopy(values []string) []string {

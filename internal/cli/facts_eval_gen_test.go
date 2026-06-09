@@ -132,3 +132,156 @@ func TestGenerateEvalTasksFromProvenance(t *testing.T) {
 		t.Errorf("s2 should be convention, got %q", byID["s2"].QueryType)
 	}
 }
+
+func TestGenerateEvalTasksScopesSessionFactsByResolvedBranch(t *testing.T) {
+	brainDir := t.TempDir()
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+
+	mainPath := normalizeFactPaths([]string{"architecture.data.flow"})
+	featurePath := normalizeFactPaths([]string{"workflow.testing.rules"})
+	mainFact := factRecord{ID: factRecordID("main branch keeps checkpoint metadata", mainPath), Paths: mainPath, Text: "main branch keeps checkpoint metadata", Branch: "main", Status: factStatusActive, Provenance: []factAnchor{{SessionID: "same-session"}}, UpdatedAt: now}
+	featureFact := factRecord{ID: factRecordID("feature branch updates testing workflow", featurePath), Paths: featurePath, Text: "feature branch updates testing workflow", Branch: "feature", Status: factStatusActive, Provenance: []factAnchor{{SessionID: "same-session"}}, UpdatedAt: now}
+	if err := writeFacts(brainDir, "main", []factRecord{mainFact}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFacts(brainDir, "feature", []factRecord{featureFact}); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTranscript := func(rel, req string) {
+		path := filepath.Join(brainDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		line := `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"text","text":"` + req + `"}]}}`
+		if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTranscript("sessions/main/same.jsonl", "how does main memory work")
+	writeTranscript("sessions/feature/same.jsonl", "what is the feature testing workflow")
+
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		DefaultBranch: "main",
+		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
+			{SessionID: "same-session", TranscriptPath: "sessions/main/same.jsonl", CreatedAt: now},
+			{SessionID: "same-session", Branch: "feature", TranscriptPath: "sessions/feature/same.jsonl", CreatedAt: now.Add(time.Minute)},
+		}}},
+	}
+
+	tasks, err := generateEvalTasks(brainDir, &manifest, "", 1, 0, 0)
+	if err != nil {
+		t.Fatalf("generateEvalTasks: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("expected branch-separated tasks, got %d: %+v", len(tasks), tasks)
+	}
+	byBranch := map[string]evalTask{}
+	for _, task := range tasks {
+		byBranch[task.Branch] = task
+	}
+	if got := byBranch["main"]; got.ID != "main:same-session" || len(got.Relevant) != 1 || got.Relevant[0] != mainFact.ID {
+		t.Fatalf("main task should use default branch facts only, got %+v", got)
+	}
+	if got := byBranch["feature"]; got.ID != "feature:same-session" || len(got.Relevant) != 1 || got.Relevant[0] != featureFact.ID {
+		t.Fatalf("feature task should use feature facts only, got %+v", got)
+	}
+
+	mainOnly, err := generateEvalTasks(brainDir, &manifest, "main", 1, 0, 0)
+	if err != nil {
+		t.Fatalf("generateEvalTasks main: %v", err)
+	}
+	if len(mainOnly) != 1 || mainOnly[0].ID != "same-session" || mainOnly[0].Branch != "main" {
+		t.Fatalf("single-branch filter should preserve legacy task id, got %+v", mainOnly)
+	}
+}
+
+func TestGenerateSessionEvalTasksIncludesZeroFactSessions(t *testing.T) {
+	brainDir := t.TempDir()
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+
+	writeTranscript := func(rel, req string) {
+		path := filepath.Join(brainDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		line := `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"text","text":"` + req + `"}]}}`
+		if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTranscript("sessions/main/s1.jsonl", "fix release wording")
+	writeTranscript("sessions/main/s2.jsonl", "how does recall rank durable facts")
+
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		DefaultBranch: "main",
+		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
+			{SessionID: "s1", Branch: "main", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: now},
+			{SessionID: "s2", Branch: "main", TranscriptPath: "sessions/main/s2.jsonl", CreatedAt: now},
+		}}},
+	}
+
+	tasks, err := generateSessionEvalTasks(brainDir, &manifest, "", 0)
+	if err != nil {
+		t.Fatalf("generateSessionEvalTasks: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(tasks))
+	}
+	byID := map[string]evalTask{}
+	for _, task := range tasks {
+		byID[task.ID] = task
+		if len(task.Relevant) != 0 {
+			t.Fatalf("session-sourced tasks should be unlabeled, got %+v", task)
+		}
+		if task.SourceSessionID == "" || task.SourceTranscriptPath == "" {
+			t.Fatalf("missing source anchor: %+v", task)
+		}
+	}
+	if byID["s1"].Task != "fix release wording" || byID["s1"].QueryType != queryTypeHowto {
+		t.Fatalf("s1 task wrong: %+v", byID["s1"])
+	}
+	if byID["s2"].Task != "how does recall rank durable facts" || byID["s2"].QueryType != queryTypeConcept {
+		t.Fatalf("s2 task wrong: %+v", byID["s2"])
+	}
+}
+
+func TestGenerateSessionEvalTasksKeepsDuplicateRequests(t *testing.T) {
+	brainDir := t.TempDir()
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+
+	writeTranscript := func(rel string) {
+		path := filepath.Join(brainDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		line := `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"text","text":"review the current branch"}]}}`
+		if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTranscript("sessions/main/s1.jsonl")
+	writeTranscript("sessions/main/s2.jsonl")
+
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		DefaultBranch: "main",
+		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
+			{SessionID: "s1", Branch: "main", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: now},
+			{SessionID: "s2", Branch: "main", TranscriptPath: "sessions/main/s2.jsonl", CreatedAt: now.Add(time.Minute)},
+		}}},
+	}
+
+	tasks, err := generateSessionEvalTasks(brainDir, &manifest, "", 0)
+	if err != nil {
+		t.Fatalf("generateSessionEvalTasks: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("session-source generation must keep duplicate request sessions, got %d: %+v", len(tasks), tasks)
+	}
+	if tasks[0].ID == tasks[1].ID {
+		t.Fatalf("duplicate request tasks should preserve distinct session ids: %+v", tasks)
+	}
+}

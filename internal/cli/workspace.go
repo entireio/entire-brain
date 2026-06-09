@@ -199,6 +199,9 @@ func newWorkspaceWatchCommand(opts Options) *cobra.Command {
 // deterministic-refresh + gated-distill + per-repo cursor. The --budget cap is shared across all members
 // so the --budget distill-run cap (and thus token spend) can't be multiplied across repos.
 func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, workspaceName string) error {
+	if w.distillJobs <= 0 {
+		return fmt.Errorf("--jobs must be greater than 0")
+	}
 	now := opts.Now
 	if now == nil {
 		now = time.Now

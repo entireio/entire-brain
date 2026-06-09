@@ -3,7 +3,7 @@
 Entire Brain is an external-command plugin for the Entire CLI. It builds a
 local, inspectable "brain" for a repository from Entire session history, seeded
 repository context, a local history index, an index of the brain's own docs (seed
-summaries and copied repo markdown), optional semantic facts from `entire-sem`,
+summaries and copied repo markdown), optional semantic records from `entire-sem`,
 and a curated layer of durable facts distilled from past sessions.
 
 The plugin binary is named `entire-brain` and is invoked through Entire as:
@@ -149,7 +149,7 @@ entire brain workspace review <ws> "<query>"                  # same, review-sha
 `entire brain review` is hidden because it is the **machine contract**, not a human verb. The intended
 human surfaces are the cli's `entire review` (a diff-less mode that *would* turn on when the brain is installed)
 and `entire labs investigate`. Those consumers live in the `entireio/cli` repo and are **not yet wired**
-(review is prototyped on a held branch; investigate is designed only) — see `docs/diffless_review_seam.md`.
+(review has a CLI prototype; investigate is designed only) — see `docs/diffless_review_seam.md`.
 
 ### Ask The Brain
 
@@ -267,17 +267,24 @@ The fact store also ships an evaluation harness for measuring retrieval quality
 (`facts eval-gen` builds a provenance/silver-labeled benchmark from the brain's
 own sessions, `facts eval` reports retrieved items, token estimates, precision,
 useful-per-1k, and recall only when labels exist for that retriever, and `facts
-eval-compare` does a paired t-test with Holm correction). Use `facts eval
+eval-compare` does a paired t-test with Holm correction and rejects mixed
+relevance sources unless `--allow-proxy-comparison` is explicit). Use `facts eval
 --retriever facts|history|query|raw-sessions` to compare distilled facts against
-raw/session baselines before claiming a quality lift. Generated source-session
-fields give source-match credit for history/raw arms; they are not recall labels.
+history, unified query, and preprocessed session-chunk baselines before claiming
+a quality lift.
+Generated source-session fields give source-match credit for history/session
+arms; they are provenance/proxy evidence, not recall labels.
 The eval `query` arm is a read-only lexical unified baseline over local brain
 layers; it does not write embedding caches or call an embedder. See
 `docs/durable_facts_plan.md` for the full design.
 
 For semantic release checks, `entire brain semantic-audit --json` reports the
-semantic provider/schema state, counts, language/symbol/relation coverage,
-freshness axes, and blind spots in one local audit payload.
+semantic provider/schema state, counts, file-language/symbol/relation coverage,
+warning/failure details, freshness axes, and blind spots in one local audit
+payload. Treat that as audit evidence for the reported provider output, not a
+global tree-sitter coverage claim; public semantic claims should name the covered
+languages, relation types, freshness state, and benchmark or audit records behind
+the claim.
 
 ## Storage
 

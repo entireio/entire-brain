@@ -153,3 +153,24 @@ func TestCompareEvalSummariesSkipsUndefinedRecallAndRejectsBadPairs(t *testing.T
 		}
 	}
 }
+
+func TestCompareEvalSummariesRejectsMixedRelevanceSources(t *testing.T) {
+	a := evalSummary{Retriever: evalRetrieverFacts, Results: []evalTaskResult{{
+		ID: "t1", Task: "same", Precision: 1, UsefulPer1k: 10, Tokens: 100,
+		Labeled: true, RelevanceSource: evalRelevanceExplicitLabel,
+	}}}
+	b := evalSummary{Retriever: evalRetrieverRawSessions, Results: []evalTaskResult{{
+		ID: "t1", Task: "same", Precision: 1, UsefulPer1k: 10, Tokens: 120,
+		Labeled: false, RelevanceSource: evalRelevanceSourceMatch,
+	}}}
+	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil {
+		t.Fatal("mixed explicit labels and source-match proxy relevance should be rejected by default")
+	}
+	comps, n, err := compareEvalSummariesWithOptions(a, b, 0.05, true)
+	if err != nil {
+		t.Fatalf("allow proxy comparison: %v", err)
+	}
+	if n != 1 || len(comps) == 0 {
+		t.Fatalf("unexpected allowed comparison n=%d comps=%+v", n, comps)
+	}
+}
