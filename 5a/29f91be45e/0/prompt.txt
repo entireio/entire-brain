@@ -1,0 +1,5 @@
+The freshness coupling is always going to be a problem given that we are building the brain for a coding agent like you, whose job it is to add and change code. We can't wait for index freshness being updated, especially as it takes time. So the index is always just a starting point. One option would be for the agent to run entire-sem on the respective symbol after it has the information from the index to get the fresh information. wdyt?
+
+---
+
+a please
