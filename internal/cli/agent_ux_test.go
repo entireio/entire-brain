@@ -278,3 +278,43 @@ func containsToken(tokens []string, want string) bool {
 	}
 	return false
 }
+
+func TestDedupSeedCommands(t *testing.T) {
+	in := []seedCommand{
+		{Name: "build", Command: "next build", Source: "web/package.json"},
+		{Name: "build", Command: "next build", Source: "web/package.json"}, // exact dup
+		{Name: "build", Command: "pnpm --filter web build", Source: "package.json"},
+		{Name: "test", Command: "go test ./...", Source: "Makefile"},
+	}
+	got := dedupSeedCommands(in)
+	if len(got) != 3 {
+		t.Fatalf("dedupSeedCommands kept %d, want 3: %+v", len(got), got)
+	}
+	// Exact (Name, Command) dup dropped; same-name different-command kept.
+	if got[0].Command != "next build" || got[1].Command != "pnpm --filter web build" || got[2].Name != "test" {
+		t.Fatalf("unexpected dedup result: %+v", got)
+	}
+}
+
+func TestOverviewTextDisambiguatesSameNameCommands(t *testing.T) {
+	report := brainOverviewReport{
+		Commands: []seedCommand{
+			{Name: "build", Command: "next build", Source: "web/package.json"},
+			{Name: "build", Command: "pnpm --filter web build", Source: "package.json"},
+			{Name: "test", Command: "go test ./...", Source: "Makefile"},
+		},
+	}
+	var out strings.Builder
+	cmd := &cobra.Command{Use: "overview"}
+	cmd.SetOut(&out)
+	renderBrainOverviewText(cmd, report)
+	text := out.String()
+	// Colliding names carry their source; the unique name does not.
+	if !strings.Contains(text, "build (web/package.json): next build") ||
+		!strings.Contains(text, "build (package.json): pnpm --filter web build") {
+		t.Fatalf("same-name commands not disambiguated by source:\n%s", text)
+	}
+	if !strings.Contains(text, "  test: go test ./...") {
+		t.Fatalf("unique command should render without source:\n%s", text)
+	}
+}

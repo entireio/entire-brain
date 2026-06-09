@@ -203,6 +203,27 @@ func newBrainOverviewCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
+// dedupSeedCommands removes exact (Name, Command) duplicates — common in a
+// monorepo where several package.json files surface the same scripted command —
+// while preserving order. Same-name/different-command entries are kept (they are
+// genuinely distinct) and disambiguated by source at render time.
+func dedupSeedCommands(commands []seedCommand) []seedCommand {
+	if len(commands) == 0 {
+		return commands
+	}
+	seen := make(map[string]struct{}, len(commands))
+	out := make([]seedCommand, 0, len(commands))
+	for _, c := range commands {
+		key := c.Name + "\x00" + c.Command
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, c)
+	}
+	return out
+}
+
 func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, target string, jsonOut bool, decisions int) error {
 	status, err := buildBrainStatusReport(ctx, opts, target)
 	if err != nil {
@@ -240,7 +261,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 		}
 		if seed := status.Manifest.Sources.Seed; seed != nil {
 			report.Entrypoints = seed.Entrypoints
-			report.Commands = seed.Commands
+			report.Commands = dedupSeedCommands(seed.Commands)
 			for _, doc := range seed.Documents {
 				report.Documents = append(report.Documents, doc.Path)
 			}
@@ -311,9 +332,20 @@ func renderBrainOverviewText(cmd *cobra.Command, report brainOverviewReport) {
 		fmt.Fprintf(out, "boundaries: routes=%d tools=%d workflows=%d\n", report.Boundaries["routes"], report.Boundaries["tools"], report.Boundaries["workflows"])
 	}
 	if len(report.Commands) > 0 {
+		nameCounts := map[string]int{}
+		for _, c := range report.Commands {
+			nameCounts[c.Name]++
+		}
 		fmt.Fprintln(out, "commands:")
 		for _, c := range report.Commands {
-			fmt.Fprintf(out, "  %s: %s\n", c.Name, c.Command)
+			// Same-name different-command entries (e.g. two `build`s from
+			// different package.json files) are disambiguated by source so
+			// they don't read as accidental duplicates.
+			if nameCounts[c.Name] > 1 && c.Source != "" {
+				fmt.Fprintf(out, "  %s (%s): %s\n", c.Name, c.Source, c.Command)
+			} else {
+				fmt.Fprintf(out, "  %s: %s\n", c.Name, c.Command)
+			}
 		}
 	}
 	if len(report.Entrypoints) > 0 {
