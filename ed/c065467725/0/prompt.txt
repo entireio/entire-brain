@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>beb2ocmfu</task-id>
+<tool-use-id>toolu_0195r5T2d3sE5bUWnhYxurYJ</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/93850a3b-823a-4400-affb-afd0a1ad0282/tasks/beb2ocmfu.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll until Copilot completes round-17 review, classify result" completed (exit code 0)</summary>
+</task-notification>
