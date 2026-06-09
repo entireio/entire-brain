@@ -554,6 +554,16 @@ func distillTextBlocks(content any) string {
 // exceeds maxBytes still becomes its own chunk rather than being dropped, so no
 // content is silently lost. Blank input yields no chunks.
 func chunkTranscript(content string, maxBytes int) []transcriptChunk {
+	return chunkLines(content, maxBytes, true)
+}
+
+// chunkLines is the shared chunker behind chunkTranscript. numberLines controls
+// the per-line rendering: distill wants the "<lineNo>\t" prefix so the agent can
+// cite exact source lines, but the doc index wants clean text — the prefix would
+// otherwise pollute the indexed text/embeddings and stop firstHeading from seeing
+// markdown headings (a chunk would start "12\t## Title", not "## Title").
+// Chunk StartLine/EndLine metadata is preserved either way.
+func chunkLines(content string, maxBytes int, numberLines bool) []transcriptChunk {
 	if maxBytes <= 0 {
 		maxBytes = defaultDistillChunkSize
 	}
@@ -575,7 +585,10 @@ func chunkTranscript(content string, maxBytes int) []transcriptChunk {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		rendered := fmt.Sprintf("%d\t%s\n", lineNo, line)
+		rendered := line + "\n"
+		if numberLines {
+			rendered = fmt.Sprintf("%d\t%s\n", lineNo, line)
+		}
 		if buf.Len() > 0 && buf.Len()+len(rendered) > maxBytes {
 			flush(lineNo - 1)
 		}

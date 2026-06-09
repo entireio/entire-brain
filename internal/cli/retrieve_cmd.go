@@ -14,7 +14,7 @@ import (
 // specialist `inspect <kind>` commands remain as the pre-distillation fallback.
 
 func newSearchCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "search", modeLexical, "Lexical (BM25) search across facts, history, and docs")
+	return newRetrieveCommand(opts, "search", modeLexical, "Lexical keyword search across facts, history, and docs (BM25 for history and docs; token-overlap for facts)")
 }
 
 func newVsearchCommand(opts Options) *cobra.Command {
@@ -48,7 +48,10 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	if err != nil {
 		return err
 	}
-	results := retrieveUnified(brainDir, resolvedBranch, query, limit, mode)
+	results, err := retrieveUnified(brainDir, resolvedBranch, query, limit, mode)
+	if err != nil {
+		return err
+	}
 	if jsonOut {
 		return writeJSON(cmd, map[string]any{"query": query, "branch": resolvedBranch, "results": results})
 	}
@@ -107,7 +110,10 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	if err != nil {
 		return err
 	}
-	found, missing := getUnifiedBatch(brainDir, resolvedBranch, ids)
+	found, missing, err := getUnifiedBatch(brainDir, resolvedBranch, ids)
+	if err != nil {
+		return err
+	}
 	if missing == nil {
 		missing = []string{}
 	}

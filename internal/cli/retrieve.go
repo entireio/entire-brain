@@ -41,11 +41,16 @@ func embedQueryWith(e Embedder, q string) []float32 {
 // history vectors are Model2Vec noise and embedding tens of thousands of records
 // per query is too slow, so they join the vector arm once Stage 1b's embedder
 // lands. Missing layers are skipped, not errors.
-func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMode) []unifiedResult {
+func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMode) ([]unifiedResult, error) {
 	if limit <= 0 {
 		limit = 10
 	}
-	all, _ := loadFacts(brainDir, branch)
+	// loadFacts surfaces corrupt NDJSON as a hard error; propagate it rather than
+	// presenting a broken store as "no results".
+	all, err := loadFacts(brainDir, branch)
+	if err != nil {
+		return nil, err
+	}
 	active := make([]factRecord, 0, len(all))
 	for _, f := range all {
 		if f.Status == factStatusActive {
@@ -75,7 +80,7 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 			}
 			lists = append(lists, factsToUnified(rankFactsFused(active, query, limit*2, false, rr)))
 			if rr != nil {
-				rr.retain(active)
+				rr.retain(all) // keep every present fact's vector; prune only departed facts (matches recall/brief)
 				_ = rr.flush()
 			}
 		}
@@ -103,7 +108,7 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 		}
 	}
 
-	return rrfMergeUnified(lists, limit)
+	return rrfMergeUnified(lists, limit), nil
 }
 
 func factsVectorRanked(brainDir, branch string, facts []factRecord, query string, e Embedder, limit int) []factRecord {
@@ -255,7 +260,7 @@ func rrfMergeUnified(lists [][]unifiedResult, limit int) []unifiedResult {
 // MCP brain_get/brain_multi_get) route through here so resolving N ids is O(corpus
 // + N), not O(N × corpus) — the latter rescans the full history per id and is
 // pathological on large brains. Results preserve input order.
-func getUnifiedBatch(brainDir, branch string, ids []string) (found []unifiedResult, missing []string) {
+func getUnifiedBatch(brainDir, branch string, ids []string) (found []unifiedResult, missing []string, err error) {
 	var wantFact, wantHistory, wantDoc bool
 	for _, id := range ids {
 		switch {
@@ -269,7 +274,11 @@ func getUnifiedBatch(brainDir, branch string, ids []string) (found []unifiedResu
 	}
 	factByID := map[string]factRecord{}
 	if wantFact {
-		facts, _ := loadFacts(brainDir, branch)
+		// Surface a corrupt facts store as an error, not a misleading "not found".
+		facts, ferr := loadFacts(brainDir, branch)
+		if ferr != nil {
+			return nil, nil, ferr
+		}
 		for _, f := range facts {
 			factByID[f.ID] = f
 		}
@@ -312,5 +321,5 @@ func getUnifiedBatch(brainDir, branch string, ids []string) (found []unifiedResu
 		}
 		missing = append(missing, id)
 	}
-	return found, missing
+	return found, missing, nil
 }

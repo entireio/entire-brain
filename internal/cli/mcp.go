@@ -166,7 +166,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_search",
-			"description": "Lexical (BM25) search across the brain's facts, history, and docs — precise keyword/identifier matching.",
+			"description": "Lexical keyword search across the brain's facts, history, and docs — precise keyword/identifier matching (BM25 for history and docs; token-overlap for facts).",
 			"inputSchema": map[string]any{"type": "object", "required": []string{"query"}, "properties": map[string]any{"query": stringArg("query", "Keyword query"), "limit": integerArg("limit", "Maximum results")}},
 		},
 		{

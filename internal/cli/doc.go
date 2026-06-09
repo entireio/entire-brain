@@ -88,7 +88,7 @@ func loadDocRecordsFromSeed(brainDir string) ([]docRecord, int, error) {
 		}
 		rel = filepath.ToSlash(rel)
 		files++
-		for _, c := range chunkTranscript(string(data), maxDocChunkBytes) {
+		for _, c := range chunkLines(string(data), maxDocChunkBytes, false) {
 			text := strings.TrimSpace(c.Text)
 			if text == "" {
 				continue
