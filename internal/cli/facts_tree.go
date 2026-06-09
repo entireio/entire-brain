@@ -167,6 +167,7 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 	var (
 		branch     string
 		path       string
+		kind       string
 		depth      int
 		leaves     int
 		includeAll bool
@@ -181,6 +182,9 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 			if err := validateScopeFlag(scope); err != nil {
 				return err
 			}
+			if err := validateKindFlag(kind); err != nil {
+				return err
+			}
 			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
 			if err != nil {
 				return err
@@ -189,7 +193,7 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			facts = filterFactsByScope(facts, scope)
+			facts = filterFactsByKind(filterFactsByScope(facts, scope), kind)
 			tree := buildFactTree(facts, includeAll)
 			if path != "" {
 				if pruned := filterTreeByPath(tree, path); pruned != nil {
@@ -217,6 +221,7 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&leaves, "leaves", 3, "Sample facts to show per path at depth 3")
 	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted facts")
 	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) facts")
+	cmd.Flags().StringVar(&kind, "kind", "", "Restrict to one kind: decision|invariant|gotcha|preference|convention")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the tree as JSON")
 	return cmd
 }

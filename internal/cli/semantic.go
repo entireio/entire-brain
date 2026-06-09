@@ -2301,6 +2301,9 @@ type semanticChangesReport struct {
 	GeneratedAt time.Time        `json:"generated_at"`
 	Files       []string         `json:"files"`
 	Symbols     []semanticRecord `json:"symbols"`
+	// Facts are durable facts whose locus names a changed file/symbol — "what the
+	// brain already knows about the code you're touching". Omitted when none.
+	Facts []factRecord `json:"facts,omitempty"`
 }
 
 type semanticBoundaryOptions struct {
@@ -2562,6 +2565,14 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 		return err
 	}
 	report := semanticChangesReport{GeneratedAt: opts.Now().UTC(), Files: files, Symbols: symbols}
+	// Surface durable facts about the code being touched. Best-effort: a missing
+	// facts source or a branch lookup failure simply yields no facts, never an
+	// error on the changes command.
+	if branch, branchErr := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); branchErr == nil && strings.TrimSpace(branch) != "" {
+		if facts, factsErr := loadFacts(storage.BrainDir, strings.TrimSpace(branch)); factsErr == nil {
+			report.Facts = factsRelevantToChange(files, symbols, facts, changesOpts.limit)
+		}
+	}
 	if err := writeSemanticChangesReport(storage.BrainDir, report); err != nil {
 		return err
 	}
@@ -2584,6 +2595,9 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 	}
 	for _, symbol := range symbols {
 		fmt.Fprintf(cmd.OutOrStdout(), "symbol %s %s:%d-%d\n", displaySymbolName(symbol), symbol.FilePath, symbol.StartLine, symbol.EndLine)
+	}
+	for _, fact := range report.Facts {
+		fmt.Fprintf(cmd.OutOrStdout(), "fact %s %s %s\n", fact.ID, factKindOrInferred(fact), fact.Text)
 	}
 	return nil
 }
