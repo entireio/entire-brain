@@ -1,0 +1,75 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "9244ecfca2e0",
+  "session_id": "cd23ebc0-bd98-4e6c-bfb4-ce649d8bb322",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-09T15:49:18.619254Z",
+  "branch": "feat/fact-quality-appendix-d",
+  "checkpoints_count": 4,
+  "save_step_count": 2,
+  "files_touched": [
+    "docs/durable_facts_handover.md",
+    "internal/cli/facts_eval.go",
+    "internal/cli/facts_eval_test.go",
+    "internal/cli/facts_expand_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "d08c751a459c",
+  "checkpoint_transcript_start": 25,
+  "transcript_lines_at_start": 25,
+  "token_usage": {
+    "input_tokens": 570,
+    "cache_creation_tokens": 29192,
+    "cache_read_tokens": 1210754,
+    "output_tokens": 16694,
+    "api_call_count": 27
+  },
+  "session_metrics": {
+    "turn_count": 5
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-09T15:49:18.608018Z",
+    "agent_lines": 46,
+    "agent_removed": 4,
+    "human_added": 52,
+    "human_modified": 10,
+    "human_removed": 0,
+    "total_committed": 108,
+    "total_lines_changed": 112,
+    "agent_percentage": 44.642857142857146,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 102,
+      "user_lines_removed": 4,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "internal/cli/facts_eval.go": 11,
+        "internal/cli/facts_eval_arms.go": 91
+      },
+      "user_removed_per_file": {
+        "internal/cli/facts_eval.go": 4
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 62,
+      "user_lines_removed": 6,
+      "agent_lines_added": 118,
+      "agent_lines_removed": 8,
+      "user_added_per_file": {
+        "internal/cli/facts_eval_arms_test.go": 56,
+        "internal/cli/facts_eval_test.go": 4,
+        "internal/cli/facts_expand_test.go": 2
+      },
+      "user_removed_per_file": {
+        "internal/cli/facts_eval_test.go": 4,
+        "internal/cli/facts_expand_test.go": 2
+      }
+    }
+  ]
+}
