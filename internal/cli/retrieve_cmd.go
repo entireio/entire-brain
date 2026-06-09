@@ -45,6 +45,12 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 }
 
 func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query string, mode retrievalMode, limit int, branch string, jsonOut bool) error {
+	// Reject --limit <= 0 rather than silently defaulting, so a typo like
+	// `--limit 0` is an explicit error (matching the rest of the CLI surface). The
+	// MCP path passes a validated positive limit, so it's unaffected.
+	if limit <= 0 {
+		return fmt.Errorf("--limit must be greater than 0")
+	}
 	_, brainDir, resolvedBranch, err := resolveFactsTarget(ctx, opts, agentSurfaceTarget(opts, nil), branch)
 	if err != nil {
 		return err
