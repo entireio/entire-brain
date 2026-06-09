@@ -1,3 +1,6 @@
 /entire-brain
 /dist/
 /coverage.out
+
+# Machine-local Claude tooling state (pid/lock files), not shared config.
+.claude/scheduled_tasks.lock

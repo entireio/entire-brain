@@ -107,23 +107,34 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 }
 
 func factsVectorRanked(brainDir, branch string, facts []factRecord, query string, e Embedder, limit int) []factRecord {
+	// An empty query vector means the embedder is unavailable (e.g. Ollama down).
+	// Return no semantic results rather than an arbitrary top-N: every cosine
+	// would be 0 and the sort would just echo input order.
+	qv := embedQueryWith(e, query)
+	if len(qv) == 0 {
+		return nil
+	}
 	store := newEmbedStore(brainDir, branch, e.ID(), e.Dim())
 	cache := store.load()
 	dirty := false
-	qv := embedQueryWith(e, query)
 	type sc struct {
 		i   int
 		cos float64
 	}
-	scored := make([]sc, len(facts))
+	scored := make([]sc, 0, len(facts))
 	for i, f := range facts {
 		v, ok := cache[f.ID]
 		if !ok {
 			v = e.Embed(f.Text)
-			cache[f.ID] = v
-			dirty = true
+			if len(v) == len(qv) {
+				cache[f.ID] = v // never cache empty/mismatched vectors
+				dirty = true
+			}
 		}
-		scored[i] = sc{i, cosineFloat32(qv, v)}
+		if len(v) != len(qv) {
+			continue // skip rather than score a degenerate vector as 0
+		}
+		scored = append(scored, sc{i, cosineFloat32(qv, v)})
 	}
 	if dirty {
 		_ = store.save(cache)
@@ -140,23 +151,33 @@ func factsVectorRanked(brainDir, branch string, facts []factRecord, query string
 }
 
 func docsVectorRanked(brainDir string, index docIndex, query string, e Embedder, limit int) []unifiedResult {
+	// Same guard as factsVectorRanked: no query vector → no doc semantic hits,
+	// not arbitrary docs ranked by all-zero cosines.
+	qv := embedQueryWith(e, query)
+	if len(qv) == 0 {
+		return nil
+	}
 	store := newDocEmbedStore(brainDir, e.ID(), e.Dim())
 	cache := store.load()
 	dirty := false
-	qv := embedQueryWith(e, query)
 	type sc struct {
 		i   int
 		cos float64
 	}
-	scored := make([]sc, len(index.Records))
+	scored := make([]sc, 0, len(index.Records))
 	for i, r := range index.Records {
 		v, ok := cache[r.ID]
 		if !ok {
 			v = e.Embed(r.Text)
-			cache[r.ID] = v
-			dirty = true
+			if len(v) == len(qv) {
+				cache[r.ID] = v
+				dirty = true
+			}
 		}
-		scored[i] = sc{i, cosineFloat32(qv, v)}
+		if len(v) != len(qv) {
+			continue
+		}
+		scored = append(scored, sc{i, cosineFloat32(qv, v)})
 	}
 	if dirty {
 		_ = store.save(cache)
@@ -229,35 +250,67 @@ func rrfMergeUnified(lists [][]unifiedResult, limit int) []unifiedResult {
 	return out
 }
 
-// getUnified resolves a prefixed id (fact:/history:/doc:) to its full record.
-func getUnified(brainDir, branch, id string) (unifiedResult, bool) {
-	switch {
-	case strings.HasPrefix(id, "fact:"):
+// getUnifiedBatch resolves prefixed ids (fact:/history:/doc:) to full records,
+// loading each corpus at most once and indexing it by id. get/multi-get (and the
+// MCP brain_get/brain_multi_get) route through here so resolving N ids is O(corpus
+// + N), not O(N × corpus) — the latter rescans the full history per id and is
+// pathological on large brains. Results preserve input order.
+func getUnifiedBatch(brainDir, branch string, ids []string) (found []unifiedResult, missing []string) {
+	var wantFact, wantHistory, wantDoc bool
+	for _, id := range ids {
+		switch {
+		case strings.HasPrefix(id, "fact:"):
+			wantFact = true
+		case strings.HasPrefix(id, "history:"):
+			wantHistory = true
+		case strings.HasPrefix(id, "doc:"):
+			wantDoc = true
+		}
+	}
+	factByID := map[string]factRecord{}
+	if wantFact {
 		facts, _ := loadFacts(brainDir, branch)
 		for _, f := range facts {
-			if f.ID == id {
-				return factsToUnified([]factRecord{f})[0], true
-			}
+			factByID[f.ID] = f
 		}
-	case strings.HasPrefix(id, "history:"):
+	}
+	histByID := map[string]historyRecord{}
+	if wantHistory {
 		if manifest, err := loadBrainManifest(brainDir); err == nil && manifest.Sources != nil && manifest.Sources.History != nil {
 			if index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History); err == nil {
 				for _, r := range index.Records {
-					if r.ID == id {
-						return historyToUnified([]scoredHistoryRecord{{Record: r}})[0], true
-					}
-				}
-			}
-		}
-	case strings.HasPrefix(id, "doc:"):
-		want := strings.TrimPrefix(id, "doc:")
-		if index, err := loadDocIndex(brainDir); err == nil {
-			for _, r := range index.Records {
-				if r.ID == want {
-					return docToUnified(r), true
+					histByID[r.ID] = r
 				}
 			}
 		}
 	}
-	return unifiedResult{}, false
+	docByID := map[string]docRecord{}
+	if wantDoc {
+		if index, err := loadDocIndex(brainDir); err == nil {
+			for _, r := range index.Records {
+				docByID[r.ID] = r
+			}
+		}
+	}
+	for _, id := range ids {
+		switch {
+		case strings.HasPrefix(id, "fact:"):
+			if f, ok := factByID[id]; ok {
+				found = append(found, factsToUnified([]factRecord{f})[0])
+				continue
+			}
+		case strings.HasPrefix(id, "history:"):
+			if r, ok := histByID[id]; ok {
+				found = append(found, historyToUnified([]scoredHistoryRecord{{Record: r}})[0])
+				continue
+			}
+		case strings.HasPrefix(id, "doc:"):
+			if r, ok := docByID[strings.TrimPrefix(id, "doc:")]; ok {
+				found = append(found, docToUnified(r))
+				continue
+			}
+		}
+		missing = append(missing, id)
+	}
+	return found, missing
 }

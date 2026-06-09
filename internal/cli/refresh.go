@@ -223,10 +223,13 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	} else if refreshOpts.historyIndex {
 		progress.Skip(refreshHistoryLabel(existingHistorySource(manifest)))
 	}
-	if refreshOpts.historyIndex {
-		// Doc index: retrievable chunks of the brain's own markdown (seed summaries
-		// + copied repo docs). Derived from seed, rebuilt each refresh; best-effort
-		// so a doc failure never fails the refresh.
+	// Doc index: retrievable chunks of the brain's own markdown (seed summaries
+	// + copied repo docs). It derives from seed, not history, so gate it on its own
+	// inputs — rebuild when seed ran, when the docs source is missing, on --force,
+	// or alongside a history-index build — never silently skip it just because
+	// --history-index=false.
+	docsMissing := manifest == nil || manifest.Sources == nil || manifest.Sources.Docs == nil
+	if refreshOpts.historyIndex || needSeed || docsMissing || refreshOpts.force {
 		docTask := progress.Begin("doc index")
 		if docSource, derr := writeDocIndexAndSource(brainDir, opts.Now().UTC()); derr != nil {
 			docTask.Update("doc index: skipped (" + derr.Error() + ")")

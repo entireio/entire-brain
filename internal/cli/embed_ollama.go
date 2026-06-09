@@ -75,6 +75,12 @@ func (o *ollamaEmbedder) embed(input string) []float32 {
 		return nil
 	}
 	defer resp.Body.Close()
+	// A non-200 (model not pulled, server warming up) often still returns a JSON
+	// error body that decodes cleanly into an empty Embeddings — which would look
+	// like a successful nil vector. Treat any non-200 as an explicit failure.
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
 	var out struct {
 		Embeddings [][]float32 `json:"embeddings"`
 	}

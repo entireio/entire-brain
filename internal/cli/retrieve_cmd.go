@@ -107,14 +107,9 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	if err != nil {
 		return err
 	}
-	var found []unifiedResult
-	missing := []string{}
-	for _, id := range ids {
-		if r, ok := getUnified(brainDir, resolvedBranch, id); ok {
-			found = append(found, r)
-		} else {
-			missing = append(missing, id)
-		}
+	found, missing := getUnifiedBatch(brainDir, resolvedBranch, ids)
+	if missing == nil {
+		missing = []string{}
 	}
 	if jsonOut {
 		return writeJSON(cmd, map[string]any{"results": found, "missing": missing})
