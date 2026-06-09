@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "fbed539c81af",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fb/ed539c81af/0/metadata.json",
+      "transcript": "/fb/ed539c81af/0/full.jsonl",
+      "content_hash": "/fb/ed539c81af/0/content_hash.txt",
+      "prompt": "/fb/ed539c81af/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 574,
+    "cache_creation_tokens": 33589,
+    "cache_read_tokens": 17982258,
+    "output_tokens": 23757,
+    "api_call_count": 29
+  }
+}
