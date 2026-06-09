@@ -36,6 +36,11 @@ console.log("ready: dim =", probe.vector.length, "on :" + port);
 
 http.createServer((req, res) => {
   if (req.method !== "POST") { res.writeHead(405); res.end(); return; }
+  // Accept the embed endpoint only (the brain points ENTIRE_BRAIN_EMBED_URL at the
+  // root; "/api/embed" matches Ollama's shape). 404 anything else so the server
+  // isn't an accidental catch-all if more endpoints are added later.
+  const path = (req.url || "/").split("?")[0];
+  if (path !== "/" && path !== "/api/embed") { res.writeHead(404); res.end(); return; }
   const chunks = [];
   let size = 0;
   let aborted = false;

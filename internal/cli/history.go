@@ -32,10 +32,12 @@ const (
 	// Bump it whenever the history record extraction/classification logic
 	// changes so stale cached records are discarded on the next refresh.
 	// v2: index user prompts as "request" records.
-	// v3: stop indexing "request" records — they were excluded from general
-	// ranking (measured noise) and the only surfaces that could query them
-	// (inspect requests / brain_history kind=requests) were removed. Bumping
-	// discards stale caches that still hold request records.
+	// v3: stop EXTRACTING request records during scan (the v2 indexing) — they were
+	// excluded from general ranking (measured noise) and the only surfaces that
+	// could query them (inspect requests / brain_history kind=requests) were
+	// removed. The request-kind gates/filtering are kept as defensive support for
+	// stale indexes; bumping discards per-file scan caches that still hold request
+	// records so they stop reappearing on refresh.
 	historyScanCacheVersion = 3
 )
 

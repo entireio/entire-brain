@@ -42,8 +42,15 @@ func newOllamaEmbedder() *ollamaEmbedder {
 	}
 	// Disable proxies on the transport: this embedder is local-first (the default
 	// URL is localhost), and honoring HTTP(S)_PROXY could route query/document text
-	// off-box. Clone DefaultTransport so its dial/keepalive defaults are preserved.
-	tr := http.DefaultTransport.(*http.Transport).Clone()
+	// off-box. Clone DefaultTransport so its dial/keepalive defaults are preserved,
+	// but tolerate a non-standard DefaultTransport (a consumer/test may replace it)
+	// rather than panicking on the type assertion.
+	var tr *http.Transport
+	if dt, ok := http.DefaultTransport.(*http.Transport); ok {
+		tr = dt.Clone()
+	} else {
+		tr = &http.Transport{}
+	}
 	tr.Proxy = nil
 	return &ollamaEmbedder{
 		model: model,
