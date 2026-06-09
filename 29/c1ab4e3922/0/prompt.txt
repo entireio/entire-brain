@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>b41wlxpos</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/93850a3b-823a-4400-affb-afd0a1ad0282/tasks/b41wlxpos.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll until Copilot completes round-16 review, classify result" completed (exit code 0)</summary>
+</task-notification>
