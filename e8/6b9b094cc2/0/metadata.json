@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "e86b9b094cc2",
+  "session_id": "e9599ec7-8b1c-4ac7-a5ea-c621e7388a78",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-09T11:35:41.722767Z",
+  "branch": "harvest/agent-ux-and-embedder-ux",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/embed_ollama.go",
+    "internal/cli/embed.go",
+    "internal/cli/embed_ollama_test.go",
+    "README.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "d5eb72d9df17",
+  "checkpoint_transcript_start": 640,
+  "transcript_lines_at_start": 640,
+  "token_usage": {
+    "input_tokens": 308,
+    "cache_creation_tokens": 26072,
+    "cache_read_tokens": 2200542,
+    "output_tokens": 12142,
+    "api_call_count": 14
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-09T11:35:41.69864Z",
+    "agent_lines": 140,
+    "agent_removed": 11,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 140,
+    "total_lines_changed": 151,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
