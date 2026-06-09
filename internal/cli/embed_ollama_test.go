@@ -63,6 +63,27 @@ func TestConfiguredEmbedderUsesOllamaWhenReachable(t *testing.T) {
 	}
 }
 
+func TestConfiguredEmbedderFallsBackOnEmptyEmbeddingBody(t *testing.T) {
+	// A server that answers 200 but returns no embedding (wrong model / error
+	// body) must be treated as not usable, not selected as the embedder.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"embeddings": [][]float32{}})
+	}))
+	defer srv.Close()
+	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "ollama")
+	t.Setenv("ENTIRE_BRAIN_EMBED_URL", srv.URL)
+	e, warn := configuredEmbedder()
+	if _, ok := e.(*ollamaEmbedder); ok {
+		t.Fatal("a 200 with an empty embeddings array must not select the ollama embedder")
+	}
+	if e == nil {
+		t.Fatal("expected the Model2Vec fallback, got nil")
+	}
+	if warn == "" {
+		t.Fatal("expected a fallback warning")
+	}
+}
+
 func TestConfiguredEmbedderFallsBackWhenOllamaUnreachable(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "ollama")
 	// Port 1 refuses immediately, so the probe fails fast and the selector must

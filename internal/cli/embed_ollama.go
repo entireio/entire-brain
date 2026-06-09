@@ -62,11 +62,13 @@ func newOllamaEmbedder() *ollamaEmbedder {
 
 func (o *ollamaEmbedder) ID() string { return "ollama:" + o.model }
 
-// reachable reports whether the embed server answers within a short timeout. The
-// selector uses it to fall back to the bundled Model2Vec model — one consistent
-// vector space — instead of silently degrading the semantic arm to lexical when
-// the opt-in server is not running. The short context timeout overrides the
-// client's longer per-embed timeout so an absent server fails fast.
+// reachable reports whether the embed server actually returns a usable embedding
+// within a short timeout — not merely that it answers 200. The selector uses it
+// to fall back to the bundled Model2Vec model — one consistent vector space —
+// instead of selecting an embedder that will then fail every embed (server up
+// but wrong model, error-shaped 200 body, or an empty `embeddings` array). The
+// short context timeout overrides the client's longer per-embed timeout so an
+// absent server fails fast.
 func (o *ollamaEmbedder) reachable() bool {
 	body, err := json.Marshal(map[string]any{"model": o.model, "input": "title: none | text: probe"})
 	if err != nil {
@@ -84,7 +86,18 @@ func (o *ollamaEmbedder) reachable() bool {
 		return false
 	}
 	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	// Require a non-empty embedding vector, the same shape Embed depends on, so a
+	// 200 with an error body or `{"embeddings":[]}` is not mistaken for healthy.
+	var out struct {
+		Embeddings [][]float32 `json:"embeddings"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return false
+	}
+	return len(out.Embeddings) > 0 && len(out.Embeddings[0]) > 0
 }
 
 // embeddingGemmaDim is EmbeddingGemma-300M's output dimension. Seeding it for the

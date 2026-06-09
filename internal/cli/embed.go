@@ -296,11 +296,12 @@ func configuredEmbedder() (Embedder, string) {
 		if o.reachable() {
 			return o, ""
 		}
-		warn := fmt.Sprintf("ENTIRE_BRAIN_EMBEDDER=ollama set but the embed server at %s did not return an embedding (unreachable, wrong model, or an error response); falling back to the bundled Model2Vec embedder", o.url)
+		base := fmt.Sprintf("ENTIRE_BRAIN_EMBEDDER=ollama set but the embed server at %s did not return an embedding (unreachable, wrong model, or an error response)", o.url)
 		if e, err := loadStaticEmbedder(entirebrain.EmbedModel); err == nil {
-			return e, warn
+			return e, base + "; falling back to the bundled Model2Vec embedder"
 		}
-		return nil, warn
+		// The bundled fallback also failed to load — there is no semantic arm.
+		return nil, base + " and the bundled Model2Vec fallback could not be loaded; semantic retrieval is unavailable (lexical only)"
 	}
 	if e, err := loadStaticEmbedder(entirebrain.EmbedModel); err == nil {
 		return e, ""
