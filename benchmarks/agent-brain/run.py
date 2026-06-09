@@ -2480,9 +2480,12 @@ def diff_stat(worktree: pathlib.Path) -> dict[str, Any]:
 
 
 def validate(task: dict[str, Any], worktree: pathlib.Path, env: dict[str, str]) -> dict[str, Any]:
+    commands = task.get("validation", [])
+    if not commands:
+        return {"ok": False, "results": [], "error": "task has no validation commands"}
     results = []
     ok = True
-    for command in task.get("validation", []):
+    for command in commands:
         start = time.time()
         proc = shell_cmd(command, cwd=worktree, env=env, timeout=600)
         result = {

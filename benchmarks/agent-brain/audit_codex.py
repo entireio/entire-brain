@@ -279,8 +279,10 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
 
     # F. validation present
     vres = get(rec, "validation", "results", default=None)
-    if vres is not None and len(vres) == 0 and cond != "no_brain":
-        notes.append("F:no_validation_commands_run")
+    if not isinstance(vres, list):
+        flags.append("F:validation_results_missing")
+    elif len(vres) == 0:
+        flags.append("F:no_validation_commands_run")
 
     # H. provenance completeness (HARD). Release evidence must name the exact
     # harness/source revisions and run config that produced each record.

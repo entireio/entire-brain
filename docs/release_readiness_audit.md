@@ -205,6 +205,13 @@ Release claims must stay local-first and evidence-backed:
   behavior.
 - The semantic benchmark task uses a portable repo path and hides expected files
   and validation from the agent prompt.
+- Benchmark validation now fails closed when a task defines zero validation
+  commands, and the independent release auditor treats missing or empty
+  validation results as hard flags. A proof-ready comparison cannot be backed by
+  unvalidated records.
+- The query default-limit benchmark tasks now target the current unified
+  retrieval implementation in `internal/cli/retrieve_cmd.go`, including the
+  QMD-style `-n` alias, instead of the old semantic-query implementation.
 
 ## Commands And Evidence Status
 
@@ -218,6 +225,10 @@ Implementation checks reported for the release-readiness implementation pass on
 - `go test -race ./...`
 - `GOOS=windows GOARCH=amd64 go build ./...`
 - `mise run check`
+- `python3 benchmarks/agent-brain/run.py check --tasks
+  entire-brain-semantic-completeness-tolerance.json
+  entire-brain-mcp-tool-name.json entire-brain-query-default-limit.json
+  entire-brain-stale-query-default-limit.json`
 
 This documentation claim-hygiene pass checked:
 

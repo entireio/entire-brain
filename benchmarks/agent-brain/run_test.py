@@ -77,7 +77,6 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="o", agent="claude", model="opus")), ("brain_brief",))
         self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="g", agent="codex", model="gpt-5.5")), ("brain_brief",))
         self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="s", agent="claude", model="sonnet")), ("brain_brief", "brain_search"))
-
         brief_only = {"mcp": {"enabled": True}, "activity": {"mcp_tool_calls": 1, "mcp_tool_names": ["mcp__entire_brain__brain_brief"]}}
         # Opus (compact): brief-only is a clean pass.
         opus_audit = run.mcp_condition_audit("mcp_history", brief_only, run.RunnerSpec(id="o", agent="claude", model="opus"))
@@ -86,6 +85,13 @@ class RunnerAndConditionTests(unittest.TestCase):
         sonnet_audit = run.mcp_condition_audit("mcp_history", brief_only, run.RunnerSpec(id="s", agent="claude", model="sonnet"))
         self.assertFalse(sonnet_audit["ok"])
         self.assertIn("brain_search", [f.get("tool") for f in sonnet_audit["findings"]])
+
+    def test_validate_fails_tasks_with_no_validation_commands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = run.validate({"id": "t", "validation": []}, pathlib.Path(tmp), os.environ.copy())
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["results"], [])
+        self.assertIn("no validation commands", result["error"])
 
     def test_mcp_configs_include_local_brain_server_and_repo_env(self):
         env = {
@@ -1171,6 +1177,27 @@ class CodexAuditScriptTests(unittest.TestCase):
             passing_gate = json.loads((out_dir / "codex-audit-report.json").read_text())["gate_status"]
             self.assertTrue(passing_gate["release_evidence"])
             self.assertEqual(passing_gate["failures"], [])
+
+            unvalidated_records = []
+            for i in range(1, 4):
+                base = self._record(condition="no_brain", repetition=i, run_id=f"noval-base-{i}")
+                brain = self._record(condition="full_brain", repetition=i, run_id=f"noval-brain-{i}")
+                base["validation"] = {"ok": True, "results": []}
+                brain["validation"] = {"ok": True, "results": []}
+                unvalidated_records.extend([base, brain])
+            self._write_records(results_dir, "clean-suite", unvalidated_records)
+            unvalidated_report = audit_codex.build_audit_report(results_dir, ["clean-*"])
+            self.assertEqual(unvalidated_report["totals"]["proof_ready_comparisons"], 0)
+            self.assertGreater(unvalidated_report["totals"]["hard_flags"], 0)
+            self.assertIn("F:no_validation_commands_run", unvalidated_report["suites"]["clean-suite"]["records"][0]["flags"])
+            self.assertIn(
+                "G:proof_ready_without_matching_records",
+                unvalidated_report["suites"]["clean-suite"]["comparisons"][0]["flags"],
+            )
+            self.assertEqual(
+                audit_codex.main(["--results", str(results_dir), "--suite-glob", "clean-*", "--out-dir", str(out_dir), "--fail-on-flags", "--min-proof-ready", "1"]),
+                1,
+            )
 
             dirty = audit_codex.build_audit_report(results_dir, ["dirty-*"])
             self.assertEqual(dirty["totals"]["hard_flags"], 1)
