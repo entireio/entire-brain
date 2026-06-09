@@ -31,7 +31,8 @@ const (
 )
 
 type agentStatusOptions struct {
-	json bool
+	json   bool
+	verify bool
 }
 
 type brainBriefOptions struct {
@@ -157,6 +158,7 @@ func newAgentStatusCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&statusOpts.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&statusOpts.verify, "verify", false, "Include capped fact verification summary")
 	return cmd
 }
 
@@ -594,7 +596,9 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 	if err != nil {
 		return err
 	}
-	populateBrainStatusVerification(ctx, opts, &report)
+	if statusOpts.verify {
+		populateBrainStatusVerification(ctx, opts, &report)
+	}
 	if statusOpts.json {
 		return writeJSON(cmd, report)
 	}
@@ -608,8 +612,12 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 	}
 	if report.Verification != nil {
 		v := report.Verification
-		fmt.Fprintf(cmd.OutOrStdout(), "verification: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
-			v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
+		verificationBranch := report.Live.Branch
+		if verificationBranch == "" {
+			verificationBranch = distillDefaultBranch
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "verification (%s): %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
+			verificationBranch, v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
 	}
 	if report.Freshness != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "freshness: %s\n", report.Freshness.Severity)

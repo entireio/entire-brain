@@ -96,6 +96,13 @@ func (f verifyFixture) addLocalCheckpoint(t *testing.T, checkpointID, sessionID,
 	f.runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef)] = fakeCommandResponse{
 		stdout: strings.Join([]string{rootMetadata, sessionMetadata, transcriptPath}, "\n") + "\n",
 	}
+	f.runner.responses[fakeCommandKey("git", "ls-tree", "-r", v1MainRef)] = fakeCommandResponse{
+		stdout: strings.Join([]string{
+			"100644 blob oid-root\t" + rootMetadata,
+			"100644 blob oid-session\t" + sessionMetadata,
+			"100644 blob oid-transcript\t" + transcriptPath,
+		}, "\n") + "\n",
+	}
 	f.runner.responses[fakeCommandKey("git", "cat-file", "-p", v1MainRef+":"+rootMetadata)] = fakeCommandResponse{
 		stdout: `{"branch":"main","sessions":[{"metadata":"` + sessionMetadata + `","transcript":"` + transcriptPath + `"}]}`,
 	}
@@ -132,6 +139,26 @@ func parseVerifyReport(t *testing.T, out string) verifyReport {
 	return report
 }
 
+func fakeRunnerCallCount(runner *fakeCommandRunner, name string, args ...string) int {
+	count := 0
+	for _, call := range runner.calls {
+		if call.name != name || len(call.args) != len(args) {
+			continue
+		}
+		match := true
+		for i := range args {
+			if call.args[i] != args[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			count++
+		}
+	}
+	return count
+}
+
 func TestVerifyDistilledFactAtCheckpointGranularity(t *testing.T) {
 	f := newVerifyFixture(t)
 	const checkpointID = "aaa111aaa111"
@@ -149,7 +176,7 @@ func TestVerifyDistilledFactAtCheckpointGranularity(t *testing.T) {
 	}})
 	f.addLocalCheckpoint(t, checkpointID, "sess1", "turn1", transcript)
 	fact := verifyFactFixture("fact:verified", "The verifier reuses the local checkpoint reader.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
-		SessionID: "sess1", CheckpointID: checkpointID, TurnID: "turn1", Transcript: transcriptRel, Line: 1,
+		SessionID: "sess1", CheckpointID: " " + checkpointID + " ", TurnID: "turn1", Transcript: transcriptRel, Line: 1,
 	}})
 	f.writeFacts(t, "main", []factRecord{fact})
 
@@ -216,6 +243,50 @@ func TestVerifyAuthoredFactsAreUnverifiableUnlessCommitMissing(t *testing.T) {
 	}
 }
 
+func TestVerifyRejectsInvalidCommitAnchorWithoutGitCall(t *testing.T) {
+	f := newVerifyFixture(t)
+	f.writeSessions(t, nil)
+	fact := verifyFactFixture("fact:invalid-commit", "Invalid commit anchors are rejected before git.", "main", factOriginAuthored, factStatusActive, f.now, []factAnchor{{Commit: "-not-a-commit"}})
+	f.writeFacts(t, "main", []factRecord{fact})
+
+	cmd := NewRootCommand(f.opts)
+	out, err := execute(t, cmd, "verify", "fact:invalid-commit", "--json")
+	if err == nil || !errors.Is(err, errVerifyIssues) {
+		t.Fatalf("expected verify issue error, got %v\n%s", err, out)
+	}
+	report := parseVerifyReport(t, out)
+	if report.Summary.Orphaned != 1 || report.Results[0].Anchors[0].Checks[0].Reason != "commit anchor is not a hex object id" {
+		t.Fatalf("expected invalid commit report, got %+v", report)
+	}
+	if fakeRunnerCalled(f.runner, "git", "cat-file", "-e", "-not-a-commit^{commit}") {
+		t.Fatalf("invalid commit anchor should not be passed to git: %+v", f.runner.calls)
+	}
+}
+
+func TestVerifyMemoizesCommitChecks(t *testing.T) {
+	f := newVerifyFixture(t)
+	commit := "1111111111111111111111111111111111111111"
+	f.runner.responses[fakeCommandKey("git", "cat-file", "-e", commit+"^{commit}")] = fakeCommandResponse{}
+	f.runner.responses[fakeCommandKey("git", "for-each-ref", "--format=%(refname)", "--contains", commit, "refs/heads", "refs/remotes", "refs/tags")] = fakeCommandResponse{stdout: "refs/heads/main\n"}
+	f.writeSessions(t, nil)
+	f.writeFacts(t, "main", []factRecord{
+		verifyFactFixture("fact:commit-a", "The first fact cites a shared commit.", "main", factOriginAuthored, factStatusActive, f.now, []factAnchor{{Commit: commit}}),
+		verifyFactFixture("fact:commit-b", "The second fact cites a shared commit.", "main", factOriginAuthored, factStatusActive, f.now, []factAnchor{{Commit: commit}}),
+	})
+
+	cmd := NewRootCommand(f.opts)
+	out, err := execute(t, cmd, "verify", "--json")
+	if err != nil {
+		t.Fatalf("verify: %v\n%s", err, out)
+	}
+	if got := fakeRunnerCallCount(f.runner, "git", "cat-file", "-e", commit+"^{commit}"); got != 1 {
+		t.Fatalf("commit existence check count = %d, calls: %+v", got, f.runner.calls)
+	}
+	if got := fakeRunnerCallCount(f.runner, "git", "for-each-ref", "--format=%(refname)", "--contains", commit, "refs/heads", "refs/remotes", "refs/tags"); got != 1 {
+		t.Fatalf("commit reachability check count = %d, calls: %+v", got, f.runner.calls)
+	}
+}
+
 func TestVerifyReportsStaleTranscript(t *testing.T) {
 	f := newVerifyFixture(t)
 	const checkpointID = "aaa111aaa111"
@@ -261,6 +332,9 @@ func TestVerifySelectionModes(t *testing.T) {
 	report := parseVerifyReport(t, out)
 	if report.Summary.Facts != 1 || report.Results[0].Fact.ID != "fact:active" {
 		t.Fatalf("no-arg should verify only active facts, got %+v", report.Results)
+	}
+	if len(report.Results[0].Limitations) != 0 {
+		t.Fatalf("no-provenance fact should not carry turn-signature limitation: %+v", report.Results[0].Limitations)
 	}
 
 	cmd = NewRootCommand(f.opts)
@@ -338,6 +412,119 @@ func TestVerifyDoesNotFetchConfiguredCheckpointRemote(t *testing.T) {
 	}
 }
 
+func TestVerifyUsesCheckpointMetadataCache(t *testing.T) {
+	f := newVerifyFixture(t)
+	const checkpointID = "aaa111aaa111"
+	const sessionID = "sess-cache"
+	const transcriptRel = "sessions/main/cache.jsonl"
+	transcript := "cached metadata transcript\n"
+	checkpointDir := checkpointPath(checkpointID)
+	rootMetadata := checkpointDir + "/metadata.json"
+	sessionMetadata := checkpointDir + "/0/metadata.json"
+	sourceTranscript := checkpointDir + "/0/" + v1TranscriptFileName
+	f.writeBrainFile(t, transcriptRel, transcript)
+	f.writeSessions(t, []exportSession{{
+		SessionID:        sessionID,
+		Branch:           "main",
+		LatestCheckpoint: checkpointID,
+		SessionIndex:     0,
+		CreatedAt:        f.now,
+		TranscriptPath:   transcriptRel,
+	}})
+	f.runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef)] = fakeCommandResponse{
+		stdout: strings.Join([]string{rootMetadata, sessionMetadata, sourceTranscript}, "\n") + "\n",
+	}
+	f.runner.responses[fakeCommandKey("git", "ls-tree", "-r", v1MainRef)] = fakeCommandResponse{
+		stdout: strings.Join([]string{
+			"100644 blob oid-root-cache\t" + rootMetadata,
+			"100644 blob oid-session-cache\t" + sessionMetadata,
+			"100644 blob oid-transcript-cache\t" + sourceTranscript,
+		}, "\n") + "\n",
+	}
+	f.runner.responses[fakeCommandKey("git", "cat-file", "-p", v1MainRef+":"+sourceTranscript)] = fakeCommandResponse{stdout: transcript}
+	cache := &checkpointMetadataCache{
+		active: true,
+		next: map[string][]byte{
+			"oid-root-cache":    []byte(`{"branch":"main","sessions":[{"metadata":"` + sessionMetadata + `","transcript":"` + sourceTranscript + `"}]}`),
+			"oid-session-cache": []byte(`{"session_id":"` + sessionID + `","branch":"main"}`),
+		},
+	}
+	saveCheckpointMetadataCache(filepath.Join(f.brainDir, filepath.FromSlash(checkpointMetadataCachePath)), cache)
+	fact := verifyFactFixture("fact:cache", "Verification reuses checkpoint metadata cache.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+		SessionID: sessionID, CheckpointID: checkpointID, Transcript: transcriptRel, Line: 1,
+	}})
+	f.writeFacts(t, "main", []factRecord{fact})
+
+	cmd := NewRootCommand(f.opts)
+	out, err := execute(t, cmd, "verify", "fact:cache", "--json")
+	if err != nil {
+		t.Fatalf("verify: %v\n%s", err, out)
+	}
+	report := parseVerifyReport(t, out)
+	if report.Summary.Verified != 1 {
+		t.Fatalf("expected verified report, got %+v", report)
+	}
+	if fakeRunnerCalled(f.runner, "git", "cat-file", "-p", v1MainRef+":"+rootMetadata) ||
+		fakeRunnerCalled(f.runner, "git", "cat-file", "-p", v1MainRef+":"+sessionMetadata) {
+		t.Fatalf("metadata blobs should come from cache, calls: %+v", f.runner.calls)
+	}
+}
+
+func TestVerifyMemoizesCheckpointTranscripts(t *testing.T) {
+	f := newVerifyFixture(t)
+	const checkpointID = "aaa111aaa111"
+	const transcriptRel = "sessions/main/session.jsonl"
+	transcript := "shared checkpoint transcript\n"
+	f.writeBrainFile(t, transcriptRel, transcript)
+	f.writeSessions(t, []exportSession{{
+		SessionID:        "sess1",
+		Branch:           "main",
+		LatestCheckpoint: checkpointID,
+		SessionIndex:     0,
+		CreatedAt:        f.now,
+		TranscriptPath:   transcriptRel,
+	}})
+	f.addLocalCheckpoint(t, checkpointID, "sess1", "", transcript)
+	f.writeFacts(t, "main", []factRecord{
+		verifyFactFixture("fact:transcript-a", "The first fact cites the shared transcript.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+			SessionID: "sess1", CheckpointID: checkpointID, Transcript: transcriptRel, Line: 1,
+		}}),
+		verifyFactFixture("fact:transcript-b", "The second fact cites the shared transcript.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+			SessionID: "sess1", CheckpointID: checkpointID, Transcript: transcriptRel, Line: 1,
+		}}),
+	})
+
+	cmd := NewRootCommand(f.opts)
+	out, err := execute(t, cmd, "verify", "--json")
+	if err != nil {
+		t.Fatalf("verify: %v\n%s", err, out)
+	}
+	sourcePath := checkpointPath(checkpointID) + "/0/" + v1TranscriptFileName
+	if got := fakeRunnerCallCount(f.runner, "git", "cat-file", "-p", v1MainRef+":"+sourcePath); got != 1 {
+		t.Fatalf("checkpoint transcript cat-file count = %d, calls: %+v", got, f.runner.calls)
+	}
+}
+
+func TestTranscriptLineDropsTrailingEmptyLine(t *testing.T) {
+	if line, ok := transcriptLine("a\n", 2); ok {
+		t.Fatalf("line after trailing newline should be outside transcript, got %q", line)
+	}
+	if line, ok := transcriptLine("a\n", 1); !ok || line != "a" {
+		t.Fatalf("line 1 should resolve before trailing newline, got %q ok=%t", line, ok)
+	}
+}
+
+func TestVerifyHelpDocumentsExitCode(t *testing.T) {
+	cmd := NewRootCommand(Options{Version: "test"})
+	out, err := execute(t, cmd, "verify", "--help")
+	if err != nil {
+		t.Fatalf("verify help: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "return exit code 1") {
+		t.Fatalf("verify help should document exit-code semantics:\n%s", out)
+	}
+}
+
 func TestStatusIncludesVerificationSummary(t *testing.T) {
 	f := newVerifyFixture(t)
 	f.runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "headsha\n"}
@@ -351,7 +538,7 @@ func TestStatusIncludesVerificationSummary(t *testing.T) {
 	})
 
 	cmd := NewRootCommand(f.opts)
-	out, err := execute(t, cmd, "status", "--json")
+	out, err := execute(t, cmd, "status", "--json", "--verify")
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, out)
 	}
@@ -361,6 +548,32 @@ func TestStatusIncludesVerificationSummary(t *testing.T) {
 	}
 	if report.Verification == nil || report.Verification.UnverifiableHere != 1 {
 		t.Fatalf("missing verification summary: %+v", report.Verification)
+	}
+}
+
+func TestStatusSkipsVerificationByDefault(t *testing.T) {
+	f := newVerifyFixture(t)
+	f.runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "headsha\n"}
+	f.runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
+	f.runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
+	f.runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	f.runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
+	f.writeSessions(t, nil)
+	f.writeFacts(t, "main", []factRecord{
+		verifyFactFixture("fact:status", "Status does not verify facts unless requested.", "main", factOriginAuthored, factStatusActive, f.now, nil),
+	})
+
+	cmd := NewRootCommand(f.opts)
+	out, err := execute(t, cmd, "status", "--json")
+	if err != nil {
+		t.Fatalf("status: %v\n%s", err, out)
+	}
+	var report brainStatusReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("parse status json: %v\n%s", err, out)
+	}
+	if report.Verification != nil {
+		t.Fatalf("status should skip verification by default: %+v", report.Verification)
 	}
 }
 
@@ -399,7 +612,7 @@ func TestStatusVerificationIsCapped(t *testing.T) {
 	f.writeFacts(t, "main", facts)
 
 	cmd := NewRootCommand(f.opts)
-	out, err := execute(t, cmd, "status", "--json")
+	out, err := execute(t, cmd, "status", "--json", "--verify")
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, out)
 	}

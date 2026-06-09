@@ -96,6 +96,14 @@ type verifyContext struct {
 	snapshot         *checkpointSnapshot
 	snapshotErr      error
 	snapshotWarnings []string
+
+	transcripts  map[string]verifyTranscriptCacheEntry
+	commitChecks map[string]verifyCheck
+}
+
+type verifyTranscriptCacheEntry struct {
+	data []byte
+	err  error
 }
 
 func newVerifyCommand(opts Options) *cobra.Command {
@@ -103,7 +111,12 @@ func newVerifyCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "verify [<fact-id | query>]",
 		Short: "Verify durable fact anchors against local retained sources",
-		Args:  cobra.MaximumNArgs(1),
+		Long: `Verify durable fact anchors against local retained sources.
+
+Without a target, verify checks all active facts on the selected branch. Stale
+or orphaned facts are reported and return exit code 1, making the command
+suitable for CI.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := ""
 			if len(args) == 1 {
@@ -221,17 +234,17 @@ func (v *verifyContext) verifyFact(fact factRecord) verifyFactResult {
 		Verdict: verifyVerdictVerified,
 		Reason:  "all locally checkable anchors resolved",
 		Anchors: []verifyAnchorResult{},
-		Limitations: []verifyLimitation{{
-			Scope:   "turn-signature",
-			Verdict: verifyVerdictUnverifiableHere,
-			Reason:  verifyTurnSigningLimitation,
-		}},
 	}
 	if len(fact.Provenance) == 0 {
 		result.Verdict = verifyVerdictUnverifiableHere
 		result.Reason = "fact has no retained source anchor"
 		return result
 	}
+	result.Limitations = []verifyLimitation{{
+		Scope:   "turn-signature",
+		Verdict: verifyVerdictUnverifiableHere,
+		Reason:  verifyTurnSigningLimitation,
+	}}
 	for _, anchor := range fact.Provenance {
 		anchorResult := v.verifyAnchor(anchor)
 		result.Anchors = append(result.Anchors, anchorResult)
@@ -323,21 +336,53 @@ func (v *verifyContext) verifyCommit(commit string) verifyCheck {
 	if commit == "" {
 		return verifyCheck{}
 	}
+	if v.commitChecks == nil {
+		v.commitChecks = make(map[string]verifyCheck)
+	}
+	if check, ok := v.commitChecks[commit]; ok {
+		return check
+	}
+	if !isHexObjectID(commit) {
+		check := verifyCheck{Name: "commit", Verdict: verifyVerdictOrphaned, Reason: "commit anchor is not a hex object id"}
+		v.commitChecks[commit] = check
+		return check
+	}
 	if _, _, err := v.opts.Runner.Run(v.ctx, v.repoDir, "git", "cat-file", "-e", commit+"^{commit}"); err != nil {
-		return verifyCheck{Name: "commit", Verdict: verifyVerdictOrphaned, Reason: "commit is missing locally"}
+		check := verifyCheck{Name: "commit", Verdict: verifyVerdictOrphaned, Reason: "commit is missing locally"}
+		v.commitChecks[commit] = check
+		return check
 	}
 	stdout, _, err := v.opts.Runner.Run(v.ctx, v.repoDir, "git", "for-each-ref", "--format=%(refname)", "--contains", commit, "refs/heads", "refs/remotes", "refs/tags")
 	if err != nil {
-		return verifyCheck{Name: "commit", Verdict: verifyVerdictOrphaned, Reason: "commit reachability could not be checked locally"}
+		check := verifyCheck{Name: "commit", Verdict: verifyVerdictOrphaned, Reason: "commit reachability could not be checked locally"}
+		v.commitChecks[commit] = check
+		return check
 	}
 	if strings.TrimSpace(string(stdout)) == "" {
-		return verifyCheck{Name: "commit", Verdict: verifyVerdictOrphaned, Reason: "commit is not reachable from local refs"}
+		check := verifyCheck{Name: "commit", Verdict: verifyVerdictOrphaned, Reason: "commit is not reachable from local refs"}
+		v.commitChecks[commit] = check
+		return check
 	}
-	return verifyCheck{Name: "commit", Verdict: verifyVerdictVerified, Reason: "commit exists and is reachable from local refs"}
+	check := verifyCheck{Name: "commit", Verdict: verifyVerdictVerified, Reason: "commit exists and is reachable from local refs"}
+	v.commitChecks[commit] = check
+	return check
+}
+
+func isHexObjectID(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	for _, r := range value {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 func (v *verifyContext) verifyExportedSession(anchor factAnchor) (exportSession, bool, verifyCheck) {
 	sessionID := strings.TrimSpace(anchor.SessionID)
+	checkpointID := strings.TrimSpace(anchor.CheckpointID)
 	if sessionID == "" {
 		return exportSession{}, false, verifyCheck{Name: "session", Verdict: verifyVerdictOrphaned, Reason: "anchor has no session_id"}
 	}
@@ -348,7 +393,7 @@ func (v *verifyContext) verifyExportedSession(anchor factAnchor) (exportSession,
 	for _, session := range v.manifest.Sources.Sessions.Sessions {
 		if session.SessionID == sessionID {
 			bySession = append(bySession, session)
-			if anchor.CheckpointID == "" || session.LatestCheckpoint == anchor.CheckpointID {
+			if checkpointID == "" || strings.TrimSpace(session.LatestCheckpoint) == checkpointID {
 				return session, true, verifyCheck{Name: "session", Verdict: verifyVerdictVerified, Reason: "session is present in exported sessions"}
 			}
 		}
@@ -370,6 +415,7 @@ func verifyTurnID(session exportSession, turnID string) verifyCheck {
 }
 
 func (v *verifyContext) verifyCheckpoint(checkpointID string) verifyCheck {
+	checkpointID = strings.TrimSpace(checkpointID)
 	snapshot, err := v.localCheckpointSnapshot()
 	if err != nil {
 		return verifyCheck{Name: "checkpoint", Verdict: verifyVerdictUnverifiableHere, Reason: verifyCheckpointUnavailableHint + ": " + err.Error()}
@@ -389,7 +435,7 @@ func (v *verifyContext) verifyCheckpointTranscript(anchor factAnchor, session ex
 	if sourcePath == "" {
 		return verifyCheck{Name: "checkpoint_transcript", Verdict: verifyVerdictOrphaned, Reason: "checkpoint transcript path is missing"}
 	}
-	transcript, err := readSnapshotTranscript(v.ctx, v.opts.Runner, snapshot, sourcePath)
+	transcript, err := v.readSnapshotTranscript(snapshot, sourcePath)
 	if err != nil {
 		return verifyCheck{Name: "checkpoint_transcript", Verdict: verifyVerdictOrphaned, Reason: err.Error()}
 	}
@@ -404,7 +450,7 @@ func (v *verifyContext) localCheckpointSnapshot() (*checkpointSnapshot, error) {
 		return v.snapshot, v.snapshotErr
 	}
 	v.snapshotLoaded = true
-	snapshot, warnings, err := loadLocalCheckpointSnapshotForVerify(v.ctx, v.opts.Runner, v.repoDir)
+	snapshot, warnings, err := loadLocalCheckpointSnapshotForVerify(v.ctx, v.opts.Runner, v.repoDir, v.brainDir)
 	v.snapshot = snapshot
 	v.snapshotErr = err
 	v.snapshotWarnings = append(v.snapshotWarnings, warnings...)
@@ -412,23 +458,38 @@ func (v *verifyContext) localCheckpointSnapshot() (*checkpointSnapshot, error) {
 }
 
 func (v *verifyContext) snapshotSourceTranscriptPath(snapshot *checkpointSnapshot, anchor factAnchor, session exportSession) string {
+	sessionID := strings.TrimSpace(anchor.SessionID)
+	checkpointID := strings.TrimSpace(anchor.CheckpointID)
 	for _, candidate := range snapshot.Selected {
-		if candidate.SessionID == anchor.SessionID && candidate.CheckpointID == anchor.CheckpointID && candidate.SourceTranscriptPath != "" {
+		if candidate.SessionID == sessionID && candidate.CheckpointID == checkpointID && candidate.SourceTranscriptPath != "" {
 			return candidate.SourceTranscriptPath
 		}
 	}
-	path := snapshotTranscriptPath(anchor.CheckpointID, session.SessionIndex, snapshot.TranscriptFileName)
+	path := snapshotTranscriptPath(checkpointID, session.SessionIndex, snapshot.TranscriptFileName)
 	if _, ok := snapshot.TreePaths[path]; ok {
 		return path
 	}
-	rootPath := snapshotRootTranscriptPath(anchor.CheckpointID, snapshot.TranscriptFileName)
+	rootPath := snapshotRootTranscriptPath(checkpointID, snapshot.TranscriptFileName)
 	if _, ok := snapshot.TreePaths[rootPath]; ok {
 		return rootPath
 	}
 	return ""
 }
 
-func loadLocalCheckpointSnapshotForVerify(ctx context.Context, runner CommandRunner, repoDir string) (*checkpointSnapshot, []string, error) {
+func (v *verifyContext) readSnapshotTranscript(snapshot *checkpointSnapshot, sourcePath string) ([]byte, error) {
+	if v.transcripts == nil {
+		v.transcripts = make(map[string]verifyTranscriptCacheEntry)
+	}
+	key := snapshot.GitDir + "\x00" + snapshot.Ref + "\x00" + sourcePath
+	if cached, ok := v.transcripts[key]; ok {
+		return cached.data, cached.err
+	}
+	data, err := readSnapshotTranscript(v.ctx, v.opts.Runner, snapshot, sourcePath)
+	v.transcripts[key] = verifyTranscriptCacheEntry{data: data, err: err}
+	return data, err
+}
+
+func loadLocalCheckpointSnapshotForVerify(ctx context.Context, runner CommandRunner, repoDir, brainDir string) (*checkpointSnapshot, []string, error) {
 	version := checkpointStorageV1
 	refs := []string{v1MainRef, v1OriginRef}
 	transcriptFileName := v1TranscriptFileName
@@ -439,10 +500,13 @@ func loadLocalCheckpointSnapshotForVerify(ctx context.Context, runner CommandRun
 		transcriptFileName = v2TranscriptFileName
 		mode = "compact"
 	}
-	snapshot, _, warnings, err := loadCheckpointSnapshotFromGitDirRefs(ctx, runner, repoDir, refs, version, transcriptFileName, mode, defaultCheckpointLimit, checkpointBranchDestinations{}, nil, nil)
+	cachePath := filepath.Join(brainDir, filepath.FromSlash(checkpointMetadataCachePath))
+	cache := loadCheckpointMetadataCache(cachePath)
+	snapshot, _, warnings, err := loadCheckpointSnapshotFromGitDirRefs(ctx, runner, repoDir, refs, version, transcriptFileName, mode, defaultCheckpointLimit, checkpointBranchDestinations{}, nil, cache)
 	if err != nil {
 		return nil, warnings, err
 	}
+	saveCheckpointMetadataCache(cachePath, cache)
 	return snapshot, warnings, nil
 }
 
@@ -457,10 +521,13 @@ func checkpointExistsInSnapshot(snapshot *checkpointSnapshot, checkpointID strin
 }
 
 func transcriptLine(content string, line int) (string, bool) {
-	if line <= 0 {
+	if line <= 0 || content == "" {
 		return "", false
 	}
 	lines := strings.Split(content, "\n")
+	if strings.HasSuffix(content, "\n") && len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
 	if line > len(lines) {
 		return "", false
 	}
@@ -533,12 +600,8 @@ func reasonForAnchorVerdict(verdict string) string {
 	}
 }
 
-func verificationSummaryForBranch(ctx context.Context, opts Options, repoDir, brainDir, branch string) (verifySummary, []string, error) {
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-	if err != nil {
-		return verifySummary{}, nil, err
-	}
-	report, err := buildVerifyReport(ctx, opts, repoDir, brainDir, storage.Key, branch, verifyCommandOptions{limit: 10, maxFacts: statusVerificationFactLimit}, "")
+func verificationSummaryForBranch(ctx context.Context, opts Options, repoDir, brainDir, repoKey, branch string) (verifySummary, []string, error) {
+	report, err := buildVerifyReport(ctx, opts, repoDir, brainDir, repoKey, branch, verifyCommandOptions{maxFacts: statusVerificationFactLimit}, "")
 	if err != nil {
 		return verifySummary{}, nil, err
 	}
@@ -553,7 +616,7 @@ func populateBrainStatusVerification(ctx context.Context, opts Options, report *
 	if branch == "" {
 		branch = distillDefaultBranch
 	}
-	summary, warnings, err := verificationSummaryForBranch(ctx, opts, report.Repo.Root, report.Brain.Path, branch)
+	summary, warnings, err := verificationSummaryForBranch(ctx, opts, report.Repo.Root, report.Brain.Path, report.Repo.Key, branch)
 	if err != nil {
 		report.Warnings = append(report.Warnings, "fact verification unavailable: "+err.Error())
 		return
