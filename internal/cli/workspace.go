@@ -383,7 +383,7 @@ func runWorkspaceQuery(cmd *cobra.Command, opts Options, queryOpts workspaceQuer
 		if err != nil {
 			result.Error = err.Error()
 		} else {
-			result.Symbols = symbols
+			result.Symbols = nonNilRecords(symbols)
 		}
 		results = append(results, result)
 	}
