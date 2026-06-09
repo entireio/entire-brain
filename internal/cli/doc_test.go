@@ -52,3 +52,15 @@ func TestRankDocsLexicalFallbackScoresByTermOverlap(t *testing.T) {
 		t.Fatalf("expected no matches for a term-disjoint query, got %+v", got)
 	}
 }
+
+// A run of blank lines in a doc must not grow a chunk past maxBytes — the blank
+// path is subject to the same size cap and flushes at the boundary.
+func TestChunkLinesDocsBlankRunRespectsMaxBytes(t *testing.T) {
+	in := "alpha line here\n" + strings.Repeat("\n", 200) + "beta line here\n"
+	const max = 40
+	for _, c := range chunkLines(in, max, false) {
+		if len(c.Text) > max {
+			t.Fatalf("chunk exceeded maxBytes (%d): %d bytes %q", max, len(c.Text), c.Text)
+		}
+	}
+}

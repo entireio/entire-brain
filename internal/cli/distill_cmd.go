@@ -587,9 +587,15 @@ func chunkLines(content string, maxBytes int, numberLines bool) []transcriptChun
 			// line numbers. Docs preserve *internal* blank lines so markdown
 			// paragraph/code-block structure survives into the indexed text and
 			// embeddings; leading blanks (empty buffer) are skipped and trailing
-			// ones are trimmed by the caller (loadDocRecordsFromSeed).
+			// ones are trimmed by the caller (loadDocRecordsFromSeed). The blank is
+			// subject to the same size cap, so a run of blanks can't grow a chunk
+			// past maxBytes — it flushes at the boundary instead.
 			if !numberLines && buf.Len() > 0 {
-				buf.WriteString("\n")
+				if buf.Len()+1 > maxBytes {
+					flush(lineNo - 1)
+				} else {
+					buf.WriteString("\n")
+				}
 			}
 			continue
 		}
