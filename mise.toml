@@ -24,13 +24,17 @@ description = "Fail unless release-candidate replay-lab evidence is provenance-c
 run = '''
 set -e
 python3 benchmarks/agent-brain/run_test.py
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
 python3 benchmarks/agent-brain/audit_codex.py \
   --suite-glob 'release-*' \
-  --out-dir benchmarks/agent-brain/evidence/release \
+  --out-dir "$tmp" \
   --fail-on-flags \
   --min-suites 1 \
   --min-records 1 \
   --min-proof-ready 1
+mkdir -p benchmarks/agent-brain/evidence/release
+cp "$tmp"/codex-audit-report.json "$tmp"/codex-audit-report.md benchmarks/agent-brain/evidence/release/
 '''
 
 [tasks.build]
