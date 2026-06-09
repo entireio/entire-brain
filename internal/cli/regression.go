@@ -279,7 +279,7 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 	for _, rawID := range ids {
 		id := strings.ToLower(rawID)
 		if semSource != nil {
-			if syms, _, err := semanticContextFacts(brainDir, semSource, id, 8, 0); err == nil {
+			if syms, _, _, err := semanticContextFacts(brainDir, semSource, id, 8, 0); err == nil {
 				for rank, s := range syms {
 					if s.FilePath == "" {
 						continue

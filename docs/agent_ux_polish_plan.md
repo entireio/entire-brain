@@ -10,7 +10,7 @@ independent. (Provider-side work lives in `entire-sem`, tracked separately.)
 Every item should ship with a regression test in
 `internal/cli/agent_ux_test.go` following the patterns already there.
 
-## 1. Materialize caller/callee symbols in `context`
+## 1. Materialize caller/callee symbols in `context`  *(done)*
 
 **Problem.** `inspect context <symbol>` returns the matched `symbols` plus
 `relations`, but the relation *endpoints* are only ids (`from_id`/`to_id`). An
@@ -38,7 +38,7 @@ records with `name`/`file_path`/`start_line`, not just relation ids. Test:
 fixture with `caller -> ValidateToken`, assert the caller symbol appears in
 `neighbors`.
 
-## 2. `inspect changes`: clear "no changes" signal
+## 2. `inspect changes`: clear "no changes" signal  *(done)*
 
 **Problem.** On a clean worktree `inspect changes --json` returns
 `{"files": null, "symbols": null}` with no explanation, which reads like a broken
@@ -58,7 +58,7 @@ shape.
 indicates "nothing changed". Test: index a fixture, run changes on a clean tree,
 assert `[]` + the clean indicator.
 
-## 3. Dedup / disambiguate `overview` commands
+## 3. Dedup / disambiguate `overview` commands  *(done)*
 
 **Problem.** In a monorepo `overview` lists duplicate-looking command names —
 e.g. two `npm run build` entries (`next build` and `pnpm --filter web build`)
@@ -81,27 +81,20 @@ if the text view collapses it.
 same-name commands are distinguishable. Test: seed with duplicate + same-name
 commands, assert the rendered/serialized set is deduped/disambiguated.
 
-## 4. Advertise `relax` / `blind_spots` in MCP tool schemas
+## 4. Advertise `blind_spots` in the `brain_stale` MCP schema  *(done)*
 
-**Problem.** `runBrainHistoryInspect` and `runSemanticStale` already accept the
-`relax` and `blind_spots` arguments over MCP (mcp.go:239, mcp.go:199 read them
-from `params.Arguments`), but the tool `inputSchema` definitions
-(mcp.go:142–174) do not declare them, so an MCP client cannot discover them.
+**Problem.** `runSemanticStale` already accepted `blind_spots` over MCP (read from
+`params.Arguments`), but the `brain_stale` `inputSchema` did not declare it, so an
+MCP client could not discover it.
 
-> Superseded (qmd-retrieval refactor): `brain_history` and `runBrainHistoryInspect`
-> were removed — history is now a source within the unified `brain_query`/`brain_search`
-> verbs, so the `brain_history`/`relax` item below no longer applies. The `brain_stale`
-> `blind_spots` item still stands.
+> The `relax`/`brain_history` half of this item is **obsolete** (qmd-retrieval
+> refactor): `brain_history` and `runBrainHistoryInspect` were removed — history is
+> now a source within the unified `brain_query`/`brain_search` verbs.
 
-**Proposed change.** In the tool definitions (`internal/cli/mcp.go`):
-- `brain_history`: add `relax` (boolean) to `properties`. *(obsolete — tool removed)*
-- `brain_stale`: add `blind_spots` (boolean) to `properties`.
-- Add a `booleanArg` helper alongside the existing `stringArg`/`integerArg`.
-
-**Risk.** Trivial. Update `mcp_test.go` if it snapshots the tool list.
-
-**Acceptance.** `tools/list` advertises both optional booleans with descriptions;
-passing them produces the expected partial/blind-spot output over MCP.
+**Shipped.** Added a `booleanArg` helper alongside `stringArg`/`integerArg` in
+`internal/cli/mcp.go` and declared `blind_spots` (boolean) on `brain_stale`.
+`tools/list` now advertises it; covered by
+`TestMCPToolsListAdvertisesBlindSpots`.
 
 ## Out of scope (provider-side, `entire-sem`)
 

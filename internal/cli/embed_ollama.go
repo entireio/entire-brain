@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -60,6 +61,44 @@ func newOllamaEmbedder() *ollamaEmbedder {
 }
 
 func (o *ollamaEmbedder) ID() string { return "ollama:" + o.model }
+
+// reachable reports whether the embed server actually returns a usable embedding
+// within a short timeout — not merely that it answers 200. The selector uses it
+// to fall back to the bundled Model2Vec model — one consistent vector space —
+// instead of selecting an embedder that will then fail every embed (server up
+// but wrong model, error-shaped 200 body, or an empty `embeddings` array). The
+// short context timeout overrides the client's longer per-embed timeout so an
+// absent server fails fast.
+func (o *ollamaEmbedder) reachable() bool {
+	body, err := json.Marshal(map[string]any{"model": o.model, "input": "title: none | text: probe"})
+	if err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.url, bytes.NewReader(body))
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := o.hc.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	// Require a non-empty embedding vector, the same shape Embed depends on, so a
+	// 200 with an error body or `{"embeddings":[]}` is not mistaken for healthy.
+	var out struct {
+		Embeddings [][]float32 `json:"embeddings"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return false
+	}
+	return len(out.Embeddings) > 0 && len(out.Embeddings[0]) > 0
+}
 
 // embeddingGemmaDim is EmbeddingGemma-300M's output dimension. Seeding it for the
 // default model avoids a network probe (and its timeout latency when the embed
