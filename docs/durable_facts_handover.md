@@ -5,6 +5,33 @@ For the design and the full phasing, read [`durable_facts_plan.md`](durable_fact
 this file is the operational state: what's landed, what's measured, how to repro,
 and what to do next.
 
+## Part B (Appendix D) — fact quality & structure — IN PROGRESS
+
+Branch `feat/fact-quality-appendix-d`. Executing the full Appendix-D redesign
+(KIND dimension + stored LOCUS index + synthesized outline + audience A/B eval)
+in one staged pass. None of it needs the Entire-CLI turn-signing change. Plan:
+the staged B0→B4 in the session plan file.
+
+### B0 — frozen baseline (captured 2026-06-09)
+
+Before any change, the current `facts eval` numbers over the live `entire-brain`
+`main` corpus (930 facts @ `3391f76`, **17** deterministic provenance-labeled
+tasks from `facts eval-gen --branch main`, k=10). Every later stage compares
+against this to prove no-regression.
+
+| Arm | useful/1k | precision | tokens |
+|---|---|---|---|
+| Lexical (default) | **1.063** | 0.0706 | 678 |
+| Model2Vec fused (`--semantic`) | 1.013 | 0.0706 | 645 |
+
+By stratum (lexical): concept 0.977 (n=11), code 1.043 (n=3), convention 1.357
+(n=2), howto 1.477 (n=1). Note these are **lower than the alignment.md Stage-0
+baseline (1.50)** because that set was a 179-fact distill; the corpus has since
+grown to 930 facts, so there is more to discriminate — which is exactly the
+two-bucket problem Part B attacks. Repro: `facts eval-gen --branch main` then
+`facts eval --tasks <f> --branch main --k 10 --json` (± `--semantic`),
+deterministic, no agent.
+
 ## Branch topology
 
 - **Base work (merged):** `claude/durable-facts-and-distill` landed via **PR #5**.
