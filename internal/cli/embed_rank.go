@@ -252,12 +252,20 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		}
 		return cands[ia].rec.UpdatedAt.After(cands[ib].rec.UpdatedAt)
 	})
-	if len(order) > limit {
-		order = order[:limit]
-	}
-	out := make([]factRecord, len(order))
-	for i, idx := range order {
-		out[i] = cands[idx].rec
+	// Only facts that earned a retrieval signal (fused > 0) are returned. With an
+	// embedder, every candidate gets a semantic RRF term so this keeps all of them;
+	// but when the embedder is unavailable (lexical-only) and nothing matched
+	// lexically, every fused score is 0 — return nothing rather than an arbitrary
+	// recency-ordered top-N (matches rankFacts's score>0 filter).
+	out := make([]factRecord, 0, min(limit, len(order)))
+	for _, idx := range order {
+		if fused[idx] <= 0 {
+			break // order is sorted by fused desc, so the rest are 0 too
+		}
+		out = append(out, cands[idx].rec)
+		if len(out) >= limit {
+			break
+		}
 	}
 	return out
 }

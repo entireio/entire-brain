@@ -97,3 +97,15 @@ func TestRankFactsFusedSkipsSemanticArmWhenEmbedderEmpty(t *testing.T) {
 		t.Fatalf("empty embedder must fall back to lexical-only (want fact:strong first), got %v", got)
 	}
 }
+
+// Embedder down AND no lexical match → no results, not an arbitrary recency top-N.
+func TestRankFactsFusedNoResultsWhenLexicalMissAndEmbedderEmpty(t *testing.T) {
+	facts := []factRecord{
+		{ID: "fact:a", Text: "alpha content", Status: factStatusActive},
+		{ID: "fact:b", Text: "beta content", Status: factStatusActive},
+	}
+	rr := newSemanticReranker(emptyEmbedder{}) // no query vector → lexical-only
+	if got := rankFactsFused(facts, "zzqqxxnomatch", 10, false, rr); len(got) != 0 {
+		t.Fatalf("expected no results for a lexical miss with no embedder, got %v", got)
+	}
+}
