@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -401,8 +402,15 @@ func TestDistillDryRunReportsCachedSessionEstimatedChunks(t *testing.T) {
 		t.Fatalf("expected cached session in largest sessions, got %+v", report.LargestSessions)
 	}
 	largest := report.LargestSessions[0]
-	if !largest.Cached || largest.SessionID != "large" || largest.Chunks < 2 || largest.ChunksIfUncached != largest.Chunks {
+	if !largest.Cached || largest.SessionID != "large" || largest.Chunks != 0 || largest.ChunksIfUncached < 2 {
 		t.Fatalf("cached large session lost estimated chunk evidence: %+v", largest)
+	}
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	printDistillDryRunReport(cmd, report)
+	if !strings.Contains(out.String(), "0 chunks scheduled") || !strings.Contains(out.String(), "if uncached") {
+		t.Fatalf("cached dry-run output should distinguish scheduled vs uncached chunks:\n%s", out.String())
 	}
 }
 
@@ -1393,5 +1401,46 @@ func TestExecOllamaDistillAgentRejectsNonLoopbackRedirect(t *testing.T) {
 	_, err := execOllamaDistillAgent(context.Background(), t.TempDir(), []string{"ollama", "llama3.2", "system"}, []byte("input"), time.Second)
 	if err == nil || !strings.Contains(err.Error(), "redirect must stay loopback-only") {
 		t.Fatalf("expected redirect loopback rejection, got %v", err)
+	}
+}
+
+func TestLoopbackOnlyDialContextRejectsNonLoopbackTargets(t *testing.T) {
+	if _, err := loopbackOnlyDialContext(context.Background(), "tcp", net.JoinHostPort("203.0.113.7", "11434")); err == nil || !strings.Contains(err.Error(), "loopback-only") {
+		t.Fatalf("expected non-loopback dial rejection, got %v", err)
+	}
+	if conn, err := loopbackOnlyDialContext(context.Background(), "tcp", "missing-port"); err == nil {
+		_ = conn.Close()
+		t.Fatal("dial target without port should be rejected")
+	}
+}
+
+func TestLoopbackOnlyDialContextAllowsLocalhostResolution(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err == nil {
+			accepted <- conn
+		}
+	}()
+
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := loopbackOnlyDialContext(context.Background(), "tcp", net.JoinHostPort("localhost", port))
+	if err != nil {
+		t.Fatalf("localhost should resolve to loopback: %v", err)
+	}
+	_ = conn.Close()
+	select {
+	case serverConn := <-accepted:
+		_ = serverConn.Close()
+	case <-time.After(time.Second):
+		t.Fatal("server did not receive loopback connection")
 	}
 }

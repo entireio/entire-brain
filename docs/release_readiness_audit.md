@@ -13,16 +13,19 @@ a run means tens, hundreds, or thousands of calls.
 Implemented claim-control surfaces:
 
 - `entire brain distill --dry-run --json` reports sessions, cached sessions,
-  preprocessed bytes, chunks, branch spread, largest sessions, and an upper bound
-  on extraction plus reconcile agent calls without calling an agent or writing
-  facts.
+  preprocessed bytes, scheduled chunks, `chunks_if_uncached`, branch spread,
+  largest sessions, `schema_version`, and an upper bound on extraction plus
+  reconcile agent calls without calling an agent or writing facts. Cached-session
+  rows keep `chunks` as scheduled work and use `chunks_if_uncached` for the warm
+  cache capacity estimate.
 - Distill summaries now include additive cache/timing fields:
   `cache_hits`, `failed_chunks`, `preprocessed_bytes`, `extraction_seconds`,
   `reconcile_seconds`, and `write_seconds`.
 - `--jobs N` parallelizes extraction calls only. Candidate reconciliation and
   all writes still happen in deterministic session/chunk order.
 - `--agent ollama --model <model>` can use local loopback Ollama through
-  `ENTIRE_BRAIN_OLLAMA_URL` or `http://127.0.0.1:11434/api/generate`.
+  `ENTIRE_BRAIN_OLLAMA_URL` or `http://127.0.0.1:11434/api/generate`; the HTTP
+  transport bypasses proxies and resolves/dials only loopback IP targets.
 
 Claim policy: do not claim distill is "fast" until a real large-repo dry-run and
 timed run show the call count and wall-time improvement.
@@ -61,15 +64,20 @@ Implemented eval surfaces:
   credit from labeled recall and spot query arms that mix fact labels with other
   source types.
 - `eval-compare` includes a per-metric winner and explicit claim text, and now
-  rejects mixed relevance sources unless `--allow-proxy-comparison` is explicit.
-- `eval-compare` also rejects differing non-empty `run_config.tasks_sha256`
-  values unless `--allow-task-hash-mismatch` is explicit, so same-id eval runs
-  with different task labels cannot masquerade as paired proof.
+  rejects non-proof or different relevance sources unless
+  `--allow-proxy-comparison` is explicit. Same-source `source_match` proxy is
+  still proxy evidence, not proof evidence.
+- `facts eval` validates `label_source`; task files with `relevant` ids must
+  say whether labels are `human`, `judge_refined`, or `provenance_silver`.
+- `eval-compare` also rejects differing non-empty `run_config.tasks_sha256` and
+  `run_config.brain_manifest_sha256` values unless the matching override is
+  explicit, so same-id eval runs with different task labels or brain state
+  cannot masquerade as paired proof.
 
 Claim policy: do not say facts are better than raw/preprocessed sessions unless
 paired evals show a significant lift for the metric being claimed. Do not compare
-explicit-label recall with `source_match` proxy credit unless
-`--allow-proxy-comparison` is called out.
+explicit-label recall, `source_match` proxy credit, provenance-silver labels, or
+judge/proxy metrics unless `--allow-proxy-comparison` is called out.
 
 Local baseline smoke collected on this repo: `go run ./cmd/entire-brain refresh
 sessions` indexed 39,242 history records. A source-session task set generated
@@ -197,12 +205,12 @@ Release claims must stay local-first and evidence-backed:
   relevance credit without claiming recall labels they do not have.
 - Eval result JSON now includes `relevance_source`, making explicit labels,
   source-match proxy credit, judge credit, and no-label tasks distinguishable.
-- `eval-compare` now fails closed on mixed relevance sources unless
-  `--allow-proxy-comparison` is passed, so proxy-vs-label comparisons are visible
-  in command history and JSON output.
-- `eval-compare` now fails closed on task-file hash mismatches unless
-  `--allow-task-hash-mismatch` is passed, so same-id/different-label eval files
-  cannot produce quiet significance claims.
+- `eval-compare` now fails closed on non-proof/different relevance sources
+  unless `--allow-proxy-comparison` is passed, so proxy-vs-label and
+  proxy-vs-proxy comparisons are visible in command history and JSON output.
+- `eval-compare` now fails closed on task-file and brain-manifest hash
+  mismatches unless the corresponding override is passed, so same-id/different
+  label files or changed brain state cannot produce quiet significance claims.
 - History/query eval arms now branch-filter session-derived history records,
   including legacy history records that need branch inference from their
   transcript path.
@@ -251,10 +259,13 @@ repo/access/artifacts are available:
 
 - `entire brain distill --dry-run --json` on the large repo where distill ran for
   more than 24 hours.
-- Timed `entire brain distill --agent <agent> --jobs N --json` runs, with the
-  manifest timing fields retained.
+- Paired timed `entire brain distill --agent <agent> --jobs 1 --json` and
+  `--jobs N --json` runs on the same target repo/cache state, same
+  agent/model/effort, with the dry-run JSON, manifest timing fields, and
+  external wall-clock artifacts retained.
 - Paired `entire brain facts eval --retriever facts|history|query|raw-sessions`
-  runs over the same labeled or explicitly proxy-allowed task set.
+  runs over the same labeled or explicitly proxy-allowed task set, same task
+  hash, and same brain manifest hash.
 - Semantic benchmark evidence from a retained proof suite. A clean local
   `semantic-audit --json --fail-on unsafe` run on this checkout is recorded
   above, but it does not prove agent usefulness by itself.
@@ -262,18 +273,21 @@ repo/access/artifacts are available:
   with `audit_codex.py --fail-on-flags` and committed under
   `benchmarks/agent-brain/evidence/release` as sanitized evidence.
 - `mise run release:evidence` must pass before any replay-lab proof claim; it runs
-  benchmark harness self-tests and then audits explicit `release-*` suites with
-  `audit_codex.py --fail-on-flags --min-suites 1 --min-records 1
-  --min-proof-ready 1`. Failed audits write to a temp directory only; passing
-  audits copy the report into the retained evidence lane.
+  benchmark harness self-tests and then audits explicit `release-candidate-*`
+  suites through `benchmarks/agent-brain/evidence/release/manifest.json`.
+  Release mode rejects `release-local-*`, requires panel provenance, 4
+  repetitions per side, zero hard flags, and at least one proof-ready
+  comparison. Failed audits write to a temp directory only; passing audits copy
+  the report into the retained evidence lane.
 
 Current retained benchmark caveat: `benchmarks/agent-brain/results/codex-audit-report.md`
 is quarantine/reference evidence, not release proof. The retained panel reports hard
 integrity flags and zero provenance-complete agent records, so public replay-lab
-claims require a new provenance-complete `release-*` run (or a deliberately copied
-release-candidate subset) that passes `python3 benchmarks/agent-brain/audit_codex.py
---suite-glob 'release-*' --out-dir benchmarks/agent-brain/evidence/release
---fail-on-flags --min-suites <n> --min-records <n> --min-proof-ready <n>`.
+claims require a new provenance-complete `release-candidate-*` run generated
+from a committed panel and passing `python3 benchmarks/agent-brain/audit_codex.py
+--release-manifest benchmarks/agent-brain/evidence/release/manifest.json
+--out-dir benchmarks/agent-brain/evidence/release --fail-on-flags`.
 The local `release-local-semantic-proof-20260609T2305Z` pilot is also not release
 proof because its audited comparison was not proof-ready and the suite had hard
-leak-audit flags.
+leak-audit flags. `release-local-*` names are intentionally outside the citable
+release gate.

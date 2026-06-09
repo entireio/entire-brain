@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -162,6 +163,7 @@ type distillRunPreparation struct {
 }
 
 type distillDryRunReport struct {
+	SchemaVersion                 int                    `json:"schema_version"`
 	GeneratedAt                   time.Time              `json:"generated_at"`
 	BrainPath                     string                 `json:"brain_path"`
 	Branch                        string                 `json:"branch,omitempty"`
@@ -627,6 +629,7 @@ func buildDistillDryRunReport(brainDir string, distillOpts distillCommandOptions
 		return distillDryRunReport{}, err
 	}
 	report := distillDryRunReport{
+		SchemaVersion:                 1,
 		GeneratedAt:                   now,
 		BrainPath:                     brainDir,
 		Branch:                        strings.TrimSpace(distillOpts.branch),
@@ -663,16 +666,12 @@ func buildDistillDryRunReport(brainDir string, distillOpts distillCommandOptions
 			stat.SessionsToDistill++
 			stat.Chunks += len(session.ChunkIndexes)
 		}
-		sessionChunks := len(session.ChunkIndexes)
-		if session.Cached {
-			sessionChunks = session.ChunksIfUncached
-		}
 		report.LargestSessions = append(report.LargestSessions, distillDryRunSession{
 			SessionID:         session.Session.SessionID,
 			Branch:            session.Branch,
 			Transcript:        filepath.ToSlash(session.Session.TranscriptPath),
 			Cached:            session.Cached,
-			Chunks:            sessionChunks,
+			Chunks:            len(session.ChunkIndexes),
 			ChunksIfUncached:  session.ChunksIfUncached,
 			RawBytes:          session.RawBytes,
 			PreprocessedBytes: session.PreprocessedBytes,
@@ -682,6 +681,9 @@ func buildDistillDryRunReport(brainDir string, distillOpts distillCommandOptions
 		report.Branches = append(report.Branches, *branchStats[branch])
 	}
 	sort.Slice(report.LargestSessions, func(i, j int) bool {
+		if report.LargestSessions[i].ChunksIfUncached != report.LargestSessions[j].ChunksIfUncached {
+			return report.LargestSessions[i].ChunksIfUncached > report.LargestSessions[j].ChunksIfUncached
+		}
 		if report.LargestSessions[i].Chunks != report.LargestSessions[j].Chunks {
 			return report.LargestSessions[i].Chunks > report.LargestSessions[j].Chunks
 		}
@@ -723,8 +725,12 @@ func printDistillDryRunReport(cmd *cobra.Command, report distillDryRunReport) {
 			if session.Cached {
 				cached = " cached"
 			}
-			fmt.Fprintf(out, "- %s %s: %d chunks%s, %d preprocessed bytes, %d raw bytes\n",
-				session.Branch, session.Transcript, session.Chunks, cached, session.PreprocessedBytes, session.RawBytes)
+			chunkText := fmt.Sprintf("%d chunks", session.Chunks)
+			if session.ChunksIfUncached != session.Chunks {
+				chunkText = fmt.Sprintf("%d chunks scheduled, %d if uncached", session.Chunks, session.ChunksIfUncached)
+			}
+			fmt.Fprintf(out, "- %s %s: %s%s, %d preprocessed bytes, %d raw bytes\n",
+				session.Branch, session.Transcript, chunkText, cached, session.PreprocessedBytes, session.RawBytes)
 		}
 	}
 	if len(report.Warnings) > 0 {
@@ -1318,6 +1324,7 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 		tr = &http.Transport{}
 	}
 	tr.Proxy = nil
+	tr.DialContext = loopbackOnlyDialContext
 	client := &http.Client{
 		Timeout:   timeout,
 		Transport: tr,
@@ -1368,4 +1375,31 @@ func isLoopbackHTTPURL(u *url.URL) bool {
 	}
 	host := strings.Trim(strings.ToLower(u.Hostname()), "[]")
 	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
+
+func loopbackOnlyDialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, fmt.Errorf("ollama dial target must include host and port: %s", address)
+	}
+	ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	if err != nil {
+		return nil, fmt.Errorf("resolve ollama loopback target %s: %w", host, err)
+	}
+	var lastErr error
+	for _, ip := range ips {
+		if !ip.IsLoopback() {
+			continue
+		}
+		var dialer net.Dialer
+		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("ollama loopback dial failed for %s: %w", address, lastErr)
+	}
+	return nil, fmt.Errorf("ollama dial target is not loopback-only: %s", address)
 }

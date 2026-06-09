@@ -63,7 +63,7 @@ func TestRunFactsEvalWithExpander(t *testing.T) {
 	if err := writeFacts(brainDir, "main", []factRecord{f}); err != nil {
 		t.Fatal(err)
 	}
-	tasks := []evalTask{{ID: "t1", Task: "fix the sync bug", Branch: "main", Relevant: []string{f.ID}}}
+	tasks := []evalTask{{ID: "t1", Task: "fix the sync bug", Branch: "main", Relevant: []string{f.ID}, LabelSource: evalLabelSourceHuman}}
 
 	// Without expansion the query "fix the sync bug" doesn't match the fact.
 	base, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), nil, nil, evalRetrieverFacts)

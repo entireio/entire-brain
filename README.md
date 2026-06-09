@@ -19,9 +19,10 @@ context to the configured agent (`refresh --agent auto`, `distill --agent
 codex|claude-code`, `recall --expand`, and judged evals). Use `--agent none`,
 `--dry-run`, `--agent command` with a local command, or loopback-only Ollama to
 avoid hosted model egress. Strict no-egress mode (`ENTIRE_BRAIN_NO_EGRESS=1` or
-`ENTIRE_BRAIN_LOCAL_ONLY=1`) can only enforce no-agent, dry-run, and loopback
-Ollama paths; arbitrary `--agent command` runners are trusted local commands but
-not enforceably loopback-only. Separately, repos that configure a
+`ENTIRE_BRAIN_LOCAL_ONLY=1`) can only enforce no-agent, dry-run, and Ollama
+paths whose URLs, redirects, and resolved dial targets stay loopback-only;
+arbitrary `--agent command` runners are trusted local commands but not
+enforceably loopback-only. Separately, repos that configure a
 `checkpoint_remote` allow `export`/`refresh` to `git fetch` checkpoint history
 from that remote into a throwaway temp repo unless no-egress mode is set.
 
@@ -269,13 +270,16 @@ The fact store also ships an evaluation harness for measuring retrieval quality
 (`facts eval-gen` builds a provenance/silver-labeled benchmark from the brain's
 own sessions, `facts eval` reports retrieved items, token estimates, precision,
 useful-per-1k, and recall only when labels exist for that retriever, and `facts
-eval-compare` does a paired t-test with Holm correction and rejects mixed
-relevance sources unless `--allow-proxy-comparison` is explicit). Use `facts eval
+eval-compare` does a paired t-test with Holm correction and rejects non-proof or
+different relevance sources unless `--allow-proxy-comparison` is explicit). Use `facts eval
 --retriever facts|history|query|raw-sessions` to compare distilled facts against
 history, unified query, and preprocessed session-chunk baselines before claiming
 a quality lift.
 Generated source-session fields give source-match credit for history/session
-arms; they are provenance/proxy evidence, not recall labels.
+arms; they are provenance/proxy evidence, not recall labels. Task files with
+`relevant` ids must set `label_source` (`human`, `judge_refined`, or
+`provenance_silver`), and paired proof runs must share the same task-file and
+brain-manifest hashes unless an override is called out.
 The eval `query` arm is a read-only lexical unified baseline over local brain
 layers; it does not write embedding caches or call an embedder. See
 `docs/durable_facts_plan.md` for the full design.

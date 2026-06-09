@@ -557,7 +557,36 @@ func loadEvalTasks(path string) ([]evalTask, error) {
 	if len(tasks) == 0 {
 		return nil, fmt.Errorf("tasks file has no tasks")
 	}
+	if err := validateEvalTasks(tasks); err != nil {
+		return nil, err
+	}
 	return tasks, nil
+}
+
+func validateEvalTasks(tasks []evalTask) error {
+	for i, task := range tasks {
+		if err := validateEvalTask(task); err != nil {
+			id := strings.TrimSpace(task.ID)
+			if id == "" {
+				id = fmt.Sprintf("#%d", i+1)
+			}
+			return fmt.Errorf("eval task %s: %w", id, err)
+		}
+	}
+	return nil
+}
+
+func validateEvalTask(task evalTask) error {
+	labelSource := strings.TrimSpace(task.LabelSource)
+	switch labelSource {
+	case "", evalLabelSourceHuman, evalLabelSourceJudgeRefined, evalLabelSourceProvenanceSilver:
+	default:
+		return fmt.Errorf("label_source must be one of %q, %q, or %q", evalLabelSourceHuman, evalLabelSourceJudgeRefined, evalLabelSourceProvenanceSilver)
+	}
+	if len(task.Relevant) > 0 && labelSource == "" {
+		return fmt.Errorf("relevant labels require explicit label_source (%q, %q, or %q)", evalLabelSourceHuman, evalLabelSourceJudgeRefined, evalLabelSourceProvenanceSilver)
+	}
+	return nil
 }
 
 func validateEvalRetriever(retriever string) error {
@@ -824,11 +853,7 @@ func evalLabelsForRetriever(task evalTask, retriever string, surfaced []evalRetr
 }
 
 func normalizedEvalLabelSource(task evalTask) string {
-	source := strings.TrimSpace(task.LabelSource)
-	if source == "" && len(task.Relevant) > 0 {
-		return evalLabelSourceHuman
-	}
-	return source
+	return strings.TrimSpace(task.LabelSource)
 }
 
 func relevantIDsForRetriever(ids []string, retriever string) map[string]struct{} {
@@ -936,6 +961,9 @@ func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultB
 }
 
 func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, rr *semanticReranker, retriever string, runOpts factsEvalRunOptions) ([]evalTaskResult, error) {
+	if err := validateEvalTasks(tasks); err != nil {
+		return nil, err
+	}
 	if err := validateEvalRetriever(retriever); err != nil {
 		return nil, err
 	}

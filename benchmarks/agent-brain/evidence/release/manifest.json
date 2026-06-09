@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "release_citable_suite_globs": [
-    "release-*"
+    "release-candidate-*"
   ],
   "minimums": {
     "suites": 1,
@@ -9,5 +9,10 @@
     "proof_ready_comparisons": 1,
     "hard_flags": 0
   },
-  "quarantine_note": "Historical suites in benchmarks/agent-brain/results are not release-citable until regenerated or copied into an explicit release-* suite and re-audited."
+  "min_repetitions_per_side": 4,
+  "forbidden_suite_globs": [
+    "release-local-*"
+  ],
+  "require_panel_provenance": true,
+  "quarantine_note": "Historical, exploratory, and release-local suites in benchmarks/agent-brain/results are not release-citable until regenerated or copied into an explicit release-candidate-* suite and re-audited."
 }

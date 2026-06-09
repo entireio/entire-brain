@@ -41,9 +41,10 @@ func compareEvalSummariesWithOptions(a, b evalSummary, alpha float64, allowProxy
 }
 
 type evalCompareOptions struct {
-	AllowProxyComparison  bool
-	AllowMissingTasks     bool
-	AllowTaskHashMismatch bool
+	AllowProxyComparison       bool
+	AllowMissingTasks          bool
+	AllowTaskHashMismatch      bool
+	AllowBrainManifestMismatch bool
 }
 
 func compareEvalSummariesInternal(a, b evalSummary, alpha float64, allowProxyComparison, allowMissingTasks bool) ([]metricComparison, int, []string, []string, error) {
@@ -52,6 +53,9 @@ func compareEvalSummariesInternal(a, b evalSummary, alpha float64, allowProxyCom
 
 func compareEvalSummariesInternalWithOptions(a, b evalSummary, alpha float64, opts evalCompareOptions) ([]metricComparison, int, []string, []string, error) {
 	if err := validateEvalSummaryTaskHashes(a, b, opts.AllowTaskHashMismatch); err != nil {
+		return nil, 0, nil, nil, err
+	}
+	if err := validateEvalSummaryBrainManifestHashes(a, b, opts.AllowBrainManifestMismatch); err != nil {
 		return nil, 0, nil, nil, err
 	}
 	aByID, err := evalResultsByID(a.Results, "A")
@@ -100,7 +104,7 @@ func compareEvalSummariesInternalWithOptions(a, b evalSummary, alpha float64, op
 				continue
 			}
 			if m.requiresSameTruth && !opts.AllowProxyComparison && !evalRelevanceSourcesComparable(ar, br) {
-				return nil, 0, missingFromA, missingFromB, fmt.Errorf("task %q compares %s with different relevance sources (A=%s labeled=%t, B=%s labeled=%t); rerun with comparable labels/judging or pass --allow-proxy-comparison", id, m.name, valueOrUnset(ar.RelevanceSource), ar.Labeled, valueOrUnset(br.RelevanceSource), br.Labeled)
+				return nil, 0, missingFromA, missingFromB, fmt.Errorf("task %q compares %s with non-proof or different relevance sources (A=%s label_source=%s labeled=%t, B=%s label_source=%s labeled=%t); rerun with human/judge_refined labels or pass --allow-proxy-comparison", id, m.name, valueOrUnset(ar.RelevanceSource), valueOrUnset(ar.LabelSource), ar.Labeled, valueOrUnset(br.RelevanceSource), valueOrUnset(br.LabelSource), br.Labeled)
 			}
 			av = append(av, m.get(ar))
 			bv = append(bv, m.get(br))
@@ -134,11 +138,30 @@ func validateEvalSummaryTaskHashes(a, b evalSummary, allowMismatch bool) error {
 	return fmt.Errorf("eval run_config.tasks_sha256 values differ (A=%s, B=%s); rerun over the same tasks file or pass --allow-task-hash-mismatch", aHash, bHash)
 }
 
+func validateEvalSummaryBrainManifestHashes(a, b evalSummary, allowMismatch bool) error {
+	if allowMismatch {
+		return nil
+	}
+	aHash := evalSummaryBrainManifestSHA256(a)
+	bHash := evalSummaryBrainManifestSHA256(b)
+	if aHash == "" || bHash == "" || aHash == bHash {
+		return nil
+	}
+	return fmt.Errorf("eval run_config.brain_manifest_sha256 values differ (A=%s, B=%s); rerun against the same brain manifest or pass --allow-brain-manifest-mismatch", aHash, bHash)
+}
+
 func evalSummaryTasksSHA256(s evalSummary) string {
 	if s.RunConfig == nil {
 		return ""
 	}
 	return strings.TrimSpace(s.RunConfig.TasksSHA256)
+}
+
+func evalSummaryBrainManifestSHA256(s evalSummary) string {
+	if s.RunConfig == nil {
+		return ""
+	}
+	return strings.TrimSpace(s.RunConfig.BrainManifestSHA256)
 }
 
 func missingEvalTaskIDs(aByID, bByID map[string]evalTaskResult) ([]string, []string) {
@@ -162,7 +185,22 @@ func evalRelevanceSourcesComparable(a, b evalTaskResult) bool {
 	if a.RelevanceSource == "" || b.RelevanceSource == "" {
 		return false
 	}
-	return a.Labeled == b.Labeled && a.RelevanceSource == b.RelevanceSource
+	if a.Labeled != b.Labeled || a.RelevanceSource != b.RelevanceSource {
+		return false
+	}
+	return evalRelevanceSourceIsProofLabel(a) && evalRelevanceSourceIsProofLabel(b)
+}
+
+func evalRelevanceSourceIsProofLabel(r evalTaskResult) bool {
+	if !r.Labeled || r.RelevanceSource != evalRelevanceExplicitLabel {
+		return false
+	}
+	switch strings.TrimSpace(r.LabelSource) {
+	case evalLabelSourceHuman, evalLabelSourceJudgeRefined:
+		return true
+	default:
+		return false
+	}
 }
 
 func evalResultsByID(results []evalTaskResult, label string) (map[string]evalTaskResult, error) {
@@ -237,13 +275,14 @@ func loadEvalSummary(path string) (evalSummary, error) {
 
 func newFactsEvalCompareCommand(opts Options) *cobra.Command {
 	var (
-		aPath                 string
-		bPath                 string
-		alpha                 float64
-		jsonOut               bool
-		allowProxyComparison  bool
-		allowMissingTasks     bool
-		allowTaskHashMismatch bool
+		aPath                      string
+		bPath                      string
+		alpha                      float64
+		jsonOut                    bool
+		allowProxyComparison       bool
+		allowMissingTasks          bool
+		allowTaskHashMismatch      bool
+		allowBrainManifestMismatch bool
 	)
 	cmd := &cobra.Command{
 		Use:   "eval-compare --a <A.json> --b <B.json>",
@@ -252,10 +291,10 @@ func newFactsEvalCompareCommand(opts Options) *cobra.Command {
 retrieval configs, e.g. base vs --expand) and reports, per metric, the paired
 mean delta, a two-sided Student-t p-value, Cohen's d, and a Holm-Bonferroni
 family-wise significance verdict. Relevance metrics require comparable
-relevance_source/labeled values unless --allow-proxy-comparison is explicit. Task
-IDs and non-empty task-file hashes must match exactly unless the corresponding
-override is explicit. Use it to report a lift honestly instead of eyeballing two
-means.`,
+human/judge_refined proof labels unless --allow-proxy-comparison is explicit.
+Task IDs, non-empty task-file hashes, and non-empty brain manifest hashes must
+match exactly unless the corresponding override is explicit. Use it to report a
+lift honestly instead of eyeballing two means.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if aPath == "" || bPath == "" {
@@ -270,9 +309,10 @@ means.`,
 				return err
 			}
 			compareOpts := evalCompareOptions{
-				AllowProxyComparison:  allowProxyComparison,
-				AllowMissingTasks:     allowMissingTasks,
-				AllowTaskHashMismatch: allowTaskHashMismatch,
+				AllowProxyComparison:       allowProxyComparison,
+				AllowMissingTasks:          allowMissingTasks,
+				AllowTaskHashMismatch:      allowTaskHashMismatch,
+				AllowBrainManifestMismatch: allowBrainManifestMismatch,
 			}
 			comparisons, n, missingFromA, missingFromB, err := compareEvalSummariesInternalWithOptions(a, b, alpha, compareOpts)
 			if err != nil {
@@ -282,7 +322,7 @@ means.`,
 				return fmt.Errorf("the two runs share no task ids to compare")
 			}
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{"n": n, "alpha": alpha, "a_retriever": a.Retriever, "b_retriever": b.Retriever, "a_tasks_sha256": evalSummaryTasksSHA256(a), "b_tasks_sha256": evalSummaryTasksSHA256(b), "allow_proxy_comparison": allowProxyComparison, "allow_missing_tasks": allowMissingTasks, "allow_task_hash_mismatch": allowTaskHashMismatch, "missing_from_a": missingFromA, "missing_from_b": missingFromB, "metrics": comparisons})
+				return writeJSON(cmd, map[string]any{"n": n, "alpha": alpha, "a_retriever": a.Retriever, "b_retriever": b.Retriever, "a_tasks_sha256": evalSummaryTasksSHA256(a), "b_tasks_sha256": evalSummaryTasksSHA256(b), "a_brain_manifest_sha256": evalSummaryBrainManifestSHA256(a), "b_brain_manifest_sha256": evalSummaryBrainManifestSHA256(b), "allow_proxy_comparison": allowProxyComparison, "allow_missing_tasks": allowMissingTasks, "allow_task_hash_mismatch": allowTaskHashMismatch, "allow_brain_manifest_mismatch": allowBrainManifestMismatch, "missing_from_a": missingFromA, "missing_from_b": missingFromB, "metrics": comparisons})
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "paired A/B over %d shared tasks (Holm-corrected at alpha=%.2f)\n", n, alpha)
@@ -297,6 +337,9 @@ means.`,
 			}
 			if allowTaskHashMismatch {
 				fmt.Fprintln(out, "warning: task file hashes differ or were explicitly ignored; label-set equality is not guaranteed")
+			}
+			if allowBrainManifestMismatch {
+				fmt.Fprintln(out, "warning: brain manifest hashes differ or were explicitly ignored; paired run state is not identical")
 			}
 			fmt.Fprintf(out, "%-14s %9s %9s %9s %8s %7s %8s %-6s %s\n", "metric", "A", "B", "delta", "t", "p", "cohen_d", "winner", "claim")
 			for _, c := range comparisons {
@@ -316,5 +359,6 @@ means.`,
 	cmd.Flags().BoolVar(&allowProxyComparison, "allow-proxy-comparison", false, "Allow relevance metrics to compare runs with different relevance sources")
 	cmd.Flags().BoolVar(&allowMissingTasks, "allow-missing-tasks", false, "Compare only shared task ids when eval runs have missing tasks")
 	cmd.Flags().BoolVar(&allowTaskHashMismatch, "allow-task-hash-mismatch", false, "Allow comparison when non-empty eval run_config.tasks_sha256 values differ")
+	cmd.Flags().BoolVar(&allowBrainManifestMismatch, "allow-brain-manifest-mismatch", false, "Allow comparison when non-empty eval run_config.brain_manifest_sha256 values differ")
 	return cmd
 }

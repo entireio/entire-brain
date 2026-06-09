@@ -2857,7 +2857,7 @@ def brain_comparison_verdict(comparison: dict[str, Any]) -> dict[str, Any]:
     time_overhead = relative_delta(comparison.get("mean_agent_seconds_condition"), comparison.get("mean_agent_seconds_baseline"))
     token_overhead = relative_delta(comparison.get("mean_total_tokens_condition"), comparison.get("mean_total_tokens_baseline"))
 
-    repeated = n_condition >= 3 and n_baseline >= 3
+    proof_repeated = n_condition >= 4 and n_baseline >= 4
     brain_validation_clean = success_rate_condition == 1.0
     correctness_win = brain_validation_clean and (success_delta > 0 or score_delta >= 3)
     equal_or_better = success_delta >= 0 and score_delta >= 0
@@ -2876,8 +2876,8 @@ def brain_comparison_verdict(comparison: dict[str, Any]) -> dict[str, Any]:
     )
 
     reasons: list[str] = []
-    if not repeated:
-        reasons.append("pilot_n<3")
+    if not proof_repeated:
+        reasons.append("pilot_n<4")
     if not brain_validation_clean:
         reasons.append("brain_validation_not_clean")
     if both_solved:
@@ -2901,12 +2901,12 @@ def brain_comparison_verdict(comparison: dict[str, Any]) -> dict[str, Any]:
         verdict = "brain_negative"
     else:
         verdict = "inconclusive"
-    if not repeated and verdict == "brain_positive":
+    if not proof_repeated and verdict == "brain_positive":
         verdict = "pilot_brain_positive"
 
     return {
         "verdict": verdict,
-        "proof_ready": repeated and verdict == "brain_positive",
+        "proof_ready": proof_repeated and verdict == "brain_positive",
         "brain_positive_gate": {
             "score_delta": score_delta,
             "success_delta": success_delta,
@@ -2915,7 +2915,7 @@ def brain_comparison_verdict(comparison: dict[str, Any]) -> dict[str, Any]:
             "search_improvement_ratio": search_improvement,
             "time_overhead_ratio": time_overhead,
             "token_overhead_ratio": token_overhead,
-            "requires_repetitions_per_side": 3,
+            "requires_repetitions_per_side": 4,
         },
         "verdict_reasons": reasons,
     }

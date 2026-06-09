@@ -34,6 +34,7 @@ from typing import Any
 BENCH = pathlib.Path(__file__).resolve().parent
 RESULTS = BENCH / "results"
 TASK_DIR = BENCH / "tasks"
+DEFAULT_PROOF_MIN_REPETITIONS = 4
 
 MCP_CONDITIONS = {"mcp_semantic", "mcp_history"}
 SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
@@ -319,7 +320,7 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     }
 
 
-def audit_summary(suite_dir: pathlib.Path) -> list[dict[str, Any]]:
+def audit_summary(suite_dir: pathlib.Path, *, min_repetitions_per_side: int = DEFAULT_PROOF_MIN_REPETITIONS) -> list[dict[str, Any]]:
     sj = suite_dir / "summary.json"
     if not sj.exists():
         return []
@@ -333,12 +334,12 @@ def audit_summary(suite_dir: pathlib.Path) -> list[dict[str, Any]]:
         verdict = comp.get("verdict", "")
         nc = comp.get("n_condition") or 0
         nb = comp.get("n_baseline") or 0
-        if verdict in ("brain_positive",) and (nc < 3 or nb < 3):
+        if verdict in ("brain_positive",) and (nc < min_repetitions_per_side or nb < min_repetitions_per_side):
             flags.append(f"G:brain_positive_with_small_n(cond={nc},base={nb})")
         if verdict == "brain_positive" and nc != nb:
             flags.append(f"G:unmatched_n(cond={nc},base={nb})")
-        if comp.get("proof_ready") and not (nc >= 3 and nb >= 3):
-            flags.append("G:proof_ready_without_n3")
+        if comp.get("proof_ready") and not (nc >= min_repetitions_per_side and nb >= min_repetitions_per_side):
+            flags.append(f"G:proof_ready_without_n{min_repetitions_per_side}")
         if comp.get("proof_ready") and get(comp, "stability", "tag") != "brain_positive_stable":
             flags.append("G:proof_ready_without_stable_gate")
         out.append({
@@ -405,10 +406,60 @@ def suite_matches(name: str, suite_globs: list[str]) -> bool:
     return any(fnmatch.fnmatch(name, pattern) for pattern in suite_globs)
 
 
-def build_audit_report(results_dir: pathlib.Path, suite_globs: list[str]) -> dict[str, Any]:
+def load_release_manifest(path: pathlib.Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text())
+    except FileNotFoundError as exc:
+        raise SystemExit(f"release manifest not found: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"release manifest is not valid JSON: {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SystemExit(f"release manifest must be a JSON object: {path}")
+    globs = data.get("release_citable_suite_globs")
+    if not isinstance(globs, list) or not globs or not all(isinstance(g, str) and g for g in globs):
+        raise SystemExit("release manifest requires non-empty release_citable_suite_globs")
+    minimums = data.get("minimums")
+    if not isinstance(minimums, dict):
+        raise SystemExit("release manifest requires minimums")
+    forbidden = data.get("forbidden_suite_globs", [])
+    if not isinstance(forbidden, list) or not all(isinstance(g, str) and g for g in forbidden):
+        raise SystemExit("release manifest forbidden_suite_globs must be a string list")
+    min_reps = data.get("min_repetitions_per_side", DEFAULT_PROOF_MIN_REPETITIONS)
+    if not isinstance(min_reps, int) or min_reps < 1:
+        raise SystemExit("release manifest min_repetitions_per_side must be a positive integer")
+    return data
+
+
+def release_manifest_minimum(manifest: dict[str, Any], key: str, default: int) -> int:
+    value = get(manifest, "minimums", key, default=default)
+    if not isinstance(value, int) or value < 0:
+        raise SystemExit(f"release manifest minimums.{key} must be a non-negative integer")
+    return value
+
+
+def selected_suites(results_dir: pathlib.Path, suite_globs: list[str], forbidden_globs: list[str] | None = None) -> list[pathlib.Path]:
+    forbidden_globs = forbidden_globs or []
+    suites = []
+    for d in results_dir.iterdir():
+        if not d.is_dir() or not (d / "records.ndjson").exists():
+            continue
+        if suite_matches(d.name, forbidden_globs):
+            continue
+        if suite_matches(d.name, suite_globs):
+            suites.append(d)
+    return sorted(suites)
+
+
+def build_audit_report(
+    results_dir: pathlib.Path,
+    suite_globs: list[str],
+    *,
+    forbidden_globs: list[str] | None = None,
+    min_repetitions_per_side: int = DEFAULT_PROOF_MIN_REPETITIONS,
+    require_panel_provenance: bool = False,
+) -> dict[str, Any]:
     suites = sorted(
-        d for d in results_dir.iterdir()
-        if d.is_dir() and (d / "records.ndjson").exists() and suite_matches(d.name, suite_globs)
+        selected_suites(results_dir, suite_globs, forbidden_globs)
     )
     report: dict[str, Any] = {"suites": {}, "totals": {}}
     total_records = 0
@@ -423,7 +474,15 @@ def build_audit_report(results_dir: pathlib.Path, suite_globs: list[str]) -> dic
         if not recs:
             continue
         rec_audits = [audit_record(r, suite) for r in recs]
-        comp_audits = audit_summary(suite)
+        if require_panel_provenance:
+            for rec, audit in zip(recs, rec_audits):
+                prov_suite = get(rec, "provenance", "run_config", "suite")
+                if prov_suite != suite.name:
+                    audit["flags"].append("H:release_suite_provenance_mismatch")
+                if not isinstance(get(rec, "provenance", "run_config", "panel"), dict):
+                    audit["flags"].append("H:release_panel_provenance_missing")
+                audit["pass"] = not audit["flags"]
+        comp_audits = audit_summary(suite, min_repetitions_per_side=min_repetitions_per_side)
         for comp in comp_audits:
             backing = proof_ready_record_backing(comp, rec_audits)
             comp["record_backing"] = backing
@@ -572,10 +631,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--results", type=pathlib.Path, default=RESULTS, help="Directory containing benchmark suite result directories")
     parser.add_argument("--out-dir", type=pathlib.Path, default=None, help="Directory for codex-audit-report.{json,md}; defaults to --results")
     parser.add_argument("--suite-glob", action="append", default=None, help="Only audit suites whose directory name matches this glob; repeatable")
+    parser.add_argument("--release-manifest", type=pathlib.Path, default=None, help="Load citable suite globs and release gate minimums from a release evidence manifest")
     parser.add_argument("--fail-on-flags", action="store_true", help="Exit nonzero when any hard integrity flag is found")
     parser.add_argument("--min-suites", type=int, default=1, help="Minimum audited non-empty suites required when --fail-on-flags is set")
     parser.add_argument("--min-records", type=int, default=1, help="Minimum audited agent records required when --fail-on-flags is set")
     parser.add_argument("--min-proof-ready", type=int, default=0, help="Minimum stable proof-ready comparisons required when --fail-on-flags is set")
+    parser.add_argument("--min-repetitions-per-side", type=int, default=DEFAULT_PROOF_MIN_REPETITIONS, help="Minimum repetitions per condition required for proof-ready comparisons")
     return parser.parse_args(argv)
 
 
@@ -583,10 +644,47 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     results_dir = args.results.resolve()
     out_dir = (args.out_dir or results_dir).resolve()
-    report = build_audit_report(results_dir, args.suite_glob or ["*"])
+    suite_globs = args.suite_glob or ["*"]
+    forbidden_globs: list[str] = []
+    min_suites = args.min_suites
+    min_records = args.min_records
+    min_proof_ready = args.min_proof_ready
+    min_repetitions_per_side = args.min_repetitions_per_side
+    require_panel_provenance = False
+    manifest = None
+    if args.release_manifest:
+        manifest = load_release_manifest(args.release_manifest.resolve())
+        manifest_globs = list(manifest["release_citable_suite_globs"])
+        if args.suite_glob and args.suite_glob != manifest_globs:
+            raise SystemExit(
+                "release manifest suite globs do not match CLI --suite-glob; "
+                f"manifest={manifest_globs} cli={args.suite_glob}"
+            )
+        suite_globs = manifest_globs
+        forbidden_globs = list(manifest.get("forbidden_suite_globs") or [])
+        min_suites = release_manifest_minimum(manifest, "suites", min_suites)
+        min_records = release_manifest_minimum(manifest, "records", min_records)
+        min_proof_ready = release_manifest_minimum(manifest, "proof_ready_comparisons", min_proof_ready)
+        min_repetitions_per_side = int(manifest.get("min_repetitions_per_side", min_repetitions_per_side))
+        require_panel_provenance = bool(manifest.get("require_panel_provenance"))
+    report = build_audit_report(
+        results_dir,
+        suite_globs,
+        forbidden_globs=forbidden_globs,
+        min_repetitions_per_side=min_repetitions_per_side,
+        require_panel_provenance=require_panel_provenance,
+    )
+    if manifest is not None:
+        report["release_manifest"] = {
+            "path": str(args.release_manifest.resolve()),
+            "suite_globs": suite_globs,
+            "forbidden_suite_globs": forbidden_globs,
+            "min_repetitions_per_side": min_repetitions_per_side,
+            "require_panel_provenance": require_panel_provenance,
+        }
     gate_status = None
     if args.fail_on_flags:
-        gate_status = build_gate_status(report, args.min_suites, args.min_records, args.min_proof_ready)
+        gate_status = build_gate_status(report, min_suites, min_records, min_proof_ready)
         report["gate_status"] = gate_status
     json_path = write_audit_report(report, out_dir)
     md = render_audit_markdown(report)

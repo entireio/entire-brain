@@ -82,7 +82,7 @@ func TestRunFactsEvalLabeledAndJudge(t *testing.T) {
 	}
 
 	// Labeled task: only f1 is relevant.
-	tasks := []evalTask{{ID: "t1", Task: "checkpoints v1.1 read ref", Branch: "main", Relevant: []string{f1.ID}}}
+	tasks := []evalTask{{ID: "t1", Task: "checkpoints v1.1 read ref", Branch: "main", Relevant: []string{f1.ID}, LabelSource: evalLabelSourceHuman}}
 	res, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), nil, nil, evalRetrieverFacts)
 	if err != nil {
 		t.Fatalf("runFactsEval: %v", err)
@@ -97,7 +97,7 @@ func TestRunFactsEvalLabeledAndJudge(t *testing.T) {
 		t.Fatalf("labeled eval relevance source = %q, want %q", res[0].RelevanceSource, evalRelevanceExplicitLabel)
 	}
 	if res[0].LabelSource != evalLabelSourceHuman {
-		t.Fatalf("implicit label source = %q, want %q", res[0].LabelSource, evalLabelSourceHuman)
+		t.Fatalf("label source = %q, want %q", res[0].LabelSource, evalLabelSourceHuman)
 	}
 
 	silverTasks := []evalTask{{ID: "silver", Task: "checkpoints v1.1 read ref", Branch: "main", Relevant: []string{f1.ID}, LabelSource: evalLabelSourceProvenanceSilver}}
@@ -177,7 +177,7 @@ func TestRunFactsEvalRetrieverArms(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tasks := []evalTask{{ID: "t1", Task: "alpha checkpoint guidance", Branch: "main", Relevant: []string{fact.ID}, SourceSessionID: session.SessionID, SourceTranscriptPath: transcriptRel}}
+	tasks := []evalTask{{ID: "t1", Task: "alpha checkpoint guidance", Branch: "main", Relevant: []string{fact.ID}, LabelSource: evalLabelSourceHuman, SourceSessionID: session.SessionID, SourceTranscriptPath: transcriptRel}}
 	for _, retriever := range []string{evalRetrieverFacts, evalRetrieverHistory, evalRetrieverQuery, evalRetrieverRawSessions} {
 		res, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), nil, nil, retriever)
 		if err != nil {
@@ -517,10 +517,18 @@ func TestSummarizeEvalByStratum(t *testing.T) {
 func TestLoadEvalTasks(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tasks.json")
-	os.WriteFile(path, []byte(`[{"id":"t1","task":"do X","relevant":["fact:a"]}]`), 0o600)
+	os.WriteFile(path, []byte(`[{"id":"t1","task":"do X","relevant":["fact:a"],"label_source":"human"}]`), 0o600)
 	tasks, err := loadEvalTasks(path)
 	if err != nil || len(tasks) != 1 || tasks[0].ID != "t1" {
 		t.Fatalf("loadEvalTasks: %v %+v", err, tasks)
+	}
+	os.WriteFile(path, []byte(`[{"id":"t1","task":"do X","relevant":["fact:a"]}]`), 0o600)
+	if _, err := loadEvalTasks(path); err == nil || !strings.Contains(err.Error(), "label_source") {
+		t.Fatalf("missing label_source should be rejected, got %v", err)
+	}
+	os.WriteFile(path, []byte(`[{"id":"t1","task":"do X","relevant":["fact:a"],"label_source":"typo"}]`), 0o600)
+	if _, err := loadEvalTasks(path); err == nil || !strings.Contains(err.Error(), "label_source") {
+		t.Fatalf("bad label_source should be rejected, got %v", err)
 	}
 	if _, err := loadEvalTasks(filepath.Join(dir, "missing.json")); err == nil {
 		t.Errorf("expected error for missing file")

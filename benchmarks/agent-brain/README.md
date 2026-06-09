@@ -257,11 +257,14 @@ The repo-level release gate is:
 mise run release:evidence
 ```
 
-That gate intentionally audits only suite directories matching `release-*` and
-requires at least one stable `proof_ready` comparison. Historical, exploratory,
-or quarantine suites can remain under `results/` for reference, but they cannot
-satisfy a release proof claim unless they are copied or regenerated as an
-explicit release-candidate suite and pass the audit.
+That gate reads `benchmarks/agent-brain/evidence/release/manifest.json`,
+audits only suite directories matching `release-candidate-*`, rejects
+`release-local-*`, and requires at least one stable `proof_ready` comparison
+with 4 repetitions per side plus panel provenance. Historical, exploratory,
+`release-local-*`, or other quarantine suites can remain under `results/` for
+reference, but they cannot satisfy a release proof claim unless they are
+regenerated from a committed panel as an explicit release-candidate suite and
+pass the manifest-enforced audit.
 
 The release evidence manifest lives at
 `benchmarks/agent-brain/evidence/release/manifest.json`; it records the citable
