@@ -306,7 +306,9 @@ func configuredEmbedder() (Embedder, string) {
 	if e, err := loadStaticEmbedder(entirebrain.EmbedModel); err == nil {
 		return e, ""
 	}
-	return nil, ""
+	// The bundled asset is the default embedder; if it cannot be loaded (e.g. a
+	// corrupt build) surface it rather than silently degrading to lexical-only.
+	return nil, "the bundled Model2Vec embedder could not be loaded; semantic retrieval is unavailable (lexical only)"
 }
 
 func defaultEmbedder() Embedder {

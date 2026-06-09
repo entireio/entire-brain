@@ -2300,9 +2300,12 @@ type semanticChangesOptions struct {
 
 type semanticChangesReport struct {
 	GeneratedAt time.Time `json:"generated_at"`
-	// Clean is true when the working tree has no changes since the indexed
-	// HEAD, so a consumer can distinguish "nothing changed" from a broken
-	// command without inferring it from empty arrays.
+	// Clean is true when there are no *semantically-relevant* changed files since
+	// the indexed HEAD — i.e. after changedSemanticFiles applies the built-in
+	// exclusions and `.brainignore`. It lets a consumer distinguish "nothing to
+	// map" from a broken command without inferring it from empty arrays; it is
+	// NOT a `git status`-clean signal (changes confined to ignored paths still
+	// report clean=true).
 	Clean   bool             `json:"clean"`
 	Files   []string         `json:"files"`
 	Symbols []semanticRecord `json:"symbols"`
