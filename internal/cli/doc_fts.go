@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -122,6 +123,49 @@ func buildDocFTS(db *sql.DB, index docIndex) error {
 
 // rankDocsViaFTS ranks doc chunks by BM25, trimming the weak tail at 30% of the
 // top score (like history). ok=false on any failure or a degenerate query.
+// rankDocsLexical is the in-memory fallback for when the doc FTS index can't be
+// built or opened: it scores each doc by how many distinct query terms appear in
+// its indexed content, so the `doc` source still contributes to search/query when
+// SQLite/FTS is unavailable — mirroring history's substring fallback. Best-effort:
+// the only floor is "shares at least one query term".
+func rankDocsLexical(index docIndex, query string, limit int) []scoredDocRecord {
+	terms := historyQueryAllTerms(query)
+	if len(terms) == 0 || limit <= 0 {
+		return nil
+	}
+	type sc struct {
+		rec   docRecord
+		score int
+	}
+	scored := make([]sc, 0, len(index.Records))
+	for _, r := range index.Records {
+		content := docFTSContent(r)
+		n := 0
+		for _, t := range terms {
+			if t != "" && strings.Contains(content, strings.ToLower(t)) {
+				n++
+			}
+		}
+		if n > 0 {
+			scored = append(scored, sc{r, n})
+		}
+	}
+	sort.SliceStable(scored, func(a, b int) bool {
+		if scored[a].score != scored[b].score {
+			return scored[a].score > scored[b].score
+		}
+		return scored[a].rec.ID < scored[b].rec.ID
+	})
+	out := make([]scoredDocRecord, 0, min(limit, len(scored)))
+	for _, s := range scored {
+		out = append(out, scoredDocRecord{Record: s.rec, Score: s.score})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
 func rankDocsViaFTS(brainDir string, index docIndex, query string, limit int) ([]scoredDocRecord, bool) {
 	if limit <= 0 {
 		return nil, false

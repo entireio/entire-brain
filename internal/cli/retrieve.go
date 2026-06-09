@@ -123,7 +123,13 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 	switch {
 	case derr == nil && len(docIdx.Records) > 0:
 		if mode != modeVector {
-			if scored, ok := rankDocsViaFTS(brainDir, docIdx, query, limit*2); ok {
+			// FTS is an optimization, never load-bearing: fall back to the in-memory
+			// lexical scorer so docs don't vanish when the doc FTS index can't open.
+			scored, ok := rankDocsViaFTS(brainDir, docIdx, query, limit*2)
+			if !ok {
+				scored = rankDocsLexical(docIdx, query, limit*2)
+			}
+			if len(scored) > 0 {
 				lists = append(lists, docsToUnified(scored))
 			}
 		}

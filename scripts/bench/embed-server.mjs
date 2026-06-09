@@ -52,9 +52,22 @@ http.createServer((req, res) => {
   });
   req.on("end", async () => {
     if (aborted) return;
+    // 400 for a malformed/incomplete request; 500 only for embedder/runtime faults.
+    let input;
     try {
-      const { input } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      const emb = await ctx.getEmbeddingFor(String(input));
+      ({ input } = JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    } catch {
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "invalid JSON body" }));
+      return;
+    }
+    if (typeof input !== "string" || input.length === 0) {
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "missing or empty 'input' string" }));
+      return;
+    }
+    try {
+      const emb = await ctx.getEmbeddingFor(input);
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ embeddings: [Array.from(emb.vector)] }));
     } catch (e) {

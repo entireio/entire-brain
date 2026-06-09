@@ -27,3 +27,19 @@ func TestChunkLinesCleanForDocsPreservesHeadings(t *testing.T) {
 		t.Fatalf("numbered chunk lost its line-number prefix: %q", numbered[0].Text)
 	}
 }
+
+// When the doc FTS index can't be opened, retrieval falls back to rankDocsLexical,
+// which scores docs by query-term overlap so the doc source doesn't vanish.
+func TestRankDocsLexicalFallbackScoresByTermOverlap(t *testing.T) {
+	index := docIndex{Records: []docRecord{
+		{ID: "d1", Text: "checkpoint advance committed ref"},
+		{ID: "d2", Text: "entirely unrelated content"},
+	}}
+	out := rankDocsLexical(index, "checkpoint advance", 10)
+	if len(out) == 0 || out[0].Record.ID != "d1" {
+		t.Fatalf("expected d1 (term overlap) first, got %+v", out)
+	}
+	if got := rankDocsLexical(index, "zzqqxxnomatch", 10); len(got) != 0 {
+		t.Fatalf("expected no matches for a term-disjoint query, got %+v", got)
+	}
+}
