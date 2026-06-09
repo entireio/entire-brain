@@ -235,16 +235,17 @@ repo/access/artifacts are available:
   manifest timing fields retained.
 - Paired `entire brain facts eval --retriever facts|history|query|raw-sessions`
   runs over the same labeled or explicitly proxy-allowed task set.
-- `entire brain semantic-audit --json` from a clean release candidate brain. A
-  dirty-worktree local smoke on this repo is recorded above, but it is not enough
-  for public release claims.
+- Semantic benchmark evidence from a retained proof suite. A clean local
+  `semantic-audit --json --fail-on unsafe` run on this checkout is recorded
+  above, but it does not prove agent usefulness by itself.
 - Benchmark panel or retained proof subset from `benchmarks/agent-brain`, audited
   with `audit_codex.py --fail-on-flags` and committed under
   `benchmarks/agent-brain/evidence/release` as sanitized evidence.
 - `mise run release:evidence` must pass before any replay-lab proof claim; it runs
   benchmark harness self-tests and then audits explicit `release-*` suites with
   `audit_codex.py --fail-on-flags --min-suites 1 --min-records 1
-  --min-proof-ready 1`, writing the audit report to the retained evidence lane.
+  --min-proof-ready 1`. Failed audits write to a temp directory only; passing
+  audits copy the report into the retained evidence lane.
 
 Current retained benchmark caveat: `benchmarks/agent-brain/results/codex-audit-report.md`
 is quarantine/reference evidence, not release proof. The retained panel reports hard
