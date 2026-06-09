@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -81,7 +82,7 @@ func TestRunFactsEvalLabeledAndJudge(t *testing.T) {
 
 	// Labeled task: only f1 is relevant.
 	tasks := []evalTask{{ID: "t1", Task: "checkpoints v1.1 read ref", Branch: "main", Relevant: []string{f1.ID}}}
-	res, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), nil, nil)
+	res, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), nil, nil, evalRetrieverFacts)
 	if err != nil {
 		t.Fatalf("runFactsEval: %v", err)
 	}
@@ -97,7 +98,7 @@ func TestRunFactsEvalLabeledAndJudge(t *testing.T) {
 		return "1 yes\n", nil
 	}
 	tasksJ := []evalTask{{ID: "t2", Task: "checkpoints", Branch: "main"}}
-	resJ, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasksJ, 10, true, fakeRun, []string{"fake"}, loadJudgeCache(""), nil, nil)
+	resJ, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasksJ, 10, true, fakeRun, []string{"fake"}, loadJudgeCache(""), nil, nil, evalRetrieverFacts)
 	if err != nil {
 		t.Fatalf("runFactsEval judge: %v", err)
 	}
@@ -109,6 +110,69 @@ func TestRunFactsEvalLabeledAndJudge(t *testing.T) {
 	}
 	if resJ[0].UsefulPer1k <= 0 {
 		t.Errorf("useful/1k should be > 0 when a fact was judged relevant")
+	}
+}
+
+func TestRunFactsEvalRetrieverArms(t *testing.T) {
+	brainDir := t.TempDir()
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	transcriptRel := "sessions/main/s1.jsonl"
+	transcriptPath := filepath.Join(brainDir, filepath.FromSlash(transcriptRel))
+	if err := os.MkdirAll(filepath.Dir(transcriptPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(transcriptPath, []byte("alpha raw checkpoint guidance"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session := exportSession{SessionID: "session-one", Branch: "main", TranscriptPath: transcriptRel, LatestCheckpoint: "cp1", CreatedAt: now}
+	history := historyIndex{GeneratedAt: now, Records: []historyRecord{{
+		ID: "history:one", Kind: "decision", Path: transcriptRel, Line: 1, Summary: "alpha history checkpoint guidance",
+	}}}
+	historyData, err := json.Marshal(history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), historyData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		DefaultBranch: "main",
+		Sources: &brainSources{
+			Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{session}},
+			History:  &historySourceManifest{GeneratedAt: now, IndexPath: historyIndexPath, Records: 1, Decisions: 1},
+		},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	p := normalizeFactPaths([]string{"architecture.data.flow"})
+	fact := factRecord{ID: factRecordID("alpha fact checkpoint guidance", p), Paths: p, Text: "alpha fact checkpoint guidance", Branch: "main", Status: factStatusActive, UpdatedAt: now}
+	if err := writeFacts(brainDir, "main", []factRecord{fact}); err != nil {
+		t.Fatal(err)
+	}
+
+	tasks := []evalTask{{ID: "t1", Task: "alpha checkpoint guidance", Branch: "main", Relevant: []string{fact.ID}, SourceSessionID: session.SessionID, SourceTranscriptPath: transcriptRel}}
+	for _, retriever := range []string{evalRetrieverFacts, evalRetrieverHistory, evalRetrieverRawSessions} {
+		res, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), nil, nil, retriever)
+		if err != nil {
+			t.Fatalf("%s eval: %v", retriever, err)
+		}
+		if len(res) != 1 || res[0].Retriever != retriever {
+			t.Fatalf("%s result missing retriever: %+v", retriever, res)
+		}
+		if res[0].RelevantSurfaced != 1 || res[0].Tokens == 0 {
+			t.Fatalf("%s should surface its relevant item with tokens, got %+v", retriever, res[0])
+		}
+		if retriever == evalRetrieverFacts && !res[0].Labeled {
+			t.Fatalf("facts should retain fact-id labels: %+v", res[0])
+		}
+		if retriever != evalRetrieverFacts && res[0].Labeled {
+			t.Fatalf("%s source-match relevance should not claim recall labels: %+v", retriever, res[0])
+		}
 	}
 }
 
@@ -129,7 +193,7 @@ func TestJudgeCacheReuse(t *testing.T) {
 		return "1 yes\n", nil
 	}
 	// First run: judges and writes the cache.
-	if _, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, true, run, []string{"fake"}, loadJudgeCache(cachePath), nil, nil); err != nil {
+	if _, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, true, run, []string{"fake"}, loadJudgeCache(cachePath), nil, nil, evalRetrieverFacts); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 {
@@ -139,7 +203,7 @@ func TestJudgeCacheReuse(t *testing.T) {
 		t.Fatalf("cache not written: %v", err)
 	}
 	// Second run: served from cache, no agent call.
-	if _, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, true, run, []string{"fake"}, loadJudgeCache(cachePath), nil, nil); err != nil {
+	if _, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, true, run, []string{"fake"}, loadJudgeCache(cachePath), nil, nil, evalRetrieverFacts); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 {

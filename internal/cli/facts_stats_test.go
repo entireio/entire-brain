@@ -91,17 +91,20 @@ func TestHolmReject(t *testing.T) {
 
 func TestCompareEvalSummaries(t *testing.T) {
 	a := evalSummary{Results: []evalTaskResult{
-		{ID: "t1", Recall: 0.1, UsefulPer1k: 1, Tokens: 100},
-		{ID: "t2", Recall: 0.2, UsefulPer1k: 2, Tokens: 100},
-		{ID: "t3", Recall: 0.15, UsefulPer1k: 1.5, Tokens: 100},
-		{ID: "only-a", Recall: 9, UsefulPer1k: 9, Tokens: 9},
+		{ID: "t1", Task: "one", Recall: 0.1, UsefulPer1k: 1, Tokens: 100, Labeled: true},
+		{ID: "t2", Task: "two", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true},
+		{ID: "t3", Task: "three", Recall: 0.15, UsefulPer1k: 1.5, Tokens: 100, Labeled: true},
+		{ID: "only-a", Task: "only", Recall: 9, UsefulPer1k: 9, Tokens: 9, Labeled: true},
 	}}
 	b := evalSummary{Results: []evalTaskResult{
-		{ID: "t1", Recall: 0.2, UsefulPer1k: 2, Tokens: 100},
-		{ID: "t2", Recall: 0.3, UsefulPer1k: 3, Tokens: 100},
-		{ID: "t3", Recall: 0.25, UsefulPer1k: 2.5, Tokens: 100},
+		{ID: "t1", Task: "one", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true},
+		{ID: "t2", Task: "two", Recall: 0.3, UsefulPer1k: 3, Tokens: 100, Labeled: true},
+		{ID: "t3", Task: "three", Recall: 0.25, UsefulPer1k: 2.5, Tokens: 100, Labeled: true},
 	}}
-	comps, n := compareEvalSummaries(a, b, 0.05)
+	comps, n, err := compareEvalSummaries(a, b, 0.05)
+	if err != nil {
+		t.Fatalf("compareEvalSummaries: %v", err)
+	}
 	if n != 3 {
 		t.Fatalf("should compare only the 3 shared tasks, got n=%d", n)
 	}
@@ -115,5 +118,38 @@ func TestCompareEvalSummaries(t *testing.T) {
 	// Tokens identical -> delta 0.
 	if tk := byMetric["tokens"]; tk.Delta != 0 {
 		t.Errorf("tokens delta should be 0, got %v", tk.Delta)
+	}
+	if byMetric["recall"].PHolm == 0 {
+		t.Errorf("recall Holm threshold should be populated: %+v", byMetric["recall"])
+	}
+}
+
+func TestCompareEvalSummariesSkipsUndefinedRecallAndRejectsBadPairs(t *testing.T) {
+	a := evalSummary{Results: []evalTaskResult{
+		{ID: "t1", Task: "same", UsefulPer1k: 1, Tokens: 100},
+		{ID: "dup", Task: "x"},
+		{ID: "dup", Task: "x"},
+	}}
+	b := evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "same", UsefulPer1k: 2, Tokens: 120}}}
+	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil {
+		t.Fatal("duplicate task ids should be rejected")
+	}
+
+	a = evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "old"}}}
+	b = evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "new"}}}
+	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil {
+		t.Fatal("mismatched task text should be rejected")
+	}
+
+	a = evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "same", UsefulPer1k: 1, Tokens: 100}}}
+	b = evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "same", UsefulPer1k: 2, Tokens: 120}}}
+	comps, _, err := compareEvalSummaries(a, b, 0.05)
+	if err != nil {
+		t.Fatalf("compare unlabeled: %v", err)
+	}
+	for _, c := range comps {
+		if c.Metric == "recall" && c.N != 0 {
+			t.Fatalf("undefined recall should be skipped, got %+v", c)
+		}
 	}
 }

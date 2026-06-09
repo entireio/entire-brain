@@ -111,3 +111,17 @@ func TestPruneToPresentDropsDeparted(t *testing.T) {
 		t.Fatalf("expected 2 entries after prune, got %d", len(cache))
 	}
 }
+
+func TestQMDOutputFormatAlias(t *testing.T) {
+	got, err := outputWantsJSON(false, "json")
+	if err != nil || !got {
+		t.Fatalf("--format json should request JSON, got %t err=%v", got, err)
+	}
+	got, err = outputWantsJSON(true, "cli")
+	if err != nil || got {
+		t.Fatalf("--format cli should force CLI output, got %t err=%v", got, err)
+	}
+	if _, err := outputWantsJSON(false, "xml"); err == nil {
+		t.Fatal("unknown --format should error")
+	}
+}

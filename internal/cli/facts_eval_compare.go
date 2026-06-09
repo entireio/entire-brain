@@ -22,47 +22,57 @@ type metricComparison struct {
 	PHolm       float64 `json:"p_holm_threshold"`
 	Significant bool    `json:"significant"`
 	CohenD      float64 `json:"cohen_d"`
+	Winner      string  `json:"winner,omitempty"`
+	Claim       string  `json:"claim"`
 }
 
 // compareEvalSummaries computes a paired A/B comparison over the tasks both
 // summaries share (matched by id), for each headline metric, Holm-corrected
 // across the metric family at level alpha. A and B must be the same tasks under
 // two retrieval configs (e.g. base vs --expand).
-func compareEvalSummaries(a, b evalSummary, alpha float64) ([]metricComparison, int) {
-	bByID := make(map[string]evalTaskResult, len(b.Results))
-	for _, r := range b.Results {
-		bByID[r.ID] = r
+func compareEvalSummaries(a, b evalSummary, alpha float64) ([]metricComparison, int, error) {
+	aByID, err := evalResultsByID(a.Results, "A")
+	if err != nil {
+		return nil, 0, err
+	}
+	bByID, err := evalResultsByID(b.Results, "B")
+	if err != nil {
+		return nil, 0, err
 	}
 	var ids []string
 	for _, r := range a.Results {
-		if _, ok := bByID[r.ID]; ok {
+		if other, ok := bByID[r.ID]; ok {
+			if err := validateEvalPair(r, other); err != nil {
+				return nil, 0, err
+			}
 			ids = append(ids, r.ID)
 		}
 	}
 	sort.Strings(ids)
-	aByID := make(map[string]evalTaskResult, len(a.Results))
-	for _, r := range a.Results {
-		aByID[r.ID] = r
-	}
 
 	metrics := []struct {
-		name string
-		get  func(evalTaskResult) float64
+		name    string
+		get     func(evalTaskResult) float64
+		include func(evalTaskResult, evalTaskResult) bool
 	}{
-		{"precision", func(r evalTaskResult) float64 { return r.Precision }},
-		{"recall", func(r evalTaskResult) float64 { return r.Recall }},
-		{"useful_per_1k", func(r evalTaskResult) float64 { return r.UsefulPer1k }},
-		{"tokens", func(r evalTaskResult) float64 { return float64(r.Tokens) }},
+		{"precision", func(r evalTaskResult) float64 { return r.Precision }, nil},
+		{"recall", func(r evalTaskResult) float64 { return r.Recall }, func(a, b evalTaskResult) bool { return a.Labeled && b.Labeled }},
+		{"useful_per_1k", func(r evalTaskResult) float64 { return r.UsefulPer1k }, nil},
+		{"tokens", func(r evalTaskResult) float64 { return float64(r.Tokens) }, nil},
+		{"latency_ms", func(r evalTaskResult) float64 { return float64(r.LatencyMS) }, nil},
 	}
 
 	comparisons := make([]metricComparison, 0, len(metrics))
 	pvals := make([]float64, 0, len(metrics))
 	for _, m := range metrics {
-		av := make([]float64, len(ids))
-		bv := make([]float64, len(ids))
-		for i, id := range ids {
-			av[i] = m.get(aByID[id])
-			bv[i] = m.get(bByID[id])
+		var av, bv []float64
+		for _, id := range ids {
+			ar, br := aByID[id], bByID[id]
+			if m.include != nil && !m.include(ar, br) {
+				continue
+			}
+			av = append(av, m.get(ar))
+			bv = append(bv, m.get(br))
 		}
 		st := pairedTTest(av, bv)
 		comparisons = append(comparisons, metricComparison{
@@ -71,11 +81,72 @@ func compareEvalSummaries(a, b evalSummary, alpha float64) ([]metricComparison, 
 		})
 		pvals = append(pvals, st.P)
 	}
-	reject := holmReject(pvals, alpha)
+	reject, thresholds := holmRejectWithThresholds(pvals, alpha)
 	for i := range comparisons {
 		comparisons[i].Significant = reject[i]
+		comparisons[i].PHolm = thresholds[i]
+		comparisons[i].Winner = evalMetricWinner(comparisons[i])
+		comparisons[i].Claim = evalMetricClaim(comparisons[i])
 	}
-	return comparisons, len(ids)
+	return comparisons, len(ids), nil
+}
+
+func evalResultsByID(results []evalTaskResult, label string) (map[string]evalTaskResult, error) {
+	byID := make(map[string]evalTaskResult, len(results))
+	for _, r := range results {
+		if r.ID == "" {
+			return nil, fmt.Errorf("%s eval summary contains a result with empty id", label)
+		}
+		if _, exists := byID[r.ID]; exists {
+			return nil, fmt.Errorf("%s eval summary contains duplicate task id %q", label, r.ID)
+		}
+		byID[r.ID] = r
+	}
+	return byID, nil
+}
+
+func validateEvalPair(a, b evalTaskResult) error {
+	if a.Task != "" && b.Task != "" && a.Task != b.Task {
+		return fmt.Errorf("task %q differs between eval summaries", a.ID)
+	}
+	if a.QueryType != "" && b.QueryType != "" && a.QueryType != b.QueryType {
+		return fmt.Errorf("task %q query_type differs between eval summaries", a.ID)
+	}
+	return nil
+}
+
+func evalMetricWinner(c metricComparison) string {
+	switch c.Metric {
+	case "tokens", "latency_ms":
+		if c.MeanA < c.MeanB {
+			return "a"
+		}
+		if c.MeanB < c.MeanA {
+			return "b"
+		}
+	default:
+		if c.MeanA > c.MeanB {
+			return "a"
+		}
+		if c.MeanB > c.MeanA {
+			return "b"
+		}
+	}
+	return "tie"
+}
+
+func evalMetricClaim(c metricComparison) string {
+	if !c.Significant {
+		return "directional only; not significant after Holm correction"
+	}
+	switch c.Winner {
+	case "a":
+		return "A wins significantly"
+	case "b":
+		return "B wins significantly"
+	default:
+		return "no winner"
+	}
 }
 
 func loadEvalSummary(path string) (evalSummary, error) {
@@ -118,23 +189,25 @@ eyeballing two means.`,
 			if err != nil {
 				return err
 			}
-			comparisons, n := compareEvalSummaries(a, b, alpha)
+			comparisons, n, err := compareEvalSummaries(a, b, alpha)
+			if err != nil {
+				return err
+			}
 			if n == 0 {
 				return fmt.Errorf("the two runs share no task ids to compare")
 			}
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{"n": n, "alpha": alpha, "metrics": comparisons})
+				return writeJSON(cmd, map[string]any{"n": n, "alpha": alpha, "a_retriever": a.Retriever, "b_retriever": b.Retriever, "metrics": comparisons})
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "paired A/B over %d shared tasks (Holm-corrected at alpha=%.2f)\n", n, alpha)
-			fmt.Fprintf(out, "%-14s %9s %9s %9s %8s %7s %8s %s\n", "metric", "A", "B", "delta", "t", "p", "cohen_d", "sig")
+			if a.Retriever != "" || b.Retriever != "" {
+				fmt.Fprintf(out, "A=%s B=%s\n", valueOrUnset(a.Retriever), valueOrUnset(b.Retriever))
+			}
+			fmt.Fprintf(out, "%-14s %9s %9s %9s %8s %7s %8s %-6s %s\n", "metric", "A", "B", "delta", "t", "p", "cohen_d", "winner", "claim")
 			for _, c := range comparisons {
-				sig := ""
-				if c.Significant {
-					sig = "*"
-				}
-				fmt.Fprintf(out, "%-14s %9.3f %9.3f %+9.3f %8.2f %7.3f %8.2f %s\n",
-					c.Metric, c.MeanA, c.MeanB, c.Delta, c.T, c.P, c.CohenD, sig)
+				fmt.Fprintf(out, "%-14s %9.3f %9.3f %+9.3f %8.2f %7.3f %8.2f %-6s %s\n",
+					c.Metric, c.MeanA, c.MeanB, c.Delta, c.T, c.P, c.CohenD, c.Winner, c.Claim)
 			}
 			if n < 12 {
 				fmt.Fprintf(out, "note: n=%d is small — treat as directional; significance is underpowered.\n", n)
