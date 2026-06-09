@@ -33,9 +33,18 @@ for r in repos:
     print(f"{r:<16} {m['tasks']:>5} {mb:>7.3f} {gb:>7.3f} {dpct:>8} {cd:>10}")
     mres = {t["id"]: t["useful_per_1k"] for t in m["results"]}
     gres = {t["id"]: t["useful_per_1k"] for t in g["results"]}
+    # Pool only ids present in BOTH result files. Treating a Gemma-missing id as 0
+    # (e.g. an interrupted run, or mismatched task sets) would silently bias the
+    # pooled mean and win/loss counts downward and make them incomparable to the
+    # per-repo means.
+    missing = [tid for tid in mres if tid not in gres]
+    if missing:
+        print(f"  WARN {r}: {len(missing)} task(s) missing from Gemma results; excluded from pool")
     for tid in mres:
+        if tid not in gres:
+            continue
         pool["m2v"].append(mres[tid])
-        pool["gemma"].append(gres.get(tid, 0.0))
+        pool["gemma"].append(gres[tid])
 
 n = len(pool["m2v"])
 mb = sum(pool["m2v"]) / n if n else 0.0
