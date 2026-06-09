@@ -45,14 +45,15 @@ type brainShowOptions struct {
 }
 
 type brainStatusReport struct {
-	GeneratedAt time.Time          `json:"generated_at"`
-	Repo        brainStatusRepo    `json:"repo"`
-	Brain       brainStatusBrain   `json:"brain"`
-	Sources     brainStatusSources `json:"sources"`
-	Freshness   *staleReport       `json:"freshness,omitempty"`
-	Live        brainLiveState     `json:"live"`
-	Warnings    []string           `json:"warnings,omitempty"`
-	Manifest    *exportManifest    `json:"manifest,omitempty"`
+	GeneratedAt  time.Time          `json:"generated_at"`
+	Repo         brainStatusRepo    `json:"repo"`
+	Brain        brainStatusBrain   `json:"brain"`
+	Sources      brainStatusSources `json:"sources"`
+	Verification *verifySummary     `json:"verification,omitempty"`
+	Freshness    *staleReport       `json:"freshness,omitempty"`
+	Live         brainLiveState     `json:"live"`
+	Warnings     []string           `json:"warnings,omitempty"`
+	Manifest     *exportManifest    `json:"manifest,omitempty"`
 }
 
 type brainStatusRepo struct {
@@ -425,6 +426,7 @@ Small top-level surface:
 Durable facts (curated, provenance-anchored repo knowledge):
   entire brain recall "<query>" [--scope local|cross-cutting] [--expand] --json
   entire brain remember "<fact>" [--path category.sub.type] --json
+  entire brain verify [<fact-id | query>] --json
   entire brain facts tree [--path <prefix>] [--depth N]
   entire brain facts retract <fact-id> --json
   entire brain inspect blame <fact-id> --json   # source anchors a fact was derived from
@@ -592,6 +594,7 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 	if err != nil {
 		return err
 	}
+	populateBrainStatusVerification(ctx, opts, &report)
 	if statusOpts.json {
 		return writeJSON(cmd, report)
 	}
@@ -602,6 +605,11 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 		f := report.Manifest.Sources.Facts
 		fmt.Fprintf(cmd.OutOrStdout(), "facts: %d (%d distilled, %d authored, %d superseded) across %d branch(es); %d proposals pending\n",
 			f.Facts, f.Distilled, f.Authored, f.Superseded, len(f.Branches), f.Proposals)
+	}
+	if report.Verification != nil {
+		v := report.Verification
+		fmt.Fprintf(cmd.OutOrStdout(), "verification: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
+			v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
 	}
 	if report.Freshness != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "freshness: %s\n", report.Freshness.Severity)

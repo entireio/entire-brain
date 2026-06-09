@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -96,6 +97,7 @@ agent can inspect to understand project history.`,
 	addGrouped("explore", newBrainInspectCommand(opts))
 	addGrouped("explore", newMCPCommand(opts))
 	addGrouped("explore", newRecallCommand(opts))
+	addGrouped("explore", newVerifyCommand(opts))
 	// qmd-aligned retrieval over the unified text index (facts + history + docs).
 	// Symbol/code search stays at `inspect code`.
 	addGrouped("explore", newQueryCommand(opts))
@@ -163,8 +165,8 @@ func (e renderedCommandError) Is(target error) bool {
 }
 
 func commandErrorWasRendered(err error) bool {
-	_, ok := err.(renderedCommandError)
-	return ok
+	var rendered renderedCommandError
+	return errors.As(err, &rendered)
 }
 
 func wrapJSONErrorRendering(cmd *cobra.Command) {
@@ -184,6 +186,9 @@ func wrapJSONErrorRendering(cmd *cobra.Command) {
 		cmd.RunE = func(cmd *cobra.Command, args []string) error {
 			err := run(cmd, args)
 			if err == nil || !commandWantsJSONError(cmd) {
+				return err
+			}
+			if commandErrorWasRendered(err) {
 				return err
 			}
 			_ = writeCommandJSONError(cmd.ErrOrStderr(), err)
