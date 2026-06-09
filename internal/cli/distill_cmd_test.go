@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -406,31 +407,38 @@ func TestDistillDryRunReportsCachedSessionEstimatedChunks(t *testing.T) {
 
 func TestRunDistillForBrainParallelExtractionMatchesSerial(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	serialBrain := writeDistillFixture(t, now)
-	parallelBrain := writeDistillFixture(t, now)
+	serialBrain := writeDistillParallelFixture(t, now)
+	parallelBrain := writeDistillParallelFixture(t, now)
+	maxChunkBytes := 24
 
 	runSerial := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
-		return "project.tooling.stack\tThe project uses Go.\n", nil
+		return distillParallelFixtureOutput(input), nil
 	}
-	serialOpts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: runSerial, jobs: 1, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	serialOpts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: runSerial, jobs: 1, maxChunkBytes: maxChunkBytes, timeout: time.Minute}
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), serialBrain, serialOpts, now); err != nil {
 		t.Fatalf("serial distill: %v", err)
 	}
 
 	var active, maxActive int32
+	var completed atomic.Int32
 	runParallel := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
-		if strings.Contains(string(input), "\tturn one") {
-			current := atomic.AddInt32(&active, 1)
-			for {
-				seen := atomic.LoadInt32(&maxActive)
-				if current <= seen || atomic.CompareAndSwapInt32(&maxActive, seen, current) {
-					break
-				}
+		text := string(input)
+		current := atomic.AddInt32(&active, 1)
+		for {
+			seen := atomic.LoadInt32(&maxActive)
+			if current <= seen || atomic.CompareAndSwapInt32(&maxActive, seen, current) {
+				break
 			}
-			time.Sleep(25 * time.Millisecond)
-			atomic.AddInt32(&active, -1)
 		}
-		return "project.tooling.stack\tThe project uses Go.\n", nil
+		switch {
+		case strings.Contains(text, "alpha"):
+			time.Sleep(40 * time.Millisecond)
+		case strings.Contains(text, "bravo"):
+			time.Sleep(20 * time.Millisecond)
+		}
+		atomic.AddInt32(&active, -1)
+		completed.Add(1)
+		return distillParallelFixtureOutput(input), nil
 	}
 	parallelOpts := serialOpts
 	parallelOpts.run = runParallel
@@ -441,19 +449,103 @@ func TestRunDistillForBrainParallelExtractionMatchesSerial(t *testing.T) {
 	if atomic.LoadInt32(&maxActive) < 2 {
 		t.Fatalf("--jobs did not run extraction concurrently; maxActive=%d", maxActive)
 	}
-	for _, branch := range []string{"main", "feature"} {
-		serialFacts, err := loadFacts(serialBrain, branch)
-		if err != nil {
+	if completed.Load() < 4 {
+		t.Fatalf("expected all fixture chunks to complete, got %d", completed.Load())
+	}
+	serialOutput := deterministicDistillOutput(t, serialBrain)
+	parallelOutput := deterministicDistillOutput(t, parallelBrain)
+	if !reflect.DeepEqual(serialOutput, parallelOutput) {
+		t.Fatalf("parallel output changed deterministic artifacts:\nserial=%+v\nparallel=%+v", serialOutput, parallelOutput)
+	}
+}
+
+func writeDistillParallelFixture(t *testing.T, now time.Time) string {
+	t.Helper()
+	brainDir := t.TempDir()
+	sessions := []exportSession{
+		{SessionID: "s1", Branch: "main", LatestCheckpoint: "cp1", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: now.Add(-2 * time.Hour)},
+		{SessionID: "s2", Branch: "main", LatestCheckpoint: "cp2", TranscriptPath: "sessions/main/s2.jsonl", CreatedAt: now.Add(-1 * time.Hour)},
+	}
+	transcripts := map[string]string{
+		"sessions/main/s1.jsonl": strings.Join([]string{
+			"alpha config uses pinned generated schemas",
+			"bravo routes keep cached payloads",
+		}, "\n") + "\n",
+		"sessions/main/s2.jsonl": strings.Join([]string{
+			"charlie workers own retry budgets",
+			"delta release gates check provenance",
+		}, "\n") + "\n",
+	}
+	for _, session := range sessions {
+		path := filepath.Join(brainDir, filepath.FromSlash(session.TranscriptPath))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		parallelFacts, err := loadFacts(parallelBrain, branch)
-		if err != nil {
+		if err := os.WriteFile(path, []byte(transcripts[session.TranscriptPath]), 0o600); err != nil {
 			t.Fatal(err)
-		}
-		if len(serialFacts) != len(parallelFacts) || serialFacts[0].ID != parallelFacts[0].ID {
-			t.Fatalf("parallel output changed %s facts: serial=%+v parallel=%+v", branch, serialFacts, parallelFacts)
 		}
 	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	return brainDir
+}
+
+func distillParallelFixtureOutput(input []byte) string {
+	text := string(input)
+	var b strings.Builder
+	for token, fact := range map[string]string{
+		"alpha":   "project.alpha.schema\tThe project pins generated schemas.",
+		"bravo":   "project.bravo.cache\tRoutes keep cached payloads.",
+		"charlie": "project.charlie.retry\tWorkers own retry budgets.",
+		"delta":   "project.delta.release\tRelease gates check provenance.",
+	} {
+		if strings.Contains(text, token) {
+			b.WriteString(fact)
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
+func deterministicDistillOutput(t *testing.T, brainDir string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for _, rel := range []string{factsFileRelPath("main"), factsProposalsRelPath("main")} {
+		data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(rel)))
+		if err != nil {
+			if os.IsNotExist(err) {
+				out[rel] = ""
+				continue
+			}
+			t.Fatal(err)
+		}
+		out[rel] = string(data)
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Sources == nil || manifest.Sources.Facts == nil {
+		t.Fatalf("missing fact source manifest: %+v", manifest)
+	}
+	source := *manifest.Sources.Facts
+	source.GeneratedAt = time.Time{}
+	source.ExtractionSeconds = 0
+	source.ReconcileSeconds = 0
+	source.WriteSeconds = 0
+	data, err := json.Marshal(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out["manifest.sources.facts"] = string(data)
+	return out
 }
 
 func TestRunDistillForBrainParallelDoesNotAbortAfterOrderedFailures(t *testing.T) {
