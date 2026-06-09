@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "454d89dab875",
+  "strategy": "manual-commit",
+  "branch": "feat/qmd-retrieval",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "scripts/bench/agg.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/45/4d89dab875/0/metadata.json",
+      "transcript": "/45/4d89dab875/0/full.jsonl",
+      "content_hash": "/45/4d89dab875/0/content_hash.txt",
+      "prompt": "/45/4d89dab875/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 137,
+    "cache_creation_tokens": 2579,
+    "cache_read_tokens": 2107324,
+    "output_tokens": 2532,
+    "api_call_count": 4
+  }
+}
