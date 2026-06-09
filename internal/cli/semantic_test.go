@@ -1921,12 +1921,52 @@ func TestSemanticContextSQLiteFiltersRelationsBeforeLimit(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	symbols, relations, err := semanticContextFacts(filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo"), mustSemanticSource(t, env), "ValidateToken", 1, 0)
+	symbols, relations, _, err := semanticContextFacts(filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo"), mustSemanticSource(t, env), "ValidateToken", 1, 0)
 	if err != nil {
 		t.Fatalf("context facts: %v", err)
 	}
 	if len(symbols) != 1 || len(relations) != 1 || relations[0].FromID != "caller" {
 		t.Fatalf("context = symbols %+v relations %+v", symbols, relations)
+	}
+}
+
+// semanticFixtureSnapshotWithCallerSymbol has the relation endpoint present as
+// its own symbol record, so context can materialize it as a neighbor.
+func semanticFixtureSnapshotWithCallerSymbol() string {
+	return `{"schema_version":"1.0","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
+{"record_type":"symbol","id":"target","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
+{"record_type":"symbol","id":"caller","kind":"function","name":"HandleLogin","qualified_name":"api.HandleLogin","file_path":"internal/api/login.go","start_line":30,"end_line":50,"signature":"func HandleLogin() error","language":"Go","stable_id_version":"1"}
+{"record_type":"relation","from_id":"caller","to_id":"target","type":"CALLS","confidence":1}
+`
+}
+
+func TestSemanticContextMaterializesNeighbors(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshotWithCallerSymbol())
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	source := mustSemanticSource(t, env)
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	symbols, relations, neighbors, err := semanticContextFacts(brainDir, source, "ValidateToken", 1, 0)
+	if err != nil {
+		t.Fatalf("context facts: %v", err)
+	}
+	if len(symbols) != 1 || symbols[0].ID != "target" {
+		t.Fatalf("symbols = %+v", symbols)
+	}
+	if len(relations) != 1 || relations[0].FromID != "caller" {
+		t.Fatalf("relations = %+v", relations)
+	}
+	if len(neighbors) != 1 {
+		t.Fatalf("neighbors = %+v, want the caller materialized", neighbors)
+	}
+	got := neighbors[0]
+	if got.ID != "caller" || got.Name != "HandleLogin" || got.FilePath != "internal/api/login.go" || got.StartLine != 30 {
+		t.Fatalf("neighbor = %+v, want the HandleLogin caller record", got)
 	}
 }
 

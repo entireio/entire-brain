@@ -378,7 +378,7 @@ func runWorkspaceQuery(cmd *cobra.Command, opts Options, queryOpts workspaceQuer
 			results = append(results, result)
 			continue
 		}
-		symbols, _, err := semanticContextFacts(brainDir, source, query, queryOpts.limit, 0)
+		symbols, _, _, err := semanticContextFacts(brainDir, source, query, queryOpts.limit, 0)
 		unlock()
 		if err != nil {
 			result.Error = err.Error()
