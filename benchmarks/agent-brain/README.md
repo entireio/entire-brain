@@ -112,8 +112,12 @@ MCP-specific conditions are separate from CLI/context-file delivery:
   compact history hits, likely files/tests, and action checklist; no raw
   history excerpt file.
 - `mcp_semantic`: local `entire brain mcp` semantic tools only.
-- `mcp_history`: local `entire brain mcp` with `brain_brief` and
-  `brain_history`; no history excerpt file is provided as a shortcut.
+- `mcp_history`: local `entire brain mcp` with `brain_brief` and indexed-history
+  retrieval; no history excerpt file is provided as a shortcut.
+  > Note: this condition predates the qmd-retrieval refactor. The `brain_history`
+  > tool it was built around was removed (history is now a source within the
+  > unified `brain_query`/`brain_search` verbs), so the harness's `mcp_history`
+  > wiring needs a separate methodology update before this condition runs again.
 
 For a fast MCP session-history smoke on the local Ultron repo:
 

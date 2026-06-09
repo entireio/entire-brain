@@ -96,7 +96,13 @@ agent can inspect to understand project history.`,
 	addGrouped("explore", newBrainInspectCommand(opts))
 	addGrouped("explore", newMCPCommand(opts))
 	addGrouped("explore", newRecallCommand(opts))
-	addGrouped("explore", newBrainSearchCommand(opts))
+	// qmd-aligned retrieval over the unified text index (facts + history + docs).
+	// Symbol/code search stays at `inspect code`.
+	addGrouped("explore", newQueryCommand(opts))
+	addGrouped("explore", newSearchCommand(opts))
+	addGrouped("explore", newVsearchCommand(opts))
+	addGrouped("explore", newGetCommand(opts))
+	addGrouped("explore", newMultiGetCommand(opts))
 	addGrouped("explore", newBrainShowCommand(opts))
 
 	// Maintain & share — freshness, cleanup, portability, version.

@@ -206,7 +206,7 @@ func TestBrainBriefIncludesMatchingFacts(t *testing.T) {
 	}
 }
 
-func TestBrainSearchShowAndInspectAliases(t *testing.T) {
+func TestBrainInspectCodeAndShow(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
@@ -218,12 +218,12 @@ func TestBrainSearchShowAndInspectAliases(t *testing.T) {
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 	cmd := NewRootCommand(opts)
-	out, err := execute(t, cmd, "search", "ValidateToken", "--json")
+	out, err := execute(t, cmd, "inspect", "code", "ValidateToken", "--json")
 	if err != nil {
-		t.Fatalf("search: %v\n%s", err, out)
+		t.Fatalf("inspect code: %v\n%s", err, out)
 	}
 	if !strings.Contains(out, `"name": "ValidateToken"`) {
-		t.Fatalf("search output missing symbol:\n%s", out)
+		t.Fatalf("inspect code output missing symbol:\n%s", out)
 	}
 
 	cmd = NewRootCommand(opts)
@@ -249,7 +249,6 @@ func TestBrainInspectDecisionsSearchesExportedText(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
 	if err != nil {
 		t.Fatalf("storage: %v", err)
@@ -271,17 +270,16 @@ func TestBrainInspectDecisionsSearchesExportedText(t *testing.T) {
 		t.Fatalf("history source missing decision count: %+v", manifest.Sources)
 	}
 
-	cmd := NewRootCommand(opts)
-	out, err := execute(t, cmd, "inspect", "decisions", "output schema", "--json")
+	// The indexed decision is retrievable by the shared history ranker (the engine
+	// the unified search/query verbs use); the old `inspect decisions` command was
+	// just a thin wrapper over this and was removed.
+	index, err := loadBrainHistoryIndex(storage.BrainDir, manifest.Sources.History)
 	if err != nil {
-		t.Fatalf("inspect decisions: %v\n%s", err, out)
+		t.Fatalf("load history index: %v", err)
 	}
-	var report brainHistoryInspectReport
-	if err := json.Unmarshal([]byte(out), &report); err != nil {
-		t.Fatalf("parse report: %v\n%s", err, out)
-	}
-	if len(report.Matches) != 1 || !strings.Contains(report.Matches[0].Excerpt, "Decision:") {
-		t.Fatalf("unexpected matches: %+v", report.Matches)
+	scored, ok := rankHistoryViaFTS(storage.BrainDir, index, "decisions", "output schema", 25)
+	if !ok || len(scored) != 1 || !strings.Contains(scored[0].Record.Summary, "Decision:") {
+		t.Fatalf("unexpected matches (ok=%v): %+v", ok, scored)
 	}
 }
 
@@ -289,7 +287,6 @@ func TestBrainInspectParsesStructuredSessionHistory(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
 	if err != nil {
 		t.Fatalf("storage: %v", err)
@@ -422,40 +419,15 @@ func TestBrainInspectParsesStructuredSessionHistory(t *testing.T) {
 		t.Fatalf("unexpected code fact count: %+v", source)
 	}
 
-	for _, tc := range []struct {
-		args    []string
-		want    string
-		wantLen int
-	}{
-		{args: []string{"inspect", "decisions", "manual commit", "--json"}, want: "AttributionBaseCommit", wantLen: 1},
-		// Tokenized matching surfaces the decision record because both query
-		// terms ("manual" via manual_commit, "stable" via attribution stable)
-		// appear in it — a relevant hit the old substring matcher missed.
-		{args: []string{"inspect", "decisions", "manual stable", "--json"}, want: "AttributionBaseCommit", wantLen: 1},
-		// No decision record contains both "fake" and "metadata", so the
-		// two-term threshold still correctly yields nothing.
-		{args: []string{"inspect", "decisions", "fake metadata", "--json"}, wantLen: 0},
-		{args: []string{"inspect", "validation", "go test", "--json"}, want: "go test", wantLen: 1},
-		{args: []string{"inspect", "tool-paths", "apply_patch", "--json"}, want: "apply_patch", wantLen: 1},
-		{args: []string{"inspect", "architecture", "AttributionBaseCommit", "--json"}, want: "invariant", wantLen: 2},
-		{args: []string{"inspect", "history", "restore manual commit attribution base drift behavior", "--json"}, want: "AttributionBaseCommit", wantLen: 2},
-		{args: []string{"inspect", "history", "transcript re-resolution updates state for subsequent reads", "--json"}, want: "state.TranscriptPath = resolved", wantLen: 1},
-	} {
-		cmd := NewRootCommand(opts)
-		out, err := execute(t, cmd, tc.args...)
-		if err != nil {
-			t.Fatalf("%v: %v\n%s", tc.args, err, out)
-		}
-		var report brainHistoryInspectReport
-		if err := json.Unmarshal([]byte(out), &report); err != nil {
-			t.Fatalf("parse report for %v: %v\n%s", tc.args, err, out)
-		}
-		if len(report.Matches) != tc.wantLen {
-			t.Fatalf("%v returned %d matches, want %d: %+v", tc.args, len(report.Matches), tc.wantLen, report.Matches)
-		}
-		if tc.want != "" && !strings.Contains(report.Matches[0].Excerpt, tc.want) {
-			t.Fatalf("%v first match missing %q: %+v", tc.args, tc.want, report.Matches[0])
-		}
+	// Kind-filtered retrieval over these parsed records is exercised against the
+	// shared BM25 ranker in history_fts_test.go; the per-kind `inspect` commands
+	// that used to drive it here were removed in favor of the unified verbs.
+	index, err := loadBrainHistoryIndex(storage.BrainDir, source)
+	if err != nil {
+		t.Fatalf("load history index: %v", err)
+	}
+	if scored, ok := rankHistoryViaFTS(storage.BrainDir, index, "decisions", "manual commit attribution", 25); !ok || len(scored) == 0 || !strings.Contains(scored[0].Record.Summary, "AttributionBaseCommit") {
+		t.Fatalf("decision record not retrievable (ok=%v): %+v", ok, scored)
 	}
 }
 

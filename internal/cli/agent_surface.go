@@ -377,22 +377,6 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-func newBrainSearchCommand(opts Options) *cobra.Command {
-	queryOpts := semanticQueryOptions{limit: 20}
-	cmd := &cobra.Command{
-		Use:   "search <symbol-or-text>",
-		Short: "Search the local semantic brain",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSemanticQuery(cmd.Context(), cmd, opts, queryOpts, args[0])
-		},
-	}
-	cmd.Flags().IntVar(&queryOpts.limit, "limit", 20, "Maximum results to return")
-	cmd.Flags().IntVar(&queryOpts.offset, "offset", 0, "Results to skip before returning a page")
-	cmd.Flags().BoolVar(&queryOpts.json, "json", false, "Emit machine-readable JSON")
-	return cmd
-}
-
 func newBrainShowCommand(opts Options) *cobra.Command {
 	showOpts := brainShowOptions{}
 	cmd := &cobra.Command{
@@ -420,13 +404,19 @@ Orient first (what is this project?):
 Then, for a task:
   entire brain brief "<task>" --json
 
+Retrieval (qmd-aligned verbs; search/vsearch/query take --json/--limit/--branch,
+get/multi-get take --json/--branch):
+  entire brain query "<query>" --json       # hybrid (lexical+vector, RRF) — the default
+  entire brain search "<query>" --json      # lexical keyword over facts + history + docs (BM25 for history/docs)
+  entire brain vsearch "<query>" --json     # vector/semantic over facts + docs
+  entire brain get <id> --json              # fetch one item by id (fact:… | history:… | doc:…)
+  entire brain multi-get <id>... --json     # fetch several by id
+
 Small top-level surface:
   entire brain status [repo] --json
   entire brain overview [repo] --json
   entire brain brief "<task>" --json
-  entire brain search "<query>" --json
   entire brain show <id> --json
-  entire brain recall "<query>" --json
   entire brain refresh [repo] --json
   entire brain guide
   entire brain path [repo]
@@ -437,30 +427,23 @@ Durable facts (curated, provenance-anchored repo knowledge):
   entire brain remember "<fact>" [--path category.sub.type] --json
   entire brain facts tree [--path <prefix>] [--depth N]
   entire brain facts retract <fact-id> --json
-  entire brain inspect facts "<query>" --json
-  entire brain inspect blame <fact-id> --json
+  entire brain inspect blame <fact-id> --json   # source anchors a fact was derived from
 
-Specialist tools:
-  entire brain inspect code "<query>" --json
+Specialist tools (symbol graph + regression analysis — what the verbs can't do):
+  entire brain inspect code "<query>" --json        # find a symbol in the graph
   entire brain inspect context <symbol-or-id> --json
   entire brain inspect impact <symbol-or-file> --json
   entire brain inspect changes --json
   entire brain inspect tests "<query>" --json
-  entire brain inspect decisions "<query>" --json
-  entire brain inspect history "<query>" --json
-  entire brain inspect sessions "<query>" --json
-  entire brain inspect validation "<query>" --json
-  entire brain inspect tool-paths "<query>" --json
-  entire brain inspect architecture "<query>" --json
   entire brain inspect boundaries --kind route|tool|workflow --json
+  entire brain inspect regressions "<query>" --json
 
 Search tips:
-  - Specialist text searches are tokenized: phrase a natural-language
-    question and the brain ranks records by overlapping terms.
-  - Results carry score, matched_terms, and a timestamp; query_terms shows
-    exactly what was searched so a thin result is debuggable.
-  - Add --relax to any inspect text search for best-effort partial matches
-    when a strict search returns nothing.
+  - query first (fuses keyword + concept); fall back to search for exact
+    identifiers, vsearch for paraphrased/conceptual queries.
+  - Every result carries an id — pass it to get/multi-get for the full record.
+  - The inspect code/context/impact tools traverse the symbol graph (callers,
+    callees, impact set); reach for them when ranked text isn't enough.
 `))
 		},
 	}
@@ -472,17 +455,18 @@ func newBrainInspectCommand(opts Options) *cobra.Command {
 		Short: "Run specialist brain inspection commands",
 		Args:  cobra.NoArgs,
 	}
+	// inspect is the specialist fallback for what the unified verbs
+	// (search/vsearch/query) can't do: symbol-graph traversal and comparative
+	// regression analysis. Pure single-source retrieval (facts/docs/history text)
+	// lives in the unified verbs now, so those inspect kinds were removed rather
+	// than kept as a parallel copy of the same index.
 	cmd.AddCommand(newInspectCodeCommand(opts))
 	cmd.AddCommand(newInspectContextCommand(opts))
 	cmd.AddCommand(newInspectImpactCommand(opts))
 	cmd.AddCommand(newInspectChangesCommand(opts))
 	cmd.AddCommand(newInspectTestsCommand(opts))
-	for _, kind := range []string{"decisions", "history", "sessions", "validation", "tool-paths", "architecture"} {
-		cmd.AddCommand(newInspectHistoryCommand(opts, kind))
-	}
 	cmd.AddCommand(newInspectBoundariesCommand(opts))
 	cmd.AddCommand(newInspectRegressionsCommand(opts))
-	cmd.AddCommand(newInspectFactsCommand(opts))
 	cmd.AddCommand(newInspectBlameCommand(opts))
 	return cmd
 }
@@ -566,22 +550,6 @@ func newInspectTestsCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().IntVar(&testsOpts.limit, "limit", 20, "Maximum test suggestions to include")
 	cmd.Flags().BoolVar(&testsOpts.json, "json", false, "Emit machine-readable JSON")
-	return cmd
-}
-
-func newInspectHistoryCommand(opts Options, kind string) *cobra.Command {
-	var jsonOut bool
-	var relax bool
-	cmd := &cobra.Command{
-		Use:   kind + " <query>",
-		Short: "Search exported brain " + kind + " text",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBrainHistoryInspect(cmd.Context(), cmd, opts, kind, args[0], jsonOut, relax)
-		},
-	}
-	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&relax, "relax", false, "Return best-effort partial matches when a strict search finds nothing")
 	return cmd
 }
 
@@ -690,8 +658,14 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
 		} else {
 			var indexedMatches []brainTextMatch
-			for _, record := range rankHistoryRecords(index, "history", task, briefOpts.limit) {
-				indexedMatches = append(indexedMatches, historyRecordTextMatch(record))
+			if scored, ok := rankHistoryViaFTS(status.Brain.Path, index, "history", task, briefOpts.limit); ok {
+				for _, s := range scored {
+					indexedMatches = append(indexedMatches, historyRecordTextMatch(s.Record))
+				}
+			} else {
+				for _, record := range rankHistoryRecords(index, "history", task, briefOpts.limit) {
+					indexedMatches = append(indexedMatches, historyRecordTextMatch(record))
+				}
 			}
 			rawMatches, rawErr := brainBriefRawHistoryMatches(status.Brain.Path, task, nil, briefOpts.limit)
 			if rawErr != nil {
@@ -1674,47 +1648,6 @@ func runBrainShow(ctx context.Context, cmd *cobra.Command, opts Options, showOpt
 	return nil
 }
 
-func runBrainHistoryInspect(ctx context.Context, cmd *cobra.Command, opts Options, kind, query string, jsonOut, relax bool) error {
-	target := agentSurfaceTarget(opts, nil)
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
-	if err != nil {
-		return err
-	}
-	if !local {
-		return fmt.Errorf("inspect %s requires a local repository path: %s", kind, target)
-	}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-	if err != nil {
-		return err
-	}
-	report, err := inspectBrainText(storage.BrainDir, kind, query, relax)
-	if err != nil {
-		return err
-	}
-	if report.Matches == nil {
-		report.Matches = []brainTextMatch{}
-	}
-	if jsonOut {
-		return writeJSON(cmd, report)
-	}
-	if report.Partial {
-		fmt.Fprintf(cmd.OutOrStdout(), "(partial: best-effort matches, no record covered the full query)\n")
-	}
-	for _, match := range report.Matches {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s:%d: %s\n", match.Path, match.Line, match.Excerpt)
-	}
-	if len(report.Matches) == 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "no %s matches for %q\n", kind, query)
-		if len(report.QueryTerms) > 0 {
-			fmt.Fprintf(cmd.OutOrStdout(), "searched terms: %s\n", strings.Join(report.QueryTerms, ", "))
-			if !relax {
-				fmt.Fprintf(cmd.OutOrStdout(), "retry with --relax for best-effort partial matches\n")
-			}
-		}
-	}
-	return nil
-}
-
 func buildBrainStatusReport(ctx context.Context, opts Options, target string) (brainStatusReport, error) {
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
@@ -1901,18 +1834,6 @@ func findSemanticRecordByIDOrNameSnapshot(path, idOrName string) (semanticRecord
 		}
 	}
 	return semanticRecord{}, fmt.Errorf("semantic record not found: %s", idOrName)
-}
-
-func inspectBrainText(brainDir, kind, query string, relax bool) (brainHistoryInspectReport, error) {
-	report := brainHistoryInspectReport{Kind: kind, Query: query, BrainPath: brainDir}
-	query = strings.ToLower(strings.TrimSpace(query))
-	if query == "" {
-		return report, errors.New("query must not be empty")
-	}
-	if indexed, ok := inspectBrainHistoryIndex(brainDir, kind, query, relax); ok {
-		return indexed, nil
-	}
-	return inspectBrainRawText(brainDir, kind, query, brainInspectHistoryMaxHits)
 }
 
 func inspectBrainRawText(brainDir, kind, query string, maxHits int) (brainHistoryInspectReport, error) {
@@ -2147,41 +2068,6 @@ func normalizeHistoryTextForExcerpt(text string) string {
 	return text
 }
 
-func inspectBrainHistoryIndex(brainDir, kind, query string, relax bool) (brainHistoryInspectReport, bool) {
-	manifest, err := loadBrainManifest(brainDir)
-	if err != nil || manifest.Sources == nil || manifest.Sources.History == nil {
-		return brainHistoryInspectReport{}, false
-	}
-	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
-	if err != nil {
-		return brainHistoryInspectReport{}, false
-	}
-	report := brainHistoryInspectReport{
-		Kind:       kind,
-		Query:      query,
-		QueryTerms: historyQueryAllTerms(query),
-		BrainPath:  brainDir,
-		Scanned:    len(index.Records),
-	}
-	// All specialist kinds now go through the tokenized ranker, so a
-	// natural-language question ("why did we choose supabase for the queue")
-	// matches on overlapping terms instead of requiring the whole phrase as a
-	// literal substring. When the strict pass finds nothing and --relax is set,
-	// retry with a single-term threshold and flag the result as partial.
-	scored := rankHistoryRecordsScored(index, kind, query, brainInspectHistoryMaxHits, 0)
-	if len(scored) == 0 && relax {
-		scored = rankHistoryRecordsScored(index, kind, query, brainInspectHistoryMaxHits, 1)
-		report.Partial = len(scored) > 0
-	}
-	for _, item := range scored {
-		report.Matches = append(report.Matches, historyScoredRecordTextMatch(item, query))
-	}
-	if len(report.Matches) >= brainInspectHistoryMaxHits {
-		report.Truncated = true
-	}
-	return report, true
-}
-
 func historyRecordTextMatch(record historyRecord) brainTextMatch {
 	match := brainTextMatch{
 		Path:    record.Path,
@@ -2194,17 +2080,12 @@ func historyRecordTextMatch(record historyRecord) brainTextMatch {
 	return match
 }
 
-func historyScoredRecordTextMatch(item scoredHistoryRecord, query string) brainTextMatch {
-	match := historyRecordTextMatch(item.Record)
-	match.Score = item.Score
-	match.MatchedTerms = historyRecordMatchedTerms(item.Record, query)
-	return match
-}
-
 func historyInspectKinds(kind string) map[string]struct{} {
 	switch kind {
 	case "decisions":
 		return map[string]struct{}{"decision": {}}
+	case "requests":
+		return map[string]struct{}{"request": {}}
 	case "validation":
 		return map[string]struct{}{"validation": {}}
 	case "tool-paths":

@@ -16,6 +16,7 @@ type brainSources struct {
 	Semantic *semanticSourceManifest `json:"semantic,omitempty"`
 	History  *historySourceManifest  `json:"history,omitempty"`
 	Facts    *factSourceManifest     `json:"facts,omitempty"`
+	Docs     *docSourceManifest      `json:"docs,omitempty"`
 }
 
 type sessionSourceManifest struct {

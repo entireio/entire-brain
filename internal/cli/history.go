@@ -31,7 +31,14 @@ const (
 	// historyScanCacheVersion gates reuse of cached per-file scan results.
 	// Bump it whenever the history record extraction/classification logic
 	// changes so stale cached records are discarded on the next refresh.
-	historyScanCacheVersion = 1
+	// v2: index user prompts as "request" records.
+	// v3: stop EXTRACTING request records during scan (the v2 indexing) — they were
+	// excluded from general ranking (measured noise) and the only surfaces that
+	// could query them (inspect requests / brain_history kind=requests) were
+	// removed. The request-kind gates/filtering are kept as defensive support for
+	// stale indexes; bumping discards per-file scan caches that still hold request
+	// records so they stop reappearing on refresh.
+	historyScanCacheVersion = 3
 )
 
 type historySourceManifest struct {
@@ -153,6 +160,12 @@ func writeBrainHistoryIndexAndSource(outputDir string, now time.Time, progress h
 	data = append(data, '\n')
 	if err := writeFileAtomic(filepath.Join(outputDir, filepath.FromSlash(historyIndexPath)), data, 0o600); err != nil {
 		return nil, fmt.Errorf("write history index: %w", err)
+	}
+	// Build the derived BM25 index alongside its truth so the search/query verbs
+	// do not pay a first-query rebuild. Best-effort: the query path rebuilds it
+	// lazily on any failure, so this must never fail the refresh.
+	if db, ftsErr := openHistoryFTS(outputDir, index); ftsErr == nil {
+		_ = db.Close()
 	}
 	manifest, err := loadBrainManifest(outputDir)
 	if err != nil {
@@ -422,10 +435,28 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 		if text == "" {
 			continue
 		}
+		// Apply the cheap keyword fast-path BEFORE the JSON decode: most transcript
+		// lines are irrelevant to indexing, so on a large history this skips the
+		// per-line Unmarshal for the majority of records.
 		if !historyLineMayContainIndexedContent(text) {
 			continue
 		}
-		for _, fragment := range extractHistoryFragments(text, allowRawText) {
+		// Decode at most once for the narrative pass. Only transcript records are
+		// JSON objects, so skip the decode for raw .md/.txt lines that can't be one
+		// (cheap leading-'{' check); those fall through to the raw-text path.
+		var fragments []historyFragment
+		parsedOK := false
+		if strings.HasPrefix(text, "{") {
+			var obj map[string]any
+			if json.Unmarshal([]byte(text), &obj) == nil {
+				fragments = extractHistoryJSONFragments(obj)
+				parsedOK = true
+			}
+		}
+		if !parsedOK && allowRawText {
+			fragments = []historyFragment{{Text: text, Source: "text"}}
+		}
+		for _, fragment := range fragments {
 			fragment.Text = strings.TrimSpace(fragment.Text)
 			if fragment.Text == "" {
 				continue
@@ -443,17 +474,6 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 		}
 	}
 	return records, scanner.Err()
-}
-
-func extractHistoryFragments(line string, allowRawText bool) []historyFragment {
-	var obj map[string]any
-	if err := json.Unmarshal([]byte(line), &obj); err != nil {
-		if !allowRawText {
-			return nil
-		}
-		return []historyFragment{{Text: line, Source: "text"}}
-	}
-	return extractHistoryJSONFragments(obj)
 }
 
 func extractHistoryJSONFragments(obj map[string]any) []historyFragment {
@@ -981,6 +1001,10 @@ func rankHistoryRecordsScored(index historyIndex, kind, query string, limit, min
 			if _, ok := allowed[record.Kind]; !ok {
 				continue
 			}
+		} else if record.Kind == "request" {
+			// Keep user-prompt records out of general ranking (they add noise);
+			// they surface only via the explicit `requests` kind.
+			continue
 		}
 		score := historyRecordQueryScoreMin(record, query, minMatches)
 		if score == 0 {
@@ -1171,6 +1195,8 @@ func historyKindRank(kind string) int {
 	switch kind {
 	case "decision":
 		return 40
+	case "request":
+		return 34
 	case "architecture":
 		return 32
 	case "code_fact":

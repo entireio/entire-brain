@@ -30,7 +30,7 @@ func TestMCPInitializeAndToolsList(t *testing.T) {
 		t.Fatalf("initialize error: %+v", responses[0])
 	}
 	data, _ := json.Marshal(responses[1]["result"])
-	if !strings.Contains(string(data), "brain_query") || !strings.Contains(string(data), "brain_impact") || !strings.Contains(string(data), "brain_history") {
+	if !strings.Contains(string(data), "brain_query") || !strings.Contains(string(data), "brain_impact") || !strings.Contains(string(data), "brain_code") {
 		t.Fatalf("tools/list missing tools: %s", data)
 	}
 }
@@ -310,7 +310,7 @@ func TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON(t *testing.T) 
 	}
 }
 
-func TestMCPBrainBriefAndHistoryToolsUseIndexedHistory(t *testing.T) {
+func TestMCPBrainBriefAndQueryToolsUseIndexedHistory(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
@@ -341,7 +341,7 @@ func TestMCPBrainBriefAndHistoryToolsUseIndexedHistory(t *testing.T) {
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_brief","arguments":{"task":"restore YouTube media playback verification","limit":5}}}`) +
-		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_history","arguments":{"kind":"decisions","query":"media playback verification"}}}`)
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_query","arguments":{"query":"media playback verification"}}}`)
 	var out bytes.Buffer
 	if err := runMCP(cmd.Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp: %v", err)

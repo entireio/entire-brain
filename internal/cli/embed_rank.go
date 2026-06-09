@@ -57,9 +57,33 @@ func (s *semanticReranker) factVector(f factRecord) []float32 {
 		return v
 	}
 	v := s.e.Embed(f.Text)
-	s.cache[f.ID] = v
-	s.dirty = true
+	// Cache only a full-dimension vector. A transient embed failure (nil/short)
+	// must not be cached, or every later call this process would reuse the empty
+	// result and never retry; returning it uncached lets a later call re-embed.
+	// Require Dim()>0 too: a failed dimension probe can report 0, which a nil
+	// vector (len 0) would otherwise satisfy and get cached.
+	if d := s.e.Dim(); d > 0 && len(v) == d {
+		s.cache[f.ID] = v
+		s.dirty = true
+	}
 	return v
+}
+
+// queryEmbedder is implemented by embedders (e.g. EmbeddingGemma) that embed a
+// search query with a different instruction prefix than a document. Embedders
+// without the asymmetry (the Model2Vec static model) simply omit it.
+type queryEmbedder interface {
+	EmbedQuery(text string) []float32
+}
+
+// embedQuery embeds the query, using the embedder's query-specific prefix when it
+// has one, so a document/query asymmetry (EmbeddingGemma) is honored without
+// changing the symmetric Model2Vec path.
+func (s *semanticReranker) embedQuery(query string) []float32 {
+	if qe, ok := s.e.(queryEmbedder); ok {
+		return qe.EmbedQuery(query)
+	}
+	return s.e.Embed(query)
 }
 
 // retain marks ids as present this run for prune purposes, without forcing an
@@ -123,35 +147,73 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		limit = 10
 	}
 	type cand struct {
-		rec factRecord
-		lex int
-		cos float64
+		rec    factRecord
+		lex    float64
+		lexHit bool // retrieved by the lexical arm (distinguishes a 0-score BM25 hit from a miss)
+		cos    float64
 	}
 	queryLocus := factLocus(query)
-	qvec := rr.e.Embed(query)
-	cands := make([]cand, 0, len(facts))
+	qvec := rr.embedQuery(query)
+	// No query embedding (e.g. the embedder is unavailable) → fall back cleanly to
+	// lexical-only ranking. Otherwise every cosine is 0 and the semantic arm would
+	// still add an RRF term, reordering results by the UpdatedAt tiebreaker.
+	haveSemantic := len(qvec) > 0
+	candidates := make([]factRecord, 0, len(facts))
 	for _, f := range facts {
 		if !includeAll && f.Status != factStatusActive {
 			continue
 		}
-		score := factQueryScore(f, query)
-		if overlap := locusOverlap(queryLocus, f.Text); overlap > 0 {
-			score += overlap * factLocusBoost
-		}
-		cands = append(cands, cand{rec: f, lex: score, cos: cosineFloat32(qvec, rr.factVector(f))})
+		candidates = append(candidates, f)
 	}
-	if len(cands) == 0 {
+	if len(candidates) == 0 {
 		return nil
 	}
+	// Lexical arm: the hand-rolled token-overlap scorer (plus the code locus
+	// boost) by default. The opt-in FTS5 BM25 arm (ENTIRE_BRAIN_FACTS_BM25=1) is
+	// IDF-weighted with no coverage gate; it measured at parity on the facts
+	// baseline, so it stays off by default and falls back here if its in-memory
+	// index can't be built.
+	var bm25 map[string]float64
+	haveBM25 := false
+	if factsBM25Enabled() {
+		bm25, haveBM25 = factsFTSScores(candidates, query)
+	}
+	cands := make([]cand, 0, len(candidates))
+	for _, f := range candidates {
+		var lex float64
+		var lexHit bool
+		if haveBM25 {
+			// factsFTSScores only contains matched ids, so presence — not a positive
+			// score — is the hit signal. A missing key (no match) returns 0, which
+			// must not be confused with a real hit that happens to score 0.
+			lex, lexHit = bm25[f.ID]
+		} else {
+			score := factQueryScore(f, query)
+			if overlap := locusOverlap(queryLocus, f.Text); overlap > 0 {
+				score += overlap * factLocusBoost
+			}
+			lex = float64(score)
+			lexHit = lex > 0
+		}
+		cos := 0.0
+		if haveSemantic {
+			cos = cosineFloat32(qvec, rr.factVector(f))
+		}
+		cands = append(cands, cand{rec: f, lex: lex, lexHit: lexHit, cos: cos})
+	}
 
-	// Lexical ranks: only facts with a positive lexical score are "retrieved"
-	// lexically, so only they contribute a lexical RRF term.
+	// Lexical ranks: only facts retrieved lexically (lexHit) contribute a lexical
+	// RRF term. Hits sort above misses so a BM25 hit that happens to score 0 still
+	// earns a rank instead of being lumped in with the non-matches.
 	order := make([]int, len(cands))
 	for i := range order {
 		order[i] = i
 	}
 	sort.SliceStable(order, func(a, b int) bool {
 		ia, ib := order[a], order[b]
+		if cands[ia].lexHit != cands[ib].lexHit {
+			return cands[ia].lexHit
+		}
 		if cands[ia].lex != cands[ib].lex {
 			return cands[ia].lex > cands[ib].lex
 		}
@@ -159,22 +221,25 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 	})
 	fused := make([]float64, len(cands))
 	for rank, idx := range order {
-		if cands[idx].lex > 0 {
+		if cands[idx].lexHit {
 			fused[idx] += 1.0 / (rrfK + float64(rank+1))
 		}
 	}
 
 	// Semantic ranks: the full candidate set is ranked by cosine, so a
-	// term-disjoint but semantically-near fact still earns a rank.
-	sort.SliceStable(order, func(a, b int) bool {
-		ia, ib := order[a], order[b]
-		if cands[ia].cos != cands[ib].cos {
-			return cands[ia].cos > cands[ib].cos
+	// term-disjoint but semantically-near fact still earns a rank. Skipped entirely
+	// when there's no query embedding, leaving a clean lexical-only ranking.
+	if haveSemantic {
+		sort.SliceStable(order, func(a, b int) bool {
+			ia, ib := order[a], order[b]
+			if cands[ia].cos != cands[ib].cos {
+				return cands[ia].cos > cands[ib].cos
+			}
+			return cands[ia].rec.UpdatedAt.After(cands[ib].rec.UpdatedAt)
+		})
+		for rank, idx := range order {
+			fused[idx] += 1.0 / (rrfK + float64(rank+1))
 		}
-		return cands[ia].rec.UpdatedAt.After(cands[ib].rec.UpdatedAt)
-	})
-	for rank, idx := range order {
-		fused[idx] += 1.0 / (rrfK + float64(rank+1))
 	}
 
 	for i := range order {
@@ -187,12 +252,20 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		}
 		return cands[ia].rec.UpdatedAt.After(cands[ib].rec.UpdatedAt)
 	})
-	if len(order) > limit {
-		order = order[:limit]
-	}
-	out := make([]factRecord, len(order))
-	for i, idx := range order {
-		out[i] = cands[idx].rec
+	// Only facts that earned a retrieval signal (fused > 0) are returned. With an
+	// embedder, every candidate gets a semantic RRF term so this keeps all of them;
+	// but when the embedder is unavailable (lexical-only) and nothing matched
+	// lexically, every fused score is 0 — return nothing rather than an arbitrary
+	// recency-ordered top-N (matches rankFacts's score>0 filter).
+	out := make([]factRecord, 0, min(limit, len(order)))
+	for _, idx := range order {
+		if fused[idx] <= 0 {
+			break // order is sorted by fused desc, so the rest are 0 too
+		}
+		out = append(out, cands[idx].rec)
+		if len(out) >= limit {
+			break
+		}
 	}
 	return out
 }

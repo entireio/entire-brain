@@ -78,3 +78,34 @@ func TestRankFactsFusedNilIsLexical(t *testing.T) {
 		}
 	}
 }
+
+// With no query embedding (embedder unavailable), the semantic RRF arm must be
+// skipped entirely — otherwise every cosine is 0 and the arm reorders by the
+// UpdatedAt tiebreaker. Here the weaker lexical match is newer, so the buggy
+// path would tie the two and surface it first; the fix keeps the stronger
+// lexical match on top.
+func TestRankFactsFusedSkipsSemanticArmWhenEmbedderEmpty(t *testing.T) {
+	older := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	newer := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	facts := []factRecord{
+		{ID: "fact:strong", Text: "checkpoint advance committed ref", Status: factStatusActive, UpdatedAt: older},
+		{ID: "fact:weak", Text: "checkpoint notes", Status: factStatusActive, UpdatedAt: newer},
+	}
+	rr := newSemanticReranker(emptyEmbedder{}) // EmbedQuery → nil → no semantic arm
+	got := rankFactsFused(facts, "checkpoint advance", 10, false, rr)
+	if len(got) == 0 || got[0].ID != "fact:strong" {
+		t.Fatalf("empty embedder must fall back to lexical-only (want fact:strong first), got %v", got)
+	}
+}
+
+// Embedder down AND no lexical match → no results, not an arbitrary recency top-N.
+func TestRankFactsFusedNoResultsWhenLexicalMissAndEmbedderEmpty(t *testing.T) {
+	facts := []factRecord{
+		{ID: "fact:a", Text: "alpha content", Status: factStatusActive},
+		{ID: "fact:b", Text: "beta content", Status: factStatusActive},
+	}
+	rr := newSemanticReranker(emptyEmbedder{}) // no query vector → lexical-only
+	if got := rankFactsFused(facts, "zzqqxxnomatch", 10, false, rr); len(got) != 0 {
+		t.Fatalf("expected no results for a lexical miss with no embedder, got %v", got)
+	}
+}

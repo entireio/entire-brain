@@ -223,6 +223,32 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	} else if refreshOpts.historyIndex {
 		progress.Skip(refreshHistoryLabel(existingHistorySource(manifest)))
 	}
+	// Doc index: retrievable chunks of the brain's own markdown (seed summaries
+	// + copied repo docs). It derives from seed, not history, so gate it on its own
+	// inputs — rebuild when seed ran, when the docs source is missing, on --force,
+	// or alongside a history-index build — never silently skip it just because
+	// --history-index=false.
+	docsMissing := manifest == nil || manifest.Sources == nil || manifest.Sources.Docs == nil
+	if refreshOpts.historyIndex || needSeed || docsMissing || refreshOpts.force {
+		docTask := progress.Begin("doc index")
+		// A doc-index write failure (permissions, disk full, corrupt manifest) is a
+		// real error: fail the refresh like the history index does, so automation
+		// relying on the exit status isn't told success on an incomplete brain.
+		// (A missing seed is not an error — writeDocIndexAndSource writes an empty
+		// index in that case.)
+		docSource, derr := writeDocIndexAndSource(brainDir, opts.Now().UTC())
+		if derr != nil {
+			docTask.Finish(derr)
+			return derr
+		}
+		docLabel := fmt.Sprintf("doc index: %d chunks / %d files", docSource.Records, docSource.Files)
+		if n := len(docSource.Warnings); n > 0 {
+			docLabel += fmt.Sprintf(" (%d %s)", n, pluralUnit("warning", n))
+		}
+		docTask.Update(docLabel)
+		docTask.Finish(nil)
+		manifest, _ = loadBrainManifest(brainDir)
+	}
 	if refreshOpts.semantic {
 		semanticCheckTask := progress.Begin(refreshSemanticCheckLabel(manifest))
 		needSemantic, err := semanticRefreshNeeded(ctx, opts, brainDir, repoDir, manifest, refreshOpts.semanticWorktree)

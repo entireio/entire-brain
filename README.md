@@ -115,9 +115,11 @@ entire brain mcp
 ```
 
 The MCP adapter is stdio-only and exposes local tools `brain_stale`,
-`brain_brief`, the semantic `brain_query`/`brain_context`/`brain_impact`/`brain_changes`,
-indexed session `brain_history`, the diff-less reviewer `brain_regressions`/`brain_review`,
-and the cross-repo `brain_workspace_regressions`/`brain_workspace_review`.
+`brain_brief`, the unified retrieval verbs `brain_query` (hybrid lexical+vector
+over facts/history/docs), `brain_search`, `brain_vsearch`, `brain_get`, and
+`brain_multi_get`, the symbol-graph tools `brain_code`/`brain_context`/`brain_impact`/`brain_changes`/`brain_tests`/`brain_boundaries`,
+the diff-less reviewer `brain_regressions`/`brain_review`, and the cross-repo
+`brain_workspace_regressions`/`brain_workspace_review`.
 See `docs/semantic_mcp_guide.md`.
 
 ### Diff-less review (suspected regressions: current tree vs session memory)
