@@ -3,6 +3,7 @@
   "repo": "entire-brain",
   "repo_path": "entire-brain",
   "conditions": ["no_brain", "full_brain"],
+  "copy_checkpoint_ref_from_source": true,
   "prepare_semantic": false,
   "prompt": "A checkpoint-context review changed the Codex seed-agent invocation after a compatibility failure. A regression reintroduced the old approach. Restore the prior checkpointed decision and add focused coverage for the command shape.",
   "setup_replacements": [

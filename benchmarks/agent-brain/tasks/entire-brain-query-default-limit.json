@@ -3,6 +3,7 @@
   "repo": "entire-brain",
   "repo_path": "entire-brain",
   "conditions": ["no_brain", "semantic_brain", "full_brain"],
+  "copy_checkpoint_ref_from_source": true,
   "prompt": "Fix the semantic query default-limit regression. The query command should keep its documented default result limit. Run the focused semantic query tests before finishing.",
   "setup_replacements": [
     {

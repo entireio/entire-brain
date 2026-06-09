@@ -3688,7 +3688,7 @@ def load_panel(name: str) -> dict[str, Any]:
     return json.loads(path.read_text())
 
 
-def panel_preflight(panel: dict[str, Any]) -> list[str]:
+def panel_preflight(panel: dict[str, Any], check_local_artifacts: bool = False) -> list[str]:
     """Reject a panel that cannot produce a proof-grade result BEFORE spending tokens: runners must be
     fully pinned (agent:model:effort — defaults drift and are not visible in artifacts), there must be a
     no_brain baseline + tasks, and repetitions must reach the proof minimum so the stability gate has the
@@ -3710,6 +3710,36 @@ def panel_preflight(panel: dict[str, Any]) -> list[str]:
             )
     if not panel.get("tasks"):
         errors.append("panel has no tasks")
+    else:
+        try:
+            tasks = load_tasks(panel["tasks"])
+        except Exception as exc:
+            errors.append(f"panel tasks are not loadable: {exc}")
+            tasks = []
+        panel_conditions = set(panel.get("conditions", []))
+        for task in tasks:
+            task_conditions = panel_conditions & set(task.get("conditions", []))
+            if any(condition_prepares_history(condition) for condition in task_conditions):
+                if not task.get("copy_entire_history_from_source") and not task.get("copy_checkpoint_ref_from_source"):
+                    errors.append(
+                        f"task {task.get('id', '<unknown>')} uses a history/full-brain condition "
+                        "but has no local history source (copy_checkpoint_ref_from_source or copy_entire_history_from_source)"
+                    )
+            if check_local_artifacts:
+                source = resolve_repo_path(task.get("repo_path", ""))
+                if not source.exists():
+                    errors.append(f"task {task.get('id', '<unknown>')} repo_path is missing locally: {source}")
+                    continue
+                repo_probe = run_cmd(["git", "rev-parse", "--show-toplevel"], cwd=source)
+                if repo_probe.returncode != 0:
+                    errors.append(f"task {task.get('id', '<unknown>')} repo_path is not a git repo: {source}")
+                    continue
+                if task.get("copy_entire_history_from_source") and not (source / ".entire").exists():
+                    errors.append(f"task {task.get('id', '<unknown>')} requested .entire history but {source / '.entire'} is missing")
+                if task.get("copy_checkpoint_ref_from_source"):
+                    ref_probe = run_cmd(["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=source)
+                    if ref_probe.returncode != 0 or not ref_probe.stdout.strip():
+                        errors.append(f"task {task.get('id', '<unknown>')} requested {CHECKPOINT_REF} but it is missing in {source}")
     reps = int(panel.get("repetitions", 0) or 0)
     if reps < 4:
         errors.append(f"repetitions {reps} < 4 (proof_minimum); the stability gate needs enough reps to drop an outlier")
@@ -3721,7 +3751,7 @@ def panel_preflight(panel: dict[str, Any]) -> list[str]:
 def cmd_panel(args: argparse.Namespace) -> int:
     panel_path = panel_manifest_path(args.name)
     panel = load_panel(args.name)
-    errors = panel_preflight(panel)
+    errors = panel_preflight(panel, check_local_artifacts=True)
     if errors:
         for e in errors:
             print(f"panel preflight: {e}", file=sys.stderr)

@@ -795,6 +795,24 @@ class PanelAndStabilityTests(unittest.TestCase):
         for spec in panel["runners"]:
             rs = run.parse_runner_spec(spec)
             self.assertTrue(rs.model and rs.effort, f"{spec} must be pinned")
+        for task in run.load_tasks(panel["tasks"]):
+            task_conditions = set(panel["conditions"]) & set(task.get("conditions", []))
+            if any(run.condition_prepares_history(condition) for condition in task_conditions):
+                self.assertTrue(
+                    task.get("copy_checkpoint_ref_from_source") or task.get("copy_entire_history_from_source"),
+                    f"{task['id']} must declare a local history source",
+                )
+
+    def test_panel_preflight_rejects_history_tasks_without_source(self):
+        errors = run.panel_preflight(
+            {
+                "runners": ["codex:gpt-test:low"],
+                "tasks": ["entire-brain-history-bundle-sha256.json"],
+                "conditions": ["no_brain", "full_brain"],
+                "repetitions": 4,
+            }
+        )
+        self.assertIn("has no local history source", " | ".join(errors))
 
     def test_full_panel_declares_cross_repo_workspace_coverage(self):
         # WS4: the multi-repo coverage gap is declared in the manifest (not silently missing), and the
