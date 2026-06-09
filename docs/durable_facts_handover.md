@@ -5,6 +5,187 @@ For the design and the full phasing, read [`durable_facts_plan.md`](durable_fact
 this file is the operational state: what's landed, what's measured, how to repro,
 and what to do next.
 
+## Part B (Appendix D) — fact quality & structure — IN PROGRESS
+
+Branch `feat/fact-quality-appendix-d`. Executing the full Appendix-D redesign
+(KIND dimension + stored LOCUS index + synthesized outline + audience A/B eval)
+in one staged pass. None of it needs the Entire-CLI turn-signing change. Plan:
+the staged B0→B4 in the session plan file.
+
+### B0 — frozen baseline (captured 2026-06-09)
+
+Before any change, the current `facts eval` numbers over the live `entire-brain`
+`main` corpus (930 facts @ `3391f76`, **17** deterministic provenance-labeled
+tasks from `facts eval-gen --branch main`, k=10). Every later stage compares
+against this to prove no-regression.
+
+| Arm | useful/1k | precision | tokens |
+|---|---|---|---|
+| Lexical (default) | **1.063** | 0.0706 | 678 |
+| Model2Vec fused (`--semantic`) | 1.013 | 0.0706 | 645 |
+
+By stratum (lexical): concept 0.977 (n=11), code 1.043 (n=3), convention 1.357
+(n=2), howto 1.477 (n=1). Note these are **lower than the alignment.md Stage-0
+baseline (1.50)** because that set was a 179-fact distill; the corpus has since
+grown to 930 facts, so there is more to discriminate — which is exactly the
+two-bucket problem Part B attacks. Repro: `facts eval-gen --branch main` then
+`facts eval --tasks <f> --branch main --k 10 --json` (± `--semantic`),
+deterministic, no agent.
+
+### B1 — first-class KIND dimension (landed)
+
+Added `Kind` to `factRecord` (additive metadata — **not** in the id hash, so ids /
+provenance / vector cache are stable). Closed set
+`decision|invariant|gotcha|preference|convention`. Hybrid source: the distill /
+`remember` prompts emit a leading `kind<TAB>` column (parser tolerant of the
+legacy 2-field form), and `inferFactKind` (taxonomy prior + high-precision text
+cues) backfills the rest for free. New surfaces: `facts reclassify` (no-agent
+backfill), `recall --kind`, `facts tree --kind`, `[kind]` in `recall`/`blame`,
+`by_kind` in the manifest, kind on unified `brain_get`/search results.
+
+**Backfill on the live `main` corpus (948 facts):** invariant 414, decision 273,
+convention 196, preference 64, **gotcha 1**. The kind axis discriminates far
+better than the two taxonomy buckets, but the deterministic `gotcha` cue
+**under-fires** (1) — gotchas are the highest-value class and the hardest to
+detect from a path/keyword prior, so the agent-labeled path (distill prompt) is
+where that recall comes from going forward. B4 measures whether kind filtering
+lifts useful/1k despite the inference being coarse.
+
+**B1 review fixes (applied).** A high-effort review found the kind column could
+silently *drop* facts; fixed with a robust `parseFactLine` grammar that recovers
+a fact whether the agent emits an exact kind, a near-miss synonym, or no kind
+(plus kind-aware literal-`\t` recovery). Also: `remember --kind` now wins on an
+existing fact and reports the persisted kind; `inferFactKind` tie-breaks by
+kind-priority (a `constraints.*` co-tag infers invariant, not decision) and
+allocates nothing on the hot path; `reclassify` always refreshes the manifest;
+`by_kind` counts active facts only.
+
+**Known limitation (by design):** a re-distill where the agent emits a
+*different valid* kind for an existing fact does not overwrite the stored kind
+(the anti-thrash rule in `upsertFact` only fills an absent/invalid one). Use
+`facts reclassify --force` or `remember --kind` to change a stored kind. This is
+deliberate — it stops an inference-fallback from clobbering an agent label across
+runs — but it means agent re-labels are not automatically picked up.
+
+Gotcha-labeling quality on the existing corpus is **deferred to a post-B4 call**
+(the eval decides whether kind labels lift retrieval before we invest in agent
+backfill).
+
+### B2 — stored LOCUS + semantic tie-in (landed)
+
+Added `Locus []string` to `factRecord` — the code identifiers/paths a fact is
+about (WHERE). Computed at creation via the existing `factLocus(text)` and
+backfilled by `facts reclassify` (locus is purely a function of text, so it is
+always reconciled; kind only when missing). Surfaces:
+
+- **`inspect changes` → relevant facts:** `factsRelevantToChange` matches a
+  fact's locus against the changed files and the semantic symbols defined in
+  them, so `inspect changes --json` gains a `facts` field — "what the brain knows
+  about the code you're touching".
+- **`recall --locus <path|symbol>`** filters facts by locus.
+- Ranking (`recall`/`brief`) now reads the stored locus
+  (`locusOverlapTokens(queryLocus, factLocusOf(f))`) instead of recomputing it
+  per query.
+
+Backfilled the live `main` corpus: 797/948 facts carry a locus (the rest are
+pure prose with no identifiers).
+
+**Branch-scoping note:** `inspect changes` reads facts for the *current* branch
+(consistent with `recall`/`brief`), so on a feature branch with no distilled
+facts the `facts` field is empty until facts are distilled or `promote`d onto it.
+Appendix D's "merged knowledge graduates to a code locus, visible regardless of
+branch" is the larger fix and is not in B2.
+
+### B3 — synthesized hierarchical outline (landed)
+
+`facts/<branch>/outline.json` — a locus-tiered tree (`internal/cli`, `docs`, …)
+built deterministically from the facts' loci; cross-cutting and non-file facts
+home at the root. `facts outline` fills each node with a one-sentence agent
+rollup summary, **incremental** by a bottom-up subtree fingerprint (only changed
+subtrees re-summarize), gated on `--model`/`--effort`/`--budget`, best-effort
+(a failed call leaves a node unsummarized), and `--agent none` builds
+structure-only with zero tokens. `facts map [--path --depth]` renders it
+summary-first with progressive disclosure; it **always rebuilds the structure
+from live facts** and overlays a stored summary only when the node fingerprint
+still matches, so the map is never structurally stale and no outline run is
+required to see it.
+
+**On the live `main` corpus (948 facts):** 31 nodes; the only deep tier is
+`internal/cli` (48 facts) — **most facts (≈880) home at the root** because their
+text names no concrete source file. So the locus tiering is honest but **shallow
+on this corpus**: durable facts here are mostly conceptual/cross-cutting, not
+file-anchored. That's a real input-quality signal for B4 — the outline's value
+depends on facts carrying a code locus, which the current distilled corpus often
+lacks. A taxonomy-fallback tier (group rootless facts by category) is a candidate
+enhancement if the eval wants more structure.
+
+### B4 — audience-driven A/B eval (landed)
+
+`facts eval --arm flat|scoped|outline` selects the retrieval structure
+(`facts_eval_arms.go`); `eval-compare` pairs two arms with the existing t-test +
+Holm. **flat** = the shipped ranker over all branch facts; **scoped** =
+locus-scoped (rank only the facts whose locus the query names, falling back to
+flat for a query with no code locus); **outline** = rank within the best-matching
+outline subtree. `eval` also reports a `surfaced_by_kind` histogram per arm.
+
+**Single-repo (`entire-brain` main, 17 tasks, k=10)** was underpowered: scoped
+1.53 / outline 1.60 vs flat 1.06 useful/1k — large means but p≈0.4–0.5, and it
+wrongly made the two arms look alike. The second repo corrected this.
+
+**Confirmed on `entire-cli` (`gh/entireio/cli`, main, 525 facts → 101 tasks) and
+pooled (n=118).** Pooled paired t-test vs flat (Holm, alpha=0.05):
+
+| arm vs flat | useful/1k | precision | tokens | recall |
+|---|---|---|---|---|
+| **scoped** | **+0.71 (+59%), p=0.027** | +0.036, p=0.032 | **−112, p<0.001 ✓** | **−0.029, p=0.004 ✓** |
+| outline | +0.07, **p=0.51 (n.s.)** | ~0 | −52, p=0.001 ✓ | −0.025, p=0.006 ✓ |
+
+**Read (the real conclusion):**
+
+- **scoped (locus-scoped) is the validated win** — +59% useful/1k (raw-significant
+  p=0.027; misses Holm by a hair at the 0.025 step), higher precision, and
+  **robustly fewer tokens** (Holm-sig), at a **robust but modest recall cost**
+  (−0.029, ~−11%, Holm-sig). The precision↑/recall↓ tradeoff of a hard locus
+  filter is now statistically confirmed.
+- **outline is NOT a retrieval win** — useful/1k indistinguishable from flat
+  (p=0.51). The single-repo "+51%" was small-sample noise. The outline's value is
+  the human-readable map (`facts map`), which a token-eval cannot measure — not
+  agent ranking.
+
+So the second repo didn't just add power, it **changed the conclusion**: scoped is
+validated and cheaper; outline is an orientation tool, not a ranking improvement.
+
+**Recall-floor scoped — investigated, NEGATIVE result.** The obvious fix for
+scoped's recall cost — put the locus matches first, then backfill flat-ranked
+facts up to k (`--arm scoped-floor`) — **measured identical to flat** on the
+pooled set (1.233 useful/1k, 0.088 precision, 0.261 recall, 724 tokens — flat's
+exact numbers). Why it can't work: scoped's win *is* returning fewer facts (a
+smaller token denominator and higher per-fact precision); padding back to k
+gives that advantage straight back. useful/1k = relevant/tokens, and the
+backfill facts are only ~flat-precision (~9%) relevant, so by construction they
+cannot lift useful/1k. **The precision/token win and full recall are different
+operating points on the tradeoff curve — no padding reconciles them.** The
+`scoped-floor` arm is kept in the eval harness as the recorded dead-end.
+
+**Decisions / next steps:**
+
+- **Default stays `flat`; `scoped` is the recommended arm for token-constrained
+  agent retrieval** (opt-in via `--arm scoped`). Making scoped the default is now
+  a **product judgment** — high-precision/cheap (scoped) vs high-recall (flat) —
+  not something a clever arm resolves, since the recall floor is a dead end. A
+  third corpus would firm up the Holm-marginal useful/1k gain; a genuinely
+  different lever (e.g. backfilling with *semantically*-reranked rather than
+  flat-ranked facts, which might clear flat's precision bar) is the only
+  remaining idea for getting recall back without losing the win.
+- The gotcha-labeling question (deferred post-B4) can stay deferred: the *win came
+  from locus scoping, not kind* — kind labels did not drive the result — so better
+  gotcha labels are not on the critical path to the measured gain.
+
+(Repro: `facts reclassify --branch main` then, per arm,
+`facts eval --tasks <f> --branch main --k 10 --arm {flat,scoped,outline} --json`;
+pool the `results` arrays across repos and feed `eval-compare`. The `entire-cli`
+checkout is at `/Users/thomi/Projects/entire-cli`, not `/Users/thomi/Projects/cli`.)
+
 ## Branch topology
 
 - **Base work (merged):** `claude/durable-facts-and-distill` landed via **PR #5**.

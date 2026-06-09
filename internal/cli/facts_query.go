@@ -49,7 +49,7 @@ func rankFacts(facts []factRecord, query string, limit int, includeAll bool) []f
 		// Locus boost: a fact that names the same code identifier the query
 		// names is a high-precision match (the query is asking about that
 		// symbol/file/ref), so surface it even when prose overlap is thin.
-		if overlap := locusOverlap(queryLocus, f.Text); overlap > 0 {
+		if overlap := locusOverlapTokens(queryLocus, factLocusOf(f)); overlap > 0 {
 			score += overlap * factLocusBoost
 		}
 		if score > 0 {

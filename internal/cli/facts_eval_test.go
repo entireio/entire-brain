@@ -81,7 +81,7 @@ func TestRunFactsEvalLabeledAndJudge(t *testing.T) {
 
 	// Labeled task: only f1 is relevant.
 	tasks := []evalTask{{ID: "t1", Task: "checkpoints v1.1 read ref", Branch: "main", Relevant: []string{f1.ID}}}
-	res, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), nil, nil)
+	res, _, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), nil, nil, nil)
 	if err != nil {
 		t.Fatalf("runFactsEval: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestRunFactsEvalLabeledAndJudge(t *testing.T) {
 		return "1 yes\n", nil
 	}
 	tasksJ := []evalTask{{ID: "t2", Task: "checkpoints", Branch: "main"}}
-	resJ, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasksJ, 10, true, fakeRun, []string{"fake"}, loadJudgeCache(""), nil, nil)
+	resJ, _, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasksJ, 10, true, fakeRun, []string{"fake"}, loadJudgeCache(""), nil, nil, nil)
 	if err != nil {
 		t.Fatalf("runFactsEval judge: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestJudgeCacheReuse(t *testing.T) {
 		return "1 yes\n", nil
 	}
 	// First run: judges and writes the cache.
-	if _, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, true, run, []string{"fake"}, loadJudgeCache(cachePath), nil, nil); err != nil {
+	if _, _, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, true, run, []string{"fake"}, loadJudgeCache(cachePath), nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 {
@@ -139,7 +139,7 @@ func TestJudgeCacheReuse(t *testing.T) {
 		t.Fatalf("cache not written: %v", err)
 	}
 	// Second run: served from cache, no agent call.
-	if _, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, true, run, []string{"fake"}, loadJudgeCache(cachePath), nil, nil); err != nil {
+	if _, _, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, true, run, []string{"fake"}, loadJudgeCache(cachePath), nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 {

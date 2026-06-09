@@ -258,7 +258,7 @@ func factsToUnified(facts []factRecord) []unifiedResult {
 	// fact ids are already prefixed "fact:" (factRecordID); history likewise.
 	out := make([]unifiedResult, len(facts))
 	for i, f := range facts {
-		out[i] = unifiedResult{Source: "fact", ID: f.ID, Path: strings.Join(f.Paths, ","), Text: f.Text}
+		out[i] = unifiedResult{Source: "fact", ID: f.ID, Path: strings.Join(f.Paths, ","), Heading: factKindOrInferred(f), Text: f.Text}
 	}
 	return out
 }

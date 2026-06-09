@@ -189,7 +189,7 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 			lex, lexHit = bm25[f.ID]
 		} else {
 			score := factQueryScore(f, query)
-			if overlap := locusOverlap(queryLocus, f.Text); overlap > 0 {
+			if overlap := locusOverlapTokens(queryLocus, factLocusOf(f)); overlap > 0 {
 				score += overlap * factLocusBoost
 			}
 			lex = float64(score)
