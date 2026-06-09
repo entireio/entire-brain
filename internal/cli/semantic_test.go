@@ -1708,6 +1708,40 @@ func TestSemanticChangesMapsChangedFilesToSymbols(t *testing.T) {
 	}
 }
 
+func TestSemanticChangesCleanWorktreeSignalsNoChanges(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{stdout: ""}
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	var out bytes.Buffer
+	changesCmd := &cobra.Command{Use: "changes"}
+	changesCmd.SetOut(&out)
+	if err := runSemanticChanges(changesCmd.Context(), changesCmd, opts, semanticChangesOptions{limit: 10, json: true}); err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	if !strings.Contains(out.String(), `"clean": true`) {
+		t.Fatalf("clean worktree JSON missing clean=true:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), `"files": []`) || !strings.Contains(out.String(), `"symbols": []`) {
+		t.Fatalf("clean worktree JSON should have empty arrays not null:\n%s", out.String())
+	}
+	// Text mode should say so explicitly rather than render nothing.
+	var textOut bytes.Buffer
+	textCmd := &cobra.Command{Use: "changes"}
+	textCmd.SetOut(&textOut)
+	if err := runSemanticChanges(textCmd.Context(), textCmd, opts, semanticChangesOptions{limit: 10, json: false}); err != nil {
+		t.Fatalf("changes text: %v", err)
+	}
+	if !strings.Contains(textOut.String(), "no changes since the indexed HEAD") {
+		t.Fatalf("clean worktree text missing explicit signal:\n%s", textOut.String())
+	}
+}
+
 func TestSemanticChangesIncludesRenamedOldPath(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

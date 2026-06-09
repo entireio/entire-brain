@@ -2299,9 +2299,13 @@ type semanticChangesOptions struct {
 }
 
 type semanticChangesReport struct {
-	GeneratedAt time.Time        `json:"generated_at"`
-	Files       []string         `json:"files"`
-	Symbols     []semanticRecord `json:"symbols"`
+	GeneratedAt time.Time `json:"generated_at"`
+	// Clean is true when the working tree has no changes since the indexed
+	// HEAD, so a consumer can distinguish "nothing changed" from a broken
+	// command without inferring it from empty arrays.
+	Clean   bool             `json:"clean"`
+	Files   []string         `json:"files"`
+	Symbols []semanticRecord `json:"symbols"`
 }
 
 type semanticBoundaryOptions struct {
@@ -2565,7 +2569,10 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 	if err != nil {
 		return err
 	}
-	report := semanticChangesReport{GeneratedAt: opts.Now().UTC(), Files: files, Symbols: symbols}
+	if files == nil {
+		files = []string{}
+	}
+	report := semanticChangesReport{GeneratedAt: opts.Now().UTC(), Clean: len(files) == 0, Files: files, Symbols: nonNilRecords(symbols)}
 	if err := writeSemanticChangesReport(storage.BrainDir, report); err != nil {
 		return err
 	}
@@ -2582,6 +2589,10 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 	}
 	if freshness.Severity != "ok" {
 		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
+	}
+	if report.Clean {
+		fmt.Fprintln(cmd.OutOrStdout(), "no changes since the indexed HEAD")
+		return nil
 	}
 	for _, file := range files {
 		fmt.Fprintf(cmd.OutOrStdout(), "file %s\n", file)
