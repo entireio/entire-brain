@@ -2732,20 +2732,22 @@ func neighborCandidateIDs(symbols, relations []semanticRecord) []string {
 	}
 	seen := map[string]struct{}{}
 	var ids []string
-	for _, relation := range relations {
-		for _, id := range []string{relation.FromID, relation.ToID} {
-			if id == "" {
-				continue
-			}
-			if _, ok := inSymbols[id]; ok {
-				continue
-			}
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			ids = append(ids, id)
+	add := func(id string) {
+		if id == "" {
+			return
 		}
+		if _, ok := inSymbols[id]; ok {
+			return
+		}
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	for _, relation := range relations {
+		add(relation.FromID)
+		add(relation.ToID)
 	}
 	return ids
 }
@@ -2766,26 +2768,30 @@ func resolveContextNeighbors(symbols, relations []semanticRecord, symbolsByID ma
 	}
 	seen := map[string]struct{}{}
 	var neighbors []semanticRecord
+	// add materializes one endpoint; it returns true once limit is reached so the
+	// caller can stop. Handling FromID/ToID directly avoids a per-relation slice
+	// allocation on this hot path.
+	add := func(id string) bool {
+		if id == "" {
+			return false
+		}
+		if _, ok := inSymbols[id]; ok {
+			return false
+		}
+		if _, ok := seen[id]; ok {
+			return false
+		}
+		record, ok := symbolsByID[id]
+		if !ok {
+			return false
+		}
+		seen[id] = struct{}{}
+		neighbors = append(neighbors, record)
+		return len(neighbors) >= limit
+	}
 	for _, relation := range relations {
-		for _, id := range []string{relation.FromID, relation.ToID} {
-			if id == "" {
-				continue
-			}
-			if _, ok := inSymbols[id]; ok {
-				continue
-			}
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			record, ok := symbolsByID[id]
-			if !ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			neighbors = append(neighbors, record)
-			if len(neighbors) >= limit {
-				return neighbors
-			}
+		if add(relation.FromID) || add(relation.ToID) {
+			return neighbors
 		}
 	}
 	return neighbors
