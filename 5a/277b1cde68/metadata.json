@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "5a277b1cde68",
+  "strategy": "manual-commit",
+  "branch": "harvest/agent-ux-and-embedder-ux",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/agent_ux_polish_plan.md",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/5a/277b1cde68/0/metadata.json",
+      "transcript": "/5a/277b1cde68/0/full.jsonl",
+      "content_hash": "/5a/277b1cde68/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 588,
+    "cache_creation_tokens": 11030,
+    "cache_read_tokens": 1905511,
+    "output_tokens": 5165,
+    "api_call_count": 14
+  }
+}
