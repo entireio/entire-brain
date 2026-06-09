@@ -597,22 +597,24 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 			return err
 		}
 		defer unlock()
-		manifest, err := loadBrainManifest(storage.BrainDir)
-		if err != nil {
-			return err
-		}
-		if manifest.Sources == nil {
-			manifest.Sources = &brainSources{}
-		}
-		manifest.Sources.Semantic = nil
-		applySessionSourceAliases(manifest)
-		if err := rejectExistingSymlinkPathComponents(storage.BrainDir, semanticDirName); err != nil {
-			return err
-		}
-		if err := os.RemoveAll(filepath.Join(storage.BrainDir, semanticDirName)); err != nil {
-			return fmt.Errorf("remove semantic artifacts: %w", err)
-		}
-		if err := writeBrainManifestAndReadme(storage.BrainDir, *manifest); err != nil {
+		if err := withBrainWriteLock(storage.BrainDir, func() error {
+			manifest, err := loadBrainManifest(storage.BrainDir)
+			if err != nil {
+				return err
+			}
+			if manifest.Sources == nil {
+				manifest.Sources = &brainSources{}
+			}
+			manifest.Sources.Semantic = nil
+			applySessionSourceAliases(manifest)
+			if err := rejectExistingSymlinkPathComponents(storage.BrainDir, semanticDirName); err != nil {
+				return err
+			}
+			if err := os.RemoveAll(filepath.Join(storage.BrainDir, semanticDirName)); err != nil {
+				return fmt.Errorf("remove semantic artifacts: %w", err)
+			}
+			return writeBrainManifestAndReadme(storage.BrainDir, *manifest)
+		}); err != nil {
 			return err
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "reset semantic brain: %s\n", storage.BrainDir)
@@ -622,15 +624,26 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 	if err != nil {
 		return err
 	}
-	tombstone := storage.BrainDir + ".reset-" + strconv.FormatInt(time.Now().UnixNano(), 10)
-	if err := os.Rename(storage.BrainDir, tombstone); err != nil {
+	if _, err := os.Stat(storage.BrainDir); err != nil {
 		unlock()
 		if os.IsNotExist(err) {
 			fmt.Fprintf(cmd.OutOrStdout(), "reset brain: %s\n", storage.BrainDir)
 			return nil
 		}
+		return err
+	}
+	unlockBrain, err := acquireBrainWriteLock(storage.BrainDir)
+	if err != nil {
+		unlock()
+		return err
+	}
+	tombstone := storage.BrainDir + ".reset-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	if err := os.Rename(storage.BrainDir, tombstone); err != nil {
+		unlockBrain()
+		unlock()
 		return fmt.Errorf("move brain directory for reset: %w", err)
 	}
+	unlockBrain()
 	unlock()
 	if err := os.RemoveAll(tombstone); err != nil {
 		return fmt.Errorf("remove brain directory: %w", err)
@@ -662,6 +675,12 @@ type semanticBuildMetrics struct {
 }
 
 func writeBrainSemanticSource(outputDir, repoKey string, semantic *semanticSourceManifest) error {
+	return withBrainWriteLock(outputDir, func() error {
+		return writeBrainSemanticSourceLocked(outputDir, repoKey, semantic)
+	})
+}
+
+func writeBrainSemanticSourceLocked(outputDir, repoKey string, semantic *semanticSourceManifest) error {
 	manifest, err := loadBrainManifest(outputDir)
 	if err != nil {
 		return err
@@ -689,16 +708,11 @@ func acquireSemanticIndexLock(brainDir string) (func(), error) {
 		return nil, fmt.Errorf("create semantic lock dir: %w", err)
 	}
 	lockPath := filepath.Join(lockDir, semanticIndexLockName)
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	lock, err := acquireFileLock(lockPath, "index_locked", 0)
 	if err != nil {
-		if os.IsExist(err) {
-			return nil, fmt.Errorf("index_locked: semantic index lock exists at %s", lockPath)
-		}
-		return nil, fmt.Errorf("create semantic index lock: %w", err)
+		return nil, err
 	}
-	_, _ = fmt.Fprintf(f, "pid=%d\ncreated_at=%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339))
-	_ = f.Close()
-	return func() { _ = os.Remove(lockPath) }, nil
+	return func() { _ = lock.Close() }, nil
 }
 
 func runSemanticDoctor(ctx context.Context, runner CommandRunner, repoDir, semBinary string) (bool, []semanticWarning) {
@@ -4986,7 +5000,7 @@ func copyImportedGenerationDir(sourceRoot, targetRoot string) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 			return err
 		}
-		return os.WriteFile(target, data, 0o600)
+		return writeFileAtomic(target, data, 0o600)
 	})
 }
 
@@ -5402,18 +5416,18 @@ func appendSemanticAudit(brainDir, action, path, checksum string) error {
 		return err
 	}
 	auditPath := filepath.Join(brainDir, semanticDirName, semanticAuditLogName)
-	if err := ensureSemanticAuditPathSafe(brainDir); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(auditPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if _, err := f.Write(append(data, '\n')); err != nil {
-		return err
-	}
-	return nil
+	return withBrainWriteLock(brainDir, func() error {
+		if err := ensureSemanticAuditPathSafe(brainDir); err != nil {
+			return err
+		}
+		existing, err := os.ReadFile(auditPath)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		existing = append(existing, data...)
+		existing = append(existing, '\n')
+		return writeFileAtomic(auditPath, existing, 0o600)
+	})
 }
 
 func ensureSemanticAuditPathSafe(brainDir string) error {

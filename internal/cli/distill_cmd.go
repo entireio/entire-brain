@@ -197,6 +197,16 @@ func distillProgressLabel(p distillProgress) string {
 // into per-branch stores, and records the fact source on the brain manifest.
 // repoDir is the working directory the agent runs in (sandboxed read-only).
 func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOpts distillCommandOptions, now time.Time) (*factSourceManifest, error) {
+	var source *factSourceManifest
+	err := withBrainWriteLock(brainDir, func() error {
+		var runErr error
+		source, runErr = runDistillForBrainLocked(ctx, repoDir, brainDir, distillOpts, now)
+		return runErr
+	})
+	return source, err
+}
+
+func runDistillForBrainLocked(ctx context.Context, repoDir, brainDir string, distillOpts distillCommandOptions, now time.Time) (*factSourceManifest, error) {
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
 		return nil, err

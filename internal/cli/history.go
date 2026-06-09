@@ -149,6 +149,16 @@ func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, targ
 type historyIndexProgress func(done, total int)
 
 func writeBrainHistoryIndexAndSource(outputDir string, now time.Time, progress historyIndexProgress) (*historySourceManifest, error) {
+	var source *historySourceManifest
+	err := withBrainWriteLock(outputDir, func() error {
+		var runErr error
+		source, runErr = writeBrainHistoryIndexAndSourceLocked(outputDir, now, progress)
+		return runErr
+	})
+	return source, err
+}
+
+func writeBrainHistoryIndexAndSourceLocked(outputDir string, now time.Time, progress historyIndexProgress) (*historySourceManifest, error) {
 	index, source, err := buildBrainHistoryIndex(outputDir, now, progress)
 	if err != nil {
 		return nil, err

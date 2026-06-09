@@ -325,7 +325,7 @@ func (c *judgeCache) save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(c.path, append(data, '\n'), 0o600)
+	return writeFileAtomic(c.path, append(data, '\n'), 0o600)
 }
 
 func loadEvalTasks(path string) ([]evalTask, error) {
