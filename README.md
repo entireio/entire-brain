@@ -191,7 +191,7 @@ ENTIRE_BRAIN_EMBEDDER=ollama entire brain query "preventing data races" --json
   cache, so the two never mix.
 
 This is the Stage 1b transformer embedder available **without cgo** today; the
-in-process single-binary form is deferred (see `../alignment.md`).
+in-process single-binary form is deferred (tracked in the alignment plan outside this repository).
 
 `overview` is the fastest way to orient on an unfamiliar repo: it returns a
 single project map — stack stats, route/tool/workflow counts, build/test
