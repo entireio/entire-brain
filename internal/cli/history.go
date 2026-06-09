@@ -129,7 +129,7 @@ func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, targ
 		return err
 	}
 	if !local {
-		return fmt.Errorf("history-index requires a local repository path: %s", target)
+		return fmt.Errorf("refresh sessions requires a local repository path: %s", target)
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
@@ -168,13 +168,13 @@ func writeBrainHistoryIndexAndSourceLocked(outputDir string, now time.Time, prog
 		return nil, err
 	}
 	data = append(data, '\n')
-	if err := writeFileAtomic(filepath.Join(outputDir, filepath.FromSlash(historyIndexPath)), data, 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, historyIndexPath, data, 0o600); err != nil {
 		return nil, fmt.Errorf("write history index: %w", err)
 	}
 	// Build the derived BM25 index alongside its truth so the search/query verbs
 	// do not pay a first-query rebuild. Best-effort: the query path rebuilds it
 	// lazily on any failure, so this must never fail the refresh.
-	if db, ftsErr := openHistoryFTS(outputDir, index); ftsErr == nil {
+	if db, ftsErr := openHistoryFTSLocked(outputDir, index); ftsErr == nil {
 		_ = db.Close()
 	}
 	manifest, err := loadBrainManifest(outputDir)
@@ -327,7 +327,7 @@ func saveHistoryScanCache(outputDir string, cache historyScanCache) {
 	if err := gz.Close(); err != nil {
 		return
 	}
-	_ = writeFileAtomic(filepath.Join(outputDir, filepath.FromSlash(historyScanCachePath)), buf.Bytes(), 0o600)
+	_ = writeBrainRelativeFileAtomic(outputDir, historyScanCachePath, buf.Bytes(), 0o600)
 }
 
 func brainSessionsFingerprint(outputDir string) string {

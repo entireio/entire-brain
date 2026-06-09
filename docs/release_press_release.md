@@ -21,12 +21,12 @@ task outcomes instead of relying on demos or anecdotes.
 
 ## What Is Shipped
 
-- Local brain refresh over retained sessions, seed context, docs, semantic facts,
-  history, and durable facts.
+- Local brain refresh over retained sessions, seed context, copied docs, history,
+  and semantic records.
+- Durable facts through separate distill, remember, recall, admin, verify, and
+  eval surfaces.
 - QMD-inspired retrieval verbs: `search`, `vsearch`, `query`, `get`, and
   `multi-get`.
-- Durable facts with distill, remember, recall, review, promote, retract, gc,
-  verify, and eval surfaces.
 - Semantic freshness, blind-spot reporting, and semantic audit output.
 - Local benchmark harness for no-brain, semantic-brain, and full-brain agent
   conditions.

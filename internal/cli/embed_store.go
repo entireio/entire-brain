@@ -40,6 +40,10 @@ func newEmbedStore(brainDir, branch, modelID string, dim int) *embedStore {
 // such case is a cache miss that the caller refills by embedding. A cache is
 // never load-bearing, so corruption degrades to a rebuild rather than failing.
 func (s *embedStore) load() map[string][]float32 {
+	return s.loadUnlocked()
+}
+
+func (s *embedStore) loadUnlocked() map[string][]float32 {
 	out := map[string][]float32{}
 	raw, err := os.ReadFile(s.path)
 	if err != nil {
@@ -72,6 +76,35 @@ func (s *embedStore) load() map[string][]float32 {
 // save atomically writes the given vectors. The caller passes only the vectors
 // for facts present this run, so removed/superseded facts are pruned on rewrite.
 func (s *embedStore) save(vecs map[string][]float32) error {
+	return s.savePresent(vecs, nil)
+}
+
+func (s *embedStore) savePresent(vecs map[string][]float32, present map[string]struct{}) error {
+	if s.brainDir != "" && s.relPath != "" {
+		return withBrainWriteLock(s.brainDir, func() error {
+			merged := s.loadUnlocked()
+			if present != nil {
+				for id := range merged {
+					if _, ok := present[id]; !ok {
+						delete(merged, id)
+					}
+				}
+			}
+			for id, vec := range vecs {
+				if present != nil {
+					if _, ok := present[id]; !ok {
+						continue
+					}
+				}
+				merged[id] = vec
+			}
+			return s.saveUnlocked(merged)
+		})
+	}
+	return s.saveUnlocked(vecs)
+}
+
+func (s *embedStore) saveUnlocked(vecs map[string][]float32) error {
 	// Count the entries we will actually write (skipping any wrong-dim vector)
 	// so the header count matches the body exactly — a mismatch would make the
 	// next load() see a truncated file and force an unnecessary rebuild.

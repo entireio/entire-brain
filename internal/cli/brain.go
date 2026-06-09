@@ -230,10 +230,10 @@ func writeBrainManifestAndReadme(outputDir string, manifest exportManifest) erro
 		return fmt.Errorf("encode %s: %w", exportManifestFileName, err)
 	}
 	data = append(data, '\n')
-	if err := writeFileAtomic(filepath.Join(outputDir, exportManifestFileName), data, 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, exportManifestFileName, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", exportManifestFileName, err)
 	}
-	if err := writeFileAtomic(filepath.Join(outputDir, exportReadmeFileName), []byte(renderBrainReadme(manifest)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, exportReadmeFileName, []byte(renderBrainReadme(manifest)), 0o600); err != nil {
 		return fmt.Errorf("write brain readme: %w", err)
 	}
 	return nil
@@ -269,6 +269,33 @@ func writeBrainRelativeFileAtomic(brainDir, rel string, data []byte, perm os.Fil
 		return err
 	}
 	return writeFileAtomic(abs, data, perm)
+}
+
+func prepareBrainRelativeSQLiteFile(brainDir, rel string) (string, error) {
+	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+		return "", err
+	}
+	clean, err := cleanBrainRelativePath(rel)
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Dir(clean)
+	if dir != "." {
+		if err := rejectExistingSymlinkPathComponents(brainDir, dir); err != nil {
+			return "", err
+		}
+	}
+	abs := filepath.Join(brainDir, clean)
+	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
+		return "", err
+	}
+	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+		return "", err
+	}
+	if err := rejectUnsafeExistingRegularFile(abs, "sqlite cache"); err != nil {
+		return "", err
+	}
+	return abs, nil
 }
 
 func removeBrainRelativeFile(brainDir, rel string) error {

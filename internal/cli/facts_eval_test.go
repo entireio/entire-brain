@@ -96,6 +96,21 @@ func TestRunFactsEvalLabeledAndJudge(t *testing.T) {
 	if res[0].RelevanceSource != evalRelevanceExplicitLabel {
 		t.Fatalf("labeled eval relevance source = %q, want %q", res[0].RelevanceSource, evalRelevanceExplicitLabel)
 	}
+	if res[0].LabelSource != evalLabelSourceHuman {
+		t.Fatalf("implicit label source = %q, want %q", res[0].LabelSource, evalLabelSourceHuman)
+	}
+
+	silverTasks := []evalTask{{ID: "silver", Task: "checkpoints v1.1 read ref", Branch: "main", Relevant: []string{f1.ID}, LabelSource: evalLabelSourceProvenanceSilver}}
+	silver, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", silverTasks, 10, false, nil, nil, loadJudgeCache(""), nil, nil, evalRetrieverFacts)
+	if err != nil {
+		t.Fatalf("runFactsEval silver: %v", err)
+	}
+	if len(silver) != 1 || silver[0].Labeled || silver[0].Recall != 0 {
+		t.Fatalf("silver labels must not count as proof labels: %+v", silver)
+	}
+	if silver[0].RelevanceSource != evalRelevanceSilverLabel || silver[0].LabelSource != evalLabelSourceProvenanceSilver {
+		t.Fatalf("silver label metadata wrong: %+v", silver[0])
+	}
 
 	// Judge mode: fake agent marks the first surfaced fact relevant.
 	fakeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -322,6 +337,36 @@ func TestJudgeCacheInvalidatesWhenTaskTextChanges(t *testing.T) {
 	}
 	if _, ok := second[item.ID]; ok {
 		t.Fatalf("second verdict should reflect fresh no judgment, got %+v", second)
+	}
+}
+
+func TestJudgeCacheRejectsInvalidJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "judge-cache.json")
+	if err := os.WriteFile(path, []byte(`{not-json`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := loadJudgeCache(path).validateLoaded(); err == nil {
+		t.Fatal("expected malformed judge cache to be reported")
+	}
+}
+
+func TestRawSessionSourceMatchRequiresCollisionSafeIDOrTranscript(t *testing.T) {
+	sessionID := "abcdefghijkl-full-session-one"
+	otherOldStyleID := "raw:" + shortSessionID(sessionID) + ":1-4"
+	task := evalTask{
+		ID:                   "t1",
+		Task:                 "find transcript",
+		SourceSessionID:      sessionID,
+		SourceTranscriptPath: "sessions/main/one.jsonl",
+	}
+	if evalItemMatchesTaskSource(task, evalRetrievedItem{ID: otherOldStyleID, Path: "sessions/main/two.jsonl:1"}) {
+		t.Fatal("short-session raw id should not override a mismatched transcript path")
+	}
+	if !evalItemMatchesTaskSource(task, evalRetrievedItem{ID: "raw:legacy:1-4", Path: "sessions/main/one.jsonl:3"}) {
+		t.Fatal("matching transcript path should still count as source evidence")
+	}
+	if !evalItemMatchesTaskSource(evalTask{SourceSessionID: sessionID}, evalRetrievedItem{ID: "raw:" + rawSessionIDToken(sessionID) + ":1-4"}) {
+		t.Fatal("hash-token raw id should match when no transcript path is available")
 	}
 }
 

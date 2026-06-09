@@ -3264,6 +3264,7 @@ def load_task_index() -> dict[str, dict[str, Any]]:
 
 def load_existing_phase2_proofs() -> list[dict[str, Any]]:
     proofs: list[dict[str, Any]] = []
+    audit_report = load_retained_audit_report()
     if not RESULT_DIR.exists():
         return proofs
     for summary_path in sorted(RESULT_DIR.glob("*/summary.json")):
@@ -3271,28 +3272,63 @@ def load_existing_phase2_proofs() -> list[dict[str, Any]]:
             summary = json.loads(summary_path.read_text())
         except (OSError, json.JSONDecodeError):
             continue
+        suite = summary_path.parent.name
+        if not retained_suite_audit_clean(audit_report, suite):
+            continue
         for comparison in summary.get("comparisons", []):
             if not isinstance(comparison, dict):
                 continue
-            proof = retained_brain_positive_comparison(summary_path.parent.name, comparison)
+            proof = retained_brain_positive_comparison(suite, comparison)
             if proof:
                 proofs.append(proof)
     return proofs
+
+
+def load_retained_audit_report() -> dict[str, Any] | None:
+    path = RESULT_DIR / "codex-audit-report.json"
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def retained_suite_audit_clean(audit_report: dict[str, Any] | None, suite: str) -> bool:
+    if not audit_report:
+        return False
+    suite_report = audit_report.get("suites", {}).get(suite)
+    if not isinstance(suite_report, dict):
+        return False
+    records = int(suite_report.get("n_records") or 0)
+    if records == 0:
+        return False
+    if int(suite_report.get("n_flagged_records") or 0) != 0:
+        return False
+    if int(suite_report.get("n_provenance_ok") or 0) != records:
+        return False
+    for comparison in suite_report.get("comparisons", []):
+        if isinstance(comparison, dict) and comparison.get("flags"):
+            return False
+    return True
 
 
 def retained_brain_positive_comparison(suite: str, comparison: dict[str, Any]) -> dict[str, Any] | None:
     condition = comparison.get("condition")
     if condition == "no_brain":
         return None
+    if not comparison.get("proof_ready"):
+        return None
+    if comparison.get("stability", {}).get("tag") != "brain_positive_stable":
+        return None
     success_delta = float(comparison.get("success_rate_condition") or 0) - float(comparison.get("success_rate_baseline") or 0)
     score_delta = float(comparison.get("delta") or 0)
-    correctness_p = comparison.get("p_value_approx")
+    correctness_p = comparison.get("p_value_approx_holm")
     metric_hits: list[dict[str, Any]] = []
     for field, delta_field, p_field, lower_is_better in [
-        ("seconds", ("mean_agent_seconds_condition", "mean_agent_seconds_baseline"), "p_value_agent_seconds", True),
-        ("tokens", ("mean_total_tokens_condition", "mean_total_tokens_baseline"), "p_value_total_tokens", True),
-        ("turns", ("mean_turns_condition", "mean_turns_baseline"), "p_value_turns", True),
-        ("cost", ("mean_cost_usd_condition", "mean_cost_usd_baseline"), "p_value_cost_usd", True),
+        ("seconds", ("mean_agent_seconds_condition", "mean_agent_seconds_baseline"), "p_value_agent_seconds_holm", True),
+        ("tokens", ("mean_total_tokens_condition", "mean_total_tokens_baseline"), "p_value_total_tokens_holm", True),
+        ("turns", ("mean_turns_condition", "mean_turns_baseline"), "p_value_turns_holm", True),
+        ("cost", ("mean_cost_usd_condition", "mean_cost_usd_baseline"), "p_value_cost_usd_holm", True),
     ]:
         condition_mean = comparison.get(delta_field[0])
         baseline_mean = comparison.get(delta_field[1])

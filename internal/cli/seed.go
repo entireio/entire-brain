@@ -704,25 +704,30 @@ func writeSeedArtifacts(outputDir string, scan seedScanResult) error {
 	if err := os.MkdirAll(filepath.Join(outputDir, seedDirName, seedDocsDirName), 0o700); err != nil {
 		return err
 	}
-	if err := writeJSONFile(filepath.Join(outputDir, seedDirName, "file-index.json"), scan.Files); err != nil {
+	fileIndexData, err := json.MarshalIndent(scan.Files, "", "  ")
+	if err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(outputDir, seedDirName, "repo-overview.md"), []byte(renderSeedOverview(scan)), 0o600); err != nil {
+	fileIndexData = append(fileIndexData, '\n')
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "file-index.json")), fileIndexData, 0o600); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(outputDir, seedDirName, "architecture.md"), []byte(renderSeedArchitecture(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "repo-overview.md")), []byte(renderSeedOverview(scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(outputDir, seedDirName, "commands.md"), []byte(renderSeedCommands(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "architecture.md")), []byte(renderSeedArchitecture(scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(outputDir, seedDirName, "conventions.md"), []byte(renderSeedConventions(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "commands.md")), []byte(renderSeedCommands(scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(outputDir, seedDirName, "risks.md"), []byte(renderSeedRisks(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "conventions.md")), []byte(renderSeedConventions(scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(outputDir, seedDirName, "history-gaps.md"), []byte(renderSeedHistoryGaps(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "risks.md")), []byte(renderSeedRisks(scan)), 0o600); err != nil {
+		return err
+	}
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "history-gaps.md")), []byte(renderSeedHistoryGaps(scan)), 0o600); err != nil {
 		return err
 	}
 	for _, doc := range scan.Docs {
@@ -744,10 +749,6 @@ func writeSeedArtifacts(outputDir string, scan seedScanResult) error {
 			}
 		}
 		src := filepath.Join(scan.RepoDir, cleanSrc)
-		dst := filepath.Join(outputDir, cleanDst)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
-			return err
-		}
 		if err := rejectExistingSymlinkPathComponents(outputDir, cleanDst); err != nil {
 			return fmt.Errorf("validate seed document path %s: %w", cleanDst, err)
 		}
@@ -759,7 +760,7 @@ func writeSeedArtifacts(outputDir string, scan seedScanResult) error {
 			data = data[:defaultSeedMaxFileBytes]
 			data = append(data, []byte("\n\n[truncated]\n")...)
 		}
-		if err := writeFileAtomic(dst, data, 0o600); err != nil {
+		if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), data, 0o600); err != nil {
 			return err
 		}
 	}
@@ -1569,11 +1570,7 @@ func writeAgentArtifacts(outputDir string, artifacts map[string]string) ([]strin
 			return nil, fmt.Errorf("reject unsafe agent artifact path %q", name)
 		}
 		rel := filepath.Join(seedDirName, seedAgentDirName, clean)
-		abs := filepath.Join(outputDir, rel)
-		if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
-			return nil, err
-		}
-		if err := writeFileAtomic(abs, []byte(content), 0o600); err != nil {
+		if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(rel), []byte(content), 0o600); err != nil {
 			return nil, err
 		}
 		written = append(written, filepath.ToSlash(rel))

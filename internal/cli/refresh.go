@@ -439,7 +439,10 @@ func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir 
 		if err != nil {
 			return false, fmt.Errorf("fingerprint worktree for semantic refresh: %w", err)
 		}
-		return source.WorktreeMode != "worktree" || source.WorktreeHash != hash, nil
+		if source.WorktreeMode != "worktree" || source.WorktreeHash != hash {
+			return true, nil
+		}
+		return !semanticRefreshArtifactsUsable(brainDir, source), nil
 	}
 	dirty, err := worktreeDirty(ctx, opts.Runner, repoDir)
 	if err != nil {
@@ -455,24 +458,28 @@ func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir 
 	if source.WorktreeMode == "worktree" || source.DirtyWorktree || source.Tree != tree {
 		return true, nil
 	}
-	if source.SnapshotPath == "" || source.StorePath == "" {
-		return true, nil
+	return !semanticRefreshArtifactsUsable(brainDir, source), nil
+}
+
+func semanticRefreshArtifactsUsable(brainDir string, source *semanticSourceManifest) bool {
+	if source == nil || source.SnapshotPath == "" || source.StorePath == "" {
+		return false
 	}
 	snapshotRel, err := validateSemanticSnapshotPath(source.SnapshotPath)
 	if err != nil {
-		return true, nil
+		return false
 	}
 	if err := rejectSymlinkPathComponents(brainDir, snapshotRel); err != nil {
-		return true, nil
+		return false
 	}
 	snapshotInfo, err := os.Stat(filepath.Join(brainDir, snapshotRel))
 	if err != nil || snapshotInfo.IsDir() {
-		return true, nil
+		return false
 	}
 	if _, err := validateSemanticDeclaredStore(brainDir, source); err != nil {
-		return true, nil
+		return false
 	}
-	return false, nil
+	return true
 }
 
 func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir string) string {

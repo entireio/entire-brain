@@ -122,7 +122,11 @@ func (s *semanticReranker) flush() error {
 	if !s.dirty && len(out) == len(s.cache) {
 		return nil
 	}
-	return s.store.save(out)
+	present := make(map[string]struct{}, len(s.touched))
+	for id := range s.touched {
+		present[id] = struct{}{}
+	}
+	return s.store.savePresent(out, present)
 }
 
 // rankFactsFused ranks facts by Reciprocal Rank Fusion of a lexical list and a

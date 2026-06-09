@@ -30,6 +30,56 @@ func TestFileLockContentionAndReacquire(t *testing.T) {
 	}
 }
 
+func TestFileLockRejectsSymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "locks", "write.lock")
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "outside")
+	if err := os.WriteFile(target, []byte("do not clobber"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, lockPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if _, err := acquireFileLock(lockPath, "brain_locked", 0); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("symlink lock err = %v", err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "do not clobber" {
+		t.Fatalf("symlink target was modified: %q", data)
+	}
+}
+
+func TestFileLockRejectsHardlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "locks", "write.lock")
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	shared := filepath.Join(dir, "shared")
+	if err := os.WriteFile(shared, []byte("do not clobber"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(shared, lockPath); err != nil {
+		t.Skipf("hardlink unsupported: %v", err)
+	}
+	if _, err := acquireFileLock(lockPath, "brain_locked", 0); err == nil || !strings.Contains(err.Error(), "hardlink") {
+		t.Fatalf("hardlink lock err = %v", err)
+	}
+	data, err := os.ReadFile(shared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "do not clobber" {
+		t.Fatalf("hardlink target was modified: %q", data)
+	}
+}
+
 func TestFileLockContentionAcrossProcesses(t *testing.T) {
 	lockPath := filepath.Join(t.TempDir(), "locks", "write.lock")
 	readyPath := filepath.Join(t.TempDir(), "ready")

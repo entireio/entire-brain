@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 // writeDistillFixture lays down a brain dir with a session manifest and two
@@ -330,6 +332,13 @@ func TestDistillDryRunCountsChunksWithoutAgent(t *testing.T) {
 	}
 	if report.PreprocessedBytes == 0 || len(report.Branches) != 2 || len(report.LargestSessions) != 2 {
 		t.Fatalf("dry-run report missing cost drivers: %+v", report)
+	}
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	printDistillDryRunReport(cmd, report)
+	if !strings.Contains(out.String(), "largest sessions:") || !strings.Contains(out.String(), "sessions/main/s1.jsonl") {
+		t.Fatalf("human dry-run output missing largest sessions:\n%s", out.String())
 	}
 }
 

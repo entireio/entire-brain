@@ -146,6 +146,9 @@ func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir s
 		}
 	}
 	cache := loadJudgeCache(cachePath)
+	if err := cache.validateLoaded(); err != nil {
+		return nil, err
+	}
 	run := defaultDistillAgentRunner(resolved)
 	out := make([]evalTask, 0, len(tasks))
 	for _, t := range tasks {
@@ -175,6 +178,7 @@ func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir s
 		}
 		sort.Strings(ids)
 		t.Relevant = ids
+		t.LabelSource = evalLabelSourceJudgeRefined
 		t.QueryType = classifyQueryType(t.Task, kept)
 		out = append(out, t)
 	}
@@ -241,6 +245,7 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 			Branch:               resolvedBranch,
 			QueryType:            classifyQueryType(request, facts),
 			Relevant:             uniqueFactIDs(facts),
+			LabelSource:          evalLabelSourceProvenanceSilver,
 			SourceSessionID:      s.SessionID,
 			SourceTranscriptPath: filepath.ToSlash(s.TranscriptPath),
 		})

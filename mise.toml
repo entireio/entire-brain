@@ -19,6 +19,14 @@ run = "go test -race ./..."
 description = "Run deterministic Phase 1 semantic brain contract tests"
 run = "ENTIRE_BRAIN_PHASE1_CI=1 go test -race ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'"
 
+[tasks."release:evidence"]
+description = "Fail unless retained replay-lab benchmark evidence is provenance-complete and audit-clean"
+run = '''
+set -e
+python3 benchmarks/agent-brain/run_test.py
+python3 benchmarks/agent-brain/audit_codex.py --fail-on-flags --min-suites 1 --min-records 1
+'''
+
 [tasks.build]
 description = "Build the plugin binary"
 run = "go build -o entire-brain ./cmd/entire-brain"

@@ -902,6 +902,47 @@ class PanelAndStabilityTests(unittest.TestCase):
         self.assertNotEqual(comp["stability"]["tag"], "brain_positive_stable")
         self.assertFalse(comp["proof_ready"])
 
+    def test_existing_phase2_proofs_require_stable_clean_audit(self):
+        old_result_dir = run.RESULT_DIR
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                result_dir = pathlib.Path(d)
+                run.RESULT_DIR = result_dir
+                suite = result_dir / "suite-a"
+                suite.mkdir()
+                comparison = {
+                    "task_id": "t",
+                    "runner": "claude-sonnet-high",
+                    "agent": "claude",
+                    "condition": "full_brain",
+                    "proof_ready": True,
+                    "stability": {"tag": "brain_positive_stable"},
+                    "success_rate_condition": 1.0,
+                    "success_rate_baseline": 0.0,
+                    "delta": 10.0,
+                    "p_value_approx_holm": 0.01,
+                    "mean_total_tokens_condition": 100,
+                    "mean_total_tokens_baseline": 200,
+                    "p_value_total_tokens_holm": 0.01,
+                }
+                (suite / "summary.json").write_text(json.dumps({"comparisons": [comparison]}))
+                self.assertEqual(run.load_existing_phase2_proofs(), [])
+                (result_dir / "codex-audit-report.json").write_text(json.dumps({
+                    "suites": {
+                        "suite-a": {
+                            "n_records": 4,
+                            "n_flagged_records": 0,
+                            "n_provenance_ok": 4,
+                            "comparisons": [{"flags": [], "pass": True}],
+                        }
+                    }
+                }))
+                proofs = run.load_existing_phase2_proofs()
+                self.assertEqual(len(proofs), 1)
+                self.assertEqual(proofs[0]["proof_level"], "existing_repeated_run")
+        finally:
+            run.RESULT_DIR = old_result_dir
+
 
 class CodexAuditScriptTests(unittest.TestCase):
     SOURCE_SHA = "1" * 40

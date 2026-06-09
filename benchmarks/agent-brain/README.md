@@ -245,13 +245,23 @@ python3 benchmarks/agent-brain/audit_codex.py \
   --results <retained-results-dir> \
   --out-dir <proof-output-dir> \
   --suite-glob '<suite-pattern>' \
-  --fail-on-flags
+  --fail-on-flags \
+  --min-suites <n> \
+  --min-records <n>
+```
+
+The repo-level release gate is:
+
+```sh
+mise run release:evidence
 ```
 
 Audit mode treats missing or malformed provenance as a hard integrity flag. A
 release audit must therefore be able to show, per record, which harness revision,
 source base/head commits, task config hash, runner/config fingerprint, and tool
-hashes produced the result.
+hashes produced the result. The current retained `results/` panel is quarantine
+evidence and intentionally fails this gate until a provenance-complete retained
+subset replaces or filters it.
 
 For a SWE-bench-style matrix, tag tasks with `source` and `suite_tags`. The
 current harness already supports the essential SWE shape: issue prompt,

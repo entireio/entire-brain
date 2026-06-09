@@ -18,9 +18,12 @@ and the MCP adapter is stdio-only. Optional agent-gated steps can send selected
 context to the configured agent (`refresh --agent auto`, `distill --agent
 codex|claude-code`, `recall --expand`, and judged evals). Use `--agent none`,
 `--dry-run`, `--agent command` with a local command, or loopback-only Ollama to
-avoid hosted model egress. Separately, repos that configure a
+avoid hosted model egress. Strict no-egress mode (`ENTIRE_BRAIN_NO_EGRESS=1` or
+`ENTIRE_BRAIN_LOCAL_ONLY=1`) can only enforce no-agent, dry-run, and loopback
+Ollama paths; arbitrary `--agent command` runners are trusted local commands but
+not enforceably loopback-only. Separately, repos that configure a
 `checkpoint_remote` allow `export`/`refresh` to `git fetch` checkpoint history
-from that remote into a throwaway temp repo.
+from that remote into a throwaway temp repo unless no-egress mode is set.
 
 ## Install
 
@@ -164,10 +167,9 @@ entire brain get fact:<id> --json                         # fetch one item by id
 entire brain multi-get fact:<id> doc:<id> --json          # fetch several by id
 ```
 
-All five accept `--json`; `search`/`vsearch`/`query` also take `--limit` and
-`--branch`. QMD-style aliases are also accepted for the supported formats:
-`--format json|cli` and `-n` for result count on search verbs. Every result
-carries an `id` you can pass to `get`/`multi-get`.
+All five accept `--json`, `--format json|cli`, and `--branch`; `search`,
+`vsearch`, and `query` also take `--limit`/`-n`. Every result carries an `id`
+you can pass to `get`/`multi-get`.
 
 `overview` is the fastest way to orient on an unfamiliar repo: it returns a
 single project map — stack stats, route/tool/workflow counts, build/test

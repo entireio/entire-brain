@@ -131,6 +131,9 @@ func TestGenerateEvalTasksFromProvenance(t *testing.T) {
 	if s1.SourceSessionID != "s1" || s1.SourceTranscriptPath != "sessions/main/s1.jsonl" {
 		t.Fatalf("s1 source anchor wrong: %+v", s1)
 	}
+	if s1.LabelSource != evalLabelSourceProvenanceSilver {
+		t.Fatalf("s1 label source = %q, want %q", s1.LabelSource, evalLabelSourceProvenanceSilver)
+	}
 	// s2's relevant fact is cross-cutting → convention stratum.
 	if byID["s2"].QueryType != queryTypeConvention {
 		t.Errorf("s2 should be convention, got %q", byID["s2"].QueryType)
@@ -408,6 +411,9 @@ func TestFactsEvalGenRefineOllamaNoEgressSendsModel(t *testing.T) {
 	}
 	if len(tasks[0].Relevant) != 1 || tasks[0].Relevant[0] != fact.ID {
 		t.Fatalf("refined task relevant ids wrong: %+v", tasks[0])
+	}
+	if tasks[0].LabelSource != evalLabelSourceJudgeRefined {
+		t.Fatalf("refined label source = %q, want %q", tasks[0].LabelSource, evalLabelSourceJudgeRefined)
 	}
 
 	select {

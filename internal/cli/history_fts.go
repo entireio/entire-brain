@@ -3,7 +3,6 @@ package cli
 import (
 	"database/sql"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -45,6 +44,10 @@ func historyFTSDBPath(brainDir string) string {
 	return filepath.Join(brainDir, historyDirName, historyFTSFileName)
 }
 
+func historyFTSDBRelPath() string {
+	return filepath.ToSlash(filepath.Join(historyDirName, historyFTSFileName))
+}
+
 // historyFTSContent is the searchable text for a record. It indexes two forms so
 // both spaced and camelCase queries hit the same identifier: the camel-split,
 // lowercased normalization (so "attribution base" matches "AttributionBaseCommit")
@@ -83,8 +86,18 @@ func historyFTSFingerprint(index historyIndex) string {
 // is keyed by a fingerprint of the history index it was built from, so a refresh
 // that regenerates history/index.json triggers a clean rebuild here.
 func openHistoryFTS(brainDir string, index historyIndex) (*sql.DB, error) {
-	path := historyFTSDBPath(brainDir)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	var db *sql.DB
+	err := withBrainWriteLock(brainDir, func() error {
+		var runErr error
+		db, runErr = openHistoryFTSLocked(brainDir, index)
+		return runErr
+	})
+	return db, err
+}
+
+func openHistoryFTSLocked(brainDir string, index historyIndex) (*sql.DB, error) {
+	path, err := prepareBrainRelativeSQLiteFile(brainDir, historyFTSDBRelPath())
+	if err != nil {
 		return nil, err
 	}
 	db, err := sql.Open("sqlite", path)

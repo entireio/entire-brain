@@ -115,8 +115,11 @@ Intentional differences and unpinned areas:
 - Entire Brain sources are repo brain layers, not arbitrary QMD collections.
 - `--branch` remains fact-branch-specific.
 - `query` is hybrid over local brain layers; it is not a remote or hosted search.
-- QMD formats beyond `json` and `cli` (`csv`, `md`, `xml`, `files`) are not
-  implemented in this pass.
+- QMD flags for collections/context and file-only browsing are not implemented:
+  `--files`, `--all`, `--min-score`, `--full`, `--full-path`, line-range `get`,
+  line-number toggles, and collection filters remain outside this pass.
+- QMD formats beyond `json` and `cli` (`csv`, `md`, `xml`, `files`) and legacy
+  boolean format flags are not implemented in this pass.
 - This is not a pinned upstream compatibility suite; release claims should say
   "QMD-inspired aliases" unless a fixture-backed QMD contract test is added.
 
@@ -173,8 +176,8 @@ This documentation claim-hygiene pass checked:
 
 - `git diff --check`
 - `git diff --no-index --check -- /dev/null docs/release_readiness_audit.md`
-  for the untracked audit file; no whitespace warnings were emitted, and Git's
-  nonzero no-index diff exit is expected for `/dev/null` comparisons
+  during the first audit-doc pass; no whitespace warnings were emitted, and
+  Git's nonzero no-index diff exit is expected for `/dev/null` comparisons
 
 Release evidence still to collect on the target repo(s), blocked until the target
 repo/access/artifacts are available:
@@ -188,6 +191,9 @@ repo/access/artifacts are available:
 - `entire brain semantic-audit --json` from the release candidate brain.
 - Benchmark panel or retained proof subset from `benchmarks/agent-brain`, audited
   with `audit_codex.py --fail-on-flags` and committed as sanitized evidence.
+- `mise run release:evidence` must pass before any replay-lab proof claim; it runs
+  benchmark harness self-tests and then `audit_codex.py --fail-on-flags
+  --min-suites 1 --min-records 1`.
 
 Current retained benchmark caveat: `benchmarks/agent-brain/results/codex-audit-report.md`
 is quarantine/reference evidence, not release proof. The retained panel reports hard

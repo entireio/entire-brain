@@ -19,8 +19,9 @@ import (
 // evalTask is one held-out retrieval task. Task is the query an agent would
 // issue; Relevant, when present, is the labeled set of retrieved-item ids that
 // genuinely help the task (enables deterministic precision/recall for that
-// retriever). Without labels, --judge has an agent decide relevance per
-// surfaced item.
+// retriever). LabelSource records whether those labels are human/refined proof
+// labels or provenance/silver hints. Without proof labels, --judge has an agent
+// decide relevance per surfaced item.
 type evalTask struct {
 	ID                   string   `json:"id"`
 	Task                 string   `json:"task"`
@@ -28,6 +29,7 @@ type evalTask struct {
 	QueryType            string   `json:"query_type,omitempty"`
 	K                    int      `json:"k,omitempty"`
 	Relevant             []string `json:"relevant,omitempty"`
+	LabelSource          string   `json:"label_source,omitempty"`
 	SourceSessionID      string   `json:"source_session_id,omitempty"`
 	SourceTranscriptPath string   `json:"source_transcript_path,omitempty"`
 }
@@ -51,6 +53,7 @@ type evalTaskResult struct {
 	Recall             float64 `json:"recall"`
 	UsefulPer1k        float64 `json:"useful_per_1k"`
 	Labeled            bool    `json:"labeled"`
+	LabelSource        string  `json:"label_source,omitempty"`
 }
 
 // evalStratum aggregates metrics for one query-type stratum.
@@ -63,6 +66,7 @@ type evalStratum struct {
 
 type evalSummary struct {
 	Retriever              string                 `json:"retriever,omitempty"`
+	RunConfig              *evalRunConfig         `json:"run_config,omitempty"`
 	Tasks                  int                    `json:"tasks"`
 	MeanTokens             float64                `json:"mean_tokens"`
 	MeanLatencyMS          float64                `json:"mean_latency_ms"`
@@ -72,6 +76,24 @@ type evalSummary struct {
 	MeanUsefulPer1k        float64                `json:"mean_useful_per_1k"`
 	ByStratum              map[string]evalStratum `json:"by_stratum,omitempty"`
 	Results                []evalTaskResult       `json:"results"`
+}
+
+type evalRunConfig struct {
+	TasksPath             string `json:"tasks_path,omitempty"`
+	TasksSHA256           string `json:"tasks_sha256,omitempty"`
+	BrainManifestSHA256   string `json:"brain_manifest_sha256,omitempty"`
+	Branch                string `json:"branch,omitempty"`
+	K                     int    `json:"k"`
+	Retriever             string `json:"retriever"`
+	Judge                 bool   `json:"judge"`
+	JudgeSourceMatches    bool   `json:"judge_source_matches,omitempty"`
+	Expand                bool   `json:"expand"`
+	Semantic              bool   `json:"semantic"`
+	JudgeCachePath        string `json:"judge_cache_path,omitempty"`
+	ExpansionCachePath    string `json:"expansion_cache_path,omitempty"`
+	LabelPolicy           string `json:"label_policy"`
+	RawSessionIDScheme    string `json:"raw_session_id_scheme"`
+	TurnSigningLimitation string `json:"turn_signing_limitation,omitempty"`
 }
 
 const (
@@ -86,6 +108,13 @@ const (
 	evalRelevanceNone             = "none"
 	evalRelevancePartialLabel     = "partial_explicit_label"
 	evalRelevanceMixedLabelSource = "mixed_explicit_source_match"
+	evalRelevanceSilverLabel      = "provenance_silver_label"
+	evalRelevancePartialSilver    = "partial_provenance_silver_label"
+	evalRelevanceMixedSilver      = "mixed_provenance_silver_source_match"
+
+	evalLabelSourceHuman            = "human"
+	evalLabelSourceProvenanceSilver = "provenance_silver"
+	evalLabelSourceJudgeRefined     = "judge_refined"
 )
 
 type evalRetrievedItem struct {
@@ -145,7 +174,15 @@ func evalItemMetrics(surfaced []evalRetrievedItem, relevant map[string]struct{},
 }
 
 func summarizeEval(results []evalTaskResult) evalSummary {
+	return summarizeEvalWithConfig(results, nil)
+}
+
+func summarizeEvalWithConfig(results []evalTaskResult, config *evalRunConfig) evalSummary {
 	s := evalSummary{Tasks: len(results), Results: results}
+	if config != nil {
+		copy := *config
+		s.RunConfig = &copy
+	}
 	if len(results) == 0 {
 		return s
 	}
@@ -191,6 +228,22 @@ func evalEndToEndLatencyMS(r evalTaskResult) int64 {
 		return r.EndToEndLatencyMS
 	}
 	return r.LatencyMS + r.ExpansionLatencyMS
+}
+
+func fileSHA256Hex(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func evalBrainManifestSHA256(brainDir string) string {
+	return fileSHA256Hex(filepath.Join(brainDir, exportManifestFileName))
 }
 
 // --- agent judge ----------------------------------------------------------
@@ -366,14 +419,34 @@ The tasks file is a JSON array:
 					return fmt.Errorf("--semantic requested but the embedding backend is unavailable")
 				}
 			}
-			results, err := runFactsEvalWithOptions(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, loadJudgeCache(judgeCache), expander, rr, retriever, factsEvalRunOptions{JudgeSourceMatches: judgeSource})
+			cache := loadJudgeCache(judgeCache)
+			if err := cache.validateLoaded(); err != nil {
+				return err
+			}
+			results, err := runFactsEvalWithOptions(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, cache, expander, rr, retriever, factsEvalRunOptions{JudgeSourceMatches: judgeSource})
 			if err != nil {
 				return err
 			}
 			if err := expCache.save(); err != nil {
 				return fmt.Errorf("save expansion cache: %w", err)
 			}
-			summary := summarizeEval(results)
+			summary := summarizeEvalWithConfig(results, &evalRunConfig{
+				TasksPath:             tasksFile,
+				TasksSHA256:           fileSHA256Hex(tasksFile),
+				BrainManifestSHA256:   evalBrainManifestSHA256(brainDir),
+				Branch:                defaultBranch,
+				K:                     k,
+				Retriever:             retriever,
+				Judge:                 judge,
+				JudgeSourceMatches:    judgeSource,
+				Expand:                expand,
+				Semantic:              semantic,
+				JudgeCachePath:        judgeCache,
+				ExpansionCachePath:    expandCache,
+				LabelPolicy:           "human and judge_refined labels define precision/recall; provenance_silver is reported but not proof-labeled",
+				RawSessionIDScheme:    "raw:sha256(session_id)[:16]:start-end",
+				TurnSigningLimitation: "turn-level cryptographic verification remains pending CLI-side turn signing",
+			})
 			if jsonOut {
 				return writeJSON(cmd, summary)
 			}
@@ -405,6 +478,7 @@ type judgeCache struct {
 	path    string
 	verdict map[string]bool
 	dirty   bool
+	loadErr error
 }
 
 func judgeCacheKey(task evalTask, retriever string, item evalRetrievedItem) string {
@@ -428,9 +502,20 @@ func loadJudgeCache(path string) *judgeCache {
 		return c
 	}
 	if data, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(data, &c.verdict)
+		if err := json.Unmarshal(data, &c.verdict); err != nil {
+			c.loadErr = fmt.Errorf("parse judge cache %s: %w", path, err)
+		}
+	} else if !os.IsNotExist(err) {
+		c.loadErr = fmt.Errorf("read judge cache %s: %w", path, err)
 	}
 	return c
+}
+
+func (c *judgeCache) validateLoaded() error {
+	if c == nil {
+		return nil
+	}
+	return c.loadErr
 }
 
 func (c *judgeCache) get(task evalTask, retriever string, item evalRetrievedItem) (bool, bool) {
@@ -659,12 +744,33 @@ func rankRawSessionChunks(brainDir, branch, query string, limit int) ([]evalRetr
 }
 
 func rawSessionChunkID(session exportSession, chunk transcriptChunk) string {
-	return fmt.Sprintf("raw:%s:%d-%d", shortSessionID(session.SessionID), chunk.StartLine, chunk.EndLine)
+	return fmt.Sprintf("raw:%s:%d-%d", rawSessionIDToken(session.SessionID), chunk.StartLine, chunk.EndLine)
+}
+
+func rawSessionIDToken(sessionID string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(sessionID)))
+	return hex.EncodeToString(sum[:8])
 }
 
 func evalLabelsForRetriever(task evalTask, retriever string, surfaced []evalRetrievedItem) (map[string]struct{}, int, bool, string) {
 	explicit := relevantIDsForRetriever(task.Relevant, retriever)
 	if len(explicit) > 0 {
+		labelSource := normalizedEvalLabelSource(task)
+		if labelSource == evalLabelSourceProvenanceSilver {
+			if retriever == evalRetrieverQuery && !queryExplicitLabelsCoverSurfaced(task.Relevant, surfaced) {
+				if taskHasEvalSourceAnchor(task) {
+					mixed := copyStringSet(explicit)
+					for _, item := range surfaced {
+						if evalItemMatchesTaskSource(task, item) {
+							mixed[item.ID] = struct{}{}
+						}
+					}
+					return mixed, 0, false, evalRelevanceMixedSilver
+				}
+				return explicit, 0, false, evalRelevancePartialSilver
+			}
+			return explicit, 0, false, evalRelevanceSilverLabel
+		}
 		if retriever == evalRetrieverQuery && !queryExplicitLabelsCoverSurfaced(task.Relevant, surfaced) {
 			if taskHasEvalSourceAnchor(task) {
 				mixed := copyStringSet(explicit)
@@ -692,6 +798,14 @@ func evalLabelsForRetriever(task evalTask, retriever string, surfaced []evalRetr
 		return sourceMatches, 0, false, evalRelevanceSourceMatch
 	}
 	return sourceMatches, 0, false, evalRelevanceNone
+}
+
+func normalizedEvalLabelSource(task evalTask) string {
+	source := strings.TrimSpace(task.LabelSource)
+	if source == "" && len(task.Relevant) > 0 {
+		return evalLabelSourceHuman
+	}
+	return source
 }
 
 func relevantIDsForRetriever(ids []string, retriever string) map[string]struct{} {
@@ -768,12 +882,9 @@ func evalIDSource(id string) string {
 
 func evalItemMatchesTaskSource(task evalTask, item evalRetrievedItem) bool {
 	sessionID := strings.TrimSpace(task.SourceSessionID)
-	if sessionID != "" && strings.HasPrefix(item.ID, "raw:"+shortSessionID(sessionID)+":") {
-		return true
-	}
 	transcript := filepath.ToSlash(strings.TrimSpace(task.SourceTranscriptPath))
 	if transcript == "" {
-		return false
+		return sessionID != "" && strings.HasPrefix(item.ID, "raw:"+rawSessionIDToken(sessionID)+":")
 	}
 	path := filepath.ToSlash(strings.TrimSpace(item.Path))
 	if idx := strings.LastIndex(path, ":"); idx > 0 {
@@ -870,6 +981,7 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 		res.ID, res.Task, res.QueryType, res.Labeled = task.ID, task.Task, task.QueryType, labeled
 		res.Retriever = retriever
 		res.RelevanceSource = relevanceSource
+		res.LabelSource = normalizedEvalLabelSource(task)
 		res.LatencyMS = latencyMS
 		res.ExpansionLatencyMS = expansionLatencyMS
 		res.EndToEndLatencyMS = endToEndLatencyMS

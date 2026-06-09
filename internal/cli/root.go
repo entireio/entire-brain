@@ -47,13 +47,14 @@ func NewRootCommand(opts Options) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:           "entire-brain",
-		Short:         "Export Entire session history for agent review",
+		Short:         "Build and query a local repository brain for agents",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Long: `entire-brain is an external-command plugin for the Entire CLI.
 
-It exports checkpointed session transcripts and metadata into a directory an
-agent can inspect to understand project history.`,
+It builds a local, inspectable repository brain from retained sessions, seed
+context, docs, history, semantic records, and durable facts, then exposes
+retrieval, verification, evaluation, and MCP surfaces for agents.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},

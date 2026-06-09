@@ -175,17 +175,18 @@ to bound cost and to make turn-level provenance free.
   turn count (tens of thousands).
 - **Agent required.** Distillation needs an explicit fact agent (`codex`,
   `claude-code`, `command`, or loopback `ollama`; `auto` chooses a local CLI
-  when available). Use `distill --dry-run --json` for no-agent call-count and
-  cost preflight; `--agent none` is rejected for an actual distill run because
-  there is no fact-quality gate without an agent.
+  when available). Use `distill --dry-run --json` for no-agent session,
+  chunk/call-count, and byte preflight; `--agent none` is rejected for an actual
+  distill run because there is no fact-quality gate without an agent.
 - **Incremental by default; full rebuild only on `--force`.** Incremental runs
   skip sessions whose fingerprint is unchanged (reusing the history index's
   session-fingerprint approach). `refresh --force` / `distill --force` recompute
   all `origin=distilled` facts from scratch. These are not in tension: one is
   the steady-state path, the other the rebuild path.
-- **Chronological processing.** Both paths process sessions in `created_at`
-  order so supersession chains reconstruct deterministically regardless of which
-  path ran (see Supersession in Appendix A).
+- **Deterministic commit order.** Extraction may dispatch in parallel with
+  `--jobs`, but candidate reconciliation and writes commit in `created_at`
+  session/chunk order so supersession chains reconstruct deterministically
+  regardless of which path ran (see Supersession in Appendix A).
 - **Off by default in `refresh`.** Because it costs tokens and needs an agent,
   `refresh` does not distill unless given `--distill`. `entire brain distill`
   runs it directly.
@@ -627,7 +628,7 @@ type factPathDef struct {
   queued as a pending proposal (resolved via `facts review`) and both facts stay
   `active` and `conflicting` until the user decides — so a low-confidence
   machine judgment never silently rewrites memory.
-- Because distillation processes sessions in chronological order, supersession
+- Because distillation commits candidates in chronological order, supersession
   evaluates each new fact against the active set as it stood at that point in
   time; a full `--force` rebuild replays the same order and reconstructs the
   identical chain.

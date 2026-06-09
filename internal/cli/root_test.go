@@ -52,7 +52,7 @@ func TestRootWithoutCommandShowsHelp(t *testing.T) {
 		t.Fatalf("execute root: %v", err)
 	}
 	for _, want := range []string{
-		"entire-brain is an external-command plugin for the Entire CLI.",
+		"local, inspectable repository brain",
 		"Usage:",
 		// Commands are organized into use-case groups instead of one flat list.
 		"Create the brain:",

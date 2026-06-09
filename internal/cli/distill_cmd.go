@@ -716,6 +716,17 @@ func printDistillDryRunReport(cmd *cobra.Command, report distillDryRunReport) {
 			fmt.Fprintf(out, "branch %s chunks if uncached: %d\n", branch.Branch, branch.ChunksIfUncached)
 		}
 	}
+	if len(report.LargestSessions) > 0 {
+		fmt.Fprintln(out, "largest sessions:")
+		for _, session := range report.LargestSessions {
+			cached := ""
+			if session.Cached {
+				cached = " cached"
+			}
+			fmt.Fprintf(out, "- %s %s: %d chunks%s, %d preprocessed bytes, %d raw bytes\n",
+				session.Branch, session.Transcript, session.Chunks, cached, session.PreprocessedBytes, session.RawBytes)
+		}
+	}
 	if len(report.Warnings) > 0 {
 		for _, warning := range report.Warnings {
 			fmt.Fprintf(out, "warning: %s\n", warning)

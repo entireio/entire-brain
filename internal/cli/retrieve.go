@@ -180,7 +180,7 @@ func factsVectorRanked(brainDir, branch string, facts []factRecord, query string
 		scored = append(scored, sc{f, cosineFloat32(qv, v)})
 	}
 	if saved := pruneToPresent(cache, present); dirty || saved {
-		_ = store.save(cache)
+		_ = store.savePresent(cache, present)
 	}
 	sort.Slice(scored, func(a, b int) bool { return scored[a].cos > scored[b].cos })
 	out := make([]factRecord, 0, min(limit, len(scored)))
@@ -241,7 +241,7 @@ func docsVectorRanked(brainDir string, index docIndex, query string, e Embedder,
 	// Doc ids are content-derived, so any rebuild churns them; prune departed ids
 	// so the cache stays bounded to the current doc corpus.
 	if saved := pruneToPresent(cache, present); dirty || saved {
-		_ = store.save(cache)
+		_ = store.savePresent(cache, present)
 	}
 	sort.Slice(scored, func(a, b int) bool { return scored[a].cos > scored[b].cos })
 	out := make([]unifiedResult, 0, min(limit, len(scored)))

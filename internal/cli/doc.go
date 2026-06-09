@@ -150,12 +150,12 @@ func writeDocIndexAndSourceLocked(brainDir string, now time.Time) (*docSourceMan
 		return nil, err
 	}
 	data = append(data, '\n')
-	if err := writeFileAtomic(filepath.Join(brainDir, filepath.FromSlash(docIndexPath)), data, 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(brainDir, docIndexPath, data, 0o600); err != nil {
 		return nil, fmt.Errorf("write doc index: %w", err)
 	}
 	source := &docSourceManifest{GeneratedAt: now, IndexPath: docIndexPath, Records: len(records), Files: files, Warnings: warnings}
 	// Build the derived BM25 index alongside its truth (best-effort).
-	if db, ftsErr := openDocFTS(brainDir, index); ftsErr == nil {
+	if db, ftsErr := openDocFTSLocked(brainDir, index); ftsErr == nil {
 		_ = db.Close()
 	}
 	manifest, err := loadBrainManifest(brainDir)

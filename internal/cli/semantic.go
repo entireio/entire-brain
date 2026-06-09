@@ -696,6 +696,7 @@ type semanticCounts struct {
 type semanticBuildMetrics struct {
 	GeneratedAt     time.Time `json:"generated_at"`
 	GenerationID    string    `json:"generation_id"`
+	SnapshotSHA256  string    `json:"snapshot_sha256,omitempty"`
 	Commit          string    `json:"commit,omitempty"`
 	Tree            string    `json:"tree,omitempty"`
 	Files           int       `json:"files"`
@@ -1059,6 +1060,7 @@ func validateSemanticSchema(version string) error {
 
 func buildSemanticGeneration(brainDir, repoDir, generationID string, raw []byte, header semanticHeader, counts semanticCounts, now time.Time) (string, semanticBuildMetrics, error) {
 	start := time.Now()
+	snapshotSHA := semanticSnapshotSHA256(raw)
 	generationsRoot := filepath.Join(brainDir, semanticDirName, semanticGenerationsDir)
 	if err := rejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticGenerationsDir)); err != nil {
 		return "", semanticBuildMetrics{}, err
@@ -1068,7 +1070,7 @@ func buildSemanticGeneration(brainDir, repoDir, generationID string, raw []byte,
 	}
 	generationRel := filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, generationID))
 	finalDir := filepath.Join(generationsRoot, generationID)
-	if semanticGenerationReady(finalDir) {
+	if semanticGenerationReady(finalDir, generationID, snapshotSHA, header, counts) {
 		return generationRel, semanticBuildMetrics{GenerationID: generationID}, nil
 	}
 	if _, err := os.Lstat(finalDir); err == nil {
@@ -1099,7 +1101,7 @@ func buildSemanticGeneration(brainDir, repoDir, generationID string, raw []byte,
 		_ = db.Close()
 		return "", semanticBuildMetrics{}, err
 	}
-	metrics, err := populateSemanticSQLite(db, repoDir, generationID, raw, header, counts, now, tmpDir)
+	metrics, err := populateSemanticSQLite(db, repoDir, generationID, snapshotSHA, raw, header, counts, now, tmpDir)
 	if closeErr := db.Close(); err == nil && closeErr != nil {
 		err = closeErr
 	}
@@ -1124,7 +1126,7 @@ func buildSemanticGeneration(brainDir, repoDir, generationID string, raw []byte,
 	if err := rejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticGenerationsDir, generationID)); err != nil {
 		return "", semanticBuildMetrics{}, err
 	}
-	if semanticGenerationReady(finalDir) {
+	if semanticGenerationReady(finalDir, generationID, snapshotSHA, header, counts) {
 		return generationRel, metrics, nil
 	}
 	if err := os.Rename(tmpDir, finalDir); err != nil {
@@ -1137,7 +1139,12 @@ func buildSemanticGeneration(brainDir, repoDir, generationID string, raw []byte,
 	return generationRel, metrics, nil
 }
 
-func semanticGenerationReady(dir string) bool {
+func semanticSnapshotSHA256(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func semanticGenerationReady(dir, expectedGenerationID, expectedSnapshotSHA string, header semanticHeader, counts semanticCounts) bool {
 	info, err := os.Lstat(dir)
 	if err != nil || !info.IsDir() {
 		return false
@@ -1152,13 +1159,16 @@ func semanticGenerationReady(dir string) bool {
 	}
 	var metrics semanticBuildMetrics
 	data, err := os.ReadFile(metricsPath)
-	if err != nil || json.Unmarshal(data, &metrics) != nil || metrics.GenerationID == "" {
+	if err != nil || json.Unmarshal(data, &metrics) != nil || metrics.GenerationID != expectedGenerationID || metrics.SnapshotSHA256 != expectedSnapshotSHA {
 		return false
 	}
-	return semanticSQLiteStoreReady(filepath.Join(dir, semanticSQLiteName))
+	if metrics.Files != counts.Files || metrics.Symbols != counts.Symbols || metrics.Relations != counts.Relations {
+		return false
+	}
+	return semanticSQLiteStoreReady(filepath.Join(dir, semanticSQLiteName), expectedGenerationID, expectedSnapshotSHA, header, counts)
 }
 
-func semanticSQLiteStoreReady(path string) bool {
+func semanticSQLiteStoreReady(path, expectedGenerationID, expectedSnapshotSHA string, header semanticHeader, counts semanticCounts) bool {
 	info, err := os.Lstat(path)
 	if err != nil || info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return false
@@ -1172,10 +1182,30 @@ func semanticSQLiteStoreReady(path string) bool {
 	if err := db.QueryRow(`PRAGMA integrity_check`).Scan(&integrity); err != nil || integrity != "ok" {
 		return false
 	}
-	for _, table := range []string{"files", "symbols", "relations", "metrics"} {
-		if _, err := semanticSQLiteTableCount(db, table); err != nil {
-			return false
-		}
+	meta, err := semanticSQLiteMetaMap(db)
+	if err != nil {
+		return false
+	}
+	if meta["generation_id"] != expectedGenerationID || meta["snapshot_sha256"] != expectedSnapshotSHA {
+		return false
+	}
+	if meta["schema_version"] != header.SchemaVersion || meta["provider"] != header.Provider || meta["provider_version"] != header.ProviderVersion {
+		return false
+	}
+	files, err := semanticSQLiteTableCount(db, "files")
+	if err != nil || files != counts.Files {
+		return false
+	}
+	symbols, err := semanticSQLiteTableCount(db, "symbols")
+	if err != nil || symbols != counts.Symbols {
+		return false
+	}
+	relations, err := semanticSQLiteTableCount(db, "relations")
+	if err != nil || relations != counts.Relations {
+		return false
+	}
+	if _, err := semanticSQLiteTableCount(db, "metrics"); err != nil {
+		return false
 	}
 	return true
 }
@@ -1221,7 +1251,7 @@ func initializeSemanticSQLite(db *sql.DB) error {
 	return nil
 }
 
-func populateSemanticSQLite(db *sql.DB, repoDir, generationID string, raw []byte, header semanticHeader, counts semanticCounts, now time.Time, generationDir string) (semanticBuildMetrics, error) {
+func populateSemanticSQLite(db *sql.DB, repoDir, generationID, snapshotSHA string, raw []byte, header semanticHeader, counts semanticCounts, now time.Time, generationDir string) (semanticBuildMetrics, error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return semanticBuildMetrics{}, err
@@ -1237,11 +1267,12 @@ func populateSemanticSQLite(db *sql.DB, repoDir, generationID string, raw []byte
 		return semanticBuildMetrics{}, nil
 	}
 
-	if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES (?, ?), (?, ?), (?, ?), (?, ?)`,
+	if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES (?, ?), (?, ?), (?, ?), (?, ?), (?, ?)`,
 		"schema_version", header.SchemaVersion,
 		"provider", header.Provider,
 		"provider_version", header.ProviderVersion,
 		"generation_id", generationID,
+		"snapshot_sha256", snapshotSHA,
 	); err != nil {
 		return commit(err)
 	}
@@ -1332,6 +1363,7 @@ func populateSemanticSQLite(db *sql.DB, repoDir, generationID string, raw []byte
 	metrics := semanticBuildMetrics{
 		GeneratedAt:     now,
 		GenerationID:    generationID,
+		SnapshotSHA256:  snapshotSHA,
 		Commit:          header.Commit,
 		Tree:            header.Tree,
 		Files:           len(files),
@@ -4515,7 +4547,7 @@ func addSanitizedSemanticStoreBundlePath(tw *tar.Writer, rel, snapshotPath, repo
 		_ = db.Close()
 		return err
 	}
-	_, err = populateSemanticSQLite(db, repoDir, generationID, raw, header, counts, now, tmpDir)
+	_, err = populateSemanticSQLite(db, repoDir, generationID, semanticSnapshotSHA256(raw), raw, header, counts, now, tmpDir)
 	if closeErr := db.Close(); err == nil && closeErr != nil {
 		err = closeErr
 	}
@@ -5047,6 +5079,9 @@ func replaceImportedSemanticGeneration(brainDir, bundleRoot, repoDir string, sou
 	if err := copyImportedGenerationDir(sourceRoot, staging); err != nil {
 		return err
 	}
+	if err := removeImportedSemanticParseCache(staging, targetGenerationPath, source.ParseCachePath); err != nil {
+		return err
+	}
 	if source.StorePath != "" {
 		if err := rebuildImportedSemanticStoreInGeneration(brainDir, repoDir, source, staging, now); err != nil {
 			return err
@@ -5107,6 +5142,25 @@ func rewriteSemanticGenerationSourcePaths(source *semanticSourceManifest, oldGen
 	source.ParseCachePath = replace(source.ParseCachePath)
 }
 
+func removeImportedSemanticParseCache(generationRoot, generationPath, parseCachePath string) error {
+	expected := filepath.ToSlash(filepath.Join(generationPath, "parse-cache"))
+	if strings.TrimSpace(parseCachePath) != "" && filepath.ToSlash(parseCachePath) != expected {
+		return fmt.Errorf("semantic parse_cache_path must be %s: %s", expected, parseCachePath)
+	}
+	target := filepath.Join(generationRoot, "parse-cache")
+	info, err := os.Lstat(target)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("bundle semantic parse-cache must not be a symlink: %s", parseCachePath)
+	}
+	return os.RemoveAll(target)
+}
+
 func rebuildImportedSemanticStoreInGeneration(brainDir, repoDir string, source *semanticSourceManifest, generationRoot string, now time.Time) error {
 	if source == nil || source.StorePath == "" {
 		return nil
@@ -5152,7 +5206,8 @@ func rebuildImportedSemanticStoreInGeneration(brainDir, repoDir string, source *
 		_ = db.Close()
 		return err
 	}
-	metrics, err := populateSemanticSQLite(db, repoDir, pathpkg.Base(filepath.ToSlash(generationRel)), raw, header, counts, now, generationRoot)
+	snapshotSHA := semanticSnapshotSHA256(raw)
+	metrics, err := populateSemanticSQLite(db, repoDir, pathpkg.Base(filepath.ToSlash(generationRel)), snapshotSHA, raw, header, counts, now, generationRoot)
 	if closeErr := db.Close(); err == nil && closeErr != nil {
 		err = closeErr
 	}
@@ -5439,6 +5494,26 @@ func semanticSQLiteTableCount(db *sql.DB, table string) (int, error) {
 		return 0, fmt.Errorf("validate semantic sqlite table %s: %w", table, err)
 	}
 	return count, nil
+}
+
+func semanticSQLiteMetaMap(db *sql.DB) (map[string]string, error) {
+	rows, err := db.Query(`SELECT key, value FROM meta`)
+	if err != nil {
+		return nil, fmt.Errorf("read semantic sqlite meta: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, fmt.Errorf("scan semantic sqlite meta: %w", err)
+		}
+		out[key] = value
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("scan semantic sqlite meta: %w", err)
+	}
+	return out, nil
 }
 
 func bundleSemanticCountPresence(data []byte) (bool, bool, error) {
