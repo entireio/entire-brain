@@ -146,6 +146,10 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 	}
 	queryLocus := factLocus(query)
 	qvec := rr.embedQuery(query)
+	// No query embedding (e.g. the embedder is unavailable) → fall back cleanly to
+	// lexical-only ranking. Otherwise every cosine is 0 and the semantic arm would
+	// still add an RRF term, reordering results by the UpdatedAt tiebreaker.
+	haveSemantic := len(qvec) > 0
 	candidates := make([]factRecord, 0, len(facts))
 	for _, f := range facts {
 		if !includeAll && f.Status != factStatusActive {
@@ -178,7 +182,11 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 			}
 			lex = float64(score)
 		}
-		cands = append(cands, cand{rec: f, lex: lex, cos: cosineFloat32(qvec, rr.factVector(f))})
+		cos := 0.0
+		if haveSemantic {
+			cos = cosineFloat32(qvec, rr.factVector(f))
+		}
+		cands = append(cands, cand{rec: f, lex: lex, cos: cos})
 	}
 
 	// Lexical ranks: only facts with a positive lexical score are "retrieved"
@@ -202,16 +210,19 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 	}
 
 	// Semantic ranks: the full candidate set is ranked by cosine, so a
-	// term-disjoint but semantically-near fact still earns a rank.
-	sort.SliceStable(order, func(a, b int) bool {
-		ia, ib := order[a], order[b]
-		if cands[ia].cos != cands[ib].cos {
-			return cands[ia].cos > cands[ib].cos
+	// term-disjoint but semantically-near fact still earns a rank. Skipped entirely
+	// when there's no query embedding, leaving a clean lexical-only ranking.
+	if haveSemantic {
+		sort.SliceStable(order, func(a, b int) bool {
+			ia, ib := order[a], order[b]
+			if cands[ia].cos != cands[ib].cos {
+				return cands[ia].cos > cands[ib].cos
+			}
+			return cands[ia].rec.UpdatedAt.After(cands[ib].rec.UpdatedAt)
+		})
+		for rank, idx := range order {
+			fused[idx] += 1.0 / (rrfK + float64(rank+1))
 		}
-		return cands[ia].rec.UpdatedAt.After(cands[ib].rec.UpdatedAt)
-	})
-	for rank, idx := range order {
-		fused[idx] += 1.0 / (rrfK + float64(rank+1))
 	}
 
 	for i := range order {

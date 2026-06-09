@@ -86,11 +86,17 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 		}
 	}
 
-	// History — BM25 (lexical / hybrid only).
+	// History — BM25 (lexical / hybrid only). The FTS index is an optimization,
+	// never load-bearing (see history_fts.go): on a build/open/query failure fall
+	// back to the in-memory substring scorer rather than silently dropping history.
 	if mode != modeVector {
 		if manifest, err := loadBrainManifest(brainDir); err == nil && manifest.Sources != nil && manifest.Sources.History != nil {
 			if index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History); err == nil {
-				if scored, ok := rankHistoryViaFTS(brainDir, index, "history", query, limit*2); ok {
+				scored, ok := rankHistoryViaFTS(brainDir, index, "history", query, limit*2)
+				if !ok {
+					scored = rankHistoryRecordsScored(index, "history", query, limit*2, 0)
+				}
+				if len(scored) > 0 {
 					lists = append(lists, historyToUnified(scored))
 				}
 			}

@@ -34,12 +34,15 @@ for r in repos:
         pool["gemma"].append(gres.get(tid, 0.0))
 
 n = len(pool["m2v"])
-mb = sum(pool["m2v"]) / n
-gb = sum(pool["gemma"]) / n
+mb = sum(pool["m2v"]) / n if n else 0.0
+gb = sum(pool["gemma"]) / n if n else 0.0
 wins = sum(1 for a, b in zip(pool["m2v"], pool["gemma"]) if b - a > 0.01)
 losses = sum(1 for a, b in zip(pool["m2v"], pool["gemma"]) if b - a < -0.01)
 ties = n - wins - losses
 rescues = sum(1 for a, b in zip(pool["m2v"], pool["gemma"]) if a < 0.01 and b > 0.5)
+# Guard the pooled delta like the per-repo line: a zero baseline (all tasks
+# scored 0, or no tasks) must not raise ZeroDivisionError.
+dpct = f"{((gb-mb)/mb*100):+.0f}%" if mb else "n/a"
 print("-" * 60)
-print(f"{'POOLED':<16} {n:>5} {mb:>7.3f} {gb:>7.3f} {((gb-mb)/mb*100):>+7.0f}%")
+print(f"{'POOLED':<16} {n:>5} {mb:>7.3f} {gb:>7.3f} {dpct:>8}")
 print(f"  {n} tasks | wins {wins} losses {losses} ties {ties} | zero-rescues {rescues}")
