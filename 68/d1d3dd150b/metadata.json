@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "68d1d3dd150b",
+  "strategy": "manual-commit",
+  "branch": "feat/qmd-retrieval",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/doc.go",
+    "internal/cli/retrieve.go",
+    "scripts/bench/embed-server.mjs",
+    "scripts/bench/run.sh"
+  ],
+  "sessions": [
+    {
+      "metadata": "/68/d1d3dd150b/0/metadata.json",
+      "transcript": "/68/d1d3dd150b/0/full.jsonl",
+      "content_hash": "/68/d1d3dd150b/0/content_hash.txt",
+      "prompt": "/68/d1d3dd150b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 145,
+    "cache_creation_tokens": 8953,
+    "cache_read_tokens": 3352085,
+    "output_tokens": 8294,
+    "api_call_count": 8
+  }
+}
