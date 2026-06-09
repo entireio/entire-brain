@@ -128,36 +128,49 @@ locus-scoped (rank only the facts whose locus the query names, falling back to
 flat for a query with no code locus); **outline** = rank within the best-matching
 outline subtree. `eval` also reports a `surfaced_by_kind` histogram per arm.
 
-**Result — `entire-brain` main, 17 deterministic provenance-labeled tasks, k=10:**
+**Single-repo (`entire-brain` main, 17 tasks, k=10)** was underpowered: scoped
+1.53 / outline 1.60 vs flat 1.06 useful/1k — large means but p≈0.4–0.5, and it
+wrongly made the two arms look alike. The second repo corrected this.
 
-| arm | useful/1k | precision | tokens |
-|---|---|---|---|
-| flat (baseline) | 1.063 | 0.071 | 678 |
-| **scoped** | **1.530 (+44%)** | 0.106 | **555** |
-| **outline** | **1.602 (+51%)** | 0.112 | 658 |
+**Confirmed on `entire-cli` (`gh/entireio/cli`, main, 525 facts → 101 tasks) and
+pooled (n=118).** Pooled paired t-test vs flat (Holm, alpha=0.05):
 
-Paired t-test vs flat (Holm, alpha=0.05):
+| arm vs flat | useful/1k | precision | tokens | recall |
+|---|---|---|---|---|
+| **scoped** | **+0.71 (+59%), p=0.027** | +0.036, p=0.032 | **−112, p<0.001 ✓** | **−0.029, p=0.004 ✓** |
+| outline | +0.07, **p=0.51 (n.s.)** | ~0 | −52, p=0.001 ✓ | −0.025, p=0.006 ✓ |
 
-- **scoped:** useful/1k +0.467 (t=0.71, **p=0.49, n.s.**); precision +0.035 (n.s.);
-  **tokens −123 (p=0.043, sig)**; recall −0.029 (n.s.).
-- **outline:** useful/1k +0.539 (t=0.85, **p=0.41, n.s.**); precision +0.041 (n.s.);
-  tokens −20 (n.s.); recall −0.010 (n.s.).
+**Read (the real conclusion):**
 
-**Read:** both structured arms lift useful/1k and precision by a large *mean*
-margin, and scoped **significantly cuts tokens** — but the useful/1k gain is **not
-statistically significant at n=17** (high variance, the familiar small-sample
-pattern in this project). Scoped trades a little recall, as expected of a hard
-locus filter. So Appendix D's structure is **directionally validated and
-token-cheaper, not yet proven** on useful/1k.
+- **scoped (locus-scoped) is the validated win** — +59% useful/1k (raw-significant
+  p=0.027; misses Holm by a hair at the 0.025 step), higher precision, and
+  **robustly fewer tokens** (Holm-sig), at a **robust but modest recall cost**
+  (−0.029, ~−11%, Holm-sig). The precision↑/recall↓ tradeoff of a hard locus
+  filter is now statistically confirmed.
+- **outline is NOT a retrieval win** — useful/1k indistinguishable from flat
+  (p=0.51). The single-repo "+51%" was small-sample noise. The outline's value is
+  the human-readable map (`facts map`), which a token-eval cannot measure — not
+  agent ranking.
 
-**Gate / next step:** the magnitude is promising enough to keep the arms and the
-structure, but a **larger task set and a second repo** (`entire-cli`, the
-monorepo where locus tiering should matter more) are needed to move useful/1k
-from "+50% mean, p≈0.4" to significant — exactly as the EmbeddingGemma spike was
-later confirmed on a second repo. `entire-cli` was not available in this
-environment; re-run `facts eval --arm {flat,scoped,outline}` there (after `facts
-reclassify` to backfill kind/locus) and pool with `eval-compare`. Until then,
-flat stays the default arm; scoped/outline are opt-in via `--arm`.
+So the second repo didn't just add power, it **changed the conclusion**: scoped is
+validated and cheaper; outline is an orientation tool, not a ranking improvement.
+
+**Decisions / next steps:**
+
+- **Default stays `flat`; `scoped` is the recommended arm for token-constrained
+  agent retrieval** (opt-in via `--arm scoped`). Not defaulted yet because the
+  useful/1k gain is Holm-marginal and the recall cost is real — a third
+  corpus, or a **recall-floor scoped** (fall back to flat-ranking the remainder
+  when scoped returns < k) that keeps the precision/token win without the recall
+  loss, would justify making it default.
+- The gotcha-labeling question (deferred post-B4) can stay deferred: the *win came
+  from locus scoping, not kind* — kind labels did not drive the result — so better
+  gotcha labels are not on the critical path to the measured gain.
+
+(Repro: `facts reclassify --branch main` then, per arm,
+`facts eval --tasks <f> --branch main --k 10 --arm {flat,scoped,outline} --json`;
+pool the `results` arrays across repos and feed `eval-compare`. The `entire-cli`
+checkout is at `/Users/thomi/Projects/entire-cli`, not `/Users/thomi/Projects/cli`.)
 
 ## Branch topology
 
