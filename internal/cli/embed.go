@@ -284,7 +284,8 @@ var (
 // returning the embedder plus an optional human warning when an opt-in could not
 // be honored. ENTIRE_BRAIN_EMBEDDER=ollama swaps the bundled Model2Vec static
 // model for EmbeddingGemma served over a local Ollama (or node-llama-cpp) HTTP
-// endpoint. When that opt-in is selected but the server is unreachable, it falls
+// endpoint. When that opt-in is selected but the server does not return an
+// embedding (unreachable, wrong model, or an error response), it falls
 // back to the bundled Model2Vec model — keeping a single consistent vector space
 // (and cache namespace) — rather than silently degrading the semantic arm to
 // lexical-only, and reports the fallback so the user knows their opt-in did not
@@ -295,7 +296,7 @@ func configuredEmbedder() (Embedder, string) {
 		if o.reachable() {
 			return o, ""
 		}
-		warn := fmt.Sprintf("ENTIRE_BRAIN_EMBEDDER=ollama set but the embed server at %s is unreachable; falling back to the bundled Model2Vec embedder", o.url)
+		warn := fmt.Sprintf("ENTIRE_BRAIN_EMBEDDER=ollama set but the embed server at %s did not return an embedding (unreachable, wrong model, or an error response); falling back to the bundled Model2Vec embedder", o.url)
 		if e, err := loadStaticEmbedder(entirebrain.EmbedModel); err == nil {
 			return e, warn
 		}
