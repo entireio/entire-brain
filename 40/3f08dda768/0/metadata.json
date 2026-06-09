@@ -1,0 +1,47 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "403f08dda768",
+  "session_id": "cd23ebc0-bd98-4e6c-bfb4-ce649d8bb322",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-09T23:36:52.49513Z",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_cmd_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "56288438c583",
+  "token_usage": {
+    "input_tokens": 12411,
+    "cache_creation_tokens": 409293,
+    "cache_read_tokens": 10462782,
+    "output_tokens": 106539,
+    "api_call_count": 104
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-09T23:36:52.464657Z",
+    "agent_lines": 407,
+    "agent_removed": 23,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 407,
+    "total_lines_changed": 430,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

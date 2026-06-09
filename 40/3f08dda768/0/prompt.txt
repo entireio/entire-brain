@@ -1,0 +1,13 @@
+Is there a downside of increasing the chunksize?
+
+---
+
+For the 1913 facts so far, do you know in which session log the distill process found the fact?
+
+---
+
+It's only at 2120/2640 now. I doubt this is related to session size. Something must slow it down to a grind.
+
+---
+
+Ok, it's killed. Implement the fixes now.
