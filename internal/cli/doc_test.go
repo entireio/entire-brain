@@ -21,10 +21,19 @@ func TestChunkLinesCleanForDocsPreservesHeadings(t *testing.T) {
 		t.Fatalf("firstHeading should read the heading from clean text, got %q", h)
 	}
 
-	// distill's numbered rendering must be unchanged.
+	// Docs preserve internal blank lines so markdown structure (the paragraph break
+	// after the heading) survives into the indexed text.
+	if !strings.Contains(clean[0].Text, "\n\n") {
+		t.Fatalf("doc chunk dropped the internal blank line: %q", clean[0].Text)
+	}
+
+	// distill's numbered rendering must be unchanged: still prefixed, still no blanks.
 	numbered := chunkLines(in, 3000, true)
 	if !strings.Contains(numbered[0].Text, "\t") {
 		t.Fatalf("numbered chunk lost its line-number prefix: %q", numbered[0].Text)
+	}
+	if strings.Contains(numbered[0].Text, "\n\n") {
+		t.Fatalf("numbered transcript chunk should still drop blank lines: %q", numbered[0].Text)
 	}
 }
 

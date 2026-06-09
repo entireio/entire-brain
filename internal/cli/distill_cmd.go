@@ -583,6 +583,14 @@ func chunkLines(content string, maxBytes int, numberLines bool) []transcriptChun
 	for _, line := range lines {
 		lineNo++
 		if strings.TrimSpace(line) == "" {
+			// Transcripts drop blank lines (noise) but keep counting for accurate
+			// line numbers. Docs preserve *internal* blank lines so markdown
+			// paragraph/code-block structure survives into the indexed text and
+			// embeddings; leading blanks (empty buffer) are skipped and trailing
+			// ones are trimmed by the caller (loadDocRecordsFromSeed).
+			if !numberLines && buf.Len() > 0 {
+				buf.WriteString("\n")
+			}
 			continue
 		}
 		rendered := line + "\n"
