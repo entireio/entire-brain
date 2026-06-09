@@ -147,9 +147,10 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		limit = 10
 	}
 	type cand struct {
-		rec factRecord
-		lex float64
-		cos float64
+		rec    factRecord
+		lex    float64
+		lexHit bool // retrieved by the lexical arm (distinguishes a 0-score BM25 hit from a miss)
+		cos    float64
 	}
 	queryLocus := factLocus(query)
 	qvec := rr.embedQuery(query)
@@ -180,30 +181,39 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 	cands := make([]cand, 0, len(candidates))
 	for _, f := range candidates {
 		var lex float64
+		var lexHit bool
 		if haveBM25 {
-			lex = bm25[f.ID]
+			// factsFTSScores only contains matched ids, so presence — not a positive
+			// score — is the hit signal. A missing key (no match) returns 0, which
+			// must not be confused with a real hit that happens to score 0.
+			lex, lexHit = bm25[f.ID]
 		} else {
 			score := factQueryScore(f, query)
 			if overlap := locusOverlap(queryLocus, f.Text); overlap > 0 {
 				score += overlap * factLocusBoost
 			}
 			lex = float64(score)
+			lexHit = lex > 0
 		}
 		cos := 0.0
 		if haveSemantic {
 			cos = cosineFloat32(qvec, rr.factVector(f))
 		}
-		cands = append(cands, cand{rec: f, lex: lex, cos: cos})
+		cands = append(cands, cand{rec: f, lex: lex, lexHit: lexHit, cos: cos})
 	}
 
-	// Lexical ranks: only facts with a positive lexical score are "retrieved"
-	// lexically, so only they contribute a lexical RRF term.
+	// Lexical ranks: only facts retrieved lexically (lexHit) contribute a lexical
+	// RRF term. Hits sort above misses so a BM25 hit that happens to score 0 still
+	// earns a rank instead of being lumped in with the non-matches.
 	order := make([]int, len(cands))
 	for i := range order {
 		order[i] = i
 	}
 	sort.SliceStable(order, func(a, b int) bool {
 		ia, ib := order[a], order[b]
+		if cands[ia].lexHit != cands[ib].lexHit {
+			return cands[ia].lexHit
+		}
 		if cands[ia].lex != cands[ib].lex {
 			return cands[ia].lex > cands[ib].lex
 		}
@@ -211,7 +221,7 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 	})
 	fused := make([]float64, len(cands))
 	for rank, idx := range order {
-		if cands[idx].lex > 0 {
+		if cands[idx].lexHit {
 			fused[idx] += 1.0 / (rrfK + float64(rank+1))
 		}
 	}

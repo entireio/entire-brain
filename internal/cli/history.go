@@ -32,7 +32,11 @@ const (
 	// Bump it whenever the history record extraction/classification logic
 	// changes so stale cached records are discarded on the next refresh.
 	// v2: index user prompts as "request" records.
-	historyScanCacheVersion = 2
+	// v3: stop indexing "request" records — they were excluded from general
+	// ranking (measured noise) and the only surfaces that could query them
+	// (inspect requests / brain_history kind=requests) were removed. Bumping
+	// discards stale caches that still hold request records.
+	historyScanCacheVersion = 3
 )
 
 type historySourceManifest struct {
@@ -45,7 +49,6 @@ type historySourceManifest struct {
 	Validations         int       `json:"validations"`
 	ToolCalls           int       `json:"tool_calls"`
 	CodeFacts           int       `json:"code_facts"`
-	Requests            int       `json:"requests"`
 	Warnings            []string  `json:"warnings,omitempty"`
 }
 
@@ -269,8 +272,6 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 			source.ToolCalls++
 		case "code_fact":
 			source.CodeFacts++
-		case "request":
-			source.Requests++
 		}
 	}
 	return index, source, nil
@@ -432,37 +433,16 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 		if text == "" {
 			continue
 		}
-		// Unmarshal each JSONL line at most once and reuse the parsed object for
-		// both the request pass and the narrative pass — re-parsing per line doubled
-		// the JSON decode cost on large histories during refresh. Only transcript
-		// records are JSON objects, so skip the decode for raw .md/.txt lines that
-		// can't be one (cheap leading-'{' check) rather than paying a failed Unmarshal.
+		// Unmarshal each JSONL line at most once for the narrative pass — re-parsing
+		// per line doubled the JSON decode cost on large histories during refresh.
+		// Only transcript records are JSON objects, so skip the decode for raw
+		// .md/.txt lines that can't be one (cheap leading-'{' check).
 		var obj map[string]any
 		parsed := false
 		if strings.HasPrefix(text, "{") {
 			parsed = json.Unmarshal([]byte(text), &obj) == nil
 		}
 
-		// User prompts get their own extraction path, ahead of the narrative
-		// keyword filter, so a plain request ("add a subcommand") is not dropped
-		// for lacking decision/learning vocabulary. They anchor a session in the
-		// user's own words — the register agent task queries arrive in.
-		if parsed {
-			for _, fragment := range extractUserRequestFragmentsFromObj(obj) {
-				ft := strings.TrimSpace(fragment.Text)
-				if ft == "" {
-					continue
-				}
-				records = append(records, historyRecord{
-					ID:      historyRecordID(rel, lineNumber, "request", ft),
-					Kind:    "request",
-					Path:    rel,
-					Line:    lineNumber,
-					Summary: truncateString(cleanHistorySummary(ft), 700),
-					Terms:   historyTerms(ft),
-				})
-			}
-		}
 		if !historyLineMayContainIndexedContent(text) {
 			continue
 		}
@@ -490,81 +470,6 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 		}
 	}
 	return records, scanner.Err()
-}
-
-// extractUserRequestFragments pulls the human's prompt text from a transcript
-// line across codex and claude formats, as "user_request" fragments. It runs
-// before the narrative keyword filter and deliberately skips tool results (which
-// also arrive under role "user" in Claude) and tool calls, so only the user's
-// actual requests are indexed. scanHistoryFile parses the line itself and uses
-// extractUserRequestFragmentsFromObj to avoid a second unmarshal; this string form
-// is kept for direct callers (tests).
-func extractUserRequestFragments(line string) []historyFragment {
-	var obj map[string]any
-	if err := json.Unmarshal([]byte(line), &obj); err != nil {
-		return nil
-	}
-	return extractUserRequestFragmentsFromObj(obj)
-}
-
-func extractUserRequestFragmentsFromObj(obj map[string]any) []historyFragment {
-	switch jsonString(obj["type"]) {
-	case "event_msg": // codex
-		payload := jsonMap(obj["payload"])
-		if jsonString(payload["type"]) == "user_message" {
-			return userRequestFragment(jsonString(payload["message"]))
-		}
-	case "response_item": // codex
-		payload := jsonMap(obj["payload"])
-		if jsonString(payload["type"]) == "message" && jsonString(payload["role"]) == "user" {
-			return userRequestFragment(userTextFromContent(payload["content"]))
-		}
-	case "user": // claude
-		message := jsonMap(obj["message"])
-		if message != nil {
-			return userRequestFragment(userTextFromContent(message["content"]))
-		}
-		return userRequestFragment(userTextFromContent(obj["content"]))
-	}
-	return nil
-}
-
-func userRequestFragment(text string) []historyFragment {
-	if strings.TrimSpace(text) == "" {
-		return nil
-	}
-	return []historyFragment{{Text: text, Source: "user_request"}}
-}
-
-// userTextFromContent extracts human text from a message content value, skipping
-// tool_result/tool_use blocks (not user prompts). Content is either a plain
-// string or an array of typed blocks.
-func userTextFromContent(content any) string {
-	switch v := content.(type) {
-	case string:
-		return v
-	case []any:
-		var parts []string
-		for _, item := range v {
-			block := jsonMap(item)
-			if block == nil {
-				if s := jsonString(item); s != "" {
-					parts = append(parts, s)
-				}
-				continue
-			}
-			switch jsonString(block["type"]) {
-			case "tool_result", "tool_use":
-				continue
-			default:
-				if s := jsonString(block["text"]); s != "" {
-					parts = append(parts, s)
-				}
-			}
-		}
-		return strings.Join(parts, " ")
-	}
-	return ""
 }
 
 func extractHistoryJSONFragments(obj map[string]any) []historyFragment {
