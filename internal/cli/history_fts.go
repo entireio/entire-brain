@@ -166,8 +166,10 @@ func buildHistoryFTS(db *sql.DB, index historyIndex) error {
 
 // rankHistoryViaFTS ranks records with the BM25 index, returning ok=false on any
 // failure (or a degenerate query) so the caller falls back to the substring
-// scorer. It dedups by normalized summary like the scorer does and maps BM25's
-// negative score (lower = better) to a positive display score (higher = better).
+// scorer. It dedups by normalized summary like the scorer does. NOTE on the sign:
+// SQLite FTS5 bm25() is the BM25 score *negated* (per the FTS5 docs), so a better
+// match is MORE NEGATIVE and `ORDER BY bm25()` ASC returns best-first. We negate it
+// back to a positive display score (higher = better) for the cutoff and Score.
 func rankHistoryViaFTS(brainDir string, index historyIndex, kind, query string, limit int) ([]scoredHistoryRecord, bool) {
 	if limit <= 0 {
 		return nil, false
@@ -225,7 +227,7 @@ func rankHistoryViaFTS(brainDir string, index historyIndex, kind, query string, 
 		}
 		// Rows arrive best-first (bm25 ascending), so the first kept row is the
 		// top score and the cutoff can stop the scan: every later row is weaker.
-		score := -bm
+		score := -bm // bm is SQLite's negated BM25 (<= 0); -bm is positive, higher = better
 		if topScore == 0 {
 			topScore = score
 		} else if score < historyFTSRelevanceCutoff*topScore {

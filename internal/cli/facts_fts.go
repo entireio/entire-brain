@@ -83,7 +83,7 @@ func factsFTSScores(facts []factRecord, query string) (map[string]float64, bool)
 		if err := rows.Scan(&id, &bm); err != nil {
 			return nil, false
 		}
-		scores[id] = -bm // bm25 is negative (lower = better) -> positive, higher = better
+		scores[id] = -bm // SQLite FTS5 bm25() is negated (<= 0, more negative = better); -bm is positive, higher = better
 	}
 	if rows.Err() != nil {
 		return nil, false

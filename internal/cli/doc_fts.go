@@ -197,7 +197,7 @@ func rankDocsViaFTS(brainDir string, index docIndex, query string, limit int) ([
 		if order < 0 || order >= len(index.Records) {
 			continue
 		}
-		score := -bm
+		score := -bm // bm is SQLite's negated BM25 (<= 0); -bm is positive, higher = better
 		if topScore == 0 {
 			topScore = score
 		} else if score < docFTSRelevanceCutoff*topScore {
