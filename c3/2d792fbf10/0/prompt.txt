@@ -1,0 +1,25 @@
+For podcasts, entire-cli, and entire-brain, come up with a query for each MCP command, run it, and verify that the return value actually makes sense.
+
+---
+
+commit/push
+
+---
+
+What's next?
+
+---
+
+Is the work in feat/stage1a-derived-index and feat/stage1b-transformer-embedder included in feat/qmd-retrieval?
+
+---
+
+Ok, I merged PR #14. Let's open a PR from feat/qmd-retrieval into main.
+
+---
+
+Body is enough
+
+---
+
+Address the Copilot feedback in #15, respond and resolve the comments, then ask Copilot to rewiew again.
