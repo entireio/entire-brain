@@ -18,7 +18,7 @@ EMBED_URL="${EMBED_URL:-http://localhost:11500}"
 MODEL="${MODEL:-gpt-5.4-mini}"
 mkdir -p "$OUT"
 
-[ -x "$EB" ] || { echo "build the binary first: (cd $REPO_ROOT && go build -o entire-brain ./cmd/entire-brain)"; exit 1; }
+[ -x "$EB" ] || { echo "build the binary first: (cd $REPO_ROOT && go build -o entire-brain ./cmd/entire-brain)" >&2; exit 1; }
 
 if [ "$#" -eq 0 ]; then
   echo "usage: scripts/bench/run.sh <repo-path> [<repo-path> ...]" >&2
