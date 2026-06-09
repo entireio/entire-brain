@@ -175,9 +175,9 @@ to bound cost and to make turn-level provenance free.
   turn count (tens of thousands).
 - **Agent required.** Distillation needs an explicit fact agent (`codex`,
   `claude-code`, `command`, or loopback `ollama`; `auto` chooses a local CLI
-  when available). With `--agent none`, `distill` is a no-op and the
-  deterministic decision extractor remains the knowledge source (see Decisions
-  Are Distilled Facts).
+  when available). Use `distill --dry-run --json` for no-agent call-count and
+  cost preflight; `--agent none` is rejected for an actual distill run because
+  there is no fact-quality gate without an agent.
 - **Incremental by default; full rebuild only on `--force`.** Incremental runs
   skip sessions whose fingerprint is unchanged (reusing the history index's
   session-fingerprint approach). `refresh --force` / `distill --force` recompute

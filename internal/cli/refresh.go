@@ -107,8 +107,8 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	}
 	if outputExplicit {
 		if refreshOpts.force {
-			if err := os.RemoveAll(refreshOpts.outputDir); err != nil {
-				return fmt.Errorf("remove forced output directory: %w", err)
+			if err := removeForcedOutputDir(refreshOpts.outputDir, repoDir); err != nil {
+				return err
 			}
 		} else if _, err := validateExportDirAvailable(refreshOpts.outputDir); err != nil {
 			return err

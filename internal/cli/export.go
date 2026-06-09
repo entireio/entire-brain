@@ -416,9 +416,14 @@ func prepareExportDir(path string, allowExisting bool) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("resolve output directory: %w", err)
 		}
-		info, statErr := os.Stat(abs)
-		if statErr == nil && !info.IsDir() {
-			return "", fmt.Errorf("output path exists and is not a directory: %s", abs)
+		info, statErr := os.Lstat(abs)
+		if statErr == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return "", fmt.Errorf("output directory must not be a symlink: %s", abs)
+			}
+			if !info.IsDir() {
+				return "", fmt.Errorf("output path exists and is not a directory: %s", abs)
+			}
 		}
 		if statErr != nil && !os.IsNotExist(statErr) {
 			return "", fmt.Errorf("stat output directory: %w", statErr)
@@ -446,10 +451,12 @@ func validateExportDirAvailable(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve output directory: %w", err)
 	}
-
-	info, err := os.Stat(abs)
+	info, err := os.Lstat(abs)
 	switch {
 	case err == nil:
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("output directory must not be a symlink: %s", abs)
+		}
 		if !info.IsDir() {
 			return "", fmt.Errorf("output path exists and is not a directory: %s", abs)
 		}
@@ -466,6 +473,140 @@ func validateExportDirAvailable(path string) (string, error) {
 		return "", fmt.Errorf("stat output directory: %w", err)
 	}
 	return abs, nil
+}
+
+func removeForcedOutputDir(path, repoDir string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolve forced output directory: %w", err)
+	}
+	info, err := os.Lstat(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat forced output directory: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("forced output directory must not be a symlink: %s", abs)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("forced output path exists and is not a directory: %s", abs)
+	}
+	if err := rejectDangerousForcedOutputDir(abs, repoDir); err != nil {
+		return err
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return fmt.Errorf("resolve forced output symlinks: %w", err)
+	}
+	if !sameCleanPath(abs, resolved) {
+		if err := rejectDangerousForcedOutputDir(resolved, repoDir); err != nil {
+			return err
+		}
+	}
+	manifestPath := filepath.Join(abs, exportManifestFileName)
+	manifestInfo, err := os.Lstat(manifestPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("--force refuses to remove %s: missing %s", abs, exportManifestFileName)
+		}
+		return fmt.Errorf("stat forced output manifest: %w", err)
+	}
+	if manifestInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("--force refuses to remove %s: %s must not be a symlink", abs, exportManifestFileName)
+	}
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("read forced output manifest: %w", err)
+	}
+	if err := validateForcedOutputManifest(data); err != nil {
+		return fmt.Errorf("--force refuses to remove %s: invalid %s: %w", abs, exportManifestFileName, err)
+	}
+	if err := removeAllWithRetry(abs); err != nil {
+		return fmt.Errorf("remove forced output directory: %w", err)
+	}
+	return nil
+}
+
+func validateForcedOutputManifest(data []byte) error {
+	var manifest exportManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return err
+	}
+	normalizeBrainManifest(&manifest)
+	if manifest.SchemaVersion != brainManifestSchemaVersion {
+		return fmt.Errorf("schema_version %d does not match brain schema %d", manifest.SchemaVersion, brainManifestSchemaVersion)
+	}
+	if manifest.Sources == nil {
+		return errors.New("missing sources")
+	}
+	if manifest.Sources.Sessions != nil ||
+		manifest.Sources.Seed != nil ||
+		manifest.Sources.Semantic != nil ||
+		manifest.Sources.History != nil ||
+		manifest.Sources.Facts != nil ||
+		manifest.Sources.Docs != nil {
+		return nil
+	}
+	return errors.New("missing recognized brain sources")
+}
+
+func rejectDangerousForcedOutputDir(abs, repoDir string) error {
+	clean := filepath.Clean(abs)
+	if isFilesystemRoot(clean) {
+		return fmt.Errorf("--force refuses to remove filesystem root: %s", abs)
+	}
+	if home, err := os.UserHomeDir(); err == nil && sameCleanPath(clean, home) {
+		return fmt.Errorf("--force refuses to remove home directory: %s", abs)
+	}
+	if cwd, err := os.Getwd(); err == nil && sameCleanPath(clean, cwd) {
+		return fmt.Errorf("--force refuses to remove current working directory: %s", abs)
+	}
+	if strings.TrimSpace(repoDir) != "" {
+		repoAbs, err := filepath.Abs(repoDir)
+		if err == nil {
+			repoCandidates := []string{filepath.Clean(repoAbs)}
+			if repoResolved, resolveErr := filepath.EvalSymlinks(repoAbs); resolveErr == nil {
+				repoCandidates = append(repoCandidates, filepath.Clean(repoResolved))
+			}
+			for _, repoCandidate := range uniqueCleanPaths(repoCandidates) {
+				if pathInside(clean, repoCandidate) {
+					return fmt.Errorf("--force refuses to remove a directory containing the repository: %s", abs)
+				}
+				if pathInside(repoCandidate, clean) {
+					return fmt.Errorf("--force refuses to remove a directory inside the repository: %s", abs)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func uniqueCleanPaths(paths []string) []string {
+	seen := map[string]struct{}{}
+	var result []string
+	for _, path := range paths {
+		clean := filepath.Clean(path)
+		if _, ok := seen[clean]; ok {
+			continue
+		}
+		seen[clean] = struct{}{}
+		result = append(result, clean)
+	}
+	return result
+}
+
+func isFilesystemRoot(path string) bool {
+	return filepath.Dir(path) == path
+}
+
+func sameCleanPath(a, b string) bool {
+	absB, err := filepath.Abs(b)
+	if err != nil {
+		return false
+	}
+	return filepath.Clean(a) == filepath.Clean(absB)
 }
 
 func detectDefaultBranch(ctx context.Context, runner CommandRunner, repoDir string) (string, []string) {
@@ -679,6 +820,9 @@ func authorLastCommitAt(author exportAuthor) time.Time {
 
 func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, entireBinary, scope string, limit int) ([]checkpointListEntry, []string, error) {
 	if scope == exportScopeBranch {
+		if brainNoEgressMode() {
+			return nil, []string{"no_egress: branch checkpoint fallback skipped"}, nil
+		}
 		return listBranchCheckpoints(ctx, runner, repoDir, entireBinary, limit)
 	}
 
@@ -687,6 +831,10 @@ func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, ent
 		return nil, nil, err
 	}
 	if len(checkpoints) > 0 {
+		return checkpoints, warnings, nil
+	}
+	if brainNoEgressMode() {
+		warnings = append(warnings, "no_egress: branch checkpoint fallback skipped")
 		return checkpoints, warnings, nil
 	}
 

@@ -80,10 +80,12 @@ const (
 	evalRetrieverQuery       = "query"
 	evalRetrieverRawSessions = "raw-sessions"
 
-	evalRelevanceExplicitLabel = "explicit_label"
-	evalRelevanceSourceMatch   = "source_match"
-	evalRelevanceJudge         = "judge"
-	evalRelevanceNone          = "none"
+	evalRelevanceExplicitLabel    = "explicit_label"
+	evalRelevanceSourceMatch      = "source_match"
+	evalRelevanceJudge            = "judge"
+	evalRelevanceNone             = "none"
+	evalRelevancePartialLabel     = "partial_explicit_label"
+	evalRelevanceMixedLabelSource = "mixed_explicit_source_match"
 )
 
 type evalRetrievedItem struct {
@@ -663,6 +665,18 @@ func rawSessionChunkID(session exportSession, chunk transcriptChunk) string {
 func evalLabelsForRetriever(task evalTask, retriever string, surfaced []evalRetrievedItem) (map[string]struct{}, int, bool, string) {
 	explicit := relevantIDsForRetriever(task.Relevant, retriever)
 	if len(explicit) > 0 {
+		if retriever == evalRetrieverQuery && !queryExplicitLabelsCoverSurfaced(task.Relevant, surfaced) {
+			if taskHasEvalSourceAnchor(task) {
+				mixed := copyStringSet(explicit)
+				for _, item := range surfaced {
+					if evalItemMatchesTaskSource(task, item) {
+						mixed[item.ID] = struct{}{}
+					}
+				}
+				return mixed, 0, false, evalRelevanceMixedLabelSource
+			}
+			return explicit, 0, false, evalRelevancePartialLabel
+		}
 		return explicit, len(explicit), true, evalRelevanceExplicitLabel
 	}
 	if retriever == evalRetrieverFacts || retriever == evalRetrieverQuery {
@@ -705,6 +719,51 @@ func relevantIDsForRetriever(ids []string, retriever string) map[string]struct{}
 		}
 	}
 	return out
+}
+
+func copyStringSet(in map[string]struct{}) map[string]struct{} {
+	out := make(map[string]struct{}, len(in))
+	for k := range in {
+		out[k] = struct{}{}
+	}
+	return out
+}
+
+func queryExplicitLabelsCoverSurfaced(relevant []string, surfaced []evalRetrievedItem) bool {
+	labelSources := map[string]struct{}{}
+	for _, id := range relevant {
+		source := evalIDSource(strings.TrimSpace(id))
+		if source != "" {
+			labelSources[source] = struct{}{}
+		}
+	}
+	for _, item := range surfaced {
+		source := evalIDSource(item.ID)
+		if source == "" {
+			continue
+		}
+		if _, ok := labelSources[source]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func evalIDSource(id string) string {
+	switch {
+	case strings.HasPrefix(id, "fact:"):
+		return "fact"
+	case strings.HasPrefix(id, "history:"):
+		return "history"
+	case strings.HasPrefix(id, "doc:"):
+		return "doc"
+	case strings.HasPrefix(id, "raw:"):
+		return "raw"
+	case id != "" && !strings.Contains(id, ":"):
+		return "fact"
+	default:
+		return ""
+	}
 }
 
 func evalItemMatchesTaskSource(task evalTask, item evalRetrievedItem) bool {

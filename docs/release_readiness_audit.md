@@ -46,8 +46,10 @@ Implemented eval surfaces:
 - The eval `query` arm is read-only and lexical inside the harness, so it does
   not write embedding caches or call an embedder while measuring baselines.
 - Eval summaries include `retriever`, `latency_ms`, and `relevance_source`
-  (`explicit_label`, `source_match`, `judge`, or `none`), so charts can separate
-  source-match proxy credit from labeled recall.
+  (`explicit_label`, `partial_explicit_label`, `mixed_explicit_source_match`,
+  `source_match`, `judge`, or `none`), so charts can separate source-match proxy
+  credit from labeled recall and spot query arms that mix fact labels with other
+  source types.
 - `eval-compare` includes a per-metric winner and explicit claim text, and now
   rejects mixed relevance sources unless `--allow-proxy-comparison` is explicit.
 
@@ -186,3 +188,10 @@ repo/access/artifacts are available:
 - `entire brain semantic-audit --json` from the release candidate brain.
 - Benchmark panel or retained proof subset from `benchmarks/agent-brain`, audited
   with `audit_codex.py --fail-on-flags` and committed as sanitized evidence.
+
+Current retained benchmark caveat: `benchmarks/agent-brain/results/codex-audit-report.md`
+is quarantine/reference evidence, not release proof. The retained panel reports hard
+integrity flags and zero provenance-complete agent records, so public replay-lab
+claims require a new provenance-complete run (or a filtered suite subset) that passes
+`python3 benchmarks/agent-brain/audit_codex.py --fail-on-flags --min-suites <n>
+--min-records <n>`.

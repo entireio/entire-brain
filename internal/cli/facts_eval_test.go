@@ -171,16 +171,19 @@ func TestRunFactsEvalRetrieverArms(t *testing.T) {
 		if len(res) != 1 || res[0].Retriever != retriever {
 			t.Fatalf("%s result missing retriever: %+v", retriever, res)
 		}
-		if res[0].RelevantSurfaced != 1 || res[0].Tokens == 0 {
-			t.Fatalf("%s should surface its relevant item with tokens, got %+v", retriever, res[0])
+		if res[0].RelevantSurfaced < 1 || res[0].Tokens == 0 {
+			t.Fatalf("%s should surface relevant evidence with tokens, got %+v", retriever, res[0])
 		}
-		if (retriever == evalRetrieverFacts || retriever == evalRetrieverQuery) && !res[0].Labeled {
+		if retriever == evalRetrieverFacts && !res[0].Labeled {
 			t.Fatalf("%s should retain explicit relevance labels: %+v", retriever, res[0])
 		}
-		if (retriever == evalRetrieverFacts || retriever == evalRetrieverQuery) && res[0].RelevanceSource != evalRelevanceExplicitLabel {
+		if retriever == evalRetrieverFacts && res[0].RelevanceSource != evalRelevanceExplicitLabel {
 			t.Fatalf("%s relevance source = %q, want %q", retriever, res[0].RelevanceSource, evalRelevanceExplicitLabel)
 		}
-		if retriever != evalRetrieverFacts && retriever != evalRetrieverQuery && res[0].Labeled {
+		if retriever == evalRetrieverQuery && res[0].RelevanceSource != evalRelevanceMixedLabelSource {
+			t.Fatalf("%s relevance source = %q, want %q", retriever, res[0].RelevanceSource, evalRelevanceMixedLabelSource)
+		}
+		if retriever != evalRetrieverFacts && res[0].Labeled {
 			t.Fatalf("%s source-match relevance should not claim recall labels: %+v", retriever, res[0])
 		}
 		if (retriever == evalRetrieverHistory || retriever == evalRetrieverRawSessions) && res[0].RelevanceSource != evalRelevanceSourceMatch {

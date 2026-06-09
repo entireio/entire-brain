@@ -238,12 +238,7 @@ func writeFacts(brainDir, branch string, records []factRecord) error {
 		buf.Write(data)
 		buf.WriteByte('\n')
 	}
-	dir := filepath.Join(brainDir, filepath.FromSlash(factsBranchRelDir(branch)))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create facts directory: %w", err)
-	}
-	path := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(branch)))
-	return writeFileAtomic(path, []byte(buf.String()), 0o600)
+	return writeBrainRelativeFileAtomic(brainDir, factsFileRelPath(branch), []byte(buf.String()), 0o600)
 }
 
 // sortFactRecords orders records by path, then text, then id so the on-disk
@@ -367,11 +362,7 @@ func writeFactTaxonomy(brainDir string, taxonomy factTaxonomy) error {
 		return err
 	}
 	data = append(data, '\n')
-	dir := filepath.Join(brainDir, factsDirName)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create facts directory: %w", err)
-	}
-	return writeFileAtomic(filepath.Join(brainDir, filepath.FromSlash(factsTaxonomyPath)), data, 0o600)
+	return writeBrainRelativeFileAtomic(brainDir, factsTaxonomyPath, data, 0o600)
 }
 
 // factTaxonomyTopLevels returns the set of top-level categories the taxonomy

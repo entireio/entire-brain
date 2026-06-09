@@ -268,8 +268,8 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	}
 	if outputExplicit && !seedOpts.update {
 		if seedOpts.force {
-			if err := os.RemoveAll(outputDir); err != nil {
-				return fmt.Errorf("remove forced output directory: %w", err)
+			if err := removeForcedOutputDir(outputDir, repoDir); err != nil {
+				return err
 			}
 		} else if _, err := validateExportDirAvailable(outputDir); err != nil {
 			return err

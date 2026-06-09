@@ -280,16 +280,22 @@ func semanticAuditStoreCoverage(brainDir string, source *semanticSourceManifest,
 		return semanticAuditCoverage{}, fmt.Errorf("open semantic store: %w", err)
 	}
 	defer db.Close()
-	fileLanguages, err := semanticAuditCountQuery(db, `SELECT CASE
-WHEN path GLOB '*.go' THEN 'go'
-WHEN path GLOB '*.ts' THEN 'typescript'
-WHEN path GLOB '*.tsx' THEN 'typescript'
-WHEN path GLOB '*.js' THEN 'javascript'
-WHEN path GLOB '*.jsx' THEN 'javascript'
-WHEN path GLOB '*.py' THEN 'python'
-WHEN path GLOB '*.rs' THEN 'rust'
-WHEN path GLOB '*.md' THEN 'markdown'
-ELSE 'unknown' END AS coverage_name, COUNT(*) FROM files GROUP BY 1 ORDER BY 1`)
+	fileLanguageQuery := `SELECT CASE
+	WHEN path GLOB '*.go' THEN 'go'
+	WHEN path GLOB '*.ts' THEN 'typescript'
+	WHEN path GLOB '*.tsx' THEN 'typescript'
+	WHEN path GLOB '*.js' THEN 'javascript'
+	WHEN path GLOB '*.jsx' THEN 'javascript'
+	WHEN path GLOB '*.py' THEN 'python'
+	WHEN path GLOB '*.rs' THEN 'rust'
+	WHEN path GLOB '*.md' THEN 'markdown'
+	ELSE 'unknown' END AS coverage_name, COUNT(*) FROM files GROUP BY 1 ORDER BY 1`
+	if ok, colErr := semanticSQLiteColumnExists(db, "files", "language"); colErr != nil {
+		return semanticAuditCoverage{}, fmt.Errorf("inspect semantic file language column: %w", colErr)
+	} else if ok {
+		fileLanguageQuery = `SELECT CASE WHEN trim(language) = '' THEN 'unknown' ELSE language END AS coverage_name, COUNT(*) FROM files GROUP BY 1 ORDER BY 1`
+	}
+	fileLanguages, err := semanticAuditCountQuery(db, fileLanguageQuery)
 	if err != nil {
 		return semanticAuditCoverage{}, fmt.Errorf("read semantic file languages: %w", err)
 	}
@@ -306,6 +312,31 @@ ELSE 'unknown' END AS coverage_name, COUNT(*) FROM files GROUP BY 1 ORDER BY 1`)
 		return semanticAuditCoverage{}, fmt.Errorf("read semantic relation types: %w", err)
 	}
 	return semanticAuditCoverage{FileLanguages: fileLanguages, Languages: languages, SymbolKinds: kinds, RelationTypes: relationTypes}, nil
+}
+
+func semanticSQLiteColumnExists(db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 func semanticAuditCountQuery(db *sql.DB, query string) ([]semanticAuditCount, error) {

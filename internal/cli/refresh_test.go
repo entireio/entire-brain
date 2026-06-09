@@ -132,6 +132,34 @@ func TestRefreshOutputRequiresEmptyDirectoryUnlessForced(t *testing.T) {
 	}
 }
 
+func TestRefreshForceOutputRefusesRepoRoot(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	sentinel := filepath.Join(repoDir, "sentinel.txt")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := seedFixtureRunner(repoDir)
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			RepoRoot:        repoDir,
+			PluginConfigDir: filepath.Join(t.TempDir(), "config"),
+			PluginDataDir:   filepath.Join(t.TempDir(), "data"),
+			PluginStateDir:  filepath.Join(t.TempDir(), "state"),
+			PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
+		},
+		Runner: runner,
+		Now:    time.Now,
+	})
+	out, err := execute(t, cmd, "refresh", "--output", repoDir, "--force")
+	if err == nil || !strings.Contains(err.Error(), "refuses to remove") {
+		t.Fatalf("refresh --force --output repo root err = %v\n%s", err, out)
+	}
+	if data, err := os.ReadFile(sentinel); err != nil || string(data) != "keep" {
+		t.Fatalf("sentinel was removed or changed: %q err=%v", data, err)
+	}
+}
+
 func TestHistoryIndexCurrentUsesSessionFingerprint(t *testing.T) {
 	brainDir := t.TempDir()
 	sessionSource := &sessionSourceManifest{

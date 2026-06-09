@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -234,6 +235,56 @@ func writeBrainManifestAndReadme(outputDir string, manifest exportManifest) erro
 	}
 	if err := writeFileAtomic(filepath.Join(outputDir, exportReadmeFileName), []byte(renderBrainReadme(manifest)), 0o600); err != nil {
 		return fmt.Errorf("write brain readme: %w", err)
+	}
+	return nil
+}
+
+func cleanBrainRelativePath(rel string) (string, error) {
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path is outside brain: %s", rel)
+	}
+	return clean, nil
+}
+
+func writeBrainRelativeFileAtomic(brainDir, rel string, data []byte, perm os.FileMode) error {
+	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+		return err
+	}
+	clean, err := cleanBrainRelativePath(rel)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(clean)
+	if dir != "." {
+		if err := rejectExistingSymlinkPathComponents(brainDir, dir); err != nil {
+			return err
+		}
+	}
+	abs := filepath.Join(brainDir, clean)
+	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
+		return err
+	}
+	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+		return err
+	}
+	return writeFileAtomic(abs, data, perm)
+}
+
+func removeBrainRelativeFile(brainDir, rel string) error {
+	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+		return err
+	}
+	clean, err := cleanBrainRelativePath(rel)
+	if err != nil {
+		return err
+	}
+	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+		return err
+	}
+	err = os.Remove(filepath.Join(brainDir, clean))
+	if err != nil && !os.IsNotExist(err) {
+		return err
 	}
 	return nil
 }

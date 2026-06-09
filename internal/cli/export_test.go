@@ -169,6 +169,93 @@ func TestListAllCheckpointRefsNoEgressSkipsCheckpointRemote(t *testing.T) {
 	}
 }
 
+func TestDiscoverCheckpointsNoEgressDoesNotRunEntireFallback(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
+	repoDir := t.TempDir()
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}, sequences: map[string][]fakeCommandResponse{
+		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef):   {{err: errors.New("local v1 missing")}},
+		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef): {{err: errors.New("local origin missing")}},
+	}}
+
+	checkpoints, warnings, err := discoverCheckpoints(context.Background(), runner, repoDir, "entire-test", exportScopeAll, 10)
+	if err != nil {
+		t.Fatalf("discoverCheckpoints: %v", err)
+	}
+	if len(checkpoints) != 0 {
+		t.Fatalf("expected no checkpoint fallback in no-egress mode, got %+v", checkpoints)
+	}
+	if !strings.Contains(strings.Join(warnings, "\n"), "branch checkpoint fallback skipped") {
+		t.Fatalf("expected no-egress fallback warning, got %v", warnings)
+	}
+	for _, call := range runner.calls {
+		if call.name == "entire-test" {
+			t.Fatalf("no-egress checkpoint discovery must not run entire fallback: %+v", runner.calls)
+		}
+	}
+}
+
+func TestValidateExportDirAvailableRejectsSymlinkOutput(t *testing.T) {
+	target := t.TempDir()
+	parent := t.TempDir()
+	link := filepath.Join(parent, "brain-link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := validateExportDirAvailable(link); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink output rejection, got %v", err)
+	}
+	if entries, err := os.ReadDir(target); err != nil || len(entries) != 0 {
+		t.Fatalf("symlink target should remain untouched, entries=%d err=%v", len(entries), err)
+	}
+}
+
+func TestRemoveForcedOutputDirRejectsArbitraryJSONManifest(t *testing.T) {
+	outputDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outputDir, exportManifestFileName), []byte(`{"name":"web-app"}`+"\n"), 0o600); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	oldPath := filepath.Join(outputDir, "old.txt")
+	if err := os.WriteFile(oldPath, []byte("old"), 0o600); err != nil {
+		t.Fatalf("write old file: %v", err)
+	}
+
+	err := removeForcedOutputDir(outputDir, "")
+	if err == nil || !strings.Contains(err.Error(), "schema_version") {
+		t.Fatalf("expected arbitrary manifest rejection, got %v", err)
+	}
+	if _, statErr := os.Stat(oldPath); statErr != nil {
+		t.Fatalf("arbitrary manifest output was removed: %v", statErr)
+	}
+}
+
+func TestRemoveForcedOutputDirChecksResolvedSymlinkParent(t *testing.T) {
+	root := t.TempDir()
+	repoDir := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repoDir, 0o700); err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+	if err := writeBrainManifestAndReadme(repoDir, exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   time.Now().UTC(),
+		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: time.Now().UTC()}},
+	}); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	linkRoot := filepath.Join(t.TempDir(), "linked-root")
+	if err := os.Symlink(root, linkRoot); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	linkedRepo := filepath.Join(linkRoot, "repo")
+	err := removeForcedOutputDir(linkedRepo, repoDir)
+	if err == nil || !strings.Contains(err.Error(), "containing the repository") {
+		t.Fatalf("expected resolved repo deletion rejection, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(repoDir, exportManifestFileName)); statErr != nil {
+		t.Fatalf("repo manifest was removed through symlink parent: %v", statErr)
+	}
+}
+
 func TestLoadConfiguredCheckpointSnapshotNoEgressSkipsRemoteFetch(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
 	repoDir := t.TempDir()

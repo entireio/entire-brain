@@ -88,6 +88,46 @@ func TestSemanticIndexStoresProviderSnapshotAndManifest(t *testing.T) {
 	}
 }
 
+func TestBuildSemanticGenerationLeavesIncompleteTargetInPlace(t *testing.T) {
+	repoDir := t.TempDir()
+	brainDir := t.TempDir()
+	raw := []byte(semanticFixtureSnapshot("1.0"))
+	header, counts, filtered, err := filterSemanticSnapshot(raw, brainIgnore{}, repoDir)
+	if err != nil {
+		t.Fatalf("filter snapshot: %v", err)
+	}
+	targetRel := filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, "aaa111"))
+	targetDir := filepath.Join(brainDir, filepath.FromSlash(targetRel))
+	if err := os.MkdirAll(targetDir, 0o700); err != nil {
+		t.Fatalf("create incomplete target: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, semanticSQLiteName), []byte("not sqlite"), 0o600); err != nil {
+		t.Fatalf("write invalid sqlite: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, semanticMetricsName), []byte(`{"generation_id":"aaa111"}`), 0o600); err != nil {
+		t.Fatalf("write metrics: %v", err)
+	}
+	sentinel := filepath.Join(targetDir, "sentinel.txt")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
+		t.Fatalf("write sentinel: %v", err)
+	}
+
+	generation, _, err := buildSemanticGeneration(brainDir, repoDir, "aaa111", filtered, header, counts, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("build generation: %v", err)
+	}
+	if generation == targetRel {
+		t.Fatalf("generation reused incomplete target path %s", generation)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("incomplete target was moved or removed: %v", err)
+	}
+	storePath := filepath.Join(brainDir, filepath.FromSlash(generation), semanticSQLiteName)
+	if err := validateSemanticSQLiteStore(storePath, counts.Files, counts.Symbols, counts.Relations); err != nil {
+		t.Fatalf("new generation store invalid: %v", err)
+	}
+}
+
 func TestValidateLiveSemanticHeaderAcceptsRepoKeyCaseOnlyDifference(t *testing.T) {
 	err := validateLiveSemanticHeader(
 		semanticHeader{RepoKey: "gh/suhaanthayyil/Ultron", Commit: "aaa111", Tree: "tree111"},
@@ -871,8 +911,16 @@ func TestSemanticRepairRebuildsMissingStoreFromActiveSnapshot(t *testing.T) {
 	if !strings.Contains(out, "repaired semantic brain") {
 		t.Fatalf("repair output = %q", out)
 	}
-	if _, err := os.Stat(storePath); err != nil {
-		t.Fatalf("store was not rebuilt: %v", err)
+	repairedManifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("load repaired manifest: %v", err)
+	}
+	repairedStorePath := filepath.Join(brainDir, filepath.FromSlash(repairedManifest.Sources.Semantic.StorePath))
+	if repairedStorePath == storePath {
+		t.Fatalf("repair reused missing active store path: %s", repairedStorePath)
+	}
+	if _, err := os.Stat(repairedStorePath); err != nil {
+		t.Fatalf("store was not rebuilt at repaired path: %v", err)
 	}
 	queryOut, err := execute(t, cmd, "inspect", "code", "ValidateToken", "--json")
 	if err != nil {
@@ -937,8 +985,11 @@ func TestSemanticResetForceLeavesEmptyBrainDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read brain dir: %v", err)
 	}
-	if len(entries) != 0 {
-		t.Fatalf("brain dir entries after reset = %d, want 0", len(entries))
+	if len(entries) != 1 || entries[0].Name() != brainLockDirName {
+		t.Fatalf("brain dir entries after reset = %+v, want only %s", entries, brainLockDirName)
+	}
+	if _, err := os.Stat(filepath.Join(brainDir, brainLockDirName, brainWriteLockName)); err != nil {
+		t.Fatalf("write lock metadata should remain after reset: %v", err)
 	}
 }
 
@@ -3068,7 +3119,7 @@ func TestBundleImportRejectsSymlinkedAuditLog(t *testing.T) {
 	}
 }
 
-func TestBundleImportReplacesGenerationDirectory(t *testing.T) {
+func TestBundleImportPublishesNewGenerationWhenTargetExists(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
@@ -3086,7 +3137,8 @@ func TestBundleImportReplacesGenerationDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
-	stale := filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.Semantic.GenerationPath), "parse-cache", "stale.json")
+	oldGeneration := manifest.Sources.Semantic.GenerationPath
+	stale := filepath.Join(brainDir, filepath.FromSlash(oldGeneration), "parse-cache", "stale.json")
 	if err := os.MkdirAll(filepath.Dir(stale), 0o700); err != nil {
 		t.Fatalf("mkdir stale generation: %v", err)
 	}
@@ -3096,10 +3148,17 @@ func TestBundleImportReplacesGenerationDirectory(t *testing.T) {
 	if err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, opts, archive, bundleSHA256(t, archive)); err != nil {
 		t.Fatalf("import: %v", err)
 	}
-	if _, err := os.Stat(stale); !os.IsNotExist(err) {
-		t.Fatalf("stale generation file remained or stat failed differently: %v", err)
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatalf("active generation was mutated in place: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.Semantic.StorePath))); err != nil {
+	updated, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("load updated manifest: %v", err)
+	}
+	if updated.Sources.Semantic.GenerationPath == oldGeneration {
+		t.Fatalf("import reused active generation path: %+v", updated.Sources.Semantic)
+	}
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(updated.Sources.Semantic.StorePath))); err != nil {
 		t.Fatalf("imported generation store missing: %v", err)
 	}
 }

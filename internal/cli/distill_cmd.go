@@ -1183,11 +1183,7 @@ func saveDistillCache(brainDir string, cache distillCache) {
 	if err != nil {
 		return
 	}
-	dir := filepath.Join(brainDir, factsDirName)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return
-	}
-	_ = writeFileAtomic(filepath.Join(brainDir, filepath.FromSlash(distillCachePath)), append(data, '\n'), 0o600)
+	_ = writeBrainRelativeFileAtomic(brainDir, distillCachePath, append(data, '\n'), 0o600)
 }
 
 // execDistillAgent is the real distillAgentRunner: it runs the agent with the

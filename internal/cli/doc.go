@@ -180,8 +180,8 @@ func writeDocIndexAndSourceLocked(brainDir string, now time.Time) (*docSourceMan
 // model switch triggers a clean rebuild. This is the pure-Go stand-in for
 // sqlite-vec — brute-force cosine over a cached set, fast at the brain's scale.
 func newDocEmbedStore(brainDir, modelID string, dim int) *embedStore {
-	dir := filepath.Join(brainDir, docDirName, embedStoreDirName)
-	return &embedStore{path: filepath.Join(dir, embedStoreFileName), modelID: modelID, dim: dim}
+	rel := filepath.ToSlash(filepath.Join(docDirName, embedStoreDirName, embedStoreFileName))
+	return &embedStore{path: filepath.Join(brainDir, filepath.FromSlash(rel)), brainDir: brainDir, relPath: rel, modelID: modelID, dim: dim}
 }
 
 func loadDocIndex(brainDir string) (docIndex, error) {

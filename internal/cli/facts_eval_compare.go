@@ -126,6 +126,9 @@ func missingEvalTaskIDs(aByID, bByID map[string]evalTaskResult) ([]string, []str
 }
 
 func evalRelevanceSourcesComparable(a, b evalTaskResult) bool {
+	if a.RelevanceSource == "" || b.RelevanceSource == "" {
+		return false
+	}
 	return a.Labeled == b.Labeled && a.RelevanceSource == b.RelevanceSource
 }
 

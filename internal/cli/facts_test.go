@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -94,6 +95,62 @@ func TestFactsRoundTrip(t *testing.T) {
 	}
 	if len(got[0].Provenance) != 1 || got[0].Provenance[0].Line != 42 {
 		t.Fatalf("provenance not preserved: %+v", got[0].Provenance)
+	}
+}
+
+func TestFactWritesRejectSymlinkedFactsBranch(t *testing.T) {
+	brainDir := t.TempDir()
+	outside := t.TempDir()
+	branchDir := filepath.Join(brainDir, filepath.FromSlash(factsBranchRelDir("main")))
+	if err := os.MkdirAll(filepath.Dir(branchDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, branchDir); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	paths := normalizeFactPaths([]string{"preferences.coding.style"})
+	record := factRecord{
+		ID:         factRecordID("Reject symlink facts branch", paths),
+		Paths:      paths,
+		Text:       "Reject symlink facts branch",
+		Branch:     "main",
+		Origin:     factOriginAuthored,
+		Status:     factStatusActive,
+		Provenance: []factAnchor{{SessionID: "s1"}},
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	if err := writeFacts(brainDir, "main", []factRecord{record}); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("writeFacts should reject symlinked branch dir, got %v", err)
+	}
+	if err := writeFactProposals(brainDir, "main", []factProposal{{Action: "merge", CandidateID: "fact:a", TargetID: "fact:b"}}); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("writeFactProposals should reject symlinked branch dir, got %v", err)
+	}
+	if err := writeFactProposals(brainDir, "main", nil); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("empty writeFactProposals should reject symlinked branch dir before remove, got %v", err)
+	}
+	saveDistillCache(brainDir, distillCache{Version: distillCacheVersion, Sessions: map[string]string{"main/s1": "fp"}})
+	if _, err := os.Stat(filepath.Join(outside, distillCacheFileName)); !os.IsNotExist(err) {
+		t.Fatalf("distill cache should not be written through symlink, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, factsFileName)); !os.IsNotExist(err) {
+		t.Fatalf("facts file should not be written through symlink, stat err=%v", err)
+	}
+}
+
+func TestFactTaxonomyRejectsSymlinkedFactsRoot(t *testing.T) {
+	brainDir := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(brainDir, factsDirName)); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	err := writeFactTaxonomy(brainDir, defaultFactTaxonomy(time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)))
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("writeFactTaxonomy should reject symlinked facts root, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, factsTaxonomyFileName)); !os.IsNotExist(err) {
+		t.Fatalf("taxonomy should not be written through symlink, stat err=%v", err)
 	}
 }
 

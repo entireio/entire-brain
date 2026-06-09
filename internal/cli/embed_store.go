@@ -17,9 +17,11 @@ import (
 // model id + dim: a model swap (or any dim change) fails the load and triggers
 // a clean rebuild, so stale vectors from a different backend are never mixed in.
 type embedStore struct {
-	path    string // absolute path to vectors.bin
-	modelID string
-	dim     int
+	path     string // absolute path to vectors.bin
+	brainDir string
+	relPath  string
+	modelID  string
+	dim      int
 }
 
 const (
@@ -29,8 +31,8 @@ const (
 )
 
 func newEmbedStore(brainDir, branch, modelID string, dim int) *embedStore {
-	dir := filepath.Join(brainDir, filepath.FromSlash(factsBranchRelDir(branch)), embedStoreDirName)
-	return &embedStore{path: filepath.Join(dir, embedStoreFileName), modelID: modelID, dim: dim}
+	rel := filepath.ToSlash(filepath.Join(factsBranchRelDir(branch), embedStoreDirName, embedStoreFileName))
+	return &embedStore{path: filepath.Join(brainDir, filepath.FromSlash(rel)), brainDir: brainDir, relPath: rel, modelID: modelID, dim: dim}
 }
 
 // load reads persisted vectors, returning an empty map (not an error) whenever
@@ -97,8 +99,8 @@ func (s *embedStore) save(vecs map[string][]float32) error {
 			_ = binary.Write(&buf, binary.LittleEndian, math.Float32bits(v))
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
-		return err
+	if s.brainDir != "" && s.relPath != "" {
+		return writeBrainRelativeFileAtomic(s.brainDir, s.relPath, buf.Bytes(), 0o600)
 	}
 	return writeFileAtomic(s.path, buf.Bytes(), 0o600)
 }

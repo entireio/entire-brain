@@ -50,12 +50,8 @@ func loadFactProposals(brainDir, branch string) ([]factProposal, error) {
 // removes the file so a fully-resolved branch leaves no stale queue.
 func writeFactProposals(brainDir, branch string, proposals []factProposal) error {
 	deduped := dedupeProposals(proposals)
-	path := filepath.Join(brainDir, filepath.FromSlash(factsProposalsRelPath(branch)))
 	if len(deduped) == 0 {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		return nil
+		return removeBrainRelativeFile(brainDir, factsProposalsRelPath(branch))
 	}
 	var buf strings.Builder
 	for _, p := range deduped {
@@ -66,11 +62,7 @@ func writeFactProposals(brainDir, branch string, proposals []factProposal) error
 		buf.Write(data)
 		buf.WriteByte('\n')
 	}
-	dir := filepath.Join(brainDir, filepath.FromSlash(factsBranchRelDir(branch)))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	return writeFileAtomic(path, []byte(buf.String()), 0o600)
+	return writeBrainRelativeFileAtomic(brainDir, factsProposalsRelPath(branch), []byte(buf.String()), 0o600)
 }
 
 func dedupeProposals(proposals []factProposal) []factProposal {

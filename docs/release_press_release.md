@@ -40,7 +40,9 @@ task outcomes instead of relying on demos or anecdotes.
 - Semantic usefulness, using semantic-audit output plus benchmark tasks where
   semantic context changes file/test localization or agent efficiency.
 - Replay-lab evidence, using retained benchmark scenarios with repeated runs,
-  stable verdicts, and a committed `audit_codex.py --fail-on-flags` report.
+  stable verdicts, and a committed `audit_codex.py --fail-on-flags` report. The
+  current retained Codex panel is quarantine/reference evidence only because its
+  audit report has hard flags and zero provenance-complete records.
 
 ## Blocked Or Access-Dependent
 

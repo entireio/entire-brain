@@ -49,12 +49,12 @@ func TestSemanticAuditReportsCountsFreshnessAndBlindSpots(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
-		`INSERT INTO files(path, blob, content_hash) VALUES ('a.go', 'blob-a', 'hash-a')`,
-		`INSERT INTO files(path, blob, content_hash) VALUES ('c.ts', 'blob-c', 'hash-c')`,
-		`INSERT INTO files(path, blob, content_hash) VALUES ('README.md', 'blob-readme', 'hash-readme')`,
+		`INSERT INTO files(path, blob, content_hash, language) VALUES ('a.go', 'blob-a', 'hash-a', 'go')`,
+		`INSERT INTO files(path, blob, content_hash, language) VALUES ('component.unknown', 'blob-c', 'hash-c', 'typescript')`,
+		`INSERT INTO files(path, blob, content_hash, language) VALUES ('README.md', 'blob-readme', 'hash-readme', 'markdown')`,
 		`INSERT INTO symbols(id, kind, name, qualified_name, file_path, start_line, end_line, signature, language, stable_id_version) VALUES ('s1', 'function', 'A', 'A', 'a.go', 1, 2, '', 'go', 'v1')`,
 		`INSERT INTO symbols(id, kind, name, qualified_name, file_path, start_line, end_line, signature, language, stable_id_version) VALUES ('s2', 'struct', 'B', 'B', 'a.go', 3, 4, '', 'go', 'v1')`,
-		`INSERT INTO symbols(id, kind, name, qualified_name, file_path, start_line, end_line, signature, language, stable_id_version) VALUES ('s3', 'function', 'C', 'C', 'c.ts', 1, 2, '', 'typescript', 'v1')`,
+		`INSERT INTO symbols(id, kind, name, qualified_name, file_path, start_line, end_line, signature, language, stable_id_version) VALUES ('s3', 'function', 'C', 'C', 'component.unknown', 1, 2, '', 'typescript', 'v1')`,
 		`INSERT INTO relations(from_id, to_id, type, confidence, reason, warning_codes) VALUES ('s1', 's2', 'calls', 1, '', '[]')`,
 		`INSERT INTO relations(from_id, to_id, type, confidence, reason, warning_codes) VALUES ('s3', 's1', 'imports', 1, '', '[]')`,
 	} {

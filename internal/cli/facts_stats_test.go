@@ -91,14 +91,14 @@ func TestHolmReject(t *testing.T) {
 
 func TestCompareEvalSummaries(t *testing.T) {
 	a := evalSummary{Results: []evalTaskResult{
-		{ID: "t1", Task: "one", Recall: 0.1, UsefulPer1k: 1, Tokens: 100, Labeled: true},
-		{ID: "t2", Task: "two", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true},
-		{ID: "t3", Task: "three", Recall: 0.15, UsefulPer1k: 1.5, Tokens: 100, Labeled: true},
+		{ID: "t1", Task: "one", Recall: 0.1, UsefulPer1k: 1, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel},
+		{ID: "t2", Task: "two", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel},
+		{ID: "t3", Task: "three", Recall: 0.15, UsefulPer1k: 1.5, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel},
 	}}
 	b := evalSummary{Results: []evalTaskResult{
-		{ID: "t1", Task: "one", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true},
-		{ID: "t2", Task: "two", Recall: 0.3, UsefulPer1k: 3, Tokens: 100, Labeled: true},
-		{ID: "t3", Task: "three", Recall: 0.25, UsefulPer1k: 2.5, Tokens: 100, Labeled: true},
+		{ID: "t1", Task: "one", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel},
+		{ID: "t2", Task: "two", Recall: 0.3, UsefulPer1k: 3, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel},
+		{ID: "t3", Task: "three", Recall: 0.25, UsefulPer1k: 2.5, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel},
 	}}
 	comps, n, err := compareEvalSummaries(a, b, 0.05)
 	if err != nil {
@@ -125,10 +125,10 @@ func TestCompareEvalSummaries(t *testing.T) {
 
 func TestCompareEvalSummariesRequiresMatchedTaskSets(t *testing.T) {
 	a := evalSummary{Results: []evalTaskResult{
-		{ID: "t1", Task: "one", UsefulPer1k: 1, Tokens: 100},
-		{ID: "t2", Task: "two", UsefulPer1k: 2, Tokens: 100},
+		{ID: "t1", Task: "one", UsefulPer1k: 1, Tokens: 100, RelevanceSource: evalRelevanceNone},
+		{ID: "t2", Task: "two", UsefulPer1k: 2, Tokens: 100, RelevanceSource: evalRelevanceNone},
 	}}
-	b := evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "one", UsefulPer1k: 2, Tokens: 100}}}
+	b := evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "one", UsefulPer1k: 2, Tokens: 100, RelevanceSource: evalRelevanceNone}}}
 	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil {
 		t.Fatal("missing task ids should be rejected by default")
 	}
@@ -161,8 +161,8 @@ func TestCompareEvalSummariesSkipsUndefinedRecallAndRejectsBadPairs(t *testing.T
 		t.Fatal("mismatched task text should be rejected")
 	}
 
-	a = evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "same", UsefulPer1k: 1, Tokens: 100}}}
-	b = evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "same", UsefulPer1k: 2, Tokens: 120}}}
+	a = evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "same", UsefulPer1k: 1, Tokens: 100, RelevanceSource: evalRelevanceNone}}}
+	b = evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "same", UsefulPer1k: 2, Tokens: 120, RelevanceSource: evalRelevanceNone}}}
 	comps, _, err := compareEvalSummaries(a, b, 0.05)
 	if err != nil {
 		t.Fatalf("compare unlabeled: %v", err)
@@ -171,6 +171,17 @@ func TestCompareEvalSummariesSkipsUndefinedRecallAndRejectsBadPairs(t *testing.T
 		if c.Metric == "recall" && c.N != 0 {
 			t.Fatalf("undefined recall should be skipped, got %+v", c)
 		}
+	}
+}
+
+func TestCompareEvalSummariesRejectsMissingRelevanceSource(t *testing.T) {
+	a := evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "same", Precision: 1, UsefulPer1k: 1, Tokens: 100}}}
+	b := evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "same", Precision: 1, UsefulPer1k: 1, Tokens: 100}}}
+	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil {
+		t.Fatal("missing relevance_source should be rejected by default")
+	}
+	if _, _, err := compareEvalSummariesWithOptions(a, b, 0.05, true); err != nil {
+		t.Fatalf("allow proxy comparison should permit legacy summaries after an explicit override: %v", err)
 	}
 }
 

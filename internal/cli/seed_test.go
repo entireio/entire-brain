@@ -72,6 +72,33 @@ func TestSeedWritesDeterministicBrain(t *testing.T) {
 	}
 }
 
+func TestSeedForceOutputRefusesRepoRoot(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	sentinel := filepath.Join(repoDir, "sentinel.txt")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := seedFixtureRunner(repoDir)
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			PluginConfigDir: filepath.Join(t.TempDir(), "config"),
+			PluginDataDir:   filepath.Join(t.TempDir(), "data"),
+			PluginStateDir:  filepath.Join(t.TempDir(), "state"),
+			PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
+		},
+		Runner: runner,
+		Now:    time.Now,
+	})
+	out, err := execute(t, cmd, "refresh", "seed", repoDir, "--output", repoDir, "--force")
+	if err == nil || !strings.Contains(err.Error(), "refuses to remove") {
+		t.Fatalf("seed --force --output repo root err = %v\n%s", err, out)
+	}
+	if data, err := os.ReadFile(sentinel); err != nil || string(data) != "keep" {
+		t.Fatalf("sentinel was removed or changed: %q err=%v", data, err)
+	}
+}
+
 func TestSeedSkipsSymlinkedRepoInputs(t *testing.T) {
 	repoDir := seedFixtureRepo(t)
 	outsideDir := t.TempDir()
@@ -327,8 +354,12 @@ func TestSeedRejectsNonEmptyOutputUnlessForced(t *testing.T) {
 		Env:     EntireEnv{PluginConfigDir: filepath.Join(t.TempDir(), "config")},
 		Runner:  seedFixtureRunner(repoDir),
 	})
-	if _, err := execute(t, cmd, "refresh", "seed", "--force", "--output", outputDir, repoDir); err != nil {
-		t.Fatalf("seed --force: %v", err)
+	_, err = execute(t, cmd, "refresh", "seed", "--force", "--output", outputDir, repoDir)
+	if err == nil || !strings.Contains(err.Error(), "missing manifest.json") {
+		t.Fatalf("seed --force should reject non-brain output, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(outputDir, "old.txt")); statErr != nil {
+		t.Fatalf("seed --force removed non-brain output: %v", statErr)
 	}
 }
 
