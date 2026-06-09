@@ -57,8 +57,13 @@ func (s *semanticReranker) factVector(f factRecord) []float32 {
 		return v
 	}
 	v := s.e.Embed(f.Text)
-	s.cache[f.ID] = v
-	s.dirty = true
+	// Cache only a full-dimension vector. A transient embed failure (nil/short)
+	// must not be cached, or every later call this process would reuse the empty
+	// result and never retry; returning it uncached lets a later call re-embed.
+	if len(v) == s.e.Dim() {
+		s.cache[f.ID] = v
+		s.dirty = true
+	}
 	return v
 }
 

@@ -35,8 +35,20 @@ console.log("ready: dim =", probe.vector.length, "on :" + port);
 http.createServer((req, res) => {
   if (req.method !== "POST") { res.writeHead(405); res.end(); return; }
   let body = "";
-  req.on("data", (c) => (body += c));
+  let aborted = false;
+  const MAX_BODY = 1 << 20; // 1 MiB — embed inputs are short; cap accidental/huge requests
+  req.on("data", (c) => {
+    if (aborted) return;
+    body += c;
+    if (body.length > MAX_BODY) {
+      aborted = true;
+      res.writeHead(413, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "request body too large" }));
+      req.destroy();
+    }
+  });
   req.on("end", async () => {
+    if (aborted) return;
     try {
       const { input } = JSON.parse(body);
       const emb = await ctx.getEmbeddingFor(String(input));
