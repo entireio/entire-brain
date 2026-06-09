@@ -206,7 +206,7 @@ func TestBrainBriefIncludesMatchingFacts(t *testing.T) {
 	}
 }
 
-func TestBrainSearchShowAndInspectAliases(t *testing.T) {
+func TestBrainInspectCodeAndShow(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))

@@ -94,12 +94,12 @@ func TestSearchPathQueryDoesNotTriggerTokenFallback(t *testing.T) {
 	}
 }
 
-func TestSearchEmptyResultsEmitArrayNotNull(t *testing.T) {
+func TestInspectCodeEmptyResultsEmitArrayNotNull(t *testing.T) {
 	_, _, opts := indexFixtureBrain(t, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(opts)
 	out, err := execute(t, cmd, "inspect", "code", "zzqqxxnomatch", "--json")
 	if err != nil {
-		t.Fatalf("search: %v\n%s", err, out)
+		t.Fatalf("inspect code: %v\n%s", err, out)
 	}
 	if !strings.Contains(out, `"results": []`) {
 		t.Fatalf("expected empty results to serialize as [], got:\n%s", out)
