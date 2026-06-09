@@ -15,8 +15,9 @@ import (
 
 // doc_fts.go builds a derived FTS5 BM25 index over the doc records and ranks
 // queries with it, mirroring history_fts.go. Rebuildable: deleting the .sqlite
-// forces a clean rebuild, and any failure falls back to nothing (the caller skips
-// docs). Heading + text are both indexed so a query matches either.
+// forces a clean rebuild, and any failure falls back to the in-memory lexical
+// scorer (rankDocsLexical) so the doc source still contributes. Heading + text are
+// both indexed so a query matches either.
 
 const (
 	docFTSFileName        = "index-fts.sqlite"

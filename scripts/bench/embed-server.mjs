@@ -1,7 +1,9 @@
 // EmbeddingGemma embed server for the Stage 1b benchmark (qmd's runner: the GGUF
 // run in-process via node-llama-cpp's prebuilt llama.cpp — no Ollama, no build).
-// Exposes Ollama's /api/embed shape so the brain's opt-in embedder can reach it:
-//   POST {"input": "..."} -> {"embeddings": [[...768 floats...]]}
+// Exposes Ollama's /api/embed shape so the brain's opt-in embedder can reach it.
+// The brain's ollamaEmbedder POSTs {"model": "…", "input": "…"}; only "input" is
+// used here (extra fields like "model" are ignored):
+//   POST {"model": "…", "input": "…"} -> {"embeddings": [[...768 floats...]]}
 //
 // Setup (see README.md):
 //   npm install node-llama-cpp

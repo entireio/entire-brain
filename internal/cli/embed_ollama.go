@@ -40,10 +40,15 @@ func newOllamaEmbedder() *ollamaEmbedder {
 	if url == "" {
 		url = "http://localhost:11434/api/embed"
 	}
+	// Disable proxies on the transport: this embedder is local-first (the default
+	// URL is localhost), and honoring HTTP(S)_PROXY could route query/document text
+	// off-box. Clone DefaultTransport so its dial/keepalive defaults are preserved.
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Proxy = nil
 	return &ollamaEmbedder{
 		model: model,
 		url:   url,
-		hc:    &http.Client{Timeout: 60 * time.Second},
+		hc:    &http.Client{Timeout: 60 * time.Second, Transport: tr},
 	}
 }
 
