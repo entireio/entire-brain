@@ -62,7 +62,8 @@ func TestRootWithoutCommandShowsHelp(t *testing.T) {
 
 func TestRedundantAliasesAreRemoved(t *testing.T) {
 	// The duplicate commands are unregistered (not just hidden): invoking them
-	// now fails. Canonical paths are `search` and `inspect <sub>`.
+	// now fails. Canonical paths are the retrieval verbs (query/search/vsearch/
+	// get/multi-get) and `inspect <sub>` for symbol-graph navigation.
 	for _, alias := range []string{"context", "impact", "changes", "tests", "routes", "tools", "workflows"} {
 		cmd := NewRootCommand(Options{Version: "test-version"})
 		if _, err := execute(t, cmd, alias); err == nil {

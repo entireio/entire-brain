@@ -420,7 +420,8 @@ Orient first (what is this project?):
 Then, for a task:
   entire brain brief "<task>" --json
 
-Retrieval (qmd-aligned verbs; all take --json, --limit, --branch):
+Retrieval (qmd-aligned verbs; search/vsearch/query take --json/--limit/--branch,
+get/multi-get take --json/--branch):
   entire brain query "<query>" --json       # hybrid (lexical+vector, RRF) — the default
   entire brain search "<query>" --json      # lexical BM25 over facts + history + docs
   entire brain vsearch "<query>" --json     # vector/semantic over facts + docs

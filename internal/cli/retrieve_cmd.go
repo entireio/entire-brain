@@ -10,8 +10,9 @@ import (
 
 // retrieve_cmd.go wires the qmd-aligned verbs over the unified text index:
 // search (lexical), vsearch (vector), query (hybrid), and get/multi-get (fetch by
-// id). Symbol/code navigation stays under `inspect code/context/impact`; the
-// specialist `inspect <kind>` commands remain as the pre-distillation fallback.
+// id). These verbs subsumed the old per-source inspect kinds (facts/docs/history
+// text). What remains under `inspect` is only what the verbs can't do: symbol-graph
+// traversal (code/context/impact/changes/tests/boundaries) and regression analysis.
 
 func newSearchCommand(opts Options) *cobra.Command {
 	return newRetrieveCommand(opts, "search", modeLexical, "Lexical keyword search across facts, history, and docs (BM25 for history and docs; token-overlap for facts)")
