@@ -92,33 +92,46 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 
 	// History — BM25 (lexical / hybrid only). The FTS index is an optimization,
 	// never load-bearing (see history_fts.go): on a build/open/query failure fall
-	// back to the in-memory substring scorer rather than silently dropping history.
+	// back to the in-memory substring scorer. But a corrupt manifest, or a history
+	// index the manifest declares yet is missing/unreadable, is a real storage
+	// problem — surface it rather than returning silently-incomplete results. A
+	// brain with no history source (nil) is legitimately skipped.
 	if mode != modeVector {
-		if manifest, err := loadBrainManifest(brainDir); err == nil && manifest.Sources != nil && manifest.Sources.History != nil {
-			if index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History); err == nil {
-				scored, ok := rankHistoryViaFTS(brainDir, index, "history", query, limit*2)
-				if !ok {
-					scored = rankHistoryRecordsScored(index, "history", query, limit*2, 0)
-				}
-				if len(scored) > 0 {
-					lists = append(lists, historyToUnified(scored))
-				}
+		manifest, err := loadBrainManifest(brainDir)
+		if err != nil {
+			return nil, err
+		}
+		if manifest.Sources != nil && manifest.Sources.History != nil {
+			index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+			if err != nil {
+				return nil, fmt.Errorf("load history index: %w", err)
+			}
+			scored, ok := rankHistoryViaFTS(brainDir, index, "history", query, limit*2)
+			if !ok {
+				scored = rankHistoryRecordsScored(index, "history", query, limit*2, 0)
+			}
+			if len(scored) > 0 {
+				lists = append(lists, historyToUnified(scored))
 			}
 		}
 	}
 
 	// Docs — lexical (search/query) and/or vector (vsearch/query). In hybrid mode
-	// docs join BOTH arms, mirroring facts: a paraphrased doc query surfaces via the
-	// vector arm, and docs still appear if the doc FTS index can't be opened.
-	if index, err := loadDocIndex(brainDir); err == nil && len(index.Records) > 0 {
+	// docs join BOTH arms, mirroring facts. A never-built doc index is skipped; a
+	// corrupt/unreadable one is a real storage problem and is surfaced.
+	docIdx, derr := loadDocIndex(brainDir)
+	switch {
+	case derr == nil && len(docIdx.Records) > 0:
 		if mode != modeVector {
-			if scored, ok := rankDocsViaFTS(brainDir, index, query, limit*2); ok {
+			if scored, ok := rankDocsViaFTS(brainDir, docIdx, query, limit*2); ok {
 				lists = append(lists, docsToUnified(scored))
 			}
 		}
 		if mode != modeLexical && e != nil {
-			lists = append(lists, docsVectorRanked(brainDir, index, query, e, limit*2))
+			lists = append(lists, docsVectorRanked(brainDir, docIdx, query, e, limit*2))
 		}
+	case derr != nil && !os.IsNotExist(derr):
+		return nil, fmt.Errorf("load doc index: %w", derr)
 	}
 
 	return rrfMergeUnified(lists, limit), nil

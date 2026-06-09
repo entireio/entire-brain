@@ -34,23 +34,26 @@ console.log("ready: dim =", probe.vector.length, "on :" + port);
 
 http.createServer((req, res) => {
   if (req.method !== "POST") { res.writeHead(405); res.end(); return; }
-  let body = "";
+  const chunks = [];
+  let size = 0;
   let aborted = false;
   const MAX_BODY = 1 << 20; // 1 MiB — embed inputs are short; cap accidental/huge requests
   req.on("data", (c) => {
     if (aborted) return;
-    body += c;
-    if (body.length > MAX_BODY) {
+    size += c.length; // c is a Buffer; .length is bytes, not UTF-16 code units
+    if (size > MAX_BODY) {
       aborted = true;
       res.writeHead(413, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "request body too large" }));
       req.destroy();
+      return;
     }
+    chunks.push(c);
   });
   req.on("end", async () => {
     if (aborted) return;
     try {
-      const { input } = JSON.parse(body);
+      const { input } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       const emb = await ctx.getEmbeddingFor(String(input));
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ embeddings: [Array.from(emb.vector)] }));

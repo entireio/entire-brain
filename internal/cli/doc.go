@@ -71,7 +71,10 @@ func firstHeading(text string) string {
 func loadDocRecordsFromSeed(brainDir string) (records []docRecord, files int, warnings []string, err error) {
 	seedDir := filepath.Join(brainDir, seedDirName)
 	if _, statErr := os.Stat(seedDir); statErr != nil {
-		return nil, 0, nil, nil // no seed yet; not an error
+		if os.IsNotExist(statErr) {
+			return nil, 0, nil, nil // no seed yet; not an error
+		}
+		return nil, 0, nil, statErr // a real stat failure (e.g. permissions) must not look like an empty index
 	}
 	relTo := func(path string) string {
 		if rel, relErr := filepath.Rel(brainDir, path); relErr == nil {

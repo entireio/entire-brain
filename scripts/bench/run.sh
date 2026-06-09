@@ -50,7 +50,7 @@ for repo in "$@"; do
   if ! (cd "$repo" && "$EB" facts eval-gen --branch main --out "$OUT/$name.tasks.json") >"$OUT/$name.evalgen.log" 2>&1; then
     echo "  SKIP: eval-gen failed (see $OUT/$name.evalgen.log)"; continue
   fi
-  n=$(python3 -c "import json;print(len(json.load(open('$OUT/$name.tasks.json'))))" 2>/dev/null || echo 0)
+  n=$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))))" "$OUT/$name.tasks.json" 2>/dev/null || echo 0)
   if [ "${n:-0}" -lt 3 ]; then echo "  SKIP: only ${n:-0} tasks"; continue; fi
 
   echo "  [4/5] eval Model2Vec"
