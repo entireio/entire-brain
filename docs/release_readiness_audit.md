@@ -27,6 +27,13 @@ Implemented claim-control surfaces:
 Claim policy: do not claim distill is "fast" until a real large-repo dry-run and
 timed run show the call count and wall-time improvement.
 
+Local smoke evidence collected on this repo: `go run ./cmd/entire-brain distill
+--dry-run --json` completed without agent calls and reported 147 sessions,
+250,321,142 raw bytes, 7,419,024 preprocessed bytes, 259 extraction chunks, and
+an upper bound of 518 extraction plus reconcile agent calls. This validates the
+sizing surface and explains why backfill scales painfully, but it is not the
+target large-repo performance proof.
+
 Blocked evidence collection: the target large session repo and retained timed
 run artifacts are still needed before any public performance claim.
 
