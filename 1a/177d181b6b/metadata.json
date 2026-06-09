@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "1a177d181b6b",
+  "strategy": "manual-commit",
+  "branch": "feat/fact-quality-appendix-d",
+  "checkpoints_count": 5,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/1a/177d181b6b/0/metadata.json",
+      "transcript": "/1a/177d181b6b/0/full.jsonl",
+      "content_hash": "/1a/177d181b6b/0/content_hash.txt",
+      "prompt": "/1a/177d181b6b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 11011,
+    "cache_creation_tokens": 87712,
+    "cache_read_tokens": 8884839,
+    "output_tokens": 41589,
+    "api_call_count": 41
+  }
+}
