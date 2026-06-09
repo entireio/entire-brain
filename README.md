@@ -2,8 +2,9 @@
 
 Entire Brain is an external-command plugin for the Entire CLI. It builds a
 local, inspectable "brain" for a repository from Entire session history, seeded
-repository context, a local history index, optional semantic facts from
-`entire-sem`, and a curated layer of durable facts distilled from past sessions.
+repository context, a local history index, an index of the brain's own docs (seed
+summaries and copied repo markdown), optional semantic facts from `entire-sem`,
+and a curated layer of durable facts distilled from past sessions.
 
 The plugin binary is named `entire-brain` and is invoked through Entire as:
 
@@ -42,9 +43,10 @@ entire brain refresh --force
 `refresh` is the normal entry point. It writes the newest known checkpoint
 version of every discoverable Entire session into the persistent brain
 directory, builds deterministic repository seed context, runs `entire sem`, and
-builds the local semantic context graph used by `query`, `context`, `impact`,
-`changes`, and `brief`. It also derives the local decision/rationale history
-index from the exported sessions. `--agent` controls optional seed synthesis:
+builds the local semantic context graph used by the `inspect`
+`code`/`context`/`impact`/`changes`/`tests` commands and `brief`. It also derives
+the local decision/rationale history index from the exported sessions and a doc
+index over the brain's seed markdown. `--agent` controls optional seed synthesis:
 the default is `auto`, which uses Codex when available, then Claude Code when
 available, otherwise deterministic seed-only mode. `--output` writes a complete
 brain to an explicit directory. `--force` rebuilds generated sources and
@@ -148,11 +150,19 @@ and `entire labs investigate`. Those consumers live in the `entireio/cli` repo a
 
 ### Ask The Brain
 
+The qmd-aligned retrieval verbs rank across the brain's text layers — durable
+facts, indexed history, and docs — and return ids you can fetch in full:
+
 ```sh
-entire brain brief "update the README" --json
-entire brain search "README" --json
-entire brain show <semantic-id> --json
+entire brain query "how does checkpointing work" --json   # hybrid (lexical + vector, RRF) — the default
+entire brain search "checkpoint" --json                   # lexical keyword (BM25 over history + docs)
+entire brain vsearch "preventing data races" --json       # vector / semantic (facts + docs)
+entire brain get fact:<id> --json                         # fetch one item by id (fact:… | history:… | doc:…)
+entire brain multi-get fact:<id> doc:<id> --json          # fetch several by id
 ```
+
+All five accept `--json`; `search`/`vsearch`/`query` also take `--limit` and
+`--branch`. Every result carries an `id` you can pass to `get`/`multi-get`.
 
 `overview` is the fastest way to orient on an unfamiliar repo: it returns a
 single project map — stack stats, route/tool/workflow counts, build/test
@@ -165,33 +175,29 @@ entire brain overview --json
 `brief` is the per-task entry point: it combines brain availability, freshness,
 live git state, semantic context and test suggestions, matching history records,
 and the top matching durable facts for the task (sized to the requested
-`--limit`). `status`, `search`, and `show` provide smaller top-level queries for
-agents and scripts.
+`--limit`). `status`, `show`, and the retrieval verbs above provide smaller
+top-level queries for agents and scripts.
 
-For deeper inspection:
+For symbol-graph navigation and regression analysis — what the retrieval verbs
+don't cover — use the `inspect` specialists:
 
 ```sh
 entire brain guide
-entire brain inspect code "README" --json
-entire brain inspect context "main" --json
-entire brain inspect impact "main" --json
-entire brain inspect changes --json
-entire brain inspect tests "main" --json
-entire brain inspect decisions "semantic" --json
-entire brain inspect history "semantic" --json
-entire brain inspect facts "checkpoint" --json
-entire brain inspect blame <fact-id> --json
-entire brain inspect boundaries --kind tool --json
+entire brain inspect code "ValidateToken" --json         # find a symbol in the graph
+entire brain inspect context "main" --json               # relation-aware context for a symbol
+entire brain inspect impact "main" --json                # impact set via typed relations
+entire brain inspect changes --json                      # map the working-tree diff to symbols
+entire brain inspect tests "main" --json                 # test suggestions for a symbol
+entire brain inspect boundaries --kind tool --json       # route / tool / workflow boundaries
+entire brain inspect regressions "<task>" --json         # suspected regressions vs session memory
+entire brain inspect blame <fact-id> --json              # the source anchors a fact was derived from
 ```
 
-Specialist text searches (`decisions`, `validation`, `tool-paths`,
-`architecture`, `history`, `sessions`) are tokenized and ranked: phrase a
-natural-language question and the brain ranks records by overlapping terms.
-Results carry `score`, `matched_terms`, and a `timestamp`, and the report
-carries `query_terms` so a thin result is debuggable. Add `--relax` for
-best-effort partial matches when a strict search returns nothing. Semantic
-`search` falls back to token-overlap ranking for multi-word queries and accepts
-a record id (from `search`/`overview`) for `context`/`impact`.
+History content (decisions, validations, tool paths, architecture notes) is no
+longer a set of per-kind commands — it is indexed into the history layer and
+surfaced through the unified `search`/`query` verbs above. Symbol lookup that used
+to be the top-level `search` now lives at `inspect code`; `inspect context`/`impact`
+accept a symbol name or a record id.
 
 Use `stale --blind-spots` to list the files the semantic provider could not
 fully index, so an agent knows where its semantic answers are untrustworthy:
