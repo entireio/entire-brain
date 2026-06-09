@@ -20,7 +20,7 @@ type unifiedResult struct {
 	Heading string  `json:"heading,omitempty"`
 	Line    int     `json:"line,omitempty"`
 	Text    string  `json:"text"`
-	Score   float64 `json:"score"`
+	Score   float64 `json:"score,omitempty"` // omitted for unranked results (get/multi-get); RRF scores are always > 0
 }
 
 type retrievalMode int

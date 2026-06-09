@@ -231,18 +231,23 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	docsMissing := manifest == nil || manifest.Sources == nil || manifest.Sources.Docs == nil
 	if refreshOpts.historyIndex || needSeed || docsMissing || refreshOpts.force {
 		docTask := progress.Begin("doc index")
-		if docSource, derr := writeDocIndexAndSource(brainDir, opts.Now().UTC()); derr != nil {
-			docTask.Update("doc index: skipped (" + derr.Error() + ")")
-			docTask.Finish(nil)
-		} else {
-			docLabel := fmt.Sprintf("doc index: %d chunks / %d files", docSource.Records, docSource.Files)
-			if n := len(docSource.Warnings); n > 0 {
-				docLabel += fmt.Sprintf(" (%d %s)", n, pluralUnit("warning", n))
-			}
-			docTask.Update(docLabel)
-			docTask.Finish(nil)
-			manifest, _ = loadBrainManifest(brainDir)
+		// A doc-index write failure (permissions, disk full, corrupt manifest) is a
+		// real error: fail the refresh like the history index does, so automation
+		// relying on the exit status isn't told success on an incomplete brain.
+		// (A missing seed is not an error — writeDocIndexAndSource writes an empty
+		// index in that case.)
+		docSource, derr := writeDocIndexAndSource(brainDir, opts.Now().UTC())
+		if derr != nil {
+			docTask.Finish(derr)
+			return derr
 		}
+		docLabel := fmt.Sprintf("doc index: %d chunks / %d files", docSource.Records, docSource.Files)
+		if n := len(docSource.Warnings); n > 0 {
+			docLabel += fmt.Sprintf(" (%d %s)", n, pluralUnit("warning", n))
+		}
+		docTask.Update(docLabel)
+		docTask.Finish(nil)
+		manifest, _ = loadBrainManifest(brainDir)
 	}
 	if refreshOpts.semantic {
 		semanticCheckTask := progress.Begin(refreshSemanticCheckLabel(manifest))

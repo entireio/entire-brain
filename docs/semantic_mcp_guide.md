@@ -12,6 +12,7 @@ Available tools:
 - Symbol graph: `brain_code`, `brain_context`, `brain_impact`, `brain_changes`,
   `brain_tests`, `brain_boundaries`
 - Diff-less review: `brain_regressions`, `brain_review`
+- Cross-repo (workspace): `brain_workspace_regressions`, `brain_workspace_review`
 
 The tool responses wrap the existing CLI `--json` output as text content. Treat
 the CLI JSON contracts as the source of truth for fields and freshness policy.
