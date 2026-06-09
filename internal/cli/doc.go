@@ -98,10 +98,13 @@ func loadDocRecordsFromSeed(brainDir string) (records []docRecord, files int, wa
 		rel := relTo(path)
 		files++
 		for _, c := range chunkLines(string(data), maxDocChunkBytes, false) {
-			text := strings.TrimSpace(c.Text)
-			if text == "" {
+			if strings.TrimSpace(c.Text) == "" {
 				continue
 			}
+			// Trim only the trailing newline the chunker appends — keep leading
+			// indentation so an indented code block / nested list that a chunk starts
+			// inside isn't corrupted (and the hashed id stays faithful to the source).
+			text := strings.TrimRight(c.Text, "\n")
 			records = append(records, docRecord{
 				ID:      docRecordID(rel, c.StartLine, text),
 				Path:    rel,

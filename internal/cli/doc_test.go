@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -62,5 +64,33 @@ func TestChunkLinesDocsBlankRunRespectsMaxBytes(t *testing.T) {
 		if len(c.Text) > max {
 			t.Fatalf("chunk exceeded maxBytes (%d): %d bytes %q", max, len(c.Text), c.Text)
 		}
+	}
+}
+
+// loadDocRecordsFromSeed must keep leading indentation (indented code blocks /
+// nested lists), trimming only the chunker's trailing newline.
+func TestLoadDocRecordsPreservesLeadingIndentation(t *testing.T) {
+	dir := t.TempDir()
+	seed := filepath.Join(dir, seedDirName)
+	if err := os.MkdirAll(seed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	md := "# Title\n\n    indented code line\n    more code\n"
+	if err := os.WriteFile(filepath.Join(seed, "x.md"), []byte(md), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	recs, _, _, err := loadDocRecordsFromSeed(dir)
+	if err != nil {
+		t.Fatalf("loadDocRecordsFromSeed: %v", err)
+	}
+	var joined string
+	for _, r := range recs {
+		joined += r.Text
+		if strings.HasSuffix(r.Text, "\n") {
+			t.Fatalf("trailing newline not trimmed: %q", r.Text)
+		}
+	}
+	if !strings.Contains(joined, "    indented code line") {
+		t.Fatalf("leading indentation was stripped: %q", joined)
 	}
 }
