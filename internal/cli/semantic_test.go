@@ -199,6 +199,41 @@ func TestSemanticIndexPassesBrainignoreToProvider(t *testing.T) {
 	}
 }
 
+func TestSemanticIndexFallsBackWhenProviderRejectsBrainignoreFlag(t *testing.T) {
+	repoDir := t.TempDir()
+	brainignorePath := filepath.Join(repoDir, ".brainignore")
+	if err := os.WriteFile(brainignorePath, []byte("generated/\n"), 0o600); err != nil {
+		t.Fatalf("write .brainignore: %v", err)
+	}
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	runner.responses[fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--ignore-file", brainignorePath)] = fakeCommandResponse{
+		stderr: "unexpected arguments: --ignore-file " + brainignorePath,
+		err:    errors.New("exit status 1"),
+	}
+	cmd := &cobra.Command{Use: "index"}
+
+	if err := runSemanticIndex(cmd.Context(), cmd, Options{
+		Version: "test",
+		Env:     env,
+		Runner:  runner,
+		Now:     time.Now,
+	}, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	if !fakeRunnerCalled(runner, "entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--ignore-file", brainignorePath) {
+		t.Fatalf("semantic provider was not first called with .brainignore: %+v", runner.calls)
+	}
+	if !fakeRunnerCalled(runner, "entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network") {
+		t.Fatalf("semantic provider did not retry without .brainignore: %+v", runner.calls)
+	}
+	source := mustSemanticSource(t, env)
+	if !semanticWarningsContainCode(source.Warnings, "provider_ignore_file_unsupported") {
+		t.Fatalf("fallback warning missing from semantic source: %+v", source.Warnings)
+	}
+}
+
 func TestSemanticIndexWritesBranchOverlayForFeatureBranch(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

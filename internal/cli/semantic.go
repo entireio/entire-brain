@@ -349,10 +349,12 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			return fmt.Errorf("%s: semantic provider no-egress status is not verified", code)
 		}
 		indexOpts.reportPhase("parsing sources")
-		raw, err = runSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts.semBinary, indexOpts.worktree, providerIgnoreFiles)
+		var snapshotWarnings []semanticWarning
+		raw, snapshotWarnings, err = runSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts.semBinary, indexOpts.worktree, providerIgnoreFiles)
 		if err != nil {
 			return err
 		}
+		warnings = append(warnings, snapshotWarnings...)
 		indexOpts.reportPhase("filtering snapshot")
 		header, counts, raw, err = filterSemanticSnapshot(raw, ignore, repoDir)
 		if err != nil {
@@ -786,10 +788,40 @@ func boolValue(data map[string]any, key string) bool {
 	return b
 }
 
-func runSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, semBinary string, worktree bool, ignoreFiles []string) ([]byte, error) {
+func runSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, semBinary string, worktree bool, ignoreFiles []string) ([]byte, []semanticWarning, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	args := semanticSnapshotArgs(repoDir, worktree, ignoreFiles)
+	stdout, stderr, err := runSemanticSnapshotCommand(ctx, runner, repoDir, semBinary, args)
+	if err != nil && countNonEmptyStrings(ignoreFiles) > 0 && semanticSnapshotRejectsIgnoreFile(stderr, err) {
+		stdout, stderr, err = runSemanticSnapshotCommand(ctx, runner, repoDir, semBinary, semanticSnapshotArgs(repoDir, worktree, nil))
+		if err == nil {
+			warning := semanticWarning{
+				Code:     "provider_ignore_file_unsupported",
+				Severity: "warning",
+				Effect:   "provider-side ignore prefilter unavailable; brainignore applied after snapshot",
+				Detail:   fmt.Sprintf("semantic provider rejected --ignore-file; retried without %d provider ignore file(s)", countNonEmptyStrings(ignoreFiles)),
+			}
+			if len(bytes.TrimSpace(stdout)) == 0 {
+				return nil, []semanticWarning{warning}, errors.New("semantic provider snapshot produced no output")
+			}
+			return stdout, []semanticWarning{warning}, nil
+		}
+	}
+	if err != nil {
+		if len(bytes.TrimSpace(stderr)) > 0 {
+			return nil, nil, fmt.Errorf("semantic provider snapshot failed: %w: %s", err, strings.TrimSpace(string(stderr)))
+		}
+		return nil, nil, fmt.Errorf("semantic provider snapshot failed: %w", err)
+	}
+	if len(bytes.TrimSpace(stdout)) == 0 {
+		return nil, nil, errors.New("semantic provider snapshot produced no output")
+	}
+	return stdout, nil, nil
+}
+
+func semanticSnapshotArgs(repoDir string, worktree bool, ignoreFiles []string) []string {
 	args := []string{"sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"}
 	for _, path := range ignoreFiles {
 		path = strings.TrimSpace(path)
@@ -801,19 +833,53 @@ func runSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, sem
 	if worktree {
 		args = append(args, "--worktree")
 	}
+	return args
+}
+
+func runSemanticSnapshotCommand(ctx context.Context, runner CommandRunner, repoDir, semBinary string, args []string) ([]byte, []byte, error) {
 	runCtx, cancel := context.WithTimeout(ctx, semanticSnapshotTimeout)
 	defer cancel()
-	stdout, _, err := runner.Run(runCtx, repoDir, semBinary, args...)
+	stdout, stderr, err := runner.Run(runCtx, repoDir, semBinary, args...)
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
-		return nil, fmt.Errorf("semantic provider snapshot timed out after %s", semanticSnapshotTimeout)
+		return stdout, nil, fmt.Errorf("semantic provider snapshot timed out after %s", semanticSnapshotTimeout)
 	}
+	return stdout, stderr, err
+}
+
+func semanticSnapshotRejectsIgnoreFile(stderr []byte, err error) bool {
+	text := strings.ToLower(strings.TrimSpace(string(stderr)))
 	if err != nil {
-		return nil, fmt.Errorf("semantic provider snapshot failed: %w", err)
+		if text != "" {
+			text += " "
+		}
+		text += strings.ToLower(err.Error())
 	}
-	if len(bytes.TrimSpace(stdout)) == 0 {
-		return nil, errors.New("semantic provider snapshot produced no output")
+	if !strings.Contains(text, "ignore-file") {
+		return false
 	}
-	return stdout, nil
+	for _, phrase := range []string{
+		"unexpected argument",
+		"unexpected arguments",
+		"unknown flag",
+		"unknown option",
+		"unrecognized option",
+		"flag provided but not defined",
+	} {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func countNonEmptyStrings(values []string) int {
+	var count int
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func validateLiveSemanticHeader(header semanticHeader, repoKey, commit, tree string, allowWorktreeTree bool) error {

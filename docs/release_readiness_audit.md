@@ -81,6 +81,10 @@ Implemented audit surfaces:
   symbols, relations, file-language counts, symbol-language counts, symbol-kind
   counts, relation-type counts, warning/failure details, freshness axes, and
   blind spots from the local semantic manifest/store.
+- `refresh index` now tolerates local semantic providers that do not support the
+  provider-side `--ignore-file` flag: it retries without the flag, records a
+  `provider_ignore_file_unsupported` warning, and still applies `.brainignore`
+  during Entire Brain's own snapshot filtering before persisting records.
 - The benchmark task inventory includes
   `entire-brain-semantic-completeness-tolerance`, a semantic freshness task whose
   prompt does not name the implementation file. Retained benchmark outcomes are
@@ -89,9 +93,18 @@ Implemented audit surfaces:
 Claim policy: do not say semantic indexing works globally. Say which languages,
 relations, and freshness states are covered, and show blind spots.
 
-Blocked evidence collection: `entire brain semantic-audit --json` must be run on
-the release-candidate brain, and semantic benchmark/proof records must be
-retained and audited before usefulness claims graduate from draft language.
+Local smoke evidence collected on this repo after the provider compatibility fix:
+`go run ./cmd/entire-brain refresh index --sem-binary entire --force --worktree`
+indexed 134 files, 2,217 symbols, and 14,616 relations; `go run
+./cmd/entire-brain semantic-audit --json --fail-on unsafe` passed with zero blind
+spots. The retained warnings were `provider_ignore_file_unsupported` and
+`W_WORKTREE_SNAPSHOT`, so this is a compatibility proof and local coverage smoke,
+not the clean release-candidate evidence.
+
+Blocked evidence collection: `entire brain semantic-audit --json` must still be
+run from a clean release-candidate brain, and semantic benchmark/proof records
+must be retained and audited before usefulness claims graduate from draft
+language.
 
 ## QMD Alignment
 
@@ -200,7 +213,9 @@ repo/access/artifacts are available:
   manifest timing fields retained.
 - Paired `entire brain facts eval --retriever facts|history|query|raw-sessions`
   runs over the same labeled or explicitly proxy-allowed task set.
-- `entire brain semantic-audit --json` from the release candidate brain.
+- `entire brain semantic-audit --json` from a clean release candidate brain. A
+  dirty-worktree local smoke on this repo is recorded above, but it is not enough
+  for public release claims.
 - Benchmark panel or retained proof subset from `benchmarks/agent-brain`, audited
   with `audit_codex.py --fail-on-flags` and committed under
   `benchmarks/agent-brain/evidence/release` as sanitized evidence.
