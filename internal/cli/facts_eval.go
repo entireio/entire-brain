@@ -15,9 +15,10 @@ import (
 )
 
 // evalTask is one held-out retrieval task. Task is the query an agent would
-// issue; Relevant, when present, is the ground-truth set of fact ids that
-// genuinely help the task (enables deterministic precision/recall). Without
-// labels, --judge has an agent decide relevance per surfaced fact.
+// issue; Relevant, when present, is the labeled set of retrieved-item ids that
+// genuinely help the task (enables deterministic precision/recall for that
+// retriever). Without labels, --judge has an agent decide relevance per
+// surfaced item.
 type evalTask struct {
 	ID                   string   `json:"id"`
 	Task                 string   `json:"task"`
@@ -30,8 +31,8 @@ type evalTask struct {
 }
 
 // evalTaskResult is the per-task measurement. The headline metric is
-// UsefulPer1k — relevant facts surfaced per 1,000 tokens spent — which captures
-// the Appendix D agent constraint (value per token, not fact count).
+// UsefulPer1k — relevant items surfaced per 1,000 tokens spent — which captures
+// the Appendix D agent constraint (value per token, not item count).
 type evalTaskResult struct {
 	ID               string  `json:"id"`
 	Task             string  `json:"task"`
@@ -99,8 +100,9 @@ func estimateRetrievedTokens(items []evalRetrievedItem) int {
 }
 
 // evalMetrics computes the per-task metrics given the surfaced facts and the set
-// of relevant fact ids. totalRelevant is the size of the ground-truth relevant
-// set (for recall); pass 0 when relevance came from a judge (recall undefined).
+// of relevant fact ids. totalRelevant is the size of the labeled relevant set
+// for recall; pass 0 when relevance came from a judge or source-match proxy
+// labels (recall undefined).
 func evalMetrics(surfaced []factRecord, relevant map[string]struct{}, totalRelevant int) evalTaskResult {
 	items := make([]evalRetrievedItem, len(surfaced))
 	for i, f := range surfaced {
@@ -250,6 +252,7 @@ func newFactsEvalCommand(opts Options) *cobra.Command {
 		semantic     bool
 		expand       bool
 		agent        string
+		model        string
 		agentCommand []string
 		judgeCache   string
 		expandCache  string
@@ -259,16 +262,19 @@ func newFactsEvalCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "eval --tasks <file>",
-		Short: "Measure retrieval quality (tokens, precision, useful-facts-per-1k) over held-out tasks",
-		Long: `Eval runs a held-out task set through fact retrieval and reports, per task and
-in aggregate: facts surfaced, estimated tokens, precision, recall, and
-useful-facts-per-1k-tokens (the headline agent metric).
+		Short: "Measure retrieval quality (tokens, precision, useful-items-per-1k) over held-out tasks",
+		Long: `Eval runs a held-out task set through a selected retriever and reports, per task and
+	in aggregate: retrieved items, estimated tokens, precision, recall when labels
+	exist for that retriever, and useful-items-per-1k-tokens (the headline agent
+	metric).
 
 The tasks file is a JSON array:
   [{"id":"t1","task":"how does X work","branch":"main","k":10,
     "relevant":["fact:abc","fact:def"]}]
-With "relevant" ids, metrics are deterministic. Without them, pass --judge to
-have the agent decide relevance per surfaced fact.`,
+	With retriever-specific "relevant" ids, metrics are deterministic. Generated
+	source-session labels give source-match credit for history/raw arms but do not
+	define recall. Without labels, pass --judge to have the agent decide relevance
+	per surfaced item.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(tasksFile) == "" {
@@ -292,6 +298,7 @@ have the agent decide relevance per surfaced fact.`,
 				if err != nil {
 					return fmt.Errorf("judge agent: %w", err)
 				}
+				judgeArgs = injectAgentModel(judgeArgs, resolvedAgent, model)
 				if run == nil {
 					run = defaultDistillAgentRunner(resolvedAgent)
 				}
@@ -303,6 +310,7 @@ have the agent decide relevance per surfaced fact.`,
 				if expErr != nil {
 					return fmt.Errorf("expand agent: %w", expErr)
 				}
+				expandArgs = injectAgentModel(expandArgs, resolvedAgent, model)
 				expRun := run
 				if expRun == nil {
 					expRun = defaultDistillAgentRunner(resolvedAgent)
@@ -341,10 +349,11 @@ have the agent decide relevance per surfaced fact.`,
 	cmd.Flags().IntVar(&k, "k", 10, "Facts to retrieve per task")
 	cmd.Flags().BoolVar(&judge, "judge", false, "Use the agent to judge relevance when a task has no labels")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Judge/expand agent: auto, codex, claude-code, ollama, or command")
+	cmd.Flags().StringVar(&model, "model", "", "Model for codex/claude-code/ollama judge and expand calls")
 	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&judgeCache, "judge-cache", "", "Persist/reuse judge verdicts at this path so re-runs are deterministic and cheap")
 	cmd.Flags().BoolVar(&semantic, "semantic", false, "Rerank with the local embedding backend (RRF fusion of lexical + semantic)")
-	cmd.Flags().BoolVar(&expand, "expand", false, "Expand each task query with agent-generated retrieval terms before recall")
+	cmd.Flags().BoolVar(&expand, "expand", false, "Expand each task query with agent-generated retrieval terms before retrieval")
 	cmd.Flags().StringVar(&expandCache, "expand-cache", "", "Persist/reuse query expansions at this path")
 	cmd.Flags().StringVar(&retriever, "retriever", evalRetrieverFacts, "Retrieval arm: facts, history, query, or raw-sessions")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the summary as JSON")
@@ -397,7 +406,7 @@ func (c *judgeCache) save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(c.path, append(data, '\n'), 0o600)
+	return writeFileAtomic(c.path, append(data, '\n'), 0o600)
 }
 
 func loadEvalTasks(path string) ([]evalTask, error) {

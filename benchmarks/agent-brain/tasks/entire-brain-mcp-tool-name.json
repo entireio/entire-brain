@@ -1,7 +1,7 @@
 {
   "id": "entire-brain-mcp-tool-name",
   "repo": "entire-brain",
-  "repo_path": "/Users/thomi/Projects/entire-brain",
+  "repo_path": "entire-brain",
   "conditions": ["no_brain", "semantic_brain", "full_brain"],
   "prompt": "Fix the failing MCP tool-list regression. Keep the public MCP tool names stable and run the focused MCP tests before finishing.",
   "setup_replacements": [

@@ -80,8 +80,8 @@ type distillCommandOptions struct {
 }
 
 // distillProgress reports how far the distillation loop has advanced. Distill
-// runs one agent call per transcript chunk and can take minutes, so this drives
-// a refresh-style progress line.
+// runs one extraction call per uncached transcript chunk, plus an optional
+// reconcile call, so this drives a refresh-style progress line.
 type distillProgress struct {
 	SessionsDone  int
 	SessionsTotal int
@@ -146,6 +146,15 @@ type distillChunkResult struct {
 	Output    string
 	Err       error
 	Completed bool
+}
+
+type distillRunPreparation struct {
+	Plan                distillPlan
+	Taxonomy            factTaxonomy
+	TaxonomyFingerprint string
+	Args                []string
+	ReconcileArgs       []string
+	Threshold           float64
 }
 
 type distillDryRunReport struct {
@@ -301,15 +310,26 @@ func distillProgressLabel(p distillProgress) string {
 // into per-branch stores, and records the fact source on the brain manifest.
 // repoDir is the working directory the agent runs in (sandboxed read-only).
 func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOpts distillCommandOptions, now time.Time) (*factSourceManifest, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	prep, err := prepareDistillRun(brainDir, distillOpts, now)
 	if err != nil {
 		return nil, err
 	}
+	extractionStarted := time.Now()
+	results := runDistillExtraction(ctx, repoDir, prep.Args, prep.Plan.Work, distillOpts)
+	extractionSeconds := time.Since(extractionStarted).Seconds()
+	return commitDistillResults(ctx, repoDir, brainDir, distillOpts, now, prep, results, extractionSeconds)
+}
+
+func prepareDistillRun(brainDir string, distillOpts distillCommandOptions, now time.Time) (distillRunPreparation, error) {
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return distillRunPreparation{}, err
+	}
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
-		return nil, errors.New("no exported sessions; run `entire brain refresh` first")
+		return distillRunPreparation{}, errors.New("no exported sessions; run `entire brain refresh` first")
 	}
 	if distillOpts.run == nil {
-		return nil, errors.New("distill: no agent runner configured")
+		return distillRunPreparation{}, errors.New("distill: no agent runner configured")
 	}
 	if distillOpts.maxChunkBytes <= 0 {
 		distillOpts.maxChunkBytes = defaultDistillChunkSize
@@ -317,19 +337,19 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 
 	taxonomy, err := loadFactTaxonomy(brainDir, now)
 	if err != nil {
-		return nil, err
+		return distillRunPreparation{}, err
 	}
 	prompt, err := renderDistillPrompt(taxonomy)
 	if err != nil {
-		return nil, err
+		return distillRunPreparation{}, err
 	}
 	args, err := distillAgentCommandArgs(distillOpts.agent, distillOpts.agentCommand, prompt)
 	if err != nil {
-		return nil, err
+		return distillRunPreparation{}, err
 	}
 	reconcileArgs, err := distillAgentCommandArgs(distillOpts.agent, distillOpts.agentCommand, reconcilePrompt())
 	if err != nil {
-		return nil, err
+		return distillRunPreparation{}, err
 	}
 	// Pin the agent model + effort when set, so distill AND reconcile run on the same
 	// (cheap) model. Both are no-ops when empty.
@@ -342,16 +362,51 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 
 	plan, err := buildDistillPlan(brainDir, manifest, distillOpts)
 	if err != nil {
+		return distillRunPreparation{}, err
+	}
+	return distillRunPreparation{
+		Plan:                plan,
+		Taxonomy:            taxonomy,
+		TaxonomyFingerprint: factTaxonomyFingerprint(taxonomy),
+		Args:                args,
+		ReconcileArgs:       reconcileArgs,
+		Threshold:           threshold,
+	}, nil
+}
+
+func commitDistillResults(ctx context.Context, repoDir, brainDir string, distillOpts distillCommandOptions, now time.Time, prep distillRunPreparation, results []distillChunkResult, extractionSeconds float64) (*factSourceManifest, error) {
+	var source *factSourceManifest
+	err := withBrainWriteLock(brainDir, func() error {
+		committed, commitErr := commitDistillResultsLocked(ctx, repoDir, brainDir, distillOpts, now, prep, results, extractionSeconds)
+		source = committed
+		return commitErr
+	})
+	return source, err
+}
+
+func commitDistillResultsLocked(ctx context.Context, repoDir, brainDir string, distillOpts distillCommandOptions, now time.Time, prep distillRunPreparation, results []distillChunkResult, extractionSeconds float64) (*factSourceManifest, error) {
+	plan := prep.Plan
+	if err := ensureDistillPlanSourceFresh(brainDir, plan); err != nil {
 		return nil, err
 	}
-	newCache := distillCache{Version: distillCacheVersion, Sessions: make(map[string]string, len(plan.PrevCache.Sessions))}
-	if strings.TrimSpace(distillOpts.branch) != "" {
-		for sessionID, fingerprint := range plan.PrevCache.Sessions {
-			newCache.Sessions[sessionID] = fingerprint
-		}
-		for _, sessionPlan := range plan.Sessions {
-			delete(newCache.Sessions, sessionPlan.Session.SessionID)
-		}
+	currentTaxonomy, err := loadFactTaxonomy(brainDir, now)
+	if err != nil {
+		return nil, err
+	}
+	if got := factTaxonomyFingerprint(currentTaxonomy); got != prep.TaxonomyFingerprint {
+		return nil, errors.New("distill taxonomy changed before commit; rerun distill")
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return nil, err
+	}
+	currentCache := loadDistillCache(brainDir)
+	newCache := distillCache{Version: distillCacheVersion, Sessions: make(map[string]string, len(currentCache.Sessions))}
+	for sessionID, fingerprint := range currentCache.Sessions {
+		newCache.Sessions[sessionID] = fingerprint
+	}
+	for _, sessionPlan := range plan.Sessions {
+		delete(newCache.Sessions, sessionPlan.Session.SessionID)
 	}
 
 	byBranch := map[string][]factRecord{}
@@ -394,9 +449,6 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		ensureBranch(branch)
 	}
 
-	extractionStarted := time.Now()
-	results := runDistillExtraction(ctx, repoDir, args, plan.Work, distillOpts)
-	extractionSeconds := time.Since(extractionStarted).Seconds()
 	anyExtractionSuccess := false
 	for _, result := range results {
 		if result.Completed && result.Err == nil {
@@ -433,6 +485,12 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		for _, workIndex := range sessionPlan.ChunkIndexes {
 			work := plan.Work[workIndex]
 			result := results[workIndex]
+			if !result.Completed {
+				warnings = append(warnings, fmt.Sprintf("agent did not run on %s:%d", work.Session.SessionID, work.Chunk.StartLine))
+				sessionFailed[sessionIndex] = true
+				failedChunks++
+				continue
+			}
 			if result.Err != nil {
 				warnings = append(warnings, fmt.Sprintf("agent failed on %s:%d: %v", work.Session.SessionID, work.Chunk.StartLine, result.Err))
 				sessionFailed[sessionIndex] = true
@@ -448,7 +506,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 				continue
 			}
 			anyAgentSuccess = true
-			records, chunkWarnings := distilledFactsFromOutput(result.Output, taxonomy, work.Anchor, branch, now)
+			records, chunkWarnings := distilledFactsFromOutput(result.Output, prep.Taxonomy, work.Anchor, branch, now)
 			warnings = append(warnings, chunkWarnings...)
 			if len(records) == 0 {
 				continue
@@ -458,10 +516,10 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			// Reconcile the chunk's candidates against the branch's active facts
 			// so near-duplicates merge and contradictions supersede instead of
 			// piling up. Low-confidence decisions are queued for review.
-			actions, recWarnings := reconcileChunkCandidates(ctx, distillOpts.run, reconcileArgs, records, byBranch[branch], repoDir, distillOpts.timeout)
+			actions, recWarnings := reconcileChunkCandidates(ctx, distillOpts.run, prep.ReconcileArgs, records, byBranch[branch], repoDir, distillOpts.timeout)
 			warnings = append(warnings, recWarnings...)
 			var chunkProposals []factProposal
-			byBranch[branch], chunkProposals = applyFactActions(byBranch[branch], actions, threshold, now)
+			byBranch[branch], chunkProposals = applyFactActions(byBranch[branch], actions, prep.Threshold, now)
 			proposalsByBranch[branch] = append(proposalsByBranch[branch], chunkProposals...)
 		}
 		// Only cache a session as distilled when every chunk succeeded, so a
@@ -496,7 +554,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			return nil, err
 		}
 	}
-	if err := writeFactTaxonomy(brainDir, taxonomy); err != nil {
+	if err := writeFactTaxonomy(brainDir, prep.Taxonomy); err != nil {
 		return nil, err
 	}
 	saveDistillCache(brainDir, newCache)
@@ -699,6 +757,23 @@ func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts dis
 	}
 	sort.Strings(plan.BranchOrder)
 	return plan, nil
+}
+
+func ensureDistillPlanSourceFresh(brainDir string, plan distillPlan) error {
+	for _, sessionPlan := range plan.Sessions {
+		if sessionPlan.ReadFailed {
+			continue
+		}
+		content, err := readBrainRelativeFile(brainDir, sessionPlan.Session.TranscriptPath)
+		if err != nil {
+			return fmt.Errorf("distill source changed before commit: read transcript %s: %w", sessionPlan.Session.TranscriptPath, err)
+		}
+		fingerprint := distillSessionFingerprint(sessionPlan.Session, sessionPlan.Branch, preprocessTranscriptForDistill(content))
+		if fingerprint != sessionPlan.Fingerprint {
+			return fmt.Errorf("distill source changed before commit for session %s; rerun distill", sessionPlan.Session.SessionID)
+		}
+	}
+	return nil
 }
 
 func resolveDistillBranch(manifest *exportManifest, session exportSession) string {
@@ -939,6 +1014,15 @@ func distillSessionFingerprint(session exportSession, branch, content string) st
 		branch,
 		hex.EncodeToString(contentSum[:]),
 	}, "\x00")))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func factTaxonomyFingerprint(taxonomy factTaxonomy) string {
+	data, err := json.Marshal(taxonomy)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 

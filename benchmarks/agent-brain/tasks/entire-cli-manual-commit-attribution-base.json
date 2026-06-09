@@ -1,7 +1,7 @@
 {
   "id": "entire-cli-manual-commit-attribution-base",
   "repo": "entire-cli",
-  "repo_path": "/Users/thomi/Projects/cli",
+  "repo_path": "cli",
   "conditions": ["no_brain", "full_brain"],
   "prompt": "Fix the manual-commit attribution regression. After an unrelated no-trailer commit happens while a manual-commit session is active, the next condensation reports inflated `human_added` and a low agent percentage even when only agent-authored lines are committed. Restore the prior invariant that prevents stale attribution-base drift, and keep the fix minimal.",
   "hide_expected_from_agent": true,

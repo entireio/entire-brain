@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -37,12 +36,14 @@ func newFactsEvalGenCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "eval-gen",
-		Short: "Generate a labeled eval task set from the brain's own sessions (provenance-labeled)",
+		Short: "Generate a silver-labeled eval task set from the brain's own sessions",
 		Long: `eval-gen turns the brain into a self-labeled benchmark: each captured session
-becomes a task (its opening user request), and the facts whose provenance points
-back to that session are the ground-truth relevant set. No agent or hand labels
-needed. Each task is tagged with a query-type stratum (code/convention/howto/
-concept). Emits a tasks.json consumable by 'facts eval --tasks'.
+	becomes a task (its opening user request), and the facts whose provenance points
+	back to that session are provenance/silver labels. These labels are useful for
+	recall-oriented measurement, but hand labels or --refine are still required
+	before precision/recall release claims. Each task is tagged with a query-type
+	stratum (code/convention/howto/concept). Emits a tasks.json consumable by
+	'facts eval --tasks'.
 
 --refine judge-filters each task's provenance label set with the agent, keeping
 only facts genuinely relevant to the request — trading the recall-oriented "every
@@ -79,7 +80,7 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 				_, err = cmd.OutOrStdout().Write(data)
 				return err
 			}
-			if err := os.WriteFile(out, data, 0o600); err != nil {
+			if err := writeFileAtomic(out, data, 0o600); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "wrote %d tasks to %s\n", len(tasks), out)

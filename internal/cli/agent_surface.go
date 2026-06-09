@@ -1637,7 +1637,7 @@ func runBrainShow(ctx context.Context, cmd *cobra.Command, opts Options, showOpt
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return errors.New("semantic index missing; run `entire brain refresh index`")
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {

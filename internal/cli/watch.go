@@ -42,6 +42,8 @@ type watchCursor struct {
 	LastAgentSpendAt time.Time `json:"last_agent_spend_at,omitempty"`
 }
 
+const watchCursorLockName = "watch.lock"
+
 // watchSteps are the side-effecting operations of one tick. Injected so the loop's gating logic
 // (change detection, agent interval/budget, cursor persistence) is unit-testable without running a real
 // refresh/seed/distill. refresh is ALWAYS the free (seed-agent none) deterministic refresh; seed and
@@ -171,15 +173,17 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
 		return
 	}
-	cursor.LastFingerprint = fp
-	cursor.LastRefreshAt = steps.now().UTC()
-	_ = saveWatchCursor(cursorPath, cursor)
+	reserved, reason, err := reserveWatchAgentSpend(cursorPath, fp, w, agentCalls, steps.now().UTC())
+	if err != nil {
+		fmt.Fprintf(out, "[watch] cursor update failed (skipping agent work this tick): %v\n", err)
+		return
+	}
 	fmt.Fprintln(out, "[watch] refreshed (deterministic, no agent tokens)")
 
 	if !w.agentWorkEnabled() {
 		return
 	}
-	if ok, reason := watchShouldSpend(w, cursor, *agentCalls, steps.now().UTC()); !ok {
+	if !reserved {
 		fmt.Fprintf(out, "[watch] agent work skipped: %s\n", reason)
 		return
 	}
@@ -201,9 +205,6 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 			fmt.Fprintln(out, "[watch] distilled facts (agent step; spent tokens)")
 		}
 	}
-	*agentCalls++
-	cursor.LastAgentSpendAt = steps.now().UTC()
-	_ = saveWatchCursor(cursorPath, cursor)
 }
 
 // agentWorkEnabled reports whether any token-spending step is turned on.
@@ -239,6 +240,57 @@ func watchShouldSpend(w watchCommandOptions, cursor watchCursor, agentCalls int,
 		return false, fmt.Sprintf("--budget %d reached", w.budget)
 	}
 	return true, ""
+}
+
+func reserveWatchAgentSpend(cursorPath, fingerprint string, w watchCommandOptions, agentCalls *int, now time.Time) (bool, string, error) {
+	var cursor watchCursor
+	var reserved bool
+	var reason string
+	err := withWatchCursorLock(cursorPath, func() error {
+		cursor = loadWatchCursor(cursorPath)
+		changed := fingerprint != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero()
+		if changed {
+			cursor.LastFingerprint = fingerprint
+			cursor.LastRefreshAt = now
+		}
+		if !w.agentWorkEnabled() {
+			if changed {
+				return saveWatchCursor(cursorPath, cursor)
+			}
+			return nil
+		}
+		ok, skipReason := watchShouldSpend(w, cursor, *agentCalls, now)
+		if !ok {
+			reason = skipReason
+			if changed {
+				return saveWatchCursor(cursorPath, cursor)
+			}
+			return nil
+		}
+		cursor.LastAgentSpendAt = now
+		*agentCalls++
+		reserved = true
+		return saveWatchCursor(cursorPath, cursor)
+	})
+	return reserved, reason, err
+}
+
+func withWatchCursorLock(cursorPath string, fn func() error) error {
+	root := filepath.Dir(cursorPath)
+	if info, err := os.Lstat(root); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("watch cursor directory must not be a symlink: %s", root)
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := rejectExistingSymlinkPathComponents(root, brainLockDirName); err != nil {
+		return err
+	}
+	lock, err := acquireFileLock(filepath.Join(root, brainLockDirName, watchCursorLockName), "watch_locked", brainWriteLockTimeout)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
+	return fn()
 }
 
 // watchFingerprint is a token-free change signal: the local checkpoint ref, the fetched (origin)

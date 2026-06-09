@@ -33,21 +33,51 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertFalse(run.condition_copies_entire_history("no_brain"))
         self.assertTrue(run.condition_copies_entire_history("full_cli_compact"))
 
+    def test_manifest_source_counts_extracts_sessions_and_history_records(self):
+        counts = run.manifest_source_counts(
+            {
+                "sources": {
+                    "sessions": {"sessions": [{"id": "s1"}, {"id": "s2"}]},
+                    "history": {"records": 7},
+                }
+            }
+        )
+        self.assertEqual(counts, {"sessions": 2, "history_records": 7})
+
+    def test_assert_brain_state_ready_requires_full_history_for_full_brain(self):
+        task = {"prepare_semantic": True}
+        ready = {
+            "manifest": {
+                "has_semantic": True,
+                "session_count": 2,
+                "history_records": 5,
+            }
+        }
+        run.assert_brain_state_ready(task, "full_cli_compact", ready)
+
+        missing_history = {"manifest": {"has_semantic": True, "session_count": 2, "history_records": 0}}
+        with self.assertRaisesRegex(RuntimeError, "no history index records"):
+            run.assert_brain_state_ready(task, "full_cli_compact", missing_history)
+
+        missing_semantic = {"manifest": {"has_semantic": False, "session_count": 2, "history_records": 5}}
+        with self.assertRaisesRegex(RuntimeError, "semantic source"):
+            run.assert_brain_state_ready(task, "full_cli_compact", missing_semantic)
+
     def test_mcp_history_audit_matches_compact_prompt_history_tool_requirement(self):
-        # Compact-delivery models are told to call brain_brief ONCE and NOT brain_history;
-        # the audit must not then fail them for skipping brain_history.
+        # Compact-delivery models are told to call brain_brief ONCE and NOT brain_search;
+        # the audit must not then fail them for skipping brain_search.
         self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="o", agent="claude", model="opus")), ("brain_brief",))
         self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="g", agent="codex", model="gpt-5.5")), ("brain_brief",))
-        self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="s", agent="claude", model="sonnet")), ("brain_brief", "brain_history"))
+        self.assertEqual(run.mcp_history_required_tools(run.RunnerSpec(id="s", agent="claude", model="sonnet")), ("brain_brief", "brain_search"))
 
         brief_only = {"mcp": {"enabled": True}, "activity": {"mcp_tool_calls": 1, "mcp_tool_names": ["mcp__entire_brain__brain_brief"]}}
         # Opus (compact): brief-only is a clean pass.
         opus_audit = run.mcp_condition_audit("mcp_history", brief_only, run.RunnerSpec(id="o", agent="claude", model="opus"))
         self.assertTrue(opus_audit["ok"], opus_audit)
-        # Sonnet (non-compact): brief-only must still be flagged for missing brain_history.
+        # Sonnet (non-compact): brief-only must still be flagged for missing brain_search.
         sonnet_audit = run.mcp_condition_audit("mcp_history", brief_only, run.RunnerSpec(id="s", agent="claude", model="sonnet"))
         self.assertFalse(sonnet_audit["ok"])
-        self.assertIn("brain_history", [f.get("tool") for f in sonnet_audit["findings"]])
+        self.assertIn("brain_search", [f.get("tool") for f in sonnet_audit["findings"]])
 
     def test_mcp_configs_include_local_brain_server_and_repo_env(self):
         env = {
@@ -86,10 +116,10 @@ class RunnerAndConditionTests(unittest.TestCase):
         }
         prompt = run.prompt_for(task, "mcp_history")
         self.assertIn("brain_brief", prompt)
-        self.assertIn("brain_history", prompt)
+        self.assertIn("brain_search", prompt)
         self.assertIn("mcp__entire_brain__brain_brief", prompt)
         self.assertIn("before any shell search or file reads", prompt)
-        self.assertIn("run exactly one `mcp__entire_brain__brain_history`", prompt)
+        self.assertIn("run exactly one `mcp__entire_brain__brain_search`", prompt)
         self.assertIn("apply the fix there before any additional MCP calls", prompt)
         self.assertIn("MCP_TOOLS_MISSING", prompt)
         self.assertIn("Do not run the `entire brain` CLI", prompt)
@@ -97,8 +127,8 @@ class RunnerAndConditionTests(unittest.TestCase):
 
     def test_mcp_history_disciplined_delivery_for_gpt5x(self):
         # gpt-5.5 under-contexts on MCP (brief names the file but not the invariant, and the old
-        # brief-only prompt banned brain_history). It now gets the "disciplined MCP" delivery:
-        # brief once + ONE targeted brain_history for the invariant + hard stop. Validated to lift
+        # brief-only prompt banned brain_search). It now gets the "disciplined MCP" delivery:
+        # brief once + ONE targeted brain_search for the invariant + hard stop. Validated to lift
         # gpt-5.5 mcp_history pass-rate 88%->100% with no score regression.
         task = {
             "id": "task",
@@ -111,13 +141,13 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("Step 1", prompt)
         self.assertIn("brain_brief", prompt)
         self.assertIn("Step 2", prompt)
-        self.assertIn("brain_history", prompt)  # the invariant lookup, restored (not banned)
+        self.assertIn("brain_search", prompt)  # the invariant lookup, restored (not banned)
         self.assertIn("Hard stop", prompt)
         self.assertIn("MCP_TOOLS_MISSING", prompt)
-        self.assertNotIn("do NOT need a separate `brain_history` call", prompt)  # old brief-only is gone
+        self.assertNotIn("do NOT need a separate `brain_search` call", prompt)  # old brief-only is gone
         # A model NOT in the disciplined/compact set keeps the generic history delivery.
         guided = run.prompt_for(task, "mcp_history", run.parse_runner_spec("claude:sonnet:medium"))
-        self.assertIn("run exactly one `mcp__entire_brain__brain_history`", guided)
+        self.assertIn("run exactly one `mcp__entire_brain__brain_search`", guided)
         self.assertNotIn("Hard stop", guided)
 
     def test_disciplined_mcp_is_effort_aware_for_mini(self):
@@ -216,7 +246,7 @@ class RunnerAndConditionTests(unittest.TestCase):
                             "content": [
                                 {
                                     "type": "tool_use",
-                                    "name": "mcp__entire-brain__brain_history",
+                                    "name": "mcp__entire-brain__brain_search",
                                     "input": {"query": "media playback"},
                                 }
                             ]
@@ -340,7 +370,7 @@ class RunnerAndConditionTests(unittest.TestCase):
                 "mcp": {"enabled": True},
                 "activity": {
                     "mcp_tool_calls": 2,
-                    "mcp_tool_names": ["mcp__entire_brain__brain_brief", "mcp__entire_brain__brain_history"],
+                    "mcp_tool_names": ["mcp__entire_brain__brain_brief", "mcp__entire_brain__brain_search"],
                     "direct_brain_cli_calls": 0,
                 },
             },
@@ -620,11 +650,11 @@ class OpusCompactModeTests(unittest.TestCase):
     def test_opus_mcp_is_compact_and_bounded(self):
         p = run.prompt_for(self.TASK, "mcp_history", run.parse_runner_spec("claude:opus:high"))
         self.assertIn("limit: 3", p)                       # tiny brief
-        self.assertIn("do NOT call `brain_history`", p)    # no forced history blob
+        self.assertIn("do NOT call `brain_search`", p)     # no forced search call
         self.assertIn("finite budget", p)
-        # other Claude models keep the standard MCP delivery (forced brain_history)
+        # other Claude models keep the standard MCP delivery (forced brain_search)
         son = run.prompt_for(self.TASK, "mcp_history", run.parse_runner_spec("claude:sonnet:high"))
-        self.assertIn("run exactly one `mcp__entire_brain__brain_history`", son)
+        self.assertIn("run exactly one `mcp__entire_brain__brain_search`", son)
         self.assertNotIn("limit: 3", son)
 
     def test_opus_cli_uses_tiny_limit(self):

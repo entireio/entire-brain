@@ -7,11 +7,13 @@ repository tasks when they can use Entire Brain.
 
 The first version should optimize for a repeatable harness, then use the same
 run artifacts to produce demo-quality before/after evidence. The benchmark
-starts with three local repositories:
+starts with three local repositories. The checked-in task fixtures use portable
+repo names; runners resolve them from the benchmark workspace or explicit task
+paths:
 
-- `entire-brain` at `/Users/thomi/Projects/entire-brain`
-- `entire-cli` at `/Users/thomi/Projects/cli`
-- GitHub CLI at `/Users/thomi/Projects/github-cli`
+- `entire-brain`
+- `entire-cli`
+- GitHub CLI
 
 The benchmark should compare agent performance across controlled context
 conditions, not just tool latency. Useful outcomes include faster localization,
@@ -562,9 +564,9 @@ use, so the cache is usable for the expanded semantic task set.
 The earlier `entire-cli` semantic indexing pause is resolved for local
 benchmarking:
 
-- `entire-sem snapshot --repo /Users/thomi/Projects/cli --format ndjson
+- `entire-sem snapshot --repo <entire-cli-checkout> --format ndjson
   --no-network` completes in about 17 seconds with normal project ignores;
-- isolated `entire-brain index /Users/thomi/Projects/cli` completes in about 29
+- isolated `entire brain refresh index <entire-cli-checkout>` completes in about 29
   seconds using locally built `entire-brain` and `entire-sem`;
 - the artifact records 760 files, 9,130 symbols, 179,717 stored relations, zero
   warnings, zero partial failures, and a roughly 152 MB SQLite store;
@@ -721,7 +723,7 @@ Add these scenario families:
   - Add semantic query/context, workspace freshness, bundle import validation,
     and GitHub CLI JSON flag tasks where the correct focused test is not named
     in the prompt.
-  - Expected value: `entire brain tests` and checkpoint history should improve
+  - Expected value: `entire brain inspect tests` and checkpoint history should improve
     selected validation commands.
 
 - **Stale-context hygiene tasks**
@@ -739,9 +741,9 @@ Iteration loop:
 4. Keep tasks where brain improves correctness, tokens by at least 20%, time by
    at least 15%, cost by at least 15%, files read before relevant file by at
    least 30%, or validation quality.
-5. Run retained proof tasks with at least five repetitions per condition for
-   both Codex and Claude Code across at least two model/effort settings per
-   agent.
+5. Run retained proof tasks with the implemented proof minimum of at least four
+   repetitions per condition for both Codex and Claude Code across at least two
+   model/effort settings per agent.
 6. If no metric improves materially, redesign around more brain-specific
    information.
 

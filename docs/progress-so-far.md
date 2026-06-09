@@ -161,7 +161,7 @@ Verification:
 Implemented in Entire Brain:
 
 - Added pagination metadata and `--offset` support to `entire brain query`.
-- Added `entire brain context` with JSON/text output, symbol matches,
+- Added `entire brain inspect context` with JSON/text output, symbol matches,
   relation context, pagination, and optional bounded source snippets.
 - Added declared-store validation before query/context open SQLite stores, so
   read-only commands do not recreate missing stores.
@@ -180,9 +180,9 @@ Verification:
 
 Implemented in Entire Brain:
 
-- Added `entire brain impact` to traverse semantic relations from matching
+- Added `entire brain inspect impact` to traverse semantic relations from matching
   symbols with JSON/text output and stale-data reporting.
-- Added `entire brain changes` to map changed, renamed, copied, and untracked
+- Added `entire brain inspect changes` to map changed, renamed, copied, and untracked
   files to indexed semantic symbols and write `semantic/changes/latest.json`.
 - Added snapshot fallback for impact traversal so imported raw semantic bundles
   without a SQLite generation can still answer relation-aware impact queries.
@@ -207,10 +207,10 @@ Verification:
 
 Implemented in Entire Brain:
 
-- Added `entire brain routes`, `entire brain tools`, and
-  `entire brain workflows` commands with stable JSON/text output over local
+- Added `entire brain inspect boundaries --kind route`, `entire brain inspect boundaries --kind tool`, and
+  `entire brain inspect boundaries --kind workflow` commands with stable JSON/text output over local
   semantic boundary symbols and handler relations.
-- Added `entire brain tests <symbol-or-text>` to suggest relevant local test
+- Added `entire brain inspect tests <symbol-or-text>` to suggest relevant local test
   symbols from semantic matches, relation context, and same-directory signals.
 - Implemented boundary views for both SQLite-backed generations and raw
   snapshot-only imports.
@@ -347,7 +347,7 @@ repo:
 
 - `entire sem doctor --json`
 - `entire sem snapshot --repo . --format ndjson --no-network`
-- `entire brain index . --sem-binary <fixed-provider> --worktree --force`
+- `entire brain refresh index . --sem-binary <fixed-provider> --worktree --force`
 - `stale`, `query`, `context`, `impact`, `changes`, `routes`, `tools`,
   `workflows`, `tests`
 - workspace create/add/refresh/query/impact
@@ -480,9 +480,9 @@ Completed so far:
 
 Resolved blocker:
 
-- `entire-sem` at `/Users/thomi/Projects/entire-sem` commit `b3839c7` snapshots
-  `/Users/thomi/Projects/cli` in about 17 seconds.
-- A full isolated `entire-brain index /Users/thomi/Projects/cli` with locally
+- `entire-sem` commit `b3839c7` snapshots the `entire-cli` checkout in about
+  17 seconds.
+- A full isolated `entire brain refresh index <entire-cli-checkout>` with locally
   built `entire-brain` and `entire-sem` completes in about 29 seconds.
 - The indexed `entire-cli` semantic artifact records 760 files, 9,130 symbols,
   179,717 stored relations, zero warnings, zero partial failures, and a
@@ -629,7 +629,7 @@ Latest brain optimization for Layer A scenarios:
     records with no `benchmarks/agent-brain/cache` or
     `benchmarks/agent-brain/results` records.
   - Fresh local Entire Brain command
-    `entire-brain index . --force --worktree` completed in 1.46s, wrote
+    `entire brain refresh index . --force --worktree` completed in 1.46s, wrote
     `semantic/snapshots/worktree-7b70cd575db52968/snapshot.ndjson`, and
     recorded 921 symbols, 0 relations, and the expected
     `W_WORKTREE_SNAPSHOT` warning.

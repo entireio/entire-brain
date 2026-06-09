@@ -914,7 +914,7 @@ func TestSemanticResetRequiresForceAndSemanticOnlyPreservesManifest(t *testing.T
 	}
 }
 
-func TestSemanticResetForceRemovesBrainDirectory(t *testing.T) {
+func TestSemanticResetForceLeavesEmptyBrainDirectory(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
@@ -926,8 +926,19 @@ func TestSemanticResetForceRemovesBrainDirectory(t *testing.T) {
 	if _, err := execute(t, cmd, "reset", "--force"); err != nil {
 		t.Fatalf("reset: %v", err)
 	}
-	if _, err := os.Stat(brainDir); !os.IsNotExist(err) {
-		t.Fatalf("brain dir still exists: %v", err)
+	info, err := os.Stat(brainDir)
+	if err != nil {
+		t.Fatalf("brain dir missing after reset: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("brain path is not a directory after reset")
+	}
+	entries, err := os.ReadDir(brainDir)
+	if err != nil {
+		t.Fatalf("read brain dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("brain dir entries after reset = %d, want 0", len(entries))
 	}
 }
 
@@ -2061,17 +2072,28 @@ func TestSemanticIndexLockFailsFast(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
-	lockDir := filepath.Join(brainDir, semanticLockDir)
-	if err := os.MkdirAll(lockDir, 0o700); err != nil {
-		t.Fatalf("mkdir lock: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(lockDir, semanticIndexLockName), []byte("locked\n"), 0o600); err != nil {
-		t.Fatalf("write lock: %v", err)
-	}
+	writeSemanticTestLock(t, brainDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{semBinary: "entire"}, repoDir)
 	if err == nil || !strings.Contains(err.Error(), "index_locked") {
 		t.Fatalf("lock err = %v", err)
+	}
+}
+
+func TestSemanticIndexIgnoresStaleLockFile(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	lockDir := filepath.Join(brainDir, semanticLockDir)
+	if err := os.MkdirAll(lockDir, 0o700); err != nil {
+		t.Fatalf("mkdir lock: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(lockDir, semanticIndexLockName), []byte("stale\n"), 0o600); err != nil {
+		t.Fatalf("write stale lock: %v", err)
+	}
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index with stale lock file: %v", err)
 	}
 }
 
@@ -3829,13 +3851,11 @@ func semanticTestEnv(t *testing.T, repoDir string) EntireEnv {
 
 func writeSemanticTestLock(t *testing.T, brainDir string) {
 	t.Helper()
-	lockDir := filepath.Join(brainDir, semanticLockDir)
-	if err := os.MkdirAll(lockDir, 0o700); err != nil {
-		t.Fatalf("mkdir lock: %v", err)
+	unlock, err := acquireSemanticIndexLock(brainDir)
+	if err != nil {
+		t.Fatalf("acquire semantic test lock: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(lockDir, semanticIndexLockName), []byte("locked\n"), 0o600); err != nil {
-		t.Fatalf("write lock: %v", err)
-	}
+	t.Cleanup(unlock)
 }
 
 func semanticTestSQLCount(t *testing.T, path, table string) int {

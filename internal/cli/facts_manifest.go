@@ -52,6 +52,12 @@ func countFactProposals(brainDir string, branches []string) int {
 // manifest stay accurate. Chunk counts are preserved from the existing source
 // (they describe the last distill run, not these edits).
 func updateFactSourceManifest(brainDir string, now time.Time) error {
+	return withBrainWriteLock(brainDir, func() error {
+		return updateFactSourceManifestLocked(brainDir, now)
+	})
+}
+
+func updateFactSourceManifestLocked(brainDir string, now time.Time) error {
 	byBranch, err := loadAllFactBranches(brainDir)
 	if err != nil {
 		return err

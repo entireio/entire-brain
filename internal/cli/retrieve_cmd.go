@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// retrieve_cmd.go wires the qmd-aligned verbs over the unified text index:
+// retrieve_cmd.go wires the qmd-inspired verbs over the unified text index:
 // search (lexical), vsearch (vector), query (hybrid), and get/multi-get (fetch by
 // id). These verbs subsumed the old per-source inspect kinds (facts/docs/history
 // text). What remains under `inspect` is only what the verbs can't do: symbol-graph
@@ -45,8 +45,8 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Maximum results")
-	cmd.Flags().IntVarP(&limit, "number", "n", 10, "Maximum results (QMD-compatible alias for --limit)")
-	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-compatible alias for --json)")
+	cmd.Flags().IntVarP(&limit, "number", "n", 10, "Maximum results (QMD-style alias for --limit)")
+	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
 	return cmd
 }
@@ -101,7 +101,7 @@ func newGetCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-compatible alias for --json)")
+	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
 	return cmd
 }
@@ -123,7 +123,7 @@ func newMultiGetCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-compatible alias for --json)")
+	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
 	return cmd
 }

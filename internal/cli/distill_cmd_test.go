@@ -104,6 +104,58 @@ func TestRunDistillForBrainWritesFactsAndManifest(t *testing.T) {
 	}
 }
 
+func TestRunDistillForBrainDoesNotHoldWriteLockDuringExtraction(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+
+	var checked atomic.Bool
+	fakeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		unlock, err := acquireBrainWriteLockTimeout(brainDir, 50*time.Millisecond)
+		if err != nil {
+			t.Fatalf("distill extraction held brain write lock: %v", err)
+		}
+		unlock()
+		checked.Store(true)
+		return "preferences.coding.style\tThe user prefers concise commits.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: fakeRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("runDistillForBrain: %v", err)
+	}
+	if !checked.Load() {
+		t.Fatalf("fake extraction agent was not called")
+	}
+}
+
+func TestRunDistillForBrainAbortsWhenTaxonomyChangesDuringExtraction(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+
+	var changed atomic.Bool
+	fakeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		if changed.CompareAndSwap(false, true) {
+			if err := withBrainWriteLock(brainDir, func() error {
+				taxonomy, err := loadFactTaxonomy(brainDir, now)
+				if err != nil {
+					return err
+				}
+				taxonomy.Categories["release"] = "Release readiness facts."
+				return writeFactTaxonomy(brainDir, taxonomy)
+			}); err != nil {
+				t.Fatalf("change taxonomy: %v", err)
+			}
+		}
+		return "preferences.coding.style\tThe user prefers concise commits.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: fakeRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+
+	_, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
+	if err == nil || !strings.Contains(err.Error(), "taxonomy changed") {
+		t.Fatalf("expected taxonomy changed error, got %v", err)
+	}
+}
+
 func TestPreprocessTranscriptForDistillStripsTools(t *testing.T) {
 	// One record per line, mixing both transcript dialects. Tool calls, tool
 	// outputs, and meta must be dropped; human + assistant text must survive.
