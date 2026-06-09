@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -720,6 +722,10 @@ func listAllCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir st
 	ids, warnings := listLocalCheckpointRefIDs(ctx, runner, repoDir, localCheckpointRefs(includeV2))
 	if len(ids) == 0 {
 		localWarnings := warnings
+		if brainNoEgressMode() {
+			warnings = append(localWarnings, "no_egress: checkpoint remote discovery skipped")
+			return checkpointEntriesFromIDs(ids, limit), warningsFromLimit(ids, limit, warnings), nil
+		}
 		remoteURL, remoteErr := settings.CheckpointRemoteFetchURL()
 		if settingsErr != nil {
 			remoteErr = settingsErr
@@ -933,6 +939,11 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 			warnings = append(warnings, "compact transcript unavailable for v1 checkpoints; exported raw full.jsonl logs")
 		}
 		return snapshot, warnings, nil
+	}
+
+	if brainNoEgressMode() {
+		warnings = append(warnings, "no_egress: checkpoint remote snapshot fetch skipped")
+		return nil, warnings, fmt.Errorf("%w: local checkpoint refs unavailable and checkpoint remote disabled by no-egress mode", errCheckpointSnapshotUnavailable)
 	}
 
 	remoteURL, remoteErr := settings.CheckpointRemoteFetchURL()
@@ -1718,14 +1729,34 @@ func reuseTranscriptFromCursor(outputDir string, cursor *exportCursor, session e
 	if entry.TranscriptMode != transcriptMode {
 		return false
 	}
-	info, err := os.Stat(filepath.Join(outputDir, relPath))
-	return err == nil && !info.IsDir()
+	clean := filepath.Clean(filepath.FromSlash(relPath))
+	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return false
+	}
+	if err := rejectSymlinkPathComponents(outputDir, clean); err != nil {
+		return false
+	}
+	info, err := os.Lstat(filepath.Join(outputDir, clean))
+	return err == nil && !info.IsDir() && info.Mode()&os.ModeSymlink == 0
 }
 
 func writeTranscriptFile(outputDir, relPath string, data []byte) error {
-	abs := filepath.Join(outputDir, relPath)
+	clean := filepath.Clean(filepath.FromSlash(relPath))
+	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("unsafe transcript path: %s", relPath)
+	}
+	dir := filepath.Dir(clean)
+	if dir != "." {
+		if err := rejectExistingSymlinkPathComponents(outputDir, dir); err != nil {
+			return fmt.Errorf("validate transcript directory %s: %w", dir, err)
+		}
+	}
+	abs := filepath.Join(outputDir, clean)
 	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
 		return fmt.Errorf("create transcript directory: %w", err)
+	}
+	if err := rejectExistingSymlinkPathComponents(outputDir, clean); err != nil {
+		return fmt.Errorf("validate transcript path %s: %w", clean, err)
 	}
 	if err := writeFileAtomic(abs, data, 0o600); err != nil {
 		return err
@@ -1735,7 +1766,14 @@ func writeTranscriptFile(outputDir, relPath string, data []byte) error {
 
 func ensureExportDirectories(outputDir string, branchDirs map[string]string) error {
 	for _, relPath := range branchDirs {
-		if err := os.MkdirAll(filepath.Join(outputDir, relPath), 0o700); err != nil {
+		clean := filepath.Clean(filepath.FromSlash(relPath))
+		if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("unsafe branch transcript directory: %s", relPath)
+		}
+		if err := rejectExistingSymlinkPathComponents(outputDir, clean); err != nil {
+			return fmt.Errorf("validate branch transcript directory %s: %w", relPath, err)
+		}
+		if err := os.MkdirAll(filepath.Join(outputDir, clean), 0o700); err != nil {
 			return fmt.Errorf("create branch transcript directory %s: %w", relPath, err)
 		}
 	}
@@ -1915,15 +1953,6 @@ func buildBranchDirectories(sessions []exportSession, defaultBranch string) map[
 	}
 	defaultDir := filepath.Join(exportSessionsDirectory, safePathComponent(defaultBranch, "main", 80))
 
-	slugCounts := make(map[string]int)
-	for _, branch := range branches {
-		if branch == "" || branch == defaultBranch {
-			continue
-		}
-		slugCounts[safePathComponent(branch, "branch", 100)]++
-	}
-
-	nextCollisionIndex := make(map[string]int)
 	dirs := make(map[string]string, len(branches))
 	for _, branch := range branches {
 		switch {
@@ -1932,15 +1961,16 @@ func buildBranchDirectories(sessions []exportSession, defaultBranch string) map[
 		case branch == "":
 			dirs[branch] = filepath.Join(exportSessionsDirectory, exportUnknownDirectory)
 		default:
-			slug := safePathComponent(branch, "branch", 100)
-			if slugCounts[slug] > 1 {
-				nextCollisionIndex[slug]++
-				slug = fmt.Sprintf("%s-%d", slug, nextCollisionIndex[slug])
-			}
-			dirs[branch] = filepath.Join(exportSessionsDirectory, exportBranchesDirectory, slug)
+			dirs[branch] = filepath.Join(exportSessionsDirectory, exportBranchesDirectory, stableBranchDirComponent(branch))
 		}
 	}
 	return dirs
+}
+
+func stableBranchDirComponent(branch string) string {
+	slug := safePathComponent(branch, "branch", 80)
+	sum := sha256.Sum256([]byte(branch))
+	return slug + "-" + hex.EncodeToString(sum[:])[:8]
 }
 
 func summarizeBranchExports(sessions []exportSession, branchDirs map[string]string, defaultBranch string) []exportBranch {

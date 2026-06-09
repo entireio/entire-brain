@@ -471,6 +471,12 @@ func splitNonEmptyLines(data []byte) []string {
 
 func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndexEntry {
 	entry := seedFileIndexEntry{Path: filepath.ToSlash(rel), Category: seedCategory(rel), Included: true, Reason: "included"}
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		entry.Included = false
+		entry.Reason = "unsafe path"
+		return entry
+	}
 	if isDeniedSeedPath(rel) {
 		entry.Included = false
 		entry.Reason = "denied path"
@@ -481,7 +487,12 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 		entry.Reason = "tests excluded"
 		return entry
 	}
-	info, err := os.Stat(filepath.Join(repoDir, rel))
+	if err := rejectSymlinkPathComponents(repoDir, clean); err != nil {
+		entry.Included = false
+		entry.Reason = "symlink path"
+		return entry
+	}
+	info, err := os.Stat(filepath.Join(repoDir, clean))
 	if err != nil {
 		entry.Included = false
 		entry.Reason = "stat failed"
@@ -502,7 +513,7 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 		entry.Reason = "binary or media"
 		return entry
 	}
-	data, err := os.ReadFile(filepath.Join(repoDir, rel))
+	data, err := os.ReadFile(filepath.Join(repoDir, clean))
 	if err == nil {
 		if bytes.IndexByte(data, 0) >= 0 {
 			entry.Included = false
@@ -715,10 +726,30 @@ func writeSeedArtifacts(outputDir string, scan seedScanResult) error {
 		return err
 	}
 	for _, doc := range scan.Docs {
-		src := filepath.Join(scan.RepoDir, filepath.FromSlash(doc.Path))
-		dst := filepath.Join(outputDir, filepath.FromSlash(doc.SeedPath))
+		cleanSrc := filepath.Clean(filepath.FromSlash(doc.Path))
+		if filepath.IsAbs(cleanSrc) || cleanSrc == "." || strings.HasPrefix(cleanSrc, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if err := rejectSymlinkPathComponents(scan.RepoDir, cleanSrc); err != nil {
+			continue
+		}
+		cleanDst := filepath.Clean(filepath.FromSlash(doc.SeedPath))
+		if filepath.IsAbs(cleanDst) || cleanDst == "." || strings.HasPrefix(cleanDst, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("unsafe seed document path: %s", doc.SeedPath)
+		}
+		dir := filepath.Dir(cleanDst)
+		if dir != "." {
+			if err := rejectExistingSymlinkPathComponents(outputDir, dir); err != nil {
+				return fmt.Errorf("validate seed document directory %s: %w", dir, err)
+			}
+		}
+		src := filepath.Join(scan.RepoDir, cleanSrc)
+		dst := filepath.Join(outputDir, cleanDst)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 			return err
+		}
+		if err := rejectExistingSymlinkPathComponents(outputDir, cleanDst); err != nil {
+			return fmt.Errorf("validate seed document path %s: %w", cleanDst, err)
 		}
 		data, err := os.ReadFile(src)
 		if err != nil {

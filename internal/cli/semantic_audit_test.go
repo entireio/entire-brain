@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,6 +189,93 @@ func TestSemanticAuditCommandJSON(t *testing.T) {
 	}
 	if report.Provider != "entire-sem" || report.Symbols != 3 || report.Relations != 4 {
 		t.Fatalf("unexpected audit report: %+v", report)
+	}
+}
+
+func TestSemanticAuditFailOnUnsafeEmitsJSONBeforeError(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"):                   {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "remote", "get-url", "origin"):                    {stdout: "git@github.com:example/repo.git\n"},
+		fakeCommandKey("git", "rev-parse", "HEAD"):                              {stdout: "headsha\n"},
+		fakeCommandKey("git", "branch", "--show-current"):                       {stdout: "main\n"},
+		fakeCommandKey("git", "status", "--porcelain"):                          {},
+		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {},
+	}}
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, opts.Env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		Sources: &brainSources{Semantic: &semanticSourceManifest{
+			Provider:         "entire-sem",
+			ProviderVersion:  "0.1.0",
+			SchemaVersion:    "1.0",
+			Commit:           "headsha",
+			Branch:           "main",
+			Files:            2,
+			Symbols:          3,
+			Relations:        4,
+			NoEgressVerified: true,
+		}},
+	}
+	if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCommand(opts)
+	out, err := execute(t, cmd, "semantic-audit", "--json", "--fail-on", "unsafe")
+	if err == nil || !errors.Is(err, errSemanticAuditGate) {
+		t.Fatalf("expected semantic audit gate error, got %v\n%s", err, out)
+	}
+	var report semanticAuditReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("decode audit JSON after gate failure: %v\n%s", err, out)
+	}
+	if report.Freshness.Severity != "unsafe" || report.Provider != "entire-sem" {
+		t.Fatalf("unexpected audit report before gate failure: %+v", report)
+	}
+}
+
+func TestSemanticAuditFailurePolicies(t *testing.T) {
+	unsafeReport := semanticAuditReport{Freshness: staleReport{Severity: "unsafe"}}
+	degradedReport := semanticAuditReport{Freshness: staleReport{Severity: "degraded"}}
+	okReport := semanticAuditReport{Freshness: staleReport{Severity: "ok"}}
+	blindSpotReport := semanticAuditReport{
+		Freshness:  staleReport{Severity: "ok"},
+		BlindSpots: []brainBlindSpot{{Path: "src/broken.ts"}},
+	}
+	tests := []struct {
+		name    string
+		failOn  string
+		report  semanticAuditReport
+		wantErr bool
+	}{
+		{name: "none ignores unsafe and blind spots", failOn: semanticAuditFailOnNone, report: semanticAuditReport{Freshness: staleReport{Severity: "unsafe"}, BlindSpots: []brainBlindSpot{{Path: "src/broken.ts"}}}},
+		{name: "unsafe fails unsafe", failOn: semanticAuditFailOnUnsafe, report: unsafeReport, wantErr: true},
+		{name: "unsafe ignores degraded", failOn: semanticAuditFailOnUnsafe, report: degradedReport},
+		{name: "degraded fails degraded", failOn: semanticAuditFailOnDegraded, report: degradedReport, wantErr: true},
+		{name: "degraded fails unsafe", failOn: semanticAuditFailOnDegraded, report: unsafeReport, wantErr: true},
+		{name: "blind spots ignores clean report", failOn: semanticAuditFailOnBlindSpots, report: okReport},
+		{name: "blind spots fails spots", failOn: semanticAuditFailOnBlindSpots, report: blindSpotReport, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := semanticAuditFailureForReport(tc.report, tc.failOn)
+			if tc.wantErr {
+				if err == nil || !errors.Is(err, errSemanticAuditGate) {
+					t.Fatalf("expected gate error, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected gate error: %v", err)
+			}
+		})
 	}
 }
 

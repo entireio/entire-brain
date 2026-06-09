@@ -12,6 +12,7 @@ type rememberCommandOptions struct {
 	path         string
 	branch       string
 	agent        string
+	model        string
 	agentCommand []string
 	json         bool
 	run          distillAgentRunner
@@ -29,7 +30,8 @@ func newRememberCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&rememberOpts.path, "path", "", "Taxonomy path(s), comma-separated (e.g. preferences.coding.style). If omitted, the agent classifies the fact")
 	cmd.Flags().StringVar(&rememberOpts.branch, "branch", "", "Branch to store the fact on (default: current branch)")
-	cmd.Flags().StringVar(&rememberOpts.agent, "agent", "auto", "Agent used to classify when --path is omitted: auto, codex, claude-code, command, or none")
+	cmd.Flags().StringVar(&rememberOpts.agent, "agent", "auto", "Agent used to classify when --path is omitted: auto, codex, claude-code, ollama, command, or none")
+	cmd.Flags().StringVar(&rememberOpts.model, "model", "", "Model for codex/claude-code/ollama classification")
 	cmd.Flags().StringArrayVar(&rememberOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().BoolVar(&rememberOpts.json, "json", false, "Emit the created fact as JSON")
 	return cmd
@@ -131,9 +133,10 @@ func resolveRememberPaths(ctx context.Context, opts Options, rememberOpts rememb
 	if err != nil {
 		return nil, err
 	}
+	args = injectAgentModel(args, agent, rememberOpts.model)
 	run := rememberOpts.run
 	if run == nil {
-		run = execDistillAgent
+		run = defaultDistillAgentRunner(agent)
 	}
 	out, err := run(ctx, repoDir, args, []byte(text), defaultDistillTimeout)
 	if err != nil {

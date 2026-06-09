@@ -240,10 +240,23 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 			return err
 		}
 		fmt.Fprintf(out, "[watch] workspace %s — %d repos, distill=%v (budget=%d)\n", manifest.Name, len(manifest.Repos), w.distill, w.budget)
+		dirs, err := resolvePluginDirs(opts.Env)
+		if err != nil {
+			return err
+		}
 		for _, repo := range manifest.Repos {
 			repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
 			if err != nil || !local {
 				fmt.Fprintf(out, "[watch] %s: skipped (no resolvable local path)\n", repo.RepoKey)
+				continue
+			}
+			hintKey, err := repoStorageKey(ctx, opts.Runner, dirs.Config, repoDir)
+			if err != nil {
+				fmt.Fprintf(out, "[watch] %s: skipped (unsafe: %v)\n", repo.RepoKey, err)
+				continue
+			}
+			if hintKey != repo.RepoKey {
+				fmt.Fprintf(out, "[watch] %s: skipped (unsafe: local_path_hint repo_key mismatch: %s)\n", repo.RepoKey, hintKey)
 				continue
 			}
 			fmt.Fprintf(out, "[watch] %s:\n", repo.RepoKey)

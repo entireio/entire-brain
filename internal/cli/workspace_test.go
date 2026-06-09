@@ -16,12 +16,14 @@ func TestWorkspaceWatchFansOverMembersWithSharedBudget(t *testing.T) {
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
 	repoA := writeWorkspaceBrainRepo(t, env, "gh/example/repoa", `{"text":"x"}`, "a.go", "package x\n")
 	repoB := writeWorkspaceBrainRepo(t, env, "gh/example/repob", `{"text":"x"}`, "b.go", "package x\n")
+	repoAKey := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	repoBKey := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
 	manifest := workspaceManifest{
 		SchemaVersion: workspaceSchemaVersion,
 		Name:          "ws",
 		Repos: []workspaceRepo{
-			{RepoKey: "gh/example/repoa", LocalPathHint: repoA},
-			{RepoKey: "gh/example/repob", LocalPathHint: repoB},
+			{RepoKey: repoAKey, LocalPathHint: repoA},
+			{RepoKey: repoBKey, LocalPathHint: repoB},
 			{RepoKey: "gh/example/repoc", LocalPathHint: "/nonexistent/repoc-xyz"}, // unresolvable -> skipped
 		},
 	}
@@ -52,11 +54,43 @@ func TestWorkspaceWatchFansOverMembersWithSharedBudget(t *testing.T) {
 		t.Fatalf("agentCalls must be shared across members (not reset per repo), saw %v", seen)
 	}
 	o := out.String()
-	if !strings.Contains(o, "gh/example/repoa") || !strings.Contains(o, "gh/example/repob") {
+	if !strings.Contains(o, repoAKey) || !strings.Contains(o, repoBKey) {
 		t.Fatalf("both resolvable repo keys should be reported:\n%s", o)
 	}
 	if !strings.Contains(o, "gh/example/repoc") || !strings.Contains(o, "skipped") {
 		t.Fatalf("unresolvable member must be reported as skipped:\n%s", o)
+	}
+}
+
+func TestWorkspaceWatchOnceSkipsStaleLocalPathHintBeforeTick(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	repoB := t.TempDir()
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "remote", "get-url", "origin"): {stdout: "git@github.com:example/repob.git\n"},
+	}}
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "ws",
+		Repos: []workspaceRepo{
+			{RepoKey: "gh/example/repoa", LocalPathHint: repoB},
+		},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	w := defaultWatchOptions()
+	w.once = true
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
+	out := &bytes.Buffer{}
+	if err := workspaceWatchLoop(context.Background(), out, opts, w, "ws", func(repoDir string, agentCalls *int) {
+		t.Fatalf("repoTick must not run for stale hint %s", repoDir)
+	}); err != nil {
+		t.Fatalf("workspaceWatchLoop: %v", err)
+	}
+	o := out.String()
+	if !strings.Contains(o, "skipped (unsafe: local_path_hint repo_key mismatch: gh/example/repob)") {
+		t.Fatalf("stale hint should be reported as an unsafe skip:\n%s", o)
 	}
 }
 

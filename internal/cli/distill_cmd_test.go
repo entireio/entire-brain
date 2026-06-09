@@ -333,6 +333,68 @@ func TestDistillDryRunCountsChunksWithoutAgent(t *testing.T) {
 	}
 }
 
+func TestDistillDryRunReportsCachedSessionEstimatedChunks(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	maxChunkBytes := 40
+	session := exportSession{
+		SessionID:        "large",
+		Branch:           "main",
+		LatestCheckpoint: "cp-large",
+		TranscriptPath:   "sessions/main/large.jsonl",
+		CreatedAt:        now.Add(-time.Hour),
+	}
+	transcript := filepath.Join(brainDir, filepath.FromSlash(session.TranscriptPath))
+	if err := os.MkdirAll(filepath.Dir(transcript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for i := 0; i < 8; i++ {
+		lines = append(lines, fmt.Sprintf("user turn %d with enough text", i+1))
+	}
+	if err := os.WriteFile(transcript, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{session}}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: maxChunkBytes, timeout: time.Minute}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("warm cache: %v", err)
+	}
+
+	report, err := buildDistillDryRunReport(brainDir, distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, maxChunkBytes: maxChunkBytes}, now)
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if report.CachedSessions != 1 || report.SessionsToDistill != 0 || report.Chunks != 0 {
+		t.Fatalf("expected warm-cache dry-run to schedule no chunks, got %+v", report)
+	}
+	if report.ChunksIfUncached < 2 {
+		t.Fatalf("expected cached session estimate to report multiple chunks, got %+v", report)
+	}
+	if len(report.Branches) != 1 || report.Branches[0].ChunksIfUncached != report.ChunksIfUncached {
+		t.Fatalf("branch missing chunks_if_uncached estimate: %+v", report.Branches)
+	}
+	if len(report.LargestSessions) != 1 {
+		t.Fatalf("expected cached session in largest sessions, got %+v", report.LargestSessions)
+	}
+	largest := report.LargestSessions[0]
+	if !largest.Cached || largest.SessionID != "large" || largest.Chunks < 2 || largest.ChunksIfUncached != largest.Chunks {
+		t.Fatalf("cached large session lost estimated chunk evidence: %+v", largest)
+	}
+}
+
 func TestRunDistillForBrainParallelExtractionMatchesSerial(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	serialBrain := writeDistillFixture(t, now)

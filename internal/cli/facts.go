@@ -79,10 +79,10 @@ type factRecord struct {
 	UpdatedAt    time.Time    `json:"updated_at"`
 }
 
-// factAnchor cites the source a fact was derived from or authored against. In
-// Phase A only the checkpoint-level fields are populated. TurnID is filled in
-// Phase B once Entire CLI exposes turn-level signed anchors; Verified is set by
-// `verify` against the checkpoint signature.
+// factAnchor cites the source a fact was derived from or authored against.
+// TurnID is populated when the source provides turn-level anchors. Verified is
+// retained signed-source metadata; `verify` is read-only and reports local
+// verdicts without mutating this bit.
 type factAnchor struct {
 	SessionID    string `json:"session_id"`
 	Commit       string `json:"commit,omitempty"`
@@ -90,7 +90,7 @@ type factAnchor struct {
 	TurnID       string `json:"turn_id,omitempty"`    // Phase B
 	Transcript   string `json:"transcript,omitempty"` // brain-relative path
 	Line         int    `json:"line,omitempty"`       // turn offset in transcript
-	Verified     bool   `json:"verified,omitempty"`   // set by `verify`
+	Verified     bool   `json:"verified,omitempty"`   // retained signed-source metadata
 }
 
 // factTaxonomy is the active taxonomy snapshot. Paths are validated against

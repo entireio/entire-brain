@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -41,8 +42,22 @@ type semanticAuditCount struct {
 	Count int    `json:"count"`
 }
 
+const (
+	semanticAuditFailOnNone       = "none"
+	semanticAuditFailOnUnsafe     = "unsafe"
+	semanticAuditFailOnDegraded   = "degraded"
+	semanticAuditFailOnBlindSpots = "blind-spots"
+)
+
+var errSemanticAuditGate = errors.New("semantic audit failed configured gate")
+
+type semanticAuditCommandOptions struct {
+	json   bool
+	failOn string
+}
+
 func newSemanticAuditCommand(opts Options) *cobra.Command {
-	var jsonOut bool
+	auditOpts := semanticAuditCommandOptions{failOn: semanticAuditFailOnNone}
 	cmd := &cobra.Command{
 		Use:   "semantic-audit [path]",
 		Short: "Audit semantic index coverage, freshness, and blind spots",
@@ -55,21 +70,37 @@ func newSemanticAuditCommand(opts Options) *cobra.Command {
 			if len(args) == 1 {
 				target = args[0]
 			}
-			return runSemanticAudit(cmd.Context(), cmd, opts, target, jsonOut)
+			return runSemanticAudit(cmd.Context(), cmd, opts, target, auditOpts)
 		},
 	}
-	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&auditOpts.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().StringVar(&auditOpts.failOn, "fail-on", semanticAuditFailOnNone, "Return nonzero after emitting the report when the selected gate trips: unsafe, degraded, blind-spots, none")
 	return cmd
 }
 
-func runSemanticAudit(ctx context.Context, cmd *cobra.Command, opts Options, target string, jsonOut bool) error {
+func runSemanticAudit(ctx context.Context, cmd *cobra.Command, opts Options, target string, auditOpts semanticAuditCommandOptions) error {
+	failOn, err := normalizeSemanticAuditFailOn(auditOpts.failOn)
+	if err != nil {
+		return err
+	}
 	report, err := buildSemanticAuditReport(ctx, opts, target)
 	if err != nil {
 		return err
 	}
-	if jsonOut {
-		return writeJSON(cmd, report)
+	if auditOpts.json {
+		if err := writeJSON(cmd, report); err != nil {
+			return err
+		}
+	} else {
+		renderSemanticAuditReportText(cmd, report)
 	}
+	if err := semanticAuditFailureForReport(report, failOn); err != nil {
+		return renderedCommandError{err: err}
+	}
+	return nil
+}
+
+func renderSemanticAuditReportText(cmd *cobra.Command, report semanticAuditReport) {
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "semantic audit: %s\n", report.Freshness.Severity)
 	if report.Provider != "" {
@@ -125,6 +156,42 @@ func runSemanticAudit(ctx context.Context, cmd *cobra.Command, opts Options, tar
 			}
 			fmt.Fprintln(out)
 		}
+	}
+}
+
+func normalizeSemanticAuditFailOn(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", semanticAuditFailOnNone:
+		return semanticAuditFailOnNone, nil
+	case semanticAuditFailOnUnsafe:
+		return semanticAuditFailOnUnsafe, nil
+	case semanticAuditFailOnDegraded:
+		return semanticAuditFailOnDegraded, nil
+	case semanticAuditFailOnBlindSpots:
+		return semanticAuditFailOnBlindSpots, nil
+	default:
+		return "", fmt.Errorf("--fail-on must be one of: %s, %s, %s, %s", semanticAuditFailOnUnsafe, semanticAuditFailOnDegraded, semanticAuditFailOnBlindSpots, semanticAuditFailOnNone)
+	}
+}
+
+func semanticAuditFailureForReport(report semanticAuditReport, failOn string) error {
+	switch failOn {
+	case semanticAuditFailOnNone:
+		return nil
+	case semanticAuditFailOnUnsafe:
+		if report.Freshness.Severity == "unsafe" {
+			return fmt.Errorf("%w: freshness is unsafe", errSemanticAuditGate)
+		}
+	case semanticAuditFailOnDegraded:
+		if report.Freshness.Severity == "unsafe" || report.Freshness.Severity == "degraded" {
+			return fmt.Errorf("%w: freshness is %s", errSemanticAuditGate, report.Freshness.Severity)
+		}
+	case semanticAuditFailOnBlindSpots:
+		if len(report.BlindSpots) > 0 {
+			return fmt.Errorf("%w: %d blind spot(s)", errSemanticAuditGate, len(report.BlindSpots))
+		}
+	default:
+		return fmt.Errorf("--fail-on must be one of: %s, %s, %s, %s", semanticAuditFailOnUnsafe, semanticAuditFailOnDegraded, semanticAuditFailOnBlindSpots, semanticAuditFailOnNone)
 	}
 	return nil
 }

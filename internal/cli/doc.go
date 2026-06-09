@@ -70,11 +70,15 @@ func firstHeading(text string) string {
 // unreadable file doesn't lose the whole index) and surfaced via the manifest.
 func loadDocRecordsFromSeed(brainDir string) (records []docRecord, files int, warnings []string, err error) {
 	seedDir := filepath.Join(brainDir, seedDirName)
-	if _, statErr := os.Stat(seedDir); statErr != nil {
+	info, statErr := os.Lstat(seedDir)
+	if statErr != nil {
 		if os.IsNotExist(statErr) {
 			return nil, 0, nil, nil // no seed yet; not an error
 		}
 		return nil, 0, nil, statErr // a real stat failure (e.g. permissions) must not look like an empty index
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, 0, []string{"skip seed: path component must not be a symlink: seed"}, nil
 	}
 	relTo := func(path string) string {
 		if rel, relErr := filepath.Rel(brainDir, path); relErr == nil {
@@ -90,12 +94,17 @@ func loadDocRecordsFromSeed(brainDir string) (records []docRecord, files int, wa
 		if d.IsDir() || !strings.HasSuffix(strings.ToLower(path), ".md") {
 			return nil
 		}
-		data, rErr := os.ReadFile(path)
-		if rErr != nil {
-			warnings = append(warnings, fmt.Sprintf("read %s: %v", relTo(path), rErr))
+		rel := relTo(path)
+		clean := filepath.Clean(filepath.FromSlash(rel))
+		if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+			warnings = append(warnings, fmt.Sprintf("skip %s: %v", rel, err))
 			return nil
 		}
-		rel := relTo(path)
+		data, rErr := os.ReadFile(path)
+		if rErr != nil {
+			warnings = append(warnings, fmt.Sprintf("read %s: %v", rel, rErr))
+			return nil
+		}
 		files++
 		for _, c := range chunkLines(string(data), maxDocChunkBytes, false) {
 			if strings.TrimSpace(c.Text) == "" {

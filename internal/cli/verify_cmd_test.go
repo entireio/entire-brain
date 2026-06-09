@@ -175,6 +175,59 @@ func TestVerifyDistilledFactAtCheckpointGranularity(t *testing.T) {
 	}
 }
 
+func TestVerifyDoesNotMutateStoredAnchorMetadata(t *testing.T) {
+	f := newVerifyFixture(t)
+	const checkpointID = "aaa111aaa111"
+	const transcriptRel = "sessions/main/session.jsonl"
+	transcript := `{"type":"user_message","message":"Verification reports are read-only."}` + "\n"
+	f.writeBrainFile(t, transcriptRel, transcript)
+	f.writeSessions(t, []exportSession{{
+		SessionID:        "sess1",
+		Branch:           "main",
+		LatestCheckpoint: checkpointID,
+		SessionIndex:     0,
+		CreatedAt:        f.now,
+		TurnID:           "turn1",
+		TranscriptPath:   transcriptRel,
+	}})
+	f.addLocalCheckpoint(t, checkpointID, "sess1", "turn1", transcript)
+	f.writeFacts(t, "main", []factRecord{
+		verifyFactFixture("fact:readonly", "Verify should not persist anchor verdicts.", "main", factOriginDistilled, factStatusActive, f.now, []factAnchor{{
+			SessionID: "sess1", CheckpointID: checkpointID, TurnID: "turn1", Transcript: transcriptRel, Line: 1,
+		}}),
+	})
+
+	cmd := NewRootCommand(f.opts)
+	out, err := execute(t, cmd, "verify", "fact:readonly", "--json")
+	if err != nil {
+		t.Fatalf("verify: %v\n%s", err, out)
+	}
+	report := parseVerifyReport(t, out)
+	if report.Results[0].Verdict != verifyVerdictVerified {
+		t.Fatalf("expected verified report, got %+v", report.Results[0])
+	}
+	stored, err := loadFacts(f.brainDir, "main")
+	if err != nil {
+		t.Fatalf("reload facts: %v", err)
+	}
+	if len(stored) != 1 || len(stored[0].Provenance) != 1 {
+		t.Fatalf("unexpected stored facts: %+v", stored)
+	}
+	if stored[0].Provenance[0].Verified {
+		t.Fatalf("verify mutated stored anchor metadata: %+v", stored[0].Provenance[0])
+	}
+	manifest, err := loadBrainManifest(f.brainDir)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	if manifest.Sources == nil || manifest.Sources.Facts == nil {
+		t.Fatalf("missing fact source manifest: %+v", manifest.Sources)
+	}
+	if manifest.Sources.Facts.Verified != 0 || manifest.Sources.Facts.Unsigned != 1 {
+		t.Fatalf("verify should not mutate manifest anchor counts: %+v", manifest.Sources.Facts)
+	}
+}
+
 func TestVerifyReportsOrphanedAnchorAndStillEmitsJSON(t *testing.T) {
 	f := newVerifyFixture(t)
 	f.writeSessions(t, nil)
@@ -373,6 +426,28 @@ func TestVerifyDoesNotFetchConfiguredCheckpointRemote(t *testing.T) {
 		if call.name == "entire" || call.name == "entire-test" {
 			t.Fatalf("verify must not shell to entire checkpoint explain: %+v", call)
 		}
+	}
+}
+
+func TestVerifyStrictFlagsFailOnUnverifiableAfterJSON(t *testing.T) {
+	for _, flag := range []string{"--strict", "--fail-on-unverifiable"} {
+		t.Run(flag, func(t *testing.T) {
+			f := newVerifyFixture(t)
+			f.writeSessions(t, nil)
+			f.writeFacts(t, "main", []factRecord{
+				verifyFactFixture("fact:unverifiable", "Strict verify should gate locally unverifiable facts.", "main", factOriginAuthored, factStatusActive, f.now, nil),
+			})
+
+			cmd := NewRootCommand(f.opts)
+			out, err := execute(t, cmd, "verify", "fact:unverifiable", flag, "--json")
+			if err == nil || !errors.Is(err, errVerifyStrictIssues) {
+				t.Fatalf("expected strict unverifiable error, got %v\n%s", err, out)
+			}
+			report := parseVerifyReport(t, out)
+			if report.Summary.UnverifiableHere != 1 || report.Results[0].Verdict != verifyVerdictUnverifiableHere {
+				t.Fatalf("expected unverifiable report before strict failure, got %+v", report)
+			}
+		})
 	}
 }
 

@@ -72,6 +72,95 @@ func TestSeedWritesDeterministicBrain(t *testing.T) {
 	}
 }
 
+func TestSeedSkipsSymlinkedRepoInputs(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	outsideDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outsideDir, "package.json"), []byte(`{"scripts":{"exfiltrate":"cat /tmp/secret"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outsideDir, "mise.toml"), []byte("[tasks.leak]\nrun = \"cat /tmp/secret\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outsideDir, "leak.md"), []byte("# Outside Secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(repoDir, "package.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(repoDir, "mise.toml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoDir, "docs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outsideDir, "package.json"), filepath.Join(repoDir, "package.json")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(outsideDir, "mise.toml"), filepath.Join(repoDir, "mise.toml")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(outsideDir, "leak.md"), filepath.Join(repoDir, "docs", "leak.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	dataDir := filepath.Join(t.TempDir(), "data")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	runner := seedFixtureRunner(repoDir)
+	runner.responses[fakeCommandKey("git", "ls-files")] = fakeCommandResponse{
+		stdout: strings.Join([]string{
+			"README.md",
+			"package.json",
+			"mise.toml",
+			"docs/leak.md",
+		}, "\n") + "\n",
+	}
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			PluginConfigDir: filepath.Join(t.TempDir(), "config"),
+			PluginDataDir:   dataDir,
+			PluginStateDir:  stateDir,
+			PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
+		},
+		Runner: runner,
+		Now: func() time.Time {
+			return time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)
+		},
+	})
+
+	out, err := execute(t, cmd, "refresh", "seed", repoDir)
+	if err != nil {
+		t.Fatalf("seed: %v\n%s", err, out)
+	}
+	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
+	var manifest exportManifest
+	data, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse manifest: %v", err)
+	}
+	if hasSeedDocument(manifest.Sources.Seed.Documents, "docs/leak.md") {
+		t.Fatalf("symlinked doc was included: %+v", manifest.Sources.Seed.Documents)
+	}
+	for _, command := range manifest.Sources.Seed.Commands {
+		if strings.Contains(command.Name, "exfiltrate") || strings.Contains(command.Name, "leak") {
+			t.Fatalf("symlinked command source was included: %+v", manifest.Sources.Seed.Commands)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(brainDir, seedDirName, seedDocsDirName, "docs", "leak.md")); !os.IsNotExist(err) {
+		t.Fatalf("symlinked doc should not be copied, stat err=%v", err)
+	}
+	indexData, err := os.ReadFile(filepath.Join(brainDir, seedDirName, "file-index.json"))
+	if err != nil {
+		t.Fatalf("read file index: %v", err)
+	}
+	if !strings.Contains(string(indexData), "symlink path") {
+		t.Fatalf("file index did not record symlink rejections:\n%s", indexData)
+	}
+}
+
 func TestSeedAgentCommandArgsCodexUsesStructuredReadOnlyExec(t *testing.T) {
 	args, err := seedAgentCommandArgs("/repo", "quick", seedCommandOptions{agent: "codex"})
 	if err != nil {

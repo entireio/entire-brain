@@ -23,13 +23,17 @@ const (
 	verifyCheckpointUnavailableHint = "local checkpoint refs unavailable"
 )
 
-var errVerifyIssues = errors.New("verification found stale or orphaned facts")
+var (
+	errVerifyIssues       = errors.New("verification found stale or orphaned facts")
+	errVerifyStrictIssues = errors.New("verification found unverifiable-here facts")
+)
 
 type verifyCommandOptions struct {
-	branch string
-	limit  int
-	all    bool
-	json   bool
+	branch             string
+	limit              int
+	all                bool
+	json               bool
+	failOnUnverifiable bool
 }
 
 type verifyReport struct {
@@ -114,6 +118,8 @@ func newVerifyCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&verifyOpts.limit, "limit", 10, "Maximum facts to verify for query mode")
 	cmd.Flags().BoolVar(&verifyOpts.all, "all", false, "Include superseded and retracted facts")
 	cmd.Flags().BoolVar(&verifyOpts.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&verifyOpts.failOnUnverifiable, "strict", false, "Return nonzero for unverifiable-here facts as well as stale or orphaned facts")
+	cmd.Flags().BoolVar(&verifyOpts.failOnUnverifiable, "fail-on-unverifiable", false, "Return nonzero when any matched fact is unverifiable-here")
 	return cmd
 }
 
@@ -140,8 +146,18 @@ func runVerify(ctx context.Context, cmd *cobra.Command, opts Options, verifyOpts
 	} else {
 		renderVerifyReportText(cmd, report)
 	}
+	if err := verifyFailureForReport(report, verifyOpts); err != nil {
+		return renderedCommandError{err: err}
+	}
+	return nil
+}
+
+func verifyFailureForReport(report verifyReport, verifyOpts verifyCommandOptions) error {
 	if report.Summary.Stale > 0 || report.Summary.Orphaned > 0 {
-		return renderedCommandError{err: errVerifyIssues}
+		return errVerifyIssues
+	}
+	if verifyOpts.failOnUnverifiable && report.Summary.UnverifiableHere > 0 {
+		return errVerifyStrictIssues
 	}
 	return nil
 }

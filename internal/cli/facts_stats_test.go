@@ -94,7 +94,6 @@ func TestCompareEvalSummaries(t *testing.T) {
 		{ID: "t1", Task: "one", Recall: 0.1, UsefulPer1k: 1, Tokens: 100, Labeled: true},
 		{ID: "t2", Task: "two", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true},
 		{ID: "t3", Task: "three", Recall: 0.15, UsefulPer1k: 1.5, Tokens: 100, Labeled: true},
-		{ID: "only-a", Task: "only", Recall: 9, UsefulPer1k: 9, Tokens: 9, Labeled: true},
 	}}
 	b := evalSummary{Results: []evalTaskResult{
 		{ID: "t1", Task: "one", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true},
@@ -106,7 +105,7 @@ func TestCompareEvalSummaries(t *testing.T) {
 		t.Fatalf("compareEvalSummaries: %v", err)
 	}
 	if n != 3 {
-		t.Fatalf("should compare only the 3 shared tasks, got n=%d", n)
+		t.Fatalf("should compare the 3 matched tasks, got n=%d", n)
 	}
 	byMetric := map[string]metricComparison{}
 	for _, c := range comps {
@@ -121,6 +120,27 @@ func TestCompareEvalSummaries(t *testing.T) {
 	}
 	if byMetric["recall"].PHolm == 0 {
 		t.Errorf("recall Holm threshold should be populated: %+v", byMetric["recall"])
+	}
+}
+
+func TestCompareEvalSummariesRequiresMatchedTaskSets(t *testing.T) {
+	a := evalSummary{Results: []evalTaskResult{
+		{ID: "t1", Task: "one", UsefulPer1k: 1, Tokens: 100},
+		{ID: "t2", Task: "two", UsefulPer1k: 2, Tokens: 100},
+	}}
+	b := evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "one", UsefulPer1k: 2, Tokens: 100}}}
+	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil {
+		t.Fatal("missing task ids should be rejected by default")
+	}
+	comps, n, missingFromA, missingFromB, err := compareEvalSummariesInternal(a, b, 0.05, false, true)
+	if err != nil {
+		t.Fatalf("allow missing tasks: %v", err)
+	}
+	if n != 1 || len(comps) == 0 {
+		t.Fatalf("expected shared-id comparison, n=%d comps=%+v", n, comps)
+	}
+	if len(missingFromA) != 0 || len(missingFromB) != 1 || missingFromB[0] != "t2" {
+		t.Fatalf("unexpected missing id report: missingFromA=%v missingFromB=%v", missingFromA, missingFromB)
 	}
 }
 

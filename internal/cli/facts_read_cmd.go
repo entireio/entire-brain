@@ -44,6 +44,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 		noSemantic   bool
 		expand       bool
 		agent        string
+		model        string
 		agentCommand []string
 		jsonOut      bool
 	)
@@ -78,7 +79,8 @@ func newRecallCommand(opts Options) *cobra.Command {
 				if expErr != nil {
 					return fmt.Errorf("expand agent: %w", expErr)
 				}
-				exp, expErr := expandQuery(cmd.Context(), execDistillAgent, expandArgs, repoDir, query, loadExpansionCache(""))
+				expandArgs = injectAgentModel(expandArgs, resolved, model)
+				exp, expErr := expandQuery(cmd.Context(), defaultDistillAgentRunner(resolved), expandArgs, repoDir, query, loadExpansionCache(""))
 				if expErr != nil {
 					return fmt.Errorf("expand query: %w", expErr)
 				}
@@ -118,7 +120,8 @@ func newRecallCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) facts")
 	cmd.Flags().BoolVar(&noSemantic, "no-semantic", false, "Disable embedding rerank; rank with lexical + taxonomy only")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand the query with agent-generated retrieval terms before ranking")
-	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --expand: auto, codex, claude-code, or command")
+	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --expand: auto, codex, claude-code, ollama, or command")
+	cmd.Flags().StringVar(&model, "model", "", "Model for codex/claude-code/ollama expand calls")
 	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	return cmd

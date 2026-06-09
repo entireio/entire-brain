@@ -72,12 +72,12 @@ func updateFactSourceManifestLocked(brainDir string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	chunksScanned, chunksDistilled := 0, 0
+	var previous *factSourceManifest
 	if manifest.Sources != nil && manifest.Sources.Facts != nil {
-		chunksScanned = manifest.Sources.Facts.ChunksScanned
-		chunksDistilled = manifest.Sources.Facts.ChunksDistilled
+		previous = manifest.Sources.Facts
 	}
-	source := summarizeFactSource(now, byBranch, chunksScanned, chunksDistilled, proposals, nil)
+	source := summarizeFactSource(now, byBranch, 0, 0, proposals, nil)
+	preserveFactDistillEvidence(source, previous)
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}
 	}
@@ -86,4 +86,19 @@ func updateFactSourceManifestLocked(brainDir string, now time.Time) error {
 		manifest.GeneratedAt = now
 	}
 	return writeBrainManifestAndReadme(brainDir, *manifest)
+}
+
+func preserveFactDistillEvidence(source, previous *factSourceManifest) {
+	if source == nil || previous == nil {
+		return
+	}
+	source.ChunksScanned = previous.ChunksScanned
+	source.ChunksDistilled = previous.ChunksDistilled
+	source.CacheHits = previous.CacheHits
+	source.FailedChunks = previous.FailedChunks
+	source.PreprocessedBytes = previous.PreprocessedBytes
+	source.ExtractionSeconds = previous.ExtractionSeconds
+	source.ReconcileSeconds = previous.ReconcileSeconds
+	source.WriteSeconds = previous.WriteSeconds
+	source.Warnings = append([]string(nil), previous.Warnings...)
 }

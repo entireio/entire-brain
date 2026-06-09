@@ -120,6 +120,7 @@ type distillPlan struct {
 	RawBytes           int64
 	PreprocessedBytes  int64
 	Chunks             int
+	ChunksIfUncached   int
 	Warnings           []string
 	CacheSalt          string
 }
@@ -132,6 +133,7 @@ type distillSessionPlan struct {
 	ReadFailed        bool
 	RawBytes          int
 	PreprocessedBytes int
+	ChunksIfUncached  int
 	ChunkIndexes      []int
 }
 
@@ -172,6 +174,7 @@ type distillDryRunReport struct {
 	RawBytes                      int64                  `json:"raw_bytes"`
 	PreprocessedBytes             int64                  `json:"preprocessed_bytes"`
 	Chunks                        int                    `json:"chunks"`
+	ChunksIfUncached              int                    `json:"chunks_if_uncached"`
 	ExtractionAgentCalls          int                    `json:"extraction_agent_calls"`
 	ReconcileAgentCallsUpperBound int                    `json:"reconcile_agent_calls_upper_bound"`
 	EstimatedAgentCallsUpperBound int                    `json:"estimated_agent_calls_upper_bound"`
@@ -186,6 +189,7 @@ type distillDryRunBranch struct {
 	CachedSessions    int    `json:"cached_sessions"`
 	SessionsToDistill int    `json:"sessions_to_distill"`
 	Chunks            int    `json:"chunks"`
+	ChunksIfUncached  int    `json:"chunks_if_uncached"`
 	PreprocessedBytes int64  `json:"preprocessed_bytes"`
 }
 
@@ -195,6 +199,7 @@ type distillDryRunSession struct {
 	Transcript        string `json:"transcript"`
 	Cached            bool   `json:"cached"`
 	Chunks            int    `json:"chunks"`
+	ChunksIfUncached  int    `json:"chunks_if_uncached"`
 	RawBytes          int    `json:"raw_bytes"`
 	PreprocessedBytes int    `json:"preprocessed_bytes"`
 }
@@ -612,6 +617,7 @@ func buildDistillDryRunReport(brainDir string, distillOpts distillCommandOptions
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
 		return distillDryRunReport{}, errors.New("no exported sessions; run `entire brain refresh` first")
 	}
+	distillOpts.dryRun = true
 	cacheSalt, err := distillCacheSaltForBrain(brainDir, distillOpts, now)
 	if err != nil {
 		return distillDryRunReport{}, err
@@ -633,6 +639,7 @@ func buildDistillDryRunReport(brainDir string, distillOpts distillCommandOptions
 		RawBytes:                      plan.RawBytes,
 		PreprocessedBytes:             plan.PreprocessedBytes,
 		Chunks:                        plan.Chunks,
+		ChunksIfUncached:              plan.ChunksIfUncached,
 		ExtractionAgentCalls:          plan.Chunks,
 		ReconcileAgentCallsUpperBound: plan.Chunks,
 		EstimatedAgentCallsUpperBound: plan.Chunks * 2,
@@ -649,18 +656,24 @@ func buildDistillDryRunReport(brainDir string, distillOpts distillCommandOptions
 		stat := branchStats[session.Branch]
 		stat.Sessions++
 		stat.PreprocessedBytes += int64(session.PreprocessedBytes)
+		stat.ChunksIfUncached += session.ChunksIfUncached
 		if session.Cached {
 			stat.CachedSessions++
 		} else if !session.ReadFailed {
 			stat.SessionsToDistill++
 			stat.Chunks += len(session.ChunkIndexes)
 		}
+		sessionChunks := len(session.ChunkIndexes)
+		if session.Cached {
+			sessionChunks = session.ChunksIfUncached
+		}
 		report.LargestSessions = append(report.LargestSessions, distillDryRunSession{
 			SessionID:         session.Session.SessionID,
 			Branch:            session.Branch,
 			Transcript:        filepath.ToSlash(session.Session.TranscriptPath),
 			Cached:            session.Cached,
-			Chunks:            len(session.ChunkIndexes),
+			Chunks:            sessionChunks,
+			ChunksIfUncached:  session.ChunksIfUncached,
 			RawBytes:          session.RawBytes,
 			PreprocessedBytes: session.PreprocessedBytes,
 		})
@@ -690,12 +703,18 @@ func printDistillDryRunReport(cmd *cobra.Command, report distillDryRunReport) {
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "distill dry-run: %d sessions, %d cached, %d to distill, %d chunks\n",
 		report.Sessions, report.CachedSessions, report.SessionsToDistill, report.Chunks)
+	if report.ChunksIfUncached != report.Chunks {
+		fmt.Fprintf(out, "chunks if uncached: %d\n", report.ChunksIfUncached)
+	}
 	fmt.Fprintf(out, "estimated agent calls: %d extraction + up to %d reconcile = up to %d total\n",
 		report.ExtractionAgentCalls, report.ReconcileAgentCallsUpperBound, report.EstimatedAgentCallsUpperBound)
 	fmt.Fprintf(out, "bytes: %d raw, %d preprocessed\n", report.RawBytes, report.PreprocessedBytes)
 	for _, branch := range report.Branches {
 		fmt.Fprintf(out, "branch %s: %d sessions, %d cached, %d chunks\n",
 			branch.Branch, branch.Sessions, branch.CachedSessions, branch.Chunks)
+		if branch.ChunksIfUncached != branch.Chunks {
+			fmt.Fprintf(out, "branch %s chunks if uncached: %d\n", branch.Branch, branch.ChunksIfUncached)
+		}
 	}
 	if len(report.Warnings) > 0 {
 		for _, warning := range report.Warnings {
@@ -739,6 +758,14 @@ func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts dis
 		plan.RawBytes += int64(sessionPlan.RawBytes)
 		plan.PreprocessedBytes += int64(sessionPlan.PreprocessedBytes)
 		sessionPlan.Fingerprint = distillSessionFingerprint(session, branch, distillInput, plan.CacheSalt)
+		var chunks []transcriptChunk
+		chunksComputed := false
+		if distillOpts.dryRun {
+			chunks = chunkTranscript(distillInput, distillOpts.maxChunkBytes)
+			chunksComputed = true
+			sessionPlan.ChunksIfUncached = len(chunks)
+			plan.ChunksIfUncached += sessionPlan.ChunksIfUncached
+		}
 		if !distillOpts.force {
 			cacheKey := distillSessionCacheKey(branch, session.SessionID)
 			prev, ok := prevCache.Sessions[cacheKey]
@@ -752,7 +779,11 @@ func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts dis
 				continue
 			}
 		}
-		chunks := chunkTranscript(distillInput, distillOpts.maxChunkBytes)
+		if !chunksComputed {
+			chunks = chunkTranscript(distillInput, distillOpts.maxChunkBytes)
+			sessionPlan.ChunksIfUncached = len(chunks)
+			plan.ChunksIfUncached += sessionPlan.ChunksIfUncached
+		}
 		plan.SessionsToDistill++
 		for chunkIndex, chunk := range chunks {
 			workIndex := len(plan.Work)
@@ -1112,12 +1143,15 @@ func factTaxonomyFingerprint(taxonomy factTaxonomy) string {
 }
 
 // readBrainRelativeFile reads a brain-relative path, rejecting absolute paths
-// and parent-directory escapes so a manifest-supplied path cannot read outside
-// the brain directory.
+// parent-directory escapes, and symlink hops so a manifest-supplied path cannot
+// read outside the brain directory.
 func readBrainRelativeFile(brainDir, rel string) (string, error) {
 	clean := filepath.Clean(filepath.FromSlash(rel))
-	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("unsafe transcript path: %s", rel)
+	}
+	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+		return "", err
 	}
 	data, err := os.ReadFile(filepath.Join(brainDir, clean))
 	if err != nil {

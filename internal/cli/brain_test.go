@@ -558,6 +558,35 @@ export class SqliteMemoryRepository {
 	}
 }
 
+func TestBrainBriefActionChecklistSkipsSymlinkedOutsideLikelyFile(t *testing.T) {
+	repoDir := t.TempDir()
+	outsidePath := filepath.Join(t.TempDir(), "index.ts")
+	outsideSource := `
+export class SqliteMemoryRepository {
+  async listNodes(filter = {}) {
+    const limit = filter.limit ?? 250;
+    return this.db.prepare("SELECT * FROM memory_nodes LIMIT ?").all(limit);
+  }
+}
+`
+	if err := os.WriteFile(outsidePath, []byte(outsideSource), 0o600); err != nil {
+		t.Fatalf("write outside source: %v", err)
+	}
+	linkPath := filepath.Join(repoDir, "packages", "storage", "src", "index.ts")
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0o700); err != nil {
+		t.Fatalf("mkdir link dir: %v", err)
+	}
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	report := brainBriefReport{LikelyEditFiles: []string{"packages/storage/src/index.ts"}}
+	actions := brainBriefActionChecklist(repoDir, report, "repository query limit normalization")
+	if len(actions) != 0 {
+		t.Fatalf("outside symlink content should not be surfaced in actions: %+v", actions)
+	}
+}
+
 func TestBrainBriefLikelyFilesExtractsDotSlashHistoryPaths(t *testing.T) {
 	report := brainBriefReport{
 		History: brainBriefHistory{Matches: []brainTextMatch{{
@@ -633,6 +662,35 @@ func TestBrainBriefCurrentCodeFileCountsFindsProviderMetadataContractFile(t *tes
 	if actions[0].File != "apps/desktop/src/main/agentic-decider.ts" ||
 		!strings.Contains(actions[0].Action, "Stringify the agentic_decision metadata step") {
 		t.Fatalf("unexpected primary action: %+v", actions[0])
+	}
+}
+
+func TestBrainBriefCurrentCodeFileCountsSkipsSymlinkedOutsideFile(t *testing.T) {
+	repoDir := t.TempDir()
+	outsidePath := filepath.Join(t.TempDir(), "agentic-decider.ts")
+	outsideSource := `export function createAgenticDecider(llm) {
+  const reasoningEffort = "low";
+  return llm.generate([], {
+    reasoningEffort,
+    metadata: { purpose: "agentic_decision", step: perception.stepIndex },
+    previousResponseId: perception.previousResponseId
+  });
+}
+`
+	if err := os.WriteFile(outsidePath, []byte(outsideSource), 0o600); err != nil {
+		t.Fatalf("write outside source: %v", err)
+	}
+	linkPath := filepath.Join(repoDir, "apps", "desktop", "src", "main", "agentic-decider.ts")
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0o700); err != nil {
+		t.Fatalf("mkdir link dir: %v", err)
+	}
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	counts := brainBriefCurrentCodeFileCounts(repoDir, "Responses API metadata values must be strings for the agentic decider provider contract")
+	if _, ok := counts["apps/desktop/src/main/agentic-decider.ts"]; ok {
+		t.Fatalf("outside symlink content should not be counted: %+v", counts)
 	}
 }
 
@@ -714,6 +772,26 @@ func TestBrainBriefAddsSiblingTestFiles(t *testing.T) {
 	tests := brainBriefAddSiblingTestFiles(repoDir, []string{"packages/storage/src/index.ts"}, nil)
 	if !slices.Contains(tests, "packages/storage/src/index.test.ts") {
 		t.Fatalf("expected sibling test file, got %+v", tests)
+	}
+}
+
+func TestBrainBriefAddsSiblingTestFilesSkipsSymlinkedOutsideFile(t *testing.T) {
+	repoDir := t.TempDir()
+	outsidePath := filepath.Join(t.TempDir(), "index.test.ts")
+	if err := os.WriteFile(outsidePath, []byte("test('outside', () => {})\n"), 0o600); err != nil {
+		t.Fatalf("write outside test: %v", err)
+	}
+	linkPath := filepath.Join(repoDir, "packages", "storage", "src", "index.test.ts")
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0o700); err != nil {
+		t.Fatalf("mkdir link dir: %v", err)
+	}
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	tests := brainBriefAddSiblingTestFiles(repoDir, []string{"packages/storage/src/index.ts"}, nil)
+	if slices.Contains(tests, "packages/storage/src/index.test.ts") {
+		t.Fatalf("outside symlink test file should not be surfaced: %+v", tests)
 	}
 }
 

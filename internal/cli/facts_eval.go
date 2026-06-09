@@ -36,19 +36,21 @@ type evalTask struct {
 // UsefulPer1k — relevant items surfaced per 1,000 tokens spent — which captures
 // the Appendix D agent constraint (value per token, not item count).
 type evalTaskResult struct {
-	ID               string  `json:"id"`
-	Task             string  `json:"task"`
-	QueryType        string  `json:"query_type,omitempty"`
-	Retriever        string  `json:"retriever,omitempty"`
-	RelevanceSource  string  `json:"relevance_source,omitempty"`
-	Surfaced         int     `json:"surfaced"`
-	Tokens           int     `json:"tokens"`
-	LatencyMS        int64   `json:"latency_ms"`
-	RelevantSurfaced int     `json:"relevant_surfaced"`
-	Precision        float64 `json:"precision"`
-	Recall           float64 `json:"recall"`
-	UsefulPer1k      float64 `json:"useful_per_1k"`
-	Labeled          bool    `json:"labeled"`
+	ID                 string  `json:"id"`
+	Task               string  `json:"task"`
+	QueryType          string  `json:"query_type,omitempty"`
+	Retriever          string  `json:"retriever,omitempty"`
+	RelevanceSource    string  `json:"relevance_source,omitempty"`
+	Surfaced           int     `json:"surfaced"`
+	Tokens             int     `json:"tokens"`
+	LatencyMS          int64   `json:"latency_ms"`
+	ExpansionLatencyMS int64   `json:"expansion_latency_ms"`
+	EndToEndLatencyMS  int64   `json:"end_to_end_latency_ms"`
+	RelevantSurfaced   int     `json:"relevant_surfaced"`
+	Precision          float64 `json:"precision"`
+	Recall             float64 `json:"recall"`
+	UsefulPer1k        float64 `json:"useful_per_1k"`
+	Labeled            bool    `json:"labeled"`
 }
 
 // evalStratum aggregates metrics for one query-type stratum.
@@ -60,14 +62,16 @@ type evalStratum struct {
 }
 
 type evalSummary struct {
-	Retriever       string                 `json:"retriever,omitempty"`
-	Tasks           int                    `json:"tasks"`
-	MeanTokens      float64                `json:"mean_tokens"`
-	MeanLatencyMS   float64                `json:"mean_latency_ms"`
-	MeanPrecision   float64                `json:"mean_precision"`
-	MeanUsefulPer1k float64                `json:"mean_useful_per_1k"`
-	ByStratum       map[string]evalStratum `json:"by_stratum,omitempty"`
-	Results         []evalTaskResult       `json:"results"`
+	Retriever              string                 `json:"retriever,omitempty"`
+	Tasks                  int                    `json:"tasks"`
+	MeanTokens             float64                `json:"mean_tokens"`
+	MeanLatencyMS          float64                `json:"mean_latency_ms"`
+	MeanExpansionLatencyMS float64                `json:"mean_expansion_latency_ms"`
+	MeanEndToEndLatencyMS  float64                `json:"mean_end_to_end_latency_ms"`
+	MeanPrecision          float64                `json:"mean_precision"`
+	MeanUsefulPer1k        float64                `json:"mean_useful_per_1k"`
+	ByStratum              map[string]evalStratum `json:"by_stratum,omitempty"`
+	Results                []evalTaskResult       `json:"results"`
 }
 
 const (
@@ -144,11 +148,13 @@ func summarizeEval(results []evalTaskResult) evalSummary {
 		return s
 	}
 	s.Retriever = results[0].Retriever
-	var tok, latency, prec, useful float64
+	var tok, latency, expansionLatency, endToEndLatency, prec, useful float64
 	strata := map[string][]evalTaskResult{}
 	for _, r := range results {
 		tok += float64(r.Tokens)
 		latency += float64(r.LatencyMS)
+		expansionLatency += float64(r.ExpansionLatencyMS)
+		endToEndLatency += float64(evalEndToEndLatencyMS(r))
 		prec += r.Precision
 		useful += r.UsefulPer1k
 		if r.QueryType != "" {
@@ -158,6 +164,8 @@ func summarizeEval(results []evalTaskResult) evalSummary {
 	n := float64(len(results))
 	s.MeanTokens = tok / n
 	s.MeanLatencyMS = latency / n
+	s.MeanExpansionLatencyMS = expansionLatency / n
+	s.MeanEndToEndLatencyMS = endToEndLatency / n
 	s.MeanPrecision = prec / n
 	s.MeanUsefulPer1k = useful / n
 	if len(strata) > 0 {
@@ -174,6 +182,13 @@ func summarizeEval(results []evalTaskResult) evalSummary {
 		}
 	}
 	return s
+}
+
+func evalEndToEndLatencyMS(r evalTaskResult) int64 {
+	if r.EndToEndLatencyMS > 0 {
+		return r.EndToEndLatencyMS
+	}
+	return r.LatencyMS + r.ExpansionLatencyMS
 }
 
 // --- agent judge ----------------------------------------------------------
@@ -298,6 +313,15 @@ The tasks file is a JSON array:
 			if judgeSource && !judge {
 				return fmt.Errorf("--judge-source-matches requires --judge")
 			}
+			if retriever == "" {
+				retriever = evalRetrieverFacts
+			}
+			if err := validateEvalRetriever(retriever); err != nil {
+				return err
+			}
+			if err := validateEvalSemanticRetriever(semantic, retriever); err != nil {
+				return err
+			}
 			repoDir, brainDir, defaultBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
 			if err != nil {
 				return err
@@ -339,9 +363,6 @@ The tasks file is a JSON array:
 				if rr == nil {
 					return fmt.Errorf("--semantic requested but the embedding backend is unavailable")
 				}
-			}
-			if retriever == "" {
-				retriever = evalRetrieverFacts
 			}
 			results, err := runFactsEvalWithOptions(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, loadJudgeCache(judgeCache), expander, rr, retriever, factsEvalRunOptions{JudgeSourceMatches: judgeSource})
 			if err != nil {
@@ -459,6 +480,13 @@ func validateEvalRetriever(retriever string) error {
 	default:
 		return fmt.Errorf("--retriever must be one of facts, history, query, raw-sessions")
 	}
+}
+
+func validateEvalSemanticRetriever(semantic bool, retriever string) error {
+	if semantic && retriever != evalRetrieverFacts {
+		return fmt.Errorf("--semantic requires --retriever facts")
+	}
+	return nil
 }
 
 func retrieveEvalItems(brainDir, branch, query string, limit int, retriever string, facts []factRecord, rr *semanticReranker) ([]evalRetrievedItem, error) {
@@ -718,6 +746,9 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 	if err := validateEvalRetriever(retriever); err != nil {
 		return nil, err
 	}
+	if err := validateEvalSemanticRetriever(rr != nil, retriever); err != nil {
+		return nil, err
+	}
 	results := make([]evalTaskResult, 0, len(tasks))
 	factsByBranch := map[string][]factRecord{} // load each branch's facts once per run
 	for _, task := range tasks {
@@ -742,11 +773,15 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 				factsByBranch[branch] = facts
 			}
 		}
+		taskStarted := time.Now()
 		query := task.Task
+		var expansionLatencyMS int64
 		if expander != nil {
+			expansionStarted := time.Now()
 			if exp, expErr := expander(task.Task); expErr != nil {
 				return nil, fmt.Errorf("expand task %s: %w", task.ID, expErr)
 			} else {
+				expansionLatencyMS = time.Since(expansionStarted).Milliseconds()
 				query = expandedQuery(task.Task, exp)
 			}
 		}
@@ -756,6 +791,7 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 			return nil, fmt.Errorf("retrieve task %s: %w", task.ID, err)
 		}
 		latencyMS := time.Since(started).Milliseconds()
+		endToEndLatencyMS := time.Since(taskStarted).Milliseconds()
 
 		relevant, totalRelevant, labeled, relevanceSource := evalLabelsForRetriever(task, retriever, surfaced)
 		shouldJudge := judge && len(surfaced) > 0 && !labeled && relevanceSource != evalRelevanceSourceMatch
@@ -776,6 +812,8 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 		res.Retriever = retriever
 		res.RelevanceSource = relevanceSource
 		res.LatencyMS = latencyMS
+		res.ExpansionLatencyMS = expansionLatencyMS
+		res.EndToEndLatencyMS = endToEndLatencyMS
 		results = append(results, res)
 	}
 	if err := cache.save(); err != nil {
@@ -855,7 +893,12 @@ func printEvalSummary(cmd *cobra.Command, s evalSummary) {
 	if s.Retriever != "" {
 		fmt.Fprintf(out, "retriever: %s\n", s.Retriever)
 	}
-	fmt.Fprintf(out, "%-14s %8s %8s %7s %7s %9s\n", "task", "tokens", "lat(ms)", "prec", "recall", "useful/1k")
+	showLatencyBreakdown := evalHasLatencyBreakdown(s.Results)
+	if showLatencyBreakdown {
+		fmt.Fprintf(out, "%-14s %8s %8s %8s %8s %7s %7s %9s\n", "task", "tokens", "lat(ms)", "exp(ms)", "e2e(ms)", "prec", "recall", "useful/1k")
+	} else {
+		fmt.Fprintf(out, "%-14s %8s %8s %7s %7s %9s\n", "task", "tokens", "lat(ms)", "prec", "recall", "useful/1k")
+	}
 	rows := append([]evalTaskResult(nil), s.Results...)
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 	for _, r := range rows {
@@ -863,9 +906,17 @@ func printEvalSummary(cmd *cobra.Command, s evalSummary) {
 		if r.Labeled {
 			recall = fmt.Sprintf("%.2f", r.Recall)
 		}
-		fmt.Fprintf(out, "%-14s %8d %8d %7.2f %7s %9.2f\n", truncateString(r.ID, 14), r.Tokens, r.LatencyMS, r.Precision, recall, r.UsefulPer1k)
+		if showLatencyBreakdown {
+			fmt.Fprintf(out, "%-14s %8d %8d %8d %8d %7.2f %7s %9.2f\n", truncateString(r.ID, 14), r.Tokens, r.LatencyMS, r.ExpansionLatencyMS, evalEndToEndLatencyMS(r), r.Precision, recall, r.UsefulPer1k)
+		} else {
+			fmt.Fprintf(out, "%-14s %8d %8d %7.2f %7s %9.2f\n", truncateString(r.ID, 14), r.Tokens, r.LatencyMS, r.Precision, recall, r.UsefulPer1k)
+		}
 	}
-	fmt.Fprintf(out, "%-14s %8.0f %8.0f %7.2f %7s %9.2f\n", "MEAN", s.MeanTokens, s.MeanLatencyMS, s.MeanPrecision, "", s.MeanUsefulPer1k)
+	if showLatencyBreakdown {
+		fmt.Fprintf(out, "%-14s %8.0f %8.0f %8.0f %8.0f %7.2f %7s %9.2f\n", "MEAN", s.MeanTokens, s.MeanLatencyMS, s.MeanExpansionLatencyMS, s.MeanEndToEndLatencyMS, s.MeanPrecision, "", s.MeanUsefulPer1k)
+	} else {
+		fmt.Fprintf(out, "%-14s %8.0f %8.0f %7.2f %7s %9.2f\n", "MEAN", s.MeanTokens, s.MeanLatencyMS, s.MeanPrecision, "", s.MeanUsefulPer1k)
+	}
 	if len(s.ByStratum) > 0 {
 		fmt.Fprintf(out, "\n%-14s %8s %7s %7s %9s\n", "stratum", "tokens", "prec", "tasks", "useful/1k")
 		strata := make([]string, 0, len(s.ByStratum))
@@ -878,4 +929,13 @@ func printEvalSummary(cmd *cobra.Command, s evalSummary) {
 			fmt.Fprintf(out, "%-14s %8.0f %7.2f %7d %9.2f\n", qt, st.MeanTokens, st.MeanPrecision, st.Tasks, st.MeanUsefulPer1k)
 		}
 	}
+}
+
+func evalHasLatencyBreakdown(results []evalTaskResult) bool {
+	for _, r := range results {
+		if r.ExpansionLatencyMS != 0 {
+			return true
+		}
+	}
+	return false
 }

@@ -363,6 +363,21 @@ func TestFactsEvalRejectsJudgeSourceMatchesWithoutJudge(t *testing.T) {
 	}
 }
 
+func TestFactsEvalRejectsSemanticForNonFactsRetrievers(t *testing.T) {
+	dir := t.TempDir()
+	tasksPath := filepath.Join(dir, "tasks.json")
+	if err := os.WriteFile(tasksPath, []byte(`[{"id":"t1","task":"check retrieval"}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, retriever := range []string{evalRetrieverHistory, evalRetrieverQuery, evalRetrieverRawSessions} {
+		cmd := newFactsEvalCommand(Options{})
+		_, err := execute(t, cmd, "--tasks", tasksPath, "--retriever", retriever, "--semantic")
+		if err == nil || !strings.Contains(err.Error(), "--semantic requires --retriever facts") {
+			t.Fatalf("%s: expected --semantic retriever validation error, got %v", retriever, err)
+		}
+	}
+}
+
 func TestSummarizeEvalByStratum(t *testing.T) {
 	results := []evalTaskResult{
 		{ID: "a", QueryType: queryTypeCode, Tokens: 100, Precision: 0.8, UsefulPer1k: 8},

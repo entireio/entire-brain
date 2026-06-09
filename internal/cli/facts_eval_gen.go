@@ -34,6 +34,7 @@ func newFactsEvalGenCommand(opts Options) *cobra.Command {
 		maxFacts     int
 		refine       bool
 		agent        string
+		model        string
 		agentCommand []string
 		judgeCache   string
 		source       string
@@ -85,7 +86,7 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 				return err
 			}
 			if refine {
-				tasks, err = refineEvalTaskLabels(cmd.Context(), opts, brainDir, repoDir, tasks, agent, agentCommand, judgeCache)
+				tasks, err = refineEvalTaskLabels(cmd.Context(), opts, brainDir, repoDir, tasks, agent, model, agentCommand, judgeCache)
 				if err != nil {
 					return err
 				}
@@ -113,7 +114,8 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 	cmd.Flags().IntVar(&maxFacts, "max-facts", 30, "Skip broad sessions with more relevant facts than this (diffuse targets); 0 = no cap")
 	cmd.Flags().StringVar(&source, "source", evalGenSourceFacts, "Task source: facts (provenance-labeled) or sessions (source-anchored, unlabeled)")
 	cmd.Flags().BoolVar(&refine, "refine", false, "Judge-filter provenance labels to the genuinely-relevant subset (agent-required)")
-	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --refine: auto, codex, claude-code, or command")
+	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --refine: auto, codex, claude-code, ollama, or command")
+	cmd.Flags().StringVar(&model, "model", "", "Model for codex/claude-code/ollama refine calls")
 	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&judgeCache, "judge-cache", "", "Persist/reuse --refine verdicts at this path")
 	return cmd
@@ -123,7 +125,7 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 // subset the agent deems genuinely relevant to the request, re-tags the query
 // stratum from the surviving facts, and drops tasks left with no relevant facts.
 // Verdicts are cached so re-runs are cheap and deterministic.
-func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir string, tasks []evalTask, agent string, agentCommand []string, cachePath string) ([]evalTask, error) {
+func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir string, tasks []evalTask, agent, model string, agentCommand []string, cachePath string) ([]evalTask, error) {
 	resolved := agent
 	if resolved == "auto" {
 		resolved = defaultRefreshAgent(ctx, opts.Runner, repoDir)
@@ -132,6 +134,7 @@ func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir s
 	if err != nil {
 		return nil, fmt.Errorf("refine agent: %w", err)
 	}
+	judgeArgs = injectAgentModel(judgeArgs, resolved, model)
 	byBranch, err := loadAllFactBranches(brainDir)
 	if err != nil {
 		return nil, err
@@ -143,7 +146,7 @@ func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir s
 		}
 	}
 	cache := loadJudgeCache(cachePath)
-	run := execDistillAgent
+	run := defaultDistillAgentRunner(resolved)
 	out := make([]evalTask, 0, len(tasks))
 	for _, t := range tasks {
 		facts := make([]factRecord, 0, len(t.Relevant))

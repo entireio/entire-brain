@@ -235,3 +235,61 @@ func TestSummarizeFactSource(t *testing.T) {
 		t.Errorf("TaxonomyPath = %q, want %q", source.TaxonomyPath, factsTaxonomyPath)
 	}
 }
+
+func TestUpdateFactSourceManifestPreservesDistillEvidence(t *testing.T) {
+	brainDir := t.TempDir()
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	paths := normalizeFactPaths([]string{"preferences.coding.style"})
+	if err := writeFacts(brainDir, "main", []factRecord{{
+		ID:         factRecordID("Keep distill evidence", paths),
+		Paths:      paths,
+		Text:       "Keep distill evidence",
+		Branch:     "main",
+		Origin:     factOriginAuthored,
+		Status:     factStatusActive,
+		Provenance: []factAnchor{{SessionID: "s1"}},
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}}); err != nil {
+		t.Fatalf("write facts: %v", err)
+	}
+	prior := &factSourceManifest{
+		GeneratedAt:       now.Add(-time.Hour),
+		TaxonomyPath:      factsTaxonomyPath,
+		ChunksScanned:     42,
+		ChunksDistilled:   17,
+		CacheHits:         9,
+		FailedChunks:      3,
+		PreprocessedBytes: 123456,
+		ExtractionSeconds: 1.25,
+		ReconcileSeconds:  0.5,
+		WriteSeconds:      0.125,
+		Warnings:          []string{"agent timeout"},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, Sources: &brainSources{Facts: prior}}); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	if err := updateFactSourceManifestLocked(brainDir, now.Add(time.Minute)); err != nil {
+		t.Fatalf("update fact source: %v", err)
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	source := manifest.Sources.Facts
+	if source.Facts != 1 || source.Authored != 1 || source.Unsigned != 1 {
+		t.Fatalf("live fact counts were not rebuilt: %+v", source)
+	}
+	if source.ChunksScanned != prior.ChunksScanned || source.ChunksDistilled != prior.ChunksDistilled ||
+		source.CacheHits != prior.CacheHits || source.FailedChunks != prior.FailedChunks ||
+		source.PreprocessedBytes != prior.PreprocessedBytes ||
+		source.ExtractionSeconds != prior.ExtractionSeconds ||
+		source.ReconcileSeconds != prior.ReconcileSeconds ||
+		source.WriteSeconds != prior.WriteSeconds {
+		t.Fatalf("distill evidence was not preserved: %+v", source)
+	}
+	if len(source.Warnings) != 1 || source.Warnings[0] != "agent timeout" {
+		t.Fatalf("distill warnings were not preserved: %+v", source.Warnings)
+	}
+}

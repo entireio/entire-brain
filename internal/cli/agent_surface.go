@@ -884,7 +884,7 @@ func brainBriefCurrentCodeFileCountsByScore(repoRoot string, scoreFile func(stri
 		if statErr != nil || info.Size() > brainInspectHistoryMaxBytes {
 			return nil
 		}
-		data, readErr := os.ReadFile(path)
+		data, readErr := brainBriefReadRepoFile(repoRoot, rel)
 		if readErr != nil {
 			return nil
 		}
@@ -895,6 +895,40 @@ func brainBriefCurrentCodeFileCountsByScore(repoRoot string, scoreFile func(stri
 		return nil
 	})
 	return counts
+}
+
+func brainBriefReadRepoFile(repoRoot, rel string) ([]byte, error) {
+	clean, ok := cleanBrainBriefRepoRelativePath(rel)
+	if !ok {
+		return nil, fmt.Errorf("repo-relative path is unsafe: %s", rel)
+	}
+	nativeRel := filepath.FromSlash(clean)
+	if err := rejectSymlinkPathComponents(repoRoot, nativeRel); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(filepath.Join(repoRoot, nativeRel))
+}
+
+func brainBriefRepoFileExists(repoRoot, rel string) bool {
+	clean, ok := cleanBrainBriefRepoRelativePath(rel)
+	if !ok {
+		return false
+	}
+	nativeRel := filepath.FromSlash(clean)
+	if err := rejectSymlinkPathComponents(repoRoot, nativeRel); err != nil {
+		return false
+	}
+	info, err := os.Lstat(filepath.Join(repoRoot, nativeRel))
+	return err == nil && info.Mode()&os.ModeSymlink == 0 && !info.IsDir()
+}
+
+func cleanBrainBriefRepoRelativePath(rel string) (string, bool) {
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(rel)))
+	if clean == "." || clean == ".." || filepath.IsAbs(clean) ||
+		strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, `..\`) {
+		return "", false
+	}
+	return clean, true
 }
 
 func brainBriefSkipSourceDir(rel string) bool {
@@ -1008,7 +1042,7 @@ func brainBriefAddSiblingTestFiles(repoRoot string, editFiles, testFiles []strin
 			if _, ok := seen[candidate]; ok {
 				continue
 			}
-			if _, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(candidate))); err != nil {
+			if !brainBriefRepoFileExists(repoRoot, candidate) {
 				continue
 			}
 			seen[candidate] = struct{}{}
@@ -1322,8 +1356,7 @@ func brainBriefLimitNormalizationActions(repoRoot string, likelyFiles []string) 
 		if !brainBriefSourceFile(rel) {
 			continue
 		}
-		path := filepath.Join(repoRoot, filepath.FromSlash(rel))
-		data, err := os.ReadFile(path)
+		data, err := brainBriefReadRepoFile(repoRoot, rel)
 		if err != nil {
 			continue
 		}
@@ -1464,8 +1497,7 @@ func brainBriefMetadataStringActions(repoRoot string, likelyFiles []string) []br
 		if !brainBriefSourceFile(rel) {
 			continue
 		}
-		path := filepath.Join(repoRoot, filepath.FromSlash(rel))
-		data, err := os.ReadFile(path)
+		data, err := brainBriefReadRepoFile(repoRoot, rel)
 		if err != nil {
 			continue
 		}
@@ -1499,8 +1531,7 @@ func brainBriefPreviousResponseActions(repoRoot string, likelyFiles []string) []
 		if !brainBriefSourceFile(rel) {
 			continue
 		}
-		path := filepath.Join(repoRoot, filepath.FromSlash(rel))
-		data, err := os.ReadFile(path)
+		data, err := brainBriefReadRepoFile(repoRoot, rel)
 		if err != nil {
 			continue
 		}

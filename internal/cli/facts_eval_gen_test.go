@@ -1,6 +1,10 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -283,5 +287,144 @@ func TestGenerateSessionEvalTasksKeepsDuplicateRequests(t *testing.T) {
 	}
 	if tasks[0].ID == tasks[1].ID {
 		t.Fatalf("duplicate request tasks should preserve distinct session ids: %+v", tasks)
+	}
+}
+
+func TestFactsEvalGenHelpIncludesOllamaModel(t *testing.T) {
+	cmd := newFactsEvalGenCommand(Options{})
+	out, err := execute(t, cmd, "--help")
+	if err != nil {
+		t.Fatalf("help: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "ollama") {
+		t.Fatalf("help should mention ollama support:\n%s", out)
+	}
+	if !strings.Contains(out, "--model") {
+		t.Fatalf("help should include --model:\n%s", out)
+	}
+}
+
+func TestFactsEvalGenRefineOllamaNoEgressSendsModel(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
+	const wantModel = "llama3.2:test"
+
+	type ollamaRequest struct {
+		Model  string `json:"model"`
+		System string `json:"system"`
+		Prompt string `json:"prompt"`
+		Stream bool   `json:"stream"`
+	}
+	seen := make(chan ollamaRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "bad method", http.StatusMethodNotAllowed)
+			return
+		}
+		if r.URL.Path != "/api/generate" {
+			http.Error(w, "bad path", http.StatusNotFound)
+			return
+		}
+		var req ollamaRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		seen <- req
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"response":"1 yes\n"}`))
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	repoDir := t.TempDir()
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "git@github.com:example/repo.git\n"},
+		fakeCommandKey("git", "branch", "--show-current"):     {stdout: "main\n"},
+	}}
+	opts := Options{
+		Version: "test",
+		Env: EntireEnv{
+			RepoRoot:        repoDir,
+			PluginConfigDir: t.TempDir(),
+			PluginDataDir:   t.TempDir(),
+			PluginStateDir:  t.TempDir(),
+			PluginCacheDir:  t.TempDir(),
+		},
+		Runner: runner,
+		Now:    func() time.Time { return now },
+	}
+	storage, err := repoStoragePaths(context.Background(), runner, opts.Env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+
+	transcriptRel := "sessions/main/s1.jsonl"
+	transcriptPath := filepath.Join(storage.BrainDir, filepath.FromSlash(transcriptRel))
+	if err := os.MkdirAll(filepath.Dir(transcriptPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(transcriptPath, []byte(`{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"text","text":"how does local refine work"}]}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		RepoRoot:      repoDir,
+		RepoKey:       storage.Key,
+		DefaultBranch: "main",
+		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
+			{SessionID: "s1", Branch: "main", TranscriptPath: transcriptRel, CreatedAt: now},
+		}}},
+	}
+	if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	paths := normalizeFactPaths([]string{"architecture.data.flow"})
+	fact := factRecord{
+		ID:         factRecordID("local refine sends the selected ollama model", paths),
+		Paths:      paths,
+		Text:       "local refine sends the selected ollama model",
+		Branch:     "main",
+		Status:     factStatusActive,
+		Provenance: []factAnchor{{SessionID: "s1"}},
+		UpdatedAt:  now,
+	}
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{fact}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := execute(t, NewRootCommand(opts), "facts", "eval-gen", "--refine", "--agent", "ollama", "--model", wantModel, "--min-facts", "1")
+	if err != nil {
+		t.Fatalf("eval-gen refine ollama: %v\n%s", err, out)
+	}
+	var tasks []evalTask
+	if err := json.Unmarshal([]byte(out), &tasks); err != nil {
+		t.Fatalf("parse eval-gen output: %v\n%s", err, out)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected one refined task, got %d: %+v\n%s", len(tasks), tasks, out)
+	}
+	if len(tasks[0].Relevant) != 1 || tasks[0].Relevant[0] != fact.ID {
+		t.Fatalf("refined task relevant ids wrong: %+v", tasks[0])
+	}
+
+	select {
+	case req := <-seen:
+		if req.Model != wantModel {
+			t.Fatalf("ollama model = %q, want %q", req.Model, wantModel)
+		}
+		if req.Stream {
+			t.Fatal("ollama refine must request non-streaming output")
+		}
+		if !strings.Contains(req.System, "You assess whether retrieved repository facts are relevant") {
+			t.Fatalf("unexpected ollama system prompt: %q", req.System)
+		}
+		if !strings.Contains(req.Prompt, "TASK: how does local refine work") || !strings.Contains(req.Prompt, fact.Text) {
+			t.Fatalf("unexpected ollama prompt: %q", req.Prompt)
+		}
+	default:
+		t.Fatal("ollama server did not receive a refine request")
 	}
 }
