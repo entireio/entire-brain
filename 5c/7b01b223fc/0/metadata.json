@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "5c7b01b223fc",
+  "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-09T20:20:30.044627Z",
+  "branch": "codex/release-readiness-hardening",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/generate_radar_graphs.py",
+    "benchmarks/agent-brain/run.py",
+    "internal/cli/workspace.go",
+    "internal/cli/workspace_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8",
+  "turn_id": "09745506dc17",
+  "token_usage": {
+    "input_tokens": 233032,
+    "cache_creation_tokens": 13368728,
+    "cache_read_tokens": 1006320163,
+    "output_tokens": 2764290,
+    "api_call_count": 1854
+  },
+  "session_metrics": {
+    "turn_count": 82
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-09T20:20:29.519104Z",
+    "agent_lines": 337,
+    "agent_removed": 8,
+    "human_added": 1736,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 2073,
+    "total_lines_changed": 2425,
+    "agent_percentage": 14.22680412371134,
+    "metric_version": 2
+  }
+}
