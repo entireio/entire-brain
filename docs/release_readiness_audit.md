@@ -137,6 +137,12 @@ QMD-inspired aliases added:
 - `--format json|cli` as an alias for JSON/CLI output selection.
 - `-n` / `--number` as an alias for result count on search verbs.
 
+Local smoke evidence collected on this repo: `go run ./cmd/entire-brain search
+"semantic provider" --format json -n 2`, `query "distill dry run" --format json
+-n 2`, and `vsearch "semantic audit" --format json -n 2` all returned stable
+JSON envelopes with two results. `search --help` lists both `--format` and
+`-n, --number`.
+
 Sources checked during the local audit:
 
 - [QMD README](https://github.com/tobi/qmd/blob/main/README.md) documents
