@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.7.6-nightly.202606050739.c8b5981e",
+  "checkpoint_id": "8e9f42c425e5",
+  "strategy": "manual-commit",
+  "branch": "feat/qmd-retrieval",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/embed_ollama.go",
+    "internal/cli/retrieve_cmd.go",
+    "scripts/bench/run.sh"
+  ],
+  "sessions": [
+    {
+      "metadata": "/8e/9f42c425e5/0/metadata.json",
+      "transcript": "/8e/9f42c425e5/0/full.jsonl",
+      "content_hash": "/8e/9f42c425e5/0/content_hash.txt",
+      "prompt": "/8e/9f42c425e5/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 147,
+    "cache_creation_tokens": 7264,
+    "cache_read_tokens": 3134846,
+    "output_tokens": 6290,
+    "api_call_count": 9
+  }
+}
