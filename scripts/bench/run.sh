@@ -27,7 +27,9 @@ if [ "$#" -eq 0 ]; then
 fi
 
 for repo in "$@"; do
-  name=$(basename "$repo")
+  # Include the parent dir so two repos with the same basename (forks, multiple
+  # checkouts) don't overwrite each other's logs/results under $OUT.
+  name="$(basename "$(dirname "$repo")")_$(basename "$repo")"
   echo "### $name ($repo)"
 
   echo "  [1/5] refresh (deterministic)"
@@ -44,7 +46,10 @@ for repo in "$@"; do
   fi
 
   echo "  [3/5] eval-gen"
-  (cd "$repo" && "$EB" facts eval-gen --branch main --out "$OUT/$name.tasks.json") >"$OUT/$name.evalgen.log" 2>&1
+  rm -f "$OUT/$name.tasks.json" # don't let a failed eval-gen reuse a stale task set
+  if ! (cd "$repo" && "$EB" facts eval-gen --branch main --out "$OUT/$name.tasks.json") >"$OUT/$name.evalgen.log" 2>&1; then
+    echo "  SKIP: eval-gen failed (see $OUT/$name.evalgen.log)"; continue
+  fi
   n=$(python3 -c "import json;print(len(json.load(open('$OUT/$name.tasks.json'))))" 2>/dev/null || echo 0)
   if [ "${n:-0}" -lt 3 ]; then echo "  SKIP: only ${n:-0} tasks"; continue; fi
 

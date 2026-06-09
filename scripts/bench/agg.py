@@ -19,8 +19,12 @@ pool = {"m2v": [], "gemma": []}
 print(f"{'repo':<16} {'tasks':>5} {'M2V':>7} {'Gemma':>7} {'delta':>8} {'concept Δ':>10}")
 print("-" * 60)
 for r in repos:
+    gpath = os.path.join(OUT, f"{r}.gemma.json")
+    if not os.path.exists(gpath):
+        print(f"  SKIP {r}: no {r}.gemma.json (interrupted/partial run)")
+        continue
     m = load(os.path.join(OUT, f"{r}.m2v.json"))
-    g = load(os.path.join(OUT, f"{r}.gemma.json"))
+    g = load(gpath)
     mb, gb = m["mean_useful_per_1k"], g["mean_useful_per_1k"]
     cm = m.get("by_stratum", {}).get("concept", {}).get("mean_useful_per_1k")
     cg = g.get("by_stratum", {}).get("concept", {}).get("mean_useful_per_1k")

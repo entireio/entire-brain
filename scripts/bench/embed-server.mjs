@@ -17,6 +17,9 @@ import { getLlama } from "node-llama-cpp";
 
 const modelPath = process.env.GGUF;
 const port = Number(process.env.PORT || 11500);
+// Bind loopback by default so this compute-heavy endpoint isn't exposed on a
+// shared machine; set HOST=0.0.0.0 to opt into all interfaces.
+const host = process.env.HOST || "127.0.0.1";
 if (!modelPath) {
   console.error("set GGUF=/path/to/embeddinggemma-300M-Q8_0.gguf");
   process.exit(1);
@@ -44,4 +47,4 @@ http.createServer((req, res) => {
       res.end(JSON.stringify({ error: String(e) }));
     }
   });
-}).listen(port, () => console.log("embed server listening on :" + port));
+}).listen(port, host, () => console.log(`embed server listening on ${host}:${port}`));
