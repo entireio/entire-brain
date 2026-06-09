@@ -119,6 +119,46 @@ depends on facts carrying a code locus, which the current distilled corpus often
 lacks. A taxonomy-fallback tier (group rootless facts by category) is a candidate
 enhancement if the eval wants more structure.
 
+### B4 — audience-driven A/B eval (landed)
+
+`facts eval --arm flat|scoped|outline` selects the retrieval structure
+(`facts_eval_arms.go`); `eval-compare` pairs two arms with the existing t-test +
+Holm. **flat** = the shipped ranker over all branch facts; **scoped** =
+locus-scoped (rank only the facts whose locus the query names, falling back to
+flat for a query with no code locus); **outline** = rank within the best-matching
+outline subtree. `eval` also reports a `surfaced_by_kind` histogram per arm.
+
+**Result — `entire-brain` main, 17 deterministic provenance-labeled tasks, k=10:**
+
+| arm | useful/1k | precision | tokens |
+|---|---|---|---|
+| flat (baseline) | 1.063 | 0.071 | 678 |
+| **scoped** | **1.530 (+44%)** | 0.106 | **555** |
+| **outline** | **1.602 (+51%)** | 0.112 | 658 |
+
+Paired t-test vs flat (Holm, alpha=0.05):
+
+- **scoped:** useful/1k +0.467 (t=0.71, **p=0.49, n.s.**); precision +0.035 (n.s.);
+  **tokens −123 (p=0.043, sig)**; recall −0.029 (n.s.).
+- **outline:** useful/1k +0.539 (t=0.85, **p=0.41, n.s.**); precision +0.041 (n.s.);
+  tokens −20 (n.s.); recall −0.010 (n.s.).
+
+**Read:** both structured arms lift useful/1k and precision by a large *mean*
+margin, and scoped **significantly cuts tokens** — but the useful/1k gain is **not
+statistically significant at n=17** (high variance, the familiar small-sample
+pattern in this project). Scoped trades a little recall, as expected of a hard
+locus filter. So Appendix D's structure is **directionally validated and
+token-cheaper, not yet proven** on useful/1k.
+
+**Gate / next step:** the magnitude is promising enough to keep the arms and the
+structure, but a **larger task set and a second repo** (`entire-cli`, the
+monorepo where locus tiering should matter more) are needed to move useful/1k
+from "+50% mean, p≈0.4" to significant — exactly as the EmbeddingGemma spike was
+later confirmed on a second repo. `entire-cli` was not available in this
+environment; re-run `facts eval --arm {flat,scoped,outline}` there (after `facts
+reclassify` to backfill kind/locus) and pool with `eval-compare`. Until then,
+flat stays the default arm; scoped/outline are opt-in via `--arm`.
+
 ## Branch topology
 
 - **Base work (merged):** `claude/durable-facts-and-distill` landed via **PR #5**.

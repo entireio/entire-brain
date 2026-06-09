@@ -50,11 +50,13 @@ type evalStratum struct {
 }
 
 type evalSummary struct {
+	Arm             string                 `json:"arm,omitempty"`
 	Tasks           int                    `json:"tasks"`
 	MeanTokens      float64                `json:"mean_tokens"`
 	MeanPrecision   float64                `json:"mean_precision"`
 	MeanUsefulPer1k float64                `json:"mean_useful_per_1k"`
 	ByStratum       map[string]evalStratum `json:"by_stratum,omitempty"`
+	SurfacedByKind  map[string]int         `json:"surfaced_by_kind,omitempty"`
 	Results         []evalTaskResult       `json:"results"`
 }
 
@@ -181,6 +183,7 @@ func newFactsEvalCommand(opts Options) *cobra.Command {
 		k            int
 		judge        bool
 		semantic     bool
+		arm          string
 		expand       bool
 		agent        string
 		agentCommand []string
@@ -250,7 +253,11 @@ have the agent decide relevance per surfaced fact.`,
 					return fmt.Errorf("--semantic requested but the embedding backend is unavailable")
 				}
 			}
-			results, err := runFactsEval(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, loadJudgeCache(judgeCache), expander, rr)
+			armFn, err := selectRetrievalArm(arm)
+			if err != nil {
+				return err
+			}
+			results, surfacedByKind, err := runFactsEval(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, loadJudgeCache(judgeCache), expander, rr, armFn)
 			if err != nil {
 				return err
 			}
@@ -258,6 +265,10 @@ have the agent decide relevance per surfaced fact.`,
 				return fmt.Errorf("save expansion cache: %w", err)
 			}
 			summary := summarizeEval(results)
+			if arm != "" {
+				summary.Arm = arm
+			}
+			summary.SurfacedByKind = surfacedByKind
 			if jsonOut {
 				return writeJSON(cmd, summary)
 			}
@@ -273,6 +284,7 @@ have the agent decide relevance per surfaced fact.`,
 	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&judgeCache, "judge-cache", "", "Persist/reuse judge verdicts at this path so re-runs are deterministic and cheap")
 	cmd.Flags().BoolVar(&semantic, "semantic", false, "Rerank with the local embedding backend (RRF fusion of lexical + semantic)")
+	cmd.Flags().StringVar(&arm, "arm", "flat", "Retrieval structure to evaluate: flat | scoped (locus) | outline")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand each task query with agent-generated retrieval terms before recall")
 	cmd.Flags().StringVar(&expandCache, "expand-cache", "", "Persist/reuse query expansions at this path")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the summary as JSON")
@@ -347,8 +359,12 @@ func loadEvalTasks(path string) ([]evalTask, error) {
 // expansion.
 type queryExpanderFunc func(query string) (string, error)
 
-func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, rr *semanticReranker) ([]evalTaskResult, error) {
+func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, rr *semanticReranker, arm retrievalArm) ([]evalTaskResult, map[string]int, error) {
+	if arm == nil {
+		arm = flatArm
+	}
 	results := make([]evalTaskResult, 0, len(tasks))
+	surfacedByKind := map[string]int{}
 	factsByBranch := map[string][]factRecord{} // load each branch's facts once per run
 	for _, task := range tasks {
 		branch := task.Branch
@@ -363,7 +379,7 @@ func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultB
 		if !ok {
 			loaded, err := loadFacts(brainDir, branch)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			facts = loaded
 			factsByBranch[branch] = facts
@@ -371,12 +387,15 @@ func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultB
 		query := task.Task
 		if expander != nil {
 			if exp, expErr := expander(task.Task); expErr != nil {
-				return nil, fmt.Errorf("expand task %s: %w", task.ID, expErr)
+				return nil, nil, fmt.Errorf("expand task %s: %w", task.ID, expErr)
 			} else {
 				query = expandedQuery(task.Task, exp)
 			}
 		}
-		surfaced := rankFactsFused(facts, query, k, false, rr)
+		surfaced := arm(facts, query, k, rr)
+		for _, f := range surfaced {
+			surfacedByKind[factKindOrInferred(f)]++
+		}
 
 		var relevant map[string]struct{}
 		totalRelevant := 0
@@ -390,7 +409,7 @@ func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultB
 		} else if judge && len(surfaced) > 0 {
 			judged, jerr := judgeRelevance(ctx, run, repoDir, judgeArgs, task, surfaced, cache)
 			if jerr != nil {
-				return nil, jerr
+				return nil, nil, jerr
 			}
 			relevant = judged
 		} else {
@@ -402,9 +421,9 @@ func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultB
 		results = append(results, res)
 	}
 	if err := cache.save(); err != nil {
-		return nil, fmt.Errorf("save judge cache: %w", err)
+		return nil, nil, fmt.Errorf("save judge cache: %w", err)
 	}
-	return results, nil
+	return results, surfacedByKind, nil
 }
 
 // judgeRelevance returns the set of surfaced-fact ids judged relevant for a
