@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "64d07717e685",
+  "strategy": "manual-commit",
+  "branch": "feat/fact-quality-appendix-d",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/durable_facts_handover.md",
+    "internal/cli/distill.go",
+    "internal/cli/distill_test.go",
+    "internal/cli/facts.go",
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_locus.go",
+    "internal/cli/facts_write_cmd.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/64/d07717e685/0/metadata.json",
+      "transcript": "/64/d07717e685/0/full.jsonl",
+      "content_hash": "/64/d07717e685/0/content_hash.txt",
+      "prompt": "/64/d07717e685/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 30944,
+    "cache_creation_tokens": 961498,
+    "cache_read_tokens": 50054033,
+    "output_tokens": 166138,
+    "api_call_count": 235
+  }
+}
