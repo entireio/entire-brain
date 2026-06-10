@@ -720,7 +720,13 @@ type documentMessage struct {
 // can anchor extracted text to the original file. It streams with json.Decoder
 // and decodes each message into a typed struct, so the tool outputs, patches,
 // and token accounting that dominate the document are scanned past rather than
-// materialized. ok=false when content is not a document-form transcript.
+// materialized. ok=false when content is not a document-form transcript, or
+// when no message yields any conversation text: a document in some OTHER chat
+// shape (e.g. {"messages":[{role,content}]} with no opencode-style parts)
+// must fall through to the JSONL path, which passes unparseable lines through
+// unstripped so the agent can still mine them — claiming such a document here
+// would silently blank the whole session and cache it as distilled with zero
+// facts.
 func parseDocumentConversation(content string) ([]documentMessage, bool) {
 	trimmed := strings.TrimSpace(content)
 	if !strings.HasPrefix(trimmed, "{") {
@@ -800,10 +806,12 @@ func parseDocumentConversation(content string) ([]documentMessage, bool) {
 				Line: msgLine,
 			})
 		}
-		if len(messages) == 0 {
-			return nil, false
+		for _, message := range messages {
+			if message.Text != "" {
+				return messages, true
+			}
 		}
-		return messages, true
+		return nil, false // no conversation text at all: not our document shape
 	}
 	return nil, false // no top-level "messages" key
 }

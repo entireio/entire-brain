@@ -749,6 +749,25 @@ func TestPreprocessTranscriptForDistillOpencodeDocument(t *testing.T) {
 	if _, ok := distillDocumentConversation("turn one\nturn two\n"); ok {
 		t.Error("plain text misdetected as document")
 	}
+
+	// A document with a messages array in some OTHER chat shape (role/content,
+	// no opencode-style text parts) yields no conversation text and must NOT
+	// be claimed: claiming it would blank the entire session and cache it as
+	// distilled with zero facts. It falls through to the JSONL path, which
+	// passes the unparseable pretty-printed lines through unstripped so the
+	// agent can still mine them.
+	foreign := `{
+  "messages": [
+    {"role": "user", "content": "always use tabs"},
+    {"role": "assistant", "content": "noted"}
+  ]
+}`
+	if _, ok := distillDocumentConversation(foreign); ok {
+		t.Error("foreign chat document with no text parts must not be swallowed by the document path")
+	}
+	if pre := preprocessTranscriptForDistill(foreign); !strings.Contains(pre, "always use tabs") {
+		t.Errorf("foreign chat document content must pass through for the agent to mine: %q", pre)
+	}
 }
 
 func TestRunDistillForBrainConcurrentChunks(t *testing.T) {
