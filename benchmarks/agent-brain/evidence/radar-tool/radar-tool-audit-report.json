@@ -29,6 +29,7 @@
       "TestMCPRejectsOversizedAndNegativeFrames",
       "TestMCPToolCallRejectsInvalidDepth",
       "TestMCPToolCallRejectsInvalidIntegerArguments",
+      "TestMCPToolSchemasMatchArgumentValidator",
       "TestMCPToolSchemasRejectAdditionalProperties",
       "TestMCPToolsListAdvertisesStaleBlindSpots",
       "TestMCPToolsListIncludesQMDRetrievalSurface",
@@ -47,6 +48,7 @@
       "TestRegressionDeletionRanksCallLocusWithHistoryFileHint",
       "TestRegressionDeletionReportsEachMissingAnchoredCallSite",
       "TestRegressionDetectsChangedOperand",
+      "TestRegressionScanHistoryClosesFilesDuringLargeWalk",
       "TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain",
       "TestWorkspaceRegressionsDeletionLocationOnlyReportsRelatedLoci",
       "TestWorkspaceRegressionsSkipsUnsafeRepo",
@@ -54,7 +56,7 @@
       "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint"
     ],
     "path": "go-test-internal-cli-radar.jsonl",
-    "sha256": "sha256:c9df2ea8825991aa50661c90e8da7da58d31ffcf7fa89b49794f6a457f108311"
+    "sha256": "sha256:b3571ff76968bd1ae9224f72086753e6ea94c8bf298d01c87fc5b51ed2dc8142"
   },
   "claim_scope": "mcp_radar_tool_contract",
   "errors": [],
@@ -81,11 +83,13 @@
     "TestRegressionAssignmentDeletionReportsSameNameReceiverMethods",
     "TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction",
     "TestRegressionDedupeRankPrefersBoostedCallDeletion",
+    "TestRegressionScanHistoryClosesFilesDuringLargeWalk",
     "TestMCPInitializeAndToolsList",
     "TestMCPToolsListIncludesRegressions",
     "TestMCPToolsListIncludesQMDRetrievalSurface",
     "TestMCPToolsListAdvertisesStaleBlindSpots",
     "TestMCPToolSchemasRejectAdditionalProperties",
+    "TestMCPToolSchemasMatchArgumentValidator",
     "TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet",
     "TestMCPRejectsInvalidBooleanArguments",
     "TestMCPRejectsInvalidStringAndUnknownArguments",
@@ -118,6 +122,6 @@
   ],
   "schema": 1,
   "source_drift_paths": [],
-  "source_head": "e0075ecf963ca9b6360b8a77a439873ddeec341f",
+  "source_head": "769ebc2380c2fd11e92f4d222d70890bc1bfb7cc",
   "warnings": []
 }
