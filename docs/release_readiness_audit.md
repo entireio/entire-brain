@@ -390,11 +390,18 @@ Release claims must stay local-first and evidence-backed:
   the workspace MCP lane (`no_brain` vs `mcp_workspace_radar`) with
   deletion-aware location-only radar. It is a calibration lane until a task with
   real no-brain headroom is identified.
-- The committed `release-entire-cli-radar-mcp-attribution-realign` panel is the
-  next true-Radar candidate: it mutates a detector-shaped deleted state
+- The committed `release-entire-cli-radar-mcp-attribution-realign` panel is a
+  true-Radar calibration lane: it mutates a detector-shaped deleted state
   assignment in `RealignAttributionBase`, keeps Radar location-only, and validates
   the attribution-base state invariant without giving the agent expected/current
-  values.
+  values. A clean 1x pilot on 2026-06-10 saturated (`no_brain` 96/pass,
+  `mcp_history` 87/pass, `mcp_radar_location_only`), so it is not release proof
+  unless a future runner/task revision creates real baseline headroom.
+- The committed `release-entire-cli-radar-mcp-review-file-count` panel is the
+  next Radar proof candidate. It mutates the explicit-base review file-count
+  range from `baseRef+"...HEAD"` to a hardcoded mainline range, uses
+  location-only Radar, and hides a behavioral file-count validation that existing
+  visible tests do not cover.
 - The committed `release-entire-cli-mcp-manual-attribution` panel targets a
   harder MCP-history proof lane on `cli-bench`: it regresses the manual-commit
   attribution-base invariant and requires `mcp_history` to surface the prior
@@ -466,6 +473,7 @@ repo/access/artifacts are available:
   runs over the same labeled or explicitly proxy-allowed task set, same task
   hash, and same brain manifest hash.
 - Regression Radar release evidence from a clean retained run of
+  `release-entire-cli-radar-mcp-review-file-count`,
   `release-entire-cli-radar-mcp-attribution-realign`,
   `release-entire-cli-radar-mcp-review-base-scope`, or
   `release-entire-cli-workspace-radar-mcp-transcript-reresolve`. Local pilots
@@ -477,7 +485,8 @@ repo/access/artifacts are available:
   pilots with `codex:gpt-5.4-mini:low` and `:medium` were both saturated on pass
   rate (`1.0 -> 1.0`) and therefore not release proof, despite large token/time
   reductions in the MCP/radar arm. A deletion-aware transcript radar
-  calibration also saturated (`no_brain` mean 95.5, MCP/radar mean 95.0).
+  calibration also saturated (`no_brain` mean 95.5, MCP/radar mean 95.0), and
+  the attribution-realign Radar pilot saturated as noted above.
 - Semantic benchmark evidence from a retained proof suite. A clean local
   `semantic-audit --json --fail-on release` run after refreshing the semantic
   index is recorded above, but it is regenerated local coverage evidence, not a

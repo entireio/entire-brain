@@ -1,0 +1,44 @@
+{
+  "id": "entireio-cli-radar-review-base-file-count",
+  "repo": "entire-cli",
+  "repo_path": "cli-bench",
+  "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+  "conditions": [
+    "no_brain",
+    "mcp_history"
+  ],
+  "prompt": "Fix the review banner regression for stacked branch reviews: when an explicit base branch is supplied, the changed-file count must be scoped to that base even if main has moved independently. The base label and commit count are already correct. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "cmd/entire/cli/review/scope.go",
+      "old": "baseRef+\"...HEAD\"",
+      "new": "\"main...HEAD\""
+    }
+  ],
+  "validation": [
+    "test $(rg -n 'baseRef\\+\"\\.\\.\\.HEAD\"' cmd/entire/cli/review/scope.go | wc -l | tr -d ' ') -eq 1",
+    "python3 - <<'PY'\nfrom pathlib import Path\nPath('cmd/entire/cli/review/scope_radar_hidden_test.go').write_text(r'''package review\n\nimport (\n\t\"context\"\n\t\"os/exec\"\n\t\"testing\"\n)\n\nfunc TestComputeScopeStats_BaseOverrideFileCountUsesOverride(t *testing.T) {\n\tdir := t.TempDir()\n\tinitRepoOnMain(t, dir)\n\tcommitFile(t, dir, \"root.go\", \"package main\", \"init\")\n\n\trun := func(args ...string) {\n\t\tt.Helper()\n\t\tcmd := exec.Command(\"git\", args...)\n\t\tcmd.Dir = dir\n\t\tif out, err := cmd.CombinedOutput(); err != nil {\n\t\t\tt.Fatalf(\"git %v: %v\\n%s\", args, err, out)\n\t\t}\n\t}\n\n\trun(\"checkout\", \"-b\", \"feat/parent\")\n\tcommitFile(t, dir, \"parent.go\", \"package main\", \"parent\")\n\trun(\"checkout\", \"-b\", \"feat/child\")\n\tcommitFile(t, dir, \"child.go\", \"package main\", \"child\")\n\trun(\"checkout\", \"main\")\n\tcommitFile(t, dir, \"main_only.go\", \"package main\", \"main only\")\n\trun(\"checkout\", \"feat/child\")\n\n\tstats, err := ComputeScopeStats(context.Background(), openTestRepo(t, dir), \"feat/parent\")\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif stats.FilesChanged != 1 {\n\t\tt.Fatalf(\"FilesChanged = %d, want 1; explicit base must not use main...HEAD\", stats.FilesChanged)\n\t}\n}\n''')\nPY\nrc=0\ngo test ./cmd/entire/cli/review -run '^TestComputeScopeStats_BaseOverrideFileCountUsesOverride$' -count=1 || rc=$?\nrm -f cmd/entire/cli/review/scope_radar_hidden_test.go\nexit $rc"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/review/scope.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "agent_hidden_paths": [
+    "benchmarks/agent-brain"
+  ],
+  "leak_markers": [
+    "release-radar-review-base-file-count-canary-20260610T0730Z"
+  ],
+  "brain_queries": [
+    "countFilesChanged",
+    "baseRef",
+    "FilesChanged",
+    "three-dot diff"
+  ],
+  "copy_checkpoint_ref_from_source": true
+}

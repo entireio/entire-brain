@@ -1,0 +1,18 @@
+{
+  "name": "release-entire-cli-radar-mcp-review-file-count",
+  "description": "Focused release-candidate Regression Radar panel for explicit-base review file counts. The location-only MCP radar may reveal the suspected countFilesChanged line, but not the baseRef three-dot range fix or hidden file-count validation.",
+  "runners": [
+    "codex:gpt-5.4-mini:low"
+  ],
+  "conditions": [
+    "no_brain",
+    "mcp_history"
+  ],
+  "env": {
+    "BENCH_RADAR_LOCATION_ONLY": "1"
+  },
+  "repetitions": 4,
+  "tasks": [
+    "entireio-cli-radar-review-base-file-count.json"
+  ]
+}

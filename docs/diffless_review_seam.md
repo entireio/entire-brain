@@ -73,10 +73,15 @@ The committed
 the workspace MCP delivery (`mcp_workspace_radar`) and audits proof-ready runs as
 `mcp_workspace_radar_location_only`, but it remains a calibration lane until a
 non-saturated regression task is found.
-The committed `release-entire-cli-radar-mcp-attribution-realign` panel is the
-next true-Radar candidate: it uses a detector-shaped deleted state assignment,
+The committed `release-entire-cli-radar-mcp-attribution-realign` panel is a
+true-Radar calibration lane: it uses a detector-shaped deleted state assignment,
 keeps the Radar arm location-only, and validates the state invariant without
-exposing expected/current values.
+exposing expected/current values. Its clean 1x pilot saturated, so it is not
+retained release proof.
+The committed `release-entire-cli-radar-mcp-review-file-count` panel is the next
+Radar proof candidate: it targets explicit-base review file counts with a
+detector-shaped `baseRef+"...HEAD"` regression and a hidden behavioral
+validation that visible tests do not already cover.
 For non-radar MCP-history proof, the committed
 `release-entire-cli-mcp-manual-attribution` panel targets a harder manual-commit
 attribution invariant where the brain should provide historical localization and
