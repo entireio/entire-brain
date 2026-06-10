@@ -398,10 +398,13 @@ Release claims must stay local-first and evidence-backed:
   `mcp_history` 87/pass, `mcp_radar_location_only`), so it is not release proof
   unless a future runner/task revision creates real baseline headroom.
 - The committed `release-entire-cli-radar-mcp-review-file-count` panel is the
-  next Radar proof candidate. It mutates the explicit-base review file-count
+  next Radar proof candidate. It mutates the explicit-base review banner count
   range from `baseRef+"...HEAD"` to a hardcoded mainline range, uses
   location-only Radar, and hides a behavioral file-count validation that existing
-  visible tests do not cover.
+  visible tests do not cover. Its first clean low-effort 1x pilot saturated when
+  the prompt named the changed-file count directly, so the committed task now
+  uses a symptom-level prompt while keeping precise Radar query terms hidden from
+  the no-brain arm.
 - The committed `release-entire-cli-mcp-manual-attribution` panel targets a
   harder MCP-history proof lane on `cli-bench`: it regresses the manual-commit
   attribution-base invariant and requires `mcp_history` to surface the prior

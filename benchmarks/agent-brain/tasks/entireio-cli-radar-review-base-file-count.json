@@ -7,7 +7,7 @@
     "no_brain",
     "mcp_history"
   ],
-  "prompt": "Fix the review banner regression for stacked branch reviews: when an explicit base branch is supplied, the changed-file count must be scoped to that base even if main has moved independently. The base label and commit count are already correct. Keep the fix minimal.",
+  "prompt": "Fix the review banner regression for stacked branch reviews: when an explicit base branch is supplied and the default branch has moved independently, one of the banner's scope counts is computed against the wrong comparison point. The base label is already correct. Keep the fix minimal.",
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
   "setup_replacements": [
