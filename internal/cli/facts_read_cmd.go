@@ -112,10 +112,18 @@ func newRecallCommand(opts Options) *cobra.Command {
 				if len(drift) > 0 {
 					out["locus_drift"] = drift
 				}
+				if len(matches) == 0 {
+					if note := emptyResultBlindSpot(brainDir); note != "" {
+						out["blind_spot"] = note
+					}
+				}
 				return writeJSON(cmd, out)
 			}
 			if len(matches) == 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "no facts for %q on %s\n", query, resolvedBranch)
+				if note := emptyResultBlindSpot(brainDir); note != "" {
+					fmt.Fprintln(cmd.OutOrStdout(), note)
+				}
 				return nil
 			}
 			for _, f := range matches {

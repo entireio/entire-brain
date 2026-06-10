@@ -141,13 +141,9 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 	}
 	p.RecentFacts = active
 
-	if manifest.Sources != nil && manifest.Sources.Facts != nil {
-		p.LastDistilledAt = manifest.Sources.Facts.GeneratedAt
-		for _, s := range sessions {
-			if s.CreatedAt.After(p.LastDistilledAt) {
-				p.SessionsSinceDistill++
-			}
-		}
+	if last, undigested, ok := distillCoverage(manifest); ok {
+		p.LastDistilledAt = last
+		p.SessionsSinceDistill = undigested
 	} else {
 		p.SessionsSinceDistill = len(sessions)
 		p.Warnings = append(p.Warnings, "no distilled facts yet; run `entire brain distill`")

@@ -60,10 +60,19 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		return err
 	}
 	if jsonOut {
-		return writeJSON(cmd, map[string]any{"query": query, "branch": resolvedBranch, "results": results})
+		out := map[string]any{"query": query, "branch": resolvedBranch, "results": results}
+		if len(results) == 0 {
+			if note := emptyResultBlindSpot(brainDir); note != "" {
+				out["blind_spot"] = note
+			}
+		}
+		return writeJSON(cmd, out)
 	}
 	if len(results) == 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "no results for %q\n", query)
+		if note := emptyResultBlindSpot(brainDir); note != "" {
+			fmt.Fprintln(cmd.OutOrStdout(), note)
+		}
 		return nil
 	}
 	for _, r := range results {
