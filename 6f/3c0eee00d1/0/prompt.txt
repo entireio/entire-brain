@@ -1,0 +1,28 @@
+Give me an update on entire.io
+
+---
+
+While we are waiting, refresh/distill the brain for entire-brain.
+
+---
+
+In the meantime, I ran
+entire brain refresh
++ export sessions: 4083/4083 checkpoints, 1685 sessions done
++ locate brain: gh/entirehq/entiredb done
+refresh: seed baseline: 118 documents, 20 entrypoints, 6 commands skipped
++ history index: 319572 records, 1992 decisions, 257902 tool calls done
++ doc index: 616 chunks / 124 files done
++ check semantic index: 14115 symbols, 709269 relations, 1446 files done
++ semantic index: 14487 symbols, 42389 relations, 1496 files done
+refreshed brain: /Users/thomi/.local/share/entire/plugins/data/brain/repos/gh/entirehq/entiredb
+brain: /Users/thomi/.local/share/entire/plugins/data/brain/repos/gh/entirehq/entiredb
+repo: /Users/thomi/Projects/entire-db
+sources: seed=true sessions=true semantic=true history=true facts=false
+freshness: ok
+live: branch=main head=8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f dirty=false
+Why is the third output line not starting with a + sign?
+
+---
+
+Yes, fix it
