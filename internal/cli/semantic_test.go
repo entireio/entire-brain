@@ -3177,7 +3177,7 @@ func TestBundleImportRejectsSQLiteCountMismatchWithOmittedCounts(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	dbPath := filepath.Join(t.TempDir(), semanticSQLiteName)
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open(sqliteDriverName, dbPath)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -3209,7 +3209,7 @@ func TestBundleImportRebuildsSQLiteStoreFromSnapshot(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	dbPath := filepath.Join(t.TempDir(), semanticSQLiteName)
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open(sqliteDriverName, dbPath)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -3376,7 +3376,7 @@ func TestBundleExportRedactsSnapshotRecordFreeText(t *testing.T) {
 	if err := os.WriteFile(storePath, storeData, 0o600); err != nil {
 		t.Fatalf("write bundled sqlite: %v", err)
 	}
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		t.Fatalf("open bundled sqlite: %v", err)
 	}
@@ -3480,7 +3480,7 @@ func TestBundleExportPreservesDistinctRedactedRecordIDs(t *testing.T) {
 	if err := os.WriteFile(storePath, storeData, 0o600); err != nil {
 		t.Fatalf("write bundled sqlite: %v", err)
 	}
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		t.Fatalf("open bundled sqlite: %v", err)
 	}
@@ -3914,7 +3914,7 @@ func writeSemanticTestLock(t *testing.T, brainDir string) {
 
 func semanticTestSQLCount(t *testing.T, path, table string) int {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open(sqliteDriverName, path)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

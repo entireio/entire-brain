@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -92,9 +90,10 @@ func TestRerankerDiskCacheReusesVectors(t *testing.T) {
 	if err := rr.flush(); err != nil {
 		t.Fatalf("flush: %v", err)
 	}
-	path := filepath.Join(dir, filepath.FromSlash(factsBranchRelDir("main")), embedStoreDirName, embedStoreFileName)
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("expected persisted cache at %s: %v", path, err)
+	// Read back through the same per-build store the reranker writes
+	// (vectors.bin on pure-Go builds, the vec0 SQLite store under brain_cgo).
+	if got := newVectorStore(dir, "main", e.ID(), e.Dim()).load(); len(got) != 2 {
+		t.Fatalf("expected 2 persisted vectors, got %d", len(got))
 	}
 
 	// A fresh reranker should load both vectors from disk (no dirty embed).
@@ -111,7 +110,7 @@ func TestRerankerDiskCacheReusesVectors(t *testing.T) {
 	if err := rr2.flush(); err != nil {
 		t.Fatalf("flush2: %v", err)
 	}
-	if got := newEmbedStore(dir, "main", e.ID(), e.Dim()).load(); len(got) != 1 {
+	if got := newVectorStore(dir, "main", e.ID(), e.Dim()).load(); len(got) != 1 {
 		t.Errorf("expected prune to 1 touched vector, got %d", len(got))
 	}
 }
@@ -147,7 +146,7 @@ func TestRerankerRetainPreservesOutOfScopeVectors(t *testing.T) {
 	if err := rr2.flush(); err != nil {
 		t.Fatalf("scoped flush: %v", err)
 	}
-	got := newEmbedStore(dir, "main", e.ID(), e.Dim()).load()
+	got := newVectorStore(dir, "main", e.ID(), e.Dim()).load()
 	if _, ok := got["fact:b"]; !ok {
 		t.Errorf("retain should preserve out-of-scope fact:b across flush; cache has %d entries: %v", len(got), keysOf(got))
 	}
@@ -184,7 +183,7 @@ func TestRerankerFlushPrunesWithoutDirtyEmbed(t *testing.T) {
 	if err := rr2.flush(); err != nil {
 		t.Fatalf("prune flush: %v", err)
 	}
-	got := newEmbedStore(dir, "main", e.ID(), e.Dim()).load()
+	got := newVectorStore(dir, "main", e.ID(), e.Dim()).load()
 	if _, ok := got["fact:b"]; ok {
 		t.Errorf("departed fact:b should be pruned even without a dirty embed; have %v", keysOf(got))
 	}
