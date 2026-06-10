@@ -19,6 +19,8 @@ DEFAULT_REQUIRED_RETRIEVERS = ["facts", "history", "query", "raw-sessions"]
 SHA256_VALUE_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 PROOF_LABEL_SOURCES = {"human", "judge_refined"}
 RELEVANCE_PROOF_METRICS = {"precision", "recall", "useful_per_1k"}
+CLAIM_POLICY_PROOF = "proof_required"
+CLAIM_POLICY_NO_CLAIM = "no_release_claim"
 
 
 def get(d: Any, *path: str, default: Any = None) -> Any:
@@ -39,6 +41,14 @@ def load_json(path: pathlib.Path) -> Any:
         raise SystemExit(f"artifact is not valid JSON: {path}: {exc}") from exc
 
 
+def display_path(path: pathlib.Path) -> str:
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(pathlib.Path.cwd().resolve()))
+    except ValueError:
+        return str(resolved)
+
+
 def is_sha256_value(value: Any) -> bool:
     return isinstance(value, str) and bool(SHA256_VALUE_RE.fullmatch(value))
 
@@ -57,7 +67,20 @@ def validate_manifest(data: Any) -> None:
         raise SystemExit("facts eval manifest must be a JSON object")
     if data.get("schema") != 1:
         raise SystemExit("facts eval manifest schema must be 1")
+    policy = data.get("claim_policy", CLAIM_POLICY_PROOF)
+    if policy not in (CLAIM_POLICY_PROOF, CLAIM_POLICY_NO_CLAIM):
+        raise SystemExit("facts eval manifest claim_policy must be proof_required or no_release_claim")
     summaries = data.get("summaries")
+    if policy == CLAIM_POLICY_NO_CLAIM:
+        if summaries not in ({}, None):
+            raise SystemExit("facts eval no_release_claim manifest must not list summaries")
+        comparisons = data.get("comparisons")
+        if comparisons not in ({}, None):
+            raise SystemExit("facts eval no_release_claim manifest must not list comparisons")
+        claims = data.get("required_claims")
+        if claims not in ([], None):
+            raise SystemExit("facts eval no_release_claim manifest must not list required_claims")
+        return
     if not isinstance(summaries, dict):
         raise SystemExit("facts eval manifest requires summaries")
     comparisons = data.get("comparisons")
@@ -66,6 +89,53 @@ def validate_manifest(data: Any) -> None:
     claims = data.get("required_claims")
     if not isinstance(claims, list) or not claims:
         raise SystemExit("facts eval manifest requires non-empty required_claims")
+
+
+def audit_no_claim_manifest(manifest_path: pathlib.Path, manifest: dict[str, Any], root: pathlib.Path) -> dict[str, Any]:
+    flags: list[str] = []
+    notes = [
+        "no facts-vs-raw release claim is retained; paired proof artifacts are still required before claiming facts beat raw sessions",
+    ]
+    status_rel = manifest.get("facts_status")
+    status_report = None
+    if status_rel is not None:
+        status_path = manifest_artifact(root, status_rel, "facts_status")
+        loaded = load_json(status_path)
+        if not isinstance(loaded, dict):
+            flags.append("facts_status must be a JSON object")
+        else:
+            status_report = {
+                "path": str(status_path.relative_to(root)),
+                "facts_arm_ready": loaded.get("facts_arm_ready"),
+                "totals": loaded.get("totals"),
+                "warnings": loaded.get("warnings") or [],
+            }
+            if loaded.get("facts_arm_ready") is not False:
+                flags.append("facts_status.facts_arm_ready must be false for no_release_claim evidence")
+            totals = loaded.get("totals")
+            if not isinstance(totals, dict):
+                flags.append("facts_status.totals must be an object")
+            elif int(totals.get("active") or 0) != 0:
+                flags.append("facts_status.totals.active must be 0 for no_release_claim evidence")
+    else:
+        flags.append("no_release_claim manifest requires facts_status")
+    return {
+        "schema": 1,
+        "manifest": display_path(manifest_path),
+        "status": "fail" if flags else "pass",
+        "release_evidence": not flags,
+        "claim_policy": CLAIM_POLICY_NO_CLAIM,
+        "claimable_facts_vs_raw": False,
+        "tasks_sha256": "",
+        "brain_manifest_sha256": "",
+        "required_retrievers": [],
+        "summary_paths": {},
+        "comparison_paths": {},
+        "required_claims": [],
+        "facts_status": status_report,
+        "flags": flags,
+        "notes": notes,
+    }
 
 
 def compare_hash_fields(comp: dict[str, Any], tasks_sha: str, brain_sha: str, flags: list[str], name: str) -> None:
@@ -112,6 +182,9 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
     root = manifest_path.parent
     manifest = load_json(manifest_path)
     validate_manifest(manifest)
+    claim_policy = manifest.get("claim_policy", CLAIM_POLICY_PROOF)
+    if claim_policy == CLAIM_POLICY_NO_CLAIM:
+        return audit_no_claim_manifest(manifest_path, manifest, root)
 
     flags: list[str] = []
     notes: list[str] = []
@@ -253,9 +326,11 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
 
     return {
         "schema": 1,
-        "manifest": str(manifest_path),
+        "manifest": display_path(manifest_path),
         "status": "fail" if flags else "pass",
         "release_evidence": not flags,
+        "claim_policy": CLAIM_POLICY_PROOF,
+        "claimable_facts_vs_raw": not flags,
         "tasks_sha256": tasks_sha,
         "brain_manifest_sha256": brain_sha,
         "required_retrievers": required_retrievers,
@@ -268,14 +343,17 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
 
 
 def render_markdown(report: dict[str, Any]) -> str:
+    required_retrievers = ", ".join(f"`{r}`" for r in report.get("required_retrievers", [])) or "none"
     lines = [
         "# Facts Eval Evidence Audit",
         "",
         f"- Status: **{report['status'].upper()}**",
         f"- Release evidence: **{str(report['release_evidence']).lower()}**",
+        f"- Claim policy: **{report.get('claim_policy', CLAIM_POLICY_PROOF)}**",
+        f"- Facts-vs-raw claimable: **{str(report.get('claimable_facts_vs_raw', False)).lower()}**",
         f"- Tasks hash: `{report.get('tasks_sha256') or 'unset'}`",
         f"- Brain manifest hash: `{report.get('brain_manifest_sha256') or 'unset'}`",
-        f"- Required retrievers: {', '.join(f'`{r}`' for r in report.get('required_retrievers', []))}",
+        f"- Required retrievers: {required_retrievers}",
         "",
     ]
     if report.get("required_claims"):
@@ -293,6 +371,10 @@ def render_markdown(report: dict[str, Any]) -> str:
             lines.append(f"- {flag}")
     else:
         lines.extend(["## Flags", "", "None."])
+    if report.get("notes"):
+        lines.extend(["", "## Notes", ""])
+        for note in report["notes"]:
+            lines.append(f"- {note}")
     return "\n".join(lines) + "\n"
 
 

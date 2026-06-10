@@ -1,15 +1,19 @@
 # Distill Performance Evidence
 
-This directory is reserved for retained `entire brain distill` performance
-artifacts from a large session repo. It is intentionally empty until a real
-large-repo run exists.
+This directory contains retained `entire brain distill` performance artifacts.
+The current retained manifest is scoped to this repository and a deterministic
+local command agent. It proves the local extraction scheduler and evidence gate:
+`--jobs 4` preserves the same output summary as `--jobs 1` while improving the
+measured extraction-heavy wall time on a temporary copy of the current
+`entire-brain` local brain.
 
 Evidence must be collected on the repo whose performance claim it supports, or
-the release copy must scope the claim to the measured repo. Do not use fixture,
-current-repo, or unrelated `cli-bench` artifacts to support a frontend 24h
-distill claim.
+the release copy must scope the claim to the measured repo. The committed
+current-repo artifacts must not be reused to support a frontend/entire.io 24h
+distill claim. That claim still needs retained dry-run and timed artifacts from
+the target large session repo.
 
-To become release-citable, a future `manifest.json` in this directory must name:
+A release-citable `manifest.json` in this directory must name:
 
 - `target.repo`, `target.repo_key`, `target.source_head`,
   `target.brain_manifest_sha256`, and `target.claim_scope`, so the measured repo
@@ -26,6 +30,13 @@ To become release-citable, a future `manifest.json` in this directory must name:
   the chosen `--max-chunk-bytes` so the chunking/call-count tradeoff is
   inspectable;
 - a `min_speedup` threshold greater than `1.0`.
+
+For current retained evidence, `claim_scope` is intentionally narrow:
+`current-repo local command-agent distill extraction scheduling speedup`. The
+local command agent is committed as `local-command-agent.py`; it exercises
+extraction, reconciliation, deterministic writes, and timing evidence without a
+hosted model or network. It does not validate fact quality or hosted-model
+latency.
 
 Run `mise run distill:evidence` after committing artifacts. The validator fails
 if artifact hashes or command provenance do not match, the dry-run has missing

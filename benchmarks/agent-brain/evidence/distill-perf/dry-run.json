@@ -1,0 +1,198 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-06-10T11:17:40.827224Z",
+  "brain_path": "[isolated-temp-brain]/repos/gh/ashtom/entire-brain",
+  "force": true,
+  "agent": "command",
+  "jobs": 1,
+  "effective_extraction_jobs": 1,
+  "max_chunk_bytes": 262144,
+  "confidence_threshold": 0.75,
+  "sessions": 147,
+  "cached_sessions": 0,
+  "sessions_to_distill": 147,
+  "missing_transcripts": 0,
+  "raw_bytes": 250321142,
+  "preprocessed_bytes": 7419024,
+  "chunks": 159,
+  "chunks_if_uncached": 159,
+  "extraction_agent_calls": 159,
+  "reconcile_agent_calls_upper_bound": 159,
+  "estimated_agent_calls_upper_bound": 318,
+  "branches": [
+    {
+      "branch": "redacted/branch-1",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 806422
+    },
+    {
+      "branch": "redacted/branch-2",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 849723
+    },
+    {
+      "branch": "feat/fact-quality-appendix-d",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 115469
+    },
+    {
+      "branch": "feat/qmd-retrieval",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 298305
+    },
+    {
+      "branch": "feat/stage1a-derived-index",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 55160
+    },
+    {
+      "branch": "feat/stage1b-transformer-embedder",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 145175
+    },
+    {
+      "branch": "harvest/agent-ux-and-embedder-ux",
+      "sessions": 1,
+      "cached_sessions": 0,
+      "sessions_to_distill": 1,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 98120
+    },
+    {
+      "branch": "main",
+      "sessions": 139,
+      "cached_sessions": 0,
+      "sessions_to_distill": 139,
+      "chunks": 144,
+      "chunks_if_uncached": 144,
+      "preprocessed_bytes": 5050650
+    }
+  ],
+  "largest_sessions": [
+    {
+      "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+      "branch": "redacted/branch-2",
+      "transcript": "sessions/branches/redacted-branch-2/20260609T182817Z_claude-code_af861ed9-9e1d-41a7-8400-b53c2995aed8_fb77fbd043d2.jsonl",
+      "cached": false,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "raw_bytes": 30729719,
+      "preprocessed_bytes": 849723
+    },
+    {
+      "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+      "branch": "main",
+      "transcript": "sessions/main/20260609T165349Z_claude-code_af861ed9-9e1d-41a7-8400-b53c2995aed8_eccdab54b573.jsonl",
+      "cached": false,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "raw_bytes": 30729719,
+      "preprocessed_bytes": 849723
+    },
+    {
+      "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+      "branch": "redacted/branch-1",
+      "transcript": "sessions/branches/redacted-branch-1/20260607T215519Z_claude-code_af861ed9-9e1d-41a7-8400-b53c2995aed8_60447aa90070.jsonl",
+      "cached": false,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "raw_bytes": 29098403,
+      "preprocessed_bytes": 806422
+    },
+    {
+      "session_id": "019e849b-3b23-7890-8852-066ab00a19ad",
+      "branch": "main",
+      "transcript": "sessions/main/20260602T171529Z_codex_019e849b-3b23-7890-8852-066ab00a19ad_ae53453795e3.jsonl",
+      "cached": false,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "raw_bytes": 9232578,
+      "preprocessed_bytes": 616181
+    },
+    {
+      "session_id": "93850a3b-823a-4400-affb-afd0a1ad0282",
+      "branch": "main",
+      "transcript": "sessions/main/20260609T111243Z_claude-code_93850a3b-823a-4400-affb-afd0a1ad0282_fbed539c81af.jsonl",
+      "cached": false,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "raw_bytes": 12985799,
+      "preprocessed_bytes": 306295
+    },
+    {
+      "session_id": "93850a3b-823a-4400-affb-afd0a1ad0282",
+      "branch": "feat/qmd-retrieval",
+      "transcript": "sessions/branches/feat-qmd-retrieval/20260609T103140Z_claude-code_93850a3b-823a-4400-affb-afd0a1ad0282_a108e53d0b64.jsonl",
+      "cached": false,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "raw_bytes": 12645268,
+      "preprocessed_bytes": 298305
+    },
+    {
+      "session_id": "019e7da2-8676-7200-8373-559999113025",
+      "branch": "main",
+      "transcript": "sessions/main/20260601T044321Z_codex_019e7da2-8676-7200-8373-559999113025_9632939935ca.jsonl",
+      "cached": false,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "raw_bytes": 9722093,
+      "preprocessed_bytes": 258982
+    },
+    {
+      "session_id": "3c8f3e78-b939-42b0-8ab8-aae534b6f768",
+      "branch": "main",
+      "transcript": "sessions/main/20260609T165344Z_claude-code_3c8f3e78-b939-42b0-8ab8-aae534b6f768_eccdab54b573.jsonl",
+      "cached": false,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "raw_bytes": 3815782,
+      "preprocessed_bytes": 230327
+    },
+    {
+      "session_id": "019e81aa-6c40-7690-8c0a-dd90d56d369a",
+      "branch": "main",
+      "transcript": "sessions/main/20260601T140930Z_codex_019e81aa-6c40-7690-8c0a-dd90d56d369a_a98678f5da84.jsonl",
+      "cached": false,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "raw_bytes": 4249620,
+      "preprocessed_bytes": 230213
+    },
+    {
+      "session_id": "019e5dd1-d451-7ca1-b1e4-df15cf69fcc0",
+      "branch": "main",
+      "transcript": "sessions/main/20260525T230531Z_codex_019e5dd1-d451-7ca1-b1e4-df15cf69fcc0_1516a9d8f651.jsonl",
+      "cached": false,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "raw_bytes": 5833289,
+      "preprocessed_bytes": 218605
+    }
+  ]
+}

@@ -41,24 +41,30 @@ Implemented claim-control surfaces:
   timing components that fit under `total_seconds`, comparable chunk/call/output
   summaries, effective parallelism greater than 1, and observed `total_seconds`
   speedup above the manifest's `min_speedup`.
-- `mise run distill:evidence` checks committed large-repo distill artifacts
-  without rewriting them, while `distill:evidence:update` regenerates the audit
-  report only after the validator passes. Today the task is intentionally
-  expected to fail because no target large-repo dry-run/timed artifacts have
-  been collected yet.
+- `mise run distill:evidence` checks committed distill artifacts without
+  rewriting them, while `distill:evidence:update` regenerates the audit report
+  only after the validator passes. The current retained artifacts are scoped to
+  this repository and a deterministic local command agent: they prove the
+  extraction scheduler/evidence gate, not hosted-model quality or the
+  frontend/entire.io 24h claim.
 
 Claim policy: do not claim distill is "fast" until a real large-repo dry-run and
 timed run show the call count and wall-time improvement.
 
-Local smoke evidence collected on this repo: `go run ./cmd/entire-brain distill
---dry-run --json` completed without agent calls and reported 147 sessions,
-250,321,142 raw bytes, 7,419,024 preprocessed bytes, 259 extraction chunks, and
-an upper bound of 518 extraction plus reconcile agent calls. This validates the
-sizing surface and explains why backfill scales painfully, but it is not the
-target large-repo performance proof.
+Retained local scheduler evidence collected on this repo: the committed
+`benchmarks/agent-brain/evidence/distill-perf/manifest.json` targets
+`github.com/ashtom/entire-brain` at the current release-hardening head, uses a
+deterministic local command agent, and passes `mise run distill:evidence`.
+The retained dry-run reported 147 sessions, 7,419,024 preprocessed bytes, 159
+scheduled extraction chunks, and 159 extraction calls. The paired timed summaries
+showed `--jobs 1` and `--jobs 4` produced matching summaries with zero failed
+chunks, and the observed wall-time speedup was about 2x. This validates the
+parallel extraction scheduler and retained evidence gate, but it is not target
+frontend performance proof.
 
 Blocked evidence collection: the target large session repo and retained timed
-run artifacts are still needed before any public performance claim.
+run artifacts are still needed before any public frontend/large-repo performance
+claim.
 
 ## Facts Vs Raw Sessions
 
@@ -99,15 +105,18 @@ Implemented eval surfaces:
   explicit, so same-id eval runs with different task labels or brain state
   cannot masquerade as paired proof.
 - `benchmarks/agent-brain/audit_facts_eval.py` audits retained facts-eval
-  artifacts for release proof: it requires the four retriever summaries, matching
-  non-empty task and brain-manifest hashes, no proxy/missing/mismatch overrides,
-  empty missing-task sets, and required comparison metrics that are significant,
-  `release_claimable: true`, and `evidence_basis: "proof_labels"`.
+  artifacts for release proof: proof manifests require the four retriever
+  summaries, matching non-empty task and brain-manifest hashes, no proxy/missing
+  /mismatch overrides, empty missing-task sets, and required comparison metrics
+  that are significant, `release_claimable: true`, and
+  `evidence_basis: "proof_labels"`. It also supports an explicit
+  `claim_policy: "no_release_claim"` manifest backed by `facts status --json`;
+  that passes only when the facts arm is not ready and has zero active facts.
 - `mise run facts:evidence` checks committed facts-eval artifacts without
   rewriting them, while `facts:evidence:update` regenerates the audit report
-  only after the validator passes. Today the task is intentionally not part of
-  `mise run release:evidence` because no citable facts-vs-raw artifact has been
-  collected yet.
+  only after the validator passes. The current retained artifact is no-claim
+  evidence: it records that the current branch has zero active durable facts, so
+  no facts-vs-raw win is being cited.
 
 Claim policy: do not say facts are better than raw/preprocessed sessions unless
 paired evals show a significant lift for the metric being claimed. Do not compare
@@ -127,8 +136,9 @@ token-cost contrast, but it is not facts-vs-raw release proof.
 
 Blocked evidence collection: paired `facts eval` runs for `facts`, `history`,
 `query`, and `raw-sessions` over the same proof-labeled task set are still
-required. Proxy-authorized/source-overlap task sets are useful smoke evidence,
-but they are intentionally rejected by `mise run facts:evidence`.
+required before any positive facts-vs-raw claim. Proxy-authorized/source-overlap
+task sets are useful smoke evidence, but they are intentionally rejected by proof
+manifests.
 
 Local collection recipe:
 
@@ -501,12 +511,15 @@ depend on retained evidence artifacts.
 `mise run check`, `mise run release:evidence`, `mise run radar:evidence`,
 `mise run distill:evidence`, `mise run facts:evidence`, and
 `mise run semantic:evidence`, continuing after individual failures and printing
-the complete failing-task summary at the end. It is expected to fail until
-distill performance and facts-vs-raw retained artifacts exist, which keeps
-"distill is fast" and "facts beat raw sessions" claims blocked instead of hidden
-behind a green implementation check or an earlier fail-fast blocker. Semantic
-freshness is locally green; semantic usefulness claims still need separate
-retained benchmark proof before they should ship.
+the complete failing-task summary at the end. Distill and facts now have
+retained evidence, but their claim scopes are deliberately narrow: distill
+proves current-repo local command-agent extraction scheduling speedup, and facts
+records `claim_policy: "no_release_claim"` because the current branch has no
+active durable facts. These gates keep "distill is fast on the frontend repo"
+and "facts beat raw sessions" blocked until target proof exists, instead of
+hiding them behind a green implementation check. Semantic freshness is local
+health evidence; semantic usefulness claims still need separate retained
+benchmark proof before they should ship.
 
 `mise run radar:screen` is the calibration check for local `pilot-radar-*`
 suites. Earlier 2026-06-10 calibration runs saturated, but the retained
@@ -526,8 +539,9 @@ Regression Radar proof cannot pass release evidence through summary metadata
 alone.
 
 CI now includes the retained replay-lab release-evidence audit in addition to
-lint/build/test/Phase 1 semantic checks. The facts evidence gate is not wired
-into CI yet because the citable facts-vs-raw manifest is intentionally absent.
+lint/build/test/Phase 1 semantic checks. The facts evidence gate supports either
+proof-required mode or explicit no-claim mode; the current no-claim manifest is
+a guard against overclaiming, not a facts-quality win.
 
 This documentation claim-hygiene pass checked:
 
@@ -550,7 +564,9 @@ repo/access/artifacts are available:
   `mise run distill:evidence` before a speedup claim is release-citable.
 - Paired `entire brain facts eval --retriever facts|history|query|raw-sessions`
   runs over the same proof-labeled task set, same task hash, and same brain
-  manifest hash. Proxy-allowed runs remain smoke/calibration only.
+  manifest hash. Proxy-allowed runs remain smoke/calibration only. The committed
+  no-claim facts manifest is a guard against overclaiming, not a substitute for
+  this positive proof.
 - Additional Regression Radar evidence for other tasks/repos remains useful,
   especially workspace Radar, but the first citable Radar claim is now retained:
   `release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress`.

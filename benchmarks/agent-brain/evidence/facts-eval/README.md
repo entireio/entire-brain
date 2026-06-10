@@ -1,7 +1,14 @@
 # Facts Eval Evidence
 
 This directory is reserved for retained `entire brain facts eval` proof
-artifacts. It is intentionally empty until a real paired eval run exists.
+artifacts. The current committed manifest is a no-claim audit artifact:
+`claim_policy: "no_release_claim"` points at `facts-status.json`, which shows
+the current branch has no active durable facts. That is release evidence only
+for the negative claim that no facts-vs-raw win is being cited yet.
+
+Do not treat the current no-claim manifest as proof that facts beat raw sessions.
+Replace it with real paired eval artifacts before publishing any facts recall,
+precision, or useful-per-token claim.
 
 To become release-citable, a future `manifest.json` in this directory must name:
 
@@ -40,6 +47,22 @@ Minimum retained shape:
 }
 ```
 
+Until a proof manifest exists, the accepted no-claim retained shape is:
+
+```json
+{
+  "schema": 1,
+  "claim_policy": "no_release_claim",
+  "facts_status": "facts-status.json",
+  "summaries": {},
+  "comparisons": {},
+  "required_claims": []
+}
+```
+
+The auditor accepts this only when the retained `facts status --json` artifact
+shows `facts_arm_ready: false` and zero active facts.
+
 Collection checklist:
 
 - Before collecting, run `entire brain facts status --json` on the target repo.
@@ -64,7 +87,9 @@ Collection checklist:
   `facts-eval-audit-report.json` and `.md` after
   `mise run facts:evidence:update` passes.
 
-Run `mise run facts:evidence` after committing artifacts. The validator fails if
-any canonical retriever arm is omitted, task hashes or brain-manifest hashes
-differ, proxy comparisons are used, task sets are missing rows, summary rows are
-not proof-labeled, or the required facts-vs-raw claim is not release claimable.
+Run `mise run facts:evidence` after committing artifacts. For proof manifests,
+the validator fails if any canonical retriever arm is omitted, task hashes or
+brain-manifest hashes differ, proxy comparisons are used, task sets are missing
+rows, summary rows are not proof-labeled, or the required facts-vs-raw claim is
+not release claimable. For no-claim manifests, the validator fails if the
+retained status artifact shows the facts arm is ready or has active facts.

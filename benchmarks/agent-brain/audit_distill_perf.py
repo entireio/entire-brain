@@ -32,6 +32,14 @@ def file_sha256(path: pathlib.Path) -> str:
     return "sha256:" + digest.hexdigest()
 
 
+def display_path(path: pathlib.Path) -> str:
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(pathlib.Path.cwd().resolve()))
+    except ValueError:
+        return str(resolved)
+
+
 def get(d: Any, *path: str, default: Any = None) -> Any:
     cur = d
     for part in path:
@@ -260,7 +268,7 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             flags.append(f"{label}: total_agent_calls must equal extraction + reconcile calls")
         if run.get("reconcile_agent_calls", 0) > dry.get("reconcile_agent_calls_upper_bound", 0):
             flags.append(f"{label}: reconcile_agent_calls exceeds dry-run upper bound")
-        if run.get("cache_hits") != dry.get("cached_sessions"):
+        if int(run.get("cache_hits") or 0) != int(dry.get("cached_sessions") or 0):
             flags.append(f"{label}: cache_hits differs from dry_run cached_sessions")
         if run.get("failed_chunks", 0) != 0:
             flags.append(f"{label}: failed_chunks must be 0")
@@ -302,7 +310,7 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
 
     return {
         "schema": 1,
-        "manifest": str(manifest_path),
+        "manifest": display_path(manifest_path),
         "status": "fail" if flags else "pass",
         "release_evidence": not flags,
         "target": target,

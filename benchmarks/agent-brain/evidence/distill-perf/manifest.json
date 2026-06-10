@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "target": {
+    "repo": "github.com/ashtom/entire-brain",
+    "repo_key": "gh/ashtom/entire-brain",
+    "source_head": "55518db0766bf7eab6b902bfee6ad178870003e2",
+    "brain_manifest_sha256": "sha256:f40ff62f445e2dda7b8523fbdb63e40a7c37abe6e9c89b31ee1f2c10cd95f03f",
+    "claim_scope": "current-repo local command-agent distill extraction scheduling speedup"
+  },
+  "cache_state": "force_recomputed_each_run",
+  "dry_run": "dry-run.json",
+  "serial_run": "jobs-1.json",
+  "parallel_run": "jobs-4.json",
+  "artifact_sha256": {
+    "dry_run": "sha256:17f9aef2309a055fe7426debd4409b5ba5b2cdfdbc69537141de24007f80aeaf",
+    "serial_run": "sha256:963c4862f604da8ea8bbd3650e0b9c4486bcdce59651033ee4a1a90a09271e21",
+    "parallel_run": "sha256:d065d8daf51d1259947279ed47ef7f679b445dfb22288f1f84396adc262d6574"
+  },
+  "commands": {
+    "dry_run": [
+      "entire-brain",
+      "distill",
+      "--dry-run",
+      "--json",
+      "--agent",
+      "command",
+      "--agent-command",
+      "python3",
+      "--agent-command",
+      "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py",
+      "--force",
+      "--max-chunk-bytes",
+      "262144",
+      "--confidence",
+      "0.75",
+      "--jobs",
+      "1"
+    ],
+    "serial_run": [
+      "entire-brain",
+      "distill",
+      "--json",
+      "--agent",
+      "command",
+      "--agent-command",
+      "python3",
+      "--agent-command",
+      "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py",
+      "--force",
+      "--max-chunk-bytes",
+      "262144",
+      "--confidence",
+      "0.75",
+      "--jobs",
+      "1"
+    ],
+    "parallel_run": [
+      "entire-brain",
+      "distill",
+      "--json",
+      "--agent",
+      "command",
+      "--agent-command",
+      "python3",
+      "--agent-command",
+      "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py",
+      "--force",
+      "--max-chunk-bytes",
+      "262144",
+      "--confidence",
+      "0.75",
+      "--jobs",
+      "4"
+    ]
+  },
+  "min_speedup": 1.25,
+  "notes": [
+    "Collected offline from a temporary copy of the current entire-brain local brain store.",
+    "Uses a deterministic local command agent to prove scheduler/extraction mechanics, not fact quality or hosted-model latency.",
+    "Does not support a frontend/entire.io 24h backfill claim; that still needs target-repo retained artifacts."
+  ],
+  "redactions": {
+    "dry_run.brain_path": "redacted isolated temp store path; repo_key remains in the path suffix",
+    "branch_labels": "old local branch labels with person names redacted from retained current-repo evidence artifacts"
+  }
+}

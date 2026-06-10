@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "claim_policy": "no_release_claim",
+  "facts_status": "facts-status.json",
+  "summaries": {},
+  "comparisons": {},
+  "required_claims": [],
+  "notes": [
+    "Current retained evidence does not claim facts beat raw sessions.",
+    "The current local brain has no active durable facts on the release branch, so paired facts-vs-raw proof cannot be honestly collected yet.",
+    "Replace this no-claim manifest with paired facts/history/query/raw-sessions eval artifacts before citing a facts recall or useful-per-token win."
+  ]
+}

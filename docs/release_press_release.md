@@ -70,7 +70,8 @@ task outcomes instead of relying on demos or anecdotes.
   verification, MCP/Regression Radar contracts, workspace-radar MCP harnessing,
   eval harness, benchmark harness.
 - Proven locally: semantic audit coverage after refresh on this checkout,
-  distill dry-run sizing, facts-eval baseline plumbing and evidence validator,
+  distill dry-run sizing, current-repo local command-agent distill scheduler
+  speedup evidence, facts-eval baseline plumbing and no-claim evidence guard,
   local QMD-inspired retrieval contract tests, one retained replay-lab history
   proof where `full_brain` improved the task score/pass-rate over `no_brain`,
   and one retained MCP-history proof where `mcp_history` improved pass rate
@@ -78,7 +79,8 @@ task outcomes instead of relying on demos or anecdotes.
   gains, plus one retained single-repo location-only deletion-Radar proof where
   `brain_regressions(location_only, include_deletions)` improved pass rate
   1/4 -> 4/4.
-- Pending proof: target large-repo distill timing, paired facts evals,
+- Pending proof: target large-repo/frontend distill timing, paired facts evals
+  with active durable facts and proof labels,
   workspace Radar outcome proof, answer-assisted/broad Radar claims, semantic
   usefulness, and broader retained replay-lab benchmark evidence.
 - Blocked: target large-repo evidence, backend/Slack access, turn signing,

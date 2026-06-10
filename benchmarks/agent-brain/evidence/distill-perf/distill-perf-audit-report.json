@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "manifest": "benchmarks/agent-brain/evidence/distill-perf/manifest.json",
+  "status": "pass",
+  "release_evidence": true,
+  "target": {
+    "repo": "github.com/ashtom/entire-brain",
+    "repo_key": "gh/ashtom/entire-brain",
+    "source_head": "55518db0766bf7eab6b902bfee6ad178870003e2",
+    "brain_manifest_sha256": "sha256:f40ff62f445e2dda7b8523fbdb63e40a7c37abe6e9c89b31ee1f2c10cd95f03f",
+    "claim_scope": "current-repo local command-agent distill extraction scheduling speedup"
+  },
+  "min_speedup": 1.25,
+  "speedup": 1.9961447767232992,
+  "dry_run": {
+    "sessions": 147,
+    "sessions_to_distill": 147,
+    "chunks": 159,
+    "preprocessed_bytes": 7419024,
+    "estimated_agent_calls_upper_bound": 318
+  },
+  "serial_run": {
+    "jobs": 1,
+    "effective_extraction_jobs": 1,
+    "total_seconds": 18.28485225,
+    "total_agent_calls": 295
+  },
+  "parallel_run": {
+    "jobs": 4,
+    "effective_extraction_jobs": 4,
+    "total_seconds": 9.160083208,
+    "total_agent_calls": 295
+  },
+  "flags": [],
+  "notes": []
+}

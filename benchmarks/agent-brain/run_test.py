@@ -2294,6 +2294,52 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             self.assertEqual(audit_facts_eval.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 0)
             self.assertTrue((pathlib.Path(out) / "facts-eval-audit-report.json").exists())
 
+    def test_facts_eval_audit_accepts_no_release_claim_status(self):
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
+            root_path = pathlib.Path(root)
+            (root_path / "facts-status.json").write_text(json.dumps({
+                "schema_version": 1,
+                "facts_arm_ready": False,
+                "totals": {"active": 0, "facts": 0},
+                "warnings": ["facts retriever has no active facts; facts-vs-raw release proof cannot be collected yet"],
+            }))
+            manifest = root_path / "manifest.json"
+            manifest.write_text(json.dumps({
+                "schema": 1,
+                "claim_policy": "no_release_claim",
+                "facts_status": "facts-status.json",
+                "summaries": {},
+                "comparisons": {},
+                "required_claims": [],
+            }))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+            self.assertTrue(report["release_evidence"], report)
+            self.assertFalse(report["claimable_facts_vs_raw"])
+            self.assertEqual(report["claim_policy"], "no_release_claim")
+            self.assertEqual(audit_facts_eval.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 0)
+
+    def test_facts_eval_audit_rejects_no_release_claim_when_facts_ready(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            (root_path / "facts-status.json").write_text(json.dumps({
+                "schema_version": 1,
+                "facts_arm_ready": True,
+                "totals": {"active": 3, "facts": 3},
+                "warnings": [],
+            }))
+            manifest = root_path / "manifest.json"
+            manifest.write_text(json.dumps({
+                "schema": 1,
+                "claim_policy": "no_release_claim",
+                "facts_status": "facts-status.json",
+            }))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+            self.assertFalse(report["release_evidence"], report)
+            self.assertIn("facts_status.facts_arm_ready must be false for no_release_claim evidence", report["flags"])
+            self.assertIn("facts_status.totals.active must be 0 for no_release_claim evidence", report["flags"])
+
     def test_facts_eval_audit_rejects_proxy_or_nonclaimable_comparison(self):
         with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
             manifest = self._write_facts_eval_fixture(pathlib.Path(root), proxy=True)
@@ -2471,6 +2517,23 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
             self.assertEqual(report["target"]["repo"], "github.com/example/large-repo")
             self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 0)
             self.assertTrue((pathlib.Path(out) / "distill-perf-audit-report.json").exists())
+
+    def test_distill_perf_audit_accepts_omitted_zero_cache_hits(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_distill_perf_fixture(root_path)
+            for name in ("jobs-1.json", "jobs-4.json"):
+                path = root_path / name
+                data = json.loads(path.read_text())
+                data.pop("cache_hits")
+                path.write_text(json.dumps(data))
+            manifest_data = json.loads(manifest.read_text())
+            manifest_data["artifact_sha256"]["serial_run"] = self._sha256(root_path / "jobs-1.json")
+            manifest_data["artifact_sha256"]["parallel_run"] = self._sha256(root_path / "jobs-4.json")
+            manifest.write_text(json.dumps(manifest_data))
+
+            report = audit_distill_perf.audit_distill_perf_manifest(manifest)
+            self.assertTrue(report["release_evidence"], report)
 
     def test_distill_perf_audit_rejects_weak_speedup_or_mismatched_output(self):
         with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:

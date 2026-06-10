@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "repo": "[repo-root]",
+  "brain_path": "[local-brain]/repos/gh/ashtom/entire-brain",
+  "branch": "codex/release-readiness-hardening",
+  "facts_arm_ready": false,
+  "totals": {
+    "facts": 0,
+    "active": 0,
+    "superseded": 0,
+    "retracted": 0,
+    "distilled": 0,
+    "authored": 0,
+    "proposals": 0,
+    "provenance_anchors": 0,
+    "verified_anchors": 0,
+    "unsigned_anchors": 0
+  },
+  "warnings": [
+    "facts retriever has no active facts; facts-vs-raw release proof cannot be collected yet",
+    "brain manifest has no facts source"
+  ]
+}
