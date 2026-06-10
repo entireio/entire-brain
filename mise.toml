@@ -138,7 +138,7 @@ cp "$tmp"/radar-tool-audit-report.json "$tmp"/radar-tool-audit-report.md benchma
 '''
 
 [tasks."radar:agent-evidence"]
-description = "Optional: require at least one retained proof-ready Regression Radar agent comparison"
+description = "Require at least one retained proof-ready Regression Radar agent comparison"
 run = '''
 set -e
 tmp="$(mktemp -d)"
@@ -294,7 +294,7 @@ run = '''
 set +e
 failures=0
 failed=""
-for task in check release:evidence radar:evidence distill:evidence facts:evidence semantic:evidence; do
+for task in check release:evidence radar:evidence radar:agent-evidence distill:evidence facts:evidence semantic:evidence; do
   echo "==> mise run $task"
   mise run "$task"
   rc=$?

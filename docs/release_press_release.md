@@ -43,8 +43,10 @@ task outcomes instead of relying on demos or anecdotes.
   semantic context changes file/test localization or agent efficiency.
 - More replay-lab evidence beyond the first retained focused history proof and
   retained generic MCP-history proof, plus separate deterministic Radar
-  tool-contract evidence; Radar agent-lift still needs repeated benchmark
-  scenarios, stable verdicts, and committed release/Radar audit reports.
+  tool-contract evidence; focused location-only Radar agent-lift now has one
+  retained audited proof, while broader/workspace Radar claims still need
+  repeated benchmark scenarios, stable verdicts, and committed release/Radar
+  audit reports.
 
 ## Blocked Or Access-Dependent
 
@@ -81,14 +83,16 @@ task outcomes instead of relying on demos or anecdotes.
   proof where `full_brain` improved the task score/pass-rate over `no_brain`,
   and one retained MCP-history proof where `mcp_history` improved pass rate
   1/4 -> 4/4 on a manual-attribution regression without proving efficiency
-  gains, plus retained deterministic MCP/Radar tool-contract proof for
-  QMD-inspired MCP retrieval, branch-scoped facts, location-only Radar, deletion
-  opt-in, workspace Radar, strict MCP schemas, and safe tool-result logging.
+  gains, one focused retained location-only Radar agent-lift proof where
+  `mcp_history` improved pass rate 2/4 -> 4/4 on a deletion-shaped
+  manual-attribution regression, plus retained deterministic MCP/Radar
+  tool-contract proof for QMD-inspired MCP retrieval, branch-scoped facts,
+  location-only Radar, deletion opt-in, workspace Radar, strict MCP schemas, and
+  safe tool-result logging.
 - Pending proof: target large-repo/frontend distill timing, paired facts evals
   with active durable facts and proof labels,
-  Radar agent-lift outcome proof, workspace Radar outcome proof,
-  answer-assisted/broad Radar claims, semantic usefulness, and broader retained
-  replay-lab benchmark evidence.
+  workspace Radar outcome proof, answer-assisted/broad Radar claims, semantic
+  usefulness, and broader retained replay-lab benchmark evidence.
 - Blocked: target large-repo evidence, backend/Slack access, turn signing,
   checkpoint-time fact generation.
 - Future: distributed/shared brain, team artifact hydration, multi-agent write

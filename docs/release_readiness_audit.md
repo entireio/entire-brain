@@ -425,9 +425,9 @@ Release claims must stay local-first and evidence-backed:
   deterministic tool-contract evidence under
   `benchmarks/agent-brain/evidence/radar-tool`, checked by `mise run
   radar:evidence`.
-- The optional Radar agent auditor remains strict for future panels: benchmark
-  summaries carry additive `delivery_scope`/`env_flags`, Radar location-only
-  delivery is counted as `mcp_radar_location_only` or
+- The Radar agent auditor remains strict for current retained proof and future
+  panels: benchmark summaries carry additive `delivery_scope`/`env_flags`,
+  Radar location-only delivery is counted as `mcp_radar_location_only` or
   `mcp_workspace_radar_location_only`, and proof-ready MCP-backed comparisons
   must be backed by their own MCP-verified condition records. The Radar agent
   auditor cross-checks `summary.json` pass rates and record counts against
@@ -544,12 +544,13 @@ depend on retained evidence artifacts.
 
 `mise run release:readiness` is the local release-claim gate. It runs
 `mise run check`, `mise run release:evidence`, `mise run radar:evidence`,
-`mise run distill:evidence`, `mise run facts:evidence`, and
-`mise run semantic:evidence`, continuing after individual failures and printing
-the complete failing-task summary at the end. Distill and facts now have
-retained evidence, but their claim scopes are deliberately narrow: distill
-proves current-repo local command-agent extraction scheduling speedup plus fake
-loopback Ollama wiring/no-egress safety, and facts records
+`mise run radar:agent-evidence`, `mise run distill:evidence`,
+`mise run facts:evidence`, and `mise run semantic:evidence`, continuing after
+individual failures and printing the complete failing-task summary at the end.
+Distill and facts now have retained evidence, but their claim scopes are
+deliberately narrow: distill proves current-repo local command-agent extraction
+scheduling speedup plus fake loopback Ollama wiring/no-egress safety, and facts
+records
 `claim_policy: "no_release_claim"` because the current branch has no active
 durable facts. These gates keep "distill is fast on the frontend repo"
 and "facts beat raw sessions" blocked until target proof exists, instead of
@@ -584,12 +585,16 @@ Radar-specific MCP behavior, invariant-scoped related locations that distinguish
 same-identifier assignment deletions with different RHS values, workspace
 multi-locus deletion redaction, and safe success-path tool-result logging for
 Radar and review tools.
+`mise run radar:agent-evidence` checks the retained focused Radar agent-lift
+suite and fails unless the release evidence contains a proof-ready Radar
+comparison backed by MCP-verified, server-named, completed Radar tool calls.
 
 `mise run release:evidence` regenerates the retained replay-lab Codex audit in a
 temp directory before comparing it with committed
 `codex-audit-report.{json,md}`. It now requires the retained
 `mcp_radar_location_only` suite in addition to the history and generic MCP
-scopes. `mise run radar:evidence` remains the deterministic tool-contract gate.
+scopes. `mise run radar:evidence` remains the deterministic tool-contract gate,
+and `mise run radar:agent-evidence` remains the focused Radar agent-lift gate.
 
 CI now includes the retained replay-lab release-evidence audit in addition to
 lint/build/test/Phase 1 semantic checks. The facts evidence gate supports either
