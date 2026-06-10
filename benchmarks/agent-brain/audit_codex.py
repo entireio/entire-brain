@@ -110,6 +110,36 @@ def activity_has_mcp_call_with_args(activity: dict[str, Any], tool: str, require
     return False
 
 
+def resolve_repo_relative_path(value: Any) -> pathlib.Path | None:
+    if not isinstance(value, str) or not value:
+        return None
+    raw = pathlib.Path(value)
+    candidates = [raw] if raw.is_absolute() else [pathlib.Path.cwd() / raw, BENCH.parent.parent / raw]
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
+def record_radar_requires_deletions(rec: dict[str, Any]) -> bool:
+    embedded = get(rec, "provenance", "task", "radar_include_deletions")
+    if isinstance(embedded, bool):
+        return embedded
+    task_path = resolve_repo_relative_path(get(rec, "provenance", "task", "path"))
+    if task_path is None:
+        return False
+    try:
+        task = json.loads(task_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(task, dict):
+        return False
+    return task.get("radar_include_deletions") is True
+
+
 def recompute_score_total(score: dict[str, Any]) -> int | None:
     parts = ["outcome", "patch_focus", "validation_discipline", "runtime_efficiency", "brain_use"]
     if not all(isinstance(score.get(p), (int, float)) for p in parts):
@@ -306,6 +336,7 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         real = [n for n in names if re.search(rf"(?:^|__){MCP_BRAIN_TOOL_RE}$", str(n))]
         real_bare_names = {bare_mcp_tool_name(n) for n in real}
         logged_bare_names = set(slog_names or [])
+        radar_requires_deletions = record_radar_requires_deletions(rec)
         run_env_flags = get(rec, "provenance", "run_config", "env_flags", default={})
         run_env_flags = run_env_flags if isinstance(run_env_flags, dict) else {}
         if mcp_calls <= 0:
@@ -329,9 +360,13 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
                 notes.append(f"B:mcp_workspace_radar_partial_missing_{req}")
             if not activity_has_mcp_call_with_args(activity, req, {"location_only": True}):
                 flags.append("B:mcp_workspace_radar_missing_location_only")
+            if radar_requires_deletions and not activity_has_mcp_call_with_args(activity, req, {"location_only": True, "include_deletions": True}):
+                flags.append("B:mcp_workspace_radar_missing_include_deletions")
         if cond == "mcp_history" and run_env_flags.get("BENCH_RADAR_LOCATION_ONLY") == "1" and mcp_calls > 0:
             if not activity_has_mcp_call_with_args(activity, "brain_regressions", {"location_only": True}):
                 flags.append("B:mcp_radar_missing_location_only")
+            if radar_requires_deletions and not activity_has_mcp_call_with_args(activity, "brain_regressions", {"location_only": True, "include_deletions": True}):
+                flags.append("B:mcp_radar_missing_include_deletions")
         # server-log cross-check: recorded calls must be backed by real tools/call
         if mcp_calls > 0 and slog is None:
             flags.append("B:mcp_server_log_missing")
@@ -389,6 +424,7 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     mcp_verified = (
         cond in MCP_CONDITIONS and mcp_calls > 0 and bool(get(rec, "mcp_condition_audit", "ok"))
         and pc == 0 and slog is not None and slog > 0
+        and not any(flag.startswith("B:") for flag in flags)
         and not (slog_names and not {bare_mcp_tool_name(n) for n in activity.get("mcp_tool_names") or []}.issubset(set(slog_names)))
     )
 

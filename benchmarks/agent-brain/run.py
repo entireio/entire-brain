@@ -767,6 +767,8 @@ def build_record_provenance(
         "run_config": run_config_provenance(command, runner, condition, repetition, suite_dir, args),
         "tools": tools_provenance(tools),
     }
+    if "radar_include_deletions" in task:
+        payload["task"]["radar_include_deletions"] = bool(task.get("radar_include_deletions"))
     payload["fingerprint"] = stable_json_sha256(
         {
             "harness_head": payload["harness"]["head"].get("commit"),

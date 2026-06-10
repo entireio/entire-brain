@@ -393,7 +393,11 @@ Release claims must stay local-first and evidence-backed:
 - MCP argument contracts now fail closed: schemas advertise
   `additionalProperties: false`, unknown keys are rejected, string fields and
   string-array fields must have the advertised type, and Radar MCP proof records
-  preserve only safe boolean call details such as `location_only`.
+  preserve only safe boolean call details such as `location_only` and
+  `include_deletions`. Deletion-shaped Radar tasks now carry
+  `radar_include_deletions` in record provenance, and the independent auditor
+  rejects retained Radar MCP records whose actual call omitted
+  `include_deletions: true`.
 - The committed `release-entire-cli-radar-mcp-review-base-scope` panel encodes
   `BENCH_RADAR_LOCATION_ONLY=1` in the panel manifest, so the fair radar run is
   reproducible and hashed with the panel config.
@@ -518,7 +522,8 @@ repo/access/artifacts are available:
   Future Radar claims still need 4 repetitions per side, MCP-verified records,
   the appropriate proof scope (`mcp_radar_location_only` or
   `mcp_workspace_radar_location_only`), zero hard flags, a stable proof-ready
-  comparison, committed sanitized artifacts under
+  comparison, deletion-aware MCP arguments when the task requests deletion
+  signals, committed sanitized artifacts under
   `benchmarks/agent-brain/evidence/release`, and retained `mcp-server.log`
   files with server-backed tool-call proof.
 - Semantic benchmark evidence from a retained proof suite. A clean local

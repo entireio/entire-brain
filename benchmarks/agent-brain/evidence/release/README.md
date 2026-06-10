@@ -40,5 +40,7 @@ Current retained proof:
   one focused location-only Regression Radar MCP task, 4 repetitions per side.
   No-brain passed 1/4, `mcp_history` with `brain_regressions(location_only,
   include_deletions)` passed 4/4, mean score improved 77.25 -> 92.25, and the
-  retained audit requires 4 MCP-verified Radar records. This supports a
-  location-only Radar pass-rate claim, not an answer-assisted fix claim.
+  retained audit requires 4 MCP-verified Radar records and rejects deletion
+  Radar records that omit `include_deletions: true`. This supports a
+  location-only deletion-Radar pass-rate claim, not an answer-assisted fix
+  claim.

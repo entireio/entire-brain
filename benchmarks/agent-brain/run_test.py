@@ -941,6 +941,7 @@ class StatsAndAttributionTests(unittest.TestCase):
                 "repo_path": str(repo),
                 "conditions": ["no_brain"],
                 "prompt": "Fix it.",
+                "radar_include_deletions": True,
                 "validation": [],
             }
             bound, source, base = run.bind_task_base_commit(task)
@@ -970,6 +971,7 @@ class StatsAndAttributionTests(unittest.TestCase):
             self.assertEqual(prov["source"]["head"]["commit"], head)
             self.assertEqual(prov["source"]["base_ref_source"], "source_head")
             self.assertEqual(prov["run_config"]["checkpoint_limit"], 17)
+            self.assertIs(prov["task"]["radar_include_deletions"], True)
             self.assertRegex(prov["run_config"]["fingerprint"], r"^[0-9a-f]{64}$")
             self.assertRegex(prov["tools"]["brain"]["sha256"], r"^[0-9a-f]{64}$")
 
@@ -1873,6 +1875,35 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertEqual(report["totals"]["proof_ready_comparisons_by_scope"], {"mcp_radar_location_only": 1})
             self.assertEqual(report["gate_status"]["requirements"]["min_mcp_verified"], 4)
 
+    def test_audit_codex_requires_include_deletions_for_deletion_radar_task(self):
+        with tempfile.TemporaryDirectory() as results:
+            results_dir = pathlib.Path(results)
+            task_path = results_dir / "deletion-radar-task.json"
+            task_path.write_text(json.dumps({"id": "t", "radar_include_deletions": True}))
+
+            missing_suite = "release-candidate-radar-deletions-missing"
+            missing = self._mcp_release_record(missing_suite, repetition=1, run_id="radar-1")
+            missing["provenance"]["task"]["path"] = str(task_path)
+            missing_dir = self._write_records(results_dir, missing_suite, [missing])
+            self._write_mcp_server_log(missing_dir, "radar-1", "brain_regressions")
+            missing_report = audit_codex.build_audit_report(results_dir, [missing_suite])
+            missing_record = missing_report["suites"][missing_suite]["records"][0]
+            self.assertFalse(missing_record["pass"], missing_record)
+            self.assertFalse(missing_record["mcp_verified"], missing_record)
+            self.assertIn("B:mcp_radar_missing_include_deletions", missing_record["flags"])
+
+            ok_suite = "release-candidate-radar-deletions-ok"
+            ok = self._mcp_release_record(ok_suite, repetition=1, run_id="radar-1")
+            ok["provenance"]["task"]["path"] = str(task_path)
+            ok["agent_info"]["activity"]["mcp_tool_details"][0]["arguments"]["include_deletions"] = True
+            ok["mcp_condition_audit"]["mcp_tool_details"][0]["arguments"]["include_deletions"] = True
+            ok_dir = self._write_records(results_dir, ok_suite, [ok])
+            self._write_mcp_server_log(ok_dir, "radar-1", "brain_regressions")
+            ok_report = audit_codex.build_audit_report(results_dir, [ok_suite])
+            ok_record = ok_report["suites"][ok_suite]["records"][0]
+            self.assertTrue(ok_record["pass"], ok_record)
+            self.assertTrue(ok_record["mcp_verified"], ok_record)
+
     def test_audit_codex_counts_workspace_radar_delivery_scope(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
             results_dir = pathlib.Path(results)
@@ -2072,6 +2103,30 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             self.assertEqual(audit_facts_eval.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
             weak_report = json.loads((pathlib.Path(out) / "facts-eval-audit-report.json").read_text())
             self.assertIn("raw_vs_facts: useful_per_1k is not release_claimable", weak_report["flags"])
+
+    def test_facts_eval_audit_rejects_missing_retriever_summary(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            data = json.loads(manifest.read_text())
+            del data["summaries"]["query"]
+            manifest.write_text(json.dumps(data))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+            self.assertFalse(report["release_evidence"], report)
+            self.assertIn("missing summary for retriever query", report["flags"])
+
+    def test_facts_eval_audit_rejects_summary_hash_mismatch(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            facts = json.loads((root_path / "facts.json").read_text())
+            facts["run_config"]["brain_manifest_sha256"] = "sha256:" + "c" * 64
+            (root_path / "facts.json").write_text(json.dumps(facts))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+            self.assertFalse(report["release_evidence"], report)
+            self.assertIn("eval summaries have differing brain_manifest_sha256 values", report["flags"])
 
 
 class DistillPerfAuditScriptTests(unittest.TestCase):
