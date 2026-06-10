@@ -55,6 +55,76 @@ func newHookCommand(opts Options) *cobra.Command {
 	}
 	cmd.AddCommand(newHookPreEditCommand(opts))
 	cmd.AddCommand(newHookPostFailureCommand(opts))
+	cmd.AddCommand(newHookSessionEndCommand(opts))
+	return cmd
+}
+
+// newHookSessionEndCommand is Phase 2 item 5: per-session incremental distill,
+// closing the write loop. Batch distill is expensive and run occasionally, so
+// today's insights are invisible to tomorrow's session unless someone
+// remembers to run it. Wired to a session-lifecycle hook, this distills the
+// just-ended session — deterministic refresh first (free), then distill
+// bounded to that one session (--session), proposals queueing through the
+// existing reconcile/review pipeline unchanged. The incremental cache makes
+// re-firing for the same session free.
+//
+// Unlike pre-edit/post-failure this verb may legitimately take minutes and
+// spend tokens — the session is over, nobody is waiting — but it keeps the
+// rest of the hook contract: stdout stays empty (a one-line summary goes to
+// stderr), and environment problems (no repo, no brain, no agent on PATH)
+// are silence, never an error.
+func newHookSessionEndCommand(opts Options) *cobra.Command {
+	var (
+		sessionID string
+		agent     string
+		model     string
+		effort    string
+	)
+	cmd := &cobra.Command{
+		Use:   "session-end --session <id>",
+		Short: "Refresh and distill the just-ended session (spends tokens; silent on env problems)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(sessionID) == "" {
+				return fmt.Errorf("--session <id> is required")
+			}
+			target := agentSurfaceTarget(opts, nil)
+			repoDir, local, err := resolveLocalTargetRepoDir(cmd.Context(), opts.Runner, target)
+			if err != nil || !local {
+				return nil // no local repo: silence, never an error
+			}
+			// Deterministic refresh (agent=none, zero tokens) exports the new
+			// session so distill can see it. Refresh chatter goes to stderr;
+			// stdout stays empty per the hook contract.
+			sub := &cobra.Command{}
+			sub.SetContext(cmd.Context())
+			sub.SetOut(cmd.ErrOrStderr())
+			sub.SetErr(cmd.ErrOrStderr())
+			if err := watchDeterministicRefresh(cmd.Context(), sub, opts, repoDir); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "session-end: refresh failed: %v\n", err)
+				return nil
+			}
+			distillOpts := distillCommandOptions{
+				session:             sessionID,
+				agent:               agent,
+				model:               model,
+				effort:              effort,
+				timeout:             defaultDistillTimeout,
+				maxChunkBytes:       defaultDistillChunkSize,
+				confidenceThreshold: defaultFactConfidenceThreshold,
+			}
+			if err := runDistill(cmd.Context(), sub, opts, distillOpts, repoDir); err != nil {
+				// No agent on PATH, session not exported yet, etc.: report on
+				// stderr for the curious, succeed for the harness.
+				fmt.Fprintf(cmd.ErrOrStderr(), "session-end: distill skipped: %v\n", err)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&sessionID, "session", "", "The just-ended session's id")
+	cmd.Flags().StringVar(&agent, "agent", "auto", "Distill agent: auto, codex, claude-code, or command")
+	cmd.Flags().StringVar(&model, "model", "", "Cheap/fast model override for the distill agent (recommended)")
+	cmd.Flags().StringVar(&effort, "effort", "", "Reasoning-effort override (e.g. low) — pairs with --model for a cheap run")
 	return cmd
 }
 

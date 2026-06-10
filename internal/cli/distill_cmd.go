@@ -155,7 +155,14 @@ func (p *chunkPrefetcher) result(i int) (string, error) {
 func (p *chunkPrefetcher) stop() { p.cancel() }
 
 type distillCommandOptions struct {
-	branch              string
+	branch string
+	// session restricts distillation to one session id — the fast
+	// single-session path behind `hook session-end` (Phase 2 item 5). Other
+	// sessions carry their cache entries through untouched, exactly like the
+	// branch filter. Incompatible with force: a forced rebuild drops every
+	// distilled fact on the session's branch but would re-derive only the one
+	// session's, silently losing the rest.
+	session             string
 	force               bool
 	json                bool
 	agent               string
@@ -224,6 +231,7 @@ func newDistillCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&distillOpts.branch, "branch", "", "Limit distillation to a single branch (default: all exported branches)")
+	cmd.Flags().StringVar(&distillOpts.session, "session", "", "Limit distillation to a single session id (the fast per-session path; incompatible with --force)")
 	cmd.Flags().BoolVar(&distillOpts.force, "force", false, "Recompute all distilled facts from scratch instead of skipping unchanged sessions")
 	cmd.Flags().BoolVar(&distillOpts.json, "json", false, "Emit the fact source summary as JSON")
 	cmd.Flags().StringVar(&distillOpts.agent, "agent", "auto", "Distillation agent: auto, codex, claude-code, or command")
@@ -314,6 +322,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	if distillOpts.run == nil {
 		return nil, errors.New("distill: no agent runner configured")
 	}
+	if distillOpts.session != "" && distillOpts.force {
+		return nil, errors.New("--session cannot be combined with --force: a forced rebuild drops every distilled fact on the session's branch but would re-derive only that session's")
+	}
 	if distillOpts.maxChunkBytes <= 0 {
 		distillOpts.maxChunkBytes = defaultDistillChunkSize
 	}
@@ -378,11 +389,15 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		return branch
 	}
 
-	// Denominator for progress: sessions that pass the branch filter. Cached
-	// (unchanged) sessions still advance the counter so the line reaches N/N.
+	// Denominator for progress: sessions that pass the branch/session filters.
+	// Cached (unchanged) sessions still advance the counter so the line
+	// reaches N/N.
 	totalSessions := 0
 	for _, session := range sessions {
 		if distillOpts.branch != "" && resolveBranch(session) != distillOpts.branch {
+			continue
+		}
+		if distillOpts.session != "" && session.SessionID != distillOpts.session {
 			continue
 		}
 		totalSessions++
@@ -500,11 +515,13 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 
 	for _, session := range sessions {
 		branch := resolveBranch(session)
-		if distillOpts.branch != "" && branch != distillOpts.branch {
+		if (distillOpts.branch != "" && branch != distillOpts.branch) ||
+			(distillOpts.session != "" && session.SessionID != distillOpts.session) {
 			// Carry the session's cache entry through unchanged: the final flush
 			// persists newCache only, so dropping filtered sessions here would
-			// make the next unfiltered run re-distill every other branch from
-			// scratch. (The fingerprint-match skip below does the same.)
+			// make the next unfiltered run re-distill every other branch (or
+			// session) from scratch. (The fingerprint-match skip below does the
+			// same.)
 			if prev, ok := prevCache.Sessions[session.SessionID]; ok {
 				newCache.Sessions[session.SessionID] = prev
 			}
