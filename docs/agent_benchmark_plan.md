@@ -1,5 +1,30 @@
 # Agent Brain Benchmark Plan
 
+## Status addendum (2026-06-10)
+
+The per-phase "current status" notes below are dated ~2026-06-01 and predate the
+most recent harness work. Current state:
+
+- **Phase 1 (repeatable harness) and Phase 2 (discovery): done.** 39 task
+  definitions exist across entire-brain, entire-cli, github-cli, swe-style, and
+  ultron variants; `run.py discover` generates candidates.
+- **Phase 3 (value-prop proof): in progress.** A stable benchmark panel landed
+  (`panels/full.json`, commit 497218c) with pinned runners
+  (claude:claude-sonnet-4-6:high, codex:gpt-5.5:high), a stability gate, and 8
+  tasks × 4 repetitions. Welch t-test + Holm–Bonferroni significance is
+  implemented (commits fb7ca3f, 2a4c4fe). A `prep` subcommand (cd547d5)
+  validates brain caches without agent runs.
+- **Phase 4 (demo evidence): not started.**
+- **Reconciling panel size vs. layer targets:** Phase 2's "20+ significant
+  scenarios per layer" is the *discovery* goal; the 8-task panel is the
+  *committed proof subset* for reproducible Phase 3 runs. The panel grows as
+  discovery retains more brain-positive scenarios; the two numbers are not in
+  conflict.
+- **Known open items:** real SWE-bench Lite/Verified integration (Layer C),
+  the cross-repo workspace task (declared not-runnable in the panel), Codex
+  model attribution (pinned via flag but not echoed in output), and expanding
+  full-brain (checkpoint-history) tasks in the panel.
+
 ## Summary
 
 This benchmark measures whether Codex and Claude Code perform better on real

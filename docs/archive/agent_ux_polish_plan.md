@@ -1,3 +1,8 @@
+> **ARCHIVED (2026-06-10): complete.** All four items shipped on 2026-06-09
+> (commits f44c4ba, 0037714, f3aeb08, 864207d) with regression tests in
+> `internal/cli/agent_ux_test.go`. Kept for the rationale; no open work remains.
+> Remaining provider-side items live in `entire_cli_semantic_provider_prompt.md`.
+
 # Agent-UX Polish Plan
 
 Follow-up backlog for the agent-facing brain surface. The high-value work shipped
