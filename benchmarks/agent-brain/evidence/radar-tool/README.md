@@ -5,7 +5,7 @@ Regression Radar.
 
 `mise run radar:evidence` audits `manifest.json`, verifies the retained
 `go test -json` artifact hash, and requires the focused `internal/cli` MCP/Radar
-tests to pass. This proves the tool contract: QMD-style retrieval tools,
+tests to pass. This proves the tool contract: QMD-inspired retrieval tools,
 branch-scoped fact retrieval over MCP, detector output, location-only redaction,
 deletion opt-in, missing anchored call sites, hinted assignment-deletion loci,
 same-name and same-function assignment-deletion loci, invariant-scoped related

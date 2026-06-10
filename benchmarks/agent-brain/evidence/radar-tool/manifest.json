@@ -8,7 +8,7 @@
   ],
   "claim_scope": "mcp_radar_tool_contract",
   "claims": [
-    "MCP advertises and executes the QMD-style retrieval surface: brain_search, brain_vsearch, brain_query, brain_get, and brain_multi_get.",
+    "MCP advertises and executes the QMD-inspired retrieval surface: brain_search, brain_vsearch, brain_query, brain_get, and brain_multi_get.",
     "MCP retrieval tools read local facts, history, and semantic indexes without network access.",
     "MCP schemas reject unknown, incorrectly typed, or invalid integer arguments.",
     "Regression Radar detects changed code assertions from retained local brain history.",
