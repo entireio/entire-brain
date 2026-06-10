@@ -51,6 +51,41 @@ func TestMCPToolsListIncludesRegressions(t *testing.T) {
 	}
 }
 
+func TestMCPToolsListIncludesQMDRetrievalSurface(t *testing.T) {
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	result, ok := responses[1]["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("tools/list result has unexpected shape: %+v", responses[1])
+	}
+	rawTools, ok := result["tools"].([]any)
+	if !ok {
+		t.Fatalf("tools/list missing tools array: %+v", result)
+	}
+	names := map[string]bool{}
+	for _, raw := range rawTools {
+		tool, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("tool has unexpected shape: %+v", raw)
+		}
+		name, ok := tool["name"].(string)
+		if !ok {
+			t.Fatalf("tool missing string name: %+v", tool)
+		}
+		names[name] = true
+	}
+	for _, want := range []string{"brain_search", "brain_vsearch", "brain_query", "brain_get", "brain_multi_get"} {
+		if !names[want] {
+			t.Fatalf("tools/list missing QMD retrieval tool %q; got %v", want, names)
+		}
+	}
+}
+
 func TestMCPToolsListAdvertisesStaleBlindSpots(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`)
 	var out bytes.Buffer
@@ -396,6 +431,50 @@ func TestMCPBrainQueryToolUsesLocalSemanticJSON(t *testing.T) {
 	data, _ := json.Marshal(responses[0]["result"])
 	if !strings.Contains(string(data), "ValidateToken") || strings.Contains(string(data), "http://") {
 		t.Fatalf("query result = %s", data)
+	}
+}
+
+func TestMCPQMDRetrievalToolsUseLocalFacts(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	paths := normalizeFactPaths([]string{"architecture.data.flow"})
+	facts := []factRecord{
+		{ID: factRecordID("qmd retrieval alpha contract", paths), Text: "qmd retrieval alpha contract", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
+		{ID: factRecordID("qmd retrieval beta contract", paths), Text: "qmd retrieval beta contract", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
+	}
+	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
+		t.Fatal(err)
+	}
+
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"qmd retrieval alpha","limit":1}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_vsearch","arguments":{"query":"qmd retrieval alpha","limit":1}}}`) +
+		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_get","arguments":{"id":%q}}}`, facts[0].ID)) +
+		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"brain_multi_get","arguments":{"ids":[%q,"fact:missing"]}}}`, facts[1].ID))
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	if len(responses) != 4 {
+		t.Fatalf("responses = %d", len(responses))
+	}
+	data, _ := json.Marshal(responses)
+	for _, want := range []string{"qmd retrieval alpha contract", "qmd retrieval beta contract", "fact:missing"} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("QMD MCP retrieval results missing %q: %s", want, data)
+		}
+	}
+	for i, response := range responses {
+		if response["error"] != nil {
+			t.Fatalf("response %d returned error: %+v", i+1, response)
+		}
 	}
 }
 

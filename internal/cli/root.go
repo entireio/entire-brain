@@ -245,7 +245,7 @@ func commandFormatFlagWantsJSON(value string) (bool, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "json":
 		return true, true
-	case "cli", "text":
+	case "cli":
 		return false, true
 	default:
 		return false, false

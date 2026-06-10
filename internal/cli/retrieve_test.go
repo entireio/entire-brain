@@ -125,6 +125,9 @@ func TestQMDOutputFormatAlias(t *testing.T) {
 	if err != nil || got {
 		t.Fatalf("--format cli should force CLI output, got %t err=%v", got, err)
 	}
+	if _, err := outputWantsJSON(false, "text"); err == nil {
+		t.Fatal("--format text should be rejected; supported formats are json or cli")
+	}
 	if _, err := outputWantsJSON(false, "xml"); err == nil {
 		t.Fatal("unknown --format should error")
 	}
@@ -213,6 +216,52 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 	}
 }
 
+func TestQMDLimitAliasesAndPrecedence(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	paths := normalizeFactPaths([]string{"architecture.data.flow"})
+	facts := []factRecord{
+		{ID: factRecordID("alpha checkpoint first contract", paths), Text: "alpha checkpoint first contract", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
+		{ID: factRecordID("alpha checkpoint second contract", paths), Text: "alpha checkpoint second contract", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
+	}
+	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want int
+	}{
+		{name: "limit", args: []string{"search", "alpha checkpoint", "--limit", "1", "--format", "json"}, want: 1},
+		{name: "limit then number", args: []string{"search", "alpha checkpoint", "--limit", "2", "-n", "1", "--format", "json"}, want: 1},
+		{name: "number then limit", args: []string{"search", "alpha checkpoint", "-n", "1", "--limit", "2", "--format", "json"}, want: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := execute(t, NewRootCommand(opts), tc.args...)
+			if err != nil {
+				t.Fatalf("%s: %v\n%s", strings.Join(tc.args, " "), err, out)
+			}
+			var payload struct {
+				Results []unifiedResult `json:"results"`
+			}
+			if err := json.Unmarshal([]byte(out), &payload); err != nil {
+				t.Fatalf("decode retrieval JSON: %v\n%s", err, out)
+			}
+			if len(payload.Results) != tc.want {
+				t.Fatalf("%s returned %d results, want %d: %+v", strings.Join(tc.args, " "), len(payload.Results), tc.want, payload.Results)
+			}
+		})
+	}
+}
+
 func TestQMDHelpContractsForRetrievalVerbs(t *testing.T) {
 	for _, tc := range []struct {
 		verb string
@@ -238,6 +287,18 @@ func TestQMDHelpContractsForRetrievalVerbs(t *testing.T) {
 				t.Fatalf("%s --help should not expose result-count alias:\n%s", tc.verb, out)
 			}
 		})
+	}
+}
+
+func TestQMDTopLevelHelpListsRetrievalVerbs(t *testing.T) {
+	out, err := execute(t, NewRootCommand(Options{Version: "test"}), "--help")
+	if err != nil {
+		t.Fatalf("root --help: %v\n%s", err, out)
+	}
+	for _, want := range []string{"search", "vsearch", "query", "get", "multi-get"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("root help missing QMD verb %q:\n%s", want, out)
+		}
 	}
 }
 
@@ -313,6 +374,7 @@ func TestQMDUnsupportedFormatRejectedAcrossRetrievalVerbs(t *testing.T) {
 		{name: "vsearch", args: []string{"vsearch", "alpha", "--format", "csv"}},
 		{name: "get", args: []string{"get", "fact:alpha", "--format", "csv"}},
 		{name: "multi-get", args: []string{"multi-get", "fact:alpha", "doc:beta", "--format", "csv"}},
+		{name: "text alias", args: []string{"search", "alpha", "--format", "text"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			out, err := execute(t, NewRootCommand(Options{Version: "test"}), tc.args...)

@@ -170,7 +170,8 @@ entire brain multi-get fact:<id> doc:<id> --json          # fetch several by id
 
 All five accept `--json`, `--format json|cli`, and `--branch`; `search`,
 `vsearch`, and `query` also take `--limit`/`-n`. Every result carries an `id`
-you can pass to `get`/`multi-get`.
+you can pass to `get`/`multi-get`. `--branch` selects the durable-facts branch;
+history and docs come from the local indexed brain sources.
 
 `overview` is the fastest way to orient on an unfamiliar repo: it returns a
 single project map — stack stats, route/tool/workflow counts, build/test

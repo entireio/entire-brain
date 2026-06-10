@@ -134,7 +134,7 @@ func outputWantsJSON(jsonOut bool, format string) (bool, error) {
 		return jsonOut, nil
 	case "json":
 		return true, nil
-	case "cli", "text":
+	case "cli":
 		return false, nil
 	default:
 		return false, fmt.Errorf("--format must be json or cli")

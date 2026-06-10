@@ -275,12 +275,18 @@ JSON envelopes with two results. `search --help` lists both `--format` and
 Fixture-backed contract coverage: `TestQMDAliasesAcrossRetrievalVerbs` exercises
 the supported local surface across `search`, `query`, `vsearch`, `get`, and
 `multi-get`, including `--format json`, `-n` / `--number`, JSON result shapes,
-and missing-id reporting. `TestQMDHelpContractsForRetrievalVerbs` pins the help
-surface for supported verbs and aliases, while
+and missing-id reporting. `TestQMDLimitAliasesAndPrecedence` pins positive
+`--limit` handling plus mixed `--limit`/`-n` ordering.
+`TestQMDHelpContractsForRetrievalVerbs` and
+`TestQMDTopLevelHelpListsRetrievalVerbs` pin the help surface for supported
+verbs and aliases, while
 `TestQMDFormatCLIOverridesJSONAndReportsMissingIDs` pins human-readable output
 and missing-id behavior. `TestQMDUnsupportedFormatRejectedAcrossRetrievalVerbs`
 fails every supported retrieval verb on unsupported formats, so `csv`, `md`,
-`xml`, and other QMD formats cannot quietly produce accidental partial support.
+`xml`, `text`, and other QMD formats cannot quietly produce accidental partial
+support. MCP coverage now also asserts the QMD-style retrieval tools are
+advertised and callable as `brain_search`, `brain_vsearch`, `brain_query`,
+`brain_get`, and `brain_multi_get`.
 
 Sources checked during the local audit:
 
