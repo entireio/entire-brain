@@ -3001,6 +3001,45 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             self.assertTrue(gate["baseline_headroom"])
             self.assertEqual(audit_radar_evidence.main(["--results", str(results_dir), "--suite-glob", "pilot-radar-*", "--out-dir", out, "--fail-when-no-promotable"]), 0)
 
+    def test_radar_audit_demotes_dirty_promotable_pilot(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            suite = "pilot-radar-headroom-dirty"
+            self._write_radar_summary(results_dir, suite, baseline_pass=0.0, condition_pass=1.0, n=1)
+            backed_audit = out_dir / "backed-codex-audit.json"
+            self._write_backed_radar_codex_audit(
+                backed_audit,
+                suite,
+				baseline_valid=[False],
+				condition_valid=[True],
+				comparison_proof_ready=False,
+				comparison_pass=False,
+				record_pass=False,
+				record_flags=["H:provenance_missing_radar_include_deletions_policy"],
+			)
+
+            report = audit_radar_evidence.build_report(
+                results_dir,
+                ["pilot-radar-*"],
+                audit_radar_evidence.load_codex_audit(backed_audit),
+            )
+            gate = report["comparisons"][0]["radar_gate"]
+            self.assertEqual(gate["status"], "promotable-audit-gap")
+            self.assertFalse(gate["promotable"])
+            self.assertEqual(report["totals"]["promotable_or_proof"], 0)
+            self.assertIn("missing policy", audit_radar_evidence.render_markdown(report))
+            self.assertEqual(
+                audit_radar_evidence.main([
+                    "--results", str(results_dir),
+                    "--suite-glob", "pilot-radar-*",
+                    "--out-dir", out,
+                    "--codex-audit-report", str(backed_audit),
+                    "--fail-when-no-promotable",
+                ]),
+                1,
+            )
+
     def test_radar_audit_reports_early_stopped_no_brain_too_easy_suites(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
             results_dir = pathlib.Path(results)

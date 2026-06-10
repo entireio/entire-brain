@@ -99,14 +99,16 @@ until a future task/runner revision creates baseline headroom.
 `release-candidate-*-workspace-radar-*` reruns. It now builds the independent
 Codex audit first, so rows with retained server logs can show whether the MCP
 server actually handled and completed the required named Radar tool. The screen
-labels each comparison as proof-ready, promotable, saturated, or incomplete;
+labels each comparison as proof-ready, promotable, audit-gapped, saturated, or incomplete;
 when a pilot is stopped before Radar runs because the first no-brain score is
 already too high, it emits a `no-brain-too-easy` row instead of hiding the
 suite, and record-only runs now appear as `incomplete-suite` rows. The current
 manual-attribution deletion reruns show attempted MCP delivery, but stricter
 provenance auditing flags missing embedded deletion-policy attestation on old
 records, so they diagnose Radar delivery/task calibration and evidence hygiene
-rather than clean proof.
+rather than clean proof. One one-run headroom pilot is now explicitly
+`promotable-audit-gap`, not promotable, until it is rerun with audit-clean MCP
+backing.
 `mise run radar:evidence` currently checks the deterministic MCP/Radar
 tool-contract artifact. The stricter agent-lift proof gate remains available as
 `mise run radar:agent-evidence`, and should only become release blocking once a

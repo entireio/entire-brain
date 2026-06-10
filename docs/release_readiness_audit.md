@@ -541,12 +541,16 @@ suites plus promoted `release-candidate-*-radar-*` and
 Codex audit and feeds that into the Radar report, so release-candidate rows show
 whether the MCP server actually handled the named Radar tool and completed it.
 This keeps a stale promotable pilot from hiding a failed promoted rerun. The
-current screen still has zero proof-ready Radar comparisons: deletion-shaped
+current screen still has zero proof-ready Radar comparisons and zero promotable
+pilots: deletion-shaped
 manual-attribution reruns show attempted MCP calls, but stricter provenance
 auditing reports missing embedded deletion-policy attestation on old records,
-while newer candidate pass rates are saturated or noisy. Earlier 2026-06-10
-calibration runs saturated or were noisy, including manual-attribution, review
-file-count, and workspace transcript candidates. Suites that are stopped after an
+while newer candidate pass rates are saturated or noisy. The lone one-run
+headroom pilot is classified as `promotable-audit-gap`, not promotable, because
+its matching records are not audit-clean with required named-tool MCP backing.
+Earlier 2026-06-10 calibration runs saturated or were noisy, including
+manual-attribution, review file-count, and workspace transcript candidates.
+Suites that are stopped after an
 already-high no-brain score are now reported as `no-brain-too-easy`, and
 record-only suites without `summary.json` are reported as `incomplete-suite`,
 instead of disappearing from the screen report.

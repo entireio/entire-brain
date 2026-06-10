@@ -467,6 +467,15 @@ def build_report(results: pathlib.Path, suite_globs: list[str], codex_audit: dic
                 else:
                     status["reasons"].append("matching Radar comparison is missing from audit_codex output")
                 status["recommendation"] = "retain audit-clean records with MCP named-tool backing before citing Radar proof"
+            elif status["promotable"] and not proof_backed:
+                status["status"] = "promotable-audit-gap" if backed else "promotable-audit-missing"
+                status["proof_ready"] = False
+                status["promotable"] = False
+                if backed:
+                    status["reasons"].append("pilot has Radar headroom, but matching records are not audit-clean with required named-tool MCP backing")
+                else:
+                    status["reasons"].append("pilot has Radar headroom, but the comparison is missing from audit_codex output")
+                status["recommendation"] = "rerun the pilot with audit-clean MCP backing before promotion"
         row = {
             "suite": comp.get("suite"),
             "task_id": comp.get("task_id"),
