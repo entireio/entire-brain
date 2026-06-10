@@ -1,0 +1,99 @@
+{
+  "flags": [],
+  "manifest": "benchmarks/agent-brain/evidence/release-matrix/manifest.json",
+  "notes": [
+    "This is a claim-hygiene gate, not a declaration that every release blocker is closed.",
+    "release_fully_ready remains false while target large-repo distill, facts-vs-raw, semantic usefulness, workspace Radar, and broader replay proof are pending."
+  ],
+  "release_fully_ready": false,
+  "rows": [
+    {
+      "claimable": true,
+      "detail": "proof scopes: history, mcp, mcp_radar_location_only",
+      "evidence": "benchmarks/agent-brain/evidence/release/codex-audit-report.json",
+      "flags": [],
+      "status": "proven",
+      "track": "replay-lab retained agent proof"
+    },
+    {
+      "claimable": true,
+      "detail": "deterministic MCP/Radar Go test artifact",
+      "evidence": "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.json",
+      "flags": [],
+      "status": "proven",
+      "track": "QMD-inspired MCP/Radar tool contract"
+    },
+    {
+      "claimable": true,
+      "detail": "current-repo local command-agent distill extraction scheduling speedup",
+      "evidence": "benchmarks/agent-brain/evidence/distill-perf/distill-perf-audit-report.json",
+      "flags": [],
+      "status": "proven-local",
+      "track": "distill local scheduler/backfill mechanics"
+    },
+    {
+      "claimable": false,
+      "detail": "current retained speedup is current-repo command-agent scheduler proof, not the frontend/large-repo claim",
+      "evidence": "benchmarks/agent-brain/evidence/distill-perf/distill-perf-audit-report.json",
+      "flags": [],
+      "status": "pending-target-evidence",
+      "track": "target large-repo/frontend distill performance"
+    },
+    {
+      "claimable": false,
+      "detail": "paired proof-labeled facts/history/query/raw-sessions eval still required",
+      "evidence": "benchmarks/agent-brain/evidence/facts-eval/facts-eval-audit-report.json",
+      "flags": [],
+      "status": "no-claim",
+      "track": "facts vs raw/session retrieval quality"
+    },
+    {
+      "claimable": false,
+      "detail": "latest retained candidate is no-brain-too-easy; stronger task/runner still needed",
+      "evidence": "benchmarks/agent-brain/evidence/workspace-radar/workspace-radar-audit-report.json",
+      "flags": [],
+      "status": "no-claim",
+      "track": "workspace Radar agent lift"
+    },
+    {
+      "claimable": true,
+      "detail": "freshness is verified by the live semantic:evidence gate on the current checkout",
+      "evidence": "mise.toml",
+      "flags": [],
+      "status": "local-gated",
+      "track": "semantic freshness/audit health"
+    },
+    {
+      "claimable": false,
+      "detail": "release evidence has no semantic proof-ready scope; semantic usefulness remains unclaimed",
+      "evidence": "benchmarks/agent-brain/evidence/release/codex-audit-report.json",
+      "flags": [],
+      "status": "pending-retained-proof",
+      "track": "semantic usefulness benchmark claim"
+    },
+    {
+      "claimable": true,
+      "detail": "press-release doc names shipped, proven, pending, blocked, and future claims",
+      "evidence": "docs/release_press_release.md",
+      "flags": [],
+      "status": "documented",
+      "track": "release narrative / backwards-working story"
+    },
+    {
+      "claimable": true,
+      "detail": "release:readiness runs check plus retained evidence gates",
+      "evidence": "mise.toml",
+      "flags": [],
+      "status": "gated",
+      "track": "single local release-readiness gate"
+    }
+  ],
+  "schema": 1,
+  "status": "pass",
+  "summary": {
+    "claimable_tracks": 6,
+    "flags": 0,
+    "no_claim_or_pending_tracks": 4,
+    "tracks": 10
+  }
+}

@@ -336,13 +336,61 @@ PY
 exit "$rc"
 '''
 
+[tasks."release:matrix"]
+description = "Check the retained release-readiness evidence matrix without rewriting tracked reports"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/release-matrix/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "release matrix manifest is missing: $manifest" >&2
+  echo "retain a release matrix before citing aggregate release-readiness status" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_release_matrix.py \
+  --manifest "$manifest" \
+  --out-dir "$tmp" \
+  --fail-on-flags
+for report in release-matrix-report.json release-matrix-report.md; do
+  committed="benchmarks/agent-brain/evidence/release-matrix/$report"
+  generated="$tmp/$report"
+  if ! cmp -s "$committed" "$generated"; then
+    echo "retained release matrix report is stale: $report" >&2
+    diff -u "$committed" "$generated" >&2 || true
+    echo "run: mise run release:matrix:update" >&2
+    exit 1
+  fi
+done
+'''
+
+[tasks."release:matrix:update"]
+description = "Regenerate retained release-readiness matrix reports after the evidence gate passes"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/release-matrix/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "release matrix manifest is missing: $manifest" >&2
+  echo "retain a release matrix before citing aggregate release-readiness status" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_release_matrix.py \
+  --manifest "$manifest" \
+  --out-dir "$tmp" \
+  --fail-on-flags
+mkdir -p benchmarks/agent-brain/evidence/release-matrix
+cp "$tmp"/release-matrix-report.json "$tmp"/release-matrix-report.md benchmarks/agent-brain/evidence/release-matrix/
+'''
+
 [tasks."release:readiness"]
 description = "Run the full local release-readiness gate, including retained evidence checks"
 run = '''
 set +e
 failures=0
 failed=""
-for task in check release:evidence radar:evidence radar:agent-evidence workspace-radar:evidence distill:evidence facts:evidence semantic:evidence; do
+for task in check release:evidence radar:evidence radar:agent-evidence workspace-radar:evidence distill:evidence facts:evidence semantic:evidence release:matrix; do
   echo "==> mise run $task"
   mise run "$task"
   rc=$?
