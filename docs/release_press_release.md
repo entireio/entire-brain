@@ -48,8 +48,9 @@ task outcomes instead of relying on demos or anecdotes.
 - Backend-specific audits wait for backend access.
 - Slack/onboarding-dependent release workflow details wait for workspace access.
 - Large-repo distill timing, paired facts evals, and broader multi-task replay
-  evidence are still pending. Local clean semantic audit output exists for this
-  checkout, but semantic usefulness still needs retained benchmark proof.
+  evidence are still pending. The semantic audit coverage gate has passed after
+  a local refresh on this checkout, but semantic usefulness still needs retained
+  benchmark proof.
 - Full turn-level cryptographic fact verification still depends on CLI-side turn
   signing.
 - Generated fact-at-checkpoint creation remains a future CLI/checkpoint pipeline
@@ -67,10 +68,11 @@ task outcomes instead of relying on demos or anecdotes.
 
 - Shipped: local retrieval, semantic index consumption, durable facts, anchor
   verification, eval harness, benchmark harness.
-- Proven locally: semantic audit coverage on this checkout, distill dry-run
-  sizing, facts-eval baseline plumbing, local QMD-inspired retrieval contract
-  tests, and one retained replay-lab history proof where `full_brain` improved
-  the task score/pass-rate over `no_brain` without proving efficiency gains.
+- Proven locally: semantic audit coverage after refresh on this checkout,
+  distill dry-run sizing, facts-eval baseline plumbing and evidence validator,
+  local QMD-inspired retrieval contract tests, and one retained replay-lab
+  history proof where `full_brain` improved the task score/pass-rate over
+  `no_brain` without proving efficiency gains.
 - Pending proof: target large-repo distill timing, paired facts evals, semantic
   usefulness, and broader retained replay-lab benchmark evidence.
 - Blocked: target large-repo evidence, backend/Slack access, turn signing,

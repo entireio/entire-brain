@@ -165,8 +165,14 @@ fix: `go run ./cmd/entire-brain refresh index --sem-binary entire --force`
 indexed 134 files, 2,250 symbols, and 14,883 relations at `721aae0`; `go run
 ./cmd/entire-brain semantic-audit --json --fail-on release` passed with freshness
 `ok`, worktree state `clean`, zero blind spots, and one retained warning:
-`provider_ignore_file_unsupported`. This proves local coverage and audit health
-for this checkout, not agent usefulness.
+`provider_ignore_file_unsupported`. After the release-readiness commits moved
+HEAD forward, the same audit correctly failed as stale until the index was
+refreshed. Re-running with the explicit local provider path
+`go run ./cmd/entire-brain refresh index --sem-binary "$HOME/.local/bin/entire" --force`
+indexed 135 files, 2,291 symbols, and 15,490 relations; the subsequent
+`semantic-audit --json --fail-on release` passed with freshness `ok`, zero blind
+spots, and the same provider ignore-file warning. This proves local coverage and
+audit health after refresh, not agent usefulness.
 
 Blocked evidence collection: semantic benchmark/proof records must still be
 retained and audited before usefulness claims graduate from draft language.
@@ -374,8 +380,9 @@ repo/access/artifacts are available:
   runs over the same labeled or explicitly proxy-allowed task set, same task
   hash, and same brain manifest hash.
 - Semantic benchmark evidence from a retained proof suite. A clean local
-  `semantic-audit --json --fail-on release` run on this checkout is recorded
-  above, but it does not prove agent usefulness by itself.
+  `semantic-audit --json --fail-on release` run after refreshing the semantic
+  index is recorded above, but it is regenerated local coverage evidence, not a
+  retained usefulness proof by itself.
 - Additional benchmark panels or retained proof subsets from
   `benchmarks/agent-brain`, audited with `audit_codex.py --fail-on-flags` and
   committed under `benchmarks/agent-brain/evidence/release` as sanitized
