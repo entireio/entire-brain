@@ -1448,8 +1448,12 @@ func isLoopbackHTTPURL(u *url.URL) bool {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return false
 	}
-	host := strings.Trim(strings.ToLower(u.Hostname()), "[]")
-	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+	host := strings.Trim(u.Hostname(), "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func loopbackOnlyDialContext(ctx context.Context, network, address string) (net.Conn, error) {

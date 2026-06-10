@@ -1643,6 +1643,36 @@ func TestExecOllamaDistillAgentRejectsNonLoopbackRedirect(t *testing.T) {
 	}
 }
 
+func TestIsLoopbackHTTPURLAllowsFullLoopbackRange(t *testing.T) {
+	for _, raw := range []string{
+		"http://localhost:11434/api/generate",
+		"http://127.0.0.1:11434/api/generate",
+		"http://127.0.0.2:11434/api/generate",
+		"http://[::1]:11434/api/generate",
+	} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !isLoopbackHTTPURL(u) {
+			t.Fatalf("%s should be accepted as loopback", raw)
+		}
+	}
+	for _, raw := range []string{
+		"http://example.com/api/generate",
+		"http://127.0.0.1.example.com/api/generate",
+		"file://127.0.0.1/api/generate",
+	} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if isLoopbackHTTPURL(u) {
+			t.Fatalf("%s should not be accepted as loopback", raw)
+		}
+	}
+}
+
 func TestLoopbackOnlyDialContextRejectsNonLoopbackTargets(t *testing.T) {
 	if _, err := loopbackOnlyDialContext(context.Background(), "tcp", net.JoinHostPort("203.0.113.7", "11434")); err == nil || !strings.Contains(err.Error(), "loopback-only") {
 		t.Fatalf("expected non-loopback dial rejection, got %v", err)
