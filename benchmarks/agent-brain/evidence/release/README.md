@@ -11,8 +11,8 @@ the selected release-candidate suites are provenance-complete, audit-clean,
 validated by non-empty validation command results, and backed by at least one
 stable proof-ready comparison per retained suite, with at least 4 repetitions
 per side, retained panel provenance, and the manifest's required proof scopes.
-Today those scopes are `history` and `mcp`, so this directory cannot be used as
-semantic, facts, or radar proof by aggregation. Historical,
+Today those scopes are `history`, `mcp`, and `mcp_radar_location_only`, so this
+directory cannot be used as semantic or facts proof by aggregation. Historical,
 exploratory, quarantine, or `release-local-*` suites under
 `benchmarks/agent-brain/results/` do not become release evidence just because
 they exist; they must be regenerated from a committed panel into an explicit
@@ -36,3 +36,9 @@ Current retained proof:
   passed 1/4, `mcp_history` passed 4/4, mean score improved 76.25 -> 92.0, and
   the retained audit requires 4 MCP-verified records. This supports a
   correctness/pass-rate claim only; the MCP arm used more time and tokens.
+- `release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress`:
+  one focused location-only Regression Radar MCP task, 4 repetitions per side.
+  No-brain passed 1/4, `mcp_history` with `brain_regressions(location_only,
+  include_deletions)` passed 4/4, mean score improved 77.25 -> 92.25, and the
+  retained audit requires 4 MCP-verified Radar records. This supports a
+  location-only Radar pass-rate claim, not an answer-assisted fix claim.

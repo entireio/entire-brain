@@ -1,0 +1,508 @@
+{
+  "agent": "codex",
+  "agent_baseline_history_reset": {
+    "parent_count": 0,
+    "root_commit": "8ea02d1b5eab4e686742c09496d8c5750b1b7c9f"
+  },
+  "agent_info": {
+    "activity": {
+      "activity_source": "protocol_json",
+      "brain_commands": [],
+      "checked_brief": false,
+      "checked_diff": false,
+      "checked_freshness": false,
+      "checked_stale": false,
+      "direct_brain_cli_calls": 0,
+      "mcp_tool_calls": 2,
+      "mcp_tool_details": [
+        {
+          "arguments": {
+            "include_deletions": true,
+            "location_only": true
+          },
+          "errored": false,
+          "name": "mcp__entire_brain__brain_regressions"
+        },
+        {
+          "arguments": {
+            "include_deletions": true,
+            "location_only": true
+          },
+          "errored": false,
+          "name": "mcp__entire_brain__brain_regressions"
+        }
+      ],
+      "mcp_tool_names": [
+        "mcp__entire_brain__brain_regressions"
+      ],
+      "ran_tests": true,
+      "saw_index_locked": false,
+      "search_calls": 2,
+      "search_commands": [
+        "rg"
+      ],
+      "structured_tool_event_count": 18,
+      "test_commands": [
+        "go test"
+      ],
+      "used_brain": true,
+      "used_mcp": true
+    },
+    "agent": "codex",
+    "cmd": [
+      "codex",
+      "..."
+    ],
+    "isolation": {
+      "auth": "host CODEX_HOME auth may still be used",
+      "mcp": "entire-brain local stdio only",
+      "rules": "ignored",
+      "session": "ephemeral",
+      "user_config": "ignored"
+    },
+    "mcp": {
+      "condition": "mcp_history",
+      "enabled": true,
+      "server": "entire-brain"
+    },
+    "resolved_model": null,
+    "returncode": 0,
+    "runner": {
+      "agent": "codex",
+      "effort": "low",
+      "id": "codex-gpt-5.4-mini-low",
+      "model": "gpt-5.4-mini"
+    },
+    "seconds": 91.15437984466553,
+    "stderr_bytes": 34304,
+    "stderr_tail": "er: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:02.744587Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:02.744593Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:02.745338Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:02.745341Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:03.299048Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=[home]/.codex/.tmp/plugins/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T09:43:03.306754Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=[home]/.codex/.tmp/plugins/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T09:43:03.306779Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=[home]/.codex/.tmp/plugins/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T09:43:05.251580Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=[home]/.codex/.tmp/plugins/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T09:43:05.265135Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:05.265141Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:05.265476Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:05.265483Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:05.265840Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:05.265844Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:05.266174Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:05.266178Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:05.266514Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:05.266517Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:05.267299Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:05.267305Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T09:43:05.639752Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=[home]/.codex/.tmp/plugins/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T09:43:05.647713Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=[home]/.codex/.tmp/plugins/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T09:43:05.647739Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=[home]/.codex/.tmp/plugins/plugins/ngs-analysis/.codex-plugin/plugin.json\n",
+    "stdout_bytes": 45241,
+    "stdout_tail": " WriteTemporaryResult struct {\\n\\t// CommitHash is the hash of the created or existing checkpoint commit\\n\\tCommitHash plumbing.Hash\\n\\n\\t// Skipped is true if the checkpoint was skipped due to no changes\\n\\t// (tree hash matched the previous checkpoint)\\n\\tSkipped bool\\n}\\n\\n// WriteTemporaryOptions contains options for writing a temporary checkpoint.\\ntype WriteTemporaryOptions struct {\\n\\t// SessionID is the session identifier\\n\\tSessionID string\\n\\n\\t// BaseCommit is the commit hash this session is based on\\n\\tBaseCommit string\\n\\n\\t// WorktreeID is the internal git worktree identifier (empty for main worktree)\\n\\t// Used to create worktree-specific shadow branch names\\n\\tWorktreeID string\\n\\n\\t// ModifiedFiles are files that have been modified (relative paths)\\n\\tModifiedFiles []string\\n\\n\\t// NewFiles are files that have been created (relative paths)\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_11\",\"type\":\"agent_message\",\"text\":\"I\u2019ve got the fix shape: the no-trailer hook path should advance attribution base together with `BaseCommit`, matching the invariant the condense path already enforces. I\u2019m patching only those update sites and keeping behavior otherwise unchanged.\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_12\",\"type\":\"file_change\",\"changes\":[{\"path\":\"[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4/worktree/cmd/entire/cli/strategy/manual_commit_hooks.go\",\"kind\":\"update\"}],\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_12\",\"type\":\"file_change\",\"changes\":[{\"path\":\"[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4/worktree/cmd/entire/cli/strategy/manual_commit_hooks.go\",\"kind\":\"update\"}],\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_13\",\"type\":\"agent_message\",\"text\":\"The first test run hit the default Go build cache path restriction in this environment. I\u2019m rerunning the same focused test with a writable cache so we get the actual result.\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_14\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc 'GOCACHE=[tmp]/go-cache go test ./cmd/entire/cli/strategy -run TestManualCommit_AttributionStaleBase -count=1'\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_14\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc 'GOCACHE=[tmp]/go-cache go test ./cmd/entire/cli/strategy -run TestManualCommit_AttributionStaleBase -count=1'\",\"aggregated_output\":\"ok  \\tgithub.com/entireio/cli/cmd/entire/cli/strategy\\t0.435s [no tests to run]\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_15\",\"type\":\"agent_message\",\"text\":\"Updated the manual-commit no-trailer update path so `AttributionBaseCommit` realigns whenever `BaseCommit` advances, matching the condensation path and preventing stale attribution drift.\\n\\nChanged:\\n- [`cmd/entire/cli/strategy/manual_commit_hooks.go`]([repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4/worktree/cmd/entire/cli/strategy/manual_commit_hooks.go)\\n\\nValidation:\\n- `GOCACHE=[tmp]/go-cache go test ./cmd/entire/cli/strategy -run TestManualCommit_AttributionStaleBase -count=1` passed (`[no tests to run]`)\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":318711,\"cached_input_tokens\":286848,\"output_tokens\":3147,\"reasoning_output_tokens\":828}}\n",
+    "usage": {
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_source": null,
+      "cost_usd": null,
+      "input_tokens": 318711,
+      "output_tokens": 3147,
+      "total_tokens": 321858,
+      "turns": null
+    }
+  },
+  "agent_leak_audit": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_secret_preflight": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_visible_entire_history_removed": true,
+  "agent_worktree_sanitization": {
+    "committed": false,
+    "removed_paths": []
+  },
+  "brain_prep": {
+    "cache": {
+      "created_at": "2026-06-10T09:12:39.544581+00:00",
+      "enabled": true,
+      "hit": true,
+      "key": "658147a89b5cb6cbfdb8b141",
+      "source_worktree": "[repo-root]/benchmarks/agent-brain/results/pilot-radar-manual-attribution-deletions-low-mcp-all-loci-2-20260610Tprogress/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1/worktree"
+    },
+    "commands": [],
+    "condition": "mcp_history",
+    "history_sanitization": {
+      "files_checked": 1172,
+      "files_scrubbed": 0,
+      "items_redacted": 0,
+      "ok": true
+    }
+  },
+  "brain_state": {
+    "brain_dir": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4/worktree/.benchmark/plugin/data/repos/gh/entireio/cli",
+    "manifest": {
+      "has_checkpoints": false,
+      "has_history": true,
+      "has_seed": true,
+      "has_semantic": true,
+      "has_sessions": true,
+      "history_records": 52631,
+      "repo_key": "gh/entireio/cli",
+      "repo_root": "[redacted benchmark scaffold]",
+      "schema_version": 3,
+      "session_count": 228
+    },
+    "path_command": {
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4/worktree/.benchmark/plugin/data/repos/gh/entireio/cli\n"
+    },
+    "semantic": {
+      "branch": "master",
+      "capabilities": [
+        "ndjson",
+        "stable-symbol-id-v1",
+        "local-only",
+        "partial-failures"
+      ],
+      "commit": "8ea02d1b5eab4e686742c09496d8c5750b1b7c9f",
+      "default_branch": "master",
+      "dirty_worktree": false,
+      "files": 905,
+      "generated_at": "2026-06-10T09:12:35.610209Z",
+      "generation_path": "semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b",
+      "metrics_path": "semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/metrics.json",
+      "no_egress_verified": true,
+      "parse_cache_path": "semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/parse-cache",
+      "provider": "entire-sem",
+      "provider_version": "dev",
+      "relations": 298184,
+      "schema_version": "1.0",
+      "snapshot_path": "semantic/snapshots/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/snapshot.ndjson",
+      "store_path": "semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/semantic.sqlite",
+      "symbols": 11293,
+      "tree": "a30a8dc9e25b8b117ad3245e05cbe831a08651e5",
+      "worktree_mode": "head"
+    },
+    "semantic_artifacts": {
+      "metrics_path": {
+        "bytes": 547,
+        "exists": true,
+        "path": "semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/metrics.json"
+      },
+      "parse_cache_path": {
+        "entries": 2053,
+        "exists": true,
+        "path": "semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/parse-cache"
+      },
+      "snapshot_path": {
+        "bytes": 160099052,
+        "exists": true,
+        "path": "semantic/snapshots/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/snapshot.ndjson"
+      },
+      "store_path": {
+        "bytes": 249139200,
+        "exists": true,
+        "path": "semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/semantic.sqlite"
+      }
+    },
+    "semantic_metrics": {
+      "build_millis": 14934,
+      "commit": "8ea02d1b5eab4e686742c09496d8c5750b1b7c9f",
+      "files": 905,
+      "generated_at": "2026-06-10T09:12:20.659692Z",
+      "generation_id": "8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b",
+      "parse_cache_files": 905,
+      "partial_failures": 0,
+      "relations": 298184,
+      "reverse_edges": 298184,
+      "snapshot_sha256": "sha256:71ffcadd69a0461b74e0988b5bb0f51028b76fd4e2e06f6e06ed46e09e5f690b",
+      "store_bytes": 249139200,
+      "symbols": 11293,
+      "tree": "a30a8dc9e25b8b117ad3245e05cbe831a08651e5",
+      "warnings": 0
+    },
+    "stale": {
+      "axes": {
+        "branch_tip": {
+          "current": "master",
+          "indexed": "master",
+          "state": "ok"
+        },
+        "head": {
+          "current": "8ea02d1b5eab4e686742c09496d8c5750b1b7c9f",
+          "indexed": "8ea02d1b5eab4e686742c09496d8c5750b1b7c9f",
+          "state": "ok"
+        },
+        "provider": {
+          "detail": "entire-sem dev",
+          "state": "ok"
+        },
+        "semantic_completeness": {
+          "state": "ok"
+        },
+        "snapshot": {
+          "detail": "semantic/snapshots/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/snapshot.ndjson",
+          "state": "ok"
+        },
+        "store": {
+          "detail": "semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/semantic.sqlite",
+          "state": "ok"
+        },
+        "worktree": {
+          "state": "clean"
+        }
+      },
+      "severity": "ok"
+    },
+    "stale_command": {
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "{\n  \"severity\": \"ok\",\n  \"axes\": {\n    \"branch_tip\": {\n      \"state\": \"ok\",\n      \"current\": \"master\",\n      \"indexed\": \"master\"\n    },\n    \"head\": {\n      \"state\": \"ok\",\n      \"current\": \"8ea02d1b5eab4e686742c09496d8c5750b1b7c9f\",\n      \"indexed\": \"8ea02d1b5eab4e686742c09496d8c5750b1b7c9f\"\n    },\n    \"provider\": {\n      \"state\": \"ok\",\n      \"detail\": \"entire-sem dev\"\n    },\n    \"semantic_completeness\": {\n      \"state\": \"ok\"\n    },\n    \"snapshot\": {\n      \"state\": \"ok\",\n      \"detail\": \"semantic/snapshots/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/snapshot.ndjson\"\n    },\n    \"store\": {\n      \"state\": \"ok\",\n      \"detail\": \"semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/semantic.sqlite\"\n    },\n    \"worktree\": {\n      \"state\": \"clean\"\n    }\n  }\n}\n"
+    }
+  },
+  "changed_files": [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go"
+  ],
+  "condition": "mcp_history",
+  "diff_stat": {
+    "bytes": 966,
+    "shortstat": "1 file changed, 2 insertions(+)",
+    "untracked_files": []
+  },
+  "finished_at": "2026-06-10T09:43:13.312968+00:00",
+  "mcp_condition_audit": {
+    "direct_brain_cli_calls": 0,
+    "findings": [],
+    "mcp_tool_calls": 2,
+    "mcp_tool_details": [
+      {
+        "arguments": {
+          "include_deletions": true,
+          "location_only": true
+        },
+        "errored": false,
+        "name": "mcp__entire_brain__brain_regressions"
+      },
+      {
+        "arguments": {
+          "include_deletions": true,
+          "location_only": true
+        },
+        "errored": false,
+        "name": "mcp__entire_brain__brain_regressions"
+      }
+    ],
+    "mcp_tool_names": [
+      "mcp__entire_brain__brain_regressions"
+    ],
+    "ok": true,
+    "required": true
+  },
+  "ok": true,
+  "post_brain_setup_applied": false,
+  "provenance": {
+    "captured_at": "2026-06-10T09:41:11.840399+00:00",
+    "fingerprint": "d4d1c8c403121d4363c890a72ef6071e341db52100671e3a49d5e9e283436199",
+    "harness": {
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "suhaanthayyil",
+        "available": true,
+        "commit": "2d18f1c20afc228c72e27dfa46491abe64daf770",
+        "committer_date": "2026-06-10T05:09:34-04:00",
+        "parent_count": 1,
+        "parents": [
+          "f557cbd03a4614de7144b6a44422c78bd6f337f7"
+        ],
+        "ref": "HEAD",
+        "subject": "Inspect all top Radar loci"
+      },
+      "repo_path": "[repo-root]"
+    },
+    "run_config": {
+      "brain_cache": {
+        "enabled": true,
+        "refresh": false
+      },
+      "checkpoint_limit": 200,
+      "claude_budget": 0.0,
+      "command": "run",
+      "condition": "mcp_history",
+      "env_flags": {
+        "BENCH_RADAR_LOCATION_ONLY": "1",
+        "BENCH_REGRESSION_RADAR": null
+      },
+      "fingerprint": "d34f1f929a69308c6de7b6c8b9f69cb704ca279f55b7c45d2c9803307507c2e4",
+      "panel": {
+        "config_sha256": "d19bd0d68ebf07ebe8d37f8f5f15928f7e21ae241e6a23264f015a4ede233a43",
+        "name": "release-entire-cli-radar-mcp-manual-attribution-deletions",
+        "path": "benchmarks/agent-brain/panels/release-entire-cli-radar-mcp-manual-attribution-deletions.json"
+      },
+      "pricing": {
+        "file": null,
+        "inline_sha256": null
+      },
+      "repetition": 4,
+      "requested": {
+        "agents": "",
+        "conditions": "no_brain,mcp_history",
+        "repetitions": 4,
+        "runners": "codex:gpt-5.4-mini:low",
+        "tasks": [
+          "entireio-cli-radar-manual-attribution-deletions.json"
+        ]
+      },
+      "runner": {
+        "agent": "codex",
+        "effort": "low",
+        "id": "codex-gpt-5.4-mini-low",
+        "model": "gpt-5.4-mini"
+      },
+      "stop_after_no_brain_score": null,
+      "suite": "release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress",
+      "timeout": 1800
+    },
+    "schema": 1,
+    "source": {
+      "base": {
+        "author_name": "Stefan Haubold",
+        "available": true,
+        "commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "committer_date": "2026-06-04T21:31:15+02:00",
+        "parent_count": 2,
+        "parents": [
+          "5f292e3cd4980f0a1179cf2f8687d4fc27a1c01e",
+          "75ed85eae33c28a76dfda37a99e8d7646724af56"
+        ],
+        "ref": "af713665091693a8301520159f3b4097a6ec36f9",
+        "subject": "Merge pull request #1368 from entireio/soph/e2e-canary-keychain"
+      },
+      "base_ref": "af713665091693a8301520159f3b4097a6ec36f9",
+      "base_ref_source": "task.base_commit",
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "Stefan Haubold",
+        "available": true,
+        "commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "committer_date": "2026-06-04T21:31:15+02:00",
+        "parent_count": 2,
+        "parents": [
+          "5f292e3cd4980f0a1179cf2f8687d4fc27a1c01e",
+          "75ed85eae33c28a76dfda37a99e8d7646724af56"
+        ],
+        "ref": "HEAD",
+        "subject": "Merge pull request #1368 from entireio/soph/e2e-canary-keychain"
+      },
+      "origin_url": "https://github.com/entireio/cli.git",
+      "repo": "entire-cli",
+      "repo_path_input": "cli-bench",
+      "repo_path_resolved": "[source-repo]"
+    },
+    "task": {
+      "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+      "config_sha256": "da210946a9526426abcce6852cdb3fb1034d6b160cfa2daf6141a9f50c187c6f",
+      "id": "entireio-cli-radar-manual-attribution-deletions",
+      "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json"
+    },
+    "tools": {
+      "bin": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress/bin"
+      },
+      "brain": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress/bin/entire-brain",
+        "sha256": "fb2557915066782137e6b560267eda66b65462d0be86a0384f1d7ced79f9c07e"
+      },
+      "entire": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress/bin/entire",
+        "sha256": "7ff866ff889c5230782f0908dd8092b449a8e6f99ae62d5520fdc00c57d73a03"
+      },
+      "sem": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress/bin/entire-sem",
+        "sha256": "e8ef3a2c2c1a04e76f6bf995dd1aa11ad9c4357279d45cc7a35716332af3b96d"
+      }
+    }
+  },
+  "repetition": 4,
+  "repo": "entire-cli",
+  "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4",
+  "runner": {
+    "agent": "codex",
+    "effort": "low",
+    "id": "codex-gpt-5.4-mini-low",
+    "model": "gpt-5.4-mini"
+  },
+  "score": {
+    "brain_use": 3,
+    "details": {
+      "activity_source": "protocol_json",
+      "agent_seconds": 91.15437984466553,
+      "brain_commands": [],
+      "changed_file_count": 1,
+      "checked_diff": false,
+      "diff_bytes": 966,
+      "direct_brain_cli_calls": 0,
+      "expected_files_touched": [
+        "cmd/entire/cli/strategy/manual_commit_hooks.go"
+      ],
+      "forbidden_files_touched": [],
+      "mcp_tool_calls": 2,
+      "mcp_tool_details": [
+        {
+          "arguments": {
+            "include_deletions": true,
+            "location_only": true
+          },
+          "errored": false,
+          "name": "mcp__entire_brain__brain_regressions"
+        },
+        {
+          "arguments": {
+            "include_deletions": true,
+            "location_only": true
+          },
+          "errored": false,
+          "name": "mcp__entire_brain__brain_regressions"
+        }
+      ],
+      "mcp_tool_names": [
+        "mcp__entire_brain__brain_regressions"
+      ],
+      "missing_expected_files": [],
+      "ran_tests": true,
+      "search_calls": 2,
+      "structured_tool_event_count": 18,
+      "total_tokens": 321858,
+      "unexpected_files_touched": [],
+      "validation_count": 2,
+      "validation_passed": 2
+    },
+    "outcome": 45,
+    "patch_focus": 29,
+    "runtime_efficiency": 8,
+    "total": 93,
+    "validation_discipline": 8,
+    "version": 2
+  },
+  "started_at": "2026-06-10T09:41:11.826170+00:00",
+  "task_id": "entireio-cli-radar-manual-attribution-deletions",
+  "validation": {
+    "ok": true,
+    "results": [
+      {
+        "command": "test $(rg -n 'RealignAttributionBase\\(newHead\\)' cmd/entire/cli/strategy/manual_commit_hooks.go | wc -l | tr -d ' ') -eq 3",
+        "returncode": 0,
+        "seconds": 0.017366886138916016,
+        "stderr_tail": "",
+        "stdout_tail": ""
+      },
+      {
+        "command": "go test ./cmd/entire/cli/strategy -run TestPostCommit_NoTrailer_UpdatesBaseCommit",
+        "returncode": 0,
+        "seconds": 3.6646389961242676,
+        "stderr_tail": "",
+        "stdout_tail": "ok  \tgithub.com/entireio/cli/cmd/entire/cli/strategy\t0.585s\n"
+      }
+    ]
+  },
+  "worktree": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4/worktree"
+}

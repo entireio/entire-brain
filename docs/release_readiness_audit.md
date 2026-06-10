@@ -420,6 +420,17 @@ Release claims must stay local-first and evidence-backed:
   94/pass, `mcp_history` 94/pass, `mcp_radar_location_only`), though Radar used
   fewer searches and roughly half the tokens; this remains directional
   efficiency calibration, not release proof.
+- The committed
+  `release-entire-cli-radar-mcp-manual-attribution-deletions` panel is the first
+  retained location-only Radar proof. It targets the deletion-shaped
+  manual-commit attribution-base drift, requires `brain_regressions` with
+  `location_only` and `include_deletions`, and instructs the agent to inspect all
+  top same-file Radar loci before editing. The retained clean run
+  `release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress`
+  passed the independent release and Radar evidence gates: no-brain passed 1/4,
+  Radar MCP passed 4/4, mean score improved 77.25 -> 92.25, and the audit kept 4
+  server-log-backed Radar MCP records under the `mcp_radar_location_only` proof
+  scope.
 - The committed `release-entire-cli-mcp-manual-attribution` panel targets a
   harder MCP-history proof lane on `cli-bench`: it regresses the manual-commit
   attribution-base invariant and requires `mcp_history` to surface the prior
@@ -462,20 +473,20 @@ depend on retained evidence artifacts.
 `mise run release:readiness` is the local release-claim gate. It runs
 `mise run check`, `mise run release:evidence`, `mise run radar:evidence`,
 `mise run distill:evidence`, `mise run facts:evidence`, and
-`mise run semantic:evidence`. It is expected to fail until the Radar retained
-proof, distill performance, and facts-vs-raw manifests plus retained artifacts
-exist, which keeps "Radar proves regressions," "distill is fast," and "facts
-beat raw sessions" claims blocked instead of hidden behind a green
+`mise run semantic:evidence`. It is expected to fail until distill performance,
+facts-vs-raw, and semantic proof manifests plus retained artifacts exist, which
+keeps "distill is fast," "facts beat raw sessions," and semantic claims blocked
+instead of hidden behind a green
 implementation check.
 
 `mise run radar:screen` is the calibration check for local `pilot-radar-*`
-suites. On 2026-06-10 it found 4 Radar comparisons, 0 proof-ready comparisons,
-0 promotable pilots, and 4 saturated pilots (`pass no-brain -> Radar` was
-`1.00 -> 1.00` for each). `mise run radar:evidence` currently fails because no
-retained `release-candidate-*` suite contains a stable proof-ready
-location-only Radar comparison. The Radar evidence task now also generates the
-independent Codex audit report first and requires a matching audit-clean
-comparison before accepting a summary-level Radar proof.
+suites. Earlier 2026-06-10 calibration runs saturated, but the retained
+deletion-shaped manual-attribution suite now gives the citable Radar lane real
+headroom: `mise run radar:evidence` passes with one proof-ready
+`mcp_radar_location_only` comparison (`pass no-brain -> Radar` was
+`0.25 -> 1.00`). The Radar evidence task generates the independent Codex audit
+report first and requires a matching audit-clean comparison before accepting a
+summary-level Radar proof.
 
 CI now includes the retained replay-lab release-evidence audit in addition to
 lint/build/test/Phase 1 semantic checks. The facts evidence gate is not wired
@@ -501,25 +512,15 @@ repo/access/artifacts are available:
 - Paired `entire brain facts eval --retriever facts|history|query|raw-sessions`
   runs over the same labeled or explicitly proxy-allowed task set, same task
   hash, and same brain manifest hash.
-- Regression Radar release evidence from a clean retained run of
-  `release-entire-cli-radar-mcp-review-file-count`,
-  `release-entire-cli-radar-mcp-attribution-realign`,
-  `release-entire-cli-radar-mcp-review-base-scope`, or
-  `release-entire-cli-workspace-radar-mcp-transcript-reresolve`. Local pilots
-  are useful for calibration, but `mise run radar:evidence` requires a citable
-  Radar claim to have 4 repetitions per side, MCP-verified records, the
-  appropriate proof scope (`mcp_radar_location_only` or
+- Additional Regression Radar evidence for other tasks/repos remains useful,
+  especially workspace Radar, but the first citable Radar claim is now retained:
+  `release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress`.
+  Future Radar claims still need 4 repetitions per side, MCP-verified records,
+  the appropriate proof scope (`mcp_radar_location_only` or
   `mcp_workspace_radar_location_only`), zero hard flags, a stable proof-ready
-  comparison, and committed sanitized artifacts under
-  `benchmarks/agent-brain/evidence/release`. New retained MCP/Radar runs must
-  preserve `mcp-server.log`; new runs should include `tool: brain_*` lines so
-  tool-name authenticity is server-backed, not only agent-output-backed. Local 2026-06-10 single-repo radar
-  pilots with `codex:gpt-5.4-mini:low` and `:medium` were both saturated on pass
-  rate (`1.0 -> 1.0`) and therefore not release proof, despite large token/time
-  reductions in the MCP/radar arm. A deletion-aware transcript radar
-  calibration also saturated (`no_brain` mean 95.5, MCP/radar mean 95.0), and
-  the attribution-realign and review-file-count Radar pilots saturated as noted
-  above.
+  comparison, committed sanitized artifacts under
+  `benchmarks/agent-brain/evidence/release`, and retained `mcp-server.log`
+  files with server-backed tool-call proof.
 - Semantic benchmark evidence from a retained proof suite. A clean local
   `semantic-audit --json --fail-on release` run after refreshing the semantic
   index is recorded above, but it is regenerated local coverage evidence, not a
@@ -537,8 +538,9 @@ repo/access/artifacts are available:
   overall, at least one proof-ready comparison per retained suite, and at least
   one proof-ready comparison for each manifest-required proof scope. Manifests
   can also require a minimum count of integrity-verified MCP datapoints. The
-  committed release lane currently requires `history` and `mcp` scopes, so it
-  cannot be cited as semantic, Radar, or facts proof by aggregation. The
+  committed release lane currently requires `history`, `mcp`, and
+  `mcp_radar_location_only` scopes, so it cannot be cited as semantic or facts
+  proof by aggregation. The
   check writes reports to a temp directory and compares them with committed
   reports; updating retained reports is explicit via
   `mise run release:evidence:update`.

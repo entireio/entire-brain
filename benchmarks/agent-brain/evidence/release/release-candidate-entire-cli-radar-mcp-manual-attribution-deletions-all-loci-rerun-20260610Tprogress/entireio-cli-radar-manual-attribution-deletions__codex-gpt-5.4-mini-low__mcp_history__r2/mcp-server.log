@@ -1,0 +1,9 @@
+start
+message: initialize
+response: initialize
+message: notifications/initialized
+message: tools/list
+response: tools/list
+message: tools/call
+tool: brain_regressions
+response: tools/call
