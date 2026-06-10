@@ -17,6 +17,7 @@
       "TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools",
       "TestMCPDebugLogIncludesSuccessfulWorkspaceRadarResult",
       "TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly",
+      "TestMCPDebugLogReviewToolsRedactAndLogSuccess",
       "TestMCPInitializeAndToolsList",
       "TestMCPInitializeEchoesClientProtocolVersion",
       "TestMCPInitializeSupportsJSONLineFraming",
@@ -53,7 +54,7 @@
       "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint"
     ],
     "path": "go-test-internal-cli-radar.jsonl",
-    "sha256": "sha256:2c316827880c7f42fb6e2beb9a983ef5e419b16a25168675422bed227806e3f9"
+    "sha256": "sha256:f25ceb3b9573a61918f0242910f8f36ad14c04e82f2b436ae514dae18a321c70"
   },
   "claim_scope": "mcp_radar_tool_contract",
   "errors": [],
@@ -91,6 +92,7 @@
     "TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly",
     "TestMCPDebugLogIncludesSuccessfulWorkspaceRadarResult",
     "TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools",
+    "TestMCPDebugLogReviewToolsRedactAndLogSuccess",
     "TestMCPBrainRegressionsTool",
     "TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites",
     "TestMCPBrainReviewTool",
@@ -116,6 +118,6 @@
   ],
   "schema": 1,
   "source_drift_paths": [],
-  "source_head": "635ef1bb85ddf12471f62d9a0d1c961a6026a870",
+  "source_head": "f90e7d0ad4baac57e05daf548016f4ac522dc980",
   "warnings": []
 }
