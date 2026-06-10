@@ -627,22 +627,18 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 		fmt.Fprintf(cmd.OutOrStdout(), "reset semantic brain: %s\n", storage.BrainDir)
 		return nil
 	}
+	unlockBrain, err := acquireBrainWriteLock(storage.BrainDir)
+	if err != nil {
+		return err
+	}
+	defer unlockBrain()
 	unlock, err := acquireSemanticIndexLock(storage.BrainDir)
 	if err != nil {
 		return err
 	}
-	tombstone := storage.BrainDir + ".reset-" + strconv.FormatInt(time.Now().UnixNano(), 10)
-	if err := os.Rename(storage.BrainDir, tombstone); err != nil {
-		unlock()
-		if os.IsNotExist(err) {
-			fmt.Fprintf(cmd.OutOrStdout(), "reset brain: %s\n", storage.BrainDir)
-			return nil
-		}
-		return fmt.Errorf("move brain directory for reset: %w", err)
-	}
-	unlock()
-	if err := os.RemoveAll(tombstone); err != nil {
-		return fmt.Errorf("remove brain directory: %w", err)
+	defer unlock()
+	if err := removeBrainEntriesExceptLocks(storage.BrainDir); err != nil {
+		return err
 	}
 	lockDir := filepath.Join(storage.BrainDir, brainLockDirName)
 	if err := os.MkdirAll(lockDir, 0o700); err != nil {
@@ -657,6 +653,26 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 		}
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "reset brain: %s\n", storage.BrainDir)
+	return nil
+}
+
+func removeBrainEntriesExceptLocks(brainDir string) error {
+	entries, err := os.ReadDir(brainDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read brain directory for reset: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.Name() == brainLockDirName {
+			continue
+		}
+		path := filepath.Join(brainDir, entry.Name())
+		if err := removeAllWithRetry(path); err != nil {
+			return fmt.Errorf("remove brain entry %s: %w", entry.Name(), err)
+		}
+	}
 	return nil
 }
 
