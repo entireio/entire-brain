@@ -77,11 +77,14 @@ type agentCallResult struct {
 	holdsSlot bool
 }
 
-// distillSessionLookahead bounds how many sessions the pipeline prepares
-// (transcript read, preprocessing, fingerprinting, chunking) ahead of the
-// consumer. Preparation is cheap CPU/IO; the agent-call budget is governed
-// separately by the shared pool.
-const distillSessionLookahead = 4
+// distillSessionLookahead bounds how many PREPARED sessions may queue between
+// producer and consumer. Skipped and cache-hit sessions are near-free structs,
+// and they dominate incremental runs (observed: ~95% of an interrupted-run
+// resume), so this buffer must be deep enough that a skip streak never blocks
+// the producer from reaching the next session with real agent work. Memory
+// stays bounded because sessions HOLDING WORK (preprocessed chunks awaiting
+// or in agent calls) are limited separately by the work-lookahead semaphore.
+const distillSessionLookahead = 256
 
 // preparedSession is one session's distill work, prepared by the pipeline
 // ahead of the consumer. Exactly one of skip/readErr/cached/chunks describes
@@ -97,6 +100,10 @@ type preparedSession struct {
 	chunks      []transcriptChunk
 	results     []chan agentCallResult
 	sem         chan struct{}
+	// release frees the session's work-lookahead slot; the consumer calls it
+	// once the session's chunks are fully consumed. nil for sessions that
+	// carry no work (skip/cached/readErr).
+	release func()
 	// seq, when set (concurrency <= 1), replaces the pool: result(i) runs the
 	// agent call inline and lazily — strictly one agent process at a time, and
 	// no call is ever made for a chunk the consumer never asks about (e.g.
@@ -147,6 +154,19 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 	if distillOpts.concurrency > 1 {
 		sem = make(chan struct{}, distillOpts.concurrency)
 	}
+	// workSem bounds sessions HOLDING WORK — preprocessed chunk text awaiting
+	// or in agent calls — independently of the session buffer. The buffer must
+	// be deep so skip/cache streaks never starve dispatch (observed: a ~95%
+	// cache-hit region left a concurrency-8 pool running ONE call, because a
+	// 4-session lookahead held ~0.2 work-sessions); workSem keeps the memory
+	// for that depth bounded to a handful of sessions' chunk text. A slot is
+	// held from just before a session's transcript read (the chunks' memory is
+	// born there) until the consumer finishes its chunks.
+	workAhead := distillOpts.concurrency
+	if workAhead < 2 {
+		workAhead = 2
+	}
+	workSem := make(chan struct{}, workAhead)
 	deliver := func(ps preparedSession) bool {
 		select {
 		case prepared <- ps:
@@ -170,8 +190,15 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 				}
 				continue
 			}
+			select {
+			case workSem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			releaseWork := func() { <-workSem }
 			content, readErr := readBrainRelativeFile(brainDir, session.TranscriptPath)
 			if readErr != nil {
+				releaseWork()
 				ps.readErr = readErr
 				if !deliver(ps) {
 					return
@@ -186,6 +213,7 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 			ps.fingerprint = distillSessionFingerprint(session, ps.branch, distillInput)
 			if !distillOpts.force {
 				if prev, ok := prevCache.Sessions[session.SessionID]; ok && prev == ps.fingerprint {
+					releaseWork()
 					ps.cached = true
 					if !deliver(ps) {
 						return
@@ -194,6 +222,7 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 				}
 			}
 			ps.chunks = chunkTranscript(distillInput, distillOpts.maxChunkBytes)
+			ps.release = releaseWork
 			if sem == nil {
 				ps.seq = func(chunks []transcriptChunk) func(int) (string, error) {
 					return func(i int) (string, error) {
@@ -211,7 +240,7 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 				ps.results[i] = make(chan agentCallResult, 1) // buffered: abandoned workers deliver and exit
 			}
 			// Deliver BEFORE dispatching: a session with more chunks than the
-			// lookahead+pool must be consumable while its tail still dispatches.
+			// pool must be consumable while its tail still dispatches.
 			if !deliver(ps) {
 				return
 			}
@@ -689,6 +718,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			proposalsByBranch[branch] = append(proposalsByBranch[branch], chunkProposals...)
 			dirtyBranches[branch] = true
 			maybeFlush()
+		}
+		if ps.release != nil {
+			ps.release() // free the work-lookahead slot: chunks fully consumed
 		}
 		// Only cache a session as distilled when every chunk succeeded, so a
 		// session whose agent calls failed is retried on the next run rather
