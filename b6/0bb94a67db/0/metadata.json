@@ -1,0 +1,48 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "b60bb94a67db",
+  "session_id": "3c8f3e78-b939-42b0-8ab8-aae534b6f768",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T17:20:14.75822Z",
+  "branch": "codex/release-readiness-hardening",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "1d7fd0c2f522",
+  "token_usage": {
+    "input_tokens": 74652,
+    "cache_creation_tokens": 9560802,
+    "cache_read_tokens": 106875779,
+    "output_tokens": 417758,
+    "api_call_count": 305
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 335,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.json": 60,
+        ".claude/settings.local.json": 32,
+        ".codex/config.toml": 6,
+        ".codex/hooks.json": 40,
+        ".gemini/settings.json": 93,
+        ".mcp.json": 14,
+        ".regente/adapters.md": 25,
+        ".regente/claims.json": 6,
+        ".regente/config.json": 4,
+        ".regente/github-app.json": 7,
+        ".regente/metrics/latest.json": 27,
+        ".regente/roles.json": 4,
+        ".regente/status.json": 9,
+        ".regente/team.json": 8
+      }
+    }
+  ]
+}
