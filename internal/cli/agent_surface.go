@@ -88,18 +88,22 @@ type brainLiveState struct {
 }
 
 type brainBriefReport struct {
-	GeneratedAt     time.Time          `json:"generated_at"`
-	Task            string             `json:"task"`
-	Status          brainStatusReport  `json:"status"`
-	Semantic        brainBriefSemantic `json:"semantic"`
-	History         brainBriefHistory  `json:"history"`
-	Facts           []factRecord       `json:"facts,omitempty"`
-	ActionChecklist []brainBriefAction `json:"action_checklist,omitempty"`
-	LikelyEditFiles []string           `json:"likely_edit_files,omitempty"`
-	LikelyTestFiles []string           `json:"likely_test_files,omitempty"`
-	LikelyFiles     []string           `json:"likely_files,omitempty"`
-	Guidance        []string           `json:"guidance"`
-	Warnings        []string           `json:"warnings,omitempty"`
+	GeneratedAt time.Time          `json:"generated_at"`
+	Task        string             `json:"task"`
+	Status      brainStatusReport  `json:"status"`
+	Semantic    brainBriefSemantic `json:"semantic"`
+	History     brainBriefHistory  `json:"history"`
+	Facts       []factRecord       `json:"facts,omitempty"`
+	// FactsLocusDrift flags surfaced facts whose code locus no longer exists
+	// in the worktree (fact id -> departed locus tokens) — the "re-verify
+	// before trusting" signal (Phase 2 item 4).
+	FactsLocusDrift map[string][]string `json:"facts_locus_drift,omitempty"`
+	ActionChecklist []brainBriefAction  `json:"action_checklist,omitempty"`
+	LikelyEditFiles []string            `json:"likely_edit_files,omitempty"`
+	LikelyTestFiles []string            `json:"likely_test_files,omitempty"`
+	LikelyFiles     []string            `json:"likely_files,omitempty"`
+	Guidance        []string            `json:"guidance"`
+	Warnings        []string            `json:"warnings,omitempty"`
 }
 
 type brainBriefSemantic struct {
@@ -747,6 +751,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			}
 		}
 	}
+	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, report.Facts)
 	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroups(status.Repo.Root, report, task)
 	report.LikelyTestFiles = brainBriefAddSiblingTestFiles(status.Repo.Root, report.LikelyEditFiles, report.LikelyTestFiles)
 	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
@@ -786,6 +791,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	}
 	for _, fact := range report.Facts {
 		fmt.Fprintf(cmd.OutOrStdout(), "fact [%s] %s\n", strings.Join(fact.Paths, ","), fact.Text)
+		if gone := report.FactsLocusDrift[fact.ID]; len(gone) > 0 {
+			fmt.Fprintf(cmd.OutOrStdout(), "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
+		}
 	}
 	for _, item := range report.ActionChecklist {
 		location := item.File
