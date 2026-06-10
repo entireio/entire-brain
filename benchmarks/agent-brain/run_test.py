@@ -1380,6 +1380,45 @@ class CodexAuditScriptTests(unittest.TestCase):
                     "--fail-on-flags",
                 ])
 
+    def test_release_manifest_rejects_host_path_leaks(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            manifest = self._write_release_manifest(out_dir)
+            suite = "release-candidate-host-path-leak"
+            records = []
+            for i in range(1, 5):
+                records.append(self._release_record(suite, condition="no_brain", repetition=i, run_id=f"base-{i}"))
+                brain = self._release_record(suite, condition="full_brain", repetition=i, run_id=f"brain-{i}")
+                brain["stderr_tail"] = "tool warning path=/Users/alice/.codex/private-plugin/plugin.json"
+                records.append(brain)
+            suite_dir = self._write_records(results_dir, suite, records)
+            (suite_dir / "summary.json").write_text(json.dumps({
+                "comparisons": [{
+                    "task_id": "t",
+                    "runner": "codex",
+                    "condition": "full_brain",
+                    "verdict": "brain_positive",
+                    "proof_ready": True,
+                    "n_condition": 4,
+                    "n_baseline": 4,
+                    "stability": {"tag": "brain_positive_stable"},
+                }]
+            }))
+
+            exploratory = audit_codex.build_audit_report(results_dir, ["release-candidate-*"])
+            self.assertEqual(exploratory["totals"]["hard_flags"], 0)
+
+            self.assertEqual(
+                audit_codex.main(["--results", str(results_dir), "--release-manifest", str(manifest), "--out-dir", str(out_dir), "--fail-on-flags"]),
+                1,
+            )
+            release_report = json.loads((out_dir / "codex-audit-report.json").read_text())
+            flags = release_report["suites"][suite]["records"][1]["flags"]
+            self.assertTrue(any(flag.startswith("I:release_host_path_leak") for flag in flags))
+            self.assertFalse(release_report["suites"][suite]["records"][1]["release_hygiene"]["host_path_clean"])
+            self.assertEqual(release_report["release_manifest"]["path"], "[external]/manifest.json")
+
     def test_audit_codex_fails_missing_and_inconsistent_provenance(self):
         with tempfile.TemporaryDirectory() as results:
             results_dir = pathlib.Path(results)

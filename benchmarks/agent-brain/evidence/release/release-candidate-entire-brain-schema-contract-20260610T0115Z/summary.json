@@ -97,7 +97,7 @@
       {
         "dirty": false,
         "head_commit": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-        "repo_path": "/Users/suhaan/Documents/Coding/entire-brain"
+        "repo_path": "[repo-root]"
       }
     ],
     "missing_record_provenance": 0,
@@ -315,7 +315,7 @@
         "head_commit": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
         "repo": "entire-brain",
         "repo_path_input": "entire-brain",
-        "repo_path_resolved": "/Users/suhaan/Documents/Coding/entire-brain"
+        "repo_path_resolved": "[repo-root]"
       }
     ],
     "tasks": [

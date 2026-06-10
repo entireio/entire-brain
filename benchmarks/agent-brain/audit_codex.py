@@ -42,6 +42,15 @@ HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mc
 BRAIN_CONDITIONS = SEMANTIC_CONDITIONS | HISTORY_CONDITIONS
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+HOST_PATH_RE = re.compile(
+    r"(?i)(?:"
+    r"/Users/[^\s\"'`]+"            # macOS home paths
+    r"|/home/[^\s\"'`]+"            # Linux home paths
+    r"|/private/(?:var|tmp)/[^\s\"'`]+"  # macOS temp paths
+    r"|/tmp/[^\s\"'`]+"             # POSIX temp paths
+    r"|[A-Z]:\\Users\\[^\s\"'`]+"   # Windows home paths
+    r")"
+)
 
 
 def load_records(suite_dir: pathlib.Path) -> list[dict[str, Any]]:
@@ -82,6 +91,38 @@ def get(d: Any, *path, default=None):
             return default
         cur = cur.get(p)
     return cur if cur is not None else default
+
+
+def portable_report_path(path: pathlib.Path) -> str:
+    resolved = path.resolve()
+    for base in (pathlib.Path.cwd().resolve(), BENCH.parent.parent):
+        try:
+            return str(resolved.relative_to(base))
+        except ValueError:
+            continue
+    return f"[external]/{resolved.name}"
+
+
+def release_host_path_leaks(value: Any, prefix: str = "$", limit: int = 10) -> list[str]:
+    leaks: list[str] = []
+
+    def visit(node: Any, path: str) -> None:
+        if len(leaks) >= limit:
+            return
+        if isinstance(node, str):
+            if HOST_PATH_RE.search(node):
+                leaks.append(path)
+            return
+        if isinstance(node, dict):
+            for key, child in node.items():
+                visit(child, f"{path}.{key}")
+            return
+        if isinstance(node, list):
+            for index, child in enumerate(node):
+                visit(child, f"{path}[{index}]")
+
+    visit(value, prefix)
+    return leaks
 
 
 def is_commit_sha(value: Any) -> bool:
@@ -486,6 +527,15 @@ def build_audit_report(
                     audit["flags"].append("H:release_suite_provenance_mismatch")
                 if not isinstance(get(rec, "provenance", "run_config", "panel"), dict):
                     audit["flags"].append("H:release_panel_provenance_missing")
+                host_path_leaks = release_host_path_leaks(rec)
+                if host_path_leaks:
+                    audit["flags"].append(f"I:release_host_path_leak(count={len(host_path_leaks)})")
+                    audit["release_hygiene"] = {
+                        "host_path_clean": False,
+                        "leak_paths": host_path_leaks,
+                    }
+                else:
+                    audit["release_hygiene"] = {"host_path_clean": True, "leak_paths": []}
                 audit["pass"] = not audit["flags"]
         comp_audits = audit_summary(suite, min_repetitions_per_side=min_repetitions_per_side)
         for comp in comp_audits:
@@ -681,7 +731,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if manifest is not None:
         report["release_manifest"] = {
-            "path": str(args.release_manifest.resolve()),
+            "path": portable_report_path(args.release_manifest.resolve()),
             "suite_globs": suite_globs,
             "forbidden_suite_globs": forbidden_globs,
             "min_repetitions_per_side": min_repetitions_per_side,

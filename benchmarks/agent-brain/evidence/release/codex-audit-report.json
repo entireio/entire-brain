@@ -30,7 +30,11 @@
           },
           "flags": [],
           "notes": [],
-          "pass": true
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
         },
         {
           "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r2",
@@ -60,7 +64,11 @@
           },
           "flags": [],
           "notes": [],
-          "pass": true
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
         },
         {
           "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r3",
@@ -90,7 +98,11 @@
           },
           "flags": [],
           "notes": [],
-          "pass": true
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
         },
         {
           "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r4",
@@ -120,7 +132,11 @@
           },
           "flags": [],
           "notes": [],
-          "pass": true
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
         },
         {
           "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r1",
@@ -150,7 +166,11 @@
           },
           "flags": [],
           "notes": [],
-          "pass": true
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
         },
         {
           "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r2",
@@ -180,7 +200,11 @@
           },
           "flags": [],
           "notes": [],
-          "pass": true
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
         },
         {
           "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r3",
@@ -210,7 +234,11 @@
           },
           "flags": [],
           "notes": [],
-          "pass": true
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
         },
         {
           "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r4",
@@ -240,7 +268,11 @@
           },
           "flags": [],
           "notes": [],
-          "pass": true
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
         }
       ],
       "comparisons": [
@@ -290,7 +322,7 @@
     "note_kinds": {}
   },
   "release_manifest": {
-    "path": "/Users/suhaan/Documents/Coding/entire-brain/benchmarks/agent-brain/evidence/release/manifest.json",
+    "path": "benchmarks/agent-brain/evidence/release/manifest.json",
     "suite_globs": [
       "release-candidate-*"
     ],

@@ -283,6 +283,9 @@ Release claims must stay local-first and evidence-backed:
   commands, and the independent release auditor treats missing or empty
   validation results as hard flags. A proof-ready comparison cannot be backed by
   unvalidated records.
+- Release-evidence audit mode now rejects retained records that leak local host
+  paths from user homes or temp directories, and the retained proof lane has
+  been redacted while preserving hashes, scores, validation, and verdicts.
 - The query default-limit benchmark tasks now target the current unified
   retrieval implementation in `internal/cli/retrieve_cmd.go`, including the
   QMD-style `-n` alias, instead of the old semantic-query implementation.
