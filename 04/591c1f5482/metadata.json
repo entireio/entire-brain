@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "04591c1f5482",
+  "strategy": "manual-commit",
+  "branch": "codex/release-readiness-hardening",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/regression_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/04/591c1f5482/0/metadata.json",
+      "transcript": "/04/591c1f5482/0/full.jsonl",
+      "content_hash": "/04/591c1f5482/0/content_hash.txt",
+      "prompt": "/04/591c1f5482/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 233032,
+    "cache_creation_tokens": 13368728,
+    "cache_read_tokens": 1006320163,
+    "output_tokens": 2764290,
+    "api_call_count": 1854
+  }
+}
