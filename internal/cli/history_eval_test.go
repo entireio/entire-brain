@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -226,5 +227,84 @@ func TestHistoryFusedReachesTermDisjoint(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].ID != "target" {
 		t.Fatalf("fused arm should surface the term-disjoint record first, got %+v", got)
+	}
+}
+
+// TestHistoryEvalGenLoadCompareSeam covers the seam that broke when label
+// discipline landed in facts_eval without touching this file: generated tasks
+// must survive the write -> loadEvalTasks round trip, legacy files without
+// label_source must still load (defaulted to provenance_silver), and two
+// history-eval summaries must compare without --allow-proxy-comparison while
+// staying non-proof (EvidenceBasis proxy).
+func TestHistoryEvalGenLoadCompareSeam(t *testing.T) {
+	brainDir, manifest, index := historyEvalFixture(t)
+	tasks := generateHistoryEvalTasks(brainDir, manifest, index, "", 2, 0, 0, false)
+	if len(tasks) == 0 {
+		t.Fatal("fixture produced no tasks")
+	}
+	for _, task := range tasks {
+		if task.LabelSource != evalLabelSourceProvenanceSilver {
+			t.Fatalf("generated task %s label_source = %q, want provenance_silver", task.ID, task.LabelSource)
+		}
+	}
+
+	// Round trip through the file format and the loader's validation.
+	data, err := json.Marshal(tasks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "tasks.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadEvalTasks(path)
+	if err != nil {
+		t.Fatalf("generated tasks must load: %v", err)
+	}
+
+	// A legacy file (labels, no label_source) must load with the conservative
+	// silver default rather than being rejected.
+	for i := range tasks {
+		tasks[i].LabelSource = ""
+	}
+	legacy, err := json.Marshal(tasks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(t.TempDir(), "legacy.json")
+	if err := os.WriteFile(legacyPath, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacyLoaded, err := loadEvalTasks(legacyPath)
+	if err != nil {
+		t.Fatalf("legacy task files must load: %v", err)
+	}
+	if legacyLoaded[0].LabelSource != evalLabelSourceProvenanceSilver {
+		t.Fatalf("legacy labels should default to provenance_silver, got %q", legacyLoaded[0].LabelSource)
+	}
+
+	// Two same-truth history runs compare by default; basis stays non-proof.
+	arm, err := selectHistoryEvalArm("substring", brainDir, index, historyFTSRelevanceCutoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := runHistoryEval(loaded, 5, arm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range results {
+		if r.Labeled && (r.RelevanceSource != evalRelevanceExplicitLabel || r.LabelSource != evalLabelSourceProvenanceSilver) {
+			t.Fatalf("history result %s must declare silver explicit labels, got source=%q label=%q", r.ID, r.RelevanceSource, r.LabelSource)
+		}
+	}
+	a, b := summarizeEval(results), summarizeEval(results)
+	comparisons, _, err := compareEvalSummariesWithOptions(a, b, 0.05, false)
+	if err != nil {
+		t.Fatalf("same-truth silver summaries must compare without --allow-proxy-comparison: %v", err)
+	}
+	for _, c := range comparisons {
+		if c.Metric == "precision" && c.EvidenceBasis != evalMetricEvidenceProxyOrMixed {
+			t.Fatalf("silver comparison must not claim proof basis, got %q", c.EvidenceBasis)
+		}
 	}
 }

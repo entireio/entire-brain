@@ -83,7 +83,18 @@ func historyFTSFingerprint(index historyIndex) string {
 // openHistoryFTS opens (and rebuilds if stale) the derived BM25 index. The index
 // is keyed by a fingerprint of the history index it was built from, so a refresh
 // that regenerates history/index.json triggers a clean rebuild here.
+//
+// Locking is double-checked: the fresh-index fast path opens WITHOUT the
+// exclusive brain lock — queries vastly outnumber rebuilds, and taking the
+// write lock on the read path would serialize every concurrent search and
+// time out (10s) against any long-running writer. Only a stale/missing index
+// takes the lock, re-checking freshness under it because another process may
+// have rebuilt while we waited. Concurrent readers of the fresh index are
+// safe: the store is WAL-mode SQLite with a busy timeout.
 func openHistoryFTS(brainDir string, index historyIndex) (*sql.DB, error) {
+	if db, err := openHistoryFTSIfFresh(brainDir, index); err == nil && db != nil {
+		return db, nil
+	}
 	var db *sql.DB
 	err := withBrainWriteLock(brainDir, func() error {
 		var runErr error
@@ -91,6 +102,31 @@ func openHistoryFTS(brainDir string, index historyIndex) (*sql.DB, error) {
 		return runErr
 	})
 	return db, err
+}
+
+// openHistoryFTSIfFresh returns an open handle when the on-disk index already
+// matches the current history index, (nil, nil) when it is stale or missing.
+func openHistoryFTSIfFresh(brainDir string, index historyIndex) (*sql.DB, error) {
+	path, err := prepareBrainRelativeSQLiteFile(brainDir, historyFTSDBRelPath())
+	if err != nil {
+		return nil, err
+	}
+	db, err := sql.Open(sqliteDriverName, path)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	for _, pragma := range []string{"PRAGMA busy_timeout=5000;", "PRAGMA journal_mode=WAL;"} {
+		if _, err := db.Exec(pragma); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	if historyFTSFresh(db, index) {
+		return db, nil
+	}
+	db.Close()
+	return nil, nil
 }
 
 func openHistoryFTSLocked(brainDir string, index historyIndex) (*sql.DB, error) {

@@ -282,27 +282,39 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	}
 
 	if persistentBrain {
+		// The exclusive brain lock brackets only the SHARED-ARTIFACT phases:
+		// directory preparation, then manifest/history-index/cursor writes.
+		// The transcript-writing phase between them runs UNLOCKED — it shells
+		// `entire checkpoint explain` per uncached session (minutes on a large
+		// brain), while every other lock user times out at 10s: holding the
+		// lock across it failed a concurrent distill's FINAL flush, killing an
+		// hours-long run at its last step. Transcript files are per-session
+		// and atomically replaced, and concurrent exports of one brain are
+		// already unsupported, so the unlocked window mutates nothing another
+		// writer reads mid-flight (a concurrent distill touches facts/* only).
 		if err := withBrainWriteLock(outputDir, func() error {
 			var err error
 			outputDir, err = prepareExportDir(outputDir, true)
 			if err != nil {
 				return err
 			}
-			if err := ensureExportDirectories(outputDir, branchDirs); err != nil {
+			return ensureExportDirectories(outputDir, branchDirs)
+		}); err != nil {
+			return err
+		}
+		var transcriptWarnings []string
+		if snapshot != nil {
+			sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
+			if err != nil {
 				return err
 			}
-			var transcriptWarnings []string
-			if snapshot != nil {
-				sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
-				if err != nil {
-					return err
-				}
-			} else {
-				transcriptWarnings, err = writeSessionTranscripts(ctx, opts.Runner, repoDir, outputDir, exportOpts.entireBinary, exportOpts.rawTranscript, sessions, branchDirs, cursor)
-				if err != nil {
-					return err
-				}
+		} else {
+			transcriptWarnings, err = writeSessionTranscripts(ctx, opts.Runner, repoDir, outputDir, exportOpts.entireBinary, exportOpts.rawTranscript, sessions, branchDirs, cursor)
+			if err != nil {
+				return err
 			}
+		}
+		if err := withBrainWriteLock(outputDir, func() error {
 			manifest.Warnings = usefulExportWarnings(append(manifest.Warnings, transcriptWarnings...), exportOpts.debug)
 			manifest.Sessions = sessions
 			manifest.Branches = summarizeBranchExports(sessions, branchDirs, defaultBranch)
@@ -317,10 +329,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			if err := writeExportCursor(cursorFile, manifest); err != nil {
 				return err
 			}
-			if err := cleanupStaleSessionFiles(outputDir, sessions); err != nil {
-				return err
-			}
-			return nil
+			return cleanupStaleSessionFiles(outputDir, sessions)
 		}); err != nil {
 			return err
 		}

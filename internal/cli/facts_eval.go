@@ -571,6 +571,17 @@ func loadEvalTasks(path string) ([]evalTask, error) {
 	if len(tasks) == 0 {
 		return nil, fmt.Errorf("tasks file has no tasks")
 	}
+	// Legacy task files predate label_source. Every generator that ever
+	// emitted labels without one (facts eval-gen pre-claim-discipline, history
+	// eval-gen) labeled by PROVENANCE, so defaulting to provenance_silver is
+	// factually right and conservative: silver is never claimable as proof, so
+	// a mislabeled hand-curated file can only understate its evidence grade.
+	// Refusing to load would orphan every retained task set on disk.
+	for i := range tasks {
+		if len(tasks[i].Relevant) > 0 && strings.TrimSpace(tasks[i].LabelSource) == "" {
+			tasks[i].LabelSource = evalLabelSourceProvenanceSilver
+		}
+	}
 	if err := validateEvalTasks(tasks); err != nil {
 		return nil, err
 	}
