@@ -56,6 +56,7 @@ REQUIRED_TESTS = [
     "TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly",
     "TestMCPDebugLogIncludesSuccessfulWorkspaceRadarResult",
     "TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools",
+    "TestMCPDebugLogReviewToolsRedactAndLogSuccess",
     "TestMCPBrainRegressionsTool",
     "TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites",
     "TestMCPBrainReviewTool",
