@@ -212,3 +212,26 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 		t.Fatalf("unexpected multi-get payload: %+v", multiPayload)
 	}
 }
+
+func TestQMDUnsupportedFormatRejectedAcrossRetrievalVerbs(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "search", args: []string{"search", "alpha", "--format", "csv"}},
+		{name: "query", args: []string{"query", "alpha", "--format", "csv"}},
+		{name: "vsearch", args: []string{"vsearch", "alpha", "--format", "csv"}},
+		{name: "get", args: []string{"get", "fact:alpha", "--format", "csv"}},
+		{name: "multi-get", args: []string{"multi-get", "fact:alpha", "doc:beta", "--format", "csv"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := execute(t, NewRootCommand(Options{Version: "test"}), tc.args...)
+			if err == nil {
+				t.Fatalf("%s accepted unsupported --format:\n%s", strings.Join(tc.args, " "), out)
+			}
+			if !strings.Contains(err.Error(), "--format must be json or cli") {
+				t.Fatalf("unexpected error for %s: %v\n%s", strings.Join(tc.args, " "), err, out)
+			}
+		})
+	}
+}

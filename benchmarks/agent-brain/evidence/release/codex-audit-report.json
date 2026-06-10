@@ -291,6 +291,7 @@
           ],
           "flags": [],
           "pass": true,
+          "proof_scope": "history",
           "record_backing": {
             "condition_records": 4,
             "baseline_records": 4,
@@ -308,7 +309,10 @@
       "n_flagged_records": 0,
       "n_mcp_verified": 0,
       "n_provenance_ok": 8,
-      "n_proof_ready_comparisons": 1
+      "n_proof_ready_comparisons": 1,
+      "n_proof_ready_comparisons_by_scope": {
+        "history": 1
+      }
     }
   },
   "totals": {
@@ -318,6 +322,9 @@
     "mcp_verified_records": 0,
     "provenance_ok_records": 8,
     "proof_ready_comparisons": 1,
+    "proof_ready_comparisons_by_scope": {
+      "history": 1
+    },
     "flag_kinds": {},
     "note_kinds": {}
   },
@@ -331,7 +338,10 @@
     ],
     "min_repetitions_per_side": 4,
     "require_panel_provenance": true,
-    "require_proof_ready_per_suite": true
+    "require_proof_ready_per_suite": true,
+    "required_proof_scopes": [
+      "history"
+    ]
   },
   "gate_status": {
     "status": "pass",
@@ -341,7 +351,10 @@
       "min_records": 1,
       "min_proof_ready": 1,
       "hard_flags": 0,
-      "require_proof_ready_per_suite": true
+      "require_proof_ready_per_suite": true,
+      "required_proof_scopes": [
+        "history"
+      ]
     },
     "failures": []
   }

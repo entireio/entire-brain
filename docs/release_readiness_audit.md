@@ -224,6 +224,13 @@ Local smoke evidence collected on this repo: `go run ./cmd/entire-brain search
 JSON envelopes with two results. `search --help` lists both `--format` and
 `-n, --number`.
 
+Fixture-backed contract coverage: `TestQMDAliasesAcrossRetrievalVerbs` exercises
+the supported local surface across `search`, `query`, `vsearch`, `get`, and
+`multi-get`, including `--format json`, `-n` / `--number`, JSON result shapes,
+and missing-id reporting. `TestQMDUnsupportedFormatRejectedAcrossRetrievalVerbs`
+now fails every supported retrieval verb on unsupported formats, so `csv`, `md`,
+`xml`, and other QMD formats cannot quietly produce accidental partial support.
+
 Sources checked during the local audit:
 
 - [QMD README](https://github.com/tobi/qmd/blob/main/README.md) documents
@@ -242,8 +249,9 @@ Intentional differences and unpinned areas:
   line-number toggles, and collection filters remain outside this pass.
 - QMD formats beyond `json` and `cli` (`csv`, `md`, `xml`, `files`) and legacy
   boolean format flags are not implemented in this pass.
-- This is not a pinned upstream compatibility suite; release claims should say
-  "QMD-inspired aliases" unless a fixture-backed QMD contract test is added.
+- This is a local supported-surface contract, not a pinned upstream QMD
+  compatibility suite; release claims should say "QMD-inspired aliases" unless
+  a fixture generated from upstream QMD behavior is added.
 
 ## Release Narrative
 
@@ -291,6 +299,9 @@ Release claims must stay local-first and evidence-backed:
   the copied example matches the loader's proof-label validation rules.
 - `--format json` now requests JSON error envelopes, matching successful output
   behavior.
+- The supported QMD-inspired retrieval surface is now covered by local contract
+  tests for happy-path aliases, JSON shapes, missing ids, and rejected
+  unsupported formats.
 - The semantic benchmark task uses a portable repo path and hides expected files
   and validation from the agent prompt.
 - Benchmark validation now fails closed when a task defines zero validation
@@ -358,9 +369,12 @@ repo/access/artifacts are available:
   suites through `benchmarks/agent-brain/evidence/release/manifest.json`.
   Release mode rejects `release-local-*`, requires panel provenance, 4
   repetitions per side, zero hard flags, at least one proof-ready comparison
-  overall, and at least one proof-ready comparison per retained suite. The check
-  writes reports to a temp directory and compares them with committed reports;
-  updating retained reports is explicit via `mise run release:evidence:update`.
+  overall, at least one proof-ready comparison per retained suite, and at least
+  one proof-ready comparison for each manifest-required proof scope. The
+  committed release lane currently requires the `history` scope only, so it
+  cannot be cited as semantic or facts proof by aggregation. The check writes
+  reports to a temp directory and compares them with committed reports; updating
+  retained reports is explicit via `mise run release:evidence:update`.
 
 Historical quarantine caveat: `benchmarks/agent-brain/results/codex-audit-report.md`
 is quarantine/reference evidence, not release proof. That old results report

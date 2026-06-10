@@ -448,6 +448,15 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
     }
 
 
+def comparison_proof_scope(comp: dict[str, Any]) -> str:
+    condition = comp.get("condition")
+    if condition in SEMANTIC_CONDITIONS:
+        return "semantic"
+    if condition in HISTORY_CONDITIONS:
+        return "history"
+    return "other"
+
+
 def suite_matches(name: str, suite_globs: list[str]) -> bool:
     return any(fnmatch.fnmatch(name, pattern) for pattern in suite_globs)
 
@@ -476,6 +485,9 @@ def load_release_manifest(path: pathlib.Path) -> dict[str, Any]:
     require_per_suite = data.get("require_proof_ready_per_suite", False)
     if not isinstance(require_per_suite, bool):
         raise SystemExit("release manifest require_proof_ready_per_suite must be a boolean")
+    required_scopes = data.get("required_proof_scopes", [])
+    if not isinstance(required_scopes, list) or not all(isinstance(s, str) and s for s in required_scopes):
+        raise SystemExit("release manifest required_proof_scopes must be a string list")
     return data
 
 
@@ -518,6 +530,7 @@ def build_audit_report(
     mcp_verified_count = 0
     provenance_ok_count = 0
     proof_ready_count = 0
+    proof_ready_by_scope: dict[str, int] = defaultdict(int)
     for suite in suites:
         recs = [r for r in load_records(suite) if "__prep__" not in r.get("run_id", "")]
         if not recs:
@@ -542,6 +555,7 @@ def build_audit_report(
                 audit["pass"] = not audit["flags"]
         comp_audits = audit_summary(suite, min_repetitions_per_side=min_repetitions_per_side)
         for comp in comp_audits:
+            comp["proof_scope"] = comparison_proof_scope(comp)
             backing = proof_ready_record_backing(comp, rec_audits)
             comp["record_backing"] = backing
             if comp.get("proof_ready") and not backing["ok"]:
@@ -549,6 +563,12 @@ def build_audit_report(
                 comp["pass"] = False
         suite_flags = [a for a in rec_audits if not a["pass"]]
         suite_proofs = sum(1 for c in comp_audits if c.get("proof_ready") and c.get("pass"))
+        suite_proofs_by_scope: dict[str, int] = defaultdict(int)
+        for comp in comp_audits:
+            if comp.get("proof_ready") and comp.get("pass"):
+                scope = comp.get("proof_scope") or "other"
+                suite_proofs_by_scope[scope] += 1
+                proof_ready_by_scope[scope] += 1
         total_records += len(rec_audits)
         mcp_verified_count += sum(1 for a in rec_audits if a["mcp_verified"])
         provenance_ok_count += sum(1 for a in rec_audits if get(a, "provenance", "ok"))
@@ -571,6 +591,7 @@ def build_audit_report(
             "n_mcp_verified": sum(1 for a in rec_audits if a["mcp_verified"]),
             "n_provenance_ok": sum(1 for a in rec_audits if get(a, "provenance", "ok")),
             "n_proof_ready_comparisons": suite_proofs,
+            "n_proof_ready_comparisons_by_scope": dict(sorted(suite_proofs_by_scope.items())),
         }
     report["totals"] = {
         "suites": len(report["suites"]),
@@ -579,6 +600,7 @@ def build_audit_report(
         "mcp_verified_records": mcp_verified_count,
         "provenance_ok_records": provenance_ok_count,
         "proof_ready_comparisons": proof_ready_count,
+        "proof_ready_comparisons_by_scope": dict(sorted(proof_ready_by_scope.items())),
         "flag_kinds": dict(sorted(flag_kinds.items(), key=lambda x: -x[1])),
         "note_kinds": dict(sorted(note_kinds.items(), key=lambda x: -x[1])),
     }
@@ -592,6 +614,7 @@ def build_gate_status(
     min_proof_ready: int,
     *,
     require_proof_ready_per_suite: bool = False,
+    required_proof_scopes: list[str] | None = None,
 ) -> dict[str, Any]:
     totals = report["totals"]
     failures: list[str] = []
@@ -611,6 +634,10 @@ def build_gate_status(
         for suite_name, suite_data in sorted((report.get("suites") or {}).items()):
             if int(suite_data.get("n_proof_ready_comparisons") or 0) <= 0:
                 failures.append(f"suite {suite_name} has no proof_ready comparison")
+    proof_ready_by_scope = totals.get("proof_ready_comparisons_by_scope") or {}
+    for scope in required_proof_scopes or []:
+        if int(proof_ready_by_scope.get(scope) or 0) <= 0:
+            failures.append(f"proof_ready_comparisons[{scope}] 0 < required 1")
     return {
         "status": "fail" if failures else "pass",
         "release_evidence": not failures,
@@ -620,6 +647,7 @@ def build_gate_status(
             "min_proof_ready": min_proof_ready,
             "hard_flags": 0,
             "require_proof_ready_per_suite": require_proof_ready_per_suite,
+            "required_proof_scopes": required_proof_scopes or [],
         },
         "failures": failures,
     }
@@ -631,6 +659,7 @@ def render_audit_markdown(report: dict[str, Any]) -> str:
     mcp_verified_count = report["totals"]["mcp_verified_records"]
     provenance_ok_count = report["totals"].get("provenance_ok_records", 0)
     proof_ready_count = report["totals"].get("proof_ready_comparisons", 0)
+    proof_ready_by_scope = report["totals"].get("proof_ready_comparisons_by_scope") or {}
     md = ["# Codex Benchmark Audit (independent re-check)", "",
           f"- Suites audited: **{report['totals']['suites']}**",
           f"- Agent records audited (prep excluded): **{total_records}**",
@@ -639,6 +668,11 @@ def render_audit_markdown(report: dict[str, Any]) -> str:
           f"- Records with required provenance (source base/head + harness/config/tool hashes): **{provenance_ok_count}/{total_records}**",
           f"- Stable proof-ready comparisons: **{proof_ready_count}**",
           ""]
+    if proof_ready_by_scope:
+        md.append("- Proof-ready comparisons by scope: " + ", ".join(
+            f"`{scope}`={count}" for scope, count in sorted(proof_ready_by_scope.items())
+        ))
+        md.append("")
     gate_status = report.get("gate_status")
     if isinstance(gate_status, dict):
         md.append("## Release Gate")
@@ -722,6 +756,7 @@ def main(argv: list[str] | None = None) -> int:
     min_repetitions_per_side = args.min_repetitions_per_side
     require_panel_provenance = False
     require_proof_ready_per_suite = False
+    required_proof_scopes: list[str] = []
     manifest = None
     if args.release_manifest:
         manifest = load_release_manifest(args.release_manifest.resolve())
@@ -739,6 +774,7 @@ def main(argv: list[str] | None = None) -> int:
         min_repetitions_per_side = int(manifest.get("min_repetitions_per_side", min_repetitions_per_side))
         require_panel_provenance = bool(manifest.get("require_panel_provenance"))
         require_proof_ready_per_suite = bool(manifest.get("require_proof_ready_per_suite"))
+        required_proof_scopes = list(manifest.get("required_proof_scopes") or [])
     report = build_audit_report(
         results_dir,
         suite_globs,
@@ -754,6 +790,7 @@ def main(argv: list[str] | None = None) -> int:
             "min_repetitions_per_side": min_repetitions_per_side,
             "require_panel_provenance": require_panel_provenance,
             "require_proof_ready_per_suite": require_proof_ready_per_suite,
+            "required_proof_scopes": required_proof_scopes,
         }
     gate_status = None
     if args.fail_on_flags:
@@ -763,6 +800,7 @@ def main(argv: list[str] | None = None) -> int:
             min_records,
             min_proof_ready,
             require_proof_ready_per_suite=require_proof_ready_per_suite,
+            required_proof_scopes=required_proof_scopes,
         )
         report["gate_status"] = gate_status
     json_path = write_audit_report(report, out_dir)

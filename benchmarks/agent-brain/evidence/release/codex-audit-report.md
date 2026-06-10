@@ -7,6 +7,8 @@
 - Records with required provenance (source base/head + harness/config/tool hashes): **8/8**
 - Stable proof-ready comparisons: **1**
 
+- Proof-ready comparisons by scope: `history`=1
+
 ## Release Gate
 **PASS.** This audit satisfies the configured release-evidence gate.
 

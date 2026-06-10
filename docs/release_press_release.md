@@ -68,8 +68,9 @@ task outcomes instead of relying on demos or anecdotes.
 - Shipped: local retrieval, semantic index consumption, durable facts, anchor
   verification, eval harness, benchmark harness.
 - Proven locally: semantic audit coverage on this checkout, distill dry-run
-  sizing, facts-eval baseline plumbing, QMD-style alias smoke tests, and one
-  retained replay-lab history proof where `full_brain` beat `no_brain`.
+  sizing, facts-eval baseline plumbing, local QMD-inspired retrieval contract
+  tests, and one retained replay-lab history proof where `full_brain` improved
+  the task score/pass-rate over `no_brain` without proving efficiency gains.
 - Pending proof: target large-repo distill timing, paired facts evals, semantic
   usefulness, and broader retained replay-lab benchmark evidence.
 - Blocked: target large-repo evidence, backend/Slack access, turn signing,
