@@ -30,6 +30,17 @@ Implemented claim-control surfaces:
 - `--agent ollama --model <model>` can use local loopback Ollama through
   `ENTIRE_BRAIN_OLLAMA_URL` or `http://127.0.0.1:11434/api/generate`; the HTTP
   transport bypasses proxies and resolves/dials only loopback IP targets.
+- `benchmarks/agent-brain/audit_distill_perf.py` audits retained performance
+  artifacts for release proof: one dry-run JSON, one timed `--jobs 1` summary,
+  and one timed `--jobs N` summary. It requires matching agent/model/branch/force
+  / chunk / confidence config, comparable chunk/call/output summaries, zero
+  failed chunks, effective parallelism greater than 1, and observed
+  `total_seconds` speedup above the manifest's `min_speedup`.
+- `mise run distill:evidence` checks committed large-repo distill artifacts
+  without rewriting them, while `distill:evidence:update` regenerates the audit
+  report only after the validator passes. Today the task is intentionally
+  expected to fail because no target large-repo dry-run/timed artifacts have
+  been collected yet.
 
 Claim policy: do not claim distill is "fast" until a real large-repo dry-run and
 timed run show the call count and wall-time improvement.
@@ -366,9 +377,10 @@ is intentionally not the full release-claim gate because release claims also
 depend on retained evidence artifacts.
 
 `mise run release:readiness` is the local release-claim gate. It runs
-`mise run check`, `mise run release:evidence`, `mise run facts:evidence`, and
-`mise run semantic:evidence`. It is expected to fail until the facts-vs-raw
-manifest and retained artifacts exist, which keeps "facts beat raw sessions"
+`mise run check`, `mise run release:evidence`, `mise run distill:evidence`,
+`mise run facts:evidence`, and `mise run semantic:evidence`. It is expected to
+fail until the distill performance and facts-vs-raw manifests plus retained
+artifacts exist, which keeps "distill is fast" and "facts beat raw sessions"
 claims blocked instead of hidden behind a green implementation check.
 
 CI now includes the retained replay-lab release-evidence audit in addition to
@@ -390,7 +402,8 @@ repo/access/artifacts are available:
 - Paired timed `entire brain distill --agent <agent> --jobs 1 --json` and
   `--jobs N --json` runs on the same target repo/cache state, same
   agent/model/effort, with the dry-run JSON, manifest timing fields, and
-  external wall-clock artifacts retained.
+  external wall-clock artifacts retained. These artifacts must pass
+  `mise run distill:evidence` before a speedup claim is release-citable.
 - Paired `entire brain facts eval --retriever facts|history|query|raw-sessions`
   runs over the same labeled or explicitly proxy-allowed task set, same task
   hash, and same brain manifest hash.

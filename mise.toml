@@ -107,6 +107,54 @@ mkdir -p benchmarks/agent-brain/evidence/facts-eval
 cp "$tmp"/facts-eval-audit-report.json "$tmp"/facts-eval-audit-report.md benchmarks/agent-brain/evidence/facts-eval/
 '''
 
+[tasks."distill:evidence"]
+description = "Check retained large-repo distill performance evidence without rewriting tracked reports"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/distill-perf/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "distill performance evidence manifest is missing: $manifest" >&2
+  echo "collect dry-run plus paired --jobs 1/--jobs N timed artifacts before citing distill speedup" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_distill_perf.py \
+  --manifest "$manifest" \
+  --out-dir "$tmp" \
+  --fail-on-flags
+for report in distill-perf-audit-report.json distill-perf-audit-report.md; do
+  committed="benchmarks/agent-brain/evidence/distill-perf/$report"
+  generated="$tmp/$report"
+  if ! cmp -s "$committed" "$generated"; then
+    echo "retained distill performance evidence report is stale: $report" >&2
+    diff -u "$committed" "$generated" >&2 || true
+    echo "run: mise run distill:evidence:update" >&2
+    exit 1
+  fi
+done
+'''
+
+[tasks."distill:evidence:update"]
+description = "Regenerate retained distill performance audit reports after the evidence gate passes"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/distill-perf/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "distill performance evidence manifest is missing: $manifest" >&2
+  echo "collect dry-run plus paired --jobs 1/--jobs N timed artifacts before citing distill speedup" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_distill_perf.py \
+  --manifest "$manifest" \
+  --out-dir "$tmp" \
+  --fail-on-flags
+mkdir -p benchmarks/agent-brain/evidence/distill-perf
+cp "$tmp"/distill-perf-audit-report.json "$tmp"/distill-perf-audit-report.md benchmarks/agent-brain/evidence/distill-perf/
+'''
+
 [tasks."semantic:evidence"]
 description = "Check the local semantic audit release gate against the current indexed brain"
 run = '''
@@ -148,6 +196,7 @@ run = '''
 set -e
 mise run check
 mise run release:evidence
+mise run distill:evidence
 mise run facts:evidence
 mise run semantic:evidence
 '''

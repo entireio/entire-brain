@@ -29,6 +29,13 @@ assert AUDIT_FACTS_EVAL_SPEC.loader is not None
 sys.modules[AUDIT_FACTS_EVAL_SPEC.name] = audit_facts_eval
 AUDIT_FACTS_EVAL_SPEC.loader.exec_module(audit_facts_eval)
 
+AUDIT_DISTILL_PERF_PATH = pathlib.Path(__file__).with_name("audit_distill_perf.py")
+AUDIT_DISTILL_PERF_SPEC = importlib.util.spec_from_file_location("agent_brain_audit_distill_perf", AUDIT_DISTILL_PERF_PATH)
+audit_distill_perf = importlib.util.module_from_spec(AUDIT_DISTILL_PERF_SPEC)
+assert AUDIT_DISTILL_PERF_SPEC.loader is not None
+sys.modules[AUDIT_DISTILL_PERF_SPEC.name] = audit_distill_perf
+AUDIT_DISTILL_PERF_SPEC.loader.exec_module(audit_distill_perf)
+
 
 class RunnerAndConditionTests(unittest.TestCase):
     def test_parse_runner_spec_accepts_codex_claude_and_rejects_gemini(self):
@@ -1651,6 +1658,109 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             self.assertEqual(audit_facts_eval.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
             weak_report = json.loads((pathlib.Path(out) / "facts-eval-audit-report.json").read_text())
             self.assertIn("raw_vs_facts: useful_per_1k is not release_claimable", weak_report["flags"])
+
+
+class DistillPerfAuditScriptTests(unittest.TestCase):
+    def _write_distill_perf_fixture(self, root: pathlib.Path, *, speedup: float = 2.0, mismatch: bool = False) -> pathlib.Path:
+        dry = {
+            "schema_version": 1,
+            "generated_at": "2026-06-10T00:00:00Z",
+            "brain_path": "/portable/brain",
+            "branch": "",
+            "force": True,
+            "agent": "ollama",
+            "model": "llama3.2",
+            "effort": "",
+            "jobs": 1,
+            "effective_extraction_jobs": 1,
+            "max_chunk_bytes": 32000,
+            "confidence_threshold": 0.75,
+            "sessions": 12,
+            "cached_sessions": 0,
+            "sessions_to_distill": 12,
+            "missing_transcripts": 0,
+            "raw_bytes": 900000,
+            "preprocessed_bytes": 250000,
+            "chunks": 20,
+            "chunks_if_uncached": 20,
+            "extraction_agent_calls": 20,
+            "reconcile_agent_calls_upper_bound": 20,
+            "estimated_agent_calls_upper_bound": 40,
+            "branches": [{"branch": "main", "sessions": 12, "cached_sessions": 0, "sessions_to_distill": 12, "chunks": 20, "chunks_if_uncached": 20, "preprocessed_bytes": 250000}],
+            "largest_sessions": [{"session_id": "s1", "branch": "main", "transcript": "sessions/s1.md", "cached": False, "chunks": 3, "chunks_if_uncached": 3, "raw_bytes": 1000, "preprocessed_bytes": 700}],
+        }
+        serial_seconds = 120.0
+        parallel_seconds = serial_seconds / speedup
+
+        def run(jobs: int, effective_jobs: int, total_seconds: float) -> dict:
+            return {
+                "generated_at": "2026-06-10T00:10:00Z",
+                "facts": 80,
+                "distilled": 80,
+                "authored": 0,
+                "superseded": 0,
+                "branches": ["main"],
+                "proposals": 0,
+                "chunks_scanned": 20,
+                "chunks_distilled": 20,
+                "cache_hits": 0,
+                "failed_chunks": 0,
+                "preprocessed_bytes": 250000,
+                "agent": "ollama",
+                "model": "llama3.2",
+                "effort": "",
+                "branch": "",
+                "force": True,
+                "jobs": jobs,
+                "effective_extraction_jobs": effective_jobs,
+                "max_chunk_bytes": 32000,
+                "confidence_threshold": 0.75,
+                "extraction_agent_calls": 20,
+                "reconcile_agent_calls": 4,
+                "total_agent_calls": 24,
+                "extraction_seconds": total_seconds * 0.8,
+                "reconcile_seconds": total_seconds * 0.15,
+                "write_seconds": total_seconds * 0.05,
+                "total_seconds": total_seconds,
+            }
+
+        serial = run(1, 1, serial_seconds)
+        parallel = run(4, 4, parallel_seconds)
+        if mismatch:
+            parallel["facts"] = 79
+        (root / "dry-run.json").write_text(json.dumps(dry))
+        (root / "jobs-1.json").write_text(json.dumps(serial))
+        (root / "jobs-4.json").write_text(json.dumps(parallel))
+        manifest = root / "manifest.json"
+        manifest.write_text(json.dumps({
+            "schema": 1,
+            "dry_run": "dry-run.json",
+            "serial_run": "jobs-1.json",
+            "parallel_run": "jobs-4.json",
+            "min_speedup": 1.25,
+        }))
+        return manifest
+
+    def test_distill_perf_audit_accepts_comparable_speedup(self):
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
+            manifest = self._write_distill_perf_fixture(pathlib.Path(root))
+            report = audit_distill_perf.audit_distill_perf_manifest(manifest)
+            self.assertTrue(report["release_evidence"], report)
+            self.assertGreaterEqual(report["speedup"], 1.25)
+            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 0)
+            self.assertTrue((pathlib.Path(out) / "distill-perf-audit-report.json").exists())
+
+    def test_distill_perf_audit_rejects_weak_speedup_or_mismatched_output(self):
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
+            manifest = self._write_distill_perf_fixture(pathlib.Path(root), speedup=1.05)
+            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
+            weak = json.loads((pathlib.Path(out) / "distill-perf-audit-report.json").read_text())
+            self.assertTrue(any(flag.startswith("speedup ") for flag in weak["flags"]))
+
+            manifest = self._write_distill_perf_fixture(pathlib.Path(root), mismatch=True)
+            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
+            mismatch = json.loads((pathlib.Path(out) / "distill-perf-audit-report.json").read_text())
+            self.assertIn("serial/parallel mismatch: facts", mismatch["flags"])
 
 
 if __name__ == "__main__":
