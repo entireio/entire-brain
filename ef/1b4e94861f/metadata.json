@@ -3,7 +3,7 @@
   "checkpoint_id": "ef1b4e94861f",
   "strategy": "manual-commit",
   "branch": "codex/release-readiness-audit-cleanup",
-  "checkpoints_count": 0,
+  "checkpoints_count": 1,
   "files_touched": [
     ".github/workflows/test.yml",
     "benchmarks/agent-brain/audit_workspace_radar_evidence.py",
@@ -19,13 +19,19 @@
       "transcript": "/ef/1b4e94861f/0/full.jsonl",
       "content_hash": "/ef/1b4e94861f/0/content_hash.txt",
       "prompt": "/ef/1b4e94861f/0/prompt.txt"
+    },
+    {
+      "metadata": "/ef/1b4e94861f/1/metadata.json",
+      "transcript": "/ef/1b4e94861f/1/full.jsonl",
+      "content_hash": "/ef/1b4e94861f/1/content_hash.txt",
+      "prompt": "/ef/1b4e94861f/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 214982,
-    "cache_creation_tokens": 0,
-    "cache_read_tokens": 9030656,
-    "output_tokens": 26693,
-    "api_call_count": 107
+    "input_tokens": 481094,
+    "cache_creation_tokens": 13548241,
+    "cache_read_tokens": 1015801588,
+    "output_tokens": 2802839,
+    "api_call_count": 1971
   }
 }
