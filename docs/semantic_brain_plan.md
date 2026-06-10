@@ -46,7 +46,7 @@ Phase 1 commands must not perform implicit network operations. In particular:
   externally reachable Unix socket listeners, start network sidecars, perform
   auth callbacks, upload telemetry, or call hosted models.
 
-The following features are Phase 2 unless explicitly implemented with a
+The following features are Phase 3 unless explicitly implemented with a
 local-only backend:
 
 - Publishing or hydrating shared brain baselines.
@@ -761,7 +761,7 @@ agent/
 
 Phase 1 generated agent docs must be deterministic or produced by local-only
 tools. Any enrichment that sends seed, session, source, symbol, or semantic
-context to a hosted model belongs to Phase 2.
+context to a hosted model belongs to Phase 3.
 
 Interpretation rules:
 
@@ -879,9 +879,12 @@ implementation roadmap belongs with `entire-sem`.
 
 ## Roadmap
 
-The roadmap is split into two phases. Phase 1 builds the local semantic brain
+The roadmap is split into three phases. Phase 1 builds the local semantic brain
 and verifies it thoroughly in CI without publishing generated brain artifacts.
-Phase 2 adds collaborative and distributed features, including anything that
+Phase 2 makes the brain useful to a *working coding agent* — closing the
+delivery gap between good retrieval and knowledge arriving at the moment it
+changes a decision; it is local-only and inherits every Phase 1 egress rule.
+Phase 3 adds collaborative and distributed features, including anything that
 moves generated brain data off the local machine.
 
 ## Phase 1: Local Semantic Brain
@@ -962,7 +965,7 @@ machine. They do not publish, hydrate, or sync generated brain data.
 
 This is still local-only: the transport wraps existing local CLI/JSON services
 and reads the local brain store. MCP over stdio is allowed. Network serving of
-brain data is Phase 2.
+brain data is Phase 3.
 
 - Add an MCP adapter over stable CLI/JSON services.
 - Keep CLI and JSON contracts as the source of truth.
@@ -1018,9 +1021,125 @@ artifacts for reuse outside the job.
   after the fact. Phase 1 tests must not use network, hosted model APIs, remote
   embedding providers, publish commands, hydrate commands, or telemetry upload.
 
-## Phase 2: Shared And Distributed Brain
+## Phase 2: Agent Utility
 
-Phase 2 is for collaboration features that move generated brain artifacts beyond
+Phase 2 closes the gap between retrieval quality and agent value. Phase 1's
+quality mechanisms (provenance, locus scoping, measured ranking) are ahead of
+most memory systems; what limits real-session usefulness is *delivery* — the
+right fact reaching the agent without being asked, at the moment it changes a
+decision. Source: a working coding agent's introspection after a full day in
+this repo (2026-06-10); each item names the concrete session moment that
+motivated it. Everything here is local-only and inherits Phase 1's no-egress
+rules. Items are ranked by expected value to a working agent.
+
+### 1. Closed-Question Capture (Negative Knowledge)
+
+The single most valuable fact the brain's docs delivered in live use was a
+negative one ("the Ollama-pulled blob is NOT portable; use the canonical GGUF"
+— saved an hour of debugging the wrong runner). Agents are systematically bad
+at not re-exploring dead ends across sessions; "measured, do not re-litigate"
+entries are the densest anti-waste artifact the project produces, and the fact
+taxonomy barely captures them (`gotcha` underfires: 1 in 948 facts on main).
+
+- Add a `closed-negative` fact kind: what was tried, why it failed (evidence),
+  and the revisit-when trigger.
+- Teach the distill prompt to hunt for closed questions specifically —
+  rejected designs, measured non-levers, failed experiments — not just
+  positive conventions.
+- Surface them on matching triggers in recall/brief ranking (a closed negative
+  that matches the query outranks a generic convention).
+- Revisit the gotcha-labeling underfire (durable-facts handover follow-up)
+  as part of the same prompt work.
+
+### 2. Moment-Of-Relevance Delivery (Push, Not Pull)
+
+Everything today is pull: the agent must know to ask. The highest-value facts
+are the ones it would never think to query before hitting the failure. Locus
+scoping (+59% useful/1k, B4-validated) is the foundation; the delivery
+mechanism is missing.
+
+- Add `entire brain hook <event>` — a fast, token-budgeted, JSON-emitting
+  surface designed to be wired into agent-harness hooks (e.g. Claude Code
+  PreToolUse/PostToolUse, Entire CLI hooks).
+- Pre-edit: surface facts locus-anchored to the file/symbols about to be
+  edited. Post-failure: match command stderr against recorded gotcha /
+  closed-negative triggers.
+- Honest-empty and silent by default: a hook that emits noise gets removed
+  from the harness within a day. Hard token budget per emission.
+- A fact arriving 30 seconds after the agent went down the wrong path is
+  worth a fraction of its value; latency budget accordingly (warm path, no
+  index builds on the hook path).
+
+### 3. Session Handoff Packet
+
+An agent's context window ends; the next session starts cold and pays an
+expensive re-derivation tax ("what was in flight, what failed, what's
+blocked?"). The history index already holds this; the hand-written handover
+doc is the proof the artifact works. Make it a verb.
+
+- Add `brief --handoff`: synthesize the last N sessions' trajectory — work in
+  flight, recent failures and their state, parked decisions, open branches —
+  deterministic, from the history index + facts.
+- Tune for resumption: state over knowledge ("PR #21 merged; the fused-arm
+  question is open pending a Gemma run") rather than conventions.
+
+### 4. Fact Staleness And Cheap Verification
+
+Agents are (correctly) instructed to verify recalled memory before acting on
+it. Provenance anchors point at transcripts — immutable past — so verifying
+"is this still true?" costs a transcript read. Bind facts to the present
+instead.
+
+- Add a per-fact locus-drift signal: the fact's code locus changed since
+  distillation (index-vs-HEAD first; dirty-worktree precision arrives with
+  the worktree overlay seam).
+- Surface it tersely in recall/brief/MCP output so the agent knows which
+  facts to trust at face value and which to re-check with one Read.
+
+### 5. Close The Write Loop (Per-Session Incremental Distill)
+
+Distill is batch, expensive, and run occasionally — today's insights are
+invisible to tomorrow's session unless someone remembers to run it. Asking
+the agent to call `remember` mid-task loses to finishing the task every time.
+
+- Add a session-end incremental distill: one just-ended session, cheap model,
+  triggered by a session-lifecycle hook; proposals queue through the existing
+  reconcile/review pipeline unchanged.
+- The existing incremental cache already makes this nearly free; the missing
+  piece is the trigger and a fast single-session path.
+
+### 6. Blind Spots On Every Empty
+
+An empty result reads as "nothing exists"; what the agent needs is "nothing
+is *indexed*". The blind-spots machinery exists — wire it into every empty.
+
+- Every empty recall/query/search/MCP result carries the one-liner: last
+  distill date, undigested session count, branch coverage gaps.
+
+### 7. Memory Backend Unification
+
+A single session today juggles three disjoint memory systems (agent-harness
+memory files, CLAUDE.md conventions, the brain) that never reference each
+other. The brain is the only one with provenance, dedup, and supersession.
+
+- Expose a write verb (MCP + CLI) suitable as the storage backend for
+  agent-harness memory, with a distinct provenance class (ties into
+  durable-facts Phase C, the shared derived-knowledge contract).
+
+### 8. Mid-Task Eval Alignment
+
+The history eval's tasks are session *opening* requests; an agent's real
+retrieval moments are narrow mid-task questions ("why does flush keep
+branches dirty under --force?"). Tune retrieval for the actual workload.
+
+- Mine mid-session agent questions (follow-up user turns, the agent's own
+  search queries) as an eval stratum alongside opening requests.
+- Re-run the ranking levers (cutoff, fused arm) against that stratum before
+  shipping hook-path defaults.
+
+## Phase 3: Shared And Distributed Brain
+
+Phase 3 is for collaboration features that move generated brain artifacts beyond
 one machine. These should wait until the Phase 1 local contracts, storage, and
 freshness model are stable.
 
