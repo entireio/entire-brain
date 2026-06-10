@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "b60bb94a67db",
+  "session_id": "c975c9b8-80ec-4090-85c4-93a68e3e83f1",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T17:20:33.47251Z",
+  "branch": "codex/release-readiness-hardening",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "benchmarks/agent-brain/evidence/radar-tool/go-test-internal-cli-radar.jsonl",
+    "benchmarks/agent-brain/evidence/radar-tool/manifest.json",
+    "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.json",
+    "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5[1m]",
+  "turn_id": "55e03bc3e68d",
+  "checkpoint_transcript_start": 150,
+  "transcript_lines_at_start": 150,
+  "token_usage": {
+    "input_tokens": 4,
+    "cache_creation_tokens": 4599,
+    "cache_read_tokens": 237843,
+    "output_tokens": 2605,
+    "api_call_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T17:20:33.463519Z",
+    "agent_lines": 0,
+    "agent_removed": 1,
+    "human_added": 0,
+    "human_modified": 279,
+    "human_removed": 0,
+    "total_committed": 1,
+    "total_lines_changed": 280,
+    "agent_percentage": 0.35714285714285715,
+    "metric_version": 2
+  }
+}
