@@ -566,13 +566,20 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
     condition_matches = [r for r in rec_audits if matches(r, condition, require_success=True)]
     baseline_matches = [r for r in rec_audits if matches(r, "no_brain", require_success=False)]
     condition_mcp_verified_matches = [r for r in condition_matches if r.get("mcp_verified")]
+    condition_mcp_named_tool_verified_matches = [r for r in condition_matches if r.get("mcp_named_tool_verified")]
     condition_run_ids = {r.get("run_id") for r in condition_matches if r.get("run_id")}
     baseline_run_ids = {r.get("run_id") for r in baseline_matches if r.get("run_id")}
     condition_mcp_verified_run_ids = {r.get("run_id") for r in condition_mcp_verified_matches if r.get("run_id")}
+    condition_mcp_named_tool_verified_run_ids = {
+        r.get("run_id") for r in condition_mcp_named_tool_verified_matches if r.get("run_id")
+    }
     condition_repetitions = {r.get("repetition") for r in condition_matches if r.get("repetition") is not None}
     baseline_repetitions = {r.get("repetition") for r in baseline_matches if r.get("repetition") is not None}
     condition_mcp_verified_repetitions = {
         r.get("repetition") for r in condition_mcp_verified_matches if r.get("repetition") is not None
+    }
+    condition_mcp_named_tool_verified_repetitions = {
+        r.get("repetition") for r in condition_mcp_named_tool_verified_matches if r.get("repetition") is not None
     }
     condition_records_ok = (
         len(condition_run_ids) >= required_condition
@@ -592,16 +599,24 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
             and required_condition > 0
         )
     )
+    condition_mcp_named_tool_verified_ok = (
+        len(condition_mcp_named_tool_verified_run_ids) >= required_condition
+        and len(condition_mcp_named_tool_verified_repetitions) >= required_condition
+        and required_condition > 0
+    )
     return {
         "condition_records": len(condition_matches),
         "baseline_records": len(baseline_matches),
         "condition_mcp_verified_records": len(condition_mcp_verified_matches),
+        "condition_mcp_named_tool_verified_records": len(condition_mcp_named_tool_verified_matches),
         "condition_unique_run_ids": len(condition_run_ids),
         "baseline_unique_run_ids": len(baseline_run_ids),
         "condition_mcp_verified_unique_run_ids": len(condition_mcp_verified_run_ids),
+        "condition_mcp_named_tool_verified_unique_run_ids": len(condition_mcp_named_tool_verified_run_ids),
         "condition_unique_repetitions": len(condition_repetitions),
         "baseline_unique_repetitions": len(baseline_repetitions),
         "condition_mcp_verified_unique_repetitions": len(condition_mcp_verified_repetitions),
+        "condition_mcp_named_tool_verified_unique_repetitions": len(condition_mcp_named_tool_verified_repetitions),
         "required_condition": required_condition,
         "required_baseline": required_baseline,
         "required_delivery_scope": delivery_scope,
@@ -609,6 +624,7 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
         "condition_records_ok": condition_records_ok,
         "baseline_records_ok": baseline_records_ok,
         "condition_mcp_verified_ok": condition_mcp_verified_ok,
+        "condition_mcp_named_tool_verified_ok": condition_mcp_named_tool_verified_ok,
         "ok": condition_records_ok and baseline_records_ok and condition_mcp_verified_ok,
     }
 
@@ -656,6 +672,9 @@ def load_release_manifest(path: pathlib.Path) -> dict[str, Any]:
     required_scopes = data.get("required_proof_scopes", [])
     if not isinstance(required_scopes, list) or not all(isinstance(s, str) and s for s in required_scopes):
         raise SystemExit("release manifest required_proof_scopes must be a string list")
+    required_named_scopes = data.get("required_named_tool_proof_scopes", [])
+    if not isinstance(required_named_scopes, list) or not all(isinstance(s, str) and s for s in required_named_scopes):
+        raise SystemExit("release manifest required_named_tool_proof_scopes must be a string list")
     return data
 
 
@@ -696,9 +715,11 @@ def build_audit_report(
     flag_kinds: dict[str, int] = defaultdict(int)
     note_kinds: dict[str, int] = defaultdict(int)
     mcp_verified_count = 0
+    mcp_named_tool_verified_count = 0
     provenance_ok_count = 0
     proof_ready_count = 0
     proof_ready_by_scope: dict[str, int] = defaultdict(int)
+    named_tool_proof_ready_by_scope: dict[str, int] = defaultdict(int)
     for suite in suites:
         recs = [r for r in load_records(suite) if "__prep__" not in r.get("run_id", "")]
         if not recs:
@@ -739,8 +760,12 @@ def build_audit_report(
                 scope = comp.get("proof_scope") or "other"
                 suite_proofs_by_scope[scope] += 1
                 proof_ready_by_scope[scope] += 1
+                backing = comp.get("record_backing") if isinstance(comp.get("record_backing"), dict) else {}
+                if backing.get("condition_mcp_named_tool_verified_ok"):
+                    named_tool_proof_ready_by_scope[scope] += 1
         total_records += len(rec_audits)
         mcp_verified_count += sum(1 for a in rec_audits if a["mcp_verified"])
+        mcp_named_tool_verified_count += sum(1 for a in rec_audits if a["mcp_named_tool_verified"])
         provenance_ok_count += sum(1 for a in rec_audits if get(a, "provenance", "ok"))
         proof_ready_count += suite_proofs
         for a in rec_audits:
@@ -759,6 +784,7 @@ def build_audit_report(
             "n_records": len(rec_audits),
             "n_flagged_records": len(suite_flags),
             "n_mcp_verified": sum(1 for a in rec_audits if a["mcp_verified"]),
+            "n_mcp_named_tool_verified": sum(1 for a in rec_audits if a["mcp_named_tool_verified"]),
             "n_provenance_ok": sum(1 for a in rec_audits if get(a, "provenance", "ok")),
             "n_proof_ready_comparisons": suite_proofs,
             "n_proof_ready_comparisons_by_scope": dict(sorted(suite_proofs_by_scope.items())),
@@ -768,9 +794,11 @@ def build_audit_report(
         "records": total_records,
         "hard_flags": total_flags,
         "mcp_verified_records": mcp_verified_count,
+        "mcp_named_tool_verified_records": mcp_named_tool_verified_count,
         "provenance_ok_records": provenance_ok_count,
         "proof_ready_comparisons": proof_ready_count,
         "proof_ready_comparisons_by_scope": dict(sorted(proof_ready_by_scope.items())),
+        "named_tool_proof_ready_comparisons_by_scope": dict(sorted(named_tool_proof_ready_by_scope.items())),
         "flag_kinds": dict(sorted(flag_kinds.items(), key=lambda x: -x[1])),
         "note_kinds": dict(sorted(note_kinds.items(), key=lambda x: -x[1])),
     }
@@ -783,9 +811,11 @@ def build_gate_status(
     min_records: int,
     min_proof_ready: int,
     min_mcp_verified: int,
+    min_mcp_named_tool_verified: int,
     *,
     require_proof_ready_per_suite: bool = False,
     required_proof_scopes: list[str] | None = None,
+    required_named_tool_proof_scopes: list[str] | None = None,
 ) -> dict[str, Any]:
     totals = report["totals"]
     failures: list[str] = []
@@ -793,6 +823,7 @@ def build_gate_status(
     records = int(totals.get("records") or 0)
     proof_ready = int(totals.get("proof_ready_comparisons") or 0)
     mcp_verified = int(totals.get("mcp_verified_records") or 0)
+    mcp_named_tool_verified = int(totals.get("mcp_named_tool_verified_records") or 0)
     hard_flags = int(totals.get("hard_flags") or 0)
     if suites < min_suites:
         failures.append(f"suites {suites} < required {min_suites}")
@@ -802,6 +833,10 @@ def build_gate_status(
         failures.append(f"proof_ready_comparisons {proof_ready} < required {min_proof_ready}")
     if mcp_verified < min_mcp_verified:
         failures.append(f"mcp_verified_records {mcp_verified} < required {min_mcp_verified}")
+    if mcp_named_tool_verified < min_mcp_named_tool_verified:
+        failures.append(
+            f"mcp_named_tool_verified_records {mcp_named_tool_verified} < required {min_mcp_named_tool_verified}"
+        )
     if hard_flags > 0:
         failures.append(f"hard_flags {hard_flags} > 0")
     if require_proof_ready_per_suite:
@@ -812,6 +847,10 @@ def build_gate_status(
     for scope in required_proof_scopes or []:
         if int(proof_ready_by_scope.get(scope) or 0) <= 0:
             failures.append(f"proof_ready_comparisons[{scope}] 0 < required 1")
+    named_tool_proof_ready_by_scope = totals.get("named_tool_proof_ready_comparisons_by_scope") or {}
+    for scope in required_named_tool_proof_scopes or []:
+        if int(named_tool_proof_ready_by_scope.get(scope) or 0) <= 0:
+            failures.append(f"named_tool_proof_ready_comparisons[{scope}] 0 < required 1")
     return {
         "status": "fail" if failures else "pass",
         "release_evidence": not failures,
@@ -820,9 +859,11 @@ def build_gate_status(
             "min_records": min_records,
             "min_proof_ready": min_proof_ready,
             "min_mcp_verified": min_mcp_verified,
+            "min_mcp_named_tool_verified": min_mcp_named_tool_verified,
             "hard_flags": 0,
             "require_proof_ready_per_suite": require_proof_ready_per_suite,
             "required_proof_scopes": required_proof_scopes or [],
+            "required_named_tool_proof_scopes": required_named_tool_proof_scopes or [],
         },
         "failures": failures,
     }
@@ -832,20 +873,28 @@ def render_audit_markdown(report: dict[str, Any]) -> str:
     total_records = report["totals"]["records"]
     total_flags = report["totals"]["hard_flags"]
     mcp_verified_count = report["totals"]["mcp_verified_records"]
+    mcp_named_tool_verified_count = report["totals"].get("mcp_named_tool_verified_records", 0)
     provenance_ok_count = report["totals"].get("provenance_ok_records", 0)
     proof_ready_count = report["totals"].get("proof_ready_comparisons", 0)
     proof_ready_by_scope = report["totals"].get("proof_ready_comparisons_by_scope") or {}
+    named_tool_proof_ready_by_scope = report["totals"].get("named_tool_proof_ready_comparisons_by_scope") or {}
     md = ["# Codex Benchmark Audit (independent re-check)", "",
           f"- Suites audited: **{report['totals']['suites']}**",
           f"- Agent records audited (prep excluded): **{total_records}**",
           f"- **Hard integrity flags: {total_flags}**",
           f"- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **{mcp_verified_count}**",
+          f"- Named-tool MCP datapoints (server log names the required brain tool): **{mcp_named_tool_verified_count}**",
           f"- Records with required provenance (source base/head + harness/config/tool hashes): **{provenance_ok_count}/{total_records}**",
           f"- Stable proof-ready comparisons: **{proof_ready_count}**",
           ""]
     if proof_ready_by_scope:
         md.append("- Proof-ready comparisons by scope: " + ", ".join(
             f"`{scope}`={count}" for scope, count in sorted(proof_ready_by_scope.items())
+        ))
+        md.append("")
+    if named_tool_proof_ready_by_scope:
+        md.append("- Named-tool proof-ready comparisons by scope: " + ", ".join(
+            f"`{scope}`={count}" for scope, count in sorted(named_tool_proof_ready_by_scope.items())
         ))
         md.append("")
     gate_status = report.get("gate_status")
@@ -916,6 +965,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--min-records", type=int, default=1, help="Minimum audited agent records required when --fail-on-flags is set")
     parser.add_argument("--min-proof-ready", type=int, default=0, help="Minimum stable proof-ready comparisons required when --fail-on-flags is set")
     parser.add_argument("--min-mcp-verified", type=int, default=0, help="Minimum integrity-verified MCP datapoints required when --fail-on-flags is set")
+    parser.add_argument("--min-mcp-named-tool-verified", type=int, default=0, help="Minimum MCP datapoints whose server log names the required brain tool")
     parser.add_argument("--min-repetitions-per-side", type=int, default=DEFAULT_PROOF_MIN_REPETITIONS, help="Minimum repetitions per condition required for proof-ready comparisons")
     return parser.parse_args(argv)
 
@@ -930,10 +980,12 @@ def main(argv: list[str] | None = None) -> int:
     min_records = args.min_records
     min_proof_ready = args.min_proof_ready
     min_mcp_verified = args.min_mcp_verified
+    min_mcp_named_tool_verified = args.min_mcp_named_tool_verified
     min_repetitions_per_side = args.min_repetitions_per_side
     require_panel_provenance = False
     require_proof_ready_per_suite = False
     required_proof_scopes: list[str] = []
+    required_named_tool_proof_scopes: list[str] = []
     manifest = None
     if args.release_manifest:
         manifest = load_release_manifest(args.release_manifest.resolve())
@@ -949,10 +1001,14 @@ def main(argv: list[str] | None = None) -> int:
         min_records = release_manifest_minimum(manifest, "records", min_records)
         min_proof_ready = release_manifest_minimum(manifest, "proof_ready_comparisons", min_proof_ready)
         min_mcp_verified = release_manifest_minimum(manifest, "mcp_verified_records", min_mcp_verified)
+        min_mcp_named_tool_verified = release_manifest_minimum(
+            manifest, "mcp_named_tool_verified_records", min_mcp_named_tool_verified
+        )
         min_repetitions_per_side = int(manifest.get("min_repetitions_per_side", min_repetitions_per_side))
         require_panel_provenance = bool(manifest.get("require_panel_provenance"))
         require_proof_ready_per_suite = bool(manifest.get("require_proof_ready_per_suite"))
         required_proof_scopes = list(manifest.get("required_proof_scopes") or [])
+        required_named_tool_proof_scopes = list(manifest.get("required_named_tool_proof_scopes") or [])
     report = build_audit_report(
         results_dir,
         suite_globs,
@@ -967,9 +1023,11 @@ def main(argv: list[str] | None = None) -> int:
             "forbidden_suite_globs": forbidden_globs,
             "min_repetitions_per_side": min_repetitions_per_side,
             "min_mcp_verified": min_mcp_verified,
+            "min_mcp_named_tool_verified": min_mcp_named_tool_verified,
             "require_panel_provenance": require_panel_provenance,
             "require_proof_ready_per_suite": require_proof_ready_per_suite,
             "required_proof_scopes": required_proof_scopes,
+            "required_named_tool_proof_scopes": required_named_tool_proof_scopes,
         }
     gate_status = None
     if args.fail_on_flags:
@@ -979,8 +1037,10 @@ def main(argv: list[str] | None = None) -> int:
             min_records,
             min_proof_ready,
             min_mcp_verified,
+            min_mcp_named_tool_verified,
             require_proof_ready_per_suite=require_proof_ready_per_suite,
             required_proof_scopes=required_proof_scopes,
+            required_named_tool_proof_scopes=required_named_tool_proof_scopes,
         )
         report["gate_status"] = gate_status
     json_path = write_audit_report(report, out_dir)

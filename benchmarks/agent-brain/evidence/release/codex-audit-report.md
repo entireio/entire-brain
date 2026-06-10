@@ -4,10 +4,13 @@
 - Agent records audited (prep excluded): **24**
 - **Hard integrity flags: 0**
 - Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **8**
+- Named-tool MCP datapoints (server log names the required brain tool): **4**
 - Records with required provenance (source base/head + harness/config/tool hashes): **24/24**
 - Stable proof-ready comparisons: **3**
 
 - Proof-ready comparisons by scope: `history`=1, `mcp`=1, `mcp_radar_location_only`=1
+
+- Named-tool proof-ready comparisons by scope: `mcp_radar_location_only`=1
 
 ## Release Gate
 **PASS.** This audit satisfies the configured release-evidence gate.

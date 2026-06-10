@@ -104,6 +104,11 @@ brain_regressions`, `tool: brain_workspace_regressions`, etc.) to
 `mcp-server.log`; the independent audit cross-checks those names when present,
 so future retained Radar proof can show which brain tool the server actually
 handled rather than relying only on agent transcript activity.
+The retained release gate now also counts named-tool MCP datapoints separately
+from basic MCP-verified datapoints and can require named-tool proof by proof
+scope. The current generic MCP-history proof is call-count-backed legacy
+evidence; the citable named-tool MCP proof comes from the Radar suite's retained
+`tool: brain_regressions` logs.
 Radar proof also records only safe MCP boolean arguments (`location_only`,
 `include_deletions`) from structured tool-call events, so the audit can reject a
 would-be location-only proof that actually called the wrong mode without

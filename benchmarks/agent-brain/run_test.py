@@ -1423,6 +1423,27 @@ class CodexAuditScriptTests(unittest.TestCase):
         }
         return record
 
+    def _generic_mcp_release_record(self, suite: str, *, repetition: int, run_id: str) -> dict:
+        record = self._release_record(suite, condition="mcp_history", repetition=repetition, run_id=run_id)
+        names = ["mcp__entire_brain__brain_brief", "mcp__entire_brain__brain_search"]
+        details = [{"name": name, "arguments": {}, "errored": False} for name in names]
+        record["agent_info"]["activity"].update({
+            "used_brain": True,
+            "mcp_tool_calls": 2,
+            "mcp_tool_names": names,
+            "mcp_tool_details": details,
+        })
+        record["mcp_condition_audit"] = {
+            "ok": True,
+            "required": True,
+            "mcp_tool_calls": 2,
+            "mcp_tool_names": names,
+            "mcp_tool_details": details,
+            "direct_brain_cli_calls": 0,
+            "findings": [],
+        }
+        return record
+
     def _workspace_mcp_release_record(self, suite: str, *, repetition: int, run_id: str) -> dict:
         record = self._release_record(suite, condition="mcp_workspace_radar", repetition=repetition, run_id=run_id)
         record["agent_info"]["activity"].update({
@@ -1873,8 +1894,137 @@ class CodexAuditScriptTests(unittest.TestCase):
             )
             report = json.loads((out_dir / "codex-audit-report.json").read_text())
             self.assertEqual(report["totals"]["mcp_verified_records"], 4)
+            self.assertEqual(report["totals"]["mcp_named_tool_verified_records"], 4)
             self.assertEqual(report["totals"]["proof_ready_comparisons_by_scope"], {"mcp_radar_location_only": 1})
+            self.assertEqual(report["totals"]["named_tool_proof_ready_comparisons_by_scope"], {"mcp_radar_location_only": 1})
             self.assertEqual(report["gate_status"]["requirements"]["min_mcp_verified"], 4)
+
+    def test_release_manifest_can_require_named_mcp_tool_records(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            manifest = self._write_release_manifest(out_dir)
+            manifest_data = json.loads(manifest.read_text())
+            manifest_data["required_proof_scopes"] = ["mcp"]
+            manifest_data["minimums"]["mcp_verified_records"] = 4
+            manifest_data["minimums"]["mcp_named_tool_verified_records"] = 1
+            manifest.write_text(json.dumps(manifest_data))
+
+            suite = "release-candidate-legacy-generic-mcp"
+            records = []
+            for i in range(1, 5):
+                records.append(self._release_record(suite, condition="no_brain", repetition=i, run_id=f"base-{i}"))
+                records.append(self._generic_mcp_release_record(suite, repetition=i, run_id=f"mcp-{i}"))
+            suite_dir = self._write_records(results_dir, suite, records)
+            for i in range(1, 5):
+                # Legacy retained MCP logs prove tools/call happened, but do not name
+                # the specific brain tool handled by the server.
+                self._write_mcp_server_log(suite_dir, f"mcp-{i}")
+            (suite_dir / "summary.json").write_text(json.dumps({
+                "comparisons": [{
+                    "task_id": "t",
+                    "runner": "codex",
+                    "condition": "mcp_history",
+                    "delivery_scope": "mcp",
+                    "verdict": "brain_positive",
+                    "proof_ready": True,
+                    "n_condition": 4,
+                    "n_baseline": 4,
+                    "stability": {"tag": "brain_positive_stable"},
+                }]
+            }))
+
+            self.assertEqual(
+                audit_codex.main(["--results", str(results_dir), "--release-manifest", str(manifest), "--out-dir", str(out_dir), "--fail-on-flags"]),
+                1,
+            )
+            report = json.loads((out_dir / "codex-audit-report.json").read_text())
+            self.assertEqual(report["totals"]["mcp_verified_records"], 4)
+            self.assertEqual(report["totals"]["mcp_named_tool_verified_records"], 0)
+            self.assertIn(
+                "mcp_named_tool_verified_records 0 < required 1",
+                report["gate_status"]["failures"],
+            )
+
+    def test_release_manifest_requires_named_mcp_tool_proof_in_configured_scope(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            manifest = self._write_release_manifest(out_dir)
+            manifest_data = json.loads(manifest.read_text())
+            manifest_data["required_proof_scopes"] = ["mcp", "mcp_radar_location_only"]
+            manifest_data["required_named_tool_proof_scopes"] = ["mcp"]
+            manifest_data["minimums"]["mcp_verified_records"] = 8
+            manifest_data["minimums"]["mcp_named_tool_verified_records"] = 4
+            manifest.write_text(json.dumps(manifest_data))
+
+            generic_suite = "release-candidate-legacy-generic-mcp"
+            generic_records = []
+            for i in range(1, 5):
+                generic_records.append(self._release_record(generic_suite, condition="no_brain", repetition=i, run_id=f"base-{i}"))
+                generic_records.append(self._generic_mcp_release_record(generic_suite, repetition=i, run_id=f"mcp-{i}"))
+            generic_dir = self._write_records(results_dir, generic_suite, generic_records)
+            for i in range(1, 5):
+                self._write_mcp_server_log(generic_dir, f"mcp-{i}")
+            (generic_dir / "summary.json").write_text(json.dumps({
+                "comparisons": [{
+                    "task_id": "t",
+                    "runner": "codex",
+                    "condition": "mcp_history",
+                    "delivery_scope": "mcp",
+                    "verdict": "brain_positive",
+                    "proof_ready": True,
+                    "n_condition": 4,
+                    "n_baseline": 4,
+                    "stability": {"tag": "brain_positive_stable"},
+                }]
+            }))
+
+            radar_suite = "release-candidate-radar-mcp"
+            radar_records = []
+            for i in range(1, 5):
+                radar_records.append(self._release_record(radar_suite, condition="no_brain", repetition=i, run_id=f"radar-base-{i}"))
+                radar_records.append(self._mcp_release_record(radar_suite, repetition=i, run_id=f"radar-{i}"))
+            radar_dir = self._write_records(results_dir, radar_suite, radar_records)
+            for i in range(1, 5):
+                self._write_mcp_server_log(radar_dir, f"radar-{i}", "brain_regressions")
+            (radar_dir / "summary.json").write_text(json.dumps({
+                "comparisons": [{
+                    "task_id": "t",
+                    "runner": "codex",
+                    "condition": "mcp_history",
+                    "delivery_scope": "mcp_radar_location_only",
+                    "env_flags": {"BENCH_RADAR_LOCATION_ONLY": "1"},
+                    "verdict": "brain_positive",
+                    "proof_ready": True,
+                    "n_condition": 4,
+                    "n_baseline": 4,
+                    "stability": {"tag": "brain_positive_stable"},
+                }]
+            }))
+
+            self.assertEqual(
+                audit_codex.main(["--results", str(results_dir), "--release-manifest", str(manifest), "--out-dir", str(out_dir), "--fail-on-flags"]),
+                1,
+            )
+            report = json.loads((out_dir / "codex-audit-report.json").read_text())
+            self.assertEqual(report["totals"]["mcp_verified_records"], 8)
+            self.assertEqual(report["totals"]["mcp_named_tool_verified_records"], 4)
+            self.assertEqual(report["totals"]["proof_ready_comparisons_by_scope"], {"mcp": 1, "mcp_radar_location_only": 1})
+            self.assertEqual(report["totals"]["named_tool_proof_ready_comparisons_by_scope"], {"mcp_radar_location_only": 1})
+            self.assertIn(
+                "named_tool_proof_ready_comparisons[mcp] 0 < required 1",
+                report["gate_status"]["failures"],
+            )
+
+            manifest_data["required_named_tool_proof_scopes"] = ["mcp_radar_location_only"]
+            manifest.write_text(json.dumps(manifest_data))
+            self.assertEqual(
+                audit_codex.main(["--results", str(results_dir), "--release-manifest", str(manifest), "--out-dir", str(out_dir), "--fail-on-flags"]),
+                0,
+            )
+            passing = json.loads((out_dir / "codex-audit-report.json").read_text())
+            self.assertEqual(passing["gate_status"]["requirements"]["required_named_tool_proof_scopes"], ["mcp_radar_location_only"])
 
     def test_audit_codex_requires_mcp_verified_records_for_mcp_comparison_backing(self):
         with tempfile.TemporaryDirectory() as results:

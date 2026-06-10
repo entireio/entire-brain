@@ -330,12 +330,15 @@
             "condition_records": 4,
             "baseline_records": 4,
             "condition_mcp_verified_records": 0,
+            "condition_mcp_named_tool_verified_records": 0,
             "condition_unique_run_ids": 4,
             "baseline_unique_run_ids": 4,
             "condition_mcp_verified_unique_run_ids": 0,
+            "condition_mcp_named_tool_verified_unique_run_ids": 0,
             "condition_unique_repetitions": 4,
             "baseline_unique_repetitions": 4,
             "condition_mcp_verified_unique_repetitions": 0,
+            "condition_mcp_named_tool_verified_unique_repetitions": 0,
             "required_condition": 4,
             "required_baseline": 4,
             "required_delivery_scope": null,
@@ -343,6 +346,7 @@
             "condition_records_ok": true,
             "baseline_records_ok": true,
             "condition_mcp_verified_ok": true,
+            "condition_mcp_named_tool_verified_ok": false,
             "ok": true
           }
         }
@@ -350,6 +354,7 @@
       "n_records": 8,
       "n_flagged_records": 0,
       "n_mcp_verified": 0,
+      "n_mcp_named_tool_verified": 0,
       "n_provenance_ok": 8,
       "n_proof_ready_comparisons": 1,
       "n_proof_ready_comparisons_by_scope": {
@@ -690,12 +695,15 @@
             "condition_records": 4,
             "baseline_records": 4,
             "condition_mcp_verified_records": 4,
+            "condition_mcp_named_tool_verified_records": 0,
             "condition_unique_run_ids": 4,
             "baseline_unique_run_ids": 4,
             "condition_mcp_verified_unique_run_ids": 4,
+            "condition_mcp_named_tool_verified_unique_run_ids": 0,
             "condition_unique_repetitions": 4,
             "baseline_unique_repetitions": 4,
             "condition_mcp_verified_unique_repetitions": 4,
+            "condition_mcp_named_tool_verified_unique_repetitions": 0,
             "required_condition": 4,
             "required_baseline": 4,
             "required_delivery_scope": "mcp",
@@ -703,6 +711,7 @@
             "condition_records_ok": true,
             "baseline_records_ok": true,
             "condition_mcp_verified_ok": true,
+            "condition_mcp_named_tool_verified_ok": false,
             "ok": true
           }
         }
@@ -710,6 +719,7 @@
       "n_records": 8,
       "n_flagged_records": 0,
       "n_mcp_verified": 4,
+      "n_mcp_named_tool_verified": 0,
       "n_provenance_ok": 8,
       "n_proof_ready_comparisons": 1,
       "n_proof_ready_comparisons_by_scope": {
@@ -1097,12 +1107,15 @@
             "condition_records": 4,
             "baseline_records": 4,
             "condition_mcp_verified_records": 4,
+            "condition_mcp_named_tool_verified_records": 4,
             "condition_unique_run_ids": 4,
             "baseline_unique_run_ids": 4,
             "condition_mcp_verified_unique_run_ids": 4,
+            "condition_mcp_named_tool_verified_unique_run_ids": 4,
             "condition_unique_repetitions": 4,
             "baseline_unique_repetitions": 4,
             "condition_mcp_verified_unique_repetitions": 4,
+            "condition_mcp_named_tool_verified_unique_repetitions": 4,
             "required_condition": 4,
             "required_baseline": 4,
             "required_delivery_scope": "mcp_radar_location_only",
@@ -1110,6 +1123,7 @@
             "condition_records_ok": true,
             "baseline_records_ok": true,
             "condition_mcp_verified_ok": true,
+            "condition_mcp_named_tool_verified_ok": true,
             "ok": true
           }
         }
@@ -1117,6 +1131,7 @@
       "n_records": 8,
       "n_flagged_records": 0,
       "n_mcp_verified": 4,
+      "n_mcp_named_tool_verified": 4,
       "n_provenance_ok": 8,
       "n_proof_ready_comparisons": 1,
       "n_proof_ready_comparisons_by_scope": {
@@ -1129,11 +1144,15 @@
     "records": 24,
     "hard_flags": 0,
     "mcp_verified_records": 8,
+    "mcp_named_tool_verified_records": 4,
     "provenance_ok_records": 24,
     "proof_ready_comparisons": 3,
     "proof_ready_comparisons_by_scope": {
       "history": 1,
       "mcp": 1,
+      "mcp_radar_location_only": 1
+    },
+    "named_tool_proof_ready_comparisons_by_scope": {
       "mcp_radar_location_only": 1
     },
     "flag_kinds": {},
@@ -1152,11 +1171,15 @@
     ],
     "min_repetitions_per_side": 4,
     "min_mcp_verified": 8,
+    "min_mcp_named_tool_verified": 4,
     "require_panel_provenance": true,
     "require_proof_ready_per_suite": true,
     "required_proof_scopes": [
       "history",
       "mcp",
+      "mcp_radar_location_only"
+    ],
+    "required_named_tool_proof_scopes": [
       "mcp_radar_location_only"
     ]
   },
@@ -1168,11 +1191,15 @@
       "min_records": 24,
       "min_proof_ready": 3,
       "min_mcp_verified": 8,
+      "min_mcp_named_tool_verified": 4,
       "hard_flags": 0,
       "require_proof_ready_per_suite": true,
       "required_proof_scopes": [
         "history",
         "mcp",
+        "mcp_radar_location_only"
+      ],
+      "required_named_tool_proof_scopes": [
         "mcp_radar_location_only"
       ]
     },

@@ -390,10 +390,11 @@ Release claims must stay local-first and evidence-backed:
   `mise run release:evidence:update`.
 - MCP/Regression Radar release evidence is now separately auditable: benchmark
   summaries carry additive `delivery_scope`/`env_flags`, the independent auditor
-  can require `minimums.mcp_verified_records`, and radar location-only delivery
-  is counted as `mcp_radar_location_only` rather than folded into generic
-  history proof. Proof-ready MCP-backed comparisons must now be backed by their
-  own MCP-verified condition records, so a global MCP minimum from another suite
+  can require both `minimums.mcp_verified_records` and
+  `minimums.mcp_named_tool_verified_records`, and radar location-only delivery is
+  counted as `mcp_radar_location_only` rather than folded into generic history
+  proof. Proof-ready MCP-backed comparisons must now be backed by their own
+  MCP-verified condition records, so a global MCP minimum from another suite
   cannot make a weak Radar comparison citable. The Radar evidence gate also
   cross-checks `summary.json` pass rates and record counts against the audited
   record rows, so a stale summary cannot become citable proof. Workspace radar
@@ -401,16 +402,17 @@ Release claims must stay local-first and evidence-backed:
   `mcp_workspace_radar` condition prepares a local workspace, requires the
   `brain_workspace_regressions` MCP tool, and audits successful comparisons as
   `mcp_workspace_radar_location_only`.
-- MCP proof authenticity now has a stronger path for new retained runs: the
-  stdio server keeps the legacy `message: tools/call` count line and also emits
-  redacted `tool: brain_*` and safe boolean `tool_args` lines to the debug log.
-  The independent auditor requires those server-side tool names for Radar proof
-  scopes such as `mcp_radar_location_only` and
-  `mcp_workspace_radar_location_only`. Generic retained MCP-history proof still
+- MCP proof authenticity now has an explicit named-tool gate: the stdio server
+  keeps the legacy `message: tools/call` count line and also emits redacted
+  `tool: brain_*` and safe boolean `tool_args` lines to the debug log. The
+  independent auditor counts server-side named-tool records separately from basic
+  MCP-verified records, and the committed release manifest requires 4 named-tool
+  MCP datapoints plus a named-tool proof-ready comparison in the
+  `mcp_radar_location_only` scope. Generic retained MCP-history proof still
   requires real `tools/call` lines before records count as MCP-verified, but
-  older count-only logs remain legacy server-call proof rather than named Radar
-  tool proof. New retained runs should carry call counts, tool-name lines, and
-  safe boolean argument lines.
+  older count-only logs remain legacy server-call proof rather than named-tool
+  proof. New retained runs should carry call counts, tool-name lines, and safe
+  boolean argument lines.
 - MCP argument contracts now fail closed: schemas advertise
   `additionalProperties: false`, unknown keys are rejected, string fields and
   string-array fields must have the advertised type, and Radar MCP proof records
@@ -454,8 +456,7 @@ Release claims must stay local-first and evidence-backed:
   `release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress`
   passed the independent release and Radar evidence gates: no-brain passed 1/4,
   Radar MCP passed 4/4, mean score improved 77.25 -> 92.25, and the audit kept 4
-  server-log-backed Radar MCP records under the `mcp_radar_location_only` proof
-  scope.
+  server-named Radar MCP records under the `mcp_radar_location_only` proof scope.
 - The committed `release-entire-cli-mcp-manual-attribution` panel targets a
   harder MCP-history proof lane on `cli-bench`: it regresses the manual-commit
   attribution-base invariant and requires `mcp_history` to surface the prior
@@ -467,7 +468,8 @@ Release claims must stay local-first and evidence-backed:
   passed 4/4, mean score improved `76.25 -> 92.0`, stability was
   `brain_positive_stable`, and the independent audit found 4 MCP-verified
   records with zero hard flags. This is citable as an MCP correctness/pass-rate
-  proof, not an efficiency proof, because the MCP arm used more mean time and
+  proof, not named-tool MCP proof or efficiency proof, because its retained
+  server logs are legacy count-only logs and the MCP arm used more mean time and
   tokens.
 - The query default-limit benchmark tasks now target the current unified
   retrieval implementation in `internal/cli/retrieve_cmd.go`, including the
@@ -558,7 +560,7 @@ repo/access/artifacts are available:
   comparison, deletion-aware MCP arguments when the task requests deletion
   signals, committed sanitized artifacts under
   `benchmarks/agent-brain/evidence/release`, and retained `mcp-server.log`
-  files with server-backed tool-call proof.
+  files with server-backed named-tool proof.
 - Semantic benchmark evidence from a retained proof suite. A clean local
   `semantic-audit --json --fail-on release` run after refreshing the semantic
   index is recorded above, but it is regenerated local coverage evidence, not a
@@ -575,10 +577,12 @@ repo/access/artifacts are available:
   repetitions per side, zero hard flags, at least one proof-ready comparison
   overall, at least one proof-ready comparison per retained suite, and at least
   one proof-ready comparison for each manifest-required proof scope. Manifests
-  can also require a minimum count of integrity-verified MCP datapoints. The
-  committed release lane currently requires `history`, `mcp`, and
-  `mcp_radar_location_only` scopes, so it cannot be cited as semantic or facts
-  proof by aggregation. The
+  can also require minimum counts for integrity-verified MCP datapoints and
+  server-named MCP datapoints, and can require named-tool proof-ready comparisons
+  for specific scopes. The committed release lane currently requires `history`,
+  `mcp`, and `mcp_radar_location_only` scopes plus 4 named-tool MCP datapoints
+  and named-tool proof in `mcp_radar_location_only`, so it cannot be cited as
+  semantic or facts proof by aggregation. The
   check writes Codex and Radar reports to a temp directory and compares them
   with committed reports; updating retained reports is explicit via
   `mise run release:evidence:update`.

@@ -14,11 +14,18 @@ repetitions per side, retained panel provenance, and the manifest's required
 proof scopes.
 For MCP-backed scopes, the proof-ready comparison must be backed by matching
 MCP-verified condition records; a separate suite's MCP count cannot satisfy the
-comparison backing. Radar proof also requires the matching server-side MCP tool
-name for Radar scopes, rechecks `summary.json` pass rates and record counts
-against the audited record rows, and rejects deletion Radar records whose
-captured safe boolean tool arguments did not include `include_deletions: true`,
-so a stale or hand-edited summary cannot become citable evidence.
+comparison backing. The manifest additionally requires at least four
+server-named MCP datapoints, so retained evidence must include proof that the
+server handled the expected brain tool, not just that some MCP call happened.
+It also requires the `mcp_radar_location_only` proof scope to be backed by a
+named-tool proof-ready comparison, so named generic MCP records cannot substitute
+for Radar proof and Radar records cannot silently upgrade older generic MCP
+evidence.
+Radar proof requires the matching server-side MCP tool name for Radar scopes,
+rechecks `summary.json` pass rates and record counts against the audited record
+rows, and rejects deletion Radar records whose captured safe boolean tool
+arguments did not include `include_deletions: true`, so a stale or hand-edited
+summary cannot become citable evidence.
 Today those scopes are `history`, `mcp`, and `mcp_radar_location_only`, so this
 directory cannot be used as semantic or facts proof by aggregation. Historical,
 exploratory, quarantine, or `release-local-*` suites under
@@ -45,7 +52,9 @@ Current retained proof:
   focused MCP-history manual-attribution task, 4 repetitions per side. No-brain
   passed 1/4, `mcp_history` passed 4/4, mean score improved 76.25 -> 92.0, and
   the retained audit requires 4 MCP-verified records. This supports a
-  correctness/pass-rate claim only; the MCP arm used more time and tokens.
+  correctness/pass-rate claim only; its older retained `mcp-server.log` files
+  prove server `tools/call` counts but do not include named `tool:` lines, so it
+  is not named-tool MCP proof. The MCP arm used more time and tokens.
 - `release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress`:
   one focused location-only Regression Radar MCP task, 4 repetitions per side.
   No-brain passed 1/4, `mcp_history` with `brain_regressions(location_only,
