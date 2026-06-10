@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -1661,6 +1662,9 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
 
 
 class DistillPerfAuditScriptTests(unittest.TestCase):
+    def _sha256(self, path: pathlib.Path) -> str:
+        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
     def _write_distill_perf_fixture(self, root: pathlib.Path, *, speedup: float = 2.0, mismatch: bool = False) -> pathlib.Path:
         dry = {
             "schema_version": 1,
@@ -1728,15 +1732,28 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
         parallel = run(4, 4, parallel_seconds)
         if mismatch:
             parallel["facts"] = 79
-        (root / "dry-run.json").write_text(json.dumps(dry))
-        (root / "jobs-1.json").write_text(json.dumps(serial))
-        (root / "jobs-4.json").write_text(json.dumps(parallel))
+        dry_path = root / "dry-run.json"
+        serial_path = root / "jobs-1.json"
+        parallel_path = root / "jobs-4.json"
+        dry_path.write_text(json.dumps(dry))
+        serial_path.write_text(json.dumps(serial))
+        parallel_path.write_text(json.dumps(parallel))
         manifest = root / "manifest.json"
         manifest.write_text(json.dumps({
             "schema": 1,
             "dry_run": "dry-run.json",
             "serial_run": "jobs-1.json",
             "parallel_run": "jobs-4.json",
+            "artifact_sha256": {
+                "dry_run": self._sha256(dry_path),
+                "serial_run": self._sha256(serial_path),
+                "parallel_run": self._sha256(parallel_path),
+            },
+            "commands": {
+                "dry_run": ["entire", "brain", "distill", "--dry-run", "--json", "--agent", "ollama", "--model", "llama3.2", "--force", "--jobs", "1", "--confidence", "0.75"],
+                "serial_run": ["entire", "brain", "distill", "--json", "--agent", "ollama", "--model", "llama3.2", "--force", "--jobs", "1", "--confidence", "0.75"],
+                "parallel_run": ["entire", "brain", "distill", "--json", "--agent", "ollama", "--model", "llama3.2", "--force", "--jobs", "4", "--confidence", "0.75"],
+            },
             "min_speedup": 1.25,
         }))
         return manifest
@@ -1761,6 +1778,19 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
             self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
             mismatch = json.loads((pathlib.Path(out) / "distill-perf-audit-report.json").read_text())
             self.assertIn("serial/parallel mismatch: facts", mismatch["flags"])
+
+    def test_distill_perf_audit_rejects_bad_hash_or_command_provenance(self):
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
+            root_path = pathlib.Path(root)
+            manifest = self._write_distill_perf_fixture(root_path)
+            data = json.loads(manifest.read_text())
+            data["artifact_sha256"]["serial_run"] = "sha256:" + "0" * 64
+            data["commands"]["parallel_run"] = ["entire", "brain", "distill", "--json", "--agent", "auto", "--force", "--jobs", "4", "--confidence", "0.75"]
+            manifest.write_text(json.dumps(data))
+            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
+            report = json.loads((pathlib.Path(out) / "distill-perf-audit-report.json").read_text())
+            self.assertIn("artifact_sha256.serial_run mismatch", report["flags"])
+            self.assertIn("commands.parallel_run: --agent must match artifact agent", report["flags"])
 
 
 if __name__ == "__main__":

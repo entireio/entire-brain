@@ -12,9 +12,16 @@ To become release-citable, a future `manifest.json` in this directory must name:
 - one parallel timed `entire brain distill --json --jobs N` artifact from the
   same target repo/cache state, same agent/model/effort, same branch/force/chunk
   settings, and zero failed chunks;
+- `artifact_sha256` entries for the three retained JSON artifacts;
+- `commands` arrays with the exact retained command tokens for dry-run, serial,
+  and parallel runs. Use an explicit `--agent`; do not rely on `auto`;
 - a `min_speedup` threshold greater than `1.0`.
 
 Run `mise run distill:evidence` after committing artifacts. The validator fails
-if the run configs differ, the serial/parallel output summaries differ, the
-parallel run uses only one effective job, or the observed `total_seconds`
-speedup does not meet the manifest threshold.
+if artifact hashes or command provenance do not match, the dry-run has missing
+transcripts or warnings, branch totals do not add up, run configs differ,
+cache-hit counts do not match, warnings or failed chunks are present,
+serial/parallel output summaries differ, reconcile calls exceed the dry-run
+upper bound, timing components exceed `total_seconds`, the parallel run uses
+only one effective job, or the observed `total_seconds` speedup does not meet
+the manifest threshold.

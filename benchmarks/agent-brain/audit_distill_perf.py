@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import sys
@@ -16,6 +17,14 @@ def load_json(path: pathlib.Path) -> Any:
         raise SystemExit(f"artifact not found: {path}") from exc
     except json.JSONDecodeError as exc:
         raise SystemExit(f"artifact is not valid JSON: {path}: {exc}") from exc
+
+
+def file_sha256(path: pathlib.Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return "sha256:" + digest.hexdigest()
 
 
 def get(d: Any, *path: str, default: Any = None) -> Any:
@@ -52,6 +61,12 @@ def validate_manifest(data: Any) -> None:
     for field in ("dry_run", "serial_run", "parallel_run"):
         if not isinstance(data.get(field), str) or not data.get(field):
             raise SystemExit(f"distill perf manifest requires {field}")
+    hashes = data.get("artifact_sha256")
+    if not isinstance(hashes, dict):
+        raise SystemExit("distill perf manifest requires artifact_sha256")
+    commands = data.get("commands")
+    if not isinstance(commands, dict):
+        raise SystemExit("distill perf manifest requires commands")
 
 
 def config_tuple(record: dict[str, Any]) -> tuple[Any, ...]:
@@ -66,6 +81,80 @@ def config_tuple(record: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
+def command_tokens(manifest: dict[str, Any], key: str, flags: list[str]) -> list[str]:
+    tokens = get(manifest, "commands", key)
+    if not isinstance(tokens, list) or not all(isinstance(t, str) and t for t in tokens):
+        flags.append(f"commands.{key} must be a non-empty string array")
+        return []
+    return tokens
+
+
+def flag_value(tokens: list[str], name: str) -> str | None:
+    for index, token in enumerate(tokens):
+        if token == name:
+            if index + 1 >= len(tokens):
+                return ""
+            return tokens[index + 1]
+        prefix = name + "="
+        if token.startswith(prefix):
+            return token[len(prefix):]
+    return None
+
+
+def require_flag(tokens: list[str], name: str, label: str, flags: list[str]) -> None:
+    if name not in tokens and not any(token.startswith(name + "=") for token in tokens):
+        flags.append(f"{label}: retained command must include {name}")
+
+
+def validate_command(key: str, tokens: list[str], record: dict[str, Any], flags: list[str], *, dry_run: bool) -> None:
+    label = f"commands.{key}"
+    if not tokens:
+        return
+    if "distill" not in tokens:
+        flags.append(f"{label}: retained command must invoke distill")
+    require_flag(tokens, "--json", label, flags)
+    if dry_run:
+        require_flag(tokens, "--dry-run", label, flags)
+    agent = record.get("agent")
+    if agent in ("", None, "auto"):
+        flags.append(f"{key}: agent must be explicit, not {agent!r}")
+    if flag_value(tokens, "--agent") != agent:
+        flags.append(f"{label}: --agent must match artifact agent")
+    if record.get("model") and flag_value(tokens, "--model") != record.get("model"):
+        flags.append(f"{label}: --model must match artifact model")
+    if record.get("effort") and flag_value(tokens, "--effort") != record.get("effort"):
+        flags.append(f"{label}: --effort must match artifact effort")
+    if record.get("branch") and flag_value(tokens, "--branch") != record.get("branch"):
+        flags.append(f"{label}: --branch must match artifact branch")
+    if record.get("force") is True:
+        require_flag(tokens, "--force", label, flags)
+    if str(record.get("jobs")) != str(flag_value(tokens, "--jobs")):
+        flags.append(f"{label}: --jobs must match artifact jobs")
+    if str(record.get("confidence_threshold")) != str(flag_value(tokens, "--confidence")):
+        flags.append(f"{label}: --confidence must match artifact confidence_threshold")
+
+
+def validate_artifact_hashes(manifest: dict[str, Any], paths: dict[str, pathlib.Path], flags: list[str]) -> None:
+    for key, path in paths.items():
+        expected = get(manifest, "artifact_sha256", key)
+        if not isinstance(expected, str) or not expected.startswith("sha256:"):
+            flags.append(f"artifact_sha256.{key} must be present")
+            continue
+        actual = file_sha256(path)
+        if actual != expected:
+            flags.append(f"artifact_sha256.{key} mismatch")
+
+
+def validate_branch_sums(dry: dict[str, Any], flags: list[str]) -> None:
+    branches = dry.get("branches")
+    if not isinstance(branches, list) or not branches:
+        return
+    for field in ("sessions", "cached_sessions", "sessions_to_distill", "chunks", "chunks_if_uncached", "preprocessed_bytes"):
+        total = sum(branch.get(field, 0) for branch in branches if isinstance(branch, dict))
+        if total != dry.get(field):
+            flags.append(f"dry_run: branch {field} sum {total} != total {dry.get(field)}")
+
+
 def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
     manifest_path = manifest_path.resolve()
     root = manifest_path.parent
@@ -74,9 +163,15 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
 
     flags: list[str] = []
     notes: list[str] = []
-    dry = load_json(manifest_artifact(root, manifest["dry_run"], "dry_run"))
-    serial = load_json(manifest_artifact(root, manifest["serial_run"], "serial_run"))
-    parallel = load_json(manifest_artifact(root, manifest["parallel_run"], "parallel_run"))
+    paths = {
+        "dry_run": manifest_artifact(root, manifest["dry_run"], "dry_run"),
+        "serial_run": manifest_artifact(root, manifest["serial_run"], "serial_run"),
+        "parallel_run": manifest_artifact(root, manifest["parallel_run"], "parallel_run"),
+    }
+    validate_artifact_hashes(manifest, paths, flags)
+    dry = load_json(paths["dry_run"])
+    serial = load_json(paths["serial_run"])
+    parallel = load_json(paths["parallel_run"])
 
     if not isinstance(dry, dict) or not isinstance(serial, dict) or not isinstance(parallel, dict):
         raise SystemExit("distill perf artifacts must be JSON objects")
@@ -86,14 +181,28 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
     for field in ("sessions", "sessions_to_distill", "chunks", "chunks_if_uncached", "raw_bytes", "preprocessed_bytes", "extraction_agent_calls", "estimated_agent_calls_upper_bound"):
         if not positive_number(dry.get(field)):
             flags.append(f"dry_run: {field} must be positive")
+    if dry.get("missing_transcripts") != 0:
+        flags.append("dry_run: missing_transcripts must be 0")
+    if dry.get("warnings"):
+        flags.append("dry_run: warnings must be empty")
     if dry.get("chunks") != dry.get("extraction_agent_calls"):
         flags.append("dry_run: extraction_agent_calls must equal chunks")
-    if dry.get("estimated_agent_calls_upper_bound", 0) < dry.get("extraction_agent_calls", 0):
-        flags.append("dry_run: estimated_agent_calls_upper_bound must cover extraction calls")
+    if dry.get("estimated_agent_calls_upper_bound") != dry.get("extraction_agent_calls", 0) + dry.get("reconcile_agent_calls_upper_bound", 0):
+        flags.append("dry_run: estimated_agent_calls_upper_bound must equal extraction + reconcile upper bound")
     if not isinstance(dry.get("branches"), list) or not dry.get("branches"):
         flags.append("dry_run: branches must be non-empty")
     if not isinstance(dry.get("largest_sessions"), list) or not dry.get("largest_sessions"):
         flags.append("dry_run: largest_sessions must be non-empty")
+    validate_branch_sums(dry, flags)
+
+    dry_tokens = command_tokens(manifest, "dry_run", flags)
+    serial_tokens = command_tokens(manifest, "serial_run", flags)
+    parallel_tokens = command_tokens(manifest, "parallel_run", flags)
+    validate_command("dry_run", dry_tokens, dry, flags, dry_run=True)
+    validate_command("serial_run", serial_tokens, serial, flags, dry_run=False)
+    validate_command("parallel_run", parallel_tokens, parallel, flags, dry_run=False)
+    if not (dry.get("force") and serial.get("force") and parallel.get("force")) and manifest.get("cache_state") != "cleared_before_each_run":
+        flags.append("cache_state: non-force evidence requires cache_state=cleared_before_each_run")
 
     expected_config = config_tuple(dry)
     for label, run in (("serial_run", serial), ("parallel_run", parallel)):
@@ -106,12 +215,21 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
         for field in ("extraction_seconds", "reconcile_seconds", "write_seconds"):
             if not nonnegative_number(run.get(field)):
                 flags.append(f"{label}: {field} must be non-negative")
+        component_seconds = sum(float(run.get(field) or 0) for field in ("extraction_seconds", "reconcile_seconds", "write_seconds"))
+        if positive_number(run.get("total_seconds")) and component_seconds > float(run["total_seconds"]) + 0.01:
+            flags.append(f"{label}: timing components exceed total_seconds")
         if not isinstance(run.get("extraction_agent_calls"), int) or run.get("extraction_agent_calls") <= 0:
             flags.append(f"{label}: extraction_agent_calls must be positive")
-        if not isinstance(run.get("total_agent_calls"), int) or run.get("total_agent_calls") < run.get("extraction_agent_calls", 0):
-            flags.append(f"{label}: total_agent_calls must cover extraction_agent_calls")
+        if run.get("total_agent_calls") != run.get("extraction_agent_calls", 0) + run.get("reconcile_agent_calls", 0):
+            flags.append(f"{label}: total_agent_calls must equal extraction + reconcile calls")
+        if run.get("reconcile_agent_calls", 0) > dry.get("reconcile_agent_calls_upper_bound", 0):
+            flags.append(f"{label}: reconcile_agent_calls exceeds dry-run upper bound")
+        if run.get("cache_hits") != dry.get("cached_sessions"):
+            flags.append(f"{label}: cache_hits differs from dry_run cached_sessions")
         if run.get("failed_chunks", 0) != 0:
             flags.append(f"{label}: failed_chunks must be 0")
+        if run.get("warnings"):
+            flags.append(f"{label}: warnings must be empty")
         if run.get("preprocessed_bytes") != dry.get("preprocessed_bytes"):
             flags.append(f"{label}: preprocessed_bytes differs from dry_run")
         if run.get("chunks_scanned") != dry.get("chunks"):

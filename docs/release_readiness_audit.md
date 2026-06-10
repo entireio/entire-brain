@@ -33,9 +33,12 @@ Implemented claim-control surfaces:
 - `benchmarks/agent-brain/audit_distill_perf.py` audits retained performance
   artifacts for release proof: one dry-run JSON, one timed `--jobs 1` summary,
   and one timed `--jobs N` summary. It requires matching agent/model/branch/force
-  / chunk / confidence config, comparable chunk/call/output summaries, zero
-  failed chunks, effective parallelism greater than 1, and observed
-  `total_seconds` speedup above the manifest's `min_speedup`.
+  / chunk / confidence config, retained artifact hashes, retained command-token
+  provenance with an explicit non-`auto` agent, no missing transcripts, branch
+  totals that add up, matching cache-hit counts, no warnings or failed chunks,
+  bounded reconcile calls, timing components that fit under `total_seconds`,
+  comparable chunk/call/output summaries, effective parallelism greater than 1,
+  and observed `total_seconds` speedup above the manifest's `min_speedup`.
 - `mise run distill:evidence` checks committed large-repo distill artifacts
   without rewriting them, while `distill:evidence:update` regenerates the audit
   report only after the validator passes. Today the task is intentionally
