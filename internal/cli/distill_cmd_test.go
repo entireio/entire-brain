@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -803,6 +804,41 @@ func TestRunDistillForBrainConcurrentChunks(t *testing.T) {
 	}
 	if maxInFlight > 3 {
 		t.Errorf("max in flight %d exceeds concurrency 3", maxInFlight)
+	}
+}
+
+func TestChunkPrefetchLookaheadBoundedByConsumption(t *testing.T) {
+	// A pool slot is held until the consumer reads the result, so dispatch can
+	// run at most `concurrency` calls ahead of consumption. With a consumer
+	// that aborts after 5 results, total launched calls must stay within
+	// consumed+concurrency — a completion-released slot would instead let the
+	// dispatcher launch (and bill) all 40 chunks while the consumer lagged.
+	chunks := make([]transcriptChunk, 40)
+	for i := range chunks {
+		chunks[i] = transcriptChunk{StartLine: i + 1, EndLine: i + 1, Text: "x"}
+	}
+	var mu sync.Mutex
+	calls := 0
+	failingRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		return "", errors.New("agent down")
+	}
+	const concurrency = 3
+	prefetch := startChunkPrefetch(context.Background(), failingRun, t.TempDir(), nil, chunks, time.Minute, concurrency)
+	const consumed = 5
+	for i := 0; i < consumed; i++ {
+		if _, err := prefetch.result(i); err == nil {
+			t.Fatal("expected agent error")
+		}
+	}
+	prefetch.stop()
+	mu.Lock()
+	launched := calls
+	mu.Unlock()
+	if launched > consumed+concurrency {
+		t.Errorf("dispatcher launched %d calls after %d were consumed (concurrency %d); lookahead is not consumption-bounded", launched, consumed, concurrency)
 	}
 }
 

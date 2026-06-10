@@ -67,22 +67,32 @@ func capWarnings(warnings []string, max int) []string {
 // execDistillAgent, shells out).
 type distillAgentRunner func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error)
 
-// agentCallResult carries one prefetched distill-agent call result.
+// agentCallResult carries one prefetched distill-agent call result. holdsSlot
+// marks results produced by a launched worker, whose pool slot result() must
+// release on consumption (cancellation fills abandoned chunks without a slot).
 type agentCallResult struct {
-	out string
-	err error
+	out       string
+	err       error
+	holdsSlot bool
 }
 
 // chunkPrefetcher runs the distill agent over a session's chunks up to
-// `concurrency` calls in flight ahead of the consumer. Results are delivered
-// strictly in chunk order via result(i), so the consumer loop — parsing,
-// reconciling, applying fact actions — keeps its exact serial semantics
-// (reconcile mutates the branch fact store and must see chunks in order); only
-// the agent round-trips overlap. stop() cancels unlaunched and in-flight calls;
-// the per-chunk result channels are buffered so abandoned workers can deliver
-// and exit without a reader.
+// `concurrency` calls ahead of the consumer. Results are delivered strictly in
+// chunk order via result(i), so the consumer loop — parsing, reconciling,
+// applying fact actions — keeps its exact serial semantics (reconcile mutates
+// the branch fact store and must see chunks in order); only the agent
+// round-trips overlap. A pool slot is held from a call's launch until its
+// result is CONSUMED, not merely until the worker completes: lookahead is
+// bounded by consumer position, so at most `concurrency` completed results are
+// ever buffered, and an early abort stops dispatch within `concurrency` calls
+// of the last one consumed (a completion-released slot would let the
+// dispatcher launch — and bill — every remaining chunk while the consumer was
+// stuck behind one slow result). stop() cancels unlaunched and in-flight
+// calls; the per-chunk result channels are buffered so abandoned workers can
+// deliver and exit without a reader.
 type chunkPrefetcher struct {
 	results []chan agentCallResult
+	sem     chan struct{}
 	cancel  context.CancelFunc
 }
 
@@ -91,32 +101,38 @@ func startChunkPrefetch(ctx context.Context, run distillAgentRunner, dir string,
 		concurrency = 1
 	}
 	pctx, cancel := context.WithCancel(ctx)
-	p := &chunkPrefetcher{results: make([]chan agentCallResult, len(chunks)), cancel: cancel}
+	p := &chunkPrefetcher{results: make([]chan agentCallResult, len(chunks)), sem: make(chan struct{}, concurrency), cancel: cancel}
 	for i := range p.results {
 		p.results[i] = make(chan agentCallResult, 1)
 	}
-	sem := make(chan struct{}, concurrency)
 	go func() {
 		for i := range chunks {
+			if pctx.Err() != nil { // don't race a freed slot against cancellation
+				p.results[i] <- agentCallResult{err: pctx.Err()}
+				continue
+			}
 			select {
-			case sem <- struct{}{}:
+			case p.sem <- struct{}{}:
 			case <-pctx.Done():
 				p.results[i] <- agentCallResult{err: pctx.Err()}
 				continue
 			}
 			go func(i int) {
-				defer func() { <-sem }()
 				out, err := run(pctx, dir, args, []byte(chunks[i].Text), timeout)
-				p.results[i] <- agentCallResult{out: out, err: err}
+				p.results[i] <- agentCallResult{out: out, err: err, holdsSlot: true}
 			}(i)
 		}
 	}()
 	return p
 }
 
-// result blocks until chunk i's agent call completes and returns its output.
+// result blocks until chunk i's agent call completes and returns its output,
+// releasing the call's pool slot so the dispatcher may launch the next chunk.
 func (p *chunkPrefetcher) result(i int) (string, error) {
 	r := <-p.results[i]
+	if r.holdsSlot {
+		<-p.sem
+	}
 	return r.out, r.err
 }
 
