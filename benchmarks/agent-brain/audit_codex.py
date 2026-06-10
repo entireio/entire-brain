@@ -199,6 +199,14 @@ def bare_mcp_tool_name(name: Any) -> str:
     return text
 
 
+def args_match_required(args: dict[str, Any], required_args: dict[str, bool]) -> bool:
+    return all(args.get(key) is value for key, value in required_args.items())
+
+
+def args_match_forbidden(args: dict[str, Any], forbidden_args: dict[str, bool]) -> bool:
+    return any(args.get(key) is value for key, value in forbidden_args.items())
+
+
 def activity_has_mcp_call_with_args(activity: dict[str, Any], tool: str, required_args: dict[str, bool]) -> bool:
     details = activity.get("mcp_tool_details") if isinstance(activity.get("mcp_tool_details"), list) else []
     for detail in details:
@@ -210,7 +218,23 @@ def activity_has_mcp_call_with_args(activity: dict[str, Any], tool: str, require
         if detail.get("errored"):
             continue
         args = detail.get("arguments") if isinstance(detail.get("arguments"), dict) else {}
-        if all(args.get(key) is value for key, value in required_args.items()):
+        if args_match_required(args, required_args):
+            return True
+    return False
+
+
+def activity_has_mcp_call_with_forbidden_args(activity: dict[str, Any], tool: str, forbidden_args: dict[str, bool]) -> bool:
+    details = activity.get("mcp_tool_details") if isinstance(activity.get("mcp_tool_details"), list) else []
+    for detail in details:
+        if not isinstance(detail, dict):
+            continue
+        name = bare_mcp_tool_name(detail.get("name"))
+        if name != tool:
+            continue
+        if detail.get("errored"):
+            continue
+        args = detail.get("arguments") if isinstance(detail.get("arguments"), dict) else {}
+        if args_match_forbidden(args, forbidden_args):
             return True
     return False
 
@@ -222,19 +246,37 @@ def server_log_has_tool_with_args(tool_calls: list[dict[str, Any]] | None, tool:
         if not isinstance(detail, dict) or detail.get("tool") != tool:
             continue
         args = detail.get("arguments") if isinstance(detail.get("arguments"), dict) else {}
-        if all(args.get(key) is value for key, value in required_args.items()):
+        if args_match_required(args, required_args):
             return True
     return False
 
 
-def server_log_has_successful_tool_with_args(tool_calls: list[dict[str, Any]] | None, tool: str, required_args: dict[str, bool]) -> bool:
+def server_log_has_tool_with_forbidden_args(tool_calls: list[dict[str, Any]] | None, tool: str, forbidden_args: dict[str, bool]) -> bool:
     if tool_calls is None:
         return False
+    for detail in tool_calls:
+        if not isinstance(detail, dict) or detail.get("tool") != tool:
+            continue
+        args = detail.get("arguments") if isinstance(detail.get("arguments"), dict) else {}
+        if args_match_forbidden(args, forbidden_args):
+            return True
+    return False
+
+
+def server_log_has_successful_tool_with_args(
+    tool_calls: list[dict[str, Any]] | None,
+    tool: str,
+    required_args: dict[str, bool],
+    forbidden_args: dict[str, bool] | None = None,
+) -> bool:
+    if tool_calls is None:
+        return False
+    forbidden_args = forbidden_args or {}
     for detail in tool_calls:
         if not isinstance(detail, dict) or detail.get("tool") != tool or detail.get("status") != "ok":
             continue
         args = detail.get("arguments") if isinstance(detail.get("arguments"), dict) else {}
-        if all(args.get(key) is value for key, value in required_args.items()):
+        if args_match_required(args, required_args) and not args_match_forbidden(args, forbidden_args):
             return True
     return False
 
@@ -299,6 +341,12 @@ def required_server_tool_args(condition: str, delivery_scope: str, radar_require
         for args in required.values():
             args["include_deletions"] = True
     return required
+
+
+def forbidden_server_tool_args(condition: str, delivery_scope: str) -> dict[str, dict[str, bool]]:
+    if condition == "mcp_history" and delivery_scope == "mcp_radar_answer_assisted":
+        return {"brain_regressions": {"location_only": True}}
+    return {}
 
 
 def record_radar_deletion_policy(rec: dict[str, Any]) -> tuple[bool, bool]:
@@ -493,6 +541,7 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     required_logged_tools = required_server_tool_names(str(cond), delivery_scope)
     radar_requires_deletions, radar_policy_attested = record_radar_deletion_policy(rec)
     required_logged_tool_args = required_server_tool_args(str(cond), delivery_scope, radar_requires_deletions)
+    forbidden_logged_tool_args = forbidden_server_tool_args(str(cond), delivery_scope)
 
     # A. no_brain purity (HARD: no_brain must never touch Brain/MCP/CLI/private)
     if cond == "no_brain":
@@ -554,6 +603,16 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
                 flags.append("B:mcp_radar_missing_include_deletions")
             if radar_requires_deletions and slog_tool_calls is not None and not server_log_has_tool_with_args(slog_tool_calls, "brain_regressions", {"location_only": True, "include_deletions": True}):
                 flags.append("B:mcp_radar_server_missing_include_deletions")
+        if cond == "mcp_history" and env_flags.get("BENCH_REGRESSION_RADAR") == "1" and mcp_calls > 0:
+            forbidden = forbidden_logged_tool_args.get("brain_regressions", {})
+            if forbidden and activity_has_mcp_call_with_forbidden_args(activity, "brain_regressions", forbidden):
+                flags.append("B:mcp_radar_answer_assisted_used_location_only")
+            if forbidden and slog_tool_calls is not None and server_log_has_tool_with_forbidden_args(slog_tool_calls, "brain_regressions", forbidden):
+                flags.append("B:mcp_radar_answer_assisted_server_used_location_only")
+            if radar_requires_deletions and not activity_has_mcp_call_with_args(activity, "brain_regressions", {"include_deletions": True}):
+                flags.append("B:mcp_radar_answer_assisted_missing_include_deletions")
+            if radar_requires_deletions and slog_tool_calls is not None and not server_log_has_tool_with_args(slog_tool_calls, "brain_regressions", {"include_deletions": True}):
+                flags.append("B:mcp_radar_answer_assisted_server_missing_include_deletions")
         # server-log cross-check: recorded calls must be backed by real tools/call
         if mcp_calls > 0 and slog is None:
             flags.append("B:mcp_server_log_missing")
@@ -572,7 +631,12 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
             missing_success = sorted(
                 tool
                 for tool in required_logged_tools
-                if not server_log_has_successful_tool_with_args(slog_tool_calls, tool, required_logged_tool_args.get(tool, {}))
+                if not server_log_has_successful_tool_with_args(
+                    slog_tool_calls,
+                    tool,
+                    required_logged_tool_args.get(tool, {}),
+                    forbidden_logged_tool_args.get(tool, {}),
+                )
             )
             if missing_success:
                 if slog_results:
@@ -636,7 +700,12 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         mcp_named_tool_result_verified = (
             bool(required_logged_tools)
             and all(
-                server_log_has_successful_tool_with_args(slog_tool_calls, tool, required_logged_tool_args.get(tool, {}))
+                server_log_has_successful_tool_with_args(
+                    slog_tool_calls,
+                    tool,
+                    required_logged_tool_args.get(tool, {}),
+                    forbidden_logged_tool_args.get(tool, {}),
+                )
                 for tool in required_logged_tools
             )
         )

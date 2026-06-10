@@ -2398,6 +2398,39 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertFalse(audited["mcp_named_tool_result_verified"], audited)
             self.assertIn("B:mcp_required_tool_results_not_ok(brain_regressions)", audited["flags"])
 
+    def test_audit_codex_answer_assisted_radar_rejects_location_only_backing(self):
+        with tempfile.TemporaryDirectory() as results:
+            results_dir = pathlib.Path(results)
+
+            bad_suite = "release-candidate-radar-answer-assisted-location-only"
+            bad = self._mcp_release_record(bad_suite, repetition=1, run_id="radar-bad")
+            bad["provenance"]["run_config"]["env_flags"] = {"BENCH_REGRESSION_RADAR": "1"}
+            self._write_records(results_dir, bad_suite, [bad])
+            bad_dir = results_dir / bad_suite
+            self._write_mcp_server_log(bad_dir, "radar-bad", "brain_regressions", tool_args={"location_only": True})
+
+            bad_report = audit_codex.build_audit_report(results_dir, [bad_suite])
+            bad_record = bad_report["suites"][bad_suite]["records"][0]
+            self.assertFalse(bad_record["pass"], bad_record)
+            self.assertFalse(bad_record["mcp_verified"], bad_record)
+            self.assertFalse(bad_record["mcp_named_tool_completed"], bad_record)
+            self.assertIn("B:mcp_radar_answer_assisted_used_location_only", bad_record["flags"])
+            self.assertIn("B:mcp_radar_answer_assisted_server_used_location_only", bad_record["flags"])
+
+            good_suite = "release-candidate-radar-answer-assisted-ok"
+            good = self._mcp_release_record(good_suite, repetition=1, run_id="radar-good")
+            good["provenance"]["run_config"]["env_flags"] = {"BENCH_REGRESSION_RADAR": "1"}
+            good["agent_info"]["activity"]["mcp_tool_details"][0]["arguments"] = {}
+            good["mcp_condition_audit"]["mcp_tool_details"][0]["arguments"] = {}
+            good_dir = self._write_records(results_dir, good_suite, [good])
+            self._write_mcp_server_log(good_dir, "radar-good", "brain_regressions")
+
+            good_report = audit_codex.build_audit_report(results_dir, [good_suite])
+            good_record = good_report["suites"][good_suite]["records"][0]
+            self.assertTrue(good_record["pass"], good_record)
+            self.assertTrue(good_record["mcp_verified"], good_record)
+            self.assertTrue(good_record["mcp_named_tool_completed"], good_record)
+
     def test_audit_codex_requires_workspace_required_args_and_success_on_same_server_call(self):
         with tempfile.TemporaryDirectory() as results:
             results_dir = pathlib.Path(results)
