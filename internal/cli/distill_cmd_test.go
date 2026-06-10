@@ -837,16 +837,32 @@ func TestRunDistillForBrainConcurrentChunks(t *testing.T) {
 	}
 }
 
-func TestChunkPrefetchLookaheadBoundedByConsumption(t *testing.T) {
+// pipelineFixture lays down a transcript with `lines` one-chunk-able lines
+// (maxChunkBytes=1 puts each on its own chunk) and returns the brain dir plus
+// the session slice for driving startSessionPrefetch directly.
+func pipelineFixture(t *testing.T, lines int) (string, []exportSession) {
+	t.Helper()
+	brainDir := t.TempDir()
+	tp := "sessions/main/s1.jsonl"
+	p := filepath.Join(brainDir, filepath.FromSlash(tp))
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(strings.Repeat("a conversational turn\n", lines)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return brainDir, []exportSession{{SessionID: "s1", Branch: "main", LatestCheckpoint: "cp1", TranscriptPath: tp, CreatedAt: time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)}}
+}
+
+func mainBranch(exportSession) string { return "main" }
+
+func TestSessionPrefetchLookaheadBoundedByConsumption(t *testing.T) {
 	// A pool slot is held until the consumer reads the result, so dispatch can
 	// run at most `concurrency` calls ahead of consumption. With a consumer
 	// that aborts after 5 results, total launched calls must stay within
 	// consumed+concurrency — a completion-released slot would instead let the
 	// dispatcher launch (and bill) all 40 chunks while the consumer lagged.
-	chunks := make([]transcriptChunk, 40)
-	for i := range chunks {
-		chunks[i] = transcriptChunk{StartLine: i + 1, EndLine: i + 1, Text: "x"}
-	}
+	brainDir, sessions := pipelineFixture(t, 40)
 	var mu sync.Mutex
 	calls := 0
 	failingRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -856,14 +872,21 @@ func TestChunkPrefetchLookaheadBoundedByConsumption(t *testing.T) {
 		return "", errors.New("agent down")
 	}
 	const concurrency = 3
-	prefetch := startChunkPrefetch(context.Background(), failingRun, t.TempDir(), nil, chunks, time.Minute, concurrency)
+	opts := distillCommandOptions{run: failingRun, maxChunkBytes: 1, timeout: time.Minute, concurrency: concurrency}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	prepared := startSessionPrefetch(ctx, brainDir, t.TempDir(), nil, sessions, distillCache{}, opts, mainBranch)
+	ps := <-prepared
+	if len(ps.chunks) != 40 {
+		t.Fatalf("fixture should chunk to 40, got %d", len(ps.chunks))
+	}
 	const consumed = 5
 	for i := 0; i < consumed; i++ {
-		if _, err := prefetch.result(i); err == nil {
+		if _, err := ps.result(i); err == nil {
 			t.Fatal("expected agent error")
 		}
 	}
-	prefetch.stop()
+	cancel()
 	mu.Lock()
 	launched := calls
 	mu.Unlock()
@@ -872,31 +895,67 @@ func TestChunkPrefetchLookaheadBoundedByConsumption(t *testing.T) {
 	}
 }
 
-func TestChunkPrefetchConcurrencyOneIsLazyAndSequential(t *testing.T) {
+func TestSessionPrefetchConcurrencyOneIsLazyAndSequential(t *testing.T) {
 	// concurrency<=1 must reproduce the original behavior exactly: one agent
 	// process at a time, calls made lazily on consumption — a chunk the
 	// consumer never asks about (e.g. after an abort) costs nothing.
-	chunks := make([]transcriptChunk, 8)
-	for i := range chunks {
-		chunks[i] = transcriptChunk{StartLine: i + 1, EndLine: i + 1, Text: "x"}
-	}
+	brainDir, sessions := pipelineFixture(t, 8)
 	calls := 0
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		calls++
 		return "", errors.New("agent down")
 	}
-	prefetch := startChunkPrefetch(context.Background(), run, t.TempDir(), nil, chunks, time.Minute, 1)
+	opts := distillCommandOptions{run: run, maxChunkBytes: 1, timeout: time.Minute, concurrency: 1}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	prepared := startSessionPrefetch(ctx, brainDir, t.TempDir(), nil, sessions, distillCache{}, opts, mainBranch)
+	ps := <-prepared
 	for i := 0; i < 3; i++ {
-		if _, err := prefetch.result(i); err == nil {
+		if _, err := ps.result(i); err == nil {
 			t.Fatal("expected agent error")
 		}
 		if calls != i+1 {
 			t.Fatalf("sequential mode made %d calls after consuming %d results; calls must be lazy", calls, i+1)
 		}
 	}
-	prefetch.stop()
 	if calls != 3 {
 		t.Errorf("sequential mode launched %d calls for 3 consumed chunks; chunks 4-8 must never run", calls)
+	}
+}
+
+// TestRunDistillForBrainCrossSessionConcurrency locks in the pipeline's whole
+// point: the call pool spans sessions, so two 1-chunk sessions — the common
+// shape after stripping — overlap their agent calls. The per-session pool
+// this replaced could never overlap them, serializing a corpus of small
+// sessions on agent latency.
+func TestRunDistillForBrainCrossSessionConcurrency(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now) // s1 + s2, one chunk each at default size
+
+	var mu sync.Mutex
+	inFlight, maxInFlight := 0, 0
+	fakeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		mu.Lock()
+		inFlight++
+		if inFlight > maxInFlight {
+			maxInFlight = inFlight
+		}
+		mu.Unlock()
+		time.Sleep(30 * time.Millisecond) // hold the slot so overlap is observable
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+		return "", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: fakeRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, concurrency: 2}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("runDistillForBrain: %v", err)
+	}
+	if maxInFlight < 2 {
+		t.Errorf("agent calls for distinct sessions never overlapped (max in flight %d) with concurrency 2", maxInFlight)
+	}
+	if maxInFlight > 2 {
+		t.Errorf("max in flight %d exceeds the shared pool size 2", maxInFlight)
 	}
 }
 

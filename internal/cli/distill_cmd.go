@@ -77,82 +77,164 @@ type agentCallResult struct {
 	holdsSlot bool
 }
 
-// chunkPrefetcher runs the distill agent over a session's chunks up to
-// `concurrency` calls ahead of the consumer. Results are delivered strictly in
-// chunk order via result(i), so the consumer loop — parsing, reconciling,
-// applying fact actions — keeps its exact serial semantics (reconcile mutates
-// the branch fact store and must see chunks in order); only the agent
-// round-trips overlap. A pool slot is held from a call's launch until its
-// result is CONSUMED, not merely until the worker completes: lookahead is
-// bounded by consumer position, so at most `concurrency` completed results are
-// ever buffered, and an early abort stops dispatch within `concurrency` calls
-// of the last one consumed (a completion-released slot would let the
-// dispatcher launch — and bill — every remaining chunk while the consumer was
-// stuck behind one slow result). stop() cancels unlaunched and in-flight
-// calls; the per-chunk result channels are buffered so abandoned workers can
-// deliver and exit without a reader.
-//
-// Note the consumer's reconcile agent call runs OUTSIDE the pool, so peak
-// concurrent agent processes is concurrency+1. With concurrency <= 1 there is
-// no pool at all: result(i) runs the agent call inline and lazily — strictly
-// one agent process at a time, and no call is ever made for a chunk the
-// consumer never asks about (e.g. after an abort) — exactly the original
-// sequential behavior.
-type chunkPrefetcher struct {
-	results []chan agentCallResult
-	sem     chan struct{}
-	cancel  context.CancelFunc
-	// seq, when set, replaces the pool: result(i) invokes it inline.
+// distillSessionLookahead bounds how many sessions the pipeline prepares
+// (transcript read, preprocessing, fingerprinting, chunking) ahead of the
+// consumer. Preparation is cheap CPU/IO; the agent-call budget is governed
+// separately by the shared pool.
+const distillSessionLookahead = 4
+
+// preparedSession is one session's distill work, prepared by the pipeline
+// ahead of the consumer. Exactly one of skip/readErr/cached/chunks describes
+// its disposition; chunk agent calls (when any) were dispatched into the
+// run's shared pool and are consumed strictly in order via result(i).
+type preparedSession struct {
+	session     exportSession
+	branch      string
+	skip        bool  // filtered out by --branch/--session: carry cache through
+	readErr     error // transcript unreadable: warn, retry next run
+	cached      bool  // fingerprint matched: keep facts, no agent work
+	fingerprint string
+	chunks      []transcriptChunk
+	results     []chan agentCallResult
+	sem         chan struct{}
+	// seq, when set (concurrency <= 1), replaces the pool: result(i) runs the
+	// agent call inline and lazily — strictly one agent process at a time, and
+	// no call is ever made for a chunk the consumer never asks about (e.g.
+	// after an abort) — exactly the original sequential behavior.
 	seq func(i int) (string, error)
 }
 
-func startChunkPrefetch(ctx context.Context, run distillAgentRunner, dir string, args []string, chunks []transcriptChunk, timeout time.Duration, concurrency int) *chunkPrefetcher {
-	pctx, cancel := context.WithCancel(ctx)
-	if concurrency <= 1 {
-		return &chunkPrefetcher{cancel: cancel, seq: func(i int) (string, error) {
-			return run(pctx, dir, args, []byte(chunks[i].Text), timeout)
-		}}
-	}
-	p := &chunkPrefetcher{results: make([]chan agentCallResult, len(chunks)), sem: make(chan struct{}, concurrency), cancel: cancel}
-	for i := range p.results {
-		p.results[i] = make(chan agentCallResult, 1)
-	}
-	go func() {
-		for i := range chunks {
-			if pctx.Err() != nil { // don't race a freed slot against cancellation
-				p.results[i] <- agentCallResult{err: pctx.Err()}
-				continue
-			}
-			select {
-			case p.sem <- struct{}{}:
-			case <-pctx.Done():
-				p.results[i] <- agentCallResult{err: pctx.Err()}
-				continue
-			}
-			go func(i int) {
-				out, err := run(pctx, dir, args, []byte(chunks[i].Text), timeout)
-				p.results[i] <- agentCallResult{out: out, err: err, holdsSlot: true}
-			}(i)
-		}
-	}()
-	return p
-}
-
 // result blocks until chunk i's agent call completes and returns its output,
-// releasing the call's pool slot so the dispatcher may launch the next chunk.
-func (p *chunkPrefetcher) result(i int) (string, error) {
-	if p.seq != nil {
-		return p.seq(i)
+// releasing the call's pool slot so the dispatcher may launch the next call.
+func (ps *preparedSession) result(i int) (string, error) {
+	if ps.seq != nil {
+		return ps.seq(i)
 	}
-	r := <-p.results[i]
+	r := <-ps.results[i]
 	if r.holdsSlot {
-		<-p.sem
+		<-ps.sem
 	}
 	return r.out, r.err
 }
 
-// stop cancels outstanding work; safe to call multiple times.
-func (p *chunkPrefetcher) stop() { p.cancel() }
+// startSessionPrefetch is the distill pipeline's producer: it prepares
+// sessions in chronological order and dispatches their chunk agent calls into
+// ONE shared pool, up to `concurrency` calls in flight ACROSS sessions — the
+// per-session pool it replaces gave a 1-chunk session (the common case after
+// stripping; the corpus median) no parallelism at all, serializing the run on
+// agent latency.
+//
+// Two properties carry over from the per-session prefetcher and one is new:
+//   - In-order delivery: the consumer applies chunks strictly in global
+//     (session, chunk) order, so reconcile and fact application keep their
+//     exact serial semantics; only agent round-trips overlap.
+//   - Consumption-bounded lookahead: a pool slot is held from a call's launch
+//     until its result is CONSUMED, so at most `concurrency` completed results
+//     are ever buffered and an early abort stops dispatch within `concurrency`
+//     calls of the last one consumed.
+//   - Single dispatcher, global dispatch order: slots are acquired in exactly
+//     the order the consumer will need results. Competing per-session
+//     dispatchers over a shared pool could hand a freed slot to a session the
+//     consumer is not ready for, buffering its result while the chunk the
+//     consumer is blocked on starves — a deadlock at small pool sizes.
+//
+// The returned channel delivers sessions in order with lookahead
+// distillSessionLookahead; it closes when all sessions are produced or ctx is
+// canceled. Cancel ctx to stop preparation, dispatch, and in-flight calls.
+func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []string, sessions []exportSession, prevCache distillCache, distillOpts distillCommandOptions, resolveBranch func(exportSession) string) <-chan preparedSession {
+	prepared := make(chan preparedSession, distillSessionLookahead)
+	var sem chan struct{}
+	if distillOpts.concurrency > 1 {
+		sem = make(chan struct{}, distillOpts.concurrency)
+	}
+	deliver := func(ps preparedSession) bool {
+		select {
+		case prepared <- ps:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+	go func() {
+		defer close(prepared)
+		for _, session := range sessions {
+			if ctx.Err() != nil {
+				return
+			}
+			ps := preparedSession{session: session, branch: resolveBranch(session)}
+			if (distillOpts.branch != "" && ps.branch != distillOpts.branch) ||
+				(distillOpts.session != "" && session.SessionID != distillOpts.session) {
+				ps.skip = true
+				if !deliver(ps) {
+					return
+				}
+				continue
+			}
+			content, readErr := readBrainRelativeFile(brainDir, session.TranscriptPath)
+			if readErr != nil {
+				ps.readErr = readErr
+				if !deliver(ps) {
+					return
+				}
+				continue
+			}
+			// Strip tool calls/outputs and meta records up front: this is the
+			// actual input the agent distills. Fingerprinting the preprocessed
+			// input (not raw bytes) means churn confined to stripped tool I/O
+			// does not invalidate the cache.
+			distillInput := preprocessTranscriptForDistill(content)
+			ps.fingerprint = distillSessionFingerprint(session, ps.branch, distillInput)
+			if !distillOpts.force {
+				if prev, ok := prevCache.Sessions[session.SessionID]; ok && prev == ps.fingerprint {
+					ps.cached = true
+					if !deliver(ps) {
+						return
+					}
+					continue
+				}
+			}
+			ps.chunks = chunkTranscript(distillInput, distillOpts.maxChunkBytes)
+			if sem == nil {
+				ps.seq = func(chunks []transcriptChunk) func(int) (string, error) {
+					return func(i int) (string, error) {
+						return distillOpts.run(ctx, repoDir, args, []byte(chunks[i].Text), distillOpts.timeout)
+					}
+				}(ps.chunks)
+				if !deliver(ps) {
+					return
+				}
+				continue
+			}
+			ps.sem = sem
+			ps.results = make([]chan agentCallResult, len(ps.chunks))
+			for i := range ps.results {
+				ps.results[i] = make(chan agentCallResult, 1) // buffered: abandoned workers deliver and exit
+			}
+			// Deliver BEFORE dispatching: a session with more chunks than the
+			// lookahead+pool must be consumable while its tail still dispatches.
+			if !deliver(ps) {
+				return
+			}
+			for i := range ps.chunks {
+				if ctx.Err() != nil { // don't race a freed slot against cancellation
+					ps.results[i] <- agentCallResult{err: ctx.Err()}
+					continue
+				}
+				select {
+				case sem <- struct{}{}:
+				case <-ctx.Done():
+					ps.results[i] <- agentCallResult{err: ctx.Err()}
+					continue
+				}
+				go func(i int, chunks []transcriptChunk, results []chan agentCallResult) {
+					out, err := distillOpts.run(ctx, repoDir, args, []byte(chunks[i].Text), distillOpts.timeout)
+					results[i] <- agentCallResult{out: out, err: err, holdsSlot: true}
+				}(i, ps.chunks, ps.results)
+			}
+		}
+	}()
+	return prepared
+}
 
 type distillCommandOptions struct {
 	branch string
@@ -239,7 +321,8 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().Float64Var(&distillOpts.confidenceThreshold, "confidence", defaultFactConfidenceThreshold, "Minimum agent confidence to auto-apply a merge/supersede; below this it is queued for review")
 	cmd.Flags().StringVar(&distillOpts.model, "model", "", "Override the agent model for codex/claude-code (e.g. a fast/cheap model like gpt-5.4-mini)")
 	cmd.Flags().StringVar(&distillOpts.effort, "effort", "", "Override the reasoning effort for codex/claude-code (e.g. low) — pairs with --model for a cheap run")
-	cmd.Flags().IntVar(&distillOpts.concurrency, "concurrency", defaultDistillConcurrency, "Distill agent calls to run in flight at once (1 = strictly sequential; higher values may add one concurrent reconcile call)")
+	cmd.Flags().IntVar(&distillOpts.concurrency, "concurrency", defaultDistillConcurrency, "Distill agent calls to run in flight at once, shared across sessions (1 = strictly sequential; higher values may add one concurrent reconcile call)")
+	cmd.Flags().IntVar(&distillOpts.maxChunkBytes, "max-chunk-bytes", defaultDistillChunkSize, "Transcript chunk size in bytes; larger chunks mean fewer agent calls per session (long-context models handle 128-192KB comfortably)")
 	return cmd
 }
 
@@ -513,10 +596,18 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		}
 	}
 
-	for _, session := range sessions {
-		branch := resolveBranch(session)
-		if (distillOpts.branch != "" && branch != distillOpts.branch) ||
-			(distillOpts.session != "" && session.SessionID != distillOpts.session) {
+	// Session pipeline: a producer goroutine prepares sessions ahead —
+	// transcript read, preprocessing, fingerprint/cache check, chunking — and
+	// dispatches chunk agent calls into one pool shared ACROSS sessions (see
+	// startSessionPrefetch), while this loop consumes results strictly in
+	// chronological order, so reconcile and fact application keep their exact
+	// serial semantics. Canceling pipeCtx (deferred; covers the abort return
+	// too) stops preparation, dispatch, and in-flight agent calls.
+	pipeCtx, pipeCancel := context.WithCancel(ctx)
+	defer pipeCancel()
+	for ps := range startSessionPrefetch(pipeCtx, brainDir, repoDir, args, sessions, prevCache, distillOpts, resolveBranch) {
+		session, branch := ps.session, ps.branch
+		if ps.skip {
 			// Carry the session's cache entry through unchanged: the final flush
 			// persists newCache only, so dropping filtered sessions here would
 			// make the next unfiltered run re-distill every other branch (or
@@ -538,43 +629,19 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 				distillOpts.progress(distillProgress{SessionsDone: sessionsDone, SessionsTotal: totalSessions, Branch: branch, Facts: factsFound})
 			}
 		}
-
-		// Read the transcript before the cache check so the fingerprint can hash
-		// the actual bytes: a re-export that rewrites the same path with different
-		// content (e.g. compact vs raw mode, or an exporter fix) under the same
-		// checkpoint must invalidate the cache and re-run the agent.
-		content, readErr := readBrainRelativeFile(brainDir, session.TranscriptPath)
-		if readErr != nil {
-			warnings = append(warnings, fmt.Sprintf("read transcript %s: %v", session.TranscriptPath, readErr))
+		if ps.readErr != nil {
+			warnings = append(warnings, fmt.Sprintf("read transcript %s: %v", session.TranscriptPath, ps.readErr))
 			reportProgress()
 			continue // not cached: retried next run
 		}
-
-		// Strip tool calls/outputs and meta records up front: this is the actual
-		// input the agent distills (they carry no durable facts and dominate the
-		// transcript bytes, so removing them cuts chunk count — and agent calls —
-		// sharply). Blanked records keep their line slot so provenance anchors stay
-		// aligned to the original transcript. Fingerprinting this preprocessed input
-		// (not the raw bytes) means churn confined to stripped tool I/O no longer
-		// invalidates the cache and forces a needless re-distill.
-		distillInput := preprocessTranscriptForDistill(content)
-
-		fingerprint := distillSessionFingerprint(session, branch, distillInput)
-		if !distillOpts.force {
-			if prev, ok := prevCache.Sessions[session.SessionID]; ok && prev == fingerprint {
-				newCache.Sessions[session.SessionID] = prev // unchanged; retain in cache and keep existing facts
-				reportProgress()
-				continue
-			}
+		if ps.cached {
+			newCache.Sessions[session.SessionID] = ps.fingerprint // unchanged; retain in cache and keep existing facts
+			reportProgress()
+			continue
 		}
 
-		chunks := chunkTranscript(distillInput, distillOpts.maxChunkBytes)
-		// Agent calls for this session's chunks run up to `concurrency` in
-		// flight; results are consumed strictly in order below so reconcile and
-		// fact application keep their serial semantics.
-		prefetch := startChunkPrefetch(ctx, distillOpts.run, repoDir, args, chunks, distillOpts.timeout, distillOpts.concurrency)
 		sessionFailed := false
-		for chunkIdx, chunk := range chunks {
+		for chunkIdx, chunk := range ps.chunks {
 			chunksScanned++
 			anchor := factAnchor{
 				SessionID:    session.SessionID,
@@ -582,7 +649,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 				Transcript:   filepath.ToSlash(session.TranscriptPath),
 				Line:         chunk.StartLine,
 			}
-			out, runErr := prefetch.result(chunkIdx)
+			out, runErr := ps.result(chunkIdx)
 			callsSinceFlush++
 			if runErr != nil {
 				warnings = append(warnings, fmt.Sprintf("agent failed on %s:%d: %v", session.SessionID, chunk.StartLine, runErr))
@@ -593,7 +660,6 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 				// same way (bad --model, missing agent, auth). Abort with the agent's
 				// own error instead of churning through every remaining session.
 				if !anyAgentSuccess && agentFailures >= distillAgentAbortThreshold {
-					prefetch.stop()
 					return nil, fmt.Errorf("distill aborted after %d agent failures with no facts distilled — check --agent and --model. Last error: %v", agentFailures, runErr)
 				}
 				// Flush on the failure path too: a long failure streak (rate
@@ -624,12 +690,11 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			dirtyBranches[branch] = true
 			maybeFlush()
 		}
-		prefetch.stop()
 		// Only cache a session as distilled when every chunk succeeded, so a
 		// session whose agent calls failed is retried on the next run rather
 		// than being silently treated as done.
 		if !sessionFailed {
-			newCache.Sessions[session.SessionID] = fingerprint
+			newCache.Sessions[session.SessionID] = ps.fingerprint
 		}
 		reportProgress()
 	}
