@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "f3801a2fedc7",
+  "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T16:17:24.68168Z",
+  "branch": "codex/release-readiness-hardening",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/distill_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8",
+  "turn_id": "09745506dc17",
+  "token_usage": {
+    "input_tokens": 233032,
+    "cache_creation_tokens": 13368728,
+    "cache_read_tokens": 1006320163,
+    "output_tokens": 2764290,
+    "api_call_count": 1854
+  },
+  "session_metrics": {
+    "turn_count": 82
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T16:17:24.221658Z",
+    "agent_lines": 9,
+    "agent_removed": 0,
+    "human_added": 89,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 98,
+    "total_lines_changed": 98,
+    "agent_percentage": 9.183673469387756,
+    "metric_version": 2
+  }
+}
