@@ -1,0 +1,82 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "06c1e0681f34",
+  "session_id": "fc0c6aa0-0ea8-4d17-85f7-7893119994e3",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T06:43:11.442653Z",
+  "branch": "feat/stage-1b-cgo-sqlite-vec",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/sqlite_driver_cgo.go",
+    "internal/cli/sqlite_driver_purego.go",
+    "internal/cli/sqlite_driver_cgo_test.go",
+    "internal/cli/embed_rank.go",
+    "internal/cli/embed_vec_purego.go",
+    "internal/cli/embed_vec_cgo.go",
+    "internal/cli/embed_vec_cgo_test.go",
+    "internal/cli/embed_store_test.go",
+    "mise.toml",
+    ".github/workflows/test.yml"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5[1m]",
+  "turn_id": "21340473aebd",
+  "checkpoint_transcript_start": 407,
+  "transcript_lines_at_start": 407,
+  "token_usage": {
+    "input_tokens": 5321,
+    "cache_creation_tokens": 80962,
+    "cache_read_tokens": 7001444,
+    "output_tokens": 46258,
+    "api_call_count": 36
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-simplify-2026-06-10T05:36:10.956919Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "simplify"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "015c3e80f360",
+      "timestamp": "2026-06-10T05:36:10.956919Z",
+      "native": {
+        "command": "/simplify"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/simplify",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 4
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T06:43:11.420004Z",
+    "agent_lines": 625,
+    "agent_removed": 13,
+    "human_added": 25,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 650,
+    "total_lines_changed": 689,
+    "agent_percentage": 92.59796806966618,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

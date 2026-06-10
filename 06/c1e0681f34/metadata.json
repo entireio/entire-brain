@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "06c1e0681f34",
+  "strategy": "manual-commit",
+  "branch": "feat/stage-1b-cgo-sqlite-vec",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "internal/cli/embed_rank.go",
+    "internal/cli/embed_store_test.go",
+    "internal/cli/embed_vec_cgo.go",
+    "internal/cli/embed_vec_cgo_test.go",
+    "internal/cli/embed_vec_purego.go",
+    "internal/cli/sqlite_driver_cgo.go",
+    "internal/cli/sqlite_driver_cgo_test.go",
+    "internal/cli/sqlite_driver_purego.go",
+    "mise.toml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/06/c1e0681f34/0/metadata.json",
+      "transcript": "/06/c1e0681f34/0/full.jsonl",
+      "content_hash": "/06/c1e0681f34/0/content_hash.txt",
+      "prompt": "/06/c1e0681f34/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 5321,
+    "cache_creation_tokens": 80962,
+    "cache_read_tokens": 7001444,
+    "output_tokens": 46258,
+    "api_call_count": 36
+  }
+}
