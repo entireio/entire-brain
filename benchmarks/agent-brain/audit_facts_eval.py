@@ -10,6 +10,7 @@ fields.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import math
 import pathlib
@@ -19,6 +20,7 @@ from typing import Any
 
 DEFAULT_REQUIRED_RETRIEVERS = ["facts", "history", "query", "raw-sessions"]
 SHA256_VALUE_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PROOF_LABEL_SOURCES = {"human", "judge_refined"}
 RELEVANCE_PROOF_METRICS = {"precision", "recall", "useful_per_1k"}
 ALL_PAIRED_METRIC_N = {"precision", "useful_per_1k", "tokens", "latency_ms"}
@@ -33,6 +35,8 @@ METRIC_RESULT_FIELDS = {
 METRIC_COMPARE_TOLERANCE = 1e-9
 CLAIM_POLICY_PROOF = "proof_required"
 CLAIM_POLICY_NO_CLAIM = "no_release_claim"
+CLAIM_SCOPE_RELEASE = "release"
+CLAIM_SCOPE_FIXTURE = "fixture_contract"
 
 
 def get(d: Any, *path: str, default: Any = None) -> Any:
@@ -65,6 +69,16 @@ def is_sha256_value(value: Any) -> bool:
     return isinstance(value, str) and bool(SHA256_VALUE_RE.fullmatch(value))
 
 
+def is_rfc3339_time(value: Any) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return True
+
+
 def manifest_artifact(root: pathlib.Path, value: Any, field: str) -> pathlib.Path:
     if not isinstance(value, str) or not value:
         raise SystemExit(f"facts eval manifest requires non-empty {field}")
@@ -82,6 +96,9 @@ def validate_manifest(data: Any) -> None:
     policy = data.get("claim_policy", CLAIM_POLICY_PROOF)
     if policy not in (CLAIM_POLICY_PROOF, CLAIM_POLICY_NO_CLAIM):
         raise SystemExit("facts eval manifest claim_policy must be proof_required or no_release_claim")
+    scope = data.get("claim_scope", CLAIM_SCOPE_RELEASE)
+    if scope not in (CLAIM_SCOPE_RELEASE, CLAIM_SCOPE_FIXTURE):
+        raise SystemExit("facts eval manifest claim_scope must be release or fixture_contract")
     summaries = data.get("summaries")
     if policy == CLAIM_POLICY_NO_CLAIM:
         if summaries not in ({}, None):
@@ -118,10 +135,20 @@ def audit_no_claim_manifest(manifest_path: pathlib.Path, manifest: dict[str, Any
         else:
             status_report = {
                 "path": str(status_path.relative_to(root)),
+                "generated_at": loaded.get("generated_at"),
+                "repo_head": loaded.get("repo_head"),
+                "brain_manifest_sha256": loaded.get("brain_manifest_sha256"),
                 "facts_arm_ready": loaded.get("facts_arm_ready"),
                 "totals": loaded.get("totals"),
                 "warnings": loaded.get("warnings") or [],
             }
+            if not is_rfc3339_time(loaded.get("generated_at")):
+                flags.append("facts_status.generated_at must be an RFC3339 timestamp")
+            repo_head = loaded.get("repo_head")
+            if not isinstance(repo_head, str) or not COMMIT_SHA_RE.fullmatch(repo_head):
+                flags.append("facts_status.repo_head must be a 40-character git commit")
+            if not is_sha256_value(loaded.get("brain_manifest_sha256")):
+                flags.append("facts_status.brain_manifest_sha256 must be sha256:<64 hex>")
             if loaded.get("facts_arm_ready") is not False:
                 flags.append("facts_status.facts_arm_ready must be false for no_release_claim evidence")
             totals = loaded.get("totals")
@@ -137,7 +164,9 @@ def audit_no_claim_manifest(manifest_path: pathlib.Path, manifest: dict[str, Any
         "status": "fail" if flags else "pass",
         "release_evidence": not flags,
         "claim_policy": CLAIM_POLICY_NO_CLAIM,
+        "claim_scope": manifest.get("claim_scope", CLAIM_SCOPE_RELEASE),
         "claimable_facts_vs_raw": False,
+        "fixture_claimable_facts_vs_raw": False,
         "tasks_sha256": "",
         "brain_manifest_sha256": "",
         "required_retrievers": [],
@@ -532,6 +561,7 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
     manifest = load_json(manifest_path)
     validate_manifest(manifest)
     claim_policy = manifest.get("claim_policy", CLAIM_POLICY_PROOF)
+    claim_scope = manifest.get("claim_scope", CLAIM_SCOPE_RELEASE)
     if claim_policy == CLAIM_POLICY_NO_CLAIM:
         return audit_no_claim_manifest(manifest_path, manifest, root)
 
@@ -824,14 +854,23 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
         notes.append("no comparison artifacts loaded")
     if not facts_vs_raw_claim:
         flags.append("required_claims must include a proof-label claim where facts beats raw-sessions")
+    if claim_scope == CLAIM_SCOPE_FIXTURE:
+        notes.append(
+            "fixture_contract scope validates the proof-mode auditor mechanics only; "
+            "it is not production facts-vs-raw release evidence"
+        )
+
+    proof_mechanically_claimable = not flags and facts_vs_raw_claim
 
     return {
         "schema": 1,
         "manifest": display_path(manifest_path),
         "status": "fail" if flags else "pass",
-        "release_evidence": not flags,
+        "release_evidence": proof_mechanically_claimable and claim_scope == CLAIM_SCOPE_RELEASE,
         "claim_policy": CLAIM_POLICY_PROOF,
-        "claimable_facts_vs_raw": not flags and facts_vs_raw_claim,
+        "claim_scope": claim_scope,
+        "claimable_facts_vs_raw": proof_mechanically_claimable and claim_scope == CLAIM_SCOPE_RELEASE,
+        "fixture_claimable_facts_vs_raw": proof_mechanically_claimable and claim_scope == CLAIM_SCOPE_FIXTURE,
         "tasks_sha256": tasks_sha,
         "brain_manifest_sha256": brain_sha,
         "required_retrievers": required_retrievers,
@@ -851,7 +890,9 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Status: **{report['status'].upper()}**",
         f"- Release evidence: **{str(report['release_evidence']).lower()}**",
         f"- Claim policy: **{report.get('claim_policy', CLAIM_POLICY_PROOF)}**",
+        f"- Claim scope: **{report.get('claim_scope', CLAIM_SCOPE_RELEASE)}**",
         f"- Facts-vs-raw claimable: **{str(report.get('claimable_facts_vs_raw', False)).lower()}**",
+        f"- Fixture facts-vs-raw claimable: **{str(report.get('fixture_claimable_facts_vs_raw', False)).lower()}**",
         f"- Tasks hash: `{report.get('tasks_sha256') or 'unset'}`",
         f"- Brain manifest hash: `{report.get('brain_manifest_sha256') or 'unset'}`",
         f"- Required retrievers: {required_retrievers}",

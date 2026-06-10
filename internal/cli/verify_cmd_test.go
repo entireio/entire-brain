@@ -28,6 +28,7 @@ func newVerifyFixture(t *testing.T) verifyFixture {
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
 		fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "rev-parse", "HEAD"):            {stdout: "abc123abc123abc123abc123abc123abc123abcd\n"},
 		fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "git@github.com:example/repo.git\n"},
 		fakeCommandKey("git", "branch", "--show-current"):     {stdout: "main\n"},
 	}}

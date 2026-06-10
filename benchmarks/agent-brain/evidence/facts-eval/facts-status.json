@@ -1,7 +1,10 @@
 {
   "schema_version": 1,
+  "generated_at": "2026-06-10T21:00:19.133414Z",
   "repo": "[repo-root]",
   "brain_path": "[local-brain]/repos/gh/ashtom/entire-brain",
+  "repo_head": "96d229a27676c9bf2f4b6beb2d0501750988cb9a",
+  "brain_manifest_sha256": "sha256:afc4893800636c1e5c2d8a83dd75b51c03e56d291174251ce1c85e3dbfe17db6",
   "branch": "codex/release-readiness-hardening",
   "facts_arm_ready": false,
   "totals": {

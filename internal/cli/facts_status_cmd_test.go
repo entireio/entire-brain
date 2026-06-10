@@ -21,6 +21,12 @@ func TestFactsStatusEmptyStoreJSON(t *testing.T) {
 	if report.SchemaVersion != 1 {
 		t.Fatalf("schema = %d", report.SchemaVersion)
 	}
+	if !report.GeneratedAt.Equal(f.now) {
+		t.Fatalf("generated_at = %s, want %s", report.GeneratedAt, f.now)
+	}
+	if report.RepoHead != "abc123abc123abc123abc123abc123abc123abcd" {
+		t.Fatalf("repo_head = %q", report.RepoHead)
+	}
 	if report.Branch != "main" || report.AllBranches {
 		t.Fatalf("unexpected target: branch=%q all=%v", report.Branch, report.AllBranches)
 	}
@@ -73,6 +79,9 @@ func TestFactsStatusCountsBranchJSON(t *testing.T) {
 	}
 	if report.Branch != "feature" || !report.FactsArmReady {
 		t.Fatalf("unexpected status target/readiness: %+v", report)
+	}
+	if report.BrainManifest == "" || !strings.HasPrefix(report.BrainManifest, "sha256:") {
+		t.Fatalf("brain_manifest_sha256 = %q", report.BrainManifest)
 	}
 	want := factsStatusCounts{
 		Facts:             4,

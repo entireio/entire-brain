@@ -6,6 +6,12 @@ artifacts. The current committed manifest is a no-claim audit artifact:
 the current branch has no active durable facts. That is release evidence only
 for the negative claim that no facts-vs-raw win is being cited yet.
 
+The sibling `../facts-eval-proof-fixture/` directory is deliberately separate:
+it is a fixture-contract lane that proves the proof-mode auditor accepts a
+properly paired, proof-labeled facts-over-raw comparison. It is not production
+release evidence and cannot replace a real target-corpus proof manifest in this
+directory.
+
 Do not treat the current no-claim manifest as proof that facts beat raw sessions.
 Replace it with real paired eval artifacts before publishing any facts recall,
 precision, or useful-per-token claim.
@@ -63,14 +69,18 @@ Until a proof manifest exists, the accepted no-claim retained shape is:
 ```
 
 The auditor accepts this only when the retained `facts status --json` artifact
-shows `facts_arm_ready: false` and zero active facts.
+shows `facts_arm_ready: false`, zero active facts, an RFC3339 `generated_at`,
+a 40-character `repo_head`, and a `brain_manifest_sha256`.
 
 Collection checklist:
 
 - Before collecting, run `entire brain facts status --json` on the target repo.
-  `facts_arm_ready` must be true for the facts retriever arm to be meaningful,
-  but active facts alone are not proof; the paired eval still needs proof-grade
-  labels and the retained artifacts below.
+  The retained status captures `generated_at`, `repo_head`, and
+  `brain_manifest_sha256` so no-claim evidence cannot float away from the repo
+  and brain state it summarized. For positive proof, `facts_arm_ready` must be
+  true for the facts retriever arm to be meaningful, but active facts alone are
+  not proof; the paired eval still needs proof-grade labels and the retained
+  artifacts below.
 - Use one immutable task file for all four retrievers. Every summary must carry
   the same `run_config.tasks_sha256`.
 - Use one immutable brain snapshot for all four retrievers. Every summary and

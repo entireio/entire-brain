@@ -206,51 +206,69 @@ cp "$tmp"/workspace-radar-audit-report.json "$tmp"/workspace-radar-audit-report.
 '''
 
 [tasks."facts:evidence"]
-description = "Check retained facts-vs-raw eval evidence without rewriting tracked reports"
+description = "Check retained facts-vs-raw eval evidence and proof fixture without rewriting tracked reports"
 run = '''
 set -e
-manifest="benchmarks/agent-brain/evidence/facts-eval/manifest.json"
-if [ ! -f "$manifest" ]; then
-  echo "facts eval evidence manifest is missing: $manifest" >&2
-  echo "collect paired facts/history/query/raw-sessions eval artifacts before citing facts-vs-raw proof" >&2
-  exit 1
-fi
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-python3 benchmarks/agent-brain/audit_facts_eval.py \
-  --manifest "$manifest" \
-  --out-dir "$tmp" \
-  --fail-on-flags
-for report in facts-eval-audit-report.json facts-eval-audit-report.md; do
-  committed="benchmarks/agent-brain/evidence/facts-eval/$report"
-  generated="$tmp/$report"
-  if ! cmp -s "$committed" "$generated"; then
-    echo "retained facts eval evidence report is stale: $report" >&2
-    diff -u "$committed" "$generated" >&2 || true
-    echo "run: mise run facts:evidence:update" >&2
+
+check_facts_manifest() {
+  evidence_dir="$1"
+  manifest="$evidence_dir/manifest.json"
+  name="$(basename "$evidence_dir")"
+  if [ ! -f "$manifest" ]; then
+    echo "facts eval evidence manifest is missing: $manifest" >&2
+    echo "collect paired facts/history/query/raw-sessions eval artifacts before citing facts-vs-raw proof" >&2
     exit 1
   fi
-done
+  out="$tmp/$name"
+  python3 benchmarks/agent-brain/audit_facts_eval.py \
+    --manifest "$manifest" \
+    --out-dir "$out" \
+    --fail-on-flags
+  for report in facts-eval-audit-report.json facts-eval-audit-report.md; do
+    committed="$evidence_dir/$report"
+    generated="$out/$report"
+    if ! cmp -s "$committed" "$generated"; then
+      echo "retained facts eval evidence report is stale: $evidence_dir/$report" >&2
+      diff -u "$committed" "$generated" >&2 || true
+      echo "run: mise run facts:evidence:update" >&2
+      exit 1
+    fi
+  done
+}
+
+check_facts_manifest benchmarks/agent-brain/evidence/facts-eval
+check_facts_manifest benchmarks/agent-brain/evidence/facts-eval-proof-fixture
 '''
 
 [tasks."facts:evidence:update"]
 description = "Regenerate retained facts-vs-raw eval audit reports after the evidence gate passes"
 run = '''
 set -e
-manifest="benchmarks/agent-brain/evidence/facts-eval/manifest.json"
-if [ ! -f "$manifest" ]; then
-  echo "facts eval evidence manifest is missing: $manifest" >&2
-  echo "collect paired facts/history/query/raw-sessions eval artifacts before citing facts-vs-raw proof" >&2
-  exit 1
-fi
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-python3 benchmarks/agent-brain/audit_facts_eval.py \
-  --manifest "$manifest" \
-  --out-dir "$tmp" \
-  --fail-on-flags
-mkdir -p benchmarks/agent-brain/evidence/facts-eval
-cp "$tmp"/facts-eval-audit-report.json "$tmp"/facts-eval-audit-report.md benchmarks/agent-brain/evidence/facts-eval/
+
+update_facts_manifest() {
+  evidence_dir="$1"
+  manifest="$evidence_dir/manifest.json"
+  name="$(basename "$evidence_dir")"
+  if [ ! -f "$manifest" ]; then
+    echo "facts eval evidence manifest is missing: $manifest" >&2
+    echo "collect paired facts/history/query/raw-sessions eval artifacts before citing facts-vs-raw proof" >&2
+    exit 1
+  fi
+  out="$tmp/$name"
+  python3 benchmarks/agent-brain/audit_facts_eval.py \
+    --manifest "$manifest" \
+    --out-dir "$out" \
+    --fail-on-flags
+  mkdir -p "$evidence_dir"
+  cp "$out"/facts-eval-audit-report.json "$out"/facts-eval-audit-report.md "$evidence_dir"/
+}
+
+update_facts_manifest benchmarks/agent-brain/evidence/facts-eval
+update_facts_manifest benchmarks/agent-brain/evidence/facts-eval-proof-fixture
 '''
 
 [tasks."distill:evidence"]

@@ -4,7 +4,9 @@
   "status": "pass",
   "release_evidence": true,
   "claim_policy": "no_release_claim",
+  "claim_scope": "release",
   "claimable_facts_vs_raw": false,
+  "fixture_claimable_facts_vs_raw": false,
   "tasks_sha256": "",
   "brain_manifest_sha256": "",
   "required_retrievers": [],
@@ -13,6 +15,9 @@
   "required_claims": [],
   "facts_status": {
     "path": "facts-status.json",
+    "generated_at": "2026-06-10T21:00:19.133414Z",
+    "repo_head": "96d229a27676c9bf2f4b6beb2d0501750988cb9a",
+    "brain_manifest_sha256": "sha256:afc4893800636c1e5c2d8a83dd75b51c03e56d291174251ce1c85e3dbfe17db6",
     "facts_arm_ready": false,
     "totals": {
       "facts": 0,

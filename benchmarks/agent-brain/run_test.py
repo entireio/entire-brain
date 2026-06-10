@@ -2879,9 +2879,27 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             manifest = self._write_facts_eval_fixture(pathlib.Path(root))
             report = audit_facts_eval.audit_facts_eval_manifest(manifest)
             self.assertTrue(report["release_evidence"], report)
+            self.assertEqual(report["claim_scope"], "release")
             self.assertEqual(report["required_claims"][0]["b_retriever"], "facts")
             self.assertEqual(audit_facts_eval.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 0)
             self.assertTrue((pathlib.Path(out) / "facts-eval-audit-report.json").exists())
+
+    def test_facts_eval_audit_accepts_fixture_contract_without_release_claim(self):
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            data = json.loads(manifest.read_text())
+            data["claim_scope"] = "fixture_contract"
+            manifest.write_text(json.dumps(data))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+
+            self.assertEqual(report["status"], "pass", report)
+            self.assertFalse(report["release_evidence"], report)
+            self.assertFalse(report["claimable_facts_vs_raw"], report)
+            self.assertTrue(report["fixture_claimable_facts_vs_raw"], report)
+            self.assertEqual(report["claim_scope"], "fixture_contract")
+            self.assertEqual(audit_facts_eval.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 0)
 
     def test_facts_eval_audit_rejects_forged_aggregate_n(self):
         with tempfile.TemporaryDirectory() as root:
@@ -3019,6 +3037,9 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             root_path = pathlib.Path(root)
             (root_path / "facts-status.json").write_text(json.dumps({
                 "schema_version": 1,
+                "generated_at": "2026-06-10T20:00:00Z",
+                "repo_head": "c" * 40,
+                "brain_manifest_sha256": "sha256:" + "d" * 64,
                 "facts_arm_ready": False,
                 "totals": {"active": 0, "facts": 0},
                 "warnings": ["facts retriever has no active facts; facts-vs-raw release proof cannot be collected yet"],
@@ -3044,6 +3065,9 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             root_path = pathlib.Path(root)
             (root_path / "facts-status.json").write_text(json.dumps({
                 "schema_version": 1,
+                "generated_at": "2026-06-10T20:00:00Z",
+                "repo_head": "c" * 40,
+                "brain_manifest_sha256": "sha256:" + "d" * 64,
                 "facts_arm_ready": True,
                 "totals": {"active": 3, "facts": 3},
                 "warnings": [],
@@ -3059,6 +3083,28 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             self.assertFalse(report["release_evidence"], report)
             self.assertIn("facts_status.facts_arm_ready must be false for no_release_claim evidence", report["flags"])
             self.assertIn("facts_status.totals.active must be 0 for no_release_claim evidence", report["flags"])
+
+    def test_facts_eval_audit_rejects_no_release_claim_without_fresh_status_provenance(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            (root_path / "facts-status.json").write_text(json.dumps({
+                "schema_version": 1,
+                "facts_arm_ready": False,
+                "totals": {"active": 0, "facts": 0},
+            }))
+            manifest = root_path / "manifest.json"
+            manifest.write_text(json.dumps({
+                "schema": 1,
+                "claim_policy": "no_release_claim",
+                "facts_status": "facts-status.json",
+            }))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+
+            self.assertFalse(report["release_evidence"], report)
+            self.assertIn("facts_status.generated_at must be an RFC3339 timestamp", report["flags"])
+            self.assertIn("facts_status.repo_head must be a 40-character git commit", report["flags"])
+            self.assertIn("facts_status.brain_manifest_sha256 must be sha256:<64 hex>", report["flags"])
 
     def test_facts_eval_audit_rejects_proxy_or_nonclaimable_comparison(self):
         with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
@@ -3173,6 +3219,18 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             report = audit_facts_eval.audit_facts_eval_manifest(manifest)
             self.assertFalse(report["release_evidence"], report)
             self.assertIn("eval summaries have differing brain_manifest_sha256 values", report["flags"])
+
+    def test_facts_eval_audit_rejects_unknown_claim_scope(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            data = json.loads(manifest.read_text())
+            data["claim_scope"] = "demo"
+            manifest.write_text(json.dumps(data))
+
+            with self.assertRaises(SystemExit) as ctx:
+                audit_facts_eval.audit_facts_eval_manifest(manifest)
+            self.assertIn("claim_scope must be release or fixture_contract", str(ctx.exception))
 
 
 class DistillPerfAuditScriptTests(unittest.TestCase):
@@ -3885,6 +3943,7 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
         root: pathlib.Path,
         *,
         claim_policy: str = "no_release_claim",
+        codex_audit_report: str | None = None,
         expected_status_counts: dict[str, int] | None = None,
     ) -> pathlib.Path:
         manifest = root / "manifest.json"
@@ -3894,6 +3953,8 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             "results_dir": ".",
             "suite_globs": ["release-candidate-*-workspace-radar-*"],
         }
+        if codex_audit_report:
+            data["codex_audit_report"] = codex_audit_report
         if expected_status_counts is not None:
             data["expected_status_counts"] = expected_status_counts
         manifest.write_text(json.dumps(data))
@@ -3933,6 +3994,58 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
         }))
         return suite
 
+    def _write_workspace_codex_audit_report(self, root: pathlib.Path, suite: str) -> pathlib.Path:
+        records = []
+        for index in range(1, 5):
+            records.append({
+                "task_id": "workspace-radar-task",
+                "runner": "codex-mini-low",
+                "condition": "no_brain",
+                "delivery_scope": "none",
+                "pass": index == 1,
+                "valid": index == 1,
+                "mcp_verified": False,
+                "mcp_named_tool_verified": False,
+                "mcp_named_tool_completed": False,
+                "flags": [] if index == 1 else ["baseline_failed"],
+            })
+            records.append({
+                "task_id": "workspace-radar-task",
+                "runner": "codex-mini-low",
+                "condition": "mcp_workspace_radar",
+                "delivery_scope": "mcp_workspace_radar_location_only",
+                "pass": True,
+                "valid": True,
+                "mcp_verified": True,
+                "mcp_named_tool_verified": True,
+                "mcp_named_tool_completed": True,
+                "flags": [],
+            })
+        report = root / "codex-audit-report.json"
+        report.write_text(json.dumps({
+            "schema": 1,
+            "suites": {
+                suite: {
+                    "records": records,
+                    "comparisons": [{
+                        "task": "workspace-radar-task",
+                        "runner": "codex-mini-low",
+                        "condition": "mcp_workspace_radar",
+                        "delivery_scope": "mcp_workspace_radar_location_only",
+                        "proof_scope": "mcp_workspace_radar_location_only",
+                        "pass": True,
+                        "proof_ready": True,
+                        "record_backing": {
+                            "condition_mcp_verified_ok": True,
+                            "condition_mcp_named_tool_verified_ok": True,
+                            "condition_mcp_named_tool_completed_ok": True,
+                        },
+                    }],
+                },
+            },
+        }))
+        return report
+
     def test_workspace_radar_evidence_accepts_retained_no_claim_candidate(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as out:
             root = pathlib.Path(tmp)
@@ -3965,7 +4078,7 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 1,
             )
 
-    def test_workspace_radar_evidence_allows_future_proof_policy(self):
+    def test_workspace_radar_evidence_rejects_future_proof_policy_without_codex_audit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             self._write_workspace_proof_suite(root)
@@ -3973,8 +4086,30 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
 
             report = audit_workspace_radar_evidence.audit_manifest(manifest)
 
+            self.assertEqual(report["status"], "fail", report)
+            self.assertFalse(report["claimable_workspace_radar"])
+            self.assertIn(
+                "proof_required workspace Radar evidence requires codex_audit_report with MCP named-tool backing",
+                report["flags"],
+            )
+            self.assertIn(
+                "proof_required workspace Radar evidence lacks enough Codex-audited brain_workspace_regressions named-tool completions",
+                report["flags"],
+            )
+
+    def test_workspace_radar_evidence_allows_future_proof_policy_with_codex_audit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            suite = self._write_workspace_proof_suite(root)
+            self._write_workspace_codex_audit_report(root, suite.name)
+            manifest = self._write_workspace_manifest(root, claim_policy="proof_required", codex_audit_report="codex-audit-report.json")
+
+            report = audit_workspace_radar_evidence.audit_manifest(manifest)
+
             self.assertEqual(report["status"], "pass", report)
             self.assertTrue(report["claimable_workspace_radar"])
+            gate = report["radar_report"]["comparisons"][0]["radar_gate"]
+            self.assertTrue(gate["codex_audit_record_backing"]["condition_mcp_named_tool_completed_ok"])
 
     def _write_radar_tool_manifest(self, root: pathlib.Path, tests: list[str], source_head: str = "a" * 40) -> pathlib.Path:
         artifact = root / "go-test-radar.jsonl"

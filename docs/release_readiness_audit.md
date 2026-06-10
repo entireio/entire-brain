@@ -123,16 +123,26 @@ Implemented eval surfaces:
   proxy or unrelated comparison cannot be promoted into a facts-vs-raw claim by
   editing manifest text. It also supports an explicit
   `claim_policy: "no_release_claim"` manifest backed by `facts status --json`;
-  that passes only when the facts arm is not ready and has zero active facts.
+  that passes only when the facts arm is not ready, has zero active facts, and
+  carries retained freshness provenance (`generated_at`, `repo_head`, and
+  `brain_manifest_sha256`).
+- The retained proof-mode contract fixture under
+  `benchmarks/agent-brain/evidence/facts-eval-proof-fixture` exercises a
+  complete proof-labeled facts-over-raw comparison with
+  `claim_scope: "fixture_contract"`. It proves the auditor accepts the required
+  artifact shape and recomputes the claim from retained rows, while explicitly
+  setting `release_evidence: false` so the fixture cannot become production
+  facts-vs-raw copy.
 - The retained facts auditor now recomputes paired means, deltas, winners,
   two-sided paired t-test p-values, Holm thresholds, significance, and
   per-metric `release_claimable` from the retained summary rows before accepting
   a positive facts-vs-raw claim.
-- `mise run facts:evidence` checks committed facts-eval artifacts without
-  rewriting them, while `facts:evidence:update` regenerates the audit report
-  only after the validator passes. The current retained artifact is no-claim
-  evidence: it records that the current branch has zero active durable facts, so
-  no facts-vs-raw win is being cited.
+- `mise run facts:evidence` checks the committed no-claim facts-eval release
+  artifact and the proof-mode fixture without rewriting either report, while
+  `facts:evidence:update` regenerates both audit reports only after the
+  validator passes. The current retained release artifact is no-claim evidence:
+  it records that the current branch has zero active durable facts, so no
+  facts-vs-raw win is being cited.
 
 Claim policy: do not say facts are better than raw/preprocessed sessions unless
 paired evals show a significant lift for the metric being claimed. Do not compare
@@ -562,13 +572,13 @@ complete failing-task summary at the end.
 Distill and facts now have retained evidence, but their claim scopes are
 deliberately narrow: distill proves current-repo local command-agent extraction
 scheduling speedup plus fake loopback Ollama wiring/no-egress safety, and facts
-records
-`claim_policy: "no_release_claim"` because the current branch has no active
-durable facts. These gates keep "distill is fast on the frontend repo"
-and "facts beat raw sessions" blocked until target proof exists, instead of
-hiding them behind a green implementation check. Semantic freshness is local
-health evidence; semantic usefulness claims still need separate retained
-benchmark proof before they should ship.
+records `claim_policy: "no_release_claim"` because the current branch has no
+active durable facts. The facts proof fixture validates the proof-mode audit
+contract only; it is not release evidence. These gates keep "distill is fast on
+the frontend repo" and "facts beat raw sessions" blocked until target proof
+exists, instead of hiding them behind a green implementation check. Semantic
+freshness is local health evidence; semantic usefulness claims still need
+separate retained benchmark proof before they should ship.
 
 `mise run radar:screen` is the calibration check for local `pilot-radar-*`
 suites plus promoted `release-candidate-*-radar-*` and

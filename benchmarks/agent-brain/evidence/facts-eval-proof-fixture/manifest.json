@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "claim_policy": "proof_required",
+  "claim_scope": "fixture_contract",
+  "required_retrievers": [
+    "facts",
+    "history",
+    "query",
+    "raw-sessions"
+  ],
+  "summaries": {
+    "facts": "facts.json",
+    "history": "history.json",
+    "query": "query.json",
+    "raw-sessions": "raw-sessions.json"
+  },
+  "comparisons": {
+    "raw_vs_facts": "raw-vs-facts.compare.json"
+  },
+  "required_claims": [
+    {
+      "comparison": "raw_vs_facts",
+      "metric": "useful_per_1k",
+      "a_retriever": "raw-sessions",
+      "b_retriever": "facts",
+      "winner": "b",
+      "evidence_basis": "proof_labels"
+    }
+  ],
+  "notes": [
+    "Fixture-only proof-mode contract: validates the retained facts-vs-raw auditor over proof-labeled paired artifacts.",
+    "Not production release evidence; real facts-vs-raw claims still require target proof-labeled tasks and a target brain manifest."
+  ]
+}

@@ -1,16 +1,22 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
 
 type factsStatusReport struct {
 	SchemaVersion int                 `json:"schema_version"`
+	GeneratedAt   time.Time           `json:"generated_at"`
 	Repo          string              `json:"repo"`
 	BrainPath     string              `json:"brain_path"`
+	RepoHead      string              `json:"repo_head,omitempty"`
+	BrainManifest string              `json:"brain_manifest_sha256,omitempty"`
 	Branch        string              `json:"branch,omitempty"`
 	AllBranches   bool                `json:"all_branches,omitempty"`
 	FactsArmReady bool                `json:"facts_arm_ready"`
@@ -57,7 +63,11 @@ func newFactsStatusCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			report, err := buildFactsStatusReport(repoDir, brainDir, resolvedBranch, allBranches)
+			now := time.Now
+			if opts.Now != nil {
+				now = opts.Now
+			}
+			report, err := buildFactsStatusReport(cmd.Context(), opts.Runner, repoDir, brainDir, resolvedBranch, allBranches, now())
 			if err != nil {
 				return err
 			}
@@ -74,11 +84,14 @@ func newFactsStatusCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-func buildFactsStatusReport(repoDir, brainDir, branch string, allBranches bool) (factsStatusReport, error) {
+func buildFactsStatusReport(ctx context.Context, runner CommandRunner, repoDir, brainDir, branch string, allBranches bool, now time.Time) (factsStatusReport, error) {
 	report := factsStatusReport{
 		SchemaVersion: 1,
+		GeneratedAt:   now.UTC(),
 		Repo:          repoDir,
 		BrainPath:     brainDir,
+		RepoHead:      strings.TrimSpace(string(runGitOutput(ctx, runner, repoDir, "rev-parse", "HEAD"))),
+		BrainManifest: evalBrainManifestSHA256(brainDir),
 		Branch:        branch,
 		AllBranches:   allBranches,
 	}

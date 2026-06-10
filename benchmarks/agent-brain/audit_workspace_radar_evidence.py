@@ -80,7 +80,8 @@ def audit_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
     results_dir = manifest_artifact(root, manifest.get("results_dir", "."), "results_dir")
     suite_globs = [str(item) for item in manifest["suite_globs"]]
     codex_audit = None
-    if manifest.get("codex_audit_report"):
+    has_codex_audit_report = bool(manifest.get("codex_audit_report"))
+    if has_codex_audit_report:
         codex_audit = audit_radar_evidence.load_codex_audit(
             manifest_artifact(root, manifest.get("codex_audit_report"), "codex_audit_report")
         )
@@ -124,8 +125,31 @@ def audit_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             "the retained candidate documents why it was rejected"
         )
     else:
+        if not has_codex_audit_report:
+            flags.append(
+                "proof_required workspace Radar evidence requires codex_audit_report "
+                "with MCP named-tool backing"
+            )
+        if radar_report.get("codex_audit_required") is not True:
+            flags.append("proof_required workspace Radar evidence must run with codex audit backing")
         if proof_ready < required_proof_ready:
             flags.append(f"proof_required workspace Radar evidence has {proof_ready} proof-ready comparison(s), require {required_proof_ready}")
+        backed_proofs = [
+            comp for comp in comparisons
+            if isinstance(comp, dict)
+            and comp.get("delivery_scope") == WORKSPACE_SCOPE
+            and isinstance(comp.get("radar_gate"), dict)
+            and comp["radar_gate"].get("proof_ready") is True
+            and isinstance(comp["radar_gate"].get("codex_audit_record_backing"), dict)
+            and comp["radar_gate"]["codex_audit_record_backing"].get("condition_mcp_verified_ok") is True
+            and comp["radar_gate"]["codex_audit_record_backing"].get("condition_mcp_named_tool_verified_ok") is True
+            and comp["radar_gate"]["codex_audit_record_backing"].get("condition_mcp_named_tool_completed_ok") is True
+        ]
+        if len(backed_proofs) < required_proof_ready:
+            flags.append(
+                "proof_required workspace Radar evidence lacks enough Codex-audited "
+                "brain_workspace_regressions named-tool completions"
+            )
 
     return {
         "schema": 1,

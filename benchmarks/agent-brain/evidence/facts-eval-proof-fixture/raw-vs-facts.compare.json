@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "n": 12,
+  "alpha": 0.05,
+  "a_retriever": "raw-sessions",
+  "b_retriever": "facts",
+  "a_tasks_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "b_tasks_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "a_brain_manifest_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "b_brain_manifest_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "release_pairing_ready": true,
+  "release_claimable": true,
+  "allow_proxy_comparison": false,
+  "allow_missing_tasks": false,
+  "allow_task_hash_mismatch": false,
+  "allow_brain_manifest_mismatch": false,
+  "missing_from_a": [],
+  "missing_from_b": [],
+  "metrics": [
+    {
+      "metric": "useful_per_1k",
+      "evidence_basis": "proof_labels",
+      "n": 12,
+      "mean_a": 5.0,
+      "mean_b": 20.0,
+      "delta": 15.0,
+      "t": 0,
+      "p": 0,
+      "p_holm_threshold": 0.05,
+      "cohen_d": 0,
+      "significant": true,
+      "release_claimable": true,
+      "winner": "b"
+    }
+  ]
+}
