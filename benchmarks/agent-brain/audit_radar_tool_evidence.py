@@ -175,7 +175,6 @@ def audit_manifest(
     root = manifest_path.parent
     errors: list[str] = []
     warnings: list[str] = []
-    current_head: str | None = None
     source_drift_paths: list[str] = []
 
     if manifest.get("schema") != 1:
@@ -189,7 +188,7 @@ def audit_manifest(
     if len(source_head) != 40 or any(c not in "0123456789abcdef" for c in source_head.lower()):
         errors.append("source_head must be a 40-character git commit")
     elif repo_root is not None and not allow_stale_source_head:
-        current_head, source_drift_paths, git_errors = source_head_drift(repo_root, source_head)
+        _, source_drift_paths, git_errors = source_head_drift(repo_root, source_head)
         errors.extend(git_errors)
         if source_drift_paths:
             errors.append(
@@ -251,7 +250,6 @@ def audit_manifest(
         "warnings": warnings,
         "claim_scope": manifest.get("claim_scope"),
         "source_head": manifest.get("source_head"),
-        "current_head": current_head,
         "source_drift_paths": source_drift_paths,
         "required_tests": REQUIRED_TESTS,
         "artifact": artifact_report,
