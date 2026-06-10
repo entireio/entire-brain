@@ -183,6 +183,14 @@ the summary reported `proof_ready=false` / `saturated/overhead_negative`. It was
 not copied into `benchmarks/agent-brain/evidence/release`; a stronger semantic
 task is still needed before semantic usefulness claims graduate.
 
+Next semantic proof candidate: `entire-brain-semantic-audit-gate-report` breaks
+the semantic audit gate so it returns before emitting JSON, then hides the
+focused validation that requires JSON to be emitted before a blind-spot gate
+error. The paired panel `release-entire-brain-semantic-audit-gate` is committed
+for `no_brain` vs `semantic_brain` at 4 repetitions per side. It preflights as
+`fails-as-expected`, but it is not release evidence until the panel is run,
+audited, and either retained or rejected under the release evidence policy.
+
 ## QMD Alignment
 
 The current Entire Brain retrieval surface keeps the qmd-inspired core verbs:
