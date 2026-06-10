@@ -89,6 +89,12 @@ def validate_manifest(data: Any) -> None:
     for field in ("repo_root", "reports", "docs", "mise"):
         if field not in data:
             raise SystemExit(f"release matrix manifest requires {field}")
+    guardrails = data.get("required_press_guardrails", [])
+    if guardrails is not None and (
+        not isinstance(guardrails, list)
+        or not all(isinstance(item, str) and item for item in guardrails)
+    ):
+        raise SystemExit("release matrix manifest required_press_guardrails must be a string list")
 
 
 def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
@@ -246,6 +252,10 @@ def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
     for required in ("entire-brain", "entire-sem", "entire-replay-lab", "Future Claims We Should Not Make Yet", "Release Checklist"):
         if required not in press_text:
             press_flags.append(f"release press release missing {required!r}")
+    press_text_lower = press_text.lower()
+    for required in manifest.get("required_press_guardrails", []):
+        if required.lower() not in press_text_lower:
+            press_flags.append(f"release press release missing guardrail phrase {required!r}")
     add_row(
         rows,
         track="release narrative / backwards-working story",

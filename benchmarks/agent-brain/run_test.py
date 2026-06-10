@@ -4270,6 +4270,15 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             "claim_policy": "no_release_claim",
             "claimable_facts_vs_raw": False,
         }))
+        press_guardrails = [
+            "target large-repo/frontend distill",
+            "facts beat raw",
+            "semantic usefulness",
+            "workspace Radar",
+            "multi-agent collaboration is complete",
+            "backend/Slack access",
+            "turn signing",
+        ]
         (root / "docs" / "release_press_release.md").write_text(
             "\n".join([
                 "# Draft",
@@ -4278,6 +4287,7 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 "entire-replay-lab",
                 "Future Claims We Should Not Make Yet",
                 "Release Checklist",
+                *press_guardrails,
             ])
         )
         required = [
@@ -4312,6 +4322,7 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             },
             "required_release_proof_scopes": ["history", "mcp", "mcp_radar_location_only"],
             "required_named_tool_proof_scopes": ["mcp_radar_location_only"],
+            "required_press_guardrails": press_guardrails,
             "required_mise_tasks": required,
         }))
         return manifest
@@ -4352,6 +4363,47 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             self.assertEqual(
                 audit_release_matrix.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]),
                 1,
+            )
+
+    def test_release_matrix_rejects_press_release_missing_guardrails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            manifest = self._write_release_matrix_fixture(root)
+            (root / "docs" / "release_press_release.md").write_text(
+                "\n".join([
+                    "# Draft",
+                    "entire-brain",
+                    "entire-sem",
+                    "entire-replay-lab",
+                    "Future Claims We Should Not Make Yet",
+                    "Release Checklist",
+                ])
+            )
+
+            report = audit_release_matrix.audit_manifest(manifest)
+
+            self.assertEqual(report["status"], "fail", report)
+            self.assertIn(
+                "release press release missing guardrail phrase 'facts beat raw'",
+                report["flags"],
+            )
+
+    def test_release_matrix_rejects_claimable_workspace_without_retained_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            manifest = self._write_release_matrix_fixture(root)
+            workspace = root / "reports" / "workspace-radar.json"
+            data = json.loads(workspace.read_text())
+            data["claim_policy"] = "proof_required"
+            data["claimable_workspace_radar"] = True
+            workspace.write_text(json.dumps(data))
+
+            report = audit_release_matrix.audit_manifest(manifest)
+
+            self.assertEqual(report["status"], "fail", report)
+            self.assertIn(
+                "workspace Radar must remain no_release_claim until proof-ready workspace evidence exists",
+                report["flags"],
             )
 
     def test_release_matrix_rejects_missing_required_replay_scope(self):

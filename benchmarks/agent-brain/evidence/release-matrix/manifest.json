@@ -12,6 +12,15 @@
   "docs": {
     "press_release": "docs/release_press_release.md"
   },
+  "required_press_guardrails": [
+    "target large-repo/frontend distill",
+    "facts beat raw",
+    "semantic usefulness",
+    "workspace Radar",
+    "multi-agent collaboration is complete",
+    "backend/Slack access",
+    "turn signing"
+  ],
   "required_release_proof_scopes": [
     "history",
     "mcp",
