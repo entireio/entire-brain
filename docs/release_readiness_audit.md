@@ -140,6 +140,20 @@ independent audit rejected it with 0 proof-ready comparisons and 3 hard
 `E:agent_leak_audit_failed` flags. This suite is a negative pilot, not release
 evidence.
 
+Positive replay-lab history evidence retained: the committed
+`release-entire-brain-schema-contract` panel generated
+`release-candidate-entire-brain-schema-contract-20260610T0115Z` with one pinned
+Codex runner, `no_brain` vs `full_brain`, and 4 repetitions per side. The
+baseline failed all 4 reps while `full_brain` passed all 4 reps on the
+schema-contract history task, with mean score `66.0 -> 91.5`, pass rate
+`0.0 -> 1.0`, and summary `proof_ready=true` /
+`brain_positive_stable`. The independent release audit retained under
+`benchmarks/agent-brain/evidence/release` reports 1 suite, 8 records, 0 hard
+flags, 8/8 provenance-backed records, and 1 proof-ready comparison. This is
+citable evidence that the history/full-brain lane can improve one checkpointed
+task; it is not evidence that semantic indexing or facts retrieval are broadly
+better.
+
 ## QMD Alignment
 
 The current Entire Brain retrieval surface keeps the qmd-inspired core verbs:
@@ -270,9 +284,11 @@ repo/access/artifacts are available:
 - Semantic benchmark evidence from a retained proof suite. A clean local
   `semantic-audit --json --fail-on unsafe` run on this checkout is recorded
   above, but it does not prove agent usefulness by itself.
-- Benchmark panel or retained proof subset from `benchmarks/agent-brain`, audited
-  with `audit_codex.py --fail-on-flags` and committed under
-  `benchmarks/agent-brain/evidence/release` as sanitized evidence.
+- Additional benchmark panels or retained proof subsets from
+  `benchmarks/agent-brain`, audited with `audit_codex.py --fail-on-flags` and
+  committed under `benchmarks/agent-brain/evidence/release` as sanitized
+  evidence. One focused history proof is now retained; semantic/facts and
+  broader multi-task replay evidence are still needed for broader claims.
 - `mise run release:evidence` must pass before any replay-lab proof claim; it runs
   benchmark harness self-tests and then audits explicit `release-candidate-*`
   suites through `benchmarks/agent-brain/evidence/release/manifest.json`.
@@ -303,3 +319,9 @@ because validation was not clean and overhead exceeded the release gate. The
 independent audit rejected the suite with 0 proof-ready comparisons and 11 hard
 `E:agent_leak_audit_failed` flags, so it was not copied into
 `benchmarks/agent-brain/evidence/release` and is not release evidence.
+
+The follow-up `release-candidate-entire-brain-history-20260610T0045Z` panel was
+rerun after benchmark sanitizer hardening. It reduced hard leak flags from 11 to
+3 and produced some clean full-brain records, but still failed the release gate:
+0 proof-ready comparisons, 3 hard flags, and unstable validation across tasks.
+It remains diagnostic only.

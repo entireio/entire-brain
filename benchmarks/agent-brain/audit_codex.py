@@ -365,19 +365,24 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
     required_condition = int(comp.get("n_condition") or 0)
     required_baseline = int(comp.get("n_baseline") or 0)
 
-    def matches(record: dict[str, Any], cond: str) -> bool:
-        return (
+    def matches(record: dict[str, Any], cond: str, *, require_success: bool) -> bool:
+        if not (
             record.get("pass")
             and get(record, "provenance", "ok")
-            and record.get("ok") is True
-            and record.get("valid") is True
             and record.get("task_id") == task
             and record.get("runner") == runner
             and record.get("condition") == cond
+        ):
+            return False
+        if require_success:
+            return record.get("ok") is True and record.get("valid") is True
+        return (
+            "ok" in record
+            and "valid" in record
         )
 
-    condition_matches = [r for r in rec_audits if matches(r, condition)]
-    baseline_matches = [r for r in rec_audits if matches(r, "no_brain")]
+    condition_matches = [r for r in rec_audits if matches(r, condition, require_success=True)]
+    baseline_matches = [r for r in rec_audits if matches(r, "no_brain", require_success=False)]
     condition_run_ids = {r.get("run_id") for r in condition_matches if r.get("run_id")}
     baseline_run_ids = {r.get("run_id") for r in baseline_matches if r.get("run_id")}
     condition_repetitions = {r.get("repetition") for r in condition_matches if r.get("repetition") is not None}

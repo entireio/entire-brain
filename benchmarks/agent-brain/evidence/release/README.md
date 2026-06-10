@@ -16,3 +16,14 @@ an explicit `release-candidate-*` suite and pass the manifest-enforced gate.
 
 The committed manifest records the citable suite policy. Generated audit reports
 should only be committed after the gate passes for a real release-candidate run.
+
+Retained suites may be pruned to the artifacts the independent auditor needs:
+`summary.json`, `records.ndjson`, and per-run `record.json` files. Large copied
+tool binaries and raw agent stdout/stderr stay in ignored local `results/`
+unless a future audit explicitly needs them.
+
+Current retained proof:
+
+- `release-candidate-entire-brain-schema-contract-20260610T0115Z`: one focused
+  history/full-brain schema-contract task, 4 repetitions per side, audited with
+  0 hard flags and 1 proof-ready comparison.

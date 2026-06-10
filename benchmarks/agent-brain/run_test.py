@@ -1252,6 +1252,22 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertTrue(passing_gate["release_evidence"])
             self.assertEqual(passing_gate["failures"], [])
 
+            failed_baseline_records = []
+            for i in range(1, 5):
+                base = self._record(condition="no_brain", repetition=i, run_id=f"failed-base-{i}")
+                base["ok"] = False
+                base["validation"]["ok"] = False
+                for result in base["validation"]["results"]:
+                    result["ok"] = False
+                failed_baseline_records.append(base)
+                failed_baseline_records.append(self._record(condition="full_brain", repetition=i, run_id=f"clean-brain-{i}"))
+            self._write_records(results_dir, "clean-suite", failed_baseline_records)
+            failed_baseline_clean = audit_codex.build_audit_report(results_dir, ["clean-*"])
+            self.assertEqual(failed_baseline_clean["totals"]["hard_flags"], 0)
+            self.assertEqual(failed_baseline_clean["totals"]["proof_ready_comparisons"], 1)
+            failed_backing = failed_baseline_clean["suites"]["clean-suite"]["comparisons"][0]["record_backing"]
+            self.assertEqual(failed_backing["baseline_records"], 4)
+
             unvalidated_records = []
             for i in range(1, 5):
                 base = self._record(condition="no_brain", repetition=i, run_id=f"noval-base-{i}")

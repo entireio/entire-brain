@@ -1,0 +1,321 @@
+{
+  "agent": "codex",
+  "agent_baseline_history_reset": {
+    "parent_count": 0,
+    "root_commit": "fabbcf3f8df009b8482190a7bde077550124681f"
+  },
+  "agent_info": {
+    "activity": {
+      "activity_source": "protocol_json",
+      "brain_commands": [],
+      "checked_brief": false,
+      "checked_diff": true,
+      "checked_freshness": false,
+      "checked_stale": false,
+      "direct_brain_cli_calls": 0,
+      "mcp_tool_calls": 0,
+      "mcp_tool_names": [],
+      "ran_tests": false,
+      "saw_index_locked": false,
+      "search_calls": 6,
+      "search_commands": [
+        "rg"
+      ],
+      "structured_tool_event_count": 30,
+      "test_commands": [],
+      "used_brain": false,
+      "used_mcp": false
+    },
+    "agent": "codex",
+    "cmd": [
+      "codex",
+      "..."
+    ],
+    "isolation": {
+      "auth": "host CODEX_HOME auth may still be used",
+      "mcp": "disabled",
+      "rules": "ignored",
+      "session": "ephemeral",
+      "user_config": "ignored"
+    },
+    "mcp": {
+      "condition": "no_brain",
+      "enabled": false,
+      "server": null
+    },
+    "resolved_model": null,
+    "returncode": 1,
+    "runner": {
+      "agent": "codex",
+      "effort": "high",
+      "id": "codex-gpt-5.5-high",
+      "model": "gpt-5.5"
+    },
+    "seconds": 91.27118992805481,
+    "stderr_bytes": 20585,
+    "stderr_tail": "lls::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T01:37:26.789869Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T01:37:26.789874Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T01:37:27.229976Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=/Users/suhaan/.codex/.tmp/plugins/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T01:37:27.241447Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=/Users/suhaan/.codex/.tmp/plugins/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T01:37:27.241486Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=/Users/suhaan/.codex/.tmp/plugins/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T01:37:37.126433Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=/Users/suhaan/.codex/.tmp/plugins/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T01:37:37.142152Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T01:37:37.142162Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T01:37:37.142477Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T01:37:37.142482Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T01:37:37.142797Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T01:37:37.142802Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T01:37:37.143093Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T01:37:37.143097Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T01:37:37.143403Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T01:37:37.143406Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T01:37:37.144129Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T01:37:37.144132Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T01:37:37.536179Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=/Users/suhaan/.codex/.tmp/plugins/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T01:37:37.544383Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=/Users/suhaan/.codex/.tmp/plugins/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T01:37:37.544409Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=/Users/suhaan/.codex/.tmp/plugins/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T01:38:08.284776Z  WARN codex_core::shell_snapshot: Failed to delete shell snapshot at AbsolutePathBuf(\"/Users/suhaan/.codex/shell_snapshots/019eaf2c-9f46-7181-a20a-72edab071ff0.1781055397789623000.sh\"): Os { code: 2, kind: NotFound, message: \"No such file or directory\" }\n",
+    "stdout_bytes": 223488,
+    "stdout_tail": "in/zsh -lc \\\"sed -n '200,270p' internal/cli/seed_test.go\\\"\",\"aggregated_output\":\"\\t\\t}\\n\\t}\\n\\tif strings.Contains(joined, \\\"--bare\\\") {\\n\\t\\tt.Fatalf(\\\"claude-code args should not use --bare because it bypasses logged-in Claude auth: %#v\\\", args)\\n\\t}\\n\\tif !strings.Contains(args[len(args)-1], \\\"return only raw JSON\\\") {\\n\\t\\tt.Fatalf(\\\"claude-code prompt missing structured-output instruction:\\\\n%s\\\", args[len(args)-1])\\n\\t}\\n}\\n\\nfunc TestSeedAgentCommandArgsAcceptModelAndEffort(t *testing.T) {\\n\\t// Seed reuses the distill injectors (applied in runSeedAgentPhase), so a full refresh can run\\n\\t// seed synthesis on a fast/cheap model + effort. Prompt must stay last after injection.\\n\\tcodex, _ := seedAgentCommandArgs(\\\"/repo\\\", \\\"quick\\\", seedCommandOptions{agent: \\\"codex\\\"})\\n\\tcodex = injectAgentEffort(injectAgentModel(codex, \\\"codex\\\", \\\"gpt-5.4-mini\\\"), \\\"codex\\\", \\\"low\\\")\\n\\tjoined := strings.Join(codex, \\\"\\\\x00\\\")\\n\\tfor _, want := range []string{\\\"--model\\\\x00gpt-5.4-mini\\\", \\\"--config\\\\x00model_reasoning_effort=low\\\"} {\\n\\t\\tif !strings.Contains(joined, want) {\\n\\t\\t\\tt.Fatalf(\\\"seed codex args missing %q: %#v\\\", want, codex)\\n\\t\\t}\\n\\t}\\n\\tif !strings.Contains(codex[len(codex)-1], \\\"return only raw JSON\\\") {\\n\\t\\tt.Fatalf(\\\"seed prompt must stay last after injection: %#v\\\", codex)\\n\\t}\\n\\n\\tclaude, _ := seedAgentCommandArgs(\\\"/repo\\\", \\\"deep\\\", seedCommandOptions{agent: \\\"claude-code\\\"})\\n\\tclaude = injectAgentEffort(injectAgentModel(claude, \\\"claude-code\\\", \\\"haiku\\\"), \\\"claude-code\\\", \\\"low\\\")\\n\\tjoinedc := strings.Join(claude, \\\"\\\\x00\\\")\\n\\tfor _, want := range []string{\\\"--model\\\\x00haiku\\\", \\\"--effort\\\\x00low\\\"} {\\n\\t\\tif !strings.Contains(joinedc, want) {\\n\\t\\t\\tt.Fatalf(\\\"seed claude args missing %q: %#v\\\", want, claude)\\n\\t\\t}\\n\\t}\\n}\\n\\nfunc TestSeedAgentCodexPhaseUsesPATHStdinAndWritesArtifacts(t *testing.T) {\\n\\trepoDir := seedFixtureRepo(t)\\n\\toutputDir := t.TempDir()\\n\\tlogDir := installFakeSeedAgentBinaries(t)\\n\\tt.Setenv(\\\"FAKE_SEED_AGENT_LOG_DIR\\\", logDir)\\n\\n\\tinput := []byte(`{\\\"schema_version\\\":1,\\\"phase\\\":\\\"quick\\\",\\\"repo\\\":{\\\"key\\\":\\\"gh/example/repo\\\"}}`)\\n\\tphase, artifacts, err := runSeedAgentPhase(context.Background(), repoDir, outputDir, seedCommandOptions{agent: \\\"codex\\\"}, \\\"quick\\\", 10*time.Second, input, []string{\\\"quick-overview.md\\\"})\\n\\tif err != nil {\\n\\t\\tt.Fatalf(\\\"run codex phase: %v\\\", err)\\n\\t}\\n\\tif phase.Status != \\\"success\\\" || phase.Model != \\\"fake-codex\\\" {\\n\\t\\tt.Fatalf(\\\"phase = %+v\\\", phase)\\n\\t}\\n\\tif artifacts[\\\"quick-overview.md\\\"] != \\\"quick artifact from codex\\\" {\\n\\t\\tt.Fatalf(\\\"artifacts = %+v\\\", artifacts)\\n\\t}\\n\\tassertSeedAgentArtifact(t, outputDir, \\\"quick-overview.md\\\", \\\"quick artifact from codex\\\")\\n\\tassertFakeSeedAgentLog(t, logDir, \\\"codex\\\", \\\"quick\\\", input, []string{\\\"exec\\\", \\\"--skip-git-repo-check\\\", \\\"--ephemeral\\\", \\\"--ignore-user-config\\\", \\\"--ignore-rules\\\", \\\"--sandbox\\\", \\\"read-only\\\"})\\n}\\n\\nfunc TestSeedAgentClaudePhaseUsesPATHStdinAndWritesArtifacts(t *testing.T) {\\n\\trepoDir := seedFixtureRepo(t)\\n\\toutputDir := t.TempDir()\\n\\tlogDir := installFakeSeedAgentBinaries(t)\\n\\tt.Setenv(\\\"FAKE_SEED_AGENT_LOG_DIR\\\", logDir)\\n\\n\\tinput := []byte(`{\\\"schema_version\\\":1,\\\"phase\\\":\\\"deep\\\",\\\"quick_result\\\":{\\\"quick-overview.md\\\":\\\"quick\\\"}}`)\\n\\trequired := []string{\\\"overview.md\\\", \\\"architecture.md\\\", \\\"risks.md\\\", \\\"maintenance-guide.md\\\", \\\"open-questions.md\\\"}\\n\\tphase, artifacts, err := runSeedAgentPhase(context.Background(), repoDir, outputDir, seedCommandOptions{agent: \\\"claude-code\\\"}, \\\"deep\\\", 10*time.Second, input, required)\\n\\tif err != nil {\\n\\t\\tt.Fatalf(\\\"run claude-code phase: %v\\\", err)\\n\\t}\\n\\tif phase.Status != \\\"success\\\" || phase.Model != \\\"fake-claude\\\" {\\n\\t\\tt.Fatalf(\\\"phase = %+v\\\", phase)\\n\\t}\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"error\",\"message\":\"Selected model is at capacity. Please try a different model.\"}\n{\"type\":\"turn.failed\",\"error\":{\"message\":\"Selected model is at capacity. Please try a different model.\"}}\n",
+    "usage": {
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_source": "estimated",
+      "cost_usd": 0.0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "turns": null
+    }
+  },
+  "agent_leak_audit": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_secret_preflight": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_visible_entire_history_removed": false,
+  "agent_worktree_sanitization": {
+    "committed": true,
+    "removed_paths": [
+      "benchmarks/agent-brain"
+    ]
+  },
+  "brain_prep": {
+    "commands": [],
+    "condition": "no_brain"
+  },
+  "brain_state": {},
+  "changed_files": [],
+  "condition": "no_brain",
+  "diff_stat": {
+    "bytes": 0,
+    "shortstat": "",
+    "untracked_files": []
+  },
+  "finished_at": "2026-06-10T01:38:10.477211+00:00",
+  "mcp_condition_audit": {
+    "findings": [],
+    "ok": true,
+    "required": false
+  },
+  "ok": false,
+  "post_brain_setup_applied": false,
+  "provenance": {
+    "captured_at": "2026-06-10T01:36:35.672347+00:00",
+    "fingerprint": "bdcf37d40a1473030c0fdaf650e43f8a1427a37c862c28571ad06fe17cb9d33d",
+    "harness": {
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "suhaanthayyil",
+        "available": true,
+        "commit": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
+        "committer_date": "2026-06-09T21:36:28-04:00",
+        "parent_count": 1,
+        "parents": [
+          "71bc55a980e9c08ba509dd6593b9034195048928"
+        ],
+        "ref": "HEAD",
+        "subject": "Add focused schema release panel"
+      },
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain"
+    },
+    "run_config": {
+      "brain_cache": {
+        "enabled": true,
+        "refresh": false
+      },
+      "checkpoint_limit": 200,
+      "claude_budget": 0.0,
+      "command": "run",
+      "condition": "no_brain",
+      "env_flags": {
+        "BENCH_RADAR_LOCATION_ONLY": null,
+        "BENCH_REGRESSION_RADAR": null
+      },
+      "fingerprint": "808140ae8075a95091bbe73cd0eb280bedde2007d164962be6be5c4e14a60fc0",
+      "panel": {
+        "config_sha256": "aa2964e80e41e92447870f95e989b8dfdc656ebf72b7b6a41219408b8ae1d733",
+        "name": "release-entire-brain-schema-contract",
+        "path": "benchmarks/agent-brain/panels/release-entire-brain-schema-contract.json"
+      },
+      "pricing": {
+        "file": "benchmarks/agent-brain/pricing.json",
+        "inline_sha256": null
+      },
+      "repetition": 1,
+      "requested": {
+        "agents": "",
+        "conditions": "no_brain,full_brain",
+        "repetitions": 4,
+        "runners": "codex:gpt-5.5:high",
+        "tasks": [
+          "entire-brain-history-codex-schema-contract.json"
+        ]
+      },
+      "runner": {
+        "agent": "codex",
+        "effort": "high",
+        "id": "codex-gpt-5.5-high",
+        "model": "gpt-5.5"
+      },
+      "stop_after_no_brain_score": null,
+      "suite": "release-candidate-entire-brain-schema-contract-20260610T0115Z",
+      "timeout": 1800
+    },
+    "schema": 1,
+    "source": {
+      "base": {
+        "author_name": "suhaanthayyil",
+        "available": true,
+        "commit": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
+        "committer_date": "2026-06-09T21:36:28-04:00",
+        "parent_count": 1,
+        "parents": [
+          "71bc55a980e9c08ba509dd6593b9034195048928"
+        ],
+        "ref": "HEAD",
+        "subject": "Add focused schema release panel"
+      },
+      "base_ref": "HEAD",
+      "base_ref_source": "source_head",
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "suhaanthayyil",
+        "available": true,
+        "commit": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
+        "committer_date": "2026-06-09T21:36:28-04:00",
+        "parent_count": 1,
+        "parents": [
+          "71bc55a980e9c08ba509dd6593b9034195048928"
+        ],
+        "ref": "HEAD",
+        "subject": "Add focused schema release panel"
+      },
+      "origin_url": "https://github.com/ashtom/entire-brain.git",
+      "repo": "entire-brain",
+      "repo_path_input": "entire-brain",
+      "repo_path_resolved": "/Users/suhaan/Documents/Coding/entire-brain"
+    },
+    "task": {
+      "base_commit": null,
+      "config_sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
+      "id": "entire-brain-history-codex-schema-contract",
+      "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json"
+    },
+    "tools": {
+      "bin": {
+        "exists": true,
+        "path": "/Users/suhaan/Documents/Coding/entire-brain/benchmarks/agent-brain/results/release-candidate-entire-brain-schema-contract-20260610T0115Z/bin"
+      },
+      "brain": {
+        "exists": true,
+        "path": "/Users/suhaan/Documents/Coding/entire-brain/benchmarks/agent-brain/results/release-candidate-entire-brain-schema-contract-20260610T0115Z/bin/entire-brain",
+        "sha256": "a3dd5ea35322f55c13c819e1e8afe4ca24c54fdb7314d59c35149b26c782e2a6"
+      },
+      "entire": {
+        "exists": true,
+        "path": "/Users/suhaan/Documents/Coding/entire-brain/benchmarks/agent-brain/results/release-candidate-entire-brain-schema-contract-20260610T0115Z/bin/entire",
+        "sha256": "64677d07fc572011c013d7ea651072436615319f74ae02d82da06cf2f72050d5"
+      },
+      "sem": {
+        "exists": true,
+        "path": "/Users/suhaan/Documents/Coding/entire-brain/benchmarks/agent-brain/results/release-candidate-entire-brain-schema-contract-20260610T0115Z/bin/entire-sem",
+        "sha256": "e8ef3a2c2c1a04e76f6bf995dd1aa11ad9c4357279d45cc7a35716332af3b96d"
+      }
+    }
+  },
+  "repetition": 1,
+  "repo": "entire-brain",
+  "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r1",
+  "runner": {
+    "agent": "codex",
+    "effort": "high",
+    "id": "codex-gpt-5.5-high",
+    "model": "gpt-5.5"
+  },
+  "score": {
+    "brain_use": 5,
+    "details": {
+      "activity_source": "protocol_json",
+      "agent_seconds": 91.27118992805481,
+      "brain_commands": [],
+      "changed_file_count": 0,
+      "checked_diff": true,
+      "diff_bytes": 0,
+      "direct_brain_cli_calls": 0,
+      "expected_files_touched": [],
+      "forbidden_files_touched": [],
+      "mcp_tool_calls": 0,
+      "mcp_tool_names": [],
+      "missing_expected_files": [
+        "internal/cli/seed.go",
+        "internal/cli/seed_test.go"
+      ],
+      "ran_tests": false,
+      "search_calls": 6,
+      "structured_tool_event_count": 30,
+      "total_tokens": 0,
+      "unexpected_files_touched": [],
+      "validation_count": 4,
+      "validation_passed": 1
+    },
+    "outcome": 9,
+    "patch_focus": 1,
+    "runtime_efficiency": 9,
+    "total": 26,
+    "validation_discipline": 2,
+    "version": 2
+  },
+  "started_at": "2026-06-10T01:36:35.664422+00:00",
+  "task_id": "entire-brain-history-codex-schema-contract",
+  "validation": {
+    "ok": false,
+    "results": [
+      {
+        "command": "test $(rg -n -- '--output-schema' internal/cli/seed.go | wc -l | tr -d ' ') -eq 0",
+        "returncode": 1,
+        "seconds": 0.009804964065551758,
+        "stderr_tail": "",
+        "stdout_tail": ""
+      },
+      {
+        "command": "test $(rg -n 'TestSeedAgentCommandArgsCodex' internal/cli/seed_test.go | wc -l | tr -d ' ') -ge 1",
+        "returncode": 1,
+        "seconds": 0.00837397575378418,
+        "stderr_tail": "",
+        "stdout_tail": ""
+      },
+      {
+        "command": "test $(rg -n 'should rely on prompt plus local validation, not --output-schema' internal/cli/seed_test.go | wc -l | tr -d ' ') -eq 1",
+        "returncode": 1,
+        "seconds": 0.008646726608276367,
+        "stderr_tail": "",
+        "stdout_tail": ""
+      },
+      {
+        "command": "go test ./internal/cli -run 'TestSeedAgentCommandArgsCodex'",
+        "returncode": 0,
+        "seconds": 2.100033760070801,
+        "stderr_tail": "",
+        "stdout_tail": "ok  \tgithub.com/ashtom/entire-brain/internal/cli\t0.512s [no tests to run]\n"
+      }
+    ]
+  },
+  "worktree": "/Users/suhaan/Documents/Coding/entire-brain/benchmarks/agent-brain/results/release-candidate-entire-brain-schema-contract-20260610T0115Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r1/worktree"
+}

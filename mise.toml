@@ -27,6 +27,7 @@ python3 benchmarks/agent-brain/run_test.py
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 python3 benchmarks/agent-brain/audit_codex.py \
+  --results benchmarks/agent-brain/evidence/release \
   --release-manifest benchmarks/agent-brain/evidence/release/manifest.json \
   --out-dir "$tmp" \
   --fail-on-flags
