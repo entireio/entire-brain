@@ -1036,6 +1036,39 @@ func TestRunDistillForBrainForceFlushDoesNotResurrectCache(t *testing.T) {
 	}
 }
 
+func TestRunDistillForBrainBranchFilterKeepsOtherBranchCacheEntries(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now) // s1 (main, older) then s2 (feature)
+
+	fact := "preferences.coding.style\tThe user prefers concise commits.\n"
+	seedRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return fact, nil
+	}
+	seedOpts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: seedRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, seedOpts, now); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+
+	// A --branch feature run must not evict main's cache entries: the final
+	// flush persists newCache only, so a filtered session that is never copied
+	// over forces the next unfiltered run to re-distill it from scratch.
+	filteredRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		t.Error("no agent call expected: s2 is cached and s1 is branch-filtered")
+		return "", nil
+	}
+	filteredOpts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: filteredRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, branch: "feature"}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, filteredOpts, now); err != nil {
+		t.Fatalf("branch-filtered run: %v", err)
+	}
+	cache := loadDistillCache(brainDir)
+	if _, ok := cache.Sessions["s1"]; !ok {
+		t.Errorf("branch-filtered run evicted s1's cache entry; the next unfiltered run would re-distill it: %v", cache.Sessions)
+	}
+	if _, ok := cache.Sessions["s2"]; !ok {
+		t.Errorf("cached unchanged session s2 missing from cache: %v", cache.Sessions)
+	}
+}
+
 func TestRunDistillForBrainForceKeepsProposalBacklogUntilFinalFlush(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := writeDistillFixture(t, now) // s1 (main, older) then s2 (feature)

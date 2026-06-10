@@ -484,6 +484,13 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	for _, session := range sessions {
 		branch := resolveBranch(session)
 		if distillOpts.branch != "" && branch != distillOpts.branch {
+			// Carry the session's cache entry through unchanged: the final flush
+			// persists newCache only, so dropping filtered sessions here would
+			// make the next unfiltered run re-distill every other branch from
+			// scratch. (The fingerprint-match skip below does the same.)
+			if prev, ok := prevCache.Sessions[session.SessionID]; ok {
+				newCache.Sessions[session.SessionID] = prev
+			}
 			continue
 		}
 		ensureBranch(branch)
