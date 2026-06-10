@@ -20,5 +20,6 @@
   ],
   "expected_files": ["cmd/entire/cli/plugin_env.go"],
   "forbidden_files": ["go.mod", "go.sum"],
+  "leak_markers": ["release-semantic-entire-cli-xdg-canary-20260610T0200Z"],
   "brain_queries": ["pluginEnvPrefixes", "XDG_", "credentials are dropped"]
 }
