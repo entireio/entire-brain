@@ -1,0 +1,15 @@
+{
+  "name": "release-entire-cli-workspace-radar-mcp-transcript-reresolve-haiku-xhigh",
+  "description": "Focused MCP workspace-radar release-candidate panel for the deletion-shaped transcript re-resolution regression on a harder runner. Prior local screening showed no-brain headroom for claude:haiku:xhigh; the Radar arm remains location-only through mcp_workspace_radar and the task declares radar_include_deletions.",
+  "runners": [
+    "claude:haiku:xhigh"
+  ],
+  "conditions": [
+    "no_brain",
+    "mcp_workspace_radar"
+  ],
+  "repetitions": 4,
+  "tasks": [
+    "entireio-cli-transcript-reresolve.json"
+  ]
+}
