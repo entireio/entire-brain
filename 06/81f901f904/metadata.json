@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "0681f901f904",
+  "strategy": "manual-commit",
+  "branch": "fix/distill-pipeline",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_cmd_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/06/81f901f904/0/metadata.json",
+      "transcript": "/06/81f901f904/0/full.jsonl",
+      "content_hash": "/06/81f901f904/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 137,
+    "cache_creation_tokens": 2853,
+    "cache_read_tokens": 599657,
+    "output_tokens": 2416,
+    "api_call_count": 4
+  }
+}
