@@ -75,8 +75,9 @@ task outcomes instead of relying on demos or anecdotes.
   history proof where `full_brain` improved the task score/pass-rate over
   `no_brain` without proving efficiency gains.
 - Pending proof: target large-repo distill timing, paired facts evals,
-  MCP/Regression Radar retained proof (single-repo and workspace-radar),
-  semantic usefulness, and broader retained replay-lab benchmark evidence.
+  MCP retained proof on harder history regressions, Regression Radar retained
+  proof (single-repo and workspace-radar), semantic usefulness, and broader
+  retained replay-lab benchmark evidence.
 - Blocked: target large-repo evidence, backend/Slack access, turn signing,
   checkpoint-time fact generation.
 - Future: distributed/shared brain, team artifact hydration, multi-agent write

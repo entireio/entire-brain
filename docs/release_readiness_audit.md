@@ -390,6 +390,11 @@ Release claims must stay local-first and evidence-backed:
   the workspace MCP lane (`no_brain` vs `mcp_workspace_radar`) with
   deletion-aware location-only radar. It is a calibration lane until a task with
   real no-brain headroom is identified.
+- The committed `release-entire-cli-mcp-manual-attribution` panel targets a
+  harder MCP-history proof lane on `cli-bench`: it regresses the manual-commit
+  attribution-base invariant and requires `mcp_history` to surface the prior
+  `RealignAttributionBase(newHead)` behavior without handing over hidden
+  validation or expected text.
 - The query default-limit benchmark tasks now target the current unified
   retrieval implementation in `internal/cli/retrieve_cmd.go`, including the
   QMD-style `-n` alias, instead of the old semantic-query implementation.
@@ -449,17 +454,18 @@ repo/access/artifacts are available:
   hash, and same brain manifest hash.
 - MCP/Regression Radar release evidence from a clean retained run of
   `release-entire-cli-radar-mcp-review-base-scope` or
-  `release-entire-cli-workspace-radar-mcp-transcript-reresolve`. Local pilots
-  are useful for calibration, but a citable claim needs 4 repetitions per side,
-  MCP-verified records, `mcp_radar_location_only` or
-  `mcp_workspace_radar_location_only` proof scope, zero hard flags, and
-  committed sanitized artifacts under `benchmarks/agent-brain/evidence/release`.
-  Local 2026-06-10 single-repo radar pilots with `codex:gpt-5.4-mini:low` and
+  `release-entire-cli-workspace-radar-mcp-transcript-reresolve`, plus MCP-history
+  evidence from `release-entire-cli-mcp-manual-attribution`. Local pilots are
+  useful for calibration, but a citable claim needs 4 repetitions per side,
+  MCP-verified records, the appropriate proof scope (`mcp`, `mcp_radar_location_only`,
+  or `mcp_workspace_radar_location_only`), zero hard flags, and committed
+  sanitized artifacts under `benchmarks/agent-brain/evidence/release`. Local
+  2026-06-10 single-repo radar pilots with `codex:gpt-5.4-mini:low` and
   `:medium` were both saturated on pass rate (`1.0 -> 1.0`) and therefore not
   release proof, despite large token/time reductions in the MCP/radar arm. A
   deletion-aware transcript radar calibration also saturated (`no_brain` mean
-  95.5, MCP/radar mean 95.0), so the next proof task must expose a harder
-  regression before spending retained workspace-radar repetitions.
+  95.5, MCP/radar mean 95.0), so the next retained run should start with the
+  harder manual-attribution MCP panel before spending more radar repetitions.
 - Semantic benchmark evidence from a retained proof suite. A clean local
   `semantic-audit --json --fail-on release` run after refreshing the semantic
   index is recorded above, but it is regenerated local coverage evidence, not a

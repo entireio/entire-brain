@@ -1,0 +1,50 @@
+{
+  "id": "entireio-cli-manual-commit-attribution-base",
+  "repo": "entire-cli",
+  "repo_path": "cli-bench",
+  "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+  "conditions": [
+    "no_brain",
+    "full_cli_compact",
+    "mcp_history"
+  ],
+  "prompt": "Fix the manual-commit attribution regression. After an unrelated no-trailer commit happens while a manual-commit session is active, the next condensation reports inflated `human_added` and a low agent percentage even when only agent-authored lines are committed. Restore the prior invariant that prevents stale attribution-base drift, and keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "cmd/entire/cli/strategy/manual_commit_hooks.go",
+      "old": "\t\tstate.BaseCommit = newHead\n\t\t// Keep AttributionBaseCommit in sync to prevent stale base drift.\n\t\t// Without this, a subsequent condensation would diff from the old base,\n\t\t// inflating human_added with lines from unrelated prior commits.\n\t\tstate.RealignAttributionBase(newHead)\n\t\tlogging.Debug(logCtx, \"post-commit: updated BaseCommit and AttributionBaseCommit\",",
+      "new": "\t\tstate.BaseCommit = newHead\n\t\tlogging.Debug(logCtx, \"post-commit: updated BaseCommit and AttributionBaseCommit\","
+    },
+    {
+      "path": "cmd/entire/cli/strategy/manual_commit_hooks.go",
+      "old": "\t\t\tstate.BaseCommit = newHead\n\t\t\t// Keep AttributionBaseCommit in sync to prevent stale base drift.\n\t\t\t// Without this, a subsequent condensation would diff from the old base,\n\t\t\t// inflating human_added with lines from unrelated prior commits.\n\t\t\tstate.RealignAttributionBase(newHead)\n\t\t\treturn nil",
+      "new": "\t\t\tstate.BaseCommit = newHead\n\t\t\treturn nil"
+    }
+  ],
+  "validation": [
+    "test $(rg -n 'RealignAttributionBase\\(newHead\\)' cmd/entire/cli/strategy/manual_commit_hooks.go | wc -l | tr -d ' ') -eq 2",
+    "go test ./cmd/entire/cli/integration_test -run TestManualCommit_AttributionStaleBase"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "agent_hidden_paths": [
+    "benchmarks/agent-brain"
+  ],
+  "leak_markers": [
+    "release-mcp-manual-attribution-canary-20260610T0620Z"
+  ],
+  "brain_queries": [
+    "AttributionBaseCommit stale human_added no trailer",
+    "TestManualCommit_AttributionStaleBase",
+    "BaseCommit AttributionBaseCommit realign",
+    "RealignAttributionBase newHead manual commit hooks"
+  ],
+  "copy_checkpoint_ref_from_source": true
+}

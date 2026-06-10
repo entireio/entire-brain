@@ -73,6 +73,10 @@ The committed
 the workspace MCP delivery (`mcp_workspace_radar`) and audits proof-ready runs as
 `mcp_workspace_radar_location_only`, but it remains a calibration lane until a
 non-saturated regression task is found.
+For non-radar MCP-history proof, the committed
+`release-entire-cli-mcp-manual-attribution` panel targets a harder manual-commit
+attribution invariant where the brain should provide historical localization and
+the agent still has to repair the code.
 
 ## Consumer 1 — `entire review` (cli; prototyped, not landed)
 
