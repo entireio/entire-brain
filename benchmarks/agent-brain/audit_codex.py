@@ -440,11 +440,13 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
             missing_required = sorted(required_logged_tools - logged_bare_names)
             if missing_required:
                 flags.append("B:mcp_required_tool_names_not_in_server_log(" + ",".join(missing_required) + ")")
-            if slog_results:
-                successful_tools = {result["tool"] for result in slog_results if result.get("status") == "ok"}
-                missing_success = sorted(required_logged_tools - successful_tools)
-                if missing_success:
+            successful_tools = {result["tool"] for result in (slog_results or []) if result.get("status") == "ok"}
+            missing_success = sorted(required_logged_tools - successful_tools)
+            if missing_success:
+                if slog_results:
                     flags.append("B:mcp_required_tool_results_not_ok(" + ",".join(missing_success) + ")")
+                else:
+                    flags.append("B:mcp_required_tool_results_missing(" + ",".join(missing_success) + ")")
         if slog == 0 and mcp_calls <= 0:
             pass  # consistent honest failure
 
@@ -500,16 +502,19 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         )
     else:
         mcp_named_tool_result_verified = False
-    mcp_named_tool_completed = (
-        mcp_named_tool_result_verified
-        or (
-            mcp_named_tool_verified
-            and int(slog or 0) > 0
-            and int(slog_responses or 0) >= int(slog or 0)
-            and rec.get("ok") is True
-            and get(rec, "validation", "ok") is True
+    if required_logged_tools:
+        mcp_named_tool_completed = mcp_named_tool_result_verified
+    else:
+        mcp_named_tool_completed = (
+            mcp_named_tool_result_verified
+            or (
+                mcp_named_tool_verified
+                and int(slog or 0) > 0
+                and int(slog_responses or 0) >= int(slog or 0)
+                and rec.get("ok") is True
+                and get(rec, "validation", "ok") is True
+            )
         )
-    )
 
     # Classify a record as an integrity-verified MCP proof datapoint
     mcp_verified = (
@@ -985,7 +990,7 @@ def render_audit_markdown(report: dict[str, Any]) -> str:
           f"- **Hard integrity flags: {total_flags}**",
           f"- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **{mcp_verified_count}**",
           f"- Named-tool MCP datapoints (server log names the required brain tool): **{mcp_named_tool_verified_count}**",
-          f"- Completed named-tool MCP datapoints (tool response/result backed): **{mcp_named_tool_completed_count}**",
+          f"- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **{mcp_named_tool_completed_count}**",
           f"- Records with required provenance (source base/head + harness/config/tool hashes): **{provenance_ok_count}/{total_records}**",
           f"- Stable proof-ready comparisons: **{proof_ready_count}**",
           ""]

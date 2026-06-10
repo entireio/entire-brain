@@ -1310,7 +1310,7 @@ class CodexAuditScriptTests(unittest.TestCase):
         tool: str | None = None,
         *,
         response: bool = True,
-        result_status: str | None = None,
+        result_status: str | None = "ok",
     ) -> None:
         run_dir = suite_dir / run_id
         run_dir.mkdir(exist_ok=True)
@@ -1326,7 +1326,7 @@ class CodexAuditScriptTests(unittest.TestCase):
             lines.append(f"tool: {tool}")
         if response:
             lines.append("response: tools/call")
-        if tool and result_status:
+        if tool and response and result_status:
             lines.append(f"tool_result: {tool} {result_status}")
         (run_dir / "mcp-server.log").write_text("\n".join(lines) + "\n")
 
@@ -2185,6 +2185,23 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertFalse(audited["mcp_verified"], audited)
             self.assertFalse(audited["mcp_named_tool_completed"], audited)
             self.assertIn("B:mcp_server_log_missing_tool_responses", ",".join(audited["flags"]))
+
+    def test_audit_codex_requires_named_tool_result_for_radar_completion(self):
+        with tempfile.TemporaryDirectory() as results:
+            results_dir = pathlib.Path(results)
+            suite = "release-candidate-radar-no-tool-result"
+            record = self._mcp_release_record(suite, repetition=1, run_id="radar-1")
+            suite_dir = self._write_records(results_dir, suite, [record])
+            self._write_mcp_server_log(suite_dir, "radar-1", "brain_regressions", result_status="")
+
+            report = audit_codex.build_audit_report(results_dir, [suite])
+            audited = report["suites"][suite]["records"][0]
+
+            self.assertFalse(audited["pass"], audited)
+            self.assertFalse(audited["mcp_verified"], audited)
+            self.assertFalse(audited["mcp_named_tool_completed"], audited)
+            self.assertFalse(audited["mcp_named_tool_result_verified"], audited)
+            self.assertIn("B:mcp_required_tool_results_missing(brain_regressions)", audited["flags"])
 
     def test_audit_codex_requires_include_deletions_for_deletion_radar_task(self):
         with tempfile.TemporaryDirectory() as results:
