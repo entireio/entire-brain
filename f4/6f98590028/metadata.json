@@ -3,8 +3,9 @@
   "checkpoint_id": "f46f98590028",
   "strategy": "manual-commit",
   "branch": "codex/release-readiness-hardening",
-  "checkpoints_count": 0,
+  "checkpoints_count": 2,
   "files_touched": [
+    "benchmarks/agent-brain/audit_codex.py",
     "benchmarks/agent-brain/audit_facts_eval.py",
     "benchmarks/agent-brain/run_test.py",
     "docs/release_readiness_audit.md"
@@ -15,13 +16,19 @@
       "transcript": "/f4/6f98590028/0/full.jsonl",
       "content_hash": "/f4/6f98590028/0/content_hash.txt",
       "prompt": "/f4/6f98590028/0/prompt.txt"
+    },
+    {
+      "metadata": "/f4/6f98590028/1/metadata.json",
+      "transcript": "/f4/6f98590028/1/full.jsonl",
+      "content_hash": "/f4/6f98590028/1/content_hash.txt",
+      "prompt": "/f4/6f98590028/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 23652617,
-    "cache_creation_tokens": 0,
-    "cache_read_tokens": 766927616,
-    "output_tokens": 2010066,
-    "api_call_count": 5502
+    "input_tokens": 23745439,
+    "cache_creation_tokens": 9610170,
+    "cache_read_tokens": 874579407,
+    "output_tokens": 2437088,
+    "api_call_count": 5819
   }
 }
