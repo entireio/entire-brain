@@ -401,12 +401,15 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			if err := writeFacts(brainDir, branch, records); err != nil {
 				return err
 			}
-			// Union this run's proposals with any already queued (a --force rebuild
-			// starts fresh since it rebuilds the distilled facts). Re-loading on
+			// Union this run's proposals with any already queued. Re-loading on
 			// every flush is idempotent: earlier flushes' proposals come back as
-			// priors and dedupe away.
+			// priors and dedupe away. A --force rebuild starts fresh (it rebuilds
+			// the distilled facts), but drops the prior backlog only on the FINAL
+			// flush — a mid-run flush that skipped priors would wipe the review
+			// queue ~50 calls in, and a kill there would lose it before the
+			// rebuild produced its replacement.
 			var prior []factProposal
-			if !distillOpts.force {
+			if !(distillOpts.force && final) {
 				if loadedProposals, loadErr := loadFactProposals(brainDir, branch); loadErr != nil {
 					warnings = append(warnings, fmt.Sprintf("load proposals for %s: %v", branch, loadErr))
 				} else {

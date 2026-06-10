@@ -896,3 +896,39 @@ func TestRunDistillForBrainForceFlushDoesNotResurrectCache(t *testing.T) {
 		t.Fatalf("completed force run should cache both sessions, got %v", cache.Sessions)
 	}
 }
+
+func TestRunDistillForBrainForceKeepsProposalBacklogUntilFinalFlush(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now) // s1 (main, older) then s2 (feature)
+
+	// A queued review backlog must survive a killed --force run: mid-run
+	// flushes keep priors, and only the final flush of a COMPLETED rebuild
+	// drops them in favor of the rebuilt proposals.
+	backlog := []factProposal{{Action: "merge", CandidateID: "c1", TargetID: "t1", Confidence: 0.5, Branch: "main"}}
+	if err := writeFactProposals(brainDir, "main", backlog); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls int
+	backlogWipedMidRun := false
+	fakeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		if calls == 2 { // s2's distill call: main was already flushed during s1
+			if prior, err := loadFactProposals(brainDir, "main"); err != nil || len(prior) == 0 {
+				backlogWipedMidRun = true
+			}
+		}
+		return "preferences.coding.style\tThe user prefers concise commits.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: fakeRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, force: true, flushEvery: 1}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("runDistillForBrain: %v", err)
+	}
+	if backlogWipedMidRun {
+		t.Error("mid-run --force flush wiped the proposal backlog; a killed force run would lose the review queue")
+	}
+	// The completed rebuild replaces the backlog (this run queued nothing).
+	if final, err := loadFactProposals(brainDir, "main"); err != nil || len(final) != 0 {
+		t.Errorf("completed force run should drop prior proposals, got %d (%v)", len(final), err)
+	}
+}
