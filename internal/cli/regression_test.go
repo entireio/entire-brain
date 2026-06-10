@@ -31,6 +31,16 @@ func TestRegressionExtractSignals(t *testing.T) {
 	if len(deletes) != 0 {
 		t.Fatalf("`:=` local should not produce a delete signal, got %+v", deletes)
 	}
+
+	// A deleted helper call can be anchored to a same-line peer assignment, letting Radar localize
+	// "call this after that state update" regressions even when the helper still exists elsewhere.
+	_, deletes = regressionExtractSignals("realignattributionbase", `state.RealignAttributionBase(newHead) after state.BaseCommit = newHead`, "s.jsonl:4")
+	if len(deletes) != 1 || deletes[0].target != "state.realignattributionbase(" || deletes[0].rhs != "newhead" {
+		t.Fatalf("expected one helper-call delete signal, got %+v", deletes)
+	}
+	if len(deletes[0].anchors) != 1 || deletes[0].anchors[0] != "state.basecommit=" {
+		t.Fatalf("expected peer BaseCommit assignment anchor, got %+v", deletes[0].anchors)
+	}
 }
 
 func TestRegressionPathClassifiers(t *testing.T) {
@@ -268,5 +278,77 @@ func TestRegressionDeletionIsOptIn(t *testing.T) {
 	del.Expected, del.Current = "", ""
 	if f := anomalyToReviewFinding(del); strings.Contains(f.Detail, "history shows") {
 		t.Fatalf("location-only deleted finding must not leak expected/current: %q", f.Detail)
+	}
+}
+
+func TestRegressionDeletionRanksCallLocusWithHistoryFileHint(t *testing.T) {
+	session := `{"text":"cmd/entire/cli/strategy/manual_commit_hooks.go must call state.RealignAttributionBase(newHead) after state.BaseCommit = newHead; cmd/entire/cli/agent/cursor/types.go used HumanAdded+\"total\""}`
+	_, deletes := regressionExtractSignals("realignattributionbase", session, "sessions/s.jsonl:1")
+	if len(deletes) != 1 || deletes[0].target != "state.realignattributionbase(" || deletes[0].rhs != "newhead" {
+		t.Fatalf("expected call delete signal, got %+v", deletes)
+	}
+	hooks := "package strategy\nfunc f(state *State, newHead string) {\n\tstate.BaseCommit = newHead\n\tlog(\"AttributionBaseCommit\", newHead)\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "cmd/entire/cli/strategy/manual_commit_hooks.go", hooks)
+	noise := filepath.Join(repoRoot, "cmd", "entire", "cli", "agent", "cursor")
+	if err := os.MkdirAll(noise, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(noise, "types.go"), []byte("package cursor\ntype Summary struct { Total int }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "RealignAttributionBase newHead HumanAdded", 20, true)
+	if len(an) == 0 {
+		t.Fatal("expected a deleted call anomaly")
+	}
+	if an[0].Kind != "deleted" || an[0].File != "cmd/entire/cli/strategy/manual_commit_hooks.go" {
+		t.Fatalf("deleted call should rank the history-hinted hook locus first, got %+v", an)
+	}
+	if !strings.Contains(strings.ToLower(an[0].Expected), "realignattributionbase") {
+		t.Fatalf("expected deleted call in anomaly, got %+v", an[0])
+	}
+	if an[0].Line != 3 {
+		t.Fatalf("expected the current base-advance line as the location, got %+v", an[0])
+	}
+}
+
+func TestRegressionDeletionReportsEachMissingAnchoredCallSite(t *testing.T) {
+	session := `{"text":"cmd/entire/cli/strategy/manual_commit_hooks.go must call state.RealignAttributionBase(newHead) after state.BaseCommit = newHead"}`
+	body := "package strategy\nfunc ok(state *State, newHead string) {\n\tstate.BaseCommit = newHead\n\tstate.RealignAttributionBase(newHead)\n}\nfunc missOne(state *State, newHead string) {\n\tstate.BaseCommit = newHead\n\tlog(newHead)\n}\nfunc missTwo(state *State, newHead string) {\n\tstate.BaseCommit = newHead\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "cmd/entire/cli/strategy/manual_commit_hooks.go", body)
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "RealignAttributionBase newHead manual commit hooks", 20, true)
+	var lines []int
+	for _, a := range an {
+		if a.Kind == "deleted" && strings.Contains(strings.ToLower(a.Expected), "realignattributionbase") {
+			lines = append(lines, a.Line)
+		}
+	}
+	if len(lines) != 2 || lines[0] != 7 || lines[1] != 11 {
+		t.Fatalf("expected missing helper-call findings at lines 7 and 11, got lines=%v anomalies=%+v", lines, an)
+	}
+}
+
+func TestRegressionDedupeRankPrefersBoostedCallDeletion(t *testing.T) {
+	ranked := regressionDedupeRank([]regressionAnomaly{
+		{
+			File:       "cmd/entire/cli/agent/cursor/types.go",
+			Kind:       "changed",
+			Expected:   `HumanAdded+"total"`,
+			Confidence: 0.8,
+		},
+		{
+			File:       "cmd/entire/cli/strategy/manual_commit_hooks.go",
+			Kind:       "deleted",
+			Expected:   "state.RealignAttributionBase(newHead)",
+			Confidence: 0.65,
+			rankBoost:  2,
+		},
+	})
+	if len(ranked) != 2 {
+		t.Fatalf("expected two ranked anomalies, got %+v", ranked)
+	}
+	if ranked[0].Expected != "state.RealignAttributionBase(newHead)" {
+		t.Fatalf("boosted call deletion should rank above changed noise, got %+v", ranked)
 	}
 }
