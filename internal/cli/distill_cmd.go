@@ -555,6 +555,14 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 					prefetch.stop()
 					return nil, fmt.Errorf("distill aborted after %d agent failures with no facts distilled — check --agent and --model. Last error: %v", agentFailures, runErr)
 				}
+				// Flush on the failure path too: a long failure streak (rate
+				// limiting, timeouts) is exactly when a run tends to get killed,
+				// and skipping the flush here would leave pre-streak facts
+				// unpersisted for the streak's entire duration.
+				if err := maybeFlush(); err != nil {
+					prefetch.stop()
+					return nil, err
+				}
 				continue
 			}
 			anyAgentSuccess = true

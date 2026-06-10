@@ -913,6 +913,60 @@ func TestRunDistillForBrainFlushesIncrementally(t *testing.T) {
 	}
 }
 
+func TestRunDistillForBrainFlushesDuringFailureStreak(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	tp := "sessions/main/s1.jsonl"
+	p := filepath.Join(brainDir, filepath.FromSlash(tp))
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// maxChunkBytes=1 puts each line in its own chunk: one success, then a
+	// failure streak long enough to cross the flush interval.
+	if err := os.WriteFile(p, []byte(strings.Repeat("a conversational turn\n", 6)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
+			{SessionID: "s1", Branch: "main", LatestCheckpoint: "cp1", TranscriptPath: tp, CreatedAt: now.Add(-time.Hour)},
+		}}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	// Chunk 1 distills a fact (2 counted calls: distill + reconcile), then the
+	// agent starts failing. The flush interval (3) is crossed on chunk 2's
+	// failure, so by chunk 3's call the fact must already be durable — failure
+	// streaks are exactly when runs get killed, and the failure path skipping
+	// maybeFlush left everything since the last flush at risk for the whole
+	// streak.
+	var calls int
+	sawFlushedFact := false
+	fakeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		if calls == 1 {
+			return "preferences.coding.style\tThe user prefers concise commits.\n", nil
+		}
+		if calls == 3 {
+			if facts, err := loadFacts(brainDir, "main"); err == nil && len(facts) == 1 {
+				sawFlushedFact = true
+			}
+		}
+		return "", errors.New("rate limited")
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: fakeRun, maxChunkBytes: 1, timeout: time.Minute, flushEvery: 3}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("runDistillForBrain: %v", err)
+	}
+	if !sawFlushedFact {
+		t.Error("fact was not flushed during the failure streak; the error path must call maybeFlush too")
+	}
+}
+
 func TestRunDistillForBrainForceFlushDoesNotResurrectCache(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := writeDistillFixture(t, now) // s1 (main, older) then s2 (feature)
