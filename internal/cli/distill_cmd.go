@@ -390,7 +390,12 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	// cache write keeps prevCache entries for sessions not yet visited — dropping
 	// manifest-removed sessions is the final write's job, and dropping unvisited
 	// entries mid-run would force a needless full re-distill of them after a
-	// restart.
+	// restart. Under --force the opposite holds: ensureBranch has already dropped
+	// the unvisited sessions' distilled facts from byBranch, so persisting their
+	// still-matching prevCache fingerprints alongside the truncated fact store
+	// would make a plain rerun after a kill skip those sessions forever — their
+	// facts silently lost. A force run therefore writes newCache only, and an
+	// interrupted force run re-distills the sessions it never reached.
 	flushFactStores := func(final bool) error {
 		for branch, records := range byBranch {
 			if err := writeFacts(brainDir, branch, records); err != nil {
@@ -414,7 +419,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			}
 		}
 		cache := newCache
-		if !final {
+		if !final && !distillOpts.force {
 			cache = distillCache{Version: distillCacheVersion, Sessions: make(map[string]string, len(prevCache.Sessions)+len(newCache.Sessions))}
 			for id, fingerprint := range prevCache.Sessions {
 				cache.Sessions[id] = fingerprint

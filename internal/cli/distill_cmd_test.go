@@ -848,3 +848,51 @@ func TestRunDistillForBrainFlushesIncrementally(t *testing.T) {
 		t.Fatalf("final cache should hold both sessions, got %v", cache.Sessions)
 	}
 }
+
+func TestRunDistillForBrainForceFlushDoesNotResurrectCache(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now) // s1 (main, older) then s2 (feature)
+
+	fact := "preferences.coding.style\tThe user prefers concise commits.\n"
+	seedRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return fact, nil
+	}
+	seedOpts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: seedRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, seedOpts, now); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+	if cache := loadDistillCache(brainDir); len(cache.Sessions) != 2 {
+		t.Fatalf("seed run should cache both sessions, got %v", cache.Sessions)
+	}
+
+	// A --force run drops every previously distilled fact from the in-memory
+	// store before rebuilding. If a mid-run flush persisted prevCache
+	// fingerprints for sessions not yet re-visited, killing the run there and
+	// rerunning WITHOUT --force would skip those sessions as "unchanged" even
+	// though the same flush already deleted their facts — permanent silent
+	// loss. So while s2 is being distilled (a flush already ran during s1),
+	// the on-disk cache must NOT hold s2's still-valid old fingerprint. (It
+	// does not hold s1 yet either: a session enters newCache only once it
+	// completes, and the next flush after that persists it.)
+	var calls int
+	sawResurrectedEntry := false
+	forceRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		if calls == 2 { // s2's distill call: at least one flush has happened
+			if _, ok := loadDistillCache(brainDir).Sessions["s2"]; ok {
+				sawResurrectedEntry = true
+			}
+		}
+		return fact, nil
+	}
+	forceOpts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: forceRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, force: true, flushEvery: 1}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, forceOpts, now); err != nil {
+		t.Fatalf("force run: %v", err)
+	}
+	if sawResurrectedEntry {
+		t.Error("mid-run flush under --force resurrected the unvisited s2 cache entry; a killed force run would lose s2's facts forever")
+	}
+	if cache := loadDistillCache(brainDir); len(cache.Sessions) != 2 {
+		t.Fatalf("completed force run should cache both sessions, got %v", cache.Sessions)
+	}
+}
