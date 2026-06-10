@@ -40,16 +40,18 @@ const (
 )
 
 type regressionAnomaly struct {
-	File       string  `json:"file"`
-	Line       int     `json:"line,omitempty"`
-	Kind       string  `json:"kind"` // "changed" | "deleted"
-	Current    string  `json:"current"`
-	Expected   string  `json:"expected"`
-	Identifier string  `json:"identifier"`
-	Confidence float64 `json:"confidence"`
-	Reason     string  `json:"reason"`
-	Evidence   string  `json:"evidence"`
-	rankBoost  int
+	File             string   `json:"file"`
+	Line             int      `json:"line,omitempty"`
+	Kind             string   `json:"kind"` // "changed" | "deleted"
+	Current          string   `json:"current"`
+	Expected         string   `json:"expected"`
+	Identifier       string   `json:"identifier"`
+	Symbol           string   `json:"symbol,omitempty"`
+	RelatedLocations []string `json:"related_locations,omitempty"`
+	Confidence       float64  `json:"confidence"`
+	Reason           string   `json:"reason"`
+	Evidence         string   `json:"evidence"`
+	rankBoost        int
 }
 
 type regressionReport struct {
@@ -564,7 +566,7 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 		})
 	}
 
-	anomalies = regressionDedupeRank(anomalies)
+	anomalies = annotateRegressionLocationContext(regressionDedupeRank(anomalies), files)
 	if limit > 0 && len(anomalies) > limit {
 		anomalies = anomalies[:limit]
 	}
@@ -806,6 +808,58 @@ func regressionDedupeRank(in []regressionAnomaly) []regressionAnomaly {
 	return out
 }
 
+var regressionFunctionPattern = regexp.MustCompile(`^func\s+(?:\([^)]+\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+
+func regressionEnclosingSymbol(lines []string, line int) string {
+	if line <= 0 || line > len(lines) {
+		return ""
+	}
+	start := line - 1
+	for i := start; i >= 0 && i >= start-250; i-- {
+		match := regressionFunctionPattern.FindStringSubmatch(strings.TrimSpace(lines[i]))
+		if len(match) == 2 {
+			return match[1]
+		}
+	}
+	return ""
+}
+
+func annotateRegressionLocationContext(anomalies []regressionAnomaly, files []candFile) []regressionAnomaly {
+	if len(anomalies) == 0 {
+		return anomalies
+	}
+	byFile := map[string]candFile{}
+	for _, f := range files {
+		byFile[f.clean] = f
+	}
+	for i := range anomalies {
+		if anomalies[i].Symbol != "" {
+			continue
+		}
+		if f, ok := byFile[filepath.Clean(anomalies[i].File)]; ok {
+			anomalies[i].Symbol = regressionEnclosingSymbol(f.lines, anomalies[i].Line)
+		}
+	}
+	for i := range anomalies {
+		var related []string
+		for j := range anomalies {
+			if i == j || anomalies[i].File != anomalies[j].File || anomalies[i].Kind != anomalies[j].Kind || anomalies[j].Line <= 0 {
+				continue
+			}
+			loc := fmt.Sprintf("%s:%d", anomalies[j].File, anomalies[j].Line)
+			if anomalies[j].Symbol != "" {
+				loc += " (" + anomalies[j].Symbol + ")"
+			}
+			related = append(related, loc)
+			if len(related) >= 6 {
+				break
+			}
+		}
+		anomalies[i].RelatedLocations = related
+	}
+	return anomalies
+}
+
 func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, ro regressionDetectorOptions, query string) error {
 	if ro.limit <= 0 {
 		ro.limit = 20
@@ -827,6 +881,9 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 			anomalies[i].Expected = ""
 			anomalies[i].Current = ""
 			anomalies[i].Reason = "suspected regression site (location only)"
+			if anomalies[i].Symbol != "" || len(anomalies[i].RelatedLocations) > 0 {
+				anomalies[i].Reason = "suspected regression site (location only); inspect the enclosing symbol and related same-file locations"
+			}
 		}
 	}
 	report := regressionReport{

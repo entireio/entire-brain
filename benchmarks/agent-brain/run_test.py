@@ -453,6 +453,8 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("location_only: true", prompt)
         self.assertIn("include_deletions", prompt)
         self.assertIn("deleted assignments", prompt)
+        self.assertIn("symbol", prompt)
+        self.assertIn("related_locations", prompt)
 
     def test_workspace_radar_prompt_uses_workspace_regressions(self):
         task = {
@@ -467,6 +469,8 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn('workspace: "related"', prompt)
         self.assertIn("location_only: true", prompt)
         self.assertIn("include_deletions: true", prompt)
+        self.assertIn("symbol", prompt)
+        self.assertIn("related_locations", prompt)
         self.assertIn("WORKSPACE_RADAR_NO_FINDINGS", prompt)
 
     def test_activity_counts_codex_command_execution_events(self):

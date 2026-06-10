@@ -963,6 +963,9 @@ func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo worksp
 			anomalies[i].Expected = ""
 			anomalies[i].Current = ""
 			anomalies[i].Reason = "suspected regression site (location only)"
+			if anomalies[i].Symbol != "" || len(anomalies[i].RelatedLocations) > 0 {
+				anomalies[i].Reason = "suspected regression site (location only); inspect the enclosing symbol and related same-file locations"
+			}
 		}
 	}
 	return repoDir, anomalies, warnings, ""

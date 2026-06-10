@@ -232,6 +232,9 @@ func TestInspectRegressionsCommandJSONAndLocationOnly(t *testing.T) {
 	if len(locRep.Anomalies) != 1 || locRep.Anomalies[0].Expected != "" || locRep.Anomalies[0].Current != "" {
 		t.Fatalf("--location-only flag must blank expected/current through the command: %+v", locRep.Anomalies)
 	}
+	if locRep.Anomalies[0].Symbol != "f" {
+		t.Fatalf("--location-only should retain enclosing symbol context, got %+v", locRep.Anomalies[0])
+	}
 }
 
 func TestRegressionDetectorWarnings(t *testing.T) {
@@ -326,6 +329,12 @@ func TestRegressionDeletionReportsEachMissingAnchoredCallSite(t *testing.T) {
 	}
 	if len(lines) != 2 || lines[0] != 7 || lines[1] != 11 {
 		t.Fatalf("expected missing helper-call findings at lines 7 and 11, got lines=%v anomalies=%+v", lines, an)
+	}
+	if an[0].Symbol != "missOne" || an[1].Symbol != "missTwo" {
+		t.Fatalf("expected enclosing symbols for missing call sites, got %+v", an)
+	}
+	if len(an[0].RelatedLocations) == 0 || !strings.Contains(an[0].RelatedLocations[0], "missTwo") {
+		t.Fatalf("expected related same-file location context, got %+v", an[0])
 	}
 }
 
