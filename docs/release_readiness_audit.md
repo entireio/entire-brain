@@ -131,6 +131,9 @@ Implemented audit surfaces:
   symbols, relations, file-language counts, symbol-language counts, symbol-kind
   counts, relation-type counts, warning/failure details, freshness axes, and
   blind spots from the local semantic manifest/store.
+- `semantic-audit --fail-on release` is the release-health gate for semantic
+  coverage: it emits the full report, then fails unless freshness is `ok` and
+  blind spots are empty.
 - `refresh index` now tolerates local semantic providers that do not support the
   provider-side `--ignore-file` flag: it retries without the flag, records a
   `provider_ignore_file_unsupported` warning, and still applies `.brainignore`
@@ -146,7 +149,7 @@ relations, and freshness states are covered, and show blind spots.
 Local clean evidence collected on this repo after the provider compatibility
 fix: `go run ./cmd/entire-brain refresh index --sem-binary entire --force`
 indexed 134 files, 2,250 symbols, and 14,883 relations at `721aae0`; `go run
-./cmd/entire-brain semantic-audit --json --fail-on unsafe` passed with freshness
+./cmd/entire-brain semantic-audit --json --fail-on release` passed with freshness
 `ok`, worktree state `clean`, zero blind spots, and one retained warning:
 `provider_ignore_file_unsupported`. This proves local coverage and audit health
 for this checkout, not agent usefulness.
@@ -343,7 +346,7 @@ repo/access/artifacts are available:
   runs over the same labeled or explicitly proxy-allowed task set, same task
   hash, and same brain manifest hash.
 - Semantic benchmark evidence from a retained proof suite. A clean local
-  `semantic-audit --json --fail-on unsafe` run on this checkout is recorded
+  `semantic-audit --json --fail-on release` run on this checkout is recorded
   above, but it does not prove agent usefulness by itself.
 - Additional benchmark panels or retained proof subsets from
   `benchmarks/agent-brain`, audited with `audit_codex.py --fail-on-flags` and

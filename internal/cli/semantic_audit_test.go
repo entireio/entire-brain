@@ -318,6 +318,10 @@ func TestSemanticAuditFailurePolicies(t *testing.T) {
 		{name: "degraded fails unsafe", failOn: semanticAuditFailOnDegraded, report: unsafeReport, wantErr: true},
 		{name: "blind spots ignores clean report", failOn: semanticAuditFailOnBlindSpots, report: okReport},
 		{name: "blind spots fails spots", failOn: semanticAuditFailOnBlindSpots, report: blindSpotReport, wantErr: true},
+		{name: "release accepts clean report", failOn: semanticAuditFailOnRelease, report: okReport},
+		{name: "release fails unsafe freshness", failOn: semanticAuditFailOnRelease, report: unsafeReport, wantErr: true},
+		{name: "release fails degraded freshness", failOn: semanticAuditFailOnRelease, report: degradedReport, wantErr: true},
+		{name: "release fails blind spots", failOn: semanticAuditFailOnRelease, report: blindSpotReport, wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

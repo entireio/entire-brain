@@ -50,6 +50,7 @@ const (
 	semanticAuditFailOnUnsafe     = "unsafe"
 	semanticAuditFailOnDegraded   = "degraded"
 	semanticAuditFailOnBlindSpots = "blind-spots"
+	semanticAuditFailOnRelease    = "release"
 )
 
 var errSemanticAuditGate = errors.New("semantic audit failed configured gate")
@@ -77,7 +78,7 @@ func newSemanticAuditCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&auditOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().StringVar(&auditOpts.failOn, "fail-on", semanticAuditFailOnNone, "Return nonzero after emitting the report when the selected gate trips: unsafe, degraded, blind-spots, none")
+	cmd.Flags().StringVar(&auditOpts.failOn, "fail-on", semanticAuditFailOnNone, "Return nonzero after emitting the report when the selected gate trips: release, unsafe, degraded, blind-spots, none")
 	return cmd
 }
 
@@ -172,8 +173,10 @@ func normalizeSemanticAuditFailOn(value string) (string, error) {
 		return semanticAuditFailOnDegraded, nil
 	case semanticAuditFailOnBlindSpots:
 		return semanticAuditFailOnBlindSpots, nil
+	case semanticAuditFailOnRelease:
+		return semanticAuditFailOnRelease, nil
 	default:
-		return "", fmt.Errorf("--fail-on must be one of: %s, %s, %s, %s", semanticAuditFailOnUnsafe, semanticAuditFailOnDegraded, semanticAuditFailOnBlindSpots, semanticAuditFailOnNone)
+		return "", fmt.Errorf("--fail-on must be one of: %s", semanticAuditFailOnValues())
 	}
 }
 
@@ -193,10 +196,27 @@ func semanticAuditFailureForReport(report semanticAuditReport, failOn string) er
 		if len(report.BlindSpots) > 0 {
 			return fmt.Errorf("%w: %d blind spot(s)", errSemanticAuditGate, len(report.BlindSpots))
 		}
+	case semanticAuditFailOnRelease:
+		if report.Freshness.Severity != "ok" {
+			return fmt.Errorf("%w: freshness is %s", errSemanticAuditGate, valueOrUnset(report.Freshness.Severity))
+		}
+		if len(report.BlindSpots) > 0 {
+			return fmt.Errorf("%w: %d blind spot(s)", errSemanticAuditGate, len(report.BlindSpots))
+		}
 	default:
-		return fmt.Errorf("--fail-on must be one of: %s, %s, %s, %s", semanticAuditFailOnUnsafe, semanticAuditFailOnDegraded, semanticAuditFailOnBlindSpots, semanticAuditFailOnNone)
+		return fmt.Errorf("--fail-on must be one of: %s", semanticAuditFailOnValues())
 	}
 	return nil
+}
+
+func semanticAuditFailOnValues() string {
+	return strings.Join([]string{
+		semanticAuditFailOnRelease,
+		semanticAuditFailOnUnsafe,
+		semanticAuditFailOnDegraded,
+		semanticAuditFailOnBlindSpots,
+		semanticAuditFailOnNone,
+	}, ", ")
 }
 
 func buildSemanticAuditReport(ctx context.Context, opts Options, target string) (semanticAuditReport, error) {
