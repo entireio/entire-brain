@@ -1,0 +1,9 @@
+Fix ollama, then run on podcasts and entire-cli.
+
+---
+
+While we are waiting, do a self introspection on how entire-brain could be more useful for a coding agent like you?
+
+---
+
+Great stuff. How about you put these into a new ranked phase 2, pushing the current phase 2 and 3 further put.
