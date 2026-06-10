@@ -50,16 +50,23 @@ const (
 	factKindGotcha     = "gotcha"     // a non-obvious trap/footgun
 	factKindPreference = "preference" // how the user likes work done
 	factKindConvention = "convention" // a standing process/style norm
+	// factKindClosedNegative is a question settled *negatively*: what was tried
+	// or considered, why it failed or was rejected (the evidence), and when to
+	// revisit. Agents are systematically bad at not re-exploring dead ends
+	// across sessions; these entries are the densest anti-waste knowledge the
+	// brain holds (Phase 2 item 1 — agent-utility plan).
+	factKindClosedNegative = "closed-negative"
 )
 
 // validFactKinds is the closed set; an agent-emitted kind outside it is rejected
 // and the deterministic inference is used instead.
 var validFactKinds = map[string]struct{}{
-	factKindDecision:   {},
-	factKindInvariant:  {},
-	factKindGotcha:     {},
-	factKindPreference: {},
-	factKindConvention: {},
+	factKindDecision:       {},
+	factKindInvariant:      {},
+	factKindGotcha:         {},
+	factKindPreference:     {},
+	factKindConvention:     {},
+	factKindClosedNegative: {},
 }
 
 func validFactKind(kind string) bool {
@@ -71,7 +78,13 @@ func validFactKind(kind string) bool {
 // taxonomy prior in inferFactKind. They are deliberately narrow: a wrong
 // override is worse than falling back to the topic prior, and the agent path is
 // the accurate source going forward.
-var gotchaCues = []string{"gotcha", "footgun", "pitfall", "careful", "watch out", "easy to miss", "easy to forget", "don't forget", "beware", "subtle bug", "surprising", "counterintuitive"}
+var gotchaCues = []string{"gotcha", "footgun", "pitfall", "careful", "watch out", "easy to miss", "easy to forget", "don't forget", "beware", "subtle bug", "surprising", "counterintuitive", "fails silently", "silently fails", "breaks if", "only works if"}
+
+// closedNegativeCues mark a settled-negative: something tried/considered and
+// rejected with evidence. Checked before gotchaCues — a dead end phrased as a
+// trap is still a dead end, and the closed-negative framing carries the
+// revisit-when trigger a future session needs.
+var closedNegativeCues = []string{"do not re-litigate", "dead end", "ruled out", "decided against", "rejected because", "was rejected", "measured as noise", "not a lever", "within noise", "abandoned because", "didn't work because", "did not work because", "tried and failed", "made no difference", "no measurable", "revisit only if", "revisit when"}
 
 var invariantCues = []string{"must not", "must always", "must ", "never ", "always ", "is required", "are required", "invariant", "guaranteed", "may not ", "cannot ", "has to "}
 
@@ -95,11 +108,12 @@ func topLevelToKind(topLevel string) string {
 // more specific/actionable kind wins, so a constraint co-tagged with
 // architecture infers invariant rather than the weaker decision default.
 var factKindPriority = map[string]int{
-	factKindGotcha:     5,
-	factKindInvariant:  4,
-	factKindPreference: 3,
-	factKindConvention: 2,
-	factKindDecision:   1,
+	factKindClosedNegative: 6,
+	factKindGotcha:         5,
+	factKindInvariant:      4,
+	factKindPreference:     3,
+	factKindConvention:     2,
+	factKindDecision:       1,
 }
 
 // inferFactKind deterministically classifies a fact's KIND from its taxonomy
@@ -112,6 +126,11 @@ var factKindPriority = map[string]int{
 // co-tag. Allocates nothing — the hot read path calls this per fact.
 func inferFactKind(paths []string, text string) string {
 	lower := strings.ToLower(text)
+	for _, cue := range closedNegativeCues {
+		if strings.Contains(lower, cue) {
+			return factKindClosedNegative
+		}
+	}
 	for _, cue := range gotchaCues {
 		if strings.Contains(lower, cue) {
 			return factKindGotcha

@@ -9,6 +9,29 @@ import (
 // fact (see locusOverlap) — a strong, high-precision signal.
 const factLocusBoost = 60
 
+// factClosedNegativeBoost lifts a closed-negative fact above similarly-matching
+// peers: when the query touches a settled-dead-end's territory, the "this was
+// tried and failed" entry is the highest-value thing the brain can surface (it
+// prevents re-exploration, not just re-derivation). Applied only when the fact
+// already matched (score > 0), so kind alone never creates a match — and no
+// pre-existing fact carries the kind, so measured baselines are unchanged
+// until distill/reclassify produce closed-negatives.
+const factClosedNegativeBoost = 30
+
+// factLexicalScore is the full lexical arm for one fact: term/substring score,
+// locus boost, and the closed-negative kind boost. Both rankFacts and the
+// fused ranker's lexical side call this, so the two paths cannot drift.
+func factLexicalScore(f factRecord, query string, queryLocus []string) int {
+	score := factQueryScore(f, query)
+	if overlap := locusOverlapTokens(queryLocus, factLocusOf(f)); overlap > 0 {
+		score += overlap * factLocusBoost
+	}
+	if score > 0 && factKindOrInferred(f) == factKindClosedNegative {
+		score += factClosedNegativeBoost
+	}
+	return score
+}
+
 // scoredFact pairs a fact with its query score for ranking.
 type scoredFact struct {
 	Record factRecord
@@ -45,14 +68,7 @@ func rankFacts(facts []factRecord, query string, limit int, includeAll bool) []f
 	queryLocus := factLocus(query)
 	scored := make([]scoredFact, 0, len(candidates))
 	for _, f := range candidates {
-		score := factQueryScore(f, query)
-		// Locus boost: a fact that names the same code identifier the query
-		// names is a high-precision match (the query is asking about that
-		// symbol/file/ref), so surface it even when prose overlap is thin.
-		if overlap := locusOverlapTokens(queryLocus, factLocusOf(f)); overlap > 0 {
-			score += overlap * factLocusBoost
-		}
-		if score > 0 {
+		if score := factLexicalScore(f, query, queryLocus); score > 0 {
 			scored = append(scored, scoredFact{Record: f, Score: score})
 		}
 	}

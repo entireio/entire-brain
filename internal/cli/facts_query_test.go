@@ -54,3 +54,29 @@ func TestRankFactsLimit(t *testing.T) {
 		t.Fatalf("limit not applied: got %d", len(got))
 	}
 }
+
+// TestRankFactsClosedNegativeOutranksPeers locks in the Phase 2 (agent
+// utility) ranking rule: among facts that match the query, a closed-negative
+// — "this was tried and failed" — outranks similarly-matching peers, because
+// it prevents re-exploration rather than just re-derivation. The boost must
+// never create a match on its own.
+func TestRankFactsClosedNegativeOutranksPeers(t *testing.T) {
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	facts := []factRecord{
+		// Same text-match strength against the query, different kinds. The
+		// convention is more recent, so without the boost it would win the tie.
+		{ID: "fact:conv", Kind: factKindConvention, Paths: []string{"workflow.testing.rules"}, Text: "Expansion terms are reviewed in the weekly retrieval sync.", Status: factStatusActive, UpdatedAt: now.Add(time.Hour)},
+		{ID: "fact:neg", Kind: factKindClosedNegative, Paths: []string{"workflow.testing.rules"}, Text: "Expansion terms were tried for recall and rejected; revisit only with a new model.", Status: factStatusActive, UpdatedAt: now},
+	}
+	got := rankFacts(facts, "expansion terms", 10, false)
+	if len(got) != 2 || got[0].ID != "fact:neg" {
+		t.Fatalf("closed-negative should outrank the equally-matching convention, got %+v", got)
+	}
+
+	// Kind alone must not create a match: a closed-negative sharing no term
+	// with the query stays unsurfaced.
+	got = rankFacts(facts, "database migrations", 10, false)
+	if len(got) != 0 {
+		t.Fatalf("closed-negative boost must not create matches, got %+v", got)
+	}
+}

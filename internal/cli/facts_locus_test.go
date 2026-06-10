@@ -103,6 +103,12 @@ func TestInferFactKind(t *testing.T) {
 		{"invariant from constraints", []string{"constraints.invariants.general"}, "the index is derived", factKindInvariant},
 		{"gotcha cue overrides taxonomy", []string{"constraints.invariants.general"}, "easy to miss: the lock must be released", factKindGotcha},
 		{"gotcha cue overrides preference", []string{"preferences.coding.style"}, "footgun: never embed the prod URL", factKindGotcha},
+		{"closed-negative from rejection cue", []string{"architecture.boundaries.rationale"}, "a per-file truth layout was ruled out; NDJSON stays the system of record", factKindClosedNegative},
+		{"closed-negative from measurement cue", []string{"workflow.testing.rules"}, "RRF fusion-weight tuning measured as noise across all swept cells", factKindClosedNegative},
+		{"closed-negative from dead-end cue", nil, "the scoped-floor recall variant was a dead end; backfill facts do not help", factKindClosedNegative},
+		// A dead end phrased as a trap is still a dead end: the closed-negative
+		// cue must win over a co-present gotcha cue.
+		{"closed-negative beats gotcha cue", nil, "beware: query expansion was tried and failed at larger n", factKindClosedNegative},
 		{"invariant cue with no taxonomy", nil, "the cursor must always be monotonic", factKindInvariant},
 		{"default decision with no signal", nil, "the team shipped the feature", factKindDecision},
 		// Multi-path tie-break: the invariant signal of constraints.* must win over

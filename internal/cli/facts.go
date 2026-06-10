@@ -62,7 +62,7 @@ type factSourceManifest struct {
 type factRecord struct {
 	ID           string       `json:"id"`
 	Paths        []string     `json:"paths"`           // 1-2 taxonomy paths (topic label)
-	Kind         string       `json:"kind,omitempty"`  // decision|invariant|gotcha|preference|convention
+	Kind         string       `json:"kind,omitempty"`  // decision|invariant|gotcha|preference|convention|closed-negative
 	Locus        []string     `json:"locus,omitempty"` // code identifiers/paths the fact is about (WHERE)
 	Text         string       `json:"text"`            // third person about the user
 	Branch       string       `json:"branch"`
