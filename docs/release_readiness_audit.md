@@ -183,24 +183,18 @@ the summary reported `proof_ready=false` / `saturated/overhead_negative`. It was
 not copied into `benchmarks/agent-brain/evidence/release`; a stronger semantic
 task is still needed before semantic usefulness claims graduate.
 
-Next semantic proof candidate: `entire-brain-semantic-audit-gate-report` breaks
-the semantic audit gate so it returns before emitting JSON, then hides the
-focused validation that requires JSON to be emitted before a blind-spot gate
-error. The paired panel `release-entire-brain-semantic-audit-gate` is committed
-for `no_brain` vs `semantic_brain` at 4 repetitions per side. It preflights as
-`fails-as-expected`, but it is not release evidence until the panel is run,
-audited, and either retained or rejected under the release evidence policy.
-
 Rejected semantic replay-lab candidate:
 `release-candidate-entire-brain-semantic-audit-gate-20260610T0320Z` ran the
-semantic audit gate panel with 4 repetitions per side. Both arms fixed the
-underlying focused tests; the initial no-brain records failed only the harness
-output leak audit because generic benchmark task-path text appeared in the
-agent transcript. After tightening canary-based leak auditing, this task should
-be treated as saturated rather than semantic-positive: validation pass-rate was
-`1.0 -> 1.0`, mean score was `97.25 -> 96.5`, and semantic added time/tokens
-(`71.7s -> 94.3s`, `281,062 -> 388,766.5`). It was not copied into release
-evidence.
+committed `release-entire-brain-semantic-audit-gate` panel with 4 repetitions
+per side. The task breaks the semantic audit gate so it returns before emitting
+JSON, then hides focused validation requiring JSON before a blind-spot gate
+error. Both arms fixed the underlying focused tests; the initial no-brain
+records failed only the harness output leak audit because generic benchmark
+task-path text appeared in the agent transcript. After tightening canary-based
+leak auditing, this task should be treated as saturated rather than
+semantic-positive: validation pass-rate was `1.0 -> 1.0`, mean score was
+`97.25 -> 96.5`, and semantic added time/tokens (`71.7s -> 94.3s`,
+`281,062 -> 388,766.5`). It was not copied into release evidence.
 
 ## QMD Alignment
 
