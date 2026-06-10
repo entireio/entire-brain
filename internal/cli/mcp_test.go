@@ -66,6 +66,28 @@ func TestMCPToolsListAdvertisesStaleBlindSpots(t *testing.T) {
 	}
 }
 
+func TestMCPRejectsInvalidBooleanArguments(t *testing.T) {
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"scope regression","location_only":"true"}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_stale","arguments":{"blind_spots":"yes"}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	if len(responses) != 2 {
+		t.Fatalf("responses = %d", len(responses))
+	}
+	for i, want := range []string{"location_only must be boolean", "blind_spots must be boolean"} {
+		errObj, ok := responses[i]["error"].(map[string]any)
+		if !ok {
+			t.Fatalf("response %d missing error: %+v", i, responses[i])
+		}
+		if !strings.Contains(fmt.Sprint(errObj["message"]), want) {
+			t.Fatalf("response %d error = %+v, want %q", i, errObj, want)
+		}
+	}
+}
+
 func TestMCPBrainRegressionsTool(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

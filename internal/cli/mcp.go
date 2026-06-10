@@ -261,8 +261,11 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if opts.Env.RepoRoot != "" {
 			target = opts.Env.RepoRoot
 		}
-		blindSpots, _ := params.Arguments["blind_spots"].(bool)
-		err = runSemanticStale(ctx, cmd, opts, target, true, blindSpots)
+		var blindSpots bool
+		blindSpots, err = mcpBool(params.Arguments, "blind_spots")
+		if err == nil {
+			err = runSemanticStale(ctx, cmd, opts, target, true, blindSpots)
+		}
 	case "brain_brief":
 		task := mcpString(params.Arguments, "task")
 		if strings.TrimSpace(task) == "" {
@@ -340,15 +343,21 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	case "brain_regressions":
 		err = requireMCPQuery(query)
 		if err == nil {
-			inc, _ := params.Arguments["include_deletions"].(bool)
-			loc, _ := params.Arguments["location_only"].(bool)
+			inc, loc, boolErr := mcpRegressionBooleans(params.Arguments)
+			if boolErr != nil {
+				err = boolErr
+				break
+			}
 			err = runRegressionDetect(ctx, cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, query)
 		}
 	case "brain_review":
 		err = requireMCPQuery(query)
 		if err == nil {
-			inc, _ := params.Arguments["include_deletions"].(bool)
-			loc, _ := params.Arguments["location_only"].(bool)
+			inc, loc, boolErr := mcpRegressionBooleans(params.Arguments)
+			if boolErr != nil {
+				err = boolErr
+				break
+			}
 			err = runBrainReview(ctx, cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, query)
 		}
 	case "brain_workspace_regressions":
@@ -358,8 +367,11 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = errors.New("workspace is required")
 		}
 		if err == nil {
-			inc, _ := params.Arguments["include_deletions"].(bool)
-			loc, _ := params.Arguments["location_only"].(bool)
+			inc, loc, boolErr := mcpRegressionBooleans(params.Arguments)
+			if boolErr != nil {
+				err = boolErr
+				break
+			}
 			err = runWorkspaceRegressions(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, workspace, query)
 		}
 	case "brain_workspace_review":
@@ -369,8 +381,11 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = errors.New("workspace is required")
 		}
 		if err == nil {
-			inc, _ := params.Arguments["include_deletions"].(bool)
-			loc, _ := params.Arguments["location_only"].(bool)
+			inc, loc, boolErr := mcpRegressionBooleans(params.Arguments)
+			if boolErr != nil {
+				err = boolErr
+				break
+			}
 			err = runWorkspaceReview(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, workspace, query)
 		}
 	default:
@@ -394,6 +409,30 @@ func mcpString(args map[string]any, key string) string {
 		return value
 	}
 	return ""
+}
+
+func mcpBool(args map[string]any, key string) (bool, error) {
+	value, ok := args[key]
+	if !ok || value == nil {
+		return false, nil
+	}
+	boolValue, ok := value.(bool)
+	if !ok {
+		return false, fmt.Errorf("%s must be boolean", key)
+	}
+	return boolValue, nil
+}
+
+func mcpRegressionBooleans(args map[string]any) (bool, bool, error) {
+	includeDeletions, err := mcpBool(args, "include_deletions")
+	if err != nil {
+		return false, false, err
+	}
+	locationOnly, err := mcpBool(args, "location_only")
+	if err != nil {
+		return false, false, err
+	}
+	return includeDeletions, locationOnly, nil
 }
 
 func mcpStringSlice(args map[string]any, key string) []string {
