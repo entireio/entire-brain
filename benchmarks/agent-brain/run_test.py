@@ -4045,6 +4045,28 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             self.assertIn("internal/cli/regression.go", " | ".join(report["errors"]))
             self.assertEqual(report["source_drift_paths"], ["internal/cli/regression.go"])
 
+    def test_radar_tool_evidence_rejects_changed_source_hashes_without_git_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            for rel in audit_radar_tool_evidence.RADAR_TOOL_SOURCE_PATHS:
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"package cli\n// {rel}\n")
+            manifest = self._write_radar_tool_manifest(root, audit_radar_tool_evidence.REQUIRED_TESTS)
+            data = json.loads(manifest.read_text())
+            data["source_files"] = {
+                rel: audit_radar_tool_evidence.sha256_file(root / rel)
+                for rel in audit_radar_tool_evidence.RADAR_TOOL_SOURCE_PATHS
+            }
+            manifest.write_text(json.dumps(data))
+            (root / "internal" / "cli" / "mcp.go").write_text("package cli\n// changed\n")
+
+            report = audit_radar_tool_evidence.audit_manifest(manifest, repo_root=root)
+
+            self.assertFalse(report["ok"])
+            self.assertIn("source file hashes are stale", " | ".join(report["errors"]))
+            self.assertEqual(report["source_drift_paths"], ["internal/cli/mcp.go"])
+
     def _write_release_matrix_fixture(self, root: pathlib.Path) -> pathlib.Path:
         (root / "reports").mkdir()
         (root / "docs").mkdir()
