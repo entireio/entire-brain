@@ -84,6 +84,12 @@ detector-shaped `baseRef+"...HEAD"` regression and a hidden behavioral
 validation that visible tests do not already cover. Its calibrated clean 1x
 pilot still saturated on pass rate, so it is directional efficiency calibration
 until a future task/runner revision creates baseline headroom.
+`mise run radar:screen` runs the dedicated Radar evidence audit over local
+`pilot-radar-*` suites and labels each comparison as proof-ready, promotable,
+or saturated. `mise run radar:evidence` is intentionally stricter: it fails
+until retained `release-candidate-*` evidence contains at least one stable
+proof-ready location-only Radar comparison. That keeps generic MCP-history proof
+separate from the stronger Radar claim.
 For non-radar MCP-history proof, the committed
 `release-entire-cli-mcp-manual-attribution` panel targets a harder manual-commit
 attribution invariant where the brain should provide historical localization and

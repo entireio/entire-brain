@@ -59,6 +59,33 @@ mkdir -p benchmarks/agent-brain/evidence/release
 cp "$tmp"/codex-audit-report.json "$tmp"/codex-audit-report.md benchmarks/agent-brain/evidence/release/
 '''
 
+[tasks."radar:screen"]
+description = "Summarize Regression Radar pilots and flag saturated candidates"
+run = '''
+set -e
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_radar_evidence.py \
+  --results benchmarks/agent-brain/results \
+  --suite-glob 'pilot-radar-*' \
+  --out-dir "$tmp"
+cat "$tmp/radar-candidate-report.md"
+'''
+
+[tasks."radar:evidence"]
+description = "Require at least one retained proof-ready Regression Radar comparison"
+run = '''
+set -e
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_radar_evidence.py \
+  --results benchmarks/agent-brain/evidence/release \
+  --suite-glob 'release-candidate-*' \
+  --out-dir "$tmp" \
+  --fail-when-no-proof
+cat "$tmp/radar-candidate-report.md"
+'''
+
 [tasks."facts:evidence"]
 description = "Check retained facts-vs-raw eval evidence without rewriting tracked reports"
 run = '''
@@ -196,6 +223,7 @@ run = '''
 set -e
 mise run check
 mise run release:evidence
+mise run radar:evidence
 mise run distill:evidence
 mise run facts:evidence
 mise run semantic:evidence

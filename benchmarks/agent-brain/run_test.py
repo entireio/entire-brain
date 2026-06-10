@@ -37,6 +37,13 @@ assert AUDIT_DISTILL_PERF_SPEC.loader is not None
 sys.modules[AUDIT_DISTILL_PERF_SPEC.name] = audit_distill_perf
 AUDIT_DISTILL_PERF_SPEC.loader.exec_module(audit_distill_perf)
 
+AUDIT_RADAR_EVIDENCE_PATH = pathlib.Path(__file__).with_name("audit_radar_evidence.py")
+AUDIT_RADAR_EVIDENCE_SPEC = importlib.util.spec_from_file_location("agent_brain_audit_radar_evidence", AUDIT_RADAR_EVIDENCE_PATH)
+audit_radar_evidence = importlib.util.module_from_spec(AUDIT_RADAR_EVIDENCE_SPEC)
+assert AUDIT_RADAR_EVIDENCE_SPEC.loader is not None
+sys.modules[AUDIT_RADAR_EVIDENCE_SPEC.name] = audit_radar_evidence
+AUDIT_RADAR_EVIDENCE_SPEC.loader.exec_module(audit_radar_evidence)
+
 
 class RunnerAndConditionTests(unittest.TestCase):
     def test_parse_runner_spec_accepts_codex_claude_and_rejects_gemini(self):
@@ -2088,6 +2095,78 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
             report = json.loads((pathlib.Path(out) / "distill-perf-audit-report.json").read_text())
             self.assertIn("artifact_sha256.serial_run mismatch", report["flags"])
             self.assertIn("commands.parallel_run: --agent must match artifact agent", report["flags"])
+
+
+class RadarEvidenceAuditScriptTests(unittest.TestCase):
+    def _write_radar_summary(
+        self,
+        root: pathlib.Path,
+        suite: str,
+        *,
+        baseline_pass: float,
+        condition_pass: float,
+        proof_ready: bool = False,
+        stability_tag: str = "noisy",
+        n: int = 1,
+    ) -> pathlib.Path:
+        suite_dir = root / suite
+        suite_dir.mkdir(parents=True)
+        (suite_dir / "summary.json").write_text(json.dumps({
+            "comparisons": [{
+                "task_id": "radar-task",
+                "runner": "codex-mini-low",
+                "condition": "mcp_history",
+                "delivery_scope": "mcp_radar_location_only",
+                "n_condition": n,
+                "n_baseline": n,
+                "pass_rate_condition": condition_pass,
+                "pass_rate_baseline": baseline_pass,
+                "mean_total_tokens_condition": 12000,
+                "mean_total_tokens_baseline": 24000,
+                "verdict": "brain_positive" if proof_ready else "saturated/no_signal",
+                "proof_ready": proof_ready,
+                "stability": {"tag": stability_tag},
+            }]
+        }))
+        return suite_dir
+
+    def test_radar_audit_marks_saturated_pilots_not_promotable(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            self._write_radar_summary(results_dir, "pilot-radar-saturated", baseline_pass=1.0, condition_pass=1.0, stability_tag="saturated")
+            report = audit_radar_evidence.build_report(results_dir, ["pilot-radar-*"])
+            self.assertEqual(report["totals"]["status_counts"], {"saturated": 1})
+            self.assertEqual(report["totals"]["promotable_or_proof"], 0)
+            self.assertEqual(
+                audit_radar_evidence.main(["--results", str(results_dir), "--suite-glob", "pilot-radar-*", "--out-dir", out, "--fail-when-no-promotable"]),
+                1,
+            )
+
+    def test_radar_audit_accepts_promotable_pilot_with_baseline_headroom(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            self._write_radar_summary(results_dir, "pilot-radar-headroom", baseline_pass=0.0, condition_pass=1.0)
+            report = audit_radar_evidence.build_report(results_dir, ["pilot-radar-*"])
+            gate = report["comparisons"][0]["radar_gate"]
+            self.assertEqual(gate["status"], "promotable-pilot")
+            self.assertTrue(gate["baseline_headroom"])
+            self.assertEqual(audit_radar_evidence.main(["--results", str(results_dir), "--suite-glob", "pilot-radar-*", "--out-dir", out, "--fail-when-no-promotable"]), 0)
+
+    def test_radar_audit_requires_stable_proof_for_proof_gate(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            self._write_radar_summary(
+                results_dir,
+                "release-candidate-radar-proof",
+                baseline_pass=0.25,
+                condition_pass=1.0,
+                proof_ready=True,
+                stability_tag="brain_positive_stable",
+                n=4,
+            )
+            report = audit_radar_evidence.build_report(results_dir, ["release-candidate-*"])
+            self.assertEqual(report["totals"]["proof_ready"], 1)
+            self.assertEqual(audit_radar_evidence.main(["--results", str(results_dir), "--suite-glob", "release-candidate-*", "--out-dir", out, "--fail-when-no-proof"]), 0)
 
 
 if __name__ == "__main__":

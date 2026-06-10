@@ -651,5 +651,5 @@ Release claim hygiene notes:
   file-language/symbol/relation coverage, blind spots, and retained benchmark
   records. Current evidence is local and scoped, not global parser coverage.
 - Remaining blocked evidence: large-repo distill dry-run/timed runs, paired facts
-  evals, release-candidate semantic audit output, and audited benchmark/proof
-  records.
+  evals, release-candidate Regression Radar proof, release-candidate semantic
+  audit output, and audited benchmark/proof records.

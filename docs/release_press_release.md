@@ -77,8 +77,9 @@ task outcomes instead of relying on demos or anecdotes.
   1/4 -> 4/4 on a manual-attribution regression without proving efficiency
   gains.
 - Pending proof: target large-repo distill timing, paired facts evals,
-  Regression Radar retained proof (single-repo and workspace-radar), semantic
-  usefulness, and broader retained replay-lab benchmark evidence.
+  Regression Radar retained proof (single-repo and workspace-radar; local pilots
+  are currently saturated), semantic usefulness, and broader retained replay-lab
+  benchmark evidence.
 - Blocked: target large-repo evidence, backend/Slack access, turn signing,
   checkpoint-time fact generation.
 - Future: distributed/shared brain, team artifact hydration, multi-agent write

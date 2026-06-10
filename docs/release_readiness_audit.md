@@ -448,11 +448,20 @@ is intentionally not the full release-claim gate because release claims also
 depend on retained evidence artifacts.
 
 `mise run release:readiness` is the local release-claim gate. It runs
-`mise run check`, `mise run release:evidence`, `mise run distill:evidence`,
-`mise run facts:evidence`, and `mise run semantic:evidence`. It is expected to
-fail until the distill performance and facts-vs-raw manifests plus retained
-artifacts exist, which keeps "distill is fast" and "facts beat raw sessions"
-claims blocked instead of hidden behind a green implementation check.
+`mise run check`, `mise run release:evidence`, `mise run radar:evidence`,
+`mise run distill:evidence`, `mise run facts:evidence`, and
+`mise run semantic:evidence`. It is expected to fail until the Radar retained
+proof, distill performance, and facts-vs-raw manifests plus retained artifacts
+exist, which keeps "Radar proves regressions," "distill is fast," and "facts
+beat raw sessions" claims blocked instead of hidden behind a green
+implementation check.
+
+`mise run radar:screen` is the calibration check for local `pilot-radar-*`
+suites. On 2026-06-10 it found 4 Radar comparisons, 0 proof-ready comparisons,
+0 promotable pilots, and 4 saturated pilots (`pass no-brain -> Radar` was
+`1.00 -> 1.00` for each). `mise run radar:evidence` currently fails because no
+retained `release-candidate-*` suite contains a stable proof-ready
+location-only Radar comparison.
 
 CI now includes the retained replay-lab release-evidence audit in addition to
 lint/build/test/Phase 1 semantic checks. The facts evidence gate is not wired
@@ -483,10 +492,11 @@ repo/access/artifacts are available:
   `release-entire-cli-radar-mcp-attribution-realign`,
   `release-entire-cli-radar-mcp-review-base-scope`, or
   `release-entire-cli-workspace-radar-mcp-transcript-reresolve`. Local pilots
-  are useful for calibration, but a citable Radar claim still needs 4
-  repetitions per side, MCP-verified records, the appropriate proof scope
-  (`mcp_radar_location_only` or `mcp_workspace_radar_location_only`), zero hard
-  flags, and committed sanitized artifacts under
+  are useful for calibration, but `mise run radar:evidence` requires a citable
+  Radar claim to have 4 repetitions per side, MCP-verified records, the
+  appropriate proof scope (`mcp_radar_location_only` or
+  `mcp_workspace_radar_location_only`), zero hard flags, a stable proof-ready
+  comparison, and committed sanitized artifacts under
   `benchmarks/agent-brain/evidence/release`. Local 2026-06-10 single-repo radar
   pilots with `codex:gpt-5.4-mini:low` and `:medium` were both saturated on pass
   rate (`1.0 -> 1.0`) and therefore not release proof, despite large token/time
