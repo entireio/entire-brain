@@ -2884,6 +2884,8 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
         baseline_valid: list[bool] | None = None,
         condition_valid: list[bool] | None = None,
         named_tool_backed: bool = True,
+        comparison_proof_ready: bool = True,
+        comparison_pass: bool = True,
     ) -> None:
         baseline_valid = baseline_valid or [True, False, False, False]
         condition_valid = condition_valid or [True, True, True, True]
@@ -2924,8 +2926,8 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                         "condition": "mcp_history",
                         "delivery_scope": "mcp_radar_location_only",
                         "proof_scope": "mcp_radar_location_only",
-                        "proof_ready": True,
-                        "pass": True,
+                        "proof_ready": comparison_proof_ready,
+                        "pass": comparison_pass,
                         "record_backing": {
                             "ok": True,
                             "condition_mcp_verified_ok": True,
@@ -2986,6 +2988,43 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 audit_radar_evidence.main(["--results", str(results_dir), "--suite-glob", "pilot-radar-*", "--out-dir", out, "--fail-when-no-promotable"]),
                 1,
             )
+
+    def test_radar_audit_shows_mcp_backing_for_negative_comparison(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            suite = "release-candidate-radar-negative"
+            self._write_radar_summary(
+                results_dir,
+                suite,
+                baseline_pass=1.0,
+                condition_pass=0.5,
+                proof_ready=False,
+                stability_tag="noisy",
+                n=4,
+            )
+            backed_audit = out_dir / "backed-codex-audit.json"
+            self._write_backed_radar_codex_audit(
+                backed_audit,
+                suite,
+                baseline_valid=[True, True, True, True],
+                condition_valid=[True, False, False, True],
+                comparison_proof_ready=False,
+            )
+
+            report = audit_radar_evidence.build_report(
+                results_dir,
+                ["release-candidate-*"],
+                audit_radar_evidence.load_codex_audit(backed_audit),
+            )
+            gate = report["comparisons"][0]["radar_gate"]
+            backing = gate["codex_audit_record_backing"]
+            self.assertEqual(gate["status"], "brain-not-clean")
+            self.assertTrue(gate["codex_audit_backed"], gate)
+            self.assertEqual(backing["condition_named_tool_records"], 4)
+            self.assertEqual(backing["condition_completed_named_tool_records"], 4)
+            self.assertTrue(backing["summary_consistency_ok"], backing)
+            self.assertIn("4/4", audit_radar_evidence.render_markdown(report))
 
     def test_radar_audit_requires_stable_proof_for_proof_gate(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:

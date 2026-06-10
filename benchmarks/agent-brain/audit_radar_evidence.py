@@ -121,14 +121,7 @@ def codex_audit_radar_backing(report: dict[str, Any] | None) -> dict[tuple[str, 
             if comp.get("proof_scope") not in RADAR_SCOPES:
                 continue
             backing = comp.get("record_backing") if isinstance(comp.get("record_backing"), dict) else {}
-            if not (
-                comp.get("proof_ready")
-                and comp.get("pass")
-                and backing.get("ok")
-                and backing.get("condition_mcp_verified_ok") is True
-                and backing.get("condition_mcp_named_tool_verified_ok") is True
-                and backing.get("condition_mcp_named_tool_completed_ok") is True
-            ):
+            if not backing:
                 continue
             key = (
                 str(suite),
@@ -165,6 +158,11 @@ def codex_audit_radar_backing(report: dict[str, Any] | None) -> dict[tuple[str, 
             ]
             out[key] = {
                 "codex_audit_backed": True,
+                "codex_audit_comparison_pass": bool(comp.get("pass")),
+                "codex_audit_comparison_proof_ready": bool(comp.get("proof_ready")),
+                "condition_mcp_verified_ok": backing.get("condition_mcp_verified_ok"),
+                "condition_mcp_named_tool_verified_ok": backing.get("condition_mcp_named_tool_verified_ok"),
+                "condition_mcp_named_tool_completed_ok": backing.get("condition_mcp_named_tool_completed_ok"),
                 "condition_records": len(condition_records),
                 "condition_named_tool_records": len(condition_named_tool_records),
                 "condition_completed_named_tool_records": len(condition_completed_named_tool_records),
@@ -357,6 +355,13 @@ def build_report(results: pathlib.Path, suite_globs: list[str], codex_audit: dic
             backing = audit_backing.get(key)
             backed = backing is not None
             status["codex_audit_backed"] = backed
+            proof_backed = (
+                backing is not None
+                and backing.get("codex_audit_comparison_pass") is True
+                and backing.get("condition_mcp_verified_ok") is True
+                and backing.get("condition_mcp_named_tool_verified_ok") is True
+                and backing.get("condition_mcp_named_tool_completed_ok") is True
+            )
             if backing is not None:
                 mismatches = audit_summary_consistency(comp, backing)
                 backing = dict(backing)
@@ -370,7 +375,7 @@ def build_report(results: pathlib.Path, suite_globs: list[str], codex_audit: dic
                     status["reasons"].append("Radar summary pass/count fields do not match audited record rows")
                     status["reasons"].extend(mismatches)
                     status["recommendation"] = "regenerate summary.json from retained records before citing Radar proof"
-            if status["proof_ready"] and not backed:
+            if status["proof_ready"] and not proof_backed:
                 status["status"] = "audit-missing"
                 status["proof_ready"] = False
                 status["promotable"] = False
