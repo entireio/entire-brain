@@ -143,6 +143,39 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertEqual(result["results"], [])
         self.assertIn("no validation commands", result["error"])
 
+    def test_validate_materializes_validation_fixture_and_cleans_up(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worktree = pathlib.Path(tmp)
+            task = {
+                "id": "t",
+                "validation_files": [
+                    {
+                        "path": "hidden/fixture_test.go",
+                        "fixture": "entireio-cli/manual_attribution_no_trailer_realign_test.go",
+                    }
+                ],
+                "validation": [
+                    "test -f hidden/fixture_test.go && grep -q TestPostCommitNoTrailerRealignsAttributionBaseHidden hidden/fixture_test.go"
+                ],
+            }
+            result = run.validate(task, worktree, os.environ.copy())
+            self.assertTrue(result["ok"], result)
+            self.assertFalse((worktree / "hidden" / "fixture_test.go").exists())
+
+    def test_validate_restores_existing_validation_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worktree = pathlib.Path(tmp)
+            target = worktree / "hidden.txt"
+            target.write_text("original")
+            task = {
+                "id": "t",
+                "validation_files": [{"path": "hidden.txt", "content": "temporary secret"}],
+                "validation": ["grep -q 'temporary secret' hidden.txt"],
+            }
+            result = run.validate(task, worktree, os.environ.copy())
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(target.read_text(), "original")
+
     def test_mcp_configs_include_local_brain_server_and_repo_env(self):
         env = {
             "ENTIRE_REPO_ROOT": "/repo",

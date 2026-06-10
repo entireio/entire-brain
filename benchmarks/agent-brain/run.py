@@ -33,6 +33,7 @@ BENCH_ROOT = pathlib.Path(__file__).resolve().parent
 TASK_DIR = BENCH_ROOT / "tasks"
 RESULT_DIR = BENCH_ROOT / "results"
 CACHE_DIR = BENCH_ROOT / "cache"
+VALIDATION_FIXTURE_DIR = BENCH_ROOT / "fixtures" / "validation"
 BENCHMARK_COMMIT_DATE = "2026-01-01T00:00:00Z"
 
 ISOLATION = {
@@ -1093,6 +1094,12 @@ def hidden_validation_markers(task: dict[str, Any]) -> list[str]:
             markers.append(str(explicit_markers))
         return [marker for marker in markers if len(marker.strip()) >= 12]
     markers.extend(str(command) for command in task.get("validation", []) if command)
+    for entry in task.get("validation_files", []):
+        if not isinstance(entry, dict):
+            continue
+        markers.append(str(entry.get("path", "")))
+        markers.append(str(entry.get("fixture", "")))
+        markers.append(str(entry.get("content", "")))
     return [marker for marker in markers if len(marker.strip()) >= 12]
 
 
@@ -2604,25 +2611,77 @@ def diff_stat(worktree: pathlib.Path) -> dict[str, Any]:
     return {"shortstat": stat, "bytes": len(diff.encode()) + untracked_bytes, "untracked_files": sorted(untracked)}
 
 
+def safe_child_path(root: pathlib.Path, rel: str, *, label: str) -> pathlib.Path:
+    if not rel or pathlib.Path(rel).is_absolute():
+        raise ValueError(f"{label} must be a relative path")
+    root_resolved = root.resolve()
+    target = (root_resolved / rel).resolve()
+    try:
+        target.relative_to(root_resolved)
+    except ValueError as exc:
+        raise ValueError(f"{label} escapes {root}") from exc
+    return target
+
+
+def validation_file_content(entry: dict[str, Any]) -> str:
+    has_content = "content" in entry
+    has_fixture = "fixture" in entry
+    if has_content == has_fixture:
+        raise ValueError("validation file entries must set exactly one of content or fixture")
+    if has_content:
+        return str(entry["content"])
+    fixture = safe_child_path(VALIDATION_FIXTURE_DIR, str(entry.get("fixture", "")), label="validation fixture")
+    return fixture.read_text()
+
+
+def materialize_validation_files(task: dict[str, Any], worktree: pathlib.Path) -> list[tuple[pathlib.Path, bytes | None]]:
+    cleanups: list[tuple[pathlib.Path, bytes | None]] = []
+    for raw in task.get("validation_files", []):
+        if not isinstance(raw, dict):
+            raise ValueError("validation_files entries must be objects")
+        target = safe_child_path(worktree, str(raw.get("path", "")), label="validation file path")
+        original = target.read_bytes() if target.exists() else None
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(validation_file_content(raw))
+        cleanups.append((target, original))
+    return cleanups
+
+
+def cleanup_validation_files(cleanups: list[tuple[pathlib.Path, bytes | None]]) -> None:
+    for target, original in reversed(cleanups):
+        if original is None:
+            target.unlink(missing_ok=True)
+        else:
+            target.write_bytes(original)
+
+
 def validate(task: dict[str, Any], worktree: pathlib.Path, env: dict[str, str]) -> dict[str, Any]:
     commands = task.get("validation", [])
     if not commands:
         return {"ok": False, "results": [], "error": "task has no validation commands"}
     results = []
     ok = True
-    for command in commands:
-        start = time.time()
-        proc = shell_cmd(command, cwd=worktree, env=env, timeout=600)
-        result = {
-            "command": command,
-            "returncode": proc.returncode,
-            "seconds": time.time() - start,
-            "stdout_tail": proc.stdout[-3000:],
-            "stderr_tail": proc.stderr[-3000:],
-        }
-        results.append(result)
-        if proc.returncode != 0:
-            ok = False
+    cleanups: list[tuple[pathlib.Path, bytes | None]] = []
+    try:
+        cleanups = materialize_validation_files(task, worktree)
+        for command in commands:
+            start = time.time()
+            proc = shell_cmd(command, cwd=worktree, env=env, timeout=600)
+            result = {
+                "command": command,
+                "returncode": proc.returncode,
+                "seconds": time.time() - start,
+                "stdout_tail": proc.stdout[-3000:],
+                "stderr_tail": proc.stderr[-3000:],
+            }
+            results.append(result)
+            if proc.returncode != 0:
+                ok = False
+    except Exception as exc:
+        ok = False
+        return {"ok": False, "results": results, "error": f"validation setup failed: {exc}"}
+    finally:
+        cleanup_validation_files(cleanups)
     return {"ok": ok, "results": results}
 
 
