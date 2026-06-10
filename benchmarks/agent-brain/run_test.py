@@ -573,6 +573,19 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("related_locations", prompt)
         self.assertIn("WORKSPACE_RADAR_NO_FINDINGS", prompt)
 
+    def test_mcp_semantic_prompt_uses_semantic_graph_tools_not_unified_query(self):
+        task = {
+            "id": "task",
+            "prompt": "Fix the semantic regression.",
+            "brain_queries": ["ValidateToken", "auth boundary"],
+        }
+        prompt = run.prompt_for(task, "mcp_semantic", run.parse_runner_spec("codex:gpt-5.4-mini:medium"))
+        for want in ("brain_stale", "brain_context", "brain_impact", "brain_changes", "brain_code"):
+            self.assertIn(want, prompt)
+        self.assertIn("semantic graph context", prompt)
+        self.assertIn("Do not call `brain_query`", prompt)
+        self.assertIn("unified facts/history/docs retrieval", prompt)
+
     def test_activity_counts_codex_command_execution_events(self):
         stdout = json.dumps(
             {
@@ -612,6 +625,32 @@ class RunnerAndConditionTests(unittest.TestCase):
             },
         )
         self.assertTrue(ok["ok"])
+        semantic_ok = run.mcp_condition_audit(
+            "mcp_semantic",
+            {
+                "mcp": {"enabled": True},
+                "activity": {
+                    "mcp_tool_calls": 2,
+                    "mcp_tool_names": ["mcp__entire_brain__brain_stale", "mcp__entire_brain__brain_context"],
+                    "direct_brain_cli_calls": 0,
+                },
+            },
+        )
+        self.assertTrue(semantic_ok["ok"], semantic_ok)
+        semantic_query = run.mcp_condition_audit(
+            "mcp_semantic",
+            {
+                "mcp": {"enabled": True},
+                "activity": {
+                    "mcp_tool_calls": 2,
+                    "mcp_tool_names": ["mcp__entire_brain__brain_stale", "mcp__entire_brain__brain_query"],
+                    "direct_brain_cli_calls": 0,
+                },
+            },
+        )
+        self.assertFalse(semantic_query["ok"])
+        self.assertIn("forbidden_mcp_tool", [finding["kind"] for finding in semantic_query["findings"]])
+        self.assertIn("missing_required_mcp_tool_group", [finding["kind"] for finding in semantic_query["findings"]])
         workspace_ok = run.mcp_condition_audit(
             "mcp_workspace_radar",
             {

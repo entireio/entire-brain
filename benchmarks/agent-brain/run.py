@@ -265,6 +265,8 @@ FULL_HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact"
 CLI_HISTORY_EXCERPT_CONDITIONS = {"full_brain", "full_cli_original"}
 MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
 MCP_BRAIN_TOOL_RE = r"brain_(?:stale|brief|query|search|vsearch|get|multi_get|context|impact|changes|code|tests|boundaries|regressions|review|workspace_regressions|workspace_review)"
+MCP_SEMANTIC_CONTEXT_TOOLS = {"brain_context", "brain_impact", "brain_changes", "brain_code"}
+MCP_UNIFIED_RETRIEVAL_TOOLS = {"brain_query", "brain_search", "brain_vsearch", "brain_get", "brain_multi_get"}
 SAFE_MCP_BOOL_ARGUMENT_KEYS = {"location_only", "include_deletions", "blind_spots"}
 SAFE_MCP_STRING_ARGUMENT_KEYS = {"workspace"}
 SAFE_MCP_ARGUMENT_KEYS = SAFE_MCP_BOOL_ARGUMENT_KEYS | SAFE_MCP_STRING_ARGUMENT_KEYS
@@ -1157,11 +1159,20 @@ def mcp_history_required_tools(runner: "RunnerSpec | None") -> tuple[str, ...]:
 
 
 def mcp_required_tools(condition: str, runner: "RunnerSpec | None") -> tuple[str, ...]:
+    if condition == "mcp_semantic":
+        return ("brain_stale",)
     if condition == "mcp_workspace_radar":
         return ("brain_workspace_regressions",)
     if condition == "mcp_history":
         return mcp_history_required_tools(runner)
     return ()
+
+
+def bare_mcp_tool_name(name: Any) -> str:
+    text = str(name)
+    if "__" in text:
+        return text.rsplit("__", 1)[-1]
+    return text
 
 
 def safe_arg_matches(actual: Any, expected: Any) -> bool:
@@ -1249,6 +1260,13 @@ def mcp_condition_audit(
     if condition == "mcp_workspace_radar":
         for arg in missing_mcp_call_args(activity, "brain_workspace_regressions", workspace_radar_required_args(task)):
             findings.append({"kind": "missing_required_mcp_argument", "condition": condition, "tool": "brain_workspace_regressions", "argument": arg})
+    if condition == "mcp_semantic" and (not isinstance(task, dict) or task.get("prepare_semantic", True)):
+        bare_names = {bare_mcp_tool_name(name) for name in mcp_tool_names}
+        forbidden = sorted(bare_names & MCP_UNIFIED_RETRIEVAL_TOOLS)
+        if forbidden:
+            findings.append({"kind": "forbidden_mcp_tool", "condition": condition, "tool": ",".join(forbidden)})
+        if not (bare_names & MCP_SEMANTIC_CONTEXT_TOOLS):
+            findings.append({"kind": "missing_required_mcp_tool_group", "condition": condition, "tool": "semantic_graph_context"})
     if condition == "mcp_history" and wants_radar_location_only(runner):
         for arg in missing_mcp_call_args(activity, "brain_regressions", radar_required_args(task)):
             findings.append({"kind": "missing_required_mcp_argument", "condition": condition, "tool": "brain_regressions", "argument": arg})
@@ -2085,7 +2103,7 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
     elif condition in {"semantic_brain", "semantic_cli"}:
         policy = "Use the prepared Entire Brain seed context before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not rely on semantic query commands."
     elif condition == "mcp_semantic" and semantic_available:
-        policy = f"""Use the Entire Brain MCP server before editing. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Then start with the `brain_stale` MCP tool, followed by `brain_query`, `brain_context`, `brain_impact`, or `brain_changes` for focused semantic context. Useful query terms: {queries}. Do not run the `entire brain` CLI and do not inspect checkpoint transcripts or session history."""
+        policy = f"""Use the Entire Brain MCP server before editing. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Then start with the `brain_stale` MCP tool, followed by `brain_context`, `brain_impact`, `brain_changes`, or `brain_code` for focused semantic graph context. Useful query terms: {queries}. Do not call `brain_query` for this semantic-only condition; it is unified facts/history/docs retrieval, not semantic graph inspection. Do not run the `entire brain` CLI and do not inspect checkpoint transcripts or session history."""
     elif condition == "mcp_semantic":
         policy = "Use the Entire Brain MCP server before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not run semantic CLI commands or inspect checkpoint transcripts."
     elif condition == "mcp_workspace_radar":
