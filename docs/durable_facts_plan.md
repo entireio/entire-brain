@@ -3,8 +3,9 @@
 This plan describes how Entire Brain can grow from a read-only derivation layer
 over captured sessions into a curated, branch-aware, blameable **durable fact
 memory** — without abandoning the property that makes Entire's data trustworthy:
-every fact is a view over retained session/checkpoint source, not a standalone
-artifact you have to trust.
+source-backed facts are views over retained session/checkpoint source, not
+standalone artifacts you have to trust. Authored facts are explicit user
+assertions and must be reported as such when no retained source is attached.
 
 Entire already captures more raw context than most agent-memory systems: full
 session transcripts, checkpoints tied to commits, multiple agents, rewind and
@@ -20,18 +21,23 @@ Other agent-memory systems extract a fact with an LLM and keep only the
 extracted text. The source turn is gone, so the fact cannot be re-derived,
 audited, or verified — it must simply be trusted.
 
-Entire retains signed ground-truth sessions. Therefore every durable fact in
-this design is a **view over retained, signed source**:
+Entire retains checkpointed ground-truth sessions. Therefore source-backed
+durable facts in this design are **views over retained source**:
 
-- **Re-derivable** — a fact can be regenerated from its originating turns.
-- **Blameable** — a fact points to the session, commit, and turn it came from.
-- **Verifiable** — a fact's provenance is checked against Entire's existing
-  checkpoint signatures.
+- **Re-derivable** — a source-backed fact can be regenerated from its cited
+  session/checkpoint/transcript source.
+- **Blameable** — a fact points to the retained anchors it has today: session,
+  checkpoint, transcript path/line, commit where available, and turn id where
+  captured.
+- **Verifiable** — current verification checks local checkpoint/export/session
+  consistency at the granularity available today. Full cryptographic turn-level
+  verification still depends on future CLI-side turn signing.
 
-This gives the full value of curated, versioned, branch-aware memory *plus*
-auditability that extract-and-discard systems structurally cannot offer. Entire
-Brain does not need its own Merkle/cryptographic store: checkpoint signing
-already anchors the source; the brain only has to cite it.
+This gives the value of curated, versioned, branch-aware memory *plus*
+local auditability that extract-and-discard systems structurally cannot offer.
+Entire Brain does not need its own Merkle/cryptographic store for this layer:
+checkpoint/export anchors can be checked locally now, and future turn signing
+can tighten the verification boundary without changing fact storage.
 
 ## Goals
 
@@ -388,12 +394,13 @@ never moves. That is enough to gate auto-supersession (see Appendix A), but it
 leaves the highest-value signal on the table: whether a fact, once recalled,
 actually helped the work.
 
-Because every fact already anchors to the commit it was derived against, that
-feedback loop is mostly a join the brain can already compute. A fact recalled
-into a `brief` immediately before a checkpoint that was reverted, reworked, or
-abandoned did not earn its confidence; one recalled before a clean merge did. An
-outcome-weighted pass can nudge confidence from that history, decay confidence on
-facts that stop being recalled at all, and surface facts whose confidence has
+Because source-backed facts already anchor to retained sessions/checkpoints, and
+authored facts may carry a commit anchor, that feedback loop is mostly a join
+the brain can compute once the relevant anchors exist. A fact recalled into a
+`brief` immediately before a checkpoint that was reverted, reworked, or abandoned
+did not earn its confidence; one recalled before a clean merge did. An
+outcome-weighted pass can nudge confidence from that history, decay confidence
+on facts that stop being recalled at all, and surface facts whose confidence has
 drifted below the supersession threshold.
 
 This stays inside the plan's principles: it changes only the `confidence` field,
@@ -573,7 +580,7 @@ type factRecord struct {
 	Origin     string          `json:"origin"`          // "distilled" | "authored"
 	Status     string          `json:"status"`          // "active" | "superseded" | "retracted"
 	Confidence string          `json:"confidence,omitempty"` // agent-set; gates auto-supersede
-	Provenance []factAnchor    `json:"provenance"`      // >=1; signed source turns
+	Provenance []factAnchor    `json:"provenance"`      // >=1; retained source/authored anchors
 	RelatedIDs []string        `json:"related_ids,omitempty"`
 	SupersededBy string        `json:"superseded_by,omitempty"`
 	CreatedAt  time.Time       `json:"created_at"`
@@ -747,9 +754,11 @@ monorepo), 524 facts:
   test-first", "remaining follow-up work includes…") — present-tense, stale in a
   month.
 
-The high-signal subset (design rationale, invariants, gotchas) is genuinely
-useful — better than git log or raw transcripts for the *why*. The structure
-around it is the problem.
+The high-signal subset (design rationale, invariants, gotchas) appears useful
+and more concise than git log or raw transcripts for the *why* in the measured
+corpus. That is a design signal, not a release claim: facts-vs-raw superiority
+must be backed by paired `facts eval` evidence before public copy says facts are
+better.
 
 ### Two audiences, two hard constraints
 

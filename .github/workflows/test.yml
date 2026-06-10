@@ -68,3 +68,28 @@ jobs:
         run: go mod download
       - name: Run deterministic Phase 1 semantic tests
         run: go test -race ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'
+
+  release-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Check retained release evidence
+        run: |
+          set -e
+          python3 benchmarks/agent-brain/run_test.py
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          python3 benchmarks/agent-brain/audit_codex.py \
+            --results benchmarks/agent-brain/evidence/release \
+            --release-manifest benchmarks/agent-brain/evidence/release/manifest.json \
+            --out-dir "$tmp" \
+            --fail-on-flags
+          for report in codex-audit-report.json codex-audit-report.md; do
+            committed="benchmarks/agent-brain/evidence/release/$report"
+            generated="$tmp/$report"
+            if ! cmp -s "$committed" "$generated"; then
+              echo "retained release evidence report is stale: $report" >&2
+              diff -u "$committed" "$generated" >&2 || true
+              exit 1
+            fi
+          done

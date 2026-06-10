@@ -107,6 +107,51 @@ mkdir -p benchmarks/agent-brain/evidence/facts-eval
 cp "$tmp"/facts-eval-audit-report.json "$tmp"/facts-eval-audit-report.md benchmarks/agent-brain/evidence/facts-eval/
 '''
 
+[tasks."semantic:evidence"]
+description = "Check the local semantic audit release gate against the current indexed brain"
+run = '''
+set -e
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+set +e
+go run ./cmd/entire-brain semantic-audit --json --fail-on release > "$tmp"
+rc=$?
+set -e
+python3 - "$tmp" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+except Exception as exc:
+    print(f"semantic audit: unable to parse report: {exc}", file=sys.stderr)
+    raise SystemExit(0)
+print(
+    "semantic audit:",
+    f"freshness={data['freshness']['severity']}",
+    f"files={data['files']}",
+    f"symbols={data['symbols']}",
+    f"relations={data['relations']}",
+    f"blind_spots={len(data.get('blind_spots', []))}",
+)
+for name, axis in sorted((data.get("freshness", {}).get("axes") or {}).items()):
+    if axis.get("state") != "ok":
+        print(f"semantic audit axis {name}: {axis.get('state')} {axis.get('detail', '')}".rstrip())
+PY
+exit "$rc"
+'''
+
+[tasks."release:readiness"]
+description = "Run the full local release-readiness gate, including retained evidence checks"
+run = '''
+set -e
+mise run check
+mise run release:evidence
+mise run facts:evidence
+mise run semantic:evidence
+'''
+
 [tasks.build]
 description = "Build the plugin binary"
 run = "go build -o entire-brain ./cmd/entire-brain"

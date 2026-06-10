@@ -85,7 +85,7 @@ type factRecord struct {
 	Origin       string       `json:"origin"` // "distilled" | "authored"
 	Status       string       `json:"status"` // "active" | "superseded" | "retracted"
 	Confidence   string       `json:"confidence,omitempty"`
-	Provenance   []factAnchor `json:"provenance"` // >=1; signed source turns
+	Provenance   []factAnchor `json:"provenance"` // >=1; retained source/authored anchors
 	RelatedIDs   []string     `json:"related_ids,omitempty"`
 	SupersededBy string       `json:"superseded_by,omitempty"`
 	CreatedAt    time.Time    `json:"created_at"`

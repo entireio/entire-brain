@@ -360,6 +360,21 @@ Implementation checks reported for the release-readiness implementation pass on
   entire-brain-mcp-tool-name.json entire-brain-query-default-limit.json
   entire-brain-stale-query-default-limit.json`
 
+`mise run check` is the implementation health gate: formatting, vetting,
+race-enabled tests, deterministic Phase 1 semantic tests, and cross-builds. It
+is intentionally not the full release-claim gate because release claims also
+depend on retained evidence artifacts.
+
+`mise run release:readiness` is the local release-claim gate. It runs
+`mise run check`, `mise run release:evidence`, `mise run facts:evidence`, and
+`mise run semantic:evidence`. It is expected to fail until the facts-vs-raw
+manifest and retained artifacts exist, which keeps "facts beat raw sessions"
+claims blocked instead of hidden behind a green implementation check.
+
+CI now includes the retained replay-lab release-evidence audit in addition to
+lint/build/test/Phase 1 semantic checks. The facts evidence gate is not wired
+into CI yet because the citable facts-vs-raw manifest is intentionally absent.
+
 This documentation claim-hygiene pass checked:
 
 - `git diff --check`
