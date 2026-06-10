@@ -7,6 +7,7 @@ import argparse
 import datetime as dt
 import json
 import pathlib
+import shlex
 import subprocess
 
 import audit_radar_tool_evidence as audit
@@ -74,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
             "path": artifact.name,
             "sha256": audit.sha256_file(artifact),
         }],
-        "commands": [" ".join(command) + f" > {args.evidence_dir}/{artifact.name}"],
+        "commands": [shlex.join(command) + f" > {args.evidence_dir}/{artifact.name}"],
     })
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     print(f"recorded Radar tool evidence at {artifact}")
