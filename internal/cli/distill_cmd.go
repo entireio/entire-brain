@@ -15,7 +15,9 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -231,6 +233,15 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 				ps.fingerprint = distillSessionFingerprint(ps.session, ps.branch, distillInput, distillOpts.cacheSalt)
 				if !distillOpts.force {
 					if prev, ok := cachedDistillSessionFingerprint(prevCache, ps.branch, ps.session.SessionID); ok && prev == ps.fingerprint {
+						releaseWork()
+						ps.cached = true
+						f <- ps
+						return
+					}
+					// Pre-upgrade entry (legacy key + formula): the session is
+					// unchanged; the consumer rewrites it under the new
+					// key/format — lazy migration, zero agent calls.
+					if grandfatheredDistillFingerprint(prevCache, ps.session, ps.branch, distillInput) {
 						releaseWork()
 						ps.cached = true
 						f <- ps
@@ -821,8 +832,13 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			// make the next unfiltered run re-distill every other branch (or
 			// session) from scratch. (The fingerprint-match skip below does the
 			// same.)
-			if prev, ok := cachedDistillSessionFingerprint(prevCache, branch, session.SessionID); ok {
+			if prev, ok := prevCache.Sessions[distillSessionCacheKey(branch, session.SessionID)]; ok {
 				newCache.Sessions[distillSessionCacheKey(branch, session.SessionID)] = prev
+			} else if prev, ok := prevCache.Sessions[session.SessionID]; ok {
+				// A legacy entry stays under its legacy key (and formula) until
+				// its session is actually visited and grandfathered — copying it
+				// under the new key would make it permanently unmatchable.
+				newCache.Sessions[session.SessionID] = prev
 			}
 			continue
 		}
@@ -1195,7 +1211,8 @@ func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts dis
 		sessionPlan.ChunksIfUncached = len(chunks)
 		plan.ChunksIfUncached += sessionPlan.ChunksIfUncached
 		if !distillOpts.force {
-			if prev, ok := cachedDistillSessionFingerprint(prevCache, branch, session.SessionID); ok && prev == sessionPlan.Fingerprint {
+			prev, ok := cachedDistillSessionFingerprint(prevCache, branch, session.SessionID)
+			if (ok && prev == sessionPlan.Fingerprint) || grandfatheredDistillFingerprint(prevCache, session, branch, distillInput) {
 				sessionPlan.Cached = true
 				plan.CachedSessions++
 				plan.Sessions = append(plan.Sessions, sessionPlan)
@@ -1570,17 +1587,82 @@ func chunkLines(content string, maxBytes int, numberLines bool) []transcriptChun
 // *resolved* one the facts are written under (session.Branch may be empty and
 // fall back to the manifest default), so a default-branch change re-keys the
 // session instead of letting a stale cache skip it.
+// The transcript path is deliberately NOT part of the fingerprint: it is
+// storage layout, not identity (the content digest already covers what the
+// agent distills), and hashing it means any layout change — like the
+// stable-branch-dir rename this release ships — re-invalidates the entire
+// corpus for free. Identity is (session id, checkpoint, resolved branch,
+// configuration salt, preprocessed content).
 func distillSessionFingerprint(session exportSession, branch, content, cacheSalt string) string {
 	contentSum := sha256.Sum256([]byte(content))
 	sum := sha256.Sum256([]byte(strings.Join([]string{
 		session.SessionID,
 		session.LatestCheckpoint,
-		filepath.ToSlash(session.TranscriptPath),
 		branch,
 		cacheSalt,
 		hex.EncodeToString(contentSum[:]),
 	}, "\x00")))
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// legacyDistillSessionFingerprint reproduces the pre-salt formula EXACTLY —
+// including the transcript path it hashed and the absence of the salt — so a
+// pre-upgrade cache entry can prove a session unchanged. Without this, the
+// first run after upgrading re-distills the whole corpus (hours of agent
+// calls) even though nothing about the sessions changed.
+func legacyDistillSessionFingerprint(session exportSession, branch, transcriptPath, content string) string {
+	contentSum := sha256.Sum256([]byte(content))
+	sum := sha256.Sum256([]byte(strings.Join([]string{
+		session.SessionID,
+		session.LatestCheckpoint,
+		filepath.ToSlash(transcriptPath),
+		branch,
+		hex.EncodeToString(contentSum[:]),
+	}, "\x00")))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// legacyBranchDirSuffixPattern matches the "-<sha8>" suffix
+// stableBranchDirComponent appends to branch directory components.
+var legacyBranchDirSuffixPattern = regexp.MustCompile(`^(.+)-[0-9a-f]{8}$`)
+
+// legacyTranscriptPaths returns the candidate paths a pre-upgrade export may
+// have recorded for this session: the current path as-is, plus the pre-rename
+// layout with the stable "-<sha8>" suffix stripped from the directory
+// component. (Pre-rename collision-numbered directories are not derivable
+// from the new layout; sessions in them miss the grandfather and re-distill —
+// rare and safe.)
+func legacyTranscriptPaths(transcriptPath string) []string {
+	current := filepath.ToSlash(transcriptPath)
+	out := []string{current}
+	dir := path.Dir(current)
+	if m := legacyBranchDirSuffixPattern.FindStringSubmatch(path.Base(dir)); m != nil {
+		out = append(out, path.Join(path.Dir(dir), m[1], path.Base(current)))
+	}
+	return out
+}
+
+// grandfatheredDistillFingerprint reports whether a PRE-UPGRADE cache entry
+// (legacy session-id key, legacy formula) proves this session unchanged. The
+// caller then treats the session as cached and rewrites the entry under the
+// new key/format — lazy migration, zero agent calls. Grandfathered entries
+// reflect whatever configuration produced them (exactly the pre-salt
+// semantics, so no regression); the salt governs all NEW entries going
+// forward.
+func grandfatheredDistillFingerprint(cache distillCache, session exportSession, branch, content string) bool {
+	if cache.Sessions == nil {
+		return false
+	}
+	legacy, ok := cache.Sessions[session.SessionID]
+	if !ok {
+		return false
+	}
+	for _, transcriptPath := range legacyTranscriptPaths(session.TranscriptPath) {
+		if legacyDistillSessionFingerprint(session, branch, transcriptPath, content) == legacy {
+			return true
+		}
+	}
+	return false
 }
 
 func distillCacheSaltForBrain(brainDir string, distillOpts distillCommandOptions, now time.Time) (string, error) {
@@ -1631,10 +1713,10 @@ func cachedDistillSessionFingerprint(cache distillCache, branch, sessionID strin
 	if cache.Sessions == nil {
 		return "", false
 	}
-	if fp, ok := cache.Sessions[distillSessionCacheKey(branch, sessionID)]; ok {
-		return fp, true
-	}
-	fp, ok := cache.Sessions[sessionID] // legacy pre-branch-scoped key
+	fp, ok := cache.Sessions[distillSessionCacheKey(branch, sessionID)]
+	// No legacy-key fallback here: a legacy-FORMAT fingerprint can never equal
+	// a new-format one, so returning it only manufactures false mismatches.
+	// Pre-upgrade entries are honored by grandfatheredDistillFingerprint.
 	return fp, ok
 }
 
