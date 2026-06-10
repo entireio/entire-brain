@@ -352,7 +352,7 @@ func newFactsEvalCommand(opts Options) *cobra.Command {
 
 The tasks file is a JSON array:
   [{"id":"t1","task":"how does X work","branch":"main","k":10,
-    "relevant":["fact:abc","fact:def"]}]
+    "relevant":["fact:abc","fact:def"],"label_source":"human"}]
 			With retriever-specific "relevant" ids, metrics are deterministic. Generated
 			source-session labels give source-match credit for history/preprocessed-session
 			arms but do not define recall. Without labels, pass --judge to have the agent

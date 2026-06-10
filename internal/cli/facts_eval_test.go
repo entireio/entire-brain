@@ -683,3 +683,14 @@ func TestLoadEvalTasks(t *testing.T) {
 		t.Errorf("expected error for missing file")
 	}
 }
+
+func TestFactsEvalHelpShowsValidLabeledTaskExample(t *testing.T) {
+	cmd := newFactsEvalCommand(Options{})
+	out, err := execute(t, cmd, "--help")
+	if err != nil {
+		t.Fatalf("facts eval help: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, `"relevant":["fact:abc","fact:def"],"label_source":"human"`) {
+		t.Fatalf("help should show label_source with relevant labels:\n%s", out)
+	}
+}

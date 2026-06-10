@@ -134,12 +134,13 @@ func compareEvalSummariesInternalWithOptions(a, b evalSummary, alpha float64, op
 		pvals = append(pvals, st.P)
 	}
 	reject, thresholds := holmRejectWithThresholds(pvals, alpha)
+	releasePairingReady := evalSummariesReleasePairingReady(a, b)
 	for i := range comparisons {
 		comparisons[i].Significant = reject[i]
 		comparisons[i].PHolm = thresholds[i]
 		comparisons[i].Winner = evalMetricWinner(comparisons[i])
-		comparisons[i].ReleaseClaimable = evalMetricReleaseClaimable(comparisons[i])
-		comparisons[i].Claim = evalMetricClaim(comparisons[i])
+		comparisons[i].ReleaseClaimable = evalMetricReleaseClaimable(comparisons[i], releasePairingReady)
+		comparisons[i].Claim = evalMetricClaim(comparisons[i], releasePairingReady)
 	}
 	return comparisons, len(ids), missingFromA, missingFromB, nil
 }
@@ -180,6 +181,14 @@ func evalSummaryBrainManifestSHA256(s evalSummary) string {
 		return ""
 	}
 	return strings.TrimSpace(s.RunConfig.BrainManifestSHA256)
+}
+
+func evalSummariesReleasePairingReady(a, b evalSummary) bool {
+	aTasks := evalSummaryTasksSHA256(a)
+	bTasks := evalSummaryTasksSHA256(b)
+	aBrain := evalSummaryBrainManifestSHA256(a)
+	bBrain := evalSummaryBrainManifestSHA256(b)
+	return aTasks != "" && aTasks == bTasks && aBrain != "" && aBrain == bBrain
 }
 
 func missingEvalTaskIDs(aByID, bByID map[string]evalTaskResult) ([]string, []string) {
@@ -278,8 +287,8 @@ func evalMetricWinner(c metricComparison) string {
 	return "tie"
 }
 
-func evalMetricReleaseClaimable(c metricComparison) bool {
-	if !c.Significant || c.N == 0 || c.Winner == "tie" {
+func evalMetricReleaseClaimable(c metricComparison, releasePairingReady bool) bool {
+	if !releasePairingReady || !c.Significant || c.N == 0 || c.Winner == "tie" {
 		return false
 	}
 	switch c.EvidenceBasis {
@@ -290,7 +299,7 @@ func evalMetricReleaseClaimable(c metricComparison) bool {
 	}
 }
 
-func evalMetricClaim(c metricComparison) string {
+func evalMetricClaim(c metricComparison, releasePairingReady bool) string {
 	if c.N == 0 || c.EvidenceBasis == evalMetricEvidenceUnavailable {
 		return "metric unavailable; no comparable rows"
 	}
@@ -302,6 +311,9 @@ func evalMetricClaim(c metricComparison) string {
 	}
 	if !c.Significant {
 		return "directional only; not significant after Holm correction"
+	}
+	if !releasePairingReady {
+		return "significant smoke comparison only; matching task and brain manifest hashes are required for release evidence"
 	}
 	switch c.Winner {
 	case "a":
@@ -344,9 +356,10 @@ retrieval configs, e.g. base vs --expand) and reports, per metric, the paired
 mean delta, a two-sided Student-t p-value, Cohen's d, and a Holm-Bonferroni
 family-wise significance verdict. Relevance metrics require comparable
 human/judge_refined proof labels unless --allow-proxy-comparison is explicit.
-Task IDs, non-empty task-file hashes, and non-empty brain manifest hashes must
-match exactly unless the corresponding override is explicit. Use it to report a
-lift honestly instead of eyeballing two means.`,
+Task IDs must match exactly. Non-empty task-file hashes and brain manifest
+hashes must match unless the corresponding override is explicit; missing hashes
+leave the comparison usable for smoke but disable release_claimable metrics. Use
+it to report a lift honestly instead of eyeballing two means.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if aPath == "" || bPath == "" {

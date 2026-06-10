@@ -268,6 +268,8 @@ Release claims must stay local-first and evidence-backed:
 - `eval-compare` now fails closed on task-file and brain-manifest hash
   mismatches unless the corresponding override is passed, so same-id/different
   label files or changed brain state cannot produce quiet significance claims.
+  Missing task or brain-manifest hashes now keep comparisons smoke-only by
+  forcing `release_claimable: false` even when a metric is significant.
 - History/query eval arms now branch-filter session-derived history records,
   including legacy history records that need branch inference from their
   transcript path.
@@ -275,6 +277,8 @@ Release claims must stay local-first and evidence-backed:
   embedder calls and cache writes during baseline measurement.
 - `eval-compare` rejects duplicate/mismatched task ids, skips recall where it is
   undefined, and populates `p_holm_threshold`.
+- `facts eval --help` now shows `label_source` alongside `relevant` labels, so
+  the copied example matches the loader's proof-label validation rules.
 - `--format json` now requests JSON error envelopes, matching successful output
   behavior.
 - The semantic benchmark task uses a portable repo path and hides expected files

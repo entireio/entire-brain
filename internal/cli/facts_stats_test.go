@@ -91,12 +91,12 @@ func TestHolmReject(t *testing.T) {
 }
 
 func TestCompareEvalSummaries(t *testing.T) {
-	a := evalSummary{Results: []evalTaskResult{
+	a := evalSummary{RunConfig: &evalRunConfig{TasksSHA256: "tasks-a", BrainManifestSHA256: "brain-a"}, Results: []evalTaskResult{
 		{ID: "t1", Task: "one", Recall: 0.1, UsefulPer1k: 1, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
 		{ID: "t2", Task: "two", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
 		{ID: "t3", Task: "three", Recall: 0.15, UsefulPer1k: 1.5, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
 	}}
-	b := evalSummary{Results: []evalTaskResult{
+	b := evalSummary{RunConfig: &evalRunConfig{TasksSHA256: "tasks-a", BrainManifestSHA256: "brain-a"}, Results: []evalTaskResult{
 		{ID: "t1", Task: "one", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
 		{ID: "t2", Task: "two", Recall: 0.3, UsefulPer1k: 3, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
 		{ID: "t3", Task: "three", Recall: 0.25, UsefulPer1k: 2.5, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
@@ -127,6 +127,31 @@ func TestCompareEvalSummaries(t *testing.T) {
 	}
 	if byMetric["tokens"].EvidenceBasis != evalMetricEvidenceOperational {
 		t.Errorf("tokens should be operational evidence, got %+v", byMetric["tokens"])
+	}
+}
+
+func TestCompareEvalSummariesMissingHashesDisableReleaseClaimable(t *testing.T) {
+	a := evalSummary{Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Recall: 0.1, UsefulPer1k: 1, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t2", Task: "two", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t3", Task: "three", Recall: 0.15, UsefulPer1k: 1.5, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+	}}
+	b := evalSummary{Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Recall: 0.2, UsefulPer1k: 2, Tokens: 90, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t2", Task: "two", Recall: 0.3, UsefulPer1k: 3, Tokens: 90, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t3", Task: "three", Recall: 0.25, UsefulPer1k: 2.5, Tokens: 90, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+	}}
+	comps, _, err := compareEvalSummaries(a, b, 0.05)
+	if err != nil {
+		t.Fatalf("compareEvalSummaries: %v", err)
+	}
+	for _, c := range comps {
+		if c.Significant && c.ReleaseClaimable {
+			t.Fatalf("missing pairing hashes must disable release claimability: %+v", c)
+		}
+		if c.Significant && !strings.Contains(c.Claim, "matching task and brain manifest hashes") {
+			t.Fatalf("significant smoke claim should explain missing hashes: %+v", c)
+		}
 	}
 }
 
