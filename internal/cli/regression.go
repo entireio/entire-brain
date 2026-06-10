@@ -534,6 +534,21 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 				continue
 			}
 		}
+		if !isCallDeletion && len(d.hints) > 0 {
+			homes := regressionMissingAssignmentHomes(files, d)
+			if len(homes) > 0 {
+				for _, h := range homes {
+					anomalies = append(anomalies, regressionAnomaly{
+						File: h.file, Line: h.line, Kind: "deleted",
+						Current: h.current, Expected: d.raw,
+						Identifier: d.id, Confidence: 0.65, Evidence: d.ev,
+						Reason:    fmt.Sprintf("history asserts `%s` in this hinted file, but that assignment is absent at this current locus", d.raw),
+						rankBoost: 1,
+					})
+				}
+				continue
+			}
+		}
 		if anyHas(d.target+d.rhs) || (!isCallDeletion && !anyHas(d.id)) {
 			continue
 		}
@@ -635,12 +650,95 @@ func regressionMissingCallHomes(files []candFile, d deleteSignal) []regressionHo
 	return scan(false)
 }
 
+func regressionMissingAssignmentHomes(files []candFile, d deleteSignal) []regressionHome {
+	if strings.HasSuffix(d.target, "(") || len(d.hints) == 0 {
+		return nil
+	}
+	assignmentNeedle := d.target + d.rhs
+	hinted := map[string]struct{}{}
+	for _, h := range d.hints {
+		hinted[filepath.Clean(h)] = struct{}{}
+	}
+	var homes []regressionHome
+	seen := map[string]struct{}{}
+	for _, f := range files {
+		if _, ok := hinted[f.clean]; !ok {
+			continue
+		}
+		for _, h := range regressionAssignmentCandidateHomes(f, d) {
+			if regressionWindowHas(f, h.line-1, assignmentNeedle, 8) {
+				continue
+			}
+			key := h.file + ":" + strconv.Itoa(h.line)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			homes = append(homes, h)
+			if len(homes) >= 8 {
+				return homes
+			}
+		}
+	}
+	return homes
+}
+
+func regressionAssignmentCandidateHomes(f candFile, d deleteSignal) []regressionHome {
+	collect := func(needle string) []regressionHome {
+		if needle == "" {
+			return nil
+		}
+		var homes []regressionHome
+		seenSymbol := map[string]struct{}{}
+		for i, n := range f.norm {
+			if !strings.Contains(n, needle) || regressionIsComment(f.lines[i]) {
+				continue
+			}
+			symbol := regressionEnclosingSymbol(f.lines, i+1)
+			key := symbol
+			if key == "" {
+				key = "line:" + strconv.Itoa(i+1)
+			}
+			if _, ok := seenSymbol[key]; ok {
+				continue
+			}
+			seenSymbol[key] = struct{}{}
+			homes = append(homes, regressionHome{file: f.clean, line: i + 1, current: strings.TrimSpace(f.lines[i])})
+		}
+		return homes
+	}
+	if homes := collect(d.id); len(homes) > 0 {
+		return homes
+	}
+	return collect(d.rhs)
+}
+
 func regressionForwardWindowHas(f candFile, center int, needle string, radius int) bool {
 	end := center + radius + 1
 	if end > len(f.norm) {
 		end = len(f.norm)
 	}
 	for i := center; i < end; i++ {
+		if strings.Contains(f.norm[i], needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func regressionWindowHas(f candFile, center int, needle string, radius int) bool {
+	start := center - radius
+	if start < 0 {
+		start = 0
+	}
+	end := center + radius + 1
+	if end > len(f.norm) {
+		end = len(f.norm)
+	}
+	for i := start; i < end; i++ {
+		if regressionIsComment(f.lines[i]) {
+			continue
+		}
 		if strings.Contains(f.norm[i], needle) {
 			return true
 		}

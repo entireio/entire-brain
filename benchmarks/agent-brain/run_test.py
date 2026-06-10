@@ -512,6 +512,19 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("symbol", prompt)
         self.assertIn("related_locations", prompt)
 
+    def test_manual_attribution_radar_task_declares_deletion_signals(self):
+        task_path = RUN_PATH.with_name("tasks") / "entireio-cli-manual-commit-attribution-base.json"
+        task = json.loads(task_path.read_text())
+        self.assertIs(task.get("radar_include_deletions"), True)
+        removed = "\n".join(str(rep.get("old", "")) for rep in task.get("setup_replacements", []))
+        self.assertIn("RealignAttributionBase", removed)
+        os.environ["BENCH_RADAR_LOCATION_ONLY"] = "1"
+        try:
+            prompt = run.prompt_for(task, "mcp_history", run.parse_runner_spec("codex:gpt-5.4-mini:medium"))
+        finally:
+            del os.environ["BENCH_RADAR_LOCATION_ONLY"]
+        self.assertIn("include_deletions: true", prompt)
+
     def test_workspace_radar_prompt_uses_workspace_regressions(self):
         task = {
             "id": "task",
@@ -2886,9 +2899,12 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
         named_tool_backed: bool = True,
         comparison_proof_ready: bool = True,
         comparison_pass: bool = True,
+        record_pass: bool = True,
+        record_flags: list[str] | None = None,
     ) -> None:
         baseline_valid = baseline_valid or [True, False, False, False]
         condition_valid = condition_valid or [True, True, True, True]
+        record_flags = record_flags or []
         records = []
         for index, valid in enumerate(baseline_valid, start=1):
             records.append({
@@ -2910,11 +2926,12 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 "condition": "mcp_history",
                 "delivery_scope": "mcp_radar_location_only",
                 "valid": valid,
-                "pass": True,
+                "pass": record_pass,
                 "provenance": {"ok": True},
-                "mcp_verified": True,
+                "mcp_verified": record_pass,
                 "mcp_named_tool_verified": named_tool_backed,
                 "mcp_named_tool_completed": named_tool_backed,
+                "flags": record_flags,
             })
         path.write_text(json.dumps({
             "suites": {
@@ -2989,6 +3006,25 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 1,
             )
 
+    def test_radar_audit_reports_incomplete_matching_suites(self):
+        with tempfile.TemporaryDirectory() as results:
+            results_dir = pathlib.Path(results)
+            suite = results_dir / "release-candidate-radar-incomplete"
+            suite.mkdir()
+            (suite / "records.ndjson").write_text(json.dumps({
+                "task_id": "radar-task",
+                "condition": "mcp_history",
+                "runner": {"id": "codex-mini-low"},
+                "valid": False,
+            }) + "\n")
+
+            report = audit_radar_evidence.build_report(results_dir, ["release-candidate-*"])
+            self.assertEqual(report["totals"]["status_counts"], {"incomplete-suite": 1})
+            row = report["comparisons"][0]
+            self.assertEqual(row["delivery_scope"], "incomplete")
+            self.assertIn("no summary.json", row["radar_gate"]["reasons"][0])
+            self.assertIn("incomplete-suite", audit_radar_evidence.render_markdown(report))
+
     def test_radar_audit_shows_mcp_backing_for_negative_comparison(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
             results_dir = pathlib.Path(results)
@@ -3025,6 +3061,43 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             self.assertEqual(backing["condition_completed_named_tool_records"], 4)
             self.assertTrue(backing["summary_consistency_ok"], backing)
             self.assertIn("4/4", audit_radar_evidence.render_markdown(report))
+
+    def test_radar_audit_shows_attempted_mcp_backing_for_wrong_args(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            suite = "release-candidate-radar-wrong-args"
+            self._write_radar_summary(
+                results_dir,
+                suite,
+                baseline_pass=1.0,
+                condition_pass=0.5,
+                proof_ready=False,
+                stability_tag="noisy",
+                n=4,
+            )
+            backed_audit = out_dir / "backed-codex-audit.json"
+            self._write_backed_radar_codex_audit(
+                backed_audit,
+                suite,
+                baseline_valid=[True, True, True, True],
+                condition_valid=[True, False, False, True],
+                comparison_proof_ready=False,
+                record_pass=False,
+                record_flags=["B:mcp_radar_missing_include_deletions"],
+            )
+
+            report = audit_radar_evidence.build_report(
+                results_dir,
+                ["release-candidate-*"],
+                audit_radar_evidence.load_codex_audit(backed_audit),
+            )
+            backing = report["comparisons"][0]["radar_gate"]["codex_audit_record_backing"]
+            self.assertEqual(backing["condition_named_tool_records"], 0)
+            self.assertEqual(backing["condition_attempted_named_tool_records"], 4)
+            rendered = audit_radar_evidence.render_markdown(report)
+            self.assertIn("0/0 clean; 4/4 attempted", rendered)
+            self.assertIn("wrong args", rendered)
 
     def test_radar_audit_requires_stable_proof_for_proof_gate(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
@@ -3125,9 +3198,9 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 audit_radar_evidence.load_codex_audit(generic_mcp_audit),
             )
             gate = report["comparisons"][0]["radar_gate"]
-            self.assertEqual(gate["status"], "audit-missing")
+            self.assertEqual(gate["status"], "audit-backing-gap")
             self.assertEqual(report["totals"]["proof_ready"], 0)
-            self.assertIn("named-tool MCP backing", " | ".join(gate["reasons"]))
+            self.assertIn("not audit-clean", " | ".join(gate["reasons"]))
             self.assertEqual(
                 audit_radar_evidence.main([
                     "--results", str(results_dir),

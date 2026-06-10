@@ -284,6 +284,53 @@ func TestRegressionDeletionIsOptIn(t *testing.T) {
 	}
 }
 
+func TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer(t *testing.T) {
+	session := `{"text":"pkg/resolve_a.go and pkg/resolve_b.go must set state.TranscriptPath = resolved so later reads work"}`
+	intact := "package x\nfunc resolveA(state *State) string {\n\tresolved := compute()\n\tstate.TranscriptPath = resolved\n\treturn resolved\n}\n"
+	missing := "package x\nfunc resolveB(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_a.go", intact)
+	if err := os.WriteFile(filepath.Join(repoRoot, "pkg", "resolve_b.go"), []byte(missing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
+	var deleted []regressionAnomaly
+	for _, a := range an {
+		if a.Kind == "deleted" && strings.Contains(strings.ToLower(a.Expected), "transcriptpath") {
+			deleted = append(deleted, a)
+		}
+	}
+	if len(deleted) != 1 || deleted[0].File != "pkg/resolve_b.go" {
+		t.Fatalf("expected only the missing hinted file despite intact peer assignment, got %+v", an)
+	}
+	if deleted[0].Line == 0 || strings.HasPrefix(strings.TrimSpace(deleted[0].Current), "//") {
+		t.Fatalf("expected an actionable code locus for missing assignment, got %+v", deleted[0])
+	}
+}
+
+func TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol(t *testing.T) {
+	session := `{"text":"pkg/resolve_transcript.go must set state.TranscriptPath = resolved so later reads work"}`
+	body := "package x\nfunc missOne(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\t// state.TranscriptPath = resolved\n\treturn resolved\n}\nfunc missTwo(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\t// state.TranscriptPath = resolved\n\treturn resolved\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
+	var lines []int
+	for _, a := range an {
+		if a.Kind == "deleted" && a.File == "pkg/resolve_transcript.go" {
+			lines = append(lines, a.Line)
+		}
+	}
+	if len(lines) != 2 || lines[0] != 4 || lines[1] != 10 {
+		t.Fatalf("expected missing assignment findings at lines 4 and 10, got lines=%v anomalies=%+v", lines, an)
+	}
+	if an[0].Symbol != "missOne" || an[1].Symbol != "missTwo" {
+		t.Fatalf("expected enclosing symbols for missing assignment sites, got %+v", an)
+	}
+	if len(an[0].RelatedLocations) == 0 || !strings.Contains(an[0].RelatedLocations[0], "missTwo") {
+		t.Fatalf("expected related same-file assignment location context, got %+v", an[0])
+	}
+}
+
 func TestRegressionDeletionRanksCallLocusWithHistoryFileHint(t *testing.T) {
 	session := `{"text":"cmd/entire/cli/strategy/manual_commit_hooks.go must call state.RealignAttributionBase(newHead) after state.BaseCommit = newHead; cmd/entire/cli/agent/cursor/types.go used HumanAdded+\"total\""}`
 	_, deletes := regressionExtractSignals("realignattributionbase", session, "sessions/s.jsonl:1")

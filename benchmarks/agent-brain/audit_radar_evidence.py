@@ -61,10 +61,10 @@ def iter_matching_suite_dirs(results: pathlib.Path, suite_globs: list[str]) -> l
     if not results.exists():
         return []
     out: list[pathlib.Path] = []
-    for summary_path in sorted(results.glob("*/summary.json")):
-        suite_dir = summary_path.parent
+    for suite_dir in sorted(path for path in results.iterdir() if path.is_dir()):
         if suite_matches(suite_dir.name, suite_globs):
-            out.append(suite_dir)
+            if (suite_dir / "summary.json").exists() or (suite_dir / "records.ndjson").exists():
+                out.append(suite_dir)
     return out
 
 
@@ -130,15 +130,19 @@ def codex_audit_radar_backing(report: dict[str, Any] | None) -> dict[tuple[str, 
                 str(comp.get("condition") or ""),
                 str(comp.get("delivery_scope") or ""),
             )
-            condition_records = [
+            condition_all_records = [
                 record for record in records
                 if isinstance(record, dict)
-                and record.get("pass") is True
-                and record.get("mcp_verified") is True
                 and record.get("task_id") == comp.get("task")
                 and record.get("runner") == comp.get("runner")
                 and record.get("condition") == comp.get("condition")
                 and record.get("delivery_scope") == comp.get("delivery_scope")
+            ]
+            condition_records = [
+                record for record in condition_all_records
+                if isinstance(record, dict)
+                and record.get("pass") is True
+                and record.get("mcp_verified") is True
             ]
             condition_named_tool_records = [
                 record for record in condition_records
@@ -148,10 +152,31 @@ def codex_audit_radar_backing(report: dict[str, Any] | None) -> dict[tuple[str, 
                 record for record in condition_records
                 if record.get("mcp_named_tool_completed") is True
             ]
+            condition_attempted_named_tool_records = [
+                record for record in condition_all_records
+                if record.get("mcp_named_tool_verified") is True
+            ]
+            condition_attempted_completed_named_tool_records = [
+                record for record in condition_all_records
+                if record.get("mcp_named_tool_completed") is True
+            ]
+            condition_flag_counts = Counter(
+                flag
+                for record in condition_all_records
+                for flag in (record.get("flags") if isinstance(record.get("flags"), list) else [])
+                if isinstance(flag, str)
+            )
             baseline_records = [
                 record for record in records
                 if isinstance(record, dict)
                 and record.get("pass") is True
+                and record.get("task_id") == comp.get("task")
+                and record.get("runner") == comp.get("runner")
+                and record.get("condition") == "no_brain"
+            ]
+            baseline_all_records = [
+                record for record in records
+                if isinstance(record, dict)
                 and record.get("task_id") == comp.get("task")
                 and record.get("runner") == comp.get("runner")
                 and record.get("condition") == "no_brain"
@@ -166,30 +191,41 @@ def codex_audit_radar_backing(report: dict[str, Any] | None) -> dict[tuple[str, 
                 "condition_records": len(condition_records),
                 "condition_named_tool_records": len(condition_named_tool_records),
                 "condition_completed_named_tool_records": len(condition_completed_named_tool_records),
+                "condition_attempted_records": len(condition_all_records),
+                "condition_attempted_named_tool_records": len(condition_attempted_named_tool_records),
+                "condition_attempted_completed_named_tool_records": len(condition_attempted_completed_named_tool_records),
+                "condition_flag_counts": dict(sorted(condition_flag_counts.items())),
                 "baseline_records": len(baseline_records),
+                "baseline_attempted_records": len(baseline_all_records),
                 "condition_pass_rate": validation_pass_rate(condition_records),
+                "condition_attempted_pass_rate": validation_pass_rate(condition_all_records),
                 "baseline_pass_rate": validation_pass_rate(baseline_records),
+                "baseline_attempted_pass_rate": validation_pass_rate(baseline_all_records),
             }
     return out
 
 
 def audit_summary_consistency(comp: dict[str, Any], backing: dict[str, Any]) -> list[str]:
     mismatches: list[str] = []
-    if int(comp.get("n_condition") or 0) != int(backing.get("condition_records") or 0):
+    condition_count = backing.get("condition_attempted_records", backing.get("condition_records"))
+    baseline_count = backing.get("baseline_attempted_records", backing.get("baseline_records"))
+    condition_rate = backing.get("condition_attempted_pass_rate", backing.get("condition_pass_rate"))
+    baseline_rate = backing.get("baseline_attempted_pass_rate", backing.get("baseline_pass_rate"))
+    if int(comp.get("n_condition") or 0) != int(condition_count or 0):
         mismatches.append(
-            f"n_condition summary={comp.get('n_condition')} records={backing.get('condition_records')}"
+            f"n_condition summary={comp.get('n_condition')} records={condition_count}"
         )
-    if int(comp.get("n_baseline") or 0) != int(backing.get("baseline_records") or 0):
+    if int(comp.get("n_baseline") or 0) != int(baseline_count or 0):
         mismatches.append(
-            f"n_baseline summary={comp.get('n_baseline')} records={backing.get('baseline_records')}"
+            f"n_baseline summary={comp.get('n_baseline')} records={baseline_count}"
         )
-    if not close_float(comp.get("pass_rate_condition"), backing.get("condition_pass_rate")):
+    if not close_float(comp.get("pass_rate_condition"), condition_rate):
         mismatches.append(
-            f"pass_rate_condition summary={comp.get('pass_rate_condition')} records={backing.get('condition_pass_rate')}"
+            f"pass_rate_condition summary={comp.get('pass_rate_condition')} records={condition_rate}"
         )
-    if not close_float(comp.get("pass_rate_baseline"), backing.get("baseline_pass_rate")):
+    if not close_float(comp.get("pass_rate_baseline"), baseline_rate):
         mismatches.append(
-            f"pass_rate_baseline summary={comp.get('pass_rate_baseline')} records={backing.get('baseline_pass_rate')}"
+            f"pass_rate_baseline summary={comp.get('pass_rate_baseline')} records={baseline_rate}"
         )
     return mismatches
 
@@ -263,6 +299,53 @@ def early_stopped_no_brain_rows(results: pathlib.Path, suite_globs: list[str], s
                 "radar_gate": gate,
             })
             break
+    return rows
+
+
+def incomplete_radar_suite_rows(results: pathlib.Path, suite_globs: list[str], suites_with_radar: set[str]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for suite_dir in iter_matching_suite_dirs(results, suite_globs):
+        suite = suite_dir.name
+        if suite in suites_with_radar or (suite_dir / "summary.json").exists():
+            continue
+        records = load_records(suite_dir / "records.ndjson")
+        if not records:
+            continue
+        record = next((r for r in records if r.get("condition") != "prep"), records[0])
+        runner = record.get("runner")
+        if isinstance(runner, dict):
+            runner = runner.get("id")
+        conditions = sorted({str(r.get("condition")) for r in records if r.get("condition")})
+        gate = {
+            "status": "incomplete-suite",
+            "proof_ready": False,
+            "promotable": False,
+            "baseline_headroom": None,
+            "brain_clean": None,
+            "repeated": False,
+            "saturated": False,
+            "pass_rate_baseline": None,
+            "pass_rate_condition": None,
+            "stability_tag": "incomplete",
+            "reasons": [f"suite has {len(records)} record(s) but no summary.json"],
+            "recommendation": "rerun or regenerate the suite summary before citing Radar evidence",
+        }
+        rows.append({
+            "suite": suite,
+            "task_id": record.get("task_id"),
+            "runner": runner,
+            "condition": ",".join(conditions),
+            "delivery_scope": "incomplete",
+            "n_condition": sum(1 for r in records if r.get("condition") != "no_brain"),
+            "n_baseline": sum(1 for r in records if r.get("condition") == "no_brain"),
+            "verdict": "incomplete",
+            "score_delta": None,
+            "mean_total_tokens_condition": None,
+            "mean_total_tokens_baseline": None,
+            "mean_search_calls_condition": None,
+            "mean_search_calls_baseline": None,
+            "radar_gate": gate,
+        })
     return rows
 
 
@@ -376,10 +459,13 @@ def build_report(results: pathlib.Path, suite_globs: list[str], codex_audit: dic
                     status["reasons"].extend(mismatches)
                     status["recommendation"] = "regenerate summary.json from retained records before citing Radar proof"
             if status["proof_ready"] and not proof_backed:
-                status["status"] = "audit-missing"
+                status["status"] = "audit-backing-gap" if backed else "audit-missing"
                 status["proof_ready"] = False
                 status["promotable"] = False
-                status["reasons"].append("matching Radar comparison is not audit-clean with named-tool MCP backing in audit_codex output")
+                if backed:
+                    status["reasons"].append("matching Radar records exist, but they are not audit-clean with required named-tool MCP backing")
+                else:
+                    status["reasons"].append("matching Radar comparison is missing from audit_codex output")
                 status["recommendation"] = "retain audit-clean records with MCP named-tool backing before citing Radar proof"
         row = {
             "suite": comp.get("suite"),
@@ -404,6 +490,9 @@ def build_report(results: pathlib.Path, suite_globs: list[str], codex_audit: dic
         if status["promotable"]:
             promotable += 1
     for row in early_stopped_no_brain_rows(results, suite_globs, suites_with_radar):
+        comparisons.append(row)
+        status_counts[row["radar_gate"]["status"]] += 1
+    for row in incomplete_radar_suite_rows(results, suite_globs, suites_with_radar):
         comparisons.append(row)
         status_counts[row["radar_gate"]["status"]] += 1
     return {
@@ -446,7 +535,16 @@ def render_markdown(report: dict[str, Any]) -> str:
         backing = gate.get("codex_audit_record_backing") if isinstance(gate.get("codex_audit_record_backing"), dict) else {}
         mcp_backing = "n/a"
         if backing:
-            mcp_backing = f"{int(backing.get('condition_named_tool_records') or 0)}/{int(backing.get('condition_completed_named_tool_records') or 0)}"
+            clean_named = int(backing.get("condition_named_tool_records") or 0)
+            clean_completed = int(backing.get("condition_completed_named_tool_records") or 0)
+            attempted_named = int(backing.get("condition_attempted_named_tool_records") or 0)
+            attempted_completed = int(backing.get("condition_attempted_completed_named_tool_records") or 0)
+            mcp_backing = f"{clean_named}/{clean_completed}"
+            if attempted_named != clean_named or attempted_completed != clean_completed:
+                mcp_backing += f" clean; {attempted_named}/{attempted_completed} attempted"
+                flag_counts = backing.get("condition_flag_counts") if isinstance(backing.get("condition_flag_counts"), dict) else {}
+                if any("include_deletions" in str(flag) for flag in flag_counts):
+                    mcp_backing += " (wrong args)"
         lines.append(
             "| "
             + " | ".join(

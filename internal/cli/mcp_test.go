@@ -301,6 +301,60 @@ func TestMCPBrainRegressionsTool(t *testing.T) {
 	}
 }
 
+func TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	storage, err := repoStoragePaths(cmd.Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	sessionDir := filepath.Join(storage.BrainDir, exportSessionsDirectory, "main")
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		t.Fatalf("mkdir session dir: %v", err)
+	}
+	sessionLine := `{"type":"agent_message","message":"pkg/resolve_transcript.go must set state.TranscriptPath = resolved so later reads work"}` + "\n"
+	if err := os.WriteFile(filepath.Join(sessionDir, "session.jsonl"), []byte(sessionLine), 0o600); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
+	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, now, nil); err != nil {
+		t.Fatalf("write history index: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoDir, "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir pkg: %v", err)
+	}
+	body := "package x\nfunc missOne(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc missTwo(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
+	if err := os.WriteFile(filepath.Join(repoDir, "pkg", "resolve_transcript.go"), []byte(body), 0o600); err != nil {
+		t.Fatalf("write repo file: %v", err)
+	}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
+
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"fix TranscriptPath resolved","limit":5,"include_deletions":true,"location_only":true}}}`)
+	var out bytes.Buffer
+	if err := runMCP(cmd.Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	data, _ := json.Marshal(responses[0])
+	for _, want := range []string{"resolve_transcript.go", "missOne", "missTwo"} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("brain_regressions deletion location_only missing %q: %s", want, data)
+		}
+	}
+	if strings.Contains(string(data), "state.TranscriptPath = resolved") || strings.Contains(string(data), "current") && strings.Contains(string(data), "_ = state.TranscriptPath") {
+		t.Fatalf("brain_regressions deletion location_only leaked expected/current values: %s", data)
+	}
+}
+
 func TestMCPBrainReviewTool(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

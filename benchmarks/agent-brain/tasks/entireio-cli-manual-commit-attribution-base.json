@@ -11,6 +11,7 @@
   "prompt": "Fix the release-candidate stale-session-state regression. A hidden integration shows that after an ordinary commit during an active session, later accounting remains anchored to stale state. Keep the fix minimal.",
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
+  "radar_include_deletions": true,
   "setup_replacements": [
     {
       "path": "cmd/entire/cli/strategy/manual_commit_hooks.go",
