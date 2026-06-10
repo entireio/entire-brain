@@ -189,19 +189,36 @@ def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
     )
 
     facts_flags: list[str] = []
+    facts_policy = facts.get("claim_policy")
+    facts_claimable = facts.get("claimable_facts_vs_raw") is True
     if facts.get("status") != "pass" or facts.get("release_evidence") is not True:
         facts_flags.append("facts evidence report is not passing")
-    if facts.get("claim_policy") != "no_release_claim":
-        facts_flags.append("facts evidence must remain no_release_claim until proof-labeled paired evals exist")
-    if facts.get("claimable_facts_vs_raw") is not False:
-        facts_flags.append("facts report unexpectedly marks facts-vs-raw claimable")
+    if facts_policy == "no_release_claim":
+        if facts_claimable:
+            facts_flags.append("no_release_claim facts report unexpectedly marks facts-vs-raw claimable")
+        facts_status = "no-claim"
+        facts_row_claimable = False
+        facts_detail = "paired proof-labeled facts/history/query/raw-sessions eval still required"
+    elif facts_policy == "proof_required":
+        if facts.get("claim_scope") != "release":
+            facts_flags.append("proof_required facts evidence must have release claim_scope")
+        if not facts_claimable:
+            facts_flags.append("proof_required facts evidence must mark facts-vs-raw claimable")
+        facts_status = "proven"
+        facts_row_claimable = not facts_flags
+        facts_detail = "paired proof-labeled facts/history/query/raw-sessions eval passed"
+    else:
+        facts_flags.append("facts evidence claim_policy must be no_release_claim or proof_required")
+        facts_status = "invalid"
+        facts_row_claimable = False
+        facts_detail = "facts evidence claim_policy is invalid"
     add_row(
         rows,
         track="facts vs raw/session retrieval quality",
-        status="no-claim" if not facts_flags else "invalid",
-        claimable=False,
+        status=facts_status if not facts_flags else "invalid",
+        claimable=facts_row_claimable,
         evidence=display_path(manifest_path(repo_root, reports.get("facts"), "reports.facts")),
-        detail="paired proof-labeled facts/history/query/raw-sessions eval still required",
+        detail=facts_detail,
         flags=facts_flags,
     )
 

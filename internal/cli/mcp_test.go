@@ -161,6 +161,82 @@ func TestMCPToolSchemasMatchArgumentValidator(t *testing.T) {
 	}
 }
 
+func TestMCPToolRequiredArgumentsAreEnforced(t *testing.T) {
+	requiredValue := func(key string) any {
+		switch key {
+		case "ids":
+			return []string{"fact:required-field-probe"}
+		case "id":
+			return "fact:required-field-probe"
+		case "workspace":
+			return "required-field-workspace"
+		default:
+			return "required field probe"
+		}
+	}
+
+	var input strings.Builder
+	var wants []string
+	id := 1
+	for _, tool := range mcpToolDefinitions() {
+		name, ok := tool["name"].(string)
+		if !ok || name == "" {
+			t.Fatalf("tool missing name: %+v", tool)
+		}
+		schema, ok := tool["inputSchema"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s missing inputSchema", name)
+		}
+		required, _ := schema["required"].([]string)
+		for _, omitted := range required {
+			args := map[string]any{}
+			for _, key := range required {
+				if key == omitted {
+					continue
+				}
+				args[key] = requiredValue(key)
+			}
+			msg := map[string]any{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"method":  "tools/call",
+				"params": map[string]any{
+					"name":      name,
+					"arguments": args,
+				},
+			}
+			data, err := json.Marshal(msg)
+			if err != nil {
+				t.Fatalf("marshal %s missing %s: %v", name, omitted, err)
+			}
+			input.WriteString(frameMCP(string(data)))
+			wants = append(wants, fmt.Sprintf("%s is required", omitted))
+			id++
+		}
+	}
+	if len(wants) == 0 {
+		t.Fatal("no required MCP arguments advertised")
+	}
+
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input.String()), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	if len(responses) != len(wants) {
+		t.Fatalf("responses = %d, want %d", len(responses), len(wants))
+	}
+	for i, want := range wants {
+		errObj, ok := responses[i]["error"].(map[string]any)
+		if !ok {
+			t.Fatalf("response %d missing error: %+v", i, responses[i])
+		}
+		if !strings.Contains(fmt.Sprint(errObj["message"]), want) {
+			t.Fatalf("response %d error = %+v, want %q", i, errObj, want)
+		}
+	}
+}
+
 func TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet(t *testing.T) {
 	byName := map[string]map[string]any{}
 	for _, tool := range mcpToolDefinitions() {

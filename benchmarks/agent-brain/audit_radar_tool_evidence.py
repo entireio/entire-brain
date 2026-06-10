@@ -58,6 +58,7 @@ REQUIRED_TESTS = [
     "TestMCPToolsListAdvertisesStaleBlindSpots",
     "TestMCPToolSchemasRejectAdditionalProperties",
     "TestMCPToolSchemasMatchArgumentValidator",
+    "TestMCPToolRequiredArgumentsAreEnforced",
     "TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet",
     "TestMCPRejectsInvalidBooleanArguments",
     "TestMCPRejectsInvalidStringAndUnknownArguments",

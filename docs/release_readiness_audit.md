@@ -567,10 +567,10 @@ depend on retained evidence artifacts.
 
 `mise run release:readiness` is the local release-claim gate. It runs
 `mise run check`, `mise run release:evidence`, `mise run radar:evidence`,
-`mise run radar:agent-evidence`, `mise run distill:evidence`,
-`mise run facts:evidence`, `mise run semantic:evidence`, and
-`mise run release:matrix`, continuing after individual failures and printing the
-complete failing-task summary at the end.
+`mise run radar:agent-evidence`, `mise run workspace-radar:evidence`,
+`mise run distill:evidence`, `mise run facts:evidence`,
+`mise run semantic:evidence`, and `mise run release:matrix`, continuing after
+individual failures and printing the complete failing-task summary at the end.
 Distill and facts now have retained evidence, but their claim scopes are
 deliberately narrow: distill proves current-repo local command-agent extraction
 scheduling speedup plus fake loopback Ollama wiring/no-egress safety, and facts
@@ -603,13 +603,13 @@ are reported as `no-brain-too-easy`, and record-only suites without
 the screen report.
 `mise run radar:evidence` now checks the retained deterministic MCP/Radar
 tool-contract artifact instead of promoting those saturated agent panels. It
-requires the retained `go test -json` artifact hash to match and all 51 required
+requires the retained `go test -json` artifact hash to match and all 52 required
 MCP/Radar tests to pass, including branch-aware QMD-inspired retrieval tools and
 Radar-specific MCP behavior, invariant-scoped related locations that distinguish
 same-identifier assignment deletions with different RHS values, workspace
-multi-locus deletion redaction, MCP schema/validator parity, per-file raw-history
-scan closing under descriptor pressure, and safe success-path tool-result logging
-for Radar and review tools.
+multi-locus deletion redaction, MCP schema/validator parity, schema-derived
+required-argument enforcement, per-file raw-history scan closing under descriptor
+pressure, and safe success-path tool-result logging for Radar and review tools.
 `mise run radar:agent-evidence` checks the retained focused Radar agent-lift
 suite and fails unless the release evidence contains a proof-ready Radar
 comparison backed by MCP-verified, server-named, completed Radar tool calls.

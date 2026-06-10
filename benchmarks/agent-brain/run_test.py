@@ -4346,20 +4346,40 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             )
             self.assertTrue((pathlib.Path(out) / "release-matrix-report.json").exists())
 
-    def test_release_matrix_rejects_claimable_facts_without_paired_proof(self):
+    def test_release_matrix_accepts_claimable_facts_with_release_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            manifest = self._write_release_matrix_fixture(root)
+            facts = root / "reports" / "facts.json"
+            data = json.loads(facts.read_text())
+            data["claim_policy"] = "proof_required"
+            data["claim_scope"] = "release"
+            data["claimable_facts_vs_raw"] = True
+            facts.write_text(json.dumps(data))
+
+            report = audit_release_matrix.audit_manifest(manifest)
+
+            self.assertEqual(report["status"], "pass", report)
+            facts_rows = [row for row in report["rows"] if row["track"] == "facts vs raw/session retrieval quality"]
+            self.assertEqual(len(facts_rows), 1, facts_rows)
+            self.assertEqual(facts_rows[0]["status"], "proven")
+            self.assertTrue(facts_rows[0]["claimable"])
+
+    def test_release_matrix_rejects_facts_proof_without_claimable_report(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as out:
             root = pathlib.Path(tmp)
             manifest = self._write_release_matrix_fixture(root)
             facts = root / "reports" / "facts.json"
             data = json.loads(facts.read_text())
             data["claim_policy"] = "proof_required"
-            data["claimable_facts_vs_raw"] = True
+            data["claim_scope"] = "release"
+            data["claimable_facts_vs_raw"] = False
             facts.write_text(json.dumps(data))
 
             report = audit_release_matrix.audit_manifest(manifest)
 
             self.assertEqual(report["status"], "fail", report)
-            self.assertIn("facts evidence must remain no_release_claim", " | ".join(report["flags"]))
+            self.assertIn("proof_required facts evidence must mark facts-vs-raw claimable", report["flags"])
             self.assertEqual(
                 audit_release_matrix.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]),
                 1,
