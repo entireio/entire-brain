@@ -1,0 +1,5 @@
+entire.io distillation takes forever. At 881/2640 now. Inspect why this is taking so long.
+
+---
+
+I killed it, but 5-10h is still too long. How do we get this down?
