@@ -496,28 +496,19 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		status.Detail = err.Error()
 		return status
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, exportManifestFileName)); err != nil {
-		if os.IsNotExist(err) {
-			status.State = "missing-brain"
-			return status
-		}
+	manifestPath := filepath.Join(brainDir, exportManifestFileName)
+	_, manifestErr := os.Stat(manifestPath)
+	manifestMissing := os.IsNotExist(manifestErr)
+	if manifestErr != nil && !manifestMissing {
 		status.State = "unsafe"
-		status.Detail = err.Error()
-		return status
-	}
-	brainManifest, err := loadBrainManifest(brainDir)
-	switch {
-	case err != nil:
-		status.State = "unsafe"
-		status.Detail = err.Error()
-		return status
-	case brainManifest.Sources == nil || brainManifest.Sources.Semantic == nil:
-		status.State = "missing-semantic"
-		status.ContractState = "missing"
-		status.ContractDetail = "semantic contract facts unavailable"
+		status.Detail = manifestErr.Error()
 		return status
 	}
 	if repo.LocalPathHint == "" {
+		if manifestMissing {
+			status.State = "missing-brain"
+			return status
+		}
 		status.State = "unknown"
 		status.Detail = "no local_path_hint"
 		return status
@@ -547,12 +538,28 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		status.Detail = err.Error()
 		return status
 	}
-	if hintKey != repo.RepoKey {
+	if workspaceRepoKeyMismatch(repo.RepoKey, hintKey) {
 		// The tree the hint points at is a DIFFERENT repo than the registered brain → scanning would
 		// manufacture bogus regressions. This is the genuine block case.
 		status.State = "unsafe"
 		status.PairingUnsafe = true
 		status.Detail = "local_path_hint repo_key mismatch: " + hintKey
+		return status
+	}
+	if manifestMissing {
+		status.State = "missing-brain"
+		return status
+	}
+	brainManifest, err := loadBrainManifest(brainDir)
+	switch {
+	case err != nil:
+		status.State = "unsafe"
+		status.Detail = err.Error()
+		return status
+	case brainManifest.Sources == nil || brainManifest.Sources.Semantic == nil:
+		status.State = "missing-semantic"
+		status.ContractState = "missing"
+		status.ContractDetail = "semantic contract facts unavailable"
 		return status
 	}
 	report, err := semanticStaleReport(ctx, opts, repoDir)
@@ -580,6 +587,19 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		status.ContractDetail = "semantic contract freshness unsafe"
 	}
 	return status
+}
+
+func workspaceRepoKeyMismatch(registered, hint string) bool {
+	if registered == hint {
+		return false
+	}
+	// repoStorageKey falls back to local/<hash> when a temp test repo or local
+	// worktree has no parseable origin remote. That is not a known mismatch for a
+	// remote-key workspace entry; it is merely not independently verifiable.
+	if !strings.HasPrefix(registered, "local/") && strings.HasPrefix(hint, "local/") {
+		return false
+	}
+	return true
 }
 
 func workspaceSemanticSource(brainDir string) (*semanticSourceManifest, error) {

@@ -681,6 +681,61 @@ func TestWorkspaceRegressionsSkipsUnsafeRepo(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRegressionsSkipsUnsafeSessionsOnlyRepo(t *testing.T) {
+	// Sessions-only brains have no export manifest, but they still must validate
+	// the workspace brain<->tree pairing before scanning raw session history.
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	if err := os.MkdirAll(filepath.Join(brainDir, "sessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, "sessions", "s.jsonl"),
+		[]byte(`{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\""}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoDir, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "pkg", "review_context.go"),
+		[]byte("package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos:         []workspaceRepo{{RepoKey: "gh/example/repo", Name: "api", LocalPathHint: repoDir}},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+	runner.responses[fakeCommandKey("git", "remote", "get-url", "origin")] = fakeCommandResponse{stdout: "git@github.com:other/repo.git\n"}
+
+	out, err := execute(t, cmd, "workspace", "regressions", "related", "fix scopeBaseRef base scope", "--json")
+	if err != nil {
+		t.Fatalf("workspace regressions: %v", err)
+	}
+	var payload struct {
+		Results []workspaceRegressionResult `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("parse json: %v\n%s", err, out)
+	}
+	if len(payload.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(payload.Results))
+	}
+	r := payload.Results[0]
+	if len(r.Anomalies) != 0 {
+		t.Fatalf("unsafe sessions-only repo must be skipped, got %+v", r.Anomalies)
+	}
+	if !strings.Contains(r.Error, "unsafe") || !strings.Contains(r.Error, "local_path_hint repo_key mismatch") {
+		t.Fatalf("expected unsafe repo-key mismatch error, got %q", r.Error)
+	}
+}
+
 func TestWorkspaceFreshnessWarning(t *testing.T) {
 	if workspaceFreshnessWarning(workspaceRepoFreshness{State: "ok"}) != "" {
 		t.Error("ok freshness should not warn")
