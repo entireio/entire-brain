@@ -1,0 +1,83 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "f46f98590028",
+  "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T17:34:30.555053Z",
+  "branch": "codex/release-readiness-hardening",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "benchmarks/agent-brain/audit_codex.py",
+    "benchmarks/agent-brain/audit_facts_eval.py",
+    "benchmarks/agent-brain/run_test.py",
+    "docs/release_readiness_audit.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8",
+  "turn_id": "4dbc3c411400",
+  "token_usage": {
+    "input_tokens": 255377,
+    "cache_creation_tokens": 13446467,
+    "cache_read_tokens": 1006592862,
+    "output_tokens": 2768426,
+    "api_call_count": 1861
+  },
+  "session_metrics": {
+    "turn_count": 84
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T17:34:30.072157Z",
+    "agent_lines": 98,
+    "agent_removed": 21,
+    "human_added": 122,
+    "human_modified": 12,
+    "human_removed": 0,
+    "total_committed": 232,
+    "total_lines_changed": 253,
+    "agent_percentage": 47.03557312252965,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 437,
+      "user_lines_removed": 51,
+      "agent_lines_added": 303,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.json": 6,
+        ".claude/settings.local.json": 32,
+        ".codex/config.toml": 2,
+        ".codex/hooks.json": 4,
+        ".cursor/mcp.json": 14,
+        ".gemini/settings.json": 8,
+        ".mcp.json": 2,
+        ".regente/claims.json": 34,
+        ".regente/events.jsonl": 21,
+        ".regente/messages.jsonl": 2,
+        ".regente/metrics/latest.json": 15,
+        ".regente/roles.json": 16,
+        ".regente/status.json": 147,
+        "benchmarks/agent-brain/audit_codex.py": 9,
+        "benchmarks/agent-brain/audit_facts_eval.py": 121,
+        "benchmarks/agent-brain/run_test.py": 3,
+        "docs/release_readiness_audit.md": 1
+      },
+      "user_removed_per_file": {
+        ".claude/settings.json": 6,
+        ".codex/config.toml": 2,
+        ".codex/hooks.json": 4,
+        ".gemini/settings.json": 8,
+        ".mcp.json": 2,
+        ".regente/claims.json": 2,
+        ".regente/metrics/latest.json": 12,
+        ".regente/roles.json": 1,
+        ".regente/status.json": 2,
+        "benchmarks/agent-brain/audit_codex.py": 5,
+        "benchmarks/agent-brain/audit_facts_eval.py": 4,
+        "benchmarks/agent-brain/run_test.py": 2,
+        "docs/release_readiness_audit.md": 1
+      }
+    }
+  ]
+}
