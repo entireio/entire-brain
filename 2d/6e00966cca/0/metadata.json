@@ -3,26 +3,26 @@
   "checkpoint_id": "2d6e00966cca",
   "session_id": "fc0c6aa0-0ea8-4d17-85f7-7893119994e3",
   "strategy": "manual-commit",
-  "created_at": "2026-06-10T12:15:04.788787Z",
+  "created_at": "2026-06-10T12:15:38.425413Z",
   "branch": "feat/fact-staleness",
   "checkpoints_count": 1,
   "files_touched": [
-    "internal/cli/facts_staleness.go",
-    "internal/cli/facts_read_cmd.go",
     "internal/cli/agent_surface.go",
+    "internal/cli/facts_read_cmd.go",
+    "internal/cli/facts_staleness.go",
     "internal/cli/facts_staleness_test.go"
   ],
   "agent": "Claude Code",
   "model": "claude-fable-5[1m]",
   "turn_id": "a969e9061d8e",
-  "checkpoint_transcript_start": 2340,
-  "transcript_lines_at_start": 2340,
+  "checkpoint_transcript_start": 2523,
+  "transcript_lines_at_start": 2523,
   "token_usage": {
-    "input_tokens": 427,
-    "cache_creation_tokens": 20476,
-    "cache_read_tokens": 9269992,
-    "output_tokens": 14009,
-    "api_call_count": 20
+    "input_tokens": 2,
+    "cache_creation_tokens": 1962,
+    "cache_read_tokens": 473761,
+    "output_tokens": 302,
+    "api_call_count": 1
   },
   "skill_events_version": 1,
   "skill_events": [
@@ -53,14 +53,14 @@
     "turn_count": 15
   },
   "initial_attribution": {
-    "calculated_at": "2026-06-10T12:15:04.742016Z",
-    "agent_lines": 173,
-    "agent_removed": 3,
+    "calculated_at": "2026-06-10T12:15:38.377038Z",
+    "agent_lines": 11,
+    "agent_removed": 11,
     "human_added": 0,
     "human_modified": 0,
     "human_removed": 0,
-    "total_committed": 173,
-    "total_lines_changed": 176,
+    "total_committed": 11,
+    "total_lines_changed": 22,
     "agent_percentage": 100,
     "metric_version": 2
   }
