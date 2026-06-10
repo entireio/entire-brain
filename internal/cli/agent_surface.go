@@ -395,17 +395,32 @@ func freshnessSummary(report staleReport) string {
 
 func newBrainBriefCommand(opts Options) *cobra.Command {
 	briefOpts := brainBriefOptions{limit: brainBriefDefaultLimit}
+	var (
+		handoff         bool
+		handoffSessions int
+	)
 	cmd := &cobra.Command{
-		Use:   "brief <task>",
+		Use:   "brief <task> | brief --handoff",
 		Short: "Build a bounded task packet from brain context and live state",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if handoff {
+				// The handoff packet is session-trajectory-driven, not
+				// query-driven: "what was in flight, what failed, what's
+				// blocked" for an agent resuming cold (Phase 2 item 3).
+				return runBrainHandoff(cmd.Context(), cmd, opts, handoffSessions, briefOpts.json)
+			}
+			if len(args) != 1 {
+				return fmt.Errorf("brief requires a <task> argument (or --handoff for a resumption packet)")
+			}
 			return runBrainBrief(cmd.Context(), cmd, opts, briefOpts, args[0])
 		},
 	}
 	cmd.Flags().BoolVar(&briefOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum semantic records per section")
 	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Disable embedding rerank for facts; use lexical ranking only")
+	cmd.Flags().BoolVar(&handoff, "handoff", false, "Emit a session-resumption packet (recent sessions' requests, decisions, validations) instead of a task packet")
+	cmd.Flags().IntVar(&handoffSessions, "sessions", handoffDefaultSessions, "Sessions to include in the --handoff packet")
 	return cmd
 }
 
