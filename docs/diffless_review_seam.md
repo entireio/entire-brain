@@ -81,7 +81,9 @@ retained release proof.
 The committed `release-entire-cli-radar-mcp-review-file-count` panel is the next
 Radar proof candidate: it targets explicit-base review file counts with a
 detector-shaped `baseRef+"...HEAD"` regression and a hidden behavioral
-validation that visible tests do not already cover.
+validation that visible tests do not already cover. Its calibrated clean 1x
+pilot still saturated on pass rate, so it is directional efficiency calibration
+until a future task/runner revision creates baseline headroom.
 For non-radar MCP-history proof, the committed
 `release-entire-cli-mcp-manual-attribution` panel targets a harder manual-commit
 attribution invariant where the brain should provide historical localization and

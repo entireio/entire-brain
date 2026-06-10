@@ -404,7 +404,10 @@ Release claims must stay local-first and evidence-backed:
   visible tests do not cover. Its first clean low-effort 1x pilot saturated when
   the prompt named the changed-file count directly, so the committed task now
   uses a symptom-level prompt while keeping precise Radar query terms hidden from
-  the no-brain arm.
+  the no-brain arm. A calibrated clean 1x pilot still saturated (`no_brain`
+  94/pass, `mcp_history` 94/pass, `mcp_radar_location_only`), though Radar used
+  fewer searches and roughly half the tokens; this remains directional
+  efficiency calibration, not release proof.
 - The committed `release-entire-cli-mcp-manual-attribution` panel targets a
   harder MCP-history proof lane on `cli-bench`: it regresses the manual-commit
   attribution-base invariant and requires `mcp_history` to surface the prior
@@ -489,7 +492,8 @@ repo/access/artifacts are available:
   rate (`1.0 -> 1.0`) and therefore not release proof, despite large token/time
   reductions in the MCP/radar arm. A deletion-aware transcript radar
   calibration also saturated (`no_brain` mean 95.5, MCP/radar mean 95.0), and
-  the attribution-realign Radar pilot saturated as noted above.
+  the attribution-realign and review-file-count Radar pilots saturated as noted
+  above.
 - Semantic benchmark evidence from a retained proof suite. A clean local
   `semantic-audit --json --fail-on release` run after refreshing the semantic
   index is recorded above, but it is regenerated local coverage evidence, not a
