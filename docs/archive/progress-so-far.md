@@ -664,5 +664,7 @@ Release claim hygiene notes:
   file-language/symbol/relation coverage, blind spots, and retained benchmark
   records. Current evidence is local and scoped, not global parser coverage.
 - Remaining blocked evidence: large-repo distill dry-run/timed runs, paired facts
-  evals, release-candidate Regression Radar proof, release-candidate semantic
-  audit output, and audited benchmark/proof records.
+  evals, release-candidate semantic audit output, and broader audited
+  benchmark/proof records. Focused location-only Regression Radar proof is now
+  retained under the release evidence gate; workspace Radar and broader
+  multi-task Radar claims still need additional proof.

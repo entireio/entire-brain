@@ -63,17 +63,25 @@ The contract is implemented and covered locally: CLI and MCP tests exercise
 `brain_workspace_review`, including `location_only` checks that preserve the
 file/line while not leaking expected/current fix values.
 
-Release evidence is partially retained. The current citable Radar evidence is
-deterministic tool-contract proof under
-`benchmarks/agent-brain/evidence/radar-tool`: focused local tests cover
-location-only redaction, deletion opt-in, anchored call deletion, hinted
+Release evidence is retained in two layers. Deterministic tool-contract proof
+lives under `benchmarks/agent-brain/evidence/radar-tool`: focused local tests
+cover location-only redaction, deletion opt-in, anchored call deletion, hinted
 changed/deleted loci across multiple files, same-name and same-function
 assignment-deletion sites, unsafe workspace pairing skips, workspace Radar,
 strict MCP argument validation, branch-aware QMD retrieval over MCP, and safe
 `tool_result` logging.
-Older Radar agent-lift evidence was pruned because it lacked the newer
-server-side completion proof, and fresh panels saturated or were noisy on the
-no-brain baseline. There is currently no retained Radar pass-rate lift proof.
+
+The retained Radar agent-lift proof is
+`benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2`.
+It compares `no_brain` against `mcp_history` with
+`mcp_radar_location_only` delivery on the manual-attribution deletion task:
+no-brain passed 2/4, Radar/MCP passed 4/4, mean score improved 73.0 -> 92.5,
+mean tokens dropped 811,466.5 -> 408,947.75, and mean search calls dropped
+11.5 -> 6.0. The independent release audit reports 0 hard flags, 8/8
+provenance-backed records, 4 MCP-verified condition records, 4 server-named
+`brain_regressions` records, and 4 completed `tool_result` records. This is
+citable as a focused location-only Radar proof; it is not workspace Radar,
+semantic, or broad multi-task proof.
 
 The committed `release-entire-cli-radar-mcp-review-base-scope` panel remains a
 reproducible Radar candidate lane: it sets `BENCH_RADAR_LOCATION_ONLY=1`, runs
@@ -103,31 +111,30 @@ server actually handled and completed the required named Radar tool. The screen
 labels each comparison as proof-ready, promotable, audit-gapped, saturated, or incomplete;
 when a pilot is stopped before Radar runs because the first no-brain score is
 already too high, it emits a `no-brain-too-easy` row instead of hiding the
-suite, and record-only runs now appear as `incomplete-suite` rows. The current
-manual-attribution deletion reruns show attempted MCP delivery, but stricter
-provenance auditing flags missing embedded deletion-policy attestation on old
-records, so they diagnose Radar delivery/task calibration and evidence hygiene
-rather than clean proof. One one-run headroom pilot is now explicitly
-`promotable-audit-gap`, not promotable, until it is rerun with audit-clean MCP
-backing.
+suite, and record-only runs now appear as `incomplete-suite` rows. Older
+manual-attribution deletion reruns without embedded deletion-policy attestation
+or completed server-side tool results remain diagnostic only. The retained
+`release-candidate-cli-radar-mcp-del-20260610-r2` rerun is the promoted
+audit-clean proof lane.
 `mise run radar:evidence` currently checks the deterministic MCP/Radar
-tool-contract artifact. The stricter agent-lift proof gate remains available as
-`mise run radar:agent-evidence`, and should only become release blocking once a
-fresh non-saturated retained panel exists. That keeps generic MCP-history proof,
-deterministic tool proof, and stronger Radar agent-lift proof separate.
+tool-contract artifact. The stricter agent-lift proof gate is
+`mise run radar:agent-evidence`; it checks retained Radar agent-lift proof and
+keeps generic MCP-history proof, deterministic tool proof, and stronger Radar
+agent-lift proof separate.
 New MCP/Radar runs also write redacted server-side tool names (`tool:
 brain_regressions`, `tool: brain_workspace_regressions`, etc.) to
 `mcp-server.log`; the independent audit cross-checks those names when present,
-so future retained Radar proof can show which brain tool the server actually
-handled rather than relying only on agent transcript activity.
+so retained Radar proof shows which brain tool the server actually handled
+rather than relying only on agent transcript activity.
 For Radar proof, the audit pairs safe args and `tool_result` status on the same
 server-side call, so a failed location-only call cannot be combined with a later
 successful non-location-only call to manufacture proof.
 The retained release gate now also counts named-tool MCP datapoints separately
 from basic MCP-verified datapoints and can require named-tool proof by proof
-scope. The current generic MCP-history proof is call-count-backed legacy
-evidence; citable named-tool MCP proof currently comes from deterministic local
-MCP/Radar contract tests, not from retained agent pass-rate evidence.
+scope. The generic MCP-history proof is call-count-backed legacy evidence.
+Citable named-tool MCP proof currently comes from the deterministic local
+MCP/Radar contract tests and the retained `mcp_radar_location_only` agent-lift
+suite.
 Radar proof records only safe MCP boolean arguments (`location_only`,
 `include_deletions`) plus validated workspace names from structured tool-call
 events, so the audit can reject a would-be location-only or workspace proof that
