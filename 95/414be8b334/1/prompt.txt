@@ -1,0 +1,5 @@
+/simplify
+
+---
+
+Review the plans in the docs folder and the ../alignment doc
