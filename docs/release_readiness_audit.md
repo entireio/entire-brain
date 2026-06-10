@@ -485,12 +485,13 @@ Release claims must stay local-first and evidence-backed:
   tokens.
 - Retained MCP/Radar tool-contract evidence now includes
   `benchmarks/agent-brain/evidence/radar-tool`: a hashed `go test -json`
-  artifact over 33 focused `internal/cli` tests. It proves QMD-style MCP tool
+  artifact over 36 focused `internal/cli` tests. It proves QMD-style MCP tool
   listing and local retrieval (`brain_search`, `brain_vsearch`, `brain_query`,
   `brain_get`, `brain_multi_get`), branch-scoped fact retrieval over MCP,
   changed-operand detection, location-only redaction, deletion opt-in, missing
-  anchored call-site ranking, strict argument validation, MCP framing, safe
-  debug logging with `tool_result`,
+  anchored call-site ranking, hinted assignment-deletion loci without suppressing
+  missing files behind intact peers, strict argument validation, MCP framing,
+  safe debug logging with `tool_result`,
   `brain_regressions`, `brain_workspace_regressions`, and unsafe workspace-repo
   skipping. This is citable as deterministic local MCP/Radar tool behavior only,
   not as agent pass-rate lift.
@@ -540,17 +541,18 @@ suites plus promoted `release-candidate-*-radar-*` and
 Codex audit and feeds that into the Radar report, so release-candidate rows show
 whether the MCP server actually handled the named Radar tool and completed it.
 This keeps a stale promotable pilot from hiding a failed promoted rerun. The
-current screen still has zero proof-ready Radar comparisons: the latest
-manual-attribution location-only rerun shows `4/4` MCP named/completed records
-but `no_brain -> mcp_history` pass rate `1.00 -> 0.50`, so the failure is Radar
-delivery/task calibration rather than missing MCP usage. Earlier 2026-06-10
-calibration runs saturated or were noisy, including manual-attribution, review
-file-count, and workspace transcript candidates. Suites that are stopped after
-an already-high no-brain score are now reported as `no-brain-too-easy` instead
-of disappearing from the screen report.
+current screen still has zero proof-ready Radar comparisons: deletion-shaped
+manual-attribution reruns show attempted MCP calls, but stricter safe-argument
+auditing reports missing `include_deletions: true` on old records, while newer
+candidate pass rates are saturated or noisy. Earlier 2026-06-10 calibration
+runs saturated or were noisy, including manual-attribution, review file-count,
+and workspace transcript candidates. Suites that are stopped after an
+already-high no-brain score are now reported as `no-brain-too-easy`, and
+record-only suites without `summary.json` are reported as `incomplete-suite`,
+instead of disappearing from the screen report.
 `mise run radar:evidence` now checks the retained deterministic MCP/Radar
 tool-contract artifact instead of promoting those saturated agent panels. It
-requires the retained `go test -json` artifact hash to match and all 33 required
+requires the retained `go test -json` artifact hash to match and all 36 required
 MCP/Radar tests to pass, including branch-aware QMD-style retrieval tools and
 Radar-specific MCP behavior.
 

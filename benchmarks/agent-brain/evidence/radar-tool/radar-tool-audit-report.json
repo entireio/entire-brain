@@ -7,6 +7,7 @@
       "TestMCPBrainBriefAndQueryToolsUseIndexedHistory",
       "TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON",
       "TestMCPBrainQueryToolUsesLocalSemanticJSON",
+      "TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites",
       "TestMCPBrainRegressionsTool",
       "TestMCPBrainReviewTool",
       "TestMCPBrainStaleUsesEnvRepoRoot",
@@ -29,6 +30,8 @@
       "TestMCPToolsListAdvertisesStaleBlindSpots",
       "TestMCPToolsListIncludesQMDRetrievalSurface",
       "TestMCPToolsListIncludesRegressions",
+      "TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol",
+      "TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer",
       "TestRegressionDedupeRankPrefersBoostedCallDeletion",
       "TestRegressionDeletionIsOptIn",
       "TestRegressionDeletionRanksCallLocusWithHistoryFileHint",
@@ -38,7 +41,7 @@
       "TestWorkspaceRegressionsSkipsUnsafeRepo"
     ],
     "path": "go-test-internal-cli-radar.jsonl",
-    "sha256": "sha256:14460ad08b3be2d1fb6543f40bdc6d8e4298032bca24cfc0c845b781db6248e4"
+    "sha256": "sha256:6690cf2b2808ab9c6290d99a2ff6f7a5f8a9284164ffc6350d2f4586ba4d1052"
   },
   "claim_scope": "mcp_radar_tool_contract",
   "errors": [],
@@ -55,6 +58,8 @@
     "TestRegressionDeletionIsOptIn",
     "TestRegressionDeletionRanksCallLocusWithHistoryFileHint",
     "TestRegressionDeletionReportsEachMissingAnchoredCallSite",
+    "TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer",
+    "TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol",
     "TestRegressionDedupeRankPrefersBoostedCallDeletion",
     "TestMCPInitializeAndToolsList",
     "TestMCPToolsListIncludesRegressions",
@@ -67,6 +72,7 @@
     "TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly",
     "TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools",
     "TestMCPBrainRegressionsTool",
+    "TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites",
     "TestMCPBrainReviewTool",
     "TestMCPBrainWorkspaceReviewTool",
     "TestMCPBrainWorkspaceToolRequiresWorkspace",
@@ -85,6 +91,6 @@
     "TestWorkspaceRegressionsSkipsUnsafeRepo"
   ],
   "schema": 1,
-  "source_head": "8a677b0f27c58ddf1aee457f1085dabda9a2e46e",
+  "source_head": "c36870efefe45546fdd235c81cd02fdaa7f6839a",
   "warnings": []
 }

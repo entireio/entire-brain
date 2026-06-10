@@ -3,7 +3,7 @@
     {
       "kind": "go_test_json",
       "path": "go-test-internal-cli-radar.jsonl",
-      "sha256": "sha256:14460ad08b3be2d1fb6543f40bdc6d8e4298032bca24cfc0c845b781db6248e4"
+      "sha256": "sha256:6690cf2b2808ab9c6290d99a2ff6f7a5f8a9284164ffc6350d2f4586ba4d1052"
     }
   ],
   "claim_scope": "mcp_radar_tool_contract",
@@ -13,15 +13,15 @@
     "MCP schemas reject unknown, incorrectly typed, or invalid integer arguments.",
     "Regression Radar detects changed code assertions from retained local brain history.",
     "Location-only Radar returns file/line context while redacting expected/current fix values.",
-    "Deletion-shaped Radar is opt-in and can rank missing anchored call sites.",
+    "Deletion-shaped Radar is opt-in and can rank missing anchored call sites plus hinted assignment sites without suppressing missing loci behind intact peers.",
     "MCP exposes brain_regressions and workspace Radar tools with strict argument validation.",
     "MCP debug logs include safe tool name/result metadata without leaking query text.",
     "Workspace Radar aggregates repo-local findings and skips unsafe repos."
   ],
   "commands": [
-    "go test -json ./internal/cli -run '^(TestRegressionDetectsChangedOperand|TestInspectRegressionsCommandJSONAndLocationOnly|TestRegressionDeletionIsOptIn|TestRegressionDeletionRanksCallLocusWithHistoryFileHint|TestRegressionDeletionReportsEachMissingAnchoredCallSite|TestRegressionDedupeRankPrefersBoostedCallDeletion|TestMCPInitializeAndToolsList|TestMCPToolsListIncludesRegressions|TestMCPToolsListIncludesQMDRetrievalSurface|TestMCPToolsListAdvertisesStaleBlindSpots|TestMCPToolSchemasRejectAdditionalProperties|TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet|TestMCPRejectsInvalidBooleanArguments|TestMCPRejectsInvalidStringAndUnknownArguments|TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly|TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools|TestMCPBrainRegressionsTool|TestMCPBrainReviewTool|TestMCPBrainWorkspaceReviewTool|TestMCPBrainWorkspaceToolRequiresWorkspace|TestMCPInitializeEchoesClientProtocolVersion|TestMCPInitializeSupportsJSONLineFraming|TestMCPBrainQueryToolUsesLocalSemanticJSON|TestMCPQMDRetrievalToolsUseLocalFacts|TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON|TestMCPBrainBriefAndQueryToolsUseIndexedHistory|TestMCPToolCallRejectsInvalidIntegerArguments|TestMCPToolCallRejectsInvalidDepth|TestMCPRecoversFromMalformedJSONLineFrame|TestMCPRejectsOversizedAndNegativeFrames|TestMCPBrainStaleUsesEnvRepoRoot|TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain|TestWorkspaceRegressionsSkipsUnsafeRepo)$' > benchmarks/agent-brain/evidence/radar-tool/go-test-internal-cli-radar.jsonl"
+    "go test -json ./internal/cli -run '^(TestRegressionDetectsChangedOperand|TestInspectRegressionsCommandJSONAndLocationOnly|TestRegressionDeletionIsOptIn|TestRegressionDeletionRanksCallLocusWithHistoryFileHint|TestRegressionDeletionReportsEachMissingAnchoredCallSite|TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer|TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol|TestRegressionDedupeRankPrefersBoostedCallDeletion|TestMCPInitializeAndToolsList|TestMCPToolsListIncludesRegressions|TestMCPToolsListIncludesQMDRetrievalSurface|TestMCPToolsListAdvertisesStaleBlindSpots|TestMCPToolSchemasRejectAdditionalProperties|TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet|TestMCPRejectsInvalidBooleanArguments|TestMCPRejectsInvalidStringAndUnknownArguments|TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly|TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools|TestMCPBrainRegressionsTool|TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites|TestMCPBrainReviewTool|TestMCPBrainWorkspaceReviewTool|TestMCPBrainWorkspaceToolRequiresWorkspace|TestMCPInitializeEchoesClientProtocolVersion|TestMCPInitializeSupportsJSONLineFraming|TestMCPBrainQueryToolUsesLocalSemanticJSON|TestMCPQMDRetrievalToolsUseLocalFacts|TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON|TestMCPBrainBriefAndQueryToolsUseIndexedHistory|TestMCPToolCallRejectsInvalidIntegerArguments|TestMCPToolCallRejectsInvalidDepth|TestMCPRecoversFromMalformedJSONLineFrame|TestMCPRejectsOversizedAndNegativeFrames|TestMCPBrainStaleUsesEnvRepoRoot|TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain|TestWorkspaceRegressionsSkipsUnsafeRepo)$' > benchmarks/agent-brain/evidence/radar-tool/go-test-internal-cli-radar.jsonl"
   ],
-  "generated_at": "2026-06-10T14:02:33Z",
+  "generated_at": "2026-06-10T14:55:34Z",
   "limitations": [
     "Tool-contract proof only; this is not agent lift proof.",
     "Recent release-candidate Radar agent panels were saturated or noisy on no-brain baselines and are not retained as pass-rate proof.",
@@ -33,6 +33,8 @@
     "TestRegressionDeletionIsOptIn",
     "TestRegressionDeletionRanksCallLocusWithHistoryFileHint",
     "TestRegressionDeletionReportsEachMissingAnchoredCallSite",
+    "TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer",
+    "TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol",
     "TestRegressionDedupeRankPrefersBoostedCallDeletion",
     "TestMCPInitializeAndToolsList",
     "TestMCPToolsListIncludesRegressions",
@@ -45,6 +47,7 @@
     "TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly",
     "TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools",
     "TestMCPBrainRegressionsTool",
+    "TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites",
     "TestMCPBrainReviewTool",
     "TestMCPBrainWorkspaceReviewTool",
     "TestMCPBrainWorkspaceToolRequiresWorkspace",
@@ -63,5 +66,5 @@
     "TestWorkspaceRegressionsSkipsUnsafeRepo"
   ],
   "schema": 1,
-  "source_head": "8a677b0f27c58ddf1aee457f1085dabda9a2e46e"
+  "source_head": "c36870efefe45546fdd235c81cd02fdaa7f6839a"
 }

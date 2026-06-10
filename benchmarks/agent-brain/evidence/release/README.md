@@ -29,7 +29,8 @@ Regression Radar and the MCP retrieval surface are checked separately by
 `mise run radar:evidence`, which audits deterministic Go/MCP tool-contract
 evidence under `benchmarks/agent-brain/evidence/radar-tool`. That gate proves
 the local detector, QMD-style MCP retrieval tools including branch-scoped facts,
-and MCP safety contracts, not agent pass-rate lift.
+hinted assignment-deletion Radar loci, and MCP safety contracts, not agent
+pass-rate lift.
 
 The committed manifest records the citable suite policy. Generated audit reports
 should only be committed after the gate passes for a real release-candidate run.

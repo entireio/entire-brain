@@ -66,7 +66,8 @@ file/line while not leaking expected/current fix values.
 Release evidence is partially retained. The current citable Radar evidence is
 deterministic tool-contract proof under
 `benchmarks/agent-brain/evidence/radar-tool`: focused local tests cover
-location-only redaction, deletion opt-in, workspace Radar, strict MCP argument
+location-only redaction, deletion opt-in, anchored call deletion, hinted
+assignment deletion across multiple loci, workspace Radar, strict MCP argument
 validation, branch-aware QMD retrieval over MCP, and safe `tool_result` logging.
 Older Radar agent-lift evidence was pruned because it lacked the newer
 server-side completion proof, and fresh panels saturated or were noisy on the
@@ -97,16 +98,17 @@ until a future task/runner revision creates baseline headroom.
 `release-candidate-*-workspace-radar-*` reruns. It now builds the independent
 Codex audit first, so rows with retained server logs can show whether the MCP
 server actually handled and completed the required named Radar tool. The screen
-labels each comparison as proof-ready, promotable, or saturated; when a pilot is
-stopped before Radar runs because the first no-brain score is already too high,
-it emits a `no-brain-too-easy` row instead of hiding the suite. The current
-manual-attribution release-candidate rerun proves MCP delivery (`4/4`
-named/completed) but is still `brain-not-clean` on pass rate, so it diagnoses
-Radar delivery/task calibration rather than MCP authenticity. `mise run
-radar:evidence` currently checks the deterministic MCP/Radar tool-contract
-artifact. The stricter agent-lift proof gate remains available as `mise run
-radar:agent-evidence`, and should only become release blocking once a fresh
-non-saturated retained panel exists. That keeps generic MCP-history proof,
+labels each comparison as proof-ready, promotable, saturated, or incomplete;
+when a pilot is stopped before Radar runs because the first no-brain score is
+already too high, it emits a `no-brain-too-easy` row instead of hiding the
+suite, and record-only runs now appear as `incomplete-suite` rows. The current
+manual-attribution deletion reruns show attempted MCP delivery, but stricter
+safe-argument auditing flags missing `include_deletions: true`, so they diagnose
+Radar delivery/task calibration and argument hygiene rather than clean proof.
+`mise run radar:evidence` currently checks the deterministic MCP/Radar
+tool-contract artifact. The stricter agent-lift proof gate remains available as
+`mise run radar:agent-evidence`, and should only become release blocking once a
+fresh non-saturated retained panel exists. That keeps generic MCP-history proof,
 deterministic tool proof, and stronger Radar agent-lift proof separate.
 New MCP/Radar runs also write redacted server-side tool names (`tool:
 brain_regressions`, `tool: brain_workspace_regressions`, etc.) to
