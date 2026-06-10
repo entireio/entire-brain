@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "acb71bbd31ba",
+  "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T04:42:48.403102Z",
+  "branch": "codex/release-readiness-hardening",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/tasks/entireio-cli-review-base-flag-scope.json",
+    "docs/diffless_review_seam.md",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8",
+  "turn_id": "09745506dc17",
+  "token_usage": {
+    "input_tokens": 233032,
+    "cache_creation_tokens": 13368728,
+    "cache_read_tokens": 1006320163,
+    "output_tokens": 2764290,
+    "api_call_count": 1854
+  },
+  "session_metrics": {
+    "turn_count": 82
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T04:42:47.940365Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 652,
+    "human_modified": 4,
+    "human_removed": 0,
+    "total_committed": 652,
+    "total_lines_changed": 700,
+    "agent_percentage": 0,
+    "metric_version": 2
+  }
+}
