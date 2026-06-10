@@ -321,6 +321,15 @@ func TestInjectAgentModel(t *testing.T) {
 		t.Fatalf("prompt must stay last: %v", gotc)
 	}
 
+	ollama, _ := distillAgentCommandArgs("ollama", nil, "PROMPT")
+	gotOllama := injectAgentModel(ollama, "ollama", "llama3.2")
+	if !slices.Equal(gotOllama, []string{"ollama", "llama3.2", "PROMPT"}) {
+		t.Fatalf("ollama model not inserted into runner args: %v", gotOllama)
+	}
+	if !slices.Equal(ollama, []string{"ollama", "", "PROMPT"}) {
+		t.Fatalf("ollama model injection should not mutate original args: %v", ollama)
+	}
+
 	// Empty model and the `command` agent are no-ops.
 	if base, _ := distillAgentCommandArgs("codex", nil, "PROMPT"); !slices.Equal(injectAgentModel(base, "codex", ""), base) {
 		t.Errorf("empty model should be a no-op")

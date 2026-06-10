@@ -1591,6 +1591,95 @@ func TestDistillCommandOutputLimitHelper(t *testing.T) {
 	os.Exit(0)
 }
 
+func TestDistillCommandOllamaLoopbackProducesTimedSummary(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	repoDir := t.TempDir()
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "git@github.com:example/repo.git\n"},
+	}}
+	opts := Options{
+		Version: "test",
+		Env: EntireEnv{
+			RepoRoot:        repoDir,
+			PluginConfigDir: t.TempDir(),
+			PluginDataDir:   t.TempDir(),
+			PluginStateDir:  t.TempDir(),
+			PluginCacheDir:  t.TempDir(),
+		},
+		Runner: runner,
+		Now:    func() time.Time { return now },
+	}
+	storage, err := repoStoragePaths(context.Background(), runner, opts.Env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	writeDistillFixtureAt(t, storage.BrainDir, now)
+	runner.calls = nil
+
+	type ollamaRequest struct {
+		Model  string `json:"model"`
+		System string `json:"system"`
+		Prompt string `json:"prompt"`
+		Stream bool   `json:"stream"`
+	}
+	var seen []ollamaRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/generate" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		var req ollamaRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		seen = append(seen, req)
+		if req.Stream {
+			t.Fatal("distill ollama CLI path must request non-streaming output")
+		}
+		fmt.Fprint(w, `{"response":"project.tooling.stack\tThe project uses Go.\n"}`)
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	var stdout, stderr bytes.Buffer
+	cmd := NewRootCommand(opts)
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"distill", "--agent", "ollama", "--model", "llama3.2", "--json", "--force", "--jobs", "2"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("distill ollama command: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	var source factSourceManifest
+	if err := json.Unmarshal(stdout.Bytes(), &source); err != nil {
+		t.Fatalf("distill ollama JSON did not decode: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	if source.Agent != "ollama" || source.Model != "llama3.2" || source.Jobs != 2 || source.EffectiveJobs != 2 {
+		t.Fatalf("summary missing ollama run config: %+v", source)
+	}
+	if source.Facts != 2 || source.ExtractionCalls != 2 || source.ReconcileCalls != 0 || source.TotalAgentCalls != 2 {
+		t.Fatalf("summary missing fact/call counts: %+v", source)
+	}
+	if source.TotalSeconds < 0 || source.ExtractionSeconds < 0 || source.WriteSeconds < 0 {
+		t.Fatalf("summary timings should be non-negative: %+v", source)
+	}
+	if len(seen) != 2 {
+		t.Fatalf("expected one loopback ollama request per fixture session, got %d", len(seen))
+	}
+	for _, req := range seen {
+		if req.Model != "llama3.2" {
+			t.Fatalf("ollama request used wrong model: %+v", req)
+		}
+		if !strings.Contains(req.System, "durable facts") || !strings.Contains(req.Prompt, "turn one") {
+			t.Fatalf("ollama request missing distill system/prompt context: %+v", req)
+		}
+	}
+	for _, call := range runner.calls {
+		if call.name == "ollama" {
+			t.Fatalf("distill must use loopback HTTP runner, not PATH ollama binary: %+v", call)
+		}
+	}
+}
+
 func TestExecOllamaDistillAgentUsesLoopbackGenerateAPI(t *testing.T) {
 	var sawModel, sawSystem, sawPrompt string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
