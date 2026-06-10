@@ -77,8 +77,16 @@ func (p *refreshProgress) Begin(label string) *refreshProgressTask {
 	return task
 }
 
+// Skip reports a step that ran but had nothing to do. Like Finish, it renders
+// per mode: the TTY form gets its own marker ("-", alongside Finish's "+" and
+// "!") so a skipped step doesn't print the non-TTY "prefix:" form into an
+// otherwise marker-styled list.
 func (p *refreshProgress) Skip(label string) {
 	if p == nil || p.out == nil {
+		return
+	}
+	if p.spinner {
+		fmt.Fprintf(p.out, "%s- %s skipped\n", clearTerminalLine, label)
 		return
 	}
 	fmt.Fprintf(p.out, "%s: %s skipped\n", p.prefix, label)
