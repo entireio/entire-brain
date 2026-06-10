@@ -1,0 +1,65 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "5f4fe7ad9f7a",
+  "session_id": "019eacc8-4c81-7c91-b807-b3c82bbba45d",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T18:05:15.194067Z",
+  "branch": "codex/release-readiness-hardening",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "benchmarks/agent-brain/audit_facts_eval.py",
+    "benchmarks/agent-brain/run_test.py",
+    "docs/release_readiness_audit.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "1f0c7ea40869",
+  "checkpoint_transcript_start": 44578,
+  "transcript_lines_at_start": 44578,
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T18:05:15.180916Z",
+    "agent_lines": 293,
+    "agent_removed": 14,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 293,
+    "total_lines_changed": 307,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 840,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.json": 60,
+        ".claude/settings.local.json": 32,
+        ".claude/skills/regente/SKILL.md": 24,
+        ".codex/config.toml": 6,
+        ".codex/hooks.json": 40,
+        ".codex/skills/regente/SKILL.md": 19,
+        ".cursor/mcp.json": 14,
+        ".cursor/rules/regente.mdc": 24,
+        ".gemini/regente.md": 19,
+        ".gemini/settings.json": 93,
+        ".mcp.json": 14,
+        ".regente/AGENT-ONBOARDING.md": 19,
+        ".regente/adapters.md": 32,
+        ".regente/claims.json": 164,
+        ".regente/config.json": 4,
+        ".regente/context.jsonl": 1,
+        ".regente/events.jsonl": 51,
+        ".regente/github-app.json": 7,
+        ".regente/messages.jsonl": 6,
+        ".regente/metrics/latest.json": 30,
+        ".regente/roles.json": 19,
+        ".regente/status.json": 154,
+        ".regente/team.json": 8
+      }
+    }
+  ]
+}

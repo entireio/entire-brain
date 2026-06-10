@@ -1,0 +1,9 @@
+Repo: /Users/suhaan/Documents/Coding/entire-brain. You are not alone in this codebase; do not edit files or revert anything. Sidecar audit task: inspect the current distill implementation/evidence against Thomas's ask that `entire brain distill` is too slow on large session repos and may need local Ollama. Focus on internal/cli/distill*.go, benchmarks/agent-brain/audit_distill_perf.py, benchmarks/agent-brain/evidence/distill-perf, mise tasks, and docs/release_readiness_audit.md. Return: (1) what is implemented, (2) what retained evidence proves, (3) what remains unproven or weak, (4) the next 1-3 concrete code/evidence actions. No file edits.
+
+---
+
+Repo: /Users/suhaan/Documents/Coding/entire-brain. You are not alone in this codebase; do not edit files or revert anything. Sidecar audit task: inspect the facts-vs-raw validation implementation/evidence against Thomas's concern that facts recall may not actually beat raw sessions. Focus on internal/cli/facts_eval*.go, facts_stats*, benchmarks/agent-brain/audit_facts_eval.py, benchmarks/agent-brain/evidence/facts-eval, mise tasks, and docs/release_readiness_audit.md. Return: (1) what is implemented, (2) what retained evidence proves, (3) what remains unproven or weak, (4) the next 1-3 concrete code/evidence actions. No file edits.
+
+---
+
+Repo: /Users/suhaan/Documents/Coding/entire-brain. You are not alone in this codebase; do not edit files or revert anything. Sidecar audit task: inspect the Radar/MCP agent-lift evidence gap. Focus on benchmarks/agent-brain/panels/release-entire-cli-radar-mcp*.json, release-entire-cli-workspace-radar-mcp*.json, benchmarks/agent-brain/results if present, audit_radar_evidence.py, audit_codex.py, and docs/diffless_review_seam.md. Return: (1) current citable proof vs calibration, (2) why current candidates fail proof, (3) whether any existing local result is promotable if regenerated/re-audited, (4) next concrete action. No file edits.
