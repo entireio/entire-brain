@@ -525,18 +525,20 @@ Release claims must stay local-first and evidence-backed:
   tokens.
 - Retained MCP/Radar tool-contract evidence now includes
   `benchmarks/agent-brain/evidence/radar-tool`: a hashed `go test -json`
-  artifact over 49 focused `internal/cli` tests. It proves QMD-inspired MCP tool
+  artifact over 51 focused `internal/cli` tests. It proves QMD-inspired MCP tool
   listing and local retrieval (`brain_search`, `brain_vsearch`, `brain_query`,
   `brain_get`, `brain_multi_get`), branch-scoped fact retrieval over MCP,
   changed-operand detection without per-file hint masking, location-only
   redaction, deletion opt-in, missing anchored call-site ranking, hinted
   assignment-deletion loci without suppressing missing files behind intact peers,
   same-name receiver methods, or adjacent same-function loci, strict argument
-  validation, MCP framing, safe debug logging with `tool_result`,
-  `brain_regressions`, `brain_workspace_regressions`,
+  validation plus schema/validator parity, MCP framing, safe debug logging with
+  `tool_result`, `brain_regressions`, `brain_workspace_regressions`,
   `brain_workspace_review`, workspace deletion redaction, and unsafe
-  workspace-repo skipping. This is citable as deterministic local MCP/Radar tool
-  behavior only, not as agent pass-rate lift.
+  workspace-repo skipping. It also proves the raw-history Radar scan closes files
+  during large walks instead of retaining descriptors until the whole scan ends.
+  This is citable as deterministic local MCP/Radar tool behavior only, not as
+  agent pass-rate lift.
 - The query default-limit benchmark tasks now target the current unified
   retrieval implementation in `internal/cli/retrieve_cmd.go`, including the
   QMD-inspired `-n` alias, instead of the old semantic-query implementation.
@@ -601,12 +603,13 @@ are reported as `no-brain-too-easy`, and record-only suites without
 the screen report.
 `mise run radar:evidence` now checks the retained deterministic MCP/Radar
 tool-contract artifact instead of promoting those saturated agent panels. It
-requires the retained `go test -json` artifact hash to match and all 49 required
+requires the retained `go test -json` artifact hash to match and all 51 required
 MCP/Radar tests to pass, including branch-aware QMD-inspired retrieval tools and
 Radar-specific MCP behavior, invariant-scoped related locations that distinguish
 same-identifier assignment deletions with different RHS values, workspace
-multi-locus deletion redaction, and safe success-path tool-result logging for
-Radar and review tools.
+multi-locus deletion redaction, MCP schema/validator parity, per-file raw-history
+scan closing under descriptor pressure, and safe success-path tool-result logging
+for Radar and review tools.
 `mise run radar:agent-evidence` checks the retained focused Radar agent-lift
 suite and fails unless the release evidence contains a proof-ready Radar
 comparison backed by MCP-verified, server-named, completed Radar tool calls.

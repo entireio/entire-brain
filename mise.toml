@@ -286,6 +286,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 python3 benchmarks/agent-brain/audit_distill_perf.py \
   --manifest "$manifest" \
+  --repo-root . \
   --out-dir "$tmp" \
   --fail-on-flags
 for report in distill-perf-audit-report.json distill-perf-audit-report.md; do
@@ -315,6 +316,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 python3 benchmarks/agent-brain/audit_distill_perf.py \
   --manifest "$manifest" \
+  --repo-root . \
   --out-dir "$tmp" \
   --fail-on-flags
 mkdir -p benchmarks/agent-brain/evidence/distill-perf

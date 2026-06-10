@@ -31,6 +31,25 @@
     "total_seconds": 9.160083208,
     "total_agent_calls": 295
   },
+  "source_hashes": {
+    "repo_root": ".",
+    "required_paths": [
+      "internal/cli/distill.go",
+      "internal/cli/distill_cmd.go",
+      "internal/cli/distill_test.go",
+      "internal/cli/distill_cmd_test.go",
+      "benchmarks/agent-brain/audit_distill_perf.py",
+      "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py"
+    ],
+    "matched_paths": [
+      "internal/cli/distill.go",
+      "internal/cli/distill_cmd.go",
+      "internal/cli/distill_test.go",
+      "internal/cli/distill_cmd_test.go",
+      "benchmarks/agent-brain/audit_distill_perf.py",
+      "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py"
+    ]
+  },
   "local_ollama_contract": {
     "artifact": "go-test-internal-cli-ollama-distill.jsonl",
     "sha256": "sha256:bc511ffa73e42b3b65dcbb8cb2139989d987e367e0ff7a7ff9d5739640c2230e",

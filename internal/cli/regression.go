@@ -317,7 +317,6 @@ func regressionScanHistory(brainDir string, ids []string) ([]changeSignal, []del
 		if openErr != nil {
 			return nil
 		}
-		defer f.Close()
 		scanned++
 		sc := bufio.NewScanner(f)
 		sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
@@ -364,6 +363,7 @@ func regressionScanHistory(brainDir string, ids []string) ([]changeSignal, []del
 				}
 			}
 		}
+		_ = f.Close()
 		return nil
 	})
 	return changes, deletes, files

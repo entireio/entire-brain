@@ -113,6 +113,54 @@ func TestMCPToolSchemasRejectAdditionalProperties(t *testing.T) {
 	}
 }
 
+func TestMCPToolSchemasMatchArgumentValidator(t *testing.T) {
+	allPublicKeys := map[string]bool{"__unexpected": true}
+	toolKeys := map[string]map[string]bool{}
+	for _, tool := range mcpToolDefinitions() {
+		name, ok := tool["name"].(string)
+		if !ok || name == "" {
+			t.Fatalf("tool missing name: %+v", tool)
+		}
+		schema, ok := tool["inputSchema"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s missing inputSchema", name)
+		}
+		props, ok := schema["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s missing properties: %+v", name, schema)
+		}
+		keys := map[string]bool{}
+		for key := range props {
+			keys[key] = true
+			allPublicKeys[key] = true
+		}
+		required, _ := schema["required"].([]string)
+		for _, key := range required {
+			if !keys[key] {
+				t.Fatalf("%s requires non-schema property %q", name, key)
+			}
+		}
+		toolKeys[name] = keys
+	}
+	for name, keys := range toolKeys {
+		schemaArgs := map[string]any{}
+		for key := range keys {
+			schemaArgs[key] = true
+		}
+		if err := validateMCPToolArguments(name, schemaArgs); err != nil {
+			t.Fatalf("%s validator rejected advertised schema args %v: %v", name, keys, err)
+		}
+		for key := range allPublicKeys {
+			if keys[key] {
+				continue
+			}
+			if err := validateMCPToolArguments(name, map[string]any{key: true}); err == nil {
+				t.Fatalf("%s validator accepted non-schema arg %q", name, key)
+			}
+		}
+	}
+}
+
 func TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet(t *testing.T) {
 	byName := map[string]map[string]any{}
 	for _, tool := range mcpToolDefinitions() {
@@ -556,19 +604,14 @@ func TestMCPBrainReviewTool(t *testing.T) {
 	if !strings.Contains(string(listData), "brain_review") || !strings.Contains(string(listData), "location_only") {
 		t.Fatalf("tools/list missing brain_review/location_only: %s", listData)
 	}
-	callData, _ := json.Marshal(responses[1])
-	// schema_version is the load-bearing contract field cross-repo consumers bind to; a silent rename
-	// (e.g. to schemaVersion) or a dropped field must fail here, not pass CI green.
-	for _, want := range []string{"diff-less", "Suspected regression", "review_context.go", "master..HEAD", "schema_version"} {
-		if !strings.Contains(string(callData), want) {
-			t.Fatalf("brain_review result missing %q: %s", want, callData)
-		}
-	}
+	callPayload := mcpTextJSONPayload(t, responses[1])
+	assertMCPReviewPayloadContract(t, callPayload, "review scopeBaseRef base scope")
+	assertMCPReviewFindingContract(t, firstPayloadObject(t, callPayload, "findings"), false)
 	// location_only must still localize the finding but NOT leak the expected/current values.
-	locData, _ := json.Marshal(responses[2])
-	if !strings.Contains(string(locData), "review_context.go") {
-		t.Fatalf("brain_review --location-only dropped the file location: %s", locData)
-	}
+	locPayload := mcpTextJSONPayload(t, responses[2])
+	locFinding := firstPayloadObject(t, locPayload, "findings")
+	assertMCPReviewFindingContract(t, locFinding, true)
+	locData, _ := json.Marshal(locPayload)
 	if strings.Contains(string(locData), "master..HEAD") || strings.Contains(string(locData), `scopeBaseRef+`) {
 		t.Fatalf("brain_review location_only leaked expected/current values: %s", locData)
 	}
@@ -605,12 +648,26 @@ func TestMCPBrainWorkspaceReviewTool(t *testing.T) {
 			t.Fatalf("tools/list missing %q: %s", want, listData)
 		}
 	}
-	callData, _ := json.Marshal(responses[1])
-	for _, want := range []string{"diff-less", "Suspected regression", "review_context.go", repoAKey} {
-		if !strings.Contains(string(callData), want) {
-			t.Fatalf("brain_workspace_review result missing %q: %s", want, callData)
-		}
+	callPayload := mcpTextJSONPayload(t, responses[1])
+	if callPayload["workspace"] != "related" {
+		t.Fatalf("workspace review payload workspace = %#v, want related: %+v", callPayload["workspace"], callPayload)
 	}
+	assertNumberField(t, callPayload, "schema_version", reviewReportSchemaVersion)
+	assertStringContains(t, callPayload, "mode", "diff-less")
+	assertStringContains(t, callPayload, "summary", "Cross-repo diff-less review")
+	results := payloadArray(t, callPayload, "results")
+	if len(results) != 1 {
+		t.Fatalf("workspace review results = %d, want 1: %+v", len(results), callPayload)
+	}
+	result, ok := results[0].(map[string]any)
+	if !ok {
+		t.Fatalf("workspace review result is not object: %+v", results[0])
+	}
+	if result["repo_key"] != repoAKey {
+		t.Fatalf("workspace review repo_key = %#v, want %q in %+v", result["repo_key"], repoAKey, result)
+	}
+	assertStringContains(t, result, "summary", "suspected regression")
+	assertMCPReviewFindingContract(t, firstPayloadObject(t, result, "findings"), false)
 	regData, _ := json.Marshal(responses[2])
 	for _, want := range []string{"review_context.go", repoAKey, "anomalies"} {
 		if !strings.Contains(string(regData), want) {
@@ -1018,6 +1075,90 @@ func mcpTextJSONPayload(t *testing.T, response map[string]any) map[string]any {
 		t.Fatalf("decode MCP text JSON %q: %v", text, err)
 	}
 	return payload
+}
+
+func assertMCPReviewPayloadContract(t *testing.T, payload map[string]any, query string) {
+	t.Helper()
+	assertNumberField(t, payload, "schema_version", reviewReportSchemaVersion)
+	if payload["query"] != query {
+		t.Fatalf("query = %#v, want %q in payload %+v", payload["query"], query, payload)
+	}
+	assertStringContains(t, payload, "mode", "diff-less")
+	assertStringContains(t, payload, "summary", "Diff-less review")
+	assertStringContains(t, payload, "repo_path", "")
+	assertStringContains(t, payload, "brain_path", "")
+	if generatedAt, ok := payload["generated_at"].(string); !ok || generatedAt == "" {
+		t.Fatalf("generated_at missing string in payload %+v", payload)
+	}
+}
+
+func assertMCPReviewFindingContract(t *testing.T, finding map[string]any, locationOnly bool) {
+	t.Helper()
+	if finding["severity"] != "medium" {
+		t.Fatalf("finding severity = %#v, want medium in %+v", finding["severity"], finding)
+	}
+	if finding["file"] != "pkg/review_context.go" {
+		t.Fatalf("finding file = %#v, want pkg/review_context.go in %+v", finding["file"], finding)
+	}
+	assertNumberField(t, finding, "line", 3)
+	assertStringContains(t, finding, "title", "Suspected regression")
+	assertStringContains(t, finding, "evidence", "session")
+	detail, ok := finding["detail"].(string)
+	if !ok || detail == "" {
+		t.Fatalf("finding detail missing string in %+v", finding)
+	}
+	if locationOnly {
+		if strings.Contains(detail, "history shows") || strings.Contains(detail, "master..HEAD") || strings.Contains(detail, "scopeBaseRef") {
+			t.Fatalf("location-only finding detail leaked expected/current values: %+v", finding)
+		}
+		return
+	}
+	for _, want := range []string{"history shows", "master..HEAD", "scopeBaseRef"} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("finding detail missing %q in %+v", want, finding)
+		}
+	}
+}
+
+func firstPayloadObject(t *testing.T, payload map[string]any, key string) map[string]any {
+	t.Helper()
+	items := payloadArray(t, payload, key)
+	if len(items) == 0 {
+		t.Fatalf("%s is empty in payload %+v", key, payload)
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("%s[0] is not object: %+v", key, items[0])
+	}
+	return item
+}
+
+func payloadArray(t *testing.T, payload map[string]any, key string) []any {
+	t.Helper()
+	items, ok := payload[key].([]any)
+	if !ok {
+		t.Fatalf("%s missing array in payload %+v", key, payload)
+	}
+	return items
+}
+
+func assertNumberField(t *testing.T, payload map[string]any, key string, want int) {
+	t.Helper()
+	got, ok := payload[key].(float64)
+	if !ok || int(got) != want {
+		t.Fatalf("%s = %#v, want %d in payload %+v", key, payload[key], want, payload)
+	}
+}
+
+func assertStringContains(t *testing.T, payload map[string]any, key, want string) {
+	t.Helper()
+	got, ok := payload[key].(string)
+	if !ok {
+		t.Fatalf("%s missing string in payload %+v", key, payload)
+	}
+	if want != "" && !strings.Contains(got, want) {
+		t.Fatalf("%s = %q, want it to contain %q in payload %+v", key, got, want, payload)
+	}
 }
 
 func assertMCPRetrievalResult(t *testing.T, response map[string]any, branch, id, text string) {

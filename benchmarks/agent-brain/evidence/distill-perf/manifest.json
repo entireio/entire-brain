@@ -16,6 +16,14 @@
     "serial_run": "sha256:963c4862f604da8ea8bbd3650e0b9c4486bcdce59651033ee4a1a90a09271e21",
     "parallel_run": "sha256:d065d8daf51d1259947279ed47ef7f679b445dfb22288f1f84396adc262d6574"
   },
+  "source_sha256": {
+    "internal/cli/distill.go": "sha256:3ed50065343ec866616b35f4c63aab0d30f9b511ffdc0060e829971381b5d91a",
+    "internal/cli/distill_cmd.go": "sha256:77814a2e061b75cc2110321d902b0bdc44002b54c67eff750eba17a9b9a261eb",
+    "internal/cli/distill_test.go": "sha256:fcf0491e34dc42b0ab054fe5c91f00f9b573af37abd83240d04004625e9118f5",
+    "internal/cli/distill_cmd_test.go": "sha256:122e19e4ac4293b496c68166117e56eea2662dab3584ad45aede881c7a2441d1",
+    "benchmarks/agent-brain/audit_distill_perf.py": "sha256:76cdadbd5fd62f39f6cbd6cc0ea357f6b2e6d590e19e3fc553a6bce3f398a1a5",
+    "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py": "sha256:a7bd42a7de1b482b79c3a757034714eee0b77826ad500e6e82806577f2a611ba"
+  },
   "commands": {
     "dry_run": [
       "entire-brain",

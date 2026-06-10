@@ -21,11 +21,14 @@ from typing import Any
 CLAIM_SCOPE = "mcp_radar_tool_contract"
 
 RADAR_TOOL_SOURCE_PATHS = [
+    "benchmarks/agent-brain/audit_radar_tool_evidence.py",
+    "benchmarks/agent-brain/record_radar_tool_evidence.py",
     "internal/cli/retrieve.go",
     "internal/cli/retrieve_cmd.go",
     "internal/cli/retrieve_test.go",
     "internal/cli/regression.go",
     "internal/cli/regression_test.go",
+    "internal/cli/regression_unix_test.go",
     "internal/cli/mcp.go",
     "internal/cli/mcp_test.go",
     "internal/cli/workspace.go",
@@ -48,11 +51,13 @@ REQUIRED_TESTS = [
     "TestRegressionAssignmentDeletionReportsSameNameReceiverMethods",
     "TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction",
     "TestRegressionDedupeRankPrefersBoostedCallDeletion",
+    "TestRegressionScanHistoryClosesFilesDuringLargeWalk",
     "TestMCPInitializeAndToolsList",
     "TestMCPToolsListIncludesRegressions",
     "TestMCPToolsListIncludesQMDRetrievalSurface",
     "TestMCPToolsListAdvertisesStaleBlindSpots",
     "TestMCPToolSchemasRejectAdditionalProperties",
+    "TestMCPToolSchemasMatchArgumentValidator",
     "TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet",
     "TestMCPRejectsInvalidBooleanArguments",
     "TestMCPRejectsInvalidStringAndUnknownArguments",

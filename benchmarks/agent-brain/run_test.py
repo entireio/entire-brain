@@ -3237,6 +3237,15 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
     def _sha256(self, path: pathlib.Path) -> str:
         return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
+    def _write_distill_source_fixture(self, repo_root: pathlib.Path) -> dict[str, str]:
+        hashes: dict[str, str] = {}
+        for rel in audit_distill_perf.DISTILL_PERF_SOURCE_PATHS:
+            path = repo_root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"source fixture for {rel}\n")
+            hashes[rel] = self._sha256(path)
+        return hashes
+
     def _write_ollama_contract_fixture(self, root: pathlib.Path, *, failed_test: str | None = None) -> pathlib.Path:
         path = root / "go-test-internal-cli-ollama-distill.jsonl"
         package = "github.com/ashtom/entire-brain/internal/cli"
@@ -3316,6 +3325,7 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
         parallel = run(4, 4, parallel_seconds)
         if mismatch:
             parallel["facts"] = 79
+        source_hashes = self._write_distill_source_fixture(root)
         dry_path = root / "dry-run.json"
         serial_path = root / "jobs-1.json"
         parallel_path = root / "jobs-4.json"
@@ -3341,6 +3351,7 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
                 "serial_run": self._sha256(serial_path),
                 "parallel_run": self._sha256(parallel_path),
             },
+            "source_sha256": source_hashes,
             "commands": {
                 "dry_run": ["entire", "brain", "distill", "--dry-run", "--json", "--agent", "ollama", "--model", "llama3.2", "--force", "--jobs", "1", "--max-chunk-bytes", "32000", "--confidence", "0.75"],
                 "serial_run": ["entire", "brain", "distill", "--json", "--agent", "ollama", "--model", "llama3.2", "--force", "--jobs", "1", "--max-chunk-bytes", "32000", "--confidence", "0.75"],
@@ -3368,8 +3379,9 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
             self.assertTrue(report["release_evidence"], report)
             self.assertGreaterEqual(report["speedup"], 1.25)
             self.assertEqual(report["target"]["repo"], "github.com/example/large-repo")
+            self.assertEqual(report["source_hashes"]["matched_paths"], audit_distill_perf.DISTILL_PERF_SOURCE_PATHS)
             self.assertEqual(len(report["local_ollama_contract"]["passed_required_tests"]), len(audit_distill_perf.DISTILL_OLLAMA_REQUIRED_TESTS))
-            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 0)
+            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--repo-root", root, "--out-dir", out, "--fail-on-flags"]), 0)
             self.assertTrue((pathlib.Path(out) / "distill-perf-audit-report.json").exists())
 
     def test_distill_perf_audit_accepts_omitted_zero_cache_hits(self):
@@ -3392,12 +3404,12 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
     def test_distill_perf_audit_rejects_weak_speedup_or_mismatched_output(self):
         with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
             manifest = self._write_distill_perf_fixture(pathlib.Path(root), speedup=1.05)
-            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
+            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--repo-root", root, "--out-dir", out, "--fail-on-flags"]), 1)
             weak = json.loads((pathlib.Path(out) / "distill-perf-audit-report.json").read_text())
             self.assertTrue(any(flag.startswith("speedup ") for flag in weak["flags"]))
 
             manifest = self._write_distill_perf_fixture(pathlib.Path(root), mismatch=True)
-            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
+            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--repo-root", root, "--out-dir", out, "--fail-on-flags"]), 1)
             mismatch = json.loads((pathlib.Path(out) / "distill-perf-audit-report.json").read_text())
             self.assertIn("serial/parallel mismatch: facts", mismatch["flags"])
 
@@ -3409,11 +3421,22 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
             data["artifact_sha256"]["serial_run"] = "sha256:" + "0" * 64
             data["commands"]["parallel_run"] = ["entire", "brain", "distill", "--json", "--agent", "auto", "--force", "--jobs", "4", "--confidence", "0.75"]
             manifest.write_text(json.dumps(data))
-            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
+            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--repo-root", root, "--out-dir", out, "--fail-on-flags"]), 1)
             report = json.loads((pathlib.Path(out) / "distill-perf-audit-report.json").read_text())
             self.assertIn("artifact_sha256.serial_run mismatch", report["flags"])
             self.assertIn("commands.parallel_run: --agent must match artifact agent", report["flags"])
             self.assertIn("commands.parallel_run: --max-chunk-bytes must match artifact max_chunk_bytes", report["flags"])
+
+    def test_distill_perf_audit_rejects_source_hash_drift(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_distill_perf_fixture(root_path)
+            changed = root_path / audit_distill_perf.DISTILL_PERF_SOURCE_PATHS[0]
+            changed.write_text(changed.read_text() + "changed after evidence capture\n")
+
+            report = audit_distill_perf.audit_distill_perf_manifest(manifest)
+            self.assertFalse(report["release_evidence"], report)
+            self.assertIn(f"source_sha256.{audit_distill_perf.DISTILL_PERF_SOURCE_PATHS[0]} mismatch", report["flags"])
 
     def test_distill_perf_audit_requires_target_provenance(self):
         with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
@@ -3431,7 +3454,7 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
             data["target"]["brain_manifest_sha256"] = "sha256:not64hex"
             data["target"]["claim_scope"] = ""
             manifest.write_text(json.dumps(data))
-            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
+            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--repo-root", root, "--out-dir", out, "--fail-on-flags"]), 1)
             report = json.loads((pathlib.Path(out) / "distill-perf-audit-report.json").read_text())
             self.assertIn("target.source_head must be a 40-character git commit", report["flags"])
             self.assertIn("target.brain_manifest_sha256 must be sha256:<64 hex>", report["flags"])
