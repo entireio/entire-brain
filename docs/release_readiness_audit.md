@@ -33,7 +33,7 @@ Implemented claim-control surfaces:
 - `benchmarks/agent-brain/audit_distill_perf.py` audits retained performance
   artifacts for release proof: one dry-run JSON, one timed `--jobs 1` summary,
   and one timed `--jobs N` summary. It requires matching agent/model/branch/force
-  / chunk / confidence config, retained artifact hashes, retained command-token
+  / max-chunk-bytes / confidence config, retained artifact hashes, retained command-token
   provenance with an explicit non-`auto` agent, target provenance
   (`repo`, `repo_key`, `source_head`, `brain_manifest_sha256`, and
   `claim_scope`), no missing transcripts, branch totals that add up, matching
@@ -126,8 +126,9 @@ brain has no durable facts. This validates the offline eval plumbing and the
 token-cost contrast, but it is not facts-vs-raw release proof.
 
 Blocked evidence collection: paired `facts eval` runs for `facts`, `history`,
-`query`, and `raw-sessions` over the same labeled or explicitly proxy-authorized
-task set are still required.
+`query`, and `raw-sessions` over the same proof-labeled task set are still
+required. Proxy-authorized/source-overlap task sets are useful smoke evidence,
+but they are intentionally rejected by `mise run facts:evidence`.
 
 Local collection recipe:
 
@@ -497,11 +498,13 @@ depend on retained evidence artifacts.
 `mise run release:readiness` is the local release-claim gate. It runs
 `mise run check`, `mise run release:evidence`, `mise run radar:evidence`,
 `mise run distill:evidence`, `mise run facts:evidence`, and
-`mise run semantic:evidence`. It is expected to fail until distill performance
-and facts-vs-raw retained artifacts exist, which keeps "distill is fast" and
-"facts beat raw sessions" claims blocked instead of hidden behind a green
-implementation check. Semantic freshness is locally green; semantic usefulness
-claims still need separate retained benchmark proof before they should ship.
+`mise run semantic:evidence`, continuing after individual failures and printing
+the complete failing-task summary at the end. It is expected to fail until
+distill performance and facts-vs-raw retained artifacts exist, which keeps
+"distill is fast" and "facts beat raw sessions" claims blocked instead of hidden
+behind a green implementation check or an earlier fail-fast blocker. Semantic
+freshness is locally green; semantic usefulness claims still need separate
+retained benchmark proof before they should ship.
 
 `mise run radar:screen` is the calibration check for local `pilot-radar-*`
 suites. Earlier 2026-06-10 calibration runs saturated, but the retained
@@ -538,14 +541,14 @@ repo/access/artifacts are available:
   more than 24 hours.
 - Paired timed `entire brain distill --agent <agent> --jobs 1 --json` and
   `--jobs N --json` runs on the same target repo/cache state, same
-  agent/model/effort, with the dry-run JSON, manifest timing fields, and
-  external wall-clock artifacts retained. The retained manifest must identify
-  the measured repo and claim scope so the evidence cannot be reused for an
-  unrelated frontend/large-repo claim. These artifacts must pass
+  agent/model/effort/max-chunk-bytes, with the dry-run JSON, manifest timing
+  fields, and external wall-clock artifacts retained. The retained manifest must
+  identify the measured repo and claim scope so the evidence cannot be reused
+  for an unrelated frontend/large-repo claim. These artifacts must pass
   `mise run distill:evidence` before a speedup claim is release-citable.
 - Paired `entire brain facts eval --retriever facts|history|query|raw-sessions`
-  runs over the same labeled or explicitly proxy-allowed task set, same task
-  hash, and same brain manifest hash.
+  runs over the same proof-labeled task set, same task hash, and same brain
+  manifest hash. Proxy-allowed runs remain smoke/calibration only.
 - Additional Regression Radar evidence for other tasks/repos remains useful,
   especially workspace Radar, but the first citable Radar claim is now retained:
   `release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress`.

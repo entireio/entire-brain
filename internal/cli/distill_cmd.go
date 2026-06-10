@@ -239,6 +239,7 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&distillOpts.effort, "effort", "", "Override the reasoning effort for codex/claude-code (e.g. low)")
 	cmd.Flags().BoolVar(&distillOpts.dryRun, "dry-run", false, "Estimate distill work without calling an agent or writing facts")
 	cmd.Flags().IntVar(&distillOpts.jobs, "jobs", 1, "Parallel extraction jobs; reconciliation and writes remain deterministic")
+	cmd.Flags().IntVar(&distillOpts.maxChunkBytes, "max-chunk-bytes", defaultDistillChunkSize, "Maximum preprocessed transcript bytes per extraction call")
 	return cmd
 }
 
@@ -256,6 +257,9 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	}
 	if distillOpts.jobs <= 0 {
 		return fmt.Errorf("--jobs must be greater than 0")
+	}
+	if distillOpts.maxChunkBytes <= 0 {
+		return fmt.Errorf("--max-chunk-bytes must be greater than 0")
 	}
 	if distillOpts.dryRun {
 		report, err := buildDistillDryRunReport(storage.BrainDir, distillOpts, opts.Now().UTC())

@@ -2087,7 +2087,12 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
                     "tasks_sha256": self.TASKS_SHA,
                     "brain_manifest_sha256": self.BRAIN_SHA,
                 },
-                "results": [{"id": "task-1"}],
+                "results": [{
+                    "id": "task-1",
+                    "labeled": True,
+                    "relevance_source": "explicit_label",
+                    "label_source": "human",
+                }],
             }))
         (root / "raw-vs-facts.compare.json").write_text(json.dumps({
             "n": 12,
@@ -2163,6 +2168,32 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             report = audit_facts_eval.audit_facts_eval_manifest(manifest)
             self.assertFalse(report["release_evidence"], report)
             self.assertIn("missing summary for retriever query", report["flags"])
+
+    def test_facts_eval_audit_rejects_shortened_required_retrievers(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            data = json.loads(manifest.read_text())
+            data["required_retrievers"] = ["facts", "raw-sessions"]
+            manifest.write_text(json.dumps(data))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+            self.assertFalse(report["release_evidence"], report)
+            self.assertIn("required_retrievers missing canonical retrievers: history, query", report["flags"])
+
+    def test_facts_eval_audit_rejects_stale_compare_claiming_proof_labels(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            facts = json.loads((root_path / "facts.json").read_text())
+            facts["results"][0]["labeled"] = False
+            facts["results"][0]["relevance_source"] = "source_match"
+            facts["results"][0]["label_source"] = "provenance_silver"
+            (root_path / "facts.json").write_text(json.dumps(facts))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+            self.assertFalse(report["release_evidence"], report)
+            self.assertTrue(any(flag.startswith("facts: 1 result(s) are not human/judge_refined explicit proof labels") for flag in report["flags"]), report["flags"])
 
     def test_facts_eval_audit_rejects_summary_hash_mismatch(self):
         with tempfile.TemporaryDirectory() as root:
@@ -2273,9 +2304,9 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
                 "parallel_run": self._sha256(parallel_path),
             },
             "commands": {
-                "dry_run": ["entire", "brain", "distill", "--dry-run", "--json", "--agent", "ollama", "--model", "llama3.2", "--force", "--jobs", "1", "--confidence", "0.75"],
-                "serial_run": ["entire", "brain", "distill", "--json", "--agent", "ollama", "--model", "llama3.2", "--force", "--jobs", "1", "--confidence", "0.75"],
-                "parallel_run": ["entire", "brain", "distill", "--json", "--agent", "ollama", "--model", "llama3.2", "--force", "--jobs", "4", "--confidence", "0.75"],
+                "dry_run": ["entire", "brain", "distill", "--dry-run", "--json", "--agent", "ollama", "--model", "llama3.2", "--force", "--jobs", "1", "--max-chunk-bytes", "32000", "--confidence", "0.75"],
+                "serial_run": ["entire", "brain", "distill", "--json", "--agent", "ollama", "--model", "llama3.2", "--force", "--jobs", "1", "--max-chunk-bytes", "32000", "--confidence", "0.75"],
+                "parallel_run": ["entire", "brain", "distill", "--json", "--agent", "ollama", "--model", "llama3.2", "--force", "--jobs", "4", "--max-chunk-bytes", "32000", "--confidence", "0.75"],
             },
             "min_speedup": 1.25,
         }))
@@ -2315,6 +2346,7 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
             report = json.loads((pathlib.Path(out) / "distill-perf-audit-report.json").read_text())
             self.assertIn("artifact_sha256.serial_run mismatch", report["flags"])
             self.assertIn("commands.parallel_run: --agent must match artifact agent", report["flags"])
+            self.assertIn("commands.parallel_run: --max-chunk-bytes must match artifact max_chunk_bytes", report["flags"])
 
     def test_distill_perf_audit_requires_target_provenance(self):
         with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:

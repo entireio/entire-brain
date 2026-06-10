@@ -238,13 +238,26 @@ exit "$rc"
 [tasks."release:readiness"]
 description = "Run the full local release-readiness gate, including retained evidence checks"
 run = '''
-set -e
-mise run check
-mise run release:evidence
-mise run radar:evidence
-mise run distill:evidence
-mise run facts:evidence
-mise run semantic:evidence
+set +e
+failures=0
+failed=""
+for task in check release:evidence radar:evidence distill:evidence facts:evidence semantic:evidence; do
+  echo "==> mise run $task"
+  mise run "$task"
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    echo "PASS $task"
+  else
+    echo "FAIL $task (exit $rc)" >&2
+    failures=$((failures + 1))
+    failed="${failed}${failed:+, }$task"
+  fi
+done
+if [ "$failures" -ne 0 ]; then
+  echo "release readiness failed: $failed" >&2
+  exit 1
+fi
+echo "release readiness passed"
 '''
 
 [tasks.build]

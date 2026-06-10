@@ -161,6 +161,8 @@ def validate_command(key: str, tokens: list[str], record: dict[str, Any], flags:
         require_flag(tokens, "--force", label, flags)
     if str(record.get("jobs")) != str(flag_value(tokens, "--jobs")):
         flags.append(f"{label}: --jobs must match artifact jobs")
+    if str(record.get("max_chunk_bytes")) != str(flag_value(tokens, "--max-chunk-bytes")):
+        flags.append(f"{label}: --max-chunk-bytes must match artifact max_chunk_bytes")
     if str(record.get("confidence_threshold")) != str(flag_value(tokens, "--confidence")):
         flags.append(f"{label}: --confidence must match artifact confidence_threshold")
 
@@ -210,7 +212,7 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
 
     if dry.get("schema_version") != 1:
         flags.append("dry_run: schema_version must be 1")
-    for field in ("sessions", "sessions_to_distill", "chunks", "chunks_if_uncached", "raw_bytes", "preprocessed_bytes", "extraction_agent_calls", "estimated_agent_calls_upper_bound"):
+    for field in ("sessions", "sessions_to_distill", "chunks", "chunks_if_uncached", "raw_bytes", "preprocessed_bytes", "extraction_agent_calls", "estimated_agent_calls_upper_bound", "max_chunk_bytes"):
         if not positive_number(dry.get(field)):
             flags.append(f"dry_run: {field} must be positive")
     if dry.get("missing_transcripts") != 0:
@@ -242,6 +244,8 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             flags.append(f"{label}: agent/model/branch/force/chunk/confidence config differs from dry_run")
         if run.get("jobs") is None or run.get("effective_extraction_jobs") is None:
             flags.append(f"{label}: jobs and effective_extraction_jobs are required")
+        if not positive_number(run.get("max_chunk_bytes")):
+            flags.append(f"{label}: max_chunk_bytes must be positive")
         if not positive_number(run.get("total_seconds")):
             flags.append(f"{label}: total_seconds must be positive")
         for field in ("extraction_seconds", "reconcile_seconds", "write_seconds"):

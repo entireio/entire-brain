@@ -17,6 +17,8 @@ from typing import Any
 
 DEFAULT_REQUIRED_RETRIEVERS = ["facts", "history", "query", "raw-sessions"]
 SHA256_VALUE_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+PROOF_LABEL_SOURCES = {"human", "judge_refined"}
+RELEVANCE_PROOF_METRICS = {"precision", "recall", "useful_per_1k"}
 
 
 def get(d: Any, *path: str, default: Any = None) -> Any:
@@ -76,6 +78,35 @@ def compare_hash_fields(comp: dict[str, Any], tasks_sha: str, brain_sha: str, fl
             flags.append(f"{name}: {side}_brain_manifest_sha256 mismatch")
 
 
+def proof_label_summary_flags(retriever: str, summary: dict[str, Any]) -> list[str]:
+    results = summary.get("results")
+    if not isinstance(results, list) or not results:
+        return []
+    bad: list[str] = []
+    for index, result in enumerate(results):
+        if not isinstance(result, dict):
+            bad.append(f"#{index + 1}(not-object)")
+            continue
+        if (
+            result.get("labeled") is True
+            and result.get("relevance_source") == "explicit_label"
+            and result.get("label_source") in PROOF_LABEL_SOURCES
+        ):
+            continue
+        ident = str(result.get("id") or f"#{index + 1}")
+        bad.append(
+            f"{ident}(labeled={result.get('labeled')!r}, "
+            f"relevance_source={result.get('relevance_source')!r}, "
+            f"label_source={result.get('label_source')!r})"
+        )
+    if not bad:
+        return []
+    sample = ", ".join(bad[:5])
+    if len(bad) > 5:
+        sample += f", ... {len(bad) - 5} more"
+    return [f"{retriever}: {len(bad)} result(s) are not human/judge_refined explicit proof labels: {sample}"]
+
+
 def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
     manifest_path = manifest_path.resolve()
     root = manifest_path.parent
@@ -87,6 +118,9 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
     required_retrievers = manifest.get("required_retrievers", DEFAULT_REQUIRED_RETRIEVERS)
     if not isinstance(required_retrievers, list) or not all(isinstance(r, str) and r for r in required_retrievers):
         raise SystemExit("facts eval manifest required_retrievers must be a string list")
+    missing_canonical = [r for r in DEFAULT_REQUIRED_RETRIEVERS if r not in required_retrievers]
+    if missing_canonical:
+        flags.append("required_retrievers missing canonical retrievers: " + ", ".join(missing_canonical))
 
     summaries: dict[str, dict[str, Any]] = {}
     summary_paths: dict[str, str] = {}
@@ -153,6 +187,7 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             flags.append(f"{name}: metrics must be non-empty")
 
     claim_reports: list[dict[str, Any]] = []
+    proof_checked_retrievers: set[str] = set()
     for claim in manifest.get("required_claims") or []:
         if not isinstance(claim, dict):
             flags.append("required_claims entries must be objects")
@@ -179,6 +214,18 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             flags.append(f"{name}: a_retriever is {comp.get('a_retriever')!r}, want {expected_a!r}")
         if expected_b and comp.get("b_retriever") != expected_b:
             flags.append(f"{name}: b_retriever is {comp.get('b_retriever')!r}, want {expected_b!r}")
+        if expected_basis == "proof_labels" and metric_name in RELEVANCE_PROOF_METRICS:
+            for retriever in (comp.get("a_retriever"), comp.get("b_retriever")):
+                if not isinstance(retriever, str) or not retriever:
+                    continue
+                if retriever in proof_checked_retrievers:
+                    continue
+                proof_checked_retrievers.add(retriever)
+                summary = summaries.get(retriever)
+                if summary is None:
+                    flags.append(f"{name}: proof-label claim references missing summary for retriever {retriever}")
+                    continue
+                flags.extend(proof_label_summary_flags(retriever, summary))
         if metric.get("evidence_basis") != expected_basis:
             flags.append(f"{name}: {metric_name} evidence_basis is {metric.get('evidence_basis')!r}, want {expected_basis!r}")
         if expected_winner and metric.get("winner") != expected_winner:

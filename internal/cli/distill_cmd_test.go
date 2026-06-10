@@ -515,6 +515,62 @@ func TestDistillDryRunRejectsInvalidJobs(t *testing.T) {
 	}
 }
 
+func TestDistillDryRunMaxChunkBytesFlagControlsAgentCallEstimate(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	repoDir := t.TempDir()
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "git@github.com:example/repo.git\n"},
+	}}
+	opts := Options{
+		Version: "test",
+		Env: EntireEnv{
+			RepoRoot:        repoDir,
+			PluginConfigDir: t.TempDir(),
+			PluginDataDir:   t.TempDir(),
+			PluginStateDir:  t.TempDir(),
+			PluginCacheDir:  t.TempDir(),
+		},
+		Runner: runner,
+		Now:    func() time.Time { return now },
+	}
+	storage, err := repoStoragePaths(context.Background(), runner, opts.Env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	writeDistillParallelFixtureAt(t, storage.BrainDir, now)
+
+	smallOut, err := execute(t, NewRootCommand(opts), "distill", "--dry-run", "--json", "--max-chunk-bytes", "24")
+	if err != nil {
+		t.Fatalf("small-chunk dry-run: %v\n%s", err, smallOut)
+	}
+	largeOut, err := execute(t, NewRootCommand(opts), "distill", "--dry-run", "--json", "--max-chunk-bytes", "4096")
+	if err != nil {
+		t.Fatalf("large-chunk dry-run: %v\n%s", err, largeOut)
+	}
+	var small, large distillDryRunReport
+	if err := json.Unmarshal([]byte(smallOut), &small); err != nil {
+		t.Fatalf("parse small dry-run JSON: %v\n%s", err, smallOut)
+	}
+	if err := json.Unmarshal([]byte(largeOut), &large); err != nil {
+		t.Fatalf("parse large dry-run JSON: %v\n%s", err, largeOut)
+	}
+	if small.MaxChunkBytes != 24 || large.MaxChunkBytes != 4096 {
+		t.Fatalf("dry-run reports did not preserve max_chunk_bytes: small=%d large=%d", small.MaxChunkBytes, large.MaxChunkBytes)
+	}
+	if small.Chunks <= large.Chunks {
+		t.Fatalf("larger chunks should reduce scheduled extraction calls: small=%d large=%d", small.Chunks, large.Chunks)
+	}
+
+	out, err := execute(t, NewRootCommand(opts), "distill", "--dry-run", "--max-chunk-bytes", "0")
+	if err == nil {
+		t.Fatalf("distill dry-run --max-chunk-bytes 0 succeeded unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "--max-chunk-bytes must be greater than 0") {
+		t.Fatalf("wrong error for invalid max chunk bytes: %v\n%s", err, out)
+	}
+}
+
 func TestDistillNoEgressRejectsHostedAgentsBeforeProbe(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
 	repoDir := t.TempDir()
@@ -680,6 +736,12 @@ func TestRunDistillForBrainParallelExtractionMatchesSerial(t *testing.T) {
 func writeDistillParallelFixture(t *testing.T, now time.Time) string {
 	t.Helper()
 	brainDir := t.TempDir()
+	writeDistillParallelFixtureAt(t, brainDir, now)
+	return brainDir
+}
+
+func writeDistillParallelFixtureAt(t *testing.T, brainDir string, now time.Time) {
+	t.Helper()
 	sessions := []exportSession{
 		{SessionID: "s1", Branch: "main", LatestCheckpoint: "cp1", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: now.Add(-2 * time.Hour)},
 		{SessionID: "s2", Branch: "main", LatestCheckpoint: "cp2", TranscriptPath: "sessions/main/s2.jsonl", CreatedAt: now.Add(-1 * time.Hour)},
@@ -712,7 +774,6 @@ func writeDistillParallelFixture(t *testing.T, now time.Time) string {
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
 		t.Fatal(err)
 	}
-	return brainDir
 }
 
 func distillParallelFixtureOutput(input []byte) string {
