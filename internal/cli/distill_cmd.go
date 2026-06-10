@@ -547,10 +547,15 @@ func commitDistillResultsLocked(ctx context.Context, repoDir, brainDir string, d
 			// Reconcile the chunk's candidates against the branch's active facts
 			// so near-duplicates merge and contradictions supersede instead of
 			// piling up. Low-confidence decisions are queued for review.
-			if existing, _ := activeFactsAtPaths(byBranch[branch], candidatePathSet(records)); len(existing) > 0 {
+			reconcileCalled := false
+			countingReconcileRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+				reconcileCalled = true
+				return distillOpts.run(ctx, dir, args, input, timeout)
+			}
+			actions, recWarnings := reconcileChunkCandidates(ctx, countingReconcileRun, prep.ReconcileArgs, records, byBranch[branch], repoDir, distillOpts.timeout)
+			if reconcileCalled {
 				reconcileAgentCalls++
 			}
-			actions, recWarnings := reconcileChunkCandidates(ctx, distillOpts.run, prep.ReconcileArgs, records, byBranch[branch], repoDir, distillOpts.timeout)
 			warnings = append(warnings, recWarnings...)
 			var chunkProposals []factProposal
 			byBranch[branch], chunkProposals = applyFactActions(byBranch[branch], actions, prep.Threshold, now)

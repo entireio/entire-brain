@@ -51,6 +51,21 @@ func TestMCPToolsListIncludesRegressions(t *testing.T) {
 	}
 }
 
+func TestMCPToolsListAdvertisesStaleBlindSpots(t *testing.T) {
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	data, _ := json.Marshal(responses[0]["result"])
+	for _, want := range []string{"brain_stale", "blind_spots", "semantic blind spots"} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("tools/list missing %q: %s", want, data)
+		}
+	}
+}
+
 func TestMCPBrainRegressionsTool(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -89,16 +104,25 @@ func TestMCPBrainRegressionsTool(t *testing.T) {
 	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
-	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"fix scopeBaseRef base scope review","limit":5}}}`)
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"fix scopeBaseRef base scope review","limit":5}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"fix scopeBaseRef base scope review","limit":5,"location_only":true}}}`)
 	var out bytes.Buffer
 	if err := runMCP(cmd.Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp: %v", err)
 	}
-	data, _ := json.Marshal(readMCPResponses(t, out.String()))
+	responses := readMCPResponses(t, out.String())
+	data, _ := json.Marshal(responses)
 	for _, want := range []string{"review_context.go", "changed", "master..HEAD"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("brain_regressions result missing %q: %s", want, data)
 		}
+	}
+	locData, _ := json.Marshal(responses[1])
+	if !strings.Contains(string(locData), "review_context.go") {
+		t.Fatalf("brain_regressions location_only dropped file location: %s", locData)
+	}
+	if strings.Contains(string(locData), "master..HEAD") || strings.Contains(string(locData), `scopeBaseRef+`) {
+		t.Fatalf("brain_regressions location_only leaked expected/current values: %s", locData)
 	}
 }
 
@@ -187,7 +211,8 @@ func TestMCPBrainWorkspaceReviewTool(t *testing.T) {
 	}
 
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`) +
-		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_workspace_review","arguments":{"workspace":"related","query":"review scopeBaseRef base scope"}}}`)
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_workspace_review","arguments":{"workspace":"related","query":"review scopeBaseRef base scope"}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_workspace_regressions","arguments":{"workspace":"related","query":"fix scopeBaseRef base scope","location_only":true}}}`)
 	var out bytes.Buffer
 	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp: %v", err)
@@ -204,6 +229,15 @@ func TestMCPBrainWorkspaceReviewTool(t *testing.T) {
 		if !strings.Contains(string(callData), want) {
 			t.Fatalf("brain_workspace_review result missing %q: %s", want, callData)
 		}
+	}
+	regData, _ := json.Marshal(responses[2])
+	for _, want := range []string{"review_context.go", "gh/example/repoa", "anomalies"} {
+		if !strings.Contains(string(regData), want) {
+			t.Fatalf("brain_workspace_regressions result missing %q: %s", want, regData)
+		}
+	}
+	if strings.Contains(string(regData), "master..HEAD") || strings.Contains(string(regData), `scopeBaseRef+`) {
+		t.Fatalf("brain_workspace_regressions location_only leaked expected/current values: %s", regData)
 	}
 }
 

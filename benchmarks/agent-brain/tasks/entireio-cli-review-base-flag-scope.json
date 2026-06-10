@@ -29,6 +29,12 @@
     "go.mod",
     "go.sum"
   ],
+  "agent_hidden_paths": [
+    "benchmarks/agent-brain"
+  ],
+  "leak_markers": [
+    "release-radar-review-base-scope-canary-20260610T0500Z"
+  ],
   "brain_queries": [
     "reviewContextCommitMessages",
     "scopeBaseRef",

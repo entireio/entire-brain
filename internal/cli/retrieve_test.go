@@ -213,6 +213,96 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 	}
 }
 
+func TestQMDHelpContractsForRetrievalVerbs(t *testing.T) {
+	for _, tc := range []struct {
+		verb string
+		want []string
+	}{
+		{verb: "search", want: []string{"--format string", "--json", "--limit int", "-n, --number int", "--branch string"}},
+		{verb: "vsearch", want: []string{"--format string", "--json", "--limit int", "-n, --number int", "--branch string"}},
+		{verb: "query", want: []string{"--format string", "--json", "--limit int", "-n, --number int", "--branch string"}},
+		{verb: "get", want: []string{"--format string", "--json", "--branch string"}},
+		{verb: "multi-get", want: []string{"--format string", "--json", "--branch string"}},
+	} {
+		t.Run(tc.verb, func(t *testing.T) {
+			out, err := execute(t, NewRootCommand(Options{Version: "test"}), tc.verb, "--help")
+			if err != nil {
+				t.Fatalf("%s --help: %v\n%s", tc.verb, err, out)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Fatalf("%s --help missing %q:\n%s", tc.verb, want, out)
+				}
+			}
+			if (tc.verb == "get" || tc.verb == "multi-get") && strings.Contains(out, "-n, --number") {
+				t.Fatalf("%s --help should not expose result-count alias:\n%s", tc.verb, out)
+			}
+		})
+	}
+}
+
+func TestQMDFormatCLIOverridesJSONAndReportsMissingIDs(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	paths := normalizeFactPaths([]string{"architecture.data.flow"})
+	fact := factRecord{
+		ID:        factRecordID("alpha cli output contract", paths),
+		Text:      "alpha cli output contract",
+		Paths:     paths,
+		Branch:    "feature",
+		Status:    factStatusActive,
+		UpdatedAt: now,
+	}
+	if err := writeFacts(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := execute(t, NewRootCommand(opts), "search", "alpha", "--json", "--format", "cli", "-n", "1")
+	if err != nil {
+		t.Fatalf("search --format cli: %v\n%s", err, out)
+	}
+	if json.Valid([]byte(out)) {
+		t.Fatalf("--format cli should force human-readable output even with --json:\n%s", out)
+	}
+	for _, want := range []string{"[fact]", fact.ID, "alpha cli output contract"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("CLI search output missing %q:\n%s", want, out)
+		}
+	}
+
+	getOut, err := execute(t, NewRootCommand(opts), "get", "fact:missing", "--format", "json")
+	if err != nil {
+		t.Fatalf("get missing --format json: %v\n%s", err, getOut)
+	}
+	var getPayload struct {
+		Results []unifiedResult `json:"results"`
+		Missing []string        `json:"missing"`
+	}
+	if err := json.Unmarshal([]byte(getOut), &getPayload); err != nil {
+		t.Fatalf("decode missing get JSON: %v\n%s", err, getOut)
+	}
+	if len(getPayload.Results) != 0 || len(getPayload.Missing) != 1 || getPayload.Missing[0] != "fact:missing" {
+		t.Fatalf("unexpected missing get payload: %+v", getPayload)
+	}
+
+	multiOut, err := execute(t, NewRootCommand(opts), "multi-get", fact.ID, "fact:missing", "--format", "cli")
+	if err != nil {
+		t.Fatalf("multi-get --format cli: %v\n%s", err, multiOut)
+	}
+	for _, want := range []string{fact.ID, "not found: fact:missing"} {
+		if !strings.Contains(multiOut, want) {
+			t.Fatalf("CLI multi-get output missing %q:\n%s", want, multiOut)
+		}
+	}
+}
+
 func TestQMDUnsupportedFormatRejectedAcrossRetrievalVerbs(t *testing.T) {
 	for _, tc := range []struct {
 		name string

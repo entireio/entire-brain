@@ -56,6 +56,19 @@ than risk mis-parsing. Additive, backward-compatible fields do not bump the vers
 `--location-only` (CLI) / `location_only` (MCP) blanks `expected`/`current`/`reason`, handing the
 suspected site but not the fix — so a fair A/B measures detection, not answer-pasting.
 
+## Evidence Status
+
+The contract is implemented and covered locally: CLI and MCP tests exercise
+`brain_regressions`, `brain_review`, `brain_workspace_regressions`, and
+`brain_workspace_review`, including `location_only` checks that preserve the
+file/line while not leaking expected/current fix values.
+
+Release evidence is not retained yet. The committed
+`release-entire-cli-radar-mcp-review-base-scope` panel is the reproducible lane:
+it sets `BENCH_RADAR_LOCATION_ONLY=1`, runs `no_brain` vs `mcp_history`, and is
+intended to graduate only if the independent audit sees zero hard flags,
+MCP-verified records, and a proof-ready `mcp_radar_location_only` comparison.
+
 ## Consumer 1 — `entire review` (cli; prototyped, not landed)
 
 When entire-brain is installed and the review scope is empty (no commits unique to the branch and no

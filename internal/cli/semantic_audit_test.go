@@ -192,7 +192,7 @@ func TestSemanticAuditCommandJSON(t *testing.T) {
 	}
 }
 
-func TestSemanticAuditFailOnUnsafeEmitsJSONBeforeError(t *testing.T) {
+func TestSemanticAuditFailOnUnsafeAndReleaseEmitJSONBeforeError(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
@@ -227,17 +227,21 @@ func TestSemanticAuditFailOnUnsafeEmitsJSONBeforeError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := NewRootCommand(opts)
-	out, err := execute(t, cmd, "semantic-audit", "--json", "--fail-on", "unsafe")
-	if err == nil || !errors.Is(err, errSemanticAuditGate) {
-		t.Fatalf("expected semantic audit gate error, got %v\n%s", err, out)
-	}
-	var report semanticAuditReport
-	if err := json.Unmarshal([]byte(out), &report); err != nil {
-		t.Fatalf("decode audit JSON after gate failure: %v\n%s", err, out)
-	}
-	if report.Freshness.Severity != "unsafe" || report.Provider != "entire-sem" {
-		t.Fatalf("unexpected audit report before gate failure: %+v", report)
+	for _, failOn := range []string{"unsafe", "release"} {
+		t.Run(failOn, func(t *testing.T) {
+			cmd := NewRootCommand(opts)
+			out, err := execute(t, cmd, "semantic-audit", "--json", "--fail-on", failOn)
+			if err == nil || !errors.Is(err, errSemanticAuditGate) {
+				t.Fatalf("expected semantic audit gate error, got %v\n%s", err, out)
+			}
+			var report semanticAuditReport
+			if err := json.Unmarshal([]byte(out), &report); err != nil {
+				t.Fatalf("decode audit JSON after gate failure: %v\n%s", err, out)
+			}
+			if report.Freshness.Severity != "unsafe" || report.Provider != "entire-sem" {
+				t.Fatalf("unexpected audit report before gate failure: %+v", report)
+			}
+		})
 	}
 }
 

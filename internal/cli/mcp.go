@@ -148,11 +148,14 @@ func mcpToolDefinitions() []map[string]any {
 	integerArg := func(name, description string) map[string]any {
 		return map[string]any{"type": "integer", "description": description, "title": name, "minimum": 1}
 	}
+	booleanArg := func(name, description string) map[string]any {
+		return map[string]any{"type": "boolean", "description": description, "title": name}
+	}
 	return []map[string]any{
 		{
 			"name":        "brain_stale",
 			"description": "Report local semantic brain freshness for the current repository.",
-			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"blind_spots": booleanArg("blind_spots", "Include local semantic blind spots in the freshness report")}},
 		},
 		{
 			"name":        "brain_brief",

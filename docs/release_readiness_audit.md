@@ -275,8 +275,11 @@ JSON envelopes with two results. `search --help` lists both `--format` and
 Fixture-backed contract coverage: `TestQMDAliasesAcrossRetrievalVerbs` exercises
 the supported local surface across `search`, `query`, `vsearch`, `get`, and
 `multi-get`, including `--format json`, `-n` / `--number`, JSON result shapes,
-and missing-id reporting. `TestQMDUnsupportedFormatRejectedAcrossRetrievalVerbs`
-now fails every supported retrieval verb on unsupported formats, so `csv`, `md`,
+and missing-id reporting. `TestQMDHelpContractsForRetrievalVerbs` pins the help
+surface for supported verbs and aliases, while
+`TestQMDFormatCLIOverridesJSONAndReportsMissingIDs` pins human-readable output
+and missing-id behavior. `TestQMDUnsupportedFormatRejectedAcrossRetrievalVerbs`
+fails every supported retrieval verb on unsupported formats, so `csv`, `md`,
 `xml`, and other QMD formats cannot quietly produce accidental partial support.
 
 Sources checked during the local audit:
@@ -351,8 +354,8 @@ Release claims must stay local-first and evidence-backed:
 - `--format json` now requests JSON error envelopes, matching successful output
   behavior.
 - The supported QMD-inspired retrieval surface is now covered by local contract
-  tests for happy-path aliases, JSON shapes, missing ids, and rejected
-  unsupported formats.
+  tests for happy-path aliases, help text, CLI/JSON output shapes, missing ids,
+  and rejected unsupported formats.
 - The semantic benchmark task uses a portable repo path and hides expected files
   and validation from the agent prompt.
 - Benchmark validation now fails closed when a task defines zero validation
@@ -371,6 +374,14 @@ Release claims must stay local-first and evidence-backed:
   suite cannot mask a later weak semantic or facts suite. `mise run
   release:evidence` is also a pure check; report regeneration is explicit via
   `mise run release:evidence:update`.
+- MCP/Regression Radar release evidence is now separately auditable: benchmark
+  summaries carry additive `delivery_scope`/`env_flags`, the independent auditor
+  can require `minimums.mcp_verified_records`, and radar location-only delivery
+  is counted as `mcp_radar_location_only` rather than folded into generic
+  history proof.
+- The committed `release-entire-cli-radar-mcp-review-base-scope` panel encodes
+  `BENCH_RADAR_LOCATION_ONLY=1` in the panel manifest, so the fair radar run is
+  reproducible and hashed with the panel config.
 - The query default-limit benchmark tasks now target the current unified
   retrieval implementation in `internal/cli/retrieve_cmd.go`, including the
   QMD-style `-n` alias, instead of the old semantic-query implementation.
@@ -428,6 +439,14 @@ repo/access/artifacts are available:
 - Paired `entire brain facts eval --retriever facts|history|query|raw-sessions`
   runs over the same labeled or explicitly proxy-allowed task set, same task
   hash, and same brain manifest hash.
+- MCP/Regression Radar release evidence from a clean retained run of
+  `release-entire-cli-radar-mcp-review-base-scope`. Local pilots are useful for
+  calibration, but a citable claim needs 4 repetitions per side, MCP-verified
+  records, `mcp_radar_location_only` proof scope, zero hard flags, and committed
+  sanitized artifacts under `benchmarks/agent-brain/evidence/release`. Local
+  2026-06-10 pilots with `codex:gpt-5.4-mini:low` and `:medium` were both
+  saturated on pass rate (`1.0 -> 1.0`) and therefore not release proof, despite
+  large token/time reductions in the MCP/radar arm.
 - Semantic benchmark evidence from a retained proof suite. A clean local
   `semantic-audit --json --fail-on release` run after refreshing the semantic
   index is recorded above, but it is regenerated local coverage evidence, not a
@@ -443,11 +462,13 @@ repo/access/artifacts are available:
   Release mode rejects `release-local-*`, requires panel provenance, 4
   repetitions per side, zero hard flags, at least one proof-ready comparison
   overall, at least one proof-ready comparison per retained suite, and at least
-  one proof-ready comparison for each manifest-required proof scope. The
+  one proof-ready comparison for each manifest-required proof scope. Manifests
+  can also require a minimum count of integrity-verified MCP datapoints. The
   committed release lane currently requires the `history` scope only, so it
-  cannot be cited as semantic or facts proof by aggregation. The check writes
-  reports to a temp directory and compares them with committed reports; updating
-  retained reports is explicit via `mise run release:evidence:update`.
+  cannot be cited as semantic, MCP/radar, or facts proof by aggregation. The
+  check writes reports to a temp directory and compares them with committed
+  reports; updating retained reports is explicit via
+  `mise run release:evidence:update`.
 
 Historical quarantine caveat: `benchmarks/agent-brain/results/codex-audit-report.md`
 is quarantine/reference evidence, not release proof. That old results report

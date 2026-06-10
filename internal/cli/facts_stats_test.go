@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"encoding/json"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -155,6 +158,78 @@ func TestCompareEvalSummariesMissingHashesDisableReleaseClaimable(t *testing.T) 
 	}
 }
 
+func TestEvalCompareJSONMissingHashesMarksSmokeNotReleaseClaimable(t *testing.T) {
+	a := evalSummary{Retriever: evalRetrieverFacts, Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Recall: 0.1, UsefulPer1k: 1, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t2", Task: "two", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t3", Task: "three", Recall: 0.15, UsefulPer1k: 1.5, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+	}}
+	b := evalSummary{Retriever: evalRetrieverRawSessions, Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Recall: 0.22, UsefulPer1k: 2, Tokens: 80, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t2", Task: "two", Recall: 0.31, UsefulPer1k: 3.2, Tokens: 83, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t3", Task: "three", Recall: 0.24, UsefulPer1k: 2.4, Tokens: 79, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+	}}
+	dir := t.TempDir()
+	aPath := filepath.Join(dir, "a.json")
+	bPath := filepath.Join(dir, "b.json")
+	writeEvalSummaryForTest(t, aPath, a)
+	writeEvalSummaryForTest(t, bPath, b)
+
+	out, err := execute(t, newFactsEvalCompareCommand(Options{}), "--a", aPath, "--b", bPath, "--json")
+	if err != nil {
+		t.Fatalf("eval-compare json: %v\n%s", err, out)
+	}
+	var got struct {
+		ReleasePairingReady bool               `json:"release_pairing_ready"`
+		ReleaseClaimable    bool               `json:"release_claimable"`
+		ReleasePairingNote  string             `json:"release_pairing_note"`
+		Metrics             []metricComparison `json:"metrics"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("parse eval-compare json: %v\n%s", err, out)
+	}
+	if got.ReleasePairingReady || got.ReleaseClaimable {
+		t.Fatalf("missing hashes must keep comparison out of release lane: %+v", got)
+	}
+	if !strings.Contains(got.ReleasePairingNote, "missing task-file hash") || !strings.Contains(got.ReleasePairingNote, "missing brain manifest hash") {
+		t.Fatalf("missing-hash note should explain why this is smoke evidence: %+v", got)
+	}
+	for _, c := range got.Metrics {
+		if c.ReleaseClaimable {
+			t.Fatalf("metric must not be release-claimable when hashes are absent: %+v", c)
+		}
+	}
+}
+
+func TestCompareEvalSummariesPairingOverridesDisableReleaseClaimable(t *testing.T) {
+	a := evalSummary{RunConfig: &evalRunConfig{TasksSHA256: "tasks-a", BrainManifestSHA256: "brain-a"}, Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Recall: 0.1, UsefulPer1k: 1, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t2", Task: "two", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t3", Task: "three", Recall: 0.15, UsefulPer1k: 1.5, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+	}}
+	b := evalSummary{RunConfig: &evalRunConfig{TasksSHA256: "tasks-a", BrainManifestSHA256: "brain-a"}, Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Recall: 0.2, UsefulPer1k: 2, Tokens: 90, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t2", Task: "two", Recall: 0.3, UsefulPer1k: 3, Tokens: 90, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t3", Task: "three", Recall: 0.25, UsefulPer1k: 2.5, Tokens: 90, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+	}}
+	comps, n, _, _, err := compareEvalSummariesInternalWithOptions(a, b, 0.05, evalCompareOptions{AllowTaskHashMismatch: true})
+	if err != nil {
+		t.Fatalf("override comparison: %v", err)
+	}
+	if n != 3 {
+		t.Fatalf("n = %d, want 3", n)
+	}
+	for _, c := range comps {
+		if c.Significant && c.ReleaseClaimable {
+			t.Fatalf("explicit pairing override should keep significant metrics out of release claims: %+v", c)
+		}
+	}
+	note := evalCompareReleasePairingNote(a, b, evalCompareOptions{AllowTaskHashMismatch: true}, nil, nil)
+	if !strings.Contains(note, "task hash override") || !strings.Contains(note, "not release proof") {
+		t.Fatalf("override note should state this is not release proof: %q", note)
+	}
+}
+
 func TestCompareEvalSummariesRequiresMatchedTaskSets(t *testing.T) {
 	a := evalSummary{Results: []evalTaskResult{
 		{ID: "t1", Task: "one", UsefulPer1k: 1, Tokens: 100, RelevanceSource: evalRelevanceNone},
@@ -173,6 +248,17 @@ func TestCompareEvalSummariesRequiresMatchedTaskSets(t *testing.T) {
 	}
 	if len(missingFromA) != 0 || len(missingFromB) != 1 || missingFromB[0] != "t2" {
 		t.Fatalf("unexpected missing id report: missingFromA=%v missingFromB=%v", missingFromA, missingFromB)
+	}
+}
+
+func writeEvalSummaryForTest(t *testing.T, path string, summary evalSummary) {
+	t.Helper()
+	data, err := json.Marshal(summary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

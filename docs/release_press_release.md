@@ -67,14 +67,15 @@ task outcomes instead of relying on demos or anecdotes.
 ## Release Checklist
 
 - Shipped: local retrieval, semantic index consumption, durable facts, anchor
-  verification, eval harness, benchmark harness.
+  verification, MCP/Regression Radar contracts, eval harness, benchmark harness.
 - Proven locally: semantic audit coverage after refresh on this checkout,
   distill dry-run sizing, facts-eval baseline plumbing and evidence validator,
   local QMD-inspired retrieval contract tests, and one retained replay-lab
   history proof where `full_brain` improved the task score/pass-rate over
   `no_brain` without proving efficiency gains.
-- Pending proof: target large-repo distill timing, paired facts evals, semantic
-  usefulness, and broader retained replay-lab benchmark evidence.
+- Pending proof: target large-repo distill timing, paired facts evals,
+  MCP/Regression Radar retained proof, semantic usefulness, and broader retained
+  replay-lab benchmark evidence.
 - Blocked: target large-repo evidence, backend/Slack access, turn signing,
   checkpoint-time fact generation.
 - Future: distributed/shared brain, team artifact hydration, multi-agent write

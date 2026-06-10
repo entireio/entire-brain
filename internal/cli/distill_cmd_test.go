@@ -132,6 +132,82 @@ func TestRunDistillForBrainWritesFactsAndManifest(t *testing.T) {
 	}
 }
 
+func TestRunDistillForBrainReportsDistillEvidence(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+
+	paths := normalizeFactPaths([]string{"project.tooling.stack"})
+	existing := factRecord{
+		ID:        factRecordID("The project previously used Python.", paths),
+		Paths:     paths,
+		Text:      "The project previously used Python.",
+		Branch:    "main",
+		Origin:    factOriginAuthored,
+		Status:    factStatusActive,
+		CreatedAt: now.Add(-time.Hour),
+		UpdatedAt: now.Add(-time.Hour),
+	}
+	if err := writeFacts(brainDir, "main", []factRecord{existing}); err != nil {
+		t.Fatal(err)
+	}
+
+	var extractionCalls, reconcileCalls int
+	fakeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		text := string(input)
+		if strings.HasPrefix(text, "CANDIDATES\n") {
+			reconcileCalls++
+			if !strings.Contains(text, "EXISTING\n1 [project.tooling.stack] The project previously used Python.") {
+				t.Errorf("reconcile input missing existing fact: %q", text)
+			}
+			return "1 new - 1.0\n", nil
+		}
+		extractionCalls++
+		if !strings.Contains(text, "\tturn ") {
+			t.Errorf("extraction input not line-numbered: %q", text)
+		}
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	opts := distillCommandOptions{
+		agent:         "command",
+		agentCommand:  []string{"fake"},
+		model:         "small",
+		effort:        "low",
+		run:           fakeRun,
+		jobs:          3,
+		maxChunkBytes: defaultDistillChunkSize,
+		timeout:       time.Minute,
+	}
+
+	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
+	if err != nil {
+		t.Fatalf("runDistillForBrain: %v", err)
+	}
+	if extractionCalls != 2 || reconcileCalls != 1 {
+		t.Fatalf("expected 2 extraction calls and 1 reconcile call, got extraction=%d reconcile=%d", extractionCalls, reconcileCalls)
+	}
+	if source.Agent != "command" || source.Model != "small" || source.Effort != "low" {
+		t.Fatalf("manifest source missing agent identity: %+v", source)
+	}
+	if source.Jobs != 3 || source.EffectiveJobs != 2 || source.MaxChunkBytes != defaultDistillChunkSize || source.Confidence != defaultFactConfidenceThreshold {
+		t.Fatalf("manifest source missing run configuration: %+v", source)
+	}
+	if source.ExtractionCalls != extractionCalls || source.ReconcileCalls != reconcileCalls || source.TotalAgentCalls != extractionCalls+reconcileCalls {
+		t.Fatalf("manifest source missing actual agent call counts: %+v", source)
+	}
+	if source.PreprocessedBytes <= 0 || source.FailedChunks != 0 {
+		t.Fatalf("manifest source missing local run evidence: %+v", source)
+	}
+
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil || manifest.Sources == nil || manifest.Sources.Facts == nil {
+		t.Fatalf("manifest facts source not written: %v", err)
+	}
+	factsSource := manifest.Sources.Facts
+	if factsSource.Model != "small" || factsSource.Effort != "low" || factsSource.ExtractionCalls != 2 || factsSource.ReconcileCalls != 1 || factsSource.TotalAgentCalls != 3 {
+		t.Fatalf("manifest JSON summary missing distill evidence: %+v", factsSource)
+	}
+}
+
 func TestRunDistillForBrainDoesNotHoldWriteLockDuringExtraction(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := writeDistillFixture(t, now)

@@ -197,11 +197,15 @@ func semanticAuditFailureForReport(report semanticAuditReport, failOn string) er
 			return fmt.Errorf("%w: %d blind spot(s)", errSemanticAuditGate, len(report.BlindSpots))
 		}
 	case semanticAuditFailOnRelease:
+		var failures []string
 		if report.Freshness.Severity != "ok" {
-			return fmt.Errorf("%w: freshness is %s", errSemanticAuditGate, valueOrUnset(report.Freshness.Severity))
+			failures = append(failures, "freshness is "+valueOrUnset(report.Freshness.Severity))
 		}
 		if len(report.BlindSpots) > 0 {
-			return fmt.Errorf("%w: %d blind spot(s)", errSemanticAuditGate, len(report.BlindSpots))
+			failures = append(failures, fmt.Sprintf("%d blind spot(s)", len(report.BlindSpots)))
+		}
+		if len(failures) > 0 {
+			return fmt.Errorf("%w: %s", errSemanticAuditGate, strings.Join(failures, "; "))
 		}
 	default:
 		return fmt.Errorf("--fail-on must be one of: %s", semanticAuditFailOnValues())

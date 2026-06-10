@@ -2060,7 +2060,7 @@ def codex_mcp_config_args(tools: dict[str, pathlib.Path], env: dict[str, str]) -
         "--config",
         "mcp_servers.entire_brain.required=true",
         "--config",
-        'mcp_servers.entire_brain.enabled_tools=["brain_stale","brain_brief","brain_query","brain_search","brain_vsearch","brain_get","brain_multi_get","brain_context","brain_impact","brain_changes","brain_regressions"]',
+        'mcp_servers.entire_brain.enabled_tools=["brain_stale","brain_brief","brain_query","brain_search","brain_vsearch","brain_get","brain_multi_get","brain_context","brain_impact","brain_changes","brain_regressions","brain_review","brain_workspace_regressions","brain_workspace_review"]',
         "--config",
         'mcp_servers.entire_brain.default_tools_approval_mode="approve"',
         "--config",
@@ -3124,14 +3124,37 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             passed = sum(1 for rec in recs if isinstance(rec.get("validation"), dict) and rec["validation"].get("ok"))
             return passed / len(recs)
 
+        def comparison_env_flags(recs: list[dict[str, Any]]) -> dict[str, str]:
+            flags: dict[str, str] = {}
+            for rec in recs:
+                provenance = rec.get("provenance") if isinstance(rec.get("provenance"), dict) else {}
+                run_config = provenance.get("run_config") if isinstance(provenance.get("run_config"), dict) else {}
+                env_flags = run_config.get("env_flags") if isinstance(run_config.get("env_flags"), dict) else {}
+                for key, value in env_flags.items():
+                    if value not in (None, ""):
+                        flags[str(key)] = str(value)
+            return dict(sorted(flags.items()))
+
+        def delivery_scope(condition: str, env_flags: dict[str, str]) -> str:
+            if condition == "mcp_history" and env_flags.get("BENCH_RADAR_LOCATION_ONLY") == "1":
+                return "mcp_radar_location_only"
+            if condition == "mcp_history" and env_flags.get("BENCH_REGRESSION_RADAR") == "1":
+                return "mcp_radar_answer_assisted"
+            if condition == "mcp_history":
+                return "mcp"
+            return condition
+
         score_core_condition = score_core_values(condition_records)
         score_core_baseline = score_core_values(base_records)
+        env_flags = comparison_env_flags(condition_records)
 
         comparison = {
             "task_id": task_id,
             "agent": agent,
             "runner": runner_id,
             "condition": condition,
+            "delivery_scope": delivery_scope(condition, env_flags),
+            "env_flags": env_flags,
             "baseline": "no_brain",
             "n_condition": len(values),
             "n_baseline": len(base),
@@ -3778,6 +3801,13 @@ def panel_preflight(panel: dict[str, Any], check_local_artifacts: bool = False) 
                     ref_probe = run_cmd(["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=source)
                     if ref_probe.returncode != 0 or not ref_probe.stdout.strip():
                         errors.append(f"task {task.get('id', '<unknown>')} requested {CHECKPOINT_REF} but it is missing in {source}")
+    panel_env = panel.get("env", {})
+    if panel_env is not None and not isinstance(panel_env, dict):
+        errors.append("panel env must be an object when set")
+    elif isinstance(panel_env, dict):
+        for key, value in panel_env.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                errors.append("panel env keys and values must be strings")
     reps = int(panel.get("repetitions", 0) or 0)
     if reps < 4:
         errors.append(f"repetitions {reps} < 4 (proof_minimum); the stability gate needs enough reps to drop an outlier")
@@ -3811,7 +3841,18 @@ def cmd_panel(args: argparse.Namespace) -> int:
         f"{len(panel['conditions'])} conditions x {args.repetitions} reps",
         flush=True,
     )
-    return cmd_run(args)
+    panel_env = panel.get("env") or {}
+    old_env = {key: os.environ.get(key) for key in panel_env}
+    try:
+        for key, value in panel_env.items():
+            os.environ[str(key)] = str(value)
+        return cmd_run(args)
+    finally:
+        for key, value in old_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def cmd_prep(args: argparse.Namespace) -> int:

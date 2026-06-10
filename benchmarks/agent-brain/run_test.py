@@ -129,6 +129,8 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn('mcp_servers.entire_brain.args=["mcp"]', joined)
         self.assertIn("mcp_servers.entire_brain.required=true", joined)
         self.assertIn("mcp_servers.entire_brain.enabled_tools=", joined)
+        for tool in ("brain_regressions", "brain_review", "brain_workspace_regressions", "brain_workspace_review"):
+            self.assertIn(tool, joined)
         self.assertIn('mcp_servers.entire_brain.default_tools_approval_mode="approve"', joined)
         self.assertIn("mcp_servers.entire_brain.startup_timeout_sec=120", joined)
         self.assertIn("mcp_servers.entire_brain.tool_timeout_sec=120", joined)
@@ -926,6 +928,21 @@ class PanelAndStabilityTests(unittest.TestCase):
             panel = json.loads(path.read_text())
             self.assertEqual(run.panel_preflight(panel), [], path.name)
 
+    def test_panel_preflight_validates_env_values(self):
+        panel = {
+            "name": "release-env-fixture",
+            "runners": ["codex:gpt-test:low"],
+            "tasks": ["entire-brain-history-codex-schema-contract.json"],
+            "conditions": ["no_brain", "full_brain"],
+            "repetitions": 4,
+            "env": {"BENCH_RADAR_LOCATION_ONLY": "1"},
+        }
+        self.assertEqual(run.panel_preflight(panel), [])
+
+        bad = dict(panel)
+        bad["env"] = {"BENCH_RADAR_LOCATION_ONLY": 1}
+        self.assertIn("panel env keys and values must be strings", " | ".join(run.panel_preflight(bad)))
+
     def test_full_panel_declares_cross_repo_workspace_coverage(self):
         # WS4: the multi-repo coverage gap is declared in the manifest (not silently missing), and the
         # extra field is inert for the runner (preflight still passes).
@@ -1220,6 +1237,23 @@ class CodexAuditScriptTests(unittest.TestCase):
             "name": "release-panel",
             "path": "benchmarks/agent-brain/panels/release-panel.json",
             "config_sha256": self.CONFIG_SHA,
+        }
+        return record
+
+    def _mcp_release_record(self, suite: str, *, repetition: int, run_id: str) -> dict:
+        record = self._release_record(suite, condition="mcp_history", repetition=repetition, run_id=run_id)
+        record["agent_info"]["activity"].update({
+            "used_brain": True,
+            "mcp_tool_calls": 1,
+            "mcp_tool_names": ["mcp__entire_brain__brain_regressions"],
+        })
+        record["mcp_condition_audit"] = {
+            "ok": True,
+            "required": True,
+            "mcp_tool_calls": 1,
+            "mcp_tool_names": ["mcp__entire_brain__brain_regressions"],
+            "direct_brain_cli_calls": 0,
+            "findings": [],
         }
         return record
 
@@ -1575,6 +1609,85 @@ class CodexAuditScriptTests(unittest.TestCase):
                 "proof_ready_comparisons[semantic] 0 < required 1",
                 report["gate_status"]["failures"],
             )
+
+    def test_release_manifest_requires_mcp_verified_records(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            manifest = self._write_release_manifest(out_dir)
+            manifest_data = json.loads(manifest.read_text())
+            manifest_data["minimums"]["mcp_verified_records"] = 1
+            manifest.write_text(json.dumps(manifest_data))
+
+            suite = "release-candidate-history-no-mcp"
+            records = []
+            for i in range(1, 5):
+                records.append(self._release_record(suite, condition="no_brain", repetition=i, run_id=f"base-{i}"))
+                records.append(self._release_record(suite, condition="full_brain", repetition=i, run_id=f"brain-{i}"))
+            suite_dir = self._write_records(results_dir, suite, records)
+            (suite_dir / "summary.json").write_text(json.dumps({
+                "comparisons": [{
+                    "task_id": "t",
+                    "runner": "codex",
+                    "condition": "full_brain",
+                    "verdict": "brain_positive",
+                    "proof_ready": True,
+                    "n_condition": 4,
+                    "n_baseline": 4,
+                    "stability": {"tag": "brain_positive_stable"},
+                }]
+            }))
+
+            self.assertEqual(
+                audit_codex.main(["--results", str(results_dir), "--release-manifest", str(manifest), "--out-dir", str(out_dir), "--fail-on-flags"]),
+                1,
+            )
+            report = json.loads((out_dir / "codex-audit-report.json").read_text())
+            self.assertEqual(report["totals"]["mcp_verified_records"], 0)
+            self.assertIn(
+                "mcp_verified_records 0 < required 1",
+                report["gate_status"]["failures"],
+            )
+
+    def test_audit_codex_counts_radar_delivery_scope_and_mcp_verified_records(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            manifest = self._write_release_manifest(out_dir)
+            manifest_data = json.loads(manifest.read_text())
+            manifest_data["required_proof_scopes"] = ["mcp_radar_location_only"]
+            manifest_data["minimums"]["mcp_verified_records"] = 4
+            manifest.write_text(json.dumps(manifest_data))
+
+            suite = "release-candidate-radar-mcp"
+            records = []
+            for i in range(1, 5):
+                records.append(self._release_record(suite, condition="no_brain", repetition=i, run_id=f"base-{i}"))
+                records.append(self._mcp_release_record(suite, repetition=i, run_id=f"radar-{i}"))
+            suite_dir = self._write_records(results_dir, suite, records)
+            (suite_dir / "summary.json").write_text(json.dumps({
+                "comparisons": [{
+                    "task_id": "t",
+                    "runner": "codex",
+                    "condition": "mcp_history",
+                    "delivery_scope": "mcp_radar_location_only",
+                    "env_flags": {"BENCH_RADAR_LOCATION_ONLY": "1"},
+                    "verdict": "brain_positive",
+                    "proof_ready": True,
+                    "n_condition": 4,
+                    "n_baseline": 4,
+                    "stability": {"tag": "brain_positive_stable"},
+                }]
+            }))
+
+            self.assertEqual(
+                audit_codex.main(["--results", str(results_dir), "--release-manifest", str(manifest), "--out-dir", str(out_dir), "--fail-on-flags"]),
+                0,
+            )
+            report = json.loads((out_dir / "codex-audit-report.json").read_text())
+            self.assertEqual(report["totals"]["mcp_verified_records"], 4)
+            self.assertEqual(report["totals"]["proof_ready_comparisons_by_scope"], {"mcp_radar_location_only": 1})
+            self.assertEqual(report["gate_status"]["requirements"]["min_mcp_verified"], 4)
 
     def test_audit_codex_fails_missing_and_inconsistent_provenance(self):
         with tempfile.TemporaryDirectory() as results:

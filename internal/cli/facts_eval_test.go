@@ -618,17 +618,31 @@ func TestFactsEvalRawSessionsJSONIncludesProofBoundaryMetadata(t *testing.T) {
 func TestPrintEvalSummaryShowsRelevanceSourceWarning(t *testing.T) {
 	summary := evalSummary{
 		Retriever: evalRetrieverRawSessions,
-		Results: []evalTaskResult{{
-			ID:               "raw-one",
-			Task:             "alpha",
-			Retriever:        evalRetrieverRawSessions,
-			RelevanceSource:  evalRelevanceSourceMatch,
-			Surfaced:         1,
-			Tokens:           10,
-			RelevantSurfaced: 1,
-			Precision:        1,
-			UsefulPer1k:      100,
-		}},
+		Results: []evalTaskResult{
+			{
+				ID:               "raw-one",
+				Task:             "alpha",
+				Retriever:        evalRetrieverRawSessions,
+				RelevanceSource:  evalRelevanceSourceMatch,
+				Surfaced:         1,
+				Tokens:           10,
+				RelevantSurfaced: 1,
+				Precision:        1,
+				UsefulPer1k:      100,
+			},
+			{
+				ID:              "fact-one",
+				Task:            "alpha",
+				Retriever:       evalRetrieverFacts,
+				RelevanceSource: evalRelevanceExplicitLabel,
+				LabelSource:     evalLabelSourceHuman,
+				Surfaced:        1,
+				Tokens:          8,
+				Precision:       1,
+				UsefulPer1k:     125,
+				Labeled:         true,
+			},
+		},
 	}
 	summary = summarizeEval(summary.Results)
 	cmd := &cobra.Command{Use: "eval"}
@@ -638,6 +652,9 @@ func TestPrintEvalSummaryShowsRelevanceSourceWarning(t *testing.T) {
 	got := out.String()
 	if !strings.Contains(got, "relevance") || !strings.Contains(got, evalRelevanceSourceMatch) {
 		t.Fatalf("human summary should show relevance source:\n%s", got)
+	}
+	if !strings.Contains(got, "label") || !strings.Contains(got, evalLabelSourceHuman) {
+		t.Fatalf("human summary should show label source:\n%s", got)
 	}
 	if !strings.Contains(got, "non-proof relevance rows") {
 		t.Fatalf("human summary should warn for proxy rows:\n%s", got)

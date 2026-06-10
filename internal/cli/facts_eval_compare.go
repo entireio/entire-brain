@@ -134,7 +134,7 @@ func compareEvalSummariesInternalWithOptions(a, b evalSummary, alpha float64, op
 		pvals = append(pvals, st.P)
 	}
 	reject, thresholds := holmRejectWithThresholds(pvals, alpha)
-	releasePairingReady := evalSummariesReleasePairingReady(a, b)
+	releasePairingReady := evalSummariesReleasePairingReadyWithOptions(a, b, opts, missingFromA, missingFromB)
 	for i := range comparisons {
 		comparisons[i].Significant = reject[i]
 		comparisons[i].PHolm = thresholds[i]
@@ -189,6 +189,48 @@ func evalSummariesReleasePairingReady(a, b evalSummary) bool {
 	aBrain := evalSummaryBrainManifestSHA256(a)
 	bBrain := evalSummaryBrainManifestSHA256(b)
 	return aTasks != "" && aTasks == bTasks && aBrain != "" && aBrain == bBrain
+}
+
+func evalSummariesReleasePairingReadyWithOptions(a, b evalSummary, opts evalCompareOptions, missingFromA, missingFromB []string) bool {
+	if opts.AllowMissingTasks || opts.AllowTaskHashMismatch || opts.AllowBrainManifestMismatch {
+		return false
+	}
+	if len(missingFromA) > 0 || len(missingFromB) > 0 {
+		return false
+	}
+	return evalSummariesReleasePairingReady(a, b)
+}
+
+func evalCompareReleasePairingNote(a, b evalSummary, opts evalCompareOptions, missingFromA, missingFromB []string) string {
+	if evalSummariesReleasePairingReadyWithOptions(a, b, opts, missingFromA, missingFromB) {
+		return ""
+	}
+	var reasons []string
+	aTasks, bTasks := evalSummaryTasksSHA256(a), evalSummaryTasksSHA256(b)
+	aBrain, bBrain := evalSummaryBrainManifestSHA256(a), evalSummaryBrainManifestSHA256(b)
+	if aTasks == "" || bTasks == "" {
+		reasons = append(reasons, "missing task-file hash")
+	} else if aTasks != bTasks {
+		reasons = append(reasons, "task-file hash mismatch")
+	}
+	if aBrain == "" || bBrain == "" {
+		reasons = append(reasons, "missing brain manifest hash")
+	} else if aBrain != bBrain {
+		reasons = append(reasons, "brain manifest hash mismatch")
+	}
+	if opts.AllowMissingTasks || len(missingFromA) > 0 || len(missingFromB) > 0 {
+		reasons = append(reasons, "shared-id subset comparison")
+	}
+	if opts.AllowTaskHashMismatch {
+		reasons = append(reasons, "task hash override")
+	}
+	if opts.AllowBrainManifestMismatch {
+		reasons = append(reasons, "brain manifest override")
+	}
+	if len(reasons) == 0 {
+		reasons = append(reasons, "release pairing incomplete")
+	}
+	return "warning: release_claimable metrics disabled (" + strings.Join(reasons, ", ") + "); this comparison is smoke evidence, not release proof."
 }
 
 func missingEvalTaskIDs(aByID, bByID map[string]evalTaskResult) ([]string, []string) {
@@ -325,6 +367,15 @@ func evalMetricClaim(c metricComparison, releasePairingReady bool) string {
 	}
 }
 
+func evalComparisonsReleaseClaimable(comparisons []metricComparison) bool {
+	for _, c := range comparisons {
+		if c.ReleaseClaimable {
+			return true
+		}
+	}
+	return false
+}
+
 func loadEvalSummary(path string) (evalSummary, error) {
 	var s evalSummary
 	data, err := os.ReadFile(path)
@@ -386,8 +437,10 @@ it to report a lift honestly instead of eyeballing two means.`,
 			if n == 0 {
 				return fmt.Errorf("the two runs share no task ids to compare")
 			}
+			releasePairingReady := evalSummariesReleasePairingReadyWithOptions(a, b, compareOpts, missingFromA, missingFromB)
+			releasePairingNote := evalCompareReleasePairingNote(a, b, compareOpts, missingFromA, missingFromB)
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{"n": n, "alpha": alpha, "a_retriever": a.Retriever, "b_retriever": b.Retriever, "a_tasks_sha256": evalSummaryTasksSHA256(a), "b_tasks_sha256": evalSummaryTasksSHA256(b), "a_brain_manifest_sha256": evalSummaryBrainManifestSHA256(a), "b_brain_manifest_sha256": evalSummaryBrainManifestSHA256(b), "allow_proxy_comparison": allowProxyComparison, "allow_missing_tasks": allowMissingTasks, "allow_task_hash_mismatch": allowTaskHashMismatch, "allow_brain_manifest_mismatch": allowBrainManifestMismatch, "missing_from_a": missingFromA, "missing_from_b": missingFromB, "metrics": comparisons})
+				return writeJSON(cmd, map[string]any{"n": n, "alpha": alpha, "a_retriever": a.Retriever, "b_retriever": b.Retriever, "a_tasks_sha256": evalSummaryTasksSHA256(a), "b_tasks_sha256": evalSummaryTasksSHA256(b), "a_brain_manifest_sha256": evalSummaryBrainManifestSHA256(a), "b_brain_manifest_sha256": evalSummaryBrainManifestSHA256(b), "release_pairing_ready": releasePairingReady, "release_claimable": evalComparisonsReleaseClaimable(comparisons), "release_pairing_note": releasePairingNote, "allow_proxy_comparison": allowProxyComparison, "allow_missing_tasks": allowMissingTasks, "allow_task_hash_mismatch": allowTaskHashMismatch, "allow_brain_manifest_mismatch": allowBrainManifestMismatch, "missing_from_a": missingFromA, "missing_from_b": missingFromB, "metrics": comparisons})
 			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "paired A/B over %d shared tasks (Holm-corrected at alpha=%.2f)\n", n, alpha)
@@ -401,10 +454,13 @@ it to report a lift honestly instead of eyeballing two means.`,
 				fmt.Fprintf(out, "warning: comparing shared ids only; missing_from_a=%d missing_from_b=%d\n", len(missingFromA), len(missingFromB))
 			}
 			if allowTaskHashMismatch {
-				fmt.Fprintln(out, "warning: task file hashes differ or were explicitly ignored; label-set equality is not guaranteed")
+				fmt.Fprintln(out, "warning: task file hashes differ or were explicitly ignored; release_claimable metrics are disabled")
 			}
 			if allowBrainManifestMismatch {
-				fmt.Fprintln(out, "warning: brain manifest hashes differ or were explicitly ignored; paired run state is not identical")
+				fmt.Fprintln(out, "warning: brain manifest hashes differ or were explicitly ignored; release_claimable metrics are disabled")
+			}
+			if releasePairingNote != "" {
+				fmt.Fprintln(out, releasePairingNote)
 			}
 			fmt.Fprintf(out, "%-14s %-14s %9s %9s %9s %8s %7s %8s %-6s %s\n", "metric", "evidence", "A", "B", "delta", "t", "p", "cohen_d", "winner", "claim")
 			for _, c := range comparisons {

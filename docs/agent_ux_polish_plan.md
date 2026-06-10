@@ -87,6 +87,11 @@ commands, assert the rendered/serialized set is deduped/disambiguated.
 
 ## 4. Advertise `relax` / `blind_spots` in MCP tool schemas
 
+**Status: shipped locally.** `brain_stale` now advertises the optional
+`blind_spots` boolean in `tools/list`; `brain_history`/`relax` remains obsolete
+because the old dedicated history tool was removed in favor of unified
+`brain_query` / `brain_search`.
+
 **Problem.** `runBrainHistoryInspect` and `runSemanticStale` already accept the
 `relax` and `blind_spots` arguments over MCP (mcp.go:239, mcp.go:199 read them
 from `params.Arguments`), but the tool `inputSchema` definitions

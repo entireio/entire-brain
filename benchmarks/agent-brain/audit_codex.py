@@ -387,6 +387,8 @@ def audit_summary(suite_dir: pathlib.Path, *, min_repetitions_per_side: int = DE
             "task": comp.get("task_id"),
             "runner": comp.get("runner"),
             "condition": comp.get("condition"),
+            "delivery_scope": comp.get("delivery_scope"),
+            "env_flags": comp.get("env_flags"),
             "verdict": verdict,
             "proof_ready": comp.get("proof_ready"),
             "delta": comp.get("delta"),
@@ -449,6 +451,9 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
 
 
 def comparison_proof_scope(comp: dict[str, Any]) -> str:
+    delivery_scope = comp.get("delivery_scope")
+    if delivery_scope in {"mcp", "mcp_radar_location_only", "mcp_radar_answer_assisted"}:
+        return str(delivery_scope)
     condition = comp.get("condition")
     if condition in SEMANTIC_CONDITIONS:
         return "semantic"
@@ -612,6 +617,7 @@ def build_gate_status(
     min_suites: int,
     min_records: int,
     min_proof_ready: int,
+    min_mcp_verified: int,
     *,
     require_proof_ready_per_suite: bool = False,
     required_proof_scopes: list[str] | None = None,
@@ -621,6 +627,7 @@ def build_gate_status(
     suites = int(totals.get("suites") or 0)
     records = int(totals.get("records") or 0)
     proof_ready = int(totals.get("proof_ready_comparisons") or 0)
+    mcp_verified = int(totals.get("mcp_verified_records") or 0)
     hard_flags = int(totals.get("hard_flags") or 0)
     if suites < min_suites:
         failures.append(f"suites {suites} < required {min_suites}")
@@ -628,6 +635,8 @@ def build_gate_status(
         failures.append(f"records {records} < required {min_records}")
     if proof_ready < min_proof_ready:
         failures.append(f"proof_ready_comparisons {proof_ready} < required {min_proof_ready}")
+    if mcp_verified < min_mcp_verified:
+        failures.append(f"mcp_verified_records {mcp_verified} < required {min_mcp_verified}")
     if hard_flags > 0:
         failures.append(f"hard_flags {hard_flags} > 0")
     if require_proof_ready_per_suite:
@@ -645,6 +654,7 @@ def build_gate_status(
             "min_suites": min_suites,
             "min_records": min_records,
             "min_proof_ready": min_proof_ready,
+            "min_mcp_verified": min_mcp_verified,
             "hard_flags": 0,
             "require_proof_ready_per_suite": require_proof_ready_per_suite,
             "required_proof_scopes": required_proof_scopes or [],
@@ -740,6 +750,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--min-suites", type=int, default=1, help="Minimum audited non-empty suites required when --fail-on-flags is set")
     parser.add_argument("--min-records", type=int, default=1, help="Minimum audited agent records required when --fail-on-flags is set")
     parser.add_argument("--min-proof-ready", type=int, default=0, help="Minimum stable proof-ready comparisons required when --fail-on-flags is set")
+    parser.add_argument("--min-mcp-verified", type=int, default=0, help="Minimum integrity-verified MCP datapoints required when --fail-on-flags is set")
     parser.add_argument("--min-repetitions-per-side", type=int, default=DEFAULT_PROOF_MIN_REPETITIONS, help="Minimum repetitions per condition required for proof-ready comparisons")
     return parser.parse_args(argv)
 
@@ -753,6 +764,7 @@ def main(argv: list[str] | None = None) -> int:
     min_suites = args.min_suites
     min_records = args.min_records
     min_proof_ready = args.min_proof_ready
+    min_mcp_verified = args.min_mcp_verified
     min_repetitions_per_side = args.min_repetitions_per_side
     require_panel_provenance = False
     require_proof_ready_per_suite = False
@@ -771,6 +783,7 @@ def main(argv: list[str] | None = None) -> int:
         min_suites = release_manifest_minimum(manifest, "suites", min_suites)
         min_records = release_manifest_minimum(manifest, "records", min_records)
         min_proof_ready = release_manifest_minimum(manifest, "proof_ready_comparisons", min_proof_ready)
+        min_mcp_verified = release_manifest_minimum(manifest, "mcp_verified_records", min_mcp_verified)
         min_repetitions_per_side = int(manifest.get("min_repetitions_per_side", min_repetitions_per_side))
         require_panel_provenance = bool(manifest.get("require_panel_provenance"))
         require_proof_ready_per_suite = bool(manifest.get("require_proof_ready_per_suite"))
@@ -788,6 +801,7 @@ def main(argv: list[str] | None = None) -> int:
             "suite_globs": suite_globs,
             "forbidden_suite_globs": forbidden_globs,
             "min_repetitions_per_side": min_repetitions_per_side,
+            "min_mcp_verified": min_mcp_verified,
             "require_panel_provenance": require_panel_provenance,
             "require_proof_ready_per_suite": require_proof_ready_per_suite,
             "required_proof_scopes": required_proof_scopes,
@@ -799,6 +813,7 @@ def main(argv: list[str] | None = None) -> int:
             min_suites,
             min_records,
             min_proof_ready,
+            min_mcp_verified,
             require_proof_ready_per_suite=require_proof_ready_per_suite,
             required_proof_scopes=required_proof_scopes,
         )
