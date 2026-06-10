@@ -6,3 +6,15 @@ benchmarks/agent-brain/cache/
 benchmarks/agent-brain/results/
 benchmarks/agent-brain/__pycache__/
 benchmarks/agent-brain/**/*.pyc
+
+# Local agent/editor runtime state. These files are machine-local and should not
+# make semantic freshness stale or enter retained brain evidence.
+.claude/settings.json
+.claude/skills/
+.codex/config.toml
+.codex/hooks.json
+.codex/skills/
+.cursor/
+.gemini/
+.mcp.json
+.regente/
