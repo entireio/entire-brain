@@ -418,11 +418,10 @@ Release claims must stay local-first and evidence-backed:
   suite cannot mask a later weak semantic or facts suite. `mise run
   release:evidence` is also a pure check; report regeneration is explicit via
   `mise run release:evidence:update`.
-- MCP replay-lab evidence and MCP/Radar tool evidence are now separate gates.
-  Replay-lab release evidence keeps the still-valid agent A/B scopes `history`
-  and generic `mcp`; stale Radar agent evidence was pruned after the stricter
-  `tool_result` audit showed the retained suite did not prove completed
-  server-side Radar calls. QMD-inspired MCP retrieval and Radar now have
+- MCP replay-lab evidence and MCP/Radar tool-contract evidence are separate
+  gates. Replay-lab release evidence keeps the still-valid agent A/B scopes
+  `history`, generic `mcp`, and one retained `mcp_radar_location_only` Radar
+  agent-lift suite. QMD-inspired MCP retrieval and Radar also have
   deterministic tool-contract evidence under
   `benchmarks/agent-brain/evidence/radar-tool`, checked by `mise run
   radar:evidence`.
@@ -560,19 +559,19 @@ suites plus promoted `release-candidate-*-radar-*` and
 Codex audit and feeds that into the Radar report, so release-candidate rows show
 whether the MCP server actually handled the named Radar tool and completed it.
 This keeps a stale promotable pilot from hiding a failed promoted rerun. The
-current screen still has zero proof-ready Radar comparisons and zero promotable
-pilots: deletion-shaped
-manual-attribution reruns show attempted MCP calls, but stricter provenance
-auditing reports missing embedded deletion-policy attestation on old records,
-while newer candidate pass rates are saturated or noisy. The lone one-run
-headroom pilot is classified as `promotable-audit-gap`, not promotable, because
-its matching records are not audit-clean with required named-tool MCP backing.
-Earlier 2026-06-10 calibration runs saturated or were noisy, including
-manual-attribution, review file-count, and workspace transcript candidates.
-Suites that are stopped after an
-already-high no-brain score are now reported as `no-brain-too-easy`, and
-record-only suites without `summary.json` are reported as `incomplete-suite`,
-instead of disappearing from the screen report.
+retained Radar release proof is
+`release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2`:
+no-brain passed 2/4, `mcp_history` passed 4/4, mean score improved 73.0 ->
+92.5, mean tokens dropped 811,466.5 -> 408,947.75, mean search calls dropped
+11.5 -> 6.0, and the comparison is `proof_ready` with stability tag
+`brain_positive_stable`. Independent audit found 0 hard flags, 8/8
+provenance-backed records, 4 MCP-verified condition records, 4 server-named
+Radar records, and 4 completed `tool_result` records. Earlier 2026-06-10
+calibration runs that saturated, were noisy, or lacked named-tool/result proof
+remain rejected. Suites that are stopped after an already-high no-brain score
+are reported as `no-brain-too-easy`, and record-only suites without
+`summary.json` are reported as `incomplete-suite`, instead of disappearing from
+the screen report.
 `mise run radar:evidence` now checks the retained deterministic MCP/Radar
 tool-contract artifact instead of promoting those saturated agent panels. It
 requires the retained `go test -json` artifact hash to match and all 49 required
@@ -584,9 +583,9 @@ Radar and review tools.
 
 `mise run release:evidence` regenerates the retained replay-lab Codex audit in a
 temp directory before comparing it with committed
-`codex-audit-report.{json,md}`. Radar is intentionally checked by
-`mise run radar:evidence`, not by stale agent summaries in the replay-lab
-directory.
+`codex-audit-report.{json,md}`. It now requires the retained
+`mcp_radar_location_only` suite in addition to the history and generic MCP
+scopes. `mise run radar:evidence` remains the deterministic tool-contract gate.
 
 CI now includes the retained replay-lab release-evidence audit in addition to
 lint/build/test/Phase 1 semantic checks. The facts evidence gate supports either
@@ -618,8 +617,7 @@ repo/access/artifacts are available:
   no-claim facts manifest is a guard against overclaiming, not a substitute for
   this positive proof.
 - Additional Regression Radar agent-lift evidence for other tasks/repos remains
-  useful, especially workspace Radar, but it is currently blocked on finding a
-  non-saturated task/runner pairing. Future Radar agent claims still need 4
+  useful, especially workspace Radar. Future Radar agent claims still need 4
   repetitions per side, MCP-verified records, the appropriate proof scope
   (`mcp_radar_location_only` or `mcp_workspace_radar_location_only`), zero hard
   flags, a stable proof-ready comparison, deletion-aware MCP arguments when the
@@ -632,9 +630,10 @@ repo/access/artifacts are available:
 - Additional benchmark panels or retained proof subsets from
   `benchmarks/agent-brain`, audited with `audit_codex.py --fail-on-flags` and
   committed under `benchmarks/agent-brain/evidence/release` as sanitized
-  evidence. One focused history proof and one generic MCP-history proof are now
-  retained; semantic/facts, Radar agent-lift, and broader multi-task replay
-  evidence are still needed for broader claims.
+  evidence. One focused history proof, one generic MCP-history proof, and one
+  location-only Radar agent-lift proof are now retained; semantic/facts,
+  workspace Radar, and broader multi-task replay evidence are still needed for
+  broader claims.
 - `mise run release:evidence` must pass before any replay-lab proof claim; it runs
   benchmark harness self-tests and then audits explicit `release-candidate-*`
   suites through `benchmarks/agent-brain/evidence/release/manifest.json`.
@@ -644,9 +643,10 @@ repo/access/artifacts are available:
   one proof-ready comparison for each manifest-required proof scope. Manifests
   can also require minimum counts for integrity-verified MCP datapoints and
   server-named MCP datapoints, and can require named-tool proof-ready comparisons
-  for specific scopes. The committed release lane currently requires `history`
-  and generic `mcp` scopes, so it cannot be cited as Radar agent-lift, semantic,
-  or facts proof by aggregation. The check writes the Codex replay-lab report to
+  for specific scopes. The committed release lane currently requires `history`,
+  generic `mcp`, and one `mcp_radar_location_only` scope, so it cannot be cited
+  as workspace Radar, semantic, or facts proof by aggregation. The check writes
+  the Codex replay-lab report to
   a temp directory and compares it with the committed report; updating retained
   reports is explicit via
   `mise run release:evidence:update`.

@@ -16,24 +16,26 @@ For MCP-backed scopes, the proof-ready comparison must be backed by matching
 MCP-verified condition records; a separate suite's MCP count cannot satisfy the
 comparison backing. The current generic MCP release manifest requires at least
 four basic MCP-verified datapoints; server-named `tool:` and completed
-`tool_result:` proof is required before future Radar agent-lift evidence can be
+`tool_result:` proof is required before Radar agent-lift evidence can be
 cited.
-Today those scopes are `history` and `mcp`, so this directory cannot be used as
-semantic, facts, or Radar proof by aggregation. Historical,
+Today those scopes are `history`, generic `mcp`, and
+`mcp_radar_location_only`, so this directory cannot be used as semantic, facts,
+or workspace Radar proof by aggregation. Historical,
 exploratory, quarantine, or `release-local-*` suites under
 `benchmarks/agent-brain/results/` do not become release evidence just because
 they exist; they must be regenerated from a committed panel into an explicit
 `release-candidate-*` suite and pass the manifest-enforced gate.
 
-Regression Radar and the MCP retrieval surface are checked separately by
+Regression Radar and the MCP retrieval surface are also checked separately by
 `mise run radar:evidence`, which audits deterministic Go/MCP tool-contract
 evidence under `benchmarks/agent-brain/evidence/radar-tool`. That gate proves
 the local detector, QMD-inspired MCP retrieval tools including branch-scoped facts,
 hinted changed/deleted Radar loci, unsafe workspace pairing skips, workspace
-Radar redaction, and MCP safety contracts, not agent pass-rate lift. Future
-Radar records must carry their deletion-policy bit in record provenance; the
-audit does not infer it from mutable task files. Future workspace Radar proof
-must also bind server `tool_args.workspace` to
+Radar redaction, and MCP safety contracts. The retained release lane now adds
+one audited Radar agent-lift suite for a deletion-attribution task. Radar
+records must carry their deletion-policy bit in record provenance; the audit
+does not infer it from mutable task files. Future workspace Radar proof must
+also bind server `tool_args.workspace` to
 `provenance.run_config.workspace_name`.
 
 The committed manifest records the citable suite policy. Generated audit reports
@@ -57,11 +59,16 @@ Current retained proof:
   correctness/pass-rate claim only; its older retained `mcp-server.log` files
   prove server `tools/call` counts but do not include named `tool:` lines, so it
   is not named-tool MCP proof. The MCP arm used more time and tokens.
+- `release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2`:
+  one deletion-attribution Radar task, 4 repetitions per side, audited with 0
+  hard flags, 8/8 provenance-backed records, 4 MCP-verified condition records,
+  4 server-named `brain_regressions` records, and 4 completed `tool_result`
+  records. No-brain passed 2/4, `mcp_history` passed 4/4, mean score improved
+  73.0 -> 92.5, mean tokens dropped 811,466.5 -> 408,947.75, mean search calls
+  dropped 11.5 -> 6.0, and the stability tag is `brain_positive_stable`.
 
-Radar agent-lift status: older retained Radar agent evidence was pruned because
-it lacked the newer server-side `tool_result` completion proof. Recent reruns of
-the committed Radar panels were saturated or noisy on the no-brain baseline, so
-they are not retained as release evidence. Keep Radar launch copy scoped to the
-tool-contract evidence, and keep MCP launch copy scoped to local tool-contract
-plus retained generic MCP replay proof, until a fresh non-saturated,
-`tool_result`-backed Radar panel passes.
+Radar agent-lift status: one deletion-attribution Radar agent-lift suite is now
+retained and release-citable for `mcp_radar_location_only`. Older Radar agent
+evidence remains rejected because it was saturated, noisy, or lacked newer
+server-side `tool_result` completion proof. Workspace Radar and broader
+multi-task Radar claims still need separate retained proof.

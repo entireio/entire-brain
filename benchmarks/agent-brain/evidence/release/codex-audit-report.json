@@ -791,24 +791,573 @@
       "n_proof_ready_comparisons_by_scope": {
         "mcp": 1
       }
+    },
+    "release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2": {
+      "records": [
+        {
+          "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r1",
+          "task_id": "entireio-cli-radar-manual-attribution-deletions",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
+          "repetition": 1,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": true,
+          "valid": true,
+          "score": 94,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 10,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
+            "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
+            "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
+            "task_config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
+            "run_config_fingerprint": "c86b9246d5d3674458da5e1f1ea2320b45c20086a1682b62e5257b1c4195d7d9",
+            "record_fingerprint": "9e0d521e39b973068400cfe1344d2d70b16001c3a1f65c981a204fd8bc2c6b5d"
+          },
+          "flags": [],
+          "notes": [],
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r2",
+          "task_id": "entireio-cli-radar-manual-attribution-deletions",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
+          "repetition": 2,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": false,
+          "valid": false,
+          "score": 50,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 14,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
+            "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
+            "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
+            "task_config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
+            "run_config_fingerprint": "522b23e8f59ee50cf5e6c36ceea1bf4839b956af8ab92bfbdba94ced05fb2296",
+            "record_fingerprint": "78e5848aa9fb3fabc4b823d153d31cd905a01f0274c71c922cbafe456d1dd9bf"
+          },
+          "flags": [],
+          "notes": [],
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r3",
+          "task_id": "entireio-cli-radar-manual-attribution-deletions",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
+          "repetition": 3,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": false,
+          "valid": false,
+          "score": 54,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 10,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
+            "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
+            "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
+            "task_config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
+            "run_config_fingerprint": "f646cca92f96ddb6854a9fb1985d5a589ccb951bd321f3125111ad33f35bd014",
+            "record_fingerprint": "f18741470c64ce49de303d09f47b49014de03fdcd17090c83c04e607ba2c621f"
+          },
+          "flags": [],
+          "notes": [],
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r4",
+          "task_id": "entireio-cli-radar-manual-attribution-deletions",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
+          "repetition": 4,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": true,
+          "valid": true,
+          "score": 94,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 12,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
+            "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
+            "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
+            "task_config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
+            "run_config_fingerprint": "6ec6cd0fa1e306e1e1274fb13ff9926655e064db07aac7a4651388a004106076",
+            "record_fingerprint": "fa82ab8568c3c05b4a7c95f7bb5a78166beccbaf056cd399890a921a3dddd142"
+          },
+          "flags": [],
+          "notes": [],
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1",
+          "task_id": "entireio-cli-radar-manual-attribution-deletions",
+          "condition": "mcp_history",
+          "delivery_scope": "mcp_radar_location_only",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
+          "repetition": 1,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": true,
+          "valid": true,
+          "score": 93,
+          "mcp_calls": 2,
+          "server_toolcalls": 1,
+          "server_toolcall_responses": 1,
+          "search_calls": 4,
+          "parent_count": 0,
+          "mcp_verified": true,
+          "mcp_named_tool_verified": true,
+          "mcp_named_tool_completed": true,
+          "mcp_named_tool_result_verified": true,
+          "required_server_tool_names": [
+            "brain_regressions"
+          ],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
+            "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
+            "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
+            "task_config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
+            "run_config_fingerprint": "3429a1753c84037bed575050b9ca17b87a132a6ef21d7486a42cb3e7fa4b23a4",
+            "record_fingerprint": "df714bbe45a365c26ed3475fcaca02cd79bba5d0c5f76a9977d96195d2aeef77"
+          },
+          "flags": [],
+          "notes": [
+            "B:mcp_history_partial_missing_brain_brief",
+            "B:mcp_history_partial_missing_brain_search"
+          ],
+          "pass": true,
+          "server_tool_names": [
+            "brain_regressions"
+          ],
+          "server_tool_results": [
+            {
+              "tool": "brain_regressions",
+              "status": "ok"
+            }
+          ],
+          "server_tool_args": [
+            {
+              "tool": "brain_regressions",
+              "arguments": {
+                "include_deletions": true,
+                "location_only": true
+              }
+            }
+          ],
+          "server_tool_calls": [
+            {
+              "tool": "brain_regressions",
+              "arguments": {
+                "include_deletions": true,
+                "location_only": true
+              },
+              "status": "ok"
+            }
+          ],
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r2",
+          "task_id": "entireio-cli-radar-manual-attribution-deletions",
+          "condition": "mcp_history",
+          "delivery_scope": "mcp_radar_location_only",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
+          "repetition": 2,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": true,
+          "valid": true,
+          "score": 93,
+          "mcp_calls": 2,
+          "server_toolcalls": 1,
+          "server_toolcall_responses": 1,
+          "search_calls": 8,
+          "parent_count": 0,
+          "mcp_verified": true,
+          "mcp_named_tool_verified": true,
+          "mcp_named_tool_completed": true,
+          "mcp_named_tool_result_verified": true,
+          "required_server_tool_names": [
+            "brain_regressions"
+          ],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
+            "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
+            "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
+            "task_config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
+            "run_config_fingerprint": "4b74a716cb7742a9c1de993a3327cb10e172ef6a39c02bf1b6db62e1d058e4d2",
+            "record_fingerprint": "a8f1d864c0aabab70687a97b190e9c0d5bd7ce09600c3f65124527efbdf19e48"
+          },
+          "flags": [],
+          "notes": [
+            "B:mcp_history_partial_missing_brain_brief",
+            "B:mcp_history_partial_missing_brain_search"
+          ],
+          "pass": true,
+          "server_tool_names": [
+            "brain_regressions"
+          ],
+          "server_tool_results": [
+            {
+              "tool": "brain_regressions",
+              "status": "ok"
+            }
+          ],
+          "server_tool_args": [
+            {
+              "tool": "brain_regressions",
+              "arguments": {
+                "include_deletions": true,
+                "location_only": true
+              }
+            }
+          ],
+          "server_tool_calls": [
+            {
+              "tool": "brain_regressions",
+              "arguments": {
+                "include_deletions": true,
+                "location_only": true
+              },
+              "status": "ok"
+            }
+          ],
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r3",
+          "task_id": "entireio-cli-radar-manual-attribution-deletions",
+          "condition": "mcp_history",
+          "delivery_scope": "mcp_radar_location_only",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
+          "repetition": 3,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": true,
+          "valid": true,
+          "score": 93,
+          "mcp_calls": 2,
+          "server_toolcalls": 1,
+          "server_toolcall_responses": 1,
+          "search_calls": 4,
+          "parent_count": 0,
+          "mcp_verified": true,
+          "mcp_named_tool_verified": true,
+          "mcp_named_tool_completed": true,
+          "mcp_named_tool_result_verified": true,
+          "required_server_tool_names": [
+            "brain_regressions"
+          ],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
+            "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
+            "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
+            "task_config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
+            "run_config_fingerprint": "5aea1710d74e0c268afa0d3bde05a1ea4bb196401c14d207e21b1aa198d17db3",
+            "record_fingerprint": "a8ee03faeab8306ff57ea969533a1098421b06049ac903f23188db9f51577445"
+          },
+          "flags": [],
+          "notes": [
+            "B:mcp_history_partial_missing_brain_brief",
+            "B:mcp_history_partial_missing_brain_search"
+          ],
+          "pass": true,
+          "server_tool_names": [
+            "brain_regressions"
+          ],
+          "server_tool_results": [
+            {
+              "tool": "brain_regressions",
+              "status": "ok"
+            }
+          ],
+          "server_tool_args": [
+            {
+              "tool": "brain_regressions",
+              "arguments": {
+                "include_deletions": true,
+                "location_only": true
+              }
+            }
+          ],
+          "server_tool_calls": [
+            {
+              "tool": "brain_regressions",
+              "arguments": {
+                "include_deletions": true,
+                "location_only": true
+              },
+              "status": "ok"
+            }
+          ],
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4",
+          "task_id": "entireio-cli-radar-manual-attribution-deletions",
+          "condition": "mcp_history",
+          "delivery_scope": "mcp_radar_location_only",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
+          "repetition": 4,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": true,
+          "valid": true,
+          "score": 91,
+          "mcp_calls": 2,
+          "server_toolcalls": 1,
+          "server_toolcall_responses": 1,
+          "search_calls": 8,
+          "parent_count": 0,
+          "mcp_verified": true,
+          "mcp_named_tool_verified": true,
+          "mcp_named_tool_completed": true,
+          "mcp_named_tool_result_verified": true,
+          "required_server_tool_names": [
+            "brain_regressions"
+          ],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
+            "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
+            "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
+            "task_config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
+            "run_config_fingerprint": "c5c78e7166319be3c01b2d6ce65edd391f438e785b1be5a3552085f257fcf827",
+            "record_fingerprint": "bc69b09e6491c80c6c005f5824a5ea52d5aeaac3e19ae90661aef752cf2205f8"
+          },
+          "flags": [],
+          "notes": [
+            "B:mcp_history_partial_missing_brain_brief",
+            "B:mcp_history_partial_missing_brain_search"
+          ],
+          "pass": true,
+          "server_tool_names": [
+            "brain_regressions"
+          ],
+          "server_tool_results": [
+            {
+              "tool": "brain_regressions",
+              "status": "ok"
+            }
+          ],
+          "server_tool_args": [
+            {
+              "tool": "brain_regressions",
+              "arguments": {
+                "include_deletions": true,
+                "location_only": true
+              }
+            }
+          ],
+          "server_tool_calls": [
+            {
+              "tool": "brain_regressions",
+              "arguments": {
+                "include_deletions": true,
+                "location_only": true
+              },
+              "status": "ok"
+            }
+          ],
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        }
+      ],
+      "comparisons": [
+        {
+          "task": "entireio-cli-radar-manual-attribution-deletions",
+          "runner": "codex-gpt-5.4-mini-low",
+          "condition": "mcp_history",
+          "delivery_scope": "mcp_radar_location_only",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
+          "verdict": "brain_positive",
+          "proof_ready": true,
+          "delta": 19.5,
+          "n_condition": 4,
+          "n_baseline": 4,
+          "reasons": [
+            "score_or_success_improved=+19.5",
+            "time_or_tokens_improved>=20%",
+            "search_calls_dropped>=20%"
+          ],
+          "flags": [],
+          "pass": true,
+          "proof_scope": "mcp_radar_location_only",
+          "record_backing": {
+            "condition_records": 4,
+            "baseline_records": 4,
+            "condition_mcp_verified_records": 4,
+            "condition_mcp_named_tool_verified_records": 4,
+            "condition_mcp_named_tool_completed_records": 4,
+            "condition_unique_run_ids": 4,
+            "baseline_unique_run_ids": 4,
+            "condition_mcp_verified_unique_run_ids": 4,
+            "condition_mcp_named_tool_verified_unique_run_ids": 4,
+            "condition_mcp_named_tool_completed_unique_run_ids": 4,
+            "condition_unique_repetitions": 4,
+            "baseline_unique_repetitions": 4,
+            "condition_mcp_verified_unique_repetitions": 4,
+            "condition_mcp_named_tool_verified_unique_repetitions": 4,
+            "condition_mcp_named_tool_completed_unique_repetitions": 4,
+            "required_condition": 4,
+            "required_baseline": 4,
+            "required_delivery_scope": "mcp_radar_location_only",
+            "condition_requires_mcp_verified": true,
+            "condition_requires_mcp_named_tool_verified": true,
+            "condition_records_ok": true,
+            "baseline_records_ok": true,
+            "condition_mcp_verified_ok": true,
+            "condition_mcp_named_tool_verified_ok": true,
+            "condition_mcp_named_tool_completed_ok": true,
+            "condition_mcp_named_tool_required_ok": true,
+            "ok": true
+          }
+        }
+      ],
+      "n_records": 8,
+      "n_flagged_records": 0,
+      "n_mcp_verified": 4,
+      "n_mcp_named_tool_verified": 4,
+      "n_mcp_named_tool_completed": 4,
+      "n_provenance_ok": 8,
+      "n_proof_ready_comparisons": 1,
+      "n_proof_ready_comparisons_by_scope": {
+        "mcp_radar_location_only": 1
+      }
     }
   },
   "totals": {
-    "suites": 2,
-    "records": 16,
+    "suites": 3,
+    "records": 24,
     "hard_flags": 0,
-    "mcp_verified_records": 4,
-    "mcp_named_tool_verified_records": 0,
-    "mcp_named_tool_completed_records": 0,
-    "provenance_ok_records": 16,
-    "proof_ready_comparisons": 2,
+    "mcp_verified_records": 8,
+    "mcp_named_tool_verified_records": 4,
+    "mcp_named_tool_completed_records": 4,
+    "provenance_ok_records": 24,
+    "proof_ready_comparisons": 3,
     "proof_ready_comparisons_by_scope": {
       "history": 1,
-      "mcp": 1
+      "mcp": 1,
+      "mcp_radar_location_only": 1
     },
-    "named_tool_proof_ready_comparisons_by_scope": {},
+    "named_tool_proof_ready_comparisons_by_scope": {
+      "mcp_radar_location_only": 1
+    },
     "flag_kinds": {},
-    "note_kinds": {}
+    "note_kinds": {
+      "B:mcp_history_partial_missing_brain_brief": 4,
+      "B:mcp_history_partial_missing_brain_search": 4
+    }
   },
   "release_manifest": {
     "path": "benchmarks/agent-brain/evidence/release/manifest.json",
@@ -819,32 +1368,38 @@
       "release-local-*"
     ],
     "min_repetitions_per_side": 4,
-    "min_mcp_verified": 4,
-    "min_mcp_named_tool_verified": 0,
+    "min_mcp_verified": 8,
+    "min_mcp_named_tool_verified": 4,
     "require_panel_provenance": true,
     "require_proof_ready_per_suite": true,
     "required_proof_scopes": [
       "history",
-      "mcp"
+      "mcp",
+      "mcp_radar_location_only"
     ],
-    "required_named_tool_proof_scopes": []
+    "required_named_tool_proof_scopes": [
+      "mcp_radar_location_only"
+    ]
   },
   "gate_status": {
     "status": "pass",
     "release_evidence": true,
     "requirements": {
-      "min_suites": 2,
-      "min_records": 16,
-      "min_proof_ready": 2,
-      "min_mcp_verified": 4,
-      "min_mcp_named_tool_verified": 0,
+      "min_suites": 3,
+      "min_records": 24,
+      "min_proof_ready": 3,
+      "min_mcp_verified": 8,
+      "min_mcp_named_tool_verified": 4,
       "hard_flags": 0,
       "require_proof_ready_per_suite": true,
       "required_proof_scopes": [
         "history",
-        "mcp"
+        "mcp",
+        "mcp_radar_location_only"
       ],
-      "required_named_tool_proof_scopes": []
+      "required_named_tool_proof_scopes": [
+        "mcp_radar_location_only"
+      ]
     },
     "failures": []
   }

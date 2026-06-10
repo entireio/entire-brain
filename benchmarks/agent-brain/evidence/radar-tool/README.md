@@ -14,5 +14,6 @@ per-file hinted changed signals, workspace Radar multi-locus redaction, unsafe
 workspace pairing skips, strict MCP arguments, framing behavior, and safe
 server-side tool-result logging.
 
-It is not agent pass-rate proof. Agent lift for Radar remains blocked until a
-fresh non-saturated, `tool_result`-backed release-candidate panel passes.
+It is not agent pass-rate proof. Radar agent lift is retained separately under
+`benchmarks/agent-brain/evidence/release` and checked by
+`mise run radar:agent-evidence`.

@@ -9,5 +9,5 @@
 
 ## Limitations
 - Tool-contract proof only; this is not agent lift proof.
-- Recent release-candidate Radar agent panels were saturated or noisy on no-brain baselines and are not retained as pass-rate proof.
+- Radar agent-lift proof is retained separately under benchmarks/agent-brain/evidence/release and enforced by mise run radar:agent-evidence.
 - This artifact proves local deterministic MCP/Radar behavior for the current internal/cli test fixtures.
