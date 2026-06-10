@@ -39,17 +39,16 @@ task outcomes instead of relying on demos or anecdotes.
   comparisons with shared labels or explicit proxy-comparison opt-in.
 - Semantic usefulness, using semantic-audit output plus benchmark tasks where
   semantic context changes file/test localization or agent efficiency.
-- Replay-lab evidence, using retained benchmark scenarios with repeated runs,
-  stable verdicts, and a committed `audit_codex.py --fail-on-flags` report. The
-  current retained Codex panel is quarantine/reference evidence only because its
-  audit report has hard flags and zero provenance-complete records.
+- More replay-lab evidence beyond the first retained focused history proof,
+  using repeated benchmark scenarios, stable verdicts, and committed
+  `audit_codex.py --fail-on-flags` reports.
 
 ## Blocked Or Access-Dependent
 
 - Backend-specific audits wait for backend access.
 - Slack/onboarding-dependent release workflow details wait for workspace access.
-- Large-repo distill timing, paired facts evals, and retained benchmark audit
-  artifacts are still pending. Local clean semantic audit output exists for this
+- Large-repo distill timing, paired facts evals, and broader multi-task replay
+  evidence are still pending. Local clean semantic audit output exists for this
   checkout, but semantic usefulness still needs retained benchmark proof.
 - Full turn-level cryptographic fact verification still depends on CLI-side turn
   signing.
@@ -69,9 +68,10 @@ task outcomes instead of relying on demos or anecdotes.
 - Shipped: local retrieval, semantic index consumption, durable facts, anchor
   verification, eval harness, benchmark harness.
 - Proven locally: semantic audit coverage on this checkout, distill dry-run
-  sizing, facts-eval baseline plumbing, and QMD-style alias smoke tests.
-- Pending proof: target large-repo distill timing, paired facts evals, and
-  retained replay-lab benchmark evidence.
+  sizing, facts-eval baseline plumbing, QMD-style alias smoke tests, and one
+  retained replay-lab history proof where `full_brain` beat `no_brain`.
+- Pending proof: target large-repo distill timing, paired facts evals, semantic
+  usefulness, and broader retained replay-lab benchmark evidence.
 - Blocked: target large-repo evidence, backend/Slack access, turn signing,
   checkpoint-time fact generation.
 - Future: distributed/shared brain, team artifact hydration, multi-agent write
