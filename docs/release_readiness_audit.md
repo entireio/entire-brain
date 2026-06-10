@@ -459,6 +459,15 @@ Release claims must stay local-first and evidence-backed:
   the workspace MCP lane (`no_brain` vs `mcp_workspace_radar`) with
   deletion-aware location-only radar. It is a calibration lane until a task with
   real no-brain headroom is identified.
+- Retained workspace-Radar evidence now has its own no-claim lane under
+  `benchmarks/agent-brain/evidence/workspace-radar`, checked by
+  `mise run workspace-radar:evidence`. The retained
+  `release-candidate-cli-workspace-radar-transcript-haiku-xhigh-20260610T154230Z`
+  candidate stopped after one no-brain run because the no-brain score was 89
+  with an early-stop threshold of 85. The workspace-Radar audit therefore passes
+  only as `claim_policy: "no_release_claim"` with status
+  `no-brain-too-easy`, zero proof-ready comparisons, and zero promotable pilots.
+  This is a guard against overclaiming, not workspace-Radar proof.
 - The committed `release-entire-cli-radar-mcp-attribution-realign` panel is a
   true-Radar calibration lane: it mutates a detector-shaped deleted state
   assignment in `RealignAttributionBase`, keeps Radar location-only, and validates
@@ -594,14 +603,17 @@ temp directory before comparing it with committed
 `codex-audit-report.{json,md}`. It now requires the retained
 `mcp_radar_location_only` suite in addition to the history and generic MCP
 scopes. `mise run radar:evidence` remains the deterministic tool-contract gate,
-and `mise run radar:agent-evidence` remains the focused Radar agent-lift gate.
+`mise run radar:agent-evidence` remains the focused Radar agent-lift gate, and
+`mise run workspace-radar:evidence` preserves the separate workspace-Radar
+no-claim/proof policy.
 
 CI now includes race-enabled package tests, deterministic Phase 1 semantic tests,
 the retained replay-lab release-evidence audit, focused Radar agent-lift audit,
-deterministic Radar tool-contract audit, distill evidence audit, and facts
-evidence audit in addition to lint/build checks. The facts evidence gate supports either
-proof-required mode or explicit no-claim mode; the current no-claim manifest is
-a guard against overclaiming, not a facts-quality win.
+deterministic Radar tool-contract audit, workspace-Radar evidence-status audit,
+distill evidence audit, and facts evidence audit in addition to lint/build
+checks. The facts and workspace-Radar evidence gates support either
+proof-required mode or explicit no-claim mode; the current no-claim manifests are
+guards against overclaiming, not positive quality wins.
 
 This documentation claim-hygiene pass checked:
 
@@ -628,8 +640,11 @@ repo/access/artifacts are available:
   no-claim facts manifest is a guard against overclaiming, not a substitute for
   this positive proof.
 - Additional Regression Radar agent-lift evidence for other tasks/repos remains
-  useful, especially workspace Radar. Future Radar agent claims still need 4
-  repetitions per side, MCP-verified records, the appropriate proof scope
+  useful, especially workspace Radar. The current workspace-Radar lane is
+  explicitly retained as no-claim evidence because the latest candidate was
+  `no-brain-too-easy`; promotion requires replacing that manifest with
+  proof-required evidence. Future Radar agent claims still need 4 repetitions per
+  side, MCP-verified records, the appropriate proof scope
   (`mcp_radar_location_only` or `mcp_workspace_radar_location_only`), zero hard
   flags, a stable proof-ready comparison, deletion-aware MCP arguments when the
   task requests deletion signals, committed sanitized artifacts, and retained

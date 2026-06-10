@@ -112,6 +112,10 @@ jobs:
             --repo-root . \
             --out-dir "$tmp" \
             --fail-on-flags
+          python3 benchmarks/agent-brain/audit_workspace_radar_evidence.py \
+            --manifest benchmarks/agent-brain/evidence/workspace-radar/manifest.json \
+            --out-dir "$tmp" \
+            --fail-on-flags
           python3 benchmarks/agent-brain/audit_distill_perf.py \
             --manifest benchmarks/agent-brain/evidence/distill-perf/manifest.json \
             --out-dir "$tmp" \
@@ -134,6 +138,15 @@ jobs:
             generated="$tmp/$report"
             if ! cmp -s "$committed" "$generated"; then
               echo "retained Radar tool evidence report is stale: $report" >&2
+              diff -u "$committed" "$generated" >&2 || true
+              exit 1
+            fi
+          done
+          for report in workspace-radar-audit-report.json workspace-radar-audit-report.md; do
+            committed="benchmarks/agent-brain/evidence/workspace-radar/$report"
+            generated="$tmp/$report"
+            if ! cmp -s "$committed" "$generated"; then
+              echo "retained workspace Radar evidence report is stale: $report" >&2
               diff -u "$committed" "$generated" >&2 || true
               exit 1
             fi

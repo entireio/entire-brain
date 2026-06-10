@@ -1,0 +1,73 @@
+{
+  "comparisons": [],
+  "provenance": {
+    "fingerprint": "432efd0fdea5259b4f005822bce32762b9329da9ba094fccd7152edc647e1141",
+    "harnesses": [
+      {
+        "dirty": false,
+        "head_commit": "209e5706b869443ca0ab2aaf5cc4d6fffeef4d4e",
+        "repo_path": "/Users/suhaan/Documents/Coding/entire-brain"
+      }
+    ],
+    "missing_record_provenance": 0,
+    "records": 1,
+    "records_with_provenance": 1,
+    "run_configs": [
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 200,
+        "command": "run",
+        "condition": "no_brain",
+        "fingerprint": "076ae3c3e0f7c8b2fa0a149eb8fd4aab09c1099a275c9c38b352cd8919f4cfc0",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,mcp_workspace_radar",
+          "repetitions": 4,
+          "runners": "claude:haiku:xhigh",
+          "tasks": [
+            "entireio-cli-transcript-reresolve.json"
+          ]
+        },
+        "runner": {
+          "agent": "claude",
+          "effort": "xhigh",
+          "id": "claude-haiku-xhigh",
+          "model": "haiku"
+        }
+      }
+    ],
+    "schema": 1,
+    "sources": [
+      {
+        "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "base_ref": "af713665091693a8301520159f3b4097a6ec36f9",
+        "base_ref_source": "task.base_commit",
+        "dirty": false,
+        "head_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "repo": "entire-cli",
+        "repo_path_input": "cli-bench",
+        "repo_path_resolved": "/Users/suhaan/Documents/Coding/cli-bench"
+      }
+    ],
+    "tasks": [
+      {
+        "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "config_sha256": "a159fb27432e80f062f8e71dac33d50db66882261d169bdb89f0e4c6e1df2fde",
+        "id": "entireio-cli-transcript-reresolve",
+        "path": "benchmarks/agent-brain/tasks/entireio-cli-transcript-reresolve.json"
+      }
+    ]
+  },
+  "records": 1,
+  "stability_tags": {},
+  "stats_notes": {
+    "headline_metric": "validation pass-rate + measured tokens; composite score and p-values are secondary",
+    "multiple_comparison_correction": "holm-bonferroni across all suite p-values; see <field>_holm",
+    "n_pvalues_in_family": 0,
+    "p_value_test": "two-sided Welch's t-test (Student-t, Welch-Satterthwaite df)",
+    "stability": "per comparison: coefficient_of_variation + tag (brain_positive_stable requires a token win significant at p<0.05 using max(raw Welch p, Holm-adjusted p), or a pass-rate lift, that survives dropping the single most-favourable rep; saturated = both arms pass 100%; noisy otherwise). The gate only downgrades; it never manufactures significance."
+  }
+}
