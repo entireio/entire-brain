@@ -1,0 +1,69 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "da3fcbba85bb",
+  "session_id": "09f9e569-b67f-42b0-a0ad-0b0f0c830c51",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T17:19:04.555401Z",
+  "branch": "codex/release-readiness-hardening",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/audit_radar_tool_evidence.py",
+    "docs/release_press_release.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5[1m]",
+  "turn_id": "de87258d2983",
+  "token_usage": {
+    "input_tokens": 17208,
+    "cache_creation_tokens": 5029,
+    "cache_read_tokens": 36379,
+    "output_tokens": 1074,
+    "api_call_count": 1
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T17:19:04.548095Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 20,
+    "human_modified": 11,
+    "human_removed": 0,
+    "total_committed": 20,
+    "total_lines_changed": 54,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 353,
+      "user_lines_removed": 11,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.json": 60,
+        ".claude/settings.local.json": 32,
+        ".codex/config.toml": 6,
+        ".codex/hooks.json": 40,
+        ".gemini/settings.json": 93,
+        ".mcp.json": 14,
+        ".regente/adapters.md": 25,
+        ".regente/claims.json": 6,
+        ".regente/config.json": 4,
+        ".regente/github-app.json": 7,
+        ".regente/metrics/latest.json": 27,
+        ".regente/roles.json": 4,
+        ".regente/status.json": 9,
+        ".regente/team.json": 8,
+        "benchmarks/agent-brain/audit_radar_tool_evidence.py": 4,
+        "docs/release_press_release.md": 14
+      },
+      "user_removed_per_file": {
+        "benchmarks/agent-brain/audit_radar_tool_evidence.py": 1,
+        "docs/release_press_release.md": 10
+      }
+    }
+  ]
+}
