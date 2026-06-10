@@ -122,6 +122,12 @@ func TestCompareEvalSummaries(t *testing.T) {
 	if byMetric["recall"].PHolm == 0 {
 		t.Errorf("recall Holm threshold should be populated: %+v", byMetric["recall"])
 	}
+	if byMetric["recall"].EvidenceBasis != evalMetricEvidenceProofLabels || !byMetric["recall"].ReleaseClaimable {
+		t.Errorf("proof-labeled recall should be release-claimable, got %+v", byMetric["recall"])
+	}
+	if byMetric["tokens"].EvidenceBasis != evalMetricEvidenceOperational {
+		t.Errorf("tokens should be operational evidence, got %+v", byMetric["tokens"])
+	}
 }
 
 func TestCompareEvalSummariesRequiresMatchedTaskSets(t *testing.T) {
@@ -233,14 +239,16 @@ func TestCompareEvalSummariesSkipsUndefinedRecallAndRejectsBadPairs(t *testing.T
 }
 
 func TestCompareEvalSummariesRejectsSourceMatchProxyWithoutOverride(t *testing.T) {
-	a := evalSummary{Retriever: evalRetrieverHistory, Results: []evalTaskResult{{
-		ID: "t1", Task: "same", Precision: 1, UsefulPer1k: 10, Tokens: 100,
-		Labeled: false, RelevanceSource: evalRelevanceSourceMatch,
-	}}}
-	b := evalSummary{Retriever: evalRetrieverRawSessions, Results: []evalTaskResult{{
-		ID: "t1", Task: "same", Precision: 1, UsefulPer1k: 9, Tokens: 120,
-		Labeled: false, RelevanceSource: evalRelevanceSourceMatch,
-	}}}
+	a := evalSummary{Retriever: evalRetrieverHistory, Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Precision: 1, UsefulPer1k: 10, Tokens: 100, Labeled: false, RelevanceSource: evalRelevanceSourceMatch},
+		{ID: "t2", Task: "two", Precision: 1, UsefulPer1k: 11, Tokens: 100, Labeled: false, RelevanceSource: evalRelevanceSourceMatch},
+		{ID: "t3", Task: "three", Precision: 1, UsefulPer1k: 12, Tokens: 100, Labeled: false, RelevanceSource: evalRelevanceSourceMatch},
+	}}
+	b := evalSummary{Retriever: evalRetrieverRawSessions, Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Precision: 1, UsefulPer1k: 13, Tokens: 120, Labeled: false, RelevanceSource: evalRelevanceSourceMatch},
+		{ID: "t2", Task: "two", Precision: 1, UsefulPer1k: 14, Tokens: 120, Labeled: false, RelevanceSource: evalRelevanceSourceMatch},
+		{ID: "t3", Task: "three", Precision: 1, UsefulPer1k: 15, Tokens: 120, Labeled: false, RelevanceSource: evalRelevanceSourceMatch},
+	}}
 	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil || !strings.Contains(err.Error(), "--allow-proxy-comparison") {
 		t.Fatalf("same source-match proxy should be rejected without override, got %v", err)
 	}
@@ -248,8 +256,22 @@ func TestCompareEvalSummariesRejectsSourceMatchProxyWithoutOverride(t *testing.T
 	if err != nil {
 		t.Fatalf("allow proxy source-match: %v", err)
 	}
-	if n != 1 || len(comps) == 0 {
+	if n != 3 || len(comps) == 0 {
 		t.Fatalf("unexpected allowed proxy comparison n=%d comps=%+v", n, comps)
+	}
+	byMetric := map[string]metricComparison{}
+	for _, c := range comps {
+		byMetric[c.Metric] = c
+	}
+	useful := byMetric["useful_per_1k"]
+	if useful.EvidenceBasis != evalMetricEvidenceProxyOrMixed {
+		t.Fatalf("proxy comparison should be marked proxy_or_mixed, got %+v", useful)
+	}
+	if useful.Significant && useful.ReleaseClaimable {
+		t.Fatalf("significant proxy comparison must not be release-claimable: %+v", useful)
+	}
+	if !strings.Contains(useful.Claim, "not proof evidence") {
+		t.Fatalf("proxy claim should warn that it is not proof evidence: %+v", useful)
 	}
 }
 

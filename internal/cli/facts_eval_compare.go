@@ -13,19 +13,28 @@ import (
 // metricComparison is a paired A/B comparison of one metric across the tasks
 // both runs share, with a Holm-corrected significance verdict.
 type metricComparison struct {
-	Metric      string  `json:"metric"`
-	N           int     `json:"n"`
-	MeanA       float64 `json:"mean_a"`
-	MeanB       float64 `json:"mean_b"`
-	Delta       float64 `json:"delta"`
-	T           float64 `json:"t"`
-	P           float64 `json:"p"`
-	PHolm       float64 `json:"p_holm_threshold"`
-	Significant bool    `json:"significant"`
-	CohenD      float64 `json:"cohen_d"`
-	Winner      string  `json:"winner,omitempty"`
-	Claim       string  `json:"claim"`
+	Metric           string  `json:"metric"`
+	EvidenceBasis    string  `json:"evidence_basis"`
+	N                int     `json:"n"`
+	MeanA            float64 `json:"mean_a"`
+	MeanB            float64 `json:"mean_b"`
+	Delta            float64 `json:"delta"`
+	T                float64 `json:"t"`
+	P                float64 `json:"p"`
+	PHolm            float64 `json:"p_holm_threshold"`
+	Significant      bool    `json:"significant"`
+	ReleaseClaimable bool    `json:"release_claimable"`
+	CohenD           float64 `json:"cohen_d"`
+	Winner           string  `json:"winner,omitempty"`
+	Claim            string  `json:"claim"`
 }
+
+const (
+	evalMetricEvidenceProofLabels  = "proof_labels"
+	evalMetricEvidenceProxyOrMixed = "proxy_or_mixed"
+	evalMetricEvidenceOperational  = "operational"
+	evalMetricEvidenceUnavailable  = "unavailable"
+)
 
 // compareEvalSummaries computes a paired A/B comparison over the tasks both
 // summaries share (matched by id), for each headline metric, Holm-corrected
@@ -98,20 +107,28 @@ func compareEvalSummariesInternalWithOptions(a, b evalSummary, alpha float64, op
 	pvals := make([]float64, 0, len(metrics))
 	for _, m := range metrics {
 		var av, bv []float64
+		proofComparable := true
 		for _, id := range ids {
 			ar, br := aByID[id], bByID[id]
 			if m.include != nil && !m.include(ar, br) {
 				continue
 			}
-			if m.requiresSameTruth && !opts.AllowProxyComparison && !evalRelevanceSourcesComparable(ar, br) {
-				return nil, 0, missingFromA, missingFromB, fmt.Errorf("task %q compares %s with non-proof or different relevance sources (A=%s label_source=%s labeled=%t, B=%s label_source=%s labeled=%t); rerun with human/judge_refined labels or pass --allow-proxy-comparison", id, m.name, valueOrUnset(ar.RelevanceSource), valueOrUnset(ar.LabelSource), ar.Labeled, valueOrUnset(br.RelevanceSource), valueOrUnset(br.LabelSource), br.Labeled)
+			if m.requiresSameTruth {
+				comparable := evalRelevanceSourcesComparable(ar, br)
+				if !comparable {
+					proofComparable = false
+				}
+				if !opts.AllowProxyComparison && !comparable {
+					return nil, 0, missingFromA, missingFromB, fmt.Errorf("task %q compares %s with non-proof or different relevance sources (A=%s label_source=%s labeled=%t, B=%s label_source=%s labeled=%t); rerun with human/judge_refined labels or pass --allow-proxy-comparison", id, m.name, valueOrUnset(ar.RelevanceSource), valueOrUnset(ar.LabelSource), ar.Labeled, valueOrUnset(br.RelevanceSource), valueOrUnset(br.LabelSource), br.Labeled)
+				}
 			}
 			av = append(av, m.get(ar))
 			bv = append(bv, m.get(br))
 		}
 		st := pairedTTest(av, bv)
 		comparisons = append(comparisons, metricComparison{
-			Metric: m.name, N: st.N, MeanA: st.MeanA, MeanB: st.MeanB,
+			Metric: m.name, EvidenceBasis: evalMetricEvidenceBasis(m.requiresSameTruth, st.N, proofComparable),
+			N: st.N, MeanA: st.MeanA, MeanB: st.MeanB,
 			Delta: st.Delta, T: st.T, P: st.P, CohenD: st.CohenD,
 		})
 		pvals = append(pvals, st.P)
@@ -121,6 +138,7 @@ func compareEvalSummariesInternalWithOptions(a, b evalSummary, alpha float64, op
 		comparisons[i].Significant = reject[i]
 		comparisons[i].PHolm = thresholds[i]
 		comparisons[i].Winner = evalMetricWinner(comparisons[i])
+		comparisons[i].ReleaseClaimable = evalMetricReleaseClaimable(comparisons[i])
 		comparisons[i].Claim = evalMetricClaim(comparisons[i])
 	}
 	return comparisons, len(ids), missingFromA, missingFromB, nil
@@ -203,6 +221,19 @@ func evalRelevanceSourceIsProofLabel(r evalTaskResult) bool {
 	}
 }
 
+func evalMetricEvidenceBasis(requiresSameTruth bool, n int, proofComparable bool) string {
+	if n == 0 {
+		return evalMetricEvidenceUnavailable
+	}
+	if !requiresSameTruth {
+		return evalMetricEvidenceOperational
+	}
+	if proofComparable {
+		return evalMetricEvidenceProofLabels
+	}
+	return evalMetricEvidenceProxyOrMixed
+}
+
 func evalResultsByID(results []evalTaskResult, label string) (map[string]evalTaskResult, error) {
 	byID := make(map[string]evalTaskResult, len(results))
 	for _, r := range results {
@@ -247,7 +278,28 @@ func evalMetricWinner(c metricComparison) string {
 	return "tie"
 }
 
+func evalMetricReleaseClaimable(c metricComparison) bool {
+	if !c.Significant || c.N == 0 || c.Winner == "tie" {
+		return false
+	}
+	switch c.EvidenceBasis {
+	case evalMetricEvidenceProofLabels, evalMetricEvidenceOperational:
+		return true
+	default:
+		return false
+	}
+}
+
 func evalMetricClaim(c metricComparison) string {
+	if c.N == 0 || c.EvidenceBasis == evalMetricEvidenceUnavailable {
+		return "metric unavailable; no comparable rows"
+	}
+	if c.EvidenceBasis == evalMetricEvidenceProxyOrMixed {
+		if c.Significant {
+			return "proxy or mixed-label comparison only; not proof evidence"
+		}
+		return "proxy or mixed-label comparison only; not significant and not proof evidence"
+	}
 	if !c.Significant {
 		return "directional only; not significant after Holm correction"
 	}
@@ -341,10 +393,10 @@ lift honestly instead of eyeballing two means.`,
 			if allowBrainManifestMismatch {
 				fmt.Fprintln(out, "warning: brain manifest hashes differ or were explicitly ignored; paired run state is not identical")
 			}
-			fmt.Fprintf(out, "%-14s %9s %9s %9s %8s %7s %8s %-6s %s\n", "metric", "A", "B", "delta", "t", "p", "cohen_d", "winner", "claim")
+			fmt.Fprintf(out, "%-14s %-14s %9s %9s %9s %8s %7s %8s %-6s %s\n", "metric", "evidence", "A", "B", "delta", "t", "p", "cohen_d", "winner", "claim")
 			for _, c := range comparisons {
-				fmt.Fprintf(out, "%-14s %9.3f %9.3f %+9.3f %8.2f %7.3f %8.2f %-6s %s\n",
-					c.Metric, c.MeanA, c.MeanB, c.Delta, c.T, c.P, c.CohenD, c.Winner, c.Claim)
+				fmt.Fprintf(out, "%-14s %-14s %9.3f %9.3f %+9.3f %8.2f %7.3f %8.2f %-6s %s\n",
+					c.Metric, c.EvidenceBasis, c.MeanA, c.MeanB, c.Delta, c.T, c.P, c.CohenD, c.Winner, c.Claim)
 			}
 			if n < 12 {
 				fmt.Fprintf(out, "note: n=%d is small — treat as directional; significance is underpowered.\n", n)

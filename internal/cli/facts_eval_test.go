@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 func TestEvalMetricsLabeled(t *testing.T) {
@@ -522,6 +524,123 @@ func TestFactsEvalRejectsSemanticForNonFactsRetrievers(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "--semantic requires --retriever facts") {
 			t.Fatalf("%s: expected --semantic retriever validation error, got %v", retriever, err)
 		}
+	}
+}
+
+func TestFactsEvalRawSessionsJSONIncludesProofBoundaryMetadata(t *testing.T) {
+	repoDir := t.TempDir()
+	dataDir := t.TempDir()
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "git@github.com:example/repo.git\n"},
+		fakeCommandKey("git", "branch", "--show-current"):     {stdout: "main\n"},
+	}}
+	opts := Options{
+		Version: "test",
+		Env: EntireEnv{
+			RepoRoot:      repoDir,
+			PluginDataDir: dataDir,
+		},
+		Runner: runner,
+		Now:    func() time.Time { return now },
+	}
+	storage, err := repoStoragePaths(context.Background(), runner, opts.Env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	transcriptRel := "sessions/main/session-one.jsonl"
+	transcriptPath := filepath.Join(storage.BrainDir, filepath.FromSlash(transcriptRel))
+	if err := os.MkdirAll(filepath.Dir(transcriptPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(transcriptPath, []byte("alpha raw checkpoint guidance\nbeta unrelated\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		DefaultBranch: "main",
+		Sources: &brainSources{
+			Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{{
+				SessionID:        "session-one",
+				Branch:           "main",
+				TranscriptPath:   transcriptRel,
+				LatestCheckpoint: "cp1",
+				CreatedAt:        now,
+			}}},
+		},
+	}
+	if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	tasksPath := filepath.Join(t.TempDir(), "tasks.json")
+	tasks := []evalTask{{
+		ID:                   "raw-one",
+		Task:                 "alpha checkpoint guidance",
+		Branch:               "main",
+		SourceSessionID:      "session-one",
+		SourceTranscriptPath: transcriptRel,
+		SourceLines:          []int{1},
+	}}
+	data, err := json.Marshal(tasks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tasksPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := execute(t, NewRootCommand(opts), "facts", "eval", "--tasks", tasksPath, "--retriever", evalRetrieverRawSessions, "--json")
+	if err != nil {
+		t.Fatalf("facts eval raw-sessions --json: %v\n%s", err, out)
+	}
+	var summary evalSummary
+	if err := json.Unmarshal([]byte(out), &summary); err != nil {
+		t.Fatalf("parse summary: %v\n%s", err, out)
+	}
+	if summary.Retriever != evalRetrieverRawSessions || summary.RunConfig == nil {
+		t.Fatalf("summary missing retriever/run_config: %+v", summary)
+	}
+	if summary.RunConfig.TasksSHA256 == "" || summary.RunConfig.BrainManifestSHA256 == "" {
+		t.Fatalf("summary must retain tasks and brain hashes: %+v", summary.RunConfig)
+	}
+	if summary.RunConfig.RawSessionIDScheme != "raw:sha256(session_id)[:16]:start-end" {
+		t.Fatalf("raw session id scheme not recorded: %+v", summary.RunConfig)
+	}
+	if !strings.Contains(summary.RunConfig.TurnSigningLimitation, "turn-level") {
+		t.Fatalf("turn-signing limitation not recorded: %+v", summary.RunConfig)
+	}
+	if len(summary.Results) != 1 || summary.Results[0].RelevanceSource != evalRelevanceSourceMatch || summary.Results[0].Labeled {
+		t.Fatalf("raw-session source match should be proxy, not labeled proof: %+v", summary.Results)
+	}
+}
+
+func TestPrintEvalSummaryShowsRelevanceSourceWarning(t *testing.T) {
+	summary := evalSummary{
+		Retriever: evalRetrieverRawSessions,
+		Results: []evalTaskResult{{
+			ID:               "raw-one",
+			Task:             "alpha",
+			Retriever:        evalRetrieverRawSessions,
+			RelevanceSource:  evalRelevanceSourceMatch,
+			Surfaced:         1,
+			Tokens:           10,
+			RelevantSurfaced: 1,
+			Precision:        1,
+			UsefulPer1k:      100,
+		}},
+	}
+	summary = summarizeEval(summary.Results)
+	cmd := &cobra.Command{Use: "eval"}
+	var out strings.Builder
+	cmd.SetOut(&out)
+	printEvalSummary(cmd, summary)
+	got := out.String()
+	if !strings.Contains(got, "relevance") || !strings.Contains(got, evalRelevanceSourceMatch) {
+		t.Fatalf("human summary should show relevance source:\n%s", got)
+	}
+	if !strings.Contains(got, "non-proof relevance rows") {
+		t.Fatalf("human summary should warn for proxy rows:\n%s", got)
 	}
 }
 

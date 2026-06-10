@@ -63,11 +63,15 @@ Implemented eval surfaces:
   (`explicit_label`, `partial_explicit_label`, `mixed_explicit_source_match`,
   `source_match`, `judge`, or `none`), so charts can separate source-match proxy
   credit from labeled recall and spot query arms that mix fact labels with other
-  source types.
+  source types. The human table now prints each row's relevance/label source and
+  warns when non-proof relevance rows are present.
 - `eval-compare` includes a per-metric winner and explicit claim text, and now
   rejects non-proof or different relevance sources unless
   `--allow-proxy-comparison` is explicit. Same-source `source_match` proxy is
-  still proxy evidence, not proof evidence.
+  still proxy evidence, not proof evidence. Its JSON metrics also include
+  `evidence_basis` (`proof_labels`, `proxy_or_mixed`, `operational`, or
+  `unavailable`) and `release_claimable`, so an allowed proxy comparison cannot
+  silently become proof copy.
 - `facts eval` validates `label_source`; task files with `relevant` ids must
   say whether labels are `human`, `judge_refined`, or `provenance_silver`.
 - `eval-compare` also rejects differing non-empty `run_config.tasks_sha256` and
@@ -94,6 +98,21 @@ token-cost contrast, but it is not facts-vs-raw release proof.
 Blocked evidence collection: paired `facts eval` runs for `facts`, `history`,
 `query`, and `raw-sessions` over the same labeled or explicitly proxy-authorized
 task set are still required.
+
+Local collection recipe:
+
+1. Build a task file with `facts eval-gen --source sessions --out
+   /tmp/entire-facts-eval-tasks.json` for smoke, or replace/augment its
+   `relevant` ids with human or judge-refined labels and `label_source:
+   "human"` or `"judge_refined"` for proof.
+2. Run the same tasks and brain state through all four arms:
+   `facts eval --tasks /tmp/entire-facts-eval-tasks.json --retriever facts
+   --json > /tmp/facts.json`, then repeat for `history`, `query`, and
+   `raw-sessions`.
+3. Compare pairs with `facts eval-compare --a /tmp/raw.json --b /tmp/facts.json
+   --json`. Use `--allow-proxy-comparison` only for smoke/source-overlap runs;
+   release claims require `evidence_basis: "proof_labels"` and
+   `release_claimable: true` for the relevance metric being claimed.
 
 ## Semantic / Tree-Sitter Proof
 

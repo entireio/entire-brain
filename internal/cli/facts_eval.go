@@ -1177,9 +1177,9 @@ func printEvalSummary(cmd *cobra.Command, s evalSummary) {
 	}
 	showLatencyBreakdown := evalHasLatencyBreakdown(s.Results)
 	if showLatencyBreakdown {
-		fmt.Fprintf(out, "%-14s %8s %8s %8s %8s %7s %7s %9s\n", "task", "tokens", "lat(ms)", "exp(ms)", "e2e(ms)", "prec", "recall", "useful/1k")
+		fmt.Fprintf(out, "%-14s %-24s %-13s %8s %8s %8s %8s %7s %7s %9s\n", "task", "relevance", "label", "tokens", "lat(ms)", "exp(ms)", "e2e(ms)", "prec", "recall", "useful/1k")
 	} else {
-		fmt.Fprintf(out, "%-14s %8s %8s %7s %7s %9s\n", "task", "tokens", "lat(ms)", "prec", "recall", "useful/1k")
+		fmt.Fprintf(out, "%-14s %-24s %-13s %8s %8s %7s %7s %9s\n", "task", "relevance", "label", "tokens", "lat(ms)", "prec", "recall", "useful/1k")
 	}
 	rows := append([]evalTaskResult(nil), s.Results...)
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
@@ -1188,16 +1188,21 @@ func printEvalSummary(cmd *cobra.Command, s evalSummary) {
 		if r.Labeled {
 			recall = fmt.Sprintf("%.2f", r.Recall)
 		}
+		relevance := truncateString(valueOrUnset(r.RelevanceSource), 24)
+		label := truncateString(valueOrUnset(r.LabelSource), 13)
 		if showLatencyBreakdown {
-			fmt.Fprintf(out, "%-14s %8d %8d %8d %8d %7.2f %7s %9.2f\n", truncateString(r.ID, 14), r.Tokens, r.LatencyMS, r.ExpansionLatencyMS, evalEndToEndLatencyMS(r), r.Precision, recall, r.UsefulPer1k)
+			fmt.Fprintf(out, "%-14s %-24s %-13s %8d %8d %8d %8d %7.2f %7s %9.2f\n", truncateString(r.ID, 14), relevance, label, r.Tokens, r.LatencyMS, r.ExpansionLatencyMS, evalEndToEndLatencyMS(r), r.Precision, recall, r.UsefulPer1k)
 		} else {
-			fmt.Fprintf(out, "%-14s %8d %8d %7.2f %7s %9.2f\n", truncateString(r.ID, 14), r.Tokens, r.LatencyMS, r.Precision, recall, r.UsefulPer1k)
+			fmt.Fprintf(out, "%-14s %-24s %-13s %8d %8d %7.2f %7s %9.2f\n", truncateString(r.ID, 14), relevance, label, r.Tokens, r.LatencyMS, r.Precision, recall, r.UsefulPer1k)
 		}
 	}
 	if showLatencyBreakdown {
-		fmt.Fprintf(out, "%-14s %8.0f %8.0f %8.0f %8.0f %7.2f %7s %9.2f\n", "MEAN", s.MeanTokens, s.MeanLatencyMS, s.MeanExpansionLatencyMS, s.MeanEndToEndLatencyMS, s.MeanPrecision, "", s.MeanUsefulPer1k)
+		fmt.Fprintf(out, "%-14s %-24s %-13s %8.0f %8.0f %8.0f %8.0f %7.2f %7s %9.2f\n", "MEAN", "", "", s.MeanTokens, s.MeanLatencyMS, s.MeanExpansionLatencyMS, s.MeanEndToEndLatencyMS, s.MeanPrecision, "", s.MeanUsefulPer1k)
 	} else {
-		fmt.Fprintf(out, "%-14s %8.0f %8.0f %7.2f %7s %9.2f\n", "MEAN", s.MeanTokens, s.MeanLatencyMS, s.MeanPrecision, "", s.MeanUsefulPer1k)
+		fmt.Fprintf(out, "%-14s %-24s %-13s %8.0f %8.0f %7.2f %7s %9.2f\n", "MEAN", "", "", s.MeanTokens, s.MeanLatencyMS, s.MeanPrecision, "", s.MeanUsefulPer1k)
+	}
+	if note := evalSummaryRelevanceNote(s.Results); note != "" {
+		fmt.Fprintln(out, note)
 	}
 	if len(s.ByStratum) > 0 {
 		fmt.Fprintf(out, "\n%-14s %8s %7s %7s %9s\n", "stratum", "tokens", "prec", "tasks", "useful/1k")
@@ -1211,6 +1216,32 @@ func printEvalSummary(cmd *cobra.Command, s evalSummary) {
 			fmt.Fprintf(out, "%-14s %8.0f %7.2f %7d %9.2f\n", qt, st.MeanTokens, st.MeanPrecision, st.Tasks, st.MeanUsefulPer1k)
 		}
 	}
+}
+
+func evalSummaryRelevanceNote(results []evalTaskResult) string {
+	if len(results) == 0 {
+		return ""
+	}
+	nonProof := map[string]int{}
+	for _, r := range results {
+		if evalRelevanceSourceIsProofLabel(r) {
+			continue
+		}
+		source := strings.TrimSpace(r.RelevanceSource)
+		if source == "" {
+			source = evalRelevanceNone
+		}
+		nonProof[source]++
+	}
+	if len(nonProof) == 0 {
+		return ""
+	}
+	sources := make([]string, 0, len(nonProof))
+	for source, n := range nonProof {
+		sources = append(sources, fmt.Sprintf("%s=%d", source, n))
+	}
+	sort.Strings(sources)
+	return "note: non-proof relevance rows present (" + strings.Join(sources, ", ") + "); source-match, silver, judge, mixed, or none rows are not human/judge_refined recall proof."
 }
 
 func evalHasLatencyBreakdown(results []evalTaskResult) bool {
