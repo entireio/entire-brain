@@ -30,6 +30,7 @@ REQUIRED_TESTS = [
     "TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer",
     "TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol",
     "TestRegressionAssignmentDeletionRelatedLocationsStayOnSameInvariant",
+    "TestRegressionAssignmentDeletionRelatedLocationsDistinguishSameIdentifierDifferentRHS",
     "TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite",
     "TestRegressionAssignmentDeletionReportsSameNameReceiverMethods",
     "TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction",

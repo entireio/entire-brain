@@ -47,6 +47,7 @@ MCP_NAMED_TOOL_REQUIRED_SCOPES = {
     "mcp_workspace_radar_location_only",
 }
 MCP_BRAIN_TOOL_RE = r"brain_(?:stale|brief|query|search|vsearch|get|multi_get|context|impact|changes|code|tests|boundaries|regressions|review|workspace_regressions|workspace_review)"
+SAFE_SERVER_BOOL_TOOL_ARGS = {"blind_spots", "include_deletions", "location_only"}
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 HOST_PATH_RE = re.compile(
@@ -58,6 +59,20 @@ HOST_PATH_RE = re.compile(
     r"|[A-Z]:\\Users\\[^\s\"'`]+"   # Windows home paths
     r")"
 )
+
+
+def sanitize_server_tool_args(raw_args: Any) -> tuple[dict[str, bool], list[dict[str, str]]]:
+    if not isinstance(raw_args, dict):
+        return {}, [{"key": "<non-object>", "type": type(raw_args).__name__}]
+    safe_args: dict[str, bool] = {}
+    unsafe_args: list[dict[str, str]] = []
+    for key, value in raw_args.items():
+        key_text = str(key)
+        if key_text in SAFE_SERVER_BOOL_TOOL_ARGS and isinstance(value, bool):
+            safe_args[key_text] = value
+        else:
+            unsafe_args.append({"key": key_text, "type": type(value).__name__})
+    return safe_args, unsafe_args
 
 
 def load_records(suite_dir: pathlib.Path) -> list[dict[str, Any]]:
@@ -129,13 +144,7 @@ def server_log_tool_args(run_dir: pathlib.Path) -> list[dict[str, Any]] | None:
             raw_args = json.loads(args_match.group(1))
         except json.JSONDecodeError:
             raw_args = {}
-        if not isinstance(raw_args, dict):
-            raw_args = {}
-        safe_args = {
-            str(key): value
-            for key, value in raw_args.items()
-            if key in {"blind_spots", "include_deletions", "location_only"} and isinstance(value, bool)
-        }
+        safe_args, _ = sanitize_server_tool_args(raw_args)
         out.append({"tool": current_tool, "arguments": safe_args})
     return out
 
@@ -165,13 +174,10 @@ def server_log_tool_call_records(run_dir: pathlib.Path) -> list[dict[str, Any]] 
                 raw_args = json.loads(args_match.group(1))
             except json.JSONDecodeError:
                 raw_args = {}
-            if not isinstance(raw_args, dict):
-                raw_args = {}
-            current["arguments"] = {
-                str(key): value
-                for key, value in raw_args.items()
-                if key in {"blind_spots", "include_deletions", "location_only"} and isinstance(value, bool)
-            }
+            safe_args, unsafe_args = sanitize_server_tool_args(raw_args)
+            current["arguments"] = safe_args
+            if unsafe_args:
+                current["unsafe_arguments"] = unsafe_args
             continue
         result_match = re.fullmatch(rf"tool_result: ({MCP_BRAIN_TOOL_RE}) (ok|error)", line)
         if result_match:
@@ -231,6 +237,23 @@ def server_log_has_successful_tool_with_args(tool_calls: list[dict[str, Any]] | 
         if all(args.get(key) is value for key, value in required_args.items()):
             return True
     return False
+
+
+def server_log_unsafe_tool_args(tool_calls: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    if tool_calls is None:
+        return []
+    out: list[dict[str, Any]] = []
+    for detail in tool_calls:
+        if not isinstance(detail, dict):
+            continue
+        unsafe = detail.get("unsafe_arguments")
+        if not isinstance(unsafe, list) or not unsafe:
+            continue
+        out.append({
+            "tool": detail.get("tool"),
+            "unsafe_arguments": unsafe,
+        })
+    return out
 
 
 def record_env_flags(rec: dict[str, Any]) -> dict[str, str]:
@@ -457,6 +480,7 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     slog_results = server_log_tool_results(run_dir)
     slog_args = server_log_tool_args(run_dir)
     slog_tool_calls = server_log_tool_call_records(run_dir)
+    slog_unsafe_args = server_log_unsafe_tool_args(slog_tool_calls)
     is_win = bool(rec.get("ok")) and (get(rec, "validation", "ok") is True)
     # Compact-delivery models are instructed to call brain_brief ONCE and NOT
     # brain_search (the compact brief already carries the top history hits).
@@ -585,6 +609,14 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     sh = get(rec, "brain_prep", "history_sanitization")
     if isinstance(sh, dict) and sh.get("ok") is False:
         flags.append("E:history_sanitization_failed")
+    if slog_unsafe_args:
+        unsafe_keys = sorted({
+            str(arg.get("key"))
+            for entry in slog_unsafe_args
+            for arg in (entry.get("unsafe_arguments") if isinstance(entry.get("unsafe_arguments"), list) else [])
+            if isinstance(arg, dict)
+        })
+        flags.append("E:mcp_server_log_unsafe_tool_args(" + ",".join(unsafe_keys) + ")")
 
     # F. validation present
     vres = get(rec, "validation", "results", default=None)
@@ -628,7 +660,7 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     mcp_verified = (
         cond in MCP_CONDITIONS and mcp_calls > 0 and bool(get(rec, "mcp_condition_audit", "ok"))
         and pc == 0 and slog is not None and slog > 0 and int(slog_responses or 0) >= int(slog or 0)
-        and not any(flag.startswith("B:") for flag in flags)
+        and not flags
         and not (slog_names and not {bare_mcp_tool_name(n) for n in activity.get("mcp_tool_names") or []}.issubset(set(slog_names)))
     )
 
@@ -666,6 +698,8 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         audit["server_tool_results"] = slog_results
     if slog_args:
         audit["server_tool_args"] = slog_args
+    if slog_unsafe_args:
+        audit["server_tool_unsafe_args"] = slog_unsafe_args
     if slog_tool_calls:
         audit["server_tool_calls"] = slog_tool_calls
     return audit

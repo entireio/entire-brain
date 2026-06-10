@@ -710,6 +710,18 @@ func regressionAssignmentCandidateHomes(f candFile, d deleteSignal) []regression
 	seenLine := map[int]struct{}{}
 	var preferredLines []int
 	var rhsLines []int
+	fileHasRHS := false
+	if d.rhs != "" {
+		for i, n := range f.norm {
+			if regressionIsComment(f.lines[i]) {
+				continue
+			}
+			if strings.Contains(n, d.rhs) {
+				fileHasRHS = true
+				break
+			}
+		}
+	}
 	collect := func(needle string) {
 		if needle == "" {
 			return
@@ -723,6 +735,9 @@ func regressionAssignmentCandidateHomes(f candFile, d deleteSignal) []regression
 			}
 			line := i + 1
 			if needle == d.id {
+				if fileHasRHS && !regressionSymbolHas(f, line, d.rhs) {
+					continue
+				}
 				if regressionNearbyCandidateSeenInSameSymbol(f.lines, preferredLines, line, 2) {
 					continue
 				}
@@ -1062,10 +1077,12 @@ func annotateRegressionLocationContext(anomalies []regressionAnomaly, files []ca
 }
 
 func regressionRelatedLocationMatch(a, b regressionAnomaly) bool {
-	if a.Identifier != "" && b.Identifier != "" && strings.EqualFold(a.Identifier, b.Identifier) {
-		return true
+	aExpected := regressionDespace(a.Expected)
+	bExpected := regressionDespace(b.Expected)
+	if aExpected != "" || bExpected != "" {
+		return aExpected != "" && aExpected == bExpected
 	}
-	return regressionDespace(a.Expected) != "" && regressionDespace(a.Expected) == regressionDespace(b.Expected)
+	return a.Identifier != "" && b.Identifier != "" && strings.EqualFold(a.Identifier, b.Identifier)
 }
 
 func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, ro regressionDetectorOptions, query string) error {

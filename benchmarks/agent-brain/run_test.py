@@ -2398,6 +2398,68 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertFalse(audited["mcp_named_tool_result_verified"], audited)
             self.assertIn("B:mcp_required_tool_results_not_ok(brain_regressions)", audited["flags"])
 
+    def test_audit_codex_requires_workspace_required_args_and_success_on_same_server_call(self):
+        with tempfile.TemporaryDirectory() as results:
+            results_dir = pathlib.Path(results)
+            suite = "release-candidate-workspace-radar-mixed-server-calls"
+            record = self._workspace_mcp_release_record(suite, repetition=1, run_id="workspace-radar-1")
+            record["provenance"]["task"]["radar_include_deletions"] = True
+            record["agent_info"]["activity"]["mcp_tool_calls"] = 2
+            record["agent_info"]["activity"]["mcp_tool_details"] = [
+                {"name": "mcp__entire_brain__brain_workspace_regressions", "arguments": {"include_deletions": True, "location_only": True}, "errored": False},
+                {"name": "mcp__entire_brain__brain_workspace_regressions", "arguments": {}, "errored": False},
+            ]
+            record["mcp_condition_audit"]["mcp_tool_calls"] = 2
+            record["mcp_condition_audit"]["mcp_tool_details"] = copy.deepcopy(record["agent_info"]["activity"]["mcp_tool_details"])
+            suite_dir = self._write_records(results_dir, suite, [record])
+            run_dir = suite_dir / "workspace-radar-1"
+            run_dir.mkdir(exist_ok=True)
+            run_dir.joinpath("mcp-server.log").write_text(
+                "\n".join([
+                    "start",
+                    "message: tools/call",
+                    "response: tools/call",
+                    "tool: brain_workspace_regressions",
+                    'tool_args: {"include_deletions":true,"location_only":true}',
+                    "tool_result: brain_workspace_regressions error",
+                    "message: tools/call",
+                    "response: tools/call",
+                    "tool: brain_workspace_regressions",
+                    "tool_result: brain_workspace_regressions ok",
+                ]) + "\n"
+            )
+
+            report = audit_codex.build_audit_report(results_dir, [suite])
+            audited = report["suites"][suite]["records"][0]
+
+            self.assertFalse(audited["pass"], audited)
+            self.assertFalse(audited["mcp_verified"], audited)
+            self.assertFalse(audited["mcp_named_tool_result_verified"], audited)
+            self.assertIn("B:mcp_required_tool_results_not_ok(brain_workspace_regressions)", audited["flags"])
+
+    def test_audit_codex_flags_unsafe_server_tool_args_without_leaking_values(self):
+        with tempfile.TemporaryDirectory() as results:
+            results_dir = pathlib.Path(results)
+            suite = "release-candidate-radar-unsafe-server-args"
+            record = self._mcp_release_record(suite, repetition=1, run_id="radar-1")
+            suite_dir = self._write_records(results_dir, suite, [record])
+            self._write_mcp_server_log(
+                suite_dir,
+                "radar-1",
+                "brain_regressions",
+                tool_args={"location_only": True, "query": "release-secret", "include_deletions": "true"},
+            )
+
+            report = audit_codex.build_audit_report(results_dir, [suite])
+            audited = report["suites"][suite]["records"][0]
+            serialized = json.dumps(audited, sort_keys=True)
+
+            self.assertFalse(audited["pass"], audited)
+            self.assertFalse(audited["mcp_verified"], audited)
+            self.assertIn("E:mcp_server_log_unsafe_tool_args(include_deletions,query)", audited["flags"])
+            self.assertIn({"tool": "brain_regressions", "arguments": {"location_only": True}}, audited["server_tool_args"])
+            self.assertNotIn("release-secret", serialized)
+
     def test_audit_codex_requires_embedded_radar_deletion_policy(self):
         with tempfile.TemporaryDirectory() as results:
             results_dir = pathlib.Path(results)

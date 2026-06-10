@@ -485,7 +485,7 @@ Release claims must stay local-first and evidence-backed:
   tokens.
 - Retained MCP/Radar tool-contract evidence now includes
   `benchmarks/agent-brain/evidence/radar-tool`: a hashed `go test -json`
-  artifact over 44 focused `internal/cli` tests. It proves QMD-style MCP tool
+  artifact over 48 focused `internal/cli` tests. It proves QMD-style MCP tool
   listing and local retrieval (`brain_search`, `brain_vsearch`, `brain_query`,
   `brain_get`, `brain_multi_get`), branch-scoped fact retrieval over MCP,
   changed-operand detection without per-file hint masking, location-only
@@ -558,9 +558,10 @@ record-only suites without `summary.json` are reported as `incomplete-suite`,
 instead of disappearing from the screen report.
 `mise run radar:evidence` now checks the retained deterministic MCP/Radar
 tool-contract artifact instead of promoting those saturated agent panels. It
-requires the retained `go test -json` artifact hash to match and all 47 required
+requires the retained `go test -json` artifact hash to match and all 48 required
 MCP/Radar tests to pass, including branch-aware QMD-style retrieval tools and
-Radar-specific MCP behavior, invariant-scoped related locations, workspace
+Radar-specific MCP behavior, invariant-scoped related locations that distinguish
+same-identifier assignment deletions with different RHS values, workspace
 multi-locus deletion redaction, and safe success-path tool-result logging.
 
 `mise run release:evidence` regenerates the retained replay-lab Codex audit in a

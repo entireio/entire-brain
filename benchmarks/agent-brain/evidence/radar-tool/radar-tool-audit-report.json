@@ -33,6 +33,7 @@
       "TestMCPToolsListIncludesQMDRetrievalSurface",
       "TestMCPToolsListIncludesRegressions",
       "TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite",
+      "TestRegressionAssignmentDeletionRelatedLocationsDistinguishSameIdentifierDifferentRHS",
       "TestRegressionAssignmentDeletionRelatedLocationsStayOnSameInvariant",
       "TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol",
       "TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer",
@@ -52,7 +53,7 @@
       "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint"
     ],
     "path": "go-test-internal-cli-radar.jsonl",
-    "sha256": "sha256:d3b8bff197446f7cce48f0264477ac5ba12b3303742e72213dd1270f25500747"
+    "sha256": "sha256:0b7c853f6e8fa27df68851b07f10a083e60eff64b1b5952ed0934509be35ced1"
   },
   "claim_scope": "mcp_radar_tool_contract",
   "errors": [],
@@ -74,6 +75,7 @@
     "TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer",
     "TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol",
     "TestRegressionAssignmentDeletionRelatedLocationsStayOnSameInvariant",
+    "TestRegressionAssignmentDeletionRelatedLocationsDistinguishSameIdentifierDifferentRHS",
     "TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite",
     "TestRegressionAssignmentDeletionReportsSameNameReceiverMethods",
     "TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction",
@@ -113,6 +115,6 @@
     "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint"
   ],
   "schema": 1,
-  "source_head": "209e5706b869443ca0ab2aaf5cc4d6fffeef4d4e",
+  "source_head": "caf5d36061aa0fe4b49fa173891be9dbfd8ba197",
   "warnings": []
 }

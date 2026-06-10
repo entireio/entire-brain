@@ -397,6 +397,36 @@ func TestRegressionAssignmentDeletionRelatedLocationsStayOnSameInvariant(t *test
 	}
 }
 
+func TestRegressionAssignmentDeletionRelatedLocationsDistinguishSameIdentifierDifferentRHS(t *testing.T) {
+	session := `{"text":"pkg/resolve_transcript.go must set state.TranscriptPath = resolved for local transcripts, and pkg/resolve_transcript.go must set state.TranscriptPath = fallback for archived transcripts"}`
+	body := "package x\nfunc missResolved(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc missFallback(state *State) string {\n\tfallback := computeFallback()\n\t_ = state.TranscriptPath\n\treturn fallback\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved fallback", 20, true)
+	var foundResolved, foundFallback bool
+	for _, a := range an {
+		if a.Kind != "deleted" || a.File != "pkg/resolve_transcript.go" {
+			continue
+		}
+		related := strings.Join(a.RelatedLocations, "\n")
+		switch {
+		case a.Symbol == "missResolved" && strings.Contains(a.Expected, "resolved"):
+			foundResolved = true
+			if strings.Contains(related, "missFallback") {
+				t.Fatalf("resolved finding cross-contaminated fallback locus: %+v", a)
+			}
+		case a.Symbol == "missFallback" && strings.Contains(a.Expected, "fallback"):
+			foundFallback = true
+			if strings.Contains(related, "missResolved") {
+				t.Fatalf("fallback finding cross-contaminated resolved locus: %+v", a)
+			}
+		}
+	}
+	if !foundResolved || !foundFallback {
+		t.Fatalf("expected resolved and fallback deletion findings, found resolved=%v fallback=%v anomalies=%+v", foundResolved, foundFallback, an)
+	}
+}
+
 func TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite(t *testing.T) {
 	session := `{"text":"pkg/resolve_transcript.go must set state.TranscriptPath = resolved so later reads work"}`
 	body := "package x\nfunc ok(state *State) string {\n\tresolved := compute()\n\tstate.TranscriptPath = resolved\n\treturn resolved\n}\nfunc miss(state *State) string {\n\tresolved := compute()\n\treturn resolved\n}\n"
