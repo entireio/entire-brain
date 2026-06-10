@@ -29,10 +29,12 @@ func TestExtractHistoryJSONFragmentsPiMessages(t *testing.T) {
 		t.Errorf("pi assistant turn not indexed as narrative: %+v", fragments)
 	}
 
-	// User turns are skipped, mirroring codex user_message routing.
+	// User turns yield exactly one request fragment (scan-cache v4) — present
+	// for trajectory surfaces (handoff, midtask mining), still excluded from
+	// general ranking — and never a narrative fragment.
 	user := parse(`{"type":"message","message":{"role":"user","content":[{"type":"text","text":"make it cohesive"}]}}`)
-	if fragments := extractHistoryJSONFragments(user); len(fragments) != 0 {
-		t.Errorf("pi user turn should not be indexed: %+v", fragments)
+	if fragments := extractHistoryJSONFragments(user); len(fragments) != 1 || fragments[0].Source != "user_prompt" {
+		t.Errorf("pi user turn should index as exactly one user_prompt fragment: %+v", fragments)
 	}
 
 	// toolResult content is mined for code facts like Claude tool_result blocks.
@@ -121,5 +123,59 @@ func TestFirstUserRequestPiAndOpencode(t *testing.T) {
 }`
 	if got := firstUserRequest(doc); got != "Remove the header bottom border" {
 		t.Errorf("firstUserRequest(opencode document) = %q", got)
+	}
+}
+
+// TestExtractHistoryJSONFragmentsRequestRecords covers the v4 re-introduction
+// of request extraction: real user turns across dialects become request-kind
+// fragments, wrapper injections never do, and request records stay excluded
+// from general ranking (the v3 noise decision, unchanged).
+func TestExtractHistoryJSONFragmentsRequestRecords(t *testing.T) {
+	cases := []struct {
+		name string
+		line string
+		want string // expected request text, "" = no request fragment
+	}{
+		{"claude user turn", `{"type":"user","message":{"content":"add retry backoff"}}`, "add retry backoff"},
+		{"codex user_message", `{"type":"event_msg","payload":{"type":"user_message","message":"why does flush stay dirty"}}`, "why does flush stay dirty"},
+		{"pi user turn", `{"type":"message","message":{"role":"user","content":[{"type":"text","text":"make it cohesive"}]}}`, "make it cohesive"},
+		{"wrapper filtered", `{"type":"user","message":{"content":"<local-command-caveat>Caveat: local commands"}}`, ""},
+		{"tool result is not a request", `{"type":"user","message":{"content":[{"type":"tool_result","content":"blob"}]}}`, ""},
+		{"assistant is not a request", `{"type":"assistant","message":{"content":[{"type":"text","text":"decided to keep it"}]}}`, ""},
+	}
+	for _, c := range cases {
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(c.line), &obj); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		var got []historyFragment
+		for _, f := range extractHistoryJSONFragments(obj) {
+			if f.Source == "user_prompt" {
+				got = append(got, f)
+			}
+		}
+		if c.want == "" {
+			if len(got) != 0 {
+				t.Errorf("%s: unexpected request fragment %+v", c.name, got)
+			}
+			continue
+		}
+		if len(got) != 1 || got[0].Text != c.want {
+			t.Errorf("%s: request fragment = %+v, want text %q", c.name, got, c.want)
+		}
+		if kinds := classifyHistoryFragment(got[0]); len(kinds) != 1 || kinds[0] != "request" {
+			t.Errorf("%s: user_prompt should classify as exactly [request], got %v", c.name, kinds)
+		}
+	}
+
+	// The general ranking arm must keep excluding request records.
+	index := historyIndex{Records: []historyRecord{
+		{ID: "r1", Kind: "request", Path: "p", Line: 1, Summary: "add retry backoff to the fetcher"},
+		{ID: "r2", Kind: "decision", Path: "p", Line: 2, Summary: "retry backoff doubles per attempt"},
+	}}
+	for _, r := range rankHistoryRecordsScored(index, "history", "retry backoff", 10, 0) {
+		if r.Record.Kind == "request" {
+			t.Fatalf("request record leaked into general ranking: %+v", r.Record)
+		}
 	}
 }
