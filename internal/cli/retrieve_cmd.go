@@ -159,7 +159,7 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 		missing = []string{}
 	}
 	if jsonOut {
-		return writeJSON(cmd, map[string]any{"results": found, "missing": missing})
+		return writeJSON(cmd, map[string]any{"branch": resolvedBranch, "results": found, "missing": missing})
 	}
 	for _, r := range found {
 		loc := r.Path

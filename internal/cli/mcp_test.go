@@ -119,10 +119,21 @@ func TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet(t *testing.T) {
 		name, _ := tool["name"].(string)
 		byName[name] = tool
 	}
+	wantRequired := map[string]string{
+		"brain_query":     "query",
+		"brain_search":    "query",
+		"brain_vsearch":   "query",
+		"brain_get":       "id",
+		"brain_multi_get": "ids",
+	}
 	for _, name := range []string{"brain_query", "brain_search", "brain_vsearch", "brain_get", "brain_multi_get"} {
 		schema, ok := byName[name]["inputSchema"].(map[string]any)
 		if !ok {
 			t.Fatalf("%s missing inputSchema", name)
+		}
+		required, ok := schema["required"].([]string)
+		if !ok || len(required) != 1 || required[0] != wantRequired[name] {
+			t.Fatalf("%s required = %#v, want [%s]", name, schema["required"], wantRequired[name])
 		}
 		props, ok := schema["properties"].(map[string]any)
 		if !ok {
@@ -132,12 +143,18 @@ func TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet(t *testing.T) {
 		if !ok || branch["type"] != "string" {
 			t.Fatalf("%s missing string branch property: %+v", name, props["branch"])
 		}
-	}
-	schema := byName["brain_multi_get"]["inputSchema"].(map[string]any)
-	props := schema["properties"].(map[string]any)
-	ids := props["ids"].(map[string]any)
-	if ids["minItems"] != 1 {
-		t.Fatalf("brain_multi_get ids minItems = %v, want 1", ids["minItems"])
+		if name == "brain_query" || name == "brain_search" || name == "brain_vsearch" {
+			limit, ok := props["limit"].(map[string]any)
+			if !ok || limit["type"] != "integer" || limit["minimum"] != 1 {
+				t.Fatalf("%s missing positive integer limit property: %+v", name, props["limit"])
+			}
+		}
+		if name == "brain_multi_get" {
+			ids, ok := props["ids"].(map[string]any)
+			if !ok || ids["type"] != "array" || ids["minItems"] != 1 {
+				t.Fatalf("%s missing non-empty ids array property: %+v", name, props["ids"])
+			}
+		}
 	}
 }
 

@@ -168,10 +168,14 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 				t.Fatalf("%s: %v\n%s", strings.Join(tc.args, " "), err, out)
 			}
 			var payload struct {
+				Branch  string          `json:"branch"`
 				Results []unifiedResult `json:"results"`
 			}
 			if err := json.Unmarshal([]byte(out), &payload); err != nil {
 				t.Fatalf("decode retrieval JSON: %v\n%s", err, out)
+			}
+			if payload.Branch != "feature" {
+				t.Fatalf("branch = %q, want feature in %s payload", payload.Branch, tc.name)
 			}
 			if tc.wantResult && len(payload.Results) == 0 {
 				t.Fatalf("expected results for %s, got none", tc.name)
@@ -190,6 +194,7 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 		t.Fatalf("get --format json: %v\n%s", err, getOut)
 	}
 	var getPayload struct {
+		Branch  string          `json:"branch"`
 		Results []unifiedResult `json:"results"`
 		Missing []string        `json:"missing"`
 	}
@@ -199,12 +204,16 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 	if len(getPayload.Results) != 1 || getPayload.Results[0].ID != facts[0].ID || len(getPayload.Missing) != 0 {
 		t.Fatalf("unexpected get payload: %+v", getPayload)
 	}
+	if getPayload.Branch != "feature" {
+		t.Fatalf("get branch = %q, want feature", getPayload.Branch)
+	}
 
 	multiOut, err := execute(t, NewRootCommand(opts), "multi-get", facts[1].ID, "fact:missing", "--format", "json")
 	if err != nil {
 		t.Fatalf("multi-get --format json: %v\n%s", err, multiOut)
 	}
 	var multiPayload struct {
+		Branch  string          `json:"branch"`
 		Results []unifiedResult `json:"results"`
 		Missing []string        `json:"missing"`
 	}
@@ -213,6 +222,91 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 	}
 	if len(multiPayload.Results) != 1 || multiPayload.Results[0].ID != facts[1].ID || len(multiPayload.Missing) != 1 || multiPayload.Missing[0] != "fact:missing" {
 		t.Fatalf("unexpected multi-get payload: %+v", multiPayload)
+	}
+	if multiPayload.Branch != "feature" {
+		t.Fatalf("multi-get branch = %q, want feature", multiPayload.Branch)
+	}
+}
+
+func TestQMDBranchOverrideAcrossRetrievalVerbs(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	paths := normalizeFactPaths([]string{"architecture.branch.override"})
+	branch := "feature/qmd"
+	featureFact := factRecord{ID: factRecordID("zephyr branch override feature contract", paths), Text: "zephyr branch override feature contract", Paths: paths, Branch: branch, Status: factStatusActive, UpdatedAt: now}
+	mainFact := factRecord{ID: factRecordID("zephyr branch override main contract", paths), Text: "zephyr branch override main contract", Paths: paths, Branch: "main", Status: factStatusActive, UpdatedAt: now}
+	if err := writeFacts(storage.BrainDir, branch, []factRecord{featureFact}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{mainFact}); err != nil {
+		t.Fatal(err)
+	}
+
+	type payload struct {
+		Branch  string          `json:"branch"`
+		Results []unifiedResult `json:"results"`
+		Missing []string        `json:"missing"`
+	}
+	assertPayload := func(t *testing.T, out string, wantBranch string, wantID string, forbiddenID string) payload {
+		t.Helper()
+		var got payload
+		if err := json.Unmarshal([]byte(out), &got); err != nil {
+			t.Fatalf("decode JSON: %v\n%s", err, out)
+		}
+		if got.Branch != wantBranch {
+			t.Fatalf("branch = %q, want %q in payload %+v", got.Branch, wantBranch, got)
+		}
+		found := false
+		for _, result := range got.Results {
+			if result.ID == wantID {
+				found = true
+			}
+			if forbiddenID != "" && result.ID == forbiddenID {
+				t.Fatalf("payload included wrong-branch result %s: %+v", forbiddenID, got.Results)
+			}
+		}
+		if wantID != "" && !found {
+			t.Fatalf("payload missing %s: %+v", wantID, got)
+		}
+		return got
+	}
+
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "search", args: []string{"search", "zephyr branch override", "--branch", branch, "--format", "json", "-n", "5"}},
+		{name: "query", args: []string{"query", "zephyr branch override", "--branch", branch, "--format", "json", "-n", "5"}},
+		{name: "vsearch", args: []string{"vsearch", "zephyr branch override feature", "--branch", branch, "--format", "json", "-n", "5"}},
+		{name: "get", args: []string{"get", featureFact.ID, "--branch", branch, "--format", "json"}},
+		{name: "multi-get", args: []string{"multi-get", featureFact.ID, mainFact.ID, "--branch", branch, "--format", "json"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := execute(t, NewRootCommand(opts), tc.args...)
+			if err != nil {
+				t.Fatalf("%s: %v\n%s", strings.Join(tc.args, " "), err, out)
+			}
+			got := assertPayload(t, out, branch, featureFact.ID, mainFact.ID)
+			if tc.name == "multi-get" && (len(got.Missing) != 1 || got.Missing[0] != mainFact.ID) {
+				t.Fatalf("multi-get should report wrong-branch id missing, got %+v", got.Missing)
+			}
+		})
+	}
+
+	out, err := execute(t, NewRootCommand(opts), "get", featureFact.ID, "--branch", "main", "--format", "json")
+	if err != nil {
+		t.Fatalf("get wrong branch: %v\n%s", err, out)
+	}
+	got := assertPayload(t, out, "main", "", featureFact.ID)
+	if len(got.Results) != 0 || len(got.Missing) != 1 || got.Missing[0] != featureFact.ID {
+		t.Fatalf("wrong-branch get should miss feature fact, got %+v", got)
 	}
 }
 
@@ -243,6 +337,8 @@ func TestQMDLimitAliasesAndPrecedence(t *testing.T) {
 		{name: "limit", args: []string{"search", "alpha checkpoint", "--limit", "1", "--format", "json"}, want: 1},
 		{name: "limit then number", args: []string{"search", "alpha checkpoint", "--limit", "2", "-n", "1", "--format", "json"}, want: 1},
 		{name: "number then limit", args: []string{"search", "alpha checkpoint", "-n", "1", "--limit", "2", "--format", "json"}, want: 2},
+		{name: "query limit then number", args: []string{"query", "alpha checkpoint", "--limit", "2", "-n", "1", "--format", "json"}, want: 1},
+		{name: "query number then limit", args: []string{"query", "alpha checkpoint", "-n", "1", "--limit", "2", "--format", "json"}, want: 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			out, err := execute(t, NewRootCommand(opts), tc.args...)
