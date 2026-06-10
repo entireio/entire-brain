@@ -49,12 +49,15 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertEqual(run.condition_prep_kind("full_cli_original"), "full_brain")
         self.assertEqual(run.condition_prep_kind("full_cli_compact"), "full_brain")
         self.assertEqual(run.condition_prep_kind("mcp_history"), "full_brain")
+        self.assertEqual(run.condition_prep_kind("mcp_workspace_radar"), "full_brain")
         self.assertEqual(run.condition_prep_kind("mcp_semantic"), "semantic_brain")
         self.assertTrue(run.condition_writes_history_excerpt("full_cli_original"))
         self.assertFalse(run.condition_writes_history_excerpt("full_cli_compact"))
         self.assertFalse(run.condition_writes_history_excerpt("mcp_history"))
+        self.assertFalse(run.condition_writes_history_excerpt("mcp_workspace_radar"))
         self.assertFalse(run.condition_copies_entire_history("no_brain"))
         self.assertTrue(run.condition_copies_entire_history("full_cli_compact"))
+        self.assertTrue(run.condition_copies_entire_history("mcp_workspace_radar"))
 
     def test_manifest_source_counts_extracts_sessions_and_history_records(self):
         counts = run.manifest_source_counts(
@@ -66,6 +69,31 @@ class RunnerAndConditionTests(unittest.TestCase):
             }
         )
         self.assertEqual(counts, {"sessions": 2, "history_records": 7})
+
+    def test_workspace_radar_prep_creates_local_workspace(self):
+        task = {
+            "repo": "entire-cli",
+            "repo_path": "cli-bench",
+            "prepare_semantic": False,
+            "workspace_name": "release-radar",
+        }
+        tools = {
+            "brain": pathlib.Path("/tmp/entire-brain"),
+            "entire": pathlib.Path("/tmp/entire"),
+            "sem": pathlib.Path("/tmp/entire-sem"),
+        }
+        worktree = pathlib.Path("/tmp/worktree")
+        commands = run.brain_prep_commands(task, "mcp_workspace_radar", worktree, tools, 200)
+        self.assertEqual(commands[0], ["/tmp/entire-brain", "export", "--checkpoint-limit", "200", "--history-index"])
+        self.assertIn(["/tmp/entire-brain", "workspace", "create", "release-radar"], commands)
+        self.assertIn(
+            ["/tmp/entire-brain", "workspace", "add", "release-radar", "/tmp/worktree", "--name", "entire-cli"],
+            commands,
+        )
+
+    def test_workspace_radar_rejects_invalid_workspace_name(self):
+        with self.assertRaisesRegex(ValueError, "invalid benchmark workspace_name"):
+            run.benchmark_workspace_name({"workspace_name": "../oops"})
 
     def test_assert_brain_state_ready_requires_full_history_for_full_brain(self):
         task = {"prepare_semantic": True}
@@ -332,7 +360,7 @@ class RunnerAndConditionTests(unittest.TestCase):
         # MCP tool calls. They were omitted from the parser allowlist, so every radar arm scored
         # mcp_tool_calls=0 and the condition audit falsely reported "no_mcp_tool_calls" even though
         # the agent had called brain_regressions (proved by the MCP server logs).
-        for tool in ("brain_regressions", "brain_review", "brain_workspace_review"):
+        for tool in ("brain_regressions", "brain_review", "brain_workspace_regressions", "brain_workspace_review"):
             stdout = json.dumps(
                 {
                     "type": "assistant",
@@ -365,8 +393,41 @@ class RunnerAndConditionTests(unittest.TestCase):
             audit = run.mcp_condition_audit("mcp_history", agent_info, runner)
             self.assertTrue(audit["ok"], audit)
             self.assertEqual(run.mcp_history_required_tools(runner), ("brain_regressions",))
+            self.assertEqual(run.mcp_required_tools("mcp_history", runner), ("brain_regressions",))
         finally:
             del os.environ["BENCH_RADAR_LOCATION_ONLY"]
+
+    def test_radar_prompt_can_request_deletion_signals(self):
+        task = {
+            "id": "task",
+            "prompt": "Fix the transcript regression.",
+            "brain_queries": ["resolveTranscriptPath", "TranscriptPath"],
+            "radar_include_deletions": True,
+        }
+        os.environ["BENCH_RADAR_LOCATION_ONLY"] = "1"
+        try:
+            prompt = run.prompt_for(task, "mcp_history", run.parse_runner_spec("codex:gpt-5.4-mini:medium"))
+        finally:
+            del os.environ["BENCH_RADAR_LOCATION_ONLY"]
+        self.assertIn("brain_regressions", prompt)
+        self.assertIn("location_only: true", prompt)
+        self.assertIn("include_deletions", prompt)
+        self.assertIn("deleted assignments", prompt)
+
+    def test_workspace_radar_prompt_uses_workspace_regressions(self):
+        task = {
+            "id": "task",
+            "prompt": "Fix the cross-repo regression.",
+            "brain_queries": ["scopeBaseRef", "base scope"],
+            "workspace_name": "related",
+            "radar_include_deletions": True,
+        }
+        prompt = run.prompt_for(task, "mcp_workspace_radar", run.parse_runner_spec("codex:gpt-5.4-mini:medium"))
+        self.assertIn("brain_workspace_regressions", prompt)
+        self.assertIn('workspace: "related"', prompt)
+        self.assertIn("location_only: true", prompt)
+        self.assertIn("include_deletions: true", prompt)
+        self.assertIn("WORKSPACE_RADAR_NO_FINDINGS", prompt)
 
     def test_activity_counts_codex_command_execution_events(self):
         stdout = json.dumps(
@@ -407,6 +468,31 @@ class RunnerAndConditionTests(unittest.TestCase):
             },
         )
         self.assertTrue(ok["ok"])
+        workspace_ok = run.mcp_condition_audit(
+            "mcp_workspace_radar",
+            {
+                "mcp": {"enabled": True},
+                "activity": {
+                    "mcp_tool_calls": 1,
+                    "mcp_tool_names": ["mcp__entire_brain__brain_workspace_regressions"],
+                    "direct_brain_cli_calls": 0,
+                },
+            },
+        )
+        self.assertTrue(workspace_ok["ok"], workspace_ok)
+        workspace_missing = run.mcp_condition_audit(
+            "mcp_workspace_radar",
+            {
+                "mcp": {"enabled": True},
+                "activity": {
+                    "mcp_tool_calls": 1,
+                    "mcp_tool_names": ["mcp__entire_brain__brain_regressions"],
+                    "direct_brain_cli_calls": 0,
+                },
+            },
+        )
+        self.assertFalse(workspace_missing["ok"])
+        self.assertIn("brain_workspace_regressions", [f.get("tool") for f in workspace_missing["findings"]])
         missing_history = run.mcp_condition_audit(
             "mcp_history",
             {
@@ -419,7 +505,7 @@ class RunnerAndConditionTests(unittest.TestCase):
             },
         )
         self.assertFalse(missing_history["ok"])
-        self.assertIn("missing_required_mcp_history_tool", {finding["kind"] for finding in missing_history["findings"]})
+        self.assertIn("missing_required_mcp_tool", {finding["kind"] for finding in missing_history["findings"]})
 
     def test_text_activity_is_marked_as_fallback(self):
         activity = run.extract_agent_activity("I would run rg needle and entire brain brief.", "")
@@ -1257,6 +1343,23 @@ class CodexAuditScriptTests(unittest.TestCase):
         }
         return record
 
+    def _workspace_mcp_release_record(self, suite: str, *, repetition: int, run_id: str) -> dict:
+        record = self._release_record(suite, condition="mcp_workspace_radar", repetition=repetition, run_id=run_id)
+        record["agent_info"]["activity"].update({
+            "used_brain": True,
+            "mcp_tool_calls": 1,
+            "mcp_tool_names": ["mcp__entire_brain__brain_workspace_regressions"],
+        })
+        record["mcp_condition_audit"] = {
+            "ok": True,
+            "required": True,
+            "mcp_tool_calls": 1,
+            "mcp_tool_names": ["mcp__entire_brain__brain_workspace_regressions"],
+            "direct_brain_cli_calls": 0,
+            "findings": [],
+        }
+        return record
+
     def _write_release_manifest(self, root: pathlib.Path) -> pathlib.Path:
         manifest = root / "manifest.json"
         manifest.write_text(json.dumps({
@@ -1688,6 +1791,44 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertEqual(report["totals"]["mcp_verified_records"], 4)
             self.assertEqual(report["totals"]["proof_ready_comparisons_by_scope"], {"mcp_radar_location_only": 1})
             self.assertEqual(report["gate_status"]["requirements"]["min_mcp_verified"], 4)
+
+    def test_audit_codex_counts_workspace_radar_delivery_scope(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            manifest = self._write_release_manifest(out_dir)
+            manifest_data = json.loads(manifest.read_text())
+            manifest_data["required_proof_scopes"] = ["mcp_workspace_radar_location_only"]
+            manifest_data["minimums"]["mcp_verified_records"] = 4
+            manifest.write_text(json.dumps(manifest_data))
+
+            suite = "release-candidate-workspace-radar-mcp"
+            records = []
+            for i in range(1, 5):
+                records.append(self._release_record(suite, condition="no_brain", repetition=i, run_id=f"base-{i}"))
+                records.append(self._workspace_mcp_release_record(suite, repetition=i, run_id=f"workspace-radar-{i}"))
+            suite_dir = self._write_records(results_dir, suite, records)
+            (suite_dir / "summary.json").write_text(json.dumps({
+                "comparisons": [{
+                    "task_id": "t",
+                    "runner": "codex",
+                    "condition": "mcp_workspace_radar",
+                    "delivery_scope": "mcp_workspace_radar_location_only",
+                    "verdict": "brain_positive",
+                    "proof_ready": True,
+                    "n_condition": 4,
+                    "n_baseline": 4,
+                    "stability": {"tag": "brain_positive_stable"},
+                }]
+            }))
+
+            self.assertEqual(
+                audit_codex.main(["--results", str(results_dir), "--release-manifest", str(manifest), "--out-dir", str(out_dir), "--fail-on-flags"]),
+                0,
+            )
+            report = json.loads((out_dir / "codex-audit-report.json").read_text())
+            self.assertEqual(report["totals"]["mcp_verified_records"], 4)
+            self.assertEqual(report["totals"]["proof_ready_comparisons_by_scope"], {"mcp_workspace_radar_location_only": 1})
 
     def test_audit_codex_fails_missing_and_inconsistent_provenance(self):
         with tempfile.TemporaryDirectory() as results:

@@ -378,10 +378,18 @@ Release claims must stay local-first and evidence-backed:
   summaries carry additive `delivery_scope`/`env_flags`, the independent auditor
   can require `minimums.mcp_verified_records`, and radar location-only delivery
   is counted as `mcp_radar_location_only` rather than folded into generic
-  history proof.
+  history proof. Workspace radar is also first-class in the harness: the
+  `mcp_workspace_radar` condition prepares a local workspace, requires the
+  `brain_workspace_regressions` MCP tool, and audits successful comparisons as
+  `mcp_workspace_radar_location_only`.
 - The committed `release-entire-cli-radar-mcp-review-base-scope` panel encodes
   `BENCH_RADAR_LOCATION_ONLY=1` in the panel manifest, so the fair radar run is
   reproducible and hashed with the panel config.
+- The committed
+  `release-entire-cli-workspace-radar-mcp-transcript-reresolve` panel exercises
+  the workspace MCP lane (`no_brain` vs `mcp_workspace_radar`) with
+  deletion-aware location-only radar. It is a calibration lane until a task with
+  real no-brain headroom is identified.
 - The query default-limit benchmark tasks now target the current unified
   retrieval implementation in `internal/cli/retrieve_cmd.go`, including the
   QMD-style `-n` alias, instead of the old semantic-query implementation.
@@ -440,13 +448,18 @@ repo/access/artifacts are available:
   runs over the same labeled or explicitly proxy-allowed task set, same task
   hash, and same brain manifest hash.
 - MCP/Regression Radar release evidence from a clean retained run of
-  `release-entire-cli-radar-mcp-review-base-scope`. Local pilots are useful for
-  calibration, but a citable claim needs 4 repetitions per side, MCP-verified
-  records, `mcp_radar_location_only` proof scope, zero hard flags, and committed
-  sanitized artifacts under `benchmarks/agent-brain/evidence/release`. Local
-  2026-06-10 pilots with `codex:gpt-5.4-mini:low` and `:medium` were both
-  saturated on pass rate (`1.0 -> 1.0`) and therefore not release proof, despite
-  large token/time reductions in the MCP/radar arm.
+  `release-entire-cli-radar-mcp-review-base-scope` or
+  `release-entire-cli-workspace-radar-mcp-transcript-reresolve`. Local pilots
+  are useful for calibration, but a citable claim needs 4 repetitions per side,
+  MCP-verified records, `mcp_radar_location_only` or
+  `mcp_workspace_radar_location_only` proof scope, zero hard flags, and
+  committed sanitized artifacts under `benchmarks/agent-brain/evidence/release`.
+  Local 2026-06-10 single-repo radar pilots with `codex:gpt-5.4-mini:low` and
+  `:medium` were both saturated on pass rate (`1.0 -> 1.0`) and therefore not
+  release proof, despite large token/time reductions in the MCP/radar arm. A
+  deletion-aware transcript radar calibration also saturated (`no_brain` mean
+  95.5, MCP/radar mean 95.0), so the next proof task must expose a harder
+  regression before spending retained workspace-radar repetitions.
 - Semantic benchmark evidence from a retained proof suite. A clean local
   `semantic-audit --json --fail-on release` run after refreshing the semantic
   index is recorded above, but it is regenerated local coverage evidence, not a

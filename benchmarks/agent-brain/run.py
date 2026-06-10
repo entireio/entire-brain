@@ -260,9 +260,9 @@ class RunnerSpec:
 
 
 SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
-FULL_HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mcp_history"}
+FULL_HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mcp_history", "mcp_workspace_radar"}
 CLI_HISTORY_EXCERPT_CONDITIONS = {"full_brain", "full_cli_original"}
-MCP_CONDITIONS = {"mcp_semantic", "mcp_history"}
+MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
 BENCHMARK_PRIVATE_PREFIXES = (".benchmark/", ".entire/", ".codex/")
 HARNESS_SCAFFOLD_PATHS = (
     "benchmarks/agent-brain/tasks",
@@ -309,6 +309,13 @@ def condition_writes_history_excerpt(condition: str) -> bool:
 
 def condition_copies_entire_history(condition: str) -> bool:
     return condition_prepares_history(condition)
+
+
+def benchmark_workspace_name(task: dict[str, Any]) -> str:
+    name = str(task.get("workspace_name") or "benchmark")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", name) or name in {".", ".."} or not name.strip("."):
+        raise ValueError(f"invalid benchmark workspace_name: {name!r}")
+    return name
 
 
 def manifest_source_counts(manifest: dict[str, Any]) -> dict[str, int]:
@@ -1118,6 +1125,14 @@ def mcp_history_required_tools(runner: "RunnerSpec | None") -> tuple[str, ...]:
     return ("brain_brief",) if compact else ("brain_brief", "brain_search")
 
 
+def mcp_required_tools(condition: str, runner: "RunnerSpec | None") -> tuple[str, ...]:
+    if condition == "mcp_workspace_radar":
+        return ("brain_workspace_regressions",)
+    if condition == "mcp_history":
+        return mcp_history_required_tools(runner)
+    return ()
+
+
 def mcp_condition_audit(condition: str, agent_info: dict[str, Any], runner: "RunnerSpec | None" = None) -> dict[str, Any]:
     if not is_mcp_condition(condition):
         return {"ok": True, "required": False, "findings": []}
@@ -1128,10 +1143,9 @@ def mcp_condition_audit(condition: str, agent_info: dict[str, Any], runner: "Run
         findings.append({"kind": "mcp_not_enabled"})
     if int(activity.get("mcp_tool_calls") or 0) <= 0:
         findings.append({"kind": "no_mcp_tool_calls"})
-    if condition == "mcp_history":
-        for required in mcp_history_required_tools(runner):
-            if not any(str(name).endswith(f"__{required}") or str(name) == required for name in mcp_tool_names):
-                findings.append({"kind": "missing_required_mcp_history_tool", "tool": required})
+    for required in mcp_required_tools(condition, runner):
+        if not any(str(name).endswith(f"__{required}") or str(name) == required for name in mcp_tool_names):
+            findings.append({"kind": "missing_required_mcp_tool", "condition": condition, "tool": required})
     if int(activity.get("direct_brain_cli_calls") or 0) > 0:
         findings.append({"kind": "direct_brain_cli_used_in_mcp_condition"})
     return {
@@ -1269,6 +1283,7 @@ def brain_cache_payload(
         "checkpoint_ref_sha": checkpoint_ref_sha_for_task(task)
         if (condition_prepares_history(prep_kind) or task.get("copy_checkpoint_ref_from_source"))
         else None,
+        "workspace_name": benchmark_workspace_name(task) if condition == "mcp_workspace_radar" else None,
         "copy_entire_history_from_source": bool(task.get("copy_entire_history_from_source"))
         and condition_copies_entire_history(condition),
         "setup_patch": task.get("setup_patch", ""),
@@ -1311,6 +1326,11 @@ def brain_prep_commands(task: dict[str, Any], condition: str, worktree: pathlib.
         commands.append([str(tools["brain"]), "refresh", "index", str(worktree), "--sem-binary", str(tools["entire"]), "--force"])
     if condition_prepares_history(condition):
         commands.insert(0, [str(tools["brain"]), "export", "--checkpoint-limit", str(checkpoint_limit), "--history-index"])
+    if condition == "mcp_workspace_radar":
+        workspace = benchmark_workspace_name(task)
+        repo_name = str(task.get("repo") or "repo")
+        commands.append([str(tools["brain"]), "workspace", "create", workspace])
+        commands.append([str(tools["brain"]), "workspace", "add", workspace, str(worktree), "--name", repo_name])
     return commands
 
 
@@ -1937,6 +1957,10 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
     brief_query = f"{task['id']}: {base[:120]}"
     if queries:
         brief_query = f"{brief_query} | {queries}"
+    radar_arg_hint = "`location_only: true`"
+    if task.get("radar_include_deletions"):
+        radar_arg_hint = "`location_only: true` and `include_deletions: true`"
+    radar_shape_note = " It should also flag deleted assignments for this task." if task.get("radar_include_deletions") else ""
     brief_limit = " --limit 4" if condition == "full_cli_compact" else ""
     brief_command = f'entire brain brief "{brief_query}" --json{brief_limit}'
     is_opus = runner is not None and runner.model in OPUS_COMPACT_MODELS
@@ -1957,15 +1981,18 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
         policy = f"""Use the Entire Brain MCP server before editing. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Then start with the `brain_stale` MCP tool, followed by `brain_query`, `brain_context`, `brain_impact`, or `brain_changes` for focused semantic context. Useful query terms: {queries}. Do not run the `entire brain` CLI and do not inspect checkpoint transcripts or session history."""
     elif condition == "mcp_semantic":
         policy = "Use the Entire Brain MCP server before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not run semantic CLI commands or inspect checkpoint transcripts."
+    elif condition == "mcp_workspace_radar":
+        workspace = benchmark_workspace_name(task)
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a WORKSPACE REGRESSION. Call `mcp__entire_brain__brain_workspace_regressions` / `brain_workspace_regressions` EXACTLY ONCE with `workspace: "{workspace}"`, query terms `{queries}`, and {radar_arg_hint}.{radar_shape_note} It returns the suspected workspace repo plus `file` and `line` of the regression but NOT the fix. Open that repo file at that line, work out what the code should be by reading the surrounding code, and apply the fix yourself. Then run exactly one relevant test and FINISH. If it returns no anomalies, stop immediately and report `WORKSPACE_RADAR_NO_FINDINGS`. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 3 targeted in-file searches. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history" and wants_radar_location_only(runner):
         # FAIR radar arm: brain_regressions(location_only) hands the suspected file:line but NOT the
         # fix — the agent must determine and apply the change itself (de-leaked detection test).
-        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a REGRESSION. Call `mcp__entire_brain__brain_regressions` / `brain_regressions` EXACTLY ONCE with `location_only: true` and these failing terms: `{queries}`. It returns the suspected `file` and `line` of the regression but NOT the fix. Open that `file` at that `line`, work out what the code should be by reading the surrounding code, and apply the fix yourself. Then run exactly one relevant test and FINISH. If it returns no anomalies, call `brain_brief` ONCE and fix the single most likely `likely_edit_files` file. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 3 targeted in-file searches. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a REGRESSION. Call `mcp__entire_brain__brain_regressions` / `brain_regressions` EXACTLY ONCE with {radar_arg_hint} and these failing terms: `{queries}`.{radar_shape_note} It returns the suspected `file` and `line` of the regression but NOT the fix. Open that `file` at that `line`, work out what the code should be by reading the surrounding code, and apply the fix yourself. Then run exactly one relevant test and FINISH. If it returns no anomalies, call `brain_brief` ONCE and fix the single most likely `likely_edit_files` file. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 3 targeted in-file searches. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history" and wants_regression_radar(runner):
         # ANSWER-ASSISTED radar arm (UPPER BOUND, not a fair detection measure): brain_regressions
         # hands file/line/expected/current and the agent pastes `expected`. Useful only to bound the
         # ceiling; the detector's real marginal value is the location-only arm vs the history control.
-        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a REGRESSION. Call `mcp__entire_brain__brain_regressions` / `brain_regressions` EXACTLY ONCE with these failing terms: `{queries}`. It returns suspected regressions, each with a `file`, `line`, the `expected` value (what the code should be) and the `current` value. Open the top finding's `file` at its `line` and restore `expected` exactly in place of `current`. Then run exactly one relevant test and FINISH. If `brain_regressions` returns no anomalies, call `brain_brief` ONCE and fix the single most likely `likely_edit_files` file. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a REGRESSION. Call `mcp__entire_brain__brain_regressions` / `brain_regressions` EXACTLY ONCE with these failing terms: `{queries}` and {"`include_deletions: true`" if task.get("radar_include_deletions") else "no extra deletion flag"}.{radar_shape_note} It returns suspected regressions, each with a `file`, `line`, the `expected` value (what the code should be) and the `current` value. Open the top finding's `file` at its `line` and restore `expected` exactly in place of `current`. Then run exactly one relevant test and FINISH. If `brain_regressions` returns no anomalies, call `brain_brief` ONCE and fix the single most likely `likely_edit_files` file. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history" and wants_disciplined_mcp(runner):
         # Disciplined MCP (gpt-5.5 all efforts; gpt-5.4-mini high/xhigh): brief once + ONE
         # targeted brain_search for the exact invariant + open likely_edit_files[0] + one
@@ -3136,6 +3163,8 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             return dict(sorted(flags.items()))
 
         def delivery_scope(condition: str, env_flags: dict[str, str]) -> str:
+            if condition == "mcp_workspace_radar":
+                return "mcp_workspace_radar_location_only"
             if condition == "mcp_history" and env_flags.get("BENCH_RADAR_LOCATION_ONLY") == "1":
                 return "mcp_radar_location_only"
             if condition == "mcp_history" and env_flags.get("BENCH_REGRESSION_RADAR") == "1":

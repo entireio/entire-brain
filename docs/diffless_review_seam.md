@@ -68,6 +68,11 @@ Release evidence is not retained yet. The committed
 it sets `BENCH_RADAR_LOCATION_ONLY=1`, runs `no_brain` vs `mcp_history`, and is
 intended to graduate only if the independent audit sees zero hard flags,
 MCP-verified records, and a proof-ready `mcp_radar_location_only` comparison.
+The committed
+`release-entire-cli-workspace-radar-mcp-transcript-reresolve` panel exercises
+the workspace MCP delivery (`mcp_workspace_radar`) and audits proof-ready runs as
+`mcp_workspace_radar_location_only`, but it remains a calibration lane until a
+non-saturated regression task is found.
 
 ## Consumer 1 — `entire review` (cli; prototyped, not landed)
 

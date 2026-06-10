@@ -36,9 +36,9 @@ RESULTS = BENCH / "results"
 TASK_DIR = BENCH / "tasks"
 DEFAULT_PROOF_MIN_REPETITIONS = 4
 
-MCP_CONDITIONS = {"mcp_semantic", "mcp_history"}
+MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
 SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
-HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mcp_history"}
+HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mcp_history", "mcp_workspace_radar"}
 BRAIN_CONDITIONS = SEMANTIC_CONDITIONS | HISTORY_CONDITIONS
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -285,6 +285,10 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
             for req in required:
                 if not any(str(n).endswith(f"__{req}") or n == req for n in names):
                     notes.append(f"B:mcp_history_partial_missing_{req}")
+        if cond == "mcp_workspace_radar" and mcp_calls > 0:
+            req = "brain_workspace_regressions"
+            if not any(str(n).endswith(f"__{req}") or n == req for n in names):
+                notes.append(f"B:mcp_workspace_radar_partial_missing_{req}")
         # server-log cross-check: recorded calls must be backed by real tools/call
         if slog is not None and mcp_calls > 0 and slog == 0:
             flags.append("B:mcp_calls_not_in_server_log(faked_stdout)")
@@ -452,7 +456,7 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
 
 def comparison_proof_scope(comp: dict[str, Any]) -> str:
     delivery_scope = comp.get("delivery_scope")
-    if delivery_scope in {"mcp", "mcp_radar_location_only", "mcp_radar_answer_assisted"}:
+    if delivery_scope in {"mcp", "mcp_radar_location_only", "mcp_radar_answer_assisted", "mcp_workspace_radar_location_only"}:
         return str(delivery_scope)
     condition = comp.get("condition")
     if condition in SEMANTIC_CONDITIONS:
