@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -1084,6 +1085,11 @@ func TestRunDistillForBrainFlushSkipsCleanBranches(t *testing.T) {
 }
 
 func TestRunDistillForBrainSurvivesMidRunFlushFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// The simulated disk failure is a read-only directory, which Windows
+		// permission bits do not enforce — the flush never fails there.
+		t.Skip("directory permission bits do not restrict writes on Windows")
+	}
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := t.TempDir()
 	tp := "sessions/main/s1.jsonl"
