@@ -1,0 +1,1 @@
+Let's keep going with B and add the Gemma-fused history as the last step of phase 2, which an additional validation phase when the brain distill for /Users/thomi/Projects/entire.io has finished (currently at 640/2640 done).
