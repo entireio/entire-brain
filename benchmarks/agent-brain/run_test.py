@@ -54,6 +54,20 @@ AUDIT_RADAR_TOOL_SPEC.loader.exec_module(audit_radar_tool_evidence)
 
 
 class RunnerAndConditionTests(unittest.TestCase):
+    def test_retained_release_evidence_paths_fit_github_windows_checkout(self):
+        release_dir = RUN_PATH.with_name("evidence") / "release"
+        github_windows_prefix = "D:/a/entire-brain/entire-brain/"
+        max_checkout_path = 248
+        too_long = []
+        for path in release_dir.rglob("*"):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(RUN_PATH.parents[2]).as_posix()
+            checkout_len = len(github_windows_prefix) + len(rel)
+            if checkout_len > max_checkout_path:
+                too_long.append(f"{checkout_len} {rel}")
+        self.assertEqual([], too_long)
+
     def test_parse_runner_spec_accepts_codex_claude_and_rejects_gemini(self):
         self.assertEqual(run.parse_runner_spec("codex:gpt-5.4-mini:xhigh").agent, "codex")
         self.assertEqual(run.parse_runner_spec("claude:sonnet:max").agent, "claude")
