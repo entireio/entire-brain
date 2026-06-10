@@ -41,7 +41,7 @@ func TestSemanticAuditReportsCountsFreshnessAndBlindSpots(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(storePath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestSemanticAuditReportsCountsFreshnessAndBlindSpots(t *testing.T) {
 
 func TestValidateSemanticSQLiteStoreChecksFileCount(t *testing.T) {
 	storePath := filepath.Join(t.TempDir(), semanticSQLiteName)
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		t.Fatal(err)
 	}

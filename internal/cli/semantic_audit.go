@@ -302,7 +302,7 @@ func semanticAuditStoreCoverage(brainDir string, source *semanticSourceManifest,
 		}
 		return semanticAuditCoverage{}, fmt.Errorf("validate semantic store for audit: %w", err)
 	}
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		return semanticAuditCoverage{}, fmt.Errorf("open semantic store: %w", err)
 	}
