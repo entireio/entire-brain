@@ -24,8 +24,8 @@
     }
   ],
   "validation": [
-    "test $(rg -n 'RealignAttributionBase\\(newHead\\)' cmd/entire/cli/strategy/manual_commit_hooks.go | wc -l | tr -d ' ') -eq 2",
-    "go test ./cmd/entire/cli/integration_test -run TestManualCommit_AttributionStaleBase"
+    "test $(rg -n 'RealignAttributionBase\\(newHead\\)' cmd/entire/cli/strategy/manual_commit_hooks.go | wc -l | tr -d ' ') -eq 3",
+    "go test ./cmd/entire/cli/strategy -run TestPostCommit_NoTrailer_UpdatesBaseCommit"
   ],
   "expected_files": [
     "cmd/entire/cli/strategy/manual_commit_hooks.go"
