@@ -605,6 +605,64 @@ func TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRegressionsDeletionLocationOnlyReportsRelatedLoci(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+
+	session := `{"text":"pkg/resolve.go must set state.TranscriptPath = resolved so later reads work"}`
+	body := "package x\nfunc missOne(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc missTwo(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
+	repoA, keyA := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/resolve.go", body)
+	if err := writeWorkspaceManifest(env, workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos:         []workspaceRepo{{RepoKey: keyA, Name: "a", LocalPathHint: repoA}},
+	}); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	out, err := execute(t, cmd, "workspace", "regressions", "related", "fix TranscriptPath resolved", "--json", "--include-deletions", "--location-only")
+	if err != nil {
+		t.Fatalf("workspace regressions: %v", err)
+	}
+	var payload struct {
+		Results []workspaceRegressionResult `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("parse regressions json: %v\n%s", err, out)
+	}
+	if len(payload.Results) != 1 {
+		t.Fatalf("results = %d, want 1: %s", len(payload.Results), out)
+	}
+	result := payload.Results[0]
+	if result.RepoKey != keyA {
+		t.Fatalf("repo key = %q, want %q", result.RepoKey, keyA)
+	}
+	if len(result.Anomalies) != 2 {
+		t.Fatalf("anomalies = %d, want 2: %+v", len(result.Anomalies), result.Anomalies)
+	}
+	bySymbol := map[string]regressionAnomaly{}
+	for _, a := range result.Anomalies {
+		if a.Expected != "" || a.Current != "" {
+			t.Fatalf("--location-only must blank expected/current: %+v", a)
+		}
+		bySymbol[a.Symbol] = a
+	}
+	for _, sym := range []string{"missOne", "missTwo"} {
+		a, ok := bySymbol[sym]
+		if !ok {
+			t.Fatalf("missing %s anomaly: %+v", sym, result.Anomalies)
+		}
+		if len(a.RelatedLocations) == 0 {
+			t.Fatalf("%s missing related location peer: %+v", sym, a)
+		}
+	}
+	if !strings.Contains(strings.Join(bySymbol["missOne"].RelatedLocations, "\n"), "missTwo") ||
+		!strings.Contains(strings.Join(bySymbol["missTwo"].RelatedLocations, "\n"), "missOne") {
+		t.Fatalf("related locations did not preserve both loci: %+v", result.Anomalies)
+	}
+}
+
 func TestWorkspaceFreshnessBlocksScan(t *testing.T) {
 	// Only an untrusted brain<->tree pairing (PairingUnsafe) blocks the scan. State alone does NOT —
 	// a stale/broken semantic index (even State "unsafe") over a valid pairing is still scannable

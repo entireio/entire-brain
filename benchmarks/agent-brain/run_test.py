@@ -2359,6 +2359,45 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertTrue(ok_record["mcp_verified"], ok_record)
             self.assertEqual(ok_record["server_tool_args"], [{"tool": "brain_regressions", "arguments": {"include_deletions": True, "location_only": True}}])
 
+    def test_audit_codex_requires_required_args_and_success_on_same_server_call(self):
+        with tempfile.TemporaryDirectory() as results:
+            results_dir = pathlib.Path(results)
+            suite = "release-candidate-radar-mixed-server-calls"
+            record = self._mcp_release_record(suite, repetition=1, run_id="radar-1")
+            record["provenance"]["task"]["radar_include_deletions"] = True
+            record["agent_info"]["activity"]["mcp_tool_calls"] = 2
+            record["agent_info"]["activity"]["mcp_tool_details"] = [
+                {"name": "mcp__entire_brain__brain_regressions", "arguments": {"include_deletions": True, "location_only": True}, "errored": False},
+                {"name": "mcp__entire_brain__brain_regressions", "arguments": {}, "errored": False},
+            ]
+            record["mcp_condition_audit"]["mcp_tool_calls"] = 2
+            record["mcp_condition_audit"]["mcp_tool_details"] = copy.deepcopy(record["agent_info"]["activity"]["mcp_tool_details"])
+            suite_dir = self._write_records(results_dir, suite, [record])
+            run_dir = suite_dir / "radar-1"
+            run_dir.mkdir(exist_ok=True)
+            run_dir.joinpath("mcp-server.log").write_text(
+                "\n".join([
+                    "start",
+                    "message: tools/call",
+                    "response: tools/call",
+                    "tool: brain_regressions",
+                    'tool_args: {"include_deletions":true,"location_only":true}',
+                    "tool_result: brain_regressions error",
+                    "message: tools/call",
+                    "response: tools/call",
+                    "tool: brain_regressions",
+                    "tool_result: brain_regressions ok",
+                ]) + "\n"
+            )
+
+            report = audit_codex.build_audit_report(results_dir, [suite])
+            audited = report["suites"][suite]["records"][0]
+
+            self.assertFalse(audited["pass"], audited)
+            self.assertFalse(audited["mcp_verified"], audited)
+            self.assertFalse(audited["mcp_named_tool_result_verified"], audited)
+            self.assertIn("B:mcp_required_tool_results_not_ok(brain_regressions)", audited["flags"])
+
     def test_audit_codex_requires_embedded_radar_deletion_policy(self):
         with tempfile.TemporaryDirectory() as results:
             results_dir = pathlib.Path(results)

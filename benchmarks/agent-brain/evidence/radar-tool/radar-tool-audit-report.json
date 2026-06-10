@@ -15,6 +15,7 @@
       "TestMCPBrainWorkspaceReviewTool",
       "TestMCPBrainWorkspaceToolRequiresWorkspace",
       "TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools",
+      "TestMCPDebugLogIncludesSuccessfulWorkspaceRadarResult",
       "TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly",
       "TestMCPInitializeAndToolsList",
       "TestMCPInitializeEchoesClientProtocolVersion",
@@ -32,6 +33,7 @@
       "TestMCPToolsListIncludesQMDRetrievalSurface",
       "TestMCPToolsListIncludesRegressions",
       "TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite",
+      "TestRegressionAssignmentDeletionRelatedLocationsStayOnSameInvariant",
       "TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol",
       "TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer",
       "TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction",
@@ -44,12 +46,13 @@
       "TestRegressionDeletionReportsEachMissingAnchoredCallSite",
       "TestRegressionDetectsChangedOperand",
       "TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain",
+      "TestWorkspaceRegressionsDeletionLocationOnlyReportsRelatedLoci",
       "TestWorkspaceRegressionsSkipsUnsafeRepo",
       "TestWorkspaceRegressionsSkipsUnsafeSessionsOnlyRepo",
       "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint"
     ],
     "path": "go-test-internal-cli-radar.jsonl",
-    "sha256": "sha256:c14c1bf20182cf46d9b564d7c91fda9245980d73939c247dfbbdcf1c8e9fb3e9"
+    "sha256": "sha256:d3b8bff197446f7cce48f0264477ac5ba12b3303742e72213dd1270f25500747"
   },
   "claim_scope": "mcp_radar_tool_contract",
   "errors": [],
@@ -70,6 +73,7 @@
     "TestRegressionDeletionReportsEachMissingAnchoredCallSite",
     "TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer",
     "TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol",
+    "TestRegressionAssignmentDeletionRelatedLocationsStayOnSameInvariant",
     "TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite",
     "TestRegressionAssignmentDeletionReportsSameNameReceiverMethods",
     "TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction",
@@ -83,6 +87,7 @@
     "TestMCPRejectsInvalidBooleanArguments",
     "TestMCPRejectsInvalidStringAndUnknownArguments",
     "TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly",
+    "TestMCPDebugLogIncludesSuccessfulWorkspaceRadarResult",
     "TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools",
     "TestMCPBrainRegressionsTool",
     "TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites",
@@ -102,11 +107,12 @@
     "TestMCPRejectsOversizedAndNegativeFrames",
     "TestMCPBrainStaleUsesEnvRepoRoot",
     "TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain",
+    "TestWorkspaceRegressionsDeletionLocationOnlyReportsRelatedLoci",
     "TestWorkspaceRegressionsSkipsUnsafeRepo",
     "TestWorkspaceRegressionsSkipsUnsafeSessionsOnlyRepo",
     "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint"
   ],
   "schema": 1,
-  "source_head": "006f5e369f984a7c7e25bd7dcc2473a18c7d3337",
+  "source_head": "209e5706b869443ca0ab2aaf5cc4d6fffeef4d4e",
   "warnings": []
 }

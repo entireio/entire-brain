@@ -220,6 +220,46 @@ func TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly(t *testing.T) {
 	}
 }
 
+func TestMCPDebugLogIncludesSuccessfulWorkspaceRadarResult(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "mcp.log")
+	t.Setenv("ENTIRE_BRAIN_MCP_DEBUG_LOG", logPath)
+
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
+	session := `{"text":"pkg/resolve.go must set state.TranscriptPath = resolved so later reads work"}`
+	body := "package x\nfunc resolve(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
+	repoA, repoAKey := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/resolve.go", body)
+	if err := writeWorkspaceManifest(env, workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos:         []workspaceRepo{{RepoKey: repoAKey, Name: "a", LocalPathHint: repoA}},
+	}); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_workspace_regressions","arguments":{"workspace":"related","query":"secret-query-value","include_deletions":true,"location_only":true}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read debug log: %v", err)
+	}
+	text := string(data)
+	for _, want := range []string{"tool: brain_workspace_regressions", `tool_args: {"include_deletions":true,"location_only":true}`, "tool_result: brain_workspace_regressions ok"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("debug log missing %q: %s", want, text)
+		}
+	}
+	for _, forbidden := range []string{"secret-query-value", "state.TranscriptPath = resolved", "_ = state.TranscriptPath"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("debug log leaked %q: %s", forbidden, text)
+		}
+	}
+}
+
 func TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "mcp.log")
 	t.Setenv("ENTIRE_BRAIN_MCP_DEBUG_LOG", logPath)
@@ -476,7 +516,7 @@ func TestMCPBrainWorkspaceRegressionsDeletionLocationOnlyAndReviewRedaction(t *t
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
 
 	session := `{"text":"pkg/resolve.go must set state.TranscriptPath = resolved so later reads work"}`
-	body := "package x\nfunc resolve(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
+	body := "package x\nfunc missOne(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc missTwo(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
 	repoA, repoAKey := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/resolve.go", body)
 	if err := writeWorkspaceManifest(env, workspaceManifest{
 		SchemaVersion: workspaceSchemaVersion,
@@ -494,7 +534,7 @@ func TestMCPBrainWorkspaceRegressionsDeletionLocationOnlyAndReviewRedaction(t *t
 	}
 	responses := readMCPResponses(t, out.String())
 	regData, _ := json.Marshal(responses[0])
-	for _, want := range []string{"resolve.go", repoAKey, "anomalies", "location only"} {
+	for _, want := range []string{"resolve.go", repoAKey, "anomalies", "location only", "missOne", "missTwo", "related_locations"} {
 		if !strings.Contains(string(regData), want) {
 			t.Fatalf("brain_workspace_regressions deletion result missing %q: %s", want, regData)
 		}

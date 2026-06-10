@@ -140,6 +140,52 @@ def server_log_tool_args(run_dir: pathlib.Path) -> list[dict[str, Any]] | None:
     return out
 
 
+def server_log_tool_call_records(run_dir: pathlib.Path) -> list[dict[str, Any]] | None:
+    log = run_dir / "mcp-server.log"
+    if not log.exists():
+        return None
+    out: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+
+    def flush_current() -> None:
+        nonlocal current
+        if current is not None:
+            out.append(current)
+            current = None
+
+    for line in log.read_text(errors="ignore").splitlines():
+        tool_match = re.fullmatch(rf"tool: ({MCP_BRAIN_TOOL_RE})", line)
+        if tool_match:
+            flush_current()
+            current = {"tool": tool_match.group(1), "arguments": {}, "status": ""}
+            continue
+        args_match = re.fullmatch(r"tool_args: (\{.*\})", line)
+        if args_match and current is not None:
+            try:
+                raw_args = json.loads(args_match.group(1))
+            except json.JSONDecodeError:
+                raw_args = {}
+            if not isinstance(raw_args, dict):
+                raw_args = {}
+            current["arguments"] = {
+                str(key): value
+                for key, value in raw_args.items()
+                if key in {"blind_spots", "include_deletions", "location_only"} and isinstance(value, bool)
+            }
+            continue
+        result_match = re.fullmatch(rf"tool_result: ({MCP_BRAIN_TOOL_RE}) (ok|error)", line)
+        if result_match:
+            tool, status = result_match.groups()
+            if current is None or current.get("tool") != tool:
+                flush_current()
+                current = {"tool": tool, "arguments": {}, "status": status}
+            else:
+                current["status"] = status
+            flush_current()
+    flush_current()
+    return out
+
+
 def bare_mcp_tool_name(name: Any) -> str:
     text = str(name)
     if "__" in text:
@@ -163,11 +209,23 @@ def activity_has_mcp_call_with_args(activity: dict[str, Any], tool: str, require
     return False
 
 
-def server_log_has_tool_with_args(tool_args: list[dict[str, Any]] | None, tool: str, required_args: dict[str, bool]) -> bool:
-    if tool_args is None:
+def server_log_has_tool_with_args(tool_calls: list[dict[str, Any]] | None, tool: str, required_args: dict[str, bool]) -> bool:
+    if tool_calls is None:
         return False
-    for detail in tool_args:
+    for detail in tool_calls:
         if not isinstance(detail, dict) or detail.get("tool") != tool:
+            continue
+        args = detail.get("arguments") if isinstance(detail.get("arguments"), dict) else {}
+        if all(args.get(key) is value for key, value in required_args.items()):
+            return True
+    return False
+
+
+def server_log_has_successful_tool_with_args(tool_calls: list[dict[str, Any]] | None, tool: str, required_args: dict[str, bool]) -> bool:
+    if tool_calls is None:
+        return False
+    for detail in tool_calls:
+        if not isinstance(detail, dict) or detail.get("tool") != tool or detail.get("status") != "ok":
             continue
         args = detail.get("arguments") if isinstance(detail.get("arguments"), dict) else {}
         if all(args.get(key) is value for key, value in required_args.items()):
@@ -204,6 +262,20 @@ def required_server_tool_names(condition: str, delivery_scope: str) -> set[str]:
     if delivery_scope in {"mcp_radar_location_only", "mcp_radar_answer_assisted"}:
         return {"brain_regressions"}
     return set()
+
+
+def required_server_tool_args(condition: str, delivery_scope: str, radar_requires_deletions: bool) -> dict[str, dict[str, bool]]:
+    required: dict[str, dict[str, bool]] = {}
+    if condition == "mcp_workspace_radar" or delivery_scope == "mcp_workspace_radar_location_only":
+        required["brain_workspace_regressions"] = {"location_only": True}
+    elif delivery_scope == "mcp_radar_location_only":
+        required["brain_regressions"] = {"location_only": True}
+    elif delivery_scope == "mcp_radar_answer_assisted":
+        required["brain_regressions"] = {}
+    if radar_requires_deletions:
+        for args in required.values():
+            args["include_deletions"] = True
+    return required
 
 
 def record_radar_deletion_policy(rec: dict[str, Any]) -> tuple[bool, bool]:
@@ -384,6 +456,7 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     slog_names = server_log_tool_names(run_dir)
     slog_results = server_log_tool_results(run_dir)
     slog_args = server_log_tool_args(run_dir)
+    slog_tool_calls = server_log_tool_call_records(run_dir)
     is_win = bool(rec.get("ok")) and (get(rec, "validation", "ok") is True)
     # Compact-delivery models are instructed to call brain_brief ONCE and NOT
     # brain_search (the compact brief already carries the top history hits).
@@ -394,6 +467,8 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     env_flags = record_env_flags(rec)
     delivery_scope = delivery_scope_for_record(str(cond), env_flags)
     required_logged_tools = required_server_tool_names(str(cond), delivery_scope)
+    radar_requires_deletions, radar_policy_attested = record_radar_deletion_policy(rec)
+    required_logged_tool_args = required_server_tool_args(str(cond), delivery_scope, radar_requires_deletions)
 
     # A. no_brain purity (HARD: no_brain must never touch Brain/MCP/CLI/private)
     if cond == "no_brain":
@@ -415,7 +490,6 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         real = [n for n in names if re.search(rf"(?:^|__){MCP_BRAIN_TOOL_RE}$", str(n))]
         real_bare_names = {bare_mcp_tool_name(n) for n in real}
         logged_bare_names = set(slog_names or [])
-        radar_requires_deletions, radar_policy_attested = record_radar_deletion_policy(rec)
         if mcp_calls <= 0:
             # An mcp run with no tool calls is an HONEST FAILURE (note), UNLESS it was
             # counted as a passing/win result -> then it is a HARD flag (false win).
@@ -439,22 +513,22 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
                 notes.append(f"B:mcp_workspace_radar_partial_missing_{req}")
             if not activity_has_mcp_call_with_args(activity, req, {"location_only": True}):
                 flags.append("B:mcp_workspace_radar_missing_location_only")
-            if slog_args is not None and not server_log_has_tool_with_args(slog_args, req, {"location_only": True}):
+            if slog_tool_calls is not None and not server_log_has_tool_with_args(slog_tool_calls, req, {"location_only": True}):
                 flags.append("B:mcp_workspace_radar_server_missing_location_only")
             if radar_requires_deletions and not activity_has_mcp_call_with_args(activity, req, {"location_only": True, "include_deletions": True}):
                 flags.append("B:mcp_workspace_radar_missing_include_deletions")
-            if radar_requires_deletions and slog_args is not None and not server_log_has_tool_with_args(slog_args, req, {"location_only": True, "include_deletions": True}):
+            if radar_requires_deletions and slog_tool_calls is not None and not server_log_has_tool_with_args(slog_tool_calls, req, {"location_only": True, "include_deletions": True}):
                 flags.append("B:mcp_workspace_radar_server_missing_include_deletions")
         if cond == "mcp_history" and env_flags.get("BENCH_RADAR_LOCATION_ONLY") == "1" and mcp_calls > 0:
             if not radar_policy_attested:
                 flags.append("H:provenance_missing_radar_include_deletions_policy")
             if not activity_has_mcp_call_with_args(activity, "brain_regressions", {"location_only": True}):
                 flags.append("B:mcp_radar_missing_location_only")
-            if slog_args is not None and not server_log_has_tool_with_args(slog_args, "brain_regressions", {"location_only": True}):
+            if slog_tool_calls is not None and not server_log_has_tool_with_args(slog_tool_calls, "brain_regressions", {"location_only": True}):
                 flags.append("B:mcp_radar_server_missing_location_only")
             if radar_requires_deletions and not activity_has_mcp_call_with_args(activity, "brain_regressions", {"location_only": True, "include_deletions": True}):
                 flags.append("B:mcp_radar_missing_include_deletions")
-            if radar_requires_deletions and slog_args is not None and not server_log_has_tool_with_args(slog_args, "brain_regressions", {"location_only": True, "include_deletions": True}):
+            if radar_requires_deletions and slog_tool_calls is not None and not server_log_has_tool_with_args(slog_tool_calls, "brain_regressions", {"location_only": True, "include_deletions": True}):
                 flags.append("B:mcp_radar_server_missing_include_deletions")
         # server-log cross-check: recorded calls must be backed by real tools/call
         if mcp_calls > 0 and slog is None:
@@ -471,8 +545,11 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
             missing_required = sorted(required_logged_tools - logged_bare_names)
             if missing_required:
                 flags.append("B:mcp_required_tool_names_not_in_server_log(" + ",".join(missing_required) + ")")
-            successful_tools = {result["tool"] for result in (slog_results or []) if result.get("status") == "ok"}
-            missing_success = sorted(required_logged_tools - successful_tools)
+            missing_success = sorted(
+                tool
+                for tool in required_logged_tools
+                if not server_log_has_successful_tool_with_args(slog_tool_calls, tool, required_logged_tool_args.get(tool, {}))
+            )
             if missing_success:
                 if slog_results:
                     flags.append("B:mcp_required_tool_results_not_ok(" + ",".join(missing_success) + ")")
@@ -523,13 +600,13 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     notes.extend(provenance_notes)
     logged_bare_names = set(slog_names or [])
     mcp_named_tool_verified = bool(required_logged_tools) and required_logged_tools.issubset(logged_bare_names)
-    successful_result_names = {
-        result["tool"] for result in (slog_results or []) if result.get("status") == "ok"
-    }
     if slog_results:
         mcp_named_tool_result_verified = (
             bool(required_logged_tools)
-            and required_logged_tools.issubset(successful_result_names)
+            and all(
+                server_log_has_successful_tool_with_args(slog_tool_calls, tool, required_logged_tool_args.get(tool, {}))
+                for tool in required_logged_tools
+            )
         )
     else:
         mcp_named_tool_result_verified = False
@@ -589,6 +666,8 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         audit["server_tool_results"] = slog_results
     if slog_args:
         audit["server_tool_args"] = slog_args
+    if slog_tool_calls:
+        audit["server_tool_calls"] = slog_tool_calls
     return audit
 
 

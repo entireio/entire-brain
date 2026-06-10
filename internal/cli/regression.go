@@ -1044,6 +1044,9 @@ func annotateRegressionLocationContext(anomalies []regressionAnomaly, files []ca
 			if i == j || anomalies[i].File != anomalies[j].File || anomalies[i].Kind != anomalies[j].Kind || anomalies[j].Line <= 0 {
 				continue
 			}
+			if !regressionRelatedLocationMatch(anomalies[i], anomalies[j]) {
+				continue
+			}
 			loc := fmt.Sprintf("%s:%d", anomalies[j].File, anomalies[j].Line)
 			if anomalies[j].Symbol != "" {
 				loc += " (" + anomalies[j].Symbol + ")"
@@ -1056,6 +1059,13 @@ func annotateRegressionLocationContext(anomalies []regressionAnomaly, files []ca
 		anomalies[i].RelatedLocations = related
 	}
 	return anomalies
+}
+
+func regressionRelatedLocationMatch(a, b regressionAnomaly) bool {
+	if a.Identifier != "" && b.Identifier != "" && strings.EqualFold(a.Identifier, b.Identifier) {
+		return true
+	}
+	return regressionDespace(a.Expected) != "" && regressionDespace(a.Expected) == regressionDespace(b.Expected)
 }
 
 func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, ro regressionDetectorOptions, query string) error {

@@ -366,6 +366,37 @@ func TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol(t *testing.T
 	}
 }
 
+func TestRegressionAssignmentDeletionRelatedLocationsStayOnSameInvariant(t *testing.T) {
+	session := `{"text":"pkg/resolve_transcript.go must set state.TranscriptPath = resolved so later reads work, and pkg/resolve_transcript.go must set state.ResolveMode = nextMode when mode changes"}`
+	body := "package x\nfunc missPathOne(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc missPathTwo(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc missMode(state *State) string {\n\tnextMode := computeMode()\n\t_ = state.ResolveMode\n\treturn nextMode\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved ResolveMode nextMode", 20, true)
+	bySymbol := map[string]regressionAnomaly{}
+	for _, a := range an {
+		if a.Kind == "deleted" && a.File == "pkg/resolve_transcript.go" && a.Symbol != "" {
+			bySymbol[a.Symbol] = a
+		}
+	}
+	for _, want := range []string{"missPathOne", "missPathTwo", "missMode"} {
+		if _, ok := bySymbol[want]; !ok {
+			t.Fatalf("missing deletion finding for %s: %+v", want, an)
+		}
+	}
+	for _, sym := range []string{"missPathOne", "missPathTwo"} {
+		got := strings.Join(bySymbol[sym].RelatedLocations, "\n")
+		if !strings.Contains(got, "missPath") {
+			t.Fatalf("path finding %s missing related path peer: %+v", sym, bySymbol[sym])
+		}
+		if strings.Contains(got, "missMode") {
+			t.Fatalf("path finding %s cross-contaminated unrelated mode locus: %+v", sym, bySymbol[sym])
+		}
+	}
+	if got := strings.Join(bySymbol["missMode"].RelatedLocations, "\n"); strings.Contains(got, "missPath") {
+		t.Fatalf("mode finding cross-contaminated path loci: %+v", bySymbol["missMode"])
+	}
+}
+
 func TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite(t *testing.T) {
 	session := `{"text":"pkg/resolve_transcript.go must set state.TranscriptPath = resolved so later reads work"}`
 	body := "package x\nfunc ok(state *State) string {\n\tresolved := compute()\n\tstate.TranscriptPath = resolved\n\treturn resolved\n}\nfunc miss(state *State) string {\n\tresolved := compute()\n\treturn resolved\n}\n"
