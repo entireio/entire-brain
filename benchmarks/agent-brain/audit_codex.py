@@ -41,6 +41,11 @@ MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
 SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
 HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mcp_history", "mcp_workspace_radar"}
 BRAIN_CONDITIONS = SEMANTIC_CONDITIONS | HISTORY_CONDITIONS
+MCP_NAMED_TOOL_REQUIRED_SCOPES = {
+    "mcp_radar_location_only",
+    "mcp_radar_answer_assisted",
+    "mcp_workspace_radar_location_only",
+}
 MCP_BRAIN_TOOL_RE = r"brain_(?:stale|brief|query|search|vsearch|get|multi_get|context|impact|changes|code|tests|boundaries|regressions|review|workspace_regressions|workspace_review)"
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -544,6 +549,7 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
     required_condition = int(comp.get("n_condition") or 0)
     required_baseline = int(comp.get("n_baseline") or 0)
     condition_requires_mcp_verified = condition in MCP_CONDITIONS
+    condition_requires_mcp_named_tool_verified = delivery_scope in MCP_NAMED_TOOL_REQUIRED_SCOPES
 
     def matches(record: dict[str, Any], cond: str, *, require_success: bool) -> bool:
         if not (
@@ -604,6 +610,10 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
         and len(condition_mcp_named_tool_verified_repetitions) >= required_condition
         and required_condition > 0
     )
+    condition_mcp_named_tool_required_ok = (
+        not condition_requires_mcp_named_tool_verified
+        or condition_mcp_named_tool_verified_ok
+    )
     return {
         "condition_records": len(condition_matches),
         "baseline_records": len(baseline_matches),
@@ -621,11 +631,18 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
         "required_baseline": required_baseline,
         "required_delivery_scope": delivery_scope,
         "condition_requires_mcp_verified": condition_requires_mcp_verified,
+        "condition_requires_mcp_named_tool_verified": condition_requires_mcp_named_tool_verified,
         "condition_records_ok": condition_records_ok,
         "baseline_records_ok": baseline_records_ok,
         "condition_mcp_verified_ok": condition_mcp_verified_ok,
         "condition_mcp_named_tool_verified_ok": condition_mcp_named_tool_verified_ok,
-        "ok": condition_records_ok and baseline_records_ok and condition_mcp_verified_ok,
+        "condition_mcp_named_tool_required_ok": condition_mcp_named_tool_required_ok,
+        "ok": (
+            condition_records_ok
+            and baseline_records_ok
+            and condition_mcp_verified_ok
+            and condition_mcp_named_tool_required_ok
+        ),
     }
 
 
@@ -750,6 +767,11 @@ def build_audit_report(
             if comp.get("proof_ready") and not backing["ok"]:
                 if backing.get("condition_requires_mcp_verified") and not backing.get("condition_mcp_verified_ok"):
                     comp["flags"].append("G:proof_ready_without_mcp_verified_condition_records")
+                if (
+                    backing.get("condition_requires_mcp_named_tool_verified")
+                    and not backing.get("condition_mcp_named_tool_verified_ok")
+                ):
+                    comp["flags"].append("G:proof_ready_without_named_mcp_tool_condition_records")
                 comp["flags"].append("G:proof_ready_without_matching_records")
                 comp["pass"] = False
         suite_flags = [a for a in rec_audits if not a["pass"]]

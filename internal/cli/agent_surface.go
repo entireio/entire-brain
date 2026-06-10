@@ -440,7 +440,7 @@ Specialist tools (symbol graph + regression analysis — what the verbs can't do
   entire brain inspect changes --json
   entire brain inspect tests "<query>" --json
   entire brain inspect boundaries --kind route|tool|workflow --json
-  entire brain inspect regressions "<query>" --json
+  entire brain inspect regressions "<query>" --location-only [--include-deletions] --json
 
 Search tips:
   - query first (fuses keyword + concept); fall back to search for exact

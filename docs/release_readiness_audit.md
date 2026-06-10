@@ -414,15 +414,17 @@ Release claims must stay local-first and evidence-backed:
   `mcp_workspace_radar_location_only`.
 - MCP proof authenticity now has an explicit named-tool gate: the stdio server
   keeps the legacy `message: tools/call` count line and also emits redacted
-  `tool: brain_*` and safe boolean `tool_args` lines to the debug log. The
-  independent auditor counts server-side named-tool records separately from basic
-  MCP-verified records, and the committed release manifest requires 4 named-tool
-  MCP datapoints plus a named-tool proof-ready comparison in the
-  `mcp_radar_location_only` scope. Generic retained MCP-history proof still
-  requires real `tools/call` lines before records count as MCP-verified, but
-  older count-only logs remain legacy server-call proof rather than named-tool
-  proof. New retained runs should carry call counts, tool-name lines, and safe
-  boolean argument lines.
+  `tool: brain_*` lines to the debug log. Current retained Radar evidence proves
+  the server-side tool name from those logs and proves `location_only` /
+  `include_deletions` from structured record call details. New retained runs
+  should carry call counts, tool-name lines, safe boolean `tool_args` lines, and
+  structured safe-argument records. The independent auditor counts server-side
+  named-tool records separately from basic MCP-verified records, and the
+  committed release manifest requires 4 named-tool MCP datapoints plus a
+  named-tool proof-ready comparison in the `mcp_radar_location_only` scope.
+  Generic retained MCP-history proof still requires real `tools/call` lines
+  before records count as MCP-verified, but older count-only logs remain legacy
+  server-call proof rather than named-tool proof.
 - MCP argument contracts now fail closed: schemas advertise
   `additionalProperties: false`, unknown keys are rejected, string fields and
   string-array fields must have the advertised type, and Radar MCP proof records

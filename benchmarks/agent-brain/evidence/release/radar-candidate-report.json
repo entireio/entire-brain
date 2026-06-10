@@ -18,6 +18,7 @@
           "baseline_pass_rate": 0.25,
           "baseline_records": 4,
           "codex_audit_backed": true,
+          "condition_named_tool_records": 4,
           "condition_pass_rate": 1.0,
           "condition_records": 4,
           "summary_consistency_mismatches": [],
@@ -43,7 +44,7 @@
       "verdict": "brain_positive"
     }
   ],
-  "results": "/Users/suhaan/Documents/Coding/entire-brain/benchmarks/agent-brain/evidence/release",
+  "results": "benchmarks/agent-brain/evidence/release",
   "schema": 1,
   "suite_globs": [
     "release-candidate-*"

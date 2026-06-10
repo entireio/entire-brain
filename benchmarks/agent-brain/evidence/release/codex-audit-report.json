@@ -343,10 +343,12 @@
             "required_baseline": 4,
             "required_delivery_scope": null,
             "condition_requires_mcp_verified": false,
+            "condition_requires_mcp_named_tool_verified": false,
             "condition_records_ok": true,
             "baseline_records_ok": true,
             "condition_mcp_verified_ok": true,
             "condition_mcp_named_tool_verified_ok": false,
+            "condition_mcp_named_tool_required_ok": true,
             "ok": true
           }
         }
@@ -708,10 +710,12 @@
             "required_baseline": 4,
             "required_delivery_scope": "mcp",
             "condition_requires_mcp_verified": true,
+            "condition_requires_mcp_named_tool_verified": false,
             "condition_records_ok": true,
             "baseline_records_ok": true,
             "condition_mcp_verified_ok": true,
             "condition_mcp_named_tool_verified_ok": false,
+            "condition_mcp_named_tool_required_ok": true,
             "ok": true
           }
         }
@@ -1120,10 +1124,12 @@
             "required_baseline": 4,
             "required_delivery_scope": "mcp_radar_location_only",
             "condition_requires_mcp_verified": true,
+            "condition_requires_mcp_named_tool_verified": true,
             "condition_records_ok": true,
             "baseline_records_ok": true,
             "condition_mcp_verified_ok": true,
             "condition_mcp_named_tool_verified_ok": true,
+            "condition_mcp_named_tool_required_ok": true,
             "ok": true
           }
         }

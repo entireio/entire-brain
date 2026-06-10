@@ -2026,6 +2026,51 @@ class CodexAuditScriptTests(unittest.TestCase):
             passing = json.loads((out_dir / "codex-audit-report.json").read_text())
             self.assertEqual(passing["gate_status"]["requirements"]["required_named_tool_proof_scopes"], ["mcp_radar_location_only"])
 
+    def test_audit_codex_radar_backing_requires_named_tool_records(self):
+        comp = {
+            "task": "t",
+            "runner": "codex",
+            "condition": "mcp_history",
+            "delivery_scope": "mcp_radar_location_only",
+            "n_condition": 4,
+            "n_baseline": 4,
+        }
+        rec_audits = []
+        for i in range(1, 5):
+            rec_audits.append({
+                "pass": True,
+                "ok": False,
+                "valid": False,
+                "provenance": {"ok": True},
+                "task_id": "t",
+                "runner": "codex",
+                "condition": "no_brain",
+                "run_id": f"base-{i}",
+                "repetition": i,
+            })
+            rec_audits.append({
+                "pass": True,
+                "ok": True,
+                "valid": True,
+                "provenance": {"ok": True},
+                "task_id": "t",
+                "runner": "codex",
+                "condition": "mcp_history",
+                "delivery_scope": "mcp_radar_location_only",
+                "run_id": f"radar-{i}",
+                "repetition": i,
+                "mcp_verified": True,
+                "mcp_named_tool_verified": False,
+            })
+
+        backing = audit_codex.proof_ready_record_backing(comp, rec_audits)
+
+        self.assertFalse(backing["ok"], backing)
+        self.assertTrue(backing["condition_mcp_verified_ok"], backing)
+        self.assertTrue(backing["condition_requires_mcp_named_tool_verified"], backing)
+        self.assertFalse(backing["condition_mcp_named_tool_verified_ok"], backing)
+        self.assertFalse(backing["condition_mcp_named_tool_required_ok"], backing)
+
     def test_audit_codex_requires_mcp_verified_records_for_mcp_comparison_backing(self):
         with tempfile.TemporaryDirectory() as results:
             results_dir = pathlib.Path(results)
@@ -2624,6 +2669,7 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
         *,
         baseline_valid: list[bool] | None = None,
         condition_valid: list[bool] | None = None,
+        named_tool_backed: bool = True,
     ) -> None:
         baseline_valid = baseline_valid or [True, False, False, False]
         condition_valid = condition_valid or [True, True, True, True]
@@ -2651,6 +2697,7 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 "pass": True,
                 "provenance": {"ok": True},
                 "mcp_verified": True,
+                "mcp_named_tool_verified": named_tool_backed,
             })
         path.write_text(json.dumps({
             "suites": {
@@ -2664,7 +2711,11 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                         "proof_scope": "mcp_radar_location_only",
                         "proof_ready": True,
                         "pass": True,
-                        "record_backing": {"ok": True, "condition_mcp_verified_ok": True},
+                        "record_backing": {
+                            "ok": True,
+                            "condition_mcp_verified_ok": True,
+                            "condition_mcp_named_tool_verified_ok": named_tool_backed,
+                        },
                     }],
                 }
             }
@@ -2766,6 +2817,43 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                     "--fail-when-no-proof",
                 ]),
                 0,
+            )
+
+    def test_radar_audit_requires_named_tool_codex_backing(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            suite = "release-candidate-radar-proof"
+            self._write_radar_summary(
+                results_dir,
+                suite,
+                baseline_pass=0.25,
+                condition_pass=1.0,
+                proof_ready=True,
+                stability_tag="brain_positive_stable",
+                n=4,
+            )
+            generic_mcp_audit = out_dir / "generic-mcp-codex-audit.json"
+            self._write_backed_radar_codex_audit(generic_mcp_audit, suite, named_tool_backed=False)
+
+            report = audit_radar_evidence.build_report(
+                results_dir,
+                ["release-candidate-*"],
+                audit_radar_evidence.load_codex_audit(generic_mcp_audit),
+            )
+            gate = report["comparisons"][0]["radar_gate"]
+            self.assertEqual(gate["status"], "audit-missing")
+            self.assertEqual(report["totals"]["proof_ready"], 0)
+            self.assertIn("named-tool MCP backing", " | ".join(gate["reasons"]))
+            self.assertEqual(
+                audit_radar_evidence.main([
+                    "--results", str(results_dir),
+                    "--suite-glob", "release-candidate-*",
+                    "--out-dir", out,
+                    "--codex-audit-report", str(generic_mcp_audit),
+                    "--fail-when-no-proof",
+                ]),
+                1,
             )
 
     def test_radar_audit_rejects_codex_audit_summary_mismatch(self):

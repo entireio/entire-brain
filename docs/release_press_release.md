@@ -36,7 +36,8 @@ task outcomes instead of relying on demos or anecdotes.
 - Distill performance on a large session repo, using `distill --dry-run --json`
   and a timed run with cache/timing fields.
 - Facts-vs-session retrieval quality, using paired `facts eval --retriever`
-  comparisons with shared labels or explicit proxy-comparison opt-in.
+  comparisons over shared proof labels; proxy-comparison opt-in remains
+  smoke/calibration only and must be labeled as such.
 - Semantic usefulness, using semantic-audit output plus benchmark tasks where
   semantic context changes file/test localization or agent efficiency.
 - More replay-lab evidence beyond the first retained focused history and

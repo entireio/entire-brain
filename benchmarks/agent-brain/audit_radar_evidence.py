@@ -49,6 +49,14 @@ def load_codex_audit(path: pathlib.Path | None) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else {"suites": {}}
 
 
+def display_path(path: pathlib.Path) -> str:
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(pathlib.Path.cwd().resolve()))
+    except ValueError:
+        return str(resolved)
+
+
 def codex_audit_radar_keys(report: dict[str, Any] | None) -> set[tuple[str, str, str, str, str]] | None:
     if report is None:
         return None
@@ -89,6 +97,7 @@ def codex_audit_radar_backing(report: dict[str, Any] | None) -> dict[tuple[str, 
                 and comp.get("pass")
                 and backing.get("ok")
                 and backing.get("condition_mcp_verified_ok") is True
+                and backing.get("condition_mcp_named_tool_verified_ok") is True
             ):
                 continue
             key = (
@@ -108,6 +117,10 @@ def codex_audit_radar_backing(report: dict[str, Any] | None) -> dict[tuple[str, 
                 and record.get("condition") == comp.get("condition")
                 and record.get("delivery_scope") == comp.get("delivery_scope")
             ]
+            condition_named_tool_records = [
+                record for record in condition_records
+                if record.get("mcp_named_tool_verified") is True
+            ]
             baseline_records = [
                 record for record in records
                 if isinstance(record, dict)
@@ -119,6 +132,7 @@ def codex_audit_radar_backing(report: dict[str, Any] | None) -> dict[tuple[str, 
             out[key] = {
                 "codex_audit_backed": True,
                 "condition_records": len(condition_records),
+                "condition_named_tool_records": len(condition_named_tool_records),
                 "baseline_records": len(baseline_records),
                 "condition_pass_rate": validation_pass_rate(condition_records),
                 "baseline_pass_rate": validation_pass_rate(baseline_records),
@@ -271,8 +285,8 @@ def build_report(results: pathlib.Path, suite_globs: list[str], codex_audit: dic
                 status["status"] = "audit-missing"
                 status["proof_ready"] = False
                 status["promotable"] = False
-                status["reasons"].append("matching Radar comparison is not audit-clean in audit_codex output")
-                status["recommendation"] = "retain audit-clean records with MCP-verified backing before citing Radar proof"
+                status["reasons"].append("matching Radar comparison is not audit-clean with named-tool MCP backing in audit_codex output")
+                status["recommendation"] = "retain audit-clean records with MCP named-tool backing before citing Radar proof"
         row = {
             "suite": comp.get("suite"),
             "task_id": comp.get("task_id"),
@@ -297,7 +311,7 @@ def build_report(results: pathlib.Path, suite_globs: list[str], codex_audit: dic
             promotable += 1
     return {
         "schema": 1,
-        "results": str(results),
+        "results": display_path(results),
         "suite_globs": suite_globs,
         "codex_audit_required": audit_backing is not None,
         "totals": {
