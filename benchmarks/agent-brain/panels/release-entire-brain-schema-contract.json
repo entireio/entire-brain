@@ -1,0 +1,15 @@
+{
+  "name": "release-entire-brain-schema-contract",
+  "description": "Focused release-candidate panel for the local entire-brain history lane. It isolates the schema-contract history task because the broader history panel includes a saturated GitHub visibility task that is diagnostic but not a clean proof candidate.",
+  "runners": [
+    "codex:gpt-5.5:high"
+  ],
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "repetitions": 4,
+  "tasks": [
+    "entire-brain-history-codex-schema-contract.json"
+  ]
+}
