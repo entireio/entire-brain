@@ -13,11 +13,21 @@ import argparse
 import hashlib
 import json
 import pathlib
+import subprocess
 import sys
 from typing import Any
 
 
 CLAIM_SCOPE = "mcp_radar_tool_contract"
+
+RADAR_TOOL_SOURCE_PATHS = [
+    "internal/cli/regression.go",
+    "internal/cli/regression_test.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/workspace.go",
+    "internal/cli/workspace_test.go",
+]
 
 REQUIRED_TESTS = [
     "TestRegressionDetectsChangedOperand",
@@ -114,11 +124,59 @@ def parse_go_test_json(path: pathlib.Path) -> tuple[set[str], list[str], bool]:
     return passed, failures, package_passed
 
 
-def audit_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
+def git_output(repo_root: pathlib.Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo_root,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ).stdout.strip()
+
+
+def source_head_drift(repo_root: pathlib.Path, source_head: str) -> tuple[str | None, list[str], list[str]]:
+    errors: list[str] = []
+    try:
+        current_head = git_output(repo_root, "rev-parse", "HEAD")
+        git_output(repo_root, "cat-file", "-e", f"{source_head}^{{commit}}")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return None, [], [f"unable to verify source_head against git: {exc}"]
+
+    if source_head == current_head:
+        return current_head, [], []
+
+    try:
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", source_head, "HEAD"],
+            cwd=repo_root,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except subprocess.CalledProcessError:
+        errors.append("source_head must be an ancestor of HEAD")
+
+    try:
+        raw = git_output(repo_root, "diff", "--name-only", f"{source_head}..HEAD", "--", *RADAR_TOOL_SOURCE_PATHS)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return current_head, [], errors + [f"unable to compare Radar source drift: {exc}"]
+    changed = [line for line in raw.splitlines() if line.strip()]
+    return current_head, changed, errors
+
+
+def audit_manifest(
+    manifest_path: pathlib.Path,
+    *,
+    repo_root: pathlib.Path | None = None,
+    allow_stale_source_head: bool = False,
+) -> dict[str, Any]:
     manifest = load_manifest(manifest_path)
     root = manifest_path.parent
     errors: list[str] = []
     warnings: list[str] = []
+    current_head: str | None = None
+    source_drift_paths: list[str] = []
 
     if manifest.get("schema") != 1:
         errors.append("schema must be 1")
@@ -130,6 +188,14 @@ def audit_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
     source_head = str(manifest.get("source_head") or "")
     if len(source_head) != 40 or any(c not in "0123456789abcdef" for c in source_head.lower()):
         errors.append("source_head must be a 40-character git commit")
+    elif repo_root is not None and not allow_stale_source_head:
+        current_head, source_drift_paths, git_errors = source_head_drift(repo_root, source_head)
+        errors.extend(git_errors)
+        if source_drift_paths:
+            errors.append(
+                "source_head is stale for Radar tool contract; changed paths since source_head: "
+                + ", ".join(source_drift_paths)
+            )
 
     required = manifest.get("required_tests", REQUIRED_TESTS)
     if required != REQUIRED_TESTS:
@@ -185,6 +251,8 @@ def audit_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
         "warnings": warnings,
         "claim_scope": manifest.get("claim_scope"),
         "source_head": manifest.get("source_head"),
+        "current_head": current_head,
+        "source_drift_paths": source_drift_paths,
         "required_tests": REQUIRED_TESTS,
         "artifact": artifact_report,
         "limitations": limitations if isinstance(limitations, list) else [],
@@ -228,9 +296,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", type=pathlib.Path, required=True)
     parser.add_argument("--out-dir", type=pathlib.Path, default=None)
     parser.add_argument("--fail-on-flags", action="store_true")
+    parser.add_argument("--repo-root", type=pathlib.Path, default=None, help="Git repository root used to reject stale source_head drift")
+    parser.add_argument("--allow-stale-source-head", action="store_true", help="Skip source_head drift checks against --repo-root")
     args = parser.parse_args(argv)
 
-    report = audit_manifest(args.manifest)
+    report = audit_manifest(
+        args.manifest,
+        repo_root=args.repo_root,
+        allow_stale_source_head=args.allow_stale_source_head,
+    )
     out_dir = args.out_dir or args.manifest.parent
     out_dir.mkdir(parents=True, exist_ok=True)
     json_path = out_dir / "radar-tool-audit-report.json"

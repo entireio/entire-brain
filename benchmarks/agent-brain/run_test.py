@@ -3511,7 +3511,7 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             self.assertEqual(report["totals"]["status_counts"], {"saturated": 1})
             self.assertEqual(audit_radar_evidence.main(["--results", str(results_dir), "--suite-glob", "release-candidate-*", "--out-dir", out, "--fail-when-no-proof"]), 1)
 
-    def _write_radar_tool_manifest(self, root: pathlib.Path, tests: list[str]) -> pathlib.Path:
+    def _write_radar_tool_manifest(self, root: pathlib.Path, tests: list[str], source_head: str = "a" * 40) -> pathlib.Path:
         artifact = root / "go-test-radar.jsonl"
         events = []
         for test in tests:
@@ -3523,7 +3523,7 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
         manifest.write_text(json.dumps({
             "schema": 1,
             "claim_scope": audit_radar_tool_evidence.CLAIM_SCOPE,
-            "source_head": "a" * 40,
+            "source_head": source_head,
             "required_tests": audit_radar_tool_evidence.REQUIRED_TESTS,
             "limitations": ["Tool-contract proof only; this is not agent lift proof."],
             "artifacts": [{
@@ -3556,6 +3556,29 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 audit_radar_tool_evidence.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]),
                 1,
             )
+
+    def test_radar_tool_evidence_rejects_changed_source_after_source_head(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            run.run_cmd(["git", "init"], cwd=root, check=True)
+            run.run_cmd(["git", "config", "user.email", "bench@example.com"], cwd=root, check=True)
+            run.run_cmd(["git", "config", "user.name", "Benchmark"], cwd=root, check=True)
+            source = root / "internal" / "cli"
+            source.mkdir(parents=True)
+            (source / "regression.go").write_text("package cli\nconst radarFixture = 1\n")
+            run.run_cmd(["git", "add", "."], cwd=root, check=True)
+            run.run_cmd(["git", "commit", "-m", "base"], cwd=root, check=True)
+            source_head = run.run_cmd(["git", "rev-parse", "HEAD"], cwd=root, check=True).stdout.strip()
+            manifest = self._write_radar_tool_manifest(root, audit_radar_tool_evidence.REQUIRED_TESTS, source_head)
+
+            (source / "regression.go").write_text("package cli\nconst radarFixture = 2\n")
+            run.run_cmd(["git", "add", "."], cwd=root, check=True)
+            run.run_cmd(["git", "commit", "-m", "change radar source"], cwd=root, check=True)
+
+            report = audit_radar_tool_evidence.audit_manifest(manifest, repo_root=root)
+            self.assertFalse(report["ok"])
+            self.assertIn("internal/cli/regression.go", " | ".join(report["errors"]))
+            self.assertEqual(report["source_drift_paths"], ["internal/cli/regression.go"])
 
 
 if __name__ == "__main__":

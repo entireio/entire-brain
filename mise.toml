@@ -104,6 +104,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 python3 benchmarks/agent-brain/audit_radar_tool_evidence.py \
   --manifest benchmarks/agent-brain/evidence/radar-tool/manifest.json \
+  --repo-root . \
   --out-dir "$tmp" \
   --fail-on-flags
 for report in radar-tool-audit-report.json radar-tool-audit-report.md; do
@@ -124,8 +125,12 @@ run = '''
 set -e
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/record_radar_tool_evidence.py \
+  --repo-root . \
+  --evidence-dir benchmarks/agent-brain/evidence/radar-tool
 python3 benchmarks/agent-brain/audit_radar_tool_evidence.py \
   --manifest benchmarks/agent-brain/evidence/radar-tool/manifest.json \
+  --repo-root . \
   --out-dir "$tmp" \
   --fail-on-flags
 mkdir -p benchmarks/agent-brain/evidence/radar-tool
