@@ -500,6 +500,7 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
     condition = comp.get("condition")
     required_condition = int(comp.get("n_condition") or 0)
     required_baseline = int(comp.get("n_baseline") or 0)
+    condition_requires_mcp_verified = condition in MCP_CONDITIONS
 
     def matches(record: dict[str, Any], cond: str, *, require_success: bool) -> bool:
         if not (
@@ -519,27 +520,50 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
 
     condition_matches = [r for r in rec_audits if matches(r, condition, require_success=True)]
     baseline_matches = [r for r in rec_audits if matches(r, "no_brain", require_success=False)]
+    condition_mcp_verified_matches = [r for r in condition_matches if r.get("mcp_verified")]
     condition_run_ids = {r.get("run_id") for r in condition_matches if r.get("run_id")}
     baseline_run_ids = {r.get("run_id") for r in baseline_matches if r.get("run_id")}
+    condition_mcp_verified_run_ids = {r.get("run_id") for r in condition_mcp_verified_matches if r.get("run_id")}
     condition_repetitions = {r.get("repetition") for r in condition_matches if r.get("repetition") is not None}
     baseline_repetitions = {r.get("repetition") for r in baseline_matches if r.get("repetition") is not None}
+    condition_mcp_verified_repetitions = {
+        r.get("repetition") for r in condition_mcp_verified_matches if r.get("repetition") is not None
+    }
+    condition_records_ok = (
+        len(condition_run_ids) >= required_condition
+        and len(condition_repetitions) >= required_condition
+        and required_condition > 0
+    )
+    baseline_records_ok = (
+        len(baseline_run_ids) >= required_baseline
+        and len(baseline_repetitions) >= required_baseline
+        and required_baseline > 0
+    )
+    condition_mcp_verified_ok = (
+        not condition_requires_mcp_verified
+        or (
+            len(condition_mcp_verified_run_ids) >= required_condition
+            and len(condition_mcp_verified_repetitions) >= required_condition
+            and required_condition > 0
+        )
+    )
     return {
         "condition_records": len(condition_matches),
         "baseline_records": len(baseline_matches),
+        "condition_mcp_verified_records": len(condition_mcp_verified_matches),
         "condition_unique_run_ids": len(condition_run_ids),
         "baseline_unique_run_ids": len(baseline_run_ids),
+        "condition_mcp_verified_unique_run_ids": len(condition_mcp_verified_run_ids),
         "condition_unique_repetitions": len(condition_repetitions),
         "baseline_unique_repetitions": len(baseline_repetitions),
+        "condition_mcp_verified_unique_repetitions": len(condition_mcp_verified_repetitions),
         "required_condition": required_condition,
         "required_baseline": required_baseline,
-        "ok": (
-            len(condition_run_ids) >= required_condition
-            and len(baseline_run_ids) >= required_baseline
-            and len(condition_repetitions) >= required_condition
-            and len(baseline_repetitions) >= required_baseline
-            and required_condition > 0
-            and required_baseline > 0
-        ),
+        "condition_requires_mcp_verified": condition_requires_mcp_verified,
+        "condition_records_ok": condition_records_ok,
+        "baseline_records_ok": baseline_records_ok,
+        "condition_mcp_verified_ok": condition_mcp_verified_ok,
+        "ok": condition_records_ok and baseline_records_ok and condition_mcp_verified_ok,
     }
 
 
@@ -657,6 +681,8 @@ def build_audit_report(
             backing = proof_ready_record_backing(comp, rec_audits)
             comp["record_backing"] = backing
             if comp.get("proof_ready") and not backing["ok"]:
+                if backing.get("condition_requires_mcp_verified") and not backing.get("condition_mcp_verified_ok"):
+                    comp["flags"].append("G:proof_ready_without_mcp_verified_condition_records")
                 comp["flags"].append("G:proof_ready_without_matching_records")
                 comp["pass"] = False
         suite_flags = [a for a in rec_audits if not a["pass"]]

@@ -11,6 +11,9 @@ the selected release-candidate suites are provenance-complete, audit-clean,
 validated by non-empty validation command results, and backed by at least one
 stable proof-ready comparison per retained suite, with at least 4 repetitions
 per side, retained panel provenance, and the manifest's required proof scopes.
+For MCP-backed scopes, the proof-ready comparison must be backed by matching
+MCP-verified condition records; a separate suite's MCP count cannot satisfy the
+comparison backing.
 Today those scopes are `history`, `mcp`, and `mcp_radar_location_only`, so this
 directory cannot be used as semantic or facts proof by aggregation. Historical,
 exploratory, quarantine, or `release-local-*` suites under

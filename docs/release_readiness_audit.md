@@ -193,10 +193,10 @@ indexed 134 files, 2,250 symbols, and 14,883 relations at `721aae0`; `go run
 HEAD forward, the same audit correctly failed as stale until the index was
 refreshed. Re-running with the explicit local provider path
 `go run ./cmd/entire-brain refresh index --sem-binary "$HOME/.local/bin/entire" --force`
-indexed 135 files, 2,291 symbols, and 15,490 relations; the subsequent
-`semantic-audit --json --fail-on release` passed with freshness `ok`, zero blind
-spots, and the same provider ignore-file warning. This proves local coverage and
-audit health after refresh, not agent usefulness.
+indexed 137 files, 2,405 symbols, and 17,091 relations at `b430963`; the
+subsequent `mise run semantic:evidence` passed with freshness `ok`, worktree
+state `clean`, and zero blind spots. This proves local coverage and audit
+health after refresh, not agent usefulness.
 
 Blocked evidence collection: semantic benchmark/proof records must still be
 retained and audited before usefulness claims graduate from draft language.
@@ -384,7 +384,10 @@ Release claims must stay local-first and evidence-backed:
   summaries carry additive `delivery_scope`/`env_flags`, the independent auditor
   can require `minimums.mcp_verified_records`, and radar location-only delivery
   is counted as `mcp_radar_location_only` rather than folded into generic
-  history proof. Workspace radar is also first-class in the harness: the
+  history proof. Proof-ready MCP-backed comparisons must now be backed by their
+  own MCP-verified condition records, so a global MCP minimum from another suite
+  cannot make a weak Radar comparison citable. Workspace radar is also
+  first-class in the harness: the
   `mcp_workspace_radar` condition prepares a local workspace, requires the
   `brain_workspace_regressions` MCP tool, and audits successful comparisons as
   `mcp_workspace_radar_location_only`.
@@ -483,11 +486,11 @@ depend on retained evidence artifacts.
 `mise run release:readiness` is the local release-claim gate. It runs
 `mise run check`, `mise run release:evidence`, `mise run radar:evidence`,
 `mise run distill:evidence`, `mise run facts:evidence`, and
-`mise run semantic:evidence`. It is expected to fail until distill performance,
-facts-vs-raw, and semantic proof manifests plus retained artifacts exist, which
-keeps "distill is fast," "facts beat raw sessions," and semantic claims blocked
-instead of hidden behind a green
-implementation check.
+`mise run semantic:evidence`. It is expected to fail until distill performance
+and facts-vs-raw retained artifacts exist, which keeps "distill is fast" and
+"facts beat raw sessions" claims blocked instead of hidden behind a green
+implementation check. Semantic freshness is locally green; semantic usefulness
+claims still need separate retained benchmark proof before they should ship.
 
 `mise run radar:screen` is the calibration check for local `pilot-radar-*`
 suites. Earlier 2026-06-10 calibration runs saturated, but the retained

@@ -1875,6 +1875,43 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertEqual(report["totals"]["proof_ready_comparisons_by_scope"], {"mcp_radar_location_only": 1})
             self.assertEqual(report["gate_status"]["requirements"]["min_mcp_verified"], 4)
 
+    def test_audit_codex_requires_mcp_verified_records_for_mcp_comparison_backing(self):
+        with tempfile.TemporaryDirectory() as results:
+            results_dir = pathlib.Path(results)
+            suite = "release-candidate-radar-unverified-mcp"
+            records = []
+            for i in range(1, 5):
+                records.append(self._release_record(suite, condition="no_brain", repetition=i, run_id=f"base-{i}"))
+                mcp = self._mcp_release_record(suite, repetition=i, run_id=f"radar-{i}")
+                mcp["mcp_condition_audit"]["ok"] = False
+                mcp["mcp_condition_audit"]["findings"] = [{"kind": "not_really_mcp_verified"}]
+                records.append(mcp)
+            suite_dir = self._write_records(results_dir, suite, records)
+            for i in range(1, 5):
+                self._write_mcp_server_log(suite_dir, f"radar-{i}", "brain_regressions")
+            (suite_dir / "summary.json").write_text(json.dumps({
+                "comparisons": [{
+                    "task_id": "t",
+                    "runner": "codex",
+                    "condition": "mcp_history",
+                    "delivery_scope": "mcp_radar_location_only",
+                    "env_flags": {"BENCH_RADAR_LOCATION_ONLY": "1"},
+                    "verdict": "brain_positive",
+                    "proof_ready": True,
+                    "n_condition": 4,
+                    "n_baseline": 4,
+                    "stability": {"tag": "brain_positive_stable"},
+                }]
+            }))
+
+            report = audit_codex.build_audit_report(results_dir, [suite])
+            comparison = report["suites"][suite]["comparisons"][0]
+            self.assertFalse(comparison["pass"], comparison)
+            self.assertEqual(report["totals"]["proof_ready_comparisons"], 0)
+            self.assertFalse(comparison["record_backing"]["condition_mcp_verified_ok"])
+            self.assertEqual(comparison["record_backing"]["condition_mcp_verified_records"], 0)
+            self.assertIn("G:proof_ready_without_mcp_verified_condition_records", comparison["flags"])
+
     def test_audit_codex_requires_include_deletions_for_deletion_radar_task(self):
         with tempfile.TemporaryDirectory() as results:
             results_dir = pathlib.Path(results)
@@ -2378,7 +2415,7 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                             "proof_scope": "mcp_radar_location_only",
                             "proof_ready": True,
                             "pass": True,
-                            "record_backing": {"ok": True},
+                            "record_backing": {"ok": True, "condition_mcp_verified_ok": True},
                         }]
                     }
                 }

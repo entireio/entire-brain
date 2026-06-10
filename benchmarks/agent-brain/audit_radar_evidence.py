@@ -62,7 +62,12 @@ def codex_audit_radar_keys(report: dict[str, Any] | None) -> set[tuple[str, str,
             if comp.get("proof_scope") not in RADAR_SCOPES:
                 continue
             backing = comp.get("record_backing") if isinstance(comp.get("record_backing"), dict) else {}
-            if not (comp.get("proof_ready") and comp.get("pass") and backing.get("ok")):
+            if not (
+                comp.get("proof_ready")
+                and comp.get("pass")
+                and backing.get("ok")
+                and backing.get("condition_mcp_verified_ok") is True
+            ):
                 continue
             keys.add((
                 str(suite),

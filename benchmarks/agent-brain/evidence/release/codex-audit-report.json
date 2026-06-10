@@ -297,12 +297,19 @@
           "record_backing": {
             "condition_records": 4,
             "baseline_records": 4,
+            "condition_mcp_verified_records": 0,
             "condition_unique_run_ids": 4,
             "baseline_unique_run_ids": 4,
+            "condition_mcp_verified_unique_run_ids": 0,
             "condition_unique_repetitions": 4,
             "baseline_unique_repetitions": 4,
+            "condition_mcp_verified_unique_repetitions": 0,
             "required_condition": 4,
             "required_baseline": 4,
+            "condition_requires_mcp_verified": false,
+            "condition_records_ok": true,
+            "baseline_records_ok": true,
+            "condition_mcp_verified_ok": true,
             "ok": true
           }
         }
@@ -617,12 +624,19 @@
           "record_backing": {
             "condition_records": 4,
             "baseline_records": 4,
+            "condition_mcp_verified_records": 4,
             "condition_unique_run_ids": 4,
             "baseline_unique_run_ids": 4,
+            "condition_mcp_verified_unique_run_ids": 4,
             "condition_unique_repetitions": 4,
             "baseline_unique_repetitions": 4,
+            "condition_mcp_verified_unique_repetitions": 4,
             "required_condition": 4,
             "required_baseline": 4,
+            "condition_requires_mcp_verified": true,
+            "condition_records_ok": true,
+            "baseline_records_ok": true,
+            "condition_mcp_verified_ok": true,
             "ok": true
           }
         }
@@ -960,12 +974,19 @@
           "record_backing": {
             "condition_records": 4,
             "baseline_records": 4,
+            "condition_mcp_verified_records": 4,
             "condition_unique_run_ids": 4,
             "baseline_unique_run_ids": 4,
+            "condition_mcp_verified_unique_run_ids": 4,
             "condition_unique_repetitions": 4,
             "baseline_unique_repetitions": 4,
+            "condition_mcp_verified_unique_repetitions": 4,
             "required_condition": 4,
             "required_baseline": 4,
+            "condition_requires_mcp_verified": true,
+            "condition_records_ok": true,
+            "baseline_records_ok": true,
+            "condition_mcp_verified_ok": true,
             "ok": true
           }
         }

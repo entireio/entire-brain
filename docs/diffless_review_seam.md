@@ -88,8 +88,9 @@ until a future task/runner revision creates baseline headroom.
 `pilot-radar-*` suites and labels each comparison as proof-ready, promotable,
 or saturated. `mise run radar:evidence` is intentionally stricter: it fails
 until retained `release-candidate-*` evidence contains at least one stable
-proof-ready location-only Radar comparison. That keeps generic MCP-history proof
-separate from the stronger Radar claim.
+proof-ready location-only Radar comparison whose own condition records are
+MCP-verified by the independent Codex audit. That keeps generic MCP-history
+proof separate from the stronger Radar claim.
 New MCP/Radar runs also write redacted server-side tool names (`tool:
 brain_regressions`, `tool: brain_workspace_regressions`, etc.) to
 `mcp-server.log`; the independent audit cross-checks those names when present,
