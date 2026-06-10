@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1623,6 +1624,7 @@ func TestDistillCommandOllamaLoopbackProducesTimedSummary(t *testing.T) {
 		Prompt string `json:"prompt"`
 		Stream bool   `json:"stream"`
 	}
+	var seenMu sync.Mutex
 	var seen []ollamaRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/generate" {
@@ -1632,7 +1634,9 @@ func TestDistillCommandOllamaLoopbackProducesTimedSummary(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
+		seenMu.Lock()
 		seen = append(seen, req)
+		seenMu.Unlock()
 		if req.Stream {
 			t.Fatal("distill ollama CLI path must request non-streaming output")
 		}
@@ -1662,6 +1666,9 @@ func TestDistillCommandOllamaLoopbackProducesTimedSummary(t *testing.T) {
 	if source.TotalSeconds < 0 || source.ExtractionSeconds < 0 || source.WriteSeconds < 0 {
 		t.Fatalf("summary timings should be non-negative: %+v", source)
 	}
+	seenMu.Lock()
+	seen = append([]ollamaRequest(nil), seen...)
+	seenMu.Unlock()
 	if len(seen) != 2 {
 		t.Fatalf("expected one loopback ollama request per fixture session, got %d", len(seen))
 	}
