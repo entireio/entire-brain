@@ -93,15 +93,21 @@ validation that visible tests do not already cover. Its calibrated clean 1x
 pilot still saturated on pass rate, so it is directional efficiency calibration
 until a future task/runner revision creates baseline headroom.
 `mise run radar:screen` runs the dedicated Radar evidence audit over local
-`pilot-radar-*` suites and labels each comparison as proof-ready, promotable,
-or saturated; when a pilot is stopped before Radar runs because the first
-no-brain score is already too high, it emits a `no-brain-too-easy` row instead
-of hiding the suite. `mise run radar:evidence` currently checks the
-deterministic MCP/Radar tool-contract artifact. The stricter agent-lift proof
-gate remains available as `mise run radar:agent-evidence`, and should only
-become release blocking once a fresh non-saturated retained panel exists. That
-keeps generic MCP-history proof, deterministic tool proof, and stronger Radar
-agent-lift proof separate.
+`pilot-radar-*` suites and promoted `release-candidate-*-radar-*` /
+`release-candidate-*-workspace-radar-*` reruns. It now builds the independent
+Codex audit first, so rows with retained server logs can show whether the MCP
+server actually handled and completed the required named Radar tool. The screen
+labels each comparison as proof-ready, promotable, or saturated; when a pilot is
+stopped before Radar runs because the first no-brain score is already too high,
+it emits a `no-brain-too-easy` row instead of hiding the suite. The current
+manual-attribution release-candidate rerun proves MCP delivery (`4/4`
+named/completed) but is still `brain-not-clean` on pass rate, so it diagnoses
+Radar delivery/task calibration rather than MCP authenticity. `mise run
+radar:evidence` currently checks the deterministic MCP/Radar tool-contract
+artifact. The stricter agent-lift proof gate remains available as `mise run
+radar:agent-evidence`, and should only become release blocking once a fresh
+non-saturated retained panel exists. That keeps generic MCP-history proof,
+deterministic tool proof, and stronger Radar agent-lift proof separate.
 New MCP/Radar runs also write redacted server-side tool names (`tool:
 brain_regressions`, `tool: brain_workspace_regressions`, etc.) to
 `mcp-server.log`; the independent audit cross-checks those names when present,

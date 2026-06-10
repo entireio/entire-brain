@@ -60,16 +60,40 @@ cp "$tmp"/codex-audit-report.json "$tmp"/codex-audit-report.md benchmarks/agent-
 '''
 
 [tasks."radar:screen"]
-description = "Summarize Regression Radar pilots and flag saturated candidates"
+description = "Summarize Regression Radar pilots/release-candidates and flag saturated candidates"
 run = '''
 set -e
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_codex.py \
+  --results benchmarks/agent-brain/results \
+  --suite-glob 'pilot-radar-*' \
+  --suite-glob 'release-candidate-*-radar-*' \
+  --suite-glob 'release-candidate-*-workspace-radar-*' \
+  --out-dir "$tmp" > "$tmp/codex-audit.stdout"
 python3 benchmarks/agent-brain/audit_radar_evidence.py \
   --results benchmarks/agent-brain/results \
   --suite-glob 'pilot-radar-*' \
-  --out-dir "$tmp"
+  --suite-glob 'release-candidate-*-radar-*' \
+  --suite-glob 'release-candidate-*-workspace-radar-*' \
+  --out-dir "$tmp" \
+  --codex-audit-report "$tmp/codex-audit-report.json"
 cat "$tmp/radar-candidate-report.md"
+'''
+
+[tasks."radar:screen:audit"]
+description = "Build the independent Codex audit used to back the Radar screen"
+run = '''
+set -e
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_codex.py \
+  --results benchmarks/agent-brain/results \
+  --suite-glob 'pilot-radar-*' \
+  --suite-glob 'release-candidate-*-radar-*' \
+  --suite-glob 'release-candidate-*-workspace-radar-*' \
+  --out-dir "$tmp"
+cat "$tmp/codex-audit-report.md"
 '''
 
 [tasks."radar:evidence"]

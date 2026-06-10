@@ -535,10 +535,19 @@ health evidence; semantic usefulness claims still need separate retained
 benchmark proof before they should ship.
 
 `mise run radar:screen` is the calibration check for local `pilot-radar-*`
-suites. Earlier 2026-06-10 calibration runs saturated or were noisy, including
-manual-attribution, review file-count, and workspace transcript candidates.
-Suites that are stopped after an already-high no-brain score are now reported as
-`no-brain-too-easy` instead of disappearing from the screen report.
+suites plus promoted `release-candidate-*-radar-*` and
+`release-candidate-*-workspace-radar-*` reruns. It first builds an independent
+Codex audit and feeds that into the Radar report, so release-candidate rows show
+whether the MCP server actually handled the named Radar tool and completed it.
+This keeps a stale promotable pilot from hiding a failed promoted rerun. The
+current screen still has zero proof-ready Radar comparisons: the latest
+manual-attribution location-only rerun shows `4/4` MCP named/completed records
+but `no_brain -> mcp_history` pass rate `1.00 -> 0.50`, so the failure is Radar
+delivery/task calibration rather than missing MCP usage. Earlier 2026-06-10
+calibration runs saturated or were noisy, including manual-attribution, review
+file-count, and workspace transcript candidates. Suites that are stopped after
+an already-high no-brain score are now reported as `no-brain-too-easy` instead
+of disappearing from the screen report.
 `mise run radar:evidence` now checks the retained deterministic MCP/Radar
 tool-contract artifact instead of promoting those saturated agent panels. It
 requires the retained `go test -json` artifact hash to match and all 33 required
