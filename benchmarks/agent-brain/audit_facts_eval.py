@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Audit retained facts-vs-raw eval artifacts for release-claimable proof.
 
-This is intentionally read-only over eval outputs. It does not recompute metrics
-or judge relevance; it checks that the retained `facts eval --json` and
-`facts eval-compare --json` artifacts are paired, hash-matched, proof-labeled,
-and explicitly marked release-claimable by the CLI.
+This is intentionally read-only over eval outputs. It does not judge relevance;
+it checks that the retained `facts eval --json` and `facts eval-compare --json`
+artifacts are paired, hash-matched, proof-labeled, internally consistent, and
+explicitly marked release-claimable by the CLI.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import pathlib
 import re
 import sys
@@ -21,6 +22,14 @@ PROOF_LABEL_SOURCES = {"human", "judge_refined"}
 RELEVANCE_PROOF_METRICS = {"precision", "recall", "useful_per_1k"}
 ALL_PAIRED_METRIC_N = {"precision", "useful_per_1k", "tokens", "latency_ms"}
 LABELED_PAIR_METRIC_N = {"recall"}
+METRIC_RESULT_FIELDS = {
+    "precision": "precision",
+    "recall": "recall",
+    "useful_per_1k": "useful_per_1k",
+    "tokens": "tokens",
+    "latency_ms": "latency_ms",
+}
+METRIC_COMPARE_TOLERANCE = 1e-9
 CLAIM_POLICY_PROOF = "proof_required"
 CLAIM_POLICY_NO_CLAIM = "no_release_claim"
 
@@ -231,6 +240,81 @@ def metric_n_from_retained_summaries(
     return None
 
 
+def finite_number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    out = float(value)
+    if not math.isfinite(out):
+        return None
+    return out
+
+
+def metric_winner(metric_name: str, mean_a: float, mean_b: float) -> str:
+    if abs(mean_a - mean_b) <= METRIC_COMPARE_TOLERANCE:
+        return "tie"
+    if metric_name in {"tokens", "latency_ms"}:
+        return "a" if mean_a < mean_b else "b"
+    return "a" if mean_a > mean_b else "b"
+
+
+def retained_metric_stats(
+    name: str,
+    metric_name: str,
+    paired_ids: list[str],
+    a_results: dict[str, dict[str, Any]],
+    b_results: dict[str, dict[str, Any]],
+    flags: list[str],
+) -> dict[str, Any] | None:
+    field = METRIC_RESULT_FIELDS.get(metric_name)
+    if field is None:
+        return None
+    values_a: list[float] = []
+    values_b: list[float] = []
+    for task_id in paired_ids:
+        a_row = a_results[task_id]
+        b_row = b_results[task_id]
+        if metric_name in LABELED_PAIR_METRIC_N and not (a_row.get("labeled") is True and b_row.get("labeled") is True):
+            continue
+        a_value = finite_number(a_row.get(field))
+        b_value = finite_number(b_row.get(field))
+        if a_value is None:
+            flags.append(f"{name}: {metric_name} retained row {task_id!r} missing numeric A.{field}")
+            continue
+        if b_value is None:
+            flags.append(f"{name}: {metric_name} retained row {task_id!r} missing numeric B.{field}")
+            continue
+        values_a.append(a_value)
+        values_b.append(b_value)
+    n = len(values_a)
+    if n == 0:
+        return {"n": 0, "mean_a": 0.0, "mean_b": 0.0, "delta": 0.0, "winner": "tie"}
+    mean_a = sum(values_a) / n
+    mean_b = sum(values_b) / n
+    return {
+        "n": n,
+        "mean_a": mean_a,
+        "mean_b": mean_b,
+        "delta": mean_b - mean_a,
+        "winner": metric_winner(metric_name, mean_a, mean_b),
+    }
+
+
+def compare_numeric_metric_field(
+    name: str,
+    metric_name: str,
+    metric: dict[str, Any],
+    field: str,
+    retained_value: float,
+    flags: list[str],
+) -> None:
+    declared_value = finite_number(metric.get(field))
+    if declared_value is None:
+        flags.append(f"{name}: {metric_name} missing numeric {field}")
+        return
+    if abs(declared_value - retained_value) > METRIC_COMPARE_TOLERANCE:
+        flags.append(f"{name}: {metric_name} {field} is {declared_value:g}, retained rows recompute to {retained_value:g}")
+
+
 def recompute_comparison_pairing(
     name: str,
     comp: dict[str, Any],
@@ -344,6 +428,7 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
 
     comparisons: dict[str, dict[str, Any]] = {}
     comparison_metric_ns: dict[tuple[str, str], int] = {}
+    comparison_metric_stats: dict[tuple[str, str], dict[str, Any]] = {}
     comparison_paths: dict[str, str] = {}
     for name, rel in (manifest.get("comparisons") or {}).items():
         if not isinstance(name, str) or not name:
@@ -399,6 +484,23 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
                 comparison_metric_ns[(name, metric_name)] = retained_n
                 if isinstance(metric.get("n"), int) and metric.get("n") != retained_n:
                     flags.append(f"{name}: {metric_name} n is {metric.get('n')}, retained rows recompute to {retained_n}")
+                stats = retained_metric_stats(
+                    name,
+                    metric_name,
+                    pairing["paired_ids"],
+                    pairing["a_results"],
+                    pairing["b_results"],
+                    flags,
+                )
+                if stats is None:
+                    continue
+                comparison_metric_stats[(name, metric_name)] = stats
+                compare_numeric_metric_field(name, metric_name, metric, "mean_a", float(stats["mean_a"]), flags)
+                compare_numeric_metric_field(name, metric_name, metric, "mean_b", float(stats["mean_b"]), flags)
+                compare_numeric_metric_field(name, metric_name, metric, "delta", float(stats["delta"]), flags)
+                declared_winner = metric.get("winner")
+                if declared_winner != stats["winner"]:
+                    flags.append(f"{name}: {metric_name} winner is {declared_winner!r}, retained rows recompute to {stats['winner']!r}")
 
     claim_reports: list[dict[str, Any]] = []
     proof_checked_retrievers: set[str] = set()
@@ -458,13 +560,23 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
         if not isinstance(metric.get("n"), int) or metric.get("n") <= 0:
             flags.append(f"{name}: {metric_name} has no paired rows")
         retained_metric_n = comparison_metric_ns.get((name, metric_name))
+        retained_stats = comparison_metric_stats.get((name, metric_name))
         if metric_name in RELEVANCE_PROOF_METRICS and retained_metric_n is None:
             flags.append(f"{name}: {metric_name} retained metric n could not be recomputed")
+        if metric_name in RELEVANCE_PROOF_METRICS and retained_stats is None:
+            flags.append(f"{name}: {metric_name} retained metric values could not be recomputed")
         metric_n_verified = (
             retained_metric_n is not None
             and isinstance(metric.get("n"), int)
             and metric.get("n") == retained_metric_n
             and retained_metric_n > 0
+        )
+        metric_values_verified = (
+            retained_stats is not None
+            and metric.get("winner") == retained_stats.get("winner")
+            and finite_number(metric.get("mean_a")) is not None
+            and finite_number(metric.get("mean_b")) is not None
+            and finite_number(metric.get("delta")) is not None
         )
         facts_side = comparison_side_for_retriever(comp, "facts")
         raw_side = comparison_side_for_retriever(comp, "raw-sessions")
@@ -478,6 +590,7 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             and metric.get("release_claimable") is True
             and metric.get("significant") is True
             and metric_n_verified
+            and metric_values_verified
         ):
             facts_vs_raw_claim = True
         claim_reports.append({
@@ -491,6 +604,10 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             "significant": metric.get("significant"),
             "n": metric.get("n"),
             "retained_n": retained_metric_n,
+            "retained_mean_a": retained_stats.get("mean_a") if retained_stats else None,
+            "retained_mean_b": retained_stats.get("mean_b") if retained_stats else None,
+            "retained_delta": retained_stats.get("delta") if retained_stats else None,
+            "retained_winner": retained_stats.get("winner") if retained_stats else None,
         })
 
     if not comparisons:

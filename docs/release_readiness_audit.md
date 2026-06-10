@@ -59,7 +59,7 @@ timed run show the call count and wall-time improvement.
 
 Retained local scheduler evidence collected on this repo: the committed
 `benchmarks/agent-brain/evidence/distill-perf/manifest.json` targets
-`github.com/ashtom/entire-brain` at the current release-hardening head, uses a
+`github.com/ashtom/entire-brain` at the retained measured head, uses a
 deterministic local command agent, and passes `mise run distill:evidence`.
 The retained dry-run reported 147 sessions, 7,419,024 preprocessed bytes, 159
 scheduled extraction chunks, and 159 extraction calls. The paired timed summaries

@@ -2561,7 +2561,7 @@ class CodexAuditScriptTests(unittest.TestCase):
                 suite_dir,
                 "radar-1",
                 "brain_regressions",
-                tool_args={"location_only": True, "query": "release-secret", "include_deletions": "true"},
+                tool_args={"location_only": True, "query": "release-secret", "include_deletions": "true", "workspace": "related"},
             )
 
             report = audit_codex.build_audit_report(results_dir, [suite])
@@ -2570,9 +2570,10 @@ class CodexAuditScriptTests(unittest.TestCase):
 
             self.assertFalse(audited["pass"], audited)
             self.assertFalse(audited["mcp_verified"], audited)
-            self.assertIn("E:mcp_server_log_unsafe_tool_args(include_deletions,query)", audited["flags"])
+            self.assertIn("E:mcp_server_log_unsafe_tool_args(include_deletions,query,workspace)", audited["flags"])
             self.assertIn({"tool": "brain_regressions", "arguments": {"location_only": True}}, audited["server_tool_args"])
             self.assertNotIn("release-secret", serialized)
+            self.assertNotIn("related", serialized)
 
     def test_audit_codex_requires_embedded_radar_deletion_policy(self):
         with tempfile.TemporaryDirectory() as results:
@@ -2732,24 +2733,69 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
     def _write_facts_eval_fixture(self, root: pathlib.Path, *, claimable: bool = True, proxy: bool = False) -> pathlib.Path:
         summaries = {}
         task_ids = [f"task-{i}" for i in range(1, 13)]
+        metric_values = {
+            "facts": {
+                "surfaced": 2,
+                "tokens": 100,
+                "latency_ms": 10,
+                "relevant_surfaced": 2,
+                "precision": 1.0,
+                "recall": 1.0,
+                "useful_per_1k": 20.0,
+            },
+            "raw-sessions": {
+                "surfaced": 4,
+                "tokens": 200,
+                "latency_ms": 20,
+                "relevant_surfaced": 1,
+                "precision": 0.25,
+                "recall": 0.5,
+                "useful_per_1k": 5.0,
+            },
+            "history": {
+                "surfaced": 3,
+                "tokens": 150,
+                "latency_ms": 15,
+                "relevant_surfaced": 1,
+                "precision": 1.0 / 3.0,
+                "recall": 0.5,
+                "useful_per_1k": 20.0 / 3.0,
+            },
+            "query": {
+                "surfaced": 3,
+                "tokens": 125,
+                "latency_ms": 12,
+                "relevant_surfaced": 1,
+                "precision": 1.0 / 3.0,
+                "recall": 0.5,
+                "useful_per_1k": 8.0,
+            },
+        }
         for retriever in ("facts", "history", "query", "raw-sessions"):
             path = f"{retriever}.json"
             summaries[retriever] = path
+            metrics = metric_values[retriever]
             (root / path).write_text(json.dumps({
                 "retriever": retriever,
                 "run_config": {
                     "tasks_sha256": self.TASKS_SHA,
                     "brain_manifest_sha256": self.BRAIN_SHA,
                 },
-                "results": [{
-                    "id": task_id,
-                    "task": f"Task {index}",
-                    "query_type": "code",
-                    "labeled": True,
-                    "relevance_source": "explicit_label",
-                    "label_source": "human",
-                } for index, task_id in enumerate(task_ids, start=1)],
+                "results": [
+                    {
+                        "id": task_id,
+                        "task": f"Task {index}",
+                        "query_type": "code",
+                        "labeled": True,
+                        "relevance_source": "explicit_label",
+                        "label_source": "human",
+                        **metrics,
+                    }
+                    for index, task_id in enumerate(task_ids, start=1)
+                ],
             }))
+        mean_a = metric_values["raw-sessions"]["useful_per_1k"]
+        mean_b = metric_values["facts"]["useful_per_1k"]
         (root / "raw-vs-facts.compare.json").write_text(json.dumps({
             "n": len(task_ids),
             "alpha": 0.05,
@@ -2771,6 +2817,13 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
                 "metric": "useful_per_1k",
                 "evidence_basis": "proxy_or_mixed" if proxy else "proof_labels",
                 "n": len(task_ids),
+                "mean_a": mean_a,
+                "mean_b": mean_b,
+                "delta": mean_b - mean_a,
+                "t": 0,
+                "p": 0,
+                "p_holm_threshold": 0.05,
+                "cohen_d": 0,
                 "significant": claimable,
                 "release_claimable": claimable,
                 "winner": "b",
@@ -2818,6 +2871,38 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             self.assertFalse(report["claimable_facts_vs_raw"], report)
             self.assertIn("raw_vs_facts: comparison n is 999, retained paired rows recompute to 12", report["flags"])
             self.assertIn("raw_vs_facts: useful_per_1k n is 999, retained rows recompute to 12", report["flags"])
+
+    def test_facts_eval_audit_rejects_forged_winner_against_retained_rows(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            raw_path = root_path / "raw-sessions.json"
+            facts_path = root_path / "facts.json"
+            raw = json.loads(raw_path.read_text())
+            facts = json.loads(facts_path.read_text())
+            for row in raw["results"]:
+                row["tokens"] = 100
+                row["relevant_surfaced"] = 3
+                row["precision"] = 1.0
+                row["recall"] = 1.0
+                row["useful_per_1k"] = 30.0
+            for row in facts["results"]:
+                row["tokens"] = 100
+                row["relevant_surfaced"] = 1
+                row["precision"] = 0.5
+                row["recall"] = 0.5
+                row["useful_per_1k"] = 10.0
+            raw_path.write_text(json.dumps(raw))
+            facts_path.write_text(json.dumps(facts))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+
+            self.assertFalse(report["release_evidence"], report)
+            self.assertFalse(report["claimable_facts_vs_raw"], report)
+            self.assertIn("raw_vs_facts: useful_per_1k mean_a is 5, retained rows recompute to 30", report["flags"])
+            self.assertIn("raw_vs_facts: useful_per_1k mean_b is 20, retained rows recompute to 10", report["flags"])
+            self.assertIn("raw_vs_facts: useful_per_1k delta is 15, retained rows recompute to -20", report["flags"])
+            self.assertIn("raw_vs_facts: useful_per_1k winner is 'b', retained rows recompute to 'a'", report["flags"])
 
     def test_facts_eval_audit_rejects_hidden_missing_paired_ids(self):
         with tempfile.TemporaryDirectory() as root:

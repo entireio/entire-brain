@@ -48,7 +48,10 @@ MCP_NAMED_TOOL_REQUIRED_SCOPES = {
 }
 MCP_BRAIN_TOOL_RE = r"brain_(?:stale|brief|query|search|vsearch|get|multi_get|context|impact|changes|code|tests|boundaries|regressions|review|workspace_regressions|workspace_review)"
 SAFE_SERVER_BOOL_TOOL_ARGS = {"blind_spots", "include_deletions", "location_only"}
-SAFE_SERVER_STRING_TOOL_ARGS = {"workspace"}
+SAFE_SERVER_STRING_TOOL_ARGS_BY_TOOL = {
+    "brain_workspace_regressions": {"workspace"},
+    "brain_workspace_review": {"workspace"},
+}
 WORKSPACE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -67,16 +70,17 @@ def valid_workspace_name(value: Any) -> bool:
     return isinstance(value, str) and bool(WORKSPACE_NAME_RE.fullmatch(value)) and value not in {".", ".."} and bool(value.strip("."))
 
 
-def sanitize_server_tool_args(raw_args: Any) -> tuple[dict[str, Any], list[dict[str, str]]]:
+def sanitize_server_tool_args(raw_args: Any, tool: str | None = None) -> tuple[dict[str, Any], list[dict[str, str]]]:
     if not isinstance(raw_args, dict):
         return {}, [{"key": "<non-object>", "type": type(raw_args).__name__}]
     safe_args: dict[str, Any] = {}
     unsafe_args: list[dict[str, str]] = []
+    safe_string_args = SAFE_SERVER_STRING_TOOL_ARGS_BY_TOOL.get(str(tool or ""), set())
     for key, value in raw_args.items():
         key_text = str(key)
         if key_text in SAFE_SERVER_BOOL_TOOL_ARGS and isinstance(value, bool):
             safe_args[key_text] = value
-        elif key_text in SAFE_SERVER_STRING_TOOL_ARGS and valid_workspace_name(value):
+        elif key_text in safe_string_args and valid_workspace_name(value):
             safe_args[key_text] = value
         else:
             unsafe_args.append({"key": key_text, "type": type(value).__name__})
@@ -152,7 +156,7 @@ def server_log_tool_args(run_dir: pathlib.Path) -> list[dict[str, Any]] | None:
             raw_args = json.loads(args_match.group(1))
         except json.JSONDecodeError:
             raw_args = {}
-        safe_args, _ = sanitize_server_tool_args(raw_args)
+        safe_args, _ = sanitize_server_tool_args(raw_args, current_tool)
         out.append({"tool": current_tool, "arguments": safe_args})
     return out
 
@@ -182,7 +186,7 @@ def server_log_tool_call_records(run_dir: pathlib.Path) -> list[dict[str, Any]] 
                 raw_args = json.loads(args_match.group(1))
             except json.JSONDecodeError:
                 raw_args = {}
-            safe_args, unsafe_args = sanitize_server_tool_args(raw_args)
+            safe_args, unsafe_args = sanitize_server_tool_args(raw_args, str(current.get("tool") or ""))
             current["arguments"] = safe_args
             if unsafe_args:
                 current["unsafe_arguments"] = unsafe_args
