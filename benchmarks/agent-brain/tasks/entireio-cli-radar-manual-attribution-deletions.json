@@ -7,7 +7,7 @@
     "no_brain",
     "mcp_history"
   ],
-  "prompt": "Fix the manual-commit attribution regression. After an unrelated no-trailer commit happens while a manual-commit session is active, the next condensation reports inflated `human_added` and a low agent percentage even when only agent-authored lines are committed. Restore the prior invariant that prevents stale attribution-base drift, and keep the fix minimal.",
+  "prompt": "Fix the release-candidate manual-commit accounting regression. A hidden integration shows that an ordinary commit made while a manual-commit session is active leaves later attribution/condensation accounting anchored to stale session state. Keep the fix minimal.",
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
   "radar_include_deletions": true,
