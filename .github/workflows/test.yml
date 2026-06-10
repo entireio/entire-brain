@@ -107,6 +107,10 @@ jobs:
             --manifest benchmarks/agent-brain/evidence/facts-eval/manifest.json \
             --out-dir "$tmp" \
             --fail-on-flags
+          python3 benchmarks/agent-brain/audit_release_matrix.py \
+            --manifest benchmarks/agent-brain/evidence/release-matrix/manifest.json \
+            --out-dir "$tmp" \
+            --fail-on-flags
           for report in codex-audit-report.json codex-audit-report.md; do
             committed="benchmarks/agent-brain/evidence/release/$report"
             generated="$tmp/$report"
@@ -148,6 +152,15 @@ jobs:
             generated="$tmp/$report"
             if ! cmp -s "$committed" "$generated"; then
               echo "retained facts eval evidence report is stale: $report" >&2
+              diff -u "$committed" "$generated" >&2 || true
+              exit 1
+            fi
+          done
+          for report in release-matrix-report.json release-matrix-report.md; do
+            committed="benchmarks/agent-brain/evidence/release-matrix/$report"
+            generated="$tmp/$report"
+            if ! cmp -s "$committed" "$generated"; then
+              echo "retained release matrix report is stale: $report" >&2
               diff -u "$committed" "$generated" >&2 || true
               exit 1
             fi

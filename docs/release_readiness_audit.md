@@ -554,8 +554,9 @@ depend on retained evidence artifacts.
 `mise run release:readiness` is the local release-claim gate. It runs
 `mise run check`, `mise run release:evidence`, `mise run radar:evidence`,
 `mise run radar:agent-evidence`, `mise run distill:evidence`,
-`mise run facts:evidence`, and `mise run semantic:evidence`, continuing after
-individual failures and printing the complete failing-task summary at the end.
+`mise run facts:evidence`, `mise run semantic:evidence`, and
+`mise run release:matrix`, continuing after individual failures and printing the
+complete failing-task summary at the end.
 Distill and facts now have retained evidence, but their claim scopes are
 deliberately narrow: distill proves current-repo local command-agent extraction
 scheduling speedup plus fake loopback Ollama wiring/no-egress safety, and facts
@@ -606,12 +607,17 @@ scopes. `mise run radar:evidence` remains the deterministic tool-contract gate,
 `mise run radar:agent-evidence` remains the focused Radar agent-lift gate, and
 `mise run workspace-radar:evidence` preserves the separate workspace-Radar
 no-claim/proof policy.
+`mise run release:matrix` is the aggregate claim-hygiene gate: it maps each
+release-readiness ask to retained proof, explicit no-claim status, or pending
+evidence. Its retained report intentionally keeps `release_fully_ready=false`
+until target large-repo distill, paired facts-vs-raw, semantic usefulness,
+workspace Radar, and broader replay proof are collected.
 
 CI now includes race-enabled package tests, deterministic Phase 1 semantic tests,
 the retained replay-lab release-evidence audit, focused Radar agent-lift audit,
 deterministic Radar tool-contract audit, workspace-Radar evidence-status audit,
-distill evidence audit, and facts evidence audit in addition to lint/build
-checks. The facts and workspace-Radar evidence gates support either
+distill evidence audit, facts evidence audit, and release-matrix audit in
+addition to lint/build checks. The facts and workspace-Radar evidence gates support either
 proof-required mode or explicit no-claim mode; the current no-claim manifests are
 guards against overclaiming, not positive quality wins.
 

@@ -59,6 +59,13 @@ assert AUDIT_RADAR_TOOL_SPEC.loader is not None
 sys.modules[AUDIT_RADAR_TOOL_SPEC.name] = audit_radar_tool_evidence
 AUDIT_RADAR_TOOL_SPEC.loader.exec_module(audit_radar_tool_evidence)
 
+AUDIT_RELEASE_MATRIX_PATH = pathlib.Path(__file__).with_name("audit_release_matrix.py")
+AUDIT_RELEASE_MATRIX_SPEC = importlib.util.spec_from_file_location("agent_brain_audit_release_matrix", AUDIT_RELEASE_MATRIX_PATH)
+audit_release_matrix = importlib.util.module_from_spec(AUDIT_RELEASE_MATRIX_SPEC)
+assert AUDIT_RELEASE_MATRIX_SPEC.loader is not None
+sys.modules[AUDIT_RELEASE_MATRIX_SPEC.name] = audit_release_matrix
+AUDIT_RELEASE_MATRIX_SPEC.loader.exec_module(audit_release_matrix)
+
 
 class RunnerAndConditionTests(unittest.TestCase):
     def test_retained_release_evidence_paths_fit_github_windows_checkout(self):
@@ -4037,6 +4044,149 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             self.assertFalse(report["ok"])
             self.assertIn("internal/cli/regression.go", " | ".join(report["errors"]))
             self.assertEqual(report["source_drift_paths"], ["internal/cli/regression.go"])
+
+    def _write_release_matrix_fixture(self, root: pathlib.Path) -> pathlib.Path:
+        (root / "reports").mkdir()
+        (root / "docs").mkdir()
+        (root / "matrix").mkdir()
+
+        (root / "reports" / "release.json").write_text(json.dumps({
+            "totals": {
+                "hard_flags": 0,
+                "proof_ready_comparisons_by_scope": {
+                    "history": 1,
+                    "mcp": 1,
+                    "mcp_radar_location_only": 1,
+                },
+                "named_tool_proof_ready_comparisons_by_scope": {
+                    "mcp_radar_location_only": 1,
+                },
+            },
+        }))
+        (root / "reports" / "radar-tool.json").write_text(json.dumps({
+            "schema": 1,
+            "ok": True,
+            "claim_scope": "mcp_radar_tool_contract",
+            "claims": ["QMD-inspired retrieval keeps brain_search branch-scoped."],
+        }))
+        (root / "reports" / "workspace-radar.json").write_text(json.dumps({
+            "schema": 1,
+            "status": "pass",
+            "release_evidence": True,
+            "claim_policy": "no_release_claim",
+            "claimable_workspace_radar": False,
+            "summary": {"proof_ready": 0},
+        }))
+        (root / "reports" / "distill.json").write_text(json.dumps({
+            "schema": 1,
+            "status": "pass",
+            "release_evidence": True,
+            "target": {"claim_scope": "current-repo local command-agent scheduler proof"},
+        }))
+        (root / "reports" / "facts.json").write_text(json.dumps({
+            "schema": 1,
+            "status": "pass",
+            "release_evidence": True,
+            "claim_policy": "no_release_claim",
+            "claimable_facts_vs_raw": False,
+        }))
+        (root / "docs" / "release_press_release.md").write_text(
+            "\n".join([
+                "# Draft",
+                "entire-brain",
+                "entire-sem",
+                "entire-replay-lab",
+                "Future Claims We Should Not Make Yet",
+                "Release Checklist",
+            ])
+        )
+        required = [
+            "check",
+            "release:evidence",
+            "radar:evidence",
+            "radar:agent-evidence",
+            "workspace-radar:evidence",
+            "distill:evidence",
+            "facts:evidence",
+            "semantic:evidence",
+            "release:matrix",
+            "release:readiness",
+        ]
+        task_tables = "\n".join(f'[tasks."{name}"]\nrun = "true"\n' for name in required if name != "release:readiness")
+        readiness_tasks = " ".join(required)
+        (root / "mise.toml").write_text(task_tables + f'[tasks."release:readiness"]\nrun = "for task in {readiness_tasks}; do mise run $task; done"\n')
+        manifest = root / "matrix" / "manifest.json"
+        manifest.write_text(json.dumps({
+            "schema": 1,
+            "repo_root": "..",
+            "mise": "mise.toml",
+            "reports": {
+                "release": "reports/release.json",
+                "radar_tool": "reports/radar-tool.json",
+                "workspace_radar": "reports/workspace-radar.json",
+                "distill": "reports/distill.json",
+                "facts": "reports/facts.json",
+            },
+            "docs": {
+                "press_release": "docs/release_press_release.md",
+            },
+            "required_release_proof_scopes": ["history", "mcp", "mcp_radar_location_only"],
+            "required_named_tool_proof_scopes": ["mcp_radar_location_only"],
+            "required_mise_tasks": required,
+        }))
+        return manifest
+
+    def test_release_matrix_accepts_claim_hygiene_without_declaring_release_done(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as out:
+            root = pathlib.Path(tmp)
+            manifest = self._write_release_matrix_fixture(root)
+
+            report = audit_release_matrix.audit_manifest(manifest)
+
+            self.assertEqual(report["status"], "pass", report)
+            self.assertFalse(report["release_fully_ready"])
+            self.assertIn("facts vs raw/session retrieval quality", [row["track"] for row in report["rows"]])
+            no_claim = {row["track"]: row for row in report["rows"] if not row["claimable"]}
+            self.assertIn("target large-repo/frontend distill performance", no_claim)
+            self.assertIn("workspace Radar agent lift", no_claim)
+            self.assertEqual(
+                audit_release_matrix.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]),
+                0,
+            )
+            self.assertTrue((pathlib.Path(out) / "release-matrix-report.json").exists())
+
+    def test_release_matrix_rejects_claimable_facts_without_paired_proof(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as out:
+            root = pathlib.Path(tmp)
+            manifest = self._write_release_matrix_fixture(root)
+            facts = root / "reports" / "facts.json"
+            data = json.loads(facts.read_text())
+            data["claim_policy"] = "proof_required"
+            data["claimable_facts_vs_raw"] = True
+            facts.write_text(json.dumps(data))
+
+            report = audit_release_matrix.audit_manifest(manifest)
+
+            self.assertEqual(report["status"], "fail", report)
+            self.assertIn("facts evidence must remain no_release_claim", " | ".join(report["flags"]))
+            self.assertEqual(
+                audit_release_matrix.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]),
+                1,
+            )
+
+    def test_release_matrix_rejects_missing_required_replay_scope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            manifest = self._write_release_matrix_fixture(root)
+            release = root / "reports" / "release.json"
+            data = json.loads(release.read_text())
+            data["totals"]["proof_ready_comparisons_by_scope"].pop("mcp_radar_location_only")
+            release.write_text(json.dumps(data))
+
+            report = audit_release_matrix.audit_manifest(manifest)
+
+            self.assertEqual(report["status"], "fail", report)
+            self.assertIn("missing retained release proof scope mcp_radar_location_only", report["flags"])
 
 
 if __name__ == "__main__":
