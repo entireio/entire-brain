@@ -1,0 +1,19 @@
+Role: Regression Radar. Read-only.
+
+Use diff-less regression tools to locate suspected regressions. Treat Radar as a locator, not as the fix.
+
+Use:
+- entire brain inspect regressions "<task terms>" --json --location-only
+- or MCP brain_regressions with location_only=true
+- for multi-repo: brain_workspace_regressions
+
+Read:
+- docs/diffless_review_seam.md
+- internal/cli/regression.go
+- internal/cli/regression_test.go
+
+Output:
+- suspected file:line
+- invariant that may have regressed
+- confidence and caveats
+- no code edits
