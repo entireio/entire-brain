@@ -4,7 +4,8 @@
 This is intentionally read-only over eval outputs. It does not judge relevance;
 it checks that the retained `facts eval --json` and `facts eval-compare --json`
 artifacts are paired, hash-matched, proof-labeled, internally consistent, and
-explicitly marked release-claimable by the CLI.
+independently recompute the paired statistics behind release-claimable CLI
+fields.
 """
 from __future__ import annotations
 
@@ -257,6 +258,139 @@ def metric_winner(metric_name: str, mean_a: float, mean_b: float) -> str:
     return "a" if mean_a > mean_b else "b"
 
 
+def incomplete_beta_cf(a: float, b: float, x: float) -> float:
+    max_iterations = 200
+    eps = 3e-12
+    fp_min = 1e-300
+    qab = a + b
+    qap = a + 1
+    qam = a - 1
+    c = 1.0
+    d = 1.0 - qab * x / qap
+    if abs(d) < fp_min:
+        d = fp_min
+    d = 1.0 / d
+    h = d
+    for m in range(1, max_iterations + 1):
+        mf = float(m)
+        m2 = 2.0 * mf
+        aa = mf * (b - mf) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        if abs(d) < fp_min:
+            d = fp_min
+        c = 1.0 + aa / c
+        if abs(c) < fp_min:
+            c = fp_min
+        d = 1.0 / d
+        h *= d * c
+        aa = -(a + mf) * (qab + mf) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        if abs(d) < fp_min:
+            d = fp_min
+        c = 1.0 + aa / c
+        if abs(c) < fp_min:
+            c = fp_min
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < eps:
+            break
+    return h
+
+
+def incomplete_beta(a: float, b: float, x: float) -> float:
+    if x <= 0:
+        return 0.0
+    if x >= 1:
+        return 1.0
+    bt = math.exp(
+        math.lgamma(a + b)
+        - math.lgamma(a)
+        - math.lgamma(b)
+        + a * math.log(x)
+        + b * math.log(1 - x)
+    )
+    if x < (a + 1) / (a + b + 2):
+        return bt * incomplete_beta_cf(a, b, x) / a
+    return 1 - bt * incomplete_beta_cf(b, a, 1 - x) / b
+
+
+def student_t_two_sided_p(t_value: float, df: float) -> float:
+    if df <= 0:
+        return 1.0
+    x = df / (df + t_value * t_value)
+    return incomplete_beta(df / 2, 0.5, x)
+
+
+def paired_t_test(values_a: list[float], values_b: list[float]) -> dict[str, float | int]:
+    n = len(values_a)
+    if n == 0 or len(values_b) != n:
+        return {"n": n, "mean_a": 0.0, "mean_b": 0.0, "delta": 0.0, "t": 0.0, "p": 1.0, "cohen_d": 0.0}
+    mean_a = sum(values_a) / n
+    mean_b = sum(values_b) / n
+    diffs = [b - a for a, b in zip(values_a, values_b)]
+    delta = sum(diffs) / n
+    if n < 2:
+        return {"n": n, "mean_a": mean_a, "mean_b": mean_b, "delta": delta, "t": 0.0, "p": 1.0, "cohen_d": 0.0}
+    var_d = sum((d - delta) * (d - delta) for d in diffs) / (n - 1)
+    sd = math.sqrt(var_d)
+    if sd == 0:
+        if delta == 0:
+            return {"n": n, "mean_a": mean_a, "mean_b": mean_b, "delta": delta, "t": 0.0, "p": 1.0, "cohen_d": 0.0}
+        return {
+            "n": n,
+            "mean_a": mean_a,
+            "mean_b": mean_b,
+            "delta": delta,
+            "t": math.copysign(math.inf, delta),
+            "p": 0.0,
+            "cohen_d": math.copysign(math.inf, delta),
+        }
+    t_value = delta / (sd / math.sqrt(n))
+    return {
+        "n": n,
+        "mean_a": mean_a,
+        "mean_b": mean_b,
+        "delta": delta,
+        "t": t_value,
+        "p": student_t_two_sided_p(abs(t_value), n - 1),
+        "cohen_d": delta / sd,
+    }
+
+
+def holm_reject_with_thresholds(pvals: list[float], alpha: float) -> tuple[list[bool], list[float]]:
+    count = len(pvals)
+    reject = [False] * count
+    thresholds = [0.0] * count
+    order = sorted(range(count), key=lambda idx: pvals[idx])
+    for rank, idx in enumerate(order):
+        thresholds[idx] = alpha / float(count - rank)
+    for idx in order:
+        if pvals[idx] <= thresholds[idx]:
+            reject[idx] = True
+        else:
+            break
+    return reject, thresholds
+
+
+def retained_metric_evidence_basis(metric_name: str, rows_a: list[dict[str, Any]], rows_b: list[dict[str, Any]]) -> str:
+    if not rows_a:
+        return "unavailable"
+    if metric_name not in RELEVANCE_PROOF_METRICS:
+        return "operational"
+    for a_row, b_row in zip(rows_a, rows_b):
+        if not (
+            a_row.get("labeled") is True
+            and b_row.get("labeled") is True
+            and a_row.get("relevance_source") == "explicit_label"
+            and b_row.get("relevance_source") == "explicit_label"
+            and a_row.get("label_source") in PROOF_LABEL_SOURCES
+            and b_row.get("label_source") in PROOF_LABEL_SOURCES
+        ):
+            return "proxy_or_mixed"
+    return "proof_labels"
+
+
 def retained_metric_stats(
     name: str,
     metric_name: str,
@@ -270,6 +404,8 @@ def retained_metric_stats(
         return None
     values_a: list[float] = []
     values_b: list[float] = []
+    rows_a: list[dict[str, Any]] = []
+    rows_b: list[dict[str, Any]] = []
     for task_id in paired_ids:
         a_row = a_results[task_id]
         b_row = b_results[task_id]
@@ -285,18 +421,38 @@ def retained_metric_stats(
             continue
         values_a.append(a_value)
         values_b.append(b_value)
+        rows_a.append(a_row)
+        rows_b.append(b_row)
     n = len(values_a)
     if n == 0:
-        return {"n": 0, "mean_a": 0.0, "mean_b": 0.0, "delta": 0.0, "winner": "tie"}
-    mean_a = sum(values_a) / n
-    mean_b = sum(values_b) / n
-    return {
-        "n": n,
-        "mean_a": mean_a,
-        "mean_b": mean_b,
-        "delta": mean_b - mean_a,
-        "winner": metric_winner(metric_name, mean_a, mean_b),
-    }
+        return {
+            "n": 0,
+            "mean_a": 0.0,
+            "mean_b": 0.0,
+            "delta": 0.0,
+            "t": 0.0,
+            "p": 1.0,
+            "cohen_d": 0.0,
+            "winner": "tie",
+            "evidence_basis": "unavailable",
+        }
+    stats = paired_t_test(values_a, values_b)
+    mean_a = float(stats["mean_a"])
+    mean_b = float(stats["mean_b"])
+    stats["winner"] = metric_winner(metric_name, mean_a, mean_b)
+    stats["evidence_basis"] = retained_metric_evidence_basis(metric_name, rows_a, rows_b)
+    return stats
+
+
+def retained_metric_release_claimable(stats: dict[str, Any], release_pairing_ready: bool) -> bool:
+    if (
+        not release_pairing_ready
+        or stats.get("significant") is not True
+        or int(stats.get("n") or 0) == 0
+        or stats.get("winner") == "tie"
+    ):
+        return False
+    return stats.get("evidence_basis") in {"proof_labels", "operational"}
 
 
 def compare_numeric_metric_field(
@@ -365,6 +521,8 @@ def recompute_comparison_pairing(
         "paired_ids": paired_ids,
         "a_results": a_results,
         "b_results": b_results,
+        "missing_from_a": missing_from_a,
+        "missing_from_b": missing_from_b,
     }
 
 
@@ -467,6 +625,7 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             flags.append(f"{name}: metrics must be non-empty")
         pairing = recompute_comparison_pairing(name, comp, summary_results_by_id, flags)
         if pairing is not None:
+            metric_stats_for_holm: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
             for metric in comp.get("metrics") or []:
                 if not isinstance(metric, dict):
                     continue
@@ -495,12 +654,52 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
                 if stats is None:
                     continue
                 comparison_metric_stats[(name, metric_name)] = stats
+                metric_stats_for_holm.append((metric_name, metric, stats))
                 compare_numeric_metric_field(name, metric_name, metric, "mean_a", float(stats["mean_a"]), flags)
                 compare_numeric_metric_field(name, metric_name, metric, "mean_b", float(stats["mean_b"]), flags)
                 compare_numeric_metric_field(name, metric_name, metric, "delta", float(stats["delta"]), flags)
+                compare_numeric_metric_field(name, metric_name, metric, "p", float(stats["p"]), flags)
+                declared_basis = metric.get("evidence_basis")
+                if declared_basis != stats["evidence_basis"]:
+                    flags.append(
+                        f"{name}: {metric_name} evidence_basis is {declared_basis!r}, "
+                        f"retained rows recompute to {stats['evidence_basis']!r}"
+                    )
                 declared_winner = metric.get("winner")
                 if declared_winner != stats["winner"]:
                     flags.append(f"{name}: {metric_name} winner is {declared_winner!r}, retained rows recompute to {stats['winner']!r}")
+            alpha = finite_number(comp.get("alpha"))
+            if alpha is None or alpha <= 0 or alpha > 1:
+                flags.append(f"{name}: alpha must be a numeric value in (0, 1]")
+                alpha = 0.05
+            if metric_stats_for_holm:
+                pvals = [float(stats["p"]) for _, _, stats in metric_stats_for_holm]
+                rejects, thresholds = holm_reject_with_thresholds(pvals, alpha)
+                retained_release_pairing_ready = (
+                    bool(tasks_sha)
+                    and bool(brain_sha)
+                    and not pairing["missing_from_a"]
+                    and not pairing["missing_from_b"]
+                    and comp.get("allow_proxy_comparison") is not True
+                    and comp.get("allow_missing_tasks") is not True
+                    and comp.get("allow_task_hash_mismatch") is not True
+                    and comp.get("allow_brain_manifest_mismatch") is not True
+                )
+                for index, (metric_name, metric, stats) in enumerate(metric_stats_for_holm):
+                    stats["p_holm_threshold"] = thresholds[index]
+                    stats["significant"] = rejects[index]
+                    stats["release_claimable"] = retained_metric_release_claimable(stats, retained_release_pairing_ready)
+                    compare_numeric_metric_field(name, metric_name, metric, "p_holm_threshold", thresholds[index], flags)
+                    if metric.get("significant") is not stats["significant"]:
+                        flags.append(
+                            f"{name}: {metric_name} significant is {metric.get('significant')!r}, "
+                            f"retained rows recompute to {stats['significant']!r}"
+                        )
+                    if metric.get("release_claimable") is not stats["release_claimable"]:
+                        flags.append(
+                            f"{name}: {metric_name} release_claimable is {metric.get('release_claimable')!r}, "
+                            f"retained rows recompute to {stats['release_claimable']!r}"
+                        )
 
     claim_reports: list[dict[str, Any]] = []
     proof_checked_retrievers: set[str] = set()
@@ -574,9 +773,14 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
         metric_values_verified = (
             retained_stats is not None
             and metric.get("winner") == retained_stats.get("winner")
+            and metric.get("evidence_basis") == retained_stats.get("evidence_basis")
+            and metric.get("significant") is retained_stats.get("significant")
+            and metric.get("release_claimable") is retained_stats.get("release_claimable")
             and finite_number(metric.get("mean_a")) is not None
             and finite_number(metric.get("mean_b")) is not None
             and finite_number(metric.get("delta")) is not None
+            and finite_number(metric.get("p")) is not None
+            and finite_number(metric.get("p_holm_threshold")) is not None
         )
         facts_side = comparison_side_for_retriever(comp, "facts")
         raw_side = comparison_side_for_retriever(comp, "raw-sessions")
@@ -586,9 +790,10 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             and facts_side
             and raw_side
             and facts_side != raw_side
-            and metric.get("winner") == facts_side
-            and metric.get("release_claimable") is True
-            and metric.get("significant") is True
+            and retained_stats is not None
+            and retained_stats.get("winner") == facts_side
+            and retained_stats.get("release_claimable") is True
+            and retained_stats.get("significant") is True
             and metric_n_verified
             and metric_values_verified
         ):
@@ -608,6 +813,11 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             "retained_mean_b": retained_stats.get("mean_b") if retained_stats else None,
             "retained_delta": retained_stats.get("delta") if retained_stats else None,
             "retained_winner": retained_stats.get("winner") if retained_stats else None,
+            "retained_evidence_basis": retained_stats.get("evidence_basis") if retained_stats else None,
+            "retained_p": retained_stats.get("p") if retained_stats else None,
+            "retained_p_holm_threshold": retained_stats.get("p_holm_threshold") if retained_stats else None,
+            "retained_significant": retained_stats.get("significant") if retained_stats else None,
+            "retained_release_claimable": retained_stats.get("release_claimable") if retained_stats else None,
         })
 
     if not comparisons:

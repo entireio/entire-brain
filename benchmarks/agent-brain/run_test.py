@@ -2904,6 +2904,71 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             self.assertIn("raw_vs_facts: useful_per_1k delta is 15, retained rows recompute to -20", report["flags"])
             self.assertIn("raw_vs_facts: useful_per_1k winner is 'b', retained rows recompute to 'a'", report["flags"])
 
+    def test_facts_eval_audit_rejects_forged_significance_against_retained_rows(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            raw_path = root_path / "raw-sessions.json"
+            facts_path = root_path / "facts.json"
+            raw = json.loads(raw_path.read_text())
+            facts = json.loads(facts_path.read_text())
+            noisy_fact_values = [20.0, 0.0] * 5 + [11.0, 11.0]
+            for row in raw["results"]:
+                row["useful_per_1k"] = 10.0
+            for row, value in zip(facts["results"], noisy_fact_values):
+                row["useful_per_1k"] = value
+            raw_path.write_text(json.dumps(raw))
+            facts_path.write_text(json.dumps(facts))
+            compare_path = root_path / "raw-vs-facts.compare.json"
+            comp = json.loads(compare_path.read_text())
+            metric = comp["metrics"][0]
+            metric["mean_a"] = 10.0
+            metric["mean_b"] = sum(noisy_fact_values) / len(noisy_fact_values)
+            metric["delta"] = metric["mean_b"] - metric["mean_a"]
+            metric["winner"] = "b"
+            metric["p"] = 0
+            metric["p_holm_threshold"] = 0.05
+            metric["significant"] = True
+            metric["release_claimable"] = True
+            compare_path.write_text(json.dumps(comp))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+
+            self.assertFalse(report["release_evidence"], report)
+            self.assertFalse(report["claimable_facts_vs_raw"], report)
+            self.assertTrue(any(flag.startswith("raw_vs_facts: useful_per_1k p is 0, retained rows recompute to ") for flag in report["flags"]), report["flags"])
+            self.assertIn("raw_vs_facts: useful_per_1k significant is True, retained rows recompute to False", report["flags"])
+            self.assertIn("raw_vs_facts: useful_per_1k release_claimable is True, retained rows recompute to False", report["flags"])
+
+    def test_facts_eval_audit_rejects_forged_holm_threshold(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            compare_path = root_path / "raw-vs-facts.compare.json"
+            comp = json.loads(compare_path.read_text())
+            comp["metrics"].append({
+                "metric": "tokens",
+                "evidence_basis": "operational",
+                "n": 12,
+                "mean_a": 200,
+                "mean_b": 100,
+                "delta": -100,
+                "t": 0,
+                "p": 0,
+                "p_holm_threshold": 0.05,
+                "cohen_d": 0,
+                "significant": True,
+                "release_claimable": True,
+                "winner": "b",
+            })
+            compare_path.write_text(json.dumps(comp))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+
+            self.assertFalse(report["release_evidence"], report)
+            self.assertFalse(report["claimable_facts_vs_raw"], report)
+            self.assertIn("raw_vs_facts: useful_per_1k p_holm_threshold is 0.05, retained rows recompute to 0.025", report["flags"])
+
     def test_facts_eval_audit_rejects_hidden_missing_paired_ids(self):
         with tempfile.TemporaryDirectory() as root:
             root_path = pathlib.Path(root)

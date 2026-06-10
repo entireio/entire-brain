@@ -124,6 +124,10 @@ Implemented eval surfaces:
   editing manifest text. It also supports an explicit
   `claim_policy: "no_release_claim"` manifest backed by `facts status --json`;
   that passes only when the facts arm is not ready and has zero active facts.
+- The retained facts auditor now recomputes paired means, deltas, winners,
+  two-sided paired t-test p-values, Holm thresholds, significance, and
+  per-metric `release_claimable` from the retained summary rows before accepting
+  a positive facts-vs-raw claim.
 - `mise run facts:evidence` checks committed facts-eval artifacts without
   rewriting them, while `facts:evidence:update` regenerates the audit report
   only after the validator passes. The current retained artifact is no-claim
