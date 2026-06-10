@@ -241,6 +241,62 @@ func TestSemanticAuditFailOnUnsafeEmitsJSONBeforeError(t *testing.T) {
 	}
 }
 
+func TestSemanticAuditFailOnBlindSpotsEmitsJSONBeforeError(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"):                   {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "remote", "get-url", "origin"):                    {stdout: "git@github.com:example/repo.git\n"},
+		fakeCommandKey("git", "rev-parse", "HEAD"):                              {stdout: "headsha\n"},
+		fakeCommandKey("git", "branch", "--show-current"):                       {stdout: "main\n"},
+		fakeCommandKey("git", "status", "--porcelain"):                          {},
+		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {},
+	}}
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, opts.Env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		Sources: &brainSources{Semantic: &semanticSourceManifest{
+			Provider:         "entire-sem",
+			ProviderVersion:  "0.1.0",
+			SchemaVersion:    "1.0",
+			Commit:           "headsha",
+			Branch:           "main",
+			Files:            2,
+			Symbols:          3,
+			Relations:        4,
+			NoEgressVerified: true,
+			PartialFailures: []semanticWarning{{
+				Code:     "E_PARSE_ERROR",
+				Severity: "error",
+				Path:     "src/broken.ts",
+				Effect:   "symbols omitted",
+				Detail:   "tree-sitter syntax error nodes present",
+			}},
+		}},
+	}
+	if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCommand(opts)
+	out, err := execute(t, cmd, "semantic-audit", "--json", "--fail-on", "blind-spots")
+	if err == nil || !errors.Is(err, errSemanticAuditGate) {
+		t.Fatalf("expected semantic audit blind-spot gate error, got %v\n%s", err, out)
+	}
+	var report semanticAuditReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("decode audit JSON after blind-spot gate failure: %v\n%s", err, out)
+	}
+	if len(report.BlindSpots) != 1 || report.BlindSpots[0].Path != "src/broken.ts" || report.BlindSpots[0].Code != "E_PARSE_ERROR" {
+		t.Fatalf("unexpected blind-spot report before gate failure: %+v", report.BlindSpots)
+	}
+}
+
 func TestSemanticAuditFailurePolicies(t *testing.T) {
 	unsafeReport := semanticAuditReport{Freshness: staleReport{Severity: "unsafe"}}
 	degradedReport := semanticAuditReport{Freshness: staleReport{Severity: "degraded"}}
