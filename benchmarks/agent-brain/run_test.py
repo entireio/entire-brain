@@ -45,6 +45,13 @@ assert AUDIT_RADAR_EVIDENCE_SPEC.loader is not None
 sys.modules[AUDIT_RADAR_EVIDENCE_SPEC.name] = audit_radar_evidence
 AUDIT_RADAR_EVIDENCE_SPEC.loader.exec_module(audit_radar_evidence)
 
+AUDIT_WORKSPACE_RADAR_PATH = pathlib.Path(__file__).with_name("audit_workspace_radar_evidence.py")
+AUDIT_WORKSPACE_RADAR_SPEC = importlib.util.spec_from_file_location("agent_brain_audit_workspace_radar", AUDIT_WORKSPACE_RADAR_PATH)
+audit_workspace_radar_evidence = importlib.util.module_from_spec(AUDIT_WORKSPACE_RADAR_SPEC)
+assert AUDIT_WORKSPACE_RADAR_SPEC.loader is not None
+sys.modules[AUDIT_WORKSPACE_RADAR_SPEC.name] = audit_workspace_radar_evidence
+AUDIT_WORKSPACE_RADAR_SPEC.loader.exec_module(audit_workspace_radar_evidence)
+
 AUDIT_RADAR_TOOL_PATH = pathlib.Path(__file__).with_name("audit_radar_tool_evidence.py")
 AUDIT_RADAR_TOOL_SPEC = importlib.util.spec_from_file_location("agent_brain_audit_radar_tool", AUDIT_RADAR_TOOL_PATH)
 audit_radar_tool_evidence = importlib.util.module_from_spec(AUDIT_RADAR_TOOL_SPEC)
@@ -55,11 +62,11 @@ AUDIT_RADAR_TOOL_SPEC.loader.exec_module(audit_radar_tool_evidence)
 
 class RunnerAndConditionTests(unittest.TestCase):
     def test_retained_release_evidence_paths_fit_github_windows_checkout(self):
-        release_dir = RUN_PATH.with_name("evidence") / "release"
+        evidence_dir = RUN_PATH.with_name("evidence")
         github_windows_prefix = "D:/a/entire-brain/entire-brain/"
         max_checkout_path = 248
         too_long = []
-        for path in release_dir.rglob("*"):
+        for path in evidence_dir.rglob("*"):
             if not path.is_file():
                 continue
             rel = path.relative_to(RUN_PATH.parents[2]).as_posix()
@@ -3865,6 +3872,102 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             self.assertEqual(report["totals"]["proof_ready"], 0)
             self.assertEqual(report["totals"]["status_counts"], {"saturated": 1})
             self.assertEqual(audit_radar_evidence.main(["--results", str(results_dir), "--suite-glob", "release-candidate-*", "--out-dir", out, "--fail-when-no-proof"]), 1)
+
+    def _write_workspace_manifest(
+        self,
+        root: pathlib.Path,
+        *,
+        claim_policy: str = "no_release_claim",
+        expected_status_counts: dict[str, int] | None = None,
+    ) -> pathlib.Path:
+        manifest = root / "manifest.json"
+        data = {
+            "schema": 1,
+            "claim_policy": claim_policy,
+            "results_dir": ".",
+            "suite_globs": ["release-candidate-*-workspace-radar-*"],
+        }
+        if expected_status_counts is not None:
+            data["expected_status_counts"] = expected_status_counts
+        manifest.write_text(json.dumps(data))
+        return manifest
+
+    def _write_workspace_early_stop_suite(self, root: pathlib.Path) -> pathlib.Path:
+        suite = root / "release-candidate-entire-cli-workspace-radar-too-easy"
+        suite.mkdir(parents=True)
+        (suite / "summary.json").write_text(json.dumps({"comparisons": []}))
+        (suite / "records.ndjson").write_text(json.dumps({
+            "task_id": "workspace-radar-task",
+            "condition": "no_brain",
+            "runner": {"id": "claude-haiku-xhigh"},
+            "score": {"total": 89},
+            "valid": True,
+            "provenance": {"run_config": {"stop_after_no_brain_score": 85}},
+        }) + "\n")
+        return suite
+
+    def _write_workspace_proof_suite(self, root: pathlib.Path) -> pathlib.Path:
+        suite = root / "release-candidate-entire-cli-workspace-radar-proof"
+        suite.mkdir(parents=True)
+        (suite / "summary.json").write_text(json.dumps({
+            "comparisons": [{
+                "task_id": "workspace-radar-task",
+                "runner": "codex-mini-low",
+                "condition": "mcp_workspace_radar",
+                "delivery_scope": "mcp_workspace_radar_location_only",
+                "n_condition": 4,
+                "n_baseline": 4,
+                "pass_rate_condition": 1.0,
+                "pass_rate_baseline": 0.25,
+                "verdict": "brain_positive",
+                "proof_ready": True,
+                "stability": {"tag": "brain_positive_stable"},
+            }]
+        }))
+        return suite
+
+    def test_workspace_radar_evidence_accepts_retained_no_claim_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as out:
+            root = pathlib.Path(tmp)
+            self._write_workspace_early_stop_suite(root)
+            manifest = self._write_workspace_manifest(root, expected_status_counts={"no-brain-too-easy": 1})
+
+            report = audit_workspace_radar_evidence.audit_manifest(manifest)
+
+            self.assertEqual(report["status"], "pass", report)
+            self.assertFalse(report["claimable_workspace_radar"])
+            self.assertEqual(report["summary"]["status_counts"], {"no-brain-too-easy": 1})
+            self.assertEqual(
+                audit_workspace_radar_evidence.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]),
+                0,
+            )
+            self.assertTrue((pathlib.Path(out) / "workspace-radar-audit-report.json").exists())
+
+    def test_workspace_radar_no_claim_rejects_proof_ready_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as out:
+            root = pathlib.Path(tmp)
+            self._write_workspace_proof_suite(root)
+            manifest = self._write_workspace_manifest(root)
+
+            report = audit_workspace_radar_evidence.audit_manifest(manifest)
+
+            self.assertEqual(report["status"], "fail", report)
+            self.assertIn("no_release_claim", " | ".join(report["flags"]))
+            self.assertEqual(
+                audit_workspace_radar_evidence.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]),
+                1,
+            )
+
+    def test_workspace_radar_evidence_allows_future_proof_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._write_workspace_proof_suite(root)
+            manifest = self._write_workspace_manifest(root, claim_policy="proof_required")
+
+            report = audit_workspace_radar_evidence.audit_manifest(manifest)
+
+            self.assertEqual(report["status"], "pass", report)
+            self.assertTrue(report["claimable_workspace_radar"])
 
     def _write_radar_tool_manifest(self, root: pathlib.Path, tests: list[str], source_head: str = "a" * 40) -> pathlib.Path:
         artifact = root / "go-test-radar.jsonl"

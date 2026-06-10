@@ -157,6 +157,54 @@ python3 benchmarks/agent-brain/audit_radar_evidence.py \
 cat "$tmp/radar-candidate-report.md"
 '''
 
+[tasks."workspace-radar:evidence"]
+description = "Check retained workspace-Radar agent evidence status without rewriting tracked reports"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/workspace-radar/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "workspace Radar evidence manifest is missing: $manifest" >&2
+  echo "retain a workspace-Radar no-claim or proof-required manifest before citing workspace Radar status" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_workspace_radar_evidence.py \
+  --manifest "$manifest" \
+  --out-dir "$tmp" \
+  --fail-on-flags
+for report in workspace-radar-audit-report.json workspace-radar-audit-report.md; do
+  committed="benchmarks/agent-brain/evidence/workspace-radar/$report"
+  generated="$tmp/$report"
+  if ! cmp -s "$committed" "$generated"; then
+    echo "retained workspace Radar evidence report is stale: $report" >&2
+    diff -u "$committed" "$generated" >&2 || true
+    echo "run: mise run workspace-radar:evidence:update" >&2
+    exit 1
+  fi
+done
+'''
+
+[tasks."workspace-radar:evidence:update"]
+description = "Regenerate retained workspace-Radar audit reports after the evidence gate passes"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/workspace-radar/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "workspace Radar evidence manifest is missing: $manifest" >&2
+  echo "retain a workspace-Radar no-claim or proof-required manifest before citing workspace Radar status" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_workspace_radar_evidence.py \
+  --manifest "$manifest" \
+  --out-dir "$tmp" \
+  --fail-on-flags
+mkdir -p benchmarks/agent-brain/evidence/workspace-radar
+cp "$tmp"/workspace-radar-audit-report.json "$tmp"/workspace-radar-audit-report.md benchmarks/agent-brain/evidence/workspace-radar/
+'''
+
 [tasks."facts:evidence"]
 description = "Check retained facts-vs-raw eval evidence without rewriting tracked reports"
 run = '''
@@ -294,7 +342,7 @@ run = '''
 set +e
 failures=0
 failed=""
-for task in check release:evidence radar:evidence radar:agent-evidence distill:evidence facts:evidence semantic:evidence; do
+for task in check release:evidence radar:evidence radar:agent-evidence workspace-radar:evidence distill:evidence facts:evidence semantic:evidence; do
   echo "==> mise run $task"
   mise run "$task"
   rc=$?

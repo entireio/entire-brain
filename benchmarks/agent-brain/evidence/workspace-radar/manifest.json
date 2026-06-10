@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "claim_policy": "no_release_claim",
+  "results_dir": ".",
+  "suite_globs": [
+    "release-candidate-*-workspace-radar-*"
+  ],
+  "expected_status_counts": {
+    "no-brain-too-easy": 1
+  },
+  "quarantine_note": "Workspace Radar has deterministic MCP/tool-contract coverage, but no retained agent-lift proof yet. This manifest intentionally retains the latest failed workspace candidate as no-claim evidence so release materials cannot imply workspace Radar proof by aggregation."
+}
