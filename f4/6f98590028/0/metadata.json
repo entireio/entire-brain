@@ -1,0 +1,74 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "f46f98590028",
+  "session_id": "019eacc8-4c81-7c91-b807-b3c82bbba45d",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T17:34:23.974868Z",
+  "branch": "codex/release-readiness-hardening",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "benchmarks/agent-brain/audit_facts_eval.py",
+    "benchmarks/agent-brain/run_test.py",
+    "docs/release_readiness_audit.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "713a13d3cfab",
+  "token_usage": {
+    "input_tokens": 23652617,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 766927616,
+    "output_tokens": 2010066,
+    "api_call_count": 5502
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T17:34:22.649949Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 15,
+    "total_committed": 0,
+    "total_lines_changed": 15,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 798,
+      "user_lines_removed": 20,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.json": 60,
+        ".claude/settings.local.json": 32,
+        ".codex/config.toml": 6,
+        ".codex/hooks.json": 40,
+        ".cursor/mcp.json": 14,
+        ".gemini/settings.json": 93,
+        ".mcp.json": 14,
+        ".regente/adapters.md": 25,
+        ".regente/claims.json": 38,
+        ".regente/config.json": 4,
+        ".regente/events.jsonl": 25,
+        ".regente/github-app.json": 7,
+        ".regente/messages.jsonl": 3,
+        ".regente/metrics/latest.json": 30,
+        ".regente/roles.json": 19,
+        ".regente/status.json": 154,
+        ".regente/team.json": 8,
+        "benchmarks/agent-brain/audit_codex.py": 9,
+        "benchmarks/agent-brain/audit_facts_eval.py": 121,
+        "benchmarks/agent-brain/run_test.py": 95,
+        "docs/release_readiness_audit.md": 1
+      },
+      "user_removed_per_file": {
+        "benchmarks/agent-brain/audit_codex.py": 5,
+        "benchmarks/agent-brain/audit_facts_eval.py": 4,
+        "benchmarks/agent-brain/run_test.py": 10,
+        "docs/release_readiness_audit.md": 1
+      }
+    }
+  ]
+}

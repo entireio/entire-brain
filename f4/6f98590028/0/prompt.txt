@@ -1,0 +1,25 @@
+btwconnect to regente
+
+---
+
+Continue the facts-vs-raw release-readiness audit in /Users/suhaan/Documents/Coding/entire-brain. Do not push or open PRs. Do not modify files unless you find a small, clearly scoped missing test or doc correction; if editing, list files changed. Focus: retained facts evidence currently appears honest-negative/no-claim with no active facts. Audit what exact artifact or test gap remains to make facts-vs-raw proof production-ready, and identify the smallest next patch. Avoid overlapping Radar/MCP files if possible.
+
+---
+
+Continue the distill release-readiness audit in /Users/suhaan/Documents/Coding/entire-brain. Do not push or open PRs. Do not modify files unless you find a small, clearly scoped missing test or doc correction; if editing, list files changed. Focus: current retained distill proof is local command-agent scheduling speedup, not the entire.io/frontend 24h large-repo proof. Audit exact remaining evidence gap and smallest next patch or fixture to make the claim production-ready.
+
+---
+
+Continue the Radar/MCP release-readiness audit in /Users/suhaan/Documents/Coding/entire-brain. Do not push or open PRs. Do not modify files unless you find a small, clearly scoped missing test/doc correction; if editing, list files changed. Focus: why radar:screen has zero proof-ready despite strong candidates, and whether existing retained records can be honestly audited into proof-ready without rerunning. Return exact commands and candidate names.
+
+---
+
+connect to regente
+
+---
+
+connect to regente
+
+---
+
+FINISH UP RN this is ur last task u can pasue goal for now and then make concrete PR ith no sisue; so finsihwe re u at rn
