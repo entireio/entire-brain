@@ -292,3 +292,14 @@ The local `release-local-semantic-proof-20260609T2305Z` pilot is also not releas
 proof because its audited comparison was not proof-ready and the suite had hard
 leak-audit flags. `release-local-*` names are intentionally outside the citable
 release gate.
+
+The local `release-candidate-entire-brain-history-20260610T000415Z` panel was a
+stricter release-lane attempt from the committed
+`release-entire-brain-history` panel. It ran 2 history tasks, 1 pinned Codex
+runner, `no_brain` vs `full_brain`, and 4 repetitions per side. The brain arm
+improved mean scores on both tasks (`78.25 -> 91.25` and `90.5 -> 93.5`), but
+the summary still marked both comparisons `proof_ready=false` / `brain_negative`
+because validation was not clean and overhead exceeded the release gate. The
+independent audit rejected the suite with 0 proof-ready comparisons and 11 hard
+`E:agent_leak_audit_failed` flags, so it was not copied into
+`benchmarks/agent-brain/evidence/release` and is not release evidence.
