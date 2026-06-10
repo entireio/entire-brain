@@ -558,11 +558,12 @@ record-only suites without `summary.json` are reported as `incomplete-suite`,
 instead of disappearing from the screen report.
 `mise run radar:evidence` now checks the retained deterministic MCP/Radar
 tool-contract artifact instead of promoting those saturated agent panels. It
-requires the retained `go test -json` artifact hash to match and all 48 required
+requires the retained `go test -json` artifact hash to match and all 49 required
 MCP/Radar tests to pass, including branch-aware QMD-style retrieval tools and
 Radar-specific MCP behavior, invariant-scoped related locations that distinguish
 same-identifier assignment deletions with different RHS values, workspace
-multi-locus deletion redaction, and safe success-path tool-result logging.
+multi-locus deletion redaction, and safe success-path tool-result logging for
+Radar and review tools.
 
 `mise run release:evidence` regenerates the retained replay-lab Codex audit in a
 temp directory before comparing it with committed
