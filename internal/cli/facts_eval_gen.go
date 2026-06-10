@@ -353,8 +353,24 @@ func shortSessionID(id string) string {
 // firstUserRequest recovers the first substantive user request from a session
 // transcript, skipping injected wrappers (environment context, reminders, tool
 // results). Returns "" when none is found. Supports the Codex (response_item /
-// event_msg) and Claude (user) transcript shapes.
+// event_msg), Claude (user), pi (message) and opencode (document-form)
+// transcript shapes.
 func firstUserRequest(transcript string) string {
+	// Document-form transcripts (e.g. opencode) have no parseable lines; use
+	// the shared document parser the distill path uses.
+	if messages, ok := parseDocumentConversation(transcript); ok {
+		for _, message := range messages {
+			if message.Role != "user" {
+				continue
+			}
+			text := strings.TrimSpace(message.Text)
+			if text == "" || isWrapperRequest(text) {
+				continue
+			}
+			return truncateString(strings.Join(strings.Fields(text), " "), 280)
+		}
+		return ""
+	}
 	for _, line := range strings.Split(transcript, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "{") {
@@ -386,6 +402,12 @@ func transcriptUserText(obj map[string]any) string {
 		}
 	case "user":
 		if msg := jsonMap(obj["message"]); msg != nil {
+			return transcriptContentText(msg["content"])
+		}
+	case "message":
+		// pi wraps every turn as {"type":"message","message":{role,content}};
+		// keep user turns (same blind spot distillConversationText covers).
+		if msg := jsonMap(obj["message"]); jsonString(msg["role"]) == "user" {
 			return transcriptContentText(msg["content"])
 		}
 	}

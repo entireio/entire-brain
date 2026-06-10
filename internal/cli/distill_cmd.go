@@ -819,8 +819,9 @@ func parseDocumentConversation(content string) ([]documentMessage, bool) {
 // distillConversationText returns the human/assistant text worth distilling from
 // one transcript record, or "" for tool calls, tool outputs, reasoning, and
 // session/meta records. It mirrors the record routing in
-// extractHistoryJSONFragments (codex `event_msg`/`response_item` and Claude
-// `assistant`/`user` shapes) but deliberately keeps user turns — where standing
+// extractHistoryJSONFragments (codex `event_msg`/`response_item`, Claude
+// `assistant`/`user`, and pi `message` shapes — keep the two switches in sync
+// when adding a format) but deliberately keeps user turns — where standing
 // rules and preferences live — and discards everything tool-related.
 func distillConversationText(obj map[string]any) string {
 	switch jsonString(obj["type"]) {
