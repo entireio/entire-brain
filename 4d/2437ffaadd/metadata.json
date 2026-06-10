@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "4d2437ffaadd",
+  "strategy": "manual-commit",
+  "branch": "feat/closed-negative-kind",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/embed_rank.go",
+    "internal/cli/facts.go",
+    "internal/cli/facts_locus.go",
+    "internal/cli/facts_locus_test.go",
+    "internal/cli/facts_query.go",
+    "templates/entire-brain-distill.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/4d/2437ffaadd/0/metadata.json",
+      "transcript": "/4d/2437ffaadd/0/full.jsonl",
+      "content_hash": "/4d/2437ffaadd/0/content_hash.txt",
+      "prompt": "/4d/2437ffaadd/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 701,
+    "cache_creation_tokens": 32291,
+    "cache_read_tokens": 10556201,
+    "output_tokens": 18218,
+    "api_call_count": 28
+  }
+}
