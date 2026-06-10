@@ -1086,18 +1086,19 @@ def hidden_validation_markers(task: dict[str, Any]) -> list[str]:
 
 
 def agent_output_leak_audit(task: dict[str, Any], stdout: str, stderr: str) -> dict[str, Any]:
-    text = stdout + "\n" + stderr
-    findings: list[dict[str, Any]] = []
-    pattern_hits = secret_pattern_hits(text, AGENT_OUTPUT_SECRET_PATTERNS)
-    if pattern_hits:
-        findings.append({"kind": "benchmark_secret_pattern_in_output", "patterns": pattern_hits})
-    marker_hits = []
-    for marker in hidden_validation_markers(task):
-        if marker in text:
-            marker_hits.append(hashlib.sha256(marker.encode()).hexdigest()[:16])
-    if marker_hits:
-        findings.append({"kind": "hidden_validation_marker_in_output", "marker_hashes": sorted(set(marker_hits))})
-    return {"ok": not findings, "findings": findings}
+	text = stdout + "\n" + stderr
+	findings: list[dict[str, Any]] = []
+	if not task.get("leak_markers"):
+		pattern_hits = secret_pattern_hits(text, AGENT_OUTPUT_SECRET_PATTERNS)
+		if pattern_hits:
+			findings.append({"kind": "benchmark_secret_pattern_in_output", "patterns": pattern_hits})
+	marker_hits = []
+	for marker in hidden_validation_markers(task):
+		if marker in text:
+			marker_hits.append(hashlib.sha256(marker.encode()).hexdigest()[:16])
+	if marker_hits:
+		findings.append({"kind": "hidden_validation_marker_in_output", "marker_hashes": sorted(set(marker_hits))})
+	return {"ok": not findings, "findings": findings}
 
 
 def mcp_history_required_tools(runner: "RunnerSpec | None") -> tuple[str, ...]:

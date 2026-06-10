@@ -598,6 +598,19 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertFalse(leaked["ok"])
         self.assertEqual(leaked["findings"][0]["kind"], "hidden_validation_marker_in_output")
 
+    def test_agent_output_leak_audit_explicit_canaries_ignore_generic_task_paths(self):
+        task = {
+            "hide_validation_from_agent": True,
+            "leak_markers": ["release-canary-hidden-validation-12345"],
+            "validation": ["go test ./internal/cli -run 'TestHiddenValidation'"],
+        }
+        audit = run.agent_output_leak_audit(
+            task,
+            "diagnostic path benchmarks/agent-brain/tasks/task.json appeared in a tool transcript",
+            "",
+        )
+        self.assertTrue(audit["ok"])
+
     def test_agent_output_leak_audit_allows_result_paths_and_setup_text(self):
         task = {
             "hide_validation_from_agent": True,
