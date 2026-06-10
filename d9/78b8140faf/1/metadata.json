@@ -1,7 +1,9 @@
 {
   "cli_version": "0.7.3",
   "checkpoint_id": "d978b8140faf",
+  "session_id": "c975c9b8-80ec-4090-85c4-93a68e3e83f1",
   "strategy": "manual-commit",
+  "created_at": "2026-06-10T18:35:48.065097Z",
   "branch": "codex/release-readiness-hardening",
   "checkpoints_count": 0,
   "files_touched": [
@@ -38,25 +40,28 @@
     "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/summary.json",
     "docs/release_readiness_audit.md"
   ],
-  "sessions": [
-    {
-      "metadata": "/d9/78b8140faf/0/metadata.json",
-      "transcript": "/d9/78b8140faf/0/full.jsonl",
-      "content_hash": "/d9/78b8140faf/0/content_hash.txt",
-      "prompt": ""
-    },
-    {
-      "metadata": "/d9/78b8140faf/1/metadata.json",
-      "transcript": "/d9/78b8140faf/1/full.jsonl",
-      "content_hash": "/d9/78b8140faf/1/content_hash.txt",
-      "prompt": ""
-    }
-  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5[1m]",
+  "turn_id": "55e03bc3e68d",
+  "checkpoint_transcript_start": 182,
+  "transcript_lines_at_start": 182,
   "token_usage": {
     "input_tokens": 0,
     "cache_creation_tokens": 0,
     "cache_read_tokens": 0,
     "output_tokens": 0,
     "api_call_count": 0
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T18:35:48.043755Z",
+    "agent_lines": 4255,
+    "agent_removed": 4255,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 4255,
+    "total_lines_changed": 8510,
+    "agent_percentage": 100,
+    "metric_version": 2
   }
 }
