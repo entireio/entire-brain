@@ -1369,6 +1369,7 @@ class CodexAuditScriptTests(unittest.TestCase):
         run_id: str,
         tool: str | None = None,
         *,
+        tool_args: dict | None = None,
         response: bool = True,
         result_status: str | None = "ok",
     ) -> None:
@@ -1384,6 +1385,8 @@ class CodexAuditScriptTests(unittest.TestCase):
         ]
         if tool:
             lines.append(f"tool: {tool}")
+        if tool and tool_args is not None:
+            lines.append("tool_args: " + json.dumps(tool_args, sort_keys=True, separators=(",", ":")))
         if response:
             lines.append("response: tools/call")
         if tool and response and result_status:
@@ -1943,7 +1946,7 @@ class CodexAuditScriptTests(unittest.TestCase):
                 records.append(self._mcp_release_record(suite, repetition=i, run_id=f"radar-{i}"))
             suite_dir = self._write_records(results_dir, suite, records)
             for i in range(1, 5):
-                self._write_mcp_server_log(suite_dir, f"radar-{i}", "brain_regressions")
+                self._write_mcp_server_log(suite_dir, f"radar-{i}", "brain_regressions", tool_args={"location_only": True})
             (suite_dir / "summary.json").write_text(json.dumps({
                 "comparisons": [{
                     "task_id": "t",
@@ -2060,7 +2063,7 @@ class CodexAuditScriptTests(unittest.TestCase):
                 radar_records.append(self._mcp_release_record(radar_suite, repetition=i, run_id=f"radar-{i}"))
             radar_dir = self._write_records(results_dir, radar_suite, radar_records)
             for i in range(1, 5):
-                self._write_mcp_server_log(radar_dir, f"radar-{i}", "brain_regressions")
+                self._write_mcp_server_log(radar_dir, f"radar-{i}", "brain_regressions", tool_args={"location_only": True})
             (radar_dir / "summary.json").write_text(json.dumps({
                 "comparisons": [{
                     "task_id": "t",
@@ -2206,7 +2209,7 @@ class CodexAuditScriptTests(unittest.TestCase):
                 records.append(mcp)
             suite_dir = self._write_records(results_dir, suite, records)
             for i in range(1, 5):
-                self._write_mcp_server_log(suite_dir, f"radar-{i}", "brain_regressions")
+                self._write_mcp_server_log(suite_dir, f"radar-{i}", "brain_regressions", tool_args={"location_only": True})
             (suite_dir / "summary.json").write_text(json.dumps({
                 "comparisons": [{
                     "task_id": "t",
@@ -2236,7 +2239,7 @@ class CodexAuditScriptTests(unittest.TestCase):
             suite = "release-candidate-radar-no-response"
             record = self._mcp_release_record(suite, repetition=1, run_id="radar-1")
             suite_dir = self._write_records(results_dir, suite, [record])
-            self._write_mcp_server_log(suite_dir, "radar-1", "brain_regressions", response=False)
+            self._write_mcp_server_log(suite_dir, "radar-1", "brain_regressions", tool_args={"location_only": True}, response=False)
 
             report = audit_codex.build_audit_report(results_dir, [suite])
             audited = report["suites"][suite]["records"][0]
@@ -2252,7 +2255,7 @@ class CodexAuditScriptTests(unittest.TestCase):
             suite = "release-candidate-radar-no-tool-result"
             record = self._mcp_release_record(suite, repetition=1, run_id="radar-1")
             suite_dir = self._write_records(results_dir, suite, [record])
-            self._write_mcp_server_log(suite_dir, "radar-1", "brain_regressions", result_status="")
+            self._write_mcp_server_log(suite_dir, "radar-1", "brain_regressions", tool_args={"location_only": True}, result_status="")
 
             report = audit_codex.build_audit_report(results_dir, [suite])
             audited = report["suites"][suite]["records"][0]
@@ -2273,12 +2276,13 @@ class CodexAuditScriptTests(unittest.TestCase):
             missing = self._mcp_release_record(missing_suite, repetition=1, run_id="radar-1")
             missing["provenance"]["task"]["path"] = str(task_path)
             missing_dir = self._write_records(results_dir, missing_suite, [missing])
-            self._write_mcp_server_log(missing_dir, "radar-1", "brain_regressions")
+            self._write_mcp_server_log(missing_dir, "radar-1", "brain_regressions", tool_args={"location_only": True})
             missing_report = audit_codex.build_audit_report(results_dir, [missing_suite])
             missing_record = missing_report["suites"][missing_suite]["records"][0]
             self.assertFalse(missing_record["pass"], missing_record)
             self.assertFalse(missing_record["mcp_verified"], missing_record)
             self.assertIn("B:mcp_radar_missing_include_deletions", missing_record["flags"])
+            self.assertIn("B:mcp_radar_server_missing_include_deletions", missing_record["flags"])
 
             ok_suite = "release-candidate-radar-deletions-ok"
             ok = self._mcp_release_record(ok_suite, repetition=1, run_id="radar-1")
@@ -2286,11 +2290,12 @@ class CodexAuditScriptTests(unittest.TestCase):
             ok["agent_info"]["activity"]["mcp_tool_details"][0]["arguments"]["include_deletions"] = True
             ok["mcp_condition_audit"]["mcp_tool_details"][0]["arguments"]["include_deletions"] = True
             ok_dir = self._write_records(results_dir, ok_suite, [ok])
-            self._write_mcp_server_log(ok_dir, "radar-1", "brain_regressions")
+            self._write_mcp_server_log(ok_dir, "radar-1", "brain_regressions", tool_args={"include_deletions": True, "location_only": True})
             ok_report = audit_codex.build_audit_report(results_dir, [ok_suite])
             ok_record = ok_report["suites"][ok_suite]["records"][0]
             self.assertTrue(ok_record["pass"], ok_record)
             self.assertTrue(ok_record["mcp_verified"], ok_record)
+            self.assertEqual(ok_record["server_tool_args"], [{"tool": "brain_regressions", "arguments": {"include_deletions": True, "location_only": True}}])
 
     def test_audit_codex_counts_workspace_radar_delivery_scope(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
@@ -2309,7 +2314,7 @@ class CodexAuditScriptTests(unittest.TestCase):
                 records.append(self._workspace_mcp_release_record(suite, repetition=i, run_id=f"workspace-radar-{i}"))
             suite_dir = self._write_records(results_dir, suite, records)
             for i in range(1, 5):
-                self._write_mcp_server_log(suite_dir, f"workspace-radar-{i}", "brain_workspace_regressions")
+                self._write_mcp_server_log(suite_dir, f"workspace-radar-{i}", "brain_workspace_regressions", tool_args={"location_only": True})
             (suite_dir / "summary.json").write_text(json.dumps({
                 "comparisons": [{
                     "task_id": "t",
@@ -2339,12 +2344,13 @@ class CodexAuditScriptTests(unittest.TestCase):
             good_suite = "named-log-suite"
             good = self._mcp_release_record(good_suite, repetition=1, run_id="radar-1")
             good_dir = self._write_records(results_dir, good_suite, [good])
-            self._write_mcp_server_log(good_dir, "radar-1", "brain_regressions")
+            self._write_mcp_server_log(good_dir, "radar-1", "brain_regressions", tool_args={"location_only": True})
             good_report = audit_codex.build_audit_report(results_dir, ["named-log-*"])
             good_record = good_report["suites"][good_suite]["records"][0]
             self.assertTrue(good_record["pass"], good_record)
             self.assertTrue(good_record["mcp_verified"], good_record)
             self.assertEqual(good_record["server_tool_names"], ["brain_regressions"])
+            self.assertEqual(good_record["server_tool_args"], [{"tool": "brain_regressions", "arguments": {"location_only": True}}])
 
             bad_suite = "mismatched-log-suite"
             bad = self._mcp_release_record(bad_suite, repetition=1, run_id="radar-1")
