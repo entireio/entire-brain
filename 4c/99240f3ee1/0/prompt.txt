@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bb5sb1401</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/fc0c6aa0-0ea8-4d17-85f7-7893119994e3/tasks/bb5sb1401.output</output-file>
+<status>completed</status>
+<summary>Background command "Run all three arms on the v4 task set" completed (exit code 0)</summary>
+</task-notification>
