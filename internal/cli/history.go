@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -424,6 +425,18 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 	defer f.Close()
 	rel, _ := filepath.Rel(outputDir, path)
 	rel = filepath.ToSlash(rel)
+	// Document-form transcripts (e.g. opencode: one pretty-printed JSON
+	// document) have no individually parseable lines, so the line scanner
+	// below indexes nothing from them. Probe the first line the same way
+	// distill does and route them through the shared document parser instead.
+	if records, isDocument, err := scanDocumentHistoryFile(f, rel); err != nil {
+		return nil, err
+	} else if isDocument {
+		return records, nil
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil { // rewind the probe read
+		return nil, err
+	}
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), historyMaxLineBytes)
 	var records []historyRecord
@@ -476,6 +489,49 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 	return records, scanner.Err()
 }
 
+// scanDocumentHistoryFile detects and indexes a document-form transcript (see
+// parseDocumentConversation). isDocument=false means the file is line-oriented
+// (or not a transcript at all) and the caller's line scanner should handle it
+// after rewinding past the probe read. Mirrors the JSONL indexing policy:
+// assistant text is narrative, user turns are skipped; record lines anchor to
+// the document line each message object opens on.
+func scanDocumentHistoryFile(f *os.File, rel string) (records []historyRecord, isDocument bool, err error) {
+	probe := make([]byte, 4096)
+	n, readErr := f.Read(probe)
+	if readErr != nil && readErr != io.EOF {
+		return nil, false, readErr
+	}
+	firstLine, _, _ := strings.Cut(strings.TrimSpace(string(probe[:n])), "\n")
+	if !strings.HasPrefix(firstLine, "{") || json.Valid([]byte(firstLine)) {
+		return nil, false, nil // JSONL or non-JSON: the line scanner's job
+	}
+	data, err := io.ReadAll(io.MultiReader(bytes.NewReader(probe[:n]), f))
+	if err != nil {
+		return nil, false, err
+	}
+	messages, ok := parseDocumentConversation(string(data))
+	if !ok {
+		return nil, false, nil
+	}
+	for _, message := range messages {
+		if message.Role != "assistant" || message.Text == "" {
+			continue
+		}
+		fragment := historyFragment{Text: message.Text, Source: "assistant_message"}
+		for _, kind := range classifyHistoryFragment(fragment) {
+			records = append(records, historyRecord{
+				ID:      historyRecordID(rel, message.Line, kind, fragment.Text),
+				Kind:    kind,
+				Path:    rel,
+				Line:    message.Line,
+				Summary: truncateString(cleanHistorySummary(fragment.Text), 700),
+				Terms:   historyTerms(fragment.Text),
+			})
+		}
+	}
+	return records, true, nil
+}
+
 func extractHistoryJSONFragments(obj map[string]any) []historyFragment {
 	recordType := jsonString(obj["type"])
 	payload := jsonMap(obj["payload"])
@@ -492,6 +548,22 @@ func extractHistoryJSONFragments(obj map[string]any) []historyFragment {
 		return extractClaudeMessageFragments(obj, "assistant")
 	case "user":
 		return extractClaudeToolResultFragments(obj)
+	case "message":
+		// pi wraps every turn as {"type":"message","message":{role,content}}.
+		// Without this case the default branch's jsonString(obj["message"]) is
+		// "" for a map, so pi sessions indexed to nothing (the same blind spot
+		// distillConversationText covers for distill). Mirror the Claude
+		// routing: assistant text is narrative, toolResult content can carry
+		// code facts, user turns are skipped (as for codex user_message).
+		message := jsonMap(obj["message"])
+		switch jsonString(message["role"]) {
+		case "assistant":
+			return extractContentFragments(message["content"], "assistant_message")
+		case "toolResult":
+			return extractToolResultFacts(distillTextBlocks(message["content"]))
+		default:
+			return nil
+		}
 	case "progress":
 		return nil
 	default:
