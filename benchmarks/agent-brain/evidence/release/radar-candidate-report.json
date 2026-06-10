@@ -18,6 +18,7 @@
           "baseline_pass_rate": 0.25,
           "baseline_records": 4,
           "codex_audit_backed": true,
+          "condition_completed_named_tool_records": 4,
           "condition_named_tool_records": 4,
           "condition_pass_rate": 1.0,
           "condition_records": 4,

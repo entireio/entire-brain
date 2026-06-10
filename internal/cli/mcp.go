@@ -81,16 +81,6 @@ func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) erro
 			return err
 		}
 		mcpDebugLog(debugLog, "message: "+msg.Method)
-		if msg.Method == "tools/call" {
-			if call := mcpDebugToolCall(msg.Params); call.name != "" {
-				mcpDebugLog(debugLog, "tool: "+call.name)
-				if len(call.safeBoolArgs) > 0 {
-					if data, err := json.Marshal(call.safeBoolArgs); err == nil {
-						mcpDebugLog(debugLog, "tool_args: "+string(data))
-					}
-				}
-			}
-		}
 		if msg.ID == nil {
 			continue
 		}
@@ -100,6 +90,7 @@ func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) erro
 			return err
 		}
 		mcpDebugLog(debugLog, "response: "+msg.Method)
+		mcpDebugLogToolResult(debugLog, msg, response)
 	}
 }
 
@@ -149,6 +140,27 @@ func mcpDebugToolCall(raw json.RawMessage) mcpDebugToolCallInfo {
 
 func mcpDebugToolName(raw json.RawMessage) string {
 	return mcpDebugToolCall(raw).name
+}
+
+func mcpDebugLogToolResult(path string, msg mcpMessage, response mcpMessage) {
+	if msg.Method != "tools/call" {
+		return
+	}
+	call := mcpDebugToolCall(msg.Params)
+	if call.name == "" {
+		return
+	}
+	mcpDebugLog(path, "tool: "+call.name)
+	if len(call.safeBoolArgs) > 0 {
+		if data, err := json.Marshal(call.safeBoolArgs); err == nil {
+			mcpDebugLog(path, "tool_args: "+string(data))
+		}
+	}
+	status := "ok"
+	if response.Error != nil {
+		status = "error"
+	}
+	mcpDebugLog(path, "tool_result: "+call.name+" "+status)
 }
 
 func handleMCPMessage(ctx context.Context, opts Options, msg mcpMessage) mcpMessage {

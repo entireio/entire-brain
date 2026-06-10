@@ -84,12 +84,31 @@ def server_log_toolcalls(run_dir: pathlib.Path) -> int | None:
     return len(re.findall(r"^message: tools/call$", text, flags=re.MULTILINE))
 
 
+def server_log_toolcall_responses(run_dir: pathlib.Path) -> int | None:
+    log = run_dir / "mcp-server.log"
+    if not log.exists():
+        return None
+    text = log.read_text(errors="ignore")
+    return len(re.findall(r"^response: tools/call$", text, flags=re.MULTILINE))
+
+
 def server_log_tool_names(run_dir: pathlib.Path) -> list[str] | None:
     log = run_dir / "mcp-server.log"
     if not log.exists():
         return None
     text = log.read_text(errors="ignore")
     return re.findall(rf"^tool: ({MCP_BRAIN_TOOL_RE})$", text, flags=re.MULTILINE)
+
+
+def server_log_tool_results(run_dir: pathlib.Path) -> list[dict[str, str]] | None:
+    log = run_dir / "mcp-server.log"
+    if not log.exists():
+        return None
+    text = log.read_text(errors="ignore")
+    return [
+        {"tool": tool, "status": status}
+        for tool, status in re.findall(rf"^tool_result: ({MCP_BRAIN_TOOL_RE}) (ok|error)$", text, flags=re.MULTILINE)
+    ]
 
 
 def bare_mcp_tool_name(name: Any) -> str:
@@ -343,7 +362,9 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     used_brain = bool(activity.get("used_brain"))
     search_calls = int(activity.get("search_calls") or 0)
     slog = server_log_toolcalls(run_dir)
+    slog_responses = server_log_toolcall_responses(run_dir)
     slog_names = server_log_tool_names(run_dir)
+    slog_results = server_log_tool_results(run_dir)
     is_win = bool(rec.get("ok")) and (get(rec, "validation", "ok") is True)
     # Compact-delivery models are instructed to call brain_brief ONCE and NOT
     # brain_search (the compact brief already carries the top history hits).
@@ -409,6 +430,8 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
             flags.append("B:mcp_server_log_missing")
         if slog is not None and mcp_calls > 0 and slog == 0:
             flags.append("B:mcp_calls_not_in_server_log(faked_stdout)")
+        if slog is not None and slog > 0 and int(slog_responses or 0) < slog:
+            flags.append(f"B:mcp_server_log_missing_tool_responses({slog_responses or 0}/{slog})")
         if slog_names:
             missing_from_log = sorted(real_bare_names - logged_bare_names)
             if missing_from_log:
@@ -417,6 +440,11 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
             missing_required = sorted(required_logged_tools - logged_bare_names)
             if missing_required:
                 flags.append("B:mcp_required_tool_names_not_in_server_log(" + ",".join(missing_required) + ")")
+            if slog_results:
+                successful_tools = {result["tool"] for result in slog_results if result.get("status") == "ok"}
+                missing_success = sorted(required_logged_tools - successful_tools)
+                if missing_success:
+                    flags.append("B:mcp_required_tool_results_not_ok(" + ",".join(missing_success) + ")")
         if slog == 0 and mcp_calls <= 0:
             pass  # consistent honest failure
 
@@ -462,11 +490,31 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     notes.extend(provenance_notes)
     logged_bare_names = set(slog_names or [])
     mcp_named_tool_verified = bool(required_logged_tools) and required_logged_tools.issubset(logged_bare_names)
+    successful_result_names = {
+        result["tool"] for result in (slog_results or []) if result.get("status") == "ok"
+    }
+    if slog_results:
+        mcp_named_tool_result_verified = (
+            bool(required_logged_tools)
+            and required_logged_tools.issubset(successful_result_names)
+        )
+    else:
+        mcp_named_tool_result_verified = False
+    mcp_named_tool_completed = (
+        mcp_named_tool_result_verified
+        or (
+            mcp_named_tool_verified
+            and int(slog or 0) > 0
+            and int(slog_responses or 0) >= int(slog or 0)
+            and rec.get("ok") is True
+            and get(rec, "validation", "ok") is True
+        )
+    )
 
     # Classify a record as an integrity-verified MCP proof datapoint
     mcp_verified = (
         cond in MCP_CONDITIONS and mcp_calls > 0 and bool(get(rec, "mcp_condition_audit", "ok"))
-        and pc == 0 and slog is not None and slog > 0
+        and pc == 0 and slog is not None and slog > 0 and int(slog_responses or 0) >= int(slog or 0)
         and not any(flag.startswith("B:") for flag in flags)
         and not (slog_names and not {bare_mcp_tool_name(n) for n in activity.get("mcp_tool_names") or []}.issubset(set(slog_names)))
     )
@@ -486,10 +534,13 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         "score": score.get("total"),
         "mcp_calls": mcp_calls,
         "server_toolcalls": slog,
+        "server_toolcall_responses": slog_responses,
         "search_calls": search_calls,
         "parent_count": pc,
         "mcp_verified": mcp_verified,
         "mcp_named_tool_verified": mcp_named_tool_verified,
+        "mcp_named_tool_completed": mcp_named_tool_completed,
+        "mcp_named_tool_result_verified": mcp_named_tool_result_verified,
         "required_server_tool_names": sorted(required_logged_tools),
         "provenance": provenance_summary,
         "flags": flags,
@@ -498,6 +549,8 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     }
     if slog_names is not None:
         audit["server_tool_names"] = slog_names
+    if slog_results is not None:
+        audit["server_tool_results"] = slog_results
     return audit
 
 
@@ -573,11 +626,15 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
     baseline_matches = [r for r in rec_audits if matches(r, "no_brain", require_success=False)]
     condition_mcp_verified_matches = [r for r in condition_matches if r.get("mcp_verified")]
     condition_mcp_named_tool_verified_matches = [r for r in condition_matches if r.get("mcp_named_tool_verified")]
+    condition_mcp_named_tool_completed_matches = [r for r in condition_matches if r.get("mcp_named_tool_completed")]
     condition_run_ids = {r.get("run_id") for r in condition_matches if r.get("run_id")}
     baseline_run_ids = {r.get("run_id") for r in baseline_matches if r.get("run_id")}
     condition_mcp_verified_run_ids = {r.get("run_id") for r in condition_mcp_verified_matches if r.get("run_id")}
     condition_mcp_named_tool_verified_run_ids = {
         r.get("run_id") for r in condition_mcp_named_tool_verified_matches if r.get("run_id")
+    }
+    condition_mcp_named_tool_completed_run_ids = {
+        r.get("run_id") for r in condition_mcp_named_tool_completed_matches if r.get("run_id")
     }
     condition_repetitions = {r.get("repetition") for r in condition_matches if r.get("repetition") is not None}
     baseline_repetitions = {r.get("repetition") for r in baseline_matches if r.get("repetition") is not None}
@@ -586,6 +643,9 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
     }
     condition_mcp_named_tool_verified_repetitions = {
         r.get("repetition") for r in condition_mcp_named_tool_verified_matches if r.get("repetition") is not None
+    }
+    condition_mcp_named_tool_completed_repetitions = {
+        r.get("repetition") for r in condition_mcp_named_tool_completed_matches if r.get("repetition") is not None
     }
     condition_records_ok = (
         len(condition_run_ids) >= required_condition
@@ -610,23 +670,31 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
         and len(condition_mcp_named_tool_verified_repetitions) >= required_condition
         and required_condition > 0
     )
+    condition_mcp_named_tool_completed_ok = (
+        len(condition_mcp_named_tool_completed_run_ids) >= required_condition
+        and len(condition_mcp_named_tool_completed_repetitions) >= required_condition
+        and required_condition > 0
+    )
     condition_mcp_named_tool_required_ok = (
         not condition_requires_mcp_named_tool_verified
-        or condition_mcp_named_tool_verified_ok
+        or (condition_mcp_named_tool_verified_ok and condition_mcp_named_tool_completed_ok)
     )
     return {
         "condition_records": len(condition_matches),
         "baseline_records": len(baseline_matches),
         "condition_mcp_verified_records": len(condition_mcp_verified_matches),
         "condition_mcp_named_tool_verified_records": len(condition_mcp_named_tool_verified_matches),
+        "condition_mcp_named_tool_completed_records": len(condition_mcp_named_tool_completed_matches),
         "condition_unique_run_ids": len(condition_run_ids),
         "baseline_unique_run_ids": len(baseline_run_ids),
         "condition_mcp_verified_unique_run_ids": len(condition_mcp_verified_run_ids),
         "condition_mcp_named_tool_verified_unique_run_ids": len(condition_mcp_named_tool_verified_run_ids),
+        "condition_mcp_named_tool_completed_unique_run_ids": len(condition_mcp_named_tool_completed_run_ids),
         "condition_unique_repetitions": len(condition_repetitions),
         "baseline_unique_repetitions": len(baseline_repetitions),
         "condition_mcp_verified_unique_repetitions": len(condition_mcp_verified_repetitions),
         "condition_mcp_named_tool_verified_unique_repetitions": len(condition_mcp_named_tool_verified_repetitions),
+        "condition_mcp_named_tool_completed_unique_repetitions": len(condition_mcp_named_tool_completed_repetitions),
         "required_condition": required_condition,
         "required_baseline": required_baseline,
         "required_delivery_scope": delivery_scope,
@@ -636,6 +704,7 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
         "baseline_records_ok": baseline_records_ok,
         "condition_mcp_verified_ok": condition_mcp_verified_ok,
         "condition_mcp_named_tool_verified_ok": condition_mcp_named_tool_verified_ok,
+        "condition_mcp_named_tool_completed_ok": condition_mcp_named_tool_completed_ok,
         "condition_mcp_named_tool_required_ok": condition_mcp_named_tool_required_ok,
         "ok": (
             condition_records_ok
@@ -733,6 +802,7 @@ def build_audit_report(
     note_kinds: dict[str, int] = defaultdict(int)
     mcp_verified_count = 0
     mcp_named_tool_verified_count = 0
+    mcp_named_tool_completed_count = 0
     provenance_ok_count = 0
     proof_ready_count = 0
     proof_ready_by_scope: dict[str, int] = defaultdict(int)
@@ -772,6 +842,11 @@ def build_audit_report(
                     and not backing.get("condition_mcp_named_tool_verified_ok")
                 ):
                     comp["flags"].append("G:proof_ready_without_named_mcp_tool_condition_records")
+                if (
+                    backing.get("condition_requires_mcp_named_tool_verified")
+                    and not backing.get("condition_mcp_named_tool_completed_ok")
+                ):
+                    comp["flags"].append("G:proof_ready_without_completed_named_mcp_tool_condition_records")
                 comp["flags"].append("G:proof_ready_without_matching_records")
                 comp["pass"] = False
         suite_flags = [a for a in rec_audits if not a["pass"]]
@@ -783,11 +858,12 @@ def build_audit_report(
                 suite_proofs_by_scope[scope] += 1
                 proof_ready_by_scope[scope] += 1
                 backing = comp.get("record_backing") if isinstance(comp.get("record_backing"), dict) else {}
-                if backing.get("condition_mcp_named_tool_verified_ok"):
+                if backing.get("condition_mcp_named_tool_verified_ok") and backing.get("condition_mcp_named_tool_completed_ok"):
                     named_tool_proof_ready_by_scope[scope] += 1
         total_records += len(rec_audits)
         mcp_verified_count += sum(1 for a in rec_audits if a["mcp_verified"])
         mcp_named_tool_verified_count += sum(1 for a in rec_audits if a["mcp_named_tool_verified"])
+        mcp_named_tool_completed_count += sum(1 for a in rec_audits if a["mcp_named_tool_completed"])
         provenance_ok_count += sum(1 for a in rec_audits if get(a, "provenance", "ok"))
         proof_ready_count += suite_proofs
         for a in rec_audits:
@@ -807,6 +883,7 @@ def build_audit_report(
             "n_flagged_records": len(suite_flags),
             "n_mcp_verified": sum(1 for a in rec_audits if a["mcp_verified"]),
             "n_mcp_named_tool_verified": sum(1 for a in rec_audits if a["mcp_named_tool_verified"]),
+            "n_mcp_named_tool_completed": sum(1 for a in rec_audits if a["mcp_named_tool_completed"]),
             "n_provenance_ok": sum(1 for a in rec_audits if get(a, "provenance", "ok")),
             "n_proof_ready_comparisons": suite_proofs,
             "n_proof_ready_comparisons_by_scope": dict(sorted(suite_proofs_by_scope.items())),
@@ -817,6 +894,7 @@ def build_audit_report(
         "hard_flags": total_flags,
         "mcp_verified_records": mcp_verified_count,
         "mcp_named_tool_verified_records": mcp_named_tool_verified_count,
+        "mcp_named_tool_completed_records": mcp_named_tool_completed_count,
         "provenance_ok_records": provenance_ok_count,
         "proof_ready_comparisons": proof_ready_count,
         "proof_ready_comparisons_by_scope": dict(sorted(proof_ready_by_scope.items())),
@@ -896,6 +974,7 @@ def render_audit_markdown(report: dict[str, Any]) -> str:
     total_flags = report["totals"]["hard_flags"]
     mcp_verified_count = report["totals"]["mcp_verified_records"]
     mcp_named_tool_verified_count = report["totals"].get("mcp_named_tool_verified_records", 0)
+    mcp_named_tool_completed_count = report["totals"].get("mcp_named_tool_completed_records", 0)
     provenance_ok_count = report["totals"].get("provenance_ok_records", 0)
     proof_ready_count = report["totals"].get("proof_ready_comparisons", 0)
     proof_ready_by_scope = report["totals"].get("proof_ready_comparisons_by_scope") or {}
@@ -906,6 +985,7 @@ def render_audit_markdown(report: dict[str, Any]) -> str:
           f"- **Hard integrity flags: {total_flags}**",
           f"- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **{mcp_verified_count}**",
           f"- Named-tool MCP datapoints (server log names the required brain tool): **{mcp_named_tool_verified_count}**",
+          f"- Completed named-tool MCP datapoints (tool response/result backed): **{mcp_named_tool_completed_count}**",
           f"- Records with required provenance (source base/head + harness/config/tool hashes): **{provenance_ok_count}/{total_records}**",
           f"- Stable proof-ready comparisons: **{proof_ready_count}**",
           ""]

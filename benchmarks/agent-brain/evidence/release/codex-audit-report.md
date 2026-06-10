@@ -5,6 +5,7 @@
 - **Hard integrity flags: 0**
 - Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **8**
 - Named-tool MCP datapoints (server log names the required brain tool): **4**
+- Completed named-tool MCP datapoints (tool response/result backed): **4**
 - Records with required provenance (source base/head + harness/config/tool hashes): **24/24**
 - Stable proof-ready comparisons: **3**
 

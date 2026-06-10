@@ -98,6 +98,7 @@ def codex_audit_radar_backing(report: dict[str, Any] | None) -> dict[tuple[str, 
                 and backing.get("ok")
                 and backing.get("condition_mcp_verified_ok") is True
                 and backing.get("condition_mcp_named_tool_verified_ok") is True
+                and backing.get("condition_mcp_named_tool_completed_ok") is True
             ):
                 continue
             key = (
@@ -121,6 +122,10 @@ def codex_audit_radar_backing(report: dict[str, Any] | None) -> dict[tuple[str, 
                 record for record in condition_records
                 if record.get("mcp_named_tool_verified") is True
             ]
+            condition_completed_named_tool_records = [
+                record for record in condition_records
+                if record.get("mcp_named_tool_completed") is True
+            ]
             baseline_records = [
                 record for record in records
                 if isinstance(record, dict)
@@ -133,6 +138,7 @@ def codex_audit_radar_backing(report: dict[str, Any] | None) -> dict[tuple[str, 
                 "codex_audit_backed": True,
                 "condition_records": len(condition_records),
                 "condition_named_tool_records": len(condition_named_tool_records),
+                "condition_completed_named_tool_records": len(condition_completed_named_tool_records),
                 "baseline_records": len(baseline_records),
                 "condition_pass_rate": validation_pass_rate(condition_records),
                 "baseline_pass_rate": validation_pass_rate(baseline_records),
@@ -336,7 +342,7 @@ def render_markdown(report: dict[str, Any]) -> str:
     if totals["status_counts"]:
         status_text = ", ".join(f"`{k}`={v}" for k, v in totals["status_counts"].items())
         lines.append(f"- Status counts: {status_text}")
-    lines.extend(["", "| Suite | Task | Runner | Scope | Pass no-brain -> Radar | Status | Recommendation |", "|---|---|---|---|---:|---|---|"])
+    lines.extend(["", "| Suite | Task | Runner | Scope | Pass no-brain -> Radar | MCP named/completed | Status | Recommendation |", "|---|---|---|---|---:|---:|---|---|"])
     for comp in report["comparisons"]:
         gate = comp["radar_gate"]
         base = gate.get("pass_rate_baseline")
@@ -344,6 +350,10 @@ def render_markdown(report: dict[str, Any]) -> str:
         pass_text = "n/a"
         if isinstance(base, (int, float)) and isinstance(cond, (int, float)):
             pass_text = f"{base:.2f} -> {cond:.2f}"
+        backing = gate.get("codex_audit_record_backing") if isinstance(gate.get("codex_audit_record_backing"), dict) else {}
+        mcp_backing = "n/a"
+        if backing:
+            mcp_backing = f"{int(backing.get('condition_named_tool_records') or 0)}/{int(backing.get('condition_completed_named_tool_records') or 0)}"
         lines.append(
             "| "
             + " | ".join(
@@ -353,6 +363,7 @@ def render_markdown(report: dict[str, Any]) -> str:
                     str(comp.get("runner") or ""),
                     str(comp.get("delivery_scope") or ""),
                     pass_text,
+                    mcp_backing,
                     str(gate["status"]),
                     str(gate["recommendation"]),
                 ]
@@ -360,7 +371,7 @@ def render_markdown(report: dict[str, Any]) -> str:
             + " |"
         )
     if not report["comparisons"]:
-        lines.append("| _none_ | | | | | | No Radar summaries matched the selected suites. |")
+        lines.append("| _none_ | | | | | | | No Radar summaries matched the selected suites. |")
     return "\n".join(lines) + "\n"
 
 

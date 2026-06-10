@@ -17,10 +17,13 @@
           "score": 26,
           "mcp_calls": 0,
           "server_toolcalls": null,
+          "server_toolcall_responses": null,
           "search_calls": 6,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -55,10 +58,13 @@
           "score": 80,
           "mcp_calls": 0,
           "server_toolcalls": null,
+          "server_toolcall_responses": null,
           "search_calls": 6,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -93,10 +99,13 @@
           "score": 79,
           "mcp_calls": 0,
           "server_toolcalls": null,
+          "server_toolcall_responses": null,
           "search_calls": 8,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -131,10 +140,13 @@
           "score": 79,
           "mcp_calls": 0,
           "server_toolcalls": null,
+          "server_toolcall_responses": null,
           "search_calls": 10,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -169,10 +181,13 @@
           "score": 91,
           "mcp_calls": 0,
           "server_toolcalls": null,
+          "server_toolcall_responses": null,
           "search_calls": 24,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -207,10 +222,13 @@
           "score": 92,
           "mcp_calls": 0,
           "server_toolcalls": null,
+          "server_toolcall_responses": null,
           "search_calls": 12,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -245,10 +263,13 @@
           "score": 92,
           "mcp_calls": 0,
           "server_toolcalls": null,
+          "server_toolcall_responses": null,
           "search_calls": 14,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -283,10 +304,13 @@
           "score": 91,
           "mcp_calls": 0,
           "server_toolcalls": null,
+          "server_toolcall_responses": null,
           "search_calls": 24,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -331,14 +355,17 @@
             "baseline_records": 4,
             "condition_mcp_verified_records": 0,
             "condition_mcp_named_tool_verified_records": 0,
+            "condition_mcp_named_tool_completed_records": 0,
             "condition_unique_run_ids": 4,
             "baseline_unique_run_ids": 4,
             "condition_mcp_verified_unique_run_ids": 0,
             "condition_mcp_named_tool_verified_unique_run_ids": 0,
+            "condition_mcp_named_tool_completed_unique_run_ids": 0,
             "condition_unique_repetitions": 4,
             "baseline_unique_repetitions": 4,
             "condition_mcp_verified_unique_repetitions": 0,
             "condition_mcp_named_tool_verified_unique_repetitions": 0,
+            "condition_mcp_named_tool_completed_unique_repetitions": 0,
             "required_condition": 4,
             "required_baseline": 4,
             "required_delivery_scope": null,
@@ -348,6 +375,7 @@
             "baseline_records_ok": true,
             "condition_mcp_verified_ok": true,
             "condition_mcp_named_tool_verified_ok": false,
+            "condition_mcp_named_tool_completed_ok": false,
             "condition_mcp_named_tool_required_ok": true,
             "ok": true
           }
@@ -357,6 +385,7 @@
       "n_flagged_records": 0,
       "n_mcp_verified": 0,
       "n_mcp_named_tool_verified": 0,
+      "n_mcp_named_tool_completed": 0,
       "n_provenance_ok": 8,
       "n_proof_ready_comparisons": 1,
       "n_proof_ready_comparisons_by_scope": {
@@ -380,10 +409,13 @@
           "score": 72,
           "mcp_calls": 0,
           "server_toolcalls": null,
+          "server_toolcall_responses": null,
           "search_calls": 12,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -418,10 +450,13 @@
           "score": 68,
           "mcp_calls": 0,
           "server_toolcalls": null,
+          "server_toolcall_responses": null,
           "search_calls": 22,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -456,10 +491,13 @@
           "score": 72,
           "mcp_calls": 0,
           "server_toolcalls": null,
+          "server_toolcall_responses": null,
           "search_calls": 8,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -494,10 +532,13 @@
           "score": 93,
           "mcp_calls": 0,
           "server_toolcalls": null,
+          "server_toolcall_responses": null,
           "search_calls": 18,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -532,10 +573,13 @@
           "score": 91,
           "mcp_calls": 4,
           "server_toolcalls": 2,
+          "server_toolcall_responses": 2,
           "search_calls": 16,
           "parent_count": 0,
           "mcp_verified": true,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -551,6 +595,7 @@
           "notes": [],
           "pass": true,
           "server_tool_names": [],
+          "server_tool_results": [],
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -571,10 +616,13 @@
           "score": 93,
           "mcp_calls": 4,
           "server_toolcalls": 2,
+          "server_toolcall_responses": 2,
           "search_calls": 14,
           "parent_count": 0,
           "mcp_verified": true,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -590,6 +638,7 @@
           "notes": [],
           "pass": true,
           "server_tool_names": [],
+          "server_tool_results": [],
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -610,10 +659,13 @@
           "score": 91,
           "mcp_calls": 4,
           "server_toolcalls": 2,
+          "server_toolcall_responses": 2,
           "search_calls": 18,
           "parent_count": 0,
           "mcp_verified": true,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -629,6 +681,7 @@
           "notes": [],
           "pass": true,
           "server_tool_names": [],
+          "server_tool_results": [],
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -649,10 +702,13 @@
           "score": 93,
           "mcp_calls": 4,
           "server_toolcalls": 2,
+          "server_toolcall_responses": 2,
           "search_calls": 16,
           "parent_count": 0,
           "mcp_verified": true,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -668,6 +724,7 @@
           "notes": [],
           "pass": true,
           "server_tool_names": [],
+          "server_tool_results": [],
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -698,14 +755,17 @@
             "baseline_records": 4,
             "condition_mcp_verified_records": 4,
             "condition_mcp_named_tool_verified_records": 0,
+            "condition_mcp_named_tool_completed_records": 0,
             "condition_unique_run_ids": 4,
             "baseline_unique_run_ids": 4,
             "condition_mcp_verified_unique_run_ids": 4,
             "condition_mcp_named_tool_verified_unique_run_ids": 0,
+            "condition_mcp_named_tool_completed_unique_run_ids": 0,
             "condition_unique_repetitions": 4,
             "baseline_unique_repetitions": 4,
             "condition_mcp_verified_unique_repetitions": 4,
             "condition_mcp_named_tool_verified_unique_repetitions": 0,
+            "condition_mcp_named_tool_completed_unique_repetitions": 0,
             "required_condition": 4,
             "required_baseline": 4,
             "required_delivery_scope": "mcp",
@@ -715,6 +775,7 @@
             "baseline_records_ok": true,
             "condition_mcp_verified_ok": true,
             "condition_mcp_named_tool_verified_ok": false,
+            "condition_mcp_named_tool_completed_ok": false,
             "condition_mcp_named_tool_required_ok": true,
             "ok": true
           }
@@ -724,6 +785,7 @@
       "n_flagged_records": 0,
       "n_mcp_verified": 4,
       "n_mcp_named_tool_verified": 0,
+      "n_mcp_named_tool_completed": 0,
       "n_provenance_ok": 8,
       "n_proof_ready_comparisons": 1,
       "n_proof_ready_comparisons_by_scope": {
@@ -749,10 +811,13 @@
           "score": 96,
           "mcp_calls": 0,
           "server_toolcalls": null,
+          "server_toolcall_responses": null,
           "search_calls": 8,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -789,10 +854,13 @@
           "score": 70,
           "mcp_calls": 0,
           "server_toolcalls": null,
+          "server_toolcall_responses": null,
           "search_calls": 10,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -829,10 +897,13 @@
           "score": 73,
           "mcp_calls": 0,
           "server_toolcalls": null,
+          "server_toolcall_responses": null,
           "search_calls": 6,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -869,10 +940,13 @@
           "score": 70,
           "mcp_calls": 0,
           "server_toolcalls": null,
+          "server_toolcall_responses": null,
           "search_calls": 10,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [],
           "provenance": {
             "present": true,
@@ -909,10 +983,13 @@
           "score": 90,
           "mcp_calls": 2,
           "server_toolcalls": 1,
+          "server_toolcall_responses": 1,
           "search_calls": 10,
           "parent_count": 0,
           "mcp_verified": true,
           "mcp_named_tool_verified": true,
+          "mcp_named_tool_completed": true,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [
             "brain_regressions"
           ],
@@ -935,6 +1012,7 @@
           "server_tool_names": [
             "brain_regressions"
           ],
+          "server_tool_results": [],
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -957,10 +1035,13 @@
           "score": 93,
           "mcp_calls": 2,
           "server_toolcalls": 1,
+          "server_toolcall_responses": 1,
           "search_calls": 6,
           "parent_count": 0,
           "mcp_verified": true,
           "mcp_named_tool_verified": true,
+          "mcp_named_tool_completed": true,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [
             "brain_regressions"
           ],
@@ -983,6 +1064,7 @@
           "server_tool_names": [
             "brain_regressions"
           ],
+          "server_tool_results": [],
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -1005,10 +1087,13 @@
           "score": 93,
           "mcp_calls": 2,
           "server_toolcalls": 1,
+          "server_toolcall_responses": 1,
           "search_calls": 6,
           "parent_count": 0,
           "mcp_verified": true,
           "mcp_named_tool_verified": true,
+          "mcp_named_tool_completed": true,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [
             "brain_regressions"
           ],
@@ -1031,6 +1116,7 @@
           "server_tool_names": [
             "brain_regressions"
           ],
+          "server_tool_results": [],
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -1053,10 +1139,13 @@
           "score": 93,
           "mcp_calls": 2,
           "server_toolcalls": 1,
+          "server_toolcall_responses": 1,
           "search_calls": 2,
           "parent_count": 0,
           "mcp_verified": true,
           "mcp_named_tool_verified": true,
+          "mcp_named_tool_completed": true,
+          "mcp_named_tool_result_verified": false,
           "required_server_tool_names": [
             "brain_regressions"
           ],
@@ -1079,6 +1168,7 @@
           "server_tool_names": [
             "brain_regressions"
           ],
+          "server_tool_results": [],
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -1112,14 +1202,17 @@
             "baseline_records": 4,
             "condition_mcp_verified_records": 4,
             "condition_mcp_named_tool_verified_records": 4,
+            "condition_mcp_named_tool_completed_records": 4,
             "condition_unique_run_ids": 4,
             "baseline_unique_run_ids": 4,
             "condition_mcp_verified_unique_run_ids": 4,
             "condition_mcp_named_tool_verified_unique_run_ids": 4,
+            "condition_mcp_named_tool_completed_unique_run_ids": 4,
             "condition_unique_repetitions": 4,
             "baseline_unique_repetitions": 4,
             "condition_mcp_verified_unique_repetitions": 4,
             "condition_mcp_named_tool_verified_unique_repetitions": 4,
+            "condition_mcp_named_tool_completed_unique_repetitions": 4,
             "required_condition": 4,
             "required_baseline": 4,
             "required_delivery_scope": "mcp_radar_location_only",
@@ -1129,6 +1222,7 @@
             "baseline_records_ok": true,
             "condition_mcp_verified_ok": true,
             "condition_mcp_named_tool_verified_ok": true,
+            "condition_mcp_named_tool_completed_ok": true,
             "condition_mcp_named_tool_required_ok": true,
             "ok": true
           }
@@ -1138,6 +1232,7 @@
       "n_flagged_records": 0,
       "n_mcp_verified": 4,
       "n_mcp_named_tool_verified": 4,
+      "n_mcp_named_tool_completed": 4,
       "n_provenance_ok": 8,
       "n_proof_ready_comparisons": 1,
       "n_proof_ready_comparisons_by_scope": {
@@ -1151,6 +1246,7 @@
     "hard_flags": 0,
     "mcp_verified_records": 8,
     "mcp_named_tool_verified_records": 4,
+    "mcp_named_tool_completed_records": 4,
     "provenance_ok_records": 24,
     "proof_ready_comparisons": 3,
     "proof_ready_comparisons_by_scope": {

@@ -170,7 +170,7 @@ func TestMCPRejectsInvalidStringAndUnknownArguments(t *testing.T) {
 func TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "mcp.log")
 	t.Setenv("ENTIRE_BRAIN_MCP_DEBUG_LOG", logPath)
-	input := frameMCP(`{"jsonrpc":"2.0","method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"secret-query-value","location_only":true,"include_deletions":true}}}`)
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"secret-query-value","limit":"bad","location_only":true,"include_deletions":true}}}`)
 	var out bytes.Buffer
 	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
 		t.Fatalf("mcp: %v", err)
@@ -180,10 +180,31 @@ func TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly(t *testing.T) {
 		t.Fatalf("read debug log: %v", err)
 	}
 	text := string(data)
-	for _, want := range []string{"message: tools/call", "tool: brain_regressions", `tool_args: {"include_deletions":true,"location_only":true}`} {
+	for _, want := range []string{"message: tools/call", "response: tools/call", "tool: brain_regressions", `tool_args: {"include_deletions":true,"location_only":true}`, "tool_result: brain_regressions error"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("debug log missing %q: %s", want, text)
 		}
+	}
+	if strings.Contains(text, "secret-query-value") {
+		t.Fatalf("debug log leaked tool arguments: %s", text)
+	}
+}
+
+func TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "mcp.log")
+	t.Setenv("ENTIRE_BRAIN_MCP_DEBUG_LOG", logPath)
+	input := frameMCP(`{"jsonrpc":"2.0","method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"secret-query-value","location_only":true}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read debug log: %v", err)
+	}
+	text := string(data)
+	if strings.Contains(text, "tool: brain_regressions") || strings.Contains(text, "tool_result: brain_regressions") {
+		t.Fatalf("notification was logged as an executed tool: %s", text)
 	}
 	if strings.Contains(text, "secret-query-value") {
 		t.Fatalf("debug log leaked tool arguments: %s", text)
