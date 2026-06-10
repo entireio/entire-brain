@@ -26,7 +26,7 @@
   "validation_files": [
     {
       "path": "cmd/entire/cli/strategy/no_trailer_realign_hidden_test.go",
-      "fixture": "entireio-cli/manual_attribution_no_trailer_realign_test.go"
+      "fixture": "entireio-cli/manual_attribution_no_trailer_realign_test.go.fixture"
     }
   ],
   "validation": [

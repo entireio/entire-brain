@@ -44,6 +44,13 @@ assert AUDIT_RADAR_EVIDENCE_SPEC.loader is not None
 sys.modules[AUDIT_RADAR_EVIDENCE_SPEC.name] = audit_radar_evidence
 AUDIT_RADAR_EVIDENCE_SPEC.loader.exec_module(audit_radar_evidence)
 
+AUDIT_RADAR_TOOL_PATH = pathlib.Path(__file__).with_name("audit_radar_tool_evidence.py")
+AUDIT_RADAR_TOOL_SPEC = importlib.util.spec_from_file_location("agent_brain_audit_radar_tool", AUDIT_RADAR_TOOL_PATH)
+audit_radar_tool_evidence = importlib.util.module_from_spec(AUDIT_RADAR_TOOL_SPEC)
+assert AUDIT_RADAR_TOOL_SPEC.loader is not None
+sys.modules[AUDIT_RADAR_TOOL_SPEC.name] = audit_radar_tool_evidence
+AUDIT_RADAR_TOOL_SPEC.loader.exec_module(audit_radar_tool_evidence)
+
 
 class RunnerAndConditionTests(unittest.TestCase):
     def test_parse_runner_spec_accepts_codex_claude_and_rejects_gemini(self):
@@ -151,7 +158,7 @@ class RunnerAndConditionTests(unittest.TestCase):
                 "validation_files": [
                     {
                         "path": "hidden/fixture_test.go",
-                        "fixture": "entireio-cli/manual_attribution_no_trailer_realign_test.go",
+                        "fixture": "entireio-cli/manual_attribution_no_trailer_realign_test.go.fixture",
                     }
                 ],
                 "validation": [
@@ -3113,6 +3120,52 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             self.assertEqual(report["totals"]["proof_ready"], 0)
             self.assertEqual(report["totals"]["status_counts"], {"saturated": 1})
             self.assertEqual(audit_radar_evidence.main(["--results", str(results_dir), "--suite-glob", "release-candidate-*", "--out-dir", out, "--fail-when-no-proof"]), 1)
+
+    def _write_radar_tool_manifest(self, root: pathlib.Path, tests: list[str]) -> pathlib.Path:
+        artifact = root / "go-test-radar.jsonl"
+        events = []
+        for test in tests:
+            events.append({"Action": "run", "Package": "github.com/ashtom/entire-brain/internal/cli", "Test": test})
+            events.append({"Action": "pass", "Package": "github.com/ashtom/entire-brain/internal/cli", "Test": test})
+        events.append({"Action": "pass", "Package": "github.com/ashtom/entire-brain/internal/cli"})
+        artifact.write_text("\n".join(json.dumps(event, sort_keys=True) for event in events) + "\n")
+        manifest = root / "manifest.json"
+        manifest.write_text(json.dumps({
+            "schema": 1,
+            "claim_scope": "radar_tool_contract",
+            "source_head": "a" * 40,
+            "required_tests": audit_radar_tool_evidence.REQUIRED_TESTS,
+            "limitations": ["Tool-contract proof only; this is not agent lift proof."],
+            "artifacts": [{
+                "path": artifact.name,
+                "sha256": audit_radar_tool_evidence.sha256_file(artifact),
+            }],
+        }))
+        return manifest
+
+    def test_radar_tool_evidence_accepts_required_go_tests(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as out:
+            root = pathlib.Path(tmp)
+            manifest = self._write_radar_tool_manifest(root, audit_radar_tool_evidence.REQUIRED_TESTS)
+            report = audit_radar_tool_evidence.audit_manifest(manifest)
+            self.assertTrue(report["ok"], report)
+            self.assertEqual(
+                audit_radar_tool_evidence.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]),
+                0,
+            )
+            self.assertTrue((pathlib.Path(out) / "radar-tool-audit-report.json").exists())
+
+    def test_radar_tool_evidence_rejects_missing_required_go_test(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as out:
+            root = pathlib.Path(tmp)
+            manifest = self._write_radar_tool_manifest(root, audit_radar_tool_evidence.REQUIRED_TESTS[:-1])
+            report = audit_radar_tool_evidence.audit_manifest(manifest)
+            self.assertFalse(report["ok"])
+            self.assertIn("missing required passed tests", " | ".join(report["errors"]))
+            self.assertEqual(
+                audit_radar_tool_evidence.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]),
+                1,
+            )
 
 
 if __name__ == "__main__":

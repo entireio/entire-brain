@@ -1,0 +1,54 @@
+{
+  "artifact": {
+    "extra_passed_tests": [],
+    "package_passed": true,
+    "passed_required_tests": [
+      "TestInspectRegressionsCommandJSONAndLocationOnly",
+      "TestMCPBrainRegressionsTool",
+      "TestMCPBrainWorkspaceReviewTool",
+      "TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools",
+      "TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly",
+      "TestMCPRejectsInvalidBooleanArguments",
+      "TestMCPRejectsInvalidStringAndUnknownArguments",
+      "TestMCPToolsListIncludesRegressions",
+      "TestRegressionDedupeRankPrefersBoostedCallDeletion",
+      "TestRegressionDeletionIsOptIn",
+      "TestRegressionDeletionRanksCallLocusWithHistoryFileHint",
+      "TestRegressionDeletionReportsEachMissingAnchoredCallSite",
+      "TestRegressionDetectsChangedOperand",
+      "TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain",
+      "TestWorkspaceRegressionsSkipsUnsafeRepo"
+    ],
+    "path": "go-test-internal-cli-radar.jsonl",
+    "sha256": "sha256:1a242732f3c5c46657c4e590cb41d767b50dccfeef4eb2ec7453a96fe1c835a5"
+  },
+  "claim_scope": "radar_tool_contract",
+  "errors": [],
+  "limitations": [
+    "Tool-contract proof only; this is not agent lift proof.",
+    "Recent release-candidate Radar agent panels were saturated or noisy on no-brain baselines and are not retained as pass-rate proof.",
+    "This artifact proves local deterministic Go/MCP behavior for the current internal/cli test fixtures."
+  ],
+  "manifest": "benchmarks/agent-brain/evidence/radar-tool/manifest.json",
+  "ok": true,
+  "required_tests": [
+    "TestRegressionDetectsChangedOperand",
+    "TestInspectRegressionsCommandJSONAndLocationOnly",
+    "TestRegressionDeletionIsOptIn",
+    "TestRegressionDeletionRanksCallLocusWithHistoryFileHint",
+    "TestRegressionDeletionReportsEachMissingAnchoredCallSite",
+    "TestRegressionDedupeRankPrefersBoostedCallDeletion",
+    "TestMCPToolsListIncludesRegressions",
+    "TestMCPRejectsInvalidBooleanArguments",
+    "TestMCPRejectsInvalidStringAndUnknownArguments",
+    "TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly",
+    "TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools",
+    "TestMCPBrainRegressionsTool",
+    "TestMCPBrainWorkspaceReviewTool",
+    "TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain",
+    "TestWorkspaceRegressionsSkipsUnsafeRepo"
+  ],
+  "schema": 1,
+  "source_head": "7310fd7d3cb6fcc01c0404e2405335b9af4136fc",
+  "warnings": []
+}

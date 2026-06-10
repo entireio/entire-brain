@@ -1,0 +1,46 @@
+{
+  "artifacts": [
+    {
+      "kind": "go_test_json",
+      "path": "go-test-internal-cli-radar.jsonl",
+      "sha256": "sha256:1a242732f3c5c46657c4e590cb41d767b50dccfeef4eb2ec7453a96fe1c835a5"
+    }
+  ],
+  "claim_scope": "radar_tool_contract",
+  "claims": [
+    "Regression Radar detects changed code assertions from retained local brain history.",
+    "Location-only Radar returns file/line context while redacting expected/current fix values.",
+    "Deletion-shaped Radar is opt-in and can rank missing anchored call sites.",
+    "MCP exposes brain_regressions and workspace Radar tools with strict argument validation.",
+    "MCP debug logs include safe tool name/result metadata without leaking query text.",
+    "Workspace Radar aggregates repo-local findings and skips unsafe repos."
+  ],
+  "commands": [
+    "go test -json ./internal/cli -run '^(TestRegressionDetectsChangedOperand|TestInspectRegressionsCommandJSONAndLocationOnly|TestRegressionDeletionIsOptIn|TestRegressionDeletionRanksCallLocusWithHistoryFileHint|TestRegressionDeletionReportsEachMissingAnchoredCallSite|TestRegressionDedupeRankPrefersBoostedCallDeletion|TestMCPToolsListIncludesRegressions|TestMCPRejectsInvalidBooleanArguments|TestMCPRejectsInvalidStringAndUnknownArguments|TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly|TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools|TestMCPBrainRegressionsTool|TestMCPBrainWorkspaceReviewTool|TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain|TestWorkspaceRegressionsSkipsUnsafeRepo)$' > benchmarks/agent-brain/evidence/radar-tool/go-test-internal-cli-radar.jsonl"
+  ],
+  "generated_at": "2026-06-10T14:30:00Z",
+  "limitations": [
+    "Tool-contract proof only; this is not agent lift proof.",
+    "Recent release-candidate Radar agent panels were saturated or noisy on no-brain baselines and are not retained as pass-rate proof.",
+    "This artifact proves local deterministic Go/MCP behavior for the current internal/cli test fixtures."
+  ],
+  "required_tests": [
+    "TestRegressionDetectsChangedOperand",
+    "TestInspectRegressionsCommandJSONAndLocationOnly",
+    "TestRegressionDeletionIsOptIn",
+    "TestRegressionDeletionRanksCallLocusWithHistoryFileHint",
+    "TestRegressionDeletionReportsEachMissingAnchoredCallSite",
+    "TestRegressionDedupeRankPrefersBoostedCallDeletion",
+    "TestMCPToolsListIncludesRegressions",
+    "TestMCPRejectsInvalidBooleanArguments",
+    "TestMCPRejectsInvalidStringAndUnknownArguments",
+    "TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly",
+    "TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools",
+    "TestMCPBrainRegressionsTool",
+    "TestMCPBrainWorkspaceReviewTool",
+    "TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain",
+    "TestWorkspaceRegressionsSkipsUnsafeRepo"
+  ],
+  "schema": 1,
+  "source_head": "7310fd7d3cb6fcc01c0404e2405335b9af4136fc"
+}
