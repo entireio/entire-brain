@@ -19,7 +19,17 @@ its exact config; the source doc has the repro commands.
 
 | 2026-06-10 | three repos, **history layer**: entire-brain (13 tasks), podcasts (16), entire-cli (**882**, 267k records) | substring vs BM25 vs Model2Vec-fused vs **EmbeddingGemma-fused** (canonical GGUF via node-llama-cpp server) | useful/1k — podcasts: 1.128 / 1.554 / 1.731 / **2.108**; entire-brain: 0.315 / 0.927 / 1.219 / 0.978; entire-cli: 0.283 / 1.016 / 1.033 / **1.158**. At n=882: M2V-fused is **parity** with BM25 (+1.7% — the small-repo +31% was noise, consistent with the original M2V-noise probe), while **Gemma-fused is +14% (329W/248L/305T, sign test p=0.00075)** — the same +14% the facts layer measured, now decision-grade on history | **History semantic arm: validated with EmbeddingGemma, not with Model2Vec.** Production wiring (fused history arm when a Gemma embedder is configured; history vectors in vec0) is now justified but not yet built. BM25 default reconfirmed at scale (3.6× substring) | this repo (`history-eval` fused arm); per-repo JSONs regenerable |
 
+| 2026-06-10 | entire-brain live brain, **midtask stratum**: 33 tasks (20 midtask) | substring vs BM25 vs Model2Vec-fused, per stratum | midtask useful/1k: 0.317 / 0.631 / 0.881 — BM25's lift over substring is **smaller on midtask (2.0×)** than on opening concept queries (5.9×), and fusion helps midtask most in relative terms (+40% over BM25). n=20, directional | Mid-session questions are a real, harder stratum; powered confirmation queued on the entire-cli v4 re-scan and the entire.io capstone | this repo (`history-eval-gen --midtask`) |
+
 ## Closed negatives — do not re-litigate without new evidence
+
+**Reopening discipline (worked example, 2026-06-10):** scan-cache v3 closed
+"index request records" as measured ranking noise with no consumer. Phase 2's
+handoff packet and midtask mining became new consumers — new evidence — so v4
+reopened it *narrowly*: requests are extracted again for trajectory surfaces
+while the original noise finding stands untouched (both rankers still exclude
+them from general ranking). Closed negatives are reopened by new consumers or
+new measurements, never by forgetting why they closed.
 
 - **Query expansion:** early d≈0.47 was an n≈8 artifact; collapsed at n=121
   (d=0.10, p=0.26). Stays opt-in.
