@@ -1137,6 +1137,28 @@ branches dirty under --force?"). Tune retrieval for the actual workload.
 - Re-run the ranking levers (cutoff, fused arm) against that stratum before
   shipping hook-path defaults.
 
+### 9. Gemma-Fused History Arm In Production (Phase 2 Capstone)
+
+Measured 2026-06-10 (see `docs/eval_ledger.md`): on entire-cli (882 tasks,
+267k records) EmbeddingGemma-fused beat the shipped BM25 history ranker by
+**+14% useful/1k (sign test p=0.00075)**, while Model2Vec-fused measured
+parity — the history semantic arm is validated *with the transformer
+embedder only*. Production wiring is deliberately last: it depends on
+infrastructure the earlier items don't.
+
+- Persist history vectors (query-time embedding of a 267k-record index is
+  not viable): a derived, rebuildable history vector store, incremental on
+  refresh — naturally the vec0 store under `brain_cgo`, converging with the
+  Stage 1b fact-vector store.
+- Gate the fused arm on a configured AND reachable Gemma embedder
+  (`ENTIRE_BRAIN_EMBEDDER=ollama` today; the in-process runner when it
+  lands); BM25-only remains the default and the fallback.
+- **Additional validation gate before shipping:** re-run the four-arm
+  history eval on the `entire.io` brain (TypeScript, different domain;
+  brain distill in progress as of 2026-06-10) once its build completes —
+  a fourth repo confirming the +14% generalizes beyond Go codebases, per
+  the multi-repo discipline the facts-layer Gemma decision used.
+
 ## Phase 3: Shared And Distributed Brain
 
 Phase 3 is for collaboration features that move generated brain artifacts beyond
