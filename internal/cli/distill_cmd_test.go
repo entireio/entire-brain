@@ -151,17 +151,17 @@ func TestRunDistillForBrainReportsDistillEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var extractionCalls, reconcileCalls int
+	var extractionCalls, reconcileCalls atomic.Int32
 	fakeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		text := string(input)
 		if strings.HasPrefix(text, "CANDIDATES\n") {
-			reconcileCalls++
+			reconcileCalls.Add(1)
 			if !strings.Contains(text, "EXISTING\n1 [project.tooling.stack] The project previously used Python.") {
 				t.Errorf("reconcile input missing existing fact: %q", text)
 			}
 			return "1 new - 1.0\n", nil
 		}
-		extractionCalls++
+		extractionCalls.Add(1)
 		if !strings.Contains(text, "\tturn ") {
 			t.Errorf("extraction input not line-numbered: %q", text)
 		}
@@ -182,8 +182,10 @@ func TestRunDistillForBrainReportsDistillEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runDistillForBrain: %v", err)
 	}
-	if extractionCalls != 2 || reconcileCalls != 1 {
-		t.Fatalf("expected 2 extraction calls and 1 reconcile call, got extraction=%d reconcile=%d", extractionCalls, reconcileCalls)
+	gotExtractionCalls := int(extractionCalls.Load())
+	gotReconcileCalls := int(reconcileCalls.Load())
+	if gotExtractionCalls != 2 || gotReconcileCalls != 1 {
+		t.Fatalf("expected 2 extraction calls and 1 reconcile call, got extraction=%d reconcile=%d", gotExtractionCalls, gotReconcileCalls)
 	}
 	if source.Agent != "command" || source.Model != "small" || source.Effort != "low" {
 		t.Fatalf("manifest source missing agent identity: %+v", source)
@@ -191,7 +193,7 @@ func TestRunDistillForBrainReportsDistillEvidence(t *testing.T) {
 	if source.Jobs != 3 || source.EffectiveJobs != 2 || source.MaxChunkBytes != defaultDistillChunkSize || source.Confidence != defaultFactConfidenceThreshold {
 		t.Fatalf("manifest source missing run configuration: %+v", source)
 	}
-	if source.ExtractionCalls != extractionCalls || source.ReconcileCalls != reconcileCalls || source.TotalAgentCalls != extractionCalls+reconcileCalls {
+	if source.ExtractionCalls != gotExtractionCalls || source.ReconcileCalls != gotReconcileCalls || source.TotalAgentCalls != gotExtractionCalls+gotReconcileCalls {
 		t.Fatalf("manifest source missing actual agent call counts: %+v", source)
 	}
 	if source.PreprocessedBytes <= 0 || source.FailedChunks != 0 {
