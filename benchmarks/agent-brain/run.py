@@ -3743,8 +3743,20 @@ def panel_preflight(panel: dict[str, Any], check_local_artifacts: bool = False) 
             errors.append(f"panel tasks are not loadable: {exc}")
             tasks = []
         panel_conditions = set(panel.get("conditions", []))
+        release_panel = str(panel.get("name") or "").startswith("release-")
         for task in tasks:
             task_conditions = panel_conditions & set(task.get("conditions", []))
+            if release_panel:
+                if "benchmarks/agent-brain" not in agent_hidden_paths(task):
+                    errors.append(
+                        f"release panel task {task.get('id', '<unknown>')} must hide "
+                        "benchmarks/agent-brain from agent worktrees"
+                    )
+                if task.get("hide_validation_from_agent") and not task.get("leak_markers"):
+                    errors.append(
+                        f"release panel task {task.get('id', '<unknown>')} hides validation "
+                        "but has no explicit leak_markers canary"
+                    )
             if any(condition_prepares_history(condition) for condition in task_conditions):
                 if not task.get("copy_entire_history_from_source") and not task.get("copy_checkpoint_ref_from_source"):
                     errors.append(

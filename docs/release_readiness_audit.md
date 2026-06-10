@@ -231,11 +231,15 @@ per side. The task breaks the semantic audit gate so it returns before emitting
 JSON, then hides focused validation requiring JSON before a blind-spot gate
 error. Both arms fixed the underlying focused tests; the initial no-brain
 records failed only the harness output leak audit because generic benchmark
-task-path text appeared in the agent transcript. After tightening canary-based
-leak auditing, this task should be treated as saturated rather than
-semantic-positive: validation pass-rate was `1.0 -> 1.0`, mean score was
-`97.25 -> 96.5`, and semantic added time/tokens (`71.7s -> 94.3s`,
-`281,062 -> 388,766.5`). It was not copied into release evidence.
+task-path text appeared in the agent transcript. The committed semantic release
+tasks now hide `benchmarks/agent-brain` from agent worktrees, and release-panel
+preflight rejects hidden-validation tasks without explicit canary
+`leak_markers`; future semantic proof runs should therefore fail on actual
+benchmark signal rather than harness-path exposure. Even without the leak
+failure, this task should be treated as saturated rather than semantic-positive:
+validation pass-rate was `1.0 -> 1.0`, mean score was `97.25 -> 96.5`, and
+semantic added time/tokens (`71.7s -> 94.3s`, `281,062 -> 388,766.5`). It was
+not copied into release evidence.
 
 ## QMD Alignment
 
@@ -348,6 +352,10 @@ Release claims must stay local-first and evidence-backed:
 - Release-evidence audit mode now rejects retained records that leak local host
   paths from user homes or temp directories, and the retained proof lane has
   been redacted while preserving hashes, scores, validation, and verdicts.
+- Release-panel preflight now requires candidate tasks to hide
+  `benchmarks/agent-brain` from agent worktrees and to use explicit canary
+  `leak_markers` whenever validation is hidden, preventing otherwise-good
+  semantic runs from being disqualified by exposed benchmark scaffolding.
 - Release-evidence audit mode now requires every retained release-candidate
   suite to carry at least one proof-ready comparison, so one passing history
   suite cannot mask a later weak semantic or facts suite. `mise run

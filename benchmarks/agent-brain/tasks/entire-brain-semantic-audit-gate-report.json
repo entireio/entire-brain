@@ -19,6 +19,7 @@
   "hide_validation_from_agent": true,
   "expected_files": ["internal/cli/semantic_audit.go"],
   "forbidden_files": ["go.mod", "go.sum"],
+  "agent_hidden_paths": ["benchmarks/agent-brain"],
   "leak_markers": ["release-semantic-audit-gate-canary-20260610T0310Z"],
   "brain_queries": ["semantic audit gate emits report before failure", "runSemanticAudit semanticAuditFailureForReport writeJSON", "TestSemanticAuditFailOnBlindSpotsEmitsJSONBeforeError"]
 }
