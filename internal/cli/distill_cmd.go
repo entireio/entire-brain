@@ -167,25 +167,36 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 		workAhead = 2
 	}
 	workSem := make(chan struct{}, workAhead)
-	deliver := func(ps preparedSession) bool {
-		select {
-		case prepared <- ps:
-			return true
-		case <-ctx.Done():
-			return false
+	// Stage A launches per-session PREP workers (transcript read,
+	// preprocessing, fingerprint/cache check, chunking) bounded by workSem and
+	// acquired in order; stage B awaits each session's future in order,
+	// delivers it, and dispatches its chunk calls. Prep parallelism matters as
+	// much as call parallelism on document-heavy corpora: preprocessing a
+	// multi-MB document costs seconds, and a serial prep stage was observed
+	// feeding only ~2 of 8 pool slots — the producer couldn't prepare sessions
+	// as fast as the pool retired their calls.
+	prepQueue := make(chan chan preparedSession, distillSessionLookahead)
+	go func() { // stage A: in-order prep launcher
+		defer close(prepQueue)
+		enqueue := func(f chan preparedSession) bool {
+			select {
+			case prepQueue <- f:
+				return true
+			case <-ctx.Done():
+				return false
+			}
 		}
-	}
-	go func() {
-		defer close(prepared)
 		for _, session := range sessions {
 			if ctx.Err() != nil {
 				return
 			}
 			ps := preparedSession{session: session, branch: resolveBranch(session)}
+			f := make(chan preparedSession, 1) // buffered: a worker outliving a canceled consumer delivers and exits
 			if (distillOpts.branch != "" && ps.branch != distillOpts.branch) ||
 				(distillOpts.session != "" && session.SessionID != distillOpts.session) {
 				ps.skip = true
-				if !deliver(ps) {
+				f <- ps
+				if !enqueue(f) {
 					return
 				}
 				continue
@@ -195,41 +206,64 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 			case <-ctx.Done():
 				return
 			}
-			releaseWork := func() { <-workSem }
-			content, readErr := readBrainRelativeFile(brainDir, session.TranscriptPath)
-			if readErr != nil {
-				releaseWork()
-				ps.readErr = readErr
-				if !deliver(ps) {
+			go func(ps preparedSession) {
+				releaseWork := func() { <-workSem }
+				content, readErr := readBrainRelativeFile(brainDir, ps.session.TranscriptPath)
+				if readErr != nil {
+					releaseWork()
+					ps.readErr = readErr
+					f <- ps
 					return
 				}
-				continue
-			}
-			// Strip tool calls/outputs and meta records up front: this is the
-			// actual input the agent distills. Fingerprinting the preprocessed
-			// input (not raw bytes) means churn confined to stripped tool I/O
-			// does not invalidate the cache.
-			distillInput := preprocessTranscriptForDistill(content)
-			ps.fingerprint = distillSessionFingerprint(session, ps.branch, distillInput)
-			if !distillOpts.force {
-				if prev, ok := prevCache.Sessions[session.SessionID]; ok && prev == ps.fingerprint {
-					releaseWork()
-					ps.cached = true
-					if !deliver(ps) {
+				// Strip tool calls/outputs and meta records up front: this is
+				// the actual input the agent distills. Fingerprinting the
+				// preprocessed input (not raw bytes) means churn confined to
+				// stripped tool I/O does not invalidate the cache.
+				distillInput := preprocessTranscriptForDistill(content)
+				ps.fingerprint = distillSessionFingerprint(ps.session, ps.branch, distillInput)
+				if !distillOpts.force {
+					if prev, ok := prevCache.Sessions[ps.session.SessionID]; ok && prev == ps.fingerprint {
+						releaseWork()
+						ps.cached = true
+						f <- ps
 						return
 					}
+				}
+				ps.chunks = chunkTranscript(distillInput, distillOpts.maxChunkBytes)
+				ps.release = releaseWork
+				f <- ps
+			}(ps)
+			if !enqueue(f) {
+				return
+			}
+		}
+	}()
+	go func() { // stage B: in-order delivery + global-order dispatch
+		defer close(prepared)
+		for f := range prepQueue {
+			var ps preparedSession
+			select {
+			case ps = <-f:
+			case <-ctx.Done():
+				return
+			}
+			if ps.skip || ps.readErr != nil || ps.cached {
+				select {
+				case prepared <- ps:
 					continue
+				case <-ctx.Done():
+					return
 				}
 			}
-			ps.chunks = chunkTranscript(distillInput, distillOpts.maxChunkBytes)
-			ps.release = releaseWork
 			if sem == nil {
 				ps.seq = func(chunks []transcriptChunk) func(int) (string, error) {
 					return func(i int) (string, error) {
 						return distillOpts.run(ctx, repoDir, args, []byte(chunks[i].Text), distillOpts.timeout)
 					}
 				}(ps.chunks)
-				if !deliver(ps) {
+				select {
+				case prepared <- ps:
+				case <-ctx.Done():
 					return
 				}
 				continue
@@ -241,7 +275,9 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 			}
 			// Deliver BEFORE dispatching: a session with more chunks than the
 			// pool must be consumable while its tail still dispatches.
-			if !deliver(ps) {
+			select {
+			case prepared <- ps:
+			case <-ctx.Done():
 				return
 			}
 			for i := range ps.chunks {
