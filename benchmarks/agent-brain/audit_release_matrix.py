@@ -228,9 +228,9 @@ def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
         rows,
         track="semantic freshness/audit health",
         status="local-gated" if not semantic_flags else "invalid",
-        claimable=not semantic_flags,
+        claimable=False,
         evidence=display_path(manifest_path(repo_root, manifest.get("mise"), "mise")),
-        detail="freshness is verified by the live semantic:evidence gate on the current checkout",
+        detail="freshness must be verified by the live semantic:evidence gate on the final clean release checkout",
         flags=semantic_flags,
     )
     add_row(

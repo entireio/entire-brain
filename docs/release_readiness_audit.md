@@ -297,11 +297,13 @@ QMD-inspired aliases added:
 - `--format json|cli` as an alias for JSON/CLI output selection.
 - `-n` / `--number` as an alias for result count on search verbs.
 
-Local smoke evidence collected on this repo: `go run ./cmd/entire-brain search
-"semantic provider" --format json -n 2`, `query "distill dry run" --format json
--n 2`, and `vsearch "semantic audit" --format json -n 2` all returned stable
-JSON envelopes with two results. `search --help` lists both `--format` and
-`-n, --number`.
+Non-retained local smoke used during the audit: `go run ./cmd/entire-brain
+search "semantic provider" --format json -n 2`, `query "distill dry run"
+--format json -n 2`, and `vsearch "semantic audit" --format json -n 2` returned
+stable JSON envelopes with two results, and `search --help` listed both
+`--format` and `-n, --number`. These smoke commands are calibration only; the
+retained QMD-inspired release evidence is the hashed Radar/MCP tool-contract
+artifact under `benchmarks/agent-brain/evidence/radar-tool`.
 
 Fixture-backed contract coverage: `TestQMDAliasesAcrossRetrievalVerbs` exercises
 the supported local surface across `search`, `query`, `vsearch`, `get`, and

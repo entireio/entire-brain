@@ -56,8 +56,8 @@
       "track": "workspace Radar agent lift"
     },
     {
-      "claimable": true,
-      "detail": "freshness is verified by the live semantic:evidence gate on the current checkout",
+      "claimable": false,
+      "detail": "freshness must be verified by the live semantic:evidence gate on the final clean release checkout",
       "evidence": "mise.toml",
       "flags": [],
       "status": "local-gated",
@@ -91,9 +91,9 @@
   "schema": 1,
   "status": "pass",
   "summary": {
-    "claimable_tracks": 6,
+    "claimable_tracks": 5,
     "flags": 0,
-    "no_claim_or_pending_tracks": 4,
+    "no_claim_or_pending_tracks": 5,
     "tracks": 10
   }
 }
