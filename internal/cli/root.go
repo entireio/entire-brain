@@ -131,6 +131,10 @@ agent can inspect to understand project history.`,
 	addHidden(newHistoryEvalGenCommand(opts))
 	addHidden(newHistoryEvalCommand(opts))
 
+	// Hidden agent-harness hook surface (Phase 2 item 2): wired into hooks by
+	// the harness (Claude Code, Entire CLI), not invoked by humans or agents.
+	addHidden(newHookCommand(opts))
+
 	cmd.SetHelpCommandGroupID("maintain")
 
 	wrapJSONErrorRendering(cmd)
