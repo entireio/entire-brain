@@ -176,6 +176,22 @@ class RunnerAndConditionTests(unittest.TestCase):
             self.assertTrue(result["ok"], result)
             self.assertEqual(target.read_text(), "original")
 
+    def test_transient_agent_failure_reason_only_matches_infra_failures(self):
+        self.assertEqual(
+            run.transient_agent_failure_reason(
+                1,
+                '{"type":"error","message":"Selected model is at capacity. Please try a different model."}',
+                "",
+            ),
+            "selected_model_at_capacity",
+        )
+        self.assertEqual(
+            run.transient_agent_failure_reason(1, "", "request was rate limited upstream"),
+            "rate_limited",
+        )
+        self.assertIsNone(run.transient_agent_failure_reason(0, "Selected model is at capacity", ""))
+        self.assertIsNone(run.transient_agent_failure_reason(1, "validation failed", ""))
+
     def test_mcp_configs_include_local_brain_server_and_repo_env(self):
         env = {
             "ENTIRE_REPO_ROOT": "/repo",

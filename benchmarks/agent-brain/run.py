@@ -2134,6 +2134,26 @@ def codex_mcp_config_args(tools: dict[str, pathlib.Path], env: dict[str, str]) -
     return args
 
 
+TRANSIENT_AGENT_FAILURE_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("selected_model_at_capacity", r"selected model is at capacity"),
+    ("model_at_capacity", r"\bmodel is at capacity\b"),
+    ("rate_limited", r"\brate[- ]?limit(?:ed|ing)?\b"),
+    ("temporarily_unavailable", r"\btemporarily unavailable\b"),
+    ("service_unavailable", r"\bservice unavailable\b"),
+    ("overloaded", r"\boverloaded\b"),
+)
+
+
+def transient_agent_failure_reason(returncode: int, stdout: str, stderr: str) -> str | None:
+    if returncode == 0:
+        return None
+    text = f"{stdout}\n{stderr}".lower()
+    for reason, pattern in TRANSIENT_AGENT_FAILURE_PATTERNS:
+        if re.search(pattern, text):
+            return reason
+    return None
+
+
 def run_agent(
     runner: RunnerSpec,
     prompt: str,
@@ -2145,6 +2165,7 @@ def run_agent(
     timeout: int,
     claude_budget: float,
     pricing: dict[str, Any],
+    agent_retries: int = 0,
 ) -> dict[str, Any]:
     start = time.time()
     mcp_enabled = is_mcp_condition(condition)
@@ -2196,7 +2217,27 @@ def run_agent(
     else:
         raise ValueError(f"unknown agent: {runner.agent}")
 
-    proc = run_cmd(cmd, cwd=worktree, env=env, input_text="", timeout=timeout)
+    attempts: list[dict[str, Any]] = []
+    proc: subprocess.CompletedProcess[str] | None = None
+    max_attempts = max(1, int(agent_retries) + 1)
+    for attempt in range(1, max_attempts + 1):
+        attempt_start = time.time()
+        proc = run_cmd(cmd, cwd=worktree, env=env, input_text="", timeout=timeout)
+        reason = transient_agent_failure_reason(proc.returncode, proc.stdout, proc.stderr)
+        attempts.append(
+            {
+                "attempt": attempt,
+                "returncode": proc.returncode,
+                "seconds": time.time() - attempt_start,
+                "transient_failure_reason": reason,
+            }
+        )
+        (run_dir / f"agent.attempt{attempt}.stdout").write_text(proc.stdout)
+        (run_dir / f"agent.attempt{attempt}.stderr").write_text(proc.stderr)
+        if reason is None or attempt == max_attempts:
+            break
+        time.sleep(min(2 * attempt, 10))
+    assert proc is not None
     (run_dir / "agent.stdout").write_text(proc.stdout)
     (run_dir / "agent.stderr").write_text(proc.stderr)
     usage = extract_usage(runner.agent, proc.stdout, proc.stderr)
@@ -2227,6 +2268,8 @@ def run_agent(
         "cmd": cmd[:1] + ["..."],
         "returncode": proc.returncode,
         "seconds": time.time() - start,
+        "attempts": attempts,
+        "transient_retries": max(0, len(attempts) - 1),
         "usage": usage,
         "activity": activity,
         "stdout_bytes": len(proc.stdout.encode()),
@@ -2900,7 +2943,19 @@ def run_one(
             raise RuntimeError(f"agent-visible benchmark secrets failed preflight: {secret_preflight['findings'][:3]}")
         prompt = prompt_for(task, condition, runner)
         (run_dir / "prompt.txt").write_text(prompt)
-        agent_info = run_agent(runner, prompt, worktree, env, run_dir, condition, tools, args.timeout, args.claude_budget, pricing)
+        agent_info = run_agent(
+            runner,
+            prompt,
+            worktree,
+            env,
+            run_dir,
+            condition,
+            tools,
+            args.timeout,
+            args.claude_budget,
+            pricing,
+            agent_retries=getattr(args, "agent_retries", 0),
+        )
         leak_audit = agent_output_leak_audit(
             task,
             (run_dir / "agent.stdout").read_text(encoding="utf-8", errors="ignore"),
@@ -4170,6 +4225,7 @@ def main() -> int:
         help="After the first no_brain repetition for a task/runner, skip the remaining repetitions and conditions if the score is above this threshold.",
     )
     run_p.add_argument("--timeout", type=int, default=1800)
+    run_p.add_argument("--agent-retries", type=int, default=2, help="Retry explicit transient agent-capacity/service failures")
     run_p.add_argument("--claude-budget", type=float, default=0.0, help="Claude max budget in USD; 0 disables the cap")
     run_p.add_argument("--pricing-file", help="JSON price map for estimated cost when the agent does not report cost")
     run_p.add_argument("--pricing-json", help="Inline JSON price map for estimated cost when the agent does not report cost")
@@ -4184,6 +4240,7 @@ def main() -> int:
     panel_p.add_argument("name", help="Panel manifest under panels/ (name without .json, or a path to a .json)")
     panel_p.add_argument("--suite-name")
     panel_p.add_argument("--timeout", type=int, default=1800)
+    panel_p.add_argument("--agent-retries", type=int, default=2, help="Retry explicit transient agent-capacity/service failures")
     panel_p.add_argument("--claude-budget", type=float, default=0.0, help="Claude max budget in USD; 0 disables the cap")
     panel_p.add_argument("--pricing-file", help="JSON price map for estimated cost when the agent does not report cost")
     panel_p.add_argument("--pricing-json", help="Inline JSON price map for estimated cost when the agent does not report cost")
