@@ -41,6 +41,7 @@ func newHistoryEvalGenCommand(opts Options) *cobra.Command {
 		branch     string
 		minRecords int
 		maxRecords int
+		midtask    bool
 	)
 	cmd := &cobra.Command{
 		Use:   "history-eval-gen",
@@ -66,7 +67,7 @@ Emits a tasks.json consumable by 'history-eval --tasks'.`,
 			if err != nil {
 				return err
 			}
-			tasks := generateHistoryEvalTasks(brainDir, manifest, index, branch, minRecords, maxRecords, limit)
+			tasks := generateHistoryEvalTasks(brainDir, manifest, index, branch, minRecords, maxRecords, limit, midtask)
 			if len(tasks) == 0 {
 				return fmt.Errorf("no sessions qualified as tasks (need >= %d indexed records and a recoverable opening request)", minRecords)
 			}
@@ -96,38 +97,63 @@ Emits a tasks.json consumable by 'history-eval --tasks'.`,
 	// eval-gen's max-facts.
 	cmd.Flags().IntVar(&minRecords, "min-records", 2, "Minimum indexed records for a session to become a task")
 	cmd.Flags().IntVar(&maxRecords, "max-records", 200, "Skip broad sessions with more records than this (diffuse targets); 0 = no cap")
+	cmd.Flags().BoolVar(&midtask, "midtask", true, "Also mine mid-session follow-up questions as a 'midtask' stratum (labels: the records after each question)")
 	return cmd
 }
 
+// queryTypeMidtask is the stratum for mid-session follow-up questions —
+// an agent's real retrieval moments are narrow in-flight asks ("why does
+// flush keep branches dirty under --force?"), not session-opening requests.
+// Tasks in this stratum use the session's LATER request records as queries
+// and the records that FOLLOW each question as ground truth: the answer to a
+// mid-task question manifests in the work that came after it.
+const queryTypeMidtask = "midtask"
+
+// midtaskTasksPerSession caps the follow-up questions mined per session so a
+// long interactive session cannot dominate the benchmark.
+const midtaskTasksPerSession = 3
+
 // generateHistoryEvalTasks maps each qualifying session to one provenance-
-// labeled task. A record is attributable to a session through its Path — the
-// transcript file the record was extracted from — which equals the session's
-// manifest TranscriptPath (both are slash-relative to the brain dir).
-func generateHistoryEvalTasks(brainDir string, manifest *exportManifest, index historyIndex, branch string, minRecords, maxRecords, limit int) []evalTask {
-	byPath := map[string][]string{} // transcript path -> rankable record ids
+// labeled opening task plus up to midtaskTasksPerSession mid-task ones. A
+// record is attributable to a session through its Path — the transcript file
+// the record was extracted from — which equals the session's manifest
+// TranscriptPath (both are slash-relative to the brain dir).
+func generateHistoryEvalTasks(brainDir string, manifest *exportManifest, index historyIndex, branch string, minRecords, maxRecords, limit int, midtask bool) []evalTask {
+	type pathRecords struct {
+		rankable []historyRecord // non-request records, the labelable set
+		requests []historyRecord // request records, line-ordered below
+	}
+	byPath := map[string]*pathRecords{}
 	seen := map[string]struct{}{}
 	for _, r := range index.Records {
-		if r.Kind == "request" {
-			continue // never surfaced by the general arm; see file comment
-		}
 		if _, dup := seen[r.ID]; dup {
 			continue
 		}
 		seen[r.ID] = struct{}{}
-		byPath[r.Path] = append(byPath[r.Path], r.ID)
+		pr, ok := byPath[r.Path]
+		if !ok {
+			pr = &pathRecords{}
+			byPath[r.Path] = pr
+		}
+		if r.Kind == "request" {
+			pr.requests = append(pr.requests, r)
+		} else {
+			pr.rankable = append(pr.rankable, r)
+		}
+	}
+	for _, pr := range byPath {
+		sort.SliceStable(pr.requests, func(i, j int) bool { return pr.requests[i].Line < pr.requests[j].Line })
 	}
 
 	var tasks []evalTask
+	withinBounds := func(n int) bool { return n >= minRecords && (maxRecords <= 0 || n <= maxRecords) }
 	for _, s := range manifest.Sources.Sessions.Sessions {
 		if branch != "" && s.Branch != branch {
 			continue
 		}
-		ids := byPath[s.TranscriptPath]
-		if len(ids) < minRecords {
+		pr := byPath[s.TranscriptPath]
+		if pr == nil || !withinBounds(len(pr.rankable)) {
 			continue
-		}
-		if maxRecords > 0 && len(ids) > maxRecords {
-			continue // broad session: too many records to be a focused target
 		}
 		content, readErr := readBrainRelativeFile(brainDir, s.TranscriptPath)
 		if readErr != nil {
@@ -137,20 +163,60 @@ func generateHistoryEvalTasks(brainDir string, manifest *exportManifest, index h
 		if request == "" {
 			continue
 		}
-		sorted := append([]string(nil), ids...)
-		sort.Strings(sorted)
+		ids := make([]string, 0, len(pr.rankable))
+		for _, r := range pr.rankable {
+			ids = append(ids, r.ID)
+		}
+		sort.Strings(ids)
 		tasks = append(tasks, evalTask{
 			ID:        shortSessionID(s.SessionID),
 			Task:      request,
 			Branch:    s.Branch,
 			QueryType: classifyHistoryQueryType(request),
-			Relevant:  sorted,
+			Relevant:  ids,
 		})
+		if midtask {
+			tasks = append(tasks, midtaskEvalTasks(s, pr.requests, pr.rankable, minRecords, maxRecords)...)
+		}
 	}
 	tasks = dedupeEvalTasks(tasks)
 	sort.SliceStable(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
 	if limit > 0 && len(tasks) > limit {
 		tasks = sampleAcrossStrata(tasks, limit)
+	}
+	return tasks
+}
+
+// midtaskEvalTasks mines a session's follow-up questions: every request
+// record past the opening one is a candidate query, labeled with the
+// session's rankable records AFTER that question's line. Wrapper injections
+// are filtered with the same predicate the opening request uses.
+func midtaskEvalTasks(s exportSession, requests, rankable []historyRecord, minRecords, maxRecords int) []evalTask {
+	var tasks []evalTask
+	for i, req := range requests {
+		if i == 0 || isWrapperRequest(req.Summary) {
+			continue // the opening request is the session-level task's query
+		}
+		var ids []string
+		for _, r := range rankable {
+			if r.Line > req.Line {
+				ids = append(ids, r.ID)
+			}
+		}
+		if len(ids) < minRecords || (maxRecords > 0 && len(ids) > maxRecords) {
+			continue
+		}
+		sort.Strings(ids)
+		tasks = append(tasks, evalTask{
+			ID:        fmt.Sprintf("%s-m%d", shortSessionID(s.SessionID), req.Line),
+			Task:      req.Summary,
+			Branch:    s.Branch,
+			QueryType: queryTypeMidtask,
+			Relevant:  ids,
+		})
+		if len(tasks) >= midtaskTasksPerSession {
+			break
+		}
 	}
 	return tasks
 }
