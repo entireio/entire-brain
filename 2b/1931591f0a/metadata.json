@@ -13,6 +13,19 @@
       "transcript": "/2b/1931591f0a/0/full.jsonl",
       "content_hash": "/2b/1931591f0a/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/2b/1931591f0a/1/metadata.json",
+      "transcript": "/2b/1931591f0a/1/full.jsonl",
+      "content_hash": "/2b/1931591f0a/1/content_hash.txt",
+      "prompt": ""
     }
-  ]
+  ],
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  }
 }
