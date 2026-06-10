@@ -307,13 +307,14 @@ repo/access/artifacts are available:
   comparison. Failed audits write to a temp directory only; passing audits copy
   the report into the retained evidence lane.
 
-Current retained benchmark caveat: `benchmarks/agent-brain/results/codex-audit-report.md`
-is quarantine/reference evidence, not release proof. The retained panel reports hard
-integrity flags and zero provenance-complete agent records, so public replay-lab
-claims require a new provenance-complete `release-candidate-*` run generated
-from a committed panel and passing `python3 benchmarks/agent-brain/audit_codex.py
---release-manifest benchmarks/agent-brain/evidence/release/manifest.json
---out-dir benchmarks/agent-brain/evidence/release --fail-on-flags`.
+Historical quarantine caveat: `benchmarks/agent-brain/results/codex-audit-report.md`
+is quarantine/reference evidence, not release proof. That old results report
+has hard integrity flags and zero provenance-complete agent records. Release
+claims must cite only retained suites under `benchmarks/agent-brain/evidence/release`
+that pass `python3 benchmarks/agent-brain/audit_codex.py --results
+benchmarks/agent-brain/evidence/release --release-manifest
+benchmarks/agent-brain/evidence/release/manifest.json --out-dir
+benchmarks/agent-brain/evidence/release --fail-on-flags`.
 The local `release-local-semantic-proof-20260609T2305Z` pilot is also not release
 proof because its audited comparison was not proof-ready and the suite had hard
 leak-audit flags. `release-local-*` names are intentionally outside the citable
