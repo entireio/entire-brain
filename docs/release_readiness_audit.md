@@ -478,12 +478,16 @@ Release claims must stay local-first and evidence-backed:
   fewer searches and roughly half the tokens; this remains directional
   efficiency calibration, not release proof.
 - The committed
-  `release-entire-cli-radar-mcp-manual-attribution-deletions` panel remains a
-  calibration lane for location-only deletion Radar. A later audit found the old
-  retained clean run lacked the newer `tool_result` completion lines, and fresh
-  reruns were saturated or noisy on the no-brain baseline, so it is not retained
-  as release proof. It remains useful for future non-saturated Radar agent
-  evidence collection.
+  `release-entire-cli-radar-mcp-manual-attribution-deletions` panel now backs
+  the retained `release-candidate-cli-radar-mcp-del-20260610-r2` proof lane.
+  Older clean runs without `tool_result` completion lines remain rejected, but
+  the retained rerun is citable for focused location-only deletion Radar:
+  no-brain passed 2/4, `mcp_history` passed 4/4, mean score improved
+  `73.0 -> 92.5`, mean tokens dropped `811,466.5 -> 408,947.75`, mean search
+  calls dropped `11.5 -> 6.0`, and the independent audit found 0 hard flags,
+  8/8 provenance-backed records, 4 MCP-verified condition records, 4
+  server-named `brain_regressions` records, and 4 completed `tool_result`
+  records. It is not workspace Radar or broad multi-task proof.
 - The committed `release-entire-cli-mcp-manual-attribution` panel targets a
   harder MCP-history proof lane on `cli-bench`: it regresses the manual-commit
   attribution-base invariant and requires `mcp_history` to surface the prior
