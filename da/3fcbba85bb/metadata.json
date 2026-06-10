@@ -3,10 +3,12 @@
   "checkpoint_id": "da3fcbba85bb",
   "strategy": "manual-commit",
   "branch": "codex/release-readiness-hardening",
-  "checkpoints_count": 1,
+  "checkpoints_count": 3,
   "files_touched": [
+    "benchmarks/agent-brain/README.md",
     "benchmarks/agent-brain/audit_radar_tool_evidence.py",
-    "docs/release_press_release.md"
+    "docs/release_press_release.md",
+    "docs/release_readiness_audit.md"
   ],
   "sessions": [
     {
@@ -14,13 +16,19 @@
       "transcript": "/da/3fcbba85bb/0/full.jsonl",
       "content_hash": "/da/3fcbba85bb/0/content_hash.txt",
       "prompt": "/da/3fcbba85bb/0/prompt.txt"
+    },
+    {
+      "metadata": "/da/3fcbba85bb/1/metadata.json",
+      "transcript": "/da/3fcbba85bb/1/full.jsonl",
+      "content_hash": "/da/3fcbba85bb/1/content_hash.txt",
+      "prompt": "/da/3fcbba85bb/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 17208,
-    "cache_creation_tokens": 5029,
-    "cache_read_tokens": 36379,
-    "output_tokens": 1074,
-    "api_call_count": 1
+    "input_tokens": 84296,
+    "cache_creation_tokens": 8825867,
+    "cache_read_tokens": 106181286,
+    "output_tokens": 416240,
+    "api_call_count": 304
   }
 }

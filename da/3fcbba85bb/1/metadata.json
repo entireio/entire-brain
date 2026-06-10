@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "da3fcbba85bb",
+  "session_id": "3c8f3e78-b939-42b0-8ab8-aae534b6f768",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T17:19:06.857552Z",
+  "branch": "codex/release-readiness-hardening",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/audit_radar_tool_evidence.py",
+    "docs/release_press_release.md",
+    "docs/release_readiness_audit.md"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "e94a6b385903",
+  "token_usage": {
+    "input_tokens": 67088,
+    "cache_creation_tokens": 8820838,
+    "cache_read_tokens": 106144907,
+    "output_tokens": 415166,
+    "api_call_count": 303
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T17:19:06.736426Z",
+    "agent_lines": 45,
+    "agent_removed": 33,
+    "human_added": 13,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 58,
+    "total_lines_changed": 101,
+    "agent_percentage": 77.22772277227723,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
