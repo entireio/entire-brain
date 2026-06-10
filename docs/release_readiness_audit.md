@@ -154,6 +154,16 @@ citable evidence that the history/full-brain lane can improve one checkpointed
 task; it is not evidence that semantic indexing or facts retrieval are broadly
 better.
 
+Semantic replay-lab pilot: the committed `release-entire-cli-semantic-xdg`
+panel generated `release-candidate-entire-cli-semantic-xdg-20260610T0205Z` with
+one pinned Codex runner, `no_brain` vs `semantic_brain`, and 4 repetitions per
+side on a local `entire-cli` task. The audit was integrity-clean (0 hard flags,
+8/8 provenance-backed records), but the task was saturated: both arms passed
+4/4, semantic changed mean score only `96.0 -> 96.25`, added time/tokens, and
+the summary reported `proof_ready=false` / `saturated/overhead_negative`. It was
+not copied into `benchmarks/agent-brain/evidence/release`; a stronger semantic
+task is still needed before semantic usefulness claims graduate.
+
 ## QMD Alignment
 
 The current Entire Brain retrieval surface keeps the qmd-inspired core verbs:
