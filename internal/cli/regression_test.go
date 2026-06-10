@@ -247,7 +247,7 @@ func TestRegressionDetectorWarnings(t *testing.T) {
 func TestRegressionDeletionIsOptIn(t *testing.T) {
 	session := `{"text":"in pkg/resolve_transcript.go set state.TranscriptPath = resolved so later reads work"}`
 	// current file uses TranscriptPath but the assignment is gone.
-	body := "package x\nfunc resolveTranscriptPath() string {\n\tresolved := compute()\n\treturn resolved // TranscriptPath\n}\n"
+	body := "package x\n// TranscriptPath should be updated after re-resolution.\nfunc resolveTranscriptPath(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
 	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
 	q := "fix resolveTranscriptPath TranscriptPath"
 
@@ -257,6 +257,9 @@ func TestRegressionDeletionIsOptIn(t *testing.T) {
 	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, q, 20, true)
 	if len(an) != 1 || an[0].Kind != "deleted" {
 		t.Fatalf("expected one deleted anomaly with --include-deletions, got %+v", an)
+	}
+	if an[0].Line == 2 || strings.HasPrefix(strings.TrimSpace(an[0].Current), "//") {
+		t.Fatalf("deleted anomaly should prefer a code locus over a nearby comment, got %+v", an[0])
 	}
 	// location-only on a DELETED-kind finding: the commands blank Expected/Current before rendering
 	// (regression.go), and the mapping must then fall back to the generic detail — no leak. (The

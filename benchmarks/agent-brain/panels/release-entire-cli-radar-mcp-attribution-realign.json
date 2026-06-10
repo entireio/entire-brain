@@ -1,0 +1,18 @@
+{
+  "name": "release-entire-cli-radar-mcp-attribution-realign",
+  "description": "Focused release-candidate Regression Radar panel for a detector-shaped deleted state assignment. The location-only MCP radar may reveal the suspected file/line, but not the missing attribution-base assignment or expected/current values.",
+  "runners": [
+    "codex:gpt-5.4-mini:medium"
+  ],
+  "conditions": [
+    "no_brain",
+    "mcp_history"
+  ],
+  "env": {
+    "BENCH_RADAR_LOCATION_ONLY": "1"
+  },
+  "repetitions": 4,
+  "tasks": [
+    "entireio-cli-radar-attribution-realign-state.json"
+  ]
+}

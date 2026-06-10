@@ -390,6 +390,11 @@ Release claims must stay local-first and evidence-backed:
   the workspace MCP lane (`no_brain` vs `mcp_workspace_radar`) with
   deletion-aware location-only radar. It is a calibration lane until a task with
   real no-brain headroom is identified.
+- The committed `release-entire-cli-radar-mcp-attribution-realign` panel is the
+  next true-Radar candidate: it mutates a detector-shaped deleted state
+  assignment in `RealignAttributionBase`, keeps Radar location-only, and validates
+  the attribution-base state invariant without giving the agent expected/current
+  values.
 - The committed `release-entire-cli-mcp-manual-attribution` panel targets a
   harder MCP-history proof lane on `cli-bench`: it regresses the manual-commit
   attribution-base invariant and requires `mcp_history` to surface the prior
@@ -461,7 +466,8 @@ repo/access/artifacts are available:
   runs over the same labeled or explicitly proxy-allowed task set, same task
   hash, and same brain manifest hash.
 - Regression Radar release evidence from a clean retained run of
-  `release-entire-cli-radar-mcp-review-base-scope` or
+  `release-entire-cli-radar-mcp-attribution-realign`,
+  `release-entire-cli-radar-mcp-review-base-scope`, or
   `release-entire-cli-workspace-radar-mcp-transcript-reresolve`. Local pilots
   are useful for calibration, but a citable Radar claim still needs 4
   repetitions per side, MCP-verified records, the appropriate proof scope

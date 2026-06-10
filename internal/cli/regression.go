@@ -457,23 +457,44 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 // regressionHomeFile returns the best (file, line, text) to attribute a deletion to: a file
 // containing both the identifier and the RHS token, else the first file holding the identifier.
 func regressionHomeFile(files []candFile, id, rhs string) (string, int, string) {
+	findIDLine := func(f candFile, allowComment bool) (int, string, bool) {
+		for i, n := range f.norm {
+			if !strings.Contains(n, id) {
+				continue
+			}
+			if !allowComment && regressionIsComment(f.lines[i]) {
+				continue
+			}
+			return i + 1, strings.TrimSpace(f.lines[i]), true
+		}
+		return 0, "", false
+	}
 	if rhs != "" {
 		for _, f := range files {
 			if !fileHasNorm(f.norm, rhs) {
 				continue
 			}
-			for i, n := range f.norm {
-				if strings.Contains(n, id) {
-					return f.clean, i + 1, strings.TrimSpace(f.lines[i])
-				}
+			if line, cur, ok := findIDLine(f, false); ok {
+				return f.clean, line, cur
+			}
+		}
+		for _, f := range files {
+			if !fileHasNorm(f.norm, rhs) {
+				continue
+			}
+			if line, cur, ok := findIDLine(f, true); ok {
+				return f.clean, line, cur
 			}
 		}
 	}
 	for _, f := range files {
-		for i, n := range f.norm {
-			if strings.Contains(n, id) {
-				return f.clean, i + 1, strings.TrimSpace(f.lines[i])
-			}
+		if line, cur, ok := findIDLine(f, false); ok {
+			return f.clean, line, cur
+		}
+	}
+	for _, f := range files {
+		if line, cur, ok := findIDLine(f, true); ok {
+			return f.clean, line, cur
 		}
 	}
 	return "", 0, "(absent)"
