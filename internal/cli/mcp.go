@@ -82,8 +82,13 @@ func runMCP(ctx context.Context, in io.Reader, out io.Writer, opts Options) erro
 		}
 		mcpDebugLog(debugLog, "message: "+msg.Method)
 		if msg.Method == "tools/call" {
-			if name := mcpDebugToolName(msg.Params); name != "" {
-				mcpDebugLog(debugLog, "tool: "+name)
+			if call := mcpDebugToolCall(msg.Params); call.name != "" {
+				mcpDebugLog(debugLog, "tool: "+call.name)
+				if len(call.safeBoolArgs) > 0 {
+					if data, err := json.Marshal(call.safeBoolArgs); err == nil {
+						mcpDebugLog(debugLog, "tool_args: "+string(data))
+					}
+				}
 			}
 		}
 		if msg.ID == nil {
@@ -110,23 +115,40 @@ func mcpDebugLog(path, line string) {
 	fmt.Fprintln(f, line)
 }
 
-func mcpDebugToolName(raw json.RawMessage) string {
+type mcpDebugToolCallInfo struct {
+	name         string
+	safeBoolArgs map[string]bool
+}
+
+func mcpDebugToolCall(raw json.RawMessage) mcpDebugToolCallInfo {
 	var params struct {
-		Name string `json:"name"`
+		Name      string         `json:"name"`
+		Arguments map[string]any `json:"arguments"`
 	}
 	if err := json.Unmarshal(raw, &params); err != nil {
-		return ""
+		return mcpDebugToolCallInfo{}
 	}
 	name := strings.TrimSpace(params.Name)
 	if name == "" {
-		return ""
+		return mcpDebugToolCallInfo{}
 	}
-	return strings.Map(func(r rune) rune {
+	name = strings.Map(func(r rune) rune {
 		if r < 32 || r == 127 {
 			return -1
 		}
 		return r
 	}, name)
+	safe := make(map[string]bool)
+	for _, key := range []string{"blind_spots", "include_deletions", "location_only"} {
+		if value, ok := params.Arguments[key].(bool); ok {
+			safe[key] = value
+		}
+	}
+	return mcpDebugToolCallInfo{name: name, safeBoolArgs: safe}
+}
+
+func mcpDebugToolName(raw json.RawMessage) string {
+	return mcpDebugToolCall(raw).name
 }
 
 func handleMCPMessage(ctx context.Context, opts Options, msg mcpMessage) mcpMessage {

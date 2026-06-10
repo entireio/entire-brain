@@ -31,7 +31,13 @@ python3 benchmarks/agent-brain/audit_codex.py \
   --release-manifest benchmarks/agent-brain/evidence/release/manifest.json \
   --out-dir "$tmp" \
   --fail-on-flags
-for report in codex-audit-report.json codex-audit-report.md; do
+python3 benchmarks/agent-brain/audit_radar_evidence.py \
+  --results benchmarks/agent-brain/evidence/release \
+  --suite-glob 'release-candidate-*' \
+  --out-dir "$tmp" \
+  --codex-audit-report "$tmp/codex-audit-report.json" \
+  --fail-when-no-proof
+for report in codex-audit-report.json codex-audit-report.md radar-candidate-report.json radar-candidate-report.md; do
   committed="benchmarks/agent-brain/evidence/release/$report"
   generated="$tmp/$report"
   if ! cmp -s "$committed" "$generated"; then
@@ -55,8 +61,14 @@ python3 benchmarks/agent-brain/audit_codex.py \
   --release-manifest benchmarks/agent-brain/evidence/release/manifest.json \
   --out-dir "$tmp" \
   --fail-on-flags
+python3 benchmarks/agent-brain/audit_radar_evidence.py \
+  --results benchmarks/agent-brain/evidence/release \
+  --suite-glob 'release-candidate-*' \
+  --out-dir "$tmp" \
+  --codex-audit-report "$tmp/codex-audit-report.json" \
+  --fail-when-no-proof
 mkdir -p benchmarks/agent-brain/evidence/release
-cp "$tmp"/codex-audit-report.json "$tmp"/codex-audit-report.md benchmarks/agent-brain/evidence/release/
+cp "$tmp"/codex-audit-report.json "$tmp"/codex-audit-report.md "$tmp"/radar-candidate-report.json "$tmp"/radar-candidate-report.md benchmarks/agent-brain/evidence/release/
 '''
 
 [tasks."radar:screen"]

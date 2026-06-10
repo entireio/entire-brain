@@ -63,12 +63,20 @@ The contract is implemented and covered locally: CLI and MCP tests exercise
 `brain_workspace_review`, including `location_only` checks that preserve the
 file/line while not leaking expected/current fix values.
 
-Release evidence is partially retained. The committed
-`release-entire-cli-radar-mcp-review-base-scope` panel is the reproducible Radar
-lane: it sets `BENCH_RADAR_LOCATION_ONLY=1`, runs `no_brain` vs `mcp_history`,
-and is intended to graduate only if the independent audit sees zero hard flags,
-MCP-verified records, and a proof-ready `mcp_radar_location_only` comparison.
-The committed
+Release evidence is partially retained. The current citable Radar proof is
+`release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress`:
+it runs `no_brain` vs `mcp_history` with location-only
+`brain_regressions(include_deletions)`, no-brain passes 1/4, Radar passes 4/4,
+and the release/Radar audits require matching MCP-verified condition records,
+server-side `tool: brain_regressions` log lines, and summary-vs-record pass-rate
+agreement. This is a narrow single-repo deletion-Radar pass-rate proof, not
+workspace Radar, answer-assisted Radar, or efficiency proof.
+
+The committed `release-entire-cli-radar-mcp-review-base-scope` panel remains a
+reproducible Radar candidate lane: it sets `BENCH_RADAR_LOCATION_ONLY=1`, runs
+`no_brain` vs `mcp_history`, and is intended to graduate only if the independent
+audit sees zero hard flags, MCP-verified records, and a proof-ready
+`mcp_radar_location_only` comparison. The committed
 `release-entire-cli-workspace-radar-mcp-transcript-reresolve` panel exercises
 the workspace MCP delivery (`mcp_workspace_radar`) and audits proof-ready runs as
 `mcp_workspace_radar_location_only`, but it remains a calibration lane until a

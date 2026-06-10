@@ -1352,6 +1352,7 @@ class CodexAuditScriptTests(unittest.TestCase):
             },
             "tools": {
                 "brain": {"sha256": self.TOOL_SHA},
+                "entire": {"sha256": self.TOOL_SHA},
                 "sem": {"sha256": self.TOOL_SHA},
             },
         }
@@ -2014,6 +2015,16 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertFalse(missing_record["mcp_verified"], missing_record)
             self.assertIn("B:mcp_server_log_missing", missing_record["flags"])
 
+            nameless_suite = "nameless-radar-log-suite"
+            nameless = self._mcp_release_record(nameless_suite, repetition=1, run_id="radar-1")
+            nameless_dir = self._write_records(results_dir, nameless_suite, [nameless])
+            self._write_mcp_server_log(nameless_dir, "radar-1")
+            nameless_report = audit_codex.build_audit_report(results_dir, ["nameless-radar-*"])
+            nameless_record = nameless_report["suites"][nameless_suite]["records"][0]
+            self.assertFalse(nameless_record["pass"], nameless_record)
+            self.assertFalse(nameless_record["mcp_verified"], nameless_record)
+            self.assertIn("B:mcp_required_tool_names_not_in_server_log(brain_regressions)", nameless_record["flags"])
+
     def test_audit_codex_fails_missing_and_inconsistent_provenance(self):
         with tempfile.TemporaryDirectory() as results:
             results_dir = pathlib.Path(results)
@@ -2361,6 +2372,59 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
         }))
         return suite_dir
 
+    def _write_backed_radar_codex_audit(
+        self,
+        path: pathlib.Path,
+        suite: str,
+        *,
+        baseline_valid: list[bool] | None = None,
+        condition_valid: list[bool] | None = None,
+    ) -> None:
+        baseline_valid = baseline_valid or [True, False, False, False]
+        condition_valid = condition_valid or [True, True, True, True]
+        records = []
+        for index, valid in enumerate(baseline_valid, start=1):
+            records.append({
+                "run_id": f"base-{index}",
+                "task_id": "radar-task",
+                "runner": "codex-mini-low",
+                "condition": "no_brain",
+                "delivery_scope": "no_brain",
+                "valid": valid,
+                "pass": True,
+                "provenance": {"ok": True},
+                "mcp_verified": False,
+            })
+        for index, valid in enumerate(condition_valid, start=1):
+            records.append({
+                "run_id": f"radar-{index}",
+                "task_id": "radar-task",
+                "runner": "codex-mini-low",
+                "condition": "mcp_history",
+                "delivery_scope": "mcp_radar_location_only",
+                "valid": valid,
+                "pass": True,
+                "provenance": {"ok": True},
+                "mcp_verified": True,
+            })
+        path.write_text(json.dumps({
+            "suites": {
+                suite: {
+                    "records": records,
+                    "comparisons": [{
+                        "task": "radar-task",
+                        "runner": "codex-mini-low",
+                        "condition": "mcp_history",
+                        "delivery_scope": "mcp_radar_location_only",
+                        "proof_scope": "mcp_radar_location_only",
+                        "proof_ready": True,
+                        "pass": True,
+                        "record_backing": {"ok": True, "condition_mcp_verified_ok": True},
+                    }],
+                }
+            }
+        }))
+
     def test_radar_audit_marks_saturated_pilots_not_promotable(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
             results_dir = pathlib.Path(results)
@@ -2397,7 +2461,20 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             )
             report = audit_radar_evidence.build_report(results_dir, ["release-candidate-*"])
             self.assertEqual(report["totals"]["proof_ready"], 1)
-            self.assertEqual(audit_radar_evidence.main(["--results", str(results_dir), "--suite-glob", "release-candidate-*", "--out-dir", out, "--fail-when-no-proof"]), 0)
+            self.assertEqual(audit_radar_evidence.main(["--results", str(results_dir), "--suite-glob", "release-candidate-*", "--out-dir", out, "--fail-when-no-proof"]), 1)
+
+            backed_audit = pathlib.Path(out) / "backed-codex-audit.json"
+            self._write_backed_radar_codex_audit(backed_audit, "release-candidate-radar-proof")
+            self.assertEqual(
+                audit_radar_evidence.main([
+                    "--results", str(results_dir),
+                    "--suite-glob", "release-candidate-*",
+                    "--out-dir", out,
+                    "--codex-audit-report", str(backed_audit),
+                    "--fail-when-no-proof",
+                ]),
+                0,
+            )
 
     def test_radar_audit_requires_codex_audit_backing_when_supplied(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
@@ -2434,22 +2511,7 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             )
 
             backed_audit = out_dir / "backed-codex-audit.json"
-            backed_audit.write_text(json.dumps({
-                "suites": {
-                    suite: {
-                        "comparisons": [{
-                            "task": "radar-task",
-                            "runner": "codex-mini-low",
-                            "condition": "mcp_history",
-                            "delivery_scope": "mcp_radar_location_only",
-                            "proof_scope": "mcp_radar_location_only",
-                            "proof_ready": True,
-                            "pass": True,
-                            "record_backing": {"ok": True, "condition_mcp_verified_ok": True},
-                        }]
-                    }
-                }
-            }))
+            self._write_backed_radar_codex_audit(backed_audit, suite)
             self.assertEqual(
                 audit_radar_evidence.main([
                     "--results", str(results_dir),
@@ -2459,6 +2521,44 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                     "--fail-when-no-proof",
                 ]),
                 0,
+            )
+
+    def test_radar_audit_rejects_codex_audit_summary_mismatch(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            suite = "release-candidate-radar-proof"
+            self._write_radar_summary(
+                results_dir,
+                suite,
+                baseline_pass=0.25,
+                condition_pass=1.0,
+                proof_ready=True,
+                stability_tag="brain_positive_stable",
+                n=4,
+            )
+            stale_audit = out_dir / "stale-codex-audit.json"
+            self._write_backed_radar_codex_audit(stale_audit, suite, baseline_valid=[True, True, True, True])
+
+            report = audit_radar_evidence.build_report(
+                results_dir,
+                ["release-candidate-*"],
+                audit_radar_evidence.load_codex_audit(stale_audit),
+            )
+            gate = report["comparisons"][0]["radar_gate"]
+            self.assertEqual(gate["status"], "audit-mismatch")
+            self.assertEqual(report["totals"]["proof_ready"], 0)
+            self.assertIn("pass_rate_baseline", " | ".join(gate["reasons"]))
+            self.assertFalse(gate["codex_audit_record_backing"]["summary_consistency_ok"])
+            self.assertEqual(
+                audit_radar_evidence.main([
+                    "--results", str(results_dir),
+                    "--suite-glob", "release-candidate-*",
+                    "--out-dir", out,
+                    "--codex-audit-report", str(stale_audit),
+                    "--fail-when-no-proof",
+                ]),
+                1,
             )
 
     def test_radar_audit_rejects_saturated_token_only_proof(self):

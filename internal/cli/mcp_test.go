@@ -167,10 +167,10 @@ func TestMCPRejectsInvalidStringAndUnknownArguments(t *testing.T) {
 	}
 }
 
-func TestMCPDebugLogIncludesToolCallNameOnly(t *testing.T) {
+func TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "mcp.log")
 	t.Setenv("ENTIRE_BRAIN_MCP_DEBUG_LOG", logPath)
-	input := frameMCP(`{"jsonrpc":"2.0","method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"secret-query-value"}}}`)
+	input := frameMCP(`{"jsonrpc":"2.0","method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"secret-query-value","location_only":true,"include_deletions":true}}}`)
 	var out bytes.Buffer
 	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
 		t.Fatalf("mcp: %v", err)
@@ -180,7 +180,7 @@ func TestMCPDebugLogIncludesToolCallNameOnly(t *testing.T) {
 		t.Fatalf("read debug log: %v", err)
 	}
 	text := string(data)
-	for _, want := range []string{"message: tools/call", "tool: brain_regressions"} {
+	for _, want := range []string{"message: tools/call", "tool: brain_regressions", `tool_args: {"include_deletions":true,"location_only":true}`} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("debug log missing %q: %s", want, text)
 		}

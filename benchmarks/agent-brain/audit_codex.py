@@ -110,6 +110,37 @@ def activity_has_mcp_call_with_args(activity: dict[str, Any], tool: str, require
     return False
 
 
+def record_env_flags(rec: dict[str, Any]) -> dict[str, str]:
+    raw = get(rec, "provenance", "run_config", "env_flags", default={})
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        str(key): str(value)
+        for key, value in sorted(raw.items())
+        if value not in (None, "")
+    }
+
+
+def delivery_scope_for_record(condition: str, env_flags: dict[str, str]) -> str:
+    if condition == "mcp_workspace_radar":
+        return "mcp_workspace_radar_location_only"
+    if condition == "mcp_history" and env_flags.get("BENCH_RADAR_LOCATION_ONLY") == "1":
+        return "mcp_radar_location_only"
+    if condition == "mcp_history" and env_flags.get("BENCH_REGRESSION_RADAR") == "1":
+        return "mcp_radar_answer_assisted"
+    if condition == "mcp_history":
+        return "mcp"
+    return condition
+
+
+def required_server_tool_names(condition: str, delivery_scope: str) -> set[str]:
+    if condition == "mcp_workspace_radar" or delivery_scope == "mcp_workspace_radar_location_only":
+        return {"brain_workspace_regressions"}
+    if delivery_scope in {"mcp_radar_location_only", "mcp_radar_answer_assisted"}:
+        return {"brain_regressions"}
+    return set()
+
+
 def resolve_repo_relative_path(value: Any) -> pathlib.Path | None:
     if not isinstance(value, str) or not value:
         return None
@@ -271,7 +302,7 @@ def audit_record_provenance(rec: dict[str, Any]) -> tuple[list[str], list[str], 
     if not is_sha256(prov.get("fingerprint")):
         flags.append("H:provenance_missing_record_fingerprint")
 
-    for tool in ("brain", "sem"):
+    for tool in ("brain", "sem", "entire"):
         if not is_sha256(get(prov, "tools", tool, "sha256")):
             flags.append(f"H:provenance_missing_{tool}_tool_sha256")
 
@@ -315,6 +346,9 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     # "missing" tool it was explicitly told not to call.
     model = (get(rec, "runner", "model") or rec.get("agent") or "").lower()
     compact = model in {"gpt-5.5", "gpt-5", "opus", "claude-opus-4-8"}
+    env_flags = record_env_flags(rec)
+    delivery_scope = delivery_scope_for_record(str(cond), env_flags)
+    required_logged_tools = required_server_tool_names(str(cond), delivery_scope)
 
     # A. no_brain purity (HARD: no_brain must never touch Brain/MCP/CLI/private)
     if cond == "no_brain":
@@ -337,8 +371,6 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         real_bare_names = {bare_mcp_tool_name(n) for n in real}
         logged_bare_names = set(slog_names or [])
         radar_requires_deletions = record_radar_requires_deletions(rec)
-        run_env_flags = get(rec, "provenance", "run_config", "env_flags", default={})
-        run_env_flags = run_env_flags if isinstance(run_env_flags, dict) else {}
         if mcp_calls <= 0:
             # An mcp run with no tool calls is an HONEST FAILURE (note), UNLESS it was
             # counted as a passing/win result -> then it is a HARD flag (false win).
@@ -362,7 +394,7 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
                 flags.append("B:mcp_workspace_radar_missing_location_only")
             if radar_requires_deletions and not activity_has_mcp_call_with_args(activity, req, {"location_only": True, "include_deletions": True}):
                 flags.append("B:mcp_workspace_radar_missing_include_deletions")
-        if cond == "mcp_history" and run_env_flags.get("BENCH_RADAR_LOCATION_ONLY") == "1" and mcp_calls > 0:
+        if cond == "mcp_history" and env_flags.get("BENCH_RADAR_LOCATION_ONLY") == "1" and mcp_calls > 0:
             if not activity_has_mcp_call_with_args(activity, "brain_regressions", {"location_only": True}):
                 flags.append("B:mcp_radar_missing_location_only")
             if radar_requires_deletions and not activity_has_mcp_call_with_args(activity, "brain_regressions", {"location_only": True, "include_deletions": True}):
@@ -376,6 +408,10 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
             missing_from_log = sorted(real_bare_names - logged_bare_names)
             if missing_from_log:
                 flags.append("B:mcp_tool_names_not_in_server_log(" + ",".join(missing_from_log) + ")")
+        if required_logged_tools:
+            missing_required = sorted(required_logged_tools - logged_bare_names)
+            if missing_required:
+                flags.append("B:mcp_required_tool_names_not_in_server_log(" + ",".join(missing_required) + ")")
         if slog == 0 and mcp_calls <= 0:
             pass  # consistent honest failure
 
@@ -419,6 +455,8 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     provenance_flags, provenance_notes, provenance_summary = audit_record_provenance(rec)
     flags.extend(provenance_flags)
     notes.extend(provenance_notes)
+    logged_bare_names = set(slog_names or [])
+    mcp_named_tool_verified = bool(required_logged_tools) and required_logged_tools.issubset(logged_bare_names)
 
     # Classify a record as an integrity-verified MCP proof datapoint
     mcp_verified = (
@@ -432,6 +470,8 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         "run_id": run_id,
         "task_id": rec.get("task_id"),
         "condition": cond,
+        "delivery_scope": delivery_scope,
+        "env_flags": env_flags,
         "repetition": rec.get("repetition"),
         "runner": get(rec, "runner", "id", default=rec.get("agent")),
         "model": get(rec, "runner", "model"),
@@ -444,6 +484,8 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         "search_calls": search_calls,
         "parent_count": pc,
         "mcp_verified": mcp_verified,
+        "mcp_named_tool_verified": mcp_named_tool_verified,
+        "required_server_tool_names": sorted(required_logged_tools),
         "provenance": provenance_summary,
         "flags": flags,
         "notes": notes,
@@ -498,6 +540,7 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
     task = comp.get("task")
     runner = comp.get("runner")
     condition = comp.get("condition")
+    delivery_scope = comp.get("delivery_scope")
     required_condition = int(comp.get("n_condition") or 0)
     required_baseline = int(comp.get("n_baseline") or 0)
     condition_requires_mcp_verified = condition in MCP_CONDITIONS
@@ -510,6 +553,8 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
             and record.get("runner") == runner
             and record.get("condition") == cond
         ):
+            return False
+        if cond != "no_brain" and delivery_scope and record.get("delivery_scope") != delivery_scope:
             return False
         if require_success:
             return record.get("ok") is True and record.get("valid") is True
@@ -559,6 +604,7 @@ def proof_ready_record_backing(comp: dict[str, Any], rec_audits: list[dict[str, 
         "condition_mcp_verified_unique_repetitions": len(condition_mcp_verified_repetitions),
         "required_condition": required_condition,
         "required_baseline": required_baseline,
+        "required_delivery_scope": delivery_scope,
         "condition_requires_mcp_verified": condition_requires_mcp_verified,
         "condition_records_ok": condition_records_ok,
         "baseline_records_ok": baseline_records_ok,

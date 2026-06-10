@@ -52,10 +52,32 @@ def load_codex_audit(path: pathlib.Path | None) -> dict[str, Any] | None:
 def codex_audit_radar_keys(report: dict[str, Any] | None) -> set[tuple[str, str, str, str, str]] | None:
     if report is None:
         return None
-    keys: set[tuple[str, str, str, str, str]] = set()
+    return set(codex_audit_radar_backing(report))
+
+
+def validation_pass_rate(records: list[dict[str, Any]]) -> float | None:
+    if not records:
+        return None
+    return sum(1 for record in records if record.get("valid") is True) / len(records)
+
+
+def close_float(left: Any, right: Any, *, tolerance: float = 0.000001) -> bool:
+    left_float = as_float(left)
+    right_float = as_float(right)
+    if left_float is None or right_float is None:
+        return left_float is None and right_float is None
+    return abs(left_float - right_float) <= tolerance
+
+
+def codex_audit_radar_backing(report: dict[str, Any] | None) -> dict[tuple[str, str, str, str, str], dict[str, Any]]:
+    if report is None:
+        return {}
+    out: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
     suites = report.get("suites") if isinstance(report.get("suites"), dict) else {}
     for suite, suite_data in suites.items():
         comparisons = suite_data.get("comparisons") if isinstance(suite_data, dict) else []
+        records = suite_data.get("records") if isinstance(suite_data, dict) else []
+        records = records if isinstance(records, list) else []
         for comp in comparisons or []:
             if not isinstance(comp, dict):
                 continue
@@ -69,14 +91,60 @@ def codex_audit_radar_keys(report: dict[str, Any] | None) -> set[tuple[str, str,
                 and backing.get("condition_mcp_verified_ok") is True
             ):
                 continue
-            keys.add((
+            key = (
                 str(suite),
                 str(comp.get("task") or ""),
                 str(comp.get("runner") or ""),
                 str(comp.get("condition") or ""),
                 str(comp.get("delivery_scope") or ""),
-            ))
-    return keys
+            )
+            condition_records = [
+                record for record in records
+                if isinstance(record, dict)
+                and record.get("pass") is True
+                and record.get("mcp_verified") is True
+                and record.get("task_id") == comp.get("task")
+                and record.get("runner") == comp.get("runner")
+                and record.get("condition") == comp.get("condition")
+                and record.get("delivery_scope") == comp.get("delivery_scope")
+            ]
+            baseline_records = [
+                record for record in records
+                if isinstance(record, dict)
+                and record.get("pass") is True
+                and record.get("task_id") == comp.get("task")
+                and record.get("runner") == comp.get("runner")
+                and record.get("condition") == "no_brain"
+            ]
+            out[key] = {
+                "codex_audit_backed": True,
+                "condition_records": len(condition_records),
+                "baseline_records": len(baseline_records),
+                "condition_pass_rate": validation_pass_rate(condition_records),
+                "baseline_pass_rate": validation_pass_rate(baseline_records),
+            }
+    return out
+
+
+def audit_summary_consistency(comp: dict[str, Any], backing: dict[str, Any]) -> list[str]:
+    mismatches: list[str] = []
+    if int(comp.get("n_condition") or 0) != int(backing.get("condition_records") or 0):
+        mismatches.append(
+            f"n_condition summary={comp.get('n_condition')} records={backing.get('condition_records')}"
+        )
+    if int(comp.get("n_baseline") or 0) != int(backing.get("baseline_records") or 0):
+        mismatches.append(
+            f"n_baseline summary={comp.get('n_baseline')} records={backing.get('baseline_records')}"
+        )
+    if not close_float(comp.get("pass_rate_condition"), backing.get("condition_pass_rate")):
+        mismatches.append(
+            f"pass_rate_condition summary={comp.get('pass_rate_condition')} records={backing.get('condition_pass_rate')}"
+        )
+    if not close_float(comp.get("pass_rate_baseline"), backing.get("baseline_pass_rate")):
+        mismatches.append(
+            f"pass_rate_baseline summary={comp.get('pass_rate_baseline')} records={backing.get('baseline_pass_rate')}"
+        )
+    return mismatches
 
 
 def iter_radar_comparisons(results: pathlib.Path, suite_globs: list[str]) -> list[dict[str, Any]]:
@@ -172,10 +240,10 @@ def build_report(results: pathlib.Path, suite_globs: list[str], codex_audit: dic
     status_counts: Counter[str] = Counter()
     proof_ready = 0
     promotable = 0
-    audit_keys = codex_audit_radar_keys(codex_audit)
+    audit_backing = codex_audit_radar_backing(codex_audit) if codex_audit is not None else None
     for comp in iter_radar_comparisons(results, suite_globs):
         status = radar_status(comp)
-        if audit_keys is not None:
+        if audit_backing is not None:
             key = (
                 str(comp.get("suite") or ""),
                 str(comp.get("task_id") or ""),
@@ -183,8 +251,22 @@ def build_report(results: pathlib.Path, suite_globs: list[str], codex_audit: dic
                 str(comp.get("condition") or ""),
                 str(comp.get("delivery_scope") or ""),
             )
-            backed = key in audit_keys
+            backing = audit_backing.get(key)
+            backed = backing is not None
             status["codex_audit_backed"] = backed
+            if backing is not None:
+                mismatches = audit_summary_consistency(comp, backing)
+                backing = dict(backing)
+                backing["summary_consistency_ok"] = not mismatches
+                backing["summary_consistency_mismatches"] = mismatches
+                status["codex_audit_record_backing"] = backing
+                if status["proof_ready"] and mismatches:
+                    status["status"] = "audit-mismatch"
+                    status["proof_ready"] = False
+                    status["promotable"] = False
+                    status["reasons"].append("Radar summary pass/count fields do not match audited record rows")
+                    status["reasons"].extend(mismatches)
+                    status["recommendation"] = "regenerate summary.json from retained records before citing Radar proof"
             if status["proof_ready"] and not backed:
                 status["status"] = "audit-missing"
                 status["proof_ready"] = False
@@ -217,7 +299,7 @@ def build_report(results: pathlib.Path, suite_globs: list[str], codex_audit: dic
         "schema": 1,
         "results": str(results),
         "suite_globs": suite_globs,
-        "codex_audit_required": audit_keys is not None,
+        "codex_audit_required": audit_backing is not None,
         "totals": {
             "radar_comparisons": len(comparisons),
             "proof_ready": proof_ready,
@@ -268,6 +350,14 @@ def render_markdown(report: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def has_release_candidate_comparison(report: dict[str, Any]) -> bool:
+    return any(
+        str(comp.get("suite") or "").startswith("release-candidate-")
+        for comp in report.get("comparisons") or []
+        if isinstance(comp, dict)
+    )
+
+
 def write_report(report: dict[str, Any], out_dir: pathlib.Path) -> pathlib.Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     json_path = out_dir / "radar-candidate-report.json"
@@ -298,6 +388,9 @@ def main(argv: list[str] | None = None) -> int:
     print(render_markdown(report).split("\n\n", 1)[0])
     print(f"\nWrote {json_path} and radar-candidate-report.md")
     totals = report["totals"]
+    if args.fail_when_no_proof and args.codex_audit_report is None and has_release_candidate_comparison(report):
+        print("Release-candidate Radar proof requires --codex-audit-report.", file=sys.stderr)
+        return 1
     if args.fail_when_no_proof and int(totals["proof_ready"]) <= 0:
         print("Radar evidence has no proof-ready comparison.", file=sys.stderr)
         return 1

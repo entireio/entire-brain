@@ -6,6 +6,8 @@
           "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r1",
           "task_id": "entire-brain-history-codex-schema-contract",
           "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
           "repetition": 1,
           "runner": "codex-gpt-5.5-high",
           "model": "gpt-5.5",
@@ -18,6 +20,8 @@
           "search_calls": 6,
           "parent_count": 0,
           "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -40,6 +44,8 @@
           "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r2",
           "task_id": "entire-brain-history-codex-schema-contract",
           "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
           "repetition": 2,
           "runner": "codex-gpt-5.5-high",
           "model": "gpt-5.5",
@@ -52,6 +58,8 @@
           "search_calls": 6,
           "parent_count": 0,
           "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -74,6 +82,8 @@
           "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r3",
           "task_id": "entire-brain-history-codex-schema-contract",
           "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
           "repetition": 3,
           "runner": "codex-gpt-5.5-high",
           "model": "gpt-5.5",
@@ -86,6 +96,8 @@
           "search_calls": 8,
           "parent_count": 0,
           "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -108,6 +120,8 @@
           "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r4",
           "task_id": "entire-brain-history-codex-schema-contract",
           "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
           "repetition": 4,
           "runner": "codex-gpt-5.5-high",
           "model": "gpt-5.5",
@@ -120,6 +134,8 @@
           "search_calls": 10,
           "parent_count": 0,
           "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -142,6 +158,8 @@
           "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r1",
           "task_id": "entire-brain-history-codex-schema-contract",
           "condition": "full_brain",
+          "delivery_scope": "full_brain",
+          "env_flags": {},
           "repetition": 1,
           "runner": "codex-gpt-5.5-high",
           "model": "gpt-5.5",
@@ -154,6 +172,8 @@
           "search_calls": 24,
           "parent_count": 0,
           "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -176,6 +196,8 @@
           "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r2",
           "task_id": "entire-brain-history-codex-schema-contract",
           "condition": "full_brain",
+          "delivery_scope": "full_brain",
+          "env_flags": {},
           "repetition": 2,
           "runner": "codex-gpt-5.5-high",
           "model": "gpt-5.5",
@@ -188,6 +210,8 @@
           "search_calls": 12,
           "parent_count": 0,
           "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -210,6 +234,8 @@
           "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r3",
           "task_id": "entire-brain-history-codex-schema-contract",
           "condition": "full_brain",
+          "delivery_scope": "full_brain",
+          "env_flags": {},
           "repetition": 3,
           "runner": "codex-gpt-5.5-high",
           "model": "gpt-5.5",
@@ -222,6 +248,8 @@
           "search_calls": 14,
           "parent_count": 0,
           "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -244,6 +272,8 @@
           "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r4",
           "task_id": "entire-brain-history-codex-schema-contract",
           "condition": "full_brain",
+          "delivery_scope": "full_brain",
+          "env_flags": {},
           "repetition": 4,
           "runner": "codex-gpt-5.5-high",
           "model": "gpt-5.5",
@@ -256,6 +286,8 @@
           "search_calls": 24,
           "parent_count": 0,
           "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -306,6 +338,7 @@
             "condition_mcp_verified_unique_repetitions": 0,
             "required_condition": 4,
             "required_baseline": 4,
+            "required_delivery_scope": null,
             "condition_requires_mcp_verified": false,
             "condition_records_ok": true,
             "baseline_records_ok": true,
@@ -329,6 +362,8 @@
           "run_id": "entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r1",
           "task_id": "entireio-cli-manual-commit-attribution-base",
           "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
           "repetition": 1,
           "runner": "codex-gpt-5.4-mini-medium",
           "model": "gpt-5.4-mini",
@@ -341,6 +376,8 @@
           "search_calls": 12,
           "parent_count": 0,
           "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -363,6 +400,8 @@
           "run_id": "entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r2",
           "task_id": "entireio-cli-manual-commit-attribution-base",
           "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
           "repetition": 2,
           "runner": "codex-gpt-5.4-mini-medium",
           "model": "gpt-5.4-mini",
@@ -375,6 +414,8 @@
           "search_calls": 22,
           "parent_count": 0,
           "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -397,6 +438,8 @@
           "run_id": "entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r3",
           "task_id": "entireio-cli-manual-commit-attribution-base",
           "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
           "repetition": 3,
           "runner": "codex-gpt-5.4-mini-medium",
           "model": "gpt-5.4-mini",
@@ -409,6 +452,8 @@
           "search_calls": 8,
           "parent_count": 0,
           "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -431,6 +476,8 @@
           "run_id": "entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r4",
           "task_id": "entireio-cli-manual-commit-attribution-base",
           "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
           "repetition": 4,
           "runner": "codex-gpt-5.4-mini-medium",
           "model": "gpt-5.4-mini",
@@ -443,6 +490,8 @@
           "search_calls": 18,
           "parent_count": 0,
           "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -465,6 +514,8 @@
           "run_id": "entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r1",
           "task_id": "entireio-cli-manual-commit-attribution-base",
           "condition": "mcp_history",
+          "delivery_scope": "mcp",
+          "env_flags": {},
           "repetition": 1,
           "runner": "codex-gpt-5.4-mini-medium",
           "model": "gpt-5.4-mini",
@@ -477,6 +528,8 @@
           "search_calls": 16,
           "parent_count": 0,
           "mcp_verified": true,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -500,6 +553,8 @@
           "run_id": "entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r2",
           "task_id": "entireio-cli-manual-commit-attribution-base",
           "condition": "mcp_history",
+          "delivery_scope": "mcp",
+          "env_flags": {},
           "repetition": 2,
           "runner": "codex-gpt-5.4-mini-medium",
           "model": "gpt-5.4-mini",
@@ -512,6 +567,8 @@
           "search_calls": 14,
           "parent_count": 0,
           "mcp_verified": true,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -535,6 +592,8 @@
           "run_id": "entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r3",
           "task_id": "entireio-cli-manual-commit-attribution-base",
           "condition": "mcp_history",
+          "delivery_scope": "mcp",
+          "env_flags": {},
           "repetition": 3,
           "runner": "codex-gpt-5.4-mini-medium",
           "model": "gpt-5.4-mini",
@@ -547,6 +606,8 @@
           "search_calls": 18,
           "parent_count": 0,
           "mcp_verified": true,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -570,6 +631,8 @@
           "run_id": "entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r4",
           "task_id": "entireio-cli-manual-commit-attribution-base",
           "condition": "mcp_history",
+          "delivery_scope": "mcp",
+          "env_flags": {},
           "repetition": 4,
           "runner": "codex-gpt-5.4-mini-medium",
           "model": "gpt-5.4-mini",
@@ -582,6 +645,8 @@
           "search_calls": 16,
           "parent_count": 0,
           "mcp_verified": true,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -633,6 +698,7 @@
             "condition_mcp_verified_unique_repetitions": 4,
             "required_condition": 4,
             "required_baseline": 4,
+            "required_delivery_scope": "mcp",
             "condition_requires_mcp_verified": true,
             "condition_records_ok": true,
             "baseline_records_ok": true,
@@ -656,6 +722,10 @@
           "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r1",
           "task_id": "entireio-cli-radar-manual-attribution-deletions",
           "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
           "repetition": 1,
           "runner": "codex-gpt-5.4-mini-low",
           "model": "gpt-5.4-mini",
@@ -668,6 +738,8 @@
           "search_calls": 8,
           "parent_count": 0,
           "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -690,6 +762,10 @@
           "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r2",
           "task_id": "entireio-cli-radar-manual-attribution-deletions",
           "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
           "repetition": 2,
           "runner": "codex-gpt-5.4-mini-low",
           "model": "gpt-5.4-mini",
@@ -702,6 +778,8 @@
           "search_calls": 10,
           "parent_count": 0,
           "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -724,6 +802,10 @@
           "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r3",
           "task_id": "entireio-cli-radar-manual-attribution-deletions",
           "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
           "repetition": 3,
           "runner": "codex-gpt-5.4-mini-low",
           "model": "gpt-5.4-mini",
@@ -736,6 +818,8 @@
           "search_calls": 6,
           "parent_count": 0,
           "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -758,6 +842,10 @@
           "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r4",
           "task_id": "entireio-cli-radar-manual-attribution-deletions",
           "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
           "repetition": 4,
           "runner": "codex-gpt-5.4-mini-low",
           "model": "gpt-5.4-mini",
@@ -770,6 +858,8 @@
           "search_calls": 10,
           "parent_count": 0,
           "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "required_server_tool_names": [],
           "provenance": {
             "present": true,
             "ok": true,
@@ -792,6 +882,10 @@
           "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1",
           "task_id": "entireio-cli-radar-manual-attribution-deletions",
           "condition": "mcp_history",
+          "delivery_scope": "mcp_radar_location_only",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
           "repetition": 1,
           "runner": "codex-gpt-5.4-mini-low",
           "model": "gpt-5.4-mini",
@@ -804,6 +898,10 @@
           "search_calls": 10,
           "parent_count": 0,
           "mcp_verified": true,
+          "mcp_named_tool_verified": true,
+          "required_server_tool_names": [
+            "brain_regressions"
+          ],
           "provenance": {
             "present": true,
             "ok": true,
@@ -832,6 +930,10 @@
           "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r2",
           "task_id": "entireio-cli-radar-manual-attribution-deletions",
           "condition": "mcp_history",
+          "delivery_scope": "mcp_radar_location_only",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
           "repetition": 2,
           "runner": "codex-gpt-5.4-mini-low",
           "model": "gpt-5.4-mini",
@@ -844,6 +946,10 @@
           "search_calls": 6,
           "parent_count": 0,
           "mcp_verified": true,
+          "mcp_named_tool_verified": true,
+          "required_server_tool_names": [
+            "brain_regressions"
+          ],
           "provenance": {
             "present": true,
             "ok": true,
@@ -872,6 +978,10 @@
           "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r3",
           "task_id": "entireio-cli-radar-manual-attribution-deletions",
           "condition": "mcp_history",
+          "delivery_scope": "mcp_radar_location_only",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
           "repetition": 3,
           "runner": "codex-gpt-5.4-mini-low",
           "model": "gpt-5.4-mini",
@@ -884,6 +994,10 @@
           "search_calls": 6,
           "parent_count": 0,
           "mcp_verified": true,
+          "mcp_named_tool_verified": true,
+          "required_server_tool_names": [
+            "brain_regressions"
+          ],
           "provenance": {
             "present": true,
             "ok": true,
@@ -912,6 +1026,10 @@
           "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4",
           "task_id": "entireio-cli-radar-manual-attribution-deletions",
           "condition": "mcp_history",
+          "delivery_scope": "mcp_radar_location_only",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
           "repetition": 4,
           "runner": "codex-gpt-5.4-mini-low",
           "model": "gpt-5.4-mini",
@@ -924,6 +1042,10 @@
           "search_calls": 2,
           "parent_count": 0,
           "mcp_verified": true,
+          "mcp_named_tool_verified": true,
+          "required_server_tool_names": [
+            "brain_regressions"
+          ],
           "provenance": {
             "present": true,
             "ok": true,
@@ -983,6 +1105,7 @@
             "condition_mcp_verified_unique_repetitions": 4,
             "required_condition": 4,
             "required_baseline": 4,
+            "required_delivery_scope": "mcp_radar_location_only",
             "condition_requires_mcp_verified": true,
             "condition_records_ok": true,
             "baseline_records_ok": true,

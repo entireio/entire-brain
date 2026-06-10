@@ -393,19 +393,23 @@ Release claims must stay local-first and evidence-backed:
   is counted as `mcp_radar_location_only` rather than folded into generic
   history proof. Proof-ready MCP-backed comparisons must now be backed by their
   own MCP-verified condition records, so a global MCP minimum from another suite
-  cannot make a weak Radar comparison citable. Workspace radar is also
-  first-class in the harness: the
+  cannot make a weak Radar comparison citable. The Radar evidence gate also
+  cross-checks `summary.json` pass rates and record counts against the audited
+  record rows, so a stale summary cannot become citable proof. Workspace radar
+  is also first-class in the harness: the
   `mcp_workspace_radar` condition prepares a local workspace, requires the
   `brain_workspace_regressions` MCP tool, and audits successful comparisons as
   `mcp_workspace_radar_location_only`.
 - MCP proof authenticity now has a stronger path for new retained runs: the
   stdio server keeps the legacy `message: tools/call` count line and also emits
-  a redacted `tool: brain_*` line to the debug log. The independent auditor
-  cross-checks recorded MCP tool names against those server-side names when
-  present. Retained MCP records must now include an `mcp-server.log` with real
-  `tools/call` lines before they count as MCP-verified; older retained
-  count-only logs are accepted as server-call proof, and new retained runs should
-  carry both count and tool-name lines.
+  redacted `tool: brain_*` and safe boolean `tool_args` lines to the debug log.
+  The independent auditor requires those server-side tool names for Radar proof
+  scopes such as `mcp_radar_location_only` and
+  `mcp_workspace_radar_location_only`. Generic retained MCP-history proof still
+  requires real `tools/call` lines before records count as MCP-verified, but
+  older count-only logs remain legacy server-call proof rather than named Radar
+  tool proof. New retained runs should carry call counts, tool-name lines, and
+  safe boolean argument lines.
 - MCP argument contracts now fail closed: schemas advertise
   `additionalProperties: false`, unknown keys are rejected, string fields and
   string-array fields must have the advertised type, and Radar MCP proof records
@@ -506,7 +510,15 @@ headroom: `mise run radar:evidence` passes with one proof-ready
 `mcp_radar_location_only` comparison (`pass no-brain -> Radar` was
 `0.25 -> 1.00`). The Radar evidence task generates the independent Codex audit
 report first and requires a matching audit-clean comparison before accepting a
-summary-level Radar proof.
+summary-level Radar proof; it also checks the summary's pass rates and counts
+against those audited records.
+
+`mise run release:evidence` now regenerates both retained reports in a temp
+directory before comparing them with committed evidence:
+`codex-audit-report.{json,md}` and `radar-candidate-report.{json,md}`. That
+keeps the general replay-lab gate and the stricter Radar gate tied together, so
+Regression Radar proof cannot pass release evidence through summary metadata
+alone.
 
 CI now includes the retained replay-lab release-evidence audit in addition to
 lint/build/test/Phase 1 semantic checks. The facts evidence gate is not wired
@@ -564,8 +576,8 @@ repo/access/artifacts are available:
   committed release lane currently requires `history`, `mcp`, and
   `mcp_radar_location_only` scopes, so it cannot be cited as semantic or facts
   proof by aggregation. The
-  check writes reports to a temp directory and compares them with committed
-  reports; updating retained reports is explicit via
+  check writes Codex and Radar reports to a temp directory and compares them
+  with committed reports; updating retained reports is explicit via
   `mise run release:evidence:update`.
 
 Historical quarantine caveat: `benchmarks/agent-brain/results/codex-audit-report.md`

@@ -40,8 +40,8 @@ task outcomes instead of relying on demos or anecdotes.
 - Semantic usefulness, using semantic-audit output plus benchmark tasks where
   semantic context changes file/test localization or agent efficiency.
 - More replay-lab evidence beyond the first retained focused history and
-  MCP-history proofs, using repeated benchmark scenarios, stable verdicts, and
-  committed `audit_codex.py --fail-on-flags` reports.
+  MCP/Radar proofs, using repeated benchmark scenarios, stable verdicts, and
+  committed release/Radar audit reports.
 
 ## Blocked Or Access-Dependent
 
@@ -75,11 +75,12 @@ task outcomes instead of relying on demos or anecdotes.
   proof where `full_brain` improved the task score/pass-rate over `no_brain`,
   and one retained MCP-history proof where `mcp_history` improved pass rate
   1/4 -> 4/4 on a manual-attribution regression without proving efficiency
-  gains.
+  gains, plus one retained single-repo location-only deletion-Radar proof where
+  `brain_regressions(location_only, include_deletions)` improved pass rate
+  1/4 -> 4/4.
 - Pending proof: target large-repo distill timing, paired facts evals,
-  Regression Radar retained proof (single-repo and workspace-radar; local pilots
-  are currently saturated), semantic usefulness, and broader retained replay-lab
-  benchmark evidence.
+  workspace Radar outcome proof, answer-assisted/broad Radar claims, semantic
+  usefulness, and broader retained replay-lab benchmark evidence.
 - Blocked: target large-repo evidence, backend/Slack access, turn signing,
   checkpoint-time fact generation.
 - Future: distributed/shared brain, team artifact hydration, multi-agent write
