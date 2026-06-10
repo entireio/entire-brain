@@ -740,27 +740,32 @@ func TestMCPQMDRetrievalToolsUseLocalFacts(t *testing.T) {
 	}
 
 	input := frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"qmd retrieval alpha","limit":1,"branch":%q}}}`, branch)) +
-		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_vsearch","arguments":{"query":"qmd retrieval alpha","limit":1,"branch":%q}}}`, branch)) +
-		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_get","arguments":{"id":%q,"branch":%q}}}`, facts[0].ID, branch)) +
-		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"brain_multi_get","arguments":{"ids":[%q,"fact:missing"],"branch":%q}}}`, facts[1].ID, branch))
+		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_vsearch","arguments":{"query":"qmd retrieval beta","limit":1,"branch":%q}}}`, branch)) +
+		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_query","arguments":{"query":"qmd retrieval alpha","limit":1,"branch":%q}}}`, branch)) +
+		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"brain_get","arguments":{"id":%q,"branch":%q}}}`, facts[0].ID, branch)) +
+		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"brain_multi_get","arguments":{"ids":[%q,"fact:missing"],"branch":%q}}}`, facts[1].ID, branch))
 	var out bytes.Buffer
 	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp: %v", err)
 	}
 	responses := readMCPResponses(t, out.String())
-	if len(responses) != 4 {
+	if len(responses) != 5 {
 		t.Fatalf("responses = %d", len(responses))
-	}
-	data, _ := json.Marshal(responses)
-	for _, want := range []string{"qmd retrieval alpha contract", "qmd retrieval beta contract", "fact:missing"} {
-		if !strings.Contains(string(data), want) {
-			t.Fatalf("QMD MCP retrieval results missing %q: %s", want, data)
-		}
 	}
 	for i, response := range responses {
 		if response["error"] != nil {
 			t.Fatalf("response %d returned error: %+v", i+1, response)
 		}
+	}
+	assertMCPRetrievalResult(t, responses[0], branch, facts[0].ID, "qmd retrieval alpha contract")
+	assertMCPRetrievalResult(t, responses[1], branch, facts[1].ID, "qmd retrieval beta contract")
+	assertMCPRetrievalResult(t, responses[2], branch, facts[0].ID, "qmd retrieval alpha contract")
+	assertMCPRetrievalResult(t, responses[3], "", facts[0].ID, "qmd retrieval alpha contract")
+	assertMCPRetrievalResult(t, responses[4], "", facts[1].ID, "qmd retrieval beta contract")
+	payload := mcpTextJSONPayload(t, responses[4])
+	missing, ok := payload["missing"].([]any)
+	if !ok || len(missing) != 1 || missing[0] != "fact:missing" {
+		t.Fatalf("multi-get missing = %#v", payload["missing"])
 	}
 }
 
@@ -971,4 +976,51 @@ func readMCPResponses(t *testing.T, data string) []map[string]any {
 		responses = append(responses, decoded)
 	}
 	return responses
+}
+
+func mcpTextJSONPayload(t *testing.T, response map[string]any) map[string]any {
+	t.Helper()
+	result, ok := response["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("response missing result object: %+v", response)
+	}
+	content, ok := result["content"].([]any)
+	if !ok || len(content) == 0 {
+		t.Fatalf("response missing content: %+v", response)
+	}
+	item, ok := content[0].(map[string]any)
+	if !ok {
+		t.Fatalf("response content item is not an object: %+v", content[0])
+	}
+	text, ok := item["text"].(string)
+	if !ok {
+		t.Fatalf("response content text is not a string: %+v", item)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(text), &payload); err != nil {
+		t.Fatalf("decode MCP text JSON %q: %v", text, err)
+	}
+	return payload
+}
+
+func assertMCPRetrievalResult(t *testing.T, response map[string]any, branch, id, text string) {
+	t.Helper()
+	payload := mcpTextJSONPayload(t, response)
+	if branch != "" && payload["branch"] != branch {
+		t.Fatalf("branch = %#v, want %q in payload %+v", payload["branch"], branch, payload)
+	}
+	results, ok := payload["results"].([]any)
+	if !ok || len(results) == 0 {
+		t.Fatalf("results missing or empty: %+v", payload)
+	}
+	for _, result := range results {
+		row, ok := result.(map[string]any)
+		if !ok {
+			continue
+		}
+		if row["id"] == id && strings.Contains(fmt.Sprint(row["text"]), text) {
+			return
+		}
+	}
+	t.Fatalf("result %q containing %q not found in %+v", id, text, payload)
 }
