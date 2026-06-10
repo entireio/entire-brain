@@ -12,6 +12,26 @@ import (
 // nor the semantic list can unilaterally dominate the fusion.
 const rrfK = 60.0
 
+// vectorStore persists fact vectors across CLI invocations. Two
+// implementations exist, selected by build tag: the pure-Go vectors.bin flat
+// file (embedStore, the default build) and the Stage 1b sqlite-vec vec0 store
+// (vecStore, brain_cgo builds). Both are regenerable derived artifacts keyed
+// by embedder model id + dim; a mismatch loads empty and triggers a clean
+// rebuild.
+type vectorStore interface {
+	load() map[string][]float32
+	save(map[string][]float32) error
+}
+
+// knnVectorStore is the optional vectorStore upgrade the brain_cgo build
+// provides: one vec0 MATCH query returns cosine similarity for every stored
+// fact, replacing the per-fact brute-force loop in the semantic arm. ok=false
+// (store absent, model mismatch, empty) sends the caller to the brute-force
+// fallback, so a degraded store never breaks ranking.
+type knnVectorStore interface {
+	knnCos(qvec []float32) (map[string]float64, bool)
+}
+
 // semanticReranker holds the embedder and a cache of fact vectors. Fact ids are
 // content-derived, so a vector is valid for the life of the fact: the in-memory
 // cache makes an eval over many queries embed each fact at most once, and an
@@ -19,7 +39,7 @@ const rrfK = 60.0
 type semanticReranker struct {
 	e       Embedder
 	cache   map[string][]float32
-	store   *embedStore     // nil => in-memory only (eval, tests)
+	store   vectorStore     // nil => in-memory only (eval, tests)
 	touched map[string]bool // ids seen this run; nil unless disk-backed
 	dirty   bool            // a new vector was embedded this run
 }
@@ -43,10 +63,19 @@ func newSemanticRerankerForBranch(e Embedder, brainDir, branch string) *semantic
 	if rr == nil {
 		return nil
 	}
-	rr.store = newEmbedStore(brainDir, branch, e.ID(), e.Dim())
+	rr.store = newVectorStore(brainDir, branch, e.ID(), e.Dim())
 	rr.cache = rr.store.load()
 	rr.touched = map[string]bool{}
 	return rr
+}
+
+// markTouched records an id as present this run without forcing an embed —
+// the KNN path serves cosines straight from the store, bypassing factVector,
+// but flush must still know the fact is alive or it would prune its vector.
+func (s *semanticReranker) markTouched(id string) {
+	if s.touched != nil {
+		s.touched[id] = true
+	}
 }
 
 func (s *semanticReranker) factVector(f factRecord) []float32 {
@@ -178,6 +207,17 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 	if factsBM25Enabled() {
 		bm25, haveBM25 = factsFTSScores(candidates, query)
 	}
+	// Semantic arm engine: under brain_cgo the disk store is a sqlite-vec vec0
+	// table, and one KNN MATCH query returns the cosine for every stored fact —
+	// replacing the per-fact brute-force loop below. Facts not yet in the store
+	// (new this run, or any store failure) fall back to embed + Go cosine, so
+	// the two paths always agree on coverage.
+	var storeCos map[string]float64
+	if haveSemantic && rr.store != nil {
+		if ks, ok := rr.store.(knnVectorStore); ok {
+			storeCos, _ = ks.knnCos(qvec)
+		}
+	}
 	cands := make([]cand, 0, len(candidates))
 	for _, f := range candidates {
 		var lex float64
@@ -197,7 +237,12 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		}
 		cos := 0.0
 		if haveSemantic {
-			cos = cosineFloat32(qvec, rr.factVector(f))
+			if c, ok := storeCos[f.ID]; ok {
+				cos = c
+				rr.markTouched(f.ID)
+			} else {
+				cos = cosineFloat32(qvec, rr.factVector(f))
+			}
 		}
 		cands = append(cands, cand{rec: f, lex: lex, lexHit: lexHit, cos: cos})
 	}

@@ -24,7 +24,6 @@ import (
 	"unicode"
 
 	"github.com/spf13/cobra"
-	_ "modernc.org/sqlite"
 )
 
 const (
@@ -1013,7 +1012,7 @@ func buildSemanticGeneration(brainDir, repoDir, generationID string, raw []byte,
 	}()
 
 	dbPath := filepath.Join(tmpDir, semanticSQLiteName)
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open(sqliteDriverName, dbPath)
 	if err != nil {
 		return "", semanticBuildMetrics{}, err
 	}
@@ -3319,7 +3318,7 @@ func semanticQueryLooksLikePath(query string) bool {
 }
 
 func findSemanticSymbolsInSQLite(storePath, query string, limit, offset int) ([]semanticRecord, error) {
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -3432,7 +3431,7 @@ func findSemanticRelationsForSymbolsInSQLite(storePath string, symbols []semanti
 		ids = append(ids, symbol.ID)
 		placeholders = append(placeholders, "?")
 	}
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -3463,7 +3462,7 @@ func findSemanticRelationsByTypesSQLite(storePath string, relationTypes []string
 	if len(relationTypes) == 0 {
 		return nil, nil
 	}
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -3542,7 +3541,7 @@ func traverseSemanticImpactSQLite(storePath string, roots []semanticRecord, dept
 }
 
 func loadSemanticSymbolsByIDSQLite(storePath string) (map[string]semanticRecord, error) {
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -3572,7 +3571,7 @@ func loadSemanticSymbolsByIDsSQLite(storePath string, ids []string) (map[string]
 	if len(ids) == 0 {
 		return out, nil
 	}
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -3741,7 +3740,7 @@ func findSemanticSymbolsForFilesSQLite(storePath string, files []string, limit i
 	if len(files) == 0 {
 		return nil, nil
 	}
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -4607,7 +4606,7 @@ func addSanitizedSemanticStoreBundlePath(tw *tar.Writer, rel, snapshotPath, repo
 	}
 	defer os.RemoveAll(tmpDir)
 	dbPath := filepath.Join(tmpDir, semanticSQLiteName)
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open(sqliteDriverName, dbPath)
 	if err != nil {
 		return err
 	}
@@ -5158,7 +5157,7 @@ func rebuildImportedSemanticStore(brainDir, repoDir string, source *semanticSour
 	}
 	defer os.RemoveAll(tmpDir)
 	dbPath := filepath.Join(tmpDir, semanticSQLiteName)
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open(sqliteDriverName, dbPath)
 	if err != nil {
 		return err
 	}
@@ -5380,7 +5379,7 @@ func validateSemanticSQLiteStore(path string, expectedSymbols, expectedRelations
 	if info.IsDir() {
 		return fmt.Errorf("semantic sqlite store must be a file: %s", path)
 	}
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open(sqliteDriverName, path)
 	if err != nil {
 		return fmt.Errorf("open semantic sqlite store: %w", err)
 	}

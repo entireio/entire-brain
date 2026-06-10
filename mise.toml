@@ -20,8 +20,16 @@ description = "Run deterministic Phase 1 semantic brain contract tests"
 run = "ENTIRE_BRAIN_PHASE1_CI=1 go test -race ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'"
 
 [tasks.build]
-description = "Build the plugin binary"
+description = "Build the plugin binary (pure-Go fallback stack)"
 run = "go build -o entire-brain ./cmd/entire-brain"
+
+[tasks."build:cgo"]
+description = "Build the Stage 1b cgo stack (mattn + sqlite-vec vec0 + FTS5)"
+run = "CGO_ENABLED=1 go build -tags 'brain_cgo sqlite_fts5' -o entire-brain ./cmd/entire-brain"
+
+[tasks."test:cgo"]
+description = "Run the test suite against the Stage 1b cgo stack"
+run = "CGO_ENABLED=1 go test -race -tags 'brain_cgo sqlite_fts5' ./..."
 
 [tasks.build-all]
 description = "Cross-build common Entire CLI plugin targets"
@@ -34,4 +42,4 @@ done
 
 [tasks.check]
 description = "Run formatting, linting, tests, and builds"
-depends = ["lint", "test:ci", "test:phase1", "build-all"]
+depends = ["lint", "test:ci", "test:cgo", "test:phase1", "build-all"]

@@ -1825,7 +1825,7 @@ func findSemanticRecordByIDOrName(brainDir string, source *semanticSourceManifes
 }
 
 func findSemanticRecordByIDOrNameSQLite(storePath, idOrName string) (semanticRecord, error) {
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		return semanticRecord{}, err
 	}
