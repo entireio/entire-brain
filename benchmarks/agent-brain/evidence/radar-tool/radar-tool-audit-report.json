@@ -30,6 +30,7 @@
       "TestMCPToolsListAdvertisesStaleBlindSpots",
       "TestMCPToolsListIncludesQMDRetrievalSurface",
       "TestMCPToolsListIncludesRegressions",
+      "TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite",
       "TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol",
       "TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer",
       "TestRegressionDedupeRankPrefersBoostedCallDeletion",
@@ -41,7 +42,7 @@
       "TestWorkspaceRegressionsSkipsUnsafeRepo"
     ],
     "path": "go-test-internal-cli-radar.jsonl",
-    "sha256": "sha256:6690cf2b2808ab9c6290d99a2ff6f7a5f8a9284164ffc6350d2f4586ba4d1052"
+    "sha256": "sha256:2115f026f3a65a7adbb169b4c1d5fb5dae6c0a37ecb49a554d27bbfb98168216"
   },
   "claim_scope": "mcp_radar_tool_contract",
   "errors": [],
@@ -60,6 +61,7 @@
     "TestRegressionDeletionReportsEachMissingAnchoredCallSite",
     "TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer",
     "TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol",
+    "TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite",
     "TestRegressionDedupeRankPrefersBoostedCallDeletion",
     "TestMCPInitializeAndToolsList",
     "TestMCPToolsListIncludesRegressions",
@@ -91,6 +93,6 @@
     "TestWorkspaceRegressionsSkipsUnsafeRepo"
   ],
   "schema": 1,
-  "source_head": "c36870efefe45546fdd235c81cd02fdaa7f6839a",
+  "source_head": "4b5edaabdecadcdfef0a875a3692596c6a144b56",
   "warnings": []
 }

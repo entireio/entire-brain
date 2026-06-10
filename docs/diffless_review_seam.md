@@ -67,8 +67,9 @@ Release evidence is partially retained. The current citable Radar evidence is
 deterministic tool-contract proof under
 `benchmarks/agent-brain/evidence/radar-tool`: focused local tests cover
 location-only redaction, deletion opt-in, anchored call deletion, hinted
-assignment deletion across multiple loci, workspace Radar, strict MCP argument
-validation, branch-aware QMD retrieval over MCP, and safe `tool_result` logging.
+assignment deletion across multiple loci, symbol-scoped same-file masking
+protection, workspace Radar, strict MCP argument validation, branch-aware QMD
+retrieval over MCP, and safe `tool_result` logging.
 Older Radar agent-lift evidence was pruned because it lacked the newer
 server-side completion proof, and fresh panels saturated or were noisy on the
 no-brain baseline. There is currently no retained Radar pass-rate lift proof.
