@@ -53,9 +53,10 @@
       "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint"
     ],
     "path": "go-test-internal-cli-radar.jsonl",
-    "sha256": "sha256:0b7c853f6e8fa27df68851b07f10a083e60eff64b1b5952ed0934509be35ced1"
+    "sha256": "sha256:8ef6afe0190c4eccae18f218e3fd2fa4a8a4a63810239ec7d3e3c4381e1433a2"
   },
   "claim_scope": "mcp_radar_tool_contract",
+  "current_head": "c729372b72146cc181cf37146de5ec572ada14ca",
   "errors": [],
   "limitations": [
     "Tool-contract proof only; this is not agent lift proof.",
@@ -115,6 +116,7 @@
     "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint"
   ],
   "schema": 1,
-  "source_head": "caf5d36061aa0fe4b49fa173891be9dbfd8ba197",
+  "source_drift_paths": [],
+  "source_head": "c729372b72146cc181cf37146de5ec572ada14ca",
   "warnings": []
 }
