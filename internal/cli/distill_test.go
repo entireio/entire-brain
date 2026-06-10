@@ -422,3 +422,31 @@ func containsWarning(warnings []string, substr string) bool {
 	}
 	return false
 }
+
+// TestDistilledFactsFromOutputClosedNegativeKind covers the sixth kind end to
+// end: the agent emits it as a kind column, and the rendered prompt teaches it
+// (list entry + the always-capture trigger for questions settled negatively).
+func TestDistilledFactsFromOutputClosedNegativeKind(t *testing.T) {
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	taxonomy := defaultFactTaxonomy(now)
+	anchor := factAnchor{SessionID: "s1"}
+
+	output := "closed-negative\tarchitecture.data.flow\tQuery expansion was tried for fact recall and rejected: the lift collapsed at larger n; revisit only with a new expansion model."
+	records, warnings := distilledFactsFromOutput(output, taxonomy, anchor, "main", now)
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record, got %d (warnings: %v)", len(records), warnings)
+	}
+	if records[0].Kind != factKindClosedNegative {
+		t.Fatalf("closed-negative kind column not honored: %q", records[0].Kind)
+	}
+
+	prompt, err := renderDistillPrompt(taxonomy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"closed-negative", "QUESTIONS SETTLED NEGATIVELY", "six words"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("distill prompt should contain %q", want)
+		}
+	}
+}
