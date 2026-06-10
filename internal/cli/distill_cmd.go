@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -470,12 +471,8 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		cache := newCache
 		if !final && !distillOpts.force {
 			cache = distillCache{Version: distillCacheVersion, Sessions: make(map[string]string, len(prevCache.Sessions)+len(newCache.Sessions))}
-			for id, fingerprint := range prevCache.Sessions {
-				cache.Sessions[id] = fingerprint
-			}
-			for id, fingerprint := range newCache.Sessions {
-				cache.Sessions[id] = fingerprint
-			}
+			maps.Copy(cache.Sessions, prevCache.Sessions)
+			maps.Copy(cache.Sessions, newCache.Sessions)
 		}
 		saveDistillCache(brainDir, cache)
 		return nil
@@ -812,16 +809,16 @@ func parseDocumentConversation(content string) ([]documentMessage, bool) {
 			if err := dec.Decode(&msg); err != nil {
 				return nil, false
 			}
-			var parts []string
+			var words []string
 			for _, part := range msg.Parts {
 				if part.Type != "text" || part.Text == "" {
 					continue // tool, patch, reasoning, step-start/finish, file, ...
 				}
-				parts = append(parts, part.Text)
+				words = append(words, strings.Fields(part.Text)...)
 			}
 			messages = append(messages, documentMessage{
 				Role: msg.Info.Role,
-				Text: strings.Join(strings.Fields(strings.Join(parts, " ")), " "),
+				Text: strings.Join(words, " "),
 				Line: msgLine,
 			})
 		}

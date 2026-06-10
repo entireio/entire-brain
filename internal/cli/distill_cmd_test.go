@@ -46,6 +46,34 @@ func writeDistillFixture(t *testing.T, now time.Time) string {
 	return brainDir
 }
 
+// writeSingleSessionFixture lays down a brain dir with a session manifest and
+// one main-branch session whose transcript holds the given content, returning
+// the brain dir.
+func writeSingleSessionFixture(t *testing.T, now time.Time, transcript string) string {
+	t.Helper()
+	brainDir := t.TempDir()
+	tp := "sessions/main/s1.jsonl"
+	p := filepath.Join(brainDir, filepath.FromSlash(tp))
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(transcript), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
+			{SessionID: "s1", Branch: "main", LatestCheckpoint: "cp1", TranscriptPath: tp, CreatedAt: now.Add(-time.Hour)},
+		}}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	return brainDir
+}
+
 func TestRunDistillForBrainWritesFactsAndManifest(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := writeDistillFixture(t, now)
@@ -773,29 +801,9 @@ func TestPreprocessTranscriptForDistillOpencodeDocument(t *testing.T) {
 
 func TestRunDistillForBrainConcurrentChunks(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	brainDir := t.TempDir()
 	// One session with many one-line chunks (maxChunkBytes=1 forces each line
 	// into its own chunk).
-	tp := "sessions/main/s1.jsonl"
-	p := filepath.Join(brainDir, filepath.FromSlash(tp))
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	transcript := strings.Repeat("a conversational turn\n", 12)
-	if err := os.WriteFile(p, []byte(transcript), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
-		GeneratedAt:   now,
-		DefaultBranch: "main",
-		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
-			{SessionID: "s1", Branch: "main", LatestCheckpoint: "cp1", TranscriptPath: tp, CreatedAt: now.Add(-time.Hour)},
-		}}},
-	}
-	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
-		t.Fatal(err)
-	}
+	brainDir := writeSingleSessionFixture(t, now, strings.Repeat("a conversational turn\n", 12))
 
 	var mu sync.Mutex
 	inFlight, maxInFlight, calls := 0, 0, 0
@@ -937,28 +945,9 @@ func TestRunDistillForBrainFlushesIncrementally(t *testing.T) {
 
 func TestRunDistillForBrainFlushesDuringFailureStreak(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	brainDir := t.TempDir()
-	tp := "sessions/main/s1.jsonl"
-	p := filepath.Join(brainDir, filepath.FromSlash(tp))
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		t.Fatal(err)
-	}
 	// maxChunkBytes=1 puts each line in its own chunk: one success, then a
 	// failure streak long enough to cross the flush interval.
-	if err := os.WriteFile(p, []byte(strings.Repeat("a conversational turn\n", 6)), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
-		GeneratedAt:   now,
-		DefaultBranch: "main",
-		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
-			{SessionID: "s1", Branch: "main", LatestCheckpoint: "cp1", TranscriptPath: tp, CreatedAt: now.Add(-time.Hour)},
-		}}},
-	}
-	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
-		t.Fatal(err)
-	}
+	brainDir := writeSingleSessionFixture(t, now, strings.Repeat("a conversational turn\n", 6))
 
 	// Chunk 1 distills a fact (2 counted calls: distill + reconcile), then the
 	// agent starts failing. The flush interval (3) is crossed on chunk 2's
@@ -1091,28 +1080,9 @@ func TestRunDistillForBrainSurvivesMidRunFlushFailure(t *testing.T) {
 		t.Skip("directory permission bits do not restrict writes on Windows")
 	}
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	brainDir := t.TempDir()
-	tp := "sessions/main/s1.jsonl"
-	p := filepath.Join(brainDir, filepath.FromSlash(tp))
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-		t.Fatal(err)
-	}
 	// Two chunks (maxChunkBytes=1): the first produces a fact whose flush
 	// fails, the second gives the retry a chance after the disk "recovers".
-	if err := os.WriteFile(p, []byte("turn one\nturn two\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
-		GeneratedAt:   now,
-		DefaultBranch: "main",
-		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
-			{SessionID: "s1", Branch: "main", LatestCheckpoint: "cp1", TranscriptPath: tp, CreatedAt: now.Add(-time.Hour)},
-		}}},
-	}
-	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
-		t.Fatal(err)
-	}
+	brainDir := writeSingleSessionFixture(t, now, "turn one\nturn two\n")
 
 	factsDir := filepath.Join(brainDir, factsDirName)
 	if err := os.MkdirAll(factsDir, 0o700); err != nil {

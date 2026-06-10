@@ -360,14 +360,11 @@ func firstUserRequest(transcript string) string {
 	// the shared document parser the distill path uses.
 	if messages, ok := parseDocumentConversation(transcript); ok {
 		for _, message := range messages {
-			if message.Role != "user" {
+			// message.Text arrives already whitespace-collapsed from the parser.
+			if message.Role != "user" || message.Text == "" || isWrapperRequest(message.Text) {
 				continue
 			}
-			text := strings.TrimSpace(message.Text)
-			if text == "" || isWrapperRequest(text) {
-				continue
-			}
-			return truncateString(strings.Join(strings.Fields(text), " "), 280)
+			return truncateString(message.Text, 280)
 		}
 		return ""
 	}
