@@ -34,11 +34,13 @@ Implemented claim-control surfaces:
   artifacts for release proof: one dry-run JSON, one timed `--jobs 1` summary,
   and one timed `--jobs N` summary. It requires matching agent/model/branch/force
   / chunk / confidence config, retained artifact hashes, retained command-token
-  provenance with an explicit non-`auto` agent, no missing transcripts, branch
-  totals that add up, matching cache-hit counts, no warnings or failed chunks,
-  bounded reconcile calls, timing components that fit under `total_seconds`,
-  comparable chunk/call/output summaries, effective parallelism greater than 1,
-  and observed `total_seconds` speedup above the manifest's `min_speedup`.
+  provenance with an explicit non-`auto` agent, target provenance
+  (`repo`, `repo_key`, `source_head`, `brain_manifest_sha256`, and
+  `claim_scope`), no missing transcripts, branch totals that add up, matching
+  cache-hit counts, no warnings or failed chunks, bounded reconcile calls,
+  timing components that fit under `total_seconds`, comparable chunk/call/output
+  summaries, effective parallelism greater than 1, and observed `total_seconds`
+  speedup above the manifest's `min_speedup`.
 - `mise run distill:evidence` checks committed large-repo distill artifacts
   without rewriting them, while `distill:evidence:update` regenerates the audit
   report only after the validator passes. Today the task is intentionally
@@ -525,7 +527,9 @@ repo/access/artifacts are available:
 - Paired timed `entire brain distill --agent <agent> --jobs 1 --json` and
   `--jobs N --json` runs on the same target repo/cache state, same
   agent/model/effort, with the dry-run JSON, manifest timing fields, and
-  external wall-clock artifacts retained. These artifacts must pass
+  external wall-clock artifacts retained. The retained manifest must identify
+  the measured repo and claim scope so the evidence cannot be reused for an
+  unrelated frontend/large-repo claim. These artifacts must pass
   `mise run distill:evidence` before a speedup claim is release-citable.
 - Paired `entire brain facts eval --retriever facts|history|query|raw-sessions`
   runs over the same labeled or explicitly proxy-allowed task set, same task

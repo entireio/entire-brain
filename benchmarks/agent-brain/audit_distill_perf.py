@@ -6,8 +6,13 @@ import argparse
 import hashlib
 import json
 import pathlib
+import re
 import sys
 from typing import Any
+
+
+COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+SHA256_VALUE_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 def load_json(path: pathlib.Path) -> Any:
@@ -58,6 +63,9 @@ def validate_manifest(data: Any) -> None:
         raise SystemExit("distill perf manifest must be a JSON object")
     if data.get("schema") != 1:
         raise SystemExit("distill perf manifest schema must be 1")
+    target = data.get("target")
+    if not isinstance(target, dict):
+        raise SystemExit("distill perf manifest requires target")
     for field in ("dry_run", "serial_run", "parallel_run"):
         if not isinstance(data.get(field), str) or not data.get(field):
             raise SystemExit(f"distill perf manifest requires {field}")
@@ -67,6 +75,29 @@ def validate_manifest(data: Any) -> None:
     commands = data.get("commands")
     if not isinstance(commands, dict):
         raise SystemExit("distill perf manifest requires commands")
+
+
+def validate_target(manifest: dict[str, Any], flags: list[str]) -> dict[str, Any]:
+    target = manifest.get("target")
+    if not isinstance(target, dict):
+        flags.append("target must be an object")
+        return {}
+    for field in ("repo", "repo_key", "claim_scope"):
+        if not isinstance(target.get(field), str) or not target.get(field).strip():
+            flags.append(f"target.{field} must be a non-empty string")
+    source_head = target.get("source_head")
+    if not isinstance(source_head, str) or not COMMIT_RE.fullmatch(source_head):
+        flags.append("target.source_head must be a 40-character git commit")
+    brain_sha = target.get("brain_manifest_sha256")
+    if not isinstance(brain_sha, str) or not SHA256_VALUE_RE.fullmatch(brain_sha):
+        flags.append("target.brain_manifest_sha256 must be sha256:<64 hex>")
+    return {
+        "repo": target.get("repo"),
+        "repo_key": target.get("repo_key"),
+        "source_head": source_head,
+        "brain_manifest_sha256": brain_sha,
+        "claim_scope": target.get("claim_scope"),
+    }
 
 
 def config_tuple(record: dict[str, Any]) -> tuple[Any, ...]:
@@ -168,6 +199,7 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
         "serial_run": manifest_artifact(root, manifest["serial_run"], "serial_run"),
         "parallel_run": manifest_artifact(root, manifest["parallel_run"], "parallel_run"),
     }
+    target = validate_target(manifest, flags)
     validate_artifact_hashes(manifest, paths, flags)
     dry = load_json(paths["dry_run"])
     serial = load_json(paths["serial_run"])
@@ -269,6 +301,7 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
         "manifest": str(manifest_path),
         "status": "fail" if flags else "pass",
         "release_evidence": not flags,
+        "target": target,
         "min_speedup": min_speedup,
         "speedup": speedup,
         "dry_run": {
@@ -301,6 +334,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
         f"- Status: **{report['status'].upper()}**",
         f"- Release evidence: **{str(report['release_evidence']).lower()}**",
+        f"- Target: **{get(report, 'target', 'repo', default='unset')}**",
+        f"- Claim scope: **{get(report, 'target', 'claim_scope', default='unset')}**",
         f"- Required speedup: **{report['min_speedup']}x**",
         f"- Observed speedup: **{report['speedup'] if report['speedup'] is not None else 'unavailable'}x**",
         f"- Dry-run chunks: **{get(report, 'dry_run', 'chunks', default='unset')}**",

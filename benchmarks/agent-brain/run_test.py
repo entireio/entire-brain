@@ -2246,6 +2246,13 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
         manifest = root / "manifest.json"
         manifest.write_text(json.dumps({
             "schema": 1,
+            "target": {
+                "repo": "github.com/example/large-repo",
+                "repo_key": "gh/example/large-repo",
+                "source_head": "1" * 40,
+                "brain_manifest_sha256": "sha256:" + "2" * 64,
+                "claim_scope": "large-repo distill backfill speedup",
+            },
             "dry_run": "dry-run.json",
             "serial_run": "jobs-1.json",
             "parallel_run": "jobs-4.json",
@@ -2269,6 +2276,7 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
             report = audit_distill_perf.audit_distill_perf_manifest(manifest)
             self.assertTrue(report["release_evidence"], report)
             self.assertGreaterEqual(report["speedup"], 1.25)
+            self.assertEqual(report["target"]["repo"], "github.com/example/large-repo")
             self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 0)
             self.assertTrue((pathlib.Path(out) / "distill-perf-audit-report.json").exists())
 
@@ -2296,6 +2304,28 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
             report = json.loads((pathlib.Path(out) / "distill-perf-audit-report.json").read_text())
             self.assertIn("artifact_sha256.serial_run mismatch", report["flags"])
             self.assertIn("commands.parallel_run: --agent must match artifact agent", report["flags"])
+
+    def test_distill_perf_audit_requires_target_provenance(self):
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
+            root_path = pathlib.Path(root)
+            manifest = self._write_distill_perf_fixture(root_path)
+            data = json.loads(manifest.read_text())
+            data.pop("target")
+            manifest.write_text(json.dumps(data))
+            with self.assertRaises(SystemExit):
+                audit_distill_perf.audit_distill_perf_manifest(manifest)
+
+            manifest = self._write_distill_perf_fixture(root_path)
+            data = json.loads(manifest.read_text())
+            data["target"]["source_head"] = "not-a-commit"
+            data["target"]["brain_manifest_sha256"] = "sha256:not64hex"
+            data["target"]["claim_scope"] = ""
+            manifest.write_text(json.dumps(data))
+            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
+            report = json.loads((pathlib.Path(out) / "distill-perf-audit-report.json").read_text())
+            self.assertIn("target.source_head must be a 40-character git commit", report["flags"])
+            self.assertIn("target.brain_manifest_sha256 must be sha256:<64 hex>", report["flags"])
+            self.assertIn("target.claim_scope must be a non-empty string", report["flags"])
 
 
 class RadarEvidenceAuditScriptTests(unittest.TestCase):

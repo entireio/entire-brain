@@ -11,6 +11,9 @@ distill claim.
 
 To become release-citable, a future `manifest.json` in this directory must name:
 
+- `target.repo`, `target.repo_key`, `target.source_head`,
+  `target.brain_manifest_sha256`, and `target.claim_scope`, so the measured repo
+  and the release claim it supports are explicit and audit-visible;
 - one `entire brain distill --dry-run --json` artifact captured before the timed
   runs;
 - one serial timed `entire brain distill --json --jobs 1` artifact;
