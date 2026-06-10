@@ -596,8 +596,9 @@ temp directory before comparing it with committed
 scopes. `mise run radar:evidence` remains the deterministic tool-contract gate,
 and `mise run radar:agent-evidence` remains the focused Radar agent-lift gate.
 
-CI now includes the retained replay-lab release-evidence audit in addition to
-lint/build/test/Phase 1 semantic checks. The facts evidence gate supports either
+CI now includes the retained replay-lab release-evidence audit and the focused
+Radar agent-lift audit in addition to lint/build/test/Phase 1 semantic checks.
+The facts evidence gate supports either
 proof-required mode or explicit no-claim mode; the current no-claim manifest is
 a guard against overclaiming, not a facts-quality win.
 
