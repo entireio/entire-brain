@@ -484,6 +484,35 @@ func TestDistillDryRunCommandDoesNotProbeAutoAgent(t *testing.T) {
 	}
 }
 
+func TestDistillDryRunRejectsInvalidJobs(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	repoDir := t.TempDir()
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "git@github.com:example/repo.git\n"},
+	}}
+	opts := Options{
+		Version: "test",
+		Env: EntireEnv{
+			RepoRoot:        repoDir,
+			PluginConfigDir: t.TempDir(),
+			PluginDataDir:   t.TempDir(),
+			PluginStateDir:  t.TempDir(),
+			PluginCacheDir:  t.TempDir(),
+		},
+		Runner: runner,
+		Now:    func() time.Time { return now },
+	}
+
+	out, err := execute(t, NewRootCommand(opts), "distill", "--dry-run", "--jobs", "0")
+	if err == nil {
+		t.Fatalf("distill dry-run --jobs 0 succeeded unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "--jobs must be greater than 0") {
+		t.Fatalf("wrong error for invalid dry-run jobs: %v\n%s", err, out)
+	}
+}
+
 func TestDistillNoEgressRejectsHostedAgentsBeforeProbe(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
 	repoDir := t.TempDir()

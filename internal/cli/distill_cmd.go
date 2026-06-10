@@ -254,6 +254,9 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	if err != nil {
 		return err
 	}
+	if distillOpts.jobs <= 0 {
+		return fmt.Errorf("--jobs must be greater than 0")
+	}
 	if distillOpts.dryRun {
 		report, err := buildDistillDryRunReport(storage.BrainDir, distillOpts, opts.Now().UTC())
 		if err != nil {
@@ -273,9 +276,6 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	}
 	if distillOpts.agent == "none" {
 		return errors.New("distillation requires an agent (codex or claude-code); none found on PATH")
-	}
-	if distillOpts.jobs <= 0 {
-		return fmt.Errorf("--jobs must be greater than 0")
 	}
 	if distillOpts.run == nil {
 		distillOpts.run = defaultDistillAgentRunner(distillOpts.agent)
