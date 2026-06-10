@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "d978b8140faf",
+  "strategy": "manual-commit",
+  "branch": "codex/release-readiness-hardening",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "benchmarks/agent-brain/evidence/release/README.md",
+    "benchmarks/agent-brain/evidence/release/codex-audit-report.json",
+    "benchmarks/agent-brain/evidence/release/codex-audit-report.md",
+    "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2/mcp_history_r1/mcp-server.log",
+    "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2/mcp_history_r1/record.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2/mcp_history_r2/mcp-server.log",
+    "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2/mcp_history_r2/record.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2/mcp_history_r3/mcp-server.log",
+    "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2/mcp_history_r3/record.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2/mcp_history_r4/mcp-server.log",
+    "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2/mcp_history_r4/record.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2/no_brain_r1/record.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2/no_brain_r2/record.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2/no_brain_r3/record.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2/no_brain_r4/record.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2/records.ndjson",
+    "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2/summary.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1/mcp-server.log",
+    "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1/record.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r2/mcp-server.log",
+    "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r2/record.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r3/mcp-server.log",
+    "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r3/record.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4/mcp-server.log",
+    "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4/record.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r1/record.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r2/record.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r3/record.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r4/record.json",
+    "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/records.ndjson",
+    "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/summary.json",
+    "docs/release_readiness_audit.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d9/78b8140faf/0/metadata.json",
+      "transcript": "/d9/78b8140faf/0/full.jsonl",
+      "content_hash": "/d9/78b8140faf/0/content_hash.txt",
+      "prompt": ""
+    }
+  ]
+}
