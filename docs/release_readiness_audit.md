@@ -159,6 +159,10 @@ Implemented audit surfaces:
   symbols, relations, file-language counts, symbol-language counts, symbol-kind
   counts, relation-type counts, warning/failure details, freshness axes, and
   blind spots from the local semantic manifest/store.
+- `entire brain inspect context --json` and `brain brief --json` now include
+  relation endpoint `neighbors` as full symbol records, so agents can see
+  caller/callee names and file/line spans without parsing relation ids and
+  issuing extra lookups.
 - `semantic-audit --fail-on release` is the release-health gate for semantic
   coverage: it emits the full report, then fails unless freshness is `ok` and
   blind spots are empty.
@@ -170,6 +174,12 @@ Implemented audit surfaces:
   `entire-brain-semantic-completeness-tolerance`, a semantic freshness task whose
   prompt does not name the implementation file. Retained benchmark outcomes are
   still needed before claiming agent improvement.
+- The semantic release-candidate inventory now also includes
+  `entire-brain-semantic-tokenized-idf-ranking` and the committed
+  `release-entire-brain-semantic-tokenized-idf` panel. The task regresses the
+  IDF-weighted tokenized code-search ranking line and hides the expected file,
+  validation, and benchmark scaffold. `run.py check` confirms it fails as
+  expected; it still needs pilot/release repetitions before any usefulness claim.
 
 Claim policy: do not say semantic indexing works globally. Say which languages,
 relations, and freshness states are covered, and show blind spots.

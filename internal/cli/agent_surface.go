@@ -647,11 +647,15 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		},
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Semantic != nil {
-		contextSymbols, contextRelations, contextErr := semanticContextFacts(status.Brain.Path, status.Manifest.Sources.Semantic, task, briefOpts.limit, 0)
+		contextSymbols, contextRelations, contextNeighbors, contextErr := semanticContextFacts(status.Brain.Path, status.Manifest.Sources.Semantic, task, briefOpts.limit, 0)
 		if contextErr != nil {
 			report.Warnings = append(report.Warnings, "semantic context unavailable: "+contextErr.Error())
 		} else {
-			report.Semantic.Context = semanticContextResult{Symbols: contextSymbols, Relations: contextRelations}
+			report.Semantic.Context = semanticContextResult{
+				Symbols:   nonNilRecords(contextSymbols),
+				Relations: nonNilRecords(contextRelations),
+				Neighbors: nonNilRecords(contextNeighbors),
+			}
 		}
 		tests, testsErr := semanticTestFacts(status.Brain.Path, status.Manifest.Sources.Semantic, task, briefOpts.limit)
 		if testsErr != nil {

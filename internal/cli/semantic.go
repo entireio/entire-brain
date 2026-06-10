@@ -2485,6 +2485,7 @@ type semanticContextOptions struct {
 type semanticContextResult struct {
 	Symbols   []semanticRecord  `json:"symbols"`
 	Relations []semanticRecord  `json:"relations"`
+	Neighbors []semanticRecord  `json:"neighbors,omitempty"`
 	Content   []semanticContent `json:"content,omitempty"`
 }
 
@@ -2662,11 +2663,11 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 	if contextOpts.includeContent && freshness.Severity != "ok" {
 		return fmt.Errorf("semantic context content requires fresh semantic data: %s", freshness.Severity)
 	}
-	symbols, relations, err := semanticContextFacts(storage.BrainDir, manifest.Sources.Semantic, query, contextOpts.limit, contextOpts.offset)
+	symbols, relations, neighbors, err := semanticContextFacts(storage.BrainDir, manifest.Sources.Semantic, query, contextOpts.limit, contextOpts.offset)
 	if err != nil {
 		return err
 	}
-	result := semanticContextResult{Symbols: nonNilRecords(symbols), Relations: nonNilRecords(relations)}
+	result := semanticContextResult{Symbols: nonNilRecords(symbols), Relations: nonNilRecords(relations), Neighbors: nonNilRecords(neighbors)}
 	if contextOpts.includeContent {
 		result.Content = semanticContextContent(repoDir, symbols)
 	}
@@ -2690,6 +2691,9 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 	}
 	for _, relation := range result.Relations {
 		fmt.Fprintf(cmd.OutOrStdout(), "relation %s -> %s %s\n", relation.FromID, relation.ToID, relation.Type)
+	}
+	for _, neighbor := range result.Neighbors {
+		fmt.Fprintf(cmd.OutOrStdout(), "neighbor %s %s:%d-%d\n", displaySymbolName(neighbor), neighbor.FilePath, neighbor.StartLine, neighbor.EndLine)
 	}
 	for _, content := range result.Content {
 		fmt.Fprintf(cmd.OutOrStdout(), "content %s:%d-%d\n%s\n", content.Path, content.StartLine, content.EndLine, content.Text)
@@ -2932,32 +2936,88 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 	return nil
 }
 
-func semanticContextFacts(brainDir string, source *semanticSourceManifest, query string, limit, offset int) ([]semanticRecord, []semanticRecord, error) {
+func semanticContextFacts(brainDir string, source *semanticSourceManifest, query string, limit, offset int) ([]semanticRecord, []semanticRecord, []semanticRecord, error) {
 	if source.StorePath != "" {
 		storePath, err := validateSemanticDeclaredStore(brainDir, source)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		symbols, err := findSemanticSymbolsInSQLite(storePath, query, limit, offset)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		relations, err := findSemanticRelationsForSymbolsInSQLite(storePath, symbols, limit*4)
-		return symbols, relations, err
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		symbolsByID, err := loadSemanticSymbolsByIDSQLite(storePath)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		neighbors := semanticNeighborRecords(symbols, relations, symbolsByID, limit)
+		return symbols, relations, neighbors, nil
 	}
 	snapshotPath, err := validateSemanticSnapshotPath(source.SnapshotPath)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if err := rejectSymlinkPathComponents(brainDir, snapshotPath); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	symbols, err := findSemanticSymbols(filepath.Join(brainDir, snapshotPath), query, limit, offset)
+	fullPath := filepath.Join(brainDir, snapshotPath)
+	symbols, err := findSemanticSymbols(fullPath, query, limit, offset)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	relations, err := findSemanticRelationsForSymbols(filepath.Join(brainDir, snapshotPath), symbols, limit*4)
-	return symbols, relations, err
+	relations, err := findSemanticRelationsForSymbols(fullPath, symbols, limit*4)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	symbolsByID, err := loadSemanticSymbolsByIDSnapshot(fullPath)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	neighbors := semanticNeighborRecords(symbols, relations, symbolsByID, limit)
+	return symbols, relations, neighbors, nil
+}
+
+func semanticNeighborRecords(symbols, relations []semanticRecord, symbolsByID map[string]semanticRecord, limit int) []semanticRecord {
+	if limit <= 0 || len(relations) == 0 || len(symbolsByID) == 0 {
+		return nil
+	}
+	roots := make(map[string]struct{}, len(symbols))
+	for _, symbol := range symbols {
+		if symbol.ID != "" {
+			roots[symbol.ID] = struct{}{}
+		}
+	}
+	seen := map[string]struct{}{}
+	neighbors := make([]semanticRecord, 0, min(limit, len(relations)))
+	add := func(id string) {
+		if id == "" || len(neighbors) >= limit {
+			return
+		}
+		if _, ok := roots[id]; ok {
+			return
+		}
+		if _, ok := seen[id]; ok {
+			return
+		}
+		record, ok := symbolsByID[id]
+		if !ok {
+			return
+		}
+		seen[id] = struct{}{}
+		neighbors = append(neighbors, record)
+	}
+	for _, relation := range relations {
+		add(relation.FromID)
+		add(relation.ToID)
+		if len(neighbors) >= limit {
+			break
+		}
+	}
+	return neighbors
 }
 
 func semanticImpactFacts(brainDir string, source *semanticSourceManifest, query string, depth, limit int) ([]semanticRecord, []semanticRecord, []semanticRecord, error) {

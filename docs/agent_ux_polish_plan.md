@@ -10,7 +10,7 @@ independent. (Provider-side work lives in `entire-sem`, tracked separately.)
 Every item should ship with a regression test in
 `internal/cli/agent_ux_test.go` following the patterns already there.
 
-## 1. Materialize caller/callee symbols in `context`
+## 1. Materialize caller/callee symbols in `context` — shipped
 
 **Problem.** `inspect context <symbol>` returns the matched `symbols` plus
 `relations`, but the relation *endpoints* are only ids (`from_id`/`to_id`). An
@@ -37,6 +37,10 @@ hundreds of records.
 records with `name`/`file_path`/`start_line`, not just relation ids. Test:
 fixture with `caller -> ValidateToken`, assert the caller symbol appears in
 `neighbors`.
+
+**Status.** Implemented locally in `semanticContextResult.Neighbors`, populated
+by `semanticContextFacts`, surfaced by `inspect context` and `brain brief`, and
+covered by `TestSemanticContextJSONIncludesRelationNeighbors`.
 
 ## 2. `inspect changes`: clear "no changes" signal
 

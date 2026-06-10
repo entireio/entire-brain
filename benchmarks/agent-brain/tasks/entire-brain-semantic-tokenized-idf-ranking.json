@@ -1,0 +1,30 @@
+{
+  "id": "entire-brain-semantic-tokenized-idf-ranking",
+  "repo": "entire-brain",
+  "repo_path": "entire-brain",
+  "conditions": ["no_brain", "semantic_brain"],
+  "prepare_semantic": true,
+  "prompt": "Fix the semantic code-inspection ranking regression. When a natural-language code query contains one highly discriminating concept plus several generic helper terms, the discriminating match should rank first instead of being buried under common helper symbols. Keep the fix minimal and preserve existing query fallback behavior.",
+  "setup_replacements": [
+    {
+      "path": "internal/cli/semantic.go",
+      "old": "\t\tweights[i] = tokenIDFWeight(total, df)",
+      "new": "\t\tweights[i] = 1"
+    }
+  ],
+  "validation": [
+    "test $(rg -n 'weights\\[i\\] = tokenIDFWeight\\(total, df\\)' internal/cli/semantic.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./internal/cli -run 'TestTokenizedSearchRanksRareTokenAboveCommonTokens|TestTokenIDFWeightFavorsRareTokens|TestSemanticQueryTokensDropsStopwordsAndShortTerms'"
+  ],
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "expected_files": ["internal/cli/semantic.go"],
+  "forbidden_files": ["go.mod", "go.sum", "internal/cli/agent_ux_test.go"],
+  "agent_hidden_paths": ["benchmarks/agent-brain"],
+  "leak_markers": ["release-semantic-tokenized-idf-canary-20260610T0415Z"],
+  "brain_queries": [
+    "findSemanticSymbolsTokenizedSQLite IDF token weighting",
+    "tokenIDFWeight rare token ranking",
+    "TestTokenizedSearchRanksRareTokenAboveCommonTokens"
+  ]
+}

@@ -1712,11 +1712,34 @@ func TestSemanticContextJSONIncludesRelations(t *testing.T) {
 	var out bytes.Buffer
 	contextCmd := &cobra.Command{Use: "context"}
 	contextCmd.SetOut(&out)
-	if err := runSemanticContext(contextCmd.Context(), contextCmd, opts, semanticContextOptions{limit: 10, json: true}, "ValidateToken"); err != nil {
+	if err := runSemanticContext(contextCmd.Context(), contextCmd, opts, semanticContextOptions{limit: 10, json: true}, "gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken"); err != nil {
 		t.Fatalf("context: %v", err)
 	}
 	if !strings.Contains(out.String(), `"relations"`) || !strings.Contains(out.String(), `"CALLS"`) {
 		t.Fatalf("context JSON missing relations:\n%s", out.String())
+	}
+}
+
+func TestSemanticContextJSONIncludesRelationNeighbors(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshotWithCallerSymbol())
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	var out bytes.Buffer
+	contextCmd := &cobra.Command{Use: "context"}
+	contextCmd.SetOut(&out)
+	if err := runSemanticContext(contextCmd.Context(), contextCmd, opts, semanticContextOptions{limit: 10, json: true}, "gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken"); err != nil {
+		t.Fatalf("context: %v", err)
+	}
+	if !strings.Contains(out.String(), `"neighbors"`) || !strings.Contains(out.String(), `"CallValidateToken"`) {
+		t.Fatalf("context JSON missing relation neighbor records:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), `"internal/auth/caller.go"`) {
+		t.Fatalf("context JSON missing neighbor file path:\n%s", out.String())
 	}
 }
 
@@ -2018,7 +2041,7 @@ func TestSemanticContextSQLiteFiltersRelationsBeforeLimit(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	symbols, relations, err := semanticContextFacts(filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo"), mustSemanticSource(t, env), "ValidateToken", 1, 0)
+	symbols, relations, _, err := semanticContextFacts(filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo"), mustSemanticSource(t, env), "ValidateToken", 1, 0)
 	if err != nil {
 		t.Fatalf("context facts: %v", err)
 	}
@@ -4036,6 +4059,14 @@ func semanticFixtureSnapshot(schema string) string {
 	return `{"schema_version":"` + schema + `","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"caller","to_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","type":"CALLS","confidence":1}
+`
+}
+
+func semanticFixtureSnapshotWithCallerSymbol() string {
+	return `{"schema_version":"1.0","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
+{"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
+{"record_type":"symbol","id":"gh/example/repo:go:internal/auth/caller.go:function:auth.CallValidateToken","kind":"function","name":"CallValidateToken","qualified_name":"auth.CallValidateToken","file_path":"internal/auth/caller.go","start_line":30,"end_line":40,"signature":"func CallValidateToken(token string) error","language":"Go","stable_id_version":"1"}
+{"record_type":"relation","from_id":"gh/example/repo:go:internal/auth/caller.go:function:auth.CallValidateToken","to_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","type":"CALLS","confidence":1}
 `
 }
 
