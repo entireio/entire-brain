@@ -473,6 +473,9 @@ def load_release_manifest(path: pathlib.Path) -> dict[str, Any]:
     min_reps = data.get("min_repetitions_per_side", DEFAULT_PROOF_MIN_REPETITIONS)
     if not isinstance(min_reps, int) or min_reps < 1:
         raise SystemExit("release manifest min_repetitions_per_side must be a positive integer")
+    require_per_suite = data.get("require_proof_ready_per_suite", False)
+    if not isinstance(require_per_suite, bool):
+        raise SystemExit("release manifest require_proof_ready_per_suite must be a boolean")
     return data
 
 
@@ -582,7 +585,14 @@ def build_audit_report(
     return report
 
 
-def build_gate_status(report: dict[str, Any], min_suites: int, min_records: int, min_proof_ready: int) -> dict[str, Any]:
+def build_gate_status(
+    report: dict[str, Any],
+    min_suites: int,
+    min_records: int,
+    min_proof_ready: int,
+    *,
+    require_proof_ready_per_suite: bool = False,
+) -> dict[str, Any]:
     totals = report["totals"]
     failures: list[str] = []
     suites = int(totals.get("suites") or 0)
@@ -597,6 +607,10 @@ def build_gate_status(report: dict[str, Any], min_suites: int, min_records: int,
         failures.append(f"proof_ready_comparisons {proof_ready} < required {min_proof_ready}")
     if hard_flags > 0:
         failures.append(f"hard_flags {hard_flags} > 0")
+    if require_proof_ready_per_suite:
+        for suite_name, suite_data in sorted((report.get("suites") or {}).items()):
+            if int(suite_data.get("n_proof_ready_comparisons") or 0) <= 0:
+                failures.append(f"suite {suite_name} has no proof_ready comparison")
     return {
         "status": "fail" if failures else "pass",
         "release_evidence": not failures,
@@ -605,6 +619,7 @@ def build_gate_status(report: dict[str, Any], min_suites: int, min_records: int,
             "min_records": min_records,
             "min_proof_ready": min_proof_ready,
             "hard_flags": 0,
+            "require_proof_ready_per_suite": require_proof_ready_per_suite,
         },
         "failures": failures,
     }
@@ -706,6 +721,7 @@ def main(argv: list[str] | None = None) -> int:
     min_proof_ready = args.min_proof_ready
     min_repetitions_per_side = args.min_repetitions_per_side
     require_panel_provenance = False
+    require_proof_ready_per_suite = False
     manifest = None
     if args.release_manifest:
         manifest = load_release_manifest(args.release_manifest.resolve())
@@ -722,6 +738,7 @@ def main(argv: list[str] | None = None) -> int:
         min_proof_ready = release_manifest_minimum(manifest, "proof_ready_comparisons", min_proof_ready)
         min_repetitions_per_side = int(manifest.get("min_repetitions_per_side", min_repetitions_per_side))
         require_panel_provenance = bool(manifest.get("require_panel_provenance"))
+        require_proof_ready_per_suite = bool(manifest.get("require_proof_ready_per_suite"))
     report = build_audit_report(
         results_dir,
         suite_globs,
@@ -736,10 +753,17 @@ def main(argv: list[str] | None = None) -> int:
             "forbidden_suite_globs": forbidden_globs,
             "min_repetitions_per_side": min_repetitions_per_side,
             "require_panel_provenance": require_panel_provenance,
+            "require_proof_ready_per_suite": require_proof_ready_per_suite,
         }
     gate_status = None
     if args.fail_on_flags:
-        gate_status = build_gate_status(report, min_suites, min_records, min_proof_ready)
+        gate_status = build_gate_status(
+            report,
+            min_suites,
+            min_records,
+            min_proof_ready,
+            require_proof_ready_per_suite=require_proof_ready_per_suite,
+        )
         report["gate_status"] = gate_status
     json_path = write_audit_report(report, out_dir)
     md = render_audit_markdown(report)

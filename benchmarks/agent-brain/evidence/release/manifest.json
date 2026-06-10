@@ -14,5 +14,6 @@
     "release-local-*"
   ],
   "require_panel_provenance": true,
+  "require_proof_ready_per_suite": true,
   "quarantine_note": "Historical, exploratory, and release-local suites in benchmarks/agent-brain/results are not release-citable until regenerated or copied into an explicit release-candidate-* suite and re-audited."
 }

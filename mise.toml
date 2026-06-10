@@ -20,7 +20,31 @@ description = "Run deterministic Phase 1 semantic brain contract tests"
 run = "ENTIRE_BRAIN_PHASE1_CI=1 go test -race ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'"
 
 [tasks."release:evidence"]
-description = "Fail unless release-candidate replay-lab evidence is provenance-complete, audit-clean, and proof-ready"
+description = "Check retained release-candidate replay-lab evidence without rewriting tracked reports"
+run = '''
+set -e
+python3 benchmarks/agent-brain/run_test.py
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_codex.py \
+  --results benchmarks/agent-brain/evidence/release \
+  --release-manifest benchmarks/agent-brain/evidence/release/manifest.json \
+  --out-dir "$tmp" \
+  --fail-on-flags
+for report in codex-audit-report.json codex-audit-report.md; do
+  committed="benchmarks/agent-brain/evidence/release/$report"
+  generated="$tmp/$report"
+  if ! cmp -s "$committed" "$generated"; then
+    echo "retained release evidence report is stale: $report" >&2
+    diff -u "$committed" "$generated" >&2 || true
+    echo "run: mise run release:evidence:update" >&2
+    exit 1
+  fi
+done
+'''
+
+[tasks."release:evidence:update"]
+description = "Regenerate retained release-candidate replay-lab audit reports after the release gate passes"
 run = '''
 set -e
 python3 benchmarks/agent-brain/run_test.py

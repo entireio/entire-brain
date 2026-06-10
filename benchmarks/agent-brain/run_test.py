@@ -1173,6 +1173,7 @@ class CodexAuditScriptTests(unittest.TestCase):
             "forbidden_suite_globs": ["release-local-*"],
             "min_repetitions_per_side": 4,
             "require_panel_provenance": True,
+            "require_proof_ready_per_suite": True,
             "minimums": {
                 "suites": 1,
                 "records": 1,
@@ -1418,6 +1419,62 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertTrue(any(flag.startswith("I:release_host_path_leak") for flag in flags))
             self.assertFalse(release_report["suites"][suite]["records"][1]["release_hygiene"]["host_path_clean"])
             self.assertEqual(release_report["release_manifest"]["path"], "[external]/manifest.json")
+
+    def test_release_manifest_requires_proof_ready_per_suite(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            manifest = self._write_release_manifest(out_dir)
+
+            proof_suite = "release-candidate-history-proof"
+            proof_records = []
+            for i in range(1, 5):
+                proof_records.append(self._release_record(proof_suite, condition="no_brain", repetition=i, run_id=f"proof-base-{i}"))
+                proof_records.append(self._release_record(proof_suite, condition="full_brain", repetition=i, run_id=f"proof-brain-{i}"))
+            proof_dir = self._write_records(results_dir, proof_suite, proof_records)
+            (proof_dir / "summary.json").write_text(json.dumps({
+                "comparisons": [{
+                    "task_id": "t",
+                    "runner": "codex",
+                    "condition": "full_brain",
+                    "verdict": "brain_positive",
+                    "proof_ready": True,
+                    "n_condition": 4,
+                    "n_baseline": 4,
+                    "stability": {"tag": "brain_positive_stable"},
+                }]
+            }))
+
+            weak_suite = "release-candidate-semantic-no-signal"
+            weak_records = []
+            for i in range(1, 5):
+                weak_records.append(self._release_record(weak_suite, condition="no_brain", repetition=i, run_id=f"weak-base-{i}"))
+                weak_records.append(self._release_record(weak_suite, condition="full_brain", repetition=i, run_id=f"weak-brain-{i}"))
+            weak_dir = self._write_records(results_dir, weak_suite, weak_records)
+            (weak_dir / "summary.json").write_text(json.dumps({
+                "comparisons": [{
+                    "task_id": "t",
+                    "runner": "codex",
+                    "condition": "full_brain",
+                    "verdict": "saturated/no_signal",
+                    "proof_ready": False,
+                    "n_condition": 4,
+                    "n_baseline": 4,
+                    "stability": {"tag": "saturated"},
+                }]
+            }))
+
+            self.assertEqual(
+                audit_codex.main(["--results", str(results_dir), "--release-manifest", str(manifest), "--out-dir", str(out_dir), "--fail-on-flags"]),
+                1,
+            )
+            report = json.loads((out_dir / "codex-audit-report.json").read_text())
+            self.assertEqual(report["totals"]["proof_ready_comparisons"], 1)
+            self.assertEqual(report["totals"]["hard_flags"], 0)
+            self.assertIn(
+                f"suite {weak_suite} has no proof_ready comparison",
+                report["gate_status"]["failures"],
+            )
 
     def test_audit_codex_fails_missing_and_inconsistent_provenance(self):
         with tempfile.TemporaryDirectory() as results:

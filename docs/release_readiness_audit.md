@@ -286,6 +286,11 @@ Release claims must stay local-first and evidence-backed:
 - Release-evidence audit mode now rejects retained records that leak local host
   paths from user homes or temp directories, and the retained proof lane has
   been redacted while preserving hashes, scores, validation, and verdicts.
+- Release-evidence audit mode now requires every retained release-candidate
+  suite to carry at least one proof-ready comparison, so one passing history
+  suite cannot mask a later weak semantic or facts suite. `mise run
+  release:evidence` is also a pure check; report regeneration is explicit via
+  `mise run release:evidence:update`.
 - The query default-limit benchmark tasks now target the current unified
   retrieval implementation in `internal/cli/retrieve_cmd.go`, including the
   QMD-style `-n` alias, instead of the old semantic-query implementation.
@@ -338,9 +343,10 @@ repo/access/artifacts are available:
   benchmark harness self-tests and then audits explicit `release-candidate-*`
   suites through `benchmarks/agent-brain/evidence/release/manifest.json`.
   Release mode rejects `release-local-*`, requires panel provenance, 4
-  repetitions per side, zero hard flags, and at least one proof-ready
-  comparison. Failed audits write to a temp directory only; passing audits copy
-  the report into the retained evidence lane.
+  repetitions per side, zero hard flags, at least one proof-ready comparison
+  overall, and at least one proof-ready comparison per retained suite. The check
+  writes reports to a temp directory and compares them with committed reports;
+  updating retained reports is explicit via `mise run release:evidence:update`.
 
 Historical quarantine caveat: `benchmarks/agent-brain/results/codex-audit-report.md`
 is quarantine/reference evidence, not release proof. That old results report

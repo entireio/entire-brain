@@ -330,7 +330,8 @@
       "release-local-*"
     ],
     "min_repetitions_per_side": 4,
-    "require_panel_provenance": true
+    "require_panel_provenance": true,
+    "require_proof_ready_per_suite": true
   },
   "gate_status": {
     "status": "pass",
@@ -339,7 +340,8 @@
       "min_suites": 1,
       "min_records": 1,
       "min_proof_ready": 1,
-      "hard_flags": 0
+      "hard_flags": 0,
+      "require_proof_ready_per_suite": true
     },
     "failures": []
   }
