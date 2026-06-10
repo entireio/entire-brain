@@ -2168,6 +2168,23 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             self.assertEqual(report["totals"]["proof_ready"], 1)
             self.assertEqual(audit_radar_evidence.main(["--results", str(results_dir), "--suite-glob", "release-candidate-*", "--out-dir", out, "--fail-when-no-proof"]), 0)
 
+    def test_radar_audit_rejects_saturated_token_only_proof(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            self._write_radar_summary(
+                results_dir,
+                "release-candidate-radar-token-only",
+                baseline_pass=1.0,
+                condition_pass=1.0,
+                proof_ready=True,
+                stability_tag="brain_positive_stable",
+                n=4,
+            )
+            report = audit_radar_evidence.build_report(results_dir, ["release-candidate-*"])
+            self.assertEqual(report["totals"]["proof_ready"], 0)
+            self.assertEqual(report["totals"]["status_counts"], {"saturated": 1})
+            self.assertEqual(audit_radar_evidence.main(["--results", str(results_dir), "--suite-glob", "release-candidate-*", "--out-dir", out, "--fail-when-no-proof"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

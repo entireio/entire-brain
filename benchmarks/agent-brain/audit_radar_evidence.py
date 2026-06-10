@@ -70,20 +70,21 @@ def radar_status(comp: dict[str, Any]) -> dict[str, Any]:
     n_baseline = int(comp.get("n_baseline") or 0)
     stability = comp.get("stability") if isinstance(comp.get("stability"), dict) else {}
     stability_tag = stability.get("tag")
-    proof_ready = bool(comp.get("proof_ready")) and stability_tag == "brain_positive_stable"
+    reported_proof_ready = bool(comp.get("proof_ready")) and stability_tag == "brain_positive_stable"
 
     reasons: list[str] = []
     baseline_headroom = baseline_pass is not None and baseline_pass < 1.0
     brain_clean = condition_pass == 1.0
     repeated = n_condition >= 4 and n_baseline >= 4
     saturated = baseline_pass == 1.0 and condition_pass == 1.0
+    proof_ready = reported_proof_ready and repeated and brain_clean and baseline_headroom
 
-    if proof_ready:
-        status = "proof-ready"
-        reasons.append("stable repeated brain-positive Radar comparison")
-    elif saturated:
+    if saturated:
         status = "saturated"
         reasons.append("no-brain and Radar arms both passed, so there is no correctness headroom")
+    elif proof_ready:
+        status = "proof-ready"
+        reasons.append("stable repeated brain-positive Radar comparison with baseline headroom")
     elif baseline_pass is None or condition_pass is None:
         status = "missing-pass-rate"
         reasons.append("summary is missing pass_rate/success_rate fields")
