@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bg99u27s9</task-id>
+<tool-use-id>toolu_01EYyKhzSXyU2eM2X4oU3Peu</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/fc0c6aa0-0ea8-4d17-85f7-7893119994e3/tasks/bg99u27s9.output</output-file>
+<status>completed</status>
+<summary>Background command "Powered midtask measurement on entire-cli" completed (exit code 0)</summary>
+</task-notification>
