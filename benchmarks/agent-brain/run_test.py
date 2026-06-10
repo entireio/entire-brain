@@ -535,20 +535,34 @@ class RunnerAndConditionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             plugin = pathlib.Path(tmp) / "plugin"
             brain = plugin / "data" / "brain" / "repo"
+            current_brain = plugin / "data" / "repos" / "gh" / "example" / "repo"
             (brain / "sessions").mkdir(parents=True)
+            (current_brain / "sessions").mkdir(parents=True)
             session = brain / "sessions" / "one.jsonl"
             session.write_text(
                 '{"message":"useful history"}\n'
                 '{"message":"benchmarks/agent-brain/tasks/secret.json contains validation"}\n'
             )
+            current_session = current_brain / "sessions" / "two.jsonl"
+            current_session.write_text(
+                '{"message":"useful current history"}\n'
+                '{"message":"benchmarks/agent-brain/tasks/current-secret.json contains validation"}\n'
+            )
             index = brain / "history.json"
             index.write_text(json.dumps({"items": ["useful", "benchmarks/agent-brain/results/run/record.json"]}))
+            current_index = current_brain / "history.json"
+            current_index.write_text(
+                json.dumps({"items": ["useful", "benchmarks/agent-brain/results/current/record.json"]})
+            )
 
             summary = run.sanitize_brain_history(plugin)
-            self.assertEqual(summary["files_scrubbed"], 2)
+            self.assertEqual(summary["files_scrubbed"], 4)
             self.assertIn("useful history", session.read_text())
+            self.assertIn("useful current history", current_session.read_text())
             self.assertNotIn("benchmarks/agent-brain/tasks", session.read_text())
+            self.assertNotIn("benchmarks/agent-brain/tasks", current_session.read_text())
             self.assertIn("[redacted benchmark scaffold]", index.read_text())
+            self.assertIn("[redacted benchmark scaffold]", current_index.read_text())
 
     def test_agent_output_leak_audit_flags_hidden_validation_text(self):
         task = {
@@ -562,6 +576,22 @@ class RunnerAndConditionTests(unittest.TestCase):
         )
         self.assertFalse(audit["ok"])
         self.assertEqual(audit["findings"][0]["kind"], "hidden_validation_marker_in_output")
+
+    def test_agent_output_leak_audit_uses_explicit_canaries_when_present(self):
+        task = {
+            "hide_validation_from_agent": True,
+            "leak_markers": ["release-canary-hidden-validation-12345"],
+            "validation": ["go test ./internal/cli -run 'TestDiscoveredByAgent'"],
+        }
+        clean = run.agent_output_leak_audit(
+            task,
+            "I ran go test ./internal/cli -run 'TestDiscoveredByAgent'",
+            "",
+        )
+        self.assertTrue(clean["ok"])
+        leaked = run.agent_output_leak_audit(task, "release-canary-hidden-validation-12345", "")
+        self.assertFalse(leaked["ok"])
+        self.assertEqual(leaked["findings"][0]["kind"], "hidden_validation_marker_in_output")
 
     def test_agent_output_leak_audit_allows_result_paths_and_setup_text(self):
         task = {

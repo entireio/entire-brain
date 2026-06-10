@@ -27,6 +27,7 @@
   "forbidden_files": ["go.mod", "go.sum"],
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
+  "leak_markers": ["release-history-codex-schema-contract-canary-20260610T0018Z"],
   "brain_queries": [
     "Checkpoint-context review reverted Codex `--output-schema` usage",
     "schema-dialect failure",

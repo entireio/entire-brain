@@ -1015,38 +1015,43 @@ def scrub_benchmark_secret_json(value: Any) -> tuple[Any, int]:
 
 
 def sanitize_brain_history(plugin: pathlib.Path) -> dict[str, Any]:
-    brain_data = plugin / "data" / "brain"
-    if not brain_data.exists():
+    brain_roots = [
+        plugin / "data" / "brain",
+        plugin / "data" / "repos",
+    ]
+    existing_roots = [root for root in brain_roots if root.exists()]
+    if not existing_roots:
         return {"ok": True, "files_checked": 0, "files_scrubbed": 0, "items_redacted": 0}
     files_checked = 0
     files_scrubbed = 0
     items_redacted = 0
-    for path in sorted(brain_data.rglob("*")):
-        if not path.is_file() or path.is_symlink():
-            continue
-        suffix = path.suffix.lower()
-        if suffix not in {".jsonl", ".json", ".md", ".txt"}:
-            continue
-        files_checked += 1
-        if suffix == ".json":
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
-            except (OSError, json.JSONDecodeError):
-                removed, _ = scrub_benchmark_secret_lines(path)
-                if removed:
-                    files_scrubbed += 1
-                    items_redacted += removed
+    for brain_data in existing_roots:
+        for path in sorted(brain_data.rglob("*")):
+            if not path.is_file() or path.is_symlink():
                 continue
-            scrubbed, changes = scrub_benchmark_secret_json(payload)
-            if changes:
-                path.write_text(json.dumps(scrubbed, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            suffix = path.suffix.lower()
+            if suffix not in {".jsonl", ".json", ".md", ".txt"}:
+                continue
+            files_checked += 1
+            if suffix == ".json":
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+                except (OSError, json.JSONDecodeError):
+                    removed, _ = scrub_benchmark_secret_lines(path)
+                    if removed:
+                        files_scrubbed += 1
+                        items_redacted += removed
+                    continue
+                scrubbed, changes = scrub_benchmark_secret_json(payload)
+                if changes:
+                    path.write_text(json.dumps(scrubbed, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                    files_scrubbed += 1
+                    items_redacted += changes
+                continue
+            removed, _ = scrub_benchmark_secret_lines(path)
+            if removed:
                 files_scrubbed += 1
-                items_redacted += changes
-            continue
-        removed, _ = scrub_benchmark_secret_lines(path)
-        if removed:
-            files_scrubbed += 1
-            items_redacted += removed
+                items_redacted += removed
     return {
         "ok": True,
         "files_checked": files_checked,
@@ -1059,6 +1064,13 @@ def hidden_validation_markers(task: dict[str, Any]) -> list[str]:
     if not task.get("hide_validation_from_agent"):
         return []
     markers: list[str] = []
+    explicit_markers = task.get("leak_markers")
+    if explicit_markers is not None:
+        if isinstance(explicit_markers, list):
+            markers.extend(str(marker) for marker in explicit_markers if marker)
+        elif explicit_markers:
+            markers.append(str(explicit_markers))
+        return [marker for marker in markers if len(marker.strip()) >= 12]
     markers.extend(str(command) for command in task.get("validation", []) if command)
     return [marker for marker in markers if len(marker.strip()) >= 12]
 

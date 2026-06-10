@@ -154,6 +154,12 @@ Scenario prompts should withhold exact file names, test names, and prior
 rationale from no-brain runs when those facts are supposed to come from
 checkpoint/session history.
 
+When `hide_validation_from_agent` is true, tasks may set `leak_markers` to
+high-entropy canaries that should never appear in agent output. If omitted, the
+harness falls back to treating the hidden validation commands themselves as leak
+markers, which is intentionally strict but can false-flag agents that
+independently discover the same focused test command.
+
 Runner matrixes are supported with `--runners`. Specs are
 `agent[:model[:effort]]`, optionally prefixed by a stable id:
 

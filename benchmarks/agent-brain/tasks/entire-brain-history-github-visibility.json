@@ -24,5 +24,6 @@
   "forbidden_files": ["go.mod", "go.sum"],
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
+  "leak_markers": ["release-history-github-visibility-canary-20260610T0018Z"],
   "brain_queries": [".github visible default ignore", "git ignore matching too broad", "workflow files semantic snapshot"]
 }
