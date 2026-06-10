@@ -33,7 +33,7 @@
   },
   "local_ollama_contract": {
     "artifact": "go-test-internal-cli-ollama-distill.jsonl",
-    "sha256": "sha256:8c65df019541eb1d5e6063d3f8d1a1c00c89b2bd243e70faf7bb80213b439fd4",
+    "sha256": "sha256:bc511ffa73e42b3b65dcbb8cb2139989d987e367e0ff7a7ff9d5739640c2230e",
     "command": [
       "go",
       "test",
@@ -42,6 +42,13 @@
       "./internal/cli",
       "-run",
       "Test(DistillCommandOllamaLoopbackProducesTimedSummary|ExecOllamaDistillAgentUsesLoopbackGenerateAPI|ExecOllamaDistillAgentIgnoresProxyTransport|ExecOllamaDistillAgentIgnoresCustomTLSDialHook|ExecOllamaDistillAgentRejectsNonLoopbackURL|ExecOllamaDistillAgentRejectsNonLoopbackRedirect|IsLoopbackHTTPURLAllowsFullLoopbackRange|LoopbackOnlyDialContextRejectsNonLoopbackTargets|LoopbackOnlyDialContextAllowsLocalhostResolution)$"
+    ],
+    "source_head": "848909cb75f7c0a0075d7509e6c3ec3b1682e3d8",
+    "source_paths": [
+      "internal/cli/distill.go",
+      "internal/cli/distill_cmd.go",
+      "internal/cli/distill_test.go",
+      "internal/cli/distill_cmd_test.go"
     ],
     "package_passed": true,
     "required_tests": [

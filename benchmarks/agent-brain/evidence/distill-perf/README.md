@@ -32,7 +32,9 @@ A release-citable `manifest.json` in this directory must name:
 - `local_ollama_contract`, a retained non-cached `go test -json` artifact proving
   the fake loopback Ollama distill path sends the selected model to
   `/api/generate`, avoids the `ollama` PATH binary, and rejects non-loopback or
-  redirected egress without requiring a real external model;
+  redirected egress without requiring a real external model. This section must
+  include the artifact hash, exact command, source head, source path list, and
+  required test names;
 - a `min_speedup` threshold greater than `1.0`.
 
 For current retained evidence, `claim_scope` is intentionally narrow:

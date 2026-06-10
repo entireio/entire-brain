@@ -3078,6 +3078,8 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
                 "artifact": ollama_path.name,
                 "sha256": self._sha256(ollama_path),
                 "command": audit_distill_perf.DISTILL_OLLAMA_TEST_COMMAND,
+                "source_head": "3" * 40,
+                "source_paths": audit_distill_perf.DISTILL_OLLAMA_SOURCE_PATHS,
                 "required_tests": audit_distill_perf.DISTILL_OLLAMA_REQUIRED_TESTS,
                 "claim_scope": "local loopback Ollama distill wiring and no-egress safety contract; not model quality",
             }

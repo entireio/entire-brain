@@ -16,30 +16,6 @@
     "serial_run": "sha256:963c4862f604da8ea8bbd3650e0b9c4486bcdce59651033ee4a1a90a09271e21",
     "parallel_run": "sha256:d065d8daf51d1259947279ed47ef7f679b445dfb22288f1f84396adc262d6574"
   },
-  "local_ollama_contract": {
-    "artifact": "go-test-internal-cli-ollama-distill.jsonl",
-    "sha256": "sha256:8c65df019541eb1d5e6063d3f8d1a1c00c89b2bd243e70faf7bb80213b439fd4",
-    "command": [
-      "go",
-      "test",
-      "-count=1",
-      "-json",
-      "./internal/cli",
-      "-run",
-      "Test(DistillCommandOllamaLoopbackProducesTimedSummary|ExecOllamaDistillAgentUsesLoopbackGenerateAPI|ExecOllamaDistillAgentIgnoresProxyTransport|ExecOllamaDistillAgentIgnoresCustomTLSDialHook|ExecOllamaDistillAgentRejectsNonLoopbackURL|ExecOllamaDistillAgentRejectsNonLoopbackRedirect|IsLoopbackHTTPURLAllowsFullLoopbackRange|LoopbackOnlyDialContextRejectsNonLoopbackTargets|LoopbackOnlyDialContextAllowsLocalhostResolution)$"
-    ],
-    "required_tests": [
-      "TestDistillCommandOllamaLoopbackProducesTimedSummary",
-      "TestExecOllamaDistillAgentUsesLoopbackGenerateAPI",
-      "TestExecOllamaDistillAgentIgnoresProxyTransport",
-      "TestExecOllamaDistillAgentIgnoresCustomTLSDialHook",
-      "TestExecOllamaDistillAgentRejectsNonLoopbackURL",
-      "TestExecOllamaDistillAgentRejectsNonLoopbackRedirect",
-      "TestIsLoopbackHTTPURLAllowsFullLoopbackRange",
-      "TestLoopbackOnlyDialContextRejectsNonLoopbackTargets",
-      "TestLoopbackOnlyDialContextAllowsLocalhostResolution"
-    ]
-  },
   "commands": {
     "dry_run": [
       "entire-brain",
@@ -99,7 +75,14 @@
   },
   "local_ollama_contract": {
     "artifact": "go-test-internal-cli-ollama-distill.jsonl",
-    "sha256": "sha256:8c65df019541eb1d5e6063d3f8d1a1c00c89b2bd243e70faf7bb80213b439fd4",
+    "sha256": "sha256:bc511ffa73e42b3b65dcbb8cb2139989d987e367e0ff7a7ff9d5739640c2230e",
+    "source_head": "848909cb75f7c0a0075d7509e6c3ec3b1682e3d8",
+    "source_paths": [
+      "internal/cli/distill.go",
+      "internal/cli/distill_cmd.go",
+      "internal/cli/distill_test.go",
+      "internal/cli/distill_cmd_test.go"
+    ],
     "command": [
       "go",
       "test",
