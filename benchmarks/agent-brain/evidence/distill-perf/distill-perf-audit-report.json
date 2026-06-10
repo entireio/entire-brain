@@ -6,30 +6,30 @@
   "target": {
     "repo": "github.com/ashtom/entire-brain",
     "repo_key": "gh/ashtom/entire-brain",
-    "source_head": "55518db0766bf7eab6b902bfee6ad178870003e2",
-    "brain_manifest_sha256": "sha256:f40ff62f445e2dda7b8523fbdb63e40a7c37abe6e9c89b31ee1f2c10cd95f03f",
+    "source_head": "90e061ece9edac649c8b3ec0f2886baace05e181",
+    "brain_manifest_sha256": "sha256:94db24afdb46051654fd19587159ca3ba5aea46dab49be784a2b1b0a307afe07",
     "claim_scope": "current-repo local command-agent distill extraction scheduling speedup"
   },
   "min_speedup": 1.25,
-  "speedup": 1.9961447767232992,
+  "speedup": 3.1493045541694746,
   "dry_run": {
-    "sessions": 147,
-    "sessions_to_distill": 147,
-    "chunks": 159,
-    "preprocessed_bytes": 7419024,
-    "estimated_agent_calls_upper_bound": 318
+    "sessions": 158,
+    "sessions_to_distill": 158,
+    "chunks": 185,
+    "preprocessed_bytes": 11748560,
+    "estimated_agent_calls_upper_bound": 370
   },
   "serial_run": {
     "jobs": 1,
     "effective_extraction_jobs": 1,
-    "total_seconds": 18.28485225,
-    "total_agent_calls": 295
+    "total_seconds": 18.050992917,
+    "total_agent_calls": 335
   },
   "parallel_run": {
     "jobs": 4,
     "effective_extraction_jobs": 4,
-    "total_seconds": 9.160083208,
-    "total_agent_calls": 295
+    "total_seconds": 5.731739375,
+    "total_agent_calls": 335
   },
   "source_hashes": {
     "repo_root": ".",
