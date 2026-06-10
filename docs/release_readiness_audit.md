@@ -209,8 +209,8 @@ Implemented audit surfaces:
 Claim policy: do not say semantic indexing works globally. Say which languages,
 relations, and freshness states are covered, and show blind spots.
 
-Local clean evidence collected on this repo after the provider compatibility
-fix: `go run ./cmd/entire-brain refresh index --sem-binary entire --force`
+Historical clean semantic evidence collected on this repo after the provider
+compatibility fix: `go run ./cmd/entire-brain refresh index --sem-binary entire --force`
 indexed 134 files, 2,250 symbols, and 14,883 relations at `721aae0`; `go run
 ./cmd/entire-brain semantic-audit --json --fail-on release` passed with freshness
 `ok`, worktree state `clean`, zero blind spots, and one retained warning:
@@ -220,8 +220,10 @@ refreshed. Re-running with the explicit local provider path
 `go run ./cmd/entire-brain refresh index --sem-binary "$HOME/.local/bin/entire" --force`
 indexed 137 files, 2,405 symbols, and 17,091 relations at `b430963`; the
 subsequent `mise run semantic:evidence` passed with freshness `ok`, worktree
-state `clean`, and zero blind spots. This proves local coverage and audit
-health after refresh, not agent usefulness.
+state `clean`, and zero blind spots. This proves local coverage and audit health
+after refresh for those clean checkpoints, not agent usefulness. The final
+release head must rerun `mise run semantic:evidence` on a clean checkout before
+this is current release evidence.
 
 Blocked evidence collection: semantic benchmark/proof records must still be
 retained and audited before usefulness claims graduate from draft language.
@@ -300,8 +302,10 @@ JSON envelopes with two results. `search --help` lists both `--format` and
 Fixture-backed contract coverage: `TestQMDAliasesAcrossRetrievalVerbs` exercises
 the supported local surface across `search`, `query`, `vsearch`, `get`, and
 `multi-get`, including `--format json`, `-n` / `--number`, JSON result shapes,
-and missing-id reporting. `TestQMDLimitAliasesAndPrecedence` pins positive
-`--limit` handling plus mixed `--limit`/`-n` ordering.
+resolved-branch reporting, and missing-id reporting.
+`TestQMDBranchOverrideAcrossRetrievalVerbs` pins branch override behavior across
+all five verbs, including wrong-branch misses. `TestQMDLimitAliasesAndPrecedence`
+pins positive `--limit` handling plus mixed `--limit`/`-n` ordering.
 `TestQMDHelpContractsForRetrievalVerbs` and
 `TestQMDTopLevelHelpListsRetrievalVerbs` pin the help surface for supported
 verbs and aliases, while
@@ -309,7 +313,7 @@ verbs and aliases, while
 and missing-id behavior. `TestQMDUnsupportedFormatRejectedAcrossRetrievalVerbs`
 fails every supported retrieval verb on unsupported formats, so `csv`, `md`,
 `xml`, `text`, and other QMD formats cannot quietly produce accidental partial
-support. MCP coverage now also asserts the QMD-style retrieval tools are
+support. MCP coverage now also asserts the QMD-inspired retrieval tools are
 advertised and callable as `brain_search`, `brain_vsearch`, `brain_query`,
 `brain_get`, and `brain_multi_get`.
 
@@ -414,7 +418,7 @@ Release claims must stay local-first and evidence-backed:
   Replay-lab release evidence keeps the still-valid agent A/B scopes `history`
   and generic `mcp`; stale Radar agent evidence was pruned after the stricter
   `tool_result` audit showed the retained suite did not prove completed
-  server-side Radar calls. QMD-style MCP retrieval and Radar now have
+  server-side Radar calls. QMD-inspired MCP retrieval and Radar now have
   deterministic tool-contract evidence under
   `benchmarks/agent-brain/evidence/radar-tool`, checked by `mise run
   radar:evidence`.
@@ -493,7 +497,7 @@ Release claims must stay local-first and evidence-backed:
   tokens.
 - Retained MCP/Radar tool-contract evidence now includes
   `benchmarks/agent-brain/evidence/radar-tool`: a hashed `go test -json`
-  artifact over 48 focused `internal/cli` tests. It proves QMD-style MCP tool
+  artifact over 49 focused `internal/cli` tests. It proves QMD-inspired MCP tool
   listing and local retrieval (`brain_search`, `brain_vsearch`, `brain_query`,
   `brain_get`, `brain_multi_get`), branch-scoped fact retrieval over MCP,
   changed-operand detection without per-file hint masking, location-only
@@ -507,7 +511,7 @@ Release claims must stay local-first and evidence-backed:
   behavior only, not as agent pass-rate lift.
 - The query default-limit benchmark tasks now target the current unified
   retrieval implementation in `internal/cli/retrieve_cmd.go`, including the
-  QMD-style `-n` alias, instead of the old semantic-query implementation.
+  QMD-inspired `-n` alias, instead of the old semantic-query implementation.
 
 ## Commands And Evidence Status
 
@@ -568,7 +572,7 @@ instead of disappearing from the screen report.
 `mise run radar:evidence` now checks the retained deterministic MCP/Radar
 tool-contract artifact instead of promoting those saturated agent panels. It
 requires the retained `go test -json` artifact hash to match and all 49 required
-MCP/Radar tests to pass, including branch-aware QMD-style retrieval tools and
+MCP/Radar tests to pass, including branch-aware QMD-inspired retrieval tools and
 Radar-specific MCP behavior, invariant-scoped related locations that distinguish
 same-identifier assignment deletions with different RHS values, workspace
 multi-locus deletion redaction, and safe success-path tool-result logging for
@@ -624,8 +628,9 @@ repo/access/artifacts are available:
 - Additional benchmark panels or retained proof subsets from
   `benchmarks/agent-brain`, audited with `audit_codex.py --fail-on-flags` and
   committed under `benchmarks/agent-brain/evidence/release` as sanitized
-  evidence. One focused history proof is now retained; semantic/facts and
-  broader multi-task replay evidence are still needed for broader claims.
+  evidence. One focused history proof and one generic MCP-history proof are now
+  retained; semantic/facts, Radar agent-lift, and broader multi-task replay
+  evidence are still needed for broader claims.
 - `mise run release:evidence` must pass before any replay-lab proof claim; it runs
   benchmark harness self-tests and then audits explicit `release-candidate-*`
   suites through `benchmarks/agent-brain/evidence/release/manifest.json`.

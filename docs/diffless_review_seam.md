@@ -128,14 +128,15 @@ from basic MCP-verified datapoints and can require named-tool proof by proof
 scope. The current generic MCP-history proof is call-count-backed legacy
 evidence; citable named-tool MCP proof currently comes from deterministic local
 MCP/Radar contract tests, not from retained agent pass-rate evidence.
-Radar proof also records only safe MCP boolean arguments (`location_only`,
-`include_deletions`) from structured tool-call events, so the audit can reject a
-would-be location-only proof that actually called the wrong mode without
-retaining query text. New records also embed the deletion-policy bit in record
-provenance, so future audits do not infer required Radar arguments from today's
-task file contents. The live harness audit now checks deletion-shaped Radar
-tasks for `include_deletions: true` too, so bad calls are visible in the run
-record before the retained-evidence audit.
+Radar proof records only safe MCP boolean arguments (`location_only`,
+`include_deletions`) plus validated workspace names from structured tool-call
+events, so the audit can reject a would-be location-only or workspace proof that
+actually called the wrong mode or workspace without retaining query text. New
+records also embed the deletion-policy bit in record provenance, so future
+audits do not infer required Radar arguments from today's task file contents.
+The live harness audit now checks deletion-shaped Radar tasks for
+`include_deletions: true` too, so bad calls are visible in the run record before
+the retained-evidence audit.
 For non-radar MCP-history proof, the committed
 `release-entire-cli-mcp-manual-attribution` panel targets a harder manual-commit
 attribution invariant where the brain should provide historical localization and

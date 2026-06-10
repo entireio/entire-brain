@@ -272,12 +272,10 @@ mise run release:evidence
 
 That gate reads `benchmarks/agent-brain/evidence/release/manifest.json`,
 audits only suite directories matching `release-candidate-*`, rejects
-`release-local-*`, and requires at least one stable `proof_ready` comparison
-with 4 repetitions per side plus panel provenance. Historical, exploratory,
-`release-local-*`, or other quarantine suites can remain under `results/` for
-reference, but they cannot satisfy a release proof claim unless they are
-regenerated from a committed panel as an explicit release-candidate suite and
-pass the manifest-enforced audit.
+`release-local-*`, and enforces the manifest thresholds: currently 2 suites, 16
+records, 2 proof-ready comparisons, 4 repetitions per side, panel provenance,
+zero hard flags, at least one proof-ready comparison per retained suite, and
+required proof scopes `history` and generic `mcp`.
 
 The release evidence manifest lives at
 `benchmarks/agent-brain/evidence/release/manifest.json`; it records the citable
@@ -287,9 +285,11 @@ outside that retained lane.
 Audit mode treats missing or malformed provenance as a hard integrity flag. A
 release audit must therefore be able to show, per record, which harness revision,
 source base/head commits, task config hash, runner/config fingerprint, and tool
-hashes produced the result. The current retained `results/` panel is quarantine
-evidence and intentionally fails a full all-results audit until a
-provenance-complete retained subset replaces or filters it.
+hashes produced the result. Ignored `results/` panels remain
+quarantine/reference evidence unless copied or regenerated into the
+provenance-complete retained lane under
+`benchmarks/agent-brain/evidence/release` and passing `mise run
+release:evidence`.
 
 For a SWE-bench-style matrix, tag tasks with `source` and `suite_tags`. The
 current harness already supports the essential SWE shape: issue prompt,

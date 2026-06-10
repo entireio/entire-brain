@@ -34,24 +34,26 @@ task outcomes instead of relying on demos or anecdotes.
 ## What Must Be Proven Before Public Claims
 
 - Distill performance on a large session repo, using `distill --dry-run --json`
-  and a timed run with cache/timing fields.
+  plus paired timed `--jobs 1` and `--jobs N` JSON runs with matching
+  cache/timing fields.
 - Facts-vs-session retrieval quality, using paired `facts eval --retriever`
   comparisons over shared proof labels; proxy-comparison opt-in remains
   smoke/calibration only and must be labeled as such.
 - Semantic usefulness, using semantic-audit output plus benchmark tasks where
   semantic context changes file/test localization or agent efficiency.
-- More replay-lab evidence beyond the first retained focused history and
-  MCP/Radar proofs, using repeated benchmark scenarios, stable verdicts, and
-  committed release/Radar audit reports.
+- More replay-lab evidence beyond the first retained focused history proof and
+  retained generic MCP-history proof, plus separate deterministic Radar
+  tool-contract evidence; Radar agent-lift still needs repeated benchmark
+  scenarios, stable verdicts, and committed release/Radar audit reports.
 
 ## Blocked Or Access-Dependent
 
 - Backend-specific audits wait for backend access.
 - Slack/onboarding-dependent release workflow details wait for workspace access.
-- Large-repo distill timing, paired facts evals, and broader multi-task replay
-  evidence are still pending. The semantic audit coverage gate has passed after
-  a local refresh on this checkout, but semantic usefulness still needs retained
-  benchmark proof.
+- Large-repo distill timing, paired facts evals, semantic usefulness, and broader
+  multi-task replay evidence are still pending. Semantic audit coverage has
+  historical local clean evidence after refresh, and the final release checkout
+  must pass `mise run semantic:evidence` before citing current semantic health.
 - Full turn-level cryptographic fact verification still depends on CLI-side turn
   signing.
 - Generated fact-at-checkpoint creation remains a future CLI/checkpoint pipeline
@@ -70,7 +72,9 @@ task outcomes instead of relying on demos or anecdotes.
 - Shipped: local retrieval, semantic index consumption, durable facts, anchor
   verification, MCP/Regression Radar contracts, workspace-radar MCP harnessing,
   eval harness, benchmark harness.
-- Proven locally: semantic audit coverage after refresh on this checkout,
+- Proven locally: historical semantic audit coverage after refresh on clean
+  checkpoints, pending a fresh `mise run semantic:evidence` pass on the final
+  clean release checkout,
   distill dry-run sizing, current-repo local command-agent distill scheduler
   speedup evidence, facts-eval baseline plumbing and no-claim evidence guard,
   local QMD-inspired retrieval contract tests, one retained replay-lab history
@@ -78,7 +82,7 @@ task outcomes instead of relying on demos or anecdotes.
   and one retained MCP-history proof where `mcp_history` improved pass rate
   1/4 -> 4/4 on a manual-attribution regression without proving efficiency
   gains, plus retained deterministic MCP/Radar tool-contract proof for
-  QMD-style MCP retrieval, branch-scoped facts, location-only Radar, deletion
+  QMD-inspired MCP retrieval, branch-scoped facts, location-only Radar, deletion
   opt-in, workspace Radar, strict MCP schemas, and safe tool-result logging.
 - Pending proof: target large-repo/frontend distill timing, paired facts evals
   with active durable facts and proof labels,

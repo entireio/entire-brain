@@ -3,7 +3,7 @@
 
 This is deliberately separate from agent A/B proof. It answers a narrower
 release-readiness question: do the local MCP tools and Radar detector pass their
-contract tests, including QMD-style retrieval, location-only redaction, deletion
+contract tests, including QMD-inspired retrieval, location-only redaction, deletion
 opt-in, workspace Radar, and server-side tool-result logging?
 """
 
@@ -21,6 +21,9 @@ from typing import Any
 CLAIM_SCOPE = "mcp_radar_tool_contract"
 
 RADAR_TOOL_SOURCE_PATHS = [
+    "internal/cli/retrieve.go",
+    "internal/cli/retrieve_cmd.go",
+    "internal/cli/retrieve_test.go",
     "internal/cli/regression.go",
     "internal/cli/regression_test.go",
     "internal/cli/mcp.go",

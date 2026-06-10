@@ -28,11 +28,13 @@ they exist; they must be regenerated from a committed panel into an explicit
 Regression Radar and the MCP retrieval surface are checked separately by
 `mise run radar:evidence`, which audits deterministic Go/MCP tool-contract
 evidence under `benchmarks/agent-brain/evidence/radar-tool`. That gate proves
-the local detector, QMD-style MCP retrieval tools including branch-scoped facts,
+the local detector, QMD-inspired MCP retrieval tools including branch-scoped facts,
 hinted changed/deleted Radar loci, unsafe workspace pairing skips, workspace
 Radar redaction, and MCP safety contracts, not agent pass-rate lift. Future
 Radar records must carry their deletion-policy bit in record provenance; the
-audit does not infer it from mutable task files.
+audit does not infer it from mutable task files. Future workspace Radar proof
+must also bind server `tool_args.workspace` to
+`provenance.run_config.workspace_name`.
 
 The committed manifest records the citable suite policy. Generated audit reports
 should only be committed after the gate passes for a real release-candidate run.
