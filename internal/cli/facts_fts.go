@@ -4,8 +4,6 @@ import (
 	"database/sql"
 	"os"
 	"strings"
-
-	_ "modernc.org/sqlite"
 )
 
 // facts_fts.go scores facts with FTS5 BM25 as an *opt-in* alternative lexical arm
@@ -45,7 +43,7 @@ func factsFTSScores(facts []factRecord, query string) (map[string]float64, bool)
 	if expr == "" {
 		return nil, false
 	}
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := sql.Open(sqliteDriverName, ":memory:")
 	if err != nil {
 		return nil, false
 	}

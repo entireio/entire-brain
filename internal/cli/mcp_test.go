@@ -94,7 +94,7 @@ func TestMCPToolsListAdvertisesStaleBlindSpots(t *testing.T) {
 	}
 	responses := readMCPResponses(t, out.String())
 	data, _ := json.Marshal(responses[0]["result"])
-	for _, want := range []string{"brain_stale", "blind_spots", "semantic blind spots"} {
+	for _, want := range []string{"brain_stale", "blind_spots", "provider could not fully index"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("tools/list missing %q: %s", want, data)
 		}

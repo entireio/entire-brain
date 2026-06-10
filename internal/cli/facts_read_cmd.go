@@ -41,6 +41,8 @@ func newRecallCommand(opts Options) *cobra.Command {
 		limit        int
 		includeAll   bool
 		scope        string
+		kind         string
+		locus        string
 		noSemantic   bool
 		expand       bool
 		agent        string
@@ -60,6 +62,9 @@ func newRecallCommand(opts Options) *cobra.Command {
 			if err := validateScopeFlag(scope); err != nil {
 				return err
 			}
+			if err := validateKindFlag(kind); err != nil {
+				return err
+			}
 			repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
 			if err != nil {
 				return err
@@ -68,7 +73,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			facts := filterFactsByScope(allFacts, scope)
+			facts := filterFactsByLocus(filterFactsByKind(filterFactsByScope(allFacts, scope), kind), locus)
 			effectiveQuery := query
 			if expand && strings.TrimSpace(query) != "" {
 				resolved := agent
@@ -101,15 +106,33 @@ func newRecallCommand(opts Options) *cobra.Command {
 				rr.retain(allFacts) // keep every present fact's vector; prune only departed facts
 				_ = rr.flush()      // best-effort cache persist
 			}
+			// Locus drift (Phase 2 item 4): flag surfaced facts whose code
+			// locus left the worktree, so the agent knows which to re-verify.
+			drift := factsLocusDrift(repoDir, matches)
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{"branch": resolvedBranch, "query": query, "facts": matches})
+				out := map[string]any{"branch": resolvedBranch, "query": query, "facts": matches}
+				if len(drift) > 0 {
+					out["locus_drift"] = drift
+				}
+				if len(matches) == 0 {
+					if note := emptyResultBlindSpot(brainDir); note != "" {
+						out["blind_spot"] = note
+					}
+				}
+				return writeJSON(cmd, out)
 			}
 			if len(matches) == 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "no facts for %q on %s\n", query, resolvedBranch)
+				if note := emptyResultBlindSpot(brainDir); note != "" {
+					fmt.Fprintln(cmd.OutOrStdout(), note)
+				}
 				return nil
 			}
 			for _, f := range matches {
 				printFactLine(cmd, f)
+				if gone := drift[f.ID]; len(gone) > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(), "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
+				}
 			}
 			return nil
 		},
@@ -118,6 +141,8 @@ func newRecallCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&limit, "k", 10, "Maximum facts to return")
 	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted facts")
 	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) facts")
+	cmd.Flags().StringVar(&kind, "kind", "", "Restrict to one kind: decision|invariant|gotcha|preference|convention")
+	cmd.Flags().StringVar(&locus, "locus", "", "Restrict to facts about a code locus (a path or symbol, e.g. internal/cli/facts.go or factRecord)")
 	cmd.Flags().BoolVar(&noSemantic, "no-semantic", false, "Disable embedding rerank; rank with lexical + taxonomy only")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand the query with agent-generated retrieval terms before ranking")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --expand: auto, codex, claude-code, ollama, or command")
@@ -135,6 +160,14 @@ func validateScopeFlag(scope string) error {
 	default:
 		return fmt.Errorf("--scope must be %q or %q", factScopeLocal, factScopeCrossCutting)
 	}
+}
+
+// validateKindFlag rejects an unrecognized --kind value (empty = no filter).
+func validateKindFlag(kind string) error {
+	if strings.TrimSpace(kind) == "" || validFactKind(kind) {
+		return nil
+	}
+	return fmt.Errorf("--kind must be one of decision|invariant|gotcha|preference|convention")
 }
 
 func newInspectBlameCommand(opts Options) *cobra.Command {
@@ -164,7 +197,7 @@ func newInspectBlameCommand(opts Options) *cobra.Command {
 			if jsonOut {
 				return writeJSON(cmd, fact)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s [%s] %s\n", fact.ID, strings.Join(fact.Paths, ","), fact.Text)
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s [%s] %s\n", fact.ID, factKindOrInferred(fact), strings.Join(fact.Paths, ","), fact.Text)
 			fmt.Fprintf(cmd.OutOrStdout(), "  origin=%s status=%s\n", fact.Origin, fact.Status)
 			for _, a := range fact.Provenance {
 				verified := "unsigned"
@@ -191,5 +224,5 @@ func printFactLine(cmd *cobra.Command, f factRecord) {
 	case factStatusRetracted:
 		marker = " (retracted)"
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s [%s]%s\n  %s\n", f.ID, strings.Join(f.Paths, ","), marker, f.Text)
+	fmt.Fprintf(cmd.OutOrStdout(), "%s %s [%s]%s\n  %s\n", f.ID, factKindOrInferred(f), strings.Join(f.Paths, ","), marker, f.Text)
 }

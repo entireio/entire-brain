@@ -69,6 +69,7 @@ type evalStratum struct {
 
 type evalSummary struct {
 	Retriever              string                 `json:"retriever,omitempty"`
+	Arm                    string                 `json:"arm,omitempty"`
 	RunConfig              *evalRunConfig         `json:"run_config,omitempty"`
 	Tasks                  int                    `json:"tasks"`
 	MeanTokens             float64                `json:"mean_tokens"`
@@ -78,6 +79,7 @@ type evalSummary struct {
 	MeanPrecision          float64                `json:"mean_precision"`
 	MeanUsefulPer1k        float64                `json:"mean_useful_per_1k"`
 	ByStratum              map[string]evalStratum `json:"by_stratum,omitempty"`
+	SurfacedByKind         map[string]int         `json:"surfaced_by_kind,omitempty"`
 	Results                []evalTaskResult       `json:"results"`
 }
 
@@ -88,6 +90,7 @@ type evalRunConfig struct {
 	Branch                string `json:"branch,omitempty"`
 	K                     int    `json:"k"`
 	Retriever             string `json:"retriever"`
+	Arm                   string `json:"arm,omitempty"`
 	Judge                 bool   `json:"judge"`
 	JudgeSourceMatches    bool   `json:"judge_source_matches,omitempty"`
 	Expand                bool   `json:"expand"`
@@ -185,6 +188,7 @@ func summarizeEvalWithConfig(results []evalTaskResult, config *evalRunConfig) ev
 	if config != nil {
 		copy := *config
 		s.RunConfig = &copy
+		s.Arm = copy.Arm
 	}
 	if len(results) == 0 {
 		return s
@@ -339,6 +343,7 @@ func newFactsEvalCommand(opts Options) *cobra.Command {
 		judgeCache   string
 		expandCache  string
 		retriever    string
+		arm          string
 		jsonOut      bool
 		run          distillAgentRunner
 	)
@@ -378,6 +383,10 @@ The tasks file is a JSON array:
 				return err
 			}
 			if err := validateEvalSemanticRetriever(semantic, retriever); err != nil {
+				return err
+			}
+			armFn, err := selectRetrievalArm(arm)
+			if err != nil {
 				return err
 			}
 			repoDir, brainDir, defaultBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
@@ -426,7 +435,7 @@ The tasks file is a JSON array:
 			if err := cache.validateLoaded(); err != nil {
 				return err
 			}
-			results, err := runFactsEvalWithOptions(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, cache, expander, rr, retriever, factsEvalRunOptions{JudgeSourceMatches: judgeSource})
+			results, err := runFactsEvalWithOptions(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, cache, expander, rr, retriever, factsEvalRunOptions{JudgeSourceMatches: judgeSource, Arm: armFn, ArmName: arm})
 			if err != nil {
 				return err
 			}
@@ -440,6 +449,7 @@ The tasks file is a JSON array:
 				Branch:                defaultBranch,
 				K:                     k,
 				Retriever:             retriever,
+				Arm:                   arm,
 				Judge:                 judge,
 				JudgeSourceMatches:    judgeSource,
 				Expand:                expand,
@@ -470,6 +480,7 @@ The tasks file is a JSON array:
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand each task query with agent-generated retrieval terms before retrieval")
 	cmd.Flags().StringVar(&expandCache, "expand-cache", "", "Persist/reuse query expansions at this path")
 	cmd.Flags().StringVar(&retriever, "retriever", evalRetrieverFacts, "Retrieval arm: facts, history, query, or raw-sessions")
+	cmd.Flags().StringVar(&arm, "arm", "flat", "Fact retrieval arm: flat, scoped, scoped-floor, or outline")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the summary as JSON")
 	return cmd
 }
@@ -608,10 +619,13 @@ func validateEvalSemanticRetriever(semantic bool, retriever string) error {
 	return nil
 }
 
-func retrieveEvalItems(brainDir, branch, query string, limit int, retriever string, facts []factRecord, rr *semanticReranker) ([]evalRetrievedItem, error) {
+func retrieveEvalItems(brainDir, branch, query string, limit int, retriever string, facts []factRecord, rr *semanticReranker, arm retrievalArm) ([]evalRetrievedItem, error) {
 	switch retriever {
 	case evalRetrieverFacts:
-		return factsToEvalItems(rankFactsFused(facts, query, limit, false, rr)), nil
+		if arm == nil {
+			arm = flatArm
+		}
+		return factsToEvalItems(arm(facts, query, limit, rr)), nil
 	case evalRetrieverHistory:
 		manifest, err := loadBrainManifest(brainDir)
 		if err != nil {
@@ -1014,6 +1028,8 @@ type queryExpanderFunc func(query string) (string, error)
 
 type factsEvalRunOptions struct {
 	JudgeSourceMatches bool
+	Arm                retrievalArm
+	ArmName            string
 }
 
 func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, rr *semanticReranker, retriever string) ([]evalTaskResult, error) {
@@ -1067,7 +1083,7 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 			}
 		}
 		started := time.Now()
-		surfaced, err := retrieveEvalItems(brainDir, branch, query, k, retriever, facts, rr)
+		surfaced, err := retrieveEvalItems(brainDir, branch, query, k, retriever, facts, rr, runOpts.Arm)
 		if err != nil {
 			return nil, fmt.Errorf("retrieve task %s: %w", task.ID, err)
 		}

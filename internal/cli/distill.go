@@ -177,7 +177,9 @@ func injectAgentEffort(args []string, agent, effort string) []string {
 
 // distilledFactsFromOutput parses the agent's line-based output for one
 // transcript chunk into fact records. Each emitted line is
-// `path[,path]<TAB>fact`. Lines are dropped (with a warning) when they have no
+// `[kind<TAB>]path[,path]<TAB>fact` — the leading KIND column is optional and
+// falls back to deterministic inference when absent or invalid. Lines are
+// dropped (with a warning) when they have no
 // tab, no syntactically valid path, or no path whose top-level category exists
 // in the active taxonomy — the taxonomy's top levels are fixed, so a path under
 // an unknown category cannot be trusted. Output is capped at factsMaxPerChunk;
@@ -197,14 +199,17 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			continue
 		}
 		// Some models (seen with gpt-5.3-codex-spark) emit the separator as a
-		// literal backslash-t escape instead of a real tab character. Recover it:
-		// convert the *first* literal `\t` to a real tab when no real tab is
-		// present. Only the first is the path/fact separator — a later `\t` belongs
-		// to the fact text and must be left intact. The leading field is still
-		// validated as a taxonomy path below, so a wrongful conversion cannot
-		// manufacture a bogus fact.
+		// literal backslash-t escape instead of a real tab character. Recover the
+		// first literal `\t` (the leading structural separator); when that leading
+		// field is a KIND there is a second structural separator (kind|path) to
+		// recover too. Any further literal `\t` belongs to the fact text and is
+		// left intact — so a legacy `path\tfact-with-\t` keeps its in-text escape
+		// (only one structural tab) while a new `kind\tpath\tfact` recovers both.
 		if !strings.ContainsRune(line, '\t') && strings.Contains(line, `\t`) {
 			line = strings.Replace(line, `\t`, "\t", 1)
+			if fields := strings.SplitN(line, "\t", 2); len(fields) == 2 && validFactKind(fields[0]) {
+				line = fields[0] + "\t" + strings.Replace(fields[1], `\t`, "\t", 1)
+			}
 		}
 		if !strings.ContainsRune(line, '\t') {
 			// Prose / preamble the template forbids; ignore quietly unless it
@@ -214,7 +219,7 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			}
 			continue
 		}
-		rawPaths, text := splitFactLine(line)
+		kind, rawPaths, text := parseFactLine(line)
 		if text == "" {
 			continue
 		}
@@ -229,9 +234,14 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			continue
 		}
 		text = truncateString(text, distillFactMaxTextSize)
+		if kind == "" {
+			kind = inferFactKind(paths, text) // agent omitted/violated kind → deterministic fallback
+		}
 		records = append(records, factRecord{
 			ID:         factRecordID(text, paths),
 			Paths:      paths,
+			Kind:       kind,
+			Locus:      factLocus(text),
 			Text:       text,
 			Branch:     branch,
 			Origin:     factOriginDistilled,
@@ -245,6 +255,43 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 		warnings = append(warnings, fmt.Sprintf("chunk produced more than %d facts; extra lines dropped", factsMaxPerChunk))
 	}
 	return records, warnings
+}
+
+// parseFactLine parses one distill output line into (kind, raw paths, fact
+// text), tolerating three shapes the agent actually produces:
+//
+//	path[,path]<TAB>fact                  — legacy 2-field, kind inferred ("")
+//	kind<TAB>path[,path]<TAB>fact         — the new column, kind honored
+//	<word><TAB>path[,path]<TAB>fact       — an unrecognized leading word (a kind
+//	                                        synonym): dropped, kind inferred
+//
+// The grammar is "an optional single leading non-path token, then path-blocks,
+// then text". It first tries reading path-blocks from the front (the legacy
+// case); only if that yields no path does it drop one leading field and retry,
+// so a genuine path-first line is never misread and a malformed line (no path
+// either way) still falls through to be dropped by the caller. This recovers
+// the fact whether the agent emits an exact kind, a near-miss synonym, or no
+// kind at all — instead of silently dropping a line whose leading token is not
+// in the closed set.
+func parseFactLine(line string) (string, []string, string) {
+	if paths, text := splitFactLine(line); len(normalizeFactPaths(paths)) > 0 {
+		return "", paths, text // path-block leads: legacy form, no kind column
+	}
+	// Leading field is not a path-block — it may be a kind (or a synonym). Drop
+	// exactly one field and retry; accept only if that reveals a valid path.
+	fields := strings.SplitN(line, "\t", 2)
+	if len(fields) == 2 {
+		if paths, text := splitFactLine(fields[1]); len(normalizeFactPaths(paths)) > 0 {
+			if lead := strings.ToLower(strings.TrimSpace(fields[0])); validFactKind(lead) {
+				return lead, paths, text
+			}
+			return "", paths, text // unrecognized leading word → infer the kind
+		}
+	}
+	// No path either way: return the legacy parse so the caller drops it with the
+	// existing "no valid taxonomy path" warning.
+	paths, text := splitFactLine(line)
+	return "", paths, text
 }
 
 // splitFactLine separates a distill output line into its path tokens and fact

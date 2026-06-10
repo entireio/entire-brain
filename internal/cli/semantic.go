@@ -24,7 +24,6 @@ import (
 	"unicode"
 
 	"github.com/spf13/cobra"
-	_ "modernc.org/sqlite"
 )
 
 const (
@@ -47,6 +46,7 @@ const (
 	semanticWorktreeFingerprintMaxTotal = 128 * 1024 * 1024
 	semanticDoctorTimeout               = 30 * time.Second
 	semanticSnapshotTimeout             = 2 * time.Minute
+	semanticIndexLockTimeout            = 10 * time.Second
 )
 
 var (
@@ -349,12 +349,19 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 			return fmt.Errorf("%s: semantic provider no-egress status is not verified", code)
 		}
 		indexOpts.reportPhase("parsing sources")
-		var snapshotWarnings []semanticWarning
-		raw, snapshotWarnings, err = runSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts.semBinary, indexOpts.worktree, providerIgnoreFiles)
+		raw, err = runSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts.semBinary, indexOpts.worktree, providerIgnoreFiles)
+		if err != nil && len(providerIgnoreFiles) > 0 && semanticSnapshotRejectsIgnoreFile(err) {
+			warnings = append(warnings, semanticWarning{
+				Code:     "provider_ignore_file_unsupported",
+				Severity: "warning",
+				Effect:   "semantic provider retried without .brainignore; local filtering still applies",
+				Detail:   err.Error(),
+			})
+			raw, err = runSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts.semBinary, indexOpts.worktree, nil)
+		}
 		if err != nil {
 			return err
 		}
-		warnings = append(warnings, snapshotWarnings...)
 		indexOpts.reportPhase("filtering snapshot")
 		header, counts, raw, err = filterSemanticSnapshot(raw, ignore, repoDir)
 		if err != nil {
@@ -484,7 +491,7 @@ func runSemanticRepair(ctx context.Context, cmd *cobra.Command, opts Options, ta
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain refresh index`")
+		return errors.New("semantic index missing; run `entire brain index`")
 	}
 	source := manifest.Sources.Semantic
 	snapshotRel, err := validateSemanticSnapshotPath(source.SnapshotPath)
@@ -599,27 +606,22 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 			return err
 		}
 		defer unlock()
-		if err := withBrainWriteLock(storage.BrainDir, func() error {
-			manifest, err := loadBrainManifest(storage.BrainDir)
-			if err != nil {
-				return err
-			}
-			if manifest.Sources == nil {
-				manifest.Sources = &brainSources{}
-			}
-			manifest.Sources.Semantic = nil
-			applySessionSourceAliases(manifest)
-			if err := rejectExistingSymlinkPathComponents(storage.BrainDir, semanticDirName); err != nil {
-				return err
-			}
-			if err := writeBrainManifestAndReadme(storage.BrainDir, *manifest); err != nil {
-				return err
-			}
-			if err := os.RemoveAll(filepath.Join(storage.BrainDir, semanticDirName)); err != nil {
-				return fmt.Errorf("remove semantic artifacts: %w", err)
-			}
-			return syncParentDir(filepath.Join(storage.BrainDir, semanticDirName))
-		}); err != nil {
+		manifest, err := loadBrainManifest(storage.BrainDir)
+		if err != nil {
+			return err
+		}
+		if manifest.Sources == nil {
+			manifest.Sources = &brainSources{}
+		}
+		manifest.Sources.Semantic = nil
+		applySessionSourceAliases(manifest)
+		if err := rejectExistingSymlinkPathComponents(storage.BrainDir, semanticDirName); err != nil {
+			return err
+		}
+		if err := os.RemoveAll(filepath.Join(storage.BrainDir, semanticDirName)); err != nil {
+			return fmt.Errorf("remove semantic artifacts: %w", err)
+		}
+		if err := writeBrainManifestAndReadme(storage.BrainDir, *manifest); err != nil {
 			return err
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "reset semantic brain: %s\n", storage.BrainDir)
@@ -629,64 +631,33 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(storage.BrainDir); err != nil {
+	tombstone := storage.BrainDir + ".reset-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	if err := os.Rename(storage.BrainDir, tombstone); err != nil {
 		unlock()
 		if os.IsNotExist(err) {
 			fmt.Fprintf(cmd.OutOrStdout(), "reset brain: %s\n", storage.BrainDir)
 			return nil
 		}
-		return err
+		return fmt.Errorf("move brain directory for reset: %w", err)
 	}
-	unlockBrain, err := acquireBrainWriteLock(storage.BrainDir)
-	if err != nil {
-		unlock()
-		return err
-	}
-	if err := resetBrainDirectoryContents(storage.BrainDir); err != nil {
-		unlockBrain()
-		unlock()
-		return err
-	}
-	unlockBrain()
 	unlock()
-	if err := syncParentDir(storage.BrainDir); err != nil {
-		return err
+	if err := os.RemoveAll(tombstone); err != nil {
+		return fmt.Errorf("remove brain directory: %w", err)
+	}
+	lockDir := filepath.Join(storage.BrainDir, brainLockDirName)
+	if err := os.MkdirAll(lockDir, 0o700); err != nil {
+		return fmt.Errorf("recreate brain lock directory: %w", err)
+	}
+	if f, err := os.OpenFile(filepath.Join(lockDir, brainWriteLockName), os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o600); err != nil {
+		return fmt.Errorf("recreate brain write lock metadata: %w", err)
+	} else {
+		writeLockMetadata(f)
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("close brain write lock metadata: %w", err)
+		}
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "reset brain: %s\n", storage.BrainDir)
 	return nil
-}
-
-func resetBrainDirectoryContents(brainDir string) error {
-	entries, err := os.ReadDir(brainDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return os.MkdirAll(brainDir, 0o700)
-		}
-		return err
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if name == brainLockDirName {
-			continue
-		}
-		if err := removeAllWithRetry(filepath.Join(brainDir, name)); err != nil {
-			return fmt.Errorf("remove brain entry %s: %w", name, err)
-		}
-	}
-	return syncParentDir(brainDir)
-}
-
-func removeAllWithRetry(path string) error {
-	var last error
-	for attempt := 0; attempt < 5; attempt++ {
-		if err := os.RemoveAll(path); err != nil {
-			last = err
-			time.Sleep(time.Duration(attempt+1) * 20 * time.Millisecond)
-			continue
-		}
-		return nil
-	}
-	return last
 }
 
 type semanticCounts struct {
@@ -698,7 +669,6 @@ type semanticCounts struct {
 type semanticBuildMetrics struct {
 	GeneratedAt     time.Time `json:"generated_at"`
 	GenerationID    string    `json:"generation_id"`
-	SnapshotSHA256  string    `json:"snapshot_sha256,omitempty"`
 	Commit          string    `json:"commit,omitempty"`
 	Tree            string    `json:"tree,omitempty"`
 	Files           int       `json:"files"`
@@ -713,12 +683,6 @@ type semanticBuildMetrics struct {
 }
 
 func writeBrainSemanticSource(outputDir, repoKey string, semantic *semanticSourceManifest) error {
-	return withBrainWriteLock(outputDir, func() error {
-		return writeBrainSemanticSourceLocked(outputDir, repoKey, semantic)
-	})
-}
-
-func writeBrainSemanticSourceLocked(outputDir, repoKey string, semantic *semanticSourceManifest) error {
 	manifest, err := loadBrainManifest(outputDir)
 	if err != nil {
 		return err
@@ -738,15 +702,11 @@ func acquireSemanticIndexLock(brainDir string) (func(), error) {
 	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
 		return nil, err
 	}
-	lockDir := filepath.Join(brainDir, semanticLockDir)
 	if err := rejectExistingSymlinkPathComponents(brainDir, semanticLockDir); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(lockDir, 0o700); err != nil {
-		return nil, fmt.Errorf("create semantic lock dir: %w", err)
-	}
-	lockPath := filepath.Join(lockDir, semanticIndexLockName)
-	lock, err := acquireFileLock(lockPath, "index_locked", 0)
+	lockPath := filepath.Join(brainDir, semanticLockDir, semanticIndexLockName)
+	lock, err := acquireFileLock(lockPath, "index_locked", semanticIndexLockTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -788,40 +748,10 @@ func boolValue(data map[string]any, key string) bool {
 	return b
 }
 
-func runSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, semBinary string, worktree bool, ignoreFiles []string) ([]byte, []semanticWarning, error) {
+func runSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, semBinary string, worktree bool, ignoreFiles []string) ([]byte, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	args := semanticSnapshotArgs(repoDir, worktree, ignoreFiles)
-	stdout, stderr, err := runSemanticSnapshotCommand(ctx, runner, repoDir, semBinary, args)
-	if err != nil && countNonEmptyStrings(ignoreFiles) > 0 && semanticSnapshotRejectsIgnoreFile(stderr, err) {
-		stdout, stderr, err = runSemanticSnapshotCommand(ctx, runner, repoDir, semBinary, semanticSnapshotArgs(repoDir, worktree, nil))
-		if err == nil {
-			warning := semanticWarning{
-				Code:     "provider_ignore_file_unsupported",
-				Severity: "warning",
-				Effect:   "provider-side ignore prefilter unavailable; brainignore applied after snapshot",
-				Detail:   fmt.Sprintf("semantic provider rejected --ignore-file; retried without %d provider ignore file(s)", countNonEmptyStrings(ignoreFiles)),
-			}
-			if len(bytes.TrimSpace(stdout)) == 0 {
-				return nil, []semanticWarning{warning}, errors.New("semantic provider snapshot produced no output")
-			}
-			return stdout, []semanticWarning{warning}, nil
-		}
-	}
-	if err != nil {
-		if len(bytes.TrimSpace(stderr)) > 0 {
-			return nil, nil, fmt.Errorf("semantic provider snapshot failed: %w: %s", err, strings.TrimSpace(string(stderr)))
-		}
-		return nil, nil, fmt.Errorf("semantic provider snapshot failed: %w", err)
-	}
-	if len(bytes.TrimSpace(stdout)) == 0 {
-		return nil, nil, errors.New("semantic provider snapshot produced no output")
-	}
-	return stdout, nil, nil
-}
-
-func semanticSnapshotArgs(repoDir string, worktree bool, ignoreFiles []string) []string {
 	args := []string{"sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"}
 	for _, path := range ignoreFiles {
 		path = strings.TrimSpace(path)
@@ -833,53 +763,38 @@ func semanticSnapshotArgs(repoDir string, worktree bool, ignoreFiles []string) [
 	if worktree {
 		args = append(args, "--worktree")
 	}
-	return args
-}
-
-func runSemanticSnapshotCommand(ctx context.Context, runner CommandRunner, repoDir, semBinary string, args []string) ([]byte, []byte, error) {
 	runCtx, cancel := context.WithTimeout(ctx, semanticSnapshotTimeout)
 	defer cancel()
 	stdout, stderr, err := runner.Run(runCtx, repoDir, semBinary, args...)
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
-		return stdout, nil, fmt.Errorf("semantic provider snapshot timed out after %s", semanticSnapshotTimeout)
+		return nil, fmt.Errorf("semantic provider snapshot timed out after %s", semanticSnapshotTimeout)
 	}
-	return stdout, stderr, err
+	if err != nil {
+		detail := strings.TrimSpace(string(stderr))
+		if detail == "" {
+			detail = strings.TrimSpace(string(stdout))
+		}
+		if detail != "" {
+			return nil, fmt.Errorf("semantic provider snapshot failed: %w: %s", err, truncateAgentWarning(detail))
+		}
+		return nil, fmt.Errorf("semantic provider snapshot failed: %w", err)
+	}
+	if len(bytes.TrimSpace(stdout)) == 0 {
+		return nil, errors.New("semantic provider snapshot produced no output")
+	}
+	return stdout, nil
 }
 
-func semanticSnapshotRejectsIgnoreFile(stderr []byte, err error) bool {
-	text := strings.ToLower(strings.TrimSpace(string(stderr)))
-	if err != nil {
-		if text != "" {
-			text += " "
-		}
-		text += strings.ToLower(err.Error())
-	}
-	if !strings.Contains(text, "ignore-file") {
+func semanticSnapshotRejectsIgnoreFile(err error) bool {
+	if err == nil {
 		return false
 	}
-	for _, phrase := range []string{
-		"unexpected argument",
-		"unexpected arguments",
-		"unknown flag",
-		"unknown option",
-		"unrecognized option",
-		"flag provided but not defined",
-	} {
-		if strings.Contains(text, phrase) {
-			return true
-		}
-	}
-	return false
-}
-
-func countNonEmptyStrings(values []string) int {
-	var count int
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			count++
-		}
-	}
-	return count
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "ignore-file") &&
+		(strings.Contains(text, "unknown") ||
+			strings.Contains(text, "unsupported") ||
+			strings.Contains(text, "unexpected") ||
+			strings.Contains(text, "flag provided but not defined"))
 }
 
 func validateLiveSemanticHeader(header semanticHeader, repoKey, commit, tree string, allowWorktreeTree bool) error {
@@ -1027,22 +942,6 @@ func (r semanticRecord) semanticPath() string {
 	return r.Path
 }
 
-func mergeSemanticFileRecord(existing, incoming semanticRecord) semanticRecord {
-	if existing.RecordType == "" {
-		return incoming
-	}
-	if existing.Blob == "" {
-		existing.Blob = incoming.Blob
-	}
-	if existing.Language == "" {
-		existing.Language = incoming.Language
-	}
-	if existing.semanticPath() == "" {
-		existing.setSemanticPath(incoming.semanticPath())
-	}
-	return existing
-}
-
 // semanticEndpointPath extracts the repository-relative file path encoded in a
 // semantic relation endpoint ID, or "" when the ID carries no path. Internal
 // IDs are "<repo-key>:<lang>:<path>:<kind>:<name>"; the repo key, language, and
@@ -1126,7 +1025,6 @@ func validateSemanticSchema(version string) error {
 
 func buildSemanticGeneration(brainDir, repoDir, generationID string, raw []byte, header semanticHeader, counts semanticCounts, now time.Time) (string, semanticBuildMetrics, error) {
 	start := time.Now()
-	snapshotSHA := semanticSnapshotSHA256(raw)
 	generationsRoot := filepath.Join(brainDir, semanticDirName, semanticGenerationsDir)
 	if err := rejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticGenerationsDir)); err != nil {
 		return "", semanticBuildMetrics{}, err
@@ -1134,20 +1032,8 @@ func buildSemanticGeneration(brainDir, repoDir, generationID string, raw []byte,
 	if err := os.MkdirAll(generationsRoot, 0o700); err != nil {
 		return "", semanticBuildMetrics{}, fmt.Errorf("create semantic generations dir: %w", err)
 	}
-	generationRel := filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, generationID))
-	finalDir := filepath.Join(generationsRoot, generationID)
-	if semanticGenerationReady(finalDir, generationID, snapshotSHA, header, counts) {
-		return generationRel, semanticBuildMetrics{GenerationID: generationID}, nil
-	}
-	if _, err := os.Lstat(finalDir); err == nil {
-		generationID = uniqueSemanticGenerationID(generationsRoot, generationID, raw)
-		generationRel = filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, generationID))
-		finalDir = filepath.Join(generationsRoot, generationID)
-	} else if !os.IsNotExist(err) {
-		return "", semanticBuildMetrics{}, err
-	}
-
-	tmpDir, err := os.MkdirTemp(generationsRoot, ".tmp-"+generationID+"-*")
+	finalID := semanticAvailableGenerationID(generationsRoot, generationID, raw)
+	tmpDir, err := os.MkdirTemp(generationsRoot, ".tmp-"+finalID+"-*")
 	if err != nil {
 		return "", semanticBuildMetrics{}, err
 	}
@@ -1159,7 +1045,7 @@ func buildSemanticGeneration(brainDir, repoDir, generationID string, raw []byte,
 	}()
 
 	dbPath := filepath.Join(tmpDir, semanticSQLiteName)
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open(sqliteDriverName, dbPath)
 	if err != nil {
 		return "", semanticBuildMetrics{}, err
 	}
@@ -1167,7 +1053,7 @@ func buildSemanticGeneration(brainDir, repoDir, generationID string, raw []byte,
 		_ = db.Close()
 		return "", semanticBuildMetrics{}, err
 	}
-	metrics, err := populateSemanticSQLite(db, repoDir, generationID, snapshotSHA, raw, header, counts, now, tmpDir)
+	metrics, err := populateSemanticSQLite(db, repoDir, finalID, raw, header, counts, now, tmpDir)
 	if closeErr := db.Close(); err == nil && closeErr != nil {
 		err = closeErr
 	}
@@ -1189,105 +1075,43 @@ func buildSemanticGeneration(brainDir, repoDir, generationID string, raw []byte,
 		return "", semanticBuildMetrics{}, err
 	}
 
-	if err := rejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticGenerationsDir, generationID)); err != nil {
+	finalDir := filepath.Join(generationsRoot, finalID)
+	if err := rejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticGenerationsDir, finalID)); err != nil {
 		return "", semanticBuildMetrics{}, err
 	}
-	if semanticGenerationReady(finalDir, generationID, snapshotSHA, header, counts) {
-		return generationRel, metrics, nil
+	if _, err := os.Lstat(finalDir); err == nil {
+		return "", semanticBuildMetrics{}, fmt.Errorf("semantic generation target already exists: %s", finalDir)
+	} else if !os.IsNotExist(err) {
+		return "", semanticBuildMetrics{}, err
 	}
 	if err := os.Rename(tmpDir, finalDir); err != nil {
 		return "", semanticBuildMetrics{}, err
 	}
-	if err := syncParentDir(finalDir); err != nil {
-		return "", semanticBuildMetrics{}, err
-	}
 	cleanup = false
-	return generationRel, metrics, nil
+	return filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, finalID)), metrics, nil
 }
 
-func semanticSnapshotSHA256(raw []byte) string {
-	sum := sha256.Sum256(raw)
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-func semanticGenerationReady(dir, expectedGenerationID, expectedSnapshotSHA string, header semanticHeader, counts semanticCounts) bool {
-	info, err := os.Lstat(dir)
-	if err != nil || !info.IsDir() {
-		return false
+func semanticAvailableGenerationID(root, base string, content []byte) string {
+	candidate := base
+	if _, err := os.Lstat(filepath.Join(root, candidate)); os.IsNotExist(err) {
+		return candidate
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return false
+	suffix := semanticGenerationContentSuffix(content)
+	candidate = base + "-" + suffix
+	if _, err := os.Lstat(filepath.Join(root, candidate)); os.IsNotExist(err) {
+		return candidate
 	}
-	metricsPath := filepath.Join(dir, semanticMetricsName)
-	metricsInfo, err := os.Lstat(metricsPath)
-	if err != nil || metricsInfo.IsDir() || metricsInfo.Mode()&os.ModeSymlink != 0 {
-		return false
-	}
-	var metrics semanticBuildMetrics
-	data, err := os.ReadFile(metricsPath)
-	if err != nil || json.Unmarshal(data, &metrics) != nil || metrics.GenerationID != expectedGenerationID || metrics.SnapshotSHA256 != expectedSnapshotSHA {
-		return false
-	}
-	if metrics.Files != counts.Files || metrics.Symbols != counts.Symbols || metrics.Relations != counts.Relations {
-		return false
-	}
-	return semanticSQLiteStoreReady(filepath.Join(dir, semanticSQLiteName), expectedGenerationID, expectedSnapshotSHA, header, counts)
-}
-
-func semanticSQLiteStoreReady(path, expectedGenerationID, expectedSnapshotSHA string, header semanticHeader, counts semanticCounts) bool {
-	info, err := os.Lstat(path)
-	if err != nil || info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return false
-	}
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		return false
-	}
-	defer db.Close()
-	var integrity string
-	if err := db.QueryRow(`PRAGMA integrity_check`).Scan(&integrity); err != nil || integrity != "ok" {
-		return false
-	}
-	meta, err := semanticSQLiteMetaMap(db)
-	if err != nil {
-		return false
-	}
-	if meta["generation_id"] != expectedGenerationID || meta["snapshot_sha256"] != expectedSnapshotSHA {
-		return false
-	}
-	if meta["schema_version"] != header.SchemaVersion || meta["provider"] != header.Provider || meta["provider_version"] != header.ProviderVersion {
-		return false
-	}
-	files, err := semanticSQLiteTableCount(db, "files")
-	if err != nil || files != counts.Files {
-		return false
-	}
-	symbols, err := semanticSQLiteTableCount(db, "symbols")
-	if err != nil || symbols != counts.Symbols {
-		return false
-	}
-	relations, err := semanticSQLiteTableCount(db, "relations")
-	if err != nil || relations != counts.Relations {
-		return false
-	}
-	if _, err := semanticSQLiteTableCount(db, "metrics"); err != nil {
-		return false
-	}
-	return true
-}
-
-func uniqueSemanticGenerationID(generationsRoot, baseID string, content []byte) string {
-	sum := sha256.Sum256(content)
-	prefix := baseID + "-rebuild-" + hex.EncodeToString(sum[:6])
-	for i := 0; ; i++ {
-		candidate := prefix
-		if i > 0 {
-			candidate = fmt.Sprintf("%s-%d", prefix, i+1)
-		}
-		if _, err := os.Lstat(filepath.Join(generationsRoot, candidate)); os.IsNotExist(err) {
+	for i := 1; ; i++ {
+		candidate = fmt.Sprintf("%s-%s-%d", base, suffix, i)
+		if _, err := os.Lstat(filepath.Join(root, candidate)); os.IsNotExist(err) {
 			return candidate
 		}
 	}
+}
+
+func semanticGenerationContentSuffix(content []byte) string {
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:8])
 }
 
 func initializeSemanticSQLite(db *sql.DB) error {
@@ -1317,7 +1141,7 @@ func initializeSemanticSQLite(db *sql.DB) error {
 	return nil
 }
 
-func populateSemanticSQLite(db *sql.DB, repoDir, generationID, snapshotSHA string, raw []byte, header semanticHeader, counts semanticCounts, now time.Time, generationDir string) (semanticBuildMetrics, error) {
+func populateSemanticSQLite(db *sql.DB, repoDir, generationID string, raw []byte, header semanticHeader, counts semanticCounts, now time.Time, generationDir string) (semanticBuildMetrics, error) {
 	tx, err := db.Begin()
 	if err != nil {
 		return semanticBuildMetrics{}, err
@@ -1333,12 +1157,11 @@ func populateSemanticSQLite(db *sql.DB, repoDir, generationID, snapshotSHA strin
 		return semanticBuildMetrics{}, nil
 	}
 
-	if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES (?, ?), (?, ?), (?, ?), (?, ?), (?, ?)`,
+	if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES (?, ?), (?, ?), (?, ?), (?, ?)`,
 		"schema_version", header.SchemaVersion,
 		"provider", header.Provider,
 		"provider_version", header.ProviderVersion,
 		"generation_id", generationID,
-		"snapshot_sha256", snapshotSHA,
 	); err != nil {
 		return commit(err)
 	}
@@ -1376,7 +1199,7 @@ func populateSemanticSQLite(db *sql.DB, repoDir, generationID, snapshotSHA strin
 					return commit(err)
 				}
 				record.setSemanticPath(path)
-				files[path] = mergeSemanticFileRecord(files[path], record)
+				files[path] = record
 			}
 		case "symbol":
 			path := record.semanticPath()
@@ -1386,12 +1209,13 @@ func populateSemanticSQLite(db *sql.DB, repoDir, generationID, snapshotSHA strin
 					return commit(err)
 				}
 				record.setSemanticPath(path)
-				if _, ok := files[path]; !ok {
-					files[path] = semanticRecord{RecordType: "file", FilePath: path, Language: record.Language}
-				} else if files[path].Language == "" && record.Language != "" {
-					existing := files[path]
-					existing.Language = record.Language
-					files[path] = existing
+				if existing, ok := files[path]; ok {
+					if strings.TrimSpace(existing.Language) == "" && strings.TrimSpace(record.Language) != "" {
+						existing.Language = record.Language
+						files[path] = existing
+					}
+				} else {
+					files[path] = semanticRecord{RecordType: "file", FilePath: path}
 				}
 			}
 			if err := insertSemanticSymbol(tx, record); err != nil {
@@ -1418,7 +1242,7 @@ func populateSemanticSQLite(db *sql.DB, repoDir, generationID, snapshotSHA strin
 			return commit(err)
 		}
 		parseCacheFiles++
-		if _, err := tx.Exec(`INSERT OR REPLACE INTO files(path, blob, content_hash, language) VALUES (?, ?, ?, ?)`, path, record.Blob, contentHash, record.Language); err != nil {
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO files(path, blob, content_hash, language) VALUES (?, ?, ?, ?)`, path, record.Blob, contentHash, strings.TrimSpace(record.Language)); err != nil {
 			return commit(err)
 		}
 		if _, err := tx.Exec(`INSERT OR REPLACE INTO parse_cache(path, blob, content_hash, artifact_path) VALUES (?, ?, ?, ?)`, path, record.Blob, contentHash, artifactRel); err != nil {
@@ -1429,7 +1253,6 @@ func populateSemanticSQLite(db *sql.DB, repoDir, generationID, snapshotSHA strin
 	metrics := semanticBuildMetrics{
 		GeneratedAt:     now,
 		GenerationID:    generationID,
-		SnapshotSHA256:  snapshotSHA,
 		Commit:          header.Commit,
 		Tree:            header.Tree,
 		Files:           len(files),
@@ -2348,7 +2171,7 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
 		} else if err := rejectSymlinkPathComponents(storage.BrainDir, storePath); err != nil {
 			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
-		} else if err := validateSemanticSQLiteStore(filepath.Join(storage.BrainDir, storePath), source.Files, source.Symbols, source.Relations); err != nil {
+		} else if err := validateSemanticSQLiteStore(filepath.Join(storage.BrainDir, storePath), source.Symbols, source.Relations); err != nil {
 			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
 		} else {
 			axes["store"] = staleAxis{State: "ok", Detail: source.StorePath}
@@ -2525,9 +2348,19 @@ type semanticChangesOptions struct {
 }
 
 type semanticChangesReport struct {
-	GeneratedAt time.Time        `json:"generated_at"`
-	Files       []string         `json:"files"`
-	Symbols     []semanticRecord `json:"symbols"`
+	GeneratedAt time.Time `json:"generated_at"`
+	// Clean is true when there are no *semantically-relevant* changed files since
+	// the indexed HEAD — i.e. after changedSemanticFiles applies the built-in
+	// exclusions and `.brainignore`. It lets a consumer distinguish "nothing to
+	// map" from a broken command without inferring it from empty arrays; it is
+	// NOT a `git status`-clean signal (changes confined to ignored paths still
+	// report clean=true).
+	Clean   bool             `json:"clean"`
+	Files   []string         `json:"files"`
+	Symbols []semanticRecord `json:"symbols"`
+	// Facts are durable facts whose locus names a changed file/symbol — "what the
+	// brain already knows about the code you're touching". Omitted when none.
+	Facts []factRecord `json:"facts,omitempty"`
 }
 
 type semanticBoundaryOptions struct {
@@ -2588,7 +2421,7 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain refresh index`")
+		return errors.New("semantic index missing; run `entire brain index`")
 	}
 	snapshotPath, err := validateSemanticSnapshotPath(manifest.Sources.Semantic.SnapshotPath)
 	if err != nil {
@@ -2654,7 +2487,7 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain refresh index`")
+		return errors.New("semantic index missing; run `entire brain index`")
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -2721,7 +2554,7 @@ func runSemanticImpact(ctx context.Context, cmd *cobra.Command, opts Options, im
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain refresh index`")
+		return errors.New("semantic index missing; run `entire brain index`")
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -2777,7 +2610,7 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain refresh index`")
+		return errors.New("semantic index missing; run `entire brain index`")
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -2791,7 +2624,21 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 	if err != nil {
 		return err
 	}
-	report := semanticChangesReport{GeneratedAt: opts.Now().UTC(), Files: files, Symbols: symbols}
+	if files == nil {
+		files = []string{}
+	}
+	report := semanticChangesReport{GeneratedAt: opts.Now().UTC(), Clean: len(files) == 0, Files: files, Symbols: nonNilRecords(symbols)}
+	// Surface durable facts about the code being touched. Best-effort: a missing
+	// facts source or a branch lookup failure simply yields no facts, never an
+	// error on the changes command. Skipped on a clean tree — no changed files
+	// means there is nothing to match a fact's locus against.
+	if !report.Clean {
+		if branch, branchErr := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); branchErr == nil && strings.TrimSpace(branch) != "" {
+			if facts, factsErr := loadFacts(storage.BrainDir, strings.TrimSpace(branch)); factsErr == nil {
+				report.Facts = factsRelevantToChange(files, symbols, facts, changesOpts.limit)
+			}
+		}
+	}
 	if err := writeSemanticChangesReport(storage.BrainDir, report); err != nil {
 		return err
 	}
@@ -2809,11 +2656,18 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 	if freshness.Severity != "ok" {
 		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
 	}
+	if report.Clean {
+		fmt.Fprintln(cmd.OutOrStdout(), "no changes since the indexed HEAD")
+		return nil
+	}
 	for _, file := range files {
 		fmt.Fprintf(cmd.OutOrStdout(), "file %s\n", file)
 	}
 	for _, symbol := range symbols {
 		fmt.Fprintf(cmd.OutOrStdout(), "symbol %s %s:%d-%d\n", displaySymbolName(symbol), symbol.FilePath, symbol.StartLine, symbol.EndLine)
+	}
+	for _, fact := range report.Facts {
+		fmt.Fprintf(cmd.OutOrStdout(), "fact %s %s %s\n", fact.ID, factKindOrInferred(fact), fact.Text)
 	}
 	return nil
 }
@@ -2835,7 +2689,7 @@ func runSemanticBoundary(ctx context.Context, cmd *cobra.Command, opts Options, 
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain refresh index`")
+		return errors.New("semantic index missing; run `entire brain index`")
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -2901,7 +2755,7 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain refresh index`")
+		return errors.New("semantic index missing; run `entire brain index`")
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -2936,6 +2790,82 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 	return nil
 }
 
+// neighborCandidateIDs returns the relation endpoint ids that are not already in
+// symbols — the only ids neighbor materialization needs to load, so resolution
+// stays proportional to the fan-out rather than the whole symbol table. Ordered
+// (relations order) and deduped.
+func neighborCandidateIDs(symbols, relations []semanticRecord) []string {
+	inSymbols := make(map[string]struct{}, len(symbols))
+	for _, symbol := range symbols {
+		inSymbols[symbol.ID] = struct{}{}
+	}
+	seen := map[string]struct{}{}
+	var ids []string
+	add := func(id string) {
+		if id == "" {
+			return
+		}
+		if _, ok := inSymbols[id]; ok {
+			return
+		}
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	for _, relation := range relations {
+		add(relation.FromID)
+		add(relation.ToID)
+	}
+	return ids
+}
+
+// resolveContextNeighbors materializes the relation endpoints that are not
+// already in symbols into full records, so an agent gets "who calls this / what
+// this calls" without a follow-up query per bare from_id/to_id. symbolsByID need
+// only contain the candidate endpoints (see neighborCandidateIDs); ordering
+// follows the relations and the result is capped at limit to bound fan-out on a
+// hot symbol.
+func resolveContextNeighbors(symbols, relations []semanticRecord, symbolsByID map[string]semanticRecord, limit int) []semanticRecord {
+	if limit <= 0 || len(relations) == 0 || len(symbolsByID) == 0 {
+		return nil
+	}
+	inSymbols := make(map[string]struct{}, len(symbols))
+	for _, symbol := range symbols {
+		inSymbols[symbol.ID] = struct{}{}
+	}
+	seen := map[string]struct{}{}
+	var neighbors []semanticRecord
+	// add materializes one endpoint; it returns true once limit is reached so the
+	// caller can stop. Handling FromID/ToID directly avoids a per-relation slice
+	// allocation on this hot path.
+	add := func(id string) bool {
+		if id == "" {
+			return false
+		}
+		if _, ok := inSymbols[id]; ok {
+			return false
+		}
+		if _, ok := seen[id]; ok {
+			return false
+		}
+		record, ok := symbolsByID[id]
+		if !ok {
+			return false
+		}
+		seen[id] = struct{}{}
+		neighbors = append(neighbors, record)
+		return len(neighbors) >= limit
+	}
+	for _, relation := range relations {
+		if add(relation.FromID) || add(relation.ToID) {
+			return neighbors
+		}
+	}
+	return neighbors
+}
+
 func semanticContextFacts(brainDir string, source *semanticSourceManifest, query string, limit, offset int) ([]semanticRecord, []semanticRecord, []semanticRecord, error) {
 	if source.StorePath != "" {
 		storePath, err := validateSemanticDeclaredStore(brainDir, source)
@@ -2950,11 +2880,14 @@ func semanticContextFacts(brainDir string, source *semanticSourceManifest, query
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		symbolsByID, err := loadSemanticSymbolsByIDSQLite(storePath)
-		if err != nil {
-			return nil, nil, nil, err
+		var neighbors []semanticRecord
+		if ids := neighborCandidateIDs(symbols, relations); len(ids) > 0 {
+			symbolsByID, err := loadSemanticSymbolsByIDsSQLite(storePath, ids)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			neighbors = resolveContextNeighbors(symbols, relations, symbolsByID, limit)
 		}
-		neighbors := semanticNeighborRecords(symbols, relations, symbolsByID, limit)
 		return symbols, relations, neighbors, nil
 	}
 	snapshotPath, err := validateSemanticSnapshotPath(source.SnapshotPath)
@@ -2973,51 +2906,15 @@ func semanticContextFacts(brainDir string, source *semanticSourceManifest, query
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	symbolsByID, err := loadSemanticSymbolsByIDSnapshot(fullPath)
-	if err != nil {
-		return nil, nil, nil, err
+	var neighbors []semanticRecord
+	if ids := neighborCandidateIDs(symbols, relations); len(ids) > 0 {
+		symbolsByID, err := loadSemanticSymbolsByIDsSnapshot(fullPath, ids)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		neighbors = resolveContextNeighbors(symbols, relations, symbolsByID, limit)
 	}
-	neighbors := semanticNeighborRecords(symbols, relations, symbolsByID, limit)
 	return symbols, relations, neighbors, nil
-}
-
-func semanticNeighborRecords(symbols, relations []semanticRecord, symbolsByID map[string]semanticRecord, limit int) []semanticRecord {
-	if limit <= 0 || len(relations) == 0 || len(symbolsByID) == 0 {
-		return nil
-	}
-	roots := make(map[string]struct{}, len(symbols))
-	for _, symbol := range symbols {
-		if symbol.ID != "" {
-			roots[symbol.ID] = struct{}{}
-		}
-	}
-	seen := map[string]struct{}{}
-	neighbors := make([]semanticRecord, 0, min(limit, len(relations)))
-	add := func(id string) {
-		if id == "" || len(neighbors) >= limit {
-			return
-		}
-		if _, ok := roots[id]; ok {
-			return
-		}
-		if _, ok := seen[id]; ok {
-			return
-		}
-		record, ok := symbolsByID[id]
-		if !ok {
-			return
-		}
-		seen[id] = struct{}{}
-		neighbors = append(neighbors, record)
-	}
-	for _, relation := range relations {
-		add(relation.FromID)
-		add(relation.ToID)
-		if len(neighbors) >= limit {
-			break
-		}
-	}
-	return neighbors
 }
 
 func semanticImpactFacts(brainDir string, source *semanticSourceManifest, query string, depth, limit int) ([]semanticRecord, []semanticRecord, []semanticRecord, error) {
@@ -3327,7 +3224,7 @@ func validateSemanticDeclaredStore(brainDir string, source *semanticSourceManife
 		return "", err
 	}
 	fullPath := filepath.Join(brainDir, storePath)
-	if err := validateSemanticSQLiteStore(fullPath, source.Files, source.Symbols, source.Relations); err != nil {
+	if err := validateSemanticSQLiteStore(fullPath, source.Symbols, source.Relations); err != nil {
 		return "", err
 	}
 	return fullPath, nil
@@ -3471,7 +3368,7 @@ func semanticQueryLooksLikePath(query string) bool {
 }
 
 func findSemanticSymbolsInSQLite(storePath, query string, limit, offset int) ([]semanticRecord, error) {
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -3584,7 +3481,7 @@ func findSemanticRelationsForSymbolsInSQLite(storePath string, symbols []semanti
 		ids = append(ids, symbol.ID)
 		placeholders = append(placeholders, "?")
 	}
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -3615,7 +3512,7 @@ func findSemanticRelationsByTypesSQLite(storePath string, relationTypes []string
 	if len(relationTypes) == 0 {
 		return nil, nil
 	}
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -3694,7 +3591,7 @@ func traverseSemanticImpactSQLite(storePath string, roots []semanticRecord, dept
 }
 
 func loadSemanticSymbolsByIDSQLite(storePath string) (map[string]semanticRecord, error) {
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -3714,6 +3611,54 @@ func loadSemanticSymbolsByIDSQLite(storePath string) (map[string]semanticRecord,
 		symbols[record.ID] = record
 	}
 	return symbols, rows.Err()
+}
+
+// loadSemanticSymbolsByIDsSQLite loads only the requested symbol ids via an
+// indexed `id IN (...)` lookup (chunked to stay under SQLite's parameter cap),
+// so neighbor materialization is O(fan-out), not O(total symbols).
+func loadSemanticSymbolsByIDsSQLite(storePath string, ids []string) (map[string]semanticRecord, error) {
+	out := map[string]semanticRecord{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	db, err := sql.Open(sqliteDriverName, storePath)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	const chunk = 900
+	for start := 0; start < len(ids); start += chunk {
+		end := start + chunk
+		if end > len(ids) {
+			end = len(ids)
+		}
+		batch := ids[start:end]
+		placeholders := make([]string, len(batch))
+		args := make([]any, len(batch))
+		for i, id := range batch {
+			placeholders[i] = "?"
+			args[i] = id
+		}
+		if err := func() error {
+			rows, err := db.Query(`SELECT id, kind, name, qualified_name, file_path, start_line, end_line, signature, language, stable_id_version FROM symbols WHERE id IN (`+strings.Join(placeholders, ",")+`)`, args...)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var record semanticRecord
+				record.RecordType = "symbol"
+				if err := rows.Scan(&record.ID, &record.Kind, &record.Name, &record.QualifiedName, &record.FilePath, &record.StartLine, &record.EndLine, &record.Signature, &record.Language, &record.StableIDVersion); err != nil {
+					return err
+				}
+				out[record.ID] = record
+			}
+			return rows.Err()
+		}(); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 func traverseSemanticImpactSnapshot(snapshotPath string, roots []semanticRecord, depth, limit int) ([]semanticRecord, []semanticRecord, error) {
@@ -3795,11 +3740,57 @@ func loadSemanticSymbolsByIDSnapshot(snapshotPath string) (map[string]semanticRe
 	return symbols, scanner.Err()
 }
 
+// loadSemanticSymbolsByIDsSnapshot scans the snapshot but retains only the
+// requested ids and stops as soon as all are found, so neighbor materialization
+// does not build a map of every symbol just to look up a handful of endpoints.
+func loadSemanticSymbolsByIDsSnapshot(snapshotPath string, ids []string) (map[string]semanticRecord, error) {
+	out := map[string]semanticRecord{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	want := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		want[id] = struct{}{}
+	}
+	f, err := os.Open(snapshotPath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	scanner := newSemanticScanner(f)
+	first := true
+	for scanner.Scan() {
+		if first {
+			first = false
+			continue
+		}
+		text := bytes.TrimSpace(scanner.Bytes())
+		if len(text) == 0 {
+			continue
+		}
+		var record semanticRecord
+		if err := json.Unmarshal(text, &record); err != nil {
+			return nil, err
+		}
+		if record.RecordType != "symbol" {
+			continue
+		}
+		if _, ok := want[record.ID]; !ok {
+			continue
+		}
+		out[record.ID] = record
+		if len(out) == len(want) {
+			break
+		}
+	}
+	return out, scanner.Err()
+}
+
 func findSemanticSymbolsForFilesSQLite(storePath string, files []string, limit int) ([]semanticRecord, error) {
 	if len(files) == 0 {
 		return nil, nil
 	}
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -4405,7 +4396,7 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain refresh index`")
+		return errors.New("semantic index missing; run `entire brain index`")
 	}
 	if manifest.Sources.Semantic.WorktreeMode == "worktree" || manifest.Sources.Semantic.DirtyWorktree || manifest.Sources.Semantic.WorktreeHash != "" {
 		return errors.New("semantic bundle export does not support worktree-backed semantic indexes; refresh a clean semantic index first")
@@ -4665,7 +4656,7 @@ func addSanitizedSemanticStoreBundlePath(tw *tar.Writer, rel, snapshotPath, repo
 	}
 	defer os.RemoveAll(tmpDir)
 	dbPath := filepath.Join(tmpDir, semanticSQLiteName)
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open(sqliteDriverName, dbPath)
 	if err != nil {
 		return err
 	}
@@ -4673,7 +4664,7 @@ func addSanitizedSemanticStoreBundlePath(tw *tar.Writer, rel, snapshotPath, repo
 		_ = db.Close()
 		return err
 	}
-	_, err = populateSemanticSQLite(db, repoDir, generationID, semanticSnapshotSHA256(raw), raw, header, counts, now, tmpDir)
+	_, err = populateSemanticSQLite(db, repoDir, generationID, raw, header, counts, now, tmpDir)
 	if closeErr := db.Close(); err == nil && closeErr != nil {
 		err = closeErr
 	}
@@ -5082,11 +5073,40 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	if err != nil {
 		return err
 	}
-	if err := publishImportedSemanticSnapshot(storage.BrainDir, tmpDir, importManifest.Sources.Semantic); err != nil {
+	if err := filepath.WalkDir(tmpDir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(tmpDir, path)
+		if err != nil {
+			return err
+		}
+		if rel == exportManifestFileName {
+			return nil
+		}
+		relSlash := filepath.ToSlash(rel)
+		if relSlash != importManifest.Sources.Semantic.SnapshotPath {
+			return nil
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if err := rejectExistingSymlinkPathComponents(storage.BrainDir, rel); err != nil {
+			return err
+		}
+		return writeFileAtomic(filepath.Join(storage.BrainDir, rel), content, 0o600)
+	}); err != nil {
 		return err
 	}
 	if importManifest.Sources.Semantic.GenerationPath != "" {
-		if err := replaceImportedSemanticGeneration(storage.BrainDir, tmpDir, repoDir, importManifest.Sources.Semantic, opts.Now()); err != nil {
+		if err := replaceImportedSemanticGeneration(storage.BrainDir, tmpDir, importManifest.Sources.Semantic); err != nil {
+			return err
+		}
+		if err := rebuildImportedSemanticStore(storage.BrainDir, repoDir, importManifest.Sources.Semantic, opts.Now()); err != nil {
 			return err
 		}
 	}
@@ -5100,66 +5120,7 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	return nil
 }
 
-func publishImportedSemanticSnapshot(brainDir, bundleRoot string, source *semanticSourceManifest) error {
-	if source == nil {
-		return nil
-	}
-	snapshotRel, err := validateSemanticSnapshotPath(source.SnapshotPath)
-	if err != nil {
-		return err
-	}
-	sourcePath := filepath.Join(bundleRoot, snapshotRel)
-	content, err := os.ReadFile(sourcePath)
-	if err != nil {
-		return fmt.Errorf("read bundle semantic snapshot: %w", err)
-	}
-	targetRel := snapshotRel
-	targetPath := filepath.Join(brainDir, targetRel)
-	if info, err := os.Lstat(targetPath); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("semantic snapshot must not be a symlink: %s", source.SnapshotPath)
-		}
-		if info.IsDir() {
-			return fmt.Errorf("semantic snapshot must be a file: %s", source.SnapshotPath)
-		}
-		existing, err := os.ReadFile(targetPath)
-		if err != nil {
-			return err
-		}
-		if bytes.Equal(existing, content) {
-			return nil
-		}
-		targetRel = uniqueSemanticSnapshotRel(brainDir, snapshotRel, content)
-		source.SnapshotPath = filepath.ToSlash(targetRel)
-		targetPath = filepath.Join(brainDir, targetRel)
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, targetRel); err != nil {
-		return err
-	}
-	return writeFileAtomic(targetPath, content, 0o600)
-}
-
-func uniqueSemanticSnapshotRel(brainDir, snapshotRel string, content []byte) string {
-	sum := sha256.Sum256(content)
-	dir := pathpkg.Dir(filepath.ToSlash(snapshotRel))
-	base := pathpkg.Base(dir)
-	parent := pathpkg.Dir(dir)
-	prefix := base + "-import-" + hex.EncodeToString(sum[:6])
-	for i := 0; ; i++ {
-		candidate := prefix
-		if i > 0 {
-			candidate = fmt.Sprintf("%s-%d", prefix, i+1)
-		}
-		rel := filepath.ToSlash(filepath.Join(parent, candidate, semanticSnapshotName))
-		if _, err := os.Lstat(filepath.Join(brainDir, filepath.FromSlash(rel))); os.IsNotExist(err) {
-			return rel
-		}
-	}
-}
-
-func replaceImportedSemanticGeneration(brainDir, bundleRoot, repoDir string, source *semanticSourceManifest, now time.Time) error {
+func replaceImportedSemanticGeneration(brainDir, bundleRoot string, source *semanticSourceManifest) error {
 	generationPath, err := validateSemanticGenerationPath(source.GenerationPath)
 	if err != nil {
 		return err
@@ -5175,24 +5136,21 @@ func replaceImportedSemanticGeneration(brainDir, bundleRoot, repoDir string, sou
 	if err := rejectExistingSymlinkPathComponents(brainDir, generationPath); err != nil {
 		return err
 	}
-	targetPath := filepath.Join(brainDir, generationPath)
-	parent := filepath.Dir(targetPath)
-	if err := os.MkdirAll(parent, 0o700); err != nil {
-		return err
-	}
 	targetGenerationPath := generationPath
-	if _, err := os.Lstat(targetPath); err == nil {
-		targetGenerationPath = uniqueImportedSemanticGenerationPath(brainDir, generationPath, source.SnapshotPath)
-		rewriteSemanticGenerationSourcePaths(source, generationPath, targetGenerationPath)
-		parent = filepath.Dir(filepath.Join(brainDir, targetGenerationPath))
-		if err := os.MkdirAll(parent, 0o700); err != nil {
-			return err
-		}
+	target := filepath.Join(brainDir, targetGenerationPath)
+	if _, err := os.Lstat(target); err == nil {
+		root := filepath.Join(brainDir, semanticDirName, semanticGenerationsDir)
+		targetID := semanticAvailableGenerationID(root, pathpkg.Base(filepath.ToSlash(generationPath))+"-import", []byte(source.SnapshotPath+"\x00"+source.StorePath))
+		targetGenerationPath = filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, targetID))
+		target = filepath.Join(brainDir, targetGenerationPath)
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	targetPath = filepath.Join(brainDir, targetGenerationPath)
-	staging, err := os.MkdirTemp(parent, ".import-"+filepath.Base(targetGenerationPath)+"-*")
+	parent := filepath.Dir(target)
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return err
+	}
+	staging, err := os.MkdirTemp(parent, ".import-"+filepath.Base(generationPath)+"-*")
 	if err != nil {
 		return err
 	}
@@ -5205,89 +5163,27 @@ func replaceImportedSemanticGeneration(brainDir, bundleRoot, repoDir string, sou
 	if err := copyImportedGenerationDir(sourceRoot, staging); err != nil {
 		return err
 	}
-	if err := removeImportedSemanticParseCache(staging, targetGenerationPath, source.ParseCachePath); err != nil {
+	if _, err := os.Lstat(target); err == nil {
+		return fmt.Errorf("semantic import target already exists: %s", target)
+	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if source.StorePath != "" {
-		if err := rebuildImportedSemanticStoreInGeneration(brainDir, repoDir, source, staging, now); err != nil {
-			return err
-		}
-		storePath, err := semanticGenerationStagingFilePath(staging, source.GenerationPath, source.StorePath, semanticSQLiteName)
-		if err != nil {
-			return err
-		}
-		if err := validateSemanticSQLiteStore(storePath, source.Files, source.Symbols, source.Relations); err != nil {
-			return err
-		}
-	}
-	if err := os.Rename(staging, targetPath); err != nil {
-		return err
-	}
-	if err := syncParentDir(targetPath); err != nil {
+	if err := os.Rename(staging, target); err != nil {
 		return err
 	}
 	cleanupStaging = false
+	rewriteSemanticGenerationRefs(source, targetGenerationPath)
 	return nil
 }
 
-func uniqueImportedSemanticGenerationPath(brainDir, generationPath, salt string) string {
-	sum := sha256.Sum256([]byte(generationPath + "\x00" + salt))
-	parent := pathpkg.Dir(filepath.ToSlash(generationPath))
-	base := pathpkg.Base(filepath.ToSlash(generationPath))
-	prefix := base + "-import-" + hex.EncodeToString(sum[:6])
-	for i := 0; ; i++ {
-		candidate := prefix
-		if i > 0 {
-			candidate = fmt.Sprintf("%s-%d", prefix, i+1)
-		}
-		rel := filepath.ToSlash(filepath.Join(parent, candidate))
-		if _, err := os.Lstat(filepath.Join(brainDir, filepath.FromSlash(rel))); os.IsNotExist(err) {
-			return rel
-		}
-	}
+func rewriteSemanticGenerationRefs(source *semanticSourceManifest, generationPath string) {
+	source.GenerationPath = filepath.ToSlash(generationPath)
+	source.StorePath = filepath.ToSlash(filepath.Join(generationPath, semanticSQLiteName))
+	source.MetricsPath = filepath.ToSlash(filepath.Join(generationPath, semanticMetricsName))
+	source.ParseCachePath = filepath.ToSlash(filepath.Join(generationPath, "parse-cache"))
 }
 
-func rewriteSemanticGenerationSourcePaths(source *semanticSourceManifest, oldGenerationPath, newGenerationPath string) {
-	replace := func(value string) string {
-		if value == "" {
-			return ""
-		}
-		clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(value)))
-		oldSlash := filepath.ToSlash(oldGenerationPath)
-		if clean == oldSlash {
-			return filepath.ToSlash(newGenerationPath)
-		}
-		if strings.HasPrefix(clean, oldSlash+"/") {
-			return filepath.ToSlash(filepath.Join(newGenerationPath, strings.TrimPrefix(clean, oldSlash+"/")))
-		}
-		return value
-	}
-	source.GenerationPath = filepath.ToSlash(newGenerationPath)
-	source.StorePath = replace(source.StorePath)
-	source.MetricsPath = replace(source.MetricsPath)
-	source.ParseCachePath = replace(source.ParseCachePath)
-}
-
-func removeImportedSemanticParseCache(generationRoot, generationPath, parseCachePath string) error {
-	expected := filepath.ToSlash(filepath.Join(generationPath, "parse-cache"))
-	if strings.TrimSpace(parseCachePath) != "" && filepath.ToSlash(parseCachePath) != expected {
-		return fmt.Errorf("semantic parse_cache_path must be %s: %s", expected, parseCachePath)
-	}
-	target := filepath.Join(generationRoot, "parse-cache")
-	info, err := os.Lstat(target)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("bundle semantic parse-cache must not be a symlink: %s", parseCachePath)
-	}
-	return os.RemoveAll(target)
-}
-
-func rebuildImportedSemanticStoreInGeneration(brainDir, repoDir string, source *semanticSourceManifest, generationRoot string, now time.Time) error {
+func rebuildImportedSemanticStore(brainDir, repoDir string, source *semanticSourceManifest, now time.Time) error {
 	if source == nil || source.StorePath == "" {
 		return nil
 	}
@@ -5300,13 +5196,6 @@ func rebuildImportedSemanticStoreInGeneration(brainDir, repoDir string, source *
 		return err
 	}
 	storeRel, err := validateSemanticGenerationFilePath(source.StorePath, generationRel, semanticSQLiteName)
-	if err != nil {
-		return err
-	}
-	if source.MetricsPath == "" {
-		source.MetricsPath = filepath.ToSlash(filepath.Join(generationRel, semanticMetricsName))
-	}
-	metricsRel, err := validateSemanticGenerationFilePath(source.MetricsPath, generationRel, semanticMetricsName)
 	if err != nil {
 		return err
 	}
@@ -5324,7 +5213,7 @@ func rebuildImportedSemanticStoreInGeneration(brainDir, repoDir string, source *
 	}
 	defer os.RemoveAll(tmpDir)
 	dbPath := filepath.Join(tmpDir, semanticSQLiteName)
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open(sqliteDriverName, dbPath)
 	if err != nil {
 		return err
 	}
@@ -5332,8 +5221,7 @@ func rebuildImportedSemanticStoreInGeneration(brainDir, repoDir string, source *
 		_ = db.Close()
 		return err
 	}
-	snapshotSHA := semanticSnapshotSHA256(raw)
-	metrics, err := populateSemanticSQLite(db, repoDir, pathpkg.Base(filepath.ToSlash(generationRel)), snapshotSHA, raw, header, counts, now, generationRoot)
+	_, err = populateSemanticSQLite(db, repoDir, pathpkg.Base(filepath.ToSlash(generationRel)), raw, header, counts, now, filepath.Join(brainDir, generationRel))
 	if closeErr := db.Close(); err == nil && closeErr != nil {
 		err = closeErr
 	}
@@ -5344,42 +5232,11 @@ func rebuildImportedSemanticStoreInGeneration(brainDir, repoDir string, source *
 	if err != nil {
 		return err
 	}
-	metrics.StoreBytes = int64(len(data))
-	metricsData, err := json.MarshalIndent(metrics, "", "  ")
-	if err != nil {
+	storePath := filepath.Join(brainDir, storeRel)
+	if err := os.Remove(storePath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	metricsData = append(metricsData, '\n')
-	storeSubpath, err := filepath.Rel(filepath.Join(brainDir, generationRel), filepath.Join(brainDir, storeRel))
-	if err != nil {
-		return err
-	}
-	storePath := filepath.Join(generationRoot, storeSubpath)
-	if err := writeFileAtomic(storePath, data, 0o600); err != nil {
-		return err
-	}
-	metricsSubpath, err := filepath.Rel(filepath.Join(brainDir, generationRel), filepath.Join(brainDir, metricsRel))
-	if err != nil {
-		return err
-	}
-	return writeFileAtomic(filepath.Join(generationRoot, metricsSubpath), metricsData, 0o600)
-}
-
-func semanticGenerationStagingFilePath(generationRoot, generationPath, filePath, basename string) (string, error) {
-	generationRel, err := validateSemanticGenerationPath(generationPath)
-	if err != nil {
-		return "", err
-	}
-	fileRel, err := validateSemanticGenerationFilePath(filePath, generationRel, basename)
-	if err != nil {
-		return "", err
-	}
-	generationSlash := filepath.ToSlash(generationRel)
-	fileSlash := filepath.ToSlash(fileRel)
-	if fileSlash == generationSlash {
-		return generationRoot, nil
-	}
-	return filepath.Join(generationRoot, filepath.FromSlash(strings.TrimPrefix(fileSlash, generationSlash+"/"))), nil
+	return writeFileAtomic(storePath, data, 0o600)
 }
 
 func copyImportedGenerationDir(sourceRoot, targetRoot string) error {
@@ -5412,7 +5269,7 @@ func copyImportedGenerationDir(sourceRoot, targetRoot string) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 			return err
 		}
-		return writeFileAtomic(target, data, 0o600)
+		return os.WriteFile(target, data, 0o600)
 	})
 }
 
@@ -5510,7 +5367,7 @@ func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
 	}
 	if manifest.Sources.Semantic.StorePath != "" {
 		storeFullPath := filepath.Join(root, filepath.FromSlash(manifest.Sources.Semantic.StorePath))
-		if err := validateSemanticSQLiteStore(storeFullPath, manifest.Sources.Semantic.Files, manifest.Sources.Semantic.Symbols, manifest.Sources.Semantic.Relations); err != nil {
+		if err := validateSemanticSQLiteStore(storeFullPath, manifest.Sources.Semantic.Symbols, manifest.Sources.Semantic.Relations); err != nil {
 			return nil, err
 		}
 	}
@@ -5567,7 +5424,21 @@ func validateImportedGenerationEntries(root string, source *semanticSourceManife
 	})
 }
 
-func validateSemanticSQLiteStore(path string, expectedFiles, expectedSymbols, expectedRelations int) error {
+func validateSemanticSQLiteStore(path string, expectedCounts ...int) error {
+	expectedFiles := -1
+	expectedSymbols := 0
+	expectedRelations := 0
+	switch len(expectedCounts) {
+	case 2:
+		expectedSymbols = expectedCounts[0]
+		expectedRelations = expectedCounts[1]
+	case 3:
+		expectedFiles = expectedCounts[0]
+		expectedSymbols = expectedCounts[1]
+		expectedRelations = expectedCounts[2]
+	default:
+		return fmt.Errorf("validate semantic sqlite store: expected 2 or 3 count arguments, got %d", len(expectedCounts))
+	}
 	info, err := os.Lstat(path)
 	if err != nil {
 		return fmt.Errorf("semantic sqlite store missing: %w", err)
@@ -5578,7 +5449,7 @@ func validateSemanticSQLiteStore(path string, expectedFiles, expectedSymbols, ex
 	if info.IsDir() {
 		return fmt.Errorf("semantic sqlite store must be a file: %s", path)
 	}
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open(sqliteDriverName, path)
 	if err != nil {
 		return fmt.Errorf("open semantic sqlite store: %w", err)
 	}
@@ -5590,9 +5461,14 @@ func validateSemanticSQLiteStore(path string, expectedFiles, expectedSymbols, ex
 	if integrity != "ok" {
 		return fmt.Errorf("semantic sqlite integrity check failed: %s", integrity)
 	}
-	files, err := semanticSQLiteTableCount(db, "files")
-	if err != nil {
-		return err
+	if expectedFiles >= 0 {
+		files, err := semanticSQLiteTableCount(db, "files")
+		if err != nil {
+			return err
+		}
+		if files != expectedFiles {
+			return fmt.Errorf("semantic sqlite file count %d does not match manifest %d", files, expectedFiles)
+		}
 	}
 	symbols, err := semanticSQLiteTableCount(db, "symbols")
 	if err != nil {
@@ -5601,9 +5477,6 @@ func validateSemanticSQLiteStore(path string, expectedFiles, expectedSymbols, ex
 	relations, err := semanticSQLiteTableCount(db, "relations")
 	if err != nil {
 		return err
-	}
-	if expectedFiles > 0 && files != expectedFiles {
-		return fmt.Errorf("semantic sqlite file count %d does not match manifest %d", files, expectedFiles)
 	}
 	if symbols != expectedSymbols {
 		return fmt.Errorf("semantic sqlite symbol count %d does not match manifest %d", symbols, expectedSymbols)
@@ -5620,26 +5493,6 @@ func semanticSQLiteTableCount(db *sql.DB, table string) (int, error) {
 		return 0, fmt.Errorf("validate semantic sqlite table %s: %w", table, err)
 	}
 	return count, nil
-}
-
-func semanticSQLiteMetaMap(db *sql.DB) (map[string]string, error) {
-	rows, err := db.Query(`SELECT key, value FROM meta`)
-	if err != nil {
-		return nil, fmt.Errorf("read semantic sqlite meta: %w", err)
-	}
-	defer rows.Close()
-	out := map[string]string{}
-	for rows.Next() {
-		var key, value string
-		if err := rows.Scan(&key, &value); err != nil {
-			return nil, fmt.Errorf("scan semantic sqlite meta: %w", err)
-		}
-		out[key] = value
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("scan semantic sqlite meta: %w", err)
-	}
-	return out, nil
 }
 
 func bundleSemanticCountPresence(data []byte) (bool, bool, error) {
@@ -5855,18 +5708,18 @@ func appendSemanticAudit(brainDir, action, path, checksum string) error {
 		return err
 	}
 	auditPath := filepath.Join(brainDir, semanticDirName, semanticAuditLogName)
-	return withBrainWriteLock(brainDir, func() error {
-		if err := ensureSemanticAuditPathSafe(brainDir); err != nil {
-			return err
-		}
-		existing, err := os.ReadFile(auditPath)
-		if err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		existing = append(existing, data...)
-		existing = append(existing, '\n')
-		return writeFileAtomic(auditPath, existing, 0o600)
-	})
+	if err := ensureSemanticAuditPathSafe(brainDir); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(auditPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		return err
+	}
+	return nil
 }
 
 func ensureSemanticAuditPathSafe(brainDir string) error {

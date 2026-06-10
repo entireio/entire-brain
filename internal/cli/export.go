@@ -552,6 +552,19 @@ func validateForcedOutputManifest(data []byte) error {
 	return errors.New("missing recognized brain sources")
 }
 
+func removeAllWithRetry(path string) error {
+	var lastErr error
+	for i := 0; i < 5; i++ {
+		if err := os.RemoveAll(path); err != nil {
+			lastErr = err
+			time.Sleep(time.Duration(i+1) * 25 * time.Millisecond)
+			continue
+		}
+		return nil
+	}
+	return lastErr
+}
+
 func rejectDangerousForcedOutputDir(abs, repoDir string) error {
 	clean := filepath.Clean(abs)
 	if isFilesystemRoot(clean) {

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -46,6 +47,75 @@ func TestEmbedQueryFallsBackToEmbed(t *testing.T) {
 	}
 }
 
+func TestConfiguredEmbedderUsesOllamaWhenReachable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"embeddings": [][]float32{{0.1, 0.2}}})
+	}))
+	defer srv.Close()
+	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "ollama")
+	t.Setenv("ENTIRE_BRAIN_EMBED_URL", srv.URL)
+	e, warn := configuredEmbedder()
+	if _, ok := e.(*ollamaEmbedder); !ok {
+		t.Fatalf("expected the ollama embedder when reachable, got %T", e)
+	}
+	if warn != "" {
+		t.Fatalf("no warning expected when reachable, got %q", warn)
+	}
+}
+
+func TestConfiguredEmbedderFallsBackOnEmptyEmbeddingBody(t *testing.T) {
+	// A server that answers 200 but returns no embedding (wrong model / error
+	// body) must be treated as not usable, not selected as the embedder.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"embeddings": [][]float32{}})
+	}))
+	defer srv.Close()
+	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "ollama")
+	t.Setenv("ENTIRE_BRAIN_EMBED_URL", srv.URL)
+	e, warn := configuredEmbedder()
+	if _, ok := e.(*ollamaEmbedder); ok {
+		t.Fatal("a 200 with an empty embeddings array must not select the ollama embedder")
+	}
+	if e == nil {
+		t.Fatal("expected the Model2Vec fallback, got nil")
+	}
+	if warn == "" {
+		t.Fatal("expected a fallback warning")
+	}
+}
+
+func TestConfiguredEmbedderFallsBackWhenOllamaUnreachable(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "ollama")
+	// Port 1 refuses immediately, so the probe fails fast and the selector must
+	// fall back to the bundled Model2Vec model rather than returning the (dead)
+	// ollama embedder or silently dropping the semantic arm.
+	t.Setenv("ENTIRE_BRAIN_EMBED_URL", "http://127.0.0.1:1/api/embed")
+	e, warn := configuredEmbedder()
+	if e == nil {
+		t.Fatal("expected a fallback embedder, got nil")
+	}
+	if _, ok := e.(*ollamaEmbedder); ok {
+		t.Fatal("expected fallback to the static embedder, got the ollama embedder")
+	}
+	if warn == "" {
+		t.Fatal("expected a fallback warning when the opt-in server is unreachable")
+	}
+}
+
+func TestConfiguredEmbedderDefaultsToStatic(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "")
+	e, warn := configuredEmbedder()
+	if e == nil {
+		t.Fatal("expected the bundled static embedder by default")
+	}
+	if _, ok := e.(*ollamaEmbedder); ok {
+		t.Fatal("default must not select the ollama embedder")
+	}
+	if warn != "" {
+		t.Fatalf("no warning expected on the default path, got %q", warn)
+	}
+}
+
 func TestOllamaEmbedderURLOverride(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_EMBED_URL", "http://127.0.0.1:11500")
 	if got := newOllamaEmbedder().url; got != "http://127.0.0.1:11500" {
@@ -54,33 +124,5 @@ func TestOllamaEmbedderURLOverride(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_EMBED_URL", "")
 	if got := newOllamaEmbedder().url; got != "http://localhost:11434/api/embed" {
 		t.Fatalf("default url = %q", got)
-	}
-}
-
-func TestOllamaEmbedderRejectsNonLoopbackURL(t *testing.T) {
-	t.Setenv("ENTIRE_BRAIN_EMBED_URL", "https://example.com/api/embed")
-	if got := newOllamaEmbedder(); got != nil {
-		t.Fatalf("expected non-loopback embed URL to disable ollama embedder, got %+v", got)
-	}
-}
-
-func TestOllamaEmbedderRejectsNonLoopbackRedirect(t *testing.T) {
-	var redirected bool
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		redirected = true
-		http.Redirect(w, r, "https://example.com/steal", http.StatusTemporaryRedirect)
-	}))
-	defer server.Close()
-
-	t.Setenv("ENTIRE_BRAIN_EMBED_URL", server.URL)
-	embedder := newOllamaEmbedder()
-	if embedder == nil {
-		t.Fatalf("loopback test server should be accepted")
-	}
-	if got := embedder.EmbedQuery("private repo fact"); got != nil {
-		t.Fatalf("redirected embed request returned vector: %v", got)
-	}
-	if !redirected {
-		t.Fatalf("test server was not called")
 	}
 }

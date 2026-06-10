@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -17,8 +18,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -42,6 +41,18 @@ const (
 	// after a few attempts beats churning silently through every session reporting
 	// "0 facts found".
 	distillAgentAbortThreshold = 5
+
+	// defaultDistillConcurrency is how many distill agent calls run in flight at
+	// once. Distillation is latency-bound (each call is an LLM round-trip plus an
+	// agent-CLI cold start); a small pool overlaps those waits without hammering
+	// provider rate limits or spawning an unbounded number of agent processes.
+	defaultDistillConcurrency = 4
+
+	// distillFlushCallInterval is how many agent calls may elapse between
+	// persistence flushes of the in-memory distill state (facts, proposals,
+	// session cache). A distill run is hours of agent calls; flushing every ~50
+	// calls bounds what an interruption can lose to minutes instead of the run.
+	distillFlushCallInterval = 50
 )
 
 // capWarnings truncates a warning list to max entries, replacing the overflow
@@ -61,8 +72,252 @@ func capWarnings(warnings []string, max int) []string {
 // execDistillAgent, shells out).
 type distillAgentRunner func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error)
 
+// agentCallResult carries one prefetched distill-agent call result. holdsSlot
+// marks results produced by a launched worker, whose pool slot result() must
+// release on consumption (cancellation fills abandoned chunks without a slot).
+type agentCallResult struct {
+	out       string
+	err       error
+	holdsSlot bool
+}
+
+// distillSessionLookahead bounds how many PREPARED sessions may queue between
+// producer and consumer. Skipped and cache-hit sessions are near-free structs,
+// and they dominate incremental runs (observed: ~95% of an interrupted-run
+// resume), so this buffer must be deep enough that a skip streak never blocks
+// the producer from reaching the next session with real agent work. Memory
+// stays bounded because sessions HOLDING WORK (preprocessed chunks awaiting
+// or in agent calls) are limited separately by the work-lookahead semaphore.
+const distillSessionLookahead = 256
+
+// preparedSession is one session's distill work, prepared by the pipeline
+// ahead of the consumer. Exactly one of skip/readErr/cached/chunks describes
+// its disposition; chunk agent calls (when any) were dispatched into the
+// run's shared pool and are consumed strictly in order via result(i).
+type preparedSession struct {
+	session     exportSession
+	branch      string
+	skip        bool  // filtered out by --branch/--session: carry cache through
+	readErr     error // transcript unreadable: warn, retry next run
+	cached      bool  // fingerprint matched: keep facts, no agent work
+	fingerprint string
+	rawBytes    int
+	preBytes    int
+	chunks      []transcriptChunk
+	results     []chan agentCallResult
+	sem         chan struct{}
+	// release frees the session's work-lookahead slot; the consumer calls it
+	// once the session's chunks are fully consumed. nil for sessions that
+	// carry no work (skip/cached/readErr).
+	release func()
+	// seq, when set (concurrency <= 1), replaces the pool: result(i) runs the
+	// agent call inline and lazily — strictly one agent process at a time, and
+	// no call is ever made for a chunk the consumer never asks about (e.g.
+	// after an abort) — exactly the original sequential behavior.
+	seq func(i int) (string, error)
+}
+
+// result blocks until chunk i's agent call completes and returns its output,
+// releasing the call's pool slot so the dispatcher may launch the next call.
+func (ps *preparedSession) result(i int) (string, error) {
+	if ps.seq != nil {
+		return ps.seq(i)
+	}
+	r := <-ps.results[i]
+	if r.holdsSlot {
+		<-ps.sem
+	}
+	return r.out, r.err
+}
+
+// startSessionPrefetch is the distill pipeline's producer: it prepares
+// sessions in chronological order and dispatches their chunk agent calls into
+// ONE shared pool, up to `concurrency` calls in flight ACROSS sessions — the
+// per-session pool it replaces gave a 1-chunk session (the common case after
+// stripping; the corpus median) no parallelism at all, serializing the run on
+// agent latency.
+//
+// Two properties carry over from the per-session prefetcher and one is new:
+//   - In-order delivery: the consumer applies chunks strictly in global
+//     (session, chunk) order, so reconcile and fact application keep their
+//     exact serial semantics; only agent round-trips overlap.
+//   - Consumption-bounded lookahead: a pool slot is held from a call's launch
+//     until its result is CONSUMED, so at most `concurrency` completed results
+//     are ever buffered and an early abort stops dispatch within `concurrency`
+//     calls of the last one consumed.
+//   - Single dispatcher, global dispatch order: slots are acquired in exactly
+//     the order the consumer will need results. Competing per-session
+//     dispatchers over a shared pool could hand a freed slot to a session the
+//     consumer is not ready for, buffering its result while the chunk the
+//     consumer is blocked on starves — a deadlock at small pool sizes.
+//
+// The returned channel delivers sessions in order with lookahead
+// distillSessionLookahead; it closes when all sessions are produced or ctx is
+// canceled. Cancel ctx to stop preparation, dispatch, and in-flight calls.
+func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []string, sessions []exportSession, prevCache distillCache, distillOpts distillCommandOptions, resolveBranch func(exportSession) string) <-chan preparedSession {
+	prepared := make(chan preparedSession, distillSessionLookahead)
+	var sem chan struct{}
+	if distillOpts.concurrency > 1 {
+		sem = make(chan struct{}, distillOpts.concurrency)
+	}
+	// workSem bounds sessions HOLDING WORK — preprocessed chunk text awaiting
+	// or in agent calls — independently of the session buffer. The buffer must
+	// be deep so skip/cache streaks never starve dispatch (observed: a ~95%
+	// cache-hit region left a concurrency-8 pool running ONE call, because a
+	// 4-session lookahead held ~0.2 work-sessions); workSem keeps the memory
+	// for that depth bounded to a handful of sessions' chunk text. A slot is
+	// held from just before a session's transcript read (the chunks' memory is
+	// born there) until the consumer finishes its chunks.
+	workAhead := distillOpts.concurrency
+	if workAhead < 2 {
+		workAhead = 2
+	}
+	workSem := make(chan struct{}, workAhead)
+	// Stage A launches per-session PREP workers (transcript read,
+	// preprocessing, fingerprint/cache check, chunking) bounded by workSem and
+	// acquired in order; stage B awaits each session's future in order,
+	// delivers it, and dispatches its chunk calls. Prep parallelism matters as
+	// much as call parallelism on document-heavy corpora: preprocessing a
+	// multi-MB document costs seconds, and a serial prep stage was observed
+	// feeding only ~2 of 8 pool slots — the producer couldn't prepare sessions
+	// as fast as the pool retired their calls.
+	prepQueue := make(chan chan preparedSession, distillSessionLookahead)
+	go func() { // stage A: in-order prep launcher
+		defer close(prepQueue)
+		enqueue := func(f chan preparedSession) bool {
+			select {
+			case prepQueue <- f:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
+		for _, session := range sessions {
+			if ctx.Err() != nil {
+				return
+			}
+			ps := preparedSession{session: session, branch: resolveBranch(session)}
+			f := make(chan preparedSession, 1) // buffered: a worker outliving a canceled consumer delivers and exits
+			if (distillOpts.branch != "" && ps.branch != distillOpts.branch) ||
+				(distillOpts.session != "" && session.SessionID != distillOpts.session) {
+				ps.skip = true
+				f <- ps
+				if !enqueue(f) {
+					return
+				}
+				continue
+			}
+			select {
+			case workSem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			go func(ps preparedSession) {
+				releaseWork := func() { <-workSem }
+				content, readErr := readBrainRelativeFile(brainDir, ps.session.TranscriptPath)
+				if readErr != nil {
+					releaseWork()
+					ps.readErr = readErr
+					f <- ps
+					return
+				}
+				// Strip tool calls/outputs and meta records up front: this is
+				// the actual input the agent distills. Fingerprinting the
+				// preprocessed input (not raw bytes) means churn confined to
+				// stripped tool I/O does not invalidate the cache.
+				distillInput := preprocessTranscriptForDistill(content)
+				ps.rawBytes = len(content)
+				ps.preBytes = len(distillInput)
+				ps.fingerprint = distillSessionFingerprint(ps.session, ps.branch, distillInput, distillOpts.cacheSalt)
+				if !distillOpts.force {
+					if prev, ok := cachedDistillSessionFingerprint(prevCache, ps.branch, ps.session.SessionID); ok && prev == ps.fingerprint {
+						releaseWork()
+						ps.cached = true
+						f <- ps
+						return
+					}
+				}
+				ps.chunks = chunkTranscript(distillInput, distillOpts.maxChunkBytes)
+				ps.release = releaseWork
+				f <- ps
+			}(ps)
+			if !enqueue(f) {
+				return
+			}
+		}
+	}()
+	go func() { // stage B: in-order delivery + global-order dispatch
+		defer close(prepared)
+		for f := range prepQueue {
+			var ps preparedSession
+			select {
+			case ps = <-f:
+			case <-ctx.Done():
+				return
+			}
+			if ps.skip || ps.readErr != nil || ps.cached {
+				select {
+				case prepared <- ps:
+					continue
+				case <-ctx.Done():
+					return
+				}
+			}
+			if sem == nil {
+				ps.seq = func(chunks []transcriptChunk) func(int) (string, error) {
+					return func(i int) (string, error) {
+						return distillOpts.run(ctx, repoDir, args, []byte(chunks[i].Text), distillOpts.timeout)
+					}
+				}(ps.chunks)
+				select {
+				case prepared <- ps:
+				case <-ctx.Done():
+					return
+				}
+				continue
+			}
+			ps.sem = sem
+			ps.results = make([]chan agentCallResult, len(ps.chunks))
+			for i := range ps.results {
+				ps.results[i] = make(chan agentCallResult, 1) // buffered: abandoned workers deliver and exit
+			}
+			// Deliver BEFORE dispatching: a session with more chunks than the
+			// pool must be consumable while its tail still dispatches.
+			select {
+			case prepared <- ps:
+			case <-ctx.Done():
+				return
+			}
+			for i := range ps.chunks {
+				if ctx.Err() != nil { // don't race a freed slot against cancellation
+					ps.results[i] <- agentCallResult{err: ctx.Err()}
+					continue
+				}
+				select {
+				case sem <- struct{}{}:
+				case <-ctx.Done():
+					ps.results[i] <- agentCallResult{err: ctx.Err()}
+					continue
+				}
+				go func(i int, chunks []transcriptChunk, results []chan agentCallResult) {
+					out, err := distillOpts.run(ctx, repoDir, args, []byte(chunks[i].Text), distillOpts.timeout)
+					results[i] <- agentCallResult{out: out, err: err, holdsSlot: true}
+				}(i, ps.chunks, ps.results)
+			}
+		}
+	}()
+	return prepared
+}
+
 type distillCommandOptions struct {
-	branch              string
+	branch string
+	// session restricts distillation to one session id — the fast
+	// single-session path behind `hook session-end` (Phase 2 item 5). Other
+	// sessions carry their cache entries through untouched, exactly like the
+	// branch filter. Incompatible with force: a forced rebuild drops every
+	// distilled fact on the session's branch but would re-derive only the one
+	// session's, silently losing the rest.
+	session             string
 	force               bool
 	json                bool
 	agent               string
@@ -74,7 +329,15 @@ type distillCommandOptions struct {
 	effort              string
 	dryRun              bool
 	jobs                int
-	run                 distillAgentRunner
+	cacheSalt           string
+	// concurrency is the distill agent-call pool size; <=1 means strictly
+	// sequential, lazy agent calls (the zero value keeps tests and library
+	// callers on the old behavior). See chunkPrefetcher for the pool semantics.
+	concurrency int
+	// flushEvery overrides distillFlushCallInterval when >0 (tests use 1 to
+	// observe mid-run persistence).
+	flushEvery int
+	run        distillAgentRunner
 	// progress, when set, is called as each session is processed so the command
 	// can render a spinner/progress line. It is nil in tests and for callers
 	// that do not want progress output.
@@ -82,8 +345,8 @@ type distillCommandOptions struct {
 }
 
 // distillProgress reports how far the distillation loop has advanced. Distill
-// runs one extraction call per uncached transcript chunk, plus an optional
-// reconcile call, so this drives a refresh-style progress line.
+// runs one agent call per transcript chunk and can take minutes, so this drives
+// a refresh-style progress line.
 type distillProgress struct {
 	SessionsDone  int
 	SessionsTotal int
@@ -147,21 +410,6 @@ type distillChunkWork struct {
 	Anchor       factAnchor
 }
 
-type distillChunkResult struct {
-	Output    string
-	Err       error
-	Completed bool
-}
-
-type distillRunPreparation struct {
-	Plan                distillPlan
-	Taxonomy            factTaxonomy
-	TaxonomyFingerprint string
-	Args                []string
-	ReconcileArgs       []string
-	Threshold           float64
-}
-
 type distillDryRunReport struct {
 	SchemaVersion                 int                    `json:"schema_version"`
 	GeneratedAt                   time.Time              `json:"generated_at"`
@@ -213,7 +461,7 @@ type distillDryRunSession struct {
 }
 
 func newDistillCommand(opts Options) *cobra.Command {
-	distillOpts := distillCommandOptions{agent: "auto", timeout: defaultDistillTimeout, maxChunkBytes: defaultDistillChunkSize, confidenceThreshold: defaultFactConfidenceThreshold}
+	distillOpts := distillCommandOptions{agent: "auto", timeout: defaultDistillTimeout, maxChunkBytes: defaultDistillChunkSize, confidenceThreshold: defaultFactConfidenceThreshold, concurrency: defaultDistillConcurrency}
 	cmd := &cobra.Command{
 		Use:   "distill [path]",
 		Short: "Distill captured sessions into durable facts (agent-required)",
@@ -230,16 +478,18 @@ func newDistillCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&distillOpts.branch, "branch", "", "Limit distillation to a single branch (default: all exported branches)")
+	cmd.Flags().StringVar(&distillOpts.session, "session", "", "Limit distillation to a single session id (the fast per-session path; incompatible with --force)")
 	cmd.Flags().BoolVar(&distillOpts.force, "force", false, "Recompute all distilled facts from scratch instead of skipping unchanged sessions")
 	cmd.Flags().BoolVar(&distillOpts.json, "json", false, "Emit the fact source summary as JSON")
 	cmd.Flags().StringVar(&distillOpts.agent, "agent", "auto", "Distillation agent: auto, codex, claude-code, ollama, or command")
 	cmd.Flags().StringArrayVar(&distillOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().Float64Var(&distillOpts.confidenceThreshold, "confidence", defaultFactConfidenceThreshold, "Minimum agent confidence to auto-apply a merge/supersede; below this it is queued for review")
 	cmd.Flags().StringVar(&distillOpts.model, "model", "", "Override the agent model for codex/claude-code, or select the local Ollama model")
-	cmd.Flags().StringVar(&distillOpts.effort, "effort", "", "Override the reasoning effort for codex/claude-code (e.g. low)")
+	cmd.Flags().StringVar(&distillOpts.effort, "effort", "", "Override the reasoning effort for codex/claude-code (e.g. low) — pairs with --model for a cheap run")
 	cmd.Flags().BoolVar(&distillOpts.dryRun, "dry-run", false, "Estimate distill work without calling an agent or writing facts")
-	cmd.Flags().IntVar(&distillOpts.jobs, "jobs", 1, "Parallel extraction jobs; reconciliation and writes remain deterministic")
-	cmd.Flags().IntVar(&distillOpts.maxChunkBytes, "max-chunk-bytes", defaultDistillChunkSize, "Maximum preprocessed transcript bytes per extraction call")
+	cmd.Flags().IntVar(&distillOpts.concurrency, "concurrency", defaultDistillConcurrency, "Distill agent calls to run in flight at once, shared across sessions (1 = strictly sequential; higher values may add one concurrent reconcile call)")
+	cmd.Flags().IntVar(&distillOpts.jobs, "jobs", 0, "Compatibility alias for --concurrency")
+	cmd.Flags().IntVar(&distillOpts.maxChunkBytes, "max-chunk-bytes", defaultDistillChunkSize, "Transcript chunk size in bytes; larger chunks mean fewer agent calls per session (long-context models handle 128-192KB comfortably)")
 	return cmd
 }
 
@@ -255,11 +505,20 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	if err != nil {
 		return err
 	}
-	if distillOpts.jobs <= 0 {
-		return fmt.Errorf("--jobs must be greater than 0")
-	}
 	if distillOpts.maxChunkBytes <= 0 {
 		return fmt.Errorf("--max-chunk-bytes must be greater than 0")
+	}
+	if distillOpts.concurrency <= 0 {
+		return fmt.Errorf("--concurrency must be greater than 0")
+	}
+	if cmd.Flags().Changed("jobs") {
+		if distillOpts.jobs <= 0 {
+			return fmt.Errorf("--jobs must be greater than 0")
+		}
+		if cmd.Flags().Changed("concurrency") && distillOpts.jobs != distillOpts.concurrency {
+			return fmt.Errorf("--jobs conflicts with --concurrency; use --concurrency")
+		}
+		distillOpts.concurrency = distillOpts.jobs
 	}
 	if distillOpts.dryRun {
 		report, err := buildDistillDryRunReport(storage.BrainDir, distillOpts, opts.Now().UTC())
@@ -333,26 +592,18 @@ func distillProgressLabel(p distillProgress) string {
 // repoDir is the working directory the agent runs in (sandboxed read-only).
 func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOpts distillCommandOptions, now time.Time) (*factSourceManifest, error) {
 	runStarted := time.Now()
-	prep, err := prepareDistillRun(brainDir, distillOpts, now)
+	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
 		return nil, err
 	}
-	extractionStarted := time.Now()
-	results := runDistillExtraction(ctx, repoDir, prep.Args, prep.Plan.Work, distillOpts)
-	extractionSeconds := time.Since(extractionStarted).Seconds()
-	return commitDistillResults(ctx, repoDir, brainDir, distillOpts, now, prep, results, extractionSeconds, runStarted)
-}
-
-func prepareDistillRun(brainDir string, distillOpts distillCommandOptions, now time.Time) (distillRunPreparation, error) {
-	manifest, err := loadBrainManifest(brainDir)
-	if err != nil {
-		return distillRunPreparation{}, err
-	}
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
-		return distillRunPreparation{}, errors.New("no exported sessions; run `entire brain refresh` first")
+		return nil, errors.New("no exported sessions; run `entire brain refresh` first")
 	}
 	if distillOpts.run == nil {
-		return distillRunPreparation{}, errors.New("distill: no agent runner configured")
+		return nil, errors.New("distill: no agent runner configured")
+	}
+	if distillOpts.session != "" && distillOpts.force {
+		return nil, errors.New("--session cannot be combined with --force: a forced rebuild drops every distilled fact on the session's branch but would re-derive only that session's")
 	}
 	if distillOpts.maxChunkBytes <= 0 {
 		distillOpts.maxChunkBytes = defaultDistillChunkSize
@@ -360,20 +611,20 @@ func prepareDistillRun(brainDir string, distillOpts distillCommandOptions, now t
 
 	taxonomy, err := loadFactTaxonomy(brainDir, now)
 	if err != nil {
-		return distillRunPreparation{}, err
+		return nil, err
 	}
 	prompt, err := renderDistillPrompt(taxonomy)
 	if err != nil {
-		return distillRunPreparation{}, err
+		return nil, err
 	}
 	args, err := distillAgentCommandArgs(distillOpts.agent, distillOpts.agentCommand, prompt)
 	if err != nil {
-		return distillRunPreparation{}, err
+		return nil, err
 	}
 	reconcilePromptText := reconcilePrompt()
 	reconcileArgs, err := distillAgentCommandArgs(distillOpts.agent, distillOpts.agentCommand, reconcilePromptText)
 	if err != nil {
-		return distillRunPreparation{}, err
+		return nil, err
 	}
 	// Pin the agent model + effort when set, so distill AND reconcile run on the same
 	// (cheap) model. Both are no-ops when empty.
@@ -383,77 +634,65 @@ func prepareDistillRun(brainDir string, distillOpts distillCommandOptions, now t
 	if threshold <= 0 {
 		threshold = defaultFactConfidenceThreshold
 	}
+	distillOpts.cacheSalt = distillCacheSalt(prompt, reconcilePromptText, threshold, distillOpts)
 
-	cacheSalt := distillCacheSalt(prompt, reconcilePromptText, threshold, distillOpts)
-	plan, err := buildDistillPlan(brainDir, manifest, distillOpts, cacheSalt)
-	if err != nil {
-		return distillRunPreparation{}, err
-	}
-	return distillRunPreparation{
-		Plan:                plan,
-		Taxonomy:            taxonomy,
-		TaxonomyFingerprint: factTaxonomyFingerprint(taxonomy),
-		Args:                args,
-		ReconcileArgs:       reconcileArgs,
-		Threshold:           threshold,
-	}, nil
-}
+	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
+	// Chronological order so any future supersession chain reconstructs
+	// deterministically regardless of incremental vs --force.
+	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].CreatedAt.Before(sessions[j].CreatedAt) })
 
-func commitDistillResults(ctx context.Context, repoDir, brainDir string, distillOpts distillCommandOptions, now time.Time, prep distillRunPreparation, results []distillChunkResult, extractionSeconds float64, runStarted time.Time) (*factSourceManifest, error) {
-	var source *factSourceManifest
-	err := withBrainWriteLock(brainDir, func() error {
-		committed, commitErr := commitDistillResultsLocked(ctx, repoDir, brainDir, distillOpts, now, prep, results, extractionSeconds, runStarted)
-		source = committed
-		return commitErr
-	})
-	return source, err
-}
-
-func commitDistillResultsLocked(ctx context.Context, repoDir, brainDir string, distillOpts distillCommandOptions, now time.Time, prep distillRunPreparation, results []distillChunkResult, extractionSeconds float64, runStarted time.Time) (*factSourceManifest, error) {
-	plan := prep.Plan
-	if err := ensureDistillPlanSourceFresh(brainDir, plan); err != nil {
-		return nil, err
-	}
-	currentTaxonomy, err := loadFactTaxonomy(brainDir, now)
-	if err != nil {
-		return nil, err
-	}
-	if got := factTaxonomyFingerprint(currentTaxonomy); got != prep.TaxonomyFingerprint {
-		return nil, errors.New("distill taxonomy changed before commit; rerun distill")
-	}
-	manifest, err := loadBrainManifest(brainDir)
-	if err != nil {
-		return nil, err
-	}
-	currentCache := loadDistillCache(brainDir)
-	newCache := distillCache{Version: distillCacheVersion, Sessions: make(map[string]string, len(currentCache.Sessions))}
-	for sessionID, fingerprint := range currentCache.Sessions {
-		newCache.Sessions[sessionID] = fingerprint
-	}
-	for _, sessionPlan := range plan.Sessions {
-		delete(newCache.Sessions, distillSessionCacheKey(sessionPlan.Branch, sessionPlan.Session.SessionID))
-		delete(newCache.Sessions, sessionPlan.Session.SessionID) // legacy pre-branch-scoped key
-	}
+	prevCache := loadDistillCache(brainDir)
+	newCache := distillCache{Version: distillCacheVersion, Sessions: make(map[string]string, len(sessions))}
 
 	byBranch := map[string][]factRecord{}
 	proposalsByBranch := map[string][]factProposal{}
 	loaded := map[string]bool{}
-	warnings := append([]string(nil), plan.Warnings...)
-	chunksScanned, chunksDistilled := len(plan.Work), 0
-	failedChunks := 0
-	extractionAgentCalls := 0
-	for _, result := range results {
-		if result.Completed {
-			extractionAgentCalls++
+	// dirtyBranches tracks branches whose in-memory facts/proposals have
+	// diverged from disk since the last successful flush, so a flush rewrites
+	// only what changed instead of re-marshaling every loaded branch's full
+	// store every interval.
+	dirtyBranches := map[string]bool{}
+	var warnings []string
+	chunksScanned, chunksDistilled := 0, 0
+	cacheHits, failedChunks := 0, 0
+	extractionAgentCalls, reconcileAgentCalls := 0, 0
+	var preprocessedBytes int64
+	var extractionSeconds, reconcileSeconds float64
+
+	// resolveBranch maps a session to the branch its facts are written under,
+	// falling back to the manifest default (then distillDefaultBranch) when the
+	// session's branch field is empty. The --branch filter must compare against
+	// this resolved value, not session.Branch, so sessions with an empty branch
+	// are not silently excluded from a `--branch <default>` run.
+	resolveBranch := func(session exportSession) string {
+		branch := session.Branch
+		if branch == "" {
+			branch = strings.TrimSpace(manifest.DefaultBranch)
 		}
+		if branch == "" {
+			branch = distillDefaultBranch
+		}
+		return branch
 	}
-	reconcileAgentCalls := 0
+
+	// Denominator for progress: sessions that pass the branch/session filters.
+	// Cached (unchanged) sessions still advance the counter so the line
+	// reaches N/N.
+	totalSessions := 0
+	for _, session := range sessions {
+		if distillOpts.branch != "" && resolveBranch(session) != distillOpts.branch {
+			continue
+		}
+		if distillOpts.session != "" && session.SessionID != distillOpts.session {
+			continue
+		}
+		totalSessions++
+	}
 	sessionsDone, factsFound := 0, 0
 	// Track agent-call outcomes so a misconfiguration that fails every call (e.g.
 	// an invalid --model) aborts fast with the agent's own error, instead of
 	// silently churning through every session reporting "0 facts found".
 	agentFailures, anyAgentSuccess := 0, false
-	var lastAgentErr error
 
 	// ensureBranch lazily loads a branch's existing facts. On --force the
 	// previously distilled facts are dropped so they are rebuilt from scratch;
@@ -474,27 +713,120 @@ func commitDistillResultsLocked(ctx context.Context, repoDir, brainDir string, d
 				}
 			}
 			existing = kept
+			// The in-memory store now differs from disk; the rebuild must be
+			// written out even if the branch gains no new facts.
+			dirtyBranches[branch] = true
 		}
 		byBranch[branch] = existing
 		loaded[branch] = true
 	}
 
-	for _, branch := range plan.BranchOrder {
-		ensureBranch(branch)
+	// flushFactStores persists the in-memory distill state — dirty branches'
+	// facts and proposals, plus the session cache — so a killed or crashed run
+	// resumes from the last flush instead of losing everything (a distill run is
+	// hours of agent calls; the original write-once-at-the-end design lost the
+	// entire run on any interruption). Facts are idempotent across a resume: ids are
+	// content-derived and reconcile merges near-duplicates, so re-distilling the
+	// partially-flushed session at the kill point is safe. A mid-run (non-final)
+	// cache write keeps prevCache entries for sessions not yet visited — dropping
+	// manifest-removed sessions is the final write's job, and dropping unvisited
+	// entries mid-run would force a needless full re-distill of them after a
+	// restart. Under --force the opposite holds: ensureBranch has already dropped
+	// the unvisited sessions' distilled facts from byBranch, so persisting their
+	// still-matching prevCache fingerprints alongside the truncated fact store
+	// would make a plain rerun after a kill skip those sessions forever — their
+	// facts silently lost. A force run therefore writes newCache only, and an
+	// interrupted force run re-distills the sessions it never reached.
+	flushFactStoresLocked := func(final bool) error {
+		for branch := range dirtyBranches {
+			if err := writeFacts(brainDir, branch, byBranch[branch]); err != nil {
+				return err
+			}
+			// Union this run's proposals with any already queued. Re-loading on
+			// every flush is idempotent: earlier flushes' proposals come back as
+			// priors and dedupe away. A --force rebuild starts fresh (it rebuilds
+			// the distilled facts), but drops the prior backlog only on the FINAL
+			// flush — a mid-run flush that skipped priors would wipe the review
+			// queue ~50 calls in, and a kill there would lose it before the
+			// rebuild produced its replacement.
+			var prior []factProposal
+			if !(distillOpts.force && final) {
+				if loadedProposals, loadErr := loadFactProposals(brainDir, branch); loadErr != nil {
+					warnings = append(warnings, fmt.Sprintf("load proposals for %s: %v", branch, loadErr))
+				} else {
+					prior = loadedProposals
+				}
+			}
+			merged := dedupeProposals(append(prior, proposalsByBranch[branch]...))
+			if err := writeFactProposals(brainDir, branch, merged); err != nil {
+				return err
+			}
+			// A force run keeps branches dirty between mid-run flushes so the
+			// final flush always rewrites them — that write is what drops the
+			// prior proposal backlog. Otherwise the branch is clean until new
+			// fact actions touch it.
+			if final || !distillOpts.force {
+				delete(dirtyBranches, branch)
+			}
+		}
+		cache := newCache
+		if !final && !distillOpts.force {
+			cache = distillCache{Version: distillCacheVersion, Sessions: make(map[string]string, len(prevCache.Sessions)+len(newCache.Sessions))}
+			maps.Copy(cache.Sessions, prevCache.Sessions)
+			maps.Copy(cache.Sessions, newCache.Sessions)
+		}
+		saveDistillCache(brainDir, cache)
+		return nil
 	}
-
-	anyExtractionSuccess := false
-	for _, result := range results {
-		if result.Completed && result.Err == nil {
-			anyExtractionSuccess = true
-			break
+	flushFactStores := func(final bool) error {
+		return withBrainWriteLock(brainDir, func() error {
+			return flushFactStoresLocked(final)
+		})
+	}
+	flushInterval := distillOpts.flushEvery
+	if flushInterval <= 0 {
+		flushInterval = distillFlushCallInterval
+	}
+	callsSinceFlush := 0
+	maybeFlush := func() {
+		if callsSinceFlush < flushInterval {
+			return
+		}
+		// Reset even on failure so a persistent write error is retried once per
+		// interval, not on every call.
+		callsSinceFlush = 0
+		if err := flushFactStores(false); err != nil {
+			// Non-fatal: a mid-run flush only narrows the loss window, and
+			// aborting an hours-long run over a transient write error would lose
+			// far more than the flush protects. Failed branches stay dirty, so
+			// the next interval (and the final flush) retries them.
+			warnings = append(warnings, fmt.Sprintf("mid-run flush failed (will retry): %v", err))
 		}
 	}
 
-	reconcileStarted := time.Now()
-	sessionFailed := map[int]bool{}
-	for sessionIndex, sessionPlan := range plan.Sessions {
-		branch := sessionPlan.Branch
+	// Session pipeline: a producer goroutine prepares sessions ahead —
+	// transcript read, preprocessing, fingerprint/cache check, chunking — and
+	// dispatches chunk agent calls into one pool shared ACROSS sessions (see
+	// startSessionPrefetch), while this loop consumes results strictly in
+	// chronological order, so reconcile and fact application keep their exact
+	// serial semantics. Canceling pipeCtx (deferred; covers the abort return
+	// too) stops preparation, dispatch, and in-flight agent calls.
+	pipeCtx, pipeCancel := context.WithCancel(ctx)
+	defer pipeCancel()
+	for ps := range startSessionPrefetch(pipeCtx, brainDir, repoDir, args, sessions, prevCache, distillOpts, resolveBranch) {
+		session, branch := ps.session, ps.branch
+		if ps.skip {
+			// Carry the session's cache entry through unchanged: the final flush
+			// persists newCache only, so dropping filtered sessions here would
+			// make the next unfiltered run re-distill every other branch (or
+			// session) from scratch. (The fingerprint-match skip below does the
+			// same.)
+			if prev, ok := cachedDistillSessionFingerprint(prevCache, branch, session.SessionID); ok {
+				newCache.Sessions[distillSessionCacheKey(branch, session.SessionID)] = prev
+			}
+			continue
+		}
+		ensureBranch(branch)
 
 		sessionsDone++
 		// Report once per session, at every exit path, so the running fact count
@@ -502,48 +834,60 @@ func commitDistillResultsLocked(ctx context.Context, repoDir, brainDir string, d
 		// by one session and always show 0 for a single-session run).
 		reportProgress := func() {
 			if distillOpts.progress != nil {
-				distillOpts.progress(distillProgress{SessionsDone: sessionsDone, SessionsTotal: plan.TotalSessions, Branch: branch, Facts: factsFound})
+				distillOpts.progress(distillProgress{SessionsDone: sessionsDone, SessionsTotal: totalSessions, Branch: branch, Facts: factsFound})
 			}
 		}
-
-		if sessionPlan.ReadFailed {
+		if ps.readErr != nil {
+			warnings = append(warnings, fmt.Sprintf("read transcript %s: %v", session.TranscriptPath, ps.readErr))
+			reportProgress()
+			continue // not cached: retried next run
+		}
+		preprocessedBytes += int64(ps.preBytes)
+		if ps.cached {
+			cacheHits++
+			newCache.Sessions[distillSessionCacheKey(branch, session.SessionID)] = ps.fingerprint // unchanged; retain in cache and keep existing facts
 			reportProgress()
 			continue
 		}
-		if sessionPlan.Cached {
-			newCache.Sessions[distillSessionCacheKey(sessionPlan.Branch, sessionPlan.Session.SessionID)] = sessionPlan.Fingerprint
-			reportProgress()
-			continue
-		}
 
-		for _, workIndex := range sessionPlan.ChunkIndexes {
-			work := plan.Work[workIndex]
-			result := results[workIndex]
-			if !result.Completed {
-				warnings = append(warnings, fmt.Sprintf("agent did not run on %s:%d", work.Session.SessionID, work.Chunk.StartLine))
-				sessionFailed[sessionIndex] = true
-				failedChunks++
-				continue
+		sessionFailed := false
+		for chunkIdx, chunk := range ps.chunks {
+			chunksScanned++
+			anchor := factAnchor{
+				SessionID:    session.SessionID,
+				CheckpointID: session.LatestCheckpoint,
+				Transcript:   filepath.ToSlash(session.TranscriptPath),
+				Line:         chunk.StartLine,
 			}
-			if result.Err != nil {
-				warnings = append(warnings, fmt.Sprintf("agent failed on %s:%d: %v", work.Session.SessionID, work.Chunk.StartLine, result.Err))
-				sessionFailed[sessionIndex] = true
+			extractionStarted := time.Now()
+			out, runErr := ps.result(chunkIdx)
+			extractionSeconds += time.Since(extractionStarted).Seconds()
+			extractionAgentCalls++
+			callsSinceFlush++
+			if runErr != nil {
+				warnings = append(warnings, fmt.Sprintf("agent failed on %s:%d: %v", session.SessionID, chunk.StartLine, runErr))
+				sessionFailed = true
 				failedChunks++
 				agentFailures++
 				// Fail fast on a misconfiguration: nothing has distilled yet and the
 				// agent keeps failing, so every call is almost certainly erroring the
 				// same way (bad --model, missing agent, auth). Abort with the agent's
 				// own error instead of churning through every remaining session.
-				lastAgentErr = result.Err
-				if !anyExtractionSuccess && !anyAgentSuccess && agentFailures >= distillAgentAbortThreshold {
-					return nil, fmt.Errorf("distill aborted after %d agent failures with no facts distilled — check --agent and --model. Last error: %v", agentFailures, result.Err)
+				if !anyAgentSuccess && agentFailures >= distillAgentAbortThreshold {
+					return nil, fmt.Errorf("distill aborted after %d agent failures with no facts distilled — check --agent and --model. Last error: %v", agentFailures, runErr)
 				}
+				// Flush on the failure path too: a long failure streak (rate
+				// limiting, timeouts) is exactly when a run tends to get killed,
+				// and skipping the flush here would leave pre-streak facts
+				// unpersisted for the streak's entire duration.
+				maybeFlush()
 				continue
 			}
 			anyAgentSuccess = true
-			records, chunkWarnings := distilledFactsFromOutput(result.Output, prep.Taxonomy, work.Anchor, branch, now)
+			records, chunkWarnings := distilledFactsFromOutput(out, taxonomy, anchor, branch, now)
 			warnings = append(warnings, chunkWarnings...)
 			if len(records) == 0 {
+				maybeFlush()
 				continue
 			}
 			factsFound += len(records)
@@ -556,98 +900,89 @@ func commitDistillResultsLocked(ctx context.Context, repoDir, brainDir string, d
 				reconcileCalled = true
 				return distillOpts.run(ctx, dir, args, input, timeout)
 			}
-			actions, recWarnings := reconcileChunkCandidates(ctx, countingReconcileRun, prep.ReconcileArgs, records, byBranch[branch], repoDir, distillOpts.timeout)
+			reconcileStarted := time.Now()
+			actions, recWarnings := reconcileChunkCandidates(ctx, countingReconcileRun, reconcileArgs, records, byBranch[branch], repoDir, distillOpts.timeout)
 			if reconcileCalled {
 				reconcileAgentCalls++
+				reconcileSeconds += time.Since(reconcileStarted).Seconds()
 			}
 			warnings = append(warnings, recWarnings...)
+			callsSinceFlush++ // reconcile is an agent call too
 			var chunkProposals []factProposal
-			byBranch[branch], chunkProposals = applyFactActions(byBranch[branch], actions, prep.Threshold, now)
+			byBranch[branch], chunkProposals = applyFactActions(byBranch[branch], actions, threshold, now)
 			proposalsByBranch[branch] = append(proposalsByBranch[branch], chunkProposals...)
+			dirtyBranches[branch] = true
+			maybeFlush()
+		}
+		if ps.release != nil {
+			ps.release() // free the work-lookahead slot: chunks fully consumed
 		}
 		// Only cache a session as distilled when every chunk succeeded, so a
 		// session whose agent calls failed is retried on the next run rather
 		// than being silently treated as done.
-		if !sessionFailed[sessionIndex] {
-			newCache.Sessions[distillSessionCacheKey(sessionPlan.Branch, sessionPlan.Session.SessionID)] = sessionPlan.Fingerprint
+		if !sessionFailed {
+			newCache.Sessions[distillSessionCacheKey(branch, session.SessionID)] = ps.fingerprint
 		}
 		reportProgress()
-	}
-	reconcileSeconds := time.Since(reconcileStarted).Seconds()
-	if chunksScanned > 0 && agentFailures > 0 && !anyAgentSuccess {
-		return nil, fmt.Errorf("distill failed: all %d agent calls failed with no successful extraction — check --agent and --model. Last error: %v", agentFailures, lastAgentErr)
 	}
 
 	warnings = capWarnings(warnings, maxDistillWarnings)
 
 	writeStarted := time.Now()
-	for branch, records := range byBranch {
-		if err := writeFacts(brainDir, branch, records); err != nil {
-			return nil, err
+	var source *factSourceManifest
+	err = withBrainWriteLock(brainDir, func() error {
+		if err := flushFactStoresLocked(true); err != nil {
+			return err
 		}
-		// Union this run's proposals with any already queued (a --force rebuild
-		// starts fresh since it rebuilds the distilled facts), then persist.
-		var prior []factProposal
-		if !distillOpts.force {
-			if loadedProposals, loadErr := loadFactProposals(brainDir, branch); loadErr != nil {
-				warnings = append(warnings, fmt.Sprintf("load proposals for %s: %v", branch, loadErr))
-			} else {
-				prior = loadedProposals
-			}
+		if err := writeFactTaxonomy(brainDir, taxonomy); err != nil {
+			return err
 		}
-		merged := dedupeProposals(append(prior, proposalsByBranch[branch]...))
-		if err := writeFactProposals(brainDir, branch, merged); err != nil {
-			return nil, err
-		}
-	}
-	if err := writeFactTaxonomy(brainDir, prep.Taxonomy); err != nil {
-		return nil, err
-	}
-	saveDistillCache(brainDir, newCache)
 
-	// Summarize the manifest from the whole on-disk store, not just the branches
-	// touched this run. A branch-limited (`--branch`) or incremental run only
-	// loads a subset into byBranch; folding that subset into the manifest would
-	// drop counts/branches/proposals for facts that still exist on other
-	// branches. Re-reading the store after writing keeps sources.facts whole.
-	allBranches, err := loadAllFactBranches(brainDir)
+		// Summarize the manifest from the whole on-disk store, not just the branches
+		// touched this run. A branch-limited (`--branch`) or incremental run only
+		// loads a subset into byBranch; folding that subset into the manifest would
+		// drop counts/branches/proposals for facts that still exist on other
+		// branches. Re-reading the store after writing keeps sources.facts whole.
+		allBranches, err := loadAllFactBranches(brainDir)
+		if err != nil {
+			return err
+		}
+		branchNames := make([]string, 0, len(allBranches))
+		for branch := range allBranches {
+			branchNames = append(branchNames, branch)
+		}
+		totalProposals := countFactProposals(brainDir, branchNames)
+
+		source = summarizeFactSource(now, allBranches, chunksScanned, chunksDistilled, totalProposals, warnings)
+		source.CacheHits = cacheHits
+		source.FailedChunks = failedChunks
+		source.PreprocessedBytes = preprocessedBytes
+		source.Agent = strings.TrimSpace(distillOpts.agent)
+		source.Model = strings.TrimSpace(distillOpts.model)
+		source.Effort = strings.TrimSpace(distillOpts.effort)
+		source.Branch = strings.TrimSpace(distillOpts.branch)
+		source.Force = distillOpts.force
+		source.Jobs = distillRequestedJobs(distillOpts)
+		source.EffectiveJobs = distillEffectiveExtractionJobs(extractionAgentCalls, distillOpts)
+		source.MaxChunkBytes = distillMaxChunkBytes(distillOpts)
+		source.Confidence = threshold
+		source.ExtractionCalls = extractionAgentCalls
+		source.ReconcileCalls = reconcileAgentCalls
+		source.TotalAgentCalls = extractionAgentCalls + reconcileAgentCalls
+		source.ExtractionSeconds = extractionSeconds
+		source.ReconcileSeconds = reconcileSeconds
+		source.WriteSeconds = time.Since(writeStarted).Seconds()
+		source.TotalSeconds = time.Since(runStarted).Seconds()
+		if manifest.Sources == nil {
+			manifest.Sources = &brainSources{}
+		}
+		manifest.Sources.Facts = source
+		if manifest.GeneratedAt.IsZero() {
+			manifest.GeneratedAt = now
+		}
+		return writeBrainManifestAndReadme(brainDir, *manifest)
+	})
 	if err != nil {
-		return nil, err
-	}
-	branchNames := make([]string, 0, len(allBranches))
-	for branch := range allBranches {
-		branchNames = append(branchNames, branch)
-	}
-	totalProposals := countFactProposals(brainDir, branchNames)
-
-	source := summarizeFactSource(now, allBranches, chunksScanned, chunksDistilled, totalProposals, warnings)
-	source.CacheHits = plan.CachedSessions
-	source.FailedChunks = failedChunks
-	source.PreprocessedBytes = plan.PreprocessedBytes
-	source.Agent = strings.TrimSpace(distillOpts.agent)
-	source.Model = strings.TrimSpace(distillOpts.model)
-	source.Effort = strings.TrimSpace(distillOpts.effort)
-	source.Branch = strings.TrimSpace(distillOpts.branch)
-	source.Force = distillOpts.force
-	source.Jobs = distillRequestedJobs(distillOpts)
-	source.EffectiveJobs = distillEffectiveExtractionJobs(len(plan.Work), distillOpts)
-	source.MaxChunkBytes = distillMaxChunkBytes(distillOpts)
-	source.Confidence = prep.Threshold
-	source.ExtractionCalls = extractionAgentCalls
-	source.ReconcileCalls = reconcileAgentCalls
-	source.TotalAgentCalls = extractionAgentCalls + reconcileAgentCalls
-	source.ExtractionSeconds = extractionSeconds
-	source.ReconcileSeconds = reconcileSeconds
-	source.WriteSeconds = time.Since(writeStarted).Seconds()
-	source.TotalSeconds = time.Since(runStarted).Seconds()
-	if manifest.Sources == nil {
-		manifest.Sources = &brainSources{}
-	}
-	manifest.Sources.Facts = source
-	if manifest.GeneratedAt.IsZero() {
-		manifest.GeneratedAt = now
-	}
-	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		return nil, err
 	}
 	return source, nil
@@ -778,16 +1113,17 @@ func printDistillDryRunReport(cmd *cobra.Command, report distillDryRunReport) {
 				session.Branch, session.Transcript, chunkText, cached, session.PreprocessedBytes, session.RawBytes)
 		}
 	}
-	if len(report.Warnings) > 0 {
-		for _, warning := range report.Warnings {
-			fmt.Fprintf(out, "warning: %s\n", warning)
-		}
+	for _, warning := range report.Warnings {
+		fmt.Fprintf(out, "warning: %s\n", warning)
 	}
 }
 
 func distillRequestedJobs(distillOpts distillCommandOptions) int {
 	if distillOpts.jobs > 0 {
 		return distillOpts.jobs
+	}
+	if distillOpts.concurrency > 0 {
+		return distillOpts.concurrency
 	}
 	return 1
 }
@@ -831,6 +1167,9 @@ func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts dis
 		if distillOpts.branch != "" && branch != distillOpts.branch {
 			continue
 		}
+		if distillOpts.session != "" && session.SessionID != distillOpts.session {
+			continue
+		}
 		if _, ok := branchSeen[branch]; !ok {
 			branchSeen[branch] = struct{}{}
 			plan.BranchOrder = append(plan.BranchOrder, branch)
@@ -852,31 +1191,16 @@ func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts dis
 		plan.RawBytes += int64(sessionPlan.RawBytes)
 		plan.PreprocessedBytes += int64(sessionPlan.PreprocessedBytes)
 		sessionPlan.Fingerprint = distillSessionFingerprint(session, branch, distillInput, plan.CacheSalt)
-		var chunks []transcriptChunk
-		chunksComputed := false
-		if distillOpts.dryRun {
-			chunks = chunkTranscript(distillInput, distillOpts.maxChunkBytes)
-			chunksComputed = true
-			sessionPlan.ChunksIfUncached = len(chunks)
-			plan.ChunksIfUncached += sessionPlan.ChunksIfUncached
-		}
+		chunks := chunkTranscript(distillInput, distillOpts.maxChunkBytes)
+		sessionPlan.ChunksIfUncached = len(chunks)
+		plan.ChunksIfUncached += sessionPlan.ChunksIfUncached
 		if !distillOpts.force {
-			cacheKey := distillSessionCacheKey(branch, session.SessionID)
-			prev, ok := prevCache.Sessions[cacheKey]
-			if !ok {
-				prev, ok = prevCache.Sessions[session.SessionID] // legacy pre-branch-scoped cache key
-			}
-			if ok && prev == sessionPlan.Fingerprint {
+			if prev, ok := cachedDistillSessionFingerprint(prevCache, branch, session.SessionID); ok && prev == sessionPlan.Fingerprint {
 				sessionPlan.Cached = true
 				plan.CachedSessions++
 				plan.Sessions = append(plan.Sessions, sessionPlan)
 				continue
 			}
-		}
-		if !chunksComputed {
-			chunks = chunkTranscript(distillInput, distillOpts.maxChunkBytes)
-			sessionPlan.ChunksIfUncached = len(chunks)
-			plan.ChunksIfUncached += sessionPlan.ChunksIfUncached
 		}
 		plan.SessionsToDistill++
 		for chunkIndex, chunk := range chunks {
@@ -903,23 +1227,6 @@ func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts dis
 	return plan, nil
 }
 
-func ensureDistillPlanSourceFresh(brainDir string, plan distillPlan) error {
-	for _, sessionPlan := range plan.Sessions {
-		if sessionPlan.ReadFailed {
-			continue
-		}
-		content, err := readBrainRelativeFile(brainDir, sessionPlan.Session.TranscriptPath)
-		if err != nil {
-			return fmt.Errorf("distill source changed before commit: read transcript %s: %w", sessionPlan.Session.TranscriptPath, err)
-		}
-		fingerprint := distillSessionFingerprint(sessionPlan.Session, sessionPlan.Branch, preprocessTranscriptForDistill(content), plan.CacheSalt)
-		if fingerprint != sessionPlan.Fingerprint {
-			return fmt.Errorf("distill source changed before commit for session %s; rerun distill", sessionPlan.Session.SessionID)
-		}
-	}
-	return nil
-}
-
 func resolveDistillBranch(manifest *exportManifest, session exportSession) string {
 	branch := session.Branch
 	if branch == "" && manifest != nil {
@@ -929,73 +1236,6 @@ func resolveDistillBranch(manifest *exportManifest, session exportSession) strin
 		branch = distillDefaultBranch
 	}
 	return branch
-}
-
-func runDistillExtraction(ctx context.Context, repoDir string, args []string, work []distillChunkWork, distillOpts distillCommandOptions) []distillChunkResult {
-	results := make([]distillChunkResult, len(work))
-	if len(work) == 0 {
-		return results
-	}
-	jobs := distillOpts.jobs
-	if jobs <= 0 {
-		jobs = 1
-	}
-	if jobs > len(work) {
-		jobs = len(work)
-	}
-	if jobs == 1 {
-		agentFailures, anyAgentSuccess := 0, false
-		for i, item := range work {
-			out, err := distillOpts.run(ctx, repoDir, args, []byte(item.Chunk.Text), distillOpts.timeout)
-			results[i] = distillChunkResult{Output: out, Err: err, Completed: true}
-			if err != nil {
-				agentFailures++
-				if !anyAgentSuccess && agentFailures >= distillAgentAbortThreshold {
-					break
-				}
-				continue
-			}
-			anyAgentSuccess = true
-		}
-		return results
-	}
-	var wg sync.WaitGroup
-	indexes := make(chan int)
-	var agentFailures atomic.Int32
-	var anyAgentSuccess atomic.Bool
-	var stop atomic.Bool
-	for range jobs {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := range indexes {
-				item := work[i]
-				out, err := distillOpts.run(ctx, repoDir, args, []byte(item.Chunk.Text), distillOpts.timeout)
-				results[i] = distillChunkResult{Output: out, Err: err, Completed: true}
-				if err != nil {
-					if !anyAgentSuccess.Load() && agentFailures.Add(1) >= distillAgentAbortThreshold {
-						stop.Store(true)
-					}
-					continue
-				}
-				anyAgentSuccess.Store(true)
-			}
-		}()
-	}
-	// Dispatch a small window past the serial abort threshold before honoring a
-	// parallel stop signal. That keeps ordered mixed runs from dropping a nearby
-	// success while still preventing a systemic agent failure from traversing a
-	// large repository.
-	minDispatchBeforeAbort := distillAgentAbortThreshold + jobs
-	for i := range work {
-		if i >= minDispatchBeforeAbort && stop.Load() {
-			break
-		}
-		indexes <- i
-	}
-	close(indexes)
-	wg.Wait()
-	return results
 }
 
 // preprocessTranscriptForDistill strips tool calls and tool outputs (plus
@@ -1008,6 +1248,9 @@ func runDistillExtraction(ctx context.Context, repoDir string, args []string, wo
 // example an already-rendered/compact transcript) are passed through unchanged so
 // the preprocessor is safe for any transcript format.
 func preprocessTranscriptForDistill(content string) string {
+	if doc, ok := distillDocumentConversation(content); ok {
+		return doc
+	}
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		if strings.TrimSpace(line) == "" {
@@ -1025,11 +1268,159 @@ func preprocessTranscriptForDistill(content string) string {
 	return strings.Join(lines, "\n")
 }
 
+// distillDocumentConversation handles transcripts exported as one pretty-printed
+// JSON document (e.g. opencode sessions) rather than JSONL. The line-oriented
+// preprocessor cannot strip these — every line of an indented document fails
+// json.Unmarshal individually — so before this path existed they passed through
+// *unstripped*, feeding megabytes of tool output, diffs, and token accounting to
+// the distill agent (observed: a 22.6 MB opencode session was 1.3% conversation
+// text, so the no-op strip cost ~75x the agent calls it should have).
+//
+// The document shape is {info, messages: [{info, parts: [{type, text, ...}]}]};
+// only parts of type "text" are conversation (tool, patch, reasoning,
+// step-start/finish, and file parts are mechanics). The output has exactly as
+// many lines as the document, with each message's collapsed text placed on the
+// line where that message's object begins — the same "output line N is input
+// file line N" contract the JSONL path keeps, so a fact's provenance anchor
+// points at a real location in the original transcript (consumers like `facts
+// read` render anchors as <transcript>:<line>). ok=false when the content is
+// not a document-form transcript, leaving the JSONL path to handle it.
+func distillDocumentConversation(content string) (string, bool) {
+	messages, ok := parseDocumentConversation(content)
+	if !ok {
+		return "", false
+	}
+	out := make([]string, strings.Count(content, "\n")+1)
+	for _, message := range messages {
+		if message.Text == "" {
+			continue // tool-only message: leave its lines blank
+		}
+		i := min(max(message.Line-1, 0), len(out)-1)
+		if out[i] != "" {
+			out[i] += " " + message.Text // two messages on one line: minified fragments
+		} else {
+			out[i] = message.Text
+		}
+	}
+	return strings.Join(out, "\n"), true
+}
+
+// documentMessage is one message of a document-form transcript as extracted by
+// parseDocumentConversation.
+type documentMessage struct {
+	Role string // the message's info.role ("user", "assistant", ...); "" when absent
+	Text string // whitespace-collapsed conversation text; "" for tool-only messages
+	Line int    // 1-based line of the message object's opening brace in the document
+}
+
+// parseDocumentConversation extracts the conversation messages from a
+// document-form transcript (see distillDocumentConversation for the shape),
+// recording for each message the document line its object starts on so callers
+// can anchor extracted text to the original file. It streams with json.Decoder
+// and decodes each message into a typed struct, so the tool outputs, patches,
+// and token accounting that dominate the document are scanned past rather than
+// materialized. ok=false when content is not a document-form transcript, or
+// when no message yields any conversation text: a document in some OTHER chat
+// shape (e.g. {"messages":[{role,content}]} with no opencode-style parts)
+// must fall through to the JSONL path, which passes unparseable lines through
+// unstripped so the agent can still mine them — claiming such a document here
+// would silently blank the whole session and cache it as distilled with zero
+// facts.
+func parseDocumentConversation(content string) ([]documentMessage, bool) {
+	trimmed := strings.TrimSpace(content)
+	if !strings.HasPrefix(trimmed, "{") {
+		return nil, false
+	}
+	// A JSONL transcript has a complete JSON object on its first line; a
+	// pretty-printed document does not. Probe before paying the full parse
+	// (validity is the whole question — the "{" prefix already restricts the
+	// shape to an object).
+	firstLine, _, _ := strings.Cut(trimmed, "\n")
+	if json.Valid([]byte(firstLine)) {
+		return nil, false
+	}
+	dec := json.NewDecoder(strings.NewReader(content))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil, false
+	}
+	// lineAt maps a byte offset to its 1-based line, walking forward from the
+	// previous query; offsets arrive in increasing order so each newline is
+	// counted once.
+	line, pos := 1, 0
+	lineAt := func(offset int) int {
+		line += strings.Count(content[pos:offset], "\n")
+		pos = offset
+		return line
+	}
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return nil, false
+		}
+		key, isString := keyTok.(string)
+		if !isString {
+			return nil, false
+		}
+		if key != "messages" {
+			var skip json.RawMessage
+			if err := dec.Decode(&skip); err != nil {
+				return nil, false
+			}
+			continue
+		}
+		if tok, err := dec.Token(); err != nil || tok != json.Delim('[') {
+			return nil, false
+		}
+		var messages []documentMessage
+		for dec.More() {
+			// InputOffset sits just past the previous token; skip the separator
+			// and whitespace so the recorded line is the opening brace's line.
+			start := int(dec.InputOffset())
+			for start < len(content) && (content[start] == ',' || content[start] == ' ' || content[start] == '\t' || content[start] == '\r' || content[start] == '\n') {
+				start++
+			}
+			msgLine := lineAt(start)
+			var msg struct {
+				Info struct {
+					Role string `json:"role"`
+				} `json:"info"`
+				Parts []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"parts"`
+			}
+			if err := dec.Decode(&msg); err != nil {
+				return nil, false
+			}
+			var words []string
+			for _, part := range msg.Parts {
+				if part.Type != "text" || part.Text == "" {
+					continue // tool, patch, reasoning, step-start/finish, file, ...
+				}
+				words = append(words, strings.Fields(part.Text)...)
+			}
+			messages = append(messages, documentMessage{
+				Role: msg.Info.Role,
+				Text: strings.Join(words, " "),
+				Line: msgLine,
+			})
+		}
+		for _, message := range messages {
+			if message.Text != "" {
+				return messages, true
+			}
+		}
+		return nil, false // no conversation text at all: not our document shape
+	}
+	return nil, false // no top-level "messages" key
+}
+
 // distillConversationText returns the human/assistant text worth distilling from
 // one transcript record, or "" for tool calls, tool outputs, reasoning, and
 // session/meta records. It mirrors the record routing in
-// extractHistoryJSONFragments (codex `event_msg`/`response_item` and Claude
-// `assistant`/`user` shapes) but deliberately keeps user turns — where standing
+// extractHistoryJSONFragments (codex `event_msg`/`response_item`, Claude
+// `assistant`/`user`, and pi `message` shapes — keep the two switches in sync
+// when adding a format) but deliberately keeps user turns — where standing
 // rules and preferences live — and discards everything tool-related.
 func distillConversationText(obj map[string]any) string {
 	switch jsonString(obj["type"]) {
@@ -1055,6 +1446,18 @@ func distillConversationText(obj map[string]any) string {
 		return distillTextBlocks(payload["content"])
 	case "assistant", "user":
 		return distillTextBlocks(jsonMap(obj["message"])["content"])
+	case "message":
+		// pi sessions wrap every turn as {"type":"message","message":{role,content}}.
+		// Without this case they fell to the default branch, whose
+		// jsonString(obj["message"]) is "" for a map — silently stripping the
+		// ENTIRE session (observed: 13.4 MB pi transcript -> 0 bytes kept, so pi
+		// sessions contributed zero facts). Keep user/assistant text; the
+		// toolResult role and thinking/toolCall blocks are mechanics.
+		payload := jsonMap(obj["message"])
+		if role := jsonString(payload["role"]); role != "assistant" && role != "user" {
+			return "" // toolResult, ...
+		}
+		return distillTextBlocks(payload["content"])
 	case "session_meta", "turn_context", "permission-mode", "progress":
 		return ""
 	default:
@@ -1189,10 +1592,7 @@ func distillCacheSaltForBrain(brainDir string, distillOpts distillCommandOptions
 	if err != nil {
 		return "", err
 	}
-	threshold := distillOpts.confidenceThreshold
-	if threshold <= 0 {
-		threshold = defaultFactConfidenceThreshold
-	}
+	threshold := distillConfidenceThreshold(distillOpts)
 	return distillCacheSalt(prompt, reconcilePrompt(), threshold, distillOpts), nil
 }
 
@@ -1227,13 +1627,15 @@ func distillSessionCacheKey(branch, sessionID string) string {
 	return url.PathEscape(branch) + "/" + url.PathEscape(sessionID)
 }
 
-func factTaxonomyFingerprint(taxonomy factTaxonomy) string {
-	data, err := json.Marshal(taxonomy)
-	if err != nil {
-		return ""
+func cachedDistillSessionFingerprint(cache distillCache, branch, sessionID string) (string, bool) {
+	if cache.Sessions == nil {
+		return "", false
 	}
-	sum := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(sum[:])
+	if fp, ok := cache.Sessions[distillSessionCacheKey(branch, sessionID)]; ok {
+		return fp, true
+	}
+	fp, ok := cache.Sessions[sessionID] // legacy pre-branch-scoped key
+	return fp, ok
 }
 
 // readBrainRelativeFile reads a brain-relative path, rejecting absolute paths

@@ -50,6 +50,7 @@ type factSourceManifest struct {
 	Proposals         int       `json:"proposals"`
 	Verified          int       `json:"verified"`
 	Unsigned          int       `json:"unsigned"`
+	ByKind            map[string]int `json:"by_kind,omitempty"`
 	ChunksScanned     int       `json:"chunks_scanned"`
 	ChunksDistilled   int       `json:"chunks_distilled"`
 	CacheHits         int       `json:"cache_hits,omitempty"`
@@ -79,8 +80,10 @@ type factSourceManifest struct {
 // is idempotent and dedupe is a map lookup.
 type factRecord struct {
 	ID           string       `json:"id"`
-	Paths        []string     `json:"paths"` // 1-2 taxonomy paths
-	Text         string       `json:"text"`  // third person about the user
+	Paths        []string     `json:"paths"`           // 1-2 taxonomy paths (topic label)
+	Kind         string       `json:"kind,omitempty"`  // decision|invariant|gotcha|preference|convention|closed-negative
+	Locus        []string     `json:"locus,omitempty"` // code identifiers/paths the fact is about (WHERE)
+	Text         string       `json:"text"`            // third person about the user
 	Branch       string       `json:"branch"`
 	Origin       string       `json:"origin"` // "distilled" | "authored"
 	Status       string       `json:"status"` // "active" | "superseded" | "retracted"
@@ -286,6 +289,12 @@ func upsertFact(records []factRecord, incoming factRecord) []factRecord {
 		if incoming.UpdatedAt.After(records[i].UpdatedAt) {
 			records[i].UpdatedAt = incoming.UpdatedAt
 		}
+		// Fill Kind from a re-distill when the stored fact lacks a valid one, but
+		// don't overwrite an existing valid kind (avoids thrash between an
+		// agent-labeled and an inferred value across runs).
+		if !validFactKind(records[i].Kind) && validFactKind(incoming.Kind) {
+			records[i].Kind = incoming.Kind
+		}
 		return records
 	}
 	return append(records, incoming)
@@ -422,6 +431,7 @@ func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, chunks
 		ChunksScanned:   chunksScanned,
 		ChunksDistilled: chunksDistilled,
 		Warnings:        append([]string(nil), warnings...),
+		ByKind:          map[string]int{},
 	}
 	branches := make([]string, 0, len(byBranch))
 	for branch := range byBranch {
@@ -440,6 +450,12 @@ func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, chunks
 			}
 			if record.Status == factStatusSuperseded {
 				source.Superseded++
+			}
+			// by_kind counts only active facts, matching what recall/tree surface
+			// (superseded/retracted facts are not retrievable), so the histogram
+			// answers "what kinds can I recall" rather than paralleling Facts.
+			if record.Status == factStatusActive {
+				source.ByKind[factKindOrInferred(record)]++
 			}
 			for _, anchor := range record.Provenance {
 				if anchor.Verified {

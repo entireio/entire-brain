@@ -1,3 +1,8 @@
+> **ARCHIVED (2026-06-10): frozen status report.** Accurate as of its dates but
+> no longer updated. Living docs: `semantic_brain_plan.md` (Phase 1 design),
+> `agent_benchmark_plan.md` (benchmark status — see its 2026-06-10 addendum),
+> and `durable_facts_handover.md` (facts/Appendix D status).
+
 # Phase 1 Semantic Brain Progress
 
 ## 2026-05-31

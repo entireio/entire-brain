@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	_ "modernc.org/sqlite"
 )
 
 // history_fts.go builds a derived FTS5 BM25 index over the history records and
@@ -100,7 +98,7 @@ func openHistoryFTSLocked(brainDir string, index historyIndex) (*sql.DB, error) 
 	if err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open(sqliteDriverName, path)
 	if err != nil {
 		return nil, err
 	}
@@ -187,6 +185,14 @@ func buildHistoryFTS(db *sql.DB, index historyIndex) error {
 // match is MORE NEGATIVE and `ORDER BY bm25()` ASC returns best-first. We negate it
 // back to a positive display score (higher = better) for the cutoff and Score.
 func rankHistoryViaFTS(brainDir string, index historyIndex, kind, query string, limit int) ([]scoredHistoryRecord, bool) {
+	return rankHistoryViaFTSCutoff(brainDir, index, kind, query, limit, historyFTSRelevanceCutoff)
+}
+
+// rankHistoryViaFTSCutoff is rankHistoryViaFTS with the relevance cutoff as a
+// parameter, so the history eval can sweep it (the shipped 0.30 was chosen by
+// inspection, "tunable once a history eval lands"). Production callers go
+// through rankHistoryViaFTS and always get the shipped constant.
+func rankHistoryViaFTSCutoff(brainDir string, index historyIndex, kind, query string, limit int, cutoff float64) ([]scoredHistoryRecord, bool) {
 	if limit <= 0 {
 		return nil, false
 	}
@@ -246,7 +252,7 @@ func rankHistoryViaFTS(brainDir string, index historyIndex, kind, query string, 
 		score := -bm // bm is SQLite's negated BM25 (<= 0); -bm is positive, higher = better
 		if topScore == 0 {
 			topScore = score
-		} else if score < historyFTSRelevanceCutoff*topScore {
+		} else if score < cutoff*topScore {
 			break
 		}
 		rec := index.Records[order]

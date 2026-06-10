@@ -50,6 +50,13 @@ ALWAYS-CAPTURE TRIGGERS (override the silent default — if any fire, emit a lin
     context (stack choices, infra, branching, ownership, hard constraints).
   - Non-obvious technical knowledge: invariants, gotchas, hidden constraints,
     performance characteristics a future session would re-learn the hard way.
+  - QUESTIONS SETTLED NEGATIVELY — the highest-value capture of all. A design
+    that was rejected, an approach that was tried and failed, an experiment
+    that measured no effect, a tuning knob shown to be a non-lever ("we tried
+    X and it didn't work because Y", "X measured within noise", "decided NOT
+    to do X because Z"). Future sessions re-explore dead ends unless told;
+    capture WHAT was tried, WHY it failed or was rejected (the evidence), and
+    WHEN it would be worth revisiting — all in the fact text.
 
 When a trigger fires, the four checks above still apply as a sanity filter, not
 a high bar. Standing rules and stated preferences pass by definition.
@@ -67,7 +74,20 @@ Turns that should almost always produce NOTHING:
 When — and only when — you have a fact that passes all four checks, output ONE
 line per fact in exactly this format:
 
-    <taxonomy-path>[,<taxonomy-path>]<TAB><fact>
+    <kind><TAB><taxonomy-path>[,<taxonomy-path>]<TAB><fact>
+
+The leading <kind> is exactly ONE of these six words — the *shape* of the claim,
+independent of its topic:
+
+  - decision        — a resolved choice and its rationale (why X over Y)
+  - invariant       — a rule that must always hold; a hard constraint
+  - gotcha          — a non-obvious trap, footgun, or surprising behavior
+  - preference      — how the user likes work done (style, tooling taste)
+  - convention      — a standing process or formatting norm
+  - closed-negative — a question settled negatively: what was tried or
+                      considered, why it failed or was rejected (evidence),
+                      and when to revisit. Use this — not decision — whenever
+                      the durable content is "do NOT go down this path".
 
 ${TAXONOMY_BLOCK}
 
@@ -75,7 +95,14 @@ ${TAXONOMY_BLOCK}
 
 - Output 0–6 lines. ZERO is the default and expected outcome. Prove a fact earns
   its slot before emitting it.
-- Each line is exactly: path<TAB>fact, using a real tab character.
+- Each line is exactly: kind<TAB>path<TAB>fact, using real tab characters. The
+  kind is one of the six words above; if genuinely unsure of the kind, you may
+  omit it and emit path<TAB>fact — it will be inferred.
+- A closed-negative fact's text must carry all three parts in one statement:
+  what was tried/considered, why it failed or was rejected, and the condition
+  under which revisiting would make sense (e.g. "Query expansion was tried for
+  fact recall and rejected: the early lift collapsed at n=121 (d=0.10, n.s.);
+  revisit only with a new expansion model or a measured recall ceiling.").
 - EXACTLY three levels: category.subcategory.type (e.g.
   preferences.coding.style). Each segment is lowercase letters, digits, and
   underscores only — NO hyphens, NO uppercase, NO spaces. Use "ci_cd" not
@@ -97,4 +124,4 @@ ${TAXONOMY_BLOCK}
   standing rule expressed AS feedback ("don't do X anymore", "from now on do Y")
   IS durable — capture it. The test is whether the rule applies to future turns.
 - NO preamble, NO explanation, NO bullets or numbering, NO "no facts found"
-  message — only path<TAB>fact lines, or a completely empty response.
+  message — only kind<TAB>path<TAB>fact lines, or a completely empty response.
