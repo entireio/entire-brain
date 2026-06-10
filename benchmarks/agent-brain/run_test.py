@@ -22,6 +22,13 @@ assert AUDIT_SPEC.loader is not None
 sys.modules[AUDIT_SPEC.name] = audit_codex
 AUDIT_SPEC.loader.exec_module(audit_codex)
 
+AUDIT_FACTS_EVAL_PATH = pathlib.Path(__file__).with_name("audit_facts_eval.py")
+AUDIT_FACTS_EVAL_SPEC = importlib.util.spec_from_file_location("agent_brain_audit_facts_eval", AUDIT_FACTS_EVAL_PATH)
+audit_facts_eval = importlib.util.module_from_spec(AUDIT_FACTS_EVAL_SPEC)
+assert AUDIT_FACTS_EVAL_SPEC.loader is not None
+sys.modules[AUDIT_FACTS_EVAL_SPEC.name] = audit_facts_eval
+AUDIT_FACTS_EVAL_SPEC.loader.exec_module(audit_facts_eval)
+
 
 class RunnerAndConditionTests(unittest.TestCase):
     def test_parse_runner_spec_accepts_codex_claude_and_rejects_gemini(self):
@@ -1563,6 +1570,87 @@ class CodexAuditScriptTests(unittest.TestCase):
             flags = report["suites"]["proof-suite"]["comparisons"][0]["flags"]
             self.assertIn("G:proof_ready_without_stable_gate", flags)
             self.assertEqual(audit_codex.main(["--results", str(results_dir), "--suite-glob", "proof-*", "--out-dir", str(out_dir), "--fail-on-flags"]), 1)
+
+
+class FactsEvalAuditScriptTests(unittest.TestCase):
+    TASKS_SHA = "sha256:" + "a" * 64
+    BRAIN_SHA = "sha256:" + "b" * 64
+
+    def _write_facts_eval_fixture(self, root: pathlib.Path, *, claimable: bool = True, proxy: bool = False) -> pathlib.Path:
+        summaries = {}
+        for retriever in ("facts", "history", "query", "raw-sessions"):
+            path = f"{retriever}.json"
+            summaries[retriever] = path
+            (root / path).write_text(json.dumps({
+                "retriever": retriever,
+                "run_config": {
+                    "tasks_sha256": self.TASKS_SHA,
+                    "brain_manifest_sha256": self.BRAIN_SHA,
+                },
+                "results": [{"id": "task-1"}],
+            }))
+        (root / "raw-vs-facts.compare.json").write_text(json.dumps({
+            "n": 12,
+            "alpha": 0.05,
+            "a_retriever": "raw-sessions",
+            "b_retriever": "facts",
+            "a_tasks_sha256": self.TASKS_SHA,
+            "b_tasks_sha256": self.TASKS_SHA,
+            "a_brain_manifest_sha256": self.BRAIN_SHA,
+            "b_brain_manifest_sha256": self.BRAIN_SHA,
+            "allow_proxy_comparison": proxy,
+            "allow_missing_tasks": False,
+            "allow_task_hash_mismatch": False,
+            "allow_brain_manifest_mismatch": False,
+            "missing_from_a": [],
+            "missing_from_b": [],
+            "metrics": [{
+                "metric": "useful_per_1k",
+                "evidence_basis": "proxy_or_mixed" if proxy else "proof_labels",
+                "n": 12,
+                "significant": claimable,
+                "release_claimable": claimable,
+                "winner": "b",
+            }],
+        }))
+        manifest = root / "manifest.json"
+        manifest.write_text(json.dumps({
+            "schema": 1,
+            "required_retrievers": ["facts", "history", "query", "raw-sessions"],
+            "summaries": summaries,
+            "comparisons": {"raw_vs_facts": "raw-vs-facts.compare.json"},
+            "required_claims": [{
+                "comparison": "raw_vs_facts",
+                "metric": "useful_per_1k",
+                "a_retriever": "raw-sessions",
+                "b_retriever": "facts",
+                "winner": "b",
+                "evidence_basis": "proof_labels",
+            }],
+        }))
+        return manifest
+
+    def test_facts_eval_audit_accepts_release_claimable_paired_proof(self):
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
+            manifest = self._write_facts_eval_fixture(pathlib.Path(root))
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+            self.assertTrue(report["release_evidence"], report)
+            self.assertEqual(report["required_claims"][0]["b_retriever"], "facts")
+            self.assertEqual(audit_facts_eval.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 0)
+            self.assertTrue((pathlib.Path(out) / "facts-eval-audit-report.json").exists())
+
+    def test_facts_eval_audit_rejects_proxy_or_nonclaimable_comparison(self):
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
+            manifest = self._write_facts_eval_fixture(pathlib.Path(root), proxy=True)
+            self.assertEqual(audit_facts_eval.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
+            proxy_report = json.loads((pathlib.Path(out) / "facts-eval-audit-report.json").read_text())
+            self.assertIn("raw_vs_facts: allow_proxy_comparison must be false for release proof", proxy_report["flags"])
+            self.assertIn("raw_vs_facts: useful_per_1k evidence_basis is 'proxy_or_mixed', want 'proof_labels'", proxy_report["flags"])
+
+            manifest = self._write_facts_eval_fixture(pathlib.Path(root), claimable=False)
+            self.assertEqual(audit_facts_eval.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
+            weak_report = json.loads((pathlib.Path(out) / "facts-eval-audit-report.json").read_text())
+            self.assertIn("raw_vs_facts: useful_per_1k is not release_claimable", weak_report["flags"])
 
 
 if __name__ == "__main__":

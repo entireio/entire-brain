@@ -59,6 +59,54 @@ mkdir -p benchmarks/agent-brain/evidence/release
 cp "$tmp"/codex-audit-report.json "$tmp"/codex-audit-report.md benchmarks/agent-brain/evidence/release/
 '''
 
+[tasks."facts:evidence"]
+description = "Check retained facts-vs-raw eval evidence without rewriting tracked reports"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/facts-eval/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "facts eval evidence manifest is missing: $manifest" >&2
+  echo "collect paired facts/history/query/raw-sessions eval artifacts before citing facts-vs-raw proof" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_facts_eval.py \
+  --manifest "$manifest" \
+  --out-dir "$tmp" \
+  --fail-on-flags
+for report in facts-eval-audit-report.json facts-eval-audit-report.md; do
+  committed="benchmarks/agent-brain/evidence/facts-eval/$report"
+  generated="$tmp/$report"
+  if ! cmp -s "$committed" "$generated"; then
+    echo "retained facts eval evidence report is stale: $report" >&2
+    diff -u "$committed" "$generated" >&2 || true
+    echo "run: mise run facts:evidence:update" >&2
+    exit 1
+  fi
+done
+'''
+
+[tasks."facts:evidence:update"]
+description = "Regenerate retained facts-vs-raw eval audit reports after the evidence gate passes"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/facts-eval/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "facts eval evidence manifest is missing: $manifest" >&2
+  echo "collect paired facts/history/query/raw-sessions eval artifacts before citing facts-vs-raw proof" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_facts_eval.py \
+  --manifest "$manifest" \
+  --out-dir "$tmp" \
+  --fail-on-flags
+mkdir -p benchmarks/agent-brain/evidence/facts-eval
+cp "$tmp"/facts-eval-audit-report.json "$tmp"/facts-eval-audit-report.md benchmarks/agent-brain/evidence/facts-eval/
+'''
+
 [tasks.build]
 description = "Build the plugin binary"
 run = "go build -o entire-brain ./cmd/entire-brain"

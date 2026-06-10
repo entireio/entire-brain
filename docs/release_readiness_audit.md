@@ -82,6 +82,16 @@ Implemented eval surfaces:
   `run_config.brain_manifest_sha256` values unless the matching override is
   explicit, so same-id eval runs with different task labels or brain state
   cannot masquerade as paired proof.
+- `benchmarks/agent-brain/audit_facts_eval.py` audits retained facts-eval
+  artifacts for release proof: it requires the four retriever summaries, matching
+  non-empty task and brain-manifest hashes, no proxy/missing/mismatch overrides,
+  empty missing-task sets, and required comparison metrics that are significant,
+  `release_claimable: true`, and `evidence_basis: "proof_labels"`.
+- `mise run facts:evidence` checks committed facts-eval artifacts without
+  rewriting them, while `facts:evidence:update` regenerates the audit report
+  only after the validator passes. Today the task is intentionally not part of
+  `mise run release:evidence` because no citable facts-vs-raw artifact has been
+  collected yet.
 
 Claim policy: do not say facts are better than raw/preprocessed sessions unless
 paired evals show a significant lift for the metric being claimed. Do not compare
@@ -117,6 +127,10 @@ Local collection recipe:
    --json`. Use `--allow-proxy-comparison` only for smoke/source-overlap runs;
    release claims require `evidence_basis: "proof_labels"` and
    `release_claimable: true` for the relevance metric being claimed.
+4. Retain the four summaries, comparison JSON, a `manifest.json`, and
+   `facts-eval-audit-report.{json,md}` under
+   `benchmarks/agent-brain/evidence/facts-eval`, then run
+   `mise run facts:evidence`.
 
 ## Semantic / Tree-Sitter Proof
 
@@ -297,6 +311,9 @@ Release claims must stay local-first and evidence-backed:
   undefined, and populates `p_holm_threshold`.
 - `facts eval --help` now shows `label_source` alongside `relevant` labels, so
   the copied example matches the loader's proof-label validation rules.
+- Facts-vs-raw retained evidence now has a dedicated validator and `mise` task;
+  the validator fails closed on proxy evidence, missing/mismatched hashes,
+  missing retriever arms, and non-claimable comparison metrics.
 - `--format json` now requests JSON error envelopes, matching successful output
   behavior.
 - The supported QMD-inspired retrieval surface is now covered by local contract
