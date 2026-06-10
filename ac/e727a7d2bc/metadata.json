@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "ace727a7d2bc",
+  "strategy": "manual-commit",
+  "branch": "feat/brain-hook",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/hook_cmd.go",
+    "internal/cli/hook_cmd_test.go",
+    "internal/cli/root.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ac/e727a7d2bc/0/metadata.json",
+      "transcript": "/ac/e727a7d2bc/0/full.jsonl",
+      "content_hash": "/ac/e727a7d2bc/0/content_hash.txt",
+      "prompt": "/ac/e727a7d2bc/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 425,
+    "cache_creation_tokens": 20449,
+    "cache_read_tokens": 7762232,
+    "output_tokens": 17409,
+    "api_call_count": 19
+  }
+}
