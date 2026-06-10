@@ -29,6 +29,7 @@
       "TestMCPRejectsOversizedAndNegativeFrames",
       "TestMCPToolCallRejectsInvalidDepth",
       "TestMCPToolCallRejectsInvalidIntegerArguments",
+      "TestMCPToolRequiredArgumentsAreEnforced",
       "TestMCPToolSchemasMatchArgumentValidator",
       "TestMCPToolSchemasRejectAdditionalProperties",
       "TestMCPToolsListAdvertisesStaleBlindSpots",
@@ -56,7 +57,7 @@
       "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint"
     ],
     "path": "go-test-internal-cli-radar.jsonl",
-    "sha256": "sha256:b3571ff76968bd1ae9224f72086753e6ea94c8bf298d01c87fc5b51ed2dc8142"
+    "sha256": "sha256:de337055302850ac2eb75fa926489a875a1b2ba56e8aeee2ec4d8bb72f41b4b7"
   },
   "claim_scope": "mcp_radar_tool_contract",
   "errors": [],
@@ -90,6 +91,7 @@
     "TestMCPToolsListAdvertisesStaleBlindSpots",
     "TestMCPToolSchemasRejectAdditionalProperties",
     "TestMCPToolSchemasMatchArgumentValidator",
+    "TestMCPToolRequiredArgumentsAreEnforced",
     "TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet",
     "TestMCPRejectsInvalidBooleanArguments",
     "TestMCPRejectsInvalidStringAndUnknownArguments",
@@ -122,6 +124,6 @@
   ],
   "schema": 1,
   "source_drift_paths": [],
-  "source_head": "769ebc2380c2fd11e92f4d222d70890bc1bfb7cc",
+  "source_head": "62284e6937c706e2bf40103b0894c1920bec5be5",
   "warnings": []
 }
