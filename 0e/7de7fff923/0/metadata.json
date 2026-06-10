@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "0e7de7fff923",
+  "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T04:22:39.702639Z",
+  "branch": "codex/release-readiness-hardening",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/regression.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8",
+  "turn_id": "09745506dc17",
+  "token_usage": {
+    "input_tokens": 233032,
+    "cache_creation_tokens": 13368728,
+    "cache_read_tokens": 1006320163,
+    "output_tokens": 2764290,
+    "api_call_count": 1854
+  },
+  "session_metrics": {
+    "turn_count": 82
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T04:22:39.231543Z",
+    "agent_lines": 1,
+    "agent_removed": 1,
+    "human_added": 172,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 173,
+    "total_lines_changed": 192,
+    "agent_percentage": 1.0416666666666665,
+    "metric_version": 2
+  }
+}
