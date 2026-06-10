@@ -63,14 +63,14 @@ The contract is implemented and covered locally: CLI and MCP tests exercise
 `brain_workspace_review`, including `location_only` checks that preserve the
 file/line while not leaking expected/current fix values.
 
-Release evidence is partially retained. The current citable Radar proof is
-`release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-all-loci-rerun-20260610Tprogress`:
-it runs `no_brain` vs `mcp_history` with location-only
-`brain_regressions(include_deletions)`, no-brain passes 1/4, Radar passes 4/4,
-and the release/Radar audits require matching MCP-verified condition records,
-server-side `tool: brain_regressions` log lines, and summary-vs-record pass-rate
-agreement. This is a narrow single-repo deletion-Radar pass-rate proof, not
-workspace Radar, answer-assisted Radar, or efficiency proof.
+Release evidence is partially retained. The current citable Radar evidence is
+deterministic tool-contract proof under
+`benchmarks/agent-brain/evidence/radar-tool`: focused local tests cover
+location-only redaction, deletion opt-in, workspace Radar, strict MCP argument
+validation, branch-aware QMD retrieval over MCP, and safe `tool_result` logging.
+Older Radar agent-lift evidence was pruned because it lacked the newer
+server-side completion proof, and fresh panels saturated or were noisy on the
+no-brain baseline. There is currently no retained Radar pass-rate lift proof.
 
 The committed `release-entire-cli-radar-mcp-review-base-scope` panel remains a
 reproducible Radar candidate lane: it sets `BENCH_RADAR_LOCATION_ONLY=1`, runs
@@ -94,11 +94,14 @@ pilot still saturated on pass rate, so it is directional efficiency calibration
 until a future task/runner revision creates baseline headroom.
 `mise run radar:screen` runs the dedicated Radar evidence audit over local
 `pilot-radar-*` suites and labels each comparison as proof-ready, promotable,
-or saturated. `mise run radar:evidence` is intentionally stricter: it fails
-until retained `release-candidate-*` evidence contains at least one stable
-proof-ready location-only Radar comparison whose own condition records are
-MCP-verified by the independent Codex audit. That keeps generic MCP-history
-proof separate from the stronger Radar claim.
+or saturated; when a pilot is stopped before Radar runs because the first
+no-brain score is already too high, it emits a `no-brain-too-easy` row instead
+of hiding the suite. `mise run radar:evidence` currently checks the
+deterministic MCP/Radar tool-contract artifact. The stricter agent-lift proof
+gate remains available as `mise run radar:agent-evidence`, and should only
+become release blocking once a fresh non-saturated retained panel exists. That
+keeps generic MCP-history proof, deterministic tool proof, and stronger Radar
+agent-lift proof separate.
 New MCP/Radar runs also write redacted server-side tool names (`tool:
 brain_regressions`, `tool: brain_workspace_regressions`, etc.) to
 `mcp-server.log`; the independent audit cross-checks those names when present,
@@ -107,8 +110,8 @@ handled rather than relying only on agent transcript activity.
 The retained release gate now also counts named-tool MCP datapoints separately
 from basic MCP-verified datapoints and can require named-tool proof by proof
 scope. The current generic MCP-history proof is call-count-backed legacy
-evidence; the citable named-tool MCP proof comes from the Radar suite's retained
-`tool: brain_regressions` logs.
+evidence; citable named-tool MCP proof currently comes from deterministic local
+MCP/Radar contract tests, not from retained agent pass-rate evidence.
 Radar proof also records only safe MCP boolean arguments (`location_only`,
 `include_deletions`) from structured tool-call events, so the audit can reject a
 would-be location-only proof that actually called the wrong mode without

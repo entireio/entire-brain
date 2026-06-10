@@ -402,13 +402,14 @@ Release claims must stay local-first and evidence-backed:
   suite cannot mask a later weak semantic or facts suite. `mise run
   release:evidence` is also a pure check; report regeneration is explicit via
   `mise run release:evidence:update`.
-- MCP replay-lab evidence and Regression Radar tool evidence are now separate
-  gates. Replay-lab release evidence keeps the still-valid agent A/B scopes
-  `history` and generic `mcp`; stale Radar agent evidence was pruned after the
-  stricter `tool_result` audit showed the retained suite did not prove completed
-  server-side Radar calls. Radar now has deterministic tool-contract evidence
-  under `benchmarks/agent-brain/evidence/radar-tool`, checked by
-  `mise run radar:evidence`.
+- MCP replay-lab evidence and MCP/Radar tool evidence are now separate gates.
+  Replay-lab release evidence keeps the still-valid agent A/B scopes `history`
+  and generic `mcp`; stale Radar agent evidence was pruned after the stricter
+  `tool_result` audit showed the retained suite did not prove completed
+  server-side Radar calls. QMD-style MCP retrieval and Radar now have
+  deterministic tool-contract evidence under
+  `benchmarks/agent-brain/evidence/radar-tool`, checked by `mise run
+  radar:evidence`.
 - The optional Radar agent auditor remains strict for future panels: benchmark
   summaries carry additive `delivery_scope`/`env_flags`, Radar location-only
   delivery is counted as `mcp_radar_location_only` or
@@ -482,14 +483,17 @@ Release claims must stay local-first and evidence-backed:
   proof, not named-tool MCP proof or efficiency proof, because its retained
   server logs are legacy count-only logs and the MCP arm used more mean time and
   tokens.
-- Retained Radar tool-contract evidence now includes
+- Retained MCP/Radar tool-contract evidence now includes
   `benchmarks/agent-brain/evidence/radar-tool`: a hashed `go test -json`
-  artifact over 15 focused `internal/cli` tests. It proves changed-operand
-  detection, location-only redaction, deletion opt-in, missing anchored call-site
-  ranking, MCP tool listing, strict argument validation, safe debug logging with
-  `tool_result`, `brain_regressions`, `brain_workspace_regressions`, and unsafe
-  workspace-repo skipping. This is citable as deterministic local Radar/MCP tool
-  behavior only, not as agent pass-rate lift.
+  artifact over 33 focused `internal/cli` tests. It proves QMD-style MCP tool
+  listing and local retrieval (`brain_search`, `brain_vsearch`, `brain_query`,
+  `brain_get`, `brain_multi_get`), branch-scoped fact retrieval over MCP,
+  changed-operand detection, location-only redaction, deletion opt-in, missing
+  anchored call-site ranking, strict argument validation, MCP framing, safe
+  debug logging with `tool_result`,
+  `brain_regressions`, `brain_workspace_regressions`, and unsafe workspace-repo
+  skipping. This is citable as deterministic local MCP/Radar tool behavior only,
+  not as agent pass-rate lift.
 - The query default-limit benchmark tasks now target the current unified
   retrieval implementation in `internal/cli/retrieve_cmd.go`, including the
   QMD-style `-n` alias, instead of the old semantic-query implementation.
@@ -497,7 +501,7 @@ Release claims must stay local-first and evidence-backed:
 ## Commands And Evidence Status
 
 Implementation checks reported for the release-readiness implementation pass on
-2026-06-09:
+2026-06-10:
 
 - `git diff --check`
 - `go test ./...`
@@ -533,10 +537,13 @@ benchmark proof before they should ship.
 `mise run radar:screen` is the calibration check for local `pilot-radar-*`
 suites. Earlier 2026-06-10 calibration runs saturated or were noisy, including
 manual-attribution, review file-count, and workspace transcript candidates.
-`mise run radar:evidence` now checks the retained deterministic Radar/MCP
+Suites that are stopped after an already-high no-brain score are now reported as
+`no-brain-too-easy` instead of disappearing from the screen report.
+`mise run radar:evidence` now checks the retained deterministic MCP/Radar
 tool-contract artifact instead of promoting those saturated agent panels. It
-requires the retained `go test -json` artifact hash to match and all required
-Radar/MCP tests to pass.
+requires the retained `go test -json` artifact hash to match and all 33 required
+MCP/Radar tests to pass, including branch-aware QMD-style retrieval tools and
+Radar-specific MCP behavior.
 
 `mise run release:evidence` regenerates the retained replay-lab Codex audit in a
 temp directory before comparing it with committed

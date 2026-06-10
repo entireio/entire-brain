@@ -77,13 +77,14 @@ task outcomes instead of relying on demos or anecdotes.
   proof where `full_brain` improved the task score/pass-rate over `no_brain`,
   and one retained MCP-history proof where `mcp_history` improved pass rate
   1/4 -> 4/4 on a manual-attribution regression without proving efficiency
-  gains, plus one retained single-repo location-only deletion-Radar proof where
-  `brain_regressions(location_only, include_deletions)` improved pass rate
-  1/4 -> 4/4.
+  gains, plus retained deterministic MCP/Radar tool-contract proof for
+  QMD-style MCP retrieval, branch-scoped facts, location-only Radar, deletion
+  opt-in, workspace Radar, strict MCP schemas, and safe tool-result logging.
 - Pending proof: target large-repo/frontend distill timing, paired facts evals
   with active durable facts and proof labels,
-  workspace Radar outcome proof, answer-assisted/broad Radar claims, semantic
-  usefulness, and broader retained replay-lab benchmark evidence.
+  Radar agent-lift outcome proof, workspace Radar outcome proof,
+  answer-assisted/broad Radar claims, semantic usefulness, and broader retained
+  replay-lab benchmark evidence.
 - Blocked: target large-repo evidence, backend/Slack access, turn signing,
   checkpoint-time fact generation.
 - Future: distributed/shared brain, team artifact hydration, multi-agent write

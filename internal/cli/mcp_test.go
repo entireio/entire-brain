@@ -113,6 +113,34 @@ func TestMCPToolSchemasRejectAdditionalProperties(t *testing.T) {
 	}
 }
 
+func TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet(t *testing.T) {
+	byName := map[string]map[string]any{}
+	for _, tool := range mcpToolDefinitions() {
+		name, _ := tool["name"].(string)
+		byName[name] = tool
+	}
+	for _, name := range []string{"brain_query", "brain_search", "brain_vsearch", "brain_get", "brain_multi_get"} {
+		schema, ok := byName[name]["inputSchema"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s missing inputSchema", name)
+		}
+		props, ok := schema["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s missing properties: %+v", name, schema)
+		}
+		branch, ok := props["branch"].(map[string]any)
+		if !ok || branch["type"] != "string" {
+			t.Fatalf("%s missing string branch property: %+v", name, props["branch"])
+		}
+	}
+	schema := byName["brain_multi_get"]["inputSchema"].(map[string]any)
+	props := schema["properties"].(map[string]any)
+	ids := props["ids"].(map[string]any)
+	if ids["minItems"] != 1 {
+		t.Fatalf("brain_multi_get ids minItems = %v, want 1", ids["minItems"])
+	}
+}
+
 func TestMCPRejectsInvalidBooleanArguments(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"scope regression","location_only":"true"}}}`) +
 		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_stale","arguments":{"blind_spots":"yes"}}}`)
@@ -140,7 +168,8 @@ func TestMCPRejectsInvalidStringAndUnknownArguments(t *testing.T) {
 		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_workspace_review","arguments":{"workspace":7,"query":"x"}}}`) +
 		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_boundaries","arguments":{"kind":7}}}`) +
 		frameMCP(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"brain_multi_get","arguments":{"ids":["fact:x",7]}}}`) +
-		frameMCP(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"x","locationOnly":true}}}`)
+		frameMCP(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"x","locationOnly":true}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"brain_get","arguments":{"id":"fact:x","branch":7}}}`)
 	var out bytes.Buffer
 	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
 		t.Fatalf("mcp: %v", err)
@@ -152,6 +181,7 @@ func TestMCPRejectsInvalidStringAndUnknownArguments(t *testing.T) {
 		"kind must be string",
 		"ids must be an array of strings",
 		"unknown argument for brain_regressions: locationOnly",
+		"branch must be string",
 	}
 	if len(responses) != len(wants) {
 		t.Fatalf("responses = %d, want %d", len(responses), len(wants))
@@ -466,18 +496,19 @@ func TestMCPQMDRetrievalToolsUseLocalFacts(t *testing.T) {
 		t.Fatalf("storage: %v", err)
 	}
 	paths := normalizeFactPaths([]string{"architecture.data.flow"})
+	branch := "feature/mcp"
 	facts := []factRecord{
-		{ID: factRecordID("qmd retrieval alpha contract", paths), Text: "qmd retrieval alpha contract", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
-		{ID: factRecordID("qmd retrieval beta contract", paths), Text: "qmd retrieval beta contract", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
+		{ID: factRecordID("qmd retrieval alpha contract", paths), Text: "qmd retrieval alpha contract", Paths: paths, Branch: branch, Status: factStatusActive, UpdatedAt: now},
+		{ID: factRecordID("qmd retrieval beta contract", paths), Text: "qmd retrieval beta contract", Paths: paths, Branch: branch, Status: factStatusActive, UpdatedAt: now},
 	}
-	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
+	if err := writeFacts(storage.BrainDir, branch, facts); err != nil {
 		t.Fatal(err)
 	}
 
-	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"qmd retrieval alpha","limit":1}}}`) +
-		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_vsearch","arguments":{"query":"qmd retrieval alpha","limit":1}}}`) +
-		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_get","arguments":{"id":%q}}}`, facts[0].ID)) +
-		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"brain_multi_get","arguments":{"ids":[%q,"fact:missing"]}}}`, facts[1].ID))
+	input := frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"qmd retrieval alpha","limit":1,"branch":%q}}}`, branch)) +
+		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_vsearch","arguments":{"query":"qmd retrieval alpha","limit":1,"branch":%q}}}`, branch)) +
+		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_get","arguments":{"id":%q,"branch":%q}}}`, facts[0].ID, branch)) +
+		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"brain_multi_get","arguments":{"ids":[%q,"fact:missing"],"branch":%q}}}`, facts[1].ID, branch))
 	var out bytes.Buffer
 	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp: %v", err)

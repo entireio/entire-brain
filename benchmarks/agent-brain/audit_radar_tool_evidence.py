@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Audit retained deterministic Regression Radar / MCP tool evidence.
+"""Audit retained deterministic MCP / Regression Radar tool evidence.
 
 This is deliberately separate from agent A/B proof. It answers a narrower
-release-readiness question: do the local Radar detector and MCP tools pass their
-contract tests, including location-only redaction, deletion opt-in, workspace
-Radar, and server-side tool-result logging?
+release-readiness question: do the local MCP tools and Radar detector pass their
+contract tests, including QMD-style retrieval, location-only redaction, deletion
+opt-in, workspace Radar, and server-side tool-result logging?
 """
 
 from __future__ import annotations
@@ -17,6 +17,8 @@ import sys
 from typing import Any
 
 
+CLAIM_SCOPE = "mcp_radar_tool_contract"
+
 REQUIRED_TESTS = [
     "TestRegressionDetectsChangedOperand",
     "TestInspectRegressionsCommandJSONAndLocationOnly",
@@ -24,13 +26,31 @@ REQUIRED_TESTS = [
     "TestRegressionDeletionRanksCallLocusWithHistoryFileHint",
     "TestRegressionDeletionReportsEachMissingAnchoredCallSite",
     "TestRegressionDedupeRankPrefersBoostedCallDeletion",
+    "TestMCPInitializeAndToolsList",
     "TestMCPToolsListIncludesRegressions",
+    "TestMCPToolsListIncludesQMDRetrievalSurface",
+    "TestMCPToolsListAdvertisesStaleBlindSpots",
+    "TestMCPToolSchemasRejectAdditionalProperties",
+    "TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet",
     "TestMCPRejectsInvalidBooleanArguments",
     "TestMCPRejectsInvalidStringAndUnknownArguments",
     "TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly",
     "TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools",
     "TestMCPBrainRegressionsTool",
+    "TestMCPBrainReviewTool",
     "TestMCPBrainWorkspaceReviewTool",
+    "TestMCPBrainWorkspaceToolRequiresWorkspace",
+    "TestMCPInitializeEchoesClientProtocolVersion",
+    "TestMCPInitializeSupportsJSONLineFraming",
+    "TestMCPBrainQueryToolUsesLocalSemanticJSON",
+    "TestMCPQMDRetrievalToolsUseLocalFacts",
+    "TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON",
+    "TestMCPBrainBriefAndQueryToolsUseIndexedHistory",
+    "TestMCPToolCallRejectsInvalidIntegerArguments",
+    "TestMCPToolCallRejectsInvalidDepth",
+    "TestMCPRecoversFromMalformedJSONLineFrame",
+    "TestMCPRejectsOversizedAndNegativeFrames",
+    "TestMCPBrainStaleUsesEnvRepoRoot",
     "TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain",
     "TestWorkspaceRegressionsSkipsUnsafeRepo",
 ]
@@ -87,8 +107,8 @@ def audit_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
 
     if manifest.get("schema") != 1:
         errors.append("schema must be 1")
-    if manifest.get("claim_scope") != "radar_tool_contract":
-        errors.append("claim_scope must be radar_tool_contract")
+    if manifest.get("claim_scope") != CLAIM_SCOPE:
+        errors.append(f"claim_scope must be {CLAIM_SCOPE}")
     limitations = manifest.get("limitations")
     if not isinstance(limitations, list) or not any("agent" in str(item).lower() for item in limitations):
         errors.append("limitations must explicitly state this is not agent lift proof")
@@ -130,7 +150,8 @@ def audit_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
                         errors.append("missing required passed tests: " + ", ".join(missing))
                     if not package_passed:
                         errors.append("go test package-level pass event missing")
-                    extra = sorted(passed - set(REQUIRED_TESTS))
+                    required_set = set(REQUIRED_TESTS)
+                    extra = sorted(name for name in passed - required_set if name.split("/", 1)[0] not in required_set)
                     if extra:
                         warnings.append("artifact includes additional passing tests: " + ", ".join(extra[:10]))
                     artifact_report = {
@@ -157,7 +178,7 @@ def audit_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
 
 def render_markdown(report: dict[str, Any]) -> str:
     lines = [
-        "# Radar Tool Evidence Audit",
+        "# MCP/Radar Tool Evidence Audit",
         "",
         f"- Status: **{'PASS' if report['ok'] else 'FAIL'}**",
         f"- Claim scope: **{report.get('claim_scope') or ''}**",

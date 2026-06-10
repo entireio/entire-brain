@@ -14,9 +14,10 @@ repetitions per side, retained panel provenance, and the manifest's required
 proof scopes.
 For MCP-backed scopes, the proof-ready comparison must be backed by matching
 MCP-verified condition records; a separate suite's MCP count cannot satisfy the
-comparison backing. The manifest additionally requires at least four
-server-named MCP datapoints, so retained evidence must include proof that the
-server handled the expected brain tool, not just that some MCP call happened.
+comparison backing. The current generic MCP release manifest requires at least
+four basic MCP-verified datapoints; server-named `tool:` and completed
+`tool_result:` proof is required before future Radar agent-lift evidence can be
+cited.
 Today those scopes are `history` and `mcp`, so this directory cannot be used as
 semantic, facts, or Radar proof by aggregation. Historical,
 exploratory, quarantine, or `release-local-*` suites under
@@ -24,10 +25,11 @@ exploratory, quarantine, or `release-local-*` suites under
 they exist; they must be regenerated from a committed panel into an explicit
 `release-candidate-*` suite and pass the manifest-enforced gate.
 
-Regression Radar is checked separately by `mise run radar:evidence`, which
-audits deterministic Go/MCP tool-contract evidence under
-`benchmarks/agent-brain/evidence/radar-tool`. That gate proves the local
-detector and MCP surface, not agent pass-rate lift.
+Regression Radar and the MCP retrieval surface are checked separately by
+`mise run radar:evidence`, which audits deterministic Go/MCP tool-contract
+evidence under `benchmarks/agent-brain/evidence/radar-tool`. That gate proves
+the local detector, QMD-style MCP retrieval tools including branch-scoped facts,
+and MCP safety contracts, not agent pass-rate lift.
 
 The committed manifest records the citable suite policy. Generated audit reports
 should only be committed after the gate passes for a real release-candidate run.
@@ -55,5 +57,6 @@ Radar agent-lift status: older retained Radar agent evidence was pruned because
 it lacked the newer server-side `tool_result` completion proof. Recent reruns of
 the committed Radar panels were saturated or noisy on the no-brain baseline, so
 they are not retained as release evidence. Keep Radar launch copy scoped to the
-tool-contract evidence until a fresh non-saturated, `tool_result`-backed panel
-passes.
+tool-contract evidence, and keep MCP launch copy scoped to local tool-contract
+plus retained generic MCP replay proof, until a fresh non-saturated,
+`tool_result`-backed Radar panel passes.

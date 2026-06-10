@@ -2953,6 +2953,34 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             self.assertTrue(gate["baseline_headroom"])
             self.assertEqual(audit_radar_evidence.main(["--results", str(results_dir), "--suite-glob", "pilot-radar-*", "--out-dir", out, "--fail-when-no-promotable"]), 0)
 
+    def test_radar_audit_reports_early_stopped_no_brain_too_easy_suites(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            suite = results_dir / "pilot-radar-too-easy"
+            suite.mkdir()
+            (suite / "summary.json").write_text(json.dumps({"comparisons": []}))
+            (suite / "records.ndjson").write_text(json.dumps({
+                "task_id": "easy-radar-task",
+                "condition": "no_brain",
+                "runner": {"id": "codex-mini-low"},
+                "score": {"total": 97},
+                "valid": True,
+                "provenance": {"run_config": {"stop_after_no_brain_score": 90}},
+            }) + "\n")
+            report = audit_radar_evidence.build_report(results_dir, ["pilot-radar-*"])
+            self.assertEqual(report["totals"]["status_counts"], {"no-brain-too-easy": 1})
+            self.assertEqual(report["totals"]["promotable_or_proof"], 0)
+            row = report["comparisons"][0]
+            self.assertEqual(row["task_id"], "easy-radar-task")
+            self.assertEqual(row["radar_gate"]["baseline_score"], 97)
+            self.assertIn("harder target", row["radar_gate"]["recommendation"])
+            rendered = audit_radar_evidence.render_markdown(report)
+            self.assertIn("score 97 > 90", rendered)
+            self.assertEqual(
+                audit_radar_evidence.main(["--results", str(results_dir), "--suite-glob", "pilot-radar-*", "--out-dir", out, "--fail-when-no-promotable"]),
+                1,
+            )
+
     def test_radar_audit_requires_stable_proof_for_proof_gate(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
             results_dir = pathlib.Path(results)
@@ -3132,7 +3160,7 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
         manifest = root / "manifest.json"
         manifest.write_text(json.dumps({
             "schema": 1,
-            "claim_scope": "radar_tool_contract",
+            "claim_scope": audit_radar_tool_evidence.CLAIM_SCOPE,
             "source_head": "a" * 40,
             "required_tests": audit_radar_tool_evidence.REQUIRED_TESTS,
             "limitations": ["Tool-contract proof only; this is not agent lift proof."],

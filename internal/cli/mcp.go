@@ -209,6 +209,16 @@ func mcpToolDefinitions() []map[string]any {
 	booleanArg := func(name, description string) map[string]any {
 		return map[string]any{"type": "boolean", "description": description, "title": name}
 	}
+	branchArg := func() map[string]any {
+		return stringArg("branch", "Branch for facts (default: current)")
+	}
+	retrievalArgs := func() map[string]any {
+		return map[string]any{
+			"query":  stringArg("query", "Natural-language or keyword query"),
+			"limit":  integerArg("limit", "Maximum results"),
+			"branch": branchArg(),
+		}
+	}
 	objectSchema := func(required []string, properties map[string]any) map[string]any {
 		schema := map[string]any{"type": "object", "properties": properties, "additionalProperties": false}
 		if len(required) > 0 {
@@ -230,27 +240,27 @@ func mcpToolDefinitions() []map[string]any {
 		{
 			"name":        "brain_query",
 			"description": "Hybrid search (lexical + semantic, RRF) across the brain's facts, history, and docs. The default retrieval; results carry ids for brain_get.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Natural-language or keyword query"), "limit": integerArg("limit", "Maximum results")}),
+			"inputSchema": objectSchema([]string{"query"}, retrievalArgs()),
 		},
 		{
 			"name":        "brain_search",
 			"description": "Lexical keyword search across the brain's facts, history, and docs — precise keyword/identifier matching (BM25 for history and docs; token-overlap for facts).",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Keyword query"), "limit": integerArg("limit", "Maximum results")}),
+			"inputSchema": objectSchema([]string{"query"}, retrievalArgs()),
 		},
 		{
 			"name":        "brain_vsearch",
 			"description": "Vector (semantic) search across the brain's facts and docs — conceptual/paraphrased queries.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Conceptual query"), "limit": integerArg("limit", "Maximum results")}),
+			"inputSchema": objectSchema([]string{"query"}, retrievalArgs()),
 		},
 		{
 			"name":        "brain_get",
 			"description": "Fetch one item in full by its id (fact:… | history:… | doc:…), e.g. from a search result.",
-			"inputSchema": objectSchema([]string{"id"}, map[string]any{"id": stringArg("id", "Prefixed item id")}),
+			"inputSchema": objectSchema([]string{"id"}, map[string]any{"id": stringArg("id", "Prefixed item id"), "branch": branchArg()}),
 		},
 		{
 			"name":        "brain_multi_get",
 			"description": "Fetch multiple items in full by their ids.",
-			"inputSchema": objectSchema([]string{"ids"}, map[string]any{"ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "title": "ids", "description": "Prefixed item ids"}}),
+			"inputSchema": objectSchema([]string{"ids"}, map[string]any{"ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1, "title": "ids", "description": "Prefixed item ids"}, "branch": branchArg()}),
 		},
 		{
 			"name":        "brain_context",
@@ -326,6 +336,10 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	if err != nil {
 		return nil, err
 	}
+	branch, err := mcpOptionalString(params.Arguments, "branch")
+	if err != nil {
+		return nil, err
+	}
 	switch params.Name {
 	case "brain_stale":
 		target := "."
@@ -351,17 +365,17 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	case "brain_query":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runRetrieve(ctx, cmd, opts, query, modeHybrid, limit, "", true)
+			err = runRetrieve(ctx, cmd, opts, query, modeHybrid, limit, branch, true)
 		}
 	case "brain_search":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runRetrieve(ctx, cmd, opts, query, modeLexical, limit, "", true)
+			err = runRetrieve(ctx, cmd, opts, query, modeLexical, limit, branch, true)
 		}
 	case "brain_vsearch":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runRetrieve(ctx, cmd, opts, query, modeVector, limit, "", true)
+			err = runRetrieve(ctx, cmd, opts, query, modeVector, limit, branch, true)
 		}
 	case "brain_get":
 		id, stringErr := mcpOptionalString(params.Arguments, "id")
@@ -373,7 +387,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if id == "" {
 			err = errors.New("id is required")
 		} else {
-			err = runGet(ctx, cmd, opts, []string{id}, "", true)
+			err = runGet(ctx, cmd, opts, []string{id}, branch, true)
 		}
 	case "brain_multi_get":
 		ids, sliceErr := mcpStringSlice(params.Arguments, "ids")
@@ -384,7 +398,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if len(ids) == 0 {
 			err = errors.New("ids is required")
 		} else {
-			err = runGet(ctx, cmd, opts, ids, "", true)
+			err = runGet(ctx, cmd, opts, ids, branch, true)
 		}
 	case "brain_context":
 		err = requireMCPQuery(query)
@@ -515,12 +529,14 @@ func validateMCPToolArguments(tool string, args map[string]any) error {
 		add("blind_spots")
 	case "brain_brief":
 		add("task", "limit")
-	case "brain_query", "brain_search", "brain_vsearch", "brain_context", "brain_code", "brain_tests":
+	case "brain_query", "brain_search", "brain_vsearch":
+		add("query", "limit", "branch")
+	case "brain_context", "brain_code", "brain_tests":
 		add("query", "limit")
 	case "brain_get":
-		add("id")
+		add("id", "branch")
 	case "brain_multi_get":
-		add("ids")
+		add("ids", "branch")
 	case "brain_impact":
 		add("query", "limit", "depth")
 	case "brain_changes":

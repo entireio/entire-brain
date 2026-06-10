@@ -39,6 +39,35 @@ def load_summary(path: pathlib.Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def load_records(path: pathlib.Path) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return records
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
+
+
+def iter_matching_suite_dirs(results: pathlib.Path, suite_globs: list[str]) -> list[pathlib.Path]:
+    if not results.exists():
+        return []
+    out: list[pathlib.Path] = []
+    for summary_path in sorted(results.glob("*/summary.json")):
+        suite_dir = summary_path.parent
+        if suite_matches(suite_dir.name, suite_globs):
+            out.append(suite_dir)
+    return out
+
+
 def load_codex_audit(path: pathlib.Path | None) -> dict[str, Any] | None:
     if path is None:
         return None
@@ -169,12 +198,9 @@ def audit_summary_consistency(comp: dict[str, Any], backing: dict[str, Any]) -> 
 
 def iter_radar_comparisons(results: pathlib.Path, suite_globs: list[str]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    if not results.exists():
-        return rows
-    for summary_path in sorted(results.glob("*/summary.json")):
-        suite = summary_path.parent.name
-        if not suite_matches(suite, suite_globs):
-            continue
+    for suite_dir in iter_matching_suite_dirs(results, suite_globs):
+        suite = suite_dir.name
+        summary_path = suite_dir / "summary.json"
         summary = load_summary(summary_path)
         for comp in summary.get("comparisons") or []:
             if not isinstance(comp, dict):
@@ -184,6 +210,61 @@ def iter_radar_comparisons(results: pathlib.Path, suite_globs: list[str]) -> lis
             row = dict(comp)
             row["suite"] = suite
             rows.append(row)
+    return rows
+
+
+def early_stopped_no_brain_rows(results: pathlib.Path, suite_globs: list[str], suites_with_radar: set[str]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for suite_dir in iter_matching_suite_dirs(results, suite_globs):
+        suite = suite_dir.name
+        if suite in suites_with_radar:
+            continue
+        for record in load_records(suite_dir / "records.ndjson"):
+            if record.get("condition") != "no_brain":
+                continue
+            score_obj = record.get("score") if isinstance(record.get("score"), dict) else {}
+            score = as_float(score_obj.get("total"))
+            provenance = record.get("provenance") if isinstance(record.get("provenance"), dict) else {}
+            run_config = provenance.get("run_config") if isinstance(provenance.get("run_config"), dict) else {}
+            threshold = as_float(run_config.get("stop_after_no_brain_score"))
+            if score is None or threshold is None or score <= threshold:
+                continue
+            runner = record.get("runner")
+            if isinstance(runner, dict):
+                runner = runner.get("id")
+            gate = {
+                "status": "no-brain-too-easy",
+                "proof_ready": False,
+                "promotable": False,
+                "baseline_headroom": False,
+                "brain_clean": None,
+                "repeated": False,
+                "saturated": True,
+                "pass_rate_baseline": 1.0 if record.get("valid") is True else None,
+                "pass_rate_condition": None,
+                "baseline_score": score,
+                "stop_after_no_brain_score": threshold,
+                "stability_tag": "early_stopped",
+                "reasons": [f"no-brain pilot score {score:g} exceeded early-stop threshold {threshold:g}"],
+                "recommendation": "do not spend Radar repetitions on this task; screen a harder target/source history",
+            }
+            rows.append({
+                "suite": suite,
+                "task_id": record.get("task_id"),
+                "runner": runner,
+                "condition": "no_brain",
+                "delivery_scope": "early_stop",
+                "n_condition": 0,
+                "n_baseline": 1,
+                "verdict": "early_stopped",
+                "score_delta": None,
+                "mean_total_tokens_condition": None,
+                "mean_total_tokens_baseline": None,
+                "mean_search_calls_condition": None,
+                "mean_search_calls_baseline": None,
+                "radar_gate": gate,
+            })
+            break
     return rows
 
 
@@ -261,7 +342,9 @@ def build_report(results: pathlib.Path, suite_globs: list[str], codex_audit: dic
     proof_ready = 0
     promotable = 0
     audit_backing = codex_audit_radar_backing(codex_audit) if codex_audit is not None else None
+    suites_with_radar: set[str] = set()
     for comp in iter_radar_comparisons(results, suite_globs):
+        suites_with_radar.add(str(comp.get("suite") or ""))
         status = radar_status(comp)
         if audit_backing is not None:
             key = (
@@ -315,6 +398,9 @@ def build_report(results: pathlib.Path, suite_globs: list[str], codex_audit: dic
             proof_ready += 1
         if status["promotable"]:
             promotable += 1
+    for row in early_stopped_no_brain_rows(results, suite_globs, suites_with_radar):
+        comparisons.append(row)
+        status_counts[row["radar_gate"]["status"]] += 1
     return {
         "schema": 1,
         "results": display_path(results),
@@ -348,7 +434,9 @@ def render_markdown(report: dict[str, Any]) -> str:
         base = gate.get("pass_rate_baseline")
         cond = gate.get("pass_rate_condition")
         pass_text = "n/a"
-        if isinstance(base, (int, float)) and isinstance(cond, (int, float)):
+        if gate.get("status") == "no-brain-too-easy":
+            pass_text = f"score {float(gate.get('baseline_score') or 0):.0f} > {float(gate.get('stop_after_no_brain_score') or 0):.0f}"
+        elif isinstance(base, (int, float)) and isinstance(cond, (int, float)):
             pass_text = f"{base:.2f} -> {cond:.2f}"
         backing = gate.get("codex_audit_record_backing") if isinstance(gate.get("codex_audit_record_backing"), dict) else {}
         mcp_backing = "n/a"

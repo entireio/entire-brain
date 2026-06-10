@@ -73,7 +73,7 @@ cat "$tmp/radar-candidate-report.md"
 '''
 
 [tasks."radar:evidence"]
-description = "Check deterministic retained Regression Radar/MCP tool-contract evidence"
+description = "Check deterministic retained MCP/Radar tool-contract evidence"
 run = '''
 set -e
 tmp="$(mktemp -d)"
@@ -95,7 +95,7 @@ done
 '''
 
 [tasks."radar:evidence:update"]
-description = "Regenerate retained deterministic Radar/MCP tool-contract audit reports after the gate passes"
+description = "Regenerate retained deterministic MCP/Radar tool-contract audit reports after the gate passes"
 run = '''
 set -e
 tmp="$(mktemp -d)"
