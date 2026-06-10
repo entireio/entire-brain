@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -74,15 +75,15 @@ func TestGenerateEvalTasksFromProvenance(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 
 	// Two facts citing session s1, one citing s2.
-	mk := func(text, path, session string) factRecord {
+	mk := func(text, path, session string, line int) factRecord {
 		p := normalizeFactPaths([]string{path})
 		return factRecord{ID: factRecordID(text, p), Paths: p, Text: text, Branch: "main", Status: factStatusActive,
-			Provenance: []factAnchor{{SessionID: session}}, UpdatedAt: now}
+			Provenance: []factAnchor{{SessionID: session, Line: line}}, UpdatedAt: now}
 	}
 	facts := []factRecord{
-		mk("Checkpoints v1.1 read from a custom ref", "architecture.data.flow", "s1"),
-		mk("The mirror is best-effort", "constraints.invariants.general", "s1"),
-		mk("Tests run with go test", "workflow.testing.rules", "s2"),
+		mk("Checkpoints v1.1 read from a custom ref", "architecture.data.flow", "s1", 3),
+		mk("The mirror is best-effort", "constraints.invariants.general", "s1", 7),
+		mk("Tests run with go test", "workflow.testing.rules", "s2", 5),
 	}
 	if err := writeFacts(brainDir, "main", facts); err != nil {
 		t.Fatal(err)
@@ -130,6 +131,9 @@ func TestGenerateEvalTasksFromProvenance(t *testing.T) {
 	}
 	if s1.SourceSessionID != "s1" || s1.SourceTranscriptPath != "sessions/main/s1.jsonl" {
 		t.Fatalf("s1 source anchor wrong: %+v", s1)
+	}
+	if !reflect.DeepEqual(s1.SourceLines, []int{3, 7}) {
+		t.Fatalf("s1 source lines wrong: %+v", s1.SourceLines)
 	}
 	if s1.LabelSource != evalLabelSourceProvenanceSilver {
 		t.Fatalf("s1 label source = %q, want %q", s1.LabelSource, evalLabelSourceProvenanceSilver)
@@ -188,11 +192,14 @@ func TestGenerateEvalTasksScopesSessionFactsByResolvedBranch(t *testing.T) {
 	for _, task := range tasks {
 		byBranch[task.Branch] = task
 	}
-	if got := byBranch["main"]; got.ID != "main:same-session" || len(got.Relevant) != 1 || got.Relevant[0] != mainFact.ID {
+	if got := byBranch["main"]; !strings.HasPrefix(got.ID, "main:same-session:") || len(got.Relevant) != 1 || got.Relevant[0] != mainFact.ID {
 		t.Fatalf("main task should use default branch facts only, got %+v", got)
 	}
-	if got := byBranch["feature"]; got.ID != "feature:same-session" || len(got.Relevant) != 1 || got.Relevant[0] != featureFact.ID {
+	if got := byBranch["feature"]; !strings.HasPrefix(got.ID, "feature:same-session:") || len(got.Relevant) != 1 || got.Relevant[0] != featureFact.ID {
 		t.Fatalf("feature task should use feature facts only, got %+v", got)
+	}
+	if byBranch["main"].ID == byBranch["feature"].ID {
+		t.Fatalf("branch collision ids should be unique: %+v", byBranch)
 	}
 
 	mainOnly, err := generateEvalTasks(brainDir, &manifest, "main", 1, 0, 0)
@@ -201,6 +208,127 @@ func TestGenerateEvalTasksScopesSessionFactsByResolvedBranch(t *testing.T) {
 	}
 	if len(mainOnly) != 1 || mainOnly[0].ID != "same-session" || mainOnly[0].Branch != "main" {
 		t.Fatalf("single-branch filter should preserve legacy task id, got %+v", mainOnly)
+	}
+}
+
+func TestGenerateEvalTasksScopesDuplicateSessionIDByTranscript(t *testing.T) {
+	brainDir := t.TempDir()
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+
+	writeTranscript := func(rel, req string) {
+		t.Helper()
+		path := filepath.Join(brainDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		line := `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"text","text":"` + req + `"}]}}`
+		if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const sessionID = "shared-session"
+	firstTranscript := "sessions/main/shared-one.jsonl"
+	secondTranscript := "sessions/main/shared-two.jsonl"
+	writeTranscript(firstTranscript, "review the current branch")
+	writeTranscript(secondTranscript, "review the current branch")
+
+	firstPaths := normalizeFactPaths([]string{"architecture.data.flow"})
+	secondPaths := normalizeFactPaths([]string{"workflow.testing.rules"})
+	firstFact := factRecord{
+		ID:         factRecordID("first shared session fact", firstPaths),
+		Paths:      firstPaths,
+		Text:       "first shared session fact",
+		Branch:     "main",
+		Status:     factStatusActive,
+		Provenance: []factAnchor{{SessionID: sessionID, Transcript: firstTranscript, Line: 2}},
+		UpdatedAt:  now,
+	}
+	secondFact := factRecord{
+		ID:         factRecordID("second shared session fact", secondPaths),
+		Paths:      secondPaths,
+		Text:       "second shared session fact",
+		Branch:     "main",
+		Status:     factStatusActive,
+		Provenance: []factAnchor{{SessionID: sessionID, Transcript: secondTranscript, Line: 5}},
+		UpdatedAt:  now,
+	}
+	if err := writeFacts(brainDir, "main", []factRecord{firstFact, secondFact}); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		DefaultBranch: "main",
+		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
+			{SessionID: sessionID, Branch: "main", TranscriptPath: firstTranscript, CreatedAt: now},
+			{SessionID: sessionID, Branch: "main", TranscriptPath: secondTranscript, CreatedAt: now.Add(time.Minute)},
+		}}},
+	}
+
+	tasks, err := generateEvalTasks(brainDir, &manifest, "main", 1, 0, 0)
+	if err != nil {
+		t.Fatalf("generateEvalTasks: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("expected transcript-scoped tasks, got %d: %+v", len(tasks), tasks)
+	}
+	byTranscript := map[string]evalTask{}
+	for _, task := range tasks {
+		byTranscript[task.SourceTranscriptPath] = task
+	}
+	if got := byTranscript[firstTranscript]; len(got.Relevant) != 1 || got.Relevant[0] != firstFact.ID || !reflect.DeepEqual(got.SourceLines, []int{2}) {
+		t.Fatalf("first transcript labels leaked or lost: %+v", got)
+	}
+	if got := byTranscript[secondTranscript]; len(got.Relevant) != 1 || got.Relevant[0] != secondFact.ID || !reflect.DeepEqual(got.SourceLines, []int{5}) {
+		t.Fatalf("second transcript labels leaked or lost: %+v", got)
+	}
+	if byTranscript[firstTranscript].ID == byTranscript[secondTranscript].ID {
+		t.Fatalf("duplicate session IDs should disambiguate task IDs: %+v", tasks)
+	}
+}
+
+func TestGenerateSessionEvalTasksDisambiguatesSameBranchShortIDCollisions(t *testing.T) {
+	brainDir := t.TempDir()
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+
+	writeTranscript := func(rel, req string) {
+		t.Helper()
+		path := filepath.Join(brainDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		line := `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"text","text":"` + req + `"}]}}`
+		if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTranscript("sessions/main/one.jsonl", "inspect alpha collision")
+	writeTranscript("sessions/main/two.jsonl", "inspect beta collision")
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		DefaultBranch: "main",
+		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
+			{SessionID: "abcdefghijkl-session-one", Branch: "main", TranscriptPath: "sessions/main/one.jsonl", CreatedAt: now},
+			{SessionID: "abcdefghijkl-session-two", Branch: "main", TranscriptPath: "sessions/main/two.jsonl", CreatedAt: now.Add(time.Minute)},
+		}}},
+	}
+
+	tasks, err := generateSessionEvalTasks(brainDir, &manifest, "main", 0)
+	if err != nil {
+		t.Fatalf("generateSessionEvalTasks: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("expected two collision tasks, got %d: %+v", len(tasks), tasks)
+	}
+	ids := map[string]struct{}{}
+	for _, task := range tasks {
+		if !strings.HasPrefix(task.ID, "main:abcdefghijkl:") {
+			t.Fatalf("collision task ID should include branch and hash, got %+v", task)
+		}
+		ids[task.ID] = struct{}{}
+	}
+	if len(ids) != 2 {
+		t.Fatalf("same-branch short ID collision should produce unique IDs: %+v", tasks)
 	}
 }
 

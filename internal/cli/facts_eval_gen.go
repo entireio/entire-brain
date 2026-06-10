@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -196,7 +198,10 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 	if err != nil {
 		return nil, err
 	}
-	// branch+session id -> the facts that cite it (deduped per session).
+	// branch+session+transcript -> the facts that cite it (deduped per
+	// session source). Older anchors may lack a transcript; those stay in the
+	// branch+session fallback bucket and are used only when no transcript-scoped
+	// labels exist for a manifest session.
 	sessionFacts := map[string][]factRecord{}
 	for b, recs := range byBranch {
 		if branch != "" && b != branch {
@@ -208,11 +213,12 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 				if a.SessionID == "" {
 					continue
 				}
-				if _, ok := seen[a.SessionID]; ok {
+				key := evalSessionFactKey(b, a.SessionID, a.Transcript)
+				if _, ok := seen[key]; ok {
 					continue
 				}
-				seen[a.SessionID] = struct{}{}
-				sessionFacts[evalSessionFactKey(b, a.SessionID)] = append(sessionFacts[evalSessionFactKey(b, a.SessionID)], r)
+				seen[key] = struct{}{}
+				sessionFacts[key] = append(sessionFacts[key], r)
 			}
 		}
 	}
@@ -224,7 +230,7 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 		if branch != "" && resolvedBranch != branch {
 			continue
 		}
-		facts := sessionFacts[evalSessionFactKey(resolvedBranch, s.SessionID)]
+		facts := evalFactsForSession(sessionFacts, resolvedBranch, s)
 		if len(facts) < minFacts {
 			continue
 		}
@@ -240,7 +246,7 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 			continue
 		}
 		tasks = append(tasks, evalTask{
-			ID:                   evalTaskIDForSession(s.SessionID, resolvedBranch, idCollisions),
+			ID:                   evalTaskIDForSession(s.SessionID, resolvedBranch, s.TranscriptPath, idCollisions),
 			Task:                 request,
 			Branch:               resolvedBranch,
 			QueryType:            classifyQueryType(request, facts),
@@ -248,6 +254,7 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 			LabelSource:          evalLabelSourceProvenanceSilver,
 			SourceSessionID:      s.SessionID,
 			SourceTranscriptPath: filepath.ToSlash(s.TranscriptPath),
+			SourceLines:          sourceLinesForSessionFacts(facts, s),
 		})
 	}
 	tasks = dedupeEvalTasks(tasks)
@@ -258,8 +265,33 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 	return tasks, nil
 }
 
-func evalSessionFactKey(branch, sessionID string) string {
-	return branch + "\x00" + sessionID
+func evalSessionFactKey(branch, sessionID, transcript string) string {
+	return strings.TrimSpace(branch) + "\x00" + strings.TrimSpace(sessionID) + "\x00" + filepath.ToSlash(strings.TrimSpace(transcript))
+}
+
+func evalFactsForSession(sessionFacts map[string][]factRecord, branch string, session exportSession) []factRecord {
+	exactKey := evalSessionFactKey(branch, session.SessionID, session.TranscriptPath)
+	exact := dedupeFactRecords(sessionFacts[exactKey])
+	if len(exact) > 0 || strings.TrimSpace(session.TranscriptPath) == "" {
+		return exact
+	}
+	return dedupeFactRecords(sessionFacts[evalSessionFactKey(branch, session.SessionID, "")])
+}
+
+func dedupeFactRecords(facts []factRecord) []factRecord {
+	if len(facts) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]factRecord, 0, len(facts))
+	for _, fact := range facts {
+		if _, ok := seen[fact.ID]; ok {
+			continue
+		}
+		seen[fact.ID] = struct{}{}
+		out = append(out, fact)
+	}
+	return out
 }
 
 func evalSessionIDCollisions(manifest *exportManifest, branch string) map[string]bool {
@@ -283,7 +315,7 @@ func evalSessionIDCollisions(manifest *exportManifest, branch string) map[string
 	return collisions
 }
 
-func evalTaskIDForSession(sessionID, branch string, collisions map[string]bool) string {
+func evalTaskIDForSession(sessionID, branch, transcriptPath string, collisions map[string]bool) string {
 	id := shortSessionID(sessionID)
 	if !collisions[id] {
 		return id
@@ -292,7 +324,44 @@ func evalTaskIDForSession(sessionID, branch string, collisions map[string]bool) 
 	if cleanBranch == "" {
 		cleanBranch = "branch"
 	}
-	return cleanBranch + ":" + id
+	return cleanBranch + ":" + id + ":" + evalTaskIDDisambiguator(sessionID, branch, transcriptPath)
+}
+
+func evalTaskIDDisambiguator(sessionID, branch, transcriptPath string) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{
+		strings.TrimSpace(branch),
+		strings.TrimSpace(sessionID),
+		filepath.ToSlash(strings.TrimSpace(transcriptPath)),
+	}, "\x00")))
+	return hex.EncodeToString(sum[:4])
+}
+
+func sourceLinesForSessionFacts(facts []factRecord, session exportSession) []int {
+	sessionID := strings.TrimSpace(session.SessionID)
+	transcript := filepath.ToSlash(strings.TrimSpace(session.TranscriptPath))
+	seen := map[int]struct{}{}
+	for _, fact := range facts {
+		for _, anchor := range fact.Provenance {
+			if anchor.Line <= 0 {
+				continue
+			}
+			anchorTranscript := filepath.ToSlash(strings.TrimSpace(anchor.Transcript))
+			switch {
+			case transcript != "" && anchorTranscript != "" && anchorTranscript == transcript:
+			case transcript == "" && sessionID != "" && strings.TrimSpace(anchor.SessionID) == sessionID:
+			case transcript != "" && anchorTranscript == "" && sessionID != "" && strings.TrimSpace(anchor.SessionID) == sessionID:
+			default:
+				continue
+			}
+			seen[anchor.Line] = struct{}{}
+		}
+	}
+	lines := make([]int, 0, len(seen))
+	for line := range seen {
+		lines = append(lines, line)
+	}
+	sort.Ints(lines)
+	return lines
 }
 
 func generateSessionEvalTasks(brainDir string, manifest *exportManifest, branch string, limit int) ([]evalTask, error) {
@@ -315,7 +384,7 @@ func generateSessionEvalTasks(brainDir string, manifest *exportManifest, branch 
 			continue
 		}
 		tasks = append(tasks, evalTask{
-			ID:                   evalTaskIDForSession(s.SessionID, resolvedBranch, idCollisions),
+			ID:                   evalTaskIDForSession(s.SessionID, resolvedBranch, s.TranscriptPath, idCollisions),
 			Task:                 request,
 			Branch:               resolvedBranch,
 			QueryType:            classifyQueryType(request, nil),
@@ -331,16 +400,17 @@ func generateSessionEvalTasks(brainDir string, manifest *exportManifest, branch 
 	return tasks, nil
 }
 
-// dedupeEvalTasks collapses tasks with the same normalized request (repeated
-// slash-command or templated sessions, e.g. "review the current branch", appear
-// many times), keeping the variant with the most relevant facts so the richest
-// labeling survives. This stops a few templated prompts from dominating the
-// benchmark.
+// dedupeEvalTasks collapses unanchored tasks with the same normalized request
+// (repeated slash-command or templated sessions, e.g. "review the current
+// branch", appear many times), keeping the variant with the most relevant facts
+// so the richest labeling survives. Source-anchored generated tasks include the
+// source in the dedupe key so two sessions with the same opening request do not
+// lose distinct provenance labels.
 func dedupeEvalTasks(tasks []evalTask) []evalTask {
 	index := map[string]int{}
 	var out []evalTask
 	for _, t := range tasks {
-		key := normalizeTaskText(t.Task)
+		key := evalTaskDedupeKey(t)
 		if i, ok := index[key]; ok {
 			if len(t.Relevant) > len(out[i].Relevant) {
 				out[i] = t
@@ -351,6 +421,19 @@ func dedupeEvalTasks(tasks []evalTask) []evalTask {
 		out = append(out, t)
 	}
 	return out
+}
+
+func evalTaskDedupeKey(t evalTask) string {
+	key := normalizeTaskText(t.Task)
+	if strings.TrimSpace(t.SourceTranscriptPath) == "" && strings.TrimSpace(t.SourceSessionID) == "" {
+		return key
+	}
+	return strings.Join([]string{
+		key,
+		strings.TrimSpace(t.Branch),
+		strings.TrimSpace(t.SourceSessionID),
+		filepath.ToSlash(strings.TrimSpace(t.SourceTranscriptPath)),
+	}, "\x00")
 }
 
 // normalizeTaskText is the dedupe key: lowercased, whitespace-collapsed, and

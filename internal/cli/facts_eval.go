@@ -21,7 +21,9 @@ import (
 // genuinely help the task (enables deterministic precision/recall for that
 // retriever). LabelSource records whether those labels are human/refined proof
 // labels or provenance/silver hints. Without proof labels, --judge has an agent
-// decide relevance per surfaced item.
+// decide relevance per surfaced item. SourceLines records retained provenance
+// anchor lines for source-match proxy checks; distilled facts currently inherit
+// the source chunk's first line unless the source provided a finer line anchor.
 type evalTask struct {
 	ID                   string   `json:"id"`
 	Task                 string   `json:"task"`
@@ -32,6 +34,7 @@ type evalTask struct {
 	LabelSource          string   `json:"label_source,omitempty"`
 	SourceSessionID      string   `json:"source_session_id,omitempty"`
 	SourceTranscriptPath string   `json:"source_transcript_path,omitempty"`
+	SourceLines          []int    `json:"source_lines,omitempty"`
 }
 
 // evalTaskResult is the per-task measurement. The headline metric is
@@ -932,20 +935,77 @@ func evalItemMatchesTaskSource(task evalTask, item evalRetrievedItem) bool {
 	sessionID := strings.TrimSpace(task.SourceSessionID)
 	transcript := filepath.ToSlash(strings.TrimSpace(task.SourceTranscriptPath))
 	if transcript == "" {
-		return sessionID != "" && strings.HasPrefix(item.ID, "raw:"+rawSessionIDToken(sessionID)+":")
+		if sessionID == "" || !strings.HasPrefix(item.ID, "raw:"+rawSessionIDToken(sessionID)+":") {
+			return false
+		}
+		return evalTaskSourceLinesOverlap(task, item)
 	}
 	path := filepath.ToSlash(strings.TrimSpace(item.Path))
-	if idx := strings.LastIndex(path, ":"); idx > 0 {
-		suffix := path[idx+1:]
-		if _, err := strconv.Atoi(suffix); err == nil {
-			path = path[:idx]
-		}
+	itemPath, _, _ := evalItemPathLineRange(path)
+	if itemPath != transcript {
+		return false
 	}
-	return path == transcript
+	return evalTaskSourceLinesOverlap(task, item)
 }
 
 func taskHasEvalSourceAnchor(task evalTask) bool {
 	return strings.TrimSpace(task.SourceSessionID) != "" || strings.TrimSpace(task.SourceTranscriptPath) != ""
+}
+
+func evalTaskSourceLinesOverlap(task evalTask, item evalRetrievedItem) bool {
+	if len(task.SourceLines) == 0 {
+		return true
+	}
+	start, end, ok := evalItemSourceLineRange(task, item)
+	if !ok {
+		return false
+	}
+	for _, line := range task.SourceLines {
+		if line >= start && line <= end {
+			return true
+		}
+	}
+	return false
+}
+
+func evalItemSourceLineRange(task evalTask, item evalRetrievedItem) (int, int, bool) {
+	if _, start, end, ok := rawSessionChunkRange(item.ID); ok {
+		return start, end, true
+	}
+	if strings.TrimSpace(task.SourceTranscriptPath) != "" {
+		path := filepath.ToSlash(strings.TrimSpace(item.Path))
+		if _, line, ok := evalItemPathLineRange(path); ok {
+			return line, line, true
+		}
+	}
+	return 0, 0, false
+}
+
+func rawSessionChunkRange(id string) (string, int, int, bool) {
+	parts := strings.Split(id, ":")
+	if len(parts) != 3 || parts[0] != "raw" {
+		return "", 0, 0, false
+	}
+	bounds := strings.Split(parts[2], "-")
+	if len(bounds) != 2 {
+		return "", 0, 0, false
+	}
+	start, err1 := strconv.Atoi(bounds[0])
+	end, err2 := strconv.Atoi(bounds[1])
+	if err1 != nil || err2 != nil || start <= 0 || end < start {
+		return "", 0, 0, false
+	}
+	return parts[1], start, end, true
+}
+
+func evalItemPathLineRange(path string) (string, int, bool) {
+	if idx := strings.LastIndex(path, ":"); idx > 0 {
+		suffix := path[idx+1:]
+		if line, err := strconv.Atoi(suffix); err == nil && line > 0 {
+			return path[:idx], line, true
+		}
+	}
+	return path, 0, false
 }
 
 // queryExpanderFunc maps a task query to extra retrieval terms; nil disables

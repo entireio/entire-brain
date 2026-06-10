@@ -439,6 +439,36 @@ func TestRawSessionSourceMatchRequiresCollisionSafeIDOrTranscript(t *testing.T) 
 	}
 }
 
+func TestSourceMatchRequiresAnchorLineOverlapWhenPresent(t *testing.T) {
+	sessionID := "session-with-lines"
+	task := evalTask{
+		ID:                   "t1",
+		Task:                 "find line",
+		SourceSessionID:      sessionID,
+		SourceTranscriptPath: "sessions/main/one.jsonl",
+		SourceLines:          []int{5},
+	}
+	if !evalItemMatchesTaskSource(task, evalRetrievedItem{ID: "history:one", Path: "sessions/main/one.jsonl:5"}) {
+		t.Fatal("matching transcript line should count as source evidence")
+	}
+	if evalItemMatchesTaskSource(task, evalRetrievedItem{ID: "history:one", Path: "sessions/main/one.jsonl:6"}) {
+		t.Fatal("same transcript but non-overlapping line should not count")
+	}
+	if evalItemMatchesTaskSource(task, evalRetrievedItem{ID: "history:one", Path: "sessions/main/two.jsonl:5"}) {
+		t.Fatal("matching line in another transcript should not count")
+	}
+	if !evalItemMatchesTaskSource(task, evalRetrievedItem{ID: "raw:" + rawSessionIDToken(sessionID) + ":1-9", Path: "sessions/main/one.jsonl:1"}) {
+		t.Fatal("raw-session chunk range should count when the anchor line is inside the chunk")
+	}
+	rawTask := evalTask{SourceSessionID: sessionID, SourceLines: []int{5}}
+	if !evalItemMatchesTaskSource(rawTask, evalRetrievedItem{ID: "raw:" + rawSessionIDToken(sessionID) + ":4-6"}) {
+		t.Fatal("raw-session chunk range should count when it overlaps the anchor line")
+	}
+	if evalItemMatchesTaskSource(rawTask, evalRetrievedItem{ID: "raw:" + rawSessionIDToken(sessionID) + ":6-8"}) {
+		t.Fatal("raw-session chunk range should not count when it misses the anchor line")
+	}
+}
+
 func TestJudgeCacheInvalidatesWhenRetrievedTextChanges(t *testing.T) {
 	cache := loadJudgeCache("")
 	task := evalTask{ID: "t1", Task: "check checkpoint setup"}

@@ -50,9 +50,10 @@ Implemented eval surfaces:
 - `entire brain facts eval --retriever facts|history|query|raw-sessions` compares
   facts, history, unified query, and preprocessed session chunk arms over the
   same task file.
-- Eval task JSON now accepts `source_session_id` and `source_transcript_path` so
-  preprocessed session baselines can cite retained source; generated task files
-  populate those fields.
+- Eval task JSON now accepts `source_session_id`, `source_transcript_path`, and
+  `source_lines` so preprocessed session baselines can cite retained source
+  anchors; generated task files populate those fields, and line anchors are
+  source-overlap proxies rather than proof labels.
 - The eval `query` arm is read-only and lexical inside the harness, so it does
   not write embedding caches or call an embedder while measuring baselines.
 - History and unified-query eval arms filter session-derived history by the

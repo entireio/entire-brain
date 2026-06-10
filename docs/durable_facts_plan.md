@@ -165,14 +165,16 @@ agent-only gate; without an agent there is no distillation (see below).
 ## Distillation Model
 
 Distillation is the engine behind `distill` and `refresh`. Its shape is chosen
-to bound cost and to make turn-level provenance free.
+to bound cost while retaining local source-chunk provenance.
 
 - **Unit: session, chunked by token budget.** The agent is given a
-  line-numbered transcript chunk for one session and emits facts, each citing
-  the source line offset. That line offset *is* the turn-level provenance — no
-  per-turn LLM call is needed. One agent invocation per chunk means a full
-  rebuild is on the order of the session count (~hundreds of calls), not the
-  turn count (tens of thousands).
+  line-numbered transcript chunk for one session and emits facts tied to the
+  retained source chunk. Today the stored line anchor is the source chunk's
+  starting line unless the source supplied a finer offset; it is useful for
+  local source overlap checks, but it is not cryptographic turn-level
+  verification. One agent invocation per chunk means a full rebuild is on the
+  order of the session count (~hundreds of calls), not the turn count (tens of
+  thousands).
 - **Agent required.** Distillation needs an explicit fact agent (`codex`,
   `claude-code`, `command`, or loopback `ollama`; `auto` chooses a local CLI
   when available). Use `distill --dry-run --json` for no-agent session,
@@ -238,8 +240,9 @@ Shipped beyond the original Phase A list, from the Appendix D fact-quality work:
 - `entire brain facts eval-gen [--refine] [--max-facts N]`, `facts eval
   [--judge] [--expand]`, and `facts eval-compare --a --b` — the retrieval
   evaluation harness: a provenance-labeled (optionally judge-refined) benchmark,
-  per-stratum precision/recall/useful-per-1k metrics, and a paired t-test with
-  Holm correction for honest A/Bs.
+  per-stratum precision/recall/useful-per-1k metrics when proof labels or judge
+  labels exist, source-match proxy metrics when explicitly allowed, and a paired
+  t-test with Holm correction for honest A/Bs.
 
 `entire brain verify` now performs local retained-source verification at the
 granularity available in the brain export: checkpoint/session/transcript/line
@@ -637,16 +640,17 @@ type factPathDef struct {
 
 Each `distill` fact records one or more `factAnchor`s at checkpoint granularity,
 drawn from the session manifest the brain already exports (`session_id`,
-`checkpoint_id`, `transcript_path`, and the line offset of the source turn within
-the transcript). Authored facts may also record the current commit when no
-session/checkpoint source is retained. The line offset is captured in Phase A
-even though the cryptographic turn anchor is not — so when Entire CLI change #1 lands,
-existing facts already point at the right turn. In Phase A `inspect blame`
-displays these anchors, `verify` checks retained local checkpoint/session/
-transcript sources where available, and `status`/`facts gc` flag facts whose
-commit is no longer reachable in local refs. There is no cryptographic turn
-tamper claim until Phase B adds signature-checked turn anchors, so the absence
-of turn-level signing never produces a false tamper signal.
+`checkpoint_id`, `transcript_path`, and a retained source line anchor within the
+preprocessed transcript chunk). Authored facts may also record the current
+commit when no session/checkpoint source is retained. The line anchor is
+retained in Phase A even though the cryptographic turn anchor is not; future
+turn signing can add/check finer turn IDs without changing the fact shape. In
+Phase A `inspect blame` displays these anchors, `verify` checks retained local
+checkpoint/session/transcript sources where available, and `status`/`facts gc`
+flag facts whose commit is no longer reachable in local refs. There is no
+cryptographic turn tamper claim until Phase B adds signature-checked turn
+anchors, so the absence of turn-level signing never produces a false tamper
+signal.
 
 ### Command-To-Type Mapping
 

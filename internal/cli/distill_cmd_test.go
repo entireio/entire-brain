@@ -25,6 +25,12 @@ import (
 func writeDistillFixture(t *testing.T, now time.Time) string {
 	t.Helper()
 	brainDir := t.TempDir()
+	writeDistillFixtureAt(t, brainDir, now)
+	return brainDir
+}
+
+func writeDistillFixtureAt(t *testing.T, brainDir string, now time.Time) {
+	t.Helper()
 	sessions := []exportSession{
 		{SessionID: "s1", Branch: "main", LatestCheckpoint: "cp1", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: now.Add(-2 * time.Hour)},
 		{SessionID: "s2", Branch: "feature", LatestCheckpoint: "cp2", TranscriptPath: "sessions/branches/feature/s2.jsonl", CreatedAt: now.Add(-1 * time.Hour)},
@@ -49,7 +55,6 @@ func writeDistillFixture(t *testing.T, now time.Time) string {
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
 		t.Fatal(err)
 	}
-	return brainDir
 }
 
 func TestRunDistillForBrainWritesFactsAndManifest(t *testing.T) {
@@ -327,6 +332,9 @@ func TestDistillDryRunCountsChunksWithoutAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dry run: %v", err)
 	}
+	if report.SchemaVersion != 1 {
+		t.Fatalf("schema_version = %d, want 1", report.SchemaVersion)
+	}
 	if report.Sessions != 2 || report.SessionsToDistill != 2 || report.Chunks != 2 {
 		t.Fatalf("unexpected dry-run counts: %+v", report)
 	}
@@ -342,6 +350,81 @@ func TestDistillDryRunCountsChunksWithoutAgent(t *testing.T) {
 	printDistillDryRunReport(cmd, report)
 	if !strings.Contains(out.String(), "largest sessions:") || !strings.Contains(out.String(), "sessions/main/s1.jsonl") {
 		t.Fatalf("human dry-run output missing largest sessions:\n%s", out.String())
+	}
+}
+
+func TestDistillDryRunCommandDoesNotProbeAutoAgent(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	repoDir := t.TempDir()
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "git@github.com:example/repo.git\n"},
+	}}
+	opts := Options{
+		Version: "test",
+		Env: EntireEnv{
+			RepoRoot:        repoDir,
+			PluginConfigDir: t.TempDir(),
+			PluginDataDir:   t.TempDir(),
+			PluginStateDir:  t.TempDir(),
+			PluginCacheDir:  t.TempDir(),
+		},
+		Runner: runner,
+		Now:    func() time.Time { return now },
+	}
+	storage, err := repoStoragePaths(context.Background(), runner, opts.Env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	writeDistillFixtureAt(t, storage.BrainDir, now)
+	runner.calls = nil
+
+	out, err := execute(t, NewRootCommand(opts), "distill", "--dry-run", "--json")
+	if err != nil {
+		t.Fatalf("distill dry-run: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, `"schema_version": 1`) {
+		t.Fatalf("dry-run JSON should include schema_version:\n%s", out)
+	}
+	for _, call := range runner.calls {
+		if call.name == "codex" || call.name == "claude" {
+			t.Fatalf("dry-run --agent auto should not probe hosted agent CLIs, got call %+v", call)
+		}
+	}
+}
+
+func TestDistillNoEgressRejectsHostedAgentsBeforeProbe(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
+	repoDir := t.TempDir()
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	for _, agent := range []string{"auto", "codex", "claude-code"} {
+		t.Run(agent, func(t *testing.T) {
+			runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+				fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+				fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "git@github.com:example/repo.git\n"},
+			}}
+			opts := Options{
+				Version: "test",
+				Env: EntireEnv{
+					RepoRoot:        repoDir,
+					PluginConfigDir: t.TempDir(),
+					PluginDataDir:   t.TempDir(),
+					PluginStateDir:  t.TempDir(),
+					PluginCacheDir:  t.TempDir(),
+				},
+				Runner: runner,
+				Now:    func() time.Time { return now },
+			}
+			out, err := execute(t, NewRootCommand(opts), "distill", "--agent", agent)
+			if err == nil || !strings.Contains(err.Error(), "no_egress") {
+				t.Fatalf("expected no_egress rejection for %s, got err=%v out=%s", agent, err, out)
+			}
+			for _, call := range runner.calls {
+				if call.name == "codex" || call.name == "claude" {
+					t.Fatalf("no-egress rejection should happen before hosted agent probes, got call %+v", call)
+				}
+			}
+		})
 	}
 }
 
@@ -1380,6 +1463,35 @@ func TestExecOllamaDistillAgentIgnoresProxyTransport(t *testing.T) {
 	}
 	if proxyCalls.Load() != 0 {
 		t.Fatalf("ollama distill consulted proxy %d times", proxyCalls.Load())
+	}
+}
+
+func TestExecOllamaDistillAgentIgnoresCustomTLSDialHook(t *testing.T) {
+	var tlsDialCalls atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"response":"project.local\tHTTPS loopback stayed local.\n"}`)
+	}))
+	defer server.Close()
+	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
+
+	originalTransport := http.DefaultTransport
+	baseTransport := server.Client().Transport.(*http.Transport).Clone()
+	baseTransport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		tlsDialCalls.Add(1)
+		return nil, fmt.Errorf("custom TLS dial hook should not be used for loopback ollama distill")
+	}
+	http.DefaultTransport = baseTransport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	out, err := execOllamaDistillAgent(context.Background(), t.TempDir(), []string{"ollama", "llama3.2", "system"}, []byte("input"), time.Second)
+	if err != nil {
+		t.Fatalf("ollama runner should ignore custom TLS dial hook: %v", err)
+	}
+	if !strings.Contains(out, "HTTPS loopback stayed local") {
+		t.Fatalf("unexpected output %q", out)
+	}
+	if tlsDialCalls.Load() != 0 {
+		t.Fatalf("ollama distill consulted custom TLS dial hook %d times", tlsDialCalls.Load())
 	}
 }
 

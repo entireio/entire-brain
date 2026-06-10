@@ -25,7 +25,7 @@ func rejectAgentForNoEgress(agent string) error {
 	}
 	switch agent {
 	case "codex", "claude-code", "command", "auto":
-		return fmt.Errorf("no_egress: --agent %s can send selected brain context outside local loopback; use --agent none, --agent ollama, or unset ENTIRE_BRAIN_NO_EGRESS/ENTIRE_BRAIN_LOCAL_ONLY", agent)
+		return fmt.Errorf("no_egress: --agent %s can send selected brain context outside local loopback; use --agent ollama for local loopback models, --agent none where supported, or unset ENTIRE_BRAIN_NO_EGRESS/ENTIRE_BRAIN_LOCAL_ONLY", agent)
 	default:
 		return nil
 	}

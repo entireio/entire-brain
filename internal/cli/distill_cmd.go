@@ -248,9 +248,6 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	if err != nil {
 		return err
 	}
-	if distillOpts.agent == "auto" {
-		distillOpts.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
-	}
 	if distillOpts.dryRun {
 		report, err := buildDistillDryRunReport(storage.BrainDir, distillOpts, opts.Now().UTC())
 		if err != nil {
@@ -261,6 +258,12 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		}
 		printDistillDryRunReport(cmd, report)
 		return nil
+	}
+	if err := rejectAgentForNoEgress(distillOpts.agent); err != nil {
+		return err
+	}
+	if distillOpts.agent == "auto" {
+		distillOpts.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
 	}
 	if distillOpts.agent == "none" {
 		return errors.New("distillation requires an agent (codex or claude-code); none found on PATH")
@@ -1325,6 +1328,8 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 	}
 	tr.Proxy = nil
 	tr.DialContext = loopbackOnlyDialContext
+	tr.DialTLS = nil
+	tr.DialTLSContext = nil
 	client := &http.Client{
 		Timeout:   timeout,
 		Transport: tr,
