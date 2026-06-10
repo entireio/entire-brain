@@ -37,11 +37,11 @@
       ],
       "ran_tests": true,
       "saw_index_locked": false,
-      "search_calls": 4,
+      "search_calls": 8,
       "search_commands": [
         "rg"
       ],
-      "structured_tool_event_count": 18,
+      "structured_tool_event_count": 20,
       "test_commands": [
         "go test"
       ],
@@ -53,7 +53,7 @@
       {
         "attempt": 1,
         "returncode": 0,
-        "seconds": 85.15187096595764,
+        "seconds": 90.92238092422485,
         "transient_failure_reason": null
       }
     ],
@@ -81,20 +81,20 @@
       "id": "codex-gpt-5.4-mini-low",
       "model": "gpt-5.4-mini"
     },
-    "seconds": 85.15594720840454,
+    "seconds": 90.92546796798706,
     "stderr_bytes": 39,
     "stderr_tail": "Reading additional input from stdin...\n",
-    "stdout_bytes": 87827,
-    "stdout_tail": "entire/cli/strategy/manual_commit_test.go:1887:func TestSaveStep_EmptyBaseCommit_Recovery(t *testing.T) {\\ncmd/entire/cli/strategy/manual_commit_test.go:1919:\\t// Create a partial session state with empty BaseCommit\\ncmd/entire/cli/strategy/manual_commit_test.go:1920:\\t// (simulates a partial session state with empty BaseCommit)\\ncmd/entire/cli/strategy/manual_commit_test.go:1923:\\t\\tBaseCommit: \\\"\\\", // Empty! This is the bug scenario\\ncmd/entire/cli/strategy/manual_commit_test.go:1954:\\t\\tt.Fatalf(\\\"SaveStep() should recover from empty BaseCommit, got error: %v\\\", err)\\ncmd/entire/cli/strategy/manual_commit_test.go:1957:\\t// Verify session state now has a valid BaseCommit\\ncmd/entire/cli/strategy/manual_commit_test.go:1962:\\tif loaded.BaseCommit == \\\"\\\" {\\ncmd/entire/cli/strategy/manual_commit_test.go:1963:\\t\\tt.Error(\\\"BaseCommit should be populated after recovery\\\")\\ncmd/entire/cli/strategy/manual_commit_test.go:2039:// ctx.AgentType when a partial session state exists (empty BaseCommit and AgentType).\\ncmd/entire/cli/strategy/manual_commit_test.go:2068:\\t// Create partial session state with empty BaseCommit and no AgentType\\ncmd/entire/cli/strategy/manual_commit_test.go:2071:\\t\\tBaseCommit: \\\"\\\",\\ncmd/entire/cli/strategy/manual_commit_test.go:2552:\\t\\tBaseCommit:            initialHash.String(),\\ncmd/entire/cli/strategy/manual_commit_test.go:2553:\\t\\tAttributionBaseCommit: initialHash.String(),\\ncmd/entire/cli/strategy/manual_commit_test.go:2714:\\t\\tBaseCommit:            initialHash.String(),\\ncmd/entire/cli/strategy/manual_commit_test.go:2715:\\t\\tAttributionBaseCommit: initialHash.String(),\\ncmd/entire/cli/strategy/manual_commit_test.go:3300:\\t\\tBaseCommit:     head.Hash().String(),\\ncmd/entire/cli/strategy/manual_commit_test.go:3773:\\t\\tBaseCommit:                initialHash.String(),\\ncmd/entire/cli/strategy/manual_commit_test.go:3897:\\t\\tBaseCommit:     initialHash.String(),\\ncmd/entire/cli/strategy/manual_commit_test.go:4014:\\t\\tBaseCommit:     initialHash.String(),\\ncmd/entire/cli/strategy/manual_commit_test.go:4253:\\tstate.BaseCommit = headRef.Hash().String()[:7]\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_13\",\"type\":\"agent_message\",\"text\":\"The first test run hit a Go build cache permission issue in the sandbox, not a code failure. I\u2019m rerunning the same focused test with an explicit writable cache so we can validate the regression fix cleanly.\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_14\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc 'GOCACHE=[local-temp] go test ./cmd/entire/cli/strategy -run TestPostCommit_NoTrailer_UpdatesBaseCommit -count=1'\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_14\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc 'GOCACHE=[local-temp] go test ./cmd/entire/cli/strategy -run TestPostCommit_NoTrailer_UpdatesBaseCommit -count=1'\",\"aggregated_output\":\"ok  \\tgithub.com/entireio/cli/cmd/entire/cli/strategy\\t0.559s\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_15\",\"type\":\"agent_message\",\"text\":\"Updated the normal-commit post-commit paths so advancing `BaseCommit` also realigns `AttributionBaseCommit` via `State.RealignAttributionBase(newHead)`.\\n\\nChanged:\\n- [cmd/entire/cli/strategy/manual_commit_hooks.go]([repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1/worktree/cmd/entire/cli/strategy/manual_commit_hooks.go)\\n\\nValidation:\\n- `GOCACHE=[local-temp] go test ./cmd/entire/cli/strategy -run TestPostCommit_NoTrailer_UpdatesBaseCommit -count=1` passed\\n\\n\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":296752,\"cached_input_tokens\":252800,\"output_tokens\":2834,\"reasoning_output_tokens\":533}}\n",
+    "stdout_bytes": 97814,
+    "stdout_tail": "nned for correct attribution.\\ncmd/entire/cli/strategy/manual_commit_migration.go:50:\\t// checkpoint. Update both BaseCommit and AttributionBaseCommit to HEAD.\\ncmd/entire/cli/strategy/manual_commit_migration.go:58:\\t// AttributionBaseCommit and corrupt attribution for uncondensed work.\\ncmd/entire/cli/strategy/manual_commit_migration.go:152:\\t// NOTE: AttributionBaseCommit is intentionally NOT updated here. Migration\\ncmd/entire/cli/strategy/manual_commit_attribution_test.go:1628:\\t\\t\\tAttributionBaseCommit: strings.Repeat(\\\"b\\\", 40),\\ncmd/entire/cli/strategy/manual_commit_attribution_test.go:1634:\\t\\t\\tAttributionBaseCommit: strings.Repeat(\\\"d\\\", 40),\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_11\",\"type\":\"agent_message\",\"text\":\"I found the stale-attribution update path: it updates `BaseCommit` in the no-trailer post-commit flow, but it does not always realign `AttributionBaseCommit` when HEAD moves. I\u2019m patching that shared invariant in both hook helpers and then I\u2019ll run the focused regression test.\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_12\",\"type\":\"file_change\",\"changes\":[{\"path\":\"[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/mcp_history_r2/worktree/cmd/entire/cli/strategy/manual_commit_hooks.go\",\"kind\":\"update\"}],\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_12\",\"type\":\"file_change\",\"changes\":[{\"path\":\"[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/mcp_history_r2/worktree/cmd/entire/cli/strategy/manual_commit_hooks.go\",\"kind\":\"update\"}],\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_13\",\"type\":\"agent_message\",\"text\":\"The code change is in place. The first test run hit the sandboxed Go build cache, so I\u2019m rerunning the same single regression test with a writable local `GOCACHE` to get an actual result.\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_14\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc 'mkdir -p [local-temp] && GOCACHE=[local-temp] go test ./cmd/entire/cli/strategy -run TestPostCommit_NoTrailer_UpdatesBaseCommit -count=1'\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_14\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc 'mkdir -p [local-temp] && GOCACHE=[local-temp] go test ./cmd/entire/cli/strategy -run TestPostCommit_NoTrailer_UpdatesBaseCommit -count=1'\",\"aggregated_output\":\"ok  \\tgithub.com/entireio/cli/cmd/entire/cli/strategy\\t0.676s\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_15\",\"type\":\"agent_message\",\"text\":\"Updated the no-trailer post-commit path so that whenever `BaseCommit` advances, `AttributionBaseCommit` is realigned too.\\n\\nChanged:\\n- [cmd/entire/cli/strategy/manual_commit_hooks.go]([repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/mcp_history_r2/worktree/cmd/entire/cli/strategy/manual_commit_hooks.go)\\n- Added `state.RealignAttributionBase(newHead)` in both BaseCommit update helpers, including the no-trailer commit hook path.\\n\\nValidation:\\n- `GOCACHE=[local-temp] go test ./cmd/entire/cli/strategy -run TestPostCommit_NoTrailer_UpdatesBaseCommit -count=1` passed.\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":486650,\"cached_input_tokens\":443264,\"output_tokens\":2946,\"reasoning_output_tokens\":493}}\n",
     "transient_retries": 0,
     "usage": {
       "cache_creation_tokens": 0,
       "cache_read_tokens": 0,
       "cost_source": null,
       "cost_usd": null,
-      "input_tokens": 296752,
-      "output_tokens": 2834,
-      "total_tokens": 299586,
+      "input_tokens": 486650,
+      "output_tokens": 2946,
+      "total_tokens": 489596,
       "turns": null
     }
   },
@@ -117,7 +117,7 @@
       "enabled": true,
       "hit": true,
       "key": "4d9e713a8bb8125da6065743",
-      "source_worktree": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T173958Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1/worktree"
+      "source_worktree": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T173958Z/mcp_history_r1/worktree"
     },
     "commands": [],
     "condition": "mcp_history",
@@ -129,7 +129,7 @@
     }
   },
   "brain_state": {
-    "brain_dir": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1/worktree/.benchmark/plugin/data/repos/gh/entireio/cli",
+    "brain_dir": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/mcp_history_r2/worktree/.benchmark/plugin/data/repos/gh/entireio/cli",
     "manifest": {
       "has_checkpoints": false,
       "has_history": true,
@@ -145,7 +145,7 @@
     "path_command": {
       "returncode": 0,
       "stderr_tail": "",
-      "stdout_tail": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1/worktree/.benchmark/plugin/data/repos/gh/entireio/cli\n"
+      "stdout_tail": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/mcp_history_r2/worktree/.benchmark/plugin/data/repos/gh/entireio/cli\n"
     },
     "semantic": {
       "branch": "master",
@@ -260,7 +260,7 @@
     "shortstat": "1 file changed, 2 insertions(+)",
     "untracked_files": []
   },
-  "finished_at": "2026-06-10T18:14:55.980910+00:00",
+  "finished_at": "2026-06-10T18:17:01.045371+00:00",
   "mcp_condition_audit": {
     "direct_brain_cli_calls": 0,
     "findings": [],
@@ -292,8 +292,8 @@
   "ok": true,
   "post_brain_setup_applied": false,
   "provenance": {
-    "captured_at": "2026-06-10T18:12:58.977164+00:00",
-    "fingerprint": "df714bbe45a365c26ed3475fcaca02cd79bba5d0c5f76a9977d96195d2aeef77",
+    "captured_at": "2026-06-10T18:14:56.396988+00:00",
+    "fingerprint": "a8f1d864c0aabab70687a97b190e9c0d5bd7ce09600c3f65124527efbdf19e48",
     "harness": {
       "dirty": {
         "available": true,
@@ -330,7 +330,7 @@
         "BENCH_RADAR_LOCATION_ONLY": "1",
         "BENCH_REGRESSION_RADAR": null
       },
-      "fingerprint": "3429a1753c84037bed575050b9ca17b87a132a6ef21d7486a42cb3e7fa4b23a4",
+      "fingerprint": "4b74a716cb7742a9c1de993a3327cb10e172ef6a39c02bf1b6db62e1d058e4d2",
       "panel": {
         "config_sha256": "d19bd0d68ebf07ebe8d37f8f5f15928f7e21ae241e6a23264f015a4ede233a43",
         "name": "release-entire-cli-radar-mcp-manual-attribution-deletions",
@@ -340,7 +340,7 @@
         "file": null,
         "inline_sha256": null
       },
-      "repetition": 1,
+      "repetition": 2,
       "requested": {
         "agents": "",
         "conditions": "no_brain,mcp_history",
@@ -357,7 +357,7 @@
         "model": "gpt-5.4-mini"
       },
       "stop_after_no_brain_score": null,
-      "suite": "release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2",
+      "suite": "release-candidate-cli-radar-mcp-del-20260610-r2",
       "timeout": 1800,
       "workspace_name": null
     },
@@ -414,28 +414,28 @@
     "tools": {
       "bin": {
         "exists": true,
-        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/bin"
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/bin"
       },
       "brain": {
         "exists": true,
-        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/bin/entire-brain",
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/bin/entire-brain",
         "sha256": "7dd5264a7a8aa836371fe6f942d9efb62935282182a5782c860297895889fb72"
       },
       "entire": {
         "exists": true,
-        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/bin/entire",
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/bin/entire",
         "sha256": "0cb4e43aa5197b7c9205b318158dc8d7449bc779031b794bb0beedaf91b2af0d"
       },
       "sem": {
         "exists": true,
-        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/bin/entire-sem",
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/bin/entire-sem",
         "sha256": "e8ef3a2c2c1a04e76f6bf995dd1aa11ad9c4357279d45cc7a35716332af3b96d"
       }
     }
   },
-  "repetition": 1,
+  "repetition": 2,
   "repo": "entire-cli",
-  "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1",
+  "run_id": "mcp_history_r2",
   "runner": {
     "agent": "codex",
     "effort": "low",
@@ -446,7 +446,7 @@
     "brain_use": 3,
     "details": {
       "activity_source": "protocol_json",
-      "agent_seconds": 85.15594720840454,
+      "agent_seconds": 90.92546796798706,
       "brain_commands": [],
       "changed_file_count": 1,
       "checked_diff": false,
@@ -480,9 +480,9 @@
       ],
       "missing_expected_files": [],
       "ran_tests": true,
-      "search_calls": 4,
-      "structured_tool_event_count": 18,
-      "total_tokens": 299586,
+      "search_calls": 8,
+      "structured_tool_event_count": 20,
+      "total_tokens": 489596,
       "unexpected_files_touched": [],
       "validation_count": 1,
       "validation_passed": 1
@@ -494,7 +494,7 @@
     "validation_discipline": 8,
     "version": 2
   },
-  "started_at": "2026-06-10T18:12:58.969075+00:00",
+  "started_at": "2026-06-10T18:14:56.387302+00:00",
   "task_id": "entireio-cli-radar-manual-attribution-deletions",
   "validation": {
     "ok": true,
@@ -502,11 +502,11 @@
       {
         "command": "go test ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommitNoTrailerRealignsAttributionBaseHidden' -count=1",
         "returncode": 0,
-        "seconds": 3.777862071990967,
+        "seconds": 3.8866770267486572,
         "stderr_tail": "",
-        "stdout_tail": "ok  \tgithub.com/entireio/cli/cmd/entire/cli/strategy\t0.601s\n"
+        "stdout_tail": "ok  \tgithub.com/entireio/cli/cmd/entire/cli/strategy\t0.638s\n"
       }
     ]
   },
-  "worktree": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1/worktree"
+  "worktree": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/mcp_history_r2/worktree"
 }

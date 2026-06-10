@@ -180,7 +180,7 @@
         "model": "gpt-5.4-mini"
       },
       "stop_after_no_brain_score": null,
-      "suite": "release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2",
+      "suite": "release-candidate-cli-radar-mcp-del-20260610-r2",
       "timeout": 1800,
       "workspace_name": null
     },
@@ -237,28 +237,28 @@
     "tools": {
       "bin": {
         "exists": true,
-        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/bin"
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/bin"
       },
       "brain": {
         "exists": true,
-        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/bin/entire-brain",
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/bin/entire-brain",
         "sha256": "7dd5264a7a8aa836371fe6f942d9efb62935282182a5782c860297895889fb72"
       },
       "entire": {
         "exists": true,
-        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/bin/entire",
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/bin/entire",
         "sha256": "0cb4e43aa5197b7c9205b318158dc8d7449bc779031b794bb0beedaf91b2af0d"
       },
       "sem": {
         "exists": true,
-        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/bin/entire-sem",
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/bin/entire-sem",
         "sha256": "e8ef3a2c2c1a04e76f6bf995dd1aa11ad9c4357279d45cc7a35716332af3b96d"
       }
     }
   },
   "repetition": 3,
   "repo": "entire-cli",
-  "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r3",
+  "run_id": "no_brain_r3",
   "runner": {
     "agent": "codex",
     "effort": "low",
@@ -308,9 +308,9 @@
         "returncode": 1,
         "seconds": 3.8992421627044678,
         "stderr_tail": "",
-        "stdout_tail": "2026/06/10 14:11:27 INFO created shadow branch and committed changes component=checkpoint shadow_branch=entire/f1c153b-e3b0c4\n2026/06/10 14:11:27 INFO checkpoint saved component=checkpoint strategy=manual-commit checkpoint_type=session checkpoint_count=1 modified_files=1 new_files=0 deleted_files=0 shadow_branch=entire/f1c153b-e3b0c4 branch_created=true\n--- FAIL: TestPostCommit_NoTrailer_UpdatesBaseCommit (0.15s)\n    mid_turn_commit_test.go:254: \n        \tError Trace:\t[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r3/worktree/cmd/entire/cli/strategy/mid_turn_commit_test.go:254\n        \tError:      \tNot equal: \n        \t            \texpected: \"8ae619460e874e400f9b5b3e04cb0c0c012ebb81\"\n        \t            \tactual  : \"f1c153bba47cece17cfc0076c8ccbbd0f0ea6d51\"\n        \t            \t\n        \t            \tDiff:\n        \t            \t--- Expected\n        \t            \t+++ Actual\n        \t            \t@@ -1 +1 @@\n        \t            \t-8ae619460e874e400f9b5b3e04cb0c0c012ebb81\n        \t            \t+f1c153bba47cece17cfc0076c8ccbbd0f0ea6d51\n        \tTest:       \tTestPostCommit_NoTrailer_UpdatesBaseCommit\n        \tMessages:   \tBaseCommit should be updated to new HEAD even when commit has no trailer\n2026/06/10 14:11:27 INFO created shadow branch and committed changes component=checkpoint shadow_branch=entire/f1c153b-e3b0c4\n2026/06/10 14:11:27 INFO checkpoint saved component=checkpoint strategy=manual-commit checkpoint_type=session checkpoint_count=1 modified_files=1 new_files=0 deleted_files=0 shadow_branch=entire/f1c153b-e3b0c4 branch_created=true\n--- FAIL: TestPostCommitNoTrailerRealignsAttributionBaseHidden (0.06s)\n    no_trailer_realign_hidden_test.go:75: BaseCommit = f1c153bba47cece17cfc0076c8ccbbd0f0ea6d51, want 8ae619460e874e400f9b5b3e04cb0c0c012ebb81\nFAIL\nFAIL\tgithub.com/entireio/cli/cmd/entire/cli/strategy\t0.667s\nFAIL\n"
+        "stdout_tail": "2026/06/10 14:11:27 INFO created shadow branch and committed changes component=checkpoint shadow_branch=entire/f1c153b-e3b0c4\n2026/06/10 14:11:27 INFO checkpoint saved component=checkpoint strategy=manual-commit checkpoint_type=session checkpoint_count=1 modified_files=1 new_files=0 deleted_files=0 shadow_branch=entire/f1c153b-e3b0c4 branch_created=true\n--- FAIL: TestPostCommit_NoTrailer_UpdatesBaseCommit (0.15s)\n    mid_turn_commit_test.go:254: \n        \tError Trace:\t[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/no_brain_r3/worktree/cmd/entire/cli/strategy/mid_turn_commit_test.go:254\n        \tError:      \tNot equal: \n        \t            \texpected: \"8ae619460e874e400f9b5b3e04cb0c0c012ebb81\"\n        \t            \tactual  : \"f1c153bba47cece17cfc0076c8ccbbd0f0ea6d51\"\n        \t            \t\n        \t            \tDiff:\n        \t            \t--- Expected\n        \t            \t+++ Actual\n        \t            \t@@ -1 +1 @@\n        \t            \t-8ae619460e874e400f9b5b3e04cb0c0c012ebb81\n        \t            \t+f1c153bba47cece17cfc0076c8ccbbd0f0ea6d51\n        \tTest:       \tTestPostCommit_NoTrailer_UpdatesBaseCommit\n        \tMessages:   \tBaseCommit should be updated to new HEAD even when commit has no trailer\n2026/06/10 14:11:27 INFO created shadow branch and committed changes component=checkpoint shadow_branch=entire/f1c153b-e3b0c4\n2026/06/10 14:11:27 INFO checkpoint saved component=checkpoint strategy=manual-commit checkpoint_type=session checkpoint_count=1 modified_files=1 new_files=0 deleted_files=0 shadow_branch=entire/f1c153b-e3b0c4 branch_created=true\n--- FAIL: TestPostCommitNoTrailerRealignsAttributionBaseHidden (0.06s)\n    no_trailer_realign_hidden_test.go:75: BaseCommit = f1c153bba47cece17cfc0076c8ccbbd0f0ea6d51, want 8ae619460e874e400f9b5b3e04cb0c0c012ebb81\nFAIL\nFAIL\tgithub.com/entireio/cli/cmd/entire/cli/strategy\t0.667s\nFAIL\n"
       }
     ]
   },
-  "worktree": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r3/worktree"
+  "worktree": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/no_brain_r3/worktree"
 }

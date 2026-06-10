@@ -560,7 +560,7 @@ Codex audit and feeds that into the Radar report, so release-candidate rows show
 whether the MCP server actually handled the named Radar tool and completed it.
 This keeps a stale promotable pilot from hiding a failed promoted rerun. The
 retained Radar release proof is
-`release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2`:
+`release-candidate-cli-radar-mcp-del-20260610-r2`:
 no-brain passed 2/4, `mcp_history` passed 4/4, mean score improved 73.0 ->
 92.5, mean tokens dropped 811,466.5 -> 408,947.75, mean search calls dropped
 11.5 -> 6.0, and the comparison is `proof_ready` with stability tag

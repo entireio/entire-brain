@@ -27,9 +27,9 @@
 ## Per-suite
 | Suite | Records | Flagged | Provenance OK | Status |
 |---|---:|---:|---:|---|
+| release-candidate-cli-radar-mcp-del-20260610-r2 | 8 | 0 | 8 | PASS |
 | release-candidate-entire-brain-schema-contract-20260610T0115Z | 8 | 0 | 8 | PASS |
 | release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress | 8 | 0 | 8 | PASS |
-| release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2 | 8 | 0 | 8 | PASS |
 
 ## Flagged records (detail)
 None. All audited records passed independent re-checks.

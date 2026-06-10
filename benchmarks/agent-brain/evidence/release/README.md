@@ -59,7 +59,7 @@ Current retained proof:
   correctness/pass-rate claim only; its older retained `mcp-server.log` files
   prove server `tools/call` counts but do not include named `tool:` lines, so it
   is not named-tool MCP proof. The MCP arm used more time and tokens.
-- `release-candidate-entire-cli-radar-mcp-manual-attribution-deletions-tool-result-20260610T175442Z-rerun2`:
+- `release-candidate-cli-radar-mcp-del-20260610-r2`:
   one deletion-attribution Radar task, 4 repetitions per side, audited with 0
   hard flags, 8/8 provenance-backed records, 4 MCP-verified condition records,
   4 server-named `brain_regressions` records, and 4 completed `tool_result`
