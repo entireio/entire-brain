@@ -842,6 +842,34 @@ func TestChunkPrefetchLookaheadBoundedByConsumption(t *testing.T) {
 	}
 }
 
+func TestChunkPrefetchConcurrencyOneIsLazyAndSequential(t *testing.T) {
+	// concurrency<=1 must reproduce the original behavior exactly: one agent
+	// process at a time, calls made lazily on consumption — a chunk the
+	// consumer never asks about (e.g. after an abort) costs nothing.
+	chunks := make([]transcriptChunk, 8)
+	for i := range chunks {
+		chunks[i] = transcriptChunk{StartLine: i + 1, EndLine: i + 1, Text: "x"}
+	}
+	calls := 0
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return "", errors.New("agent down")
+	}
+	prefetch := startChunkPrefetch(context.Background(), run, t.TempDir(), nil, chunks, time.Minute, 1)
+	for i := 0; i < 3; i++ {
+		if _, err := prefetch.result(i); err == nil {
+			t.Fatal("expected agent error")
+		}
+		if calls != i+1 {
+			t.Fatalf("sequential mode made %d calls after consuming %d results; calls must be lazy", calls, i+1)
+		}
+	}
+	prefetch.stop()
+	if calls != 3 {
+		t.Errorf("sequential mode launched %d calls for 3 consumed chunks; chunks 4-8 must never run", calls)
+	}
+}
+
 func TestRunDistillForBrainFlushesIncrementally(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := writeDistillFixture(t, now) // s1 (main, older) then s2 (feature)

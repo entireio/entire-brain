@@ -90,17 +90,28 @@ type agentCallResult struct {
 // stuck behind one slow result). stop() cancels unlaunched and in-flight
 // calls; the per-chunk result channels are buffered so abandoned workers can
 // deliver and exit without a reader.
+//
+// Note the consumer's reconcile agent call runs OUTSIDE the pool, so peak
+// concurrent agent processes is concurrency+1. With concurrency <= 1 there is
+// no pool at all: result(i) runs the agent call inline and lazily — strictly
+// one agent process at a time, and no call is ever made for a chunk the
+// consumer never asks about (e.g. after an abort) — exactly the original
+// sequential behavior.
 type chunkPrefetcher struct {
 	results []chan agentCallResult
 	sem     chan struct{}
 	cancel  context.CancelFunc
+	// seq, when set, replaces the pool: result(i) invokes it inline.
+	seq func(i int) (string, error)
 }
 
 func startChunkPrefetch(ctx context.Context, run distillAgentRunner, dir string, args []string, chunks []transcriptChunk, timeout time.Duration, concurrency int) *chunkPrefetcher {
-	if concurrency < 1 {
-		concurrency = 1
-	}
 	pctx, cancel := context.WithCancel(ctx)
+	if concurrency <= 1 {
+		return &chunkPrefetcher{cancel: cancel, seq: func(i int) (string, error) {
+			return run(pctx, dir, args, []byte(chunks[i].Text), timeout)
+		}}
+	}
 	p := &chunkPrefetcher{results: make([]chan agentCallResult, len(chunks)), sem: make(chan struct{}, concurrency), cancel: cancel}
 	for i := range p.results {
 		p.results[i] = make(chan agentCallResult, 1)
@@ -129,6 +140,9 @@ func startChunkPrefetch(ctx context.Context, run distillAgentRunner, dir string,
 // result blocks until chunk i's agent call completes and returns its output,
 // releasing the call's pool slot so the dispatcher may launch the next chunk.
 func (p *chunkPrefetcher) result(i int) (string, error) {
+	if p.seq != nil {
+		return p.seq(i)
+	}
 	r := <-p.results[i]
 	if r.holdsSlot {
 		<-p.sem
@@ -150,8 +164,9 @@ type distillCommandOptions struct {
 	confidenceThreshold float64
 	model               string
 	effort              string
-	// concurrency is the distill agent-call pool size; <=0 means sequential
-	// (the zero value keeps tests and library callers on the old behavior).
+	// concurrency is the distill agent-call pool size; <=1 means strictly
+	// sequential, lazy agent calls (the zero value keeps tests and library
+	// callers on the old behavior). See chunkPrefetcher for the pool semantics.
 	concurrency int
 	// flushEvery overrides distillFlushCallInterval when >0 (tests use 1 to
 	// observe mid-run persistence).
@@ -215,7 +230,7 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().Float64Var(&distillOpts.confidenceThreshold, "confidence", defaultFactConfidenceThreshold, "Minimum agent confidence to auto-apply a merge/supersede; below this it is queued for review")
 	cmd.Flags().StringVar(&distillOpts.model, "model", "", "Override the agent model for codex/claude-code (e.g. a fast/cheap model like gpt-5.4-mini)")
 	cmd.Flags().StringVar(&distillOpts.effort, "effort", "", "Override the reasoning effort for codex/claude-code (e.g. low) — pairs with --model for a cheap run")
-	cmd.Flags().IntVar(&distillOpts.concurrency, "concurrency", defaultDistillConcurrency, "Distill agent calls to run in flight at once (1 = sequential)")
+	cmd.Flags().IntVar(&distillOpts.concurrency, "concurrency", defaultDistillConcurrency, "Distill agent calls to run in flight at once (1 = strictly sequential; higher values may add one concurrent reconcile call)")
 	return cmd
 }
 
