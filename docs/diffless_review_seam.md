@@ -63,10 +63,10 @@ The contract is implemented and covered locally: CLI and MCP tests exercise
 `brain_workspace_review`, including `location_only` checks that preserve the
 file/line while not leaking expected/current fix values.
 
-Release evidence is not retained yet. The committed
-`release-entire-cli-radar-mcp-review-base-scope` panel is the reproducible lane:
-it sets `BENCH_RADAR_LOCATION_ONLY=1`, runs `no_brain` vs `mcp_history`, and is
-intended to graduate only if the independent audit sees zero hard flags,
+Release evidence is partially retained. The committed
+`release-entire-cli-radar-mcp-review-base-scope` panel is the reproducible Radar
+lane: it sets `BENCH_RADAR_LOCATION_ONLY=1`, runs `no_brain` vs `mcp_history`,
+and is intended to graduate only if the independent audit sees zero hard flags,
 MCP-verified records, and a proof-ready `mcp_radar_location_only` comparison.
 The committed
 `release-entire-cli-workspace-radar-mcp-transcript-reresolve` panel exercises
@@ -76,7 +76,10 @@ non-saturated regression task is found.
 For non-radar MCP-history proof, the committed
 `release-entire-cli-mcp-manual-attribution` panel targets a harder manual-commit
 attribution invariant where the brain should provide historical localization and
-the agent still has to repair the code.
+the agent still has to repair the code. Its retained
+`release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress` suite is
+now citable as MCP-history correctness/pass-rate evidence, not Radar or
+efficiency evidence.
 
 ## Consumer 1 — `entire review` (cli; prototyped, not landed)
 

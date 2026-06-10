@@ -395,6 +395,14 @@ Release claims must stay local-first and evidence-backed:
   attribution-base invariant and requires `mcp_history` to surface the prior
   `RealignAttributionBase(newHead)` behavior without handing over hidden
   validation or expected text.
+- Retained MCP evidence now includes
+  `release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress` under
+  `benchmarks/agent-brain/evidence/release`: no-brain passed 1/4, `mcp_history`
+  passed 4/4, mean score improved `76.25 -> 92.0`, stability was
+  `brain_positive_stable`, and the independent audit found 4 MCP-verified
+  records with zero hard flags. This is citable as an MCP correctness/pass-rate
+  proof, not an efficiency proof, because the MCP arm used more mean time and
+  tokens.
 - The query default-limit benchmark tasks now target the current unified
   retrieval implementation in `internal/cli/retrieve_cmd.go`, including the
   QMD-style `-n` alias, instead of the old semantic-query implementation.
@@ -452,20 +460,18 @@ repo/access/artifacts are available:
 - Paired `entire brain facts eval --retriever facts|history|query|raw-sessions`
   runs over the same labeled or explicitly proxy-allowed task set, same task
   hash, and same brain manifest hash.
-- MCP/Regression Radar release evidence from a clean retained run of
+- Regression Radar release evidence from a clean retained run of
   `release-entire-cli-radar-mcp-review-base-scope` or
-  `release-entire-cli-workspace-radar-mcp-transcript-reresolve`, plus MCP-history
-  evidence from `release-entire-cli-mcp-manual-attribution`. Local pilots are
-  useful for calibration, but a citable claim needs 4 repetitions per side,
-  MCP-verified records, the appropriate proof scope (`mcp`, `mcp_radar_location_only`,
-  or `mcp_workspace_radar_location_only`), zero hard flags, and committed
-  sanitized artifacts under `benchmarks/agent-brain/evidence/release`. Local
-  2026-06-10 single-repo radar pilots with `codex:gpt-5.4-mini:low` and
-  `:medium` were both saturated on pass rate (`1.0 -> 1.0`) and therefore not
-  release proof, despite large token/time reductions in the MCP/radar arm. A
-  deletion-aware transcript radar calibration also saturated (`no_brain` mean
-  95.5, MCP/radar mean 95.0), so the next retained run should start with the
-  harder manual-attribution MCP panel before spending more radar repetitions.
+  `release-entire-cli-workspace-radar-mcp-transcript-reresolve`. Local pilots
+  are useful for calibration, but a citable Radar claim still needs 4
+  repetitions per side, MCP-verified records, the appropriate proof scope
+  (`mcp_radar_location_only` or `mcp_workspace_radar_location_only`), zero hard
+  flags, and committed sanitized artifacts under
+  `benchmarks/agent-brain/evidence/release`. Local 2026-06-10 single-repo radar
+  pilots with `codex:gpt-5.4-mini:low` and `:medium` were both saturated on pass
+  rate (`1.0 -> 1.0`) and therefore not release proof, despite large token/time
+  reductions in the MCP/radar arm. A deletion-aware transcript radar
+  calibration also saturated (`no_brain` mean 95.5, MCP/radar mean 95.0).
 - Semantic benchmark evidence from a retained proof suite. A clean local
   `semantic-audit --json --fail-on release` run after refreshing the semantic
   index is recorded above, but it is regenerated local coverage evidence, not a
@@ -483,8 +489,8 @@ repo/access/artifacts are available:
   overall, at least one proof-ready comparison per retained suite, and at least
   one proof-ready comparison for each manifest-required proof scope. Manifests
   can also require a minimum count of integrity-verified MCP datapoints. The
-  committed release lane currently requires the `history` scope only, so it
-  cannot be cited as semantic, MCP/radar, or facts proof by aggregation. The
+  committed release lane currently requires `history` and `mcp` scopes, so it
+  cannot be cited as semantic, Radar, or facts proof by aggregation. The
   check writes reports to a temp directory and compares them with committed
   reports; updating retained reports is explicit via
   `mise run release:evidence:update`.

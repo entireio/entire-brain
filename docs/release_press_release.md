@@ -39,9 +39,9 @@ task outcomes instead of relying on demos or anecdotes.
   comparisons with shared labels or explicit proxy-comparison opt-in.
 - Semantic usefulness, using semantic-audit output plus benchmark tasks where
   semantic context changes file/test localization or agent efficiency.
-- More replay-lab evidence beyond the first retained focused history proof,
-  using repeated benchmark scenarios, stable verdicts, and committed
-  `audit_codex.py --fail-on-flags` reports.
+- More replay-lab evidence beyond the first retained focused history and
+  MCP-history proofs, using repeated benchmark scenarios, stable verdicts, and
+  committed `audit_codex.py --fail-on-flags` reports.
 
 ## Blocked Or Access-Dependent
 
@@ -71,13 +71,14 @@ task outcomes instead of relying on demos or anecdotes.
   eval harness, benchmark harness.
 - Proven locally: semantic audit coverage after refresh on this checkout,
   distill dry-run sizing, facts-eval baseline plumbing and evidence validator,
-  local QMD-inspired retrieval contract tests, and one retained replay-lab
-  history proof where `full_brain` improved the task score/pass-rate over
-  `no_brain` without proving efficiency gains.
+  local QMD-inspired retrieval contract tests, one retained replay-lab history
+  proof where `full_brain` improved the task score/pass-rate over `no_brain`,
+  and one retained MCP-history proof where `mcp_history` improved pass rate
+  1/4 -> 4/4 on a manual-attribution regression without proving efficiency
+  gains.
 - Pending proof: target large-repo distill timing, paired facts evals,
-  MCP retained proof on harder history regressions, Regression Radar retained
-  proof (single-repo and workspace-radar), semantic usefulness, and broader
-  retained replay-lab benchmark evidence.
+  Regression Radar retained proof (single-repo and workspace-radar), semantic
+  usefulness, and broader retained replay-lab benchmark evidence.
 - Blocked: target large-repo evidence, backend/Slack access, turn signing,
   checkpoint-time fact generation.
 - Future: distributed/shared brain, team artifact hydration, multi-agent write
