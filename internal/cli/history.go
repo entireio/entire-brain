@@ -39,7 +39,13 @@ const (
 	// removed. The request-kind gates/filtering are kept as defensive support for
 	// stale indexes; bumping discards per-file scan caches that still hold request
 	// records so they stop reappearing on refresh.
-	historyScanCacheVersion = 3
+	// v4: RE-introduce request extraction (wrapper-filtered, via
+	// transcriptUserText). Two Phase 2 consumers reopened the v3 closed
+	// question with new evidence: `brief --handoff` needs each session's
+	// opening request and the history eval's midtask stratum mines follow-up
+	// questions as queries. The v3 noise concern is unchanged and unaffected:
+	// both rankers still exclude kind=request from general ranking.
+	historyScanCacheVersion = 4
 )
 
 type historySourceManifest struct {
@@ -532,7 +538,31 @@ func scanDocumentHistoryFile(f *os.File, rel string) (records []historyRecord, i
 	return records, true, nil
 }
 
+// extractHistoryJSONFragments returns the indexable fragments of one
+// transcript record: the kind-specific extraction (decisions, validations,
+// tool calls, …) plus — when the record is a real user turn — a
+// "user_prompt" fragment that classifies as a request record.
+//
+// Request records were extracted in scan-cache v2, removed in v3 ("measured
+// noise in general ranking, and no surface queried them"), and re-introduced
+// in v4: two Phase 2 consumers now need them — `brief --handoff` (a session's
+// opening request) and the history eval's midtask stratum (follow-up
+// questions as queries). The v3 noise concern remains addressed the way it
+// always was: both rankers exclude kind=request from general ranking; the
+// records exist for trajectory surfaces, not retrieval.
 func extractHistoryJSONFragments(obj map[string]any) []historyFragment {
+	fragments := extractHistoryRecordFragments(obj)
+	// transcriptUserText handles all four transcript dialects (codex
+	// response_item/event_msg, Claude user, pi message); wrapper injections
+	// (environment context, caveats) are filtered with the same predicate
+	// every other request consumer uses.
+	if text := strings.TrimSpace(transcriptUserText(obj)); text != "" && !isWrapperRequest(text) {
+		fragments = append(fragments, historyFragment{Text: text, Source: "user_prompt"})
+	}
+	return fragments
+}
+
+func extractHistoryRecordFragments(obj map[string]any) []historyFragment {
 	recordType := jsonString(obj["type"])
 	payload := jsonMap(obj["payload"])
 	switch recordType {
@@ -741,6 +771,11 @@ func classifyHistoryFragment(fragment historyFragment) []string {
 	tool := strings.HasPrefix(fragment.Source, "tool_call")
 	validationTool := tool && !strings.Contains(fragment.Source, "apply_patch")
 	kinds := map[string]struct{}{}
+	if fragment.Source == "user_prompt" {
+		// Request records: excluded from general ranking (measured noise);
+		// consumed by trajectory surfaces (handoff, midtask eval mining).
+		return []string{"request"}
+	}
 	if fragment.Source == "tool_result_fact" {
 		kinds["code_fact"] = struct{}{}
 	}
