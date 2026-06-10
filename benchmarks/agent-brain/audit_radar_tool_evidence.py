@@ -21,6 +21,8 @@ CLAIM_SCOPE = "mcp_radar_tool_contract"
 
 REQUIRED_TESTS = [
     "TestRegressionDetectsChangedOperand",
+    "TestRegressionChangedOperandReportsMissingHintedFileDespiteIntactPeer",
+    "TestRegressionChangedOperandReportsEachRegressedHintedFile",
     "TestInspectRegressionsCommandJSONAndLocationOnly",
     "TestRegressionDeletionIsOptIn",
     "TestRegressionDeletionRanksCallLocusWithHistoryFileHint",
@@ -28,6 +30,8 @@ REQUIRED_TESTS = [
     "TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer",
     "TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol",
     "TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite",
+    "TestRegressionAssignmentDeletionReportsSameNameReceiverMethods",
+    "TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction",
     "TestRegressionDedupeRankPrefersBoostedCallDeletion",
     "TestMCPInitializeAndToolsList",
     "TestMCPToolsListIncludesRegressions",
@@ -43,6 +47,7 @@ REQUIRED_TESTS = [
     "TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites",
     "TestMCPBrainReviewTool",
     "TestMCPBrainWorkspaceReviewTool",
+    "TestMCPBrainWorkspaceRegressionsDeletionLocationOnlyAndReviewRedaction",
     "TestMCPBrainWorkspaceToolRequiresWorkspace",
     "TestMCPInitializeEchoesClientProtocolVersion",
     "TestMCPInitializeSupportsJSONLineFraming",
@@ -57,6 +62,8 @@ REQUIRED_TESTS = [
     "TestMCPBrainStaleUsesEnvRepoRoot",
     "TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain",
     "TestWorkspaceRegressionsSkipsUnsafeRepo",
+    "TestWorkspaceRegressionsSkipsUnsafeSessionsOnlyRepo",
+    "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint",
 ]
 
 

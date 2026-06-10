@@ -26,13 +26,12 @@ import (
 //	         (e.g. scopeBaseRef+"..HEAD"  ->  "master..HEAD").
 //	deleted: history asserts an assignment whose target contains <id> (e.g.
 //	         `state.TranscriptPath = resolved`) and that assignment is now absent EVERYWHERE in
-//	         the candidate files, though the identifier still lives in the tree.
+//	         the candidate locus/file, though the identifier still lives in the tree.
 //
 // It reads RAW sessions (inspectBrainRawText), not the index, because the indexed Summary
-// collapses code to prose; the precise invariant survives only in raw text. Presence is checked
-// GLOBALLY across the candidate files (an assignment that simply lives in a different file is not
-// a regression) — a finding is emitted only when history asserts something the current code does
-// not contain anywhere.
+// collapses code to prose; the precise invariant survives only in raw text. History file hints
+// keep multi-locus checks local, so an intact peer file/site cannot mask a nearby regressed site.
+// Unhinted fallbacks stay conservative and global to avoid noisy deletion claims.
 
 const (
 	regressionMaxFileBytes = 1 << 20
@@ -73,10 +72,11 @@ type regressionDetectorOptions struct {
 }
 
 type changeSignal struct {
-	id      string // lowercased identifier
-	operand string // distinctive operand, lowercased+despaced (e.g. `..head`)
-	raw     string // human-readable asserted expression
-	ev      string // session path:line
+	id      string   // lowercased identifier
+	operand string   // distinctive operand, lowercased+despaced (e.g. `..head`)
+	raw     string   // human-readable asserted expression
+	ev      string   // session path:line
+	hints   []string // code files named on the same history line as the asserted invariant
 }
 
 type deleteSignal struct {
@@ -283,7 +283,7 @@ func regressionScanHistory(brainDir string, ids []string) ([]changeSignal, []del
 	var changes []changeSignal
 	var deletes []deleteSignal
 	files := map[string]struct{}{}
-	seenC := map[string]struct{}{}
+	seenC := map[string]int{}
 	seenD := map[string]int{}
 	scanned := 0
 	_ = filepath.WalkDir(brainDir, func(path string, d fs.DirEntry, err error) error {
@@ -331,13 +331,17 @@ func regressionScanHistory(brainDir string, ids []string) ([]changeSignal, []del
 				ex := normalizeHistoryTextForExcerpt(line)
 				ev := relSlash + ":" + strconv.Itoa(lineNo)
 				c, dl := regressionExtractSignals(id, ex, ev)
+				hints := regressionLineFileHints(line)
 				for _, s := range c {
-					if _, ok := seenC[s.id+"|"+s.operand]; !ok {
-						seenC[s.id+"|"+s.operand] = struct{}{}
+					s.hints = hints
+					k := s.id + "|" + s.operand
+					if idx, ok := seenC[k]; ok {
+						changes[idx].hints = mergeRegressionHints(changes[idx].hints, hints)
+					} else {
+						seenC[k] = len(changes)
 						changes = append(changes, s)
 					}
 				}
-				hints := regressionLineFileHints(line)
 				for _, s := range dl {
 					s.hints = hints
 					k := s.target + "|" + s.rhs
@@ -446,18 +450,24 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 
 	// "invariant still holds" check — must use the SAME comment/test filter as the emit loop, or a
 	// stale comment/test copy of `operand+id` would falsely suppress a real regression (false negative).
-	anyLineBoth := func(a, b string) bool {
-		for _, f := range files {
-			if f.isTest {
+	fileLineBoth := func(f candFile, a, b string) bool {
+		if f.isTest {
+			return false
+		}
+		for i, n := range f.norm {
+			if regressionIsComment(f.lines[i]) {
 				continue
 			}
-			for i, n := range f.norm {
-				if regressionIsComment(f.lines[i]) {
-					continue
-				}
-				if strings.Contains(n, a) && strings.Contains(n, b) {
-					return true
-				}
+			if strings.Contains(n, a) && strings.Contains(n, b) {
+				return true
+			}
+		}
+		return false
+	}
+	anyLineBoth := func(a, b string) bool {
+		for _, f := range files {
+			if fileLineBoth(f, a, b) {
+				return true
 			}
 		}
 		return false
@@ -476,18 +486,30 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 	var anomalies []regressionAnomaly
 
 	for _, c := range dedupeChanges(changes) {
-		if anyLineBoth(c.operand, c.id) {
-			continue // invariant still holds somewhere
-		}
 		// Likely-rename guard: if the operand is still concatenated to SOME identifier
 		// (`<ident> + "...operand..."`, structure preserved), the invariant is intact under a renamed
 		// symbol, not regressed — only flag when the operand now sits in a bare/hardcoded literal.
 		renameRe := regexp.MustCompile(`[a-z_][a-z0-9_]*\s*\+\s*"[^"]*` + regexp.QuoteMeta(c.operand))
+		hinted := map[string]struct{}{}
+		for _, h := range c.hints {
+			hinted[filepath.Clean(h)] = struct{}{}
+		}
+		if len(hinted) == 0 && anyLineBoth(c.operand, c.id) {
+			continue // invariant still holds somewhere, and history did not name per-file loci
+		}
+		found := false
 		for _, f := range files { // locate the swap: operand present, identifier gone
+			if len(hinted) > 0 {
+				if _, ok := hinted[f.clean]; !ok {
+					continue
+				}
+				if fileLineBoth(f, c.operand, c.id) {
+					continue // this hinted file still holds the invariant; do not let it mask peers
+				}
+			}
 			if f.isTest {
 				continue // a test's `..HEAD` is not the regressed implementation site
 			}
-			found := false
 			for i, n := range f.norm {
 				if regressionIsComment(f.lines[i]) {
 					continue // prose mentions of a range like `main...HEAD` are not the regression
@@ -506,7 +528,7 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 					break
 				}
 			}
-			if found {
+			if found && len(hinted) == 0 {
 				break
 			}
 		}
@@ -685,7 +707,9 @@ func regressionMissingAssignmentHomes(files []candFile, d deleteSignal) []regres
 
 func regressionAssignmentCandidateHomes(f candFile, d deleteSignal) []regressionHome {
 	var homes []regressionHome
-	seenSymbol := map[string]struct{}{}
+	seenLine := map[int]struct{}{}
+	var preferredLines []int
+	var rhsLines []int
 	collect := func(needle string) {
 		if needle == "" {
 			return
@@ -694,16 +718,32 @@ func regressionAssignmentCandidateHomes(f candFile, d deleteSignal) []regression
 			if !strings.Contains(n, needle) || regressionIsComment(f.lines[i]) {
 				continue
 			}
-			symbol := regressionEnclosingSymbol(f.lines, i+1)
-			key := symbol
-			if key == "" {
-				key = "line:" + strconv.Itoa(i+1)
-			}
-			if _, ok := seenSymbol[key]; ok {
+			if len(regressionFunctionPattern.FindStringSubmatch(strings.TrimSpace(f.lines[i]))) == 2 {
 				continue
 			}
-			seenSymbol[key] = struct{}{}
-			homes = append(homes, regressionHome{file: f.clean, line: i + 1, current: strings.TrimSpace(f.lines[i])})
+			line := i + 1
+			if needle == d.id {
+				if regressionNearbyCandidateSeenInSameSymbol(f.lines, preferredLines, line, 2) {
+					continue
+				}
+			}
+			if needle == d.rhs {
+				if regressionNearbyCandidateSeenInSameSymbol(f.lines, preferredLines, line, 2) ||
+					regressionNearbyCandidateSeenInSameSymbol(f.lines, rhsLines, line, 2) {
+					continue
+				}
+			}
+			if _, ok := seenLine[line]; ok {
+				continue
+			}
+			seenLine[line] = struct{}{}
+			if needle == d.id {
+				preferredLines = append(preferredLines, line)
+			}
+			if needle == d.rhs {
+				rhsLines = append(rhsLines, line)
+			}
+			homes = append(homes, regressionHome{file: f.clean, line: line, current: strings.TrimSpace(f.lines[i])})
 		}
 	}
 	collect(d.id)
@@ -713,9 +753,29 @@ func regressionAssignmentCandidateHomes(f candFile, d deleteSignal) []regression
 
 func regressionAssignmentHomeHas(f candFile, line int, needle string) bool {
 	if _, _, ok := regressionEnclosingSymbolRange(f.lines, line); ok {
-		return regressionSymbolHas(f, line, needle)
+		return regressionWindowHas(f, line-1, needle, 2)
 	}
 	return regressionWindowHas(f, line-1, needle, 8)
+}
+
+func regressionNearbyCandidateSeenInSameSymbol(src []string, lines []int, line, radius int) bool {
+	start, end, ok := regressionEnclosingSymbolRange(src, line)
+	for _, seen := range lines {
+		if seen < line-radius || seen > line+radius {
+			continue
+		}
+		seenStart, seenEnd, seenOK := regressionEnclosingSymbolRange(src, seen)
+		if ok && seenOK && (start != seenStart || end != seenEnd) {
+			continue
+		}
+		if ok != seenOK {
+			continue
+		}
+		if ok || !seenOK {
+			return true
+		}
+	}
+	return false
 }
 
 func regressionForwardWindowHas(f candFile, center int, needle string, radius int) bool {

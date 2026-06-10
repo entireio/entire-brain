@@ -105,6 +105,41 @@ func TestRegressionDetectsChangedOperand(t *testing.T) {
 	}
 }
 
+func TestRegressionChangedOperandReportsMissingHintedFileDespiteIntactPeer(t *testing.T) {
+	session := `{"text":"pkg/a.go and pkg/b.go should keep the range as scopeBaseRef+\"..HEAD\""}`
+	intact := "package x\nfunc a(scopeBaseRef string) string {\n\treturn scopeBaseRef + \"..HEAD\"\n}\n"
+	regressed := "package x\nfunc b() string {\n\treturn \"master..HEAD\"\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/a.go", intact)
+	if err := os.WriteFile(filepath.Join(repoRoot, "pkg", "b.go"), []byte(regressed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false)
+	if len(an) != 1 || an[0].Kind != "changed" || an[0].File != "pkg/b.go" {
+		t.Fatalf("expected only regressed hinted file b.go despite intact peer, got %+v", an)
+	}
+}
+
+func TestRegressionChangedOperandReportsEachRegressedHintedFile(t *testing.T) {
+	session := `{"text":"pkg/a.go and pkg/b.go should keep the range as scopeBaseRef+\"..HEAD\""}`
+	regressed := "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/a.go", regressed)
+	if err := os.WriteFile(filepath.Join(repoRoot, "pkg", "b.go"), []byte(regressed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false)
+	var files []string
+	for _, a := range an {
+		if a.Kind == "changed" {
+			files = append(files, a.File)
+		}
+	}
+	if len(files) != 2 || files[0] != "pkg/a.go" || files[1] != "pkg/b.go" {
+		t.Fatalf("expected changed findings for both hinted files, got files=%v anomalies=%+v", files, an)
+	}
+}
+
 func TestRegressionBenignRenameNotFlagged(t *testing.T) {
 	// scopeBaseRef renamed to baseRef everywhere; the invariant is intact (`<ident> + "..HEAD"`).
 	// The detector must NOT report a rename as a regression (the audit's conf-0.85 false positive).
@@ -348,6 +383,40 @@ func TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite(t *t
 	}
 	if deleted[0].Line != 8 {
 		t.Fatalf("expected missing site to land on miss resolved line 8, got %+v", deleted[0])
+	}
+}
+
+func TestRegressionAssignmentDeletionReportsSameNameReceiverMethods(t *testing.T) {
+	session := `{"text":"pkg/resolver.go must set state.TranscriptPath = resolved so later reads work"}`
+	body := "package x\nfunc (a *Alpha) Resolve(state *State) string {\n\tresolved := computeA()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc (b *Beta) Resolve(state *State) string {\n\tresolved := computeB()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolver.go", body)
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
+	var lines []int
+	for _, a := range an {
+		if a.Kind == "deleted" && a.File == "pkg/resolver.go" {
+			lines = append(lines, a.Line)
+		}
+	}
+	if len(lines) != 2 || lines[0] != 4 || lines[1] != 9 {
+		t.Fatalf("same-name receiver methods must each get a missing assignment finding, got lines=%v anomalies=%+v", lines, an)
+	}
+}
+
+func TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction(t *testing.T) {
+	session := `{"text":"pkg/resolve_transcript.go must set state.TranscriptPath = resolved so later reads work"}`
+	body := "package x\nfunc resolveBoth(state *State) string {\n\t{\n\t\tresolved := computeA()\n\t\tstate.TranscriptPath = resolved\n\t}\n\t{\n\t\tresolved := computeB()\n\t\treturn resolved\n\t}\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
+	var deleted []regressionAnomaly
+	for _, a := range an {
+		if a.Kind == "deleted" && a.File == "pkg/resolve_transcript.go" {
+			deleted = append(deleted, a)
+		}
+	}
+	if len(deleted) != 1 || deleted[0].Line != 8 {
+		t.Fatalf("expected only the second same-function locus to be missing, got %+v", an)
 	}
 }
 

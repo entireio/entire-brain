@@ -429,11 +429,11 @@ func TestMCPBrainWorkspaceReviewTool(t *testing.T) {
 
 	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
 	regressed := "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
-	repoA := writeWorkspaceBrainRepo(t, env, "gh/example/repoa", session, "pkg/review_context.go", regressed)
+	repoA, repoAKey := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/review_context.go", regressed)
 	manifest := workspaceManifest{
 		SchemaVersion: workspaceSchemaVersion,
 		Name:          "related",
-		Repos:         []workspaceRepo{{RepoKey: "gh/example/repoa", Name: "a", LocalPathHint: repoA}},
+		Repos:         []workspaceRepo{{RepoKey: repoAKey, Name: "a", LocalPathHint: repoA}},
 	}
 	if err := writeWorkspaceManifest(env, manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
@@ -454,19 +454,64 @@ func TestMCPBrainWorkspaceReviewTool(t *testing.T) {
 		}
 	}
 	callData, _ := json.Marshal(responses[1])
-	for _, want := range []string{"diff-less", "Suspected regression", "review_context.go", "gh/example/repoa"} {
+	for _, want := range []string{"diff-less", "Suspected regression", "review_context.go", repoAKey} {
 		if !strings.Contains(string(callData), want) {
 			t.Fatalf("brain_workspace_review result missing %q: %s", want, callData)
 		}
 	}
 	regData, _ := json.Marshal(responses[2])
-	for _, want := range []string{"review_context.go", "gh/example/repoa", "anomalies"} {
+	for _, want := range []string{"review_context.go", repoAKey, "anomalies"} {
 		if !strings.Contains(string(regData), want) {
 			t.Fatalf("brain_workspace_regressions result missing %q: %s", want, regData)
 		}
 	}
 	if strings.Contains(string(regData), "master..HEAD") || strings.Contains(string(regData), `scopeBaseRef+`) {
 		t.Fatalf("brain_workspace_regressions location_only leaked expected/current values: %s", regData)
+	}
+}
+
+func TestMCPBrainWorkspaceRegressionsDeletionLocationOnlyAndReviewRedaction(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
+
+	session := `{"text":"pkg/resolve.go must set state.TranscriptPath = resolved so later reads work"}`
+	body := "package x\nfunc resolve(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
+	repoA, repoAKey := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/resolve.go", body)
+	if err := writeWorkspaceManifest(env, workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos:         []workspaceRepo{{RepoKey: repoAKey, Name: "a", LocalPathHint: repoA}},
+	}); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_workspace_regressions","arguments":{"workspace":"related","query":"fix TranscriptPath resolved","include_deletions":true,"location_only":true}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_workspace_review","arguments":{"workspace":"related","query":"fix TranscriptPath resolved","include_deletions":true,"location_only":true}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	regData, _ := json.Marshal(responses[0])
+	for _, want := range []string{"resolve.go", repoAKey, "anomalies", "location only"} {
+		if !strings.Contains(string(regData), want) {
+			t.Fatalf("brain_workspace_regressions deletion result missing %q: %s", want, regData)
+		}
+	}
+	if strings.Contains(string(regData), "state.TranscriptPath = resolved") || strings.Contains(string(regData), "_ = state.TranscriptPath") {
+		t.Fatalf("brain_workspace_regressions location_only leaked expected/current values: %s", regData)
+	}
+	reviewData, _ := json.Marshal(responses[1])
+	for _, want := range []string{"resolve.go", repoAKey, "diff-less", "Suspected regression"} {
+		if !strings.Contains(string(reviewData), want) {
+			t.Fatalf("brain_workspace_review deletion result missing %q: %s", want, reviewData)
+		}
+	}
+	for _, forbidden := range []string{"state.TranscriptPath = resolved", "_ = state.TranscriptPath", "history shows"} {
+		if strings.Contains(string(reviewData), forbidden) {
+			t.Fatalf("brain_workspace_review location_only leaked %q: %s", forbidden, reviewData)
+		}
 	}
 }
 

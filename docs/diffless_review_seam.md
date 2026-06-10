@@ -67,9 +67,10 @@ Release evidence is partially retained. The current citable Radar evidence is
 deterministic tool-contract proof under
 `benchmarks/agent-brain/evidence/radar-tool`: focused local tests cover
 location-only redaction, deletion opt-in, anchored call deletion, hinted
-assignment deletion across multiple loci, symbol-scoped same-file masking
-protection, workspace Radar, strict MCP argument validation, branch-aware QMD
-retrieval over MCP, and safe `tool_result` logging.
+changed/deleted loci across multiple files, same-name and same-function
+assignment-deletion sites, unsafe workspace pairing skips, workspace Radar,
+strict MCP argument validation, branch-aware QMD retrieval over MCP, and safe
+`tool_result` logging.
 Older Radar agent-lift evidence was pruned because it lacked the newer
 server-side completion proof, and fresh panels saturated or were noisy on the
 no-brain baseline. There is currently no retained Radar pass-rate lift proof.
@@ -129,7 +130,9 @@ Radar proof also records only safe MCP boolean arguments (`location_only`,
 would-be location-only proof that actually called the wrong mode without
 retaining query text. New records also embed the deletion-policy bit in record
 provenance, so future audits do not infer required Radar arguments from today's
-task file contents.
+task file contents. The live harness audit now checks deletion-shaped Radar
+tasks for `include_deletions: true` too, so bad calls are visible in the run
+record before the retained-evidence audit.
 For non-radar MCP-history proof, the committed
 `release-entire-cli-mcp-manual-attribution` panel targets a harder manual-commit
 attribution invariant where the brain should provide historical localization and

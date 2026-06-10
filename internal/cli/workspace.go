@@ -593,12 +593,6 @@ func workspaceRepoKeyMismatch(registered, hint string) bool {
 	if registered == hint {
 		return false
 	}
-	// repoStorageKey falls back to local/<hash> when a temp test repo or local
-	// worktree has no parseable origin remote. That is not a known mismatch for a
-	// remote-key workspace entry; it is merely not independently verifiable.
-	if !strings.HasPrefix(registered, "local/") && strings.HasPrefix(hint, "local/") {
-		return false
-	}
 	return true
 }
 

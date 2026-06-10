@@ -1,4 +1,5 @@
 import argparse
+import copy
 import hashlib
 import importlib.util
 import json
@@ -493,6 +494,36 @@ class RunnerAndConditionTests(unittest.TestCase):
         finally:
             del os.environ["BENCH_RADAR_LOCATION_ONLY"]
 
+    def test_radar_mcp_history_audit_requires_deletion_argument_for_deletion_tasks(self):
+        os.environ["BENCH_RADAR_LOCATION_ONLY"] = "1"
+        task = {"radar_include_deletions": True}
+        runner = run.parse_runner_spec("codex:gpt-5.4-mini:low")
+        try:
+            missing_deletions = {
+                "mcp": {"enabled": True},
+                "activity": {
+                    "mcp_tool_calls": 1,
+                    "mcp_tool_names": ["mcp__entire_brain__brain_regressions"],
+                    "mcp_tool_details": [
+                        {
+                            "name": "mcp__entire_brain__brain_regressions",
+                            "arguments": {"location_only": True},
+                            "errored": False,
+                        }
+                    ],
+                },
+            }
+            audit = run.mcp_condition_audit("mcp_history", missing_deletions, runner, task)
+            self.assertFalse(audit["ok"])
+            self.assertIn("include_deletions", [finding.get("argument") for finding in audit["findings"]])
+
+            ok_info = copy.deepcopy(missing_deletions)
+            ok_info["activity"]["mcp_tool_details"][0]["arguments"]["include_deletions"] = True
+            ok = run.mcp_condition_audit("mcp_history", ok_info, runner, task)
+            self.assertTrue(ok["ok"], ok)
+        finally:
+            del os.environ["BENCH_RADAR_LOCATION_ONLY"]
+
     def test_radar_prompt_can_request_deletion_signals(self):
         task = {
             "id": "task",
@@ -594,6 +625,21 @@ class RunnerAndConditionTests(unittest.TestCase):
             },
         )
         self.assertTrue(workspace_ok["ok"], workspace_ok)
+        workspace_deletion_missing = run.mcp_condition_audit(
+            "mcp_workspace_radar",
+            {
+                "mcp": {"enabled": True},
+                "activity": {
+                    "mcp_tool_calls": 1,
+                    "mcp_tool_names": ["mcp__entire_brain__brain_workspace_regressions"],
+                    "mcp_tool_details": [{"name": "mcp__entire_brain__brain_workspace_regressions", "arguments": {"location_only": True}, "errored": False}],
+                    "direct_brain_cli_calls": 0,
+                },
+            },
+            task={"radar_include_deletions": True},
+        )
+        self.assertFalse(workspace_deletion_missing["ok"])
+        self.assertIn("include_deletions", [finding.get("argument") for finding in workspace_deletion_missing["findings"]])
         workspace_missing = run.mcp_condition_audit(
             "mcp_workspace_radar",
             {

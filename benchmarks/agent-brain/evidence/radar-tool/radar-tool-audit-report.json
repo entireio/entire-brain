@@ -11,6 +11,7 @@
       "TestMCPBrainRegressionsTool",
       "TestMCPBrainReviewTool",
       "TestMCPBrainStaleUsesEnvRepoRoot",
+      "TestMCPBrainWorkspaceRegressionsDeletionLocationOnlyAndReviewRedaction",
       "TestMCPBrainWorkspaceReviewTool",
       "TestMCPBrainWorkspaceToolRequiresWorkspace",
       "TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools",
@@ -33,16 +34,22 @@
       "TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite",
       "TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol",
       "TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer",
+      "TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction",
+      "TestRegressionAssignmentDeletionReportsSameNameReceiverMethods",
+      "TestRegressionChangedOperandReportsEachRegressedHintedFile",
+      "TestRegressionChangedOperandReportsMissingHintedFileDespiteIntactPeer",
       "TestRegressionDedupeRankPrefersBoostedCallDeletion",
       "TestRegressionDeletionIsOptIn",
       "TestRegressionDeletionRanksCallLocusWithHistoryFileHint",
       "TestRegressionDeletionReportsEachMissingAnchoredCallSite",
       "TestRegressionDetectsChangedOperand",
       "TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain",
-      "TestWorkspaceRegressionsSkipsUnsafeRepo"
+      "TestWorkspaceRegressionsSkipsUnsafeRepo",
+      "TestWorkspaceRegressionsSkipsUnsafeSessionsOnlyRepo",
+      "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint"
     ],
     "path": "go-test-internal-cli-radar.jsonl",
-    "sha256": "sha256:2115f026f3a65a7adbb169b4c1d5fb5dae6c0a37ecb49a554d27bbfb98168216"
+    "sha256": "sha256:c14c1bf20182cf46d9b564d7c91fda9245980d73939c247dfbbdcf1c8e9fb3e9"
   },
   "claim_scope": "mcp_radar_tool_contract",
   "errors": [],
@@ -55,6 +62,8 @@
   "ok": true,
   "required_tests": [
     "TestRegressionDetectsChangedOperand",
+    "TestRegressionChangedOperandReportsMissingHintedFileDespiteIntactPeer",
+    "TestRegressionChangedOperandReportsEachRegressedHintedFile",
     "TestInspectRegressionsCommandJSONAndLocationOnly",
     "TestRegressionDeletionIsOptIn",
     "TestRegressionDeletionRanksCallLocusWithHistoryFileHint",
@@ -62,6 +71,8 @@
     "TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer",
     "TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol",
     "TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite",
+    "TestRegressionAssignmentDeletionReportsSameNameReceiverMethods",
+    "TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction",
     "TestRegressionDedupeRankPrefersBoostedCallDeletion",
     "TestMCPInitializeAndToolsList",
     "TestMCPToolsListIncludesRegressions",
@@ -77,6 +88,7 @@
     "TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites",
     "TestMCPBrainReviewTool",
     "TestMCPBrainWorkspaceReviewTool",
+    "TestMCPBrainWorkspaceRegressionsDeletionLocationOnlyAndReviewRedaction",
     "TestMCPBrainWorkspaceToolRequiresWorkspace",
     "TestMCPInitializeEchoesClientProtocolVersion",
     "TestMCPInitializeSupportsJSONLineFraming",
@@ -90,9 +102,11 @@
     "TestMCPRejectsOversizedAndNegativeFrames",
     "TestMCPBrainStaleUsesEnvRepoRoot",
     "TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain",
-    "TestWorkspaceRegressionsSkipsUnsafeRepo"
+    "TestWorkspaceRegressionsSkipsUnsafeRepo",
+    "TestWorkspaceRegressionsSkipsUnsafeSessionsOnlyRepo",
+    "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint"
   ],
   "schema": 1,
-  "source_head": "4b5edaabdecadcdfef0a875a3692596c6a144b56",
+  "source_head": "006f5e369f984a7c7e25bd7dcc2473a18c7d3337",
   "warnings": []
 }

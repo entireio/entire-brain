@@ -1159,7 +1159,42 @@ def activity_has_mcp_call_with_args(activity: dict[str, Any], tool: str, require
     return False
 
 
-def mcp_condition_audit(condition: str, agent_info: dict[str, Any], runner: "RunnerSpec | None" = None) -> dict[str, Any]:
+def missing_mcp_call_args(activity: dict[str, Any], tool: str, required_args: dict[str, bool]) -> list[str]:
+    details = activity.get("mcp_tool_details") if isinstance(activity.get("mcp_tool_details"), list) else []
+    candidates: list[dict[str, Any]] = []
+    for detail in details:
+        if not isinstance(detail, dict):
+            continue
+        name = str(detail.get("name") or "")
+        if not (name == tool or name.endswith(f"__{tool}")):
+            continue
+        if detail.get("errored"):
+            continue
+        candidates.append(detail)
+    if not candidates:
+        return sorted(required_args)
+    missing = []
+    for key, value in required_args.items():
+        if not any((detail.get("arguments") if isinstance(detail.get("arguments"), dict) else {}).get(key) is value for detail in candidates):
+            missing.append(key)
+    if not missing and not activity_has_mcp_call_with_args(activity, tool, required_args):
+        missing.append("combined_arguments")
+    return sorted(missing)
+
+
+def radar_required_args(task: dict[str, Any] | None) -> dict[str, bool]:
+    required = {"location_only": True}
+    if isinstance(task, dict) and task.get("radar_include_deletions"):
+        required["include_deletions"] = True
+    return required
+
+
+def mcp_condition_audit(
+    condition: str,
+    agent_info: dict[str, Any],
+    runner: "RunnerSpec | None" = None,
+    task: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if not is_mcp_condition(condition):
         return {"ok": True, "required": False, "findings": []}
     activity = agent_info.get("activity") if isinstance(agent_info.get("activity"), dict) else {}
@@ -1173,11 +1208,11 @@ def mcp_condition_audit(condition: str, agent_info: dict[str, Any], runner: "Run
         if not any(str(name).endswith(f"__{required}") or str(name) == required for name in mcp_tool_names):
             findings.append({"kind": "missing_required_mcp_tool", "condition": condition, "tool": required})
     if condition == "mcp_workspace_radar":
-        if not activity_has_mcp_call_with_args(activity, "brain_workspace_regressions", {"location_only": True}):
-            findings.append({"kind": "missing_required_mcp_argument", "condition": condition, "tool": "brain_workspace_regressions", "argument": "location_only"})
+        for arg in missing_mcp_call_args(activity, "brain_workspace_regressions", radar_required_args(task)):
+            findings.append({"kind": "missing_required_mcp_argument", "condition": condition, "tool": "brain_workspace_regressions", "argument": arg})
     if condition == "mcp_history" and wants_radar_location_only(runner):
-        if not activity_has_mcp_call_with_args(activity, "brain_regressions", {"location_only": True}):
-            findings.append({"kind": "missing_required_mcp_argument", "condition": condition, "tool": "brain_regressions", "argument": "location_only"})
+        for arg in missing_mcp_call_args(activity, "brain_regressions", radar_required_args(task)):
+            findings.append({"kind": "missing_required_mcp_argument", "condition": condition, "tool": "brain_regressions", "argument": arg})
     if int(activity.get("direct_brain_cli_calls") or 0) > 0:
         findings.append({"kind": "direct_brain_cli_used_in_mcp_condition"})
     return {
@@ -2960,7 +2995,7 @@ def run_one(
             (run_dir / "agent.stdout").read_text(encoding="utf-8", errors="ignore"),
             (run_dir / "agent.stderr").read_text(encoding="utf-8", errors="ignore"),
         )
-        mcp_audit = mcp_condition_audit(condition, agent_info, runner)
+        mcp_audit = mcp_condition_audit(condition, agent_info, runner, task)
         files = changed_files(worktree)
         validation = validate(task, worktree, env)
         diff = diff_stat(worktree)

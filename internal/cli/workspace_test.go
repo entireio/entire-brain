@@ -14,10 +14,8 @@ import (
 func TestWorkspaceWatchFansOverMembersWithSharedBudget(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
-	repoA := writeWorkspaceBrainRepo(t, env, "gh/example/repoa", `{"text":"x"}`, "a.go", "package x\n")
-	repoB := writeWorkspaceBrainRepo(t, env, "gh/example/repob", `{"text":"x"}`, "b.go", "package x\n")
-	repoAKey := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
-	repoBKey := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	repoA, repoAKey := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "a.go", "package x\n")
+	repoB, repoBKey := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "b.go", "package x\n")
 	manifest := workspaceManifest{
 		SchemaVersion: workspaceSchemaVersion,
 		Name:          "ws",
@@ -426,6 +424,21 @@ func TestWorkspaceRejectsSymlinkedBrainRoot(t *testing.T) {
 // tree, so the cross-repo regression/review fan-out can be exercised without a semantic index.
 func writeWorkspaceBrainRepo(t *testing.T, env EntireEnv, key, sessionText, repoRel, fileBody string) string {
 	t.Helper()
+	repoDir := t.TempDir()
+	writeWorkspaceBrainRepoAt(t, env, key, repoDir, sessionText, repoRel, fileBody)
+	return repoDir
+}
+
+func writeLocalWorkspaceBrainRepo(t *testing.T, env EntireEnv, sessionText, repoRel, fileBody string) (string, string) {
+	t.Helper()
+	repoDir := t.TempDir()
+	key := filepath.ToSlash(filepath.Join("local", localRepoKey(repoDir)))
+	writeWorkspaceBrainRepoAt(t, env, key, repoDir, sessionText, repoRel, fileBody)
+	return repoDir, key
+}
+
+func writeWorkspaceBrainRepoAt(t *testing.T, env EntireEnv, key, repoDir, sessionText, repoRel, fileBody string) {
+	t.Helper()
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, filepath.FromSlash(key))
 	sessDir := filepath.Join(brainDir, "sessions")
 	if err := os.MkdirAll(sessDir, 0o755); err != nil {
@@ -434,7 +447,6 @@ func writeWorkspaceBrainRepo(t *testing.T, env EntireEnv, key, sessionText, repo
 	if err := os.WriteFile(filepath.Join(sessDir, "s.jsonl"), []byte(sessionText+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	repoDir := t.TempDir()
 	full := filepath.Join(repoDir, filepath.FromSlash(repoRel))
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		t.Fatal(err)
@@ -442,7 +454,6 @@ func writeWorkspaceBrainRepo(t *testing.T, env EntireEnv, key, sessionText, repo
 	if err := os.WriteFile(full, []byte(fileBody), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return repoDir
 }
 
 func TestWorkspaceReviewFlagsRegressedRepoOnly(t *testing.T) {
@@ -453,15 +464,15 @@ func TestWorkspaceReviewFlagsRegressedRepoOnly(t *testing.T) {
 	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
 	regressed := "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
 	clean := "package x\nfunc f() string {\n\treturn scopeBaseRef + \"..HEAD\"\n}\n"
-	repoA := writeWorkspaceBrainRepo(t, env, "gh/example/repoa", session, "pkg/review_context.go", regressed)
-	repoB := writeWorkspaceBrainRepo(t, env, "gh/example/repob", session, "pkg/review_context.go", clean)
+	repoA, keyA := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/review_context.go", regressed)
+	repoB, keyB := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/review_context.go", clean)
 
 	manifest := workspaceManifest{
 		SchemaVersion: workspaceSchemaVersion,
 		Name:          "related",
 		Repos: []workspaceRepo{
-			{RepoKey: "gh/example/repoa", Name: "a", LocalPathHint: repoA},
-			{RepoKey: "gh/example/repob", Name: "b", LocalPathHint: repoB},
+			{RepoKey: keyA, Name: "a", LocalPathHint: repoA},
+			{RepoKey: keyB, Name: "b", LocalPathHint: repoB},
 		},
 	}
 	if err := writeWorkspaceManifest(env, manifest); err != nil {
@@ -491,7 +502,7 @@ func TestWorkspaceReviewFlagsRegressedRepoOnly(t *testing.T) {
 	for _, r := range payload.Results {
 		byKey[r.RepoKey] = r
 	}
-	a, b := byKey["gh/example/repoa"], byKey["gh/example/repob"]
+	a, b := byKey[keyA], byKey[keyB]
 	// changed-findings are "medium" (hedged "could be a rename"), not "high" — see regressionSeverity.
 	if len(a.Findings) != 1 || a.Findings[0].Severity != "medium" || !strings.Contains(a.Findings[0].File, "review_context.go") {
 		t.Fatalf("repoa findings wrong: %+v", a)
@@ -515,11 +526,11 @@ func TestWorkspaceReviewTextOutputRendersFindingsAndFreshness(t *testing.T) {
 
 	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
 	regressed := "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
-	repoA := writeWorkspaceBrainRepo(t, env, "gh/example/repoa", session, "pkg/review_context.go", regressed)
+	repoA, keyA := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/review_context.go", regressed)
 	manifest := workspaceManifest{
 		SchemaVersion: workspaceSchemaVersion,
 		Name:          "related",
-		Repos:         []workspaceRepo{{RepoKey: "gh/example/repoa", Name: "a", LocalPathHint: repoA}},
+		Repos:         []workspaceRepo{{RepoKey: keyA, Name: "a", LocalPathHint: repoA}},
 	}
 	if err := writeWorkspaceManifest(env, manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
@@ -530,7 +541,7 @@ func TestWorkspaceReviewTextOutputRendersFindingsAndFreshness(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workspace review (text): %v", err)
 	}
-	for _, want := range []string{"Cross-repo diff-less review:", "gh/example/repoa", "[", "Suspected regression", "review_context.go"} {
+	for _, want := range []string{"Cross-repo diff-less review:", keyA, "[", "Suspected regression", "review_context.go"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("text review output missing %q:\n%s", want, out)
 		}
@@ -549,16 +560,17 @@ func TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain(t *testing.T) {
 
 	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
 	regressed := "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
-	repoA := writeWorkspaceBrainRepo(t, env, "gh/example/repoa", session, "pkg/review_context.go", regressed)
+	repoA, keyA := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/review_context.go", regressed)
 	// A repo registered with a real working tree but NO brain prepped (missing-brain).
 	missingTree := t.TempDir()
+	missingKey := filepath.ToSlash(filepath.Join("local", localRepoKey(missingTree)))
 
 	manifest := workspaceManifest{
 		SchemaVersion: workspaceSchemaVersion,
 		Name:          "related",
 		Repos: []workspaceRepo{
-			{RepoKey: "gh/example/repoa", Name: "a", LocalPathHint: repoA},
-			{RepoKey: "gh/example/missing", Name: "missing", LocalPathHint: missingTree},
+			{RepoKey: keyA, Name: "a", LocalPathHint: repoA},
+			{RepoKey: missingKey, Name: "missing", LocalPathHint: missingTree},
 		},
 	}
 	if err := writeWorkspaceManifest(env, manifest); err != nil {
@@ -579,7 +591,7 @@ func TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain(t *testing.T) {
 	for _, r := range payload.Results {
 		byKey[r.RepoKey] = r
 	}
-	a := byKey["gh/example/repoa"]
+	a := byKey[keyA]
 	if len(a.Anomalies) != 1 || a.Anomalies[0].Kind != "changed" {
 		t.Fatalf("repoa anomalies wrong: %+v", a)
 	}
@@ -587,7 +599,7 @@ func TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain(t *testing.T) {
 		t.Fatalf("--location-only must blank expected/current: %+v", a.Anomalies[0])
 	}
 	// The missing-brain repo must not abort the run; it just yields no anomalies.
-	m := byKey["gh/example/missing"]
+	m := byKey[missingKey]
 	if len(m.Anomalies) != 0 {
 		t.Fatalf("missing-brain repo should yield no anomalies: %+v", m)
 	}
@@ -736,6 +748,62 @@ func TestWorkspaceRegressionsSkipsUnsafeSessionsOnlyRepo(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint(t *testing.T) {
+	// A registered remote-key brain cannot be safely paired with a local_path_hint whose repo key
+	// falls back to local/<hash>. That is unverifiable, not "probably fine"; scanning it could
+	// compare one repo's memory against an unrelated local tree.
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "remote", "get-url", "origin"): {stdout: "not a parseable remote\n"},
+	}}
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	if err := os.MkdirAll(filepath.Join(brainDir, "sessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, "sessions", "s.jsonl"),
+		[]byte(`{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\""}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoDir, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "pkg", "review_context.go"),
+		[]byte("package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeWorkspaceManifest(env, workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos:         []workspaceRepo{{RepoKey: "gh/example/repo", Name: "api", LocalPathHint: repoDir}},
+	}); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	out, err := execute(t, cmd, "workspace", "regressions", "related", "fix scopeBaseRef base scope", "--json")
+	if err != nil {
+		t.Fatalf("workspace regressions: %v", err)
+	}
+	var payload struct {
+		Results []workspaceRegressionResult `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("parse json: %v\n%s", err, out)
+	}
+	if len(payload.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(payload.Results))
+	}
+	r := payload.Results[0]
+	if len(r.Anomalies) != 0 {
+		t.Fatalf("unverifiable remote-key hint must be skipped, got %+v", r.Anomalies)
+	}
+	if !strings.Contains(r.Error, "unsafe") || !strings.Contains(r.Error, "local_path_hint repo_key mismatch: local/") {
+		t.Fatalf("expected unsafe local fallback mismatch error, got %q", r.Error)
+	}
+}
+
 func TestWorkspaceFreshnessWarning(t *testing.T) {
 	if workspaceFreshnessWarning(workspaceRepoFreshness{State: "ok"}) != "" {
 		t.Error("ok freshness should not warn")
@@ -755,13 +823,14 @@ func TestWorkspaceListAndRemove(t *testing.T) {
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
 
-	repoA := writeWorkspaceBrainRepo(t, env, "gh/example/repoa", `{"text":"x"}`, "a.go", "package x\n")
+	repoA, keyA := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "a.go", "package x\n")
+	keyB := "gh/example/repob"
 	manifest := workspaceManifest{
 		SchemaVersion: workspaceSchemaVersion,
 		Name:          "related",
 		Repos: []workspaceRepo{
-			{RepoKey: "gh/example/repoa", Name: "a", LocalPathHint: repoA},
-			{RepoKey: "gh/example/repob", Name: "b", LocalPathHint: repoA},
+			{RepoKey: keyA, Name: "a", LocalPathHint: repoA},
+			{RepoKey: keyB, Name: "b", LocalPathHint: repoA},
 		},
 	}
 	if err := writeWorkspaceManifest(env, manifest); err != nil {
@@ -776,14 +845,14 @@ func TestWorkspaceListAndRemove(t *testing.T) {
 		t.Fatalf("list output = %s", listOut)
 	}
 
-	if _, err := execute(t, cmd, "workspace", "remove", "related", "gh/example/repob"); err != nil {
+	if _, err := execute(t, cmd, "workspace", "remove", "related", keyB); err != nil {
 		t.Fatalf("workspace remove repo: %v", err)
 	}
 	reloaded, err := loadWorkspaceManifest(env, "related")
 	if err != nil {
 		t.Fatalf("load workspace: %v", err)
 	}
-	if len(reloaded.Repos) != 1 || reloaded.Repos[0].RepoKey != "gh/example/repoa" {
+	if len(reloaded.Repos) != 1 || reloaded.Repos[0].RepoKey != keyA {
 		t.Fatalf("repo not removed: %+v", reloaded.Repos)
 	}
 
