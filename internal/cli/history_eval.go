@@ -259,9 +259,15 @@ func selectHistoryEvalArm(arm, brainDir string, index historyIndex, cutoff float
 		}, nil
 	case "bm25":
 		return func(query string, k int) ([]historyRecord, error) {
+			// A query with no usable FTS terms (e.g. all stopwords: "fix") is a
+			// deterministic honest empty — the same as the fused arm's lexical
+			// side — not a harness failure. Only a real index fault errors.
+			if historyFTSMatchExpr(query) == "" {
+				return nil, nil
+			}
 			scored, ok := rankHistoryViaFTSCutoff(brainDir, index, "history", query, k, cutoff)
 			if !ok {
-				return nil, fmt.Errorf("bm25 arm unavailable for query %q (FTS index failed to build, or the query has no usable terms)", query)
+				return nil, fmt.Errorf("bm25 arm unavailable for query %q (FTS index failed to build or query failed)", query)
 			}
 			return historyRecordsOf(scored), nil
 		}, nil
