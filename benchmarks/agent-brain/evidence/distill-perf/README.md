@@ -4,6 +4,11 @@ This directory is reserved for retained `entire brain distill` performance
 artifacts from a large session repo. It is intentionally empty until a real
 large-repo run exists.
 
+Evidence must be collected on the repo whose performance claim it supports, or
+the release copy must scope the claim to the measured repo. Do not use fixture,
+current-repo, or unrelated `cli-bench` artifacts to support a frontend 24h
+distill claim.
+
 To become release-citable, a future `manifest.json` in this directory must name:
 
 - one `entire brain distill --dry-run --json` artifact captured before the timed

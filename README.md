@@ -235,6 +235,7 @@ entire brain distill --agent codex --model gpt-5.4-mini --effort low   # run it 
 entire brain remember "Prefer table-driven tests" --path preferences.coding.style
 entire brain recall "account deletion" --k 5
 entire brain recall "MirrorCommittedMetadataRef" --expand   # agent expands the query first
+entire brain facts status --json           # read-only fact/eval readiness summary
 entire brain facts tree --depth 1           # navigable map of what the brain knows
 entire brain facts tree --path constraints  # drill into a category
 ```
@@ -261,6 +262,7 @@ rewrite the query into the facts' vocabulary first.
 Manage the fact store:
 
 ```sh
+entire brain facts status --json
 entire brain facts review                   # resolve queued merge/supersede proposals
 entire brain facts promote --from <branch> --strategy keep-both
 entire brain facts retract <fact-id>        # mark a fact no longer true (gc prunes later)

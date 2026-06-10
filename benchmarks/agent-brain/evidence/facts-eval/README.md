@@ -41,6 +41,10 @@ Minimum retained shape:
 
 Collection checklist:
 
+- Before collecting, run `entire brain facts status --json` on the target repo.
+  `facts_arm_ready` must be true for the facts retriever arm to be meaningful,
+  but active facts alone are not proof; the paired eval still needs proof-grade
+  labels and the retained artifacts below.
 - Use one immutable task file for all four retrievers. Every summary must carry
   the same `run_config.tasks_sha256`.
 - Use one immutable brain snapshot for all four retrievers. Every summary and

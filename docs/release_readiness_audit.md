@@ -357,6 +357,11 @@ Release claims must stay local-first and evidence-backed:
 - Facts-vs-raw retained evidence now has a dedicated validator and `mise` task;
   the validator fails closed on proxy evidence, missing/mismatched hashes,
   missing retriever arms, and non-claimable comparison metrics.
+- `entire brain facts status --json` now reports active/durable fact counts,
+  proposal counts, provenance anchor counts, and manifest facts source state
+  without refreshing, exporting, or writing. This makes the facts-vs-raw
+  blocker inspectable before an eval run; it is readiness telemetry, not proof
+  that facts beat raw sessions.
 - `--format json` now requests JSON error envelopes, matching successful output
   behavior.
 - The supported QMD-inspired retrieval surface is now covered by local contract
