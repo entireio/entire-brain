@@ -353,6 +353,11 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	byBranch := map[string][]factRecord{}
 	proposalsByBranch := map[string][]factProposal{}
 	loaded := map[string]bool{}
+	// dirtyBranches tracks branches whose in-memory facts/proposals have
+	// diverged from disk since the last successful flush, so a flush rewrites
+	// only what changed instead of re-marshaling every loaded branch's full
+	// store every interval.
+	dirtyBranches := map[string]bool{}
 	var warnings []string
 	chunksScanned, chunksDistilled := 0, 0
 
@@ -406,16 +411,19 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 				}
 			}
 			existing = kept
+			// The in-memory store now differs from disk; the rebuild must be
+			// written out even if the branch gains no new facts.
+			dirtyBranches[branch] = true
 		}
 		byBranch[branch] = existing
 		loaded[branch] = true
 	}
 
-	// flushFactStores persists the in-memory distill state — per-branch facts,
-	// proposals, and the session cache — so a killed or crashed run resumes from
-	// the last flush instead of losing everything (a distill run is hours of
-	// agent calls; the original write-once-at-the-end design lost the entire run
-	// on any interruption). Facts are idempotent across a resume: ids are
+	// flushFactStores persists the in-memory distill state — dirty branches'
+	// facts and proposals, plus the session cache — so a killed or crashed run
+	// resumes from the last flush instead of losing everything (a distill run is
+	// hours of agent calls; the original write-once-at-the-end design lost the
+	// entire run on any interruption). Facts are idempotent across a resume: ids are
 	// content-derived and reconcile merges near-duplicates, so re-distilling the
 	// partially-flushed session at the kill point is safe. A mid-run (non-final)
 	// cache write keeps prevCache entries for sessions not yet visited — dropping
@@ -428,8 +436,8 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	// facts silently lost. A force run therefore writes newCache only, and an
 	// interrupted force run re-distills the sessions it never reached.
 	flushFactStores := func(final bool) error {
-		for branch, records := range byBranch {
-			if err := writeFacts(brainDir, branch, records); err != nil {
+		for branch := range dirtyBranches {
+			if err := writeFacts(brainDir, branch, byBranch[branch]); err != nil {
 				return err
 			}
 			// Union this run's proposals with any already queued. Re-loading on
@@ -451,6 +459,13 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			if err := writeFactProposals(brainDir, branch, merged); err != nil {
 				return err
 			}
+			// A force run keeps branches dirty between mid-run flushes so the
+			// final flush always rewrites them — that write is what drops the
+			// prior proposal backlog. Otherwise the branch is clean until new
+			// fact actions touch it.
+			if final || !distillOpts.force {
+				delete(dirtyBranches, branch)
+			}
 		}
 		cache := newCache
 		if !final && !distillOpts.force {
@@ -470,15 +485,20 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		flushInterval = distillFlushCallInterval
 	}
 	callsSinceFlush := 0
-	maybeFlush := func() error {
+	maybeFlush := func() {
 		if callsSinceFlush < flushInterval {
-			return nil
+			return
 		}
-		if err := flushFactStores(false); err != nil {
-			return err
-		}
+		// Reset even on failure so a persistent write error is retried once per
+		// interval, not on every call.
 		callsSinceFlush = 0
-		return nil
+		if err := flushFactStores(false); err != nil {
+			// Non-fatal: a mid-run flush only narrows the loss window, and
+			// aborting an hours-long run over a transient write error would lose
+			// far more than the flush protects. Failed branches stay dirty, so
+			// the next interval (and the final flush) retries them.
+			warnings = append(warnings, fmt.Sprintf("mid-run flush failed (will retry): %v", err))
+		}
 	}
 
 	for _, session := range sessions {
@@ -566,20 +586,14 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 				// limiting, timeouts) is exactly when a run tends to get killed,
 				// and skipping the flush here would leave pre-streak facts
 				// unpersisted for the streak's entire duration.
-				if err := maybeFlush(); err != nil {
-					prefetch.stop()
-					return nil, err
-				}
+				maybeFlush()
 				continue
 			}
 			anyAgentSuccess = true
 			records, chunkWarnings := distilledFactsFromOutput(out, taxonomy, anchor, branch, now)
 			warnings = append(warnings, chunkWarnings...)
 			if len(records) == 0 {
-				if err := maybeFlush(); err != nil {
-					prefetch.stop()
-					return nil, err
-				}
+				maybeFlush()
 				continue
 			}
 			factsFound += len(records)
@@ -593,10 +607,8 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			var chunkProposals []factProposal
 			byBranch[branch], chunkProposals = applyFactActions(byBranch[branch], actions, threshold, now)
 			proposalsByBranch[branch] = append(proposalsByBranch[branch], chunkProposals...)
-			if err := maybeFlush(); err != nil {
-				prefetch.stop()
-				return nil, err
-			}
+			dirtyBranches[branch] = true
+			maybeFlush()
 		}
 		prefetch.stop()
 		// Only cache a session as distilled when every chunk succeeded, so a

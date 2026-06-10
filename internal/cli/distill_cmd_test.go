@@ -1036,6 +1036,119 @@ func TestRunDistillForBrainForceFlushDoesNotResurrectCache(t *testing.T) {
 	}
 }
 
+func TestRunDistillForBrainFlushSkipsCleanBranches(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now) // s1 (main, older) then s2 (feature)
+
+	seedRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return "preferences.coding.style\tThe user prefers concise commits.\n", nil
+	}
+	seedOpts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: seedRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, seedOpts, now); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+
+	// Invalidate only s2 so the second run re-distills feature while main is
+	// loaded but untouched. Backdate main's facts file: if any flush (mid-run
+	// or final) rewrote the clean branch, the mtime would advance.
+	s2 := filepath.Join(brainDir, filepath.FromSlash("sessions/branches/feature/s2.jsonl"))
+	if err := os.WriteFile(s2, []byte("turn one\nturn two\na new turn\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mainFacts := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath("main")))
+	backdated := now.Add(-24 * time.Hour)
+	if err := os.Chtimes(mainFacts, backdated, backdated); err != nil {
+		t.Fatal(err)
+	}
+
+	// A different taxonomy path keeps reconcile off the agent (no existing
+	// facts at the candidate's paths).
+	secondRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return "workflow.testing.rules\tRun go test before pushing.\n", nil
+	}
+	secondOpts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: secondRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, flushEvery: 1}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, secondOpts, now); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+
+	info, err := os.Stat(mainFacts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.ModTime().Equal(backdated) {
+		t.Error("clean branch main was rewritten by a flush; flushes must only write dirty branches")
+	}
+	if facts, err := loadFacts(brainDir, "feature"); err != nil || len(facts) != 2 {
+		t.Errorf("feature should hold its seeded and new fact, got %d (%v)", len(facts), err)
+	}
+}
+
+func TestRunDistillForBrainSurvivesMidRunFlushFailure(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	tp := "sessions/main/s1.jsonl"
+	p := filepath.Join(brainDir, filepath.FromSlash(tp))
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Two chunks (maxChunkBytes=1): the first produces a fact whose flush
+	// fails, the second gives the retry a chance after the disk "recovers".
+	if err := os.WriteFile(p, []byte("turn one\nturn two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
+			{SessionID: "s1", Branch: "main", LatestCheckpoint: "cp1", TranscriptPath: tp, CreatedAt: now.Add(-time.Hour)},
+		}}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	factsDir := filepath.Join(brainDir, factsDirName)
+	if err := os.MkdirAll(factsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	restore := func() { _ = os.Chmod(factsDir, 0o700) }
+	t.Cleanup(restore)
+
+	var calls int
+	fakeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		switch calls {
+		case 1: // chunk 1: the flush after this fact will hit a read-only dir
+			if err := os.Chmod(factsDir, 0o500); err != nil {
+				t.Fatal(err)
+			}
+			return "preferences.coding.style\tThe user prefers concise commits.\n", nil
+		default: // chunk 2: disk recovers; the retry flush must succeed
+			restore()
+			return "", nil
+		}
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: fakeRun, maxChunkBytes: 1, timeout: time.Minute, flushEvery: 1}
+	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
+	if err != nil {
+		t.Fatalf("a transient mid-run flush failure must not abort the run: %v", err)
+	}
+	flushWarned := false
+	for _, w := range source.Warnings {
+		if strings.Contains(w, "mid-run flush failed") {
+			flushWarned = true
+		}
+	}
+	if !flushWarned {
+		t.Errorf("expected a mid-run flush warning, got %v", source.Warnings)
+	}
+	// The branch stayed dirty through the failure, so the retry persisted it.
+	if facts, err := loadFacts(brainDir, "main"); err != nil || len(facts) != 1 {
+		t.Errorf("fact lost across the flush failure: got %d (%v)", len(facts), err)
+	}
+}
+
 func TestRunDistillForBrainBranchFilterKeepsOtherBranchCacheEntries(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := writeDistillFixture(t, now) // s1 (main, older) then s2 (feature)
