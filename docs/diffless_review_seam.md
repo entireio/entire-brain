@@ -103,8 +103,9 @@ when a pilot is stopped before Radar runs because the first no-brain score is
 already too high, it emits a `no-brain-too-easy` row instead of hiding the
 suite, and record-only runs now appear as `incomplete-suite` rows. The current
 manual-attribution deletion reruns show attempted MCP delivery, but stricter
-safe-argument auditing flags missing `include_deletions: true`, so they diagnose
-Radar delivery/task calibration and argument hygiene rather than clean proof.
+provenance auditing flags missing embedded deletion-policy attestation on old
+records, so they diagnose Radar delivery/task calibration and evidence hygiene
+rather than clean proof.
 `mise run radar:evidence` currently checks the deterministic MCP/Radar
 tool-contract artifact. The stricter agent-lift proof gate remains available as
 `mise run radar:agent-evidence`, and should only become release blocking once a
@@ -123,7 +124,9 @@ MCP/Radar contract tests, not from retained agent pass-rate evidence.
 Radar proof also records only safe MCP boolean arguments (`location_only`,
 `include_deletions`) from structured tool-call events, so the audit can reject a
 would-be location-only proof that actually called the wrong mode without
-retaining query text.
+retaining query text. New records also embed the deletion-policy bit in record
+provenance, so future audits do not infer required Radar arguments from today's
+task file contents.
 For non-radar MCP-history proof, the committed
 `release-entire-cli-mcp-manual-attribution` panel targets a harder manual-commit
 attribution invariant where the brain should provide historical localization and

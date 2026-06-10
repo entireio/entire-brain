@@ -331,6 +331,26 @@ func TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol(t *testing.T
 	}
 }
 
+func TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite(t *testing.T) {
+	session := `{"text":"pkg/resolve_transcript.go must set state.TranscriptPath = resolved so later reads work"}`
+	body := "package x\nfunc ok(state *State) string {\n\tresolved := compute()\n\tstate.TranscriptPath = resolved\n\treturn resolved\n}\nfunc miss(state *State) string {\n\tresolved := compute()\n\treturn resolved\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
+	var deleted []regressionAnomaly
+	for _, a := range an {
+		if a.Kind == "deleted" && a.File == "pkg/resolve_transcript.go" {
+			deleted = append(deleted, a)
+		}
+	}
+	if len(deleted) != 1 || deleted[0].Symbol != "miss" {
+		t.Fatalf("expected missing RHS-only assignment site in miss, got %+v", an)
+	}
+	if deleted[0].Line != 8 {
+		t.Fatalf("expected missing site to land on miss resolved line 8, got %+v", deleted[0])
+	}
+}
+
 func TestRegressionDeletionRanksCallLocusWithHistoryFileHint(t *testing.T) {
 	session := `{"text":"cmd/entire/cli/strategy/manual_commit_hooks.go must call state.RealignAttributionBase(newHead) after state.BaseCommit = newHead; cmd/entire/cli/agent/cursor/types.go used HumanAdded+\"total\""}`
 	_, deletes := regressionExtractSignals("realignattributionbase", session, "sessions/s.jsonl:1")

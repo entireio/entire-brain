@@ -27,6 +27,7 @@ REQUIRED_TESTS = [
     "TestRegressionDeletionReportsEachMissingAnchoredCallSite",
     "TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer",
     "TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol",
+    "TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite",
     "TestRegressionDedupeRankPrefersBoostedCallDeletion",
     "TestMCPInitializeAndToolsList",
     "TestMCPToolsListIncludesRegressions",

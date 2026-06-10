@@ -206,34 +206,11 @@ def required_server_tool_names(condition: str, delivery_scope: str) -> set[str]:
     return set()
 
 
-def resolve_repo_relative_path(value: Any) -> pathlib.Path | None:
-    if not isinstance(value, str) or not value:
-        return None
-    raw = pathlib.Path(value)
-    candidates = [raw] if raw.is_absolute() else [pathlib.Path.cwd() / raw, BENCH.parent.parent / raw]
-    for candidate in candidates:
-        try:
-            if candidate.is_file():
-                return candidate
-        except OSError:
-            continue
-    return None
-
-
-def record_radar_requires_deletions(rec: dict[str, Any]) -> bool:
+def record_radar_deletion_policy(rec: dict[str, Any]) -> tuple[bool, bool]:
     embedded = get(rec, "provenance", "task", "radar_include_deletions")
     if isinstance(embedded, bool):
-        return embedded
-    task_path = resolve_repo_relative_path(get(rec, "provenance", "task", "path"))
-    if task_path is None:
-        return False
-    try:
-        task = json.loads(task_path.read_text())
-    except (OSError, json.JSONDecodeError):
-        return False
-    if not isinstance(task, dict):
-        return False
-    return task.get("radar_include_deletions") is True
+        return embedded, True
+    return False, False
 
 
 def recompute_score_total(score: dict[str, Any]) -> int | None:
@@ -438,7 +415,7 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         real = [n for n in names if re.search(rf"(?:^|__){MCP_BRAIN_TOOL_RE}$", str(n))]
         real_bare_names = {bare_mcp_tool_name(n) for n in real}
         logged_bare_names = set(slog_names or [])
-        radar_requires_deletions = record_radar_requires_deletions(rec)
+        radar_requires_deletions, radar_policy_attested = record_radar_deletion_policy(rec)
         if mcp_calls <= 0:
             # An mcp run with no tool calls is an HONEST FAILURE (note), UNLESS it was
             # counted as a passing/win result -> then it is a HARD flag (false win).
@@ -456,6 +433,8 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
                     notes.append(f"B:mcp_history_partial_missing_{req}")
         if cond == "mcp_workspace_radar" and mcp_calls > 0:
             req = "brain_workspace_regressions"
+            if not radar_policy_attested:
+                flags.append("H:provenance_missing_radar_include_deletions_policy")
             if not any(str(n).endswith(f"__{req}") or n == req for n in names):
                 notes.append(f"B:mcp_workspace_radar_partial_missing_{req}")
             if not activity_has_mcp_call_with_args(activity, req, {"location_only": True}):
@@ -467,6 +446,8 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
             if radar_requires_deletions and slog_args is not None and not server_log_has_tool_with_args(slog_args, req, {"location_only": True, "include_deletions": True}):
                 flags.append("B:mcp_workspace_radar_server_missing_include_deletions")
         if cond == "mcp_history" and env_flags.get("BENCH_RADAR_LOCATION_ONLY") == "1" and mcp_calls > 0:
+            if not radar_policy_attested:
+                flags.append("H:provenance_missing_radar_include_deletions_policy")
             if not activity_has_mcp_call_with_args(activity, "brain_regressions", {"location_only": True}):
                 flags.append("B:mcp_radar_missing_location_only")
             if slog_args is not None and not server_log_has_tool_with_args(slog_args, "brain_regressions", {"location_only": True}):

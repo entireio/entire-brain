@@ -1429,6 +1429,7 @@ class CodexAuditScriptTests(unittest.TestCase):
                 "path": "benchmarks/agent-brain/tasks/t.json",
                 "config_sha256": self.TASK_SHA,
                 "base_commit": None,
+                "radar_include_deletions": False,
             },
             "run_config": {
                 "command": "run",
@@ -2288,6 +2289,7 @@ class CodexAuditScriptTests(unittest.TestCase):
             missing_suite = "release-candidate-radar-deletions-missing"
             missing = self._mcp_release_record(missing_suite, repetition=1, run_id="radar-1")
             missing["provenance"]["task"]["path"] = str(task_path)
+            missing["provenance"]["task"]["radar_include_deletions"] = True
             missing_dir = self._write_records(results_dir, missing_suite, [missing])
             self._write_mcp_server_log(missing_dir, "radar-1", "brain_regressions", tool_args={"location_only": True})
             missing_report = audit_codex.build_audit_report(results_dir, [missing_suite])
@@ -2300,6 +2302,7 @@ class CodexAuditScriptTests(unittest.TestCase):
             ok_suite = "release-candidate-radar-deletions-ok"
             ok = self._mcp_release_record(ok_suite, repetition=1, run_id="radar-1")
             ok["provenance"]["task"]["path"] = str(task_path)
+            ok["provenance"]["task"]["radar_include_deletions"] = True
             ok["agent_info"]["activity"]["mcp_tool_details"][0]["arguments"]["include_deletions"] = True
             ok["mcp_condition_audit"]["mcp_tool_details"][0]["arguments"]["include_deletions"] = True
             ok_dir = self._write_records(results_dir, ok_suite, [ok])
@@ -2309,6 +2312,26 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertTrue(ok_record["pass"], ok_record)
             self.assertTrue(ok_record["mcp_verified"], ok_record)
             self.assertEqual(ok_record["server_tool_args"], [{"tool": "brain_regressions", "arguments": {"include_deletions": True, "location_only": True}}])
+
+    def test_audit_codex_requires_embedded_radar_deletion_policy(self):
+        with tempfile.TemporaryDirectory() as results:
+            results_dir = pathlib.Path(results)
+            task_path = results_dir / "deletion-radar-task.json"
+            task_path.write_text(json.dumps({"id": "t", "radar_include_deletions": True}))
+
+            suite = "release-candidate-radar-deletions-policy-missing"
+            record = self._mcp_release_record(suite, repetition=1, run_id="radar-1")
+            record["provenance"]["task"]["path"] = str(task_path)
+            record["provenance"]["task"].pop("radar_include_deletions", None)
+            suite_dir = self._write_records(results_dir, suite, [record])
+            self._write_mcp_server_log(suite_dir, "radar-1", "brain_regressions", tool_args={"location_only": True})
+
+            report = audit_codex.build_audit_report(results_dir, [suite])
+            audited = report["suites"][suite]["records"][0]
+
+            self.assertFalse(audited["pass"], audited)
+            self.assertIn("H:provenance_missing_radar_include_deletions_policy", audited["flags"])
+            self.assertNotIn("B:mcp_radar_missing_include_deletions", audited["flags"])
 
     def test_audit_codex_counts_workspace_radar_delivery_scope(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
@@ -3098,6 +3121,41 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             rendered = audit_radar_evidence.render_markdown(report)
             self.assertIn("0/0 clean; 4/4 attempted", rendered)
             self.assertIn("wrong args", rendered)
+
+    def test_radar_audit_shows_attempted_mcp_backing_for_missing_policy(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            suite = "release-candidate-radar-missing-policy"
+            self._write_radar_summary(
+                results_dir,
+                suite,
+                baseline_pass=1.0,
+                condition_pass=0.5,
+                proof_ready=False,
+                stability_tag="noisy",
+                n=4,
+            )
+            backed_audit = out_dir / "backed-codex-audit.json"
+            self._write_backed_radar_codex_audit(
+                backed_audit,
+                suite,
+                baseline_valid=[True, True, True, True],
+                condition_valid=[True, False, False, True],
+                comparison_proof_ready=False,
+                record_pass=False,
+                record_flags=["H:provenance_missing_radar_include_deletions_policy"],
+            )
+
+            report = audit_radar_evidence.build_report(
+                results_dir,
+                ["release-candidate-*"],
+                audit_radar_evidence.load_codex_audit(backed_audit),
+            )
+            rendered = audit_radar_evidence.render_markdown(report)
+            self.assertIn("0/0 clean; 4/4 attempted", rendered)
+            self.assertIn("missing policy", rendered)
+            self.assertNotIn("wrong args", rendered)
 
     def test_radar_audit_requires_stable_proof_for_proof_gate(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:

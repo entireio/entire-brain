@@ -543,8 +543,10 @@ def render_markdown(report: dict[str, Any]) -> str:
             if attempted_named != clean_named or attempted_completed != clean_completed:
                 mcp_backing += f" clean; {attempted_named}/{attempted_completed} attempted"
                 flag_counts = backing.get("condition_flag_counts") if isinstance(backing.get("condition_flag_counts"), dict) else {}
-                if any("include_deletions" in str(flag) for flag in flag_counts):
+                if any("missing_include_deletions" in str(flag) for flag in flag_counts):
                     mcp_backing += " (wrong args)"
+                elif any("missing_radar_include_deletions_policy" in str(flag) for flag in flag_counts):
+                    mcp_backing += " (missing policy)"
         lines.append(
             "| "
             + " | ".join(

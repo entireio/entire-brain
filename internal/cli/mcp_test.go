@@ -329,7 +329,7 @@ func TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites(t *testi
 	if err := os.MkdirAll(filepath.Join(repoDir, "pkg"), 0o755); err != nil {
 		t.Fatalf("mkdir pkg: %v", err)
 	}
-	body := "package x\nfunc missOne(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc missTwo(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
+	body := "package x\nfunc ok(state *State) string {\n\tresolved := compute()\n\tstate.TranscriptPath = resolved\n\treturn resolved\n}\nfunc missOne(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc missTwo(state *State) string {\n\tresolved := compute()\n\treturn resolved\n}\n"
 	if err := os.WriteFile(filepath.Join(repoDir, "pkg", "resolve_transcript.go"), []byte(body), 0o600); err != nil {
 		t.Fatalf("write repo file: %v", err)
 	}

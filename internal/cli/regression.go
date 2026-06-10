@@ -666,7 +666,7 @@ func regressionMissingAssignmentHomes(files []candFile, d deleteSignal) []regres
 			continue
 		}
 		for _, h := range regressionAssignmentCandidateHomes(f, d) {
-			if regressionWindowHas(f, h.line-1, assignmentNeedle, 8) {
+			if regressionAssignmentHomeHas(f, h.line, assignmentNeedle) {
 				continue
 			}
 			key := h.file + ":" + strconv.Itoa(h.line)
@@ -684,12 +684,12 @@ func regressionMissingAssignmentHomes(files []candFile, d deleteSignal) []regres
 }
 
 func regressionAssignmentCandidateHomes(f candFile, d deleteSignal) []regressionHome {
-	collect := func(needle string) []regressionHome {
+	var homes []regressionHome
+	seenSymbol := map[string]struct{}{}
+	collect := func(needle string) {
 		if needle == "" {
-			return nil
+			return
 		}
-		var homes []regressionHome
-		seenSymbol := map[string]struct{}{}
 		for i, n := range f.norm {
 			if !strings.Contains(n, needle) || regressionIsComment(f.lines[i]) {
 				continue
@@ -705,12 +705,17 @@ func regressionAssignmentCandidateHomes(f candFile, d deleteSignal) []regression
 			seenSymbol[key] = struct{}{}
 			homes = append(homes, regressionHome{file: f.clean, line: i + 1, current: strings.TrimSpace(f.lines[i])})
 		}
-		return homes
 	}
-	if homes := collect(d.id); len(homes) > 0 {
-		return homes
+	collect(d.id)
+	collect(d.rhs)
+	return homes
+}
+
+func regressionAssignmentHomeHas(f candFile, line int, needle string) bool {
+	if _, _, ok := regressionEnclosingSymbolRange(f.lines, line); ok {
+		return regressionSymbolHas(f, line, needle)
 	}
-	return collect(d.rhs)
+	return regressionWindowHas(f, line-1, needle, 8)
 }
 
 func regressionForwardWindowHas(f candFile, center int, needle string, radius int) bool {
@@ -734,6 +739,22 @@ func regressionWindowHas(f candFile, center int, needle string, radius int) bool
 	end := center + radius + 1
 	if end > len(f.norm) {
 		end = len(f.norm)
+	}
+	for i := start; i < end; i++ {
+		if regressionIsComment(f.lines[i]) {
+			continue
+		}
+		if strings.Contains(f.norm[i], needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func regressionSymbolHas(f candFile, line int, needle string) bool {
+	start, end, ok := regressionEnclosingSymbolRange(f.lines, line)
+	if !ok {
+		return false
 	}
 	for i := start; i < end; i++ {
 		if regressionIsComment(f.lines[i]) {
@@ -909,17 +930,36 @@ func regressionDedupeRank(in []regressionAnomaly) []regressionAnomaly {
 var regressionFunctionPattern = regexp.MustCompile(`^func\s+(?:\([^)]+\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
 
 func regressionEnclosingSymbol(lines []string, line int) string {
-	if line <= 0 || line > len(lines) {
+	start, _, ok := regressionEnclosingSymbolRange(lines, line)
+	if !ok {
 		return ""
+	}
+	match := regressionFunctionPattern.FindStringSubmatch(strings.TrimSpace(lines[start]))
+	if len(match) == 2 {
+		return match[1]
+	}
+	return ""
+}
+
+func regressionEnclosingSymbolRange(lines []string, line int) (int, int, bool) {
+	if line <= 0 || line > len(lines) {
+		return 0, 0, false
 	}
 	start := line - 1
 	for i := start; i >= 0 && i >= start-250; i-- {
 		match := regressionFunctionPattern.FindStringSubmatch(strings.TrimSpace(lines[i]))
 		if len(match) == 2 {
-			return match[1]
+			end := len(lines)
+			for j := i + 1; j < len(lines); j++ {
+				if len(regressionFunctionPattern.FindStringSubmatch(strings.TrimSpace(lines[j]))) == 2 {
+					end = j
+					break
+				}
+			}
+			return i, end, true
 		}
 	}
-	return ""
+	return 0, 0, false
 }
 
 func annotateRegressionLocationContext(anomalies []regressionAnomaly, files []candFile) []regressionAnomaly {
