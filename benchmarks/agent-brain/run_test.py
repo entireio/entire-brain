@@ -422,6 +422,7 @@ class RunnerAndConditionTests(unittest.TestCase):
             task_dir = repo / "benchmarks" / "agent-brain" / "tasks"
             task_dir.mkdir(parents=True)
             (task_dir / "secret.json").write_text('{"validation":["hidden"],"hide_validation_from_agent":true}\n')
+            (repo / "benchmarks" / "agent-brain" / "run.py").write_text("hide_validation_from_agent\n")
             (repo / "internal").mkdir()
             (repo / "internal" / "code.go").write_text("package internal\n")
             run.run_cmd(["git", "add", "-A"], cwd=repo, check=True)
@@ -434,12 +435,16 @@ class RunnerAndConditionTests(unittest.TestCase):
 
             before = run.agent_secret_preflight(repo)
             self.assertFalse(before["ok"])
-            sanitization = run.sanitize_agent_worktree(repo)
-            self.assertIn("benchmarks/agent-brain/tasks", sanitization["removed_paths"])
+            sanitization = run.sanitize_agent_worktree(repo, {"agent_hidden_paths": ["benchmarks/agent-brain"]})
+            self.assertIn("benchmarks/agent-brain", sanitization["removed_paths"])
             self.assertTrue(sanitization["committed"])
             after = run.agent_secret_preflight(repo)
             self.assertTrue(after["ok"])
-            self.assertFalse(task_dir.exists())
+            self.assertFalse((repo / "benchmarks" / "agent-brain").exists())
+
+    def test_agent_hidden_paths_reject_path_traversal(self):
+        with self.assertRaises(ValueError):
+            run.agent_hidden_paths({"agent_hidden_paths": ["../outside"]})
 
     def test_reset_agent_history_to_root_hides_setup_commit_and_preserves_diff(self):
         with tempfile.TemporaryDirectory() as tmp:

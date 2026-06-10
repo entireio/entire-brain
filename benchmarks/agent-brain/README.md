@@ -160,6 +160,10 @@ harness falls back to treating the hidden validation commands themselves as leak
 markers, which is intentionally strict but can false-flag agents that
 independently discover the same focused test command.
 
+Tasks that do not exercise the benchmark harness itself may set
+`agent_hidden_paths`, for example `["benchmarks/agent-brain"]`, to remove extra
+local scaffolding from the disposable worktree before the agent runs.
+
 Runner matrixes are supported with `--runners`. Specs are
 `agent[:model[:effort]]`, optionally prefixed by a stable id:
 

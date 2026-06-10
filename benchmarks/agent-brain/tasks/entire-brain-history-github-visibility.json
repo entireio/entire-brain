@@ -22,6 +22,7 @@
   ],
   "expected_files": ["internal/cli/semantic.go"],
   "forbidden_files": ["go.mod", "go.sum"],
+  "agent_hidden_paths": ["benchmarks/agent-brain"],
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
   "leak_markers": ["release-history-github-visibility-canary-20260610T0018Z"],

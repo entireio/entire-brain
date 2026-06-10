@@ -916,9 +916,19 @@ def apply_replacements(worktree: pathlib.Path, replacements: list[dict[str, str]
         path.write_text(data.replace(old, new, 1))
 
 
-def sanitize_agent_worktree(worktree: pathlib.Path) -> dict[str, Any]:
+def agent_hidden_paths(task: dict[str, Any] | None = None) -> list[str]:
+    paths = list(HARNESS_SCAFFOLD_PATHS)
+    for rel in (task or {}).get("agent_hidden_paths", []):
+        clean = str(rel).strip().replace("\\", "/").strip("/")
+        if not clean or clean == "." or clean.startswith("../") or "/../" in clean:
+            raise ValueError(f"invalid agent_hidden_paths entry: {rel!r}")
+        paths.append(clean)
+    return sorted(dict.fromkeys(paths), key=lambda item: (item.count("/"), item))
+
+
+def sanitize_agent_worktree(worktree: pathlib.Path, task: dict[str, Any] | None = None) -> dict[str, Any]:
     removed: list[str] = []
-    for rel in HARNESS_SCAFFOLD_PATHS:
+    for rel in agent_hidden_paths(task):
         path = worktree / rel
         if not path.exists():
             continue
@@ -2691,7 +2701,7 @@ def run_one(
     }
     try:
         worktree = create_worktree(task, run_dir)
-        worktree_sanitization = sanitize_agent_worktree(worktree)
+        worktree_sanitization = sanitize_agent_worktree(worktree, task)
         record["agent_worktree_sanitization"] = worktree_sanitization
         record["agent_baseline_history_reset"] = reset_agent_history_to_root(
             worktree,
