@@ -122,7 +122,7 @@ relations, and freshness states are covered, and show blind spots.
 
 Local clean evidence collected on this repo after the provider compatibility
 fix: `go run ./cmd/entire-brain refresh index --sem-binary entire --force`
-indexed 134 files, 2,234 symbols, and 14,736 relations; `go run
+indexed 134 files, 2,250 symbols, and 14,883 relations at `721aae0`; `go run
 ./cmd/entire-brain semantic-audit --json --fail-on unsafe` passed with freshness
 `ok`, worktree state `clean`, zero blind spots, and one retained warning:
 `provider_ignore_file_unsupported`. This proves local coverage and audit health
