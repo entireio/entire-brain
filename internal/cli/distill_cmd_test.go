@@ -718,17 +718,19 @@ func TestPreprocessTranscriptForDistillOpencodeDocument(t *testing.T) {
 		t.Fatal("document-form transcript not detected")
 	}
 	got := strings.Split(out, "\n")
-	want := []string{
-		"Remove the header bottom border", // user text kept, file part dropped
-		"",                                // tool-only message -> blank line (keeps message-index mapping)
-		"Done: removed both borders.",     // assistant text kept, reasoning dropped
+	// The output mirrors the document line-for-line (the JSONL provenance
+	// contract): each message's text sits on the line where its object opens
+	// in the original document, so fact anchors point at real file lines.
+	if len(got) != strings.Count(doc, "\n")+1 {
+		t.Fatalf("line count = %d, want %d (one output line per document line): %q", len(got), strings.Count(doc, "\n")+1, out)
 	}
-	if len(got) != len(want) {
-		t.Fatalf("line count = %d, want %d (one line per message): %q", len(got), len(want), out)
+	want := map[int]string{
+		7:  "Remove the header bottom border", // user message opens on line 7; file part dropped
+		23: "Done: removed both borders.",     // assistant message opens on line 23; reasoning dropped
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("line %d = %q, want %q", i+1, got[i], want[i])
+	for i, line := range got {
+		if line != want[i+1] { // tool-only message (line 14) and structure stay blank
+			t.Errorf("line %d = %q, want %q", i+1, line, want[i+1])
 		}
 	}
 	if strings.Contains(out, "huge tool output") || strings.Contains(out, "thinking about") {

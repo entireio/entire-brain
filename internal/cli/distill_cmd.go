@@ -679,47 +679,133 @@ func preprocessTranscriptForDistill(content string) string {
 //
 // The document shape is {info, messages: [{info, parts: [{type, text, ...}]}]};
 // only parts of type "text" are conversation (tool, patch, reasoning,
-// step-start/finish, and file parts are mechanics). Output is one line per
-// message — blank when the message has no conversation text — so a fact's
-// provenance anchor line maps to the message index in the document, the closest
-// analogue of the JSONL line mapping. ok=false when the content is not a
-// document-form transcript, leaving the JSONL path to handle it.
+// step-start/finish, and file parts are mechanics). The output has exactly as
+// many lines as the document, with each message's collapsed text placed on the
+// line where that message's object begins — the same "output line N is input
+// file line N" contract the JSONL path keeps, so a fact's provenance anchor
+// points at a real location in the original transcript (consumers like `facts
+// read` render anchors as <transcript>:<line>). ok=false when the content is
+// not a document-form transcript, leaving the JSONL path to handle it.
 func distillDocumentConversation(content string) (string, bool) {
+	messages, ok := parseDocumentConversation(content)
+	if !ok {
+		return "", false
+	}
+	out := make([]string, strings.Count(content, "\n")+1)
+	for _, message := range messages {
+		if message.Text == "" {
+			continue // tool-only message: leave its lines blank
+		}
+		i := min(max(message.Line-1, 0), len(out)-1)
+		if out[i] != "" {
+			out[i] += " " + message.Text // two messages on one line: minified fragments
+		} else {
+			out[i] = message.Text
+		}
+	}
+	return strings.Join(out, "\n"), true
+}
+
+// documentMessage is one message of a document-form transcript as extracted by
+// parseDocumentConversation.
+type documentMessage struct {
+	Role string // the message's info.role ("user", "assistant", ...); "" when absent
+	Text string // whitespace-collapsed conversation text; "" for tool-only messages
+	Line int    // 1-based line of the message object's opening brace in the document
+}
+
+// parseDocumentConversation extracts the conversation messages from a
+// document-form transcript (see distillDocumentConversation for the shape),
+// recording for each message the document line its object starts on so callers
+// can anchor extracted text to the original file. It streams with json.Decoder
+// and decodes each message into a typed struct, so the tool outputs, patches,
+// and token accounting that dominate the document are scanned past rather than
+// materialized. ok=false when content is not a document-form transcript.
+func parseDocumentConversation(content string) ([]documentMessage, bool) {
 	trimmed := strings.TrimSpace(content)
 	if !strings.HasPrefix(trimmed, "{") {
-		return "", false
+		return nil, false
 	}
 	// A JSONL transcript has a complete JSON object on its first line; a
-	// pretty-printed document does not. Probe before paying the full parse.
+	// pretty-printed document does not. Probe before paying the full parse
+	// (validity is the whole question — the "{" prefix already restricts the
+	// shape to an object).
 	firstLine, _, _ := strings.Cut(trimmed, "\n")
-	var probe map[string]any
-	if json.Unmarshal([]byte(firstLine), &probe) == nil {
-		return "", false
+	if json.Valid([]byte(firstLine)) {
+		return nil, false
 	}
-	var doc struct {
-		Messages []struct {
-			Parts []map[string]any `json:"parts"`
-		} `json:"messages"`
+	dec := json.NewDecoder(strings.NewReader(content))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil, false
 	}
-	if err := json.Unmarshal([]byte(trimmed), &doc); err != nil || len(doc.Messages) == 0 {
-		return "", false
+	// lineAt maps a byte offset to its 1-based line, walking forward from the
+	// previous query; offsets arrive in increasing order so each newline is
+	// counted once.
+	line, pos := 1, 0
+	lineAt := func(offset int) int {
+		line += strings.Count(content[pos:offset], "\n")
+		pos = offset
+		return line
 	}
-	lines := make([]string, len(doc.Messages))
-	for i, message := range doc.Messages {
-		var parts []string
-		for _, part := range message.Parts {
-			if jsonString(part["type"]) != "text" {
-				continue // tool, patch, reasoning, step-start/finish, file, ...
-			}
-			if text := jsonString(part["text"]); text != "" {
-				parts = append(parts, text)
-			}
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return nil, false
 		}
-		// Collapse to a single line so one message stays one line (mirroring the
-		// JSONL path's record-per-line provenance contract).
-		lines[i] = strings.Join(strings.Fields(strings.Join(parts, " ")), " ")
+		key, isString := keyTok.(string)
+		if !isString {
+			return nil, false
+		}
+		if key != "messages" {
+			var skip json.RawMessage
+			if err := dec.Decode(&skip); err != nil {
+				return nil, false
+			}
+			continue
+		}
+		if tok, err := dec.Token(); err != nil || tok != json.Delim('[') {
+			return nil, false
+		}
+		var messages []documentMessage
+		for dec.More() {
+			// InputOffset sits just past the previous token; skip the separator
+			// and whitespace so the recorded line is the opening brace's line.
+			start := int(dec.InputOffset())
+			for start < len(content) && (content[start] == ',' || content[start] == ' ' || content[start] == '\t' || content[start] == '\r' || content[start] == '\n') {
+				start++
+			}
+			msgLine := lineAt(start)
+			var msg struct {
+				Info struct {
+					Role string `json:"role"`
+				} `json:"info"`
+				Parts []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"parts"`
+			}
+			if err := dec.Decode(&msg); err != nil {
+				return nil, false
+			}
+			var parts []string
+			for _, part := range msg.Parts {
+				if part.Type != "text" || part.Text == "" {
+					continue // tool, patch, reasoning, step-start/finish, file, ...
+				}
+				parts = append(parts, part.Text)
+			}
+			messages = append(messages, documentMessage{
+				Role: msg.Info.Role,
+				Text: strings.Join(strings.Fields(strings.Join(parts, " ")), " "),
+				Line: msgLine,
+			})
+		}
+		if len(messages) == 0 {
+			return nil, false
+		}
+		return messages, true
 	}
-	return strings.Join(lines, "\n"), true
+	return nil, false // no top-level "messages" key
 }
 
 // distillConversationText returns the human/assistant text worth distilling from
