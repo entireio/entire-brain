@@ -78,10 +78,16 @@ run = '''
 set -e
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_codex.py \
+  --results benchmarks/agent-brain/evidence/release \
+  --release-manifest benchmarks/agent-brain/evidence/release/manifest.json \
+  --out-dir "$tmp" \
+  --fail-on-flags
 python3 benchmarks/agent-brain/audit_radar_evidence.py \
   --results benchmarks/agent-brain/evidence/release \
   --suite-glob 'release-candidate-*' \
   --out-dir "$tmp" \
+  --codex-audit-report "$tmp/codex-audit-report.json" \
   --fail-when-no-proof
 cat "$tmp/radar-candidate-report.md"
 '''

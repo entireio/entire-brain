@@ -66,6 +66,18 @@ func TestMCPToolsListAdvertisesStaleBlindSpots(t *testing.T) {
 	}
 }
 
+func TestMCPToolSchemasRejectAdditionalProperties(t *testing.T) {
+	for _, tool := range mcpToolDefinitions() {
+		schema, ok := tool["inputSchema"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s missing inputSchema", tool["name"])
+		}
+		if schema["additionalProperties"] != false {
+			t.Fatalf("%s schema does not close additionalProperties: %+v", tool["name"], schema)
+		}
+	}
+}
+
 func TestMCPRejectsInvalidBooleanArguments(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"scope regression","location_only":"true"}}}`) +
 		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_stale","arguments":{"blind_spots":"yes"}}}`)
@@ -85,6 +97,61 @@ func TestMCPRejectsInvalidBooleanArguments(t *testing.T) {
 		if !strings.Contains(fmt.Sprint(errObj["message"]), want) {
 			t.Fatalf("response %d error = %+v, want %q", i, errObj, want)
 		}
+	}
+}
+
+func TestMCPRejectsInvalidStringAndUnknownArguments(t *testing.T) {
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_query","arguments":{"query":7}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_workspace_review","arguments":{"workspace":7,"query":"x"}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_boundaries","arguments":{"kind":7}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"brain_multi_get","arguments":{"ids":["fact:x",7]}}}`) +
+		frameMCP(`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"x","locationOnly":true}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	wants := []string{
+		"query must be string",
+		"workspace must be string",
+		"kind must be string",
+		"ids must be an array of strings",
+		"unknown argument for brain_regressions: locationOnly",
+	}
+	if len(responses) != len(wants) {
+		t.Fatalf("responses = %d, want %d", len(responses), len(wants))
+	}
+	for i, want := range wants {
+		errObj, ok := responses[i]["error"].(map[string]any)
+		if !ok {
+			t.Fatalf("response %d missing error: %+v", i, responses[i])
+		}
+		if !strings.Contains(fmt.Sprint(errObj["message"]), want) {
+			t.Fatalf("response %d error = %+v, want %q", i, errObj, want)
+		}
+	}
+}
+
+func TestMCPDebugLogIncludesToolCallNameOnly(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "mcp.log")
+	t.Setenv("ENTIRE_BRAIN_MCP_DEBUG_LOG", logPath)
+	input := frameMCP(`{"jsonrpc":"2.0","method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"secret-query-value"}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read debug log: %v", err)
+	}
+	text := string(data)
+	for _, want := range []string{"message: tools/call", "tool: brain_regressions"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("debug log missing %q: %s", want, text)
+		}
+	}
+	if strings.Contains(text, "secret-query-value") {
+		t.Fatalf("debug log leaked tool arguments: %s", text)
 	}
 }
 

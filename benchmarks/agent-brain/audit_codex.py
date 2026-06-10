@@ -11,8 +11,9 @@ files (codex-audit-report.json + codex-audit-report.md).
 
 Checks per record:
   A. no_brain purity      - no_brain runs must not touch Brain/MCP/CLI/.entire.
-  B. mcp authenticity     - mcp_* runs must have real mcp tool calls that match
-                            the server log's tools/call count.
+  B. mcp authenticity     - mcp_* runs must have real mcp tool calls backed by
+                            the server log's tools/call count and, for new logs,
+                            server-side tool names.
   C. fairness baseline    - agent baseline commit is parentless (no history leak).
   D. score integrity      - stored score.total == clamp(sum(components)).
   E. leakage audits       - secret preflight / leak audit / history sanitization ok.
@@ -40,6 +41,7 @@ MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
 SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
 HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mcp_history", "mcp_workspace_radar"}
 BRAIN_CONDITIONS = SEMANTIC_CONDITIONS | HISTORY_CONDITIONS
+MCP_BRAIN_TOOL_RE = r"brain_(?:stale|brief|query|search|vsearch|get|multi_get|context|impact|changes|code|tests|boundaries|regressions|review|workspace_regressions|workspace_review)"
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 HOST_PATH_RE = re.compile(
@@ -75,6 +77,37 @@ def server_log_toolcalls(run_dir: pathlib.Path) -> int | None:
         return None
     text = log.read_text(errors="ignore")
     return len(re.findall(r"^message: tools/call$", text, flags=re.MULTILINE))
+
+
+def server_log_tool_names(run_dir: pathlib.Path) -> list[str] | None:
+    log = run_dir / "mcp-server.log"
+    if not log.exists():
+        return None
+    text = log.read_text(errors="ignore")
+    return re.findall(rf"^tool: ({MCP_BRAIN_TOOL_RE})$", text, flags=re.MULTILINE)
+
+
+def bare_mcp_tool_name(name: Any) -> str:
+    text = str(name)
+    if "__" in text:
+        return text.rsplit("__", 1)[-1]
+    return text
+
+
+def activity_has_mcp_call_with_args(activity: dict[str, Any], tool: str, required_args: dict[str, bool]) -> bool:
+    details = activity.get("mcp_tool_details") if isinstance(activity.get("mcp_tool_details"), list) else []
+    for detail in details:
+        if not isinstance(detail, dict):
+            continue
+        name = bare_mcp_tool_name(detail.get("name"))
+        if name != tool:
+            continue
+        if detail.get("errored"):
+            continue
+        args = detail.get("arguments") if isinstance(detail.get("arguments"), dict) else {}
+        if all(args.get(key) is value for key, value in required_args.items()):
+            return True
+    return False
 
 
 def recompute_score_total(score: dict[str, Any]) -> int | None:
@@ -244,6 +277,7 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     used_brain = bool(activity.get("used_brain"))
     search_calls = int(activity.get("search_calls") or 0)
     slog = server_log_toolcalls(run_dir)
+    slog_names = server_log_tool_names(run_dir)
     is_win = bool(rec.get("ok")) and (get(rec, "validation", "ok") is True)
     # Compact-delivery models are instructed to call brain_brief ONCE and NOT
     # brain_search (the compact brief already carries the top history hits).
@@ -269,7 +303,11 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     # B. mcp authenticity
     if cond in MCP_CONDITIONS:
         names = activity.get("mcp_tool_names") or []
-        real = [n for n in names if re.search(r"(?:^|__)brain_(?:brief|query|search|vsearch|get|multi_get|context|impact|changes|stale|regressions|review|workspace_regressions|workspace_review)$", str(n))]
+        real = [n for n in names if re.search(rf"(?:^|__){MCP_BRAIN_TOOL_RE}$", str(n))]
+        real_bare_names = {bare_mcp_tool_name(n) for n in real}
+        logged_bare_names = set(slog_names or [])
+        run_env_flags = get(rec, "provenance", "run_config", "env_flags", default={})
+        run_env_flags = run_env_flags if isinstance(run_env_flags, dict) else {}
         if mcp_calls <= 0:
             # An mcp run with no tool calls is an HONEST FAILURE (note), UNLESS it was
             # counted as a passing/win result -> then it is a HARD flag (false win).
@@ -289,9 +327,20 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
             req = "brain_workspace_regressions"
             if not any(str(n).endswith(f"__{req}") or n == req for n in names):
                 notes.append(f"B:mcp_workspace_radar_partial_missing_{req}")
+            if not activity_has_mcp_call_with_args(activity, req, {"location_only": True}):
+                flags.append("B:mcp_workspace_radar_missing_location_only")
+        if cond == "mcp_history" and run_env_flags.get("BENCH_RADAR_LOCATION_ONLY") == "1" and mcp_calls > 0:
+            if not activity_has_mcp_call_with_args(activity, "brain_regressions", {"location_only": True}):
+                flags.append("B:mcp_radar_missing_location_only")
         # server-log cross-check: recorded calls must be backed by real tools/call
+        if mcp_calls > 0 and slog is None:
+            flags.append("B:mcp_server_log_missing")
         if slog is not None and mcp_calls > 0 and slog == 0:
             flags.append("B:mcp_calls_not_in_server_log(faked_stdout)")
+        if slog_names:
+            missing_from_log = sorted(real_bare_names - logged_bare_names)
+            if missing_from_log:
+                flags.append("B:mcp_tool_names_not_in_server_log(" + ",".join(missing_from_log) + ")")
         if slog == 0 and mcp_calls <= 0:
             pass  # consistent honest failure
 
@@ -339,10 +388,11 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     # Classify a record as an integrity-verified MCP proof datapoint
     mcp_verified = (
         cond in MCP_CONDITIONS and mcp_calls > 0 and bool(get(rec, "mcp_condition_audit", "ok"))
-        and pc == 0 and (slog is None or slog > 0)
+        and pc == 0 and slog is not None and slog > 0
+        and not (slog_names and not {bare_mcp_tool_name(n) for n in activity.get("mcp_tool_names") or []}.issubset(set(slog_names)))
     )
 
-    return {
+    audit = {
         "run_id": run_id,
         "task_id": rec.get("task_id"),
         "condition": cond,
@@ -363,6 +413,9 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         "notes": notes,
         "pass": not flags,
     }
+    if slog_names is not None:
+        audit["server_tool_names"] = slog_names
+    return audit
 
 
 def audit_summary(suite_dir: pathlib.Path, *, min_repetitions_per_side: int = DEFAULT_PROOF_MIN_REPETITIONS) -> list[dict[str, Any]]:

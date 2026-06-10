@@ -39,6 +39,41 @@ def load_summary(path: pathlib.Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def load_codex_audit(path: pathlib.Path | None) -> dict[str, Any] | None:
+    if path is None:
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {"suites": {}}
+    return data if isinstance(data, dict) else {"suites": {}}
+
+
+def codex_audit_radar_keys(report: dict[str, Any] | None) -> set[tuple[str, str, str, str, str]] | None:
+    if report is None:
+        return None
+    keys: set[tuple[str, str, str, str, str]] = set()
+    suites = report.get("suites") if isinstance(report.get("suites"), dict) else {}
+    for suite, suite_data in suites.items():
+        comparisons = suite_data.get("comparisons") if isinstance(suite_data, dict) else []
+        for comp in comparisons or []:
+            if not isinstance(comp, dict):
+                continue
+            if comp.get("proof_scope") not in RADAR_SCOPES:
+                continue
+            backing = comp.get("record_backing") if isinstance(comp.get("record_backing"), dict) else {}
+            if not (comp.get("proof_ready") and comp.get("pass") and backing.get("ok")):
+                continue
+            keys.add((
+                str(suite),
+                str(comp.get("task") or ""),
+                str(comp.get("runner") or ""),
+                str(comp.get("condition") or ""),
+                str(comp.get("delivery_scope") or ""),
+            ))
+    return keys
+
+
 def iter_radar_comparisons(results: pathlib.Path, suite_globs: list[str]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     if not results.exists():
@@ -127,13 +162,30 @@ def radar_status(comp: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_report(results: pathlib.Path, suite_globs: list[str]) -> dict[str, Any]:
+def build_report(results: pathlib.Path, suite_globs: list[str], codex_audit: dict[str, Any] | None = None) -> dict[str, Any]:
     comparisons: list[dict[str, Any]] = []
     status_counts: Counter[str] = Counter()
     proof_ready = 0
     promotable = 0
+    audit_keys = codex_audit_radar_keys(codex_audit)
     for comp in iter_radar_comparisons(results, suite_globs):
         status = radar_status(comp)
+        if audit_keys is not None:
+            key = (
+                str(comp.get("suite") or ""),
+                str(comp.get("task_id") or ""),
+                str(comp.get("runner") or ""),
+                str(comp.get("condition") or ""),
+                str(comp.get("delivery_scope") or ""),
+            )
+            backed = key in audit_keys
+            status["codex_audit_backed"] = backed
+            if status["proof_ready"] and not backed:
+                status["status"] = "audit-missing"
+                status["proof_ready"] = False
+                status["promotable"] = False
+                status["reasons"].append("matching Radar comparison is not audit-clean in audit_codex output")
+                status["recommendation"] = "retain audit-clean records with MCP-verified backing before citing Radar proof"
         row = {
             "suite": comp.get("suite"),
             "task_id": comp.get("task_id"),
@@ -160,6 +212,7 @@ def build_report(results: pathlib.Path, suite_globs: list[str]) -> dict[str, Any
         "schema": 1,
         "results": str(results),
         "suite_globs": suite_globs,
+        "codex_audit_required": audit_keys is not None,
         "totals": {
             "radar_comparisons": len(comparisons),
             "proof_ready": proof_ready,
@@ -225,6 +278,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--out-dir", type=pathlib.Path, default=None, help="Directory for radar-candidate-report.{json,md}; defaults to --results")
     parser.add_argument("--fail-when-no-promotable", action="store_true", help="Exit nonzero unless at least one Radar comparison is proof-ready or promotable")
     parser.add_argument("--fail-when-no-proof", action="store_true", help="Exit nonzero unless at least one Radar comparison is proof-ready")
+    parser.add_argument("--codex-audit-report", type=pathlib.Path, default=None, help="Require proof-ready Radar comparisons to be backed by an audit_codex report")
     return parser.parse_args(argv)
 
 
@@ -233,7 +287,8 @@ def main(argv: list[str] | None = None) -> int:
     suite_globs = args.suite_glob or ["pilot-radar-*", "release-candidate-*"]
     results = args.results.resolve()
     out_dir = (args.out_dir or results).resolve()
-    report = build_report(results, suite_globs)
+    codex_audit = load_codex_audit(args.codex_audit_report.resolve() if args.codex_audit_report else None)
+    report = build_report(results, suite_globs, codex_audit)
     json_path = write_report(report, out_dir)
     print(render_markdown(report).split("\n\n", 1)[0])
     print(f"\nWrote {json_path} and radar-candidate-report.md")

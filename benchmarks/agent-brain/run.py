@@ -263,6 +263,8 @@ SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
 FULL_HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mcp_history", "mcp_workspace_radar"}
 CLI_HISTORY_EXCERPT_CONDITIONS = {"full_brain", "full_cli_original"}
 MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
+MCP_BRAIN_TOOL_RE = r"brain_(?:stale|brief|query|search|vsearch|get|multi_get|context|impact|changes|code|tests|boundaries|regressions|review|workspace_regressions|workspace_review)"
+SAFE_MCP_ARGUMENT_KEYS = {"location_only", "include_deletions", "blind_spots"}
 BENCHMARK_PRIVATE_PREFIXES = (".benchmark/", ".entire/", ".codex/")
 HARNESS_SCAFFOLD_PATHS = (
     "benchmarks/agent-brain/tasks",
@@ -1133,6 +1135,22 @@ def mcp_required_tools(condition: str, runner: "RunnerSpec | None") -> tuple[str
     return ()
 
 
+def activity_has_mcp_call_with_args(activity: dict[str, Any], tool: str, required_args: dict[str, bool]) -> bool:
+    details = activity.get("mcp_tool_details") if isinstance(activity.get("mcp_tool_details"), list) else []
+    for detail in details:
+        if not isinstance(detail, dict):
+            continue
+        name = str(detail.get("name") or "")
+        if not (name == tool or name.endswith(f"__{tool}")):
+            continue
+        if detail.get("errored"):
+            continue
+        args = detail.get("arguments") if isinstance(detail.get("arguments"), dict) else {}
+        if all(args.get(key) is value for key, value in required_args.items()):
+            return True
+    return False
+
+
 def mcp_condition_audit(condition: str, agent_info: dict[str, Any], runner: "RunnerSpec | None" = None) -> dict[str, Any]:
     if not is_mcp_condition(condition):
         return {"ok": True, "required": False, "findings": []}
@@ -1146,6 +1164,12 @@ def mcp_condition_audit(condition: str, agent_info: dict[str, Any], runner: "Run
     for required in mcp_required_tools(condition, runner):
         if not any(str(name).endswith(f"__{required}") or str(name) == required for name in mcp_tool_names):
             findings.append({"kind": "missing_required_mcp_tool", "condition": condition, "tool": required})
+    if condition == "mcp_workspace_radar":
+        if not activity_has_mcp_call_with_args(activity, "brain_workspace_regressions", {"location_only": True}):
+            findings.append({"kind": "missing_required_mcp_argument", "condition": condition, "tool": "brain_workspace_regressions", "argument": "location_only"})
+    if condition == "mcp_history" and wants_radar_location_only(runner):
+        if not activity_has_mcp_call_with_args(activity, "brain_regressions", {"location_only": True}):
+            findings.append({"kind": "missing_required_mcp_argument", "condition": condition, "tool": "brain_regressions", "argument": "location_only"})
     if int(activity.get("direct_brain_cli_calls") or 0) > 0:
         findings.append({"kind": "direct_brain_cli_used_in_mcp_condition"})
     return {
@@ -1153,6 +1177,7 @@ def mcp_condition_audit(condition: str, agent_info: dict[str, Any], runner: "Run
         "required": True,
         "mcp_tool_calls": activity.get("mcp_tool_calls", 0),
         "mcp_tool_names": mcp_tool_names,
+        "mcp_tool_details": activity.get("mcp_tool_details", []),
         "direct_brain_cli_calls": activity.get("direct_brain_cli_calls", 0),
         "findings": findings,
     }
@@ -2296,8 +2321,35 @@ def extract_tool_command(value: Any) -> str | None:
     return None
 
 
-def collect_json_tool_events(value: Any) -> list[dict[str, str | None]]:
-    events: list[dict[str, str | None]] = []
+def safe_tool_arguments(value: Any) -> dict[str, bool]:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return safe_tool_arguments(parsed)
+    if not isinstance(value, dict):
+        return {}
+    return {
+        key: bool(value[key])
+        for key in sorted(SAFE_MCP_ARGUMENT_KEYS)
+        if isinstance(value.get(key), bool)
+    }
+
+
+def tool_event_errored(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    status = str(value.get("status") or value.get("state") or "").lower()
+    if status in {"error", "errored", "failed", "failure"}:
+        return True
+    if value.get("is_error") is True or value.get("isError") is True:
+        return True
+    return value.get("error") not in (None, "", False)
+
+
+def collect_json_tool_events(value: Any) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
     if isinstance(value, dict):
         event_type = value.get("type")
         name = value.get("name") or value.get("tool_name") or value.get("toolName")
@@ -2314,12 +2366,15 @@ def collect_json_tool_events(value: Any) -> list[dict[str, str | None]]:
             if command:
                 events.append({"name": "Bash", "command": command})
         if isinstance(name, str) and event_type in {"tool_use", "tool_call", "function_call", "mcp_tool_call"}:
-            command = extract_tool_command(value.get("input"))
-            if command is None:
-                command = extract_tool_command(value.get("arguments"))
-            if command is None:
-                command = extract_tool_command(value.get("params"))
-            events.append({"name": name, "command": command})
+            arg_candidates = [value.get("input"), value.get("arguments"), value.get("params")]
+            raw_args = next((candidate for candidate in arg_candidates if candidate is not None), None)
+            command = next((cmd for candidate in arg_candidates for cmd in [extract_tool_command(candidate)] if cmd is not None), None)
+            events.append({
+                "name": name,
+                "command": command,
+                "arguments": safe_tool_arguments(raw_args),
+                "errored": tool_event_errored(value),
+            })
         for item in value.values():
             events.extend(collect_json_tool_events(item))
     elif isinstance(value, list):
@@ -2328,8 +2383,8 @@ def collect_json_tool_events(value: Any) -> list[dict[str, str | None]]:
     return events
 
 
-def structured_tool_events(stdout: str) -> list[dict[str, str | None]]:
-    events: list[dict[str, str | None]] = []
+def structured_tool_events(stdout: str) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
     for line in stdout.splitlines():
         line = line.strip()
         if not line.startswith("{"):
@@ -2402,10 +2457,20 @@ def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
             for command in [event.get("command")]
             if isinstance(command, str) and command.strip()
         ]
+        tool_details = [
+            {
+                "name": str(event["name"]),
+                "arguments": dict(event.get("arguments") or {}),
+                "errored": bool(event.get("errored")),
+            }
+            for event in events
+            if isinstance(event.get("name"), str)
+        ]
         return {
             "source": "protocol_json",
             "event_count": len(events),
             "tool_names": [str(event["name"]) for event in events if isinstance(event.get("name"), str)],
+            "tool_details": tool_details,
             "commands": commands,
             "lower": "\n".join(commands).lower(),
         }
@@ -2414,6 +2479,7 @@ def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
             "source": "protocol_json",
             "event_count": 0,
             "tool_names": [],
+            "tool_details": [],
             "commands": [],
             "lower": "",
         }
@@ -2422,7 +2488,8 @@ def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
     return {
         "source": "text_fallback",
         "event_count": 0,
-        "tool_names": re.findall(r"mcp__[a-z0-9_-]+__brain_(?:brief|history|query|context|impact|changes|stale|regressions|review|workspace_regressions|workspace_review)", lower),
+        "tool_names": re.findall(rf"mcp__[a-z0-9_-]+__{MCP_BRAIN_TOOL_RE}", lower),
+        "tool_details": [],
         "commands": [],
         "lower": lower,
     }
@@ -2457,7 +2524,12 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
     mcp_tool_names = [
         name
         for name in tool_names
-        if re.search(r"(?:^|__)brain_(?:brief|query|search|vsearch|get|multi_get|context|impact|changes|stale|regressions|review|workspace_regressions|workspace_review)$", name)
+        if re.search(rf"(?:^|__){MCP_BRAIN_TOOL_RE}$", name)
+    ]
+    mcp_tool_details = [
+        detail
+        for detail in activity_source.get("tool_details", [])
+        if isinstance(detail, dict) and re.search(rf"(?:^|__){MCP_BRAIN_TOOL_RE}$", str(detail.get("name") or ""))
     ]
     direct_brain_cli_calls = len(re.findall(r"\b(?:entire\s+brain|entire-brain)\s+[a-z][a-z-]*", command_lower))
     search_tool_calls = [name for name in tool_names if name in {"Grep", "Glob"}]
@@ -2480,6 +2552,7 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
         "brain_commands": brain_commands,
         "direct_brain_cli_calls": direct_brain_cli_calls,
         "mcp_tool_names": sorted(set(mcp_tool_names)),
+        "mcp_tool_details": mcp_tool_details,
         "mcp_tool_calls": len(mcp_tool_names),
         "used_mcp": bool(mcp_tool_names),
         "search_commands": sorted(set([*search_call_matches, *search_tool_calls])),
@@ -2675,6 +2748,7 @@ def score(
             "brain_commands": activity.get("brain_commands", []),
             "mcp_tool_calls": activity.get("mcp_tool_calls", 0),
             "mcp_tool_names": activity.get("mcp_tool_names", []),
+            "mcp_tool_details": activity.get("mcp_tool_details", []),
             "direct_brain_cli_calls": activity.get("direct_brain_cli_calls", 0),
             "search_calls": activity.get("search_calls", 0),
             "activity_source": activity.get("activity_source", "unknown"),

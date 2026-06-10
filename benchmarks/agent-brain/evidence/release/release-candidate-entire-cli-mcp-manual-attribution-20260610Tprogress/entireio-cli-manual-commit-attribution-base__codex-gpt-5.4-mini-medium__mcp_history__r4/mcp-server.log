@@ -1,0 +1,10 @@
+start
+message: initialize
+response: initialize
+message: notifications/initialized
+message: tools/list
+response: tools/list
+message: tools/call
+response: tools/call
+message: tools/call
+response: tools/call

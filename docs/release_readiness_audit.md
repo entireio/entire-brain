@@ -382,6 +382,18 @@ Release claims must stay local-first and evidence-backed:
   `mcp_workspace_radar` condition prepares a local workspace, requires the
   `brain_workspace_regressions` MCP tool, and audits successful comparisons as
   `mcp_workspace_radar_location_only`.
+- MCP proof authenticity now has a stronger path for new retained runs: the
+  stdio server keeps the legacy `message: tools/call` count line and also emits
+  a redacted `tool: brain_*` line to the debug log. The independent auditor
+  cross-checks recorded MCP tool names against those server-side names when
+  present. Retained MCP records must now include an `mcp-server.log` with real
+  `tools/call` lines before they count as MCP-verified; older retained
+  count-only logs are accepted as server-call proof, and new retained runs should
+  carry both count and tool-name lines.
+- MCP argument contracts now fail closed: schemas advertise
+  `additionalProperties: false`, unknown keys are rejected, string fields and
+  string-array fields must have the advertised type, and Radar MCP proof records
+  preserve only safe boolean call details such as `location_only`.
 - The committed `release-entire-cli-radar-mcp-review-base-scope` panel encodes
   `BENCH_RADAR_LOCATION_ONLY=1` in the panel manifest, so the fair radar run is
   reproducible and hashed with the panel config.
@@ -461,7 +473,9 @@ suites. On 2026-06-10 it found 4 Radar comparisons, 0 proof-ready comparisons,
 0 promotable pilots, and 4 saturated pilots (`pass no-brain -> Radar` was
 `1.00 -> 1.00` for each). `mise run radar:evidence` currently fails because no
 retained `release-candidate-*` suite contains a stable proof-ready
-location-only Radar comparison.
+location-only Radar comparison. The Radar evidence task now also generates the
+independent Codex audit report first and requires a matching audit-clean
+comparison before accepting a summary-level Radar proof.
 
 CI now includes the retained replay-lab release-evidence audit in addition to
 lint/build/test/Phase 1 semantic checks. The facts evidence gate is not wired
@@ -497,7 +511,9 @@ repo/access/artifacts are available:
   appropriate proof scope (`mcp_radar_location_only` or
   `mcp_workspace_radar_location_only`), zero hard flags, a stable proof-ready
   comparison, and committed sanitized artifacts under
-  `benchmarks/agent-brain/evidence/release`. Local 2026-06-10 single-repo radar
+  `benchmarks/agent-brain/evidence/release`. New retained MCP/Radar runs must
+  preserve `mcp-server.log`; new runs should include `tool: brain_*` lines so
+  tool-name authenticity is server-backed, not only agent-output-backed. Local 2026-06-10 single-repo radar
   pilots with `codex:gpt-5.4-mini:low` and `:medium` were both saturated on pass
   rate (`1.0 -> 1.0`) and therefore not release proof, despite large token/time
   reductions in the MCP/radar arm. A deletion-aware transcript radar

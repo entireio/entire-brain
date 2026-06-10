@@ -263,6 +263,14 @@ Implemented in Entire Brain:
 - Hardened the MCP adapter to reject oversized/negative frames before
   allocation and to return tool errors for invalid integer arguments instead of
   silently falling back.
+- Hardened MCP benchmark proof capture: debug logs now retain server-side
+  `tool: brain_*` names without arguments, and the independent benchmark audit
+  cross-checks those names when present. MCP release records now require a
+  retained server log to count as verified, and Radar records preserve safe
+  boolean call details such as `location_only`.
+- Tightened MCP argument contracts: schemas are closed with
+  `additionalProperties: false`, unknown keys are rejected, and non-string
+  string fields / mixed string arrays fail instead of silently coercing.
 - Took per-repo semantic index locks around workspace query/impact reads so
   concurrent refreshes cannot race manifest/store access.
 - Normalized `.brainignore` recursive `**` matching across in-process snapshot,

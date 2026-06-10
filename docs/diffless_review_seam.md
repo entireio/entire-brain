@@ -90,6 +90,15 @@ or saturated. `mise run radar:evidence` is intentionally stricter: it fails
 until retained `release-candidate-*` evidence contains at least one stable
 proof-ready location-only Radar comparison. That keeps generic MCP-history proof
 separate from the stronger Radar claim.
+New MCP/Radar runs also write redacted server-side tool names (`tool:
+brain_regressions`, `tool: brain_workspace_regressions`, etc.) to
+`mcp-server.log`; the independent audit cross-checks those names when present,
+so future retained Radar proof can show which brain tool the server actually
+handled rather than relying only on agent transcript activity.
+Radar proof also records only safe MCP boolean arguments (`location_only`,
+`include_deletions`) from structured tool-call events, so the audit can reject a
+would-be location-only proof that actually called the wrong mode without
+retaining query text.
 For non-radar MCP-history proof, the committed
 `release-entire-cli-mcp-manual-attribution` panel targets a harder manual-commit
 attribution invariant where the brain should provide historical localization and
