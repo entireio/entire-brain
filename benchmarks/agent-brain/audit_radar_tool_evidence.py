@@ -53,7 +53,7 @@ REQUIRED_TESTS = [
     "TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet",
     "TestMCPRejectsInvalidBooleanArguments",
     "TestMCPRejectsInvalidStringAndUnknownArguments",
-    "TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly",
+    "TestMCPDebugLogIncludesToolCallNameAndSafeArgsOnly",
     "TestMCPDebugLogIncludesSuccessfulWorkspaceRadarResult",
     "TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools",
     "TestMCPDebugLogReviewToolsRedactAndLogSuccess",

@@ -48,6 +48,8 @@ MCP_NAMED_TOOL_REQUIRED_SCOPES = {
 }
 MCP_BRAIN_TOOL_RE = r"brain_(?:stale|brief|query|search|vsearch|get|multi_get|context|impact|changes|code|tests|boundaries|regressions|review|workspace_regressions|workspace_review)"
 SAFE_SERVER_BOOL_TOOL_ARGS = {"blind_spots", "include_deletions", "location_only"}
+SAFE_SERVER_STRING_TOOL_ARGS = {"workspace"}
+WORKSPACE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 HOST_PATH_RE = re.compile(
@@ -61,14 +63,20 @@ HOST_PATH_RE = re.compile(
 )
 
 
-def sanitize_server_tool_args(raw_args: Any) -> tuple[dict[str, bool], list[dict[str, str]]]:
+def valid_workspace_name(value: Any) -> bool:
+    return isinstance(value, str) and bool(WORKSPACE_NAME_RE.fullmatch(value)) and value not in {".", ".."} and bool(value.strip("."))
+
+
+def sanitize_server_tool_args(raw_args: Any) -> tuple[dict[str, Any], list[dict[str, str]]]:
     if not isinstance(raw_args, dict):
         return {}, [{"key": "<non-object>", "type": type(raw_args).__name__}]
-    safe_args: dict[str, bool] = {}
+    safe_args: dict[str, Any] = {}
     unsafe_args: list[dict[str, str]] = []
     for key, value in raw_args.items():
         key_text = str(key)
         if key_text in SAFE_SERVER_BOOL_TOOL_ARGS and isinstance(value, bool):
+            safe_args[key_text] = value
+        elif key_text in SAFE_SERVER_STRING_TOOL_ARGS and valid_workspace_name(value):
             safe_args[key_text] = value
         else:
             unsafe_args.append({"key": key_text, "type": type(value).__name__})
@@ -199,8 +207,16 @@ def bare_mcp_tool_name(name: Any) -> str:
     return text
 
 
-def args_match_required(args: dict[str, Any], required_args: dict[str, bool]) -> bool:
-    return all(args.get(key) is value for key, value in required_args.items())
+def arg_matches(actual: Any, expected: Any) -> bool:
+    if isinstance(expected, bool):
+        return actual is expected
+    if isinstance(expected, str):
+        return isinstance(actual, str) and actual == expected
+    return actual == expected
+
+
+def args_match_required(args: dict[str, Any], required_args: dict[str, Any]) -> bool:
+    return all(arg_matches(args.get(key), value) for key, value in required_args.items())
 
 
 def args_match_forbidden(args: dict[str, Any], forbidden_args: dict[str, bool]) -> bool:
@@ -329,10 +345,22 @@ def required_server_tool_names(condition: str, delivery_scope: str) -> set[str]:
     return set()
 
 
-def required_server_tool_args(condition: str, delivery_scope: str, radar_requires_deletions: bool) -> dict[str, dict[str, bool]]:
-    required: dict[str, dict[str, bool]] = {}
+def record_workspace_name(rec: dict[str, Any]) -> str | None:
+    raw = get(rec, "provenance", "run_config", "workspace_name")
+    return raw if valid_workspace_name(raw) else None
+
+
+def required_server_tool_args(
+    condition: str,
+    delivery_scope: str,
+    radar_requires_deletions: bool,
+    workspace_name: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    required: dict[str, dict[str, Any]] = {}
     if condition == "mcp_workspace_radar" or delivery_scope == "mcp_workspace_radar_location_only":
         required["brain_workspace_regressions"] = {"location_only": True}
+        if workspace_name is not None:
+            required["brain_workspace_regressions"]["workspace"] = workspace_name
     elif delivery_scope == "mcp_radar_location_only":
         required["brain_regressions"] = {"location_only": True}
     elif delivery_scope == "mcp_radar_answer_assisted":
@@ -540,7 +568,8 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     delivery_scope = delivery_scope_for_record(str(cond), env_flags)
     required_logged_tools = required_server_tool_names(str(cond), delivery_scope)
     radar_requires_deletions, radar_policy_attested = record_radar_deletion_policy(rec)
-    required_logged_tool_args = required_server_tool_args(str(cond), delivery_scope, radar_requires_deletions)
+    workspace_name = record_workspace_name(rec)
+    required_logged_tool_args = required_server_tool_args(str(cond), delivery_scope, radar_requires_deletions, workspace_name)
     forbidden_logged_tool_args = forbidden_server_tool_args(str(cond), delivery_scope)
 
     # A. no_brain purity (HARD: no_brain must never touch Brain/MCP/CLI/private)
@@ -582,12 +611,18 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
             req = "brain_workspace_regressions"
             if not radar_policy_attested:
                 flags.append("H:provenance_missing_radar_include_deletions_policy")
+            if workspace_name is None:
+                flags.append("H:provenance_missing_workspace_name")
             if not any(str(n).endswith(f"__{req}") or n == req for n in names):
                 notes.append(f"B:mcp_workspace_radar_partial_missing_{req}")
             if not activity_has_mcp_call_with_args(activity, req, {"location_only": True}):
                 flags.append("B:mcp_workspace_radar_missing_location_only")
             if slog_tool_calls is not None and not server_log_has_tool_with_args(slog_tool_calls, req, {"location_only": True}):
                 flags.append("B:mcp_workspace_radar_server_missing_location_only")
+            if workspace_name is not None and not activity_has_mcp_call_with_args(activity, req, {"location_only": True, "workspace": workspace_name}):
+                flags.append("B:mcp_workspace_radar_missing_workspace")
+            if workspace_name is not None and slog_tool_calls is not None and not server_log_has_tool_with_args(slog_tool_calls, req, {"location_only": True, "workspace": workspace_name}):
+                flags.append("B:mcp_workspace_radar_server_missing_workspace")
             if radar_requires_deletions and not activity_has_mcp_call_with_args(activity, req, {"location_only": True, "include_deletions": True}):
                 flags.append("B:mcp_workspace_radar_missing_include_deletions")
             if radar_requires_deletions and slog_tool_calls is not None and not server_log_has_tool_with_args(slog_tool_calls, req, {"location_only": True, "include_deletions": True}):

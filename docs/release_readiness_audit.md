@@ -30,6 +30,11 @@ Implemented claim-control surfaces:
 - `--agent ollama --model <model>` can use local loopback Ollama through
   `ENTIRE_BRAIN_OLLAMA_URL` or `http://127.0.0.1:11434/api/generate`; the HTTP
   transport bypasses proxies and resolves/dials only loopback IP targets.
+- The retained distill evidence now includes a non-cached fake-Ollama
+  `go test -json` artifact for the local-model contract: the distill command sends
+  the selected model to loopback `/api/generate`, requests non-streaming output,
+  avoids the `ollama` PATH binary, ignores proxy/custom TLS hooks, and rejects
+  non-loopback URLs or redirects without requiring a real external model.
 - `benchmarks/agent-brain/audit_distill_perf.py` audits retained performance
   artifacts for release proof: one dry-run JSON, one timed `--jobs 1` summary,
   and one timed `--jobs N` summary. It requires matching agent/model/branch/force
@@ -40,7 +45,8 @@ Implemented claim-control surfaces:
   cache-hit counts, no warnings or failed chunks, bounded reconcile calls,
   timing components that fit under `total_seconds`, comparable chunk/call/output
   summaries, effective parallelism greater than 1, and observed `total_seconds`
-  speedup above the manifest's `min_speedup`.
+  speedup above the manifest's `min_speedup`. It also requires the retained
+  fake-Ollama contract artifact and all required loopback/no-egress tests to pass.
 - `mise run distill:evidence` checks committed distill artifacts without
   rewriting them, while `distill:evidence:update` regenerates the audit report
   only after the validator passes. The current retained artifacts are scoped to
@@ -60,7 +66,9 @@ scheduled extraction chunks, and 159 extraction calls. The paired timed summarie
 showed `--jobs 1` and `--jobs 4` produced matching summaries with zero failed
 chunks, and the observed wall-time speedup was about 2x. This validates the
 parallel extraction scheduler and retained evidence gate, but it is not target
-frontend performance proof.
+frontend performance proof. The same manifest also retains the fake loopback
+Ollama contract test artifact, which supports local-model/Ollama wiring and
+no-egress safety claims without supporting real-model fact quality.
 
 Blocked evidence collection: the target large session repo and retained timed
 run artifacts are still needed before any public frontend/large-repo performance
@@ -529,9 +537,10 @@ depend on retained evidence artifacts.
 `mise run semantic:evidence`, continuing after individual failures and printing
 the complete failing-task summary at the end. Distill and facts now have
 retained evidence, but their claim scopes are deliberately narrow: distill
-proves current-repo local command-agent extraction scheduling speedup, and facts
-records `claim_policy: "no_release_claim"` because the current branch has no
-active durable facts. These gates keep "distill is fast on the frontend repo"
+proves current-repo local command-agent extraction scheduling speedup plus fake
+loopback Ollama wiring/no-egress safety, and facts records
+`claim_policy: "no_release_claim"` because the current branch has no active
+durable facts. These gates keep "distill is fast on the frontend repo"
 and "facts beat raw sessions" blocked until target proof exists, instead of
 hiding them behind a green implementation check. Semantic freshness is local
 health evidence; semantic usefulness claims still need separate retained

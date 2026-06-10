@@ -197,7 +197,7 @@ func TestMCPRejectsInvalidStringAndUnknownArguments(t *testing.T) {
 	}
 }
 
-func TestMCPDebugLogIncludesToolCallNameAndSafeBooleanArgsOnly(t *testing.T) {
+func TestMCPDebugLogIncludesToolCallNameAndSafeArgsOnly(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "mcp.log")
 	t.Setenv("ENTIRE_BRAIN_MCP_DEBUG_LOG", logPath)
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"secret-query-value","limit":"bad","location_only":true,"include_deletions":true}}}`)
@@ -248,7 +248,7 @@ func TestMCPDebugLogIncludesSuccessfulWorkspaceRadarResult(t *testing.T) {
 		t.Fatalf("read debug log: %v", err)
 	}
 	text := string(data)
-	for _, want := range []string{"tool: brain_workspace_regressions", `tool_args: {"include_deletions":true,"location_only":true}`, "tool_result: brain_workspace_regressions ok"} {
+	for _, want := range []string{"tool: brain_workspace_regressions", `tool_args: {"include_deletions":true,"location_only":true,"workspace":"related"}`, "tool_result: brain_workspace_regressions ok"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("debug log missing %q: %s", want, text)
 		}
@@ -327,7 +327,7 @@ func TestMCPDebugLogReviewToolsRedactAndLogSuccess(t *testing.T) {
 		if err := runMCP(cmd.Context(), strings.NewReader(input), &out, opts); err != nil {
 			t.Fatalf("mcp: %v", err)
 		}
-		assertMCPDebugLogReviewRedacted(t, logPath, "brain_review", []string{"secret-review-query", "master..HEAD", `scopeBaseRef+`})
+		assertMCPDebugLogReviewRedacted(t, logPath, "brain_review", `tool_args: {"include_deletions":true,"location_only":true}`, []string{"secret-review-query", "master..HEAD", `scopeBaseRef+`})
 	})
 
 	t.Run("brain_workspace_review", func(t *testing.T) {
@@ -353,18 +353,18 @@ func TestMCPDebugLogReviewToolsRedactAndLogSuccess(t *testing.T) {
 		if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
 			t.Fatalf("mcp: %v", err)
 		}
-		assertMCPDebugLogReviewRedacted(t, logPath, "brain_workspace_review", []string{"secret-workspace-review-query", "state.TranscriptPath = resolved", "_ = state.TranscriptPath"})
+		assertMCPDebugLogReviewRedacted(t, logPath, "brain_workspace_review", `tool_args: {"include_deletions":true,"location_only":true,"workspace":"related"}`, []string{"secret-workspace-review-query", "state.TranscriptPath = resolved", "_ = state.TranscriptPath"})
 	})
 }
 
-func assertMCPDebugLogReviewRedacted(t *testing.T, logPath, tool string, forbidden []string) {
+func assertMCPDebugLogReviewRedacted(t *testing.T, logPath, tool, expectedArgs string, forbidden []string) {
 	t.Helper()
 	data, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("read debug log: %v", err)
 	}
 	text := string(data)
-	for _, want := range []string{"tool: " + tool, `tool_args: {"include_deletions":true,"location_only":true}`, "tool_result: " + tool + " ok"} {
+	for _, want := range []string{"tool: " + tool, expectedArgs, "tool_result: " + tool + " ok"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("debug log missing %q: %s", want, text)
 		}

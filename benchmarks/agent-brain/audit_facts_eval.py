@@ -19,6 +19,8 @@ DEFAULT_REQUIRED_RETRIEVERS = ["facts", "history", "query", "raw-sessions"]
 SHA256_VALUE_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 PROOF_LABEL_SOURCES = {"human", "judge_refined"}
 RELEVANCE_PROOF_METRICS = {"precision", "recall", "useful_per_1k"}
+ALL_PAIRED_METRIC_N = {"precision", "useful_per_1k", "tokens", "latency_ms"}
+LABELED_PAIR_METRIC_N = {"recall"}
 CLAIM_POLICY_PROOF = "proof_required"
 CLAIM_POLICY_NO_CLAIM = "no_release_claim"
 
@@ -185,6 +187,103 @@ def proof_label_summary_flags(retriever: str, summary: dict[str, Any]) -> list[s
     return [f"{retriever}: {len(bad)} result(s) are not human/judge_refined explicit proof labels: {sample}"]
 
 
+def sample_ids(ids: list[str]) -> str:
+    sample = ", ".join(ids[:5])
+    if len(ids) > 5:
+        sample += f", ... {len(ids) - 5} more"
+    return sample
+
+
+def result_index_for_summary(retriever: str, summary: dict[str, Any], flags: list[str]) -> dict[str, dict[str, Any]]:
+    results = summary.get("results")
+    if not isinstance(results, list):
+        return {}
+    by_id: dict[str, dict[str, Any]] = {}
+    for index, result in enumerate(results):
+        if not isinstance(result, dict):
+            flags.append(f"{retriever}: result #{index + 1} must be an object")
+            continue
+        task_id = result.get("id")
+        if not isinstance(task_id, str) or not task_id:
+            flags.append(f"{retriever}: result #{index + 1} must have non-empty id")
+            continue
+        if task_id in by_id:
+            flags.append(f"{retriever}: duplicate result id {task_id!r}")
+            continue
+        by_id[task_id] = result
+    return by_id
+
+
+def metric_n_from_retained_summaries(
+    metric_name: str,
+    paired_ids: list[str],
+    a_results: dict[str, dict[str, Any]],
+    b_results: dict[str, dict[str, Any]],
+) -> int | None:
+    if metric_name in ALL_PAIRED_METRIC_N:
+        return len(paired_ids)
+    if metric_name in LABELED_PAIR_METRIC_N:
+        return sum(
+            1
+            for task_id in paired_ids
+            if a_results[task_id].get("labeled") is True and b_results[task_id].get("labeled") is True
+        )
+    return None
+
+
+def recompute_comparison_pairing(
+    name: str,
+    comp: dict[str, Any],
+    summary_results_by_id: dict[str, dict[str, dict[str, Any]]],
+    flags: list[str],
+) -> dict[str, Any] | None:
+    a_retriever = comp.get("a_retriever")
+    b_retriever = comp.get("b_retriever")
+    if not isinstance(a_retriever, str) or not isinstance(b_retriever, str):
+        return None
+    a_results = summary_results_by_id.get(a_retriever)
+    b_results = summary_results_by_id.get(b_retriever)
+    if a_results is None or b_results is None:
+        return None
+
+    a_ids = set(a_results)
+    b_ids = set(b_results)
+    missing_from_a = sorted(b_ids - a_ids)
+    missing_from_b = sorted(a_ids - b_ids)
+    paired_ids = sorted(a_ids & b_ids)
+
+    if missing_from_a:
+        flags.append(f"{name}: retained summaries have {len(missing_from_a)} id(s) missing from A: {sample_ids(missing_from_a)}")
+    if missing_from_b:
+        flags.append(f"{name}: retained summaries have {len(missing_from_b)} id(s) missing from B: {sample_ids(missing_from_b)}")
+    if isinstance(comp.get("n"), int) and comp.get("n") != len(paired_ids):
+        flags.append(f"{name}: comparison n is {comp.get('n')}, retained paired rows recompute to {len(paired_ids)}")
+
+    for task_id in paired_ids:
+        a_row = a_results[task_id]
+        b_row = b_results[task_id]
+        a_task = a_row.get("task")
+        b_task = b_row.get("task")
+        if isinstance(a_task, str) and isinstance(b_task, str) and a_task and b_task and a_task != b_task:
+            flags.append(f"{name}: task {task_id!r} differs between retained summaries")
+        a_query_type = a_row.get("query_type")
+        b_query_type = b_row.get("query_type")
+        if (
+            isinstance(a_query_type, str)
+            and isinstance(b_query_type, str)
+            and a_query_type
+            and b_query_type
+            and a_query_type != b_query_type
+        ):
+            flags.append(f"{name}: task {task_id!r} query_type differs between retained summaries")
+
+    return {
+        "paired_ids": paired_ids,
+        "a_results": a_results,
+        "b_results": b_results,
+    }
+
+
 def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
     manifest_path = manifest_path.resolve()
     root = manifest_path.parent
@@ -204,6 +303,7 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
         flags.append("required_retrievers missing canonical retrievers: " + ", ".join(missing_canonical))
 
     summaries: dict[str, dict[str, Any]] = {}
+    summary_results_by_id: dict[str, dict[str, dict[str, Any]]] = {}
     summary_paths: dict[str, str] = {}
     tasks_hashes: set[str] = set()
     brain_hashes: set[str] = set()
@@ -233,6 +333,7 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             brain_hashes.add(brain_sha)
         if not isinstance(summary.get("results"), list) or not summary.get("results"):
             flags.append(f"{retriever}: summary results must be non-empty")
+        summary_results_by_id[retriever] = result_index_for_summary(retriever, summary, flags)
 
     if len(tasks_hashes) > 1:
         flags.append("eval summaries have differing tasks_sha256 values")
@@ -242,6 +343,7 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
     brain_sha = next(iter(brain_hashes), "")
 
     comparisons: dict[str, dict[str, Any]] = {}
+    comparison_metric_ns: dict[tuple[str, str], int] = {}
     comparison_paths: dict[str, str] = {}
     for name, rel in (manifest.get("comparisons") or {}).items():
         if not isinstance(name, str) or not name:
@@ -278,6 +380,25 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             flags.append(f"{name}: missing_from_b must be empty")
         if not isinstance(comp.get("metrics"), list) or not comp.get("metrics"):
             flags.append(f"{name}: metrics must be non-empty")
+        pairing = recompute_comparison_pairing(name, comp, summary_results_by_id, flags)
+        if pairing is not None:
+            for metric in comp.get("metrics") or []:
+                if not isinstance(metric, dict):
+                    continue
+                metric_name = metric.get("metric")
+                if not isinstance(metric_name, str) or not metric_name:
+                    continue
+                retained_n = metric_n_from_retained_summaries(
+                    metric_name,
+                    pairing["paired_ids"],
+                    pairing["a_results"],
+                    pairing["b_results"],
+                )
+                if retained_n is None:
+                    continue
+                comparison_metric_ns[(name, metric_name)] = retained_n
+                if isinstance(metric.get("n"), int) and metric.get("n") != retained_n:
+                    flags.append(f"{name}: {metric_name} n is {metric.get('n')}, retained rows recompute to {retained_n}")
 
     claim_reports: list[dict[str, Any]] = []
     proof_checked_retrievers: set[str] = set()
@@ -336,6 +457,15 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             flags.append(f"{name}: {metric_name} is not significant")
         if not isinstance(metric.get("n"), int) or metric.get("n") <= 0:
             flags.append(f"{name}: {metric_name} has no paired rows")
+        retained_metric_n = comparison_metric_ns.get((name, metric_name))
+        if metric_name in RELEVANCE_PROOF_METRICS and retained_metric_n is None:
+            flags.append(f"{name}: {metric_name} retained metric n could not be recomputed")
+        metric_n_verified = (
+            retained_metric_n is not None
+            and isinstance(metric.get("n"), int)
+            and metric.get("n") == retained_metric_n
+            and retained_metric_n > 0
+        )
         facts_side = comparison_side_for_retriever(comp, "facts")
         raw_side = comparison_side_for_retriever(comp, "raw-sessions")
         if (
@@ -347,6 +477,7 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             and metric.get("winner") == facts_side
             and metric.get("release_claimable") is True
             and metric.get("significant") is True
+            and metric_n_verified
         ):
             facts_vs_raw_claim = True
         claim_reports.append({
@@ -359,6 +490,7 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             "release_claimable": metric.get("release_claimable"),
             "significant": metric.get("significant"),
             "n": metric.get("n"),
+            "retained_n": retained_metric_n,
         })
 
     if not comparisons:

@@ -444,22 +444,22 @@ class RunnerAndConditionTests(unittest.TestCase):
             self.assertIn(f"mcp__entire_brain__{tool}", activity["mcp_tool_names"])
             self.assertTrue(activity["used_mcp"], tool)
 
-    def test_activity_preserves_safe_mcp_boolean_arguments_only(self):
+    def test_activity_preserves_only_safe_mcp_arguments(self):
         stdout = json.dumps(
             {
                 "type": "item.completed",
                 "item": {
                     "type": "mcp_tool_call",
                     "server": "entire_brain",
-                    "tool": "brain_regressions",
-                    "arguments": {"query": "secret query text", "location_only": True, "include_deletions": False},
+                    "tool": "brain_workspace_regressions",
+                    "arguments": {"query": "secret query text", "location_only": True, "include_deletions": False, "workspace": "related"},
                     "status": "completed",
                 },
             }
         )
         activity = run.extract_agent_activity(stdout, "")
         self.assertEqual(activity["mcp_tool_calls"], 1)
-        self.assertEqual(activity["mcp_tool_details"][0]["arguments"], {"include_deletions": False, "location_only": True})
+        self.assertEqual(activity["mcp_tool_details"][0]["arguments"], {"include_deletions": False, "location_only": True, "workspace": "related"})
         self.assertNotIn("secret query text", json.dumps(activity["mcp_tool_details"]))
 
     def test_radar_mcp_history_audit_requires_brain_regressions(self):
@@ -619,10 +619,11 @@ class RunnerAndConditionTests(unittest.TestCase):
                 "activity": {
                     "mcp_tool_calls": 1,
                     "mcp_tool_names": ["mcp__entire_brain__brain_workspace_regressions"],
-                    "mcp_tool_details": [{"name": "mcp__entire_brain__brain_workspace_regressions", "arguments": {"location_only": True}, "errored": False}],
+                    "mcp_tool_details": [{"name": "mcp__entire_brain__brain_workspace_regressions", "arguments": {"location_only": True, "workspace": "related"}, "errored": False}],
                     "direct_brain_cli_calls": 0,
                 },
             },
+            task={"workspace_name": "related"},
         )
         self.assertTrue(workspace_ok["ok"], workspace_ok)
         workspace_deletion_missing = run.mcp_condition_audit(
@@ -632,14 +633,29 @@ class RunnerAndConditionTests(unittest.TestCase):
                 "activity": {
                     "mcp_tool_calls": 1,
                     "mcp_tool_names": ["mcp__entire_brain__brain_workspace_regressions"],
-                    "mcp_tool_details": [{"name": "mcp__entire_brain__brain_workspace_regressions", "arguments": {"location_only": True}, "errored": False}],
+                    "mcp_tool_details": [{"name": "mcp__entire_brain__brain_workspace_regressions", "arguments": {"location_only": True, "workspace": "related"}, "errored": False}],
                     "direct_brain_cli_calls": 0,
                 },
             },
-            task={"radar_include_deletions": True},
+            task={"radar_include_deletions": True, "workspace_name": "related"},
         )
         self.assertFalse(workspace_deletion_missing["ok"])
         self.assertIn("include_deletions", [finding.get("argument") for finding in workspace_deletion_missing["findings"]])
+        workspace_wrong = run.mcp_condition_audit(
+            "mcp_workspace_radar",
+            {
+                "mcp": {"enabled": True},
+                "activity": {
+                    "mcp_tool_calls": 1,
+                    "mcp_tool_names": ["mcp__entire_brain__brain_workspace_regressions"],
+                    "mcp_tool_details": [{"name": "mcp__entire_brain__brain_workspace_regressions", "arguments": {"location_only": True, "workspace": "wrong"}, "errored": False}],
+                    "direct_brain_cli_calls": 0,
+                },
+            },
+            task={"workspace_name": "related"},
+        )
+        self.assertFalse(workspace_wrong["ok"])
+        self.assertIn("workspace", [finding.get("argument") for finding in workspace_wrong["findings"]])
         workspace_missing = run.mcp_condition_audit(
             "mcp_workspace_radar",
             {
@@ -1580,18 +1596,20 @@ class CodexAuditScriptTests(unittest.TestCase):
 
     def _workspace_mcp_release_record(self, suite: str, *, repetition: int, run_id: str) -> dict:
         record = self._release_record(suite, condition="mcp_workspace_radar", repetition=repetition, run_id=run_id)
+        record["provenance"]["run_config"]["workspace_name"] = "related"
+        tool_details = [{"name": "mcp__entire_brain__brain_workspace_regressions", "arguments": {"location_only": True, "workspace": "related"}, "errored": False}]
         record["agent_info"]["activity"].update({
             "used_brain": True,
             "mcp_tool_calls": 1,
             "mcp_tool_names": ["mcp__entire_brain__brain_workspace_regressions"],
-            "mcp_tool_details": [{"name": "mcp__entire_brain__brain_workspace_regressions", "arguments": {"location_only": True}, "errored": False}],
+            "mcp_tool_details": tool_details,
         })
         record["mcp_condition_audit"] = {
             "ok": True,
             "required": True,
             "mcp_tool_calls": 1,
             "mcp_tool_names": ["mcp__entire_brain__brain_workspace_regressions"],
-            "mcp_tool_details": [{"name": "mcp__entire_brain__brain_workspace_regressions", "arguments": {"location_only": True}, "errored": False}],
+            "mcp_tool_details": copy.deepcopy(tool_details),
             "direct_brain_cli_calls": 0,
             "findings": [],
         }
@@ -2439,7 +2457,7 @@ class CodexAuditScriptTests(unittest.TestCase):
             record["provenance"]["task"]["radar_include_deletions"] = True
             record["agent_info"]["activity"]["mcp_tool_calls"] = 2
             record["agent_info"]["activity"]["mcp_tool_details"] = [
-                {"name": "mcp__entire_brain__brain_workspace_regressions", "arguments": {"include_deletions": True, "location_only": True}, "errored": False},
+                {"name": "mcp__entire_brain__brain_workspace_regressions", "arguments": {"include_deletions": True, "location_only": True, "workspace": "related"}, "errored": False},
                 {"name": "mcp__entire_brain__brain_workspace_regressions", "arguments": {}, "errored": False},
             ]
             record["mcp_condition_audit"]["mcp_tool_calls"] = 2
@@ -2453,7 +2471,7 @@ class CodexAuditScriptTests(unittest.TestCase):
                     "message: tools/call",
                     "response: tools/call",
                     "tool: brain_workspace_regressions",
-                    'tool_args: {"include_deletions":true,"location_only":true}',
+                    'tool_args: {"include_deletions":true,"location_only":true,"workspace":"related"}',
                     "tool_result: brain_workspace_regressions error",
                     "message: tools/call",
                     "response: tools/call",
@@ -2469,6 +2487,30 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertFalse(audited["mcp_verified"], audited)
             self.assertFalse(audited["mcp_named_tool_result_verified"], audited)
             self.assertIn("B:mcp_required_tool_results_not_ok(brain_workspace_regressions)", audited["flags"])
+
+    def test_audit_codex_requires_workspace_radar_workspace_arg_matches_provenance(self):
+        with tempfile.TemporaryDirectory() as results:
+            results_dir = pathlib.Path(results)
+            suite = "release-candidate-workspace-radar-wrong-workspace"
+            record = self._workspace_mcp_release_record(suite, repetition=1, run_id="workspace-radar-1")
+            wrong_details = [{"name": "mcp__entire_brain__brain_workspace_regressions", "arguments": {"location_only": True, "workspace": "wrong"}, "errored": False}]
+            record["agent_info"]["activity"]["mcp_tool_details"] = wrong_details
+            record["mcp_condition_audit"]["mcp_tool_details"] = copy.deepcopy(wrong_details)
+            suite_dir = self._write_records(results_dir, suite, [record])
+            self._write_mcp_server_log(
+                suite_dir,
+                "workspace-radar-1",
+                "brain_workspace_regressions",
+                tool_args={"location_only": True, "workspace": "wrong"},
+            )
+
+            report = audit_codex.build_audit_report(results_dir, [suite])
+            audited = report["suites"][suite]["records"][0]
+
+            self.assertFalse(audited["pass"], audited)
+            self.assertFalse(audited["mcp_verified"], audited)
+            self.assertIn("B:mcp_workspace_radar_missing_workspace", audited["flags"])
+            self.assertIn("B:mcp_workspace_radar_server_missing_workspace", audited["flags"])
 
     def test_audit_codex_flags_unsafe_server_tool_args_without_leaking_values(self):
         with tempfile.TemporaryDirectory() as results:
@@ -2530,7 +2572,7 @@ class CodexAuditScriptTests(unittest.TestCase):
                 records.append(self._workspace_mcp_release_record(suite, repetition=i, run_id=f"workspace-radar-{i}"))
             suite_dir = self._write_records(results_dir, suite, records)
             for i in range(1, 5):
-                self._write_mcp_server_log(suite_dir, f"workspace-radar-{i}", "brain_workspace_regressions", tool_args={"location_only": True})
+                self._write_mcp_server_log(suite_dir, f"workspace-radar-{i}", "brain_workspace_regressions", tool_args={"location_only": True, "workspace": "related"})
             (suite_dir / "summary.json").write_text(json.dumps({
                 "comparisons": [{
                     "task_id": "t",
@@ -2650,6 +2692,7 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
 
     def _write_facts_eval_fixture(self, root: pathlib.Path, *, claimable: bool = True, proxy: bool = False) -> pathlib.Path:
         summaries = {}
+        task_ids = [f"task-{i}" for i in range(1, 13)]
         for retriever in ("facts", "history", "query", "raw-sessions"):
             path = f"{retriever}.json"
             summaries[retriever] = path
@@ -2660,14 +2703,16 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
                     "brain_manifest_sha256": self.BRAIN_SHA,
                 },
                 "results": [{
-                    "id": "task-1",
+                    "id": task_id,
+                    "task": f"Task {index}",
+                    "query_type": "code",
                     "labeled": True,
                     "relevance_source": "explicit_label",
                     "label_source": "human",
-                }],
+                } for index, task_id in enumerate(task_ids, start=1)],
             }))
         (root / "raw-vs-facts.compare.json").write_text(json.dumps({
-            "n": 12,
+            "n": len(task_ids),
             "alpha": 0.05,
             "a_retriever": "raw-sessions",
             "b_retriever": "facts",
@@ -2686,7 +2731,7 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             "metrics": [{
                 "metric": "useful_per_1k",
                 "evidence_basis": "proxy_or_mixed" if proxy else "proof_labels",
-                "n": 12,
+                "n": len(task_ids),
                 "significant": claimable,
                 "release_claimable": claimable,
                 "winner": "b",
@@ -2717,6 +2762,40 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             self.assertEqual(report["required_claims"][0]["b_retriever"], "facts")
             self.assertEqual(audit_facts_eval.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 0)
             self.assertTrue((pathlib.Path(out) / "facts-eval-audit-report.json").exists())
+
+    def test_facts_eval_audit_rejects_forged_aggregate_n(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            compare_path = root_path / "raw-vs-facts.compare.json"
+            comp = json.loads(compare_path.read_text())
+            comp["n"] = 999
+            comp["metrics"][0]["n"] = 999
+            compare_path.write_text(json.dumps(comp))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+
+            self.assertFalse(report["release_evidence"], report)
+            self.assertFalse(report["claimable_facts_vs_raw"], report)
+            self.assertIn("raw_vs_facts: comparison n is 999, retained paired rows recompute to 12", report["flags"])
+            self.assertIn("raw_vs_facts: useful_per_1k n is 999, retained rows recompute to 12", report["flags"])
+
+    def test_facts_eval_audit_rejects_hidden_missing_paired_ids(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            facts_path = root_path / "facts.json"
+            facts = json.loads(facts_path.read_text())
+            facts["results"] = [row for row in facts["results"] if row["id"] != "task-12"]
+            facts_path.write_text(json.dumps(facts))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+
+            self.assertFalse(report["release_evidence"], report)
+            self.assertFalse(report["claimable_facts_vs_raw"], report)
+            self.assertIn("raw_vs_facts: retained summaries have 1 id(s) missing from B: task-12", report["flags"])
+            self.assertIn("raw_vs_facts: comparison n is 12, retained paired rows recompute to 11", report["flags"])
+            self.assertIn("raw_vs_facts: useful_per_1k n is 12, retained rows recompute to 11", report["flags"])
 
     def test_facts_eval_audit_accepts_no_release_claim_status(self):
         with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
@@ -2883,7 +2962,19 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
     def _sha256(self, path: pathlib.Path) -> str:
         return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
-    def _write_distill_perf_fixture(self, root: pathlib.Path, *, speedup: float = 2.0, mismatch: bool = False) -> pathlib.Path:
+    def _write_ollama_contract_fixture(self, root: pathlib.Path, *, failed_test: str | None = None) -> pathlib.Path:
+        path = root / "go-test-internal-cli-ollama-distill.jsonl"
+        package = "github.com/ashtom/entire-brain/internal/cli"
+        events = [{"Action": "start", "Package": package}]
+        for test in audit_distill_perf.DISTILL_OLLAMA_REQUIRED_TESTS:
+            events.append({"Action": "run", "Package": package, "Test": test})
+            action = "fail" if test == failed_test else "pass"
+            events.append({"Action": action, "Package": package, "Test": test, "Elapsed": 0})
+        events.append({"Action": "fail" if failed_test else "pass", "Package": package, "Elapsed": 0})
+        path.write_text("\n".join(json.dumps(event, sort_keys=True) for event in events) + "\n")
+        return path
+
+    def _write_distill_perf_fixture(self, root: pathlib.Path, *, speedup: float = 2.0, mismatch: bool = False, failed_ollama_test: str | None = None, omit_ollama_contract: bool = False) -> pathlib.Path:
         dry = {
             "schema_version": 1,
             "generated_at": "2026-06-10T00:00:00Z",
@@ -2953,11 +3044,12 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
         dry_path = root / "dry-run.json"
         serial_path = root / "jobs-1.json"
         parallel_path = root / "jobs-4.json"
+        ollama_path = self._write_ollama_contract_fixture(root, failed_test=failed_ollama_test)
         dry_path.write_text(json.dumps(dry))
         serial_path.write_text(json.dumps(serial))
         parallel_path.write_text(json.dumps(parallel))
         manifest = root / "manifest.json"
-        manifest.write_text(json.dumps({
+        manifest_data = {
             "schema": 1,
             "target": {
                 "repo": "github.com/example/large-repo",
@@ -2980,7 +3072,16 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
                 "parallel_run": ["entire", "brain", "distill", "--json", "--agent", "ollama", "--model", "llama3.2", "--force", "--jobs", "4", "--max-chunk-bytes", "32000", "--confidence", "0.75"],
             },
             "min_speedup": 1.25,
-        }))
+        }
+        if not omit_ollama_contract:
+            manifest_data["local_ollama_contract"] = {
+                "artifact": ollama_path.name,
+                "sha256": self._sha256(ollama_path),
+                "command": audit_distill_perf.DISTILL_OLLAMA_TEST_COMMAND,
+                "required_tests": audit_distill_perf.DISTILL_OLLAMA_REQUIRED_TESTS,
+                "claim_scope": "local loopback Ollama distill wiring and no-egress safety contract; not model quality",
+            }
+        manifest.write_text(json.dumps(manifest_data))
         return manifest
 
     def test_distill_perf_audit_accepts_comparable_speedup(self):
@@ -2990,6 +3091,7 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
             self.assertTrue(report["release_evidence"], report)
             self.assertGreaterEqual(report["speedup"], 1.25)
             self.assertEqual(report["target"]["repo"], "github.com/example/large-repo")
+            self.assertEqual(len(report["local_ollama_contract"]["passed_required_tests"]), len(audit_distill_perf.DISTILL_OLLAMA_REQUIRED_TESTS))
             self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 0)
             self.assertTrue((pathlib.Path(out) / "distill-perf-audit-report.json").exists())
 
@@ -3057,6 +3159,21 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
             self.assertIn("target.source_head must be a 40-character git commit", report["flags"])
             self.assertIn("target.brain_manifest_sha256 must be sha256:<64 hex>", report["flags"])
             self.assertIn("target.claim_scope must be a non-empty string", report["flags"])
+
+    def test_distill_perf_audit_requires_retained_fake_ollama_contract(self):
+        with tempfile.TemporaryDirectory() as root:
+            manifest = self._write_distill_perf_fixture(pathlib.Path(root), omit_ollama_contract=True)
+            report = audit_distill_perf.audit_distill_perf_manifest(manifest)
+            self.assertFalse(report["release_evidence"], report)
+            self.assertIn("local_ollama_contract must retain fake loopback Ollama go test evidence", report["flags"])
+
+        with tempfile.TemporaryDirectory() as root:
+            failed = audit_distill_perf.DISTILL_OLLAMA_REQUIRED_TESTS[0]
+            manifest = self._write_distill_perf_fixture(pathlib.Path(root), failed_ollama_test=failed)
+            report = audit_distill_perf.audit_distill_perf_manifest(manifest)
+            self.assertFalse(report["release_evidence"], report)
+            self.assertTrue(any("go test event failed" in flag and failed in flag for flag in report["flags"]))
+            self.assertTrue(any("missing required passed tests" in flag and failed in flag for flag in report["flags"]))
 
 
 class RadarEvidenceAuditScriptTests(unittest.TestCase):

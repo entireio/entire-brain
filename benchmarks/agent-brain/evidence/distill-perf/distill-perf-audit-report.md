@@ -7,6 +7,8 @@
 - Required speedup: **1.25x**
 - Observed speedup: **1.9961447767232992x**
 - Dry-run chunks: **159**
+- Local Ollama contract artifact: **go-test-internal-cli-ollama-distill.jsonl**
+- Local Ollama required tests passed: **9/9**
 
 ## Flags
 

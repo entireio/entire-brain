@@ -29,6 +29,10 @@ A release-citable `manifest.json` in this directory must name:
   and parallel runs. Use an explicit `--agent`; do not rely on `auto`. Include
   the chosen `--max-chunk-bytes` so the chunking/call-count tradeoff is
   inspectable;
+- `local_ollama_contract`, a retained non-cached `go test -json` artifact proving
+  the fake loopback Ollama distill path sends the selected model to
+  `/api/generate`, avoids the `ollama` PATH binary, and rejects non-loopback or
+  redirected egress without requiring a real external model;
 - a `min_speedup` threshold greater than `1.0`.
 
 For current retained evidence, `claim_scope` is intentionally narrow:
@@ -36,7 +40,10 @@ For current retained evidence, `claim_scope` is intentionally narrow:
 local command agent is committed as `local-command-agent.py`; it exercises
 extraction, reconciliation, deterministic writes, and timing evidence without a
 hosted model or network. It does not validate fact quality or hosted-model
-latency.
+latency. The retained `go-test-internal-cli-ollama-distill.jsonl` artifact is a
+separate local-model contract proof: it exercises fake loopback Ollama with
+`-count=1`, but it is not evidence that any specific Ollama model produces good
+facts.
 
 Run `mise run distill:evidence` after committing artifacts. The validator fails
 if artifact hashes or command provenance do not match, the dry-run has missing
@@ -45,5 +52,6 @@ cache-hit counts do not match, warnings or failed chunks are present,
 serial/parallel output summaries differ, reconcile calls exceed the dry-run
 upper bound, timing components exceed `total_seconds`, the parallel run uses
 only one effective job, the retained command omits the artifact's
-`max_chunk_bytes`, or the observed `total_seconds` speedup does not meet the
-manifest threshold.
+`max_chunk_bytes`, the retained fake-Ollama contract artifact is missing/stale or
+lacks a required passing test, or the observed `total_seconds` speedup does not
+meet the manifest threshold.

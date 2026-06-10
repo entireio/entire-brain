@@ -31,6 +31,42 @@
     "total_seconds": 9.160083208,
     "total_agent_calls": 295
   },
+  "local_ollama_contract": {
+    "artifact": "go-test-internal-cli-ollama-distill.jsonl",
+    "sha256": "sha256:8c65df019541eb1d5e6063d3f8d1a1c00c89b2bd243e70faf7bb80213b439fd4",
+    "command": [
+      "go",
+      "test",
+      "-count=1",
+      "-json",
+      "./internal/cli",
+      "-run",
+      "Test(DistillCommandOllamaLoopbackProducesTimedSummary|ExecOllamaDistillAgentUsesLoopbackGenerateAPI|ExecOllamaDistillAgentIgnoresProxyTransport|ExecOllamaDistillAgentIgnoresCustomTLSDialHook|ExecOllamaDistillAgentRejectsNonLoopbackURL|ExecOllamaDistillAgentRejectsNonLoopbackRedirect|IsLoopbackHTTPURLAllowsFullLoopbackRange|LoopbackOnlyDialContextRejectsNonLoopbackTargets|LoopbackOnlyDialContextAllowsLocalhostResolution)$"
+    ],
+    "package_passed": true,
+    "required_tests": [
+      "TestDistillCommandOllamaLoopbackProducesTimedSummary",
+      "TestExecOllamaDistillAgentUsesLoopbackGenerateAPI",
+      "TestExecOllamaDistillAgentIgnoresProxyTransport",
+      "TestExecOllamaDistillAgentIgnoresCustomTLSDialHook",
+      "TestExecOllamaDistillAgentRejectsNonLoopbackURL",
+      "TestExecOllamaDistillAgentRejectsNonLoopbackRedirect",
+      "TestIsLoopbackHTTPURLAllowsFullLoopbackRange",
+      "TestLoopbackOnlyDialContextRejectsNonLoopbackTargets",
+      "TestLoopbackOnlyDialContextAllowsLocalhostResolution"
+    ],
+    "passed_required_tests": [
+      "TestDistillCommandOllamaLoopbackProducesTimedSummary",
+      "TestExecOllamaDistillAgentIgnoresCustomTLSDialHook",
+      "TestExecOllamaDistillAgentIgnoresProxyTransport",
+      "TestExecOllamaDistillAgentRejectsNonLoopbackRedirect",
+      "TestExecOllamaDistillAgentRejectsNonLoopbackURL",
+      "TestExecOllamaDistillAgentUsesLoopbackGenerateAPI",
+      "TestIsLoopbackHTTPURLAllowsFullLoopbackRange",
+      "TestLoopbackOnlyDialContextAllowsLocalhostResolution",
+      "TestLoopbackOnlyDialContextRejectsNonLoopbackTargets"
+    ]
+  },
   "flags": [],
   "notes": []
 }

@@ -16,6 +16,30 @@
     "serial_run": "sha256:963c4862f604da8ea8bbd3650e0b9c4486bcdce59651033ee4a1a90a09271e21",
     "parallel_run": "sha256:d065d8daf51d1259947279ed47ef7f679b445dfb22288f1f84396adc262d6574"
   },
+  "local_ollama_contract": {
+    "artifact": "go-test-internal-cli-ollama-distill.jsonl",
+    "sha256": "sha256:8c65df019541eb1d5e6063d3f8d1a1c00c89b2bd243e70faf7bb80213b439fd4",
+    "command": [
+      "go",
+      "test",
+      "-count=1",
+      "-json",
+      "./internal/cli",
+      "-run",
+      "Test(DistillCommandOllamaLoopbackProducesTimedSummary|ExecOllamaDistillAgentUsesLoopbackGenerateAPI|ExecOllamaDistillAgentIgnoresProxyTransport|ExecOllamaDistillAgentIgnoresCustomTLSDialHook|ExecOllamaDistillAgentRejectsNonLoopbackURL|ExecOllamaDistillAgentRejectsNonLoopbackRedirect|IsLoopbackHTTPURLAllowsFullLoopbackRange|LoopbackOnlyDialContextRejectsNonLoopbackTargets|LoopbackOnlyDialContextAllowsLocalhostResolution)$"
+    ],
+    "required_tests": [
+      "TestDistillCommandOllamaLoopbackProducesTimedSummary",
+      "TestExecOllamaDistillAgentUsesLoopbackGenerateAPI",
+      "TestExecOllamaDistillAgentIgnoresProxyTransport",
+      "TestExecOllamaDistillAgentIgnoresCustomTLSDialHook",
+      "TestExecOllamaDistillAgentRejectsNonLoopbackURL",
+      "TestExecOllamaDistillAgentRejectsNonLoopbackRedirect",
+      "TestIsLoopbackHTTPURLAllowsFullLoopbackRange",
+      "TestLoopbackOnlyDialContextRejectsNonLoopbackTargets",
+      "TestLoopbackOnlyDialContextAllowsLocalhostResolution"
+    ]
+  },
   "commands": {
     "dry_run": [
       "entire-brain",
@@ -73,10 +97,36 @@
       "4"
     ]
   },
+  "local_ollama_contract": {
+    "artifact": "go-test-internal-cli-ollama-distill.jsonl",
+    "sha256": "sha256:8c65df019541eb1d5e6063d3f8d1a1c00c89b2bd243e70faf7bb80213b439fd4",
+    "command": [
+      "go",
+      "test",
+      "-count=1",
+      "-json",
+      "./internal/cli",
+      "-run",
+      "Test(DistillCommandOllamaLoopbackProducesTimedSummary|ExecOllamaDistillAgentUsesLoopbackGenerateAPI|ExecOllamaDistillAgentIgnoresProxyTransport|ExecOllamaDistillAgentIgnoresCustomTLSDialHook|ExecOllamaDistillAgentRejectsNonLoopbackURL|ExecOllamaDistillAgentRejectsNonLoopbackRedirect|IsLoopbackHTTPURLAllowsFullLoopbackRange|LoopbackOnlyDialContextRejectsNonLoopbackTargets|LoopbackOnlyDialContextAllowsLocalhostResolution)$"
+    ],
+    "required_tests": [
+      "TestDistillCommandOllamaLoopbackProducesTimedSummary",
+      "TestExecOllamaDistillAgentUsesLoopbackGenerateAPI",
+      "TestExecOllamaDistillAgentIgnoresProxyTransport",
+      "TestExecOllamaDistillAgentIgnoresCustomTLSDialHook",
+      "TestExecOllamaDistillAgentRejectsNonLoopbackURL",
+      "TestExecOllamaDistillAgentRejectsNonLoopbackRedirect",
+      "TestIsLoopbackHTTPURLAllowsFullLoopbackRange",
+      "TestLoopbackOnlyDialContextRejectsNonLoopbackTargets",
+      "TestLoopbackOnlyDialContextAllowsLocalhostResolution"
+    ],
+    "claim_scope": "local loopback Ollama distill wiring and no-egress safety contract; not model quality"
+  },
   "min_speedup": 1.25,
   "notes": [
     "Collected offline from a temporary copy of the current entire-brain local brain store.",
     "Uses a deterministic local command agent to prove scheduler/extraction mechanics, not fact quality or hosted-model latency.",
+    "Retains a non-cached fake loopback Ollama go-test artifact for local-model wiring and no-egress safety without requiring a real external model.",
     "Does not support a frontend/entire.io 24h backfill claim; that still needs target-repo retained artifacts."
   ],
   "redactions": {

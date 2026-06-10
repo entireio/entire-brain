@@ -13,6 +13,45 @@ from typing import Any
 
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_VALUE_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+DISTILL_OLLAMA_SOURCE_PATHS = [
+    "internal/cli/distill.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_test.go",
+    "internal/cli/distill_cmd_test.go",
+]
+DISTILL_OLLAMA_REQUIRED_TESTS = [
+    "TestDistillCommandOllamaLoopbackProducesTimedSummary",
+    "TestExecOllamaDistillAgentUsesLoopbackGenerateAPI",
+    "TestExecOllamaDistillAgentIgnoresProxyTransport",
+    "TestExecOllamaDistillAgentIgnoresCustomTLSDialHook",
+    "TestExecOllamaDistillAgentRejectsNonLoopbackURL",
+    "TestExecOllamaDistillAgentRejectsNonLoopbackRedirect",
+    "TestIsLoopbackHTTPURLAllowsFullLoopbackRange",
+    "TestLoopbackOnlyDialContextRejectsNonLoopbackTargets",
+    "TestLoopbackOnlyDialContextAllowsLocalhostResolution",
+]
+DISTILL_OLLAMA_TEST_PATTERN = (
+    "Test("
+    "DistillCommandOllamaLoopbackProducesTimedSummary|"
+    "ExecOllamaDistillAgentUsesLoopbackGenerateAPI|"
+    "ExecOllamaDistillAgentIgnoresProxyTransport|"
+    "ExecOllamaDistillAgentIgnoresCustomTLSDialHook|"
+    "ExecOllamaDistillAgentRejectsNonLoopbackURL|"
+    "ExecOllamaDistillAgentRejectsNonLoopbackRedirect|"
+    "IsLoopbackHTTPURLAllowsFullLoopbackRange|"
+    "LoopbackOnlyDialContextRejectsNonLoopbackTargets|"
+    "LoopbackOnlyDialContextAllowsLocalhostResolution"
+    ")$"
+)
+DISTILL_OLLAMA_TEST_COMMAND = [
+    "go",
+    "test",
+    "-count=1",
+    "-json",
+    "./internal/cli",
+    "-run",
+    DISTILL_OLLAMA_TEST_PATTERN,
+]
 
 
 def load_json(path: pathlib.Path) -> Any:
@@ -83,6 +122,87 @@ def validate_manifest(data: Any) -> None:
     commands = data.get("commands")
     if not isinstance(commands, dict):
         raise SystemExit("distill perf manifest requires commands")
+
+
+def parse_go_test_json(path: pathlib.Path) -> tuple[set[str], list[str], bool]:
+    passed: set[str] = set()
+    failures: list[str] = []
+    package_passed = False
+    with path.open() as f:
+        for line_no, line in enumerate(f, 1):
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError as exc:
+                failures.append(f"{path}:{line_no}: invalid go test JSON: {exc}")
+                continue
+            if not isinstance(event, dict):
+                failures.append(f"{path}:{line_no}: event is not an object")
+                continue
+            action = event.get("Action")
+            test = event.get("Test")
+            if action == "pass" and isinstance(test, str):
+                passed.add(test)
+            if action in {"fail", "panic"}:
+                failures.append(f"go test event failed: package={event.get('Package')} test={test or '<package>'}")
+            if action == "pass" and test in (None, ""):
+                package_passed = True
+    return passed, failures, package_passed
+
+
+def validate_local_ollama_contract(manifest: dict[str, Any], root: pathlib.Path, flags: list[str]) -> dict[str, Any] | None:
+    contract = manifest.get("local_ollama_contract")
+    if not isinstance(contract, dict):
+        flags.append("local_ollama_contract must retain fake loopback Ollama go test evidence")
+        return None
+
+    artifact = contract.get("artifact")
+    if not isinstance(artifact, str) or not artifact:
+        flags.append("local_ollama_contract.artifact must be a non-empty relative path")
+        return None
+    rel = pathlib.Path(artifact)
+    if rel.is_absolute() or ".." in rel.parts:
+        flags.append("local_ollama_contract.artifact must stay under the evidence directory")
+        return None
+    path = (root / rel).resolve()
+    if not path.exists():
+        flags.append(f"local_ollama_contract artifact missing: {artifact}")
+        return None
+
+    expected_hash = contract.get("sha256")
+    actual_hash = file_sha256(path)
+    if expected_hash != actual_hash:
+        flags.append(f"local_ollama_contract.sha256 mismatch for {artifact}")
+
+    if contract.get("required_tests") != DISTILL_OLLAMA_REQUIRED_TESTS:
+        flags.append("local_ollama_contract.required_tests must match the committed Ollama distill contract list")
+    if contract.get("command") != DISTILL_OLLAMA_TEST_COMMAND:
+        flags.append("local_ollama_contract.command must match the retained fake Ollama go test command")
+    source_head = contract.get("source_head")
+    if not isinstance(source_head, str) or not COMMIT_RE.fullmatch(source_head):
+        flags.append("local_ollama_contract.source_head must be a 40-character git commit")
+    if contract.get("source_paths") != DISTILL_OLLAMA_SOURCE_PATHS:
+        flags.append("local_ollama_contract.source_paths must match the committed Ollama distill source list")
+
+    passed, parse_failures, package_passed = parse_go_test_json(path)
+    flags.extend(f"local_ollama_contract: {failure}" for failure in parse_failures)
+    missing = [name for name in DISTILL_OLLAMA_REQUIRED_TESTS if name not in passed]
+    if missing:
+        flags.append("local_ollama_contract missing required passed tests: " + ", ".join(missing))
+    if not package_passed:
+        flags.append("local_ollama_contract go test package-level pass event missing")
+
+    return {
+        "artifact": artifact,
+        "sha256": actual_hash,
+        "command": contract.get("command"),
+        "source_head": source_head,
+        "source_paths": contract.get("source_paths"),
+        "package_passed": package_passed,
+        "required_tests": DISTILL_OLLAMA_REQUIRED_TESTS,
+        "passed_required_tests": sorted(set(DISTILL_OLLAMA_REQUIRED_TESTS) & passed),
+    }
 
 
 def validate_target(manifest: dict[str, Any], flags: list[str]) -> dict[str, Any]:
@@ -211,6 +331,7 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
     }
     target = validate_target(manifest, flags)
     validate_artifact_hashes(manifest, paths, flags)
+    local_ollama_contract = validate_local_ollama_contract(manifest, root, flags)
     dry = load_json(paths["dry_run"])
     serial = load_json(paths["serial_run"])
     parallel = load_json(paths["parallel_run"])
@@ -335,6 +456,7 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             "total_seconds": parallel.get("total_seconds"),
             "total_agent_calls": parallel.get("total_agent_calls"),
         },
+        "local_ollama_contract": local_ollama_contract,
         "flags": flags,
         "notes": notes,
     }
@@ -351,10 +473,18 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Required speedup: **{report['min_speedup']}x**",
         f"- Observed speedup: **{report['speedup'] if report['speedup'] is not None else 'unavailable'}x**",
         f"- Dry-run chunks: **{get(report, 'dry_run', 'chunks', default='unset')}**",
+    ]
+    local_ollama = report.get("local_ollama_contract")
+    if isinstance(local_ollama, dict):
+        lines.extend([
+            f"- Local Ollama contract artifact: **{local_ollama.get('artifact')}**",
+            f"- Local Ollama required tests passed: **{len(local_ollama.get('passed_required_tests') or [])}/{len(local_ollama.get('required_tests') or [])}**",
+        ])
+    lines.extend([
         "",
         "## Flags",
         "",
-    ]
+    ])
     if report.get("flags"):
         lines.extend(f"- {flag}" for flag in report["flags"])
     else:

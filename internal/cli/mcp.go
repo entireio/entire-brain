@@ -107,8 +107,8 @@ func mcpDebugLog(path, line string) {
 }
 
 type mcpDebugToolCallInfo struct {
-	name         string
-	safeBoolArgs map[string]bool
+	name     string
+	safeArgs map[string]any
 }
 
 func mcpDebugToolCall(raw json.RawMessage) mcpDebugToolCallInfo {
@@ -129,13 +129,21 @@ func mcpDebugToolCall(raw json.RawMessage) mcpDebugToolCallInfo {
 		}
 		return r
 	}, name)
-	safe := make(map[string]bool)
+	safe := make(map[string]any)
 	for _, key := range []string{"blind_spots", "include_deletions", "location_only"} {
 		if value, ok := params.Arguments[key].(bool); ok {
 			safe[key] = value
 		}
 	}
-	return mcpDebugToolCallInfo{name: name, safeBoolArgs: safe}
+	if name == "brain_workspace_regressions" || name == "brain_workspace_review" {
+		if value, ok := params.Arguments["workspace"].(string); ok {
+			workspace := strings.TrimSpace(value)
+			if validateWorkspaceName(workspace) == nil {
+				safe["workspace"] = workspace
+			}
+		}
+	}
+	return mcpDebugToolCallInfo{name: name, safeArgs: safe}
 }
 
 func mcpDebugToolName(raw json.RawMessage) string {
@@ -151,8 +159,8 @@ func mcpDebugLogToolResult(path string, msg mcpMessage, response mcpMessage) {
 		return
 	}
 	mcpDebugLog(path, "tool: "+call.name)
-	if len(call.safeBoolArgs) > 0 {
-		if data, err := json.Marshal(call.safeBoolArgs); err == nil {
+	if len(call.safeArgs) > 0 {
+		if data, err := json.Marshal(call.safeArgs); err == nil {
 			mcpDebugLog(path, "tool_args: "+string(data))
 		}
 	}

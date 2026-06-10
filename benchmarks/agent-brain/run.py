@@ -265,7 +265,9 @@ FULL_HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact"
 CLI_HISTORY_EXCERPT_CONDITIONS = {"full_brain", "full_cli_original"}
 MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
 MCP_BRAIN_TOOL_RE = r"brain_(?:stale|brief|query|search|vsearch|get|multi_get|context|impact|changes|code|tests|boundaries|regressions|review|workspace_regressions|workspace_review)"
-SAFE_MCP_ARGUMENT_KEYS = {"location_only", "include_deletions", "blind_spots"}
+SAFE_MCP_BOOL_ARGUMENT_KEYS = {"location_only", "include_deletions", "blind_spots"}
+SAFE_MCP_STRING_ARGUMENT_KEYS = {"workspace"}
+SAFE_MCP_ARGUMENT_KEYS = SAFE_MCP_BOOL_ARGUMENT_KEYS | SAFE_MCP_STRING_ARGUMENT_KEYS
 BENCHMARK_PRIVATE_PREFIXES = (".benchmark/", ".entire/", ".codex/")
 HARNESS_SCAFFOLD_PATHS = (
     "benchmarks/agent-brain/tasks",
@@ -318,6 +320,15 @@ def benchmark_workspace_name(task: dict[str, Any]) -> str:
     name = str(task.get("workspace_name") or "benchmark")
     if not re.fullmatch(r"[A-Za-z0-9._-]+", name) or name in {".", ".."} or not name.strip("."):
         raise ValueError(f"invalid benchmark workspace_name: {name!r}")
+    return name
+
+
+def safe_workspace_name(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    name = value.strip()
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", name) or name in {".", ".."} or not name.strip("."):
+        return None
     return name
 
 
@@ -679,6 +690,7 @@ def run_config_provenance(
     repetition: int | None,
     suite_dir: pathlib.Path,
     args: argparse.Namespace,
+    workspace_name: str | None = None,
 ) -> dict[str, Any]:
     pricing_json = getattr(args, "pricing_json", None)
     payload: dict[str, Any] = {
@@ -710,6 +722,7 @@ def run_config_provenance(
             "BENCH_REGRESSION_RADAR": os.environ.get("BENCH_REGRESSION_RADAR"),
             "BENCH_RADAR_LOCATION_ONLY": os.environ.get("BENCH_RADAR_LOCATION_ONLY"),
         },
+        "workspace_name": workspace_name if condition == "mcp_workspace_radar" else None,
     }
     panel_name = getattr(args, "panel_name", None)
     panel_path = getattr(args, "panel_path", None)
@@ -765,7 +778,15 @@ def build_record_provenance(
             "config_sha256": task_config_sha256(task),
             "base_commit": task_base,
         },
-        "run_config": run_config_provenance(command, runner, condition, repetition, suite_dir, args),
+        "run_config": run_config_provenance(
+            command,
+            runner,
+            condition,
+            repetition,
+            suite_dir,
+            args,
+            benchmark_workspace_name(task) if condition == "mcp_workspace_radar" else None,
+        ),
         "tools": tools_provenance(tools),
     }
     payload["task"]["radar_include_deletions"] = bool(task.get("radar_include_deletions"))
@@ -1143,7 +1164,19 @@ def mcp_required_tools(condition: str, runner: "RunnerSpec | None") -> tuple[str
     return ()
 
 
-def activity_has_mcp_call_with_args(activity: dict[str, Any], tool: str, required_args: dict[str, bool]) -> bool:
+def safe_arg_matches(actual: Any, expected: Any) -> bool:
+    if isinstance(expected, bool):
+        return actual is expected
+    if isinstance(expected, str):
+        return isinstance(actual, str) and actual == expected
+    return actual == expected
+
+
+def required_arg_matches(args: dict[str, Any], required_args: dict[str, Any]) -> bool:
+    return all(safe_arg_matches(args.get(key), value) for key, value in required_args.items())
+
+
+def activity_has_mcp_call_with_args(activity: dict[str, Any], tool: str, required_args: dict[str, Any]) -> bool:
     details = activity.get("mcp_tool_details") if isinstance(activity.get("mcp_tool_details"), list) else []
     for detail in details:
         if not isinstance(detail, dict):
@@ -1154,12 +1187,12 @@ def activity_has_mcp_call_with_args(activity: dict[str, Any], tool: str, require
         if detail.get("errored"):
             continue
         args = detail.get("arguments") if isinstance(detail.get("arguments"), dict) else {}
-        if all(args.get(key) is value for key, value in required_args.items()):
+        if required_arg_matches(args, required_args):
             return True
     return False
 
 
-def missing_mcp_call_args(activity: dict[str, Any], tool: str, required_args: dict[str, bool]) -> list[str]:
+def missing_mcp_call_args(activity: dict[str, Any], tool: str, required_args: dict[str, Any]) -> list[str]:
     details = activity.get("mcp_tool_details") if isinstance(activity.get("mcp_tool_details"), list) else []
     candidates: list[dict[str, Any]] = []
     for detail in details:
@@ -1175,17 +1208,23 @@ def missing_mcp_call_args(activity: dict[str, Any], tool: str, required_args: di
         return sorted(required_args)
     missing = []
     for key, value in required_args.items():
-        if not any((detail.get("arguments") if isinstance(detail.get("arguments"), dict) else {}).get(key) is value for detail in candidates):
+        if not any(safe_arg_matches((detail.get("arguments") if isinstance(detail.get("arguments"), dict) else {}).get(key), value) for detail in candidates):
             missing.append(key)
     if not missing and not activity_has_mcp_call_with_args(activity, tool, required_args):
         missing.append("combined_arguments")
     return sorted(missing)
 
 
-def radar_required_args(task: dict[str, Any] | None) -> dict[str, bool]:
+def radar_required_args(task: dict[str, Any] | None) -> dict[str, Any]:
     required = {"location_only": True}
     if isinstance(task, dict) and task.get("radar_include_deletions"):
         required["include_deletions"] = True
+    return required
+
+
+def workspace_radar_required_args(task: dict[str, Any] | None) -> dict[str, Any]:
+    required = radar_required_args(task)
+    required["workspace"] = benchmark_workspace_name(task or {})
     return required
 
 
@@ -1208,7 +1247,7 @@ def mcp_condition_audit(
         if not any(str(name).endswith(f"__{required}") or str(name) == required for name in mcp_tool_names):
             findings.append({"kind": "missing_required_mcp_tool", "condition": condition, "tool": required})
     if condition == "mcp_workspace_radar":
-        for arg in missing_mcp_call_args(activity, "brain_workspace_regressions", radar_required_args(task)):
+        for arg in missing_mcp_call_args(activity, "brain_workspace_regressions", workspace_radar_required_args(task)):
             findings.append({"kind": "missing_required_mcp_argument", "condition": condition, "tool": "brain_workspace_regressions", "argument": arg})
     if condition == "mcp_history" and wants_radar_location_only(runner):
         for arg in missing_mcp_call_args(activity, "brain_regressions", radar_required_args(task)):
@@ -2407,7 +2446,7 @@ def extract_tool_command(value: Any) -> str | None:
     return None
 
 
-def safe_tool_arguments(value: Any) -> dict[str, bool]:
+def safe_tool_arguments(value: Any) -> dict[str, Any]:
     if isinstance(value, str):
         try:
             parsed = json.loads(value)
@@ -2416,11 +2455,15 @@ def safe_tool_arguments(value: Any) -> dict[str, bool]:
         return safe_tool_arguments(parsed)
     if not isinstance(value, dict):
         return {}
-    return {
+    safe: dict[str, Any] = {
         key: bool(value[key])
-        for key in sorted(SAFE_MCP_ARGUMENT_KEYS)
+        for key in sorted(SAFE_MCP_BOOL_ARGUMENT_KEYS)
         if isinstance(value.get(key), bool)
     }
+    workspace = safe_workspace_name(value.get("workspace"))
+    if workspace is not None:
+        safe["workspace"] = workspace
+    return safe
 
 
 def tool_event_errored(value: Any) -> bool:
