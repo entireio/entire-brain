@@ -104,8 +104,15 @@ func newRecallCommand(opts Options) *cobra.Command {
 				rr.retain(allFacts) // keep every present fact's vector; prune only departed facts
 				_ = rr.flush()      // best-effort cache persist
 			}
+			// Locus drift (Phase 2 item 4): flag surfaced facts whose code
+			// locus left the worktree, so the agent knows which to re-verify.
+			drift := factsLocusDrift(repoDir, matches)
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{"branch": resolvedBranch, "query": query, "facts": matches})
+				out := map[string]any{"branch": resolvedBranch, "query": query, "facts": matches}
+				if len(drift) > 0 {
+					out["locus_drift"] = drift
+				}
+				return writeJSON(cmd, out)
 			}
 			if len(matches) == 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "no facts for %q on %s\n", query, resolvedBranch)
@@ -113,6 +120,9 @@ func newRecallCommand(opts Options) *cobra.Command {
 			}
 			for _, f := range matches {
 				printFactLine(cmd, f)
+				if gone := drift[f.ID]; len(gone) > 0 {
+					fmt.Fprintf(cmd.OutOrStdout(), "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
+				}
 			}
 			return nil
 		},
