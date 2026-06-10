@@ -4,20 +4,31 @@
   "strategy": "manual-commit",
   "branch": "codex/release-readiness-hardening",
   "checkpoints_count": 1,
-  "files_touched": null,
+  "files_touched": [
+    "benchmarks/agent-brain/evidence/radar-tool/go-test-internal-cli-radar.jsonl",
+    "benchmarks/agent-brain/evidence/radar-tool/manifest.json",
+    "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.json",
+    "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.md"
+  ],
   "sessions": [
     {
       "metadata": "/22/ca9682823f/0/metadata.json",
       "transcript": "/22/ca9682823f/0/full.jsonl",
       "content_hash": "/22/ca9682823f/0/content_hash.txt",
       "prompt": "/22/ca9682823f/0/prompt.txt"
+    },
+    {
+      "metadata": "/22/ca9682823f/1/metadata.json",
+      "transcript": "/22/ca9682823f/1/full.jsonl",
+      "content_hash": "/22/ca9682823f/1/content_hash.txt",
+      "prompt": ""
     }
   ],
   "token_usage": {
-    "input_tokens": 74652,
-    "cache_creation_tokens": 9560802,
-    "cache_read_tokens": 106875779,
-    "output_tokens": 417758,
-    "api_call_count": 305
+    "input_tokens": 74654,
+    "cache_creation_tokens": 9563326,
+    "cache_read_tokens": 106973041,
+    "output_tokens": 420894,
+    "api_call_count": 306
   }
 }
