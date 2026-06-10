@@ -3838,17 +3838,31 @@ def generate_layer_a_scenarios(minimum: int) -> list[dict[str, Any]]:
 
 
 def generate_layer_b_scenarios(minimum: int) -> list[dict[str, Any]]:
+    """One ledger row per task when the task declares its `archetype` (the Phase-2 counting
+    rule: a scenario is one unique task shape, not a task x archetype cross-join). Tasks
+    without the field keep the historical cross-join so old ledgers stay reproducible."""
     task_index = load_task_index()
     github_tasks = [
         task
         for task in sorted(task_index.values(), key=lambda item: item.get("id", ""))
         if task.get("repo") == "github-cli" and not str(task.get("id", "")).startswith("swe-style-")
     ]
+    archetype_index = {archetype["id"]: archetype for archetype in PHASE2_GITHUB_PROJECT_ARCHETYPES}
     scenarios: list[dict[str, Any]] = []
     counter = 1
     for task in github_tasks:
         condition = phase2_preferred_condition(task)
-        for archetype in PHASE2_GITHUB_PROJECT_ARCHETYPES:
+        declared_archetype = task.get("archetype")
+        if declared_archetype is not None:
+            if declared_archetype not in archetype_index:
+                raise RuntimeError(
+                    f"task {task.get('id', '<unknown>')} declares unknown archetype {declared_archetype!r}; "
+                    f"valid archetypes: {sorted(archetype_index)}"
+                )
+            task_archetypes = [archetype_index[declared_archetype]]
+        else:
+            task_archetypes = PHASE2_GITHUB_PROJECT_ARCHETYPES
+        for archetype in task_archetypes:
             scenarios.append(
                 {
                     "id": f"phase2-b-{counter:02d}-{slugify(task['id'])}-{archetype['id']}",

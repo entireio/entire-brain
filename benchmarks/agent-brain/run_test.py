@@ -1620,6 +1620,70 @@ class BrainQueryLeakAuditTests(unittest.TestCase):
         finally:
             run.load_tasks = old_loader
         self.assertTrue(any("answer-bearing" in error for error in errors), errors)
+class LayerBScenarioGenerationTests(unittest.TestCase):
+    def _github_task(self, task_id: str, **extra: object) -> dict:
+        task = {
+            "id": task_id,
+            "repo": "github-cli",
+            "repo_path": "github-cli",
+            "conditions": ["no_brain", "semantic_brain"],
+            "brain_queries": ["SomeHelper"],
+        }
+        task.update(extra)
+        return task
+
+    def _with_task_index(self, tasks: list[dict]):
+        old_loader = run.load_task_index
+        run.load_task_index = lambda: {task["id"]: task for task in tasks}
+        return old_loader
+
+    def test_declared_archetype_yields_one_scenario_per_task(self) -> None:
+        tasks = [
+            self._github_task("github-cli-alpha", archetype="rationale-recovery"),
+            self._github_task("github-cli-beta", archetype="protocol-contract-recovery"),
+        ]
+        old_loader = self._with_task_index(tasks)
+        try:
+            scenarios = run.generate_layer_b_scenarios(minimum=50)
+        finally:
+            run.load_task_index = old_loader
+        self.assertEqual(len(scenarios), 2)
+        self.assertEqual(
+            [scenario["task_id"] for scenario in scenarios],
+            ["github-cli-alpha", "github-cli-beta"],
+        )
+        self.assertEqual(scenarios[0]["archetype"], "rationale-recovery")
+        self.assertEqual(scenarios[1]["archetype"], "protocol-contract-recovery")
+
+    def test_missing_archetype_keeps_legacy_cross_join(self) -> None:
+        old_loader = self._with_task_index([self._github_task("github-cli-legacy")])
+        try:
+            scenarios = run.generate_layer_b_scenarios(minimum=50)
+        finally:
+            run.load_task_index = old_loader
+        self.assertEqual(len(scenarios), len(run.PHASE2_GITHUB_PROJECT_ARCHETYPES))
+
+    def test_unknown_archetype_fails_loudly(self) -> None:
+        old_loader = self._with_task_index(
+            [self._github_task("github-cli-typo", archetype="not-a-real-archetype")]
+        )
+        try:
+            with self.assertRaisesRegex(RuntimeError, "unknown archetype"):
+                run.generate_layer_b_scenarios(minimum=50)
+        finally:
+            run.load_task_index = old_loader
+
+    def test_minimum_still_truncates(self) -> None:
+        tasks = [
+            self._github_task(f"github-cli-task-{index:02d}", archetype="architecture-localization")
+            for index in range(10)
+        ]
+        old_loader = self._with_task_index(tasks)
+        try:
+            scenarios = run.generate_layer_b_scenarios(minimum=4)
+        finally:
+            run.load_task_index = old_loader
+        self.assertEqual(len(scenarios), 4)
 
 
 class CodexAuditScriptTests(unittest.TestCase):

@@ -1,0 +1,27 @@
+{
+  "id": "github-cli-ghrepo-url-git-suffix",
+  "repo": "github-cli",
+  "repo_path": "github-cli",
+  "base_commit": "da68cb8f6f597cfc3838cf40f89ecc01f4e53233",
+  "archetype": "architecture-localization",
+  "conditions": ["no_brain", "semantic_brain"],
+  "prompt": "Inside any cloned repository whose git remote URL ends with the standard \".git\" suffix (the default for clones, e.g. https://github.com/monalisa/octo-cat.git), gh commands that resolve the current repository from the remote now misidentify it: the CLI resolves the repo as \"monalisa/octo-cat.git\" and API requests fail with 404. The same commands work fine if the remote URL has no \".git\" suffix. Find and fix the regression.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "internal/ghrepo/repo.go",
+      "old": "\treturn NewWithHost(parts[0], strings.TrimSuffix(parts[1], \".git\"), u.Hostname()), nil\n",
+      "new": "\treturn NewWithHost(parts[0], parts[1], u.Hostname()), nil\n"
+    }
+  ],
+  "validation": [
+    "go test ./internal/ghrepo -run '^Test_repoFromURL$'"
+  ],
+  "leak_markers": [
+    "go test ./internal/ghrepo -run '^Test_repoFromURL$'"
+  ],
+  "expected_files": ["internal/ghrepo/repo.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "brain_queries": ["FromURL", "ghrepo", "NewWithHost"]
+}
