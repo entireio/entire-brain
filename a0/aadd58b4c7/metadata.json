@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "a0aadd58b4c7",
+  "strategy": "manual-commit",
+  "branch": "codex/release-readiness-audit-cleanup",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "docs/release_readiness_audit.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a0/aadd58b4c7/0/metadata.json",
+      "transcript": "/a0/aadd58b4c7/0/full.jsonl",
+      "content_hash": "/a0/aadd58b4c7/0/content_hash.txt",
+      "prompt": "/a0/aadd58b4c7/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 24987859,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 812365952,
+    "output_tokens": 2106973,
+    "api_call_count": 6158
+  }
+}
