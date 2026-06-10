@@ -1193,3 +1193,69 @@ func TestRunDistillForBrainForceKeepsProposalBacklogUntilFinalFlush(t *testing.T
 		t.Errorf("completed force run should drop prior proposals, got %d (%v)", len(final), err)
 	}
 }
+
+// TestRunDistillForBrainSessionFilter locks in the --session fast path
+// (Phase 2 item 5): only the named session is distilled, and every other
+// session's cache entry is carried through so the next unfiltered run does
+// not re-distill the world.
+func TestRunDistillForBrainSessionFilter(t *testing.T) {
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now) // s1 (main, older) then s2 (feature)
+
+	fact := "preferences.coding.style\tThe user prefers concise commits.\n"
+	seedRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return fact, nil
+	}
+	seedOpts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: seedRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, seedOpts, now); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+
+	// Invalidate BOTH transcripts, then run with --session s2: only s2 may
+	// cost agent calls, and s1's (now stale) cache entry must survive.
+	for _, p := range []string{"sessions/main/s1.jsonl", "sessions/branches/feature/s2.jsonl"} {
+		if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(p)), []byte("turn one\nturn two\na new turn\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var calls int
+	countRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return "", nil
+	}
+	filtered := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: countRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, session: "s2"}
+	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, filtered, now)
+	if err != nil {
+		t.Fatalf("session-filtered run: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected exactly one agent call (s2's single chunk), got %d", calls)
+	}
+	if source.ChunksScanned != 1 {
+		t.Fatalf("only s2 should be scanned, got %d chunks", source.ChunksScanned)
+	}
+	cache := loadDistillCache(brainDir)
+	if _, ok := cache.Sessions["s1"]; !ok {
+		t.Errorf("session-filtered run evicted s1's cache entry: %v", cache.Sessions)
+	}
+	if _, ok := cache.Sessions["s2"]; !ok {
+		t.Errorf("s2 missing from cache after its own distill: %v", cache.Sessions)
+	}
+}
+
+// TestRunDistillForBrainSessionWithForceRejected: a forced rebuild drops every
+// distilled fact on the loaded branch but a session filter re-derives only one
+// session's — silent loss for the rest, so the combination must refuse to run.
+func TestRunDistillForBrainSessionWithForceRejected(t *testing.T) {
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"},
+		run: func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+			t.Error("no agent call expected; the option combination must be rejected up front")
+			return "", nil
+		},
+		maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, session: "s1", force: true}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err == nil || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("expected the --session/--force combination to be rejected, got %v", err)
+	}
+}
