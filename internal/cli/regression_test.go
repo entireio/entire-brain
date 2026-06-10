@@ -44,6 +44,9 @@ func TestRegressionExtractSignals(t *testing.T) {
 }
 
 func TestRegressionPathClassifiers(t *testing.T) {
+	if got := regressionCleanRelPath(`pkg\windows_path.go`); got != "pkg/windows_path.go" {
+		t.Fatalf("regression paths must be slash-normalized for JSON/MCP output, got %q", got)
+	}
 	for _, p := range []string{"a/b_test.go", "x/foo.test.ts", "pkg/tests/y.go", "a/testdata/z.go"} {
 		if !regressionIsTestPath(p) {
 			t.Errorf("expected %q classified as test", p)

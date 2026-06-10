@@ -112,6 +112,11 @@ func regressionIsTestPath(p string) bool {
 
 var regressionCodeFilePattern = regexp.MustCompile(`[\w./-]+\.(?:go|ts|tsx|js|jsx|py|rs|java|kt|swift|c|cc|cpp|h|hpp)`)
 
+func regressionCleanRelPath(path string) string {
+	path = strings.ReplaceAll(path, "\\", "/")
+	return filepath.ToSlash(filepath.Clean(path))
+}
+
 func regressionDespace(s string) string {
 	var b strings.Builder
 	for _, r := range s {
@@ -127,11 +132,10 @@ func regressionLineFileHints(line string) []string {
 	seen := map[string]struct{}{}
 	var out []string
 	for _, fn := range regressionCodeFilePattern.FindAllString(line, -1) {
-		clean := filepath.Clean(strings.TrimLeft(fn, "+-/ "))
+		clean := regressionCleanRelPath(strings.TrimLeft(fn, "+-/ "))
 		if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
 			continue
 		}
-		clean = filepath.ToSlash(clean)
 		if _, ok := seen[clean]; ok {
 			continue
 		}
@@ -382,8 +386,8 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 					if s.FilePath == "" {
 						continue
 					}
-					candidateFiles[s.FilePath] = struct{}{}
-					c := filepath.Clean(s.FilePath)
+					c := regressionCleanRelPath(s.FilePath)
+					candidateFiles[c] = struct{}{}
 					if r, ok := semanticRank[c]; !ok || rank < r {
 						semanticRank[c] = rank
 					}
@@ -405,12 +409,13 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 	// Load all candidate files once.
 	var files []candFile
 	for file := range candidateFiles {
-		clean := filepath.Clean(file)
+		clean := regressionCleanRelPath(file)
 		if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
 			continue
 		}
-		full := filepath.Join(repoRoot, clean)
-		if err := rejectSymlinkPathComponents(repoRoot, clean); err != nil {
+		nativeClean := filepath.FromSlash(clean)
+		full := filepath.Join(repoRoot, nativeClean)
+		if err := rejectSymlinkPathComponents(repoRoot, nativeClean); err != nil {
 			continue // per-component symlink guard, matching the brain's other repo reads
 		}
 		info, err := os.Stat(full)
@@ -492,7 +497,7 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 		renameRe := regexp.MustCompile(`[a-z_][a-z0-9_]*\s*\+\s*"[^"]*` + regexp.QuoteMeta(c.operand))
 		hinted := map[string]struct{}{}
 		for _, h := range c.hints {
-			hinted[filepath.Clean(h)] = struct{}{}
+			hinted[regressionCleanRelPath(h)] = struct{}{}
 		}
 		if len(hinted) == 0 && anyLineBoth(c.operand, c.id) {
 			continue // invariant still holds somewhere, and history did not name per-file loci
@@ -629,7 +634,7 @@ func regressionMissingCallHomes(files []candFile, d deleteSignal) []regressionHo
 	callNeedle := d.target + d.rhs
 	hinted := map[string]struct{}{}
 	for _, h := range d.hints {
-		hinted[filepath.Clean(h)] = struct{}{}
+		hinted[regressionCleanRelPath(h)] = struct{}{}
 	}
 	scan := func(requireHint bool) []regressionHome {
 		var homes []regressionHome
@@ -679,7 +684,7 @@ func regressionMissingAssignmentHomes(files []candFile, d deleteSignal) []regres
 	assignmentNeedle := d.target + d.rhs
 	hinted := map[string]struct{}{}
 	for _, h := range d.hints {
-		hinted[filepath.Clean(h)] = struct{}{}
+		hinted[regressionCleanRelPath(h)] = struct{}{}
 	}
 	var homes []regressionHome
 	seen := map[string]struct{}{}
@@ -884,7 +889,7 @@ func regressionHomeFile(files []candFile, id, rhs string, hints []string) (strin
 	if len(hints) > 0 {
 		hinted := map[string]struct{}{}
 		for _, h := range hints {
-			hinted[filepath.Clean(h)] = struct{}{}
+			hinted[regressionCleanRelPath(h)] = struct{}{}
 		}
 		for _, f := range files {
 			if _, ok := hinted[f.clean]; !ok {
@@ -1049,7 +1054,7 @@ func annotateRegressionLocationContext(anomalies []regressionAnomaly, files []ca
 		if anomalies[i].Symbol != "" {
 			continue
 		}
-		if f, ok := byFile[filepath.Clean(anomalies[i].File)]; ok {
+		if f, ok := byFile[regressionCleanRelPath(anomalies[i].File)]; ok {
 			anomalies[i].Symbol = regressionEnclosingSymbol(f.lines, anomalies[i].Line)
 		}
 	}
