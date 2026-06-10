@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "2a5d7c0001d4",
+  "strategy": "manual-commit",
+  "branch": "codex/release-readiness-audit-cleanup",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "benchmarks/agent-brain/audit_release_matrix.py",
+    "benchmarks/agent-brain/evidence/release-matrix/README.md",
+    "benchmarks/agent-brain/evidence/release-matrix/manifest.json",
+    "benchmarks/agent-brain/run_test.py",
+    "docs/release_readiness_audit.md",
+    "mise.toml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2a/5d7c0001d4/0/metadata.json",
+      "transcript": "/2a/5d7c0001d4/0/full.jsonl",
+      "content_hash": "/2a/5d7c0001d4/0/content_hash.txt",
+      "prompt": "/2a/5d7c0001d4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 272810,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 5045760,
+    "output_tokens": 22915,
+    "api_call_count": 77
+  }
+}
