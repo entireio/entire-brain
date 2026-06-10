@@ -148,6 +148,14 @@ def compare_hash_fields(comp: dict[str, Any], tasks_sha: str, brain_sha: str, fl
             flags.append(f"{name}: {side}_brain_manifest_sha256 mismatch")
 
 
+def comparison_side_for_retriever(comp: dict[str, Any], retriever: str) -> str:
+    if comp.get("a_retriever") == retriever:
+        return "a"
+    if comp.get("b_retriever") == retriever:
+        return "b"
+    return ""
+
+
 def proof_label_summary_flags(retriever: str, summary: dict[str, Any]) -> list[str]:
     results = summary.get("results")
     if not isinstance(results, list) or not results:
@@ -246,7 +254,19 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             continue
         comparisons[name] = comp
         comparison_paths[name] = str(path.relative_to(root))
+        for side in ("a", "b"):
+            retriever = comp.get(f"{side}_retriever")
+            if not isinstance(retriever, str) or not retriever:
+                flags.append(f"{name}: {side}_retriever must be non-empty")
+            elif retriever not in summaries:
+                flags.append(f"{name}: {side}_retriever {retriever!r} has no retained summary")
         compare_hash_fields(comp, tasks_sha, brain_sha, flags, name)
+        if comp.get("release_pairing_ready") is not True:
+            flags.append(f"{name}: release_pairing_ready must be true")
+        if comp.get("release_claimable") is not True:
+            flags.append(f"{name}: release_claimable must be true")
+        if not isinstance(comp.get("n"), int) or comp.get("n") <= 0:
+            flags.append(f"{name}: comparison has no paired rows")
         if comp.get("allow_proxy_comparison") is True:
             flags.append(f"{name}: allow_proxy_comparison must be false for release proof")
         for field in ("allow_missing_tasks", "allow_task_hash_mismatch", "allow_brain_manifest_mismatch"):
@@ -261,6 +281,7 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
 
     claim_reports: list[dict[str, Any]] = []
     proof_checked_retrievers: set[str] = set()
+    facts_vs_raw_claim = False
     for claim in manifest.get("required_claims") or []:
         if not isinstance(claim, dict):
             flags.append("required_claims entries must be objects")
@@ -283,10 +304,16 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
         expected_basis = claim.get("evidence_basis", "proof_labels")
         expected_a = claim.get("a_retriever")
         expected_b = claim.get("b_retriever")
+        if not isinstance(expected_a, str) or not expected_a:
+            flags.append(f"{name}: required claim must include a_retriever")
+        if not isinstance(expected_b, str) or not expected_b:
+            flags.append(f"{name}: required claim must include b_retriever")
         if expected_a and comp.get("a_retriever") != expected_a:
             flags.append(f"{name}: a_retriever is {comp.get('a_retriever')!r}, want {expected_a!r}")
         if expected_b and comp.get("b_retriever") != expected_b:
             flags.append(f"{name}: b_retriever is {comp.get('b_retriever')!r}, want {expected_b!r}")
+        if metric_name in RELEVANCE_PROOF_METRICS and expected_basis != "proof_labels":
+            flags.append(f"{name}: {metric_name} required claim evidence_basis must be 'proof_labels'")
         if expected_basis == "proof_labels" and metric_name in RELEVANCE_PROOF_METRICS:
             for retriever in (comp.get("a_retriever"), comp.get("b_retriever")):
                 if not isinstance(retriever, str) or not retriever:
@@ -309,6 +336,19 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             flags.append(f"{name}: {metric_name} is not significant")
         if not isinstance(metric.get("n"), int) or metric.get("n") <= 0:
             flags.append(f"{name}: {metric_name} has no paired rows")
+        facts_side = comparison_side_for_retriever(comp, "facts")
+        raw_side = comparison_side_for_retriever(comp, "raw-sessions")
+        if (
+            metric_name in RELEVANCE_PROOF_METRICS
+            and expected_basis == "proof_labels"
+            and facts_side
+            and raw_side
+            and facts_side != raw_side
+            and metric.get("winner") == facts_side
+            and metric.get("release_claimable") is True
+            and metric.get("significant") is True
+        ):
+            facts_vs_raw_claim = True
         claim_reports.append({
             "comparison": name,
             "metric": metric_name,
@@ -323,6 +363,8 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
 
     if not comparisons:
         notes.append("no comparison artifacts loaded")
+    if not facts_vs_raw_claim:
+        flags.append("required_claims must include a proof-label claim where facts beats raw-sessions")
 
     return {
         "schema": 1,
@@ -330,7 +372,7 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
         "status": "fail" if flags else "pass",
         "release_evidence": not flags,
         "claim_policy": CLAIM_POLICY_PROOF,
-        "claimable_facts_vs_raw": not flags,
+        "claimable_facts_vs_raw": not flags and facts_vs_raw_claim,
         "tasks_sha256": tasks_sha,
         "brain_manifest_sha256": brain_sha,
         "required_retrievers": required_retrievers,

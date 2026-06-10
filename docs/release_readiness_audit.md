@@ -109,7 +109,11 @@ Implemented eval surfaces:
   summaries, matching non-empty task and brain-manifest hashes, no proxy/missing
   /mismatch overrides, empty missing-task sets, and required comparison metrics
   that are significant, `release_claimable: true`, and
-  `evidence_basis: "proof_labels"`. It also supports an explicit
+  `evidence_basis: "proof_labels"`. The audit also requires top-level
+  `release_pairing_ready: true`, a positive paired row count, and at least one
+  required proof-label claim where the `facts` arm beats `raw-sessions`, so a
+  proxy or unrelated comparison cannot be promoted into a facts-vs-raw claim by
+  editing manifest text. It also supports an explicit
   `claim_policy: "no_release_claim"` manifest backed by `facts status --json`;
   that passes only when the facts arm is not ready and has zero active facts.
 - `mise run facts:evidence` checks committed facts-eval artifacts without

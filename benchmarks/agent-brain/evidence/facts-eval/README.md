@@ -17,7 +17,9 @@ To become release-citable, a future `manifest.json` in this directory must name:
   evidence);
 - one or more `facts eval-compare --json` outputs comparing those summaries;
 - required claims whose metrics are significant, `release_claimable: true`, and
-  backed by `evidence_basis: "proof_labels"`.
+  backed by `evidence_basis: "proof_labels"`;
+- at least one required proof-label claim where the `facts` arm beats the
+  `raw-sessions` arm on the metric being cited.
 
 Minimum retained shape:
 
@@ -82,7 +84,8 @@ Collection checklist:
   comparison JSON alone.
 - Compare the same task ids on both sides. Missing tasks, task-hash overrides,
   brain-manifest overrides, and proxy-comparison overrides are rejected by the
-  auditor.
+  auditor. Comparison artifacts must also carry `release_pairing_ready: true`,
+  top-level `release_claimable: true`, and a positive paired row count.
 - Keep the JSON artifacts inspectable and committed with the generated
   `facts-eval-audit-report.json` and `.md` after
   `mise run facts:evidence:update` passes.
@@ -90,6 +93,7 @@ Collection checklist:
 Run `mise run facts:evidence` after committing artifacts. For proof manifests,
 the validator fails if any canonical retriever arm is omitted, task hashes or
 brain-manifest hashes differ, proxy comparisons are used, task sets are missing
-rows, summary rows are not proof-labeled, or the required facts-vs-raw claim is
-not release claimable. For no-claim manifests, the validator fails if the
+rows, summary rows are not proof-labeled, a required relevance claim asks for
+non-proof evidence, or no required claim proves facts beat raw sessions. For
+no-claim manifests, the validator fails if the
 retained status artifact shows the facts arm is ready or has active facts.

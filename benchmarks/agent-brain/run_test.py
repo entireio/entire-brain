@@ -2376,6 +2376,8 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             "b_tasks_sha256": self.TASKS_SHA,
             "a_brain_manifest_sha256": self.BRAIN_SHA,
             "b_brain_manifest_sha256": self.BRAIN_SHA,
+            "release_pairing_ready": True,
+            "release_claimable": claimable and not proxy,
             "allow_proxy_comparison": proxy,
             "allow_missing_tasks": False,
             "allow_task_hash_mismatch": False,
@@ -2513,6 +2515,57 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             report = audit_facts_eval.audit_facts_eval_manifest(manifest)
             self.assertFalse(report["release_evidence"], report)
             self.assertTrue(any(flag.startswith("facts: 1 result(s) are not human/judge_refined explicit proof labels") for flag in report["flags"]), report["flags"])
+
+    def test_facts_eval_audit_rejects_required_proxy_basis(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            compare_path = root_path / "raw-vs-facts.compare.json"
+            comp = json.loads(compare_path.read_text())
+            comp["release_claimable"] = True
+            comp["metrics"][0]["evidence_basis"] = "proxy_or_mixed"
+            comp["metrics"][0]["release_claimable"] = True
+            compare_path.write_text(json.dumps(comp))
+            data = json.loads(manifest.read_text())
+            data["required_claims"][0]["evidence_basis"] = "proxy_or_mixed"
+            manifest.write_text(json.dumps(data))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+
+            self.assertFalse(report["release_evidence"], report)
+            self.assertIn("raw_vs_facts: useful_per_1k required claim evidence_basis must be 'proof_labels'", report["flags"])
+
+    def test_facts_eval_audit_rejects_missing_release_pairing_ready(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            compare_path = root_path / "raw-vs-facts.compare.json"
+            comp = json.loads(compare_path.read_text())
+            comp["release_pairing_ready"] = False
+            compare_path.write_text(json.dumps(comp))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+
+            self.assertFalse(report["release_evidence"], report)
+            self.assertIn("raw_vs_facts: release_pairing_ready must be true", report["flags"])
+
+    def test_facts_eval_audit_requires_facts_beats_raw_claim(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            compare_path = root_path / "raw-vs-facts.compare.json"
+            comp = json.loads(compare_path.read_text())
+            comp["metrics"][0]["winner"] = "a"
+            compare_path.write_text(json.dumps(comp))
+            data = json.loads(manifest.read_text())
+            data["required_claims"][0]["winner"] = "a"
+            manifest.write_text(json.dumps(data))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+
+            self.assertFalse(report["release_evidence"], report)
+            self.assertFalse(report["claimable_facts_vs_raw"], report)
+            self.assertIn("required_claims must include a proof-label claim where facts beats raw-sessions", report["flags"])
 
     def test_facts_eval_audit_rejects_summary_hash_mismatch(self):
         with tempfile.TemporaryDirectory() as root:
