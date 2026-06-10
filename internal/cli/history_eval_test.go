@@ -48,7 +48,7 @@ func historyEvalFixture(t *testing.T) (string, *exportManifest, historyIndex) {
 
 func TestGenerateHistoryEvalTasksLabelsByTranscript(t *testing.T) {
 	brainDir, manifest, index := historyEvalFixture(t)
-	tasks := generateHistoryEvalTasks(brainDir, manifest, index, "", 2, 0, 0)
+	tasks := generateHistoryEvalTasks(brainDir, manifest, index, "", 2, 0, 0, false)
 	if len(tasks) != 2 {
 		t.Fatalf("expected 2 tasks, got %d: %+v", len(tasks), tasks)
 	}
@@ -70,9 +70,51 @@ func TestGenerateHistoryEvalTasksLabelsByTranscript(t *testing.T) {
 	}
 
 	// min-records: raising the floor above s2's 2 rankable records drops it.
-	tasks = generateHistoryEvalTasks(brainDir, manifest, index, "", 3, 0, 0)
+	tasks = generateHistoryEvalTasks(brainDir, manifest, index, "", 3, 0, 0, false)
 	if len(tasks) != 0 {
 		t.Fatalf("min-records=3 should disqualify both sessions, got %d", len(tasks))
+	}
+}
+
+// TestGenerateHistoryEvalTasksMidtaskStratum covers Phase 2 item 8: mid-session
+// follow-up questions become their own stratum, labeled with the records that
+// FOLLOW each question — the work the answer manifested in.
+func TestGenerateHistoryEvalTasksMidtaskStratum(t *testing.T) {
+	brainDir, manifest, index := historyEvalFixture(t)
+	index.Records = append(index.Records,
+		// A follow-up question mid-way through s1, then more work after it.
+		historyRecord{ID: "r6", Kind: "request", Path: "sessions/main/s1.jsonl", Line: 5, Summary: "why does the retry cap exist"},
+		historyRecord{ID: "r7", Kind: "validation", Path: "sessions/main/s1.jsonl", Line: 12, Summary: "verified the cap bounds tail latency"},
+		// A wrapper injection must never become a task.
+		historyRecord{ID: "r8", Kind: "request", Path: "sessions/main/s1.jsonl", Line: 7, Summary: "<local-command-caveat>Caveat: local commands"},
+	)
+	tasks := generateHistoryEvalTasks(brainDir, manifest, index, "", 2, 0, 0, true)
+
+	var mid []evalTask
+	for _, task := range tasks {
+		if task.QueryType == queryTypeMidtask {
+			mid = append(mid, task)
+		}
+	}
+	if len(mid) != 1 {
+		t.Fatalf("expected exactly one midtask task (the wrapper filtered), got %d: %+v", len(mid), mid)
+	}
+	m := mid[0]
+	if m.Task != "why does the retry cap exist" {
+		t.Fatalf("midtask query = %q", m.Task)
+	}
+	// Labels: only s1 records AFTER line 5 — r2 (line 9) and r7 (line 12);
+	// r1 (line 3) precedes the question and must not be credited.
+	if len(m.Relevant) != 2 || m.Relevant[0] != "r2" || m.Relevant[1] != "r7" {
+		t.Fatalf("midtask labels = %v, want [r2 r7] (records after the question)", m.Relevant)
+	}
+	// The opening task keeps the full-session labels, now including r7.
+	for _, task := range tasks {
+		if task.Task == "add retry backoff to the fetcher" {
+			if len(task.Relevant) != 3 {
+				t.Fatalf("opening task labels = %v, want all 3 rankable records", task.Relevant)
+			}
+		}
 	}
 }
 
