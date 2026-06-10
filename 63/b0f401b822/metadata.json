@@ -1,0 +1,20 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "63b0f401b822",
+  "strategy": "manual-commit",
+  "branch": "codex/release-readiness-audit-cleanup",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/diffless_review_seam.md",
+    "docs/progress-so-far.md",
+    "docs/release_readiness_audit.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/63/b0f401b822/0/metadata.json",
+      "transcript": "/63/b0f401b822/0/full.jsonl",
+      "content_hash": "/63/b0f401b822/0/content_hash.txt",
+      "prompt": "/63/b0f401b822/0/prompt.txt"
+    }
+  ]
+}

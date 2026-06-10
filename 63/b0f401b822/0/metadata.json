@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "63b0f401b822",
+  "session_id": "019eacc8-4c81-7c91-b807-b3c82bbba45d",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-10T18:47:24.830136Z",
+  "branch": "codex/release-readiness-audit-cleanup",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/diffless_review_seam.md",
+    "docs/progress-so-far.md",
+    "docs/release_readiness_audit.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "1f0c7ea40869",
+  "checkpoint_transcript_start": 148,
+  "transcript_lines_at_start": 148,
+  "initial_attribution": {
+    "calculated_at": "2026-06-10T18:47:24.164509Z",
+    "agent_lines": 44,
+    "agent_removed": 31,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 44,
+    "total_lines_changed": 75,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
