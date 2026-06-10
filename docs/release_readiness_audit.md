@@ -20,7 +20,11 @@ Implemented claim-control surfaces:
   cache capacity estimate.
 - Distill summaries now include additive cache/timing fields:
   `cache_hits`, `failed_chunks`, `preprocessed_bytes`, `extraction_seconds`,
-  `reconcile_seconds`, and `write_seconds`.
+  `reconcile_seconds`, `write_seconds`, and `total_seconds`, plus the
+  self-describing run config and actual call counts needed for timed-run
+  evidence: `agent`, `model`, `effort`, `jobs`, `effective_extraction_jobs`,
+  `max_chunk_bytes`, `confidence_threshold`, `extraction_agent_calls`,
+  `reconcile_agent_calls`, and `total_agent_calls`.
 - `--jobs N` parallelizes extraction calls only. Candidate reconciliation and
   all writes still happen in deterministic session/chunk order.
 - `--agent ollama --model <model>` can use local loopback Ollama through
@@ -253,6 +257,9 @@ Release claims must stay local-first and evidence-backed:
 
 - Distill no longer aborts a parallel run merely because the earliest ordered
   chunks failed when later chunks succeeded.
+- Timed distill `--json` summaries are self-describing enough to compare
+  `--jobs 1` and `--jobs N` artifacts without relying on external notes for
+  agent/model/effort, job count, actual agent calls, or wall time.
 - Branch-limited distill preserves cache entries for untouched branches, so a
   main-only run does not force unchanged feature sessions to re-distill later.
 - Ollama distill rejects redirects that leave loopback, preserving the local-only

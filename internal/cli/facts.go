@@ -55,9 +55,22 @@ type factSourceManifest struct {
 	CacheHits         int       `json:"cache_hits,omitempty"`
 	FailedChunks      int       `json:"failed_chunks,omitempty"`
 	PreprocessedBytes int64     `json:"preprocessed_bytes,omitempty"`
+	Agent             string    `json:"agent,omitempty"`
+	Model             string    `json:"model,omitempty"`
+	Effort            string    `json:"effort,omitempty"`
+	Branch            string    `json:"branch,omitempty"`
+	Force             bool      `json:"force,omitempty"`
+	Jobs              int       `json:"jobs,omitempty"`
+	EffectiveJobs     int       `json:"effective_extraction_jobs,omitempty"`
+	MaxChunkBytes     int       `json:"max_chunk_bytes,omitempty"`
+	Confidence        float64   `json:"confidence_threshold,omitempty"`
+	ExtractionCalls   int       `json:"extraction_agent_calls,omitempty"`
+	ReconcileCalls    int       `json:"reconcile_agent_calls,omitempty"`
+	TotalAgentCalls   int       `json:"total_agent_calls,omitempty"`
 	ExtractionSeconds float64   `json:"extraction_seconds,omitempty"`
 	ReconcileSeconds  float64   `json:"reconcile_seconds,omitempty"`
 	WriteSeconds      float64   `json:"write_seconds,omitempty"`
+	TotalSeconds      float64   `json:"total_seconds,omitempty"`
 	Warnings          []string  `json:"warnings,omitempty"`
 }
 

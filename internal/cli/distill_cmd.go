@@ -168,7 +168,13 @@ type distillDryRunReport struct {
 	BrainPath                     string                 `json:"brain_path"`
 	Branch                        string                 `json:"branch,omitempty"`
 	Force                         bool                   `json:"force"`
+	Agent                         string                 `json:"agent,omitempty"`
+	Model                         string                 `json:"model,omitempty"`
+	Effort                        string                 `json:"effort,omitempty"`
+	Jobs                          int                    `json:"jobs"`
+	EffectiveJobs                 int                    `json:"effective_extraction_jobs"`
 	MaxChunkBytes                 int                    `json:"max_chunk_bytes"`
+	Confidence                    float64                `json:"confidence_threshold"`
 	Sessions                      int                    `json:"sessions"`
 	CachedSessions                int                    `json:"cached_sessions"`
 	SessionsToDistill             int                    `json:"sessions_to_distill"`
@@ -322,6 +328,7 @@ func distillProgressLabel(p distillProgress) string {
 // into per-branch stores, and records the fact source on the brain manifest.
 // repoDir is the working directory the agent runs in (sandboxed read-only).
 func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOpts distillCommandOptions, now time.Time) (*factSourceManifest, error) {
+	runStarted := time.Now()
 	prep, err := prepareDistillRun(brainDir, distillOpts, now)
 	if err != nil {
 		return nil, err
@@ -329,7 +336,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	extractionStarted := time.Now()
 	results := runDistillExtraction(ctx, repoDir, prep.Args, prep.Plan.Work, distillOpts)
 	extractionSeconds := time.Since(extractionStarted).Seconds()
-	return commitDistillResults(ctx, repoDir, brainDir, distillOpts, now, prep, results, extractionSeconds)
+	return commitDistillResults(ctx, repoDir, brainDir, distillOpts, now, prep, results, extractionSeconds, runStarted)
 }
 
 func prepareDistillRun(brainDir string, distillOpts distillCommandOptions, now time.Time) (distillRunPreparation, error) {
@@ -388,17 +395,17 @@ func prepareDistillRun(brainDir string, distillOpts distillCommandOptions, now t
 	}, nil
 }
 
-func commitDistillResults(ctx context.Context, repoDir, brainDir string, distillOpts distillCommandOptions, now time.Time, prep distillRunPreparation, results []distillChunkResult, extractionSeconds float64) (*factSourceManifest, error) {
+func commitDistillResults(ctx context.Context, repoDir, brainDir string, distillOpts distillCommandOptions, now time.Time, prep distillRunPreparation, results []distillChunkResult, extractionSeconds float64, runStarted time.Time) (*factSourceManifest, error) {
 	var source *factSourceManifest
 	err := withBrainWriteLock(brainDir, func() error {
-		committed, commitErr := commitDistillResultsLocked(ctx, repoDir, brainDir, distillOpts, now, prep, results, extractionSeconds)
+		committed, commitErr := commitDistillResultsLocked(ctx, repoDir, brainDir, distillOpts, now, prep, results, extractionSeconds, runStarted)
 		source = committed
 		return commitErr
 	})
 	return source, err
 }
 
-func commitDistillResultsLocked(ctx context.Context, repoDir, brainDir string, distillOpts distillCommandOptions, now time.Time, prep distillRunPreparation, results []distillChunkResult, extractionSeconds float64) (*factSourceManifest, error) {
+func commitDistillResultsLocked(ctx context.Context, repoDir, brainDir string, distillOpts distillCommandOptions, now time.Time, prep distillRunPreparation, results []distillChunkResult, extractionSeconds float64, runStarted time.Time) (*factSourceManifest, error) {
 	plan := prep.Plan
 	if err := ensureDistillPlanSourceFresh(brainDir, plan); err != nil {
 		return nil, err
@@ -430,6 +437,13 @@ func commitDistillResultsLocked(ctx context.Context, repoDir, brainDir string, d
 	warnings := append([]string(nil), plan.Warnings...)
 	chunksScanned, chunksDistilled := len(plan.Work), 0
 	failedChunks := 0
+	extractionAgentCalls := 0
+	for _, result := range results {
+		if result.Completed {
+			extractionAgentCalls++
+		}
+	}
+	reconcileAgentCalls := 0
 	sessionsDone, factsFound := 0, 0
 	// Track agent-call outcomes so a misconfiguration that fails every call (e.g.
 	// an invalid --model) aborts fast with the agent's own error, instead of
@@ -533,6 +547,9 @@ func commitDistillResultsLocked(ctx context.Context, repoDir, brainDir string, d
 			// Reconcile the chunk's candidates against the branch's active facts
 			// so near-duplicates merge and contradictions supersede instead of
 			// piling up. Low-confidence decisions are queued for review.
+			if existing, _ := activeFactsAtPaths(byBranch[branch], candidatePathSet(records)); len(existing) > 0 {
+				reconcileAgentCalls++
+			}
 			actions, recWarnings := reconcileChunkCandidates(ctx, distillOpts.run, prep.ReconcileArgs, records, byBranch[branch], repoDir, distillOpts.timeout)
 			warnings = append(warnings, recWarnings...)
 			var chunkProposals []factProposal
@@ -598,9 +615,22 @@ func commitDistillResultsLocked(ctx context.Context, repoDir, brainDir string, d
 	source.CacheHits = plan.CachedSessions
 	source.FailedChunks = failedChunks
 	source.PreprocessedBytes = plan.PreprocessedBytes
+	source.Agent = strings.TrimSpace(distillOpts.agent)
+	source.Model = strings.TrimSpace(distillOpts.model)
+	source.Effort = strings.TrimSpace(distillOpts.effort)
+	source.Branch = strings.TrimSpace(distillOpts.branch)
+	source.Force = distillOpts.force
+	source.Jobs = distillRequestedJobs(distillOpts)
+	source.EffectiveJobs = distillEffectiveExtractionJobs(len(plan.Work), distillOpts)
+	source.MaxChunkBytes = distillMaxChunkBytes(distillOpts)
+	source.Confidence = prep.Threshold
+	source.ExtractionCalls = extractionAgentCalls
+	source.ReconcileCalls = reconcileAgentCalls
+	source.TotalAgentCalls = extractionAgentCalls + reconcileAgentCalls
 	source.ExtractionSeconds = extractionSeconds
 	source.ReconcileSeconds = reconcileSeconds
 	source.WriteSeconds = time.Since(writeStarted).Seconds()
+	source.TotalSeconds = time.Since(runStarted).Seconds()
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}
 	}
@@ -637,7 +667,13 @@ func buildDistillDryRunReport(brainDir string, distillOpts distillCommandOptions
 		BrainPath:                     brainDir,
 		Branch:                        strings.TrimSpace(distillOpts.branch),
 		Force:                         distillOpts.force,
-		MaxChunkBytes:                 distillOpts.maxChunkBytes,
+		Agent:                         strings.TrimSpace(distillOpts.agent),
+		Model:                         strings.TrimSpace(distillOpts.model),
+		Effort:                        strings.TrimSpace(distillOpts.effort),
+		Jobs:                          distillRequestedJobs(distillOpts),
+		EffectiveJobs:                 distillEffectiveExtractionJobs(len(plan.Work), distillOpts),
+		MaxChunkBytes:                 distillMaxChunkBytes(distillOpts),
+		Confidence:                    distillConfidenceThreshold(distillOpts),
 		Sessions:                      plan.TotalSessions,
 		CachedSessions:                plan.CachedSessions,
 		SessionsToDistill:             plan.SessionsToDistill,
@@ -650,9 +686,6 @@ func buildDistillDryRunReport(brainDir string, distillOpts distillCommandOptions
 		ReconcileAgentCallsUpperBound: plan.Chunks,
 		EstimatedAgentCallsUpperBound: plan.Chunks * 2,
 		Warnings:                      capWarnings(plan.Warnings, maxDistillWarnings),
-	}
-	if report.MaxChunkBytes <= 0 {
-		report.MaxChunkBytes = defaultDistillChunkSize
 	}
 	branchStats := map[string]*distillDryRunBranch{}
 	for _, branch := range plan.BranchOrder {
@@ -741,6 +774,38 @@ func printDistillDryRunReport(cmd *cobra.Command, report distillDryRunReport) {
 			fmt.Fprintf(out, "warning: %s\n", warning)
 		}
 	}
+}
+
+func distillRequestedJobs(distillOpts distillCommandOptions) int {
+	if distillOpts.jobs > 0 {
+		return distillOpts.jobs
+	}
+	return 1
+}
+
+func distillEffectiveExtractionJobs(work int, distillOpts distillCommandOptions) int {
+	if work <= 0 {
+		return 0
+	}
+	jobs := distillRequestedJobs(distillOpts)
+	if jobs > work {
+		return work
+	}
+	return jobs
+}
+
+func distillMaxChunkBytes(distillOpts distillCommandOptions) int {
+	if distillOpts.maxChunkBytes > 0 {
+		return distillOpts.maxChunkBytes
+	}
+	return defaultDistillChunkSize
+}
+
+func distillConfidenceThreshold(distillOpts distillCommandOptions) float64 {
+	if distillOpts.confidenceThreshold > 0 {
+		return distillOpts.confidenceThreshold
+	}
+	return defaultFactConfidenceThreshold
 }
 
 func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts distillCommandOptions, cacheSalt string) (distillPlan, error) {

@@ -112,8 +112,20 @@ func TestRunDistillForBrainWritesFactsAndManifest(t *testing.T) {
 	if manifest.Sources.Facts.PreprocessedBytes <= 0 {
 		t.Errorf("manifest preprocessed bytes should be recorded, got %d", manifest.Sources.Facts.PreprocessedBytes)
 	}
+	if manifest.Sources.Facts.Agent != "command" || manifest.Sources.Facts.Jobs != 1 || manifest.Sources.Facts.EffectiveJobs != 1 {
+		t.Errorf("manifest distill run config missing: %+v", manifest.Sources.Facts)
+	}
+	if manifest.Sources.Facts.MaxChunkBytes != defaultDistillChunkSize || manifest.Sources.Facts.Confidence != defaultFactConfidenceThreshold {
+		t.Errorf("manifest distill defaults missing: %+v", manifest.Sources.Facts)
+	}
+	if manifest.Sources.Facts.ExtractionCalls != 2 || manifest.Sources.Facts.ReconcileCalls != 0 || manifest.Sources.Facts.TotalAgentCalls != 2 {
+		t.Errorf("manifest actual agent call counts wrong: %+v", manifest.Sources.Facts)
+	}
 	if manifest.Sources.Facts.ExtractionSeconds < 0 || manifest.Sources.Facts.ReconcileSeconds < 0 || manifest.Sources.Facts.WriteSeconds < 0 {
 		t.Errorf("manifest timing fields should be non-negative: %+v", manifest.Sources.Facts)
+	}
+	if manifest.Sources.Facts.TotalSeconds < manifest.Sources.Facts.ExtractionSeconds {
+		t.Errorf("manifest total seconds should include extraction: %+v", manifest.Sources.Facts)
 	}
 	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(factsTaxonomyPath))); err != nil {
 		t.Errorf("taxonomy snapshot not written: %v", err)
@@ -328,7 +340,7 @@ func TestDistillDryRunCountsChunksWithoutAgent(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := writeDistillFixture(t, now)
 
-	report, err := buildDistillDryRunReport(brainDir, distillCommandOptions{maxChunkBytes: defaultDistillChunkSize}, now)
+	report, err := buildDistillDryRunReport(brainDir, distillCommandOptions{agent: "command", model: "small", effort: "low", jobs: 3, maxChunkBytes: defaultDistillChunkSize, confidenceThreshold: 0.72}, now)
 	if err != nil {
 		t.Fatalf("dry run: %v", err)
 	}
@@ -340,6 +352,9 @@ func TestDistillDryRunCountsChunksWithoutAgent(t *testing.T) {
 	}
 	if report.ExtractionAgentCalls != 2 || report.EstimatedAgentCallsUpperBound != 4 {
 		t.Fatalf("unexpected agent-call estimate: %+v", report)
+	}
+	if report.Agent != "command" || report.Model != "small" || report.Effort != "low" || report.Jobs != 3 || report.EffectiveJobs != 2 || report.Confidence != 0.72 {
+		t.Fatalf("dry-run report missing run config: %+v", report)
 	}
 	if report.PreprocessedBytes == 0 || len(report.Branches) != 2 || len(report.LargestSessions) != 2 {
 		t.Fatalf("dry-run report missing cost drivers: %+v", report)
@@ -535,7 +550,8 @@ func TestRunDistillForBrainParallelExtractionMatchesSerial(t *testing.T) {
 	parallelOpts := serialOpts
 	parallelOpts.run = runParallel
 	parallelOpts.jobs = 4
-	if _, err := runDistillForBrain(context.Background(), t.TempDir(), parallelBrain, parallelOpts, now); err != nil {
+	parallelSource, err := runDistillForBrain(context.Background(), t.TempDir(), parallelBrain, parallelOpts, now)
+	if err != nil {
 		t.Fatalf("parallel distill: %v", err)
 	}
 	if atomic.LoadInt32(&maxActive) < 2 {
@@ -543,6 +559,9 @@ func TestRunDistillForBrainParallelExtractionMatchesSerial(t *testing.T) {
 	}
 	if completed.Load() < 4 {
 		t.Fatalf("expected all fixture chunks to complete, got %d", completed.Load())
+	}
+	if parallelSource.Jobs != 4 || parallelSource.EffectiveJobs != 4 || parallelSource.ExtractionCalls != int(completed.Load()) {
+		t.Fatalf("parallel summary missing auditable job/call counts: %+v completed=%d", parallelSource, completed.Load())
 	}
 	serialOutput := deterministicDistillOutput(t, serialBrain)
 	parallelOutput := deterministicDistillOutput(t, parallelBrain)
@@ -629,9 +648,12 @@ func deterministicDistillOutput(t *testing.T, brainDir string) map[string]string
 	}
 	source := *manifest.Sources.Facts
 	source.GeneratedAt = time.Time{}
+	source.Jobs = 0
+	source.EffectiveJobs = 0
 	source.ExtractionSeconds = 0
 	source.ReconcileSeconds = 0
 	source.WriteSeconds = 0
+	source.TotalSeconds = 0
 	data, err := json.Marshal(source)
 	if err != nil {
 		t.Fatal(err)
