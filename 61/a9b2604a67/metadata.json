@@ -3,12 +3,16 @@
   "checkpoint_id": "61a9b2604a67",
   "strategy": "manual-commit",
   "branch": "codex/release-readiness-audit-cleanup",
-  "checkpoints_count": 0,
+  "checkpoints_count": 9,
   "files_touched": [
     "benchmarks/agent-brain/audit_codex.py",
     "benchmarks/agent-brain/audit_release_matrix.py",
     "benchmarks/agent-brain/evidence/release-matrix/README.md",
+    "benchmarks/agent-brain/evidence/release-matrix/release-matrix-report.json",
+    "benchmarks/agent-brain/evidence/release-matrix/release-matrix-report.md",
     "benchmarks/agent-brain/evidence/release/README.md",
+    "benchmarks/agent-brain/evidence/release/codex-audit-report.json",
+    "benchmarks/agent-brain/evidence/release/codex-audit-report.md",
     "benchmarks/agent-brain/run.py",
     "benchmarks/agent-brain/run_test.py",
     "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
@@ -30,13 +34,19 @@
       "transcript": "/61/a9b2604a67/0/full.jsonl",
       "content_hash": "/61/a9b2604a67/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/61/a9b2604a67/1/metadata.json",
+      "transcript": "/61/a9b2604a67/1/full.jsonl",
+      "content_hash": "/61/a9b2604a67/1/content_hash.txt",
+      "prompt": "/61/a9b2604a67/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 230971,
-    "cache_creation_tokens": 0,
-    "cache_read_tokens": 9951360,
-    "output_tokens": 20617,
-    "api_call_count": 55
+    "input_tokens": 504907,
+    "cache_creation_tokens": 14618087,
+    "cache_read_tokens": 1049303337,
+    "output_tokens": 2957736,
+    "api_call_count": 2048
   }
 }

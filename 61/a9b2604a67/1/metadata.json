@@ -1,0 +1,267 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "61a9b2604a67",
+  "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-11T02:34:50.385231Z",
+  "branch": "codex/release-readiness-audit-cleanup",
+  "checkpoints_count": 9,
+  "files_touched": [
+    "benchmarks/agent-brain/audit_codex.py",
+    "benchmarks/agent-brain/audit_release_matrix.py",
+    "benchmarks/agent-brain/evidence/release-matrix/release-matrix-report.json",
+    "benchmarks/agent-brain/evidence/release-matrix/release-matrix-report.md",
+    "benchmarks/agent-brain/evidence/release/README.md",
+    "benchmarks/agent-brain/evidence/release/codex-audit-report.json",
+    "benchmarks/agent-brain/evidence/release/codex-audit-report.md",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+    "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+    "benchmarks/agent-brain/tasks/entireio-cli-review-base-flag-scope.json",
+    "benchmarks/agent-brain/tasks/entireio-cli-transcript-reresolve.json",
+    "docs/diffless_review_seam.md",
+    "docs/release_press_release.md",
+    "docs/release_readiness_audit.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8",
+  "turn_id": "8d9ea2925eba",
+  "token_usage": {
+    "input_tokens": 273936,
+    "cache_creation_tokens": 14618087,
+    "cache_read_tokens": 1039351977,
+    "output_tokens": 2937119,
+    "api_call_count": 1993
+  },
+  "session_metrics": {
+    "turn_count": 94
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-11T02:34:49.823215Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 1178,
+    "human_removed": 13957,
+    "total_committed": 1213,
+    "total_lines_changed": 15423,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 3058,
+      "user_lines_removed": 95,
+      "agent_lines_added": 1,
+      "agent_lines_removed": 410,
+      "user_added_per_file": {
+        ".claude/settings.json": 60,
+        ".claude/settings.local.json": 32,
+        ".claude/skills/regente/SKILL.md": 24,
+        ".codex/config.toml": 6,
+        ".codex/hooks.json": 40,
+        ".codex/skills/regente/SKILL.md": 19,
+        ".cursor/mcp.json": 14,
+        ".cursor/rules/regente.mdc": 24,
+        ".gemini/regente.md": 19,
+        ".gemini/settings.json": 93,
+        ".mcp.json": 14,
+        ".regente/AGENT-ONBOARDING.md": 19,
+        ".regente/adapters.md": 32,
+        ".regente/claims.json": 645,
+        ".regente/config.json": 4,
+        ".regente/context.jsonl": 1,
+        ".regente/events.jsonl": 427,
+        ".regente/github-app.json": 7,
+        ".regente/messages.jsonl": 14,
+        ".regente/metrics/latest.json": 30,
+        ".regente/roles.json": 19,
+        ".regente/status.json": 154,
+        ".regente/team.json": 8,
+        "benchmarks/agent-brain/audit_facts_eval.py": 179,
+        "benchmarks/agent-brain/audit_release_matrix.py": 430,
+        "benchmarks/agent-brain/evidence/facts-eval/README.md": 25,
+        "benchmarks/agent-brain/evidence/facts-eval/facts-eval-audit-report.json": 25,
+        "benchmarks/agent-brain/evidence/facts-eval/facts-eval-audit-report.md": 11,
+        "benchmarks/agent-brain/panels/release-entire-cli-workspace-radar-mcp-manual-attribution.json": 18,
+        "benchmarks/agent-brain/run.py": 15,
+        "benchmarks/agent-brain/run_test.py": 189,
+        "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json": 3,
+        "benchmarks/agent-brain/tasks/github-cli-auth-env-token.json": 21,
+        "benchmarks/agent-brain/tasks/github-cli-format-web-conflict.json": 21,
+        "benchmarks/agent-brain/tasks/github-cli-http-scopes-suggestion.json": 21,
+        "benchmarks/agent-brain/tasks/github-cli-json-web-conflict.json": 21,
+        "benchmarks/agent-brain/tasks/github-cli-repo-name-trims-dotgit.json": 21,
+        "internal/cli/export_test.go": 23,
+        "internal/cli/facts_eval.go": 37,
+        "internal/cli/facts_eval_test.go": 21,
+        "internal/cli/semantic.go": 199,
+        "internal/cli/semantic_test.go": 23,
+        "mise.toml": 50
+      },
+      "user_removed_per_file": {
+        "benchmarks/agent-brain/audit_facts_eval.py": 27,
+        "benchmarks/agent-brain/evidence/facts-eval/README.md": 1,
+        "benchmarks/agent-brain/run.py": 1,
+        "benchmarks/agent-brain/run_test.py": 5,
+        "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json": 1,
+        "benchmarks/agent-brain/tasks/github-cli-auth-env-token.json": 4,
+        "benchmarks/agent-brain/tasks/github-cli-format-web-conflict.json": 4,
+        "benchmarks/agent-brain/tasks/github-cli-http-scopes-suggestion.json": 4,
+        "benchmarks/agent-brain/tasks/github-cli-json-web-conflict.json": 4,
+        "benchmarks/agent-brain/tasks/github-cli-repo-name-trims-dotgit.json": 4,
+        "internal/cli/export_test.go": 3,
+        "internal/cli/facts_eval.go": 17,
+        "internal/cli/facts_eval_test.go": 2,
+        "internal/cli/semantic.go": 14,
+        "internal/cli/semantic_test.go": 2,
+        "mise.toml": 2
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 125,
+      "user_lines_removed": 20,
+      "agent_lines_added": 4104,
+      "agent_lines_removed": 179,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 32,
+        ".regente/events.jsonl": 42,
+        ".regente/metrics/latest.json": 5,
+        ".regente/status.json": 5,
+        "internal/cli/facts_status_cmd.go": 41
+      },
+      "user_removed_per_file": {
+        ".regente/metrics/latest.json": 5,
+        ".regente/status.json": 5,
+        "internal/cli/facts_status_cmd.go": 10
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 118,
+      "user_lines_removed": 13,
+      "agent_lines_added": 4184,
+      "agent_lines_removed": 189,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 32,
+        ".regente/events.jsonl": 48,
+        ".regente/metrics/latest.json": 5,
+        ".regente/status.json": 5,
+        "benchmarks/agent-brain/evidence/facts-eval/README.md": 7,
+        "benchmarks/agent-brain/evidence/facts-eval/facts-eval-audit-report.json": 8,
+        "benchmarks/agent-brain/evidence/facts-eval/facts-status.json": 8,
+        "docs/release_readiness_audit.md": 5
+      },
+      "user_removed_per_file": {
+        ".regente/metrics/latest.json": 5,
+        ".regente/status.json": 5,
+        "benchmarks/agent-brain/evidence/facts-eval/README.md": 3
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 94,
+      "user_lines_removed": 10,
+      "agent_lines_added": 4212,
+      "agent_lines_removed": 192,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 32,
+        ".regente/events.jsonl": 52,
+        ".regente/metrics/latest.json": 5,
+        ".regente/status.json": 5
+      },
+      "user_removed_per_file": {
+        ".regente/metrics/latest.json": 5,
+        ".regente/status.json": 5
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 98,
+      "user_lines_removed": 10,
+      "agent_lines_added": 4212,
+      "agent_lines_removed": 192,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 32,
+        ".regente/events.jsonl": 56,
+        ".regente/metrics/latest.json": 5,
+        ".regente/status.json": 5
+      },
+      "user_removed_per_file": {
+        ".regente/metrics/latest.json": 5,
+        ".regente/status.json": 5
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 277,
+      "user_lines_removed": 10,
+      "agent_lines_added": 4212,
+      "agent_lines_removed": 192,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 32,
+        ".regente/events.jsonl": 235,
+        ".regente/metrics/latest.json": 5,
+        ".regente/status.json": 5
+      },
+      "user_removed_per_file": {
+        ".regente/metrics/latest.json": 5,
+        ".regente/status.json": 5
+      }
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 609,
+      "user_lines_removed": 1660,
+      "agent_lines_added": 2109,
+      "agent_lines_removed": 17,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 32,
+        ".regente/claims.json": 2,
+        ".regente/events.jsonl": 21,
+        ".regente/metrics/latest.json": 12,
+        ".regente/roles.json": 1,
+        ".regente/status.json": 5,
+        "benchmarks/agent-brain/audit_codex.py": 199,
+        "benchmarks/agent-brain/run_test.py": 337
+      },
+      "user_removed_per_file": {
+        ".regente/claims.json": 641,
+        ".regente/context.jsonl": 1,
+        ".regente/events.jsonl": 441,
+        ".regente/messages.jsonl": 14,
+        ".regente/metrics/latest.json": 13,
+        ".regente/roles.json": 16,
+        ".regente/status.json": 131,
+        "benchmarks/agent-brain/run_test.py": 403
+      }
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 131,
+      "user_lines_removed": 1257,
+      "agent_lines_added": 3046,
+      "agent_lines_removed": 191,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 32,
+        ".regente/claims.json": 2,
+        ".regente/events.jsonl": 79,
+        ".regente/metrics/latest.json": 12,
+        ".regente/roles.json": 1,
+        ".regente/status.json": 5
+      },
+      "user_removed_per_file": {
+        ".regente/claims.json": 641,
+        ".regente/context.jsonl": 1,
+        ".regente/events.jsonl": 441,
+        ".regente/messages.jsonl": 14,
+        ".regente/metrics/latest.json": 13,
+        ".regente/roles.json": 16,
+        ".regente/status.json": 131
+      }
+    }
+  ]
+}
