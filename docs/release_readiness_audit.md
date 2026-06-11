@@ -243,6 +243,21 @@ this is current release evidence.
 Blocked evidence collection: semantic benchmark/proof records must still be
 retained and audited before usefulness claims graduate from draft language.
 
+First clean semantic proof (post-B1, narrow scope): suite
+`layer-b-confirm-fw16-20260611`, retained under
+`benchmarks/agent-brain/evidence/semantic-clean-proof/`, is the first
+`brain_positive_stable`/`proof_ready` comparison produced after the B1 query
+rewrite: task `github-cli-format-web-conflict` (Layer B, seed+semantic only),
+`claude:claude-opus-4-8:high`, 16 repetitions per side — tokens 988k -> 541k
+(Holm p=0.0495, drop-one survives), turns 19.4 -> 8.3 (Holm p=0.0030), agent
+seconds 111 -> 62 (Holm p=0.0414), pass 15/16 -> 16/16, score parity-plus. The
+claim is one task on one model: a stable semantic efficiency win, not a
+layer-wide or release-scope claim. The same lane retains the honest negatives
+from the matching campaign (`layer-hist-proof-20260611`: full-history delivery
+on entire-cli was net harmful or neutral across all three hard history tasks),
+so the release lane's `no_release_claim` policy and required proof scopes are
+unchanged by this evidence.
+
 Negative replay-lab pilot: `python3 benchmarks/agent-brain/run.py run --tasks
 entire-brain-semantic-completeness-tolerance.json --runners
 codex:gpt-5.4-mini:low --conditions no_brain,semantic_brain --repetitions 3

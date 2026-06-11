@@ -1,0 +1,944 @@
+{
+ "comparisons": [
+  {
+   "agent": "claude",
+   "baseline": "no_brain",
+   "brain_positive_gate": {
+    "requires_repetitions_per_side": 4,
+    "score_delta": 1.1875,
+    "search_improvement_ratio": null,
+    "success_delta": 0.0625,
+    "time_improvement_ratio": 0.4426743754108845,
+    "time_overhead_ratio": -0.4426743754108845,
+    "token_improvement_ratio": 0.4531600026810228,
+    "token_overhead_ratio": -0.4531600026810228
+   },
+   "candidate_proof_ready": true,
+   "condition": "semantic_brain",
+   "delivery_scope": "semantic_brain",
+   "delta": 1.1875,
+   "delta_score_core": 3.9375,
+   "env_flags": {},
+   "mean_agent_seconds_baseline": 110.68657268583775,
+   "mean_agent_seconds_condition": 61.688463255763054,
+   "mean_baseline": 84.75,
+   "mean_brain_use_baseline": 5.0,
+   "mean_brain_use_condition": 1.0,
+   "mean_condition": 85.9375,
+   "mean_cost_usd_baseline": 0.88008875,
+   "mean_cost_usd_condition": 0.7390565,
+   "mean_direct_brain_cli_calls_baseline": 0.0,
+   "mean_direct_brain_cli_calls_condition": 0.0,
+   "mean_mcp_tool_calls_baseline": 0.0,
+   "mean_mcp_tool_calls_condition": 0.0,
+   "mean_outcome_baseline": 42.5,
+   "mean_outcome_condition": 45.0,
+   "mean_patch_focus_baseline": 28.6875,
+   "mean_patch_focus_condition": 30.0,
+   "mean_runtime_efficiency_baseline": 6.6875,
+   "mean_runtime_efficiency_condition": 7.9375,
+   "mean_score_core_baseline": 73.0625,
+   "mean_score_core_condition": 77.0,
+   "mean_search_calls_baseline": 0.0,
+   "mean_search_calls_condition": 0.0,
+   "mean_total_tokens_baseline": 988428.75,
+   "mean_total_tokens_condition": 540512.375,
+   "mean_turns_baseline": 19.375,
+   "mean_turns_condition": 8.3125,
+   "mean_validation_discipline_baseline": 1.875,
+   "mean_validation_discipline_condition": 2.0,
+   "n_baseline": 16,
+   "n_condition": 16,
+   "p_value_agent_seconds": 0.008289317872910285,
+   "p_value_agent_seconds_holm": 0.04144658936455142,
+   "p_value_approx": 0.7751444602403346,
+   "p_value_approx_holm": 0.8159119846085396,
+   "p_value_cost_usd": 0.2719706615361799,
+   "p_value_cost_usd_holm": 0.8159119846085396,
+   "p_value_score_core": 0.3331701359154785,
+   "p_value_score_core_holm": 0.8159119846085396,
+   "p_value_total_tokens": 0.012378020040194669,
+   "p_value_total_tokens_holm": 0.049512080160778675,
+   "p_value_turns": 0.0004968755790761616,
+   "p_value_turns_holm": 0.00298125347445697,
+   "pass_rate_baseline": 0.9375,
+   "pass_rate_condition": 1.0,
+   "proof_ready": true,
+   "runner": "claude-claude-opus-4-8-high",
+   "score_versions_baseline": [
+    2
+   ],
+   "score_versions_condition": [
+    2
+   ],
+   "stability": {
+    "coefficient_of_variation_score_baseline": 0.19227367038801227,
+    "coefficient_of_variation_score_condition": 0.013074737486105735,
+    "coefficient_of_variation_total_tokens_baseline": 0.6189431367052353,
+    "coefficient_of_variation_total_tokens_condition": 0.38611719910813513,
+    "pass_rate_lift_survives_drop_one": false,
+    "saturated": false,
+    "tag": "brain_positive_stable",
+    "token_win_survives_drop_one": true,
+    "tokens_p_holm": 0.049512080160778675,
+    "tokens_p_raw": 0.012378020040194669,
+    "tokens_significant_p_lt_0_05": true
+   },
+   "success_rate_baseline": 0.9375,
+   "success_rate_condition": 1.0,
+   "task_id": "github-cli-format-web-conflict",
+   "verdict": "brain_positive",
+   "verdict_reasons": [
+    "score_or_success_improved=+1.2",
+    "time_or_tokens_improved>=20%"
+   ]
+  }
+ ],
+ "provenance": {
+  "fingerprint": "83e867382779028629dd70cbb94240efec9b58984cdf3bb0bddd0846209d72bf",
+  "harnesses": [
+   {
+    "dirty": true,
+    "head_commit": "450238ec300a7002d4c4307c1f3dc0c6e0469840",
+    "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb"
+   }
+  ],
+  "missing_record_provenance": 0,
+  "records": 32,
+  "records_with_provenance": 32,
+  "run_configs": [
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "24382b2cbbb22b7b7db60d43dd1499ee012ffaf706d20ad135c892bc76c1b13b",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "3ecb9d6fd276430226acd9ea60c25108a7a19d907e4d1b2480aea1dd9a4c631c",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "3fda3ba5f8e8673b9241fa7244d34a4055b788007026e2b1e2ef731be0ef7562",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "45acde3bb960e50abf9ecb893d929063e969b734a06546fad1cc66c131ed42d4",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "6138be9033153b52d84d275525fd13c340b255a376ec5403165eb636c21013ab",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "78caee1c40036332b887b30804866fc731be50daf6c58ae30636d54e7034d42c",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "84ca3afccb02a50fc244ba195408b7281e72438129643a5f01ae2f34576d8ff0",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "9111ecff7870a49804002e278050d8b94d6b9ee45add8883f67e1c79c84705ca",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "9163ef120566f2d02f15d9852ab5c7a98e3f060ff151502a15abcd8a172916c5",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "9a6191ded96b7b535f339255f619de8c1f1af22815c71b6d4ccf1351bccba5ef",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "a798f92dee8e5681173330c2a3a2f141a8cc8aa587d92873ac74090a2befc720",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "ad27ee738e24632677012ed6906520897d2c5e4125e946bee2e67d5b8ed38b70",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "c2c9cf2b7eed0da628ea0d073313afff974b132e1c6f2b26d7ff51f4ccafe87a",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "d3c4aba4263f90b1ed7015f096c404f33cb1aa5e6600902bd5249f4da4e1e7e2",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "d3f9c69bdbfac0abfa411c2571485b7c62061fb2e96a4db868c637922627e11f",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "e5ad49548d8f9eb840129759bc98b5f6f6e7379522f255ba814475bdfb517216",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "0bf75fcb84bb1f91e4a6a3b10808f155b1c581a0eeb2f742259914c283f75979",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "1e03178d8a1831106edd412036c9e3428426be7d5e4725635cf37ea4ba79373f",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "298fd1b8eb9785690786bb655ee321d4b3ab27fd3fe210907fd0a776ecee5c4f",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "3c9ea4a23b9c8266e78997b33a089c1a332a83bafbdd12733f03f92d011497f3",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "4345eae039891a160f3c47288d3922f2affabb150c576075ed59af13de90a1b5",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "698a55da8bd59cb5b8d9b47bf3c8db22f437e325d9db3e5732baffd52b6c0e97",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "709435ab8d42c561d2cad78bc33ab9addc18c5f346dbaaa6759d81215c2d9902",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "7799a7b4528bc46f2092c524f8248321f605f043cedad8e3ef81a4e036ff8d4f",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "77c01db2b9d658ccd3005101f944d0507907e8d5091aec4a09be7fee4c289a57",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "8dce3a58fdf1c2e872a5569097d24ddc4797a988b3c6ac249930a5c0825a359d",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "a8f8f4d0023ef311dbcfdeb7c8c7b4be998ef426ccbd026cb92e5dac5659ea40",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "c715335abe809995151bdd5c0fa52ad267784991e3c5ffe7ec2857085ecea091",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "cf45e2ca313f37a9cd2ecee93d625bea0fe905f78f96d4d3f073da54f1433df6",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "d7bd8c473e590950417aa6758ad59cb99b0515dda8d245a9f313977a4cf3705d",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "fc4b57b58711795a2325ed3404db7b82c420d3d7d61567bdf3329658265e9b90",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "fca9f92c23921d884ba5e83272b9b6d583951a4795a9433bb92304d0a710d38b",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 16,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   }
+  ],
+  "schema": 1,
+  "sources": [
+   {
+    "base_commit": "da68cb8f6f597cfc3838cf40f89ecc01f4e53233",
+    "base_ref": "da68cb8f6f597cfc3838cf40f89ecc01f4e53233",
+    "base_ref_source": "task.base_commit",
+    "dirty": false,
+    "head_commit": "da68cb8f6f597cfc3838cf40f89ecc01f4e53233",
+    "repo": "github-cli",
+    "repo_path_input": "github-cli",
+    "repo_path_resolved": "/Users/suhaan/Documents/Coding/github-cli"
+   }
+  ],
+  "tasks": [
+   {
+    "base_commit": "da68cb8f6f597cfc3838cf40f89ecc01f4e53233",
+    "config_sha256": "2d54f75f2e7ef45c1a180d820d0c93b9803d6e7ed37dd1a52b3fa0565ca4e725",
+    "id": "github-cli-format-web-conflict",
+    "path": "benchmarks/agent-brain/tasks/github-cli-format-web-conflict.json"
+   }
+  ]
+ },
+ "records": 32,
+ "stability_tags": {
+  "brain_positive_stable": 1
+ },
+ "stats_notes": {
+  "headline_metric": "validation pass-rate + measured tokens; composite score and p-values are secondary",
+  "multiple_comparison_correction": "holm-bonferroni across all suite p-values; see <field>_holm",
+  "n_pvalues_in_family": 6,
+  "p_value_test": "two-sided Welch's t-test (Student-t, Welch-Satterthwaite df)",
+  "stability": "per comparison: coefficient_of_variation + tag (brain_positive_stable requires a token win significant at p<0.05 using max(raw Welch p, Holm-adjusted p), or a pass-rate lift, that survives dropping the single most-favourable rep; saturated = both arms pass 100%; noisy otherwise). The gate only downgrades; it never manufactures significance."
+ }
+}
