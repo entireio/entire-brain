@@ -107,7 +107,8 @@ entire brain workspace create platform
 entire brain workspace add platform ../api --name api
 entire brain workspace add platform ../web --name web
 entire brain workspace refresh platform
-entire brain workspace query platform "checkout" --json
+entire brain workspace context platform "checkout" --json   # symbols (multi-repo `context`)
+entire brain workspace search platform "checkout" --json    # facts/history/docs (also: vsearch, query)
 entire brain workspace impact platform "checkout" --json
 entire brain workspace watch platform --once          # fan the token-frugal daemon over every member
 ```

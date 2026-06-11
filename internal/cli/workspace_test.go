@@ -101,7 +101,7 @@ func TestWorkspaceWatchRejectsInvalidJobsBeforeWork(t *testing.T) {
 	}
 }
 
-func TestWorkspaceCreateAddRefreshAndQuery(t *testing.T) {
+func TestWorkspaceCreateAddRefreshAndContext(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
@@ -130,15 +130,15 @@ func TestWorkspaceCreateAddRefreshAndQuery(t *testing.T) {
 	if !strings.Contains(refreshOut, "gh/example/repo ok") {
 		t.Fatalf("refresh output = %q", refreshOut)
 	}
-	queryOut, err := execute(t, cmd, "workspace", "query", "payments-platform", "ValidateToken", "--json")
+	contextOut, err := execute(t, cmd, "workspace", "context", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
-		t.Fatalf("workspace query: %v", err)
+		t.Fatalf("workspace context: %v", err)
 	}
-	if !strings.Contains(queryOut, `"repo_key": "gh/example/repo"`) || !strings.Contains(queryOut, `"ValidateToken"`) {
-		t.Fatalf("query output missing workspace symbol:\n%s", queryOut)
+	if !strings.Contains(contextOut, `"repo_key": "gh/example/repo"`) || !strings.Contains(contextOut, `"ValidateToken"`) {
+		t.Fatalf("context output missing workspace symbol:\n%s", contextOut)
 	}
-	if !strings.Contains(queryOut, `"contract_state": "ok"`) {
-		t.Fatalf("query output missing contract freshness:\n%s", queryOut)
+	if !strings.Contains(contextOut, `"contract_state": "ok"`) {
+		t.Fatalf("context output missing contract freshness:\n%s", contextOut)
 	}
 	impactOut, err := execute(t, cmd, "workspace", "impact", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
@@ -175,16 +175,16 @@ func TestWorkspaceRefreshReportsRepoSemanticFreshness(t *testing.T) {
 	if !strings.Contains(out, "gh/example/repo unsafe") {
 		t.Fatalf("refresh output = %q", out)
 	}
-	queryOut, err := execute(t, cmd, "workspace", "query", "payments-platform", "ValidateToken", "--json")
+	contextOut, err := execute(t, cmd, "workspace", "context", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
-		t.Fatalf("workspace query: %v", err)
+		t.Fatalf("workspace context: %v", err)
 	}
-	if !strings.Contains(queryOut, `"state": "unsafe"`) {
-		t.Fatalf("query output missing freshness:\n%s", queryOut)
+	if !strings.Contains(contextOut, `"state": "unsafe"`) {
+		t.Fatalf("context output missing freshness:\n%s", contextOut)
 	}
 }
 
-func TestWorkspaceQueryAndImpactReportLockedSemanticIndex(t *testing.T) {
+func TestWorkspaceContextAndImpactReportLockedSemanticIndex(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
@@ -205,12 +205,12 @@ func TestWorkspaceQueryAndImpactReportLockedSemanticIndex(t *testing.T) {
 	}
 	defer unlock()
 
-	queryOut, err := execute(t, cmd, "workspace", "query", "payments-platform", "ValidateToken", "--json")
+	contextOut, err := execute(t, cmd, "workspace", "context", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
-		t.Fatalf("workspace query: %v", err)
+		t.Fatalf("workspace context: %v", err)
 	}
-	if !strings.Contains(queryOut, `"error": "index_locked:`) {
-		t.Fatalf("query output missing lock error:\n%s", queryOut)
+	if !strings.Contains(contextOut, `"error": "index_locked:`) {
+		t.Fatalf("context output missing lock error:\n%s", contextOut)
 	}
 	impactOut, err := execute(t, cmd, "workspace", "impact", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
@@ -999,5 +999,127 @@ func TestWorkspaceRefreshReportsMissingBrains(t *testing.T) {
 	}
 	if !strings.Contains(out, "gh/example/missing missing-brain") {
 		t.Fatalf("refresh output = %q", out)
+	}
+}
+
+func writeWorkspaceDocIndex(t *testing.T, env EntireEnv, key string, records ...docRecord) {
+	t.Helper()
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, filepath.FromSlash(key))
+	if err := os.MkdirAll(filepath.Join(brainDir, docDirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(docIndex{Records: records})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(docIndexPath)), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkspaceSearchAndGetFanOutWithQualifiedIDs(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+
+	_, keyA := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "a.go", "package x\n")
+	_, keyB := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "b.go", "package x\n")
+	writeWorkspaceDocIndex(t, env, keyA, docRecord{ID: "guide", Path: "docs/guide.md", Line: 1, Text: "checkout flow retries twice before failing"})
+	writeWorkspaceDocIndex(t, env, keyB, docRecord{ID: "other", Path: "docs/other.md", Line: 1, Text: "billing ledger reconciliation"})
+
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos:         []workspaceRepo{{RepoKey: keyA, Name: "a"}, {RepoKey: keyB, Name: "b"}},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	searchOut, err := execute(t, cmd, "workspace", "search", "related", "checkout", "--json")
+	if err != nil {
+		t.Fatalf("workspace search: %v", err)
+	}
+	if !strings.Contains(searchOut, `"id": "doc:guide"`) {
+		t.Fatalf("search output missing doc hit from repo A:\n%s", searchOut)
+	}
+	// Results stay grouped per repo: repo B has no "checkout" hit, but its group
+	// (with an empty results array) is still present.
+	if !strings.Contains(searchOut, `"repo_key": "`+keyB+`"`) {
+		t.Fatalf("search output missing repo B group:\n%s", searchOut)
+	}
+	if strings.Contains(searchOut, `"id": "doc:other"`) {
+		t.Fatalf("search output leaked repo B's unrelated doc:\n%s", searchOut)
+	}
+
+	// Text mode prints repo-qualified ids so they can be pasted into `workspace get`.
+	// Fresh root command: cobra flag values (--json) stick across executions.
+	textCmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	textOut, err := execute(t, textCmd, "workspace", "search", "related", "checkout")
+	if err != nil {
+		t.Fatalf("workspace search (text): %v", err)
+	}
+	if !strings.Contains(textOut, keyA+"/doc:guide") {
+		t.Fatalf("text output missing qualified id %s/doc:guide:\n%s", keyA, textOut)
+	}
+
+	// The hybrid verb shares the same fan-out; without an embedder it degrades to
+	// the lexical arms and must still return the doc hit.
+	queryOut, err := execute(t, cmd, "workspace", "query", "related", "checkout", "--json")
+	if err != nil {
+		t.Fatalf("workspace query: %v", err)
+	}
+	if !strings.Contains(queryOut, `"id": "doc:guide"`) {
+		t.Fatalf("query output missing doc hit:\n%s", queryOut)
+	}
+
+	getOut, err := execute(t, cmd, "workspace", "get", "related", keyA+"/doc:guide", keyB+"/doc:nope", "--json")
+	if err != nil {
+		t.Fatalf("workspace get: %v", err)
+	}
+	if !strings.Contains(getOut, "checkout flow retries twice before failing") {
+		t.Fatalf("get output missing full doc text:\n%s", getOut)
+	}
+	if !strings.Contains(getOut, `"`+keyB+`/doc:nope"`) {
+		t.Fatalf("get output missing re-qualified missing id:\n%s", getOut)
+	}
+
+	if _, err := execute(t, cmd, "workspace", "get", "related", "local/notamember/doc:x"); err == nil || !strings.Contains(err.Error(), "not a member") {
+		t.Fatalf("expected non-member error, got %v", err)
+	}
+	if _, err := execute(t, cmd, "workspace", "get", "related", "doc:guide"); err == nil || !strings.Contains(err.Error(), "missing its repo key") {
+		t.Fatalf("expected unqualified-id error, got %v", err)
+	}
+}
+
+func TestSplitWorkspaceID(t *testing.T) {
+	cases := []struct {
+		in      string
+		repoKey string
+		id      string
+		wantErr bool
+	}{
+		{in: "gh/owner/repo/fact:abc", repoKey: "gh/owner/repo", id: "fact:abc"},
+		{in: "local/abc123/history:h1", repoKey: "local/abc123", id: "history:h1"},
+		{in: "gh/owner/repo/doc:guide", repoKey: "gh/owner/repo", id: "doc:guide"},
+		{in: "fact:abc", wantErr: true},      // unqualified
+		{in: "gh/owner/repo", wantErr: true}, // no id
+		{in: "gh/owner/repo/note:x", wantErr: true},
+	}
+	for _, tc := range cases {
+		repoKey, id, err := splitWorkspaceID(tc.in)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("splitWorkspaceID(%q): expected error, got %q %q", tc.in, repoKey, id)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("splitWorkspaceID(%q): %v", tc.in, err)
+			continue
+		}
+		if repoKey != tc.repoKey || id != tc.id {
+			t.Errorf("splitWorkspaceID(%q) = %q, %q; want %q, %q", tc.in, repoKey, id, tc.repoKey, tc.id)
+		}
 	}
 }
