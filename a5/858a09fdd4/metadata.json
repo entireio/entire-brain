@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "a5858a09fdd4",
+  "strategy": "manual-commit",
+  "branch": "codex/release-readiness-audit-cleanup",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "docs/release-blockers.md",
+    "docs/release_readiness_audit.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a5/858a09fdd4/0/metadata.json",
+      "transcript": "/a5/858a09fdd4/0/full.jsonl",
+      "content_hash": "/a5/858a09fdd4/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 606874,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 20283392,
+    "output_tokens": 39779,
+    "api_call_count": 190
+  }
+}
