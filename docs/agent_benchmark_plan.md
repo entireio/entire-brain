@@ -72,7 +72,7 @@ Run each task under these conditions when the repo supports them:
    - The agent receives the task prompt plus Entire Brain semantic intake
      instructions.
    - The harness prepares seed and semantic artifacts with local-only commands.
-   - The agent may use `stale`, `query`, `context`, `impact`, `changes`,
+   - The agent may use `status`, `query`, `context`, `impact`, `changes`,
      `routes`, `tools`, `workflows`, `tests`, and workspace commands.
    - Checkpoint transcript/session history is withheld.
 
@@ -146,7 +146,7 @@ Start with nine tasks: three per repository.
 ### `entire-brain`
 
 1. **Semantic command bugfix**
-   - Fix a narrow issue in `stale`, `query`, or `context`.
+   - Fix a narrow issue in `status`, `query`, or `context`.
    - Brain benefit: semantic commands should identify the relevant functions and
      tests quickly.
    - Validate with focused semantic tests and `go test ./...`.
@@ -218,7 +218,7 @@ Collect hard metrics for every run:
 
 Collect brain-specific metrics for brain-enabled runs:
 
-- whether the agent checked `stale`
+- whether the agent checked freshness (`status`)
 - which brain commands were used
 - whether semantic results led to relevant files/tests
 - whether full brain runs cited useful checkpoint history
@@ -758,7 +758,7 @@ Add these scenario families:
 - **Stale-context hygiene tasks**
   - Prepare a semantic brain, apply the setup regression after indexing, then
     allow brain use.
-  - Expected value: brain-enabled agents should run `stale`, detect unsafe or
+  - Expected value: brain-enabled agents should run `status`, detect unsafe or
     dirty context, refresh or fall back, and avoid blindly trusting stale data.
 
 Iteration loop:

@@ -5,7 +5,7 @@ network listener, fetch remote data, or call hosted models.
 
 Available tools:
 
-- `brain_stale`
+- `brain_status`
 - `brain_brief`
 - Unified retrieval (qmd-inspired): `brain_query` (hybrid lexical+vector, RRF),
   `brain_search` (lexical), `brain_vsearch` (vector), `brain_get`, `brain_multi_get`

@@ -116,8 +116,6 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addGrouped("maintain", newSemanticGCCommand(opts))
 	addGrouped("maintain", newSemanticRepairCommand(opts))
 	addGrouped("maintain", newSemanticResetCommand(opts))
-	addGrouped("maintain", newSemanticStaleCommand(opts))
-	addGrouped("maintain", newSemanticAuditCommand(opts))
 	addGrouped("maintain", newVersionCommand(opts.Version))
 
 	// Hidden: `review` is the machine contract `entire review`'s diff-less mode shells

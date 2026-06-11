@@ -210,9 +210,6 @@ func mcpToolDefinitions() []map[string]any {
 	integerArg := func(name, description string) map[string]any {
 		return map[string]any{"type": "integer", "description": description, "title": name, "minimum": 1}
 	}
-	booleanArg := func(name, description string) map[string]any {
-		return map[string]any{"type": "boolean", "description": description, "title": name}
-	}
 	branchArg := func() map[string]any {
 		return stringArg("branch", "Branch for facts (default: current)")
 	}
@@ -232,9 +229,9 @@ func mcpToolDefinitions() []map[string]any {
 	}
 	return []map[string]any{
 		{
-			"name":        "brain_stale",
-			"description": "Report local semantic brain freshness for the current repository.",
-			"inputSchema": objectSchema(nil, map[string]any{"blind_spots": booleanArg("blind_spots", "Also list files the provider could not fully index (where semantic answers are untrustworthy)")}),
+			"name":        "brain_status",
+			"description": "Summarize the local brain: sources, durable-fact counts and verification, semantic provider/coverage/freshness/blind spots, and live workspace state.",
+			"inputSchema": objectSchema(nil, map[string]any{}),
 		},
 		{
 			"name":        "brain_brief",
@@ -345,16 +342,12 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		return nil, err
 	}
 	switch params.Name {
-	case "brain_stale":
+	case "brain_status":
 		target := "."
 		if opts.Env.RepoRoot != "" {
 			target = opts.Env.RepoRoot
 		}
-		var blindSpots bool
-		blindSpots, err = mcpBool(params.Arguments, "blind_spots")
-		if err == nil {
-			err = runSemanticStale(ctx, cmd, opts, target, true, blindSpots)
-		}
+		err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, failOn: semanticAuditFailOnNone}, target)
 	case "brain_brief":
 		task, stringErr := mcpOptionalString(params.Arguments, "task")
 		if stringErr != nil {
@@ -529,8 +522,8 @@ func validateMCPToolArguments(tool string, args map[string]any) error {
 		}
 	}
 	switch tool {
-	case "brain_stale":
-		add("blind_spots")
+	case "brain_status":
+		// no arguments
 	case "brain_brief":
 		add("task", "limit")
 	case "brain_query", "brain_search", "brain_vsearch":

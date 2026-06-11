@@ -94,7 +94,7 @@ func TestMCPToolsListAdvertisesStaleBlindSpots(t *testing.T) {
 	}
 	responses := readMCPResponses(t, out.String())
 	data, _ := json.Marshal(responses[0]["result"])
-	for _, want := range []string{"brain_stale", "blind_spots", "provider could not fully index"} {
+	for _, want := range []string{"brain_status", "semantic provider/coverage/freshness/blind spots"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("tools/list missing %q: %s", want, data)
 		}
@@ -284,7 +284,7 @@ func TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet(t *testing.T) {
 
 func TestMCPRejectsInvalidBooleanArguments(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"scope regression","location_only":"true"}}}`) +
-		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_stale","arguments":{"blind_spots":"yes"}}}`)
+		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_review","arguments":{"query":"x","include_deletions":"yes"}}}`)
 	var out bytes.Buffer
 	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
 		t.Fatalf("mcp: %v", err)
@@ -293,7 +293,7 @@ func TestMCPRejectsInvalidBooleanArguments(t *testing.T) {
 	if len(responses) != 2 {
 		t.Fatalf("responses = %d", len(responses))
 	}
-	for i, want := range []string{"location_only must be boolean", "blind_spots must be boolean"} {
+	for i, want := range []string{"location_only must be boolean", "include_deletions must be boolean"} {
 		errObj, ok := responses[i]["error"].(map[string]any)
 		if !ok {
 			t.Fatalf("response %d missing error: %+v", i, responses[i])
@@ -1087,7 +1087,7 @@ func TestMCPBrainStaleUsesEnvRepoRoot(t *testing.T) {
 		t.Fatalf("chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(oldWD) }()
-	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_stale","arguments":{}}}`)
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_status","arguments":{}}}`)
 	var out bytes.Buffer
 	if err := runMCP(cmd.Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp: %v", err)
@@ -1095,7 +1095,7 @@ func TestMCPBrainStaleUsesEnvRepoRoot(t *testing.T) {
 	responses := readMCPResponses(t, out.String())
 	data, _ := json.Marshal(responses[0]["result"])
 	if !strings.Contains(string(data), `"severity\": \"ok\"`) {
-		t.Fatalf("stale result = %s", data)
+		t.Fatalf("status result = %s", data)
 	}
 }
 
