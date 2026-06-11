@@ -1,0 +1,53 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "61a9b2604a67",
+  "session_id": "019eacc8-4c81-7c91-b807-b3c82bbba45d",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-11T02:34:44.048504Z",
+  "branch": "codex/release-readiness-audit-cleanup",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "benchmarks/agent-brain/audit_codex.py",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+    "benchmarks/agent-brain/tasks/entire-brain-semantic-tokenized-idf-ranking.json",
+    "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+    "benchmarks/agent-brain/tasks/entireio-cli-radar-attribution-realign-state.json",
+    "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+    "benchmarks/agent-brain/tasks/entireio-cli-review-base-flag-scope.json",
+    "benchmarks/agent-brain/tasks/entireio-cli-radar-review-base-file-count.json",
+    "benchmarks/agent-brain/tasks/entireio-cli-transcript-reresolve.json",
+    "benchmarks/agent-brain/run_test.py",
+    "docs/release-blockers.md",
+    "docs/release_readiness_audit.md",
+    "benchmarks/agent-brain/evidence/release/README.md",
+    "docs/release_press_release.md",
+    "docs/diffless_review_seam.md",
+    "benchmarks/agent-brain/evidence/release-matrix/README.md",
+    "benchmarks/agent-brain/audit_release_matrix.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "dd993db5ce69",
+  "checkpoint_transcript_start": 60771,
+  "transcript_lines_at_start": 60771,
+  "token_usage": {
+    "input_tokens": 230971,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 9951360,
+    "output_tokens": 20617,
+    "api_call_count": 55
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-11T02:34:42.107413Z",
+    "agent_lines": 0,
+    "agent_removed": 12613,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 0,
+    "total_lines_changed": 14975,
+    "agent_percentage": 84.2270450751252,
+    "metric_version": 2
+  }
+}
