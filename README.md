@@ -106,10 +106,10 @@ every commit, so the semantic reindex can be CPU/IO-heavy; widen `--interval` if
 entire brain workspace create platform
 entire brain workspace add platform ../api --name api
 entire brain workspace add platform ../web --name web
-entire brain workspace refresh platform
-entire brain workspace context platform "checkout" --json   # symbols (multi-repo `context`)
+entire brain workspace refresh platform          # membership freshness; --full also refreshes each member brain
+entire brain workspace inspect context platform "checkout" --json   # symbols (multi-repo `context`)
 entire brain workspace search platform "checkout" --json    # facts/history/docs (also: vsearch, query)
-entire brain workspace impact platform "checkout" --json
+entire brain workspace inspect impact platform "checkout" --json
 entire brain workspace watch platform --once          # fan the token-frugal daemon over every member
 ```
 
@@ -141,7 +141,7 @@ vs current, confidence, provenance). Surfaces:
 ```sh
 entire brain inspect regressions "<task + failing symbols>"   # raw anomalies
 entire brain review "<task + failing symbols>" --json         # review-shaped findings (hidden; the machine contract)
-entire brain workspace regressions <ws> "<query>"             # fan out across a multi-repo workspace
+entire brain workspace inspect regressions <ws> "<query>"             # fan out across a multi-repo workspace
 entire brain workspace review <ws> "<query>"                  # same, review-shaped, per repo
 ```
 

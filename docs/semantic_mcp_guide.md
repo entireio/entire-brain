@@ -23,5 +23,6 @@ pass to `brain_get`/`brain_multi_get`. (The earlier `brain_history` tool was
 removed — history is now one source within the unified lexical/hybrid verbs.)
 
 Workspace symbol traversal and unified retrieval currently live in the CLI
-(`entire brain workspace context|impact|search|vsearch|query|get`). MCP exposes
+(`entire brain workspace inspect context|impact|regressions` and
+`entire brain workspace search|vsearch|query|get`). MCP exposes
 the single-repo tools plus workspace review/regression helpers.

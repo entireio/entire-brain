@@ -166,8 +166,8 @@ entire brain get <result-id> --json
 Workspace use has its own front door:
 
 ```sh
-entire brain workspace context <name> "<symbol-or-query>" --json
-entire brain workspace impact <name> "<symbol-or-query>" --json
+entire brain workspace inspect context <name> "<symbol-or-query>" --json
+entire brain workspace inspect impact <name> "<symbol-or-query>" --json
 entire brain workspace search <name> "<query>" --json   # also: vsearch, query, get
 entire brain workspace refresh <name> --json
 ```
@@ -816,9 +816,9 @@ entire brain workspace create payments-platform
 entire brain workspace add payments-platform ../api --name api
 entire brain workspace add payments-platform ../web --name web
 entire brain workspace refresh payments-platform
-entire brain workspace context payments-platform "checkout flow"
+entire brain workspace inspect context payments-platform "checkout flow"
 entire brain workspace search payments-platform "checkout flow"
-entire brain workspace impact payments-platform api.ValidatePayment
+entire brain workspace inspect impact payments-platform api.ValidatePayment
 ```
 
 Workspace membership should resolve through deterministic repo keys such as
@@ -960,7 +960,8 @@ machine. They do not publish, hydrate, or sync generated brain data.
 - Add repo-key-based workspace identity.
 - Add workspace freshness reports.
 - Add cross-repo contract freshness.
-- Add workspace context and impact commands (multi-repo symbol lookup), plus
+- Add workspace inspect context/impact/regressions (multi-repo specialist
+  verbs, nested like the single-repo `inspect` group), plus
   workspace search/vsearch/query/get mirroring the top-level unified verbs
   (per-repo fan-out, repo-qualified ids, no cross-repo score fusion).
 

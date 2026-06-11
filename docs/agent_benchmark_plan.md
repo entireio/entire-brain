@@ -158,8 +158,8 @@ Start with nine tasks: three per repository.
    - Validate with semantic and MCP tests.
 
 3. **Workspace behavior task**
-   - Change workspace context or impact behavior in a bounded way.
-   - Brain benefit: workspace context should locate freshness handling and
+   - Change workspace inspect context or impact behavior in a bounded way.
+   - Brain benefit: workspace inspect context should locate freshness handling and
      workspace tests.
    - Validate with workspace tests.
 
@@ -330,8 +330,8 @@ Specialist/debug commands live under `inspect`, for example
 `inspect blame`. Workspace use has its own front door:
 
 ```sh
-entire brain workspace context <name> "<symbol-or-query>" --json
-entire brain workspace impact <name> "<symbol-or-query>" --json
+entire brain workspace inspect context <name> "<symbol-or-query>" --json
+entire brain workspace inspect impact <name> "<symbol-or-query>" --json
 entire brain workspace search <name> "<query>" --json   # also: vsearch, query, get
 entire brain workspace refresh <name> --json
 entire brain workspace watch <name>
@@ -745,7 +745,7 @@ Add these scenario families:
     in `entire-brain` or `../cli`.
   - Later include `../entire-sem` for provider/consumer contract mismatch
     scenarios.
-  - Expected value: workspace context should orient the agent to the right repo
+  - Expected value: workspace inspect context should orient the agent to the right repo
     boundary faster.
 
 - **Validation-selection tasks**
