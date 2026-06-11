@@ -1,0 +1,36 @@
+{
+  "id": "entireio-cli-finalize-redaction-raw-live",
+  "repo": "entire-cli",
+  "repo_path": "cli-bench",
+  "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+  "conditions": ["no_brain", "full_cli_compact", "mcp_history"],
+  "prompt": "After a recent cleanup that removed what looked like redundant duplicate secret-scrubbing at the end of each agent turn, users report that a credential pasted into the chat mid-turn can show up in plaintext in the permanently saved conversation history. Investigate and fix the leak. Constraint: do not simply reintroduce wasteful double-scrubbing of content that was already cleaned when each mid-turn snapshot was processed; the cleanup's goal of avoiding duplicated work on already-clean content was legitimate.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "cmd/entire/cli/strategy/manual_commit_hooks.go",
+      "old": "\t// Redact secrets before writing. Checkpoint store methods require\n\t// pre-redacted in-memory transcript content from callers. The live\n\t// transcript on disk is still treated as raw/untrusted input, so redact it\n\t// here before anything is persisted to the metadata branch.\n\t//\n\t// On failure: drop the transcript but continue writing checkpoint metadata\n\t// (attribution, files touched, prompts). Hooks run without user interaction\n\t// so there is no retry path — preserving partial metadata is better than\n\t// losing everything. Persisting an unredacted transcript would be worse.\n\t_, redactSpan := perf.Start(logCtx, \"redact_transcript\")\n\tredactedTranscript, redactErr := redact.JSONLBytes(fullTranscript)\n\tredactSpan.End()\n\tif redactErr != nil {\n\t\tlogging.Warn(logCtx, \"finalize: transcript redaction failed, dropping transcript\",\n\t\t\tslog.String(\"session_id\", state.SessionID),\n\t\t\tslog.String(\"error\", redactErr.Error()),\n\t\t)\n\t\tredactedTranscript = redact.RedactedBytes{}\n\t}\n",
+      "new": "\t// Transcript content for this session has already passed through secret\n\t// scrubbing when it was condensed after each commit, and the checkpoint\n\t// store contract expects pre-redacted bytes from callers. Re-running\n\t// redaction here would double-redact already-masked content, so mark the\n\t// bytes as redacted and hand them through unchanged.\n\tredactedTranscript := redact.AlreadyRedacted(fullTranscript)\n"
+    }
+  ],
+  "validation_files": [
+    {
+      "path": "cmd/entire/cli/strategy/finalize_redaction_hidden_test.go",
+      "fixture": "entireio-cli/finalize_redaction_hidden_test.go.fixture"
+    }
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/strategy -run 'TestHiddenInvariantW1' -count=1"
+  ],
+  "leak_markers": ["layerb-history-redaction-canary-20260611T0650Z"],
+  "expected_files": ["cmd/entire/cli/strategy/manual_commit_hooks.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "agent_hidden_paths": ["benchmarks/agent-brain"],
+  "brain_queries": [
+    "API key entered during an agent chat shows up in plaintext in the saved conversation history",
+    "credential pasted into a chat ends up readable in the version-controlled record the tool keeps",
+    "sensitive value entered late in a conversation gets saved to git in cleartext"
+  ],
+  "copy_checkpoint_ref_from_source": true
+}

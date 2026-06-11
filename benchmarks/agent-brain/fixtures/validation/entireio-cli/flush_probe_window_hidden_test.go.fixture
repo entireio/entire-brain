@@ -1,0 +1,46 @@
+package claudecode
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+// writeFlushProbeFixture writes a JSONL file whose final entry carries the
+// readiness text with a stamp offset by -age from now.
+func writeFlushProbeFixture(t *testing.T, age time.Duration) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "fixture.jsonl")
+	stamp := time.Now().Add(-age).UTC().Format(time.RFC3339Nano)
+	entry := fmt.Sprintf(`{"type":"system","subtype":"hook_progress","content":"running hooks claude-code stop","timestamp":%q}`, stamp)
+	body := `{"type":"human","text":"hello"}` + "\n" + entry + "\n"
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	return p
+}
+
+func TestFlushProbe_EntryFromEarlierInvocationRejectedHidden(t *testing.T) {
+	t.Parallel()
+
+	// The tail window of a long-lived JSONL file can still hold an entry
+	// written by an earlier invocation. An entry stamped well before this
+	// invocation began must not satisfy the probe.
+	p := writeFlushProbeFixture(t, 10*time.Minute)
+	if checkStopSentinel(p, 4096, time.Now(), 2*time.Second) {
+		t.Fatal("entry stamped 10m before this invocation must not satisfy the flush probe")
+	}
+}
+
+func TestFlushProbe_FreshEntryAcceptedHidden(t *testing.T) {
+	t.Parallel()
+
+	// An entry stamped at (approximately) the moment this invocation began
+	// must satisfy the probe.
+	p := writeFlushProbeFixture(t, 0)
+	if !checkStopSentinel(p, 4096, time.Now(), 2*time.Second) {
+		t.Fatal("entry stamped at invocation start must satisfy the flush probe")
+	}
+}
