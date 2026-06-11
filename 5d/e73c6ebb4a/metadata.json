@@ -1,0 +1,56 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "5de73c6ebb4a",
+  "strategy": "manual-commit",
+  "branch": "codex/release-readiness-audit-cleanup",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "benchmarks/agent-brain/audit_codex.py",
+    "benchmarks/agent-brain/audit_facts_eval.py",
+    "benchmarks/agent-brain/audit_release_matrix.py",
+    "benchmarks/agent-brain/audit_target_distill_evidence.py",
+    "benchmarks/agent-brain/evidence/facts-eval/README.md",
+    "benchmarks/agent-brain/evidence/release-matrix/manifest.json",
+    "benchmarks/agent-brain/evidence/release/README.md",
+    "benchmarks/agent-brain/evidence/release/manifest.json",
+    "benchmarks/agent-brain/evidence/target-distill/README.md",
+    "benchmarks/agent-brain/evidence/target-distill/manifest.json",
+    "benchmarks/agent-brain/evidence/workspace-radar/README.md",
+    "benchmarks/agent-brain/panels/release-entire-brain-semantic-tokenized-idf-mini-low.json",
+    "benchmarks/agent-brain/panels/release-entire-cli-workspace-radar-mcp-manual-attribution-deletions.json",
+    "benchmarks/agent-brain/panels/release-entire-cli-workspace-radar-mcp-manual-attribution.json",
+    "benchmarks/agent-brain/panels/release-entire-cli-workspace-radar-mcp-review-base-scope.json",
+    "benchmarks/agent-brain/run_test.py",
+    "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+    "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+    "benchmarks/agent-brain/tasks/entireio-cli-workspace-radar-review-base-flag-scope.json",
+    "docs/release_press_release.md",
+    "docs/release_readiness_audit.md",
+    "internal/cli/export_test.go",
+    "internal/cli/facts_eval.go",
+    "internal/cli/facts_eval_test.go",
+    "internal/cli/facts_stats.go",
+    "internal/cli/facts_status_cmd.go",
+    "internal/cli/facts_status_cmd_test.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_audit.go",
+    "internal/cli/semantic_audit_test.go",
+    "internal/cli/semantic_test.go",
+    "mise.toml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/5d/e73c6ebb4a/0/metadata.json",
+      "transcript": "/5d/e73c6ebb4a/0/full.jsonl",
+      "content_hash": "/5d/e73c6ebb4a/0/content_hash.txt",
+      "prompt": "/5d/e73c6ebb4a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 3067893,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 163658880,
+    "output_tokens": 369557,
+    "api_call_count": 1234
+  }
+}
