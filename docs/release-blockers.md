@@ -16,8 +16,9 @@ false as written**, for all three suites and for at least one newer task.
 `Useful query terms: {brain_queries}` into the **brain/MCP-arm prompts only**;
 the `no_brain` arm receives no such terms. Whatever appears in a task's
 `brain_queries` is therefore handed to exactly the arm whose superiority the
-suite is supposed to prove. The retained candidate artifacts were produced from
-task configs that put answer-bearing content there:
+suite is supposed to prove. The committed task files (as of the PR #33
+review; since rewritten — see Progress below) put answer-bearing content
+there:
 
 | Suite (claimed result) | What `brain_queries` hands the brain arm | What the hidden validation requires |
 |---|---|---|
@@ -40,41 +41,100 @@ brain.
 **Why the PR's own hygiene machinery missed it.** The previous leak auditor
 checked *transcripts* for harness markers and host paths; it did not intersect
 `brain_queries` with hidden-validation command strings, expected-text greps,
-or hidden test names. The `Useful query terms` mechanism predates this PR
-(present on `main` in 10 tasks), so prior comparisons carry the same confound;
-this PR is gated on it because it is the one promoting these suites to
-"citable proof".
+hidden test names, hidden fix text, hidden expected files, or validation
+fixture contents. The `Useful query terms` mechanism predates this PR (present
+on `main` in 10 tasks), so prior comparisons carry the same confound; this PR
+is gated on it because it is the one promoting these suites to "citable proof".
 
-**Mitigation now on this branch.** `audit_codex.py` now flags high-confidence
-brain-only query terms that overlap hidden validation, hidden test names, or
-expected strings, and it flags retained task config hash drift. `run.py`
-release-panel preflight rejects answer-bearing `brain_queries` before a new
-release-candidate run spends tokens. The affected committed release-panel tasks
-now use symptom-level query hints instead of hidden test names or exact code
-identifiers. The retained release manifest has been demoted to
-`claim_policy: "no_release_claim"`; the generated audit report passes only as a
-no-claim artifact with 31 hard flags and zero proof-ready comparisons. The
-release matrix now marks "replay-lab retained agent proof" as `no-claim`, so
-the branch can no longer accidentally cite these suites as agent-lift evidence.
+**Progress (PR #35, branch `claude/layer-b-scenarios`, merged locally into this
+branch for audit).** Items 1, 2, and 4 below are done on the combined branch;
+item 3 is NOT done, so B1 stays open:
+
+- Item 2: `brain_query_leak_audit` in `benchmarks/agent-brain/run.py` flags
+  identifier-shaped query tokens — matched case-insensitively, since retrieval
+  and agents fold case — and verbatim 3+-word query phrases that appear in the
+  hidden fix text or fix file path, hidden expected files, hidden validation
+  commands, expected-string greps, hidden test names, or validation fixture
+  contents. It is wired into `panel_preflight` for every panel, and
+  `BrainQueryLeakAuditTests` freezes the four rows above with their verbatim
+  committed queries/replacements/validation and asserts each fails the auditor
+  as committed.
+- Item 1: every task the auditor flags has had its `brain_queries` rewritten to
+  symptom-level retrieval terms — the affected release-panel tasks, 35
+  pre-existing task files, and the new Layer-B tasks. Reproducible check: run
+  `brain_query_leak_audit` over every `benchmarks/agent-brain/tasks/*.json` and
+  require 0 flagged files.
+- Item 4: the release audit, release matrix, and press-release doc now disclose
+  the confound and keep retained replay-lab/Radar agent-lift artifacts in
+  `no_release_claim` mode. The retained release report currently passes only as
+  a no-claim artifact with zero proof-ready comparisons and 31 hard flags; the
+  release matrix marks "replay-lab retained agent proof" as `no-claim`.
+- Item 3: the three promoted suites have NOT been successfully re-run and
+  re-promoted from clean, symptom-level queries. Local clean reruns performed
+  during follow-up showed the two CLI lanes were saturated/no-claim and an
+  initial schema rerun had to be discarded for dirty-source provenance; no
+  replacement positive proof has landed.
+
+Operationalization note: the literal "any token" wording from the review is
+not implementable without false-flagging honest symptom text — plain English
+words from symptom queries ("prompt", "local", "commit") appear in hidden
+strings across many tasks. The auditor therefore flags code-shaped tokens and
+3+-word verbatim phrases. Known residual: a 1-2 word plain-English fragment
+shared with a hidden string is not flagged.
 
 **Required to clear B1 (all of):**
 
 1. Strip answer-bearing terms from `brain_queries` in the affected tasks — no
    identifiers from the expected fix, no substrings of hidden-validation
    greps, no hidden test names — or give both arms identical hints so the
-   delta isolates retrieval. **Done on this branch for committed release
-   panels; preflight now enforces it for future release panels.**
-2. Extend the leak auditor: flag any `brain_queries` token (or >=3-word
-   substring) that appears in hidden validation commands, expected strings,
-   or hidden test names. **Done on this branch for retained release audits.**
+   delta isolates retrieval. **Done for committed tasks; preflight enforces it
+   for future panels.**
+2. Extend the leak auditor: flag answer-bearing `brain_queries` content that
+   overlaps hidden validation, expected strings, hidden test names, hidden fix
+   text, expected files, or validation fixture contents. **Done with the
+   code-shaped token plus 3+-word phrase policy described above.**
 3. Re-run the three suites clean and re-promote only what survives.
 4. Until then, correct the audit sentence and the two press-release "proof"
-   bullets to disclose the confound explicitly. **Done on this branch by
-   demoting the retained replay-lab lane to no-claim.**
+   bullets to disclose the confound explicitly. **Done by demoting retained
+   replay-lab/Radar agent-lift artifacts to no-claim.**
 
 Remaining to close B1: rerun the affected suites cleanly from the sanitized
 task configs and re-promote only what survives before any replay-lab agent-lift
 claim is citable.
+
+**Progress (PR #34, branch claude/layer-b-scenarios).** Items 1 and 2 are done
+in that PR; item 4 was completed on main during the PR #33 review follow-ups;
+item 3 is NOT done, so B1 stays open:
+
+- Item 2 (this PR): `brain_query_leak_audit` (run.py) flags identifier-shaped
+  query tokens — matched case-insensitively, since retrieval and agents fold
+  case — and verbatim 3+-word query phrases that appear in the hidden fix
+  text or fix file path, hidden expected_files, hidden validation commands,
+  expected-string greps, hidden test names, or validation fixture contents.
+  It is wired into `panel_preflight` for every panel, and
+  `run_test.BrainQueryLeakAuditTests` freezes the four rows above with their
+  verbatim committed queries/replacements/validation and asserts each fails
+  the auditor as committed.
+  Operationalization note: the literal "any token" wording above is not
+  implementable — plain English words from honest symptom queries ("prompt",
+  "local", "commit") appear in the hidden strings of most tasks and would
+  flag ~40 of 51 task files. The auditor therefore flags code-shaped tokens
+  and 3+-word verbatim phrases. Known residual: a 1-2 word plain-English
+  fragment shared with a hidden string is not flagged.
+- Item 1 (this PR): every task the auditor flags had its `brain_queries`
+  rewritten to symptom-level retrieval terms — 35 pre-existing task files
+  (including the four named rows and the 10 pre-existing carrier tasks on
+  main); the 5 new Layer-B tasks in the same PR were authored to the same
+  standard. Reproducible check: run `brain_query_leak_audit` over every
+  `tasks/*.json` — 0 of 51 files flagged.
+- Item 4 (done on main, PR #33 follow-up): the audit sentence in
+  `docs/release_readiness_audit.md` was corrected and the press release
+  gained its Known Confound section gating the proof citations.
+- Item 3 (open): the three promoted suites have NOT been re-run with the
+  clean queries. Their retained evidence is unchanged and still carries
+  the confound disclosed in `docs/release_readiness_audit.md` and the
+  press release; the lift attribution remains unsupported until clean
+  re-runs land and only survivors are re-promoted.
 
 ## RESOLVED — fixed during review on this branch
 

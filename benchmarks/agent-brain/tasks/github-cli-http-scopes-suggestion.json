@@ -2,6 +2,8 @@
   "id": "github-cli-http-scopes-suggestion",
   "repo": "github-cli",
   "repo_path": "github-cli",
+  "base_commit": "da68cb8f6f597cfc3838cf40f89ecc01f4e53233",
+  "archetype": "architecture-localization",
   "conditions": ["no_brain", "semantic_brain"],
   "prompt": "Fix the HTTP error regression. When a 4xx response reports accepted OAuth scopes and the user's token lacks one, the wrapped HTTP error should keep the refresh-scope suggestion.",
   "hide_expected_from_agent": true,
@@ -16,7 +18,10 @@
   "validation": [
     "go test ./api -run TestHTTPError_ScopesSuggestion"
   ],
+  "leak_markers": [
+    "go test ./api -run TestHTTPError_ScopesSuggestion"
+  ],
   "expected_files": ["api/client.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["HandleHTTPError", "ScopesSuggestion", "X-Accepted-Oauth-Scopes"]
+  "brain_queries": ["4xx error missing OAuth scope suggestion", "token lacks scope refresh hint", "suggestion to request additional OAuth scopes", "gh auth refresh advice in error message"]
 }

@@ -34,11 +34,6 @@
   "leak_markers": [
     "release-radar-review-base-file-count-canary-20260610T0730Z"
   ],
-  "brain_queries": [
-    "stacked branch review file count wrong base",
-    "explicit base branch diff count",
-    "review banner compares against moved default branch",
-    "three-dot diff"
-  ],
+  "brain_queries": ["review banner wrong file count", "stacked branch review base override", "diff against default branch instead of base", "--base flag wrong comparison point"],
   "copy_checkpoint_ref_from_source": true
 }

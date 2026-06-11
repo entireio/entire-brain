@@ -5,10 +5,8 @@
   "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
   "conditions": [
     "no_brain",
-    "mcp_history",
-    "mcp_workspace_radar"
+    "mcp_history"
   ],
-  "workspace_name": "release-radar",
   "prompt": "Fix the release-candidate stale-session-state regression. A hidden integration shows that after an ordinary commit during an active session, later accounting remains anchored to stale state. Keep the fix minimal.",
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
@@ -47,11 +45,6 @@
   "leak_markers": [
     "release-radar-manual-attribution-deletions-canary-20260610T1040Z"
   ],
-  "brain_queries": [
-    "active session after commit accounting drift",
-    "manual commit hook stale base accounting",
-    "no-trailer commit condensation drift",
-    "post-commit session state synchronization"
-  ],
+  "brain_queries": ["stale attribution base after manual commit", "session state keeps old base commit", "condensation overcounts human lines from earlier commits", "attribution accounting wrong after ordinary commit during session"],
   "copy_checkpoint_ref_from_source": true
 }

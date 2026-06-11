@@ -35,11 +35,6 @@
   "leak_markers": [
     "release-radar-attribution-realign-canary-20260610T0715Z"
   ],
-  "brain_queries": [
-    "session attribution realignment clears stale divergence",
-    "new base attribution drift",
-    "branch movement attribution synchronization",
-    "stale divergence warning reset"
-  ],
+  "brain_queries": ["attribution still diffs against old base after resync", "reference point for attribution calculations", "clear stale divergence bookkeeping when base realigns", "attribution base updated after condensation or reconcile"],
   "copy_checkpoint_ref_from_source": true
 }

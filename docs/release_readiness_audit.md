@@ -256,14 +256,18 @@ Replay-lab release evidence status: the retained release candidate suites are
 kept for auditability, but they are no longer citable proof. Open release
 blocker B1 (`docs/release-blockers.md`) found that those retained artifacts were
 produced from task configs whose brain-arm prompts carried answer-bearing query
-terms that the no-brain arm did not receive. The auditor now detects
-high-confidence query leaks, also flags retained task hash drift, and the
-committed release manifest is in `claim_policy: "no_release_claim"` mode. The
-affected committed release-panel tasks now use symptom-level hints and
-release-panel preflight rejects answer-bearing hints before new release runs.
-The retained audit therefore passes only as a no-claim artifact with zero
-proof-ready comparisons and 31 hard flags; clean reruns are required before any
-brain-attribution or replay-lab agent-lift claim is citable.
+terms that the no-brain arm did not receive. The merged auditor now detects
+answer-bearing query leaks against hidden fix text, expected files, validation
+commands, hidden test names, expected strings, and validation fixture contents;
+it also flags retained task hash drift, and the committed release manifest is
+in `claim_policy: "no_release_claim"` mode. The affected committed task files
+now use symptom-level hints and panel preflight rejects answer-bearing hints
+before new release runs. The retained audit therefore passes only as a
+no-claim artifact with zero proof-ready comparisons and 31 hard flags; clean
+reruns are required before any brain-attribution or replay-lab agent-lift claim
+is citable. Follow-up clean reruns of the two CLI B1 lanes were integrity-clean
+but saturated/no-claim; the history/schema lane still needs a clean rerun from
+a clean source checkout before it can be evaluated.
 
 Semantic replay-lab pilot: the committed `release-entire-cli-semantic-xdg`
 panel generated `release-candidate-entire-cli-semantic-xdg-20260610T0205Z` with
@@ -513,11 +517,13 @@ Release claims must stay local-first and evidence-backed:
   harder MCP-history proof lane on `cli-bench`: it regresses the manual-commit
   attribution-base invariant and requires `mcp_history` to surface the prior
   `RealignAttributionBase(newHead)` behavior. CONFOUND (open release blocker
-  B1, see `docs/release-blockers.md`): the task's `brain_queries` hand the
-  brain arm the fix's exact identifier (`RealignAttributionBase newHead`) and
-  the hidden-adjacent test name, and the harness injects those terms into the
-  brain-arm prompt only — so the retained comparison measures hint+brain vs
-  no-hint, not brain vs no-brain. The numbers are faithfully transcribed but
+  B1, see `docs/release-blockers.md`): at the time of the retained runs the
+  task's `brain_queries` handed the brain arm the fix's exact identifier
+  (`RealignAttributionBase newHead`) and the hidden-adjacent test name, and
+  the harness injects those terms into the brain-arm prompt only — so the
+  retained comparison measures hint+brain vs no-hint, not brain vs no-brain.
+  (The committed queries were rewritten to symptom-level terms in PR #34;
+  the retained evidence predates that rewrite.) The numbers are faithfully transcribed but
   must not be cited as brain-attribution proof until the suite re-runs with
   the answer-bearing terms removed.
 - Retained MCP-history candidate evidence includes

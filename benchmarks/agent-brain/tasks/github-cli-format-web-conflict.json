@@ -2,6 +2,8 @@
   "id": "github-cli-format-web-conflict",
   "repo": "github-cli",
   "repo_path": "github-cli",
+  "base_commit": "da68cb8f6f597cfc3838cf40f89ecc01f4e53233",
+  "archetype": "protocol-contract-recovery",
   "conditions": ["no_brain", "semantic_brain"],
   "prompt": "Fix the format flag validation regression where `--format json` can be combined with a web-opening mode that should be mutually exclusive.",
   "hide_expected_from_agent": true,
@@ -16,7 +18,10 @@
   "validation": [
     "go test ./pkg/cmdutil -run TestAddFormatFlags"
   ],
+  "leak_markers": [
+    "go test ./pkg/cmdutil -run TestAddFormatFlags"
+  ],
   "expected_files": ["pkg/cmdutil/json_flags.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["AddFormatFlags", "checkFormatFlags", "webFlag"]
+  "brain_queries": ["web mode combined with json output", "mutually exclusive output and browser flags", "cobra flag mutual exclusion check", "missing conflict validation for output format"]
 }

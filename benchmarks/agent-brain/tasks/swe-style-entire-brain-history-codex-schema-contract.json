@@ -28,11 +28,6 @@
   "hide_validation_from_agent": true,
   "source": "swe-style",
   "suite_tags": ["phase2", "history", "rationale"],
-  "brain_queries": [
-    "Checkpoint-context review reverted Codex `--output-schema` usage",
-    "schema-dialect failure",
-    "prompt plus local `schema_version` and `status` validation",
-    "should rely on prompt plus local validation"
-  ],
+  "brain_queries": ["codex seed agent structured output failure", "seed command reverted to legacy compatibility mode", "schema dialect failure during seed synthesis", "codex structured output contract decision"],
   "history_excerpt_lines": 24
 }

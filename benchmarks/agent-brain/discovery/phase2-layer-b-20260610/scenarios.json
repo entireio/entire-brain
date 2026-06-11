@@ -1,0 +1,1581 @@
+{
+  "scenarios": [
+    {
+      "archetype": "architecture-localization",
+      "area": "brain command surface",
+      "brain_excellence_hypothesis": "The brief command should locate semantic code and warn about snapshot/live-state boundaries before edits. Semantic search and boundaries reduce file-read and patch-surface sprawl.",
+      "brain_source": "hybrid",
+      "condition": "full_brain",
+      "discovery_score": 7,
+      "id": "phase2-a-01-entire-brain-brain-command-surface-architecture-localization",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "score and changed_file_count",
+      "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
+      "queries": [
+        "brief",
+        "query decisions",
+        "agent surface"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Hidden validation checks that only the shared implementation changed."
+    },
+    {
+      "archetype": "rationale-recovery",
+      "area": "brain command surface",
+      "brain_excellence_hypothesis": "The brief command should locate semantic code and warn about snapshot/live-state boundaries before edits. Session history exposes why the prior decision existed.",
+      "brain_source": "hybrid",
+      "condition": "full_brain",
+      "discovery_score": 9,
+      "id": "phase2-a-02-entire-brain-brain-command-surface-rationale-recovery",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and score",
+      "prompt_shape": "Remove or invert a historical decision and ask the agent to restore intended behavior.",
+      "queries": [
+        "brief",
+        "query decisions",
+        "agent surface"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Hidden validation checks the exact invariant and regression wording."
+    },
+    {
+      "archetype": "validation-selection",
+      "area": "brain command surface",
+      "brain_excellence_hypothesis": "The brief command should locate semantic code and warn about snapshot/live-state boundaries before edits. Semantic test suggestions identify the smallest relevant test target.",
+      "brain_source": "hybrid",
+      "condition": "full_brain",
+      "discovery_score": 7,
+      "id": "phase2-a-03-entire-brain-brain-command-surface-validation-selection",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "tokens, seconds, and validation_discipline",
+      "prompt_shape": "Hide focused validation and require the agent to infer the right tests.",
+      "queries": [
+        "brief",
+        "query decisions",
+        "agent surface"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Score rewards focused test selection and penalizes broad unrelated edits."
+    },
+    {
+      "archetype": "stale-live-hygiene",
+      "area": "brain command surface",
+      "brain_excellence_hypothesis": "The brief command should locate semantic code and warn about snapshot/live-state boundaries before edits. Brief live-state overlay prevents stale-brain mistakes without forcing full diff reads.",
+      "brain_source": "hybrid",
+      "condition": "full_brain",
+      "discovery_score": 8,
+      "id": "phase2-a-04-entire-brain-brain-command-surface-stale-live-hygiene",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and file_read_count",
+      "prompt_shape": "Prepare a brain, then mutate the worktree after brain prep.",
+      "queries": [
+        "brief",
+        "query decisions",
+        "agent surface"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Hidden validation checks whether the agent accounted for live changes."
+    },
+    {
+      "archetype": "architecture-localization",
+      "area": "semantic freshness",
+      "brain_excellence_hypothesis": "Freshness axes and live-state overlay prevent the agent from trusting stale semantic context. Semantic search and boundaries reduce file-read and patch-surface sprawl.",
+      "brain_source": "semantic",
+      "condition": "semantic_brain",
+      "discovery_score": 5,
+      "id": "phase2-a-05-entire-brain-semantic-freshness-architecture-localization",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "score and changed_file_count",
+      "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
+      "queries": [
+        "stale",
+        "dirty-unindexed",
+        "worktree overlay"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Hidden validation checks that only the shared implementation changed."
+    },
+    {
+      "archetype": "rationale-recovery",
+      "area": "semantic freshness",
+      "brain_excellence_hypothesis": "Freshness axes and live-state overlay prevent the agent from trusting stale semantic context. Session history exposes why the prior decision existed.",
+      "brain_source": "semantic",
+      "condition": "semantic_brain",
+      "discovery_score": 7,
+      "id": "phase2-a-06-entire-brain-semantic-freshness-rationale-recovery",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and score",
+      "prompt_shape": "Remove or invert a historical decision and ask the agent to restore intended behavior.",
+      "queries": [
+        "stale",
+        "dirty-unindexed",
+        "worktree overlay"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Hidden validation checks the exact invariant and regression wording."
+    },
+    {
+      "archetype": "validation-selection",
+      "area": "semantic freshness",
+      "brain_excellence_hypothesis": "Freshness axes and live-state overlay prevent the agent from trusting stale semantic context. Semantic test suggestions identify the smallest relevant test target.",
+      "brain_source": "semantic",
+      "condition": "semantic_brain",
+      "discovery_score": 5,
+      "id": "phase2-a-07-entire-brain-semantic-freshness-validation-selection",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "tokens, seconds, and validation_discipline",
+      "prompt_shape": "Hide focused validation and require the agent to infer the right tests.",
+      "queries": [
+        "stale",
+        "dirty-unindexed",
+        "worktree overlay"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Score rewards focused test selection and penalizes broad unrelated edits."
+    },
+    {
+      "archetype": "stale-live-hygiene",
+      "area": "semantic freshness",
+      "brain_excellence_hypothesis": "Freshness axes and live-state overlay prevent the agent from trusting stale semantic context. Brief live-state overlay prevents stale-brain mistakes without forcing full diff reads.",
+      "brain_source": "semantic",
+      "condition": "semantic_brain",
+      "discovery_score": 6,
+      "id": "phase2-a-08-entire-brain-semantic-freshness-stale-live-hygiene",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and file_read_count",
+      "prompt_shape": "Prepare a brain, then mutate the worktree after brain prep.",
+      "queries": [
+        "stale",
+        "dirty-unindexed",
+        "worktree overlay"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Hidden validation checks whether the agent accounted for live changes."
+    },
+    {
+      "archetype": "architecture-localization",
+      "area": "seed agent contract",
+      "brain_excellence_hypothesis": "Session history records a compatibility decision that is not obvious from current code alone. Semantic search and boundaries reduce file-read and patch-surface sprawl.",
+      "brain_source": "history",
+      "condition": "full_brain",
+      "discovery_score": 7,
+      "id": "phase2-a-09-entire-brain-seed-agent-contract-architecture-localization",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "score and changed_file_count",
+      "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
+      "queries": [
+        "seed agent",
+        "output-schema",
+        "local validation"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Hidden validation checks that only the shared implementation changed."
+    },
+    {
+      "archetype": "rationale-recovery",
+      "area": "seed agent contract",
+      "brain_excellence_hypothesis": "Session history records a compatibility decision that is not obvious from current code alone. Session history exposes why the prior decision existed.",
+      "brain_source": "history",
+      "condition": "full_brain",
+      "discovery_score": 9,
+      "id": "phase2-a-10-entire-brain-seed-agent-contract-rationale-recovery",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and score",
+      "prompt_shape": "Remove or invert a historical decision and ask the agent to restore intended behavior.",
+      "queries": [
+        "seed agent",
+        "output-schema",
+        "local validation"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Hidden validation checks the exact invariant and regression wording."
+    },
+    {
+      "archetype": "validation-selection",
+      "area": "seed agent contract",
+      "brain_excellence_hypothesis": "Session history records a compatibility decision that is not obvious from current code alone. Semantic test suggestions identify the smallest relevant test target.",
+      "brain_source": "history",
+      "condition": "full_brain",
+      "discovery_score": 7,
+      "id": "phase2-a-11-entire-brain-seed-agent-contract-validation-selection",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "tokens, seconds, and validation_discipline",
+      "prompt_shape": "Hide focused validation and require the agent to infer the right tests.",
+      "queries": [
+        "seed agent",
+        "output-schema",
+        "local validation"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Score rewards focused test selection and penalizes broad unrelated edits."
+    },
+    {
+      "archetype": "stale-live-hygiene",
+      "area": "seed agent contract",
+      "brain_excellence_hypothesis": "Session history records a compatibility decision that is not obvious from current code alone. Brief live-state overlay prevents stale-brain mistakes without forcing full diff reads.",
+      "brain_source": "history",
+      "condition": "full_brain",
+      "discovery_score": 8,
+      "id": "phase2-a-12-entire-brain-seed-agent-contract-stale-live-hygiene",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and file_read_count",
+      "prompt_shape": "Prepare a brain, then mutate the worktree after brain prep.",
+      "queries": [
+        "seed agent",
+        "output-schema",
+        "local validation"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Hidden validation checks whether the agent accounted for live changes."
+    },
+    {
+      "archetype": "architecture-localization",
+      "area": "bundle integrity",
+      "brain_excellence_hypothesis": "History explains why checksum validation is mandatory even if simple import tests pass. Semantic search and boundaries reduce file-read and patch-surface sprawl.",
+      "brain_source": "history",
+      "condition": "full_brain",
+      "discovery_score": 7,
+      "id": "phase2-a-13-entire-brain-bundle-integrity-architecture-localization",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "score and changed_file_count",
+      "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
+      "queries": [
+        "bundle import sha256",
+        "checksum validation",
+        "bundle semantic source"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Hidden validation checks that only the shared implementation changed."
+    },
+    {
+      "archetype": "rationale-recovery",
+      "area": "bundle integrity",
+      "brain_excellence_hypothesis": "History explains why checksum validation is mandatory even if simple import tests pass. Session history exposes why the prior decision existed.",
+      "brain_source": "history",
+      "condition": "full_brain",
+      "discovery_score": 9,
+      "id": "phase2-a-14-entire-brain-bundle-integrity-rationale-recovery",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and score",
+      "prompt_shape": "Remove or invert a historical decision and ask the agent to restore intended behavior.",
+      "queries": [
+        "bundle import sha256",
+        "checksum validation",
+        "bundle semantic source"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Hidden validation checks the exact invariant and regression wording."
+    },
+    {
+      "archetype": "validation-selection",
+      "area": "bundle integrity",
+      "brain_excellence_hypothesis": "History explains why checksum validation is mandatory even if simple import tests pass. Semantic test suggestions identify the smallest relevant test target.",
+      "brain_source": "history",
+      "condition": "full_brain",
+      "discovery_score": 7,
+      "id": "phase2-a-15-entire-brain-bundle-integrity-validation-selection",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "tokens, seconds, and validation_discipline",
+      "prompt_shape": "Hide focused validation and require the agent to infer the right tests.",
+      "queries": [
+        "bundle import sha256",
+        "checksum validation",
+        "bundle semantic source"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Score rewards focused test selection and penalizes broad unrelated edits."
+    },
+    {
+      "archetype": "stale-live-hygiene",
+      "area": "bundle integrity",
+      "brain_excellence_hypothesis": "History explains why checksum validation is mandatory even if simple import tests pass. Brief live-state overlay prevents stale-brain mistakes without forcing full diff reads.",
+      "brain_source": "history",
+      "condition": "full_brain",
+      "discovery_score": 8,
+      "id": "phase2-a-16-entire-brain-bundle-integrity-stale-live-hygiene",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and file_read_count",
+      "prompt_shape": "Prepare a brain, then mutate the worktree after brain prep.",
+      "queries": [
+        "bundle import sha256",
+        "checksum validation",
+        "bundle semantic source"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Hidden validation checks whether the agent accounted for live changes."
+    },
+    {
+      "archetype": "architecture-localization",
+      "area": "review provenance env filtering",
+      "brain_excellence_hypothesis": "Semantic search localizes env plumbing while history names provenance entries that must stay stripped. Semantic search and boundaries reduce file-read and patch-surface sprawl.",
+      "brain_source": "hybrid",
+      "condition": "full_brain",
+      "discovery_score": 7,
+      "id": "phase2-a-17-entire-cli-review-provenance-env-filtering-architecture-localization",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "score and changed_file_count",
+      "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
+      "queries": [
+        "AppendReviewEnv",
+        "provenance.IsEntry",
+        "ENTIRE_INVESTIGATE"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-cli",
+      "repo_path": "cli",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Hidden validation checks that only the shared implementation changed."
+    },
+    {
+      "archetype": "rationale-recovery",
+      "area": "review provenance env filtering",
+      "brain_excellence_hypothesis": "Semantic search localizes env plumbing while history names provenance entries that must stay stripped. Session history exposes why the prior decision existed.",
+      "brain_source": "hybrid",
+      "condition": "full_brain",
+      "discovery_score": 9,
+      "id": "phase2-a-18-entire-cli-review-provenance-env-filtering-rationale-recovery",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and score",
+      "prompt_shape": "Remove or invert a historical decision and ask the agent to restore intended behavior.",
+      "queries": [
+        "AppendReviewEnv",
+        "provenance.IsEntry",
+        "ENTIRE_INVESTIGATE"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-cli",
+      "repo_path": "cli",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Hidden validation checks the exact invariant and regression wording."
+    },
+    {
+      "archetype": "validation-selection",
+      "area": "review provenance env filtering",
+      "brain_excellence_hypothesis": "Semantic search localizes env plumbing while history names provenance entries that must stay stripped. Semantic test suggestions identify the smallest relevant test target.",
+      "brain_source": "hybrid",
+      "condition": "full_brain",
+      "discovery_score": 7,
+      "id": "phase2-a-19-entire-cli-review-provenance-env-filtering-validation-selection",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "tokens, seconds, and validation_discipline",
+      "prompt_shape": "Hide focused validation and require the agent to infer the right tests.",
+      "queries": [
+        "AppendReviewEnv",
+        "provenance.IsEntry",
+        "ENTIRE_INVESTIGATE"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-cli",
+      "repo_path": "cli",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Score rewards focused test selection and penalizes broad unrelated edits."
+    },
+    {
+      "archetype": "stale-live-hygiene",
+      "area": "review provenance env filtering",
+      "brain_excellence_hypothesis": "Semantic search localizes env plumbing while history names provenance entries that must stay stripped. Brief live-state overlay prevents stale-brain mistakes without forcing full diff reads.",
+      "brain_source": "hybrid",
+      "condition": "full_brain",
+      "discovery_score": 8,
+      "id": "phase2-a-20-entire-cli-review-provenance-env-filtering-stale-live-hygiene",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and file_read_count",
+      "prompt_shape": "Prepare a brain, then mutate the worktree after brain prep.",
+      "queries": [
+        "AppendReviewEnv",
+        "provenance.IsEntry",
+        "ENTIRE_INVESTIGATE"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-cli",
+      "repo_path": "cli",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Hidden validation checks whether the agent accounted for live changes."
+    },
+    {
+      "archetype": "architecture-localization",
+      "area": "manual commit hooks",
+      "brain_excellence_hypothesis": "Semantic relations and session history jointly identify hook lifecycle invariants. Semantic search and boundaries reduce file-read and patch-surface sprawl.",
+      "brain_source": "hybrid",
+      "condition": "full_brain",
+      "discovery_score": 7,
+      "id": "phase2-a-21-entire-cli-manual-commit-hooks-architecture-localization",
+      "layer": "A",
+      "layer_name": "project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "score and changed_file_count",
+      "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
+      "queries": [
+        "manual_commit_hooks",
+        "hook lifecycle",
+        "checkpoint committed"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-cli",
+      "repo_path": "cli",
+      "status": "candidate-needs-pilot",
+      "validation_strategy": "Hidden validation checks that only the shared implementation changed."
+    },
+    {
+      "archetype": "rationale-recovery",
+      "brain_excellence_hypothesis": "GitHub CLI native task should require the shared CLI contract, not a local symptom-only patch. Session history exposes why the prior decision existed.",
+      "brain_source": "semantic",
+      "condition": "semantic_brain",
+      "discovery_score": 8,
+      "id": "phase2-b-01-github-cli-auth-env-token-rationale-recovery",
+      "layer": "B",
+      "layer_name": "github-cli-project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and score",
+      "prompt_shape": "Remove or invert a historical decision and ask the agent to restore intended behavior.",
+      "queries": [
+        "environment token treated as authenticated",
+        "GH_TOKEN environment variable",
+        "auth required error despite token in environment",
+        "valid credentials with no configured hosts"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "github-cli",
+      "repo_path": "github-cli",
+      "status": "candidate-needs-pilot",
+      "task_id": "github-cli-auth-env-token",
+      "validation_strategy": "Hidden validation checks the exact invariant and regression wording."
+    },
+    {
+      "archetype": "architecture-localization",
+      "brain_excellence_hypothesis": "GitHub CLI native task should require the shared CLI contract, not a local symptom-only patch. Semantic search and boundaries reduce file-read and patch-surface sprawl.",
+      "brain_source": "semantic",
+      "condition": "semantic_brain",
+      "discovery_score": 6,
+      "id": "phase2-b-02-github-cli-display-url-scheme-architecture-localization",
+      "layer": "B",
+      "layer_name": "github-cli-project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "score and changed_file_count",
+      "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
+      "queries": [
+        "trimmed link output formatting",
+        "preserve insecure scheme display",
+        "printed issue link address"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "github-cli",
+      "repo_path": "github-cli",
+      "status": "candidate-needs-pilot",
+      "task_id": "github-cli-display-url-scheme",
+      "validation_strategy": "Hidden validation checks that only the shared implementation changed."
+    },
+    {
+      "archetype": "protocol-contract-recovery",
+      "brain_excellence_hypothesis": "GitHub CLI native task should require the shared CLI contract, not a local symptom-only patch. Semantic context should surface the production helper and prior contract rationale before the edit.",
+      "brain_source": "semantic",
+      "condition": "semantic_brain",
+      "discovery_score": 6,
+      "id": "phase2-b-03-github-cli-format-web-conflict-protocol-contract-recovery",
+      "layer": "B",
+      "layer_name": "github-cli-project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate, score, tokens, and changed_file_count",
+      "prompt_shape": "Ask for the stable CLI contract without naming the exact helper or validation path.",
+      "queries": [
+        "web mode combined with json output",
+        "mutually exclusive output and browser flags",
+        "cobra flag mutual exclusion check",
+        "missing conflict validation for output format"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "github-cli",
+      "repo_path": "github-cli",
+      "status": "candidate-needs-pilot",
+      "task_id": "github-cli-format-web-conflict",
+      "validation_strategy": "Hidden validation checks the shared contract and rejects command-specific patches."
+    },
+    {
+      "archetype": "architecture-localization",
+      "brain_excellence_hypothesis": "GitHub CLI native task should require the shared CLI contract, not a local symptom-only patch. Semantic search and boundaries reduce file-read and patch-surface sprawl.",
+      "brain_source": "semantic",
+      "condition": "semantic_brain",
+      "discovery_score": 6,
+      "id": "phase2-b-04-github-cli-ghrepo-url-git-suffix-architecture-localization",
+      "layer": "B",
+      "layer_name": "github-cli-project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "score and changed_file_count",
+      "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
+      "queries": [
+        "remote URL repository resolution",
+        "git suffix owner name parsing",
+        "repository identity from remote"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "github-cli",
+      "repo_path": "github-cli",
+      "status": "candidate-needs-pilot",
+      "task_id": "github-cli-ghrepo-url-git-suffix",
+      "validation_strategy": "Hidden validation checks that only the shared implementation changed."
+    },
+    {
+      "archetype": "architecture-localization",
+      "brain_excellence_hypothesis": "GitHub CLI native task should require the shared CLI contract, not a local symptom-only patch. Semantic search and boundaries reduce file-read and patch-surface sprawl.",
+      "brain_source": "semantic",
+      "condition": "semantic_brain",
+      "discovery_score": 6,
+      "id": "phase2-b-05-github-cli-http-scopes-suggestion-architecture-localization",
+      "layer": "B",
+      "layer_name": "github-cli-project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "score and changed_file_count",
+      "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
+      "queries": [
+        "4xx error missing OAuth scope suggestion",
+        "token lacks scope refresh hint",
+        "suggestion to request additional OAuth scopes",
+        "gh auth refresh advice in error message"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "github-cli",
+      "repo_path": "github-cli",
+      "status": "candidate-needs-pilot",
+      "task_id": "github-cli-http-scopes-suggestion",
+      "validation_strategy": "Hidden validation checks that only the shared implementation changed."
+    },
+    {
+      "archetype": "protocol-contract-recovery",
+      "brain_excellence_hypothesis": "GitHub CLI native task should require the shared CLI contract, not a local symptom-only patch. Semantic context should surface the production helper and prior contract rationale before the edit.",
+      "brain_source": "semantic",
+      "condition": "semantic_brain",
+      "discovery_score": 6,
+      "id": "phase2-b-06-github-cli-json-web-conflict-protocol-contract-recovery",
+      "layer": "B",
+      "layer_name": "github-cli-project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate, score, tokens, and changed_file_count",
+      "prompt_shape": "Ask for the stable CLI contract without naming the exact helper or validation path.",
+      "queries": [
+        "json output flag conflicting with web browser flag",
+        "mutually exclusive command flags validation",
+        "machine-readable output combined with opening in browser"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "github-cli",
+      "repo_path": "github-cli",
+      "status": "candidate-needs-pilot",
+      "task_id": "github-cli-json-web-conflict",
+      "validation_strategy": "Hidden validation checks the shared contract and rejects command-specific patches."
+    },
+    {
+      "archetype": "validation-selection",
+      "brain_excellence_hypothesis": "GitHub CLI native task should require the shared CLI contract, not a local symptom-only patch. Semantic test suggestions identify the smallest relevant test target.",
+      "brain_source": "semantic",
+      "condition": "semantic_brain",
+      "discovery_score": 6,
+      "id": "phase2-b-07-github-cli-pr-checks-summary-validation-selection",
+      "layer": "B",
+      "layer_name": "github-cli-project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "tokens, seconds, and validation_discipline",
+      "prompt_shape": "Hide focused validation and require the agent to infer the right tests.",
+      "queries": [
+        "checks rollup summary line",
+        "failing checks count display",
+        "pr view checks summary wording"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "github-cli",
+      "repo_path": "github-cli",
+      "status": "candidate-needs-pilot",
+      "task_id": "github-cli-pr-checks-summary",
+      "validation_strategy": "Score rewards focused test selection and penalizes broad unrelated edits."
+    },
+    {
+      "archetype": "architecture-localization",
+      "brain_excellence_hypothesis": "GitHub CLI native task should require the shared CLI contract, not a local symptom-only patch. Semantic search and boundaries reduce file-read and patch-surface sprawl.",
+      "brain_source": "semantic",
+      "condition": "semantic_brain",
+      "discovery_score": 6,
+      "id": "phase2-b-08-github-cli-repo-name-trims-dotgit-architecture-localization",
+      "layer": "B",
+      "layer_name": "github-cli-project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "score and changed_file_count",
+      "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
+      "queries": [
+        "repo name normalization when creating a repository",
+        "trailing git extension stripped from entered name",
+        "match github new repository form naming behavior",
+        "invalid characters in repo name replaced with dashes"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "github-cli",
+      "repo_path": "github-cli",
+      "status": "candidate-needs-pilot",
+      "task_id": "github-cli-repo-name-trims-dotgit",
+      "validation_strategy": "Hidden validation checks that only the shared implementation changed."
+    },
+    {
+      "archetype": "architecture-localization",
+      "brain_excellence_hypothesis": "GitHub CLI native task should require the shared CLI contract, not a local symptom-only patch. Semantic search and boundaries reduce file-read and patch-surface sprawl.",
+      "brain_source": "semantic",
+      "condition": "semantic_brain",
+      "discovery_score": 6,
+      "id": "phase2-b-09-github-cli-search-quote-multiword-architecture-localization",
+      "layer": "B",
+      "layer_name": "github-cli-project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "score and changed_file_count",
+      "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
+      "queries": [
+        "multi word qualifier quoting",
+        "search query serialization spaces",
+        "quoted phrase qualifier values"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "github-cli",
+      "repo_path": "github-cli",
+      "status": "candidate-needs-pilot",
+      "task_id": "github-cli-search-quote-multiword",
+      "validation_strategy": "Hidden validation checks that only the shared implementation changed."
+    },
+    {
+      "archetype": "rationale-recovery",
+      "brain_excellence_hypothesis": "GitHub CLI native task should require the shared CLI contract, not a local symptom-only patch. Session history exposes why the prior decision existed.",
+      "brain_source": "semantic",
+      "condition": "semantic_brain",
+      "discovery_score": 8,
+      "id": "phase2-b-10-github-cli-tenant-name-dot-rationale-recovery",
+      "layer": "B",
+      "layer_name": "github-cli-project-native",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and score",
+      "prompt_shape": "Remove or invert a historical decision and ask the agent to restore intended behavior.",
+      "queries": [
+        "enterprise cloud tenant detection",
+        "hostname tenant identity derivation",
+        "ssh remote url tenant user prefix",
+        "ghe.com host handling"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "github-cli",
+      "repo_path": "github-cli",
+      "status": "candidate-needs-pilot",
+      "task_id": "github-cli-tenant-name-dot",
+      "validation_strategy": "Hidden validation checks the exact invariant and regression wording."
+    },
+    {
+      "archetype": "hidden-cross-file-contract",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Semantic impact maps the non-local dependency before the edit.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 9,
+      "id": "phase2-c-01-swe-style-entire-brain-history-bundle-sha256-hidden-cross-file-contract",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and score",
+      "prompt_shape": "Issue-style bug report omits expected files and exposes only failing behavior.",
+      "queries": [
+        "bundle import sha256 required",
+        "expected SHA-256 input",
+        "local bundle archive integrity"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-bundle-sha256",
+      "validation_strategy": "Regression patch removes one contract edge; hidden tests assert the cross-file invariant."
+    },
+    {
+      "archetype": "large-repo-near-miss",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Semantic search disambiguates similar names and reduces exploratory reads.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 9,
+      "id": "phase2-c-02-swe-style-entire-brain-history-bundle-sha256-large-repo-near-miss",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "tokens and changed_file_count",
+      "prompt_shape": "Issue wording names a symptom shared by several nearby modules.",
+      "queries": [
+        "bundle import sha256 required",
+        "expected SHA-256 input",
+        "local bundle archive integrity"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-bundle-sha256",
+      "validation_strategy": "Hidden tests pass only when the shared helper changes."
+    },
+    {
+      "archetype": "history-only-regression",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Full session history recovers the missing decision and test intent.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 11,
+      "id": "phase2-c-03-swe-style-entire-brain-history-bundle-sha256-history-only-regression",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate",
+      "prompt_shape": "Issue says a previous fix regressed but does not name the rationale.",
+      "queries": [
+        "bundle import sha256 required",
+        "expected SHA-256 input",
+        "local bundle archive integrity"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-bundle-sha256",
+      "validation_strategy": "Setup removes both docs/progress and focused tests that explained the decision."
+    },
+    {
+      "archetype": "stale-context-issue",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Brief reports dirty files and changed-symbol hints before semantic use.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 10,
+      "id": "phase2-c-04-swe-style-entire-brain-history-bundle-sha256-stale-context-issue",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and file_read_count",
+      "prompt_shape": "Issue is created after semantic prep and mutates the relevant file post-prep.",
+      "queries": [
+        "bundle import sha256 required",
+        "expected SHA-256 input",
+        "local bundle archive integrity"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-bundle-sha256",
+      "validation_strategy": "Hidden tests require recognizing current worktree state."
+    },
+    {
+      "archetype": "hidden-cross-file-contract",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Semantic impact maps the non-local dependency before the edit.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 9,
+      "id": "phase2-c-05-swe-style-entire-brain-history-claude-bare-auth-hidden-cross-file-contract",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and score",
+      "prompt_shape": "Issue-style bug report omits expected files and exposes only failing behavior.",
+      "queries": [
+        "claude seed agent fails for signed-in users",
+        "command invocation regressed to compatibility mode",
+        "flag that skips local login credentials",
+        "coverage for seed agent command arguments"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-claude-bare-auth",
+      "validation_strategy": "Regression patch removes one contract edge; hidden tests assert the cross-file invariant."
+    },
+    {
+      "archetype": "large-repo-near-miss",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Semantic search disambiguates similar names and reduces exploratory reads.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 9,
+      "id": "phase2-c-06-swe-style-entire-brain-history-claude-bare-auth-large-repo-near-miss",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "tokens and changed_file_count",
+      "prompt_shape": "Issue wording names a symptom shared by several nearby modules.",
+      "queries": [
+        "claude seed agent fails for signed-in users",
+        "command invocation regressed to compatibility mode",
+        "flag that skips local login credentials",
+        "coverage for seed agent command arguments"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-claude-bare-auth",
+      "validation_strategy": "Hidden tests pass only when the shared helper changes."
+    },
+    {
+      "archetype": "history-only-regression",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Full session history recovers the missing decision and test intent.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 11,
+      "id": "phase2-c-07-swe-style-entire-brain-history-claude-bare-auth-history-only-regression",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate",
+      "prompt_shape": "Issue says a previous fix regressed but does not name the rationale.",
+      "queries": [
+        "claude seed agent fails for signed-in users",
+        "command invocation regressed to compatibility mode",
+        "flag that skips local login credentials",
+        "coverage for seed agent command arguments"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-claude-bare-auth",
+      "validation_strategy": "Setup removes both docs/progress and focused tests that explained the decision."
+    },
+    {
+      "archetype": "stale-context-issue",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Brief reports dirty files and changed-symbol hints before semantic use.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 10,
+      "id": "phase2-c-08-swe-style-entire-brain-history-claude-bare-auth-stale-context-issue",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and file_read_count",
+      "prompt_shape": "Issue is created after semantic prep and mutates the relevant file post-prep.",
+      "queries": [
+        "claude seed agent fails for signed-in users",
+        "command invocation regressed to compatibility mode",
+        "flag that skips local login credentials",
+        "coverage for seed agent command arguments"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-claude-bare-auth",
+      "validation_strategy": "Hidden tests require recognizing current worktree state."
+    },
+    {
+      "archetype": "hidden-cross-file-contract",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Semantic impact maps the non-local dependency before the edit.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 9,
+      "id": "phase2-c-09-swe-style-entire-brain-history-claude-seed-agent-hidden-cross-file-contract",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and score",
+      "prompt_shape": "Issue-style bug report omits expected files and exposes only failing behavior.",
+      "queries": [
+        "Claude Code seed synthesis mode",
+        "seed agent intake template",
+        "run seed agent without local project configuration",
+        "restore agent mode in docs and tests"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-claude-seed-agent",
+      "validation_strategy": "Regression patch removes one contract edge; hidden tests assert the cross-file invariant."
+    },
+    {
+      "archetype": "large-repo-near-miss",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Semantic search disambiguates similar names and reduces exploratory reads.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 9,
+      "id": "phase2-c-10-swe-style-entire-brain-history-claude-seed-agent-large-repo-near-miss",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "tokens and changed_file_count",
+      "prompt_shape": "Issue wording names a symptom shared by several nearby modules.",
+      "queries": [
+        "Claude Code seed synthesis mode",
+        "seed agent intake template",
+        "run seed agent without local project configuration",
+        "restore agent mode in docs and tests"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-claude-seed-agent",
+      "validation_strategy": "Hidden tests pass only when the shared helper changes."
+    },
+    {
+      "archetype": "history-only-regression",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Full session history recovers the missing decision and test intent.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 11,
+      "id": "phase2-c-11-swe-style-entire-brain-history-claude-seed-agent-history-only-regression",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate",
+      "prompt_shape": "Issue says a previous fix regressed but does not name the rationale.",
+      "queries": [
+        "Claude Code seed synthesis mode",
+        "seed agent intake template",
+        "run seed agent without local project configuration",
+        "restore agent mode in docs and tests"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-claude-seed-agent",
+      "validation_strategy": "Setup removes both docs/progress and focused tests that explained the decision."
+    },
+    {
+      "archetype": "stale-context-issue",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Brief reports dirty files and changed-symbol hints before semantic use.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 10,
+      "id": "phase2-c-12-swe-style-entire-brain-history-claude-seed-agent-stale-context-issue",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and file_read_count",
+      "prompt_shape": "Issue is created after semantic prep and mutates the relevant file post-prep.",
+      "queries": [
+        "Claude Code seed synthesis mode",
+        "seed agent intake template",
+        "run seed agent without local project configuration",
+        "restore agent mode in docs and tests"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-claude-seed-agent",
+      "validation_strategy": "Hidden tests require recognizing current worktree state."
+    },
+    {
+      "archetype": "hidden-cross-file-contract",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Semantic impact maps the non-local dependency before the edit.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 9,
+      "id": "phase2-c-13-swe-style-entire-brain-history-codex-schema-contract-hidden-cross-file-contract",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and score",
+      "prompt_shape": "Issue-style bug report omits expected files and exposes only failing behavior.",
+      "queries": [
+        "codex seed agent structured output failure",
+        "seed command reverted to legacy compatibility mode",
+        "schema dialect failure during seed synthesis",
+        "codex structured output contract decision"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-codex-schema-contract",
+      "validation_strategy": "Regression patch removes one contract edge; hidden tests assert the cross-file invariant."
+    },
+    {
+      "archetype": "large-repo-near-miss",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Semantic search disambiguates similar names and reduces exploratory reads.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 9,
+      "id": "phase2-c-14-swe-style-entire-brain-history-codex-schema-contract-large-repo-near-miss",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "tokens and changed_file_count",
+      "prompt_shape": "Issue wording names a symptom shared by several nearby modules.",
+      "queries": [
+        "codex seed agent structured output failure",
+        "seed command reverted to legacy compatibility mode",
+        "schema dialect failure during seed synthesis",
+        "codex structured output contract decision"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-codex-schema-contract",
+      "validation_strategy": "Hidden tests pass only when the shared helper changes."
+    },
+    {
+      "archetype": "history-only-regression",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Full session history recovers the missing decision and test intent.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 11,
+      "id": "phase2-c-15-swe-style-entire-brain-history-codex-schema-contract-history-only-regression",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate",
+      "prompt_shape": "Issue says a previous fix regressed but does not name the rationale.",
+      "queries": [
+        "codex seed agent structured output failure",
+        "seed command reverted to legacy compatibility mode",
+        "schema dialect failure during seed synthesis",
+        "codex structured output contract decision"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-codex-schema-contract",
+      "validation_strategy": "Setup removes both docs/progress and focused tests that explained the decision."
+    },
+    {
+      "archetype": "stale-context-issue",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Brief reports dirty files and changed-symbol hints before semantic use.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 10,
+      "id": "phase2-c-16-swe-style-entire-brain-history-codex-schema-contract-stale-context-issue",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and file_read_count",
+      "prompt_shape": "Issue is created after semantic prep and mutates the relevant file post-prep.",
+      "queries": [
+        "codex seed agent structured output failure",
+        "seed command reverted to legacy compatibility mode",
+        "schema dialect failure during seed synthesis",
+        "codex structured output contract decision"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-codex-schema-contract",
+      "validation_strategy": "Hidden tests require recognizing current worktree state."
+    },
+    {
+      "archetype": "hidden-cross-file-contract",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Semantic impact maps the non-local dependency before the edit.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 9,
+      "id": "phase2-c-17-swe-style-entire-brain-history-github-visibility-hidden-cross-file-contract",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and score",
+      "prompt_shape": "Issue-style bug report omits expected files and exposes only failing behavior.",
+      "queries": [
+        ".github visible default ignore",
+        "git ignore matching too broad",
+        "workflow files semantic snapshot"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-github-visibility",
+      "validation_strategy": "Regression patch removes one contract edge; hidden tests assert the cross-file invariant."
+    },
+    {
+      "archetype": "large-repo-near-miss",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Semantic search disambiguates similar names and reduces exploratory reads.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 9,
+      "id": "phase2-c-18-swe-style-entire-brain-history-github-visibility-large-repo-near-miss",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "tokens and changed_file_count",
+      "prompt_shape": "Issue wording names a symptom shared by several nearby modules.",
+      "queries": [
+        ".github visible default ignore",
+        "git ignore matching too broad",
+        "workflow files semantic snapshot"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-github-visibility",
+      "validation_strategy": "Hidden tests pass only when the shared helper changes."
+    },
+    {
+      "archetype": "history-only-regression",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Full session history recovers the missing decision and test intent.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 11,
+      "id": "phase2-c-19-swe-style-entire-brain-history-github-visibility-history-only-regression",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate",
+      "prompt_shape": "Issue says a previous fix regressed but does not name the rationale.",
+      "queries": [
+        ".github visible default ignore",
+        "git ignore matching too broad",
+        "workflow files semantic snapshot"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-github-visibility",
+      "validation_strategy": "Setup removes both docs/progress and focused tests that explained the decision."
+    },
+    {
+      "archetype": "stale-context-issue",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Brief reports dirty files and changed-symbol hints before semantic use.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 10,
+      "id": "phase2-c-20-swe-style-entire-brain-history-github-visibility-stale-context-issue",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and file_read_count",
+      "prompt_shape": "Issue is created after semantic prep and mutates the relevant file post-prep.",
+      "queries": [
+        ".github visible default ignore",
+        "git ignore matching too broad",
+        "workflow files semantic snapshot"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-history-github-visibility",
+      "validation_strategy": "Hidden tests require recognizing current worktree state."
+    },
+    {
+      "archetype": "hidden-cross-file-contract",
+      "brain_excellence_hypothesis": "Issue-style prompt should omit the historical invariant and exact validation path. Semantic impact maps the non-local dependency before the edit.",
+      "brain_source": "full",
+      "condition": "full_brain",
+      "discovery_score": 9,
+      "id": "phase2-c-21-swe-style-entire-brain-stale-query-default-limit-hidden-cross-file-contract",
+      "layer": "C",
+      "layer_name": "swe-bench-style",
+      "no_brain_pilot_gate": {
+        "action": "reject_unless_full_brain_is_cheaper_or_faster",
+        "max_score": 90
+      },
+      "primary_metric": "success_rate and score",
+      "prompt_shape": "Issue-style bug report omits expected files and exposes only failing behavior.",
+      "queries": [
+        "stale",
+        "semantic query default limit",
+        "TestSemanticQueryJSONIncludesFreshness"
+      ],
+      "recommended_repetitions": {
+        "pilot": 1,
+        "proof_minimum": 4
+      },
+      "repo": "entire-brain",
+      "repo_path": "entire-brain",
+      "status": "candidate-needs-pilot",
+      "task_id": "swe-style-entire-brain-stale-query-default-limit",
+      "validation_strategy": "Regression patch removes one contract edge; hidden tests assert the cross-file invariant."
+    }
+  ]
+}

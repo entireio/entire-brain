@@ -45,7 +45,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "e928db237bdba022b654709b677273cf31b9ef854d59ddfb3054e20495c5db50"
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -95,7 +95,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "e928db237bdba022b654709b677273cf31b9ef854d59ddfb3054e20495c5db50"
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -145,7 +145,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "e928db237bdba022b654709b677273cf31b9ef854d59ddfb3054e20495c5db50"
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -195,7 +195,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "e928db237bdba022b654709b677273cf31b9ef854d59ddfb3054e20495c5db50"
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -251,7 +251,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "e928db237bdba022b654709b677273cf31b9ef854d59ddfb3054e20495c5db50"
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
           },
           "server_tool_names": [
             "brain_regressions"
@@ -335,7 +335,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "e928db237bdba022b654709b677273cf31b9ef854d59ddfb3054e20495c5db50"
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
           },
           "server_tool_names": [
             "brain_regressions"
@@ -419,7 +419,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "e928db237bdba022b654709b677273cf31b9ef854d59ddfb3054e20495c5db50"
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
           },
           "server_tool_names": [
             "brain_regressions"
@@ -503,7 +503,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "e928db237bdba022b654709b677273cf31b9ef854d59ddfb3054e20495c5db50"
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
           },
           "server_tool_names": [
             "brain_regressions"
@@ -649,7 +649,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "c010825109c99734b7404e79ae630bda8dd95bda83c23fe200ba0c4bd79d96be"
+            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -697,7 +697,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "c010825109c99734b7404e79ae630bda8dd95bda83c23fe200ba0c4bd79d96be"
+            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -745,7 +745,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "c010825109c99734b7404e79ae630bda8dd95bda83c23fe200ba0c4bd79d96be"
+            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -793,7 +793,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "c010825109c99734b7404e79ae630bda8dd95bda83c23fe200ba0c4bd79d96be"
+            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -841,7 +841,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "c010825109c99734b7404e79ae630bda8dd95bda83c23fe200ba0c4bd79d96be"
+            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -889,7 +889,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "c010825109c99734b7404e79ae630bda8dd95bda83c23fe200ba0c4bd79d96be"
+            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -937,7 +937,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "c010825109c99734b7404e79ae630bda8dd95bda83c23fe200ba0c4bd79d96be"
+            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -985,7 +985,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "c010825109c99734b7404e79ae630bda8dd95bda83c23fe200ba0c4bd79d96be"
+            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1097,7 +1097,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "547fed25b56e2a45ff09b02387fcc3f61ca86038ec29097d83e514a296e20f6a"
+            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1145,7 +1145,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "547fed25b56e2a45ff09b02387fcc3f61ca86038ec29097d83e514a296e20f6a"
+            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1193,7 +1193,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "547fed25b56e2a45ff09b02387fcc3f61ca86038ec29097d83e514a296e20f6a"
+            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1241,7 +1241,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "547fed25b56e2a45ff09b02387fcc3f61ca86038ec29097d83e514a296e20f6a"
+            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1291,7 +1291,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "547fed25b56e2a45ff09b02387fcc3f61ca86038ec29097d83e514a296e20f6a"
+            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
           },
           "server_tool_names": [],
           "server_tool_results": [],
@@ -1343,7 +1343,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "547fed25b56e2a45ff09b02387fcc3f61ca86038ec29097d83e514a296e20f6a"
+            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
           },
           "server_tool_names": [],
           "server_tool_results": [],
@@ -1395,7 +1395,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "547fed25b56e2a45ff09b02387fcc3f61ca86038ec29097d83e514a296e20f6a"
+            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
           },
           "server_tool_names": [],
           "server_tool_results": [],
@@ -1447,7 +1447,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "547fed25b56e2a45ff09b02387fcc3f61ca86038ec29097d83e514a296e20f6a"
+            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
           },
           "server_tool_names": [],
           "server_tool_results": [],

@@ -22,5 +22,5 @@
   "forbidden_files": ["go.mod", "go.sum"],
   "agent_hidden_paths": ["benchmarks/agent-brain"],
   "leak_markers": ["release-semantic-entire-cli-xdg-canary-20260610T0200Z"],
-  "brain_queries": ["pluginEnvPrefixes", "XDG_", "credentials are dropped"]
+  "brain_queries": ["plugin subprocess environment allowlist prefixes", "credential variables withheld unless user opt-in", "external plugins lost a passthrough environment namespace", "desktop base directory variables not forwarded"]
 }
