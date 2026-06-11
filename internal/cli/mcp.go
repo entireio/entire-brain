@@ -146,10 +146,6 @@ func mcpDebugToolCall(raw json.RawMessage) mcpDebugToolCallInfo {
 	return mcpDebugToolCallInfo{name: name, safeArgs: safe}
 }
 
-func mcpDebugToolName(raw json.RawMessage) string {
-	return mcpDebugToolCall(raw).name
-}
-
 func mcpDebugLogToolResult(path string, msg mcpMessage, response mcpMessage) {
 	if msg.Method != "tools/call" {
 		return

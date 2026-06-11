@@ -21,6 +21,7 @@
 **None.** No record failed an integrity re-check.
 
 ## Soft notes (honest failures / context, NOT cheating)
+- `N:mcp_call_count_mismatch`: 8
 - `B:mcp_history_partial_missing_brain_brief`: 4
 - `B:mcp_history_partial_missing_brain_search`: 4
 

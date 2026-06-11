@@ -383,8 +383,6 @@ type distillCache struct {
 }
 
 type distillPlan struct {
-	Manifest           *exportManifest
-	PrevCache          distillCache
 	Sessions           []distillSessionPlan
 	Work               []distillChunkWork
 	BranchOrder        []string
@@ -412,13 +410,14 @@ type distillSessionPlan struct {
 	ChunkIndexes      []int
 }
 
+// distillChunkWork is one planned (session, chunk) extraction call. Only the
+// indexes are kept: the dry-run reports counts and per-session linkage, and
+// carrying full session/chunk/anchor copies for every planned call held the
+// whole corpus's chunk text in the plan for nothing.
 type distillChunkWork struct {
 	SessionIndex int
 	ChunkIndex   int
 	Branch       string
-	Session      exportSession
-	Chunk        transcriptChunk
-	Anchor       factAnchor
 }
 
 type distillDryRunReport struct {
@@ -431,7 +430,7 @@ type distillDryRunReport struct {
 	Model                         string                 `json:"model,omitempty"`
 	Effort                        string                 `json:"effort,omitempty"`
 	Jobs                          int                    `json:"jobs"`
-	EffectiveJobs                 int                    `json:"effective_extraction_jobs"`
+	ExtractionJobsCap             int                    `json:"extraction_jobs_cap"`
 	MaxChunkBytes                 int                    `json:"max_chunk_bytes"`
 	Confidence                    float64                `json:"confidence_threshold"`
 	Sessions                      int                    `json:"sessions"`
@@ -685,14 +684,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	// this resolved value, not session.Branch, so sessions with an empty branch
 	// are not silently excluded from a `--branch <default>` run.
 	resolveBranch := func(session exportSession) string {
-		branch := session.Branch
-		if branch == "" {
-			branch = strings.TrimSpace(manifest.DefaultBranch)
-		}
-		if branch == "" {
-			branch = distillDefaultBranch
-		}
-		return branch
+		return resolveDistillBranch(manifest, session)
 	}
 
 	// Denominator for progress: sessions that pass the branch/session filters.
@@ -988,13 +980,13 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		source.Branch = strings.TrimSpace(distillOpts.branch)
 		source.Force = distillOpts.force
 		source.Jobs = distillRequestedJobs(distillOpts)
-		source.EffectiveJobs = distillEffectiveExtractionJobs(extractionAgentCalls, distillOpts)
+		source.ExtractionJobsCap = distillEffectiveExtractionJobs(extractionAgentCalls, distillOpts)
 		source.MaxChunkBytes = distillMaxChunkBytes(distillOpts)
 		source.Confidence = threshold
 		source.ExtractionCalls = extractionAgentCalls
 		source.ReconcileCalls = reconcileAgentCalls
 		source.TotalAgentCalls = extractionAgentCalls + reconcileAgentCalls
-		source.ExtractionSeconds = extractionSeconds
+		source.ExtractionWaitSeconds = extractionSeconds
 		source.ReconcileSeconds = reconcileSeconds
 		source.WriteSeconds = time.Since(writeStarted).Seconds()
 		source.TotalSeconds = time.Since(runStarted).Seconds()
@@ -1040,7 +1032,7 @@ func buildDistillDryRunReport(brainDir string, distillOpts distillCommandOptions
 		Model:                         strings.TrimSpace(distillOpts.model),
 		Effort:                        strings.TrimSpace(distillOpts.effort),
 		Jobs:                          distillRequestedJobs(distillOpts),
-		EffectiveJobs:                 distillEffectiveExtractionJobs(len(plan.Work), distillOpts),
+		ExtractionJobsCap:             distillEffectiveExtractionJobs(len(plan.Work), distillOpts),
 		MaxChunkBytes:                 distillMaxChunkBytes(distillOpts),
 		Confidence:                    distillConfidenceThreshold(distillOpts),
 		Sessions:                      plan.TotalSessions,
@@ -1186,7 +1178,7 @@ func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts dis
 	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].CreatedAt.Before(sessions[j].CreatedAt) })
 	prevCache := loadDistillCache(brainDir)
 	branchSeen := map[string]struct{}{}
-	plan := distillPlan{Manifest: manifest, PrevCache: prevCache, CacheSalt: cacheSalt}
+	plan := distillPlan{CacheSalt: cacheSalt}
 	for _, session := range sessions {
 		branch := resolveDistillBranch(manifest, session)
 		if distillOpts.branch != "" && branch != distillOpts.branch {
@@ -1229,21 +1221,13 @@ func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts dis
 			}
 		}
 		plan.SessionsToDistill++
-		for chunkIndex, chunk := range chunks {
+		for chunkIndex := range chunks {
 			workIndex := len(plan.Work)
 			sessionPlan.ChunkIndexes = append(sessionPlan.ChunkIndexes, workIndex)
 			plan.Work = append(plan.Work, distillChunkWork{
 				SessionIndex: len(plan.Sessions),
 				ChunkIndex:   chunkIndex,
 				Branch:       branch,
-				Session:      session,
-				Chunk:        chunk,
-				Anchor: factAnchor{
-					SessionID:    session.SessionID,
-					CheckpointID: session.LatestCheckpoint,
-					Transcript:   filepath.ToSlash(session.TranscriptPath),
-					Line:         chunk.StartLine,
-				},
 			})
 		}
 		plan.Chunks += len(chunks)
@@ -1800,19 +1784,24 @@ func execDistillAgent(ctx context.Context, dir string, args []string, input []by
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		return "", fmt.Errorf("agent timed out after %s", timeout)
 	}
-	if stdout.Exceeded() {
-		return "", fmt.Errorf("agent output exceeds %d bytes", distillMaxOutputBytes)
-	}
-	if stderr.Exceeded() {
-		return "", fmt.Errorf("agent stderr exceeds %d bytes", distillMaxOutputBytes)
-	}
 	if err != nil {
+		// The agent's own error first: reporting a byte-cap instead of the
+		// real failure buries the actionable message. The captured (possibly
+		// truncated) stderr still rides along as context.
 		warning := strings.TrimSpace(stderr.String())
 		if warning == "" {
 			warning = strings.TrimSpace(stdout.String())
 		}
 		return "", fmt.Errorf("agent failed: %w: %s", err, truncateAgentWarning(warning))
 	}
+	if stdout.Exceeded() {
+		// Truncated STDOUT on success is still an error: the fact lines may
+		// have been cut mid-stream.
+		return "", fmt.Errorf("agent output exceeds %d bytes", distillMaxOutputBytes)
+	}
+	// Chatty stderr on a SUCCESSFUL run is diagnostics, not failure — the
+	// capped buffer already bounds memory; failing the call would turn a
+	// verbose-but-correct agent into a fake outage.
 	return stdout.String(), nil
 }
 

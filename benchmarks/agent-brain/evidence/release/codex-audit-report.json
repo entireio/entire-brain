@@ -213,6 +213,7 @@
           },
           "flags": [],
           "notes": [
+            "N:mcp_call_count_mismatch(record=2,server_log=1)",
             "B:mcp_history_partial_missing_brain_brief",
             "B:mcp_history_partial_missing_brain_search"
           ],
@@ -289,6 +290,7 @@
           },
           "flags": [],
           "notes": [
+            "N:mcp_call_count_mismatch(record=2,server_log=1)",
             "B:mcp_history_partial_missing_brain_brief",
             "B:mcp_history_partial_missing_brain_search"
           ],
@@ -365,6 +367,7 @@
           },
           "flags": [],
           "notes": [
+            "N:mcp_call_count_mismatch(record=2,server_log=1)",
             "B:mcp_history_partial_missing_brain_brief",
             "B:mcp_history_partial_missing_brain_search"
           ],
@@ -441,6 +444,7 @@
           },
           "flags": [],
           "notes": [
+            "N:mcp_call_count_mismatch(record=2,server_log=1)",
             "B:mcp_history_partial_missing_brain_brief",
             "B:mcp_history_partial_missing_brain_search"
           ],
@@ -1135,7 +1139,9 @@
             "record_fingerprint": "b965f40cf269f5f6abc80a54df8fa16e0a4dca3d8eab56ed32a2abbb129853aa"
           },
           "flags": [],
-          "notes": [],
+          "notes": [
+            "N:mcp_call_count_mismatch(record=4,server_log=2)"
+          ],
           "pass": true,
           "server_tool_names": [],
           "server_tool_results": [],
@@ -1178,7 +1184,9 @@
             "record_fingerprint": "171a1bfdfd6892dd6c3f399bbb3b17fbee8db5903b69c9a13b4ca46d5b77d4b4"
           },
           "flags": [],
-          "notes": [],
+          "notes": [
+            "N:mcp_call_count_mismatch(record=4,server_log=2)"
+          ],
           "pass": true,
           "server_tool_names": [],
           "server_tool_results": [],
@@ -1221,7 +1229,9 @@
             "record_fingerprint": "ed048849461003aba7a21c23d810f358fc2e5cbaf4de26c7436e4fc54595e488"
           },
           "flags": [],
-          "notes": [],
+          "notes": [
+            "N:mcp_call_count_mismatch(record=4,server_log=2)"
+          ],
           "pass": true,
           "server_tool_names": [],
           "server_tool_results": [],
@@ -1264,7 +1274,9 @@
             "record_fingerprint": "610d386bc0c8bce8f555608a94e921671bbb32d74f06d3204c36e1e567898da1"
           },
           "flags": [],
-          "notes": [],
+          "notes": [
+            "N:mcp_call_count_mismatch(record=4,server_log=2)"
+          ],
           "pass": true,
           "server_tool_names": [],
           "server_tool_results": [],
@@ -1355,6 +1367,7 @@
     },
     "flag_kinds": {},
     "note_kinds": {
+      "N:mcp_call_count_mismatch": 8,
       "B:mcp_history_partial_missing_brain_brief": 4,
       "B:mcp_history_partial_missing_brain_search": 4
     }

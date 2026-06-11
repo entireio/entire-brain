@@ -1912,7 +1912,7 @@ func reuseTranscriptFromCursor(outputDir string, cursor *exportCursor, session e
 
 func writeTranscriptFile(outputDir, relPath string, data []byte) error {
 	clean := filepath.Clean(filepath.FromSlash(relPath))
-	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("unsafe transcript path: %s", relPath)
 	}
 	dir := filepath.Dir(clean)

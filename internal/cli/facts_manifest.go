@@ -97,8 +97,24 @@ func preserveFactDistillEvidence(source, previous *factSourceManifest) {
 	source.CacheHits = previous.CacheHits
 	source.FailedChunks = previous.FailedChunks
 	source.PreprocessedBytes = previous.PreprocessedBytes
-	source.ExtractionSeconds = previous.ExtractionSeconds
+	source.ExtractionWaitSeconds = previous.ExtractionWaitSeconds
 	source.ReconcileSeconds = previous.ReconcileSeconds
 	source.WriteSeconds = previous.WriteSeconds
+	// The run-configuration and call-count evidence must survive too: facts
+	// admin commands (review/promote/gc) rebuild this summary, and zeroing
+	// these blanks the fields the release audit reads from the manifest.
+	source.Agent = previous.Agent
+	source.Model = previous.Model
+	source.Effort = previous.Effort
+	source.Branch = previous.Branch
+	source.Force = previous.Force
+	source.Jobs = previous.Jobs
+	source.ExtractionJobsCap = previous.ExtractionJobsCap
+	source.MaxChunkBytes = previous.MaxChunkBytes
+	source.Confidence = previous.Confidence
+	source.ExtractionCalls = previous.ExtractionCalls
+	source.ReconcileCalls = previous.ReconcileCalls
+	source.TotalAgentCalls = previous.TotalAgentCalls
+	source.TotalSeconds = previous.TotalSeconds
 	source.Warnings = append([]string(nil), previous.Warnings...)
 }

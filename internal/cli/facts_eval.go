@@ -442,9 +442,13 @@ The tasks file is a JSON array:
 			if err := expCache.save(); err != nil {
 				return fmt.Errorf("save expansion cache: %w", err)
 			}
+			tasksSHA := fileSHA256Hex(tasksFile)
+			if tasksSHA == "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not hash tasks file %s; eval-compare pairing checks will downgrade this run\n", tasksFile)
+			}
 			summary := summarizeEvalWithConfig(results, &evalRunConfig{
 				TasksPath:             tasksFile,
-				TasksSHA256:           fileSHA256Hex(tasksFile),
+				TasksSHA256:           tasksSHA,
 				BrainManifestSHA256:   evalBrainManifestSHA256(brainDir),
 				Branch:                defaultBranch,
 				K:                     k,

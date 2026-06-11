@@ -402,16 +402,16 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path, repo_root: pathlib.
     for label, run in (("serial_run", serial), ("parallel_run", parallel)):
         if config_tuple(run) != expected_config:
             flags.append(f"{label}: agent/model/branch/force/chunk/confidence config differs from dry_run")
-        if run.get("jobs") is None or run.get("effective_extraction_jobs") is None:
-            flags.append(f"{label}: jobs and effective_extraction_jobs are required")
+        if run.get("jobs") is None or run.get("extraction_jobs_cap") is None:
+            flags.append(f"{label}: jobs and extraction_jobs_cap are required")
         if not positive_number(run.get("max_chunk_bytes")):
             flags.append(f"{label}: max_chunk_bytes must be positive")
         if not positive_number(run.get("total_seconds")):
             flags.append(f"{label}: total_seconds must be positive")
-        for field in ("extraction_seconds", "reconcile_seconds", "write_seconds"):
+        for field in ("extraction_wait_seconds", "reconcile_seconds", "write_seconds"):
             if not nonnegative_number(run.get(field)):
                 flags.append(f"{label}: {field} must be non-negative")
-        component_seconds = sum(float(run.get(field) or 0) for field in ("extraction_seconds", "reconcile_seconds", "write_seconds"))
+        component_seconds = sum(float(run.get(field) or 0) for field in ("extraction_wait_seconds", "reconcile_seconds", "write_seconds"))
         if positive_number(run.get("total_seconds")) and component_seconds > float(run["total_seconds"]) + 0.01:
             flags.append(f"{label}: timing components exceed total_seconds")
         if not isinstance(run.get("extraction_agent_calls"), int) or run.get("extraction_agent_calls") <= 0:
@@ -435,12 +435,12 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path, repo_root: pathlib.
 
     if serial.get("jobs") != 1:
         flags.append("serial_run: jobs must be 1")
-    if serial.get("effective_extraction_jobs") not in (0, 1):
-        flags.append("serial_run: effective_extraction_jobs must be 1 or 0 when no work exists")
+    if serial.get("extraction_jobs_cap") not in (0, 1):
+        flags.append("serial_run: extraction_jobs_cap must be 1 or 0 when no work exists")
     if not isinstance(parallel.get("jobs"), int) or parallel.get("jobs") <= 1:
         flags.append("parallel_run: jobs must be greater than 1")
-    if not isinstance(parallel.get("effective_extraction_jobs"), int) or parallel.get("effective_extraction_jobs") <= 1:
-        flags.append("parallel_run: effective_extraction_jobs must be greater than 1")
+    if not isinstance(parallel.get("extraction_jobs_cap"), int) or parallel.get("extraction_jobs_cap") <= 1:
+        flags.append("parallel_run: extraction_jobs_cap must be greater than 1")
 
     comparable_fields = ("facts", "distilled", "authored", "superseded", "proposals", "chunks_scanned", "chunks_distilled", "preprocessed_bytes", "extraction_agent_calls")
     for field in comparable_fields:
@@ -477,13 +477,13 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path, repo_root: pathlib.
         },
         "serial_run": {
             "jobs": serial.get("jobs"),
-            "effective_extraction_jobs": serial.get("effective_extraction_jobs"),
+            "extraction_jobs_cap": serial.get("extraction_jobs_cap"),
             "total_seconds": serial.get("total_seconds"),
             "total_agent_calls": serial.get("total_agent_calls"),
         },
         "parallel_run": {
             "jobs": parallel.get("jobs"),
-            "effective_extraction_jobs": parallel.get("effective_extraction_jobs"),
+            "extraction_jobs_cap": parallel.get("extraction_jobs_cap"),
             "total_seconds": parallel.get("total_seconds"),
             "total_agent_calls": parallel.get("total_agent_calls"),
         },
