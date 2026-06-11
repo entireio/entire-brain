@@ -252,15 +252,17 @@ independent audit rejected it with 0 proof-ready comparisons and 3 hard
 `E:agent_leak_audit_failed` flags. This suite is a negative pilot, not release
 evidence.
 
-Replay-lab release evidence status: the committed release candidate suites are
-retained for auditability, but they are no longer citable proof. Open release
-blocker B1 (`docs/release-blockers.md`) found that the brain-arm prompts of the
-history, generic MCP-history, and location-only Radar suites carry
-answer-bearing query terms that the no-brain arm did not receive. The auditor
-now detects this directly, also flags retained task hash drift, and the
+Replay-lab release evidence status: the retained release candidate suites are
+kept for auditability, but they are no longer citable proof. Open release
+blocker B1 (`docs/release-blockers.md`) found that those retained artifacts were
+produced from task configs whose brain-arm prompts carried answer-bearing query
+terms that the no-brain arm did not receive. The auditor now detects
+high-confidence query leaks, also flags retained task hash drift, and the
 committed release manifest is in `claim_policy: "no_release_claim"` mode. The
-retained audit therefore passes only as a no-claim artifact with zero
-proof-ready comparisons and 35 hard flags; clean reruns are required before any
+affected committed release-panel tasks now use symptom-level hints and
+release-panel preflight rejects answer-bearing hints before new release runs.
+The retained audit therefore passes only as a no-claim artifact with zero
+proof-ready comparisons and 31 hard flags; clean reruns are required before any
 brain-attribution or replay-lab agent-lift claim is citable.
 
 Semantic replay-lab pilot: the committed `release-entire-cli-semantic-xdg`
@@ -503,8 +505,8 @@ Release claims must stay local-first and evidence-backed:
   retained `release-candidate-cli-radar-mcp-del-20260610-r2` candidate lane.
   Older clean runs without `tool_result` completion lines remain rejected. The
   retained rerun has useful server-side MCP/Radar activity, but B1 demotes it
-  to no-claim because the brain arm received answer-bearing query terms that
-  the no-brain arm did not receive. It is not citable as focused
+  to no-claim because its retained records were produced before the current
+  symptom-level query hints and preflight guard. It is not citable as focused
   location-only deletion Radar, workspace Radar, or broad multi-task proof until
   the suite reruns cleanly.
 - The committed `release-entire-cli-mcp-manual-attribution` panel targets a
@@ -521,9 +523,9 @@ Release claims must stay local-first and evidence-backed:
 - Retained MCP-history candidate evidence includes
   `release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress` under
   `benchmarks/agent-brain/evidence/release`. Its raw numbers remain useful
-  audit history, but B1 demotes the comparison to no-claim because the brain arm
-  received the exact fix identifier and hidden-adjacent test name as query
-  terms. It is not citable as MCP correctness/pass-rate, named-tool MCP, or
+  audit history, but B1 demotes the comparison to no-claim because its retained
+  records were produced before the current symptom-level query hints and
+  preflight guard. It is not citable as MCP correctness/pass-rate, named-tool MCP, or
   efficiency proof until rerun cleanly.
 - Retained MCP/Radar tool-contract evidence now includes
   `benchmarks/agent-brain/evidence/radar-tool`: a hashed `go test -json`
@@ -592,9 +594,9 @@ whether the MCP server actually handled the named Radar tool and completed it.
 This keeps a stale promotable pilot from hiding a failed promoted rerun. The
 retained Radar release candidate
 `release-candidate-cli-radar-mcp-del-20260610-r2` is now no-claim because B1
-found answer-bearing brain-only query hints; its server-side MCP/Radar records
-remain useful audit context, but it is not citable agent-lift proof. Earlier
-2026-06-10 calibration runs that saturated, were noisy, or lacked
+found answer-bearing brain-only query hints in the retained artifact lineage;
+its server-side MCP/Radar records remain useful audit context, but it is not
+citable agent-lift proof. Earlier 2026-06-10 calibration runs that saturated, were noisy, or lacked
 named-tool/result proof remain rejected. Suites that are stopped after an
 already-high no-brain score are reported as `no-brain-too-easy`, and
 record-only suites without `summary.json` are reported as `incomplete-suite`,
@@ -678,8 +680,9 @@ repo/access/artifacts are available:
   committed under `benchmarks/agent-brain/evidence/release` as sanitized
   evidence. The current retained history, generic MCP-history, and
   location-only Radar agent-lift candidates are no-claim artifacts because B1
-  detects answer-bearing brain-only hints; semantic/facts, workspace Radar, and
-  broader multi-task replay evidence are still needed for broader claims.
+  detects answer-bearing brain-only hints in their retained artifact lineage;
+  semantic/facts, workspace Radar, and broader multi-task replay evidence are
+  still needed for broader claims.
 - `mise run release:evidence` must pass before any replay-lab proof claim; it runs
   benchmark harness self-tests and then audits explicit `release-candidate-*`
   suites through `benchmarks/agent-brain/evidence/release/manifest.json`.

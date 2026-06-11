@@ -36,9 +36,9 @@
     "release-radar-review-base-scope-canary-20260610T0500Z"
   ],
   "brain_queries": [
-    "reviewContextCommitMessages",
-    "scopeBaseRef",
-    "BaseFlagThreadsThroughToPromptAndBanner"
+    "explicit review base prompt scope",
+    "review checkpoint context uses caller base",
+    "base flag affects review comparison range"
   ],
   "copy_checkpoint_ref_from_source": true
 }

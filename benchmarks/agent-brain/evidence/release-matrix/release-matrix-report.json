@@ -9,7 +9,7 @@
   "rows": [
     {
       "claimable": false,
-      "detail": "B1 query-hint/task-hash confound is detected; clean replay-lab reruns are required before citing agent lift",
+      "detail": "B1 retained query-hint/task-hash confound is detected; clean replay-lab reruns are required before citing agent lift",
       "evidence": "benchmarks/agent-brain/evidence/release/codex-audit-report.json",
       "flags": [],
       "status": "no-claim",

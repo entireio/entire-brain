@@ -1271,6 +1271,32 @@ class PanelAndStabilityTests(unittest.TestCase):
             task_path.unlink(missing_ok=True)
         self.assertIn("has no explicit leak_markers canary", " | ".join(errors))
 
+        try:
+            task_path.write_text(json.dumps({
+                "id": "release-leaky-query-fixture",
+                "repo": "entire-brain",
+                "repo_path": "entire-brain",
+                "conditions": ["no_brain", "semantic_brain"],
+                "prompt": "Fix the regression.",
+                "hide_validation_from_agent": True,
+                "validation": ["go test ./internal/cli -run TestHiddenReleaseFixture"],
+                "agent_hidden_paths": ["benchmarks/agent-brain"],
+                "leak_markers": ["release-leaky-query-fixture-canary"],
+                "brain_queries": ["TestHiddenReleaseFixture"],
+            }))
+            errors = run.panel_preflight(
+                {
+                    "name": "release-leaky-query",
+                    "runners": ["codex:gpt-test:low"],
+                    "tasks": [task_path.name],
+                    "conditions": ["no_brain", "semantic_brain"],
+                    "repetitions": 4,
+                }
+            )
+        finally:
+            task_path.unlink(missing_ok=True)
+        self.assertIn("answer-bearing brain_queries", " | ".join(errors))
+
     def test_committed_release_panels_pass_preflight(self):
         for path in sorted((run.BENCH_ROOT / "panels").glob("release-*.json")):
             panel = json.loads(path.read_text())

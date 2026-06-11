@@ -39,9 +39,9 @@
     "release-radar-transcript-reresolve-canary-20260610T0530Z"
   ],
   "brain_queries": [
-    "resolveTranscriptPath",
-    "TranscriptPath",
-    "ReResolvesToNestedLayout"
+    "relocated transcript resolver repeats discovery",
+    "nested transcript path state update",
+    "session transcript re-resolution drift"
   ],
   "copy_checkpoint_ref_from_source": true
 }

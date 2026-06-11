@@ -23,8 +23,8 @@
   "agent_hidden_paths": ["benchmarks/agent-brain"],
   "leak_markers": ["release-semantic-tokenized-idf-canary-20260610T0415Z"],
   "brain_queries": [
-    "findSemanticSymbolsTokenizedSQLite IDF token weighting",
-    "tokenIDFWeight rare token ranking",
-    "TestTokenizedSearchRanksRareTokenAboveCommonTokens"
+    "natural-language semantic ranking",
+    "rare concept should outrank helper terms",
+    "tokenized search scoring regression"
   ]
 }

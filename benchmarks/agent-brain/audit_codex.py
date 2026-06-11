@@ -476,12 +476,26 @@ def normalized_words(text: str) -> list[str]:
     return [w.lower() for w in re.findall(r"[A-Za-z0-9_]+", text.replace("`", " ")) if w]
 
 
-def query_substrings(words: list[str], min_len: int = 3) -> set[str]:
+def query_substrings(words: list[str], min_len: int = 4) -> set[str]:
     out: set[str] = set()
     for size in range(min_len, len(words) + 1):
         for i in range(0, len(words) - size + 1):
             out.add(" ".join(words[i:i + size]))
     return out
+
+
+def code_like_query_token(token: str) -> bool:
+    if TEST_NAME_RE.fullmatch(token):
+        return True
+    if "_" in token or "(" in token or ")" in token:
+        return True
+    has_lower = any(ch.islower() for ch in token)
+    has_upper = any(ch.isupper() for ch in token)
+    if has_lower and has_upper:
+        return True
+    if re.fullmatch(r"[0-9a-f]{12,}", token):
+        return True
+    return False
 
 
 def query_tokens(text: str) -> set[str]:
@@ -492,6 +506,8 @@ def query_tokens(text: str) -> set[str]:
         if len(stripped) < 6 and not TEST_NAME_RE.fullmatch(stripped):
             continue
         if lower in GENERIC_QUERY_TOKENS:
+            continue
+        if not code_like_query_token(stripped):
             continue
         out.add(stripped)
     return out

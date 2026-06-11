@@ -53,17 +53,18 @@ Current retained no-claim artifacts:
 
 - `release-candidate-entire-brain-schema-contract-20260610T0115Z`: one focused
   history/full-brain schema-contract task, 4 repetitions per side. It is
-  retained as invalidated candidate evidence because B1 finds answer-bearing
-  `brain_queries` and task hash drift in the committed artifact lineage.
+  retained as invalidated candidate evidence because B1 found answer-bearing
+  `brain_queries` in the artifact lineage, and the current sanitized task hash
+  no longer matches the retained records.
 - `release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress`: one
   focused MCP-history manual-attribution task, 4 repetitions per side. The
   numbers are retained for audit history, but the comparison is not citable
-  because the brain arm received answer-bearing query terms that the no-brain
-  arm did not receive.
+  because the retained brain arm received answer-bearing query terms that the
+  no-brain arm did not receive.
 - `release-candidate-cli-radar-mcp-del-20260610-r2`:
   one deletion-attribution Radar task, 4 repetitions per side. Its server-side
   MCP/Radar activity is useful audit context, but the agent-lift comparison is
-  not citable while B1 remains open.
+  not citable until rerun from the sanitized task config while B1 remains open.
 
 Radar agent-lift status: no retained replay-lab agent-lift suite is currently
 release-citable. The deterministic MCP/Radar tool-contract evidence remains

@@ -30,10 +30,10 @@
   "hide_validation_from_agent": true,
   "leak_markers": ["release-history-codex-schema-contract-canary-20260610T0018Z"],
   "brain_queries": [
-    "Checkpoint-context review reverted Codex `--output-schema` usage",
-    "schema-dialect failure",
-    "prompt plus local `schema_version` and `status` validation",
-    "should rely on prompt plus local validation"
+    "seed-agent structured-output compatibility failure",
+    "codex exec read-only invocation",
+    "checkpointed seed-agent compatibility decision",
+    "seed agent command coverage regression"
   ],
   "history_excerpt_lines": 24
 }

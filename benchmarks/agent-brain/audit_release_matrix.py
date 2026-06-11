@@ -137,7 +137,7 @@ def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
             release_flags.append("release no-claim audit unexpectedly retains proof-ready comparisons")
         release_status = "no-claim"
         release_claimable = False
-        release_detail = "B1 query-hint/task-hash confound is detected; clean replay-lab reruns are required before citing agent lift"
+        release_detail = "B1 retained query-hint/task-hash confound is detected; clean replay-lab reruns are required before citing agent lift"
     else:
         for scope in manifest.get("required_release_proof_scopes", []):
             if int(scopes.get(scope) or 0) <= 0:

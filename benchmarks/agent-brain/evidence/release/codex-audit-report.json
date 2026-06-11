@@ -45,7 +45,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "d4b592d1d488f782b36e7a8866d06018e0458f8b22c6907ec60d859fd2369213"
+            "sha256": "e928db237bdba022b654709b677273cf31b9ef854d59ddfb3054e20495c5db50"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -95,7 +95,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "d4b592d1d488f782b36e7a8866d06018e0458f8b22c6907ec60d859fd2369213"
+            "sha256": "e928db237bdba022b654709b677273cf31b9ef854d59ddfb3054e20495c5db50"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -145,7 +145,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "d4b592d1d488f782b36e7a8866d06018e0458f8b22c6907ec60d859fd2369213"
+            "sha256": "e928db237bdba022b654709b677273cf31b9ef854d59ddfb3054e20495c5db50"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -195,7 +195,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "d4b592d1d488f782b36e7a8866d06018e0458f8b22c6907ec60d859fd2369213"
+            "sha256": "e928db237bdba022b654709b677273cf31b9ef854d59ddfb3054e20495c5db50"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -240,8 +240,7 @@
             "record_fingerprint": "df714bbe45a365c26ed3475fcaca02cd79bba5d0c5f76a9977d96195d2aeef77"
           },
           "flags": [
-            "H:task_config_sha256_mismatch",
-            "J:answer_bearing_brain_queries(count=6)"
+            "H:task_config_sha256_mismatch"
           ],
           "notes": [
             "N:mcp_call_count_mismatch(record=2,server_log=1)",
@@ -252,51 +251,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "d4b592d1d488f782b36e7a8866d06018e0458f8b22c6907ec60d859fd2369213",
-            "answer_bearing_brain_queries": [
-              {
-                "query_index": 0,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "271933c184e28c42",
-                "term_preview": "AttributionBaseCommit"
-              },
-              {
-                "query_index": 0,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "542fca62348fc051",
-                "term_preview": "trailer"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "271933c184e28c42",
-                "term_preview": "AttributionBaseCommit"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "add20569cdf376a5",
-                "term_preview": "BaseCommit"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "e4949e328d9e9825",
-                "term_preview": "realign"
-              },
-              {
-                "query_index": 3,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "a1fe8ddd40352eb2",
-                "term_preview": "newHead"
-              }
-            ]
+            "sha256": "e928db237bdba022b654709b677273cf31b9ef854d59ddfb3054e20495c5db50"
           },
           "server_tool_names": [
             "brain_regressions"
@@ -369,8 +324,7 @@
             "record_fingerprint": "a8f1d864c0aabab70687a97b190e9c0d5bd7ce09600c3f65124527efbdf19e48"
           },
           "flags": [
-            "H:task_config_sha256_mismatch",
-            "J:answer_bearing_brain_queries(count=6)"
+            "H:task_config_sha256_mismatch"
           ],
           "notes": [
             "N:mcp_call_count_mismatch(record=2,server_log=1)",
@@ -381,51 +335,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "d4b592d1d488f782b36e7a8866d06018e0458f8b22c6907ec60d859fd2369213",
-            "answer_bearing_brain_queries": [
-              {
-                "query_index": 0,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "271933c184e28c42",
-                "term_preview": "AttributionBaseCommit"
-              },
-              {
-                "query_index": 0,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "542fca62348fc051",
-                "term_preview": "trailer"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "271933c184e28c42",
-                "term_preview": "AttributionBaseCommit"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "add20569cdf376a5",
-                "term_preview": "BaseCommit"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "e4949e328d9e9825",
-                "term_preview": "realign"
-              },
-              {
-                "query_index": 3,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "a1fe8ddd40352eb2",
-                "term_preview": "newHead"
-              }
-            ]
+            "sha256": "e928db237bdba022b654709b677273cf31b9ef854d59ddfb3054e20495c5db50"
           },
           "server_tool_names": [
             "brain_regressions"
@@ -498,8 +408,7 @@
             "record_fingerprint": "a8ee03faeab8306ff57ea969533a1098421b06049ac903f23188db9f51577445"
           },
           "flags": [
-            "H:task_config_sha256_mismatch",
-            "J:answer_bearing_brain_queries(count=6)"
+            "H:task_config_sha256_mismatch"
           ],
           "notes": [
             "N:mcp_call_count_mismatch(record=2,server_log=1)",
@@ -510,51 +419,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "d4b592d1d488f782b36e7a8866d06018e0458f8b22c6907ec60d859fd2369213",
-            "answer_bearing_brain_queries": [
-              {
-                "query_index": 0,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "271933c184e28c42",
-                "term_preview": "AttributionBaseCommit"
-              },
-              {
-                "query_index": 0,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "542fca62348fc051",
-                "term_preview": "trailer"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "271933c184e28c42",
-                "term_preview": "AttributionBaseCommit"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "add20569cdf376a5",
-                "term_preview": "BaseCommit"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "e4949e328d9e9825",
-                "term_preview": "realign"
-              },
-              {
-                "query_index": 3,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "a1fe8ddd40352eb2",
-                "term_preview": "newHead"
-              }
-            ]
+            "sha256": "e928db237bdba022b654709b677273cf31b9ef854d59ddfb3054e20495c5db50"
           },
           "server_tool_names": [
             "brain_regressions"
@@ -627,8 +492,7 @@
             "record_fingerprint": "bc69b09e6491c80c6c005f5824a5ea52d5aeaac3e19ae90661aef752cf2205f8"
           },
           "flags": [
-            "H:task_config_sha256_mismatch",
-            "J:answer_bearing_brain_queries(count=6)"
+            "H:task_config_sha256_mismatch"
           ],
           "notes": [
             "N:mcp_call_count_mismatch(record=2,server_log=1)",
@@ -639,51 +503,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
-            "sha256": "d4b592d1d488f782b36e7a8866d06018e0458f8b22c6907ec60d859fd2369213",
-            "answer_bearing_brain_queries": [
-              {
-                "query_index": 0,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "271933c184e28c42",
-                "term_preview": "AttributionBaseCommit"
-              },
-              {
-                "query_index": 0,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "542fca62348fc051",
-                "term_preview": "trailer"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "271933c184e28c42",
-                "term_preview": "AttributionBaseCommit"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "add20569cdf376a5",
-                "term_preview": "BaseCommit"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "e4949e328d9e9825",
-                "term_preview": "realign"
-              },
-              {
-                "query_index": 3,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "a1fe8ddd40352eb2",
-                "term_preview": "newHead"
-              }
-            ]
+            "sha256": "e928db237bdba022b654709b677273cf31b9ef854d59ddfb3054e20495c5db50"
           },
           "server_tool_names": [
             "brain_regressions"
@@ -821,13 +641,15 @@
             "run_config_fingerprint": "808140ae8075a95091bbe73cd0eb280bedde2007d164962be6be5c4e14a60fc0",
             "record_fingerprint": "bdcf37d40a1473030c0fdaf650e43f8a1427a37c862c28571ad06fe17cb9d33d"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
           "notes": [],
-          "pass": true,
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675"
+            "sha256": "c010825109c99734b7404e79ae630bda8dd95bda83c23fe200ba0c4bd79d96be"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -867,13 +689,15 @@
             "run_config_fingerprint": "d4379d76b881dd2c32553a424e263e5673479e48c7d466ea61fbb3fa9f568554",
             "record_fingerprint": "530541a56b3f2aef9444d08e1d222540ad48b8925975eb79c8ea5416389c163f"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
           "notes": [],
-          "pass": true,
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675"
+            "sha256": "c010825109c99734b7404e79ae630bda8dd95bda83c23fe200ba0c4bd79d96be"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -913,13 +737,15 @@
             "run_config_fingerprint": "b5856bfc007321d03cec14a18ead99df032230a81fdbc2aeddf09c9aee14b4de",
             "record_fingerprint": "c1da8fe11d9436a7fd2169421e563bf14912adbe31cabb4b789a356342490c15"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
           "notes": [],
-          "pass": true,
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675"
+            "sha256": "c010825109c99734b7404e79ae630bda8dd95bda83c23fe200ba0c4bd79d96be"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -959,13 +785,15 @@
             "run_config_fingerprint": "1f9c120b276c4eac21f39f51b2270272c1145f99aef60e53dc61b4ea7dd22177",
             "record_fingerprint": "45fa68dffd93bdf44221e9cbfc0f87199d4ff94fabb5751cefc8a85e6139a71e"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
           "notes": [],
-          "pass": true,
+          "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675"
+            "sha256": "c010825109c99734b7404e79ae630bda8dd95bda83c23fe200ba0c4bd79d96be"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1006,72 +834,14 @@
             "record_fingerprint": "f656f76e16dc631f2fc6e9aa283cc04e7ff43400f46da757be694f427fef03a7"
           },
           "flags": [
-            "J:answer_bearing_brain_queries(count=23)"
+            "H:task_config_sha256_mismatch"
           ],
           "notes": [],
           "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
-            "answer_bearing_brain_queries": [
-              {
-                "query_index": 0,
-                "source": "validation[0]",
-                "kind": "token",
-                "term_hash": "e0ee8bb50685e05f",
-                "term_preview": "output"
-              },
-              {
-                "query_index": 0,
-                "source": "validation[0]",
-                "kind": "token",
-                "term_hash": "df0ad6e43880f09c",
-                "term_preview": "schema"
-              },
-              {
-                "query_index": 0,
-                "source": "validation[2]",
-                "kind": "token",
-                "term_hash": "e0ee8bb50685e05f",
-                "term_preview": "output"
-              },
-              {
-                "query_index": 0,
-                "source": "validation[2]",
-                "kind": "token",
-                "term_hash": "df0ad6e43880f09c",
-                "term_preview": "schema"
-              },
-              {
-                "query_index": 1,
-                "source": "validation[0]",
-                "kind": "token",
-                "term_hash": "df0ad6e43880f09c",
-                "term_preview": "schema"
-              },
-              {
-                "query_index": 1,
-                "source": "validation[2]",
-                "kind": "token",
-                "term_hash": "df0ad6e43880f09c",
-                "term_preview": "schema"
-              },
-              {
-                "query_index": 2,
-                "source": "validation[2]",
-                "kind": "phrase",
-                "term_hash": "36bbcdfd6ceaa49b",
-                "term_preview": "prompt plus local"
-              },
-              {
-                "query_index": 3,
-                "source": "validation[2]",
-                "kind": "token",
-                "term_hash": "f86b1f62a8554232",
-                "term_preview": "should"
-              }
-            ]
+            "sha256": "c010825109c99734b7404e79ae630bda8dd95bda83c23fe200ba0c4bd79d96be"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1112,72 +882,14 @@
             "record_fingerprint": "1c02aa588cfa399c991b70e4710b957cca33d0d9ddbf17a2763cb70014181b85"
           },
           "flags": [
-            "J:answer_bearing_brain_queries(count=23)"
+            "H:task_config_sha256_mismatch"
           ],
           "notes": [],
           "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
-            "answer_bearing_brain_queries": [
-              {
-                "query_index": 0,
-                "source": "validation[0]",
-                "kind": "token",
-                "term_hash": "e0ee8bb50685e05f",
-                "term_preview": "output"
-              },
-              {
-                "query_index": 0,
-                "source": "validation[0]",
-                "kind": "token",
-                "term_hash": "df0ad6e43880f09c",
-                "term_preview": "schema"
-              },
-              {
-                "query_index": 0,
-                "source": "validation[2]",
-                "kind": "token",
-                "term_hash": "e0ee8bb50685e05f",
-                "term_preview": "output"
-              },
-              {
-                "query_index": 0,
-                "source": "validation[2]",
-                "kind": "token",
-                "term_hash": "df0ad6e43880f09c",
-                "term_preview": "schema"
-              },
-              {
-                "query_index": 1,
-                "source": "validation[0]",
-                "kind": "token",
-                "term_hash": "df0ad6e43880f09c",
-                "term_preview": "schema"
-              },
-              {
-                "query_index": 1,
-                "source": "validation[2]",
-                "kind": "token",
-                "term_hash": "df0ad6e43880f09c",
-                "term_preview": "schema"
-              },
-              {
-                "query_index": 2,
-                "source": "validation[2]",
-                "kind": "phrase",
-                "term_hash": "36bbcdfd6ceaa49b",
-                "term_preview": "prompt plus local"
-              },
-              {
-                "query_index": 3,
-                "source": "validation[2]",
-                "kind": "token",
-                "term_hash": "f86b1f62a8554232",
-                "term_preview": "should"
-              }
-            ]
+            "sha256": "c010825109c99734b7404e79ae630bda8dd95bda83c23fe200ba0c4bd79d96be"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1218,72 +930,14 @@
             "record_fingerprint": "c79390960629817e79f50383b1f209ee1b1678ec0e3437893782a3a5100b8e27"
           },
           "flags": [
-            "J:answer_bearing_brain_queries(count=23)"
+            "H:task_config_sha256_mismatch"
           ],
           "notes": [],
           "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
-            "answer_bearing_brain_queries": [
-              {
-                "query_index": 0,
-                "source": "validation[0]",
-                "kind": "token",
-                "term_hash": "e0ee8bb50685e05f",
-                "term_preview": "output"
-              },
-              {
-                "query_index": 0,
-                "source": "validation[0]",
-                "kind": "token",
-                "term_hash": "df0ad6e43880f09c",
-                "term_preview": "schema"
-              },
-              {
-                "query_index": 0,
-                "source": "validation[2]",
-                "kind": "token",
-                "term_hash": "e0ee8bb50685e05f",
-                "term_preview": "output"
-              },
-              {
-                "query_index": 0,
-                "source": "validation[2]",
-                "kind": "token",
-                "term_hash": "df0ad6e43880f09c",
-                "term_preview": "schema"
-              },
-              {
-                "query_index": 1,
-                "source": "validation[0]",
-                "kind": "token",
-                "term_hash": "df0ad6e43880f09c",
-                "term_preview": "schema"
-              },
-              {
-                "query_index": 1,
-                "source": "validation[2]",
-                "kind": "token",
-                "term_hash": "df0ad6e43880f09c",
-                "term_preview": "schema"
-              },
-              {
-                "query_index": 2,
-                "source": "validation[2]",
-                "kind": "phrase",
-                "term_hash": "36bbcdfd6ceaa49b",
-                "term_preview": "prompt plus local"
-              },
-              {
-                "query_index": 3,
-                "source": "validation[2]",
-                "kind": "token",
-                "term_hash": "f86b1f62a8554232",
-                "term_preview": "should"
-              }
-            ]
+            "sha256": "c010825109c99734b7404e79ae630bda8dd95bda83c23fe200ba0c4bd79d96be"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1324,72 +978,14 @@
             "record_fingerprint": "7a898ce041f65544ca69ad73149fb7cf25b331f3ffb83fde2560355f6ebab811"
           },
           "flags": [
-            "J:answer_bearing_brain_queries(count=23)"
+            "H:task_config_sha256_mismatch"
           ],
           "notes": [],
           "pass": false,
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
-            "sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
-            "answer_bearing_brain_queries": [
-              {
-                "query_index": 0,
-                "source": "validation[0]",
-                "kind": "token",
-                "term_hash": "e0ee8bb50685e05f",
-                "term_preview": "output"
-              },
-              {
-                "query_index": 0,
-                "source": "validation[0]",
-                "kind": "token",
-                "term_hash": "df0ad6e43880f09c",
-                "term_preview": "schema"
-              },
-              {
-                "query_index": 0,
-                "source": "validation[2]",
-                "kind": "token",
-                "term_hash": "e0ee8bb50685e05f",
-                "term_preview": "output"
-              },
-              {
-                "query_index": 0,
-                "source": "validation[2]",
-                "kind": "token",
-                "term_hash": "df0ad6e43880f09c",
-                "term_preview": "schema"
-              },
-              {
-                "query_index": 1,
-                "source": "validation[0]",
-                "kind": "token",
-                "term_hash": "df0ad6e43880f09c",
-                "term_preview": "schema"
-              },
-              {
-                "query_index": 1,
-                "source": "validation[2]",
-                "kind": "token",
-                "term_hash": "df0ad6e43880f09c",
-                "term_preview": "schema"
-              },
-              {
-                "query_index": 2,
-                "source": "validation[2]",
-                "kind": "phrase",
-                "term_hash": "36bbcdfd6ceaa49b",
-                "term_preview": "prompt plus local"
-              },
-              {
-                "query_index": 3,
-                "source": "validation[2]",
-                "kind": "token",
-                "term_hash": "f86b1f62a8554232",
-                "term_preview": "should"
-              }
-            ]
+            "sha256": "c010825109c99734b7404e79ae630bda8dd95bda83c23fe200ba0c4bd79d96be"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1420,17 +1016,17 @@
           "proof_scope": "history",
           "record_backing": {
             "condition_records": 0,
-            "baseline_records": 4,
+            "baseline_records": 0,
             "condition_mcp_verified_records": 0,
             "condition_mcp_named_tool_verified_records": 0,
             "condition_mcp_named_tool_completed_records": 0,
             "condition_unique_run_ids": 0,
-            "baseline_unique_run_ids": 4,
+            "baseline_unique_run_ids": 0,
             "condition_mcp_verified_unique_run_ids": 0,
             "condition_mcp_named_tool_verified_unique_run_ids": 0,
             "condition_mcp_named_tool_completed_unique_run_ids": 0,
             "condition_unique_repetitions": 0,
-            "baseline_unique_repetitions": 4,
+            "baseline_unique_repetitions": 0,
             "condition_mcp_verified_unique_repetitions": 0,
             "condition_mcp_named_tool_verified_unique_repetitions": 0,
             "condition_mcp_named_tool_completed_unique_repetitions": 0,
@@ -1440,7 +1036,7 @@
             "condition_requires_mcp_verified": false,
             "condition_requires_mcp_named_tool_verified": false,
             "condition_records_ok": false,
-            "baseline_records_ok": true,
+            "baseline_records_ok": false,
             "condition_mcp_verified_ok": true,
             "condition_mcp_named_tool_verified_ok": false,
             "condition_mcp_named_tool_completed_ok": false,
@@ -1450,7 +1046,7 @@
         }
       ],
       "n_records": 8,
-      "n_flagged_records": 4,
+      "n_flagged_records": 8,
       "n_mcp_verified": 0,
       "n_mcp_named_tool_verified": 0,
       "n_mcp_named_tool_completed": 0,
@@ -1501,7 +1097,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "edbbf66448fef579441afee03f4dbbdec70340e72e2a215770635e329b0095d3"
+            "sha256": "547fed25b56e2a45ff09b02387fcc3f61ca86038ec29097d83e514a296e20f6a"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1549,7 +1145,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "edbbf66448fef579441afee03f4dbbdec70340e72e2a215770635e329b0095d3"
+            "sha256": "547fed25b56e2a45ff09b02387fcc3f61ca86038ec29097d83e514a296e20f6a"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1597,7 +1193,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "edbbf66448fef579441afee03f4dbbdec70340e72e2a215770635e329b0095d3"
+            "sha256": "547fed25b56e2a45ff09b02387fcc3f61ca86038ec29097d83e514a296e20f6a"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1645,7 +1241,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "edbbf66448fef579441afee03f4dbbdec70340e72e2a215770635e329b0095d3"
+            "sha256": "547fed25b56e2a45ff09b02387fcc3f61ca86038ec29097d83e514a296e20f6a"
           },
           "release_hygiene": {
             "host_path_clean": true,
@@ -1686,8 +1282,7 @@
             "record_fingerprint": "b965f40cf269f5f6abc80a54df8fa16e0a4dca3d8eab56ed32a2abbb129853aa"
           },
           "flags": [
-            "H:task_config_sha256_mismatch",
-            "J:answer_bearing_brain_queries(count=6)"
+            "H:task_config_sha256_mismatch"
           ],
           "notes": [
             "N:mcp_call_count_mismatch(record=4,server_log=2)"
@@ -1696,51 +1291,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "edbbf66448fef579441afee03f4dbbdec70340e72e2a215770635e329b0095d3",
-            "answer_bearing_brain_queries": [
-              {
-                "query_index": 0,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "271933c184e28c42",
-                "term_preview": "AttributionBaseCommit"
-              },
-              {
-                "query_index": 0,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "542fca62348fc051",
-                "term_preview": "trailer"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "271933c184e28c42",
-                "term_preview": "AttributionBaseCommit"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "add20569cdf376a5",
-                "term_preview": "BaseCommit"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "e4949e328d9e9825",
-                "term_preview": "realign"
-              },
-              {
-                "query_index": 3,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "a1fe8ddd40352eb2",
-                "term_preview": "newHead"
-              }
-            ]
+            "sha256": "547fed25b56e2a45ff09b02387fcc3f61ca86038ec29097d83e514a296e20f6a"
           },
           "server_tool_names": [],
           "server_tool_results": [],
@@ -1783,8 +1334,7 @@
             "record_fingerprint": "171a1bfdfd6892dd6c3f399bbb3b17fbee8db5903b69c9a13b4ca46d5b77d4b4"
           },
           "flags": [
-            "H:task_config_sha256_mismatch",
-            "J:answer_bearing_brain_queries(count=6)"
+            "H:task_config_sha256_mismatch"
           ],
           "notes": [
             "N:mcp_call_count_mismatch(record=4,server_log=2)"
@@ -1793,51 +1343,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "edbbf66448fef579441afee03f4dbbdec70340e72e2a215770635e329b0095d3",
-            "answer_bearing_brain_queries": [
-              {
-                "query_index": 0,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "271933c184e28c42",
-                "term_preview": "AttributionBaseCommit"
-              },
-              {
-                "query_index": 0,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "542fca62348fc051",
-                "term_preview": "trailer"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "271933c184e28c42",
-                "term_preview": "AttributionBaseCommit"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "add20569cdf376a5",
-                "term_preview": "BaseCommit"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "e4949e328d9e9825",
-                "term_preview": "realign"
-              },
-              {
-                "query_index": 3,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "a1fe8ddd40352eb2",
-                "term_preview": "newHead"
-              }
-            ]
+            "sha256": "547fed25b56e2a45ff09b02387fcc3f61ca86038ec29097d83e514a296e20f6a"
           },
           "server_tool_names": [],
           "server_tool_results": [],
@@ -1880,8 +1386,7 @@
             "record_fingerprint": "ed048849461003aba7a21c23d810f358fc2e5cbaf4de26c7436e4fc54595e488"
           },
           "flags": [
-            "H:task_config_sha256_mismatch",
-            "J:answer_bearing_brain_queries(count=6)"
+            "H:task_config_sha256_mismatch"
           ],
           "notes": [
             "N:mcp_call_count_mismatch(record=4,server_log=2)"
@@ -1890,51 +1395,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "edbbf66448fef579441afee03f4dbbdec70340e72e2a215770635e329b0095d3",
-            "answer_bearing_brain_queries": [
-              {
-                "query_index": 0,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "271933c184e28c42",
-                "term_preview": "AttributionBaseCommit"
-              },
-              {
-                "query_index": 0,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "542fca62348fc051",
-                "term_preview": "trailer"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "271933c184e28c42",
-                "term_preview": "AttributionBaseCommit"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "add20569cdf376a5",
-                "term_preview": "BaseCommit"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "e4949e328d9e9825",
-                "term_preview": "realign"
-              },
-              {
-                "query_index": 3,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "a1fe8ddd40352eb2",
-                "term_preview": "newHead"
-              }
-            ]
+            "sha256": "547fed25b56e2a45ff09b02387fcc3f61ca86038ec29097d83e514a296e20f6a"
           },
           "server_tool_names": [],
           "server_tool_results": [],
@@ -1977,8 +1438,7 @@
             "record_fingerprint": "610d386bc0c8bce8f555608a94e921671bbb32d74f06d3204c36e1e567898da1"
           },
           "flags": [
-            "H:task_config_sha256_mismatch",
-            "J:answer_bearing_brain_queries(count=6)"
+            "H:task_config_sha256_mismatch"
           ],
           "notes": [
             "N:mcp_call_count_mismatch(record=4,server_log=2)"
@@ -1987,51 +1447,7 @@
           "task_hygiene": {
             "loaded": true,
             "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
-            "sha256": "edbbf66448fef579441afee03f4dbbdec70340e72e2a215770635e329b0095d3",
-            "answer_bearing_brain_queries": [
-              {
-                "query_index": 0,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "271933c184e28c42",
-                "term_preview": "AttributionBaseCommit"
-              },
-              {
-                "query_index": 0,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "542fca62348fc051",
-                "term_preview": "trailer"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "271933c184e28c42",
-                "term_preview": "AttributionBaseCommit"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "add20569cdf376a5",
-                "term_preview": "BaseCommit"
-              },
-              {
-                "query_index": 2,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "e4949e328d9e9825",
-                "term_preview": "realign"
-              },
-              {
-                "query_index": 3,
-                "source": "validation_files[0]",
-                "kind": "token",
-                "term_hash": "a1fe8ddd40352eb2",
-                "term_preview": "newHead"
-              }
-            ]
+            "sha256": "547fed25b56e2a45ff09b02387fcc3f61ca86038ec29097d83e514a296e20f6a"
           },
           "server_tool_names": [],
           "server_tool_results": [],
@@ -2107,7 +1523,7 @@
   "totals": {
     "suites": 3,
     "records": 24,
-    "hard_flags": 35,
+    "hard_flags": 31,
     "mcp_verified_records": 0,
     "mcp_named_tool_verified_records": 4,
     "mcp_named_tool_completed_records": 4,
@@ -2116,8 +1532,7 @@
     "proof_ready_comparisons_by_scope": {},
     "named_tool_proof_ready_comparisons_by_scope": {},
     "flag_kinds": {
-      "H:task_config_sha256_mismatch": 16,
-      "J:answer_bearing_brain_queries": 12,
+      "H:task_config_sha256_mismatch": 24,
       "G:proof_ready_without_matching_records": 3,
       "G:proof_ready_without_mcp_verified_condition_records": 2,
       "G:proof_ready_without_named_mcp_tool_condition_records": 1,

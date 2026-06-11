@@ -36,10 +36,10 @@
     "release-radar-attribution-realign-canary-20260610T0715Z"
   ],
   "brain_queries": [
-    "RealignAttributionBase",
-    "AttributionBaseCommit",
-    "DivergenceNoticeShown",
-    "newBase"
+    "session attribution realignment clears stale divergence",
+    "new base attribution drift",
+    "branch movement attribution synchronization",
+    "stale divergence warning reset"
   ],
   "copy_checkpoint_ref_from_source": true
 }

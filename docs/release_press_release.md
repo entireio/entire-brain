@@ -35,13 +35,12 @@ task outcomes instead of relying on demos or anecdotes.
 
 The retained replay-lab history, MCP-history, and location-only Radar
 agent-lift candidate suites carry an evidence confound: the benchmark harness
-injects each task's `brain_queries` into the brain-arm prompt only, and for
-these suites those queries contain answer-bearing terms (the fix's exact
-identifier, or a near-verbatim fragment of a hidden validation string). The
-release evidence lane is therefore in `no_release_claim` mode until the suites
-are rerun cleanly. See `docs/release-blockers.md` (B1) for the exact strings
-and remediation required before these numbers may be cited as
-brain-attribution proof.
+injects each task's `brain_queries` into the brain-arm prompt only, and those
+retained runs were produced before the current symptom-level query hints and
+preflight guard. The release evidence lane is therefore in `no_release_claim`
+mode until the suites are rerun cleanly. See `docs/release-blockers.md` (B1)
+for the exact strings and remediation required before these numbers may be
+cited as brain-attribution proof.
 
 ## What Must Be Proven Before Public Claims
 

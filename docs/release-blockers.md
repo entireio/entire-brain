@@ -16,8 +16,8 @@ false as written**, for all three suites and for at least one newer task.
 `Useful query terms: {brain_queries}` into the **brain/MCP-arm prompts only**;
 the `no_brain` arm receives no such terms. Whatever appears in a task's
 `brain_queries` is therefore handed to exactly the arm whose superiority the
-suite is supposed to prove. The committed task files put answer-bearing
-content there:
+suite is supposed to prove. The retained candidate artifacts were produced from
+task configs that put answer-bearing content there:
 
 | Suite (claimed result) | What `brain_queries` hands the brain arm | What the hidden validation requires |
 |---|---|---|
@@ -45,21 +45,25 @@ or hidden test names. The `Useful query terms` mechanism predates this PR
 this PR is gated on it because it is the one promoting these suites to
 "citable proof".
 
-**Mitigation now on this branch.** `audit_codex.py` now flags brain-only query
-terms that overlap hidden validation, hidden test names, or expected strings,
-and it flags retained task config hash drift. The retained release manifest has
-been demoted to `claim_policy: "no_release_claim"`; the generated audit report
-passes only as a no-claim artifact with 35 hard flags and zero proof-ready
-comparisons. The release matrix now marks "replay-lab retained agent proof" as
-`no-claim`, so the branch can no longer accidentally cite these suites as
-agent-lift evidence.
+**Mitigation now on this branch.** `audit_codex.py` now flags high-confidence
+brain-only query terms that overlap hidden validation, hidden test names, or
+expected strings, and it flags retained task config hash drift. `run.py`
+release-panel preflight rejects answer-bearing `brain_queries` before a new
+release-candidate run spends tokens. The affected committed release-panel tasks
+now use symptom-level query hints instead of hidden test names or exact code
+identifiers. The retained release manifest has been demoted to
+`claim_policy: "no_release_claim"`; the generated audit report passes only as a
+no-claim artifact with 31 hard flags and zero proof-ready comparisons. The
+release matrix now marks "replay-lab retained agent proof" as `no-claim`, so
+the branch can no longer accidentally cite these suites as agent-lift evidence.
 
 **Required to clear B1 (all of):**
 
 1. Strip answer-bearing terms from `brain_queries` in the affected tasks — no
    identifiers from the expected fix, no substrings of hidden-validation
    greps, no hidden test names — or give both arms identical hints so the
-   delta isolates retrieval.
+   delta isolates retrieval. **Done on this branch for committed release
+   panels; preflight now enforces it for future release panels.**
 2. Extend the leak auditor: flag any `brain_queries` token (or >=3-word
    substring) that appears in hidden validation commands, expected strings,
    or hidden test names. **Done on this branch for retained release audits.**
@@ -68,8 +72,9 @@ agent-lift evidence.
    bullets to disclose the confound explicitly. **Done on this branch by
    demoting the retained replay-lab lane to no-claim.**
 
-Remaining to close B1: strip/equalize the hints and rerun the affected suites
-cleanly before any replay-lab agent-lift claim is citable.
+Remaining to close B1: rerun the affected suites cleanly from the sanitized
+task configs and re-promote only what survives before any replay-lab agent-lift
+claim is citable.
 
 ## RESOLVED — fixed during review on this branch
 

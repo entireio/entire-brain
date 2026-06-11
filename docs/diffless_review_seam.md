@@ -77,10 +77,10 @@ The retained Radar agent-lift candidate is
 It compares `no_brain` against `mcp_history` with
 `mcp_radar_location_only` delivery on the manual-attribution deletion task and
 retains useful server-side MCP/Radar activity. It is not currently citable
-agent-lift proof: release blocker B1 found that the brain arm received
-answer-bearing query terms that the no-brain arm did not receive, so the
-release evidence lane is in `no_release_claim` mode until a clean rerun removes
-or equalizes those hints.
+agent-lift proof: release blocker B1 found that the retained run was produced
+before the current symptom-level query hints and preflight guard, so the
+release evidence lane is in `no_release_claim` mode until a clean rerun proves
+the claim.
 
 The committed `release-entire-cli-radar-mcp-review-base-scope` panel remains a
 reproducible Radar candidate lane: it sets `BENCH_RADAR_LOCATION_ONLY=1`, runs
@@ -118,7 +118,8 @@ until B1 is cleared by a clean rerun.
 `mise run radar:evidence` currently checks the deterministic MCP/Radar
 tool-contract artifact. The stricter agent-lift proof gate remains separate
 from deterministic tool proof and should be used only after the retained
-candidate is rerun without the B1 query-hint confound.
+candidate is rerun from the sanitized task config without the B1 query-hint
+confound.
 New MCP/Radar runs also write redacted server-side tool names (`tool:
 brain_regressions`, `tool: brain_workspace_regressions`, etc.) to
 `mcp-server.log`; the independent audit cross-checks those names when present,
@@ -132,7 +133,7 @@ from basic MCP-verified datapoints and can require named-tool proof by proof
 scope. The generic MCP-history proof is call-count-backed legacy evidence.
 Citable named-tool MCP proof currently comes from the deterministic local
 MCP/Radar contract tests. The retained `mcp_radar_location_only` agent-lift
-candidate is no-claim until B1 is cleared.
+candidate is no-claim until B1 is cleared by a clean rerun.
 Radar proof records only safe MCP boolean arguments (`location_only`,
 `include_deletions`) plus validated workspace names from structured tool-call
 events, so the audit can reject a would-be location-only or workspace proof that
@@ -147,8 +148,8 @@ For non-radar MCP-history proof, the committed
 attribution invariant where the brain should provide historical localization and
 the agent still has to repair the code. Its retained
 `release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress` suite is
-also no-claim until B1 is cleared; the brain arm received answer-bearing query
-terms that the no-brain arm did not receive.
+also no-claim until B1 is cleared by a clean rerun from the sanitized task
+config.
 
 ## Consumer 1 — `entire review` (cli; prototyped, not landed)
 

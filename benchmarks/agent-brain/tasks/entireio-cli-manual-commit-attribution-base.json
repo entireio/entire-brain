@@ -49,10 +49,10 @@
     "release-mcp-manual-attribution-canary-20260610T0620Z"
   ],
   "brain_queries": [
-    "AttributionBaseCommit stale human_added no trailer",
-    "TestManualCommit_AttributionStaleBase",
-    "BaseCommit AttributionBaseCommit realign",
-    "RealignAttributionBase newHead manual commit hooks"
+    "active session after commit accounting drift",
+    "manual commit hook stale base accounting",
+    "no-trailer commit condensation drift",
+    "post-commit session state synchronization"
   ],
   "copy_checkpoint_ref_from_source": true
 }

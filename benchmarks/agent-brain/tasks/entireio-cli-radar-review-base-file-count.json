@@ -35,9 +35,9 @@
     "release-radar-review-base-file-count-canary-20260610T0730Z"
   ],
   "brain_queries": [
-    "countFilesChanged",
-    "baseRef",
-    "FilesChanged",
+    "stacked branch review file count wrong base",
+    "explicit base branch diff count",
+    "review banner compares against moved default branch",
     "three-dot diff"
   ],
   "copy_checkpoint_ref_from_source": true

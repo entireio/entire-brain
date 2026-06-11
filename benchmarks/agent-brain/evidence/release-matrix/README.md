@@ -8,7 +8,7 @@ It is not a declaration that the product is fully release-ready. The generated
 target large-repo distill evidence, paired facts-vs-raw proof, semantic usefulness
 proof, workspace Radar outcome proof, and broader replay evidence remain pending.
 The current retained replay-lab row is also explicitly `no-claim` because B1
-found answer-bearing brain-only query hints in the candidate suites.
+found answer-bearing brain-only query hints in the retained candidate lineage.
 
 Regenerate after changing any referenced evidence report with:
 
