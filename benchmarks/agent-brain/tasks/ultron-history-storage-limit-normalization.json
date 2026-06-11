@@ -27,11 +27,6 @@
   ],
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
-  "brain_queries": [
-    "storage list search APIs normalize invalid oversized limits",
-    "repository limits trust caller-provided values",
-    "bounded SQL LIMIT storage backends",
-    "query list limit hardening regression"
-  ],
+  "brain_queries": ["storage list search APIs normalize invalid oversized limits", "repository limits trust caller-provided values", "bounded row caps in storage backends", "query list limit hardening regression"],
   "history_excerpt_lines": 40
 }

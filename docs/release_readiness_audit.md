@@ -262,9 +262,11 @@ schema-contract history task, with mean score `66.0 -> 91.5`, pass rate
 `brain_positive_stable`. The independent release audit retained under
 `benchmarks/agent-brain/evidence/release` reports 3 suites, 24 records, 0 hard
 flags, 24/24 provenance-backed records, and 3 proof-ready comparisons. Subject
-to open release blocker B1 (`docs/release-blockers.md`): the brain-arm prompts
-of these suites carry answer-bearing query terms, so until the suites re-run
-with those terms removed, the comparisons demonstrate the harness/evidence
+to open release blocker B1 (`docs/release-blockers.md`): the retained runs'
+brain-arm prompts carried answer-bearing query terms (the committed
+`brain_queries` have since been rewritten to symptom-level terms in PR #34,
+but the retained evidence was not regenerated), so until the suites re-run
+with the clean terms, the comparisons demonstrate the harness/evidence
 machinery rather than brain-attribution proof. They are not evidence that
 semantic indexing or facts retrieval are broadly better.
 
@@ -516,11 +518,13 @@ Release claims must stay local-first and evidence-backed:
   harder MCP-history proof lane on `cli-bench`: it regresses the manual-commit
   attribution-base invariant and requires `mcp_history` to surface the prior
   `RealignAttributionBase(newHead)` behavior. CONFOUND (open release blocker
-  B1, see `docs/release-blockers.md`): the task's `brain_queries` hand the
-  brain arm the fix's exact identifier (`RealignAttributionBase newHead`) and
-  the hidden-adjacent test name, and the harness injects those terms into the
-  brain-arm prompt only — so the retained comparison measures hint+brain vs
-  no-hint, not brain vs no-brain. The numbers are faithfully transcribed but
+  B1, see `docs/release-blockers.md`): at the time of the retained runs the
+  task's `brain_queries` handed the brain arm the fix's exact identifier
+  (`RealignAttributionBase newHead`) and the hidden-adjacent test name, and
+  the harness injects those terms into the brain-arm prompt only — so the
+  retained comparison measures hint+brain vs no-hint, not brain vs no-brain.
+  (The committed queries were rewritten to symptom-level terms in PR #34;
+  the retained evidence predates that rewrite.) The numbers are faithfully transcribed but
   must not be cited as brain-attribution proof until the suite re-runs with
   the answer-bearing terms removed.
 - Retained MCP evidence now includes

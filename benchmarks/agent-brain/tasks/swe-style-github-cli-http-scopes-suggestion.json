@@ -20,5 +20,5 @@
   ],
   "expected_files": ["api/client.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["missing OAuth scopes hint after 4xx error", "X-Accepted-Oauth-Scopes header comparison", "auth refresh scope suggestion message", "token lacks accepted scopes"]
+  "brain_queries": ["missing OAuth scopes hint after 4xx error", "required scopes advertised by api response headers", "auth refresh scope suggestion message", "token lacks accepted scopes"]
 }

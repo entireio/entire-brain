@@ -23,5 +23,5 @@
   ],
   "expected_files": ["pkg/cmd/pr/shared/display.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["checks rollup summary line", "failing checks count display", "PullRequestChecksStatus"]
+  "brain_queries": ["checks rollup summary line", "failing checks count display", "pr view checks summary wording"]
 }

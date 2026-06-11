@@ -35,9 +35,11 @@ task outcomes instead of relying on demos or anecdotes.
 
 The two MCP "proof" comparisons and the schema-contract history proof cited in
 this document carry an open evidence confound: the benchmark harness injects
-each task's `brain_queries` into the brain-arm prompt only, and for these
-suites those queries contain answer-bearing terms (the fix's exact identifier,
-or a near-verbatim fragment of a hidden validation string). See
+each task's `brain_queries` into the brain-arm prompt only, and at the time of
+the retained runs those queries contained answer-bearing terms (the fix's
+exact identifier, or a near-verbatim fragment of a hidden validation string).
+The committed queries have since been rewritten to symptom-level terms
+(PR #34), but the retained evidence predates the rewrite. See
 `docs/release-blockers.md` (B1) for the exact strings and the remediation
 required before these numbers may be cited as brain-attribution proof.
 

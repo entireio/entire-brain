@@ -23,5 +23,5 @@
   ],
   "expected_files": ["internal/ghinstance/host.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["enterprise cloud tenant detection", "hostname tenant identity derivation", "FormatRemoteURL", "ghe.com host handling"]
+  "brain_queries": ["enterprise cloud tenant detection", "hostname tenant identity derivation", "ssh remote url tenant user prefix", "ghe.com host handling"]
 }

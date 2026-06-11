@@ -16,8 +16,9 @@ false as written**, for all three suites and for at least one newer task.
 `Useful query terms: {brain_queries}` into the **brain/MCP-arm prompts only**;
 the `no_brain` arm receives no such terms. Whatever appears in a task's
 `brain_queries` is therefore handed to exactly the arm whose superiority the
-suite is supposed to prove. The committed task files put answer-bearing
-content there:
+suite is supposed to prove. The committed task files (as of the PR #33
+review; since rewritten — see Progress below) put answer-bearing content
+there:
 
 | Suite (claimed result) | What `brain_queries` hands the brain arm | What the hidden validation requires |
 |---|---|---|
@@ -59,20 +60,34 @@ to "citable proof".
 4. Until then, correct the audit sentence and the two press-release "proof"
    bullets to disclose the confound explicitly.
 
-**Progress (this branch).** Items 1, 2, and 4 are done; item 3 is NOT, so B1
-stays open:
+**Progress (PR #34, branch claude/layer-b-scenarios).** Items 1 and 2 are done
+in that PR; item 4 was completed on main during the PR #33 review follow-ups;
+item 3 is NOT done, so B1 stays open:
 
-- Item 2: `brain_query_leak_audit` (run.py) flags identifier-shaped query
-  tokens and verbatim 3+-word query phrases that appear in the hidden fix
-  text, hidden validation commands, expected-string greps, hidden test
-  names, or validation fixtures. It is wired into `panel_preflight` for
-  every panel, and `run_test.BrainQueryLeakAuditTests` freezes the four
-  rows above with their original queries and asserts each fails the
-  auditor as committed.
-- Item 1: every task the auditor flagged (33 task files, including the
-  four named rows and the 10 pre-existing tasks on main with the same
-  mechanism) had its `brain_queries` rewritten to symptom-level retrieval
-  terms; the auditor passes tree-wide.
+- Item 2 (this PR): `brain_query_leak_audit` (run.py) flags identifier-shaped
+  query tokens — matched case-insensitively, since retrieval and agents fold
+  case — and verbatim 3+-word query phrases that appear in the hidden fix
+  text or fix file path, hidden expected_files, hidden validation commands,
+  expected-string greps, hidden test names, or validation fixture contents.
+  It is wired into `panel_preflight` for every panel, and
+  `run_test.BrainQueryLeakAuditTests` freezes the four rows above with their
+  verbatim committed queries/replacements/validation and asserts each fails
+  the auditor as committed.
+  Operationalization note: the literal "any token" wording above is not
+  implementable — plain English words from honest symptom queries ("prompt",
+  "local", "commit") appear in the hidden strings of most tasks and would
+  flag ~40 of 51 task files. The auditor therefore flags code-shaped tokens
+  and 3+-word verbatim phrases. Known residual: a 1-2 word plain-English
+  fragment shared with a hidden string is not flagged.
+- Item 1 (this PR): every task the auditor flags had its `brain_queries`
+  rewritten to symptom-level retrieval terms — 35 pre-existing task files
+  (including the four named rows and the 10 pre-existing carrier tasks on
+  main); the 5 new Layer-B tasks in the same PR were authored to the same
+  standard. Reproducible check: run `brain_query_leak_audit` over every
+  `tasks/*.json` — 0 of 51 files flagged.
+- Item 4 (done on main, PR #33 follow-up): the audit sentence in
+  `docs/release_readiness_audit.md` was corrected and the press release
+  gained its Known Confound section gating the proof citations.
 - Item 3 (open): the three promoted suites have NOT been re-run with the
   clean queries. Their retained evidence is unchanged and still carries
   the confound disclosed in `docs/release_readiness_audit.md` and the

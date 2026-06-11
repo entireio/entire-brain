@@ -1143,13 +1143,18 @@ def agent_output_leak_audit(task: dict[str, Any], stdout: str, stderr: str) -> d
 
 def brain_query_answer_texts(task: dict[str, Any]) -> list[tuple[str, str]]:
     """The hidden, answer-bearing texts a brain_queries hint must not overlap (release blocker B1):
-    the fix itself (setup replacements) is always hidden from the agent; validation commands,
-    expected-string greps, hidden test names, and validation fixtures count only when the task
-    hides validation, because visible validation reaches both arms and is not an asymmetry."""
+    the fix itself (setup replacements, including WHERE it lives) is always hidden from the agent,
+    as are expected_files when the task hides them; validation commands, expected-string greps,
+    hidden test names, and validation fixtures (including fixture file CONTENTS) count only when
+    the task hides validation, because visible validation reaches both arms and is not an asymmetry."""
     texts: list[tuple[str, str]] = []
     for replacement in task.get("setup_replacements", []) + task.get("post_brain_replacements", []):
         texts.append(("fix_text", str(replacement.get("old", ""))))
         texts.append(("fix_text", str(replacement.get("new", ""))))
+        texts.append(("fix_location", str(replacement.get("path", ""))))
+    if task.get("hide_expected_from_agent"):
+        for expected in task.get("expected_files", []):
+            texts.append(("hidden_expected_file", str(expected)))
     if task.get("hide_validation_from_agent"):
         for command in task.get("validation", []):
             texts.append(("hidden_validation_command", str(command)))
@@ -1162,6 +1167,15 @@ def brain_query_answer_texts(task: dict[str, Any]) -> list[tuple[str, str]]:
                 for key in ("path", "fixture", "content"):
                     if entry.get(key):
                         texts.append(("hidden_validation_file", str(entry[key])))
+                if entry.get("fixture"):
+                    try:
+                        fixture = safe_child_path(
+                            VALIDATION_FIXTURE_DIR, str(entry["fixture"]), label="validation fixture"
+                        )
+                    except Exception:
+                        fixture = None
+                    if fixture is not None and fixture.is_file():
+                        texts.append(("hidden_validation_file", fixture.read_text()))
     return [(kind, text) for kind, text in texts if text]
 
 
@@ -1176,36 +1190,63 @@ def brain_query_token_is_identifier(token: str) -> bool:
     return any(ch.isupper() for ch in token[1:])
 
 
+# Most-specific-first: a leak found in several overlapping texts (a test name is a substring of
+# its own validation command) is reported once, labeled with the most specific source.
+BRAIN_QUERY_ANSWER_KIND_PRIORITY = (
+    "hidden_test_name",
+    "hidden_expected_string",
+    "hidden_validation_file",
+    "hidden_validation_command",
+    "fix_text",
+    "fix_location",
+    "hidden_expected_file",
+)
+
+
 def brain_query_leak_audit(task: dict[str, Any]) -> dict[str, Any]:
     """Release blocker B1: `Useful query terms: {brain_queries}` reaches the brain arm only, so any
     query content that also appears in the hidden fix or hidden validation hands that arm the
-    answer and confounds the comparison. Flags (1) identifier-shaped query tokens found inside any
-    hidden answer text and (2) any contiguous 3+ word query phrase found verbatim there."""
-    findings: list[dict[str, Any]] = []
+    answer and confounds the comparison. Flags (1) identifier-shaped query tokens found
+    case-insensitively inside any hidden answer text (retrieval and agents fold case, so a
+    lowercased identifier is exactly as answer-bearing) and (2) any contiguous 3+ word query
+    phrase found there, reported as the maximal matching phrase."""
     answer_texts = brain_query_answer_texts(task)
+    kind_rank = {kind: rank for rank, kind in enumerate(BRAIN_QUERY_ANSWER_KIND_PRIORITY)}
+    best: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+    def record(query_text: str, term: str, where: str, finding_kind: str) -> None:
+        key = (finding_kind, query_text, term.lower())
+        rank = kind_rank.get(where, len(kind_rank))
+        existing = best.get(key)
+        if existing is None or rank < kind_rank.get(existing["where"], len(kind_rank)):
+            field = "token" if finding_kind == "answer_bearing_identifier" else "phrase"
+            best[key] = {"kind": finding_kind, "query": query_text, field: term, "where": where}
+
     for query in task.get("brain_queries", []):
         query_text = str(query)
-        tokens = [token.strip("`\"',;:()") for token in query_text.split()]
+        tokens = [token.strip("`\"',;:()").rstrip(".?!") for token in query_text.split()]
         words = query_text.split()
         for kind, text in answer_texts:
+            folded_text = text.lower()
             for token in tokens:
-                if brain_query_token_is_identifier(token) and token in text:
-                    findings.append(
-                        {"kind": "answer_bearing_identifier", "query": query_text, "token": token, "where": kind}
-                    )
-            for start in range(len(words) - 2):
-                phrase = " ".join(words[start:start + 3])
-                if phrase in text:
-                    findings.append(
-                        {"kind": "answer_bearing_phrase", "query": query_text, "phrase": phrase, "where": kind}
-                    )
-    unique: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for finding in findings:
-        key = json.dumps(finding, sort_keys=True)
-        if key not in seen:
-            seen.add(key)
-            unique.append(finding)
+                if brain_query_token_is_identifier(token) and token.lower() in folded_text:
+                    record(query_text, token, kind, "answer_bearing_identifier")
+            matched_starts = [
+                start
+                for start in range(len(words) - 2)
+                if " ".join(words[start:start + 3]).lower() in folded_text
+            ]
+            # merge consecutive matching 3-gram windows into one maximal phrase
+            run_start: int | None = None
+            for index, start in enumerate(matched_starts):
+                if run_start is None:
+                    run_start = start
+                last_in_run = index + 1 >= len(matched_starts) or matched_starts[index + 1] != start + 1
+                if last_in_run:
+                    phrase = " ".join(words[run_start:start + 3])
+                    record(query_text, phrase, kind, "answer_bearing_phrase")
+                    run_start = None
+    unique = sorted(best.values(), key=lambda f: (f["query"], f.get("token") or f.get("phrase") or ""))
     return {"ok": not unique, "findings": unique}
 
 
@@ -3988,7 +4029,7 @@ def write_phase2_discovery_markdown(output_dir: pathlib.Path, summary: dict[str,
         "",
         f"Generated at: `{summary['generated_at']}`",
         "",
-        "This report is the scenario-discovery ledger for Phase 2. It finds more than 20 candidate scenarios per layer where the brain should have a measurable advantage. Existing repeated-run proof signals are listed separately; candidates still require the proof repetitions before final claims.",
+        "This report is the scenario-discovery ledger for Phase 2. The target is more than 20 candidate scenarios per layer where the brain should have a measurable advantage; the actual per-layer counts (which may be below target) are in the table below. Existing repeated-run proof signals are listed separately; candidates still require the proof repetitions before final claims.",
         "",
         "## Counts",
         "",

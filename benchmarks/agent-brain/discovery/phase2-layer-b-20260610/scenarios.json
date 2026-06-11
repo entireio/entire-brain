@@ -801,7 +801,6 @@
       "queries": [
         "json output flag conflicting with web browser flag",
         "mutually exclusive command flags validation",
-        "cannot use web with json error message",
         "machine-readable output combined with opening in browser"
       ],
       "recommended_repetitions": {
@@ -832,7 +831,7 @@
       "queries": [
         "checks rollup summary line",
         "failing checks count display",
-        "PullRequestChecksStatus"
+        "pr view checks summary wording"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -923,7 +922,7 @@
       "queries": [
         "enterprise cloud tenant detection",
         "hostname tenant identity derivation",
-        "FormatRemoteURL",
+        "ssh remote url tenant user prefix",
         "ghe.com host handling"
       ],
       "recommended_repetitions": {

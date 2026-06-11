@@ -1499,49 +1499,83 @@ class BrainQueryLeakAuditTests(unittest.TestCase):
         audit = run.brain_query_leak_audit(task)
         return {finding.get("token") or finding.get("phrase") for finding in audit["findings"]}
 
+    # The committed brain_queries, setup_replacements, and validation arrays of the two
+    # attribution suites, verbatim from main as of the PR #33 review (both rows share them).
+    ATTRIBUTION_QUERIES = [
+        "AttributionBaseCommit stale human_added no trailer",
+        "TestManualCommit_AttributionStaleBase",
+        "BaseCommit AttributionBaseCommit realign",
+        "RealignAttributionBase newHead manual commit hooks",
+    ]
+    ATTRIBUTION_REPLACEMENT = {
+        "path": "cmd/entire/cli/strategy/manual_commit_hooks.go",
+        "old": (
+            "\t\tstate.BaseCommit = newHead\n"
+            "\t\t// Keep AttributionBaseCommit in sync to prevent stale base drift.\n"
+            "\t\t// Without this, a subsequent condensation would diff from the old base,\n"
+            "\t\t// inflating human_added with lines from unrelated prior commits.\n"
+            "\t\tstate.RealignAttributionBase(newHead)\n"
+            "\t\tlogging.Debug(logCtx, \"post-commit: updated BaseCommit and AttributionBaseCommit\","
+        ),
+        "new": (
+            "\t\tstate.BaseCommit = newHead\n"
+            "\t\tlogging.Debug(logCtx, \"post-commit: updated BaseCommit and AttributionBaseCommit\","
+        ),
+    }
+    ATTRIBUTION_VALIDATION = [
+        "go test ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommitNoTrailerRealignsAttributionBaseHidden' -count=1",
+    ]
+
     def test_schema_contract_suite_fails_as_committed(self) -> None:
         task = {
             "id": "entire-brain-history-codex-schema-contract",
             "hide_validation_from_agent": True,
+            "hide_expected_from_agent": True,
             "brain_queries": [
                 "Checkpoint-context review reverted Codex `--output-schema` usage",
+                "schema-dialect failure",
                 "prompt plus local `schema_version` and `status` validation",
+                "should rely on prompt plus local validation",
+            ],
+            "setup_replacements": [
+                {
+                    "path": "internal/cli/seed.go",
+                    "old": "case \"codex\":\n\t\treturn []string{\"codex\", \"exec\", \"--skip-git-repo-check\", \"--ephemeral\", \"--ignore-user-config\", \"--ignore-rules\", \"--sandbox\", \"read-only\", seedAgentPrompt(phase)}, nil",
+                    "new": "case \"codex\":\n\t\treturn []string{\"codex\", \"exec\", \"--skip-git-repo-check\", \"--ephemeral\", \"--ignore-user-config\", \"--ignore-rules\", \"--sandbox\", \"read-only\", \"--output-schema\", \"seed-agent.schema.json\", seedAgentPrompt(phase)}, nil",
+                }
             ],
             "validation": [
-                "rg 'should rely on prompt plus local validation, not --output-schema' internal/cli/seed_test.go",
+                "test $(rg -n -- '--output-schema' internal/cli/seed.go | wc -l | tr -d ' ') -eq 0",
+                "test $(rg -n 'TestSeedAgentCommandArgsCodex' internal/cli/seed_test.go | wc -l | tr -d ' ') -ge 1",
+                "test $(rg -n 'should rely on prompt plus local validation, not --output-schema' internal/cli/seed_test.go | wc -l | tr -d ' ') -eq 1",
+                "go test ./internal/cli -run 'TestSeedAgentCommandArgsCodex'",
             ],
         }
-        audit = run.brain_query_leak_audit(task)
-        self.assertFalse(audit["ok"])
-        self.assertIn("--output-schema", self._flagged_terms(task))
+        flagged = self._flagged_terms(task)
+        self.assertIn("--output-schema", flagged)
+        self.assertIn("should rely on prompt plus local validation", flagged)
 
     def test_attribution_base_suite_fails_as_committed(self) -> None:
         task = {
             "id": "entireio-cli-manual-commit-attribution-base",
             "hide_validation_from_agent": True,
-            "brain_queries": [
-                "RealignAttributionBase newHead manual commit hooks",
-                "BaseCommit AttributionBaseCommit realign",
-                "TestManualCommit_AttributionStaleBase",
-            ],
-            "setup_replacements": [
-                {"path": "x.go", "old": "state.RealignAttributionBase(newHead)\n", "new": "\n"},
-            ],
-            "validation": ["go test ./internal/x -run TestManualCommit_AttributionStaleBase"],
+            "hide_expected_from_agent": True,
+            "brain_queries": list(self.ATTRIBUTION_QUERIES),
+            "setup_replacements": [dict(self.ATTRIBUTION_REPLACEMENT)],
+            "validation": list(self.ATTRIBUTION_VALIDATION),
         }
         flagged = self._flagged_terms(task)
-        self.assertIn("RealignAttributionBase", flagged)
-        self.assertIn("TestManualCommit_AttributionStaleBase", flagged)
+        for leaked in ("RealignAttributionBase", "AttributionBaseCommit", "human_added", "BaseCommit"):
+            self.assertIn(leaked, flagged)
 
     def test_radar_deletions_suite_fails_as_committed(self) -> None:
         task = {
             "id": "entireio-cli-radar-manual-attribution-deletions",
             "hide_validation_from_agent": True,
-            "brain_queries": ["RealignAttributionBase newHead manual commit hooks"],
-            "setup_replacements": [
-                {"path": "x.go", "old": "state.RealignAttributionBase(newHead)\n", "new": "\n"},
-            ],
-            "validation": ["go test ./internal/x -run TestManualCommit_AttributionStaleBase"],
+            "hide_expected_from_agent": True,
+            "brain_queries": list(self.ATTRIBUTION_QUERIES),
+            "setup_replacements": [dict(self.ATTRIBUTION_REPLACEMENT)],
+            "validation": list(self.ATTRIBUTION_VALIDATION),
         }
         self.assertFalse(run.brain_query_leak_audit(task)["ok"])
 
@@ -1549,18 +1583,94 @@ class BrainQueryLeakAuditTests(unittest.TestCase):
         task = {
             "id": "entire-brain-semantic-tokenized-idf-ranking",
             "hide_validation_from_agent": True,
+            "hide_expected_from_agent": True,
             "brain_queries": [
+                "findSemanticSymbolsTokenizedSQLite IDF token weighting",
                 "tokenIDFWeight rare token ranking",
                 "TestTokenizedSearchRanksRareTokenAboveCommonTokens",
             ],
+            "setup_replacements": [
+                {
+                    "path": "internal/cli/semantic.go",
+                    "old": "\t\tweights[i] = tokenIDFWeight(total, df)",
+                    "new": "\t\tweights[i] = 1",
+                }
+            ],
             "validation": [
-                "rg 'weights\\[i\\] = tokenIDFWeight\\(total, df\\)' internal/cli/semantic.go",
-                "go test ./internal/cli -run TestTokenizedSearchRanksRareTokenAboveCommonTokens",
+                "test $(rg -n 'weights\\[i\\] = tokenIDFWeight\\(total, df\\)' internal/cli/semantic.go | wc -l | tr -d ' ') -eq 1",
+                "go test ./internal/cli -run 'TestTokenizedSearchRanksRareTokenAboveCommonTokens|TestTokenIDFWeightFavorsRareTokens|TestSemanticQueryTokensDropsStopwordsAndShortTerms'",
             ],
         }
         flagged = self._flagged_terms(task)
         self.assertIn("tokenIDFWeight", flagged)
         self.assertIn("TestTokenizedSearchRanksRareTokenAboveCommonTokens", flagged)
+
+    def test_case_variant_identifier_is_flagged(self) -> None:
+        task = {
+            "id": "case-variant",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["resolveTranscriptPath"],
+            "validation": ["go test ./internal/cli -run 'TestResolveTranscriptPath_Nested'"],
+        }
+        self.assertFalse(run.brain_query_leak_audit(task)["ok"])
+
+    def test_trailing_sentence_punctuation_is_stripped(self) -> None:
+        task = {
+            "id": "trailing-punct",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["where is RealignAttributionBase?"],
+            "setup_replacements": [
+                {"path": "x.go", "old": "state.RealignAttributionBase(newHead)", "new": ""},
+            ],
+            "validation": ["go test ./..."],
+        }
+        self.assertIn("RealignAttributionBase", self._flagged_terms(task))
+
+    def test_fix_location_and_hidden_expected_files_are_answer_texts(self) -> None:
+        task = {
+            "id": "fix-location",
+            "hide_validation_from_agent": True,
+            "hide_expected_from_agent": True,
+            "brain_queries": ["checks summary display.go"],
+            "setup_replacements": [
+                {"path": "pkg/cmd/pr/shared/display.go", "old": "a", "new": "b"},
+            ],
+            "expected_files": ["pkg/cmd/pr/shared/display.go"],
+            "validation": ["go test ./pkg/cmd/pr/shared -run TestSomethingElse"],
+        }
+        self.assertIn("display.go", self._flagged_terms(task))
+
+    def test_validation_fixture_contents_are_answer_texts(self) -> None:
+        old_dir = run.VALIDATION_FIXTURE_DIR
+        with tempfile.TemporaryDirectory() as tmp:
+            run.VALIDATION_FIXTURE_DIR = pathlib.Path(tmp)
+            (pathlib.Path(tmp) / "hidden_test.go.fixture").write_text(
+                "func TestHiddenFixtureOnlyName(t *testing.T) {}\n"
+            )
+            task = {
+                "id": "fixture-contents",
+                "hide_validation_from_agent": True,
+                "brain_queries": ["TestHiddenFixtureOnlyName"],
+                "validation": ["go test ./pkg -count=1"],
+                "validation_files": [
+                    {"path": "pkg/hidden_test.go", "fixture": "hidden_test.go.fixture"},
+                ],
+            }
+            try:
+                self.assertIn("TestHiddenFixtureOnlyName", self._flagged_terms(task))
+            finally:
+                run.VALIDATION_FIXTURE_DIR = old_dir
+
+    def test_overlapping_leaks_report_once_with_most_specific_source(self) -> None:
+        task = {
+            "id": "dedup",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["TestLeakedName"],
+            "validation": ["go test ./internal/x -run TestLeakedName"],
+        }
+        audit = run.brain_query_leak_audit(task)
+        self.assertEqual(len(audit["findings"]), 1)
+        self.assertEqual(audit["findings"][0]["where"], "hidden_test_name")
 
     def test_symptom_level_queries_pass(self) -> None:
         task = {
