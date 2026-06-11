@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "40eea9383f90",
+  "strategy": "manual-commit",
+  "branch": "feat/status-merge",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/root.go",
+    "mise.toml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/40/eea9383f90/0/metadata.json",
+      "transcript": "/40/eea9383f90/0/full.jsonl",
+      "content_hash": "/40/eea9383f90/0/content_hash.txt",
+      "prompt": "/40/eea9383f90/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 70036,
+    "cache_creation_tokens": 3890733,
+    "cache_read_tokens": 379025211,
+    "output_tokens": 722898,
+    "api_call_count": 847
+  }
+}
