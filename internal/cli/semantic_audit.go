@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -10,35 +9,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
-
-	"github.com/spf13/cobra"
 )
 
-type semanticAuditReport struct {
-	GeneratedAt           time.Time            `json:"generated_at"`
-	Repo                  brainStatusRepo      `json:"repo"`
-	BrainPath             string               `json:"brain_path"`
-	Provider              string               `json:"provider,omitempty"`
-	Version               string               `json:"provider_version,omitempty"`
-	Schema                string               `json:"schema_version,omitempty"`
-	Snapshot              string               `json:"snapshot_path,omitempty"`
-	Store                 string               `json:"store_path,omitempty"`
-	Files                 int                  `json:"files"`
-	Symbols               int                  `json:"symbols"`
-	Relations             int                  `json:"relations"`
-	Warnings              int                  `json:"warnings"`
-	Failures              int                  `json:"partial_failures"`
-	WarningDetails        []semanticWarning    `json:"warning_details,omitempty"`
-	PartialFailureDetails []semanticWarning    `json:"partial_failure_details,omitempty"`
-	Capabilities          []string             `json:"capabilities,omitempty"`
-	FileLanguages         []semanticAuditCount `json:"file_languages,omitempty"`
-	Languages             []semanticAuditCount `json:"languages,omitempty"`
-	SymbolKinds           []semanticAuditCount `json:"symbol_kinds,omitempty"`
-	RelationTypes         []semanticAuditCount `json:"relation_types,omitempty"`
-	Freshness             staleReport          `json:"freshness"`
-	BlindSpots            []brainBlindSpot     `json:"blind_spots"`
-}
+// semantic_audit.go is the machinery behind the Semantic section of `status`
+// (coverage breakdowns and the --fail-on gate). The former standalone
+// `semantic-audit` and `stale` commands were merged into `status`.
 
 type semanticAuditCount struct {
 	Name  string `json:"name"`
@@ -54,114 +29,6 @@ const (
 )
 
 var errSemanticAuditGate = errors.New("semantic audit failed configured gate")
-
-type semanticAuditCommandOptions struct {
-	json   bool
-	failOn string
-}
-
-func newSemanticAuditCommand(opts Options) *cobra.Command {
-	auditOpts := semanticAuditCommandOptions{failOn: semanticAuditFailOnNone}
-	cmd := &cobra.Command{
-		Use:   "semantic-audit [path]",
-		Short: "Audit semantic index coverage, freshness, and blind spots",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			target := "."
-			if opts.Env.RepoRoot != "" {
-				target = opts.Env.RepoRoot
-			}
-			if len(args) == 1 {
-				target = args[0]
-			}
-			return runSemanticAudit(cmd.Context(), cmd, opts, target, auditOpts)
-		},
-	}
-	cmd.Flags().BoolVar(&auditOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().StringVar(&auditOpts.failOn, "fail-on", semanticAuditFailOnNone, "Return nonzero after emitting the report when the selected gate trips: release, unsafe, degraded, blind-spots, none")
-	return cmd
-}
-
-func runSemanticAudit(ctx context.Context, cmd *cobra.Command, opts Options, target string, auditOpts semanticAuditCommandOptions) error {
-	failOn, err := normalizeSemanticAuditFailOn(auditOpts.failOn)
-	if err != nil {
-		return err
-	}
-	report, err := buildSemanticAuditReport(ctx, opts, target)
-	if err != nil {
-		return err
-	}
-	if auditOpts.json {
-		if err := writeJSON(cmd, report); err != nil {
-			return err
-		}
-	} else {
-		renderSemanticAuditReportText(cmd, report)
-	}
-	if err := semanticAuditFailureForReport(report, failOn); err != nil {
-		return renderedCommandError{err: err}
-	}
-	return nil
-}
-
-func renderSemanticAuditReportText(cmd *cobra.Command, report semanticAuditReport) {
-	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "semantic audit: %s\n", report.Freshness.Severity)
-	if report.Provider != "" {
-		fmt.Fprintf(out, "provider: %s %s (schema %s)\n", report.Provider, report.Version, report.Schema)
-	}
-	fmt.Fprintf(out, "coverage: %d files, %d symbols, %d relations, %d warnings, %d partial failures\n",
-		report.Files, report.Symbols, report.Relations, report.Warnings, report.Failures)
-	if len(report.WarningDetails) > 0 {
-		fmt.Fprintln(out, "warnings:")
-		for _, warning := range report.WarningDetails {
-			fmt.Fprintf(out, "  %s\n", semanticAuditWarningSummary(warning))
-		}
-	}
-	if len(report.PartialFailureDetails) > 0 {
-		fmt.Fprintln(out, "partial-failures:")
-		for _, failure := range report.PartialFailureDetails {
-			fmt.Fprintf(out, "  %s\n", semanticAuditWarningSummary(failure))
-		}
-	}
-	if len(report.FileLanguages) > 0 {
-		fmt.Fprintf(out, "file-languages: %s\n", semanticAuditCountSummary(report.FileLanguages))
-	}
-	if len(report.Languages) > 0 {
-		fmt.Fprintf(out, "symbol-languages: %s\n", semanticAuditCountSummary(report.Languages))
-	}
-	if len(report.RelationTypes) > 0 {
-		fmt.Fprintf(out, "relation-types: %s\n", semanticAuditCountSummary(report.RelationTypes))
-	}
-	keys := make([]string, 0, len(report.Freshness.Axes))
-	for key := range report.Freshness.Axes {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		axis := report.Freshness.Axes[key]
-		line := key + ": " + axis.State
-		if axis.Detail != "" {
-			line += " (" + axis.Detail + ")"
-		}
-		fmt.Fprintln(out, line)
-	}
-	if len(report.BlindSpots) == 0 {
-		fmt.Fprintln(out, "blind-spots: none")
-	} else {
-		fmt.Fprintf(out, "blind-spots: %d\n", len(report.BlindSpots))
-		for _, spot := range report.BlindSpots {
-			fmt.Fprintf(out, "  %s", valueOrUnset(spot.Path))
-			if spot.Code != "" {
-				fmt.Fprintf(out, " [%s]", spot.Code)
-			}
-			if strings.TrimSpace(spot.Detail) != "" {
-				fmt.Fprintf(out, " %s", spot.Detail)
-			}
-			fmt.Fprintln(out)
-		}
-	}
-}
 
 func normalizeSemanticAuditFailOn(value string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
@@ -180,29 +47,33 @@ func normalizeSemanticAuditFailOn(value string) (string, error) {
 	}
 }
 
-func semanticAuditFailureForReport(report semanticAuditReport, failOn string) error {
+// semanticAuditFailureForReport evaluates the --fail-on gate against the
+// semantic freshness severity and blind-spot count from a status report. A
+// missing semantic source yields severity "" which the release gate treats as
+// not-ok — an unindexed brain must not pass a release health check silently.
+func semanticAuditFailureForReport(severity string, blindSpots int, failOn string) error {
 	switch failOn {
 	case semanticAuditFailOnNone:
 		return nil
 	case semanticAuditFailOnUnsafe:
-		if report.Freshness.Severity == "unsafe" {
+		if severity == "unsafe" {
 			return fmt.Errorf("%w: freshness is unsafe", errSemanticAuditGate)
 		}
 	case semanticAuditFailOnDegraded:
-		if report.Freshness.Severity == "unsafe" || report.Freshness.Severity == "degraded" {
-			return fmt.Errorf("%w: freshness is %s", errSemanticAuditGate, report.Freshness.Severity)
+		if severity == "unsafe" || severity == "degraded" {
+			return fmt.Errorf("%w: freshness is %s", errSemanticAuditGate, severity)
 		}
 	case semanticAuditFailOnBlindSpots:
-		if len(report.BlindSpots) > 0 {
-			return fmt.Errorf("%w: %d blind spot(s)", errSemanticAuditGate, len(report.BlindSpots))
+		if blindSpots > 0 {
+			return fmt.Errorf("%w: %d blind spot(s)", errSemanticAuditGate, blindSpots)
 		}
 	case semanticAuditFailOnRelease:
 		var failures []string
-		if report.Freshness.Severity != "ok" {
-			failures = append(failures, "freshness is "+valueOrUnset(report.Freshness.Severity))
+		if severity != "ok" {
+			failures = append(failures, "freshness is "+valueOrUnset(severity))
 		}
-		if len(report.BlindSpots) > 0 {
-			failures = append(failures, fmt.Sprintf("%d blind spot(s)", len(report.BlindSpots)))
+		if blindSpots > 0 {
+			failures = append(failures, fmt.Sprintf("%d blind spot(s)", blindSpots))
 		}
 		if len(failures) > 0 {
 			return fmt.Errorf("%w: %s", errSemanticAuditGate, strings.Join(failures, "; "))
@@ -221,64 +92,6 @@ func semanticAuditFailOnValues() string {
 		semanticAuditFailOnBlindSpots,
 		semanticAuditFailOnNone,
 	}, ", ")
-}
-
-func buildSemanticAuditReport(ctx context.Context, opts Options, target string) (semanticAuditReport, error) {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
-	if err != nil {
-		return semanticAuditReport{}, err
-	}
-	if !local {
-		return semanticAuditReport{}, fmt.Errorf("semantic-audit requires a local repository path: %s", target)
-	}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-	if err != nil {
-		return semanticAuditReport{}, err
-	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
-	if err != nil {
-		return semanticAuditReport{}, err
-	}
-	freshness, err := semanticStaleReport(ctx, opts, repoDir)
-	if err != nil {
-		return semanticAuditReport{}, err
-	}
-	spots, err := brainBlindSpotsForRepo(ctx, opts, repoDir)
-	if err != nil {
-		return semanticAuditReport{}, err
-	}
-	report := semanticAuditReport{
-		GeneratedAt: opts.Now().UTC(),
-		Repo:        brainStatusRepo{Root: repoDir, Key: storage.Key},
-		BrainPath:   storage.BrainDir,
-		Freshness:   freshness,
-		BlindSpots:  nonNilBlindSpots(spots),
-	}
-	if manifest.Sources != nil && manifest.Sources.Semantic != nil {
-		source := manifest.Sources.Semantic
-		report.Provider = source.Provider
-		report.Version = source.ProviderVersion
-		report.Schema = source.SchemaVersion
-		report.Snapshot = source.SnapshotPath
-		report.Store = source.StorePath
-		report.Files = source.Files
-		report.Symbols = source.Symbols
-		report.Relations = source.Relations
-		report.Warnings = len(source.Warnings)
-		report.Failures = len(source.PartialFailures)
-		report.WarningDetails = semanticWarningDetails(source.Warnings)
-		report.PartialFailureDetails = semanticWarningDetails(source.PartialFailures)
-		report.Capabilities = sortedStringCopy(source.Capabilities)
-		coverage, covErr := semanticAuditStoreCoverage(storage.BrainDir, source, freshness)
-		if covErr != nil {
-			return semanticAuditReport{}, covErr
-		}
-		report.FileLanguages = coverage.FileLanguages
-		report.Languages = coverage.Languages
-		report.SymbolKinds = coverage.SymbolKinds
-		report.RelationTypes = coverage.RelationTypes
-	}
-	return report, nil
 }
 
 type semanticAuditCoverage struct {

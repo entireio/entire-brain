@@ -124,7 +124,7 @@ single `--budget` shared across all members so a workspace tick can't multiply t
 entire brain mcp
 ```
 
-The MCP adapter is stdio-only and exposes local tools `brain_stale`,
+The MCP adapter is stdio-only and exposes local tools `brain_status`,
 `brain_brief`, the unified retrieval verbs `brain_query` (hybrid lexical+vector
 over facts/history/docs), `brain_search`, `brain_vsearch`, `brain_get`, and
 `brain_multi_get`, the symbol-graph tools `brain_code`/`brain_context`/`brain_impact`/`brain_changes`/`brain_tests`/`brain_boundaries`,
@@ -242,11 +242,12 @@ surfaced through the unified `search`/`query` verbs above. Symbol lookup that us
 to be the top-level `search` now lives at `inspect code`; `inspect context`/`impact`
 accept a symbol name or a record id.
 
-Use `stale --blind-spots` to list the files the semantic provider could not
-fully index, so an agent knows where its semantic answers are untrustworthy:
+The `status` Semantic section lists the files the semantic provider could not
+fully index (blind spots), so an agent knows where its semantic answers are
+untrustworthy:
 
 ```sh
-entire brain stale --blind-spots
+entire brain status
 ```
 
 ### Durable Facts
@@ -321,10 +322,10 @@ The eval `query` arm is a read-only lexical unified baseline over local brain
 layers; it does not write embedding caches or call an embedder. See
 `docs/durable_facts_plan.md` for the full design.
 
-For semantic release checks, `entire brain semantic-audit --json` reports the
-semantic provider/schema state, counts, file-language/symbol/relation coverage,
-warning/failure details, freshness axes, and blind spots in one local audit
-payload. Treat that as audit evidence for the reported provider output, not a
+For semantic release checks, the `semantic` section of `entire brain status
+--json` reports the provider/schema state, counts, file-language/symbol/relation
+coverage, warning/failure details, freshness axes, and blind spots in one local
+audit payload (`status --fail-on release` is the CI gate form). Treat that as audit evidence for the reported provider output, not a
 global tree-sitter coverage claim; public semantic claims should name the covered
 languages, relation types, freshness state, and benchmark or audit records behind
 the claim.

@@ -608,7 +608,7 @@ class RunnerAndConditionTests(unittest.TestCase):
             "brain_queries": ["ValidateToken", "auth boundary"],
         }
         prompt = run.prompt_for(task, "mcp_semantic", run.parse_runner_spec("codex:gpt-5.4-mini:medium"))
-        for want in ("brain_stale", "brain_context", "brain_impact", "brain_changes", "brain_code"):
+        for want in ("brain_status", "brain_context", "brain_impact", "brain_changes", "brain_code"):
             self.assertIn(want, prompt)
         self.assertIn("semantic graph context", prompt)
         self.assertIn("Do not call `brain_query`", prompt)
@@ -659,7 +659,7 @@ class RunnerAndConditionTests(unittest.TestCase):
                 "mcp": {"enabled": True},
                 "activity": {
                     "mcp_tool_calls": 2,
-                    "mcp_tool_names": ["mcp__entire_brain__brain_stale", "mcp__entire_brain__brain_context"],
+                    "mcp_tool_names": ["mcp__entire_brain__brain_status", "mcp__entire_brain__brain_context"],
                     "direct_brain_cli_calls": 0,
                 },
             },

@@ -49,7 +49,7 @@ required before these numbers may be cited as brain-attribution proof.
 - Facts-vs-session retrieval quality, using paired `facts eval --retriever`
   comparisons over shared proof labels; proxy-comparison opt-in remains
   smoke/calibration only and must be labeled as such.
-- Semantic usefulness, using semantic-audit output plus benchmark tasks where
+- Semantic usefulness, using the `status` semantic-audit output plus benchmark tasks where
   semantic context changes file/test localization or agent efficiency.
 - More replay-lab evidence beyond the first retained focused history proof and
   retained generic MCP-history proof, plus separate deterministic Radar

@@ -31,7 +31,8 @@ const (
 )
 
 type agentStatusOptions struct {
-	json bool
+	json   bool
+	failOn string
 }
 
 type brainBriefOptions struct {
@@ -44,16 +45,64 @@ type brainShowOptions struct {
 	json bool
 }
 
+// brainStatusReport is the JSON contract of `status`, grouped by logical
+// function: repo/brain identity, which sources exist, the durable-facts layer
+// (counts + verification), the semantic layer (provider, coverage, freshness,
+// blind spots — the former `stale` and `semantic-audit` commands), and live
+// workspace state.
 type brainStatusReport struct {
-	GeneratedAt  time.Time          `json:"generated_at"`
-	Repo         brainStatusRepo    `json:"repo"`
-	Brain        brainStatusBrain   `json:"brain"`
-	Sources      brainStatusSources `json:"sources"`
-	Verification *verifySummary     `json:"verification,omitempty"`
-	Freshness    *staleReport       `json:"freshness,omitempty"`
-	Live         brainLiveState     `json:"live"`
-	Warnings     []string           `json:"warnings,omitempty"`
-	Manifest     *exportManifest    `json:"manifest,omitempty"`
+	GeneratedAt time.Time            `json:"generated_at"`
+	Repo        brainStatusRepo      `json:"repo"`
+	Brain       brainStatusBrain     `json:"brain"`
+	Sources     brainStatusSources   `json:"sources"`
+	Facts       *brainStatusFacts    `json:"facts,omitempty"`
+	Semantic    *brainStatusSemantic `json:"semantic,omitempty"`
+	Live        brainLiveState       `json:"live"`
+	Warnings    []string             `json:"warnings,omitempty"`
+	// Manifest is for in-process consumers (brief, overview, regressions). It is
+	// deliberately not part of the JSON contract: it duplicates the structured
+	// sections above and its session list scales with brain size.
+	Manifest *exportManifest `json:"-"`
+}
+
+type brainStatusFacts struct {
+	Facts        int            `json:"facts"`
+	Distilled    int            `json:"distilled"`
+	Authored     int            `json:"authored"`
+	Superseded   int            `json:"superseded"`
+	Branches     int            `json:"branches"`
+	Proposals    int            `json:"proposals"`
+	Verification *verifySummary `json:"verification,omitempty"`
+}
+
+type brainStatusSemantic struct {
+	Provider   *brainStatusSemanticProvider `json:"provider,omitempty"`
+	Coverage   *brainStatusSemanticCoverage `json:"coverage,omitempty"`
+	Freshness  *staleReport                 `json:"freshness,omitempty"`
+	BlindSpots []brainBlindSpot             `json:"blind_spots,omitempty"`
+}
+
+type brainStatusSemanticProvider struct {
+	Name         string   `json:"name,omitempty"`
+	Version      string   `json:"version,omitempty"`
+	Schema       string   `json:"schema_version,omitempty"`
+	Snapshot     string   `json:"snapshot_path,omitempty"`
+	Store        string   `json:"store_path,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+}
+
+type brainStatusSemanticCoverage struct {
+	Files                 int                  `json:"files"`
+	Symbols               int                  `json:"symbols"`
+	Relations             int                  `json:"relations"`
+	Warnings              int                  `json:"warnings"`
+	PartialFailures       int                  `json:"partial_failures"`
+	WarningDetails        []semanticWarning    `json:"warning_details,omitempty"`
+	PartialFailureDetails []semanticWarning    `json:"partial_failure_details,omitempty"`
+	FileLanguages         []semanticAuditCount `json:"file_languages,omitempty"`
+	Languages             []semanticAuditCount `json:"languages,omitempty"`
+	SymbolKinds           []semanticAuditCount `json:"symbol_kinds,omitempty"`
+	RelationTypes         []semanticAuditCount `json:"relation_types,omitempty"`
 }
 
 type brainStatusRepo struct {
@@ -150,10 +199,10 @@ type brainHistoryInspectReport struct {
 }
 
 func newAgentStatusCommand(opts Options) *cobra.Command {
-	statusOpts := agentStatusOptions{}
+	statusOpts := agentStatusOptions{failOn: semanticAuditFailOnNone}
 	cmd := &cobra.Command{
 		Use:   "status [path]",
-		Short: "Summarize brain availability, freshness, and live workspace state",
+		Short: "Summarize the brain: sources, facts, semantic coverage/freshness/blind spots, and live workspace state",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := agentSurfaceTarget(opts, args)
@@ -161,6 +210,7 @@ func newAgentStatusCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&statusOpts.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().StringVar(&statusOpts.failOn, "fail-on", semanticAuditFailOnNone, "Return nonzero after emitting the report when the selected gate trips: release, unsafe, degraded, blind-spots, none")
 	return cmd
 }
 
@@ -243,10 +293,10 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 		Warnings:    status.Warnings,
 		Boundaries:  map[string]int{},
 	}
-	if status.Freshness != nil {
+	if status.Semantic != nil && status.Semantic.Freshness != nil {
 		report.Freshness = brainOverviewFresh{
-			Severity: status.Freshness.Severity,
-			Summary:  freshnessSummary(*status.Freshness),
+			Severity: status.Semantic.Freshness.Severity,
+			Summary:  freshnessSummary(*status.Semantic.Freshness),
 		}
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil {
@@ -465,15 +515,14 @@ get/multi-get take --json/--format json|cli/--branch):
   entire brain multi-get <id>... --json     # fetch several by id
 
 Small top-level surface:
-  entire brain status [repo] --json
+  entire brain status [repo] --json         # sources, facts+verification, semantic coverage/freshness/blind spots, live state
+  entire brain status --fail-on release     # CI gate: nonzero when freshness is not ok or blind spots exist (also: unsafe, degraded, blind-spots)
   entire brain overview [repo] --json
   entire brain brief "<task>" --json
   entire brain show <id> --json
   entire brain refresh [repo] --json
   entire brain guide
   entire brain path [repo]
-  entire brain stale [repo] --blind-spots   # files the semantic index could not parse
-  entire brain semantic-audit [repo] --json # semantic coverage/freshness/blind spots
 
 Durable facts (curated, provenance-anchored repo knowledge):
   entire brain distill --dry-run --json
@@ -643,38 +692,174 @@ func inspectBoundarySpec(kind string) (semanticBoundarySpec, error) {
 }
 
 func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statusOpts agentStatusOptions, target string) error {
+	failOn, err := normalizeSemanticAuditFailOn(statusOpts.failOn)
+	if err != nil {
+		return err
+	}
 	report, err := buildBrainStatusReport(ctx, opts, target)
 	if err != nil {
 		return err
 	}
 	populateBrainStatusVerification(ctx, opts, &report)
+	populateBrainStatusSemanticDetail(ctx, opts, &report)
 	if statusOpts.json {
-		return writeJSON(cmd, report)
+		if err := writeJSON(cmd, report); err != nil {
+			return err
+		}
+	} else {
+		renderBrainStatusText(cmd, report)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "brain: %s\n", report.Brain.Path)
-	fmt.Fprintf(cmd.OutOrStdout(), "repo: %s\n", report.Repo.Root)
-	fmt.Fprintf(cmd.OutOrStdout(), "sources: seed=%t sessions=%t semantic=%t history=%t facts=%t\n", report.Sources.Seed, report.Sources.Sessions, report.Sources.Semantic, report.Sources.History, report.Sources.Facts)
-	if report.Manifest != nil && report.Manifest.Sources != nil && report.Manifest.Sources.Facts != nil {
-		f := report.Manifest.Sources.Facts
-		fmt.Fprintf(cmd.OutOrStdout(), "facts: %d (%d distilled, %d authored, %d superseded) across %d branch(es); %d proposals pending\n",
-			f.Facts, f.Distilled, f.Authored, f.Superseded, len(f.Branches), f.Proposals)
-	}
-	if report.Verification != nil {
-		v := report.Verification
-		fmt.Fprintf(cmd.OutOrStdout(), "verification: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
-			v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
-	}
-	if report.Freshness != nil {
-		fmt.Fprintf(cmd.OutOrStdout(), "freshness: %s\n", report.Freshness.Severity)
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "live: branch=%s head=%s dirty=%t\n", valueOrUnset(report.Live.Branch), valueOrUnset(report.Live.Head), report.Live.Dirty)
-	if report.Live.DiffStat != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "diff: %s\n", report.Live.DiffStat)
-	}
-	for _, warning := range append(report.Warnings, report.Live.Warnings...) {
-		fmt.Fprintf(cmd.OutOrStdout(), "warning: %s\n", warning)
+	if err := semanticAuditFailureForReport(brainStatusFreshnessSeverity(report), len(brainStatusBlindSpots(report)), failOn); err != nil {
+		return renderedCommandError{err: err}
 	}
 	return nil
+}
+
+// populateBrainStatusSemanticDetail fills the expensive semantic sections —
+// store/snapshot coverage and blind spots — for the status command only.
+// brief/overview/regressions share buildBrainStatusReport and must not pay for
+// a store scan they never render.
+func populateBrainStatusSemanticDetail(ctx context.Context, opts Options, report *brainStatusReport) {
+	if report.Semantic == nil || report.Manifest == nil || report.Manifest.Sources == nil || report.Manifest.Sources.Semantic == nil {
+		return
+	}
+	source := report.Manifest.Sources.Semantic
+	report.Semantic.Coverage = &brainStatusSemanticCoverage{
+		Files:                 source.Files,
+		Symbols:               source.Symbols,
+		Relations:             source.Relations,
+		Warnings:              len(source.Warnings),
+		PartialFailures:       len(source.PartialFailures),
+		WarningDetails:        semanticWarningDetails(source.Warnings),
+		PartialFailureDetails: semanticWarningDetails(source.PartialFailures),
+	}
+	var freshness staleReport
+	if report.Semantic.Freshness != nil {
+		freshness = *report.Semantic.Freshness
+	}
+	if coverage, err := semanticAuditStoreCoverage(report.Brain.Path, source, freshness); err != nil {
+		report.Warnings = append(report.Warnings, "semantic coverage unavailable: "+err.Error())
+	} else {
+		report.Semantic.Coverage.FileLanguages = coverage.FileLanguages
+		report.Semantic.Coverage.Languages = coverage.Languages
+		report.Semantic.Coverage.SymbolKinds = coverage.SymbolKinds
+		report.Semantic.Coverage.RelationTypes = coverage.RelationTypes
+	}
+	if spots, err := brainBlindSpotsForRepo(ctx, opts, report.Repo.Root); err != nil {
+		report.Warnings = append(report.Warnings, "blind spots unavailable: "+err.Error())
+	} else {
+		report.Semantic.BlindSpots = spots
+	}
+}
+
+func brainStatusFreshnessSeverity(report brainStatusReport) string {
+	if report.Semantic == nil || report.Semantic.Freshness == nil {
+		return ""
+	}
+	return report.Semantic.Freshness.Severity
+}
+
+func brainStatusBlindSpots(report brainStatusReport) []brainBlindSpot {
+	if report.Semantic == nil {
+		return nil
+	}
+	return report.Semantic.BlindSpots
+}
+
+func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport) {
+	out := cmd.OutOrStdout()
+	fmt.Fprintln(out, "Brain")
+	fmt.Fprintf(out, "  path: %s\n", report.Brain.Path)
+	fmt.Fprintf(out, "  repo: %s (key %s)\n", report.Repo.Root, report.Repo.Key)
+	if report.Brain.GeneratedAt != "" {
+		fmt.Fprintf(out, "  generated: %s\n", report.Brain.GeneratedAt)
+	}
+	fmt.Fprintf(out, "  sources: seed=%t sessions=%t semantic=%t history=%t facts=%t\n",
+		report.Sources.Seed, report.Sources.Sessions, report.Sources.Semantic, report.Sources.History, report.Sources.Facts)
+	if f := report.Facts; f != nil {
+		fmt.Fprintln(out, "\nFacts")
+		fmt.Fprintf(out, "  counts: %d (%d distilled, %d authored, %d superseded) across %d branch(es); %d proposals pending\n",
+			f.Facts, f.Distilled, f.Authored, f.Superseded, f.Branches, f.Proposals)
+		if v := f.Verification; v != nil {
+			fmt.Fprintf(out, "  verification: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
+				v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
+		}
+	}
+	if s := report.Semantic; s != nil {
+		fmt.Fprintln(out, "\nSemantic")
+		if p := s.Provider; p != nil && p.Name != "" {
+			fmt.Fprintf(out, "  provider: %s %s (schema %s)\n", p.Name, p.Version, p.Schema)
+		}
+		if c := s.Coverage; c != nil {
+			fmt.Fprintf(out, "  coverage: %d files, %d symbols, %d relations, %d warnings, %d partial failures\n",
+				c.Files, c.Symbols, c.Relations, c.Warnings, c.PartialFailures)
+			if len(c.FileLanguages) > 0 {
+				fmt.Fprintf(out, "  file languages: %s\n", semanticAuditCountSummary(c.FileLanguages))
+			}
+			if len(c.Languages) > 0 {
+				fmt.Fprintf(out, "  symbol languages: %s\n", semanticAuditCountSummary(c.Languages))
+			}
+			if len(c.RelationTypes) > 0 {
+				fmt.Fprintf(out, "  relation types: %s\n", semanticAuditCountSummary(c.RelationTypes))
+			}
+			for _, warning := range c.WarningDetails {
+				fmt.Fprintf(out, "  warning: %s\n", semanticAuditWarningSummary(warning))
+			}
+			for _, failure := range c.PartialFailureDetails {
+				fmt.Fprintf(out, "  partial failure: %s\n", semanticAuditWarningSummary(failure))
+			}
+		}
+		if f := s.Freshness; f != nil {
+			fmt.Fprintf(out, "  freshness: %s\n", f.Severity)
+			keys := make([]string, 0, len(f.Axes))
+			for key := range f.Axes {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				axis := f.Axes[key]
+				line := "    " + key + ": " + axis.State
+				if axis.Detail != "" {
+					line += " (" + axis.Detail + ")"
+				}
+				fmt.Fprintln(out, line)
+			}
+		}
+		// Coverage is only populated by the status command's detail pass, which
+		// also fills blind spots — so its presence distinguishes "checked, none
+		// found" from "not checked".
+		if s.Coverage != nil {
+			if len(s.BlindSpots) == 0 {
+				fmt.Fprintln(out, "  blind spots: none")
+			} else {
+				fmt.Fprintf(out, "  blind spots: %d\n", len(s.BlindSpots))
+				for _, spot := range s.BlindSpots {
+					fmt.Fprintf(out, "    %s", valueOrUnset(spot.Path))
+					if spot.Code != "" {
+						fmt.Fprintf(out, " [%s]", spot.Code)
+					}
+					if strings.TrimSpace(spot.Detail) != "" {
+						fmt.Fprintf(out, " %s", spot.Detail)
+					}
+					fmt.Fprintln(out)
+				}
+			}
+		}
+	}
+	fmt.Fprintln(out, "\nLive")
+	fmt.Fprintf(out, "  branch: %s\n", valueOrUnset(report.Live.Branch))
+	fmt.Fprintf(out, "  head: %s\n", valueOrUnset(report.Live.Head))
+	fmt.Fprintf(out, "  dirty: %t\n", report.Live.Dirty)
+	if report.Live.DiffStat != "" {
+		fmt.Fprintf(out, "  diff: %s\n", strings.TrimSpace(report.Live.DiffStat))
+	}
+	warnings := append(append([]string(nil), report.Warnings...), report.Live.Warnings...)
+	if len(warnings) > 0 {
+		fmt.Fprintln(out, "\nWarnings")
+		for _, warning := range warnings {
+			fmt.Fprintf(out, "  - %s\n", warning)
+		}
+	}
 }
 
 func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefOpts brainBriefOptions, task string) error {
@@ -780,8 +965,8 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		return writeJSON(cmd, report)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "task: %s\n", report.Task)
-	if report.Status.Freshness != nil {
-		fmt.Fprintf(cmd.OutOrStdout(), "freshness: %s\n", report.Status.Freshness.Severity)
+	if severity := brainStatusFreshnessSeverity(report.Status); severity != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "freshness: %s\n", severity)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "live: dirty=%t changed_files=%d\n", report.Status.Live.Dirty, len(report.Status.Live.ChangedFiles))
 	for _, file := range report.LikelyEditFiles {
@@ -1783,6 +1968,28 @@ func buildBrainStatusReport(ctx context.Context, opts Options, target string) (b
 		report.Sources.Semantic = manifest.Sources.Semantic != nil
 		report.Sources.History = manifest.Sources.History != nil
 		report.Sources.Facts = manifest.Sources.Facts != nil
+		if f := manifest.Sources.Facts; f != nil {
+			report.Facts = &brainStatusFacts{
+				Facts:      f.Facts,
+				Distilled:  f.Distilled,
+				Authored:   f.Authored,
+				Superseded: f.Superseded,
+				Branches:   len(f.Branches),
+				Proposals:  f.Proposals,
+			}
+		}
+		if sem := manifest.Sources.Semantic; sem != nil {
+			report.Semantic = &brainStatusSemantic{
+				Provider: &brainStatusSemanticProvider{
+					Name:         sem.Provider,
+					Version:      sem.ProviderVersion,
+					Schema:       sem.SchemaVersion,
+					Snapshot:     sem.SnapshotPath,
+					Store:        sem.StorePath,
+					Capabilities: sortedStringCopy(sem.Capabilities),
+				},
+			}
+		}
 	}
 	live, liveErr := brainLiveStateReport(ctx, opts.Runner, repoDir, storage.BrainDir, manifest)
 	if liveErr != nil {
@@ -1790,12 +1997,12 @@ func buildBrainStatusReport(ctx context.Context, opts Options, target string) (b
 	} else {
 		report.Live = live
 	}
-	if report.Sources.Semantic {
+	if report.Semantic != nil {
 		freshness, freshnessErr := semanticStaleReport(ctx, opts, repoDir)
 		if freshnessErr != nil {
 			report.Warnings = append(report.Warnings, "freshness unavailable: "+freshnessErr.Error())
 		} else {
-			report.Freshness = &freshness
+			report.Semantic.Freshness = &freshness
 		}
 	}
 	return report, nil

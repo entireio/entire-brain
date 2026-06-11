@@ -39,7 +39,7 @@ expose a brain service over the network.
 
 Phase 1 commands must not perform implicit network operations. In particular:
 
-- `entire brain refresh index`, `refresh`, and `stale` must not run `git fetch`,
+- `entire brain refresh index`, `refresh`, and `status` must not run `git fetch`,
   `git pull`, or remote discovery; they may only inspect local refs.
 - The semantic provider must run with no network egress during Phase 1 indexing.
 - Local MCP means stdio transport only. The Phase 1 adapter must not open TCP or
@@ -382,7 +382,7 @@ The system should distinguish:
 Freshness commands:
 
 ```sh
-entire brain stale
+entire brain status
 entire brain refresh
 entire brain refresh --base main --head HEAD
 entire brain refresh --all-branches
@@ -393,7 +393,8 @@ Recommended behavior:
 - `entire brain refresh` updates the current branch snapshot.
 - `entire brain refresh --base main --head HEAD` creates or updates a branch
   overlay.
-- `entire brain stale` emits a typed staleness report, not a single boolean.
+- The `status` Semantic section emits a typed staleness report (per-axis
+  states), not a single boolean.
 - `entire brain path .` may materialize a missing brain, but should surface
   stale semantic data rather than hiding it.
 - Agent intake should warn clearly when semantic data is stale, branch-mismatched,
@@ -745,7 +746,7 @@ Recommended order:
 2. Read `README.md`.
 3. Read `manifest.json`.
 4. Read seed summaries.
-5. Run `entire brain stale`.
+5. Run `entire brain status`.
 6. Use `query`, `context`, `impact`, or `changes` for task-specific semantic
    context.
 7. Read relevant transcripts only when historical rationale matters.
@@ -901,7 +902,7 @@ state stored under local Entire plugin directories.
 - Add provider diagnostics.
 - Add `entire brain doctor`.
 - Store raw semantic artifacts.
-- Add `entire brain stale`.
+- Add `entire brain stale` (since merged into `status`).
 - Define typed staleness axes.
 - Add advisory locking.
 - Add `.brainignore`.
@@ -1011,7 +1012,7 @@ artifacts for reuse outside the job.
 - Add staleness severity aggregation tests, including end-to-end warnings from
   `context` and `impact`.
 - Add local workspace tests with multiple fixture repos and repo-key identity.
-- Add command-level integration tests for `index`, `stale`, `doctor`, `repair`,
+- Add command-level integration tests for `index`, `status`, `doctor`, `repair`,
   `reset`, `reset --semantic-only`, `gc`, `bundle export`, `bundle import`,
   `query`, `context`, `impact`, `changes`, and workspace commands.
 - Add bundle round-trip tests for checksum validation, schema compatibility, and

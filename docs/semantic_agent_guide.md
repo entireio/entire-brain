@@ -5,7 +5,7 @@ of the answer, not as decoration.
 
 Recommended intake flow:
 
-1. Run `entire brain stale --json` and check `severity`.
+1. Run `entire brain status --json` and check `semantic.freshness.severity`.
 2. Use `entire brain inspect code <symbol> --json --limit 20 --offset 0` to find
    candidate symbols.
 3. Use `entire brain inspect context <symbol> --json --include-content=false` for
@@ -21,7 +21,7 @@ Recommended intake flow:
    path hints.
 7. Use `entire brain mcp` only as a local stdio adapter when an agent needs MCP
    tool calls instead of direct CLI commands.
-8. Refresh with `entire brain refresh` when `stale` reports unsafe semantic
+8. Refresh with `entire brain refresh` when `status` reports unsafe semantic
    data.
 9. Use `entire brain refresh index --worktree` only when uncommitted code is
    intentionally part of the question.
