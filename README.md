@@ -337,7 +337,7 @@ The parent Entire CLI supplies these directories:
 | Variable | Purpose |
 |---|---|
 | `ENTIRE_PLUGIN_CONFIG_DIR` | Plugin config, including `brain.json`. |
-| `ENTIRE_PLUGIN_DATA_DIR` | Durable brains under `repos/<repo-key>/`. |
+| `ENTIRE_PLUGIN_DATA_DIR` | Durable brains under `repos/<repo-key>/`; workspaces under `workspaces/<name>/`. |
 | `ENTIRE_PLUGIN_STATE_DIR` | Regenerable cursors under `repos/<repo-key>/`. |
 | `ENTIRE_PLUGIN_CACHE_DIR` | Cache data. |
 | `ENTIRE_REPO_ROOT` | Current git checkout when invoked inside a repo. |

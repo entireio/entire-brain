@@ -319,7 +319,7 @@ entire brain status [repo] --json
 entire brain brief "<task>" --json
 entire brain search "<query>" --json
 entire brain show <id> --json
-entire brain refresh [repo] --json
+entire brain refresh
 entire brain guide
 entire brain path [repo]
 ```
