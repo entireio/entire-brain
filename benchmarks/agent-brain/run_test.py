@@ -4262,6 +4262,43 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 0,
             )
 
+    def test_radar_audit_allows_explicit_no_claim_codex_gate(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            self._write_radar_summary(
+                results_dir,
+                "release-candidate-radar-no-claim",
+                baseline_pass=1.0,
+                condition_pass=1.0,
+                proof_ready=False,
+                stability_tag="saturated",
+                n=4,
+            )
+            no_claim_audit = out_dir / "no-claim-codex-audit.json"
+            no_claim_audit.write_text(json.dumps({
+                "gate_status": {
+                    "claim_policy": "no_release_claim",
+                    "status": "pass",
+                    "release_evidence": False,
+                },
+                "totals": {
+                    "proof_ready_comparisons": 0,
+                    "hard_flags": 0,
+                },
+                "suites": {},
+            }))
+            self.assertEqual(
+                audit_radar_evidence.main([
+                    "--results", str(results_dir),
+                    "--suite-glob", "release-candidate-*",
+                    "--out-dir", out,
+                    "--codex-audit-report", str(no_claim_audit),
+                    "--fail-when-no-proof",
+                ]),
+                0,
+            )
+
     def test_radar_audit_requires_codex_audit_backing_when_supplied(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
             results_dir = pathlib.Path(results)
