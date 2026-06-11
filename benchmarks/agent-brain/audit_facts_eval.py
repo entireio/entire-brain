@@ -10,6 +10,7 @@ fields.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import pathlib
@@ -33,6 +34,22 @@ METRIC_RESULT_FIELDS = {
 METRIC_COMPARE_TOLERANCE = 1e-9
 CLAIM_POLICY_PROOF = "proof_required"
 CLAIM_POLICY_NO_CLAIM = "no_release_claim"
+DEFAULT_PROOF_CONTRACT = {
+    "required_retrievers": DEFAULT_REQUIRED_RETRIEVERS,
+    "required_comparison": "raw_vs_facts",
+    "a_retriever": "raw-sessions",
+    "b_retriever": "facts",
+    "required_metric": "useful_per_1k",
+    "required_winner": "b",
+    "required_evidence_basis": "proof_labels",
+    "require_release_pairing_ready": True,
+    "require_no_proxy": True,
+    "require_same_tasks_sha256": True,
+    "require_same_brain_manifest_sha256": True,
+    "require_facts_status_ready": True,
+    "require_include_ids": True,
+    "require_retained_tasks_artifact": True,
+}
 
 
 def get(d: Any, *path: str, default: Any = None) -> Any:
@@ -74,6 +91,81 @@ def manifest_artifact(root: pathlib.Path, value: Any, field: str) -> pathlib.Pat
     return (root / path).resolve()
 
 
+def sha256_file(path: pathlib.Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return "sha256:" + digest.hexdigest()
+
+
+def default_proof_contract() -> dict[str, Any]:
+    return {
+        key: list(value) if isinstance(value, list) else value
+        for key, value in DEFAULT_PROOF_CONTRACT.items()
+    }
+
+
+def validate_proof_contract(value: Any, flags: list[str]) -> dict[str, Any]:
+    contract = default_proof_contract()
+    if not isinstance(value, dict):
+        flags.append("proof_contract must be present for proof_required evidence")
+        return contract
+    for key, expected in DEFAULT_PROOF_CONTRACT.items():
+        got = value.get(key)
+        if got != expected:
+            flags.append(f"proof_contract.{key} is {got!r}, want {expected!r}")
+    return {
+        key: list(value.get(key)) if isinstance(value.get(key), list) else value.get(key, expected)
+        for key, expected in DEFAULT_PROOF_CONTRACT.items()
+    }
+
+
+def load_facts_status(root: pathlib.Path, manifest: dict[str, Any], flags: list[str], *, proof_required: bool) -> dict[str, Any] | None:
+    status_rel = manifest.get("facts_status")
+    if status_rel is None:
+        if proof_required:
+            flags.append("proof_required manifest requires facts_status")
+        else:
+            flags.append("no_release_claim manifest requires facts_status")
+        return None
+    status_path = manifest_artifact(root, status_rel, "facts_status")
+    loaded = load_json(status_path)
+    if not isinstance(loaded, dict):
+        flags.append("facts_status must be a JSON object")
+        return None
+    status_report = {
+        "path": str(status_path.relative_to(root)),
+        "facts_arm_ready": loaded.get("facts_arm_ready"),
+        "totals": loaded.get("totals"),
+        "brain_manifest_sha256": loaded.get("brain_manifest_sha256") or "",
+        "manifest_sources": loaded.get("manifest_sources") or [],
+        "warnings": loaded.get("warnings") or [],
+    }
+    if not is_sha256_value(status_report["brain_manifest_sha256"]):
+        flags.append("facts_status.brain_manifest_sha256 must be sha256:<64 hex>")
+    if not isinstance(status_report["manifest_sources"], list) or not all(isinstance(item, str) for item in status_report["manifest_sources"]):
+        flags.append("facts_status.manifest_sources must be a string list")
+    totals = loaded.get("totals")
+    if not isinstance(totals, dict):
+        flags.append("facts_status.totals must be an object")
+        return status_report
+    active = int(totals.get("active") or 0)
+    if proof_required:
+        if loaded.get("facts_arm_ready") is not True:
+            flags.append("facts_status.facts_arm_ready must be true for proof_required evidence")
+        if active <= 0:
+            flags.append("facts_status.totals.active must be > 0 for proof_required evidence")
+        if isinstance(status_report["manifest_sources"], list) and "facts" not in status_report["manifest_sources"]:
+            flags.append("facts_status.manifest_sources must include facts for proof_required evidence")
+    else:
+        if loaded.get("facts_arm_ready") is not False:
+            flags.append("facts_status.facts_arm_ready must be false for no_release_claim evidence")
+        if active != 0:
+            flags.append("facts_status.totals.active must be 0 for no_release_claim evidence")
+    return status_report
+
+
 def validate_manifest(data: Any) -> None:
     if not isinstance(data, dict):
         raise SystemExit("facts eval manifest must be a JSON object")
@@ -108,29 +200,7 @@ def audit_no_claim_manifest(manifest_path: pathlib.Path, manifest: dict[str, Any
     notes = [
         "no facts-vs-raw release claim is retained; paired proof artifacts are still required before claiming facts beat raw sessions",
     ]
-    status_rel = manifest.get("facts_status")
-    status_report = None
-    if status_rel is not None:
-        status_path = manifest_artifact(root, status_rel, "facts_status")
-        loaded = load_json(status_path)
-        if not isinstance(loaded, dict):
-            flags.append("facts_status must be a JSON object")
-        else:
-            status_report = {
-                "path": str(status_path.relative_to(root)),
-                "facts_arm_ready": loaded.get("facts_arm_ready"),
-                "totals": loaded.get("totals"),
-                "warnings": loaded.get("warnings") or [],
-            }
-            if loaded.get("facts_arm_ready") is not False:
-                flags.append("facts_status.facts_arm_ready must be false for no_release_claim evidence")
-            totals = loaded.get("totals")
-            if not isinstance(totals, dict):
-                flags.append("facts_status.totals must be an object")
-            elif int(totals.get("active") or 0) != 0:
-                flags.append("facts_status.totals.active must be 0 for no_release_claim evidence")
-    else:
-        flags.append("no_release_claim manifest requires facts_status")
+    status_report = load_facts_status(root, manifest, flags, proof_required=False)
     return {
         "schema": 1,
         "manifest": display_path(manifest_path),
@@ -139,8 +209,10 @@ def audit_no_claim_manifest(manifest_path: pathlib.Path, manifest: dict[str, Any
         "claim_policy": CLAIM_POLICY_NO_CLAIM,
         "claimable_facts_vs_raw": False,
         "tasks_sha256": "",
+        "tasks_artifact": {"path": "", "sha256": ""},
         "brain_manifest_sha256": "",
         "required_retrievers": [],
+        "proof_contract": default_proof_contract(),
         "summary_paths": {},
         "comparison_paths": {},
         "required_claims": [],
@@ -195,6 +267,23 @@ def proof_label_summary_flags(retriever: str, summary: dict[str, Any]) -> list[s
     if len(bad) > 5:
         sample += f", ... {len(bad) - 5} more"
     return [f"{retriever}: {len(bad)} result(s) are not human/judge_refined explicit proof labels: {sample}"]
+
+
+def include_ids_summary_flags(retriever: str, summary: dict[str, Any]) -> list[str]:
+    flags: list[str] = []
+    if get(summary, "run_config", "include_ids") is not True:
+        flags.append(f"{retriever}: run_config.include_ids must be true for proof_required evidence")
+    results = summary.get("results")
+    if not isinstance(results, list):
+        return flags
+    for index, result in enumerate(results):
+        if not isinstance(result, dict):
+            continue
+        ids = result.get("retrieved_ids")
+        if not isinstance(ids, list) or not ids or not all(isinstance(item, str) and item for item in ids):
+            ident = str(result.get("id") or f"#{index + 1}")
+            flags.append(f"{retriever}: result {ident!r} must include non-empty string-list retrieved_ids")
+    return flags
 
 
 def sample_ids(ids: list[str]) -> str:
@@ -537,9 +626,25 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
 
     flags: list[str] = []
     notes: list[str] = []
+    proof_contract = validate_proof_contract(manifest.get("proof_contract"), flags)
+    status_report = load_facts_status(root, manifest, flags, proof_required=bool(proof_contract.get("require_facts_status_ready")))
+    tasks_path = None
+    tasks_artifact = {"path": "", "sha256": ""}
+    if proof_contract.get("require_retained_tasks_artifact") is True:
+        tasks_rel = manifest.get("tasks")
+        if tasks_rel is None:
+            flags.append("proof_required manifest requires tasks artifact")
+        else:
+            tasks_path = manifest_artifact(root, tasks_rel, "tasks")
+            tasks_artifact = {
+                "path": str(tasks_path.relative_to(root)),
+                "sha256": sha256_file(tasks_path),
+            }
     required_retrievers = manifest.get("required_retrievers", DEFAULT_REQUIRED_RETRIEVERS)
     if not isinstance(required_retrievers, list) or not all(isinstance(r, str) and r for r in required_retrievers):
         raise SystemExit("facts eval manifest required_retrievers must be a string list")
+    if required_retrievers != proof_contract.get("required_retrievers"):
+        flags.append(f"required_retrievers must match proof_contract.required_retrievers {proof_contract.get('required_retrievers')!r}")
     missing_canonical = [r for r in DEFAULT_REQUIRED_RETRIEVERS if r not in required_retrievers]
     if missing_canonical:
         flags.append("required_retrievers missing canonical retrievers: " + ", ".join(missing_canonical))
@@ -575,6 +680,8 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             brain_hashes.add(brain_sha)
         if not isinstance(summary.get("results"), list) or not summary.get("results"):
             flags.append(f"{retriever}: summary results must be non-empty")
+        if proof_contract.get("require_include_ids") is True:
+            flags.extend(include_ids_summary_flags(retriever, summary))
         summary_results_by_id[retriever] = result_index_for_summary(retriever, summary, flags)
 
     if len(tasks_hashes) > 1:
@@ -583,6 +690,16 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
         flags.append("eval summaries have differing brain_manifest_sha256 values")
     tasks_sha = next(iter(tasks_hashes), "")
     brain_sha = next(iter(brain_hashes), "")
+    if status_report and status_report.get("brain_manifest_sha256") and brain_sha and status_report.get("brain_manifest_sha256") != brain_sha:
+        flags.append("facts_status.brain_manifest_sha256 must match eval summary brain_manifest_sha256")
+    if proof_contract.get("require_retained_tasks_artifact") is True:
+        if tasks_artifact["sha256"] and tasks_sha and tasks_artifact["sha256"] != tasks_sha:
+            flags.append(
+                "retained tasks artifact sha256 "
+                f"{tasks_artifact['sha256']} does not match run_config.tasks_sha256 {tasks_sha}"
+            )
+        if tasks_artifact["sha256"] and not tasks_sha:
+            flags.append("retained tasks artifact is present but summaries did not expose a valid tasks_sha256")
 
     comparisons: dict[str, dict[str, Any]] = {}
     comparison_metric_ns: dict[tuple[str, str], int] = {}
@@ -606,13 +723,13 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
             elif retriever not in summaries:
                 flags.append(f"{name}: {side}_retriever {retriever!r} has no retained summary")
         compare_hash_fields(comp, tasks_sha, brain_sha, flags, name)
-        if comp.get("release_pairing_ready") is not True:
+        if proof_contract.get("require_release_pairing_ready") is True and comp.get("release_pairing_ready") is not True:
             flags.append(f"{name}: release_pairing_ready must be true")
         if comp.get("release_claimable") is not True:
             flags.append(f"{name}: release_claimable must be true")
         if not isinstance(comp.get("n"), int) or comp.get("n") <= 0:
             flags.append(f"{name}: comparison has no paired rows")
-        if comp.get("allow_proxy_comparison") is True:
+        if proof_contract.get("require_no_proxy") is True and comp.get("allow_proxy_comparison") is True:
             flags.append(f"{name}: allow_proxy_comparison must be false for release proof")
         for field in ("allow_missing_tasks", "allow_task_hash_mismatch", "allow_brain_manifest_mismatch"):
             if comp.get(field) is True:
@@ -676,8 +793,8 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
                 pvals = [float(stats["p"]) for _, _, stats in metric_stats_for_holm]
                 rejects, thresholds = holm_reject_with_thresholds(pvals, alpha)
                 retained_release_pairing_ready = (
-                    bool(tasks_sha)
-                    and bool(brain_sha)
+                    (bool(tasks_sha) or proof_contract.get("require_same_tasks_sha256") is not True)
+                    and (bool(brain_sha) or proof_contract.get("require_same_brain_manifest_sha256") is not True)
                     and not pairing["missing_from_a"]
                     and not pairing["missing_from_b"]
                     and comp.get("allow_proxy_comparison") is not True
@@ -704,6 +821,7 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
     claim_reports: list[dict[str, Any]] = []
     proof_checked_retrievers: set[str] = set()
     facts_vs_raw_claim = False
+    contract_claim_found = False
     for claim in manifest.get("required_claims") or []:
         if not isinstance(claim, dict):
             flags.append("required_claims entries must be objects")
@@ -785,6 +903,15 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
         facts_side = comparison_side_for_retriever(comp, "facts")
         raw_side = comparison_side_for_retriever(comp, "raw-sessions")
         if (
+            name == proof_contract.get("required_comparison")
+            and metric_name == proof_contract.get("required_metric")
+            and expected_a == proof_contract.get("a_retriever")
+            and expected_b == proof_contract.get("b_retriever")
+            and expected_winner == proof_contract.get("required_winner")
+            and expected_basis == proof_contract.get("required_evidence_basis")
+        ):
+            contract_claim_found = True
+        if (
             metric_name in RELEVANCE_PROOF_METRICS
             and expected_basis == "proof_labels"
             and facts_side
@@ -822,6 +949,17 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
 
     if not comparisons:
         notes.append("no comparison artifacts loaded")
+    required_comp = proof_contract.get("required_comparison")
+    if required_comp not in comparisons:
+        flags.append(f"proof_contract required comparison {required_comp!r} is missing")
+    else:
+        comp = comparisons[required_comp]
+        if comp.get("a_retriever") != proof_contract.get("a_retriever"):
+            flags.append(f"{required_comp}: a_retriever must be {proof_contract.get('a_retriever')!r} for proof contract")
+        if comp.get("b_retriever") != proof_contract.get("b_retriever"):
+            flags.append(f"{required_comp}: b_retriever must be {proof_contract.get('b_retriever')!r} for proof contract")
+    if not contract_claim_found:
+        flags.append("required_claims must include the exact proof_contract claim")
     if not facts_vs_raw_claim:
         flags.append("required_claims must include a proof-label claim where facts beats raw-sessions")
 
@@ -833,8 +971,11 @@ def audit_facts_eval_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
         "claim_policy": CLAIM_POLICY_PROOF,
         "claimable_facts_vs_raw": not flags and facts_vs_raw_claim,
         "tasks_sha256": tasks_sha,
+        "tasks_artifact": tasks_artifact,
         "brain_manifest_sha256": brain_sha,
         "required_retrievers": required_retrievers,
+        "proof_contract": proof_contract,
+        "facts_status": status_report,
         "summary_paths": summary_paths,
         "comparison_paths": comparison_paths,
         "required_claims": claim_reports,
@@ -857,6 +998,15 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Required retrievers: {required_retrievers}",
         "",
     ]
+    tasks_artifact = report.get("tasks_artifact")
+    if isinstance(tasks_artifact, dict) and tasks_artifact.get("path"):
+        lines.extend([
+            "## Retained Inputs",
+            "",
+            f"- Tasks artifact: `{tasks_artifact.get('path')}`",
+            f"- Tasks artifact hash: `{tasks_artifact.get('sha256') or 'unset'}`",
+            "",
+        ])
     if report.get("required_claims"):
         lines.extend(["## Required Claims", "", "| Comparison | Metric | A | B | Winner | Evidence | Claimable |", "|---|---|---|---|---|---|---|"])
         for claim in report["required_claims"]:
@@ -865,6 +1015,18 @@ def render_markdown(report: dict[str, Any]) -> str:
                 f"{claim.get('b_retriever')} | {claim.get('winner')} | {claim.get('evidence_basis')} | "
                 f"{claim.get('release_claimable')} |"
             )
+        lines.append("")
+    proof_contract = report.get("proof_contract")
+    if isinstance(proof_contract, dict) and proof_contract:
+        lines.extend(["## Proof Contract", ""])
+        lines.append(f"- Comparison: `{proof_contract.get('required_comparison')}`")
+        lines.append(f"- Arms: `{proof_contract.get('a_retriever')}` vs `{proof_contract.get('b_retriever')}`")
+        lines.append(f"- Metric: `{proof_contract.get('required_metric')}`")
+        lines.append(f"- Required winner: `{proof_contract.get('required_winner')}`")
+        lines.append(f"- Evidence basis: `{proof_contract.get('required_evidence_basis')}`")
+        lines.append(f"- Required retrievers: {', '.join(f'`{r}`' for r in proof_contract.get('required_retrievers', []))}")
+        lines.append(f"- Include retrieved ids: **{str(proof_contract.get('require_include_ids')).lower()}**")
+        lines.append(f"- Retain task artifact: **{str(proof_contract.get('require_retained_tasks_artifact')).lower()}**")
         lines.append("")
     if report.get("flags"):
         lines.extend(["## Flags", ""])

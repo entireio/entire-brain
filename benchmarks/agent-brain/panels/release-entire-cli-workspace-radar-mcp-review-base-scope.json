@@ -1,0 +1,18 @@
+{
+  "name": "release-entire-cli-workspace-radar-mcp-review-base-scope",
+  "description": "Focused release-candidate workspace Regression Radar panel for the entire-cli review base-scope regression. This screens location-only workspace Radar on a harder runner with observed no-brain headroom before any release claim is made.",
+  "runners": [
+    "claude:haiku:xhigh"
+  ],
+  "conditions": [
+    "no_brain",
+    "mcp_workspace_radar"
+  ],
+  "env": {
+    "BENCH_RADAR_LOCATION_ONLY": "1"
+  },
+  "repetitions": 4,
+  "tasks": [
+    "entireio-cli-workspace-radar-review-base-flag-scope.json"
+  ]
+}

@@ -41,22 +41,23 @@ type evalTask struct {
 // UsefulPer1k — relevant items surfaced per 1,000 tokens spent — which captures
 // the Appendix D agent constraint (value per token, not item count).
 type evalTaskResult struct {
-	ID                 string  `json:"id"`
-	Task               string  `json:"task"`
-	QueryType          string  `json:"query_type,omitempty"`
-	Retriever          string  `json:"retriever,omitempty"`
-	RelevanceSource    string  `json:"relevance_source,omitempty"`
-	Surfaced           int     `json:"surfaced"`
-	Tokens             int     `json:"tokens"`
-	LatencyMS          int64   `json:"latency_ms"`
-	ExpansionLatencyMS int64   `json:"expansion_latency_ms"`
-	EndToEndLatencyMS  int64   `json:"end_to_end_latency_ms"`
-	RelevantSurfaced   int     `json:"relevant_surfaced"`
-	Precision          float64 `json:"precision"`
-	Recall             float64 `json:"recall"`
-	UsefulPer1k        float64 `json:"useful_per_1k"`
-	Labeled            bool    `json:"labeled"`
-	LabelSource        string  `json:"label_source,omitempty"`
+	ID                 string   `json:"id"`
+	Task               string   `json:"task"`
+	QueryType          string   `json:"query_type,omitempty"`
+	Retriever          string   `json:"retriever,omitempty"`
+	RetrievedIDs       []string `json:"retrieved_ids,omitempty"`
+	RelevanceSource    string   `json:"relevance_source,omitempty"`
+	Surfaced           int      `json:"surfaced"`
+	Tokens             int      `json:"tokens"`
+	LatencyMS          int64    `json:"latency_ms"`
+	ExpansionLatencyMS int64    `json:"expansion_latency_ms"`
+	EndToEndLatencyMS  int64    `json:"end_to_end_latency_ms"`
+	RelevantSurfaced   int      `json:"relevant_surfaced"`
+	Precision          float64  `json:"precision"`
+	Recall             float64  `json:"recall"`
+	UsefulPer1k        float64  `json:"useful_per_1k"`
+	Labeled            bool     `json:"labeled"`
+	LabelSource        string   `json:"label_source,omitempty"`
 }
 
 // evalStratum aggregates metrics for one query-type stratum.
@@ -98,6 +99,7 @@ type evalRunConfig struct {
 	JudgeCachePath        string `json:"judge_cache_path,omitempty"`
 	ExpansionCachePath    string `json:"expansion_cache_path,omitempty"`
 	LabelPolicy           string `json:"label_policy"`
+	IncludeIDs            bool   `json:"include_ids,omitempty"`
 	RawSessionIDScheme    string `json:"raw_session_id_scheme"`
 	TurnSigningLimitation string `json:"turn_signing_limitation,omitempty"`
 }
@@ -343,6 +345,7 @@ func newFactsEvalCommand(opts Options) *cobra.Command {
 		judgeCache   string
 		expandCache  string
 		retriever    string
+		includeIDs   bool
 		jsonOut      bool
 		run          distillAgentRunner
 	)
@@ -438,6 +441,7 @@ The tasks file is a JSON array:
 				JudgeSourceMatches: judgeSource,
 				Arm:                armFn,
 				SurfacedByKind:     map[string]int{},
+				IncludeIDs:         includeIDs,
 			}
 			results, err := runFactsEvalWithOptions(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, cache, expander, rr, retriever, runOpts)
 			if err != nil {
@@ -461,6 +465,7 @@ The tasks file is a JSON array:
 				JudgeCachePath:        judgeCache,
 				ExpansionCachePath:    expandCache,
 				LabelPolicy:           "human and judge_refined labels define precision/recall; provenance_silver is reported but not proof-labeled",
+				IncludeIDs:            includeIDs,
 				RawSessionIDScheme:    "raw:sha256(session_id)[:16]:start-end",
 				TurnSigningLimitation: "turn-level cryptographic verification remains pending CLI-side turn signing",
 			})
@@ -489,6 +494,7 @@ The tasks file is a JSON array:
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand each task query with agent-generated retrieval terms before retrieval")
 	cmd.Flags().StringVar(&expandCache, "expand-cache", "", "Persist/reuse query expansions at this path")
 	cmd.Flags().StringVar(&retriever, "retriever", evalRetrieverFacts, "Retrieval arm: facts, history, query, or raw-sessions")
+	cmd.Flags().BoolVar(&includeIDs, "include-ids", false, "Include per-task retrieved item ids in JSON output for retained proof artifacts")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the summary as JSON")
 	return cmd
 }
@@ -1035,6 +1041,7 @@ type factsEvalRunOptions struct {
 	JudgeSourceMatches bool
 	Arm                retrievalArm
 	SurfacedByKind     map[string]int
+	IncludeIDs         bool
 }
 
 func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, rr *semanticReranker, retriever string) ([]evalTaskResult, error) {
@@ -1127,6 +1134,9 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 		res := evalItemMetrics(surfaced, relevant, totalRelevant)
 		res.ID, res.Task, res.QueryType, res.Labeled = task.ID, task.Task, task.QueryType, labeled
 		res.Retriever = retriever
+		if runOpts.IncludeIDs {
+			res.RetrievedIDs = evalRetrievedIDs(surfaced)
+		}
 		res.RelevanceSource = relevanceSource
 		res.LabelSource = normalizedEvalLabelSource(task)
 		res.LatencyMS = latencyMS
@@ -1138,6 +1148,17 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 		return nil, fmt.Errorf("save judge cache: %w", err)
 	}
 	return results, nil
+}
+
+func evalRetrievedIDs(items []evalRetrievedItem) []string {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.ID) == "" {
+			continue
+		}
+		ids = append(ids, item.ID)
+	}
+	return ids
 }
 
 // judgeRelevance returns the set of surfaced-fact ids judged relevant for a

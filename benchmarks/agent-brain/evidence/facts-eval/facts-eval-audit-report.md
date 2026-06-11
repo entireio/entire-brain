@@ -8,6 +8,17 @@
 - Brain manifest hash: `unset`
 - Required retrievers: none
 
+## Proof Contract
+
+- Comparison: `raw_vs_facts`
+- Arms: `raw-sessions` vs `facts`
+- Metric: `useful_per_1k`
+- Required winner: `b`
+- Evidence basis: `proof_labels`
+- Required retrievers: `facts`, `history`, `query`, `raw-sessions`
+- Include retrieved ids: **true**
+- Retain task artifact: **true**
+
 ## Flags
 
 None.

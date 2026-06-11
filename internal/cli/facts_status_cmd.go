@@ -8,16 +8,18 @@ import (
 )
 
 type factsStatusReport struct {
-	SchemaVersion int                 `json:"schema_version"`
-	Repo          string              `json:"repo"`
-	BrainPath     string              `json:"brain_path"`
-	Branch        string              `json:"branch,omitempty"`
-	AllBranches   bool                `json:"all_branches,omitempty"`
-	FactsArmReady bool                `json:"facts_arm_ready"`
-	Totals        factsStatusCounts   `json:"totals"`
-	Branches      []factsBranchState  `json:"branches,omitempty"`
-	ManifestFacts *factSourceManifest `json:"manifest_facts,omitempty"`
-	Warnings      []string            `json:"warnings,omitempty"`
+	SchemaVersion       int                 `json:"schema_version"`
+	Repo                string              `json:"repo"`
+	BrainPath           string              `json:"brain_path"`
+	BrainManifestSHA256 string              `json:"brain_manifest_sha256,omitempty"`
+	ManifestSources     []string            `json:"manifest_sources,omitempty"`
+	Branch              string              `json:"branch,omitempty"`
+	AllBranches         bool                `json:"all_branches,omitempty"`
+	FactsArmReady       bool                `json:"facts_arm_ready"`
+	Totals              factsStatusCounts   `json:"totals"`
+	Branches            []factsBranchState  `json:"branches,omitempty"`
+	ManifestFacts       *factSourceManifest `json:"manifest_facts,omitempty"`
+	Warnings            []string            `json:"warnings,omitempty"`
 }
 
 type factsBranchState struct {
@@ -86,6 +88,8 @@ func buildFactsStatusReport(repoDir, brainDir, branch string, allBranches bool) 
 	if err != nil {
 		return report, err
 	}
+	report.BrainManifestSHA256 = evalBrainManifestSHA256(brainDir)
+	report.ManifestSources = factsStatusManifestSources(manifest.Sources)
 	if manifest.Sources != nil && manifest.Sources.Facts != nil {
 		report.ManifestFacts = manifest.Sources.Facts
 	}
@@ -176,6 +180,33 @@ func (counts *factsStatusCounts) add(other factsStatusCounts) {
 	counts.ProvenanceAnchors += other.ProvenanceAnchors
 	counts.VerifiedAnchors += other.VerifiedAnchors
 	counts.UnsignedAnchors += other.UnsignedAnchors
+}
+
+func factsStatusManifestSources(sources *brainSources) []string {
+	if sources == nil {
+		return nil
+	}
+	var keys []string
+	if sources.Docs != nil {
+		keys = append(keys, "docs")
+	}
+	if sources.Facts != nil {
+		keys = append(keys, "facts")
+	}
+	if sources.History != nil {
+		keys = append(keys, "history")
+	}
+	if sources.Seed != nil {
+		keys = append(keys, "seed")
+	}
+	if sources.Semantic != nil {
+		keys = append(keys, "semantic")
+	}
+	if sources.Sessions != nil {
+		keys = append(keys, "sessions")
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func factsStatusWarnings(report factsStatusReport) []string {

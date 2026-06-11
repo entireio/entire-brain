@@ -20,4 +20,4 @@ To promote workspace Radar later, replace this no-claim manifest with
 `claim_policy: "proof_required"` only after retaining an audit-clean
 `mcp_workspace_radar_location_only` suite with baseline headroom, 4 repetitions
 per side, server-named and completed `brain_workspace_regressions` MCP calls,
-and a proof-ready comparison.
+no extra brain MCP tools, and a proof-ready comparison.

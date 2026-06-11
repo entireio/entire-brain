@@ -1,0 +1,18 @@
+{
+  "name": "release-entire-cli-workspace-radar-mcp-manual-attribution-deletions",
+  "description": "Focused release-candidate workspace Regression Radar panel for the deletion-shaped manual-commit attribution-base regression. This is the workspace analogue of the retained single-repo Radar proof and only supports location-only workspace Radar claims after audited proof-ready results exist.",
+  "runners": [
+    "codex:gpt-5.4-mini:low"
+  ],
+  "conditions": [
+    "no_brain",
+    "mcp_workspace_radar"
+  ],
+  "env": {
+    "BENCH_RADAR_LOCATION_ONLY": "1"
+  },
+  "repetitions": 4,
+  "tasks": [
+    "entireio-cli-radar-manual-attribution-deletions.json"
+  ]
+}

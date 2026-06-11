@@ -6,8 +6,10 @@
   "conditions": [
     "no_brain",
     "full_cli_compact",
-    "mcp_history"
+    "mcp_history",
+    "mcp_workspace_radar"
   ],
+  "workspace_name": "release-radar",
   "prompt": "Fix the release-candidate stale-session-state regression. A hidden integration shows that after an ordinary commit during an active session, later accounting remains anchored to stale state. Keep the fix minimal.",
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,

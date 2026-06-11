@@ -935,6 +935,423 @@
         "history": 1
       }
     },
+    "release-candidate-entire-brain-semantic-tokenized-idf-mini-low-20260610T232641Z": {
+      "records": [
+        {
+          "run_id": "entire-brain-semantic-tokenized-idf-ranking__codex-gpt-5.4-mini-low__no_brain__r1",
+          "task_id": "entire-brain-semantic-tokenized-idf-ranking",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
+          "repetition": 1,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": true,
+          "valid": true,
+          "score": 96,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 10,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "source_base": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "source_head": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "task_config_sha256": "b87926c0d858b7e7391b946862ac0366ecdd5da61d47757e859bf0ad7256c2b4",
+            "run_config_fingerprint": "48f883f957f814612b0e9750d2039bd7594c6bb13d642a19f1f57f28e97bbb39",
+            "record_fingerprint": "ff722485702c050dbc7bd77bcd45c107ce8a643e6f87c04c5452703301d54fdd"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-semantic-tokenized-idf-ranking__codex-gpt-5.4-mini-low__no_brain__r2",
+          "task_id": "entire-brain-semantic-tokenized-idf-ranking",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
+          "repetition": 2,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": true,
+          "valid": true,
+          "score": 94,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 16,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "source_base": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "source_head": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "task_config_sha256": "b87926c0d858b7e7391b946862ac0366ecdd5da61d47757e859bf0ad7256c2b4",
+            "run_config_fingerprint": "18d9c3cef6a426287ea5e8c776a62af8e7cc30f458af65675a71889bd09e9992",
+            "record_fingerprint": "25253c98100ae90dc5b51b338f65022af6370e0e7950ebc65dcb55160bfdd12b"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-semantic-tokenized-idf-ranking__codex-gpt-5.4-mini-low__no_brain__r3",
+          "task_id": "entire-brain-semantic-tokenized-idf-ranking",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
+          "repetition": 3,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": false,
+          "valid": false,
+          "score": 32,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 8,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "source_base": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "source_head": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "task_config_sha256": "b87926c0d858b7e7391b946862ac0366ecdd5da61d47757e859bf0ad7256c2b4",
+            "run_config_fingerprint": "2b1e76ea011f45e65bfbf27f1c0453d06fbe4c369ee122da8dd7ae8dc118fbb9",
+            "record_fingerprint": "e4bd337684c2bdfe9a400d02774f73f13cdf345e056cd26a248c33f6e2e249df"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-semantic-tokenized-idf-ranking__codex-gpt-5.4-mini-low__no_brain__r4",
+          "task_id": "entire-brain-semantic-tokenized-idf-ranking",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
+          "repetition": 4,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": true,
+          "valid": true,
+          "score": 94,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 18,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "source_base": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "source_head": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "task_config_sha256": "b87926c0d858b7e7391b946862ac0366ecdd5da61d47757e859bf0ad7256c2b4",
+            "run_config_fingerprint": "cb773b5b8a7c0f87aa3d2bb1b180c2b9177c7a92468844d2a6e62d4447a22642",
+            "record_fingerprint": "9fc53a3fe6e812b30e09b46b5f74d02b196792ba00be76c4bab1a2c04c67cffd"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-semantic-tokenized-idf-ranking__codex-gpt-5.4-mini-low__semantic_brain__r1",
+          "task_id": "entire-brain-semantic-tokenized-idf-ranking",
+          "condition": "semantic_brain",
+          "delivery_scope": "semantic_brain",
+          "env_flags": {},
+          "repetition": 1,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": true,
+          "valid": true,
+          "score": 87,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 2,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "source_base": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "source_head": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "task_config_sha256": "b87926c0d858b7e7391b946862ac0366ecdd5da61d47757e859bf0ad7256c2b4",
+            "run_config_fingerprint": "554a8f8018f6e8199b6b63eb83e99080e62608730683fc32fba8efc4d5956cb7",
+            "record_fingerprint": "d93a58e0f49bb56b6c8b862635587cb881500d7e817088d61a737f8c249551fd"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-semantic-tokenized-idf-ranking__codex-gpt-5.4-mini-low__semantic_brain__r2",
+          "task_id": "entire-brain-semantic-tokenized-idf-ranking",
+          "condition": "semantic_brain",
+          "delivery_scope": "semantic_brain",
+          "env_flags": {},
+          "repetition": 2,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": true,
+          "valid": true,
+          "score": 85,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 2,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "source_base": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "source_head": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "task_config_sha256": "b87926c0d858b7e7391b946862ac0366ecdd5da61d47757e859bf0ad7256c2b4",
+            "run_config_fingerprint": "0e713a5cc79c1131c55dfb519b73854d816387fd88488cd1a462a4885593ba3f",
+            "record_fingerprint": "75102f107227ad7769ed01db837aeb5dd9666c2a216e8e9a5c12a311c1aeb2b8"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-semantic-tokenized-idf-ranking__codex-gpt-5.4-mini-low__semantic_brain__r3",
+          "task_id": "entire-brain-semantic-tokenized-idf-ranking",
+          "condition": "semantic_brain",
+          "delivery_scope": "semantic_brain",
+          "env_flags": {},
+          "repetition": 3,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": true,
+          "valid": true,
+          "score": 97,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 2,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "source_base": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "source_head": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "task_config_sha256": "b87926c0d858b7e7391b946862ac0366ecdd5da61d47757e859bf0ad7256c2b4",
+            "run_config_fingerprint": "7eefdcf5e8a169b1e725aefd00dde0ee3bb05bd90907c54a3baa2a27e5226059",
+            "record_fingerprint": "2aa1ea4970d4626baa29ac7ce15bedfd72cc548f96face2b3c5cebb7622980e1"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-semantic-tokenized-idf-ranking__codex-gpt-5.4-mini-low__semantic_brain__r4",
+          "task_id": "entire-brain-semantic-tokenized-idf-ranking",
+          "condition": "semantic_brain",
+          "delivery_scope": "semantic_brain",
+          "env_flags": {},
+          "repetition": 4,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": true,
+          "valid": true,
+          "score": 99,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 2,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "source_base": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "source_head": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+            "task_config_sha256": "b87926c0d858b7e7391b946862ac0366ecdd5da61d47757e859bf0ad7256c2b4",
+            "run_config_fingerprint": "96c64746195e671987ca034c64ebf27bf13045c8a44cfa9180ce517d37921431",
+            "record_fingerprint": "541290332bf1f9e568554308fa33d33c03e0fb41435d2bebe8c970648c6a50e4"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        }
+      ],
+      "comparisons": [
+        {
+          "task": "entire-brain-semantic-tokenized-idf-ranking",
+          "runner": "codex-gpt-5.4-mini-low",
+          "condition": "semantic_brain",
+          "delivery_scope": "semantic_brain",
+          "env_flags": {},
+          "verdict": "brain_positive",
+          "proof_ready": true,
+          "delta": 13.0,
+          "n_condition": 4,
+          "n_baseline": 4,
+          "reasons": [
+            "score_or_success_improved=+13.0",
+            "time_or_tokens_improved>=20%",
+            "search_calls_dropped>=20%"
+          ],
+          "flags": [],
+          "pass": true,
+          "proof_scope": "semantic",
+          "record_backing": {
+            "condition_records": 4,
+            "baseline_records": 4,
+            "condition_mcp_verified_records": 0,
+            "condition_mcp_named_tool_verified_records": 0,
+            "condition_mcp_named_tool_completed_records": 0,
+            "condition_unique_run_ids": 4,
+            "baseline_unique_run_ids": 4,
+            "condition_mcp_verified_unique_run_ids": 0,
+            "condition_mcp_named_tool_verified_unique_run_ids": 0,
+            "condition_mcp_named_tool_completed_unique_run_ids": 0,
+            "condition_unique_repetitions": 4,
+            "baseline_unique_repetitions": 4,
+            "condition_mcp_verified_unique_repetitions": 0,
+            "condition_mcp_named_tool_verified_unique_repetitions": 0,
+            "condition_mcp_named_tool_completed_unique_repetitions": 0,
+            "required_condition": 4,
+            "required_baseline": 4,
+            "required_delivery_scope": "semantic_brain",
+            "condition_requires_mcp_verified": false,
+            "condition_requires_mcp_named_tool_verified": false,
+            "condition_records_ok": true,
+            "baseline_records_ok": true,
+            "condition_mcp_verified_ok": true,
+            "condition_mcp_named_tool_verified_ok": false,
+            "condition_mcp_named_tool_completed_ok": false,
+            "condition_mcp_named_tool_required_ok": true,
+            "ok": true
+          }
+        }
+      ],
+      "n_records": 8,
+      "n_flagged_records": 0,
+      "n_mcp_verified": 0,
+      "n_mcp_named_tool_verified": 0,
+      "n_mcp_named_tool_completed": 0,
+      "n_provenance_ok": 8,
+      "n_proof_ready_comparisons": 1,
+      "n_proof_ready_comparisons_by_scope": {
+        "semantic": 1
+      }
+    },
     "release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress": {
       "records": [
         {
@@ -1337,24 +1754,27 @@
     }
   },
   "totals": {
-    "suites": 3,
-    "records": 24,
+    "suites": 4,
+    "records": 32,
     "hard_flags": 0,
     "mcp_verified_records": 8,
     "mcp_named_tool_verified_records": 4,
     "mcp_named_tool_completed_records": 4,
-    "provenance_ok_records": 24,
-    "proof_ready_comparisons": 3,
+    "provenance_ok_records": 32,
+    "proof_ready_comparisons": 4,
     "proof_ready_comparisons_by_scope": {
       "history": 1,
       "mcp": 1,
-      "mcp_radar_location_only": 1
+      "mcp_radar_location_only": 1,
+      "semantic": 1
     },
     "named_tool_proof_ready_comparisons_by_scope": {
       "mcp_radar_location_only": 1
     },
     "flag_kinds": {},
     "note_kinds": {
+      "H:harness_dirty": 8,
+      "H:source_dirty": 8,
       "B:mcp_history_partial_missing_brain_brief": 4,
       "B:mcp_history_partial_missing_brain_search": 4
     }
@@ -1375,7 +1795,8 @@
     "required_proof_scopes": [
       "history",
       "mcp",
-      "mcp_radar_location_only"
+      "mcp_radar_location_only",
+      "semantic"
     ],
     "required_named_tool_proof_scopes": [
       "mcp_radar_location_only"
@@ -1385,9 +1806,9 @@
     "status": "pass",
     "release_evidence": true,
     "requirements": {
-      "min_suites": 3,
-      "min_records": 24,
-      "min_proof_ready": 3,
+      "min_suites": 4,
+      "min_records": 32,
+      "min_proof_ready": 4,
       "min_mcp_verified": 8,
       "min_mcp_named_tool_verified": 4,
       "hard_flags": 0,
@@ -1395,7 +1816,8 @@
       "required_proof_scopes": [
         "history",
         "mcp",
-        "mcp_radar_location_only"
+        "mcp_radar_location_only",
+        "semantic"
       ],
       "required_named_tool_proof_scopes": [
         "mcp_radar_location_only"

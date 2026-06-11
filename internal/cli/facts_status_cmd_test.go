@@ -27,6 +27,9 @@ func TestFactsStatusEmptyStoreJSON(t *testing.T) {
 	if report.FactsArmReady {
 		t.Fatalf("empty store should not be facts-arm ready: %+v", report)
 	}
+	if len(report.ManifestSources) != 0 {
+		t.Fatalf("empty store should not report manifest sources: %+v", report.ManifestSources)
+	}
 	if report.Totals.Facts != 0 || report.Totals.Active != 0 || report.Totals.Proposals != 0 {
 		t.Fatalf("empty totals = %+v", report.Totals)
 	}
@@ -91,6 +94,12 @@ func TestFactsStatusCountsBranchJSON(t *testing.T) {
 	}
 	if report.ManifestFacts == nil || report.ManifestFacts.Facts != 4 || report.ManifestFacts.Proposals != 2 {
 		t.Fatalf("manifest facts source missing counts: %+v", report.ManifestFacts)
+	}
+	if !strings.HasPrefix(report.BrainManifestSHA256, "sha256:") {
+		t.Fatalf("brain manifest hash missing from status: %+v", report)
+	}
+	if !strings.Contains(strings.Join(report.ManifestSources, ","), "facts") {
+		t.Fatalf("manifest sources should include facts: %+v", report.ManifestSources)
 	}
 	if len(report.Warnings) != 0 {
 		t.Fatalf("unexpected warnings: %+v", report.Warnings)

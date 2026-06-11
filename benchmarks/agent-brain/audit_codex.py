@@ -613,6 +613,13 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
                     notes.append(f"B:mcp_history_partial_missing_{req}")
         if cond == "mcp_workspace_radar" and mcp_calls > 0:
             req = "brain_workspace_regressions"
+            extra_activity_tools = sorted(real_bare_names - {req})
+            if extra_activity_tools:
+                flags.append("B:mcp_workspace_radar_extra_brain_tools(" + ",".join(extra_activity_tools) + ")")
+            if slog_names is not None:
+                extra_server_tools = sorted(logged_bare_names - {req})
+                if extra_server_tools:
+                    flags.append("B:mcp_workspace_radar_server_extra_brain_tools(" + ",".join(extra_server_tools) + ")")
             if not radar_policy_attested:
                 flags.append("H:provenance_missing_radar_include_deletions_policy")
             if workspace_name is None:

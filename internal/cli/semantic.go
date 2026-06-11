@@ -15,6 +15,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"os/exec"
 	pathpkg "path"
 	"path/filepath"
 	"sort"
@@ -349,7 +350,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		}
 		indexOpts.reportPhase("parsing sources")
 		var snapshotWarnings []semanticWarning
-		raw, snapshotWarnings, err = runSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts.semBinary, indexOpts.worktree, providerIgnoreFiles)
+		raw, snapshotWarnings, err = runSemanticSnapshot(ctx, opts.Runner, repoDir, storage.Key, head, tree, indexOpts.semBinary, indexOpts.worktree, ignore, providerIgnoreFiles)
 		if err != nil {
 			return err
 		}
@@ -787,26 +788,27 @@ func boolValue(data map[string]any, key string) bool {
 	return b
 }
 
-func runSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, semBinary string, worktree bool, ignoreFiles []string) ([]byte, []semanticWarning, error) {
+func runSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, repoKey, head, tree, semBinary string, worktree bool, ignore brainIgnore, ignoreFiles []string) ([]byte, []semanticWarning, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	args := semanticSnapshotArgs(repoDir, worktree, ignoreFiles)
 	stdout, stderr, err := runSemanticSnapshotCommand(ctx, runner, repoDir, semBinary, args)
 	if err != nil && countNonEmptyStrings(ignoreFiles) > 0 && semanticSnapshotRejectsIgnoreFile(stderr, err) {
-		stdout, stderr, err = runSemanticSnapshotCommand(ctx, runner, repoDir, semBinary, semanticSnapshotArgs(repoDir, worktree, nil))
-		if err == nil {
-			warning := semanticWarning{
-				Code:     "provider_ignore_file_unsupported",
-				Severity: "warning",
-				Effect:   "provider-side ignore prefilter unavailable; brainignore applied after snapshot",
-				Detail:   fmt.Sprintf("semantic provider rejected --ignore-file; retried without %d provider ignore file(s)", countNonEmptyStrings(ignoreFiles)),
-			}
-			if len(bytes.TrimSpace(stdout)) == 0 {
-				return nil, []semanticWarning{warning}, errors.New("semantic provider snapshot produced no output")
-			}
-			return stdout, []semanticWarning{warning}, nil
+		stdout, fallbackWarnings, fallbackErr := runSemanticSnapshotFilteredFallback(ctx, runner, repoDir, repoKey, head, tree, semBinary, worktree, ignore)
+		if fallbackErr != nil {
+			return nil, nil, fallbackErr
 		}
+		warning := semanticWarning{
+			Code:     "provider_ignore_file_unsupported",
+			Severity: "warning",
+			Effect:   "provider-side ignore prefilter unavailable; snapshot ran against filtered temporary repo",
+			Detail:   fmt.Sprintf("semantic provider rejected --ignore-file; copied brain-eligible files to a temporary repo before snapshotting %d provider ignore file(s)", countNonEmptyStrings(ignoreFiles)),
+		}
+		if len(bytes.TrimSpace(stdout)) == 0 {
+			return nil, []semanticWarning{warning}, errors.New("semantic provider snapshot produced no output")
+		}
+		return stdout, append([]semanticWarning{warning}, fallbackWarnings...), nil
 	}
 	if err != nil {
 		if len(bytes.TrimSpace(stderr)) > 0 {
@@ -843,6 +845,189 @@ func runSemanticSnapshotCommand(ctx context.Context, runner CommandRunner, repoD
 		return stdout, nil, fmt.Errorf("semantic provider snapshot timed out after %s", semanticSnapshotTimeout)
 	}
 	return stdout, stderr, err
+}
+
+func runSemanticSnapshotFilteredFallback(ctx context.Context, runner CommandRunner, repoDir, repoKey, head, tree, semBinary string, worktree bool, ignore brainIgnore) ([]byte, []semanticWarning, error) {
+	tmpRoot, err := os.MkdirTemp("", "entire-brain-semantic-snapshot-*")
+	if err != nil {
+		return nil, nil, fmt.Errorf("create filtered semantic snapshot temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpRoot)
+
+	filteredRepo := filepath.Join(tmpRoot, "repo")
+	if err := copySemanticFilteredRepo(repoDir, filteredRepo, ignore); err != nil {
+		return nil, nil, err
+	}
+	originURL, _ := gitScalar(ctx, runner, repoDir, "remote", "get-url", "origin")
+	if strings.TrimSpace(originURL) == "" {
+		originURL = semanticOriginURLForRepoKey(repoKey)
+	}
+	if err := initSemanticFilteredRepo(ctx, filteredRepo, strings.TrimSpace(originURL)); err != nil {
+		return nil, nil, err
+	}
+	stdout, stderr, err := runSemanticSnapshotCommand(ctx, runner, filteredRepo, semBinary, semanticSnapshotArgs(filteredRepo, worktree, nil))
+	if err != nil {
+		if len(bytes.TrimSpace(stderr)) > 0 {
+			return nil, nil, fmt.Errorf("semantic provider filtered snapshot failed: %w: %s", err, strings.TrimSpace(string(stderr)))
+		}
+		return nil, nil, fmt.Errorf("semantic provider filtered snapshot failed: %w", err)
+	}
+	rewritten, err := rewriteSemanticSnapshotHeaderAndRepoKey(stdout, repoKey, head, tree)
+	if err != nil {
+		return nil, nil, err
+	}
+	return rewritten, nil, nil
+}
+
+func copySemanticFilteredRepo(src, dst string, ignore brainIgnore) error {
+	src, err := filepath.Abs(src)
+	if err != nil {
+		return fmt.Errorf("resolve semantic snapshot source: %w", err)
+	}
+	if err := os.MkdirAll(dst, 0o700); err != nil {
+		return fmt.Errorf("create filtered semantic snapshot repo: %w", err)
+	}
+	return filepath.WalkDir(src, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		relSlash := filepath.ToSlash(rel)
+		if relSlash == ".git" || strings.HasPrefix(relSlash, ".git/") || ignore.Ignored(relSlash) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		target := filepath.Join(dst, rel)
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		mode := info.Mode()
+		if entry.IsDir() {
+			return os.MkdirAll(target, mode.Perm())
+		}
+		if !mode.IsRegular() {
+			return nil
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return err
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode.Perm())
+		if err != nil {
+			_ = in.Close()
+			return err
+		}
+		_, copyErr := io.Copy(out, in)
+		inErr := in.Close()
+		closeErr := out.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if inErr != nil {
+			return inErr
+		}
+		return closeErr
+	})
+}
+
+func initSemanticFilteredRepo(ctx context.Context, repoDir, originURL string) error {
+	for _, args := range [][]string{
+		{"init", "--quiet"},
+		{"config", "user.email", "semantic-fallback@example.invalid"},
+		{"config", "user.name", "Entire Brain Semantic Fallback"},
+	} {
+		if _, stderr, err := runLocalGit(ctx, repoDir, args...); err != nil {
+			return fmt.Errorf("prepare filtered semantic snapshot repo: git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(stderr)))
+		}
+	}
+	if strings.TrimSpace(originURL) != "" {
+		if _, stderr, err := runLocalGit(ctx, repoDir, "remote", "add", "origin", originURL); err != nil {
+			return fmt.Errorf("prepare filtered semantic snapshot repo origin: %w: %s", err, strings.TrimSpace(string(stderr)))
+		}
+	}
+	for _, args := range [][]string{
+		{"add", "-A"},
+		{"commit", "--quiet", "--allow-empty", "-m", "semantic snapshot fallback"},
+	} {
+		if _, stderr, err := runLocalGit(ctx, repoDir, args...); err != nil {
+			return fmt.Errorf("prepare filtered semantic snapshot repo: git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(stderr)))
+		}
+	}
+	return nil
+}
+
+func runLocalGit(ctx context.Context, dir string, args ...string) ([]byte, []byte, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.Bytes(), stderr.Bytes(), err
+}
+
+func semanticOriginURLForRepoKey(repoKey string) string {
+	if strings.HasPrefix(repoKey, "gh/") {
+		parts := strings.Split(strings.TrimPrefix(repoKey, "gh/"), "/")
+		if len(parts) >= 2 && parts[0] != "" && parts[1] != "" {
+			return "https://github.com/" + parts[0] + "/" + parts[1] + ".git"
+		}
+	}
+	return ""
+}
+
+func rewriteSemanticSnapshotHeaderAndRepoKey(raw []byte, repoKey, head, tree string) ([]byte, error) {
+	scanner := newSemanticScanner(bytes.NewReader(raw))
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("semantic snapshot missing header")
+	}
+	var header semanticHeader
+	if err := json.Unmarshal(scanner.Bytes(), &header); err != nil {
+		return nil, fmt.Errorf("parse semantic snapshot header: %w", err)
+	}
+	originalRepoKey := header.RepoKey
+	header.RepoRoot = ""
+	header.RepoKey = repoKey
+	header.Commit = head
+	header.Tree = tree
+	headerLine, err := json.Marshal(header)
+	if err != nil {
+		return nil, fmt.Errorf("encode semantic snapshot header: %w", err)
+	}
+	var out bytes.Buffer
+	out.Write(headerLine)
+	out.WriteByte('\n')
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		if originalRepoKey != "" && originalRepoKey != repoKey {
+			line = bytes.ReplaceAll(line, []byte(originalRepoKey+":"), []byte(repoKey+":"))
+		}
+		out.Write(line)
+		out.WriteByte('\n')
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
 }
 
 func semanticSnapshotRejectsIgnoreFile(stderr []byte, err error) bool {

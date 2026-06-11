@@ -3,7 +3,7 @@
     {
       "kind": "go_test_json",
       "path": "go-test-internal-cli-radar.jsonl",
-      "sha256": "sha256:0b509c89a4cadac3baff6b2edf194ec94e53e9a16765c3987c29443164851a03"
+      "sha256": "sha256:d5a46b2efe76006a8028b475e4496713816b529fdaa964771a7d5e440f29d50b"
     }
   ],
   "claim_scope": "mcp_radar_tool_contract",
@@ -21,7 +21,7 @@
   "commands": [
     "go test -json ./internal/cli -run '^(TestRegressionDetectsChangedOperand|TestRegressionChangedOperandReportsMissingHintedFileDespiteIntactPeer|TestRegressionChangedOperandReportsEachRegressedHintedFile|TestInspectRegressionsCommandJSONAndLocationOnly|TestRegressionDeletionIsOptIn|TestRegressionDeletionRanksCallLocusWithHistoryFileHint|TestRegressionDeletionReportsEachMissingAnchoredCallSite|TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer|TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol|TestRegressionAssignmentDeletionRelatedLocationsStayOnSameInvariant|TestRegressionAssignmentDeletionRelatedLocationsDistinguishSameIdentifierDifferentRHS|TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite|TestRegressionAssignmentDeletionReportsSameNameReceiverMethods|TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction|TestRegressionDedupeRankPrefersBoostedCallDeletion|TestMCPInitializeAndToolsList|TestMCPToolsListIncludesRegressions|TestMCPToolsListIncludesQMDRetrievalSurface|TestMCPToolsListAdvertisesStaleBlindSpots|TestMCPToolSchemasRejectAdditionalProperties|TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet|TestMCPRejectsInvalidBooleanArguments|TestMCPRejectsInvalidStringAndUnknownArguments|TestMCPDebugLogIncludesToolCallNameAndSafeArgsOnly|TestMCPDebugLogIncludesSuccessfulWorkspaceRadarResult|TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools|TestMCPDebugLogReviewToolsRedactAndLogSuccess|TestMCPBrainRegressionsTool|TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites|TestMCPBrainReviewTool|TestMCPBrainWorkspaceReviewTool|TestMCPBrainWorkspaceRegressionsDeletionLocationOnlyAndReviewRedaction|TestMCPBrainWorkspaceToolRequiresWorkspace|TestMCPInitializeEchoesClientProtocolVersion|TestMCPInitializeSupportsJSONLineFraming|TestMCPBrainQueryToolUsesLocalSemanticJSON|TestMCPQMDRetrievalToolsUseLocalFacts|TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON|TestMCPBrainBriefAndQueryToolsUseIndexedHistory|TestMCPToolCallRejectsInvalidIntegerArguments|TestMCPToolCallRejectsInvalidDepth|TestMCPRecoversFromMalformedJSONLineFrame|TestMCPRejectsOversizedAndNegativeFrames|TestMCPBrainStaleUsesEnvRepoRoot|TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain|TestWorkspaceRegressionsDeletionLocationOnlyReportsRelatedLoci|TestWorkspaceRegressionsSkipsUnsafeRepo|TestWorkspaceRegressionsSkipsUnsafeSessionsOnlyRepo|TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint)$' > benchmarks/agent-brain/evidence/radar-tool/go-test-internal-cli-radar.jsonl"
   ],
-  "generated_at": "2026-06-10T17:53:14Z",
+  "generated_at": "2026-06-11T01:34:18Z",
   "limitations": [
     "Tool-contract proof only; this is not agent lift proof.",
     "Radar agent-lift proof is retained separately under benchmarks/agent-brain/evidence/release and enforced by mise run radar:agent-evidence.",
@@ -79,5 +79,5 @@
     "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint"
   ],
   "schema": 1,
-  "source_head": "c38df94136d2dc2354c2d62f62be64fee5c941b6"
+  "source_head": "3be0ab18d6736ea476f5b418557d783eb7fd1e4c"
 }

@@ -7,6 +7,7 @@
     "radar_tool": "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.json",
     "workspace_radar": "benchmarks/agent-brain/evidence/workspace-radar/workspace-radar-audit-report.json",
     "distill": "benchmarks/agent-brain/evidence/distill-perf/distill-perf-audit-report.json",
+    "target_distill": "benchmarks/agent-brain/evidence/target-distill/target-distill-audit-report.json",
     "facts": "benchmarks/agent-brain/evidence/facts-eval/facts-eval-audit-report.json"
   },
   "docs": {
@@ -15,7 +16,8 @@
   "required_release_proof_scopes": [
     "history",
     "mcp",
-    "mcp_radar_location_only"
+    "mcp_radar_location_only",
+    "semantic"
   ],
   "required_named_tool_proof_scopes": [
     "mcp_radar_location_only"
@@ -27,6 +29,7 @@
     "radar:agent-evidence",
     "workspace-radar:evidence",
     "distill:evidence",
+    "target-distill:evidence",
     "facts:evidence",
     "semantic:evidence",
     "release:matrix",

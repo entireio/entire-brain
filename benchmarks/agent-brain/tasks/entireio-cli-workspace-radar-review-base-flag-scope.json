@@ -1,0 +1,44 @@
+{
+  "id": "entireio-cli-workspace-radar-review-base-flag-scope",
+  "repo": "entire-cli",
+  "repo_path": "cli-bench",
+  "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+  "conditions": [
+    "no_brain",
+    "mcp_workspace_radar"
+  ],
+  "workspace_name": "release-radar",
+  "prompt": "Fix the review scope regression: `entire review --base <ref>` must use the explicit base ref when collecting checkpoint context and composing the agent prompt/banner. Preserve the existing review checkpoint context behavior. Do not run broad repo-wide CI; validate with focused review-context tests only.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "cmd/entire/cli/review_context.go",
+      "old": "scopeBaseRef+\"..HEAD\",",
+      "new": "\"master..HEAD\","
+    }
+  ],
+  "validation": [
+    "test $(rg -n 'scopeBaseRef\\+\"\\.\\.HEAD\"' cmd/entire/cli/review_context.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./cmd/entire/cli -run 'TestReviewCommandSmoke_BaseFlagThreadsThroughToPromptAndBanner|TestReviewCheckpointContext_IncludesSummaryAndPromptFallback'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/review_context.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "agent_hidden_paths": [
+    "benchmarks/agent-brain"
+  ],
+  "leak_markers": [
+    "release-workspace-radar-review-base-scope-canary-20260610T2330Z"
+  ],
+  "brain_queries": [
+    "reviewContextCommitMessages",
+    "scopeBaseRef",
+    "BaseFlagThreadsThroughToPromptAndBanner"
+  ],
+  "copy_checkpoint_ref_from_source": true
+}

@@ -1,0 +1,344 @@
+{
+  "comparisons": [
+    {
+      "agent": "codex",
+      "baseline": "no_brain",
+      "brain_positive_gate": {
+        "requires_repetitions_per_side": 4,
+        "score_delta": 13.0,
+        "search_improvement_ratio": 0.8461538461538461,
+        "success_delta": 0.25,
+        "time_improvement_ratio": 0.6123598914481905,
+        "time_overhead_ratio": -0.6123598914481905,
+        "token_improvement_ratio": 0.7226376035758753,
+        "token_overhead_ratio": -0.7226376035758753
+      },
+      "candidate_proof_ready": true,
+      "condition": "semantic_brain",
+      "delivery_scope": "semantic_brain",
+      "delta": 13.0,
+      "delta_score_core": 9.75,
+      "env_flags": {},
+      "mean_agent_seconds_baseline": 97.77366471290588,
+      "mean_agent_seconds_condition": 37.90099400281906,
+      "mean_baseline": 79.0,
+      "mean_brain_use_baseline": 5.0,
+      "mean_brain_use_condition": 5.0,
+      "mean_condition": 92.0,
+      "mean_cost_usd_baseline": 0.521641875,
+      "mean_cost_usd_condition": 0.1457505,
+      "mean_direct_brain_cli_calls_baseline": 0.0,
+      "mean_direct_brain_cli_calls_condition": 3.5,
+      "mean_mcp_tool_calls_baseline": 0.0,
+      "mean_mcp_tool_calls_condition": 0.0,
+      "mean_outcome_baseline": 35.0,
+      "mean_outcome_condition": 45.0,
+      "mean_patch_focus_baseline": 23.75,
+      "mean_patch_focus_condition": 23.0,
+      "mean_runtime_efficiency_baseline": 6.75,
+      "mean_runtime_efficiency_condition": 10.0,
+      "mean_score_core_baseline": 67.25,
+      "mean_score_core_condition": 77.0,
+      "mean_search_calls_baseline": 13.0,
+      "mean_search_calls_condition": 2.0,
+      "mean_total_tokens_baseline": 663613.75,
+      "mean_total_tokens_condition": 184061.5,
+      "mean_turns_baseline": null,
+      "mean_turns_condition": null,
+      "mean_validation_discipline_baseline": 8.5,
+      "mean_validation_discipline_condition": 9.0,
+      "n_baseline": 4,
+      "n_condition": 4,
+      "p_value_agent_seconds": 0.008612627937220653,
+      "p_value_agent_seconds_holm": 0.02583788381166196,
+      "p_value_approx": 0.4725877329291541,
+      "p_value_approx_holm": 0.9451754658583083,
+      "p_value_cost_usd": 0.0024884753436285397,
+      "p_value_cost_usd_holm": 0.012413184590744235,
+      "p_value_score_core": 0.5774733917871995,
+      "p_value_score_core_holm": 0.9451754658583083,
+      "p_value_total_tokens": 0.002482636918148847,
+      "p_value_total_tokens_holm": 0.012413184590744235,
+      "p_value_turns": null,
+      "pass_rate_baseline": 0.75,
+      "pass_rate_condition": 1.0,
+      "proof_ready": true,
+      "runner": "codex-gpt-5.4-mini-low",
+      "score_versions_baseline": [
+        2
+      ],
+      "score_versions_condition": [
+        2
+      ],
+      "stability": {
+        "coefficient_of_variation_score_baseline": 0.39680398128299565,
+        "coefficient_of_variation_score_condition": 0.07634531704965754,
+        "coefficient_of_variation_total_tokens_baseline": 0.16226913861309666,
+        "coefficient_of_variation_total_tokens_condition": 0.10060946184445943,
+        "pass_rate_lift_survives_drop_one": false,
+        "saturated": false,
+        "tag": "brain_positive_stable",
+        "token_win_survives_drop_one": true,
+        "tokens_p_holm": 0.012413184590744235,
+        "tokens_p_raw": 0.002482636918148847,
+        "tokens_significant_p_lt_0_05": true
+      },
+      "success_rate_baseline": 0.75,
+      "success_rate_condition": 1.0,
+      "task_id": "entire-brain-semantic-tokenized-idf-ranking",
+      "verdict": "brain_positive",
+      "verdict_reasons": [
+        "score_or_success_improved=+13.0",
+        "time_or_tokens_improved>=20%",
+        "search_calls_dropped>=20%"
+      ]
+    }
+  ],
+  "provenance": {
+    "fingerprint": "6427bee3fe454c9a137e013da6bf34852f9e68f52a07d38d517436d74e2ad6b8",
+    "harnesses": [
+      {
+        "dirty": true,
+        "head_commit": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+        "repo_path": "[repo]"
+      }
+    ],
+    "missing_record_provenance": 0,
+    "records": 8,
+    "records_with_provenance": 8,
+    "run_configs": [
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 200,
+        "command": "run",
+        "condition": "no_brain",
+        "fingerprint": "18d9c3cef6a426287ea5e8c776a62af8e7cc30f458af65675a71889bd09e9992",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_brain",
+          "repetitions": 4,
+          "runners": "codex:gpt-5.4-mini:low",
+          "tasks": [
+            "entire-brain-semantic-tokenized-idf-ranking.json"
+          ]
+        },
+        "runner": {
+          "agent": "codex",
+          "effort": "low",
+          "id": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 200,
+        "command": "run",
+        "condition": "no_brain",
+        "fingerprint": "2b1e76ea011f45e65bfbf27f1c0453d06fbe4c369ee122da8dd7ae8dc118fbb9",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_brain",
+          "repetitions": 4,
+          "runners": "codex:gpt-5.4-mini:low",
+          "tasks": [
+            "entire-brain-semantic-tokenized-idf-ranking.json"
+          ]
+        },
+        "runner": {
+          "agent": "codex",
+          "effort": "low",
+          "id": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 200,
+        "command": "run",
+        "condition": "no_brain",
+        "fingerprint": "48f883f957f814612b0e9750d2039bd7594c6bb13d642a19f1f57f28e97bbb39",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_brain",
+          "repetitions": 4,
+          "runners": "codex:gpt-5.4-mini:low",
+          "tasks": [
+            "entire-brain-semantic-tokenized-idf-ranking.json"
+          ]
+        },
+        "runner": {
+          "agent": "codex",
+          "effort": "low",
+          "id": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 200,
+        "command": "run",
+        "condition": "no_brain",
+        "fingerprint": "cb773b5b8a7c0f87aa3d2bb1b180c2b9177c7a92468844d2a6e62d4447a22642",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_brain",
+          "repetitions": 4,
+          "runners": "codex:gpt-5.4-mini:low",
+          "tasks": [
+            "entire-brain-semantic-tokenized-idf-ranking.json"
+          ]
+        },
+        "runner": {
+          "agent": "codex",
+          "effort": "low",
+          "id": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 200,
+        "command": "run",
+        "condition": "semantic_brain",
+        "fingerprint": "0e713a5cc79c1131c55dfb519b73854d816387fd88488cd1a462a4885593ba3f",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_brain",
+          "repetitions": 4,
+          "runners": "codex:gpt-5.4-mini:low",
+          "tasks": [
+            "entire-brain-semantic-tokenized-idf-ranking.json"
+          ]
+        },
+        "runner": {
+          "agent": "codex",
+          "effort": "low",
+          "id": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 200,
+        "command": "run",
+        "condition": "semantic_brain",
+        "fingerprint": "554a8f8018f6e8199b6b63eb83e99080e62608730683fc32fba8efc4d5956cb7",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_brain",
+          "repetitions": 4,
+          "runners": "codex:gpt-5.4-mini:low",
+          "tasks": [
+            "entire-brain-semantic-tokenized-idf-ranking.json"
+          ]
+        },
+        "runner": {
+          "agent": "codex",
+          "effort": "low",
+          "id": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 200,
+        "command": "run",
+        "condition": "semantic_brain",
+        "fingerprint": "7eefdcf5e8a169b1e725aefd00dde0ee3bb05bd90907c54a3baa2a27e5226059",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_brain",
+          "repetitions": 4,
+          "runners": "codex:gpt-5.4-mini:low",
+          "tasks": [
+            "entire-brain-semantic-tokenized-idf-ranking.json"
+          ]
+        },
+        "runner": {
+          "agent": "codex",
+          "effort": "low",
+          "id": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini"
+        }
+      },
+      {
+        "brain_cache": {
+          "enabled": true,
+          "refresh": false
+        },
+        "checkpoint_limit": 200,
+        "command": "run",
+        "condition": "semantic_brain",
+        "fingerprint": "96c64746195e671987ca034c64ebf27bf13045c8a44cfa9180ce517d37921431",
+        "requested": {
+          "agents": "",
+          "conditions": "no_brain,semantic_brain",
+          "repetitions": 4,
+          "runners": "codex:gpt-5.4-mini:low",
+          "tasks": [
+            "entire-brain-semantic-tokenized-idf-ranking.json"
+          ]
+        },
+        "runner": {
+          "agent": "codex",
+          "effort": "low",
+          "id": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini"
+        }
+      }
+    ],
+    "schema": 1,
+    "sources": [
+      {
+        "base_commit": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+        "base_ref": "HEAD",
+        "base_ref_source": "source_head",
+        "dirty": true,
+        "head_commit": "23dd1d3ae7468ad0e03f1132fddbd173274c83cb",
+        "repo": "entire-brain",
+        "repo_path_input": "entire-brain",
+        "repo_path_resolved": "[repo]"
+      }
+    ],
+    "tasks": [
+      {
+        "base_commit": null,
+        "config_sha256": "b87926c0d858b7e7391b946862ac0366ecdd5da61d47757e859bf0ad7256c2b4",
+        "id": "entire-brain-semantic-tokenized-idf-ranking",
+        "path": "benchmarks/agent-brain/tasks/entire-brain-semantic-tokenized-idf-ranking.json"
+      }
+    ]
+  },
+  "records": 8,
+  "stability_tags": {
+    "brain_positive_stable": 1
+  },
+  "stats_notes": {
+    "headline_metric": "validation pass-rate + measured tokens; composite score and p-values are secondary",
+    "multiple_comparison_correction": "holm-bonferroni across all suite p-values; see <field>_holm",
+    "n_pvalues_in_family": 5,
+    "p_value_test": "two-sided Welch's t-test (Student-t, Welch-Satterthwaite df)",
+    "stability": "per comparison: coefficient_of_variation + tag (brain_positive_stable requires a token win significant at p<0.05 using max(raw Welch p, Holm-adjusted p), or a pass-rate lift, that survives dropping the single most-favourable rep; saturated = both arms pass 100%; noisy otherwise). The gate only downgrades; it never manufactures significance."
+  }
+}

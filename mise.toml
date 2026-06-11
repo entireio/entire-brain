@@ -254,7 +254,7 @@ cp "$tmp"/facts-eval-audit-report.json "$tmp"/facts-eval-audit-report.md benchma
 '''
 
 [tasks."distill:evidence"]
-description = "Check retained large-repo distill performance evidence without rewriting tracked reports"
+description = "Check retained current-repo distill scheduler evidence without rewriting tracked reports"
 run = '''
 set -e
 manifest="benchmarks/agent-brain/evidence/distill-perf/manifest.json"
@@ -299,6 +299,54 @@ python3 benchmarks/agent-brain/audit_distill_perf.py \
   --fail-on-flags
 mkdir -p benchmarks/agent-brain/evidence/distill-perf
 cp "$tmp"/distill-perf-audit-report.json "$tmp"/distill-perf-audit-report.md benchmarks/agent-brain/evidence/distill-perf/
+'''
+
+[tasks."target-distill:evidence"]
+description = "Check retained target/frontend distill evidence status without rewriting tracked reports"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/target-distill/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "target distill evidence manifest is missing: $manifest" >&2
+  echo "retain a target-distill no-claim or proof-required manifest before citing frontend distill performance" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_target_distill_evidence.py \
+  --manifest "$manifest" \
+  --out-dir "$tmp" \
+  --fail-on-flags
+for report in target-distill-audit-report.json target-distill-audit-report.md; do
+  committed="benchmarks/agent-brain/evidence/target-distill/$report"
+  generated="$tmp/$report"
+  if ! cmp -s "$committed" "$generated"; then
+    echo "retained target distill evidence report is stale: $report" >&2
+    diff -u "$committed" "$generated" >&2 || true
+    echo "run: mise run target-distill:evidence:update" >&2
+    exit 1
+  fi
+done
+'''
+
+[tasks."target-distill:evidence:update"]
+description = "Regenerate retained target/frontend distill audit reports after the evidence gate passes"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/target-distill/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "target distill evidence manifest is missing: $manifest" >&2
+  echo "retain a target-distill no-claim or proof-required manifest before citing frontend distill performance" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_target_distill_evidence.py \
+  --manifest "$manifest" \
+  --out-dir "$tmp" \
+  --fail-on-flags
+mkdir -p benchmarks/agent-brain/evidence/target-distill
+cp "$tmp"/target-distill-audit-report.json "$tmp"/target-distill-audit-report.md benchmarks/agent-brain/evidence/target-distill/
 '''
 
 [tasks."semantic:evidence"]
@@ -390,7 +438,7 @@ run = '''
 set +e
 failures=0
 failed=""
-for task in check release:evidence radar:evidence radar:agent-evidence workspace-radar:evidence distill:evidence facts:evidence semantic:evidence release:matrix; do
+for task in check release:evidence radar:evidence radar:agent-evidence workspace-radar:evidence distill:evidence target-distill:evidence facts:evidence semantic:evidence release:matrix; do
   echo "==> mise run $task"
   mise run "$task"
   rc=$?

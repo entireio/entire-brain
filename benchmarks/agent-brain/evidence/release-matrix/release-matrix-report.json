@@ -3,13 +3,13 @@
   "manifest": "benchmarks/agent-brain/evidence/release-matrix/manifest.json",
   "notes": [
     "This is a claim-hygiene gate, not a declaration that every release blocker is closed.",
-    "release_fully_ready remains false while target large-repo distill, facts-vs-raw, semantic usefulness, workspace Radar, and broader replay proof are pending."
+    "release_fully_ready remains false while target large-repo distill, facts-vs-raw, workspace Radar, and broader replay proof are pending."
   ],
   "release_fully_ready": false,
   "rows": [
     {
       "claimable": true,
-      "detail": "proof scopes: history, mcp, mcp_radar_location_only",
+      "detail": "proof scopes: history, mcp, mcp_radar_location_only, semantic",
       "evidence": "benchmarks/agent-brain/evidence/release/codex-audit-report.json",
       "flags": [],
       "status": "proven",
@@ -33,8 +33,8 @@
     },
     {
       "claimable": false,
-      "detail": "current retained speedup is current-repo command-agent scheduler proof, not the frontend/large-repo claim",
-      "evidence": "benchmarks/agent-brain/evidence/distill-perf/distill-perf-audit-report.json",
+      "detail": "target frontend/large-repo dry-run and paired timed artifacts still required",
+      "evidence": "benchmarks/agent-brain/evidence/target-distill/target-distill-audit-report.json",
       "flags": [],
       "status": "pending-target-evidence",
       "track": "target large-repo/frontend distill performance"
@@ -64,11 +64,11 @@
       "track": "semantic freshness/audit health"
     },
     {
-      "claimable": false,
-      "detail": "release evidence has no semantic proof-ready scope; semantic usefulness remains unclaimed",
+      "claimable": true,
+      "detail": "retained semantic proof-ready benchmark shows semantic_brain lift",
       "evidence": "benchmarks/agent-brain/evidence/release/codex-audit-report.json",
       "flags": [],
-      "status": "pending-retained-proof",
+      "status": "proven",
       "track": "semantic usefulness benchmark claim"
     },
     {
@@ -91,9 +91,9 @@
   "schema": 1,
   "status": "pass",
   "summary": {
-    "claimable_tracks": 6,
+    "claimable_tracks": 7,
     "flags": 0,
-    "no_claim_or_pending_tracks": 4,
+    "no_claim_or_pending_tracks": 3,
     "tracks": 10
   }
 }

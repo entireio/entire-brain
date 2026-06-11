@@ -26,6 +26,25 @@ Minimum retained shape:
 ```json
 {
   "schema": 1,
+  "claim_policy": "proof_required",
+  "proof_contract": {
+    "required_retrievers": ["facts", "history", "query", "raw-sessions"],
+    "required_comparison": "raw_vs_facts",
+    "a_retriever": "raw-sessions",
+    "b_retriever": "facts",
+    "required_metric": "useful_per_1k",
+    "required_winner": "b",
+    "required_evidence_basis": "proof_labels",
+    "require_release_pairing_ready": true,
+    "require_no_proxy": true,
+    "require_same_tasks_sha256": true,
+    "require_same_brain_manifest_sha256": true,
+    "require_facts_status_ready": true,
+    "require_include_ids": true,
+    "require_retained_tasks_artifact": true
+  },
+  "facts_status": "facts-status.json",
+  "tasks": "tasks.json",
   "required_retrievers": ["facts", "history", "query", "raw-sessions"],
   "summaries": {
     "facts": "facts.json",
@@ -63,18 +82,27 @@ Until a proof manifest exists, the accepted no-claim retained shape is:
 ```
 
 The auditor accepts this only when the retained `facts status --json` artifact
-shows `facts_arm_ready: false` and zero active facts.
+shows `facts_arm_ready: false`, zero active facts, and a valid
+`brain_manifest_sha256`.
 
 Collection checklist:
 
 - Before collecting, run `entire brain facts status --json` on the target repo.
   `facts_arm_ready` must be true for the facts retriever arm to be meaningful,
   but active facts alone are not proof; the paired eval still needs proof-grade
-  labels and the retained artifacts below.
+  labels and the retained artifacts below. Retain this status JSON alongside the
+  summaries; the auditor checks its `brain_manifest_sha256` and requires
+  `manifest_sources` to include `facts` for proof manifests.
+- Collect every arm with `facts eval --include-ids --json`. The auditor requires
+  `run_config.include_ids: true` and a non-empty `retrieved_ids` list on every
+  retained result row, so reviewers can inspect exactly which candidates each
+  metric used.
 - Use one immutable task file for all four retrievers. Every summary must carry
-  the same `run_config.tasks_sha256`.
+  the same `run_config.tasks_sha256`, and the retained manifest must name that
+  task file under `tasks` so the auditor can recompute and compare its SHA-256.
 - Use one immutable brain snapshot for all four retrievers. Every summary and
-  comparison must carry the same `brain_manifest_sha256`.
+  comparison must carry the same `brain_manifest_sha256`, and that hash must
+  match the retained `facts status --json` artifact.
 - Use human-reviewed or otherwise proof-grade labels. Source-session proxy
   relevance is useful for calibration, but it must not be cited as a release
   proof that facts beat raw sessions. For required relevance claims, every

@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "manifest": "benchmarks/agent-brain/evidence/target-distill/manifest.json",
+  "status": "pass",
+  "release_evidence": true,
+  "claim_policy": "no_release_claim",
+  "claimable_target_distill": false,
+  "target": {
+    "repo": "frontend/entire.io target repo",
+    "claim_scope": "target large-repo/frontend distill backfill performance"
+  },
+  "distill_report": "",
+  "distill_report_target": {},
+  "missing_evidence": [
+    "target repo identity and source_head from the actual frontend/large-session repo",
+    "retained distill --dry-run --json artifact from the target repo",
+    "paired target timed artifacts for --jobs 1 and --jobs N under the same cache/model/chunk configuration",
+    "artifact SHA256 and exact command-token provenance for every retained target artifact",
+    "passing target distill performance audit with observed speedup above the release threshold"
+  ],
+  "flags": [],
+  "notes": [
+    "target/frontend distill performance remains unclaimed until retained target artifacts exist"
+  ]
+}

@@ -2,7 +2,15 @@
   "schema_version": 1,
   "repo": "[repo-root]",
   "brain_path": "[local-brain]/repos/gh/ashtom/entire-brain",
-  "branch": "codex/release-readiness-hardening",
+  "brain_manifest_sha256": "sha256:7a399cd02502e5a8baf8f982e7300749da93f34205f2d9c84b93acbc217ef8c8",
+  "manifest_sources": [
+    "docs",
+    "history",
+    "seed",
+    "semantic",
+    "sessions"
+  ],
+  "branch": "codex/release-readiness-audit-cleanup",
   "facts_arm_ready": false,
   "totals": {
     "facts": 0,

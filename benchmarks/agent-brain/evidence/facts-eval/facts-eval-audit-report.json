@@ -6,8 +6,33 @@
   "claim_policy": "no_release_claim",
   "claimable_facts_vs_raw": false,
   "tasks_sha256": "",
+  "tasks_artifact": {
+    "path": "",
+    "sha256": ""
+  },
   "brain_manifest_sha256": "",
   "required_retrievers": [],
+  "proof_contract": {
+    "required_retrievers": [
+      "facts",
+      "history",
+      "query",
+      "raw-sessions"
+    ],
+    "required_comparison": "raw_vs_facts",
+    "a_retriever": "raw-sessions",
+    "b_retriever": "facts",
+    "required_metric": "useful_per_1k",
+    "required_winner": "b",
+    "required_evidence_basis": "proof_labels",
+    "require_release_pairing_ready": true,
+    "require_no_proxy": true,
+    "require_same_tasks_sha256": true,
+    "require_same_brain_manifest_sha256": true,
+    "require_facts_status_ready": true,
+    "require_include_ids": true,
+    "require_retained_tasks_artifact": true
+  },
   "summary_paths": {},
   "comparison_paths": {},
   "required_claims": [],
@@ -26,6 +51,14 @@
       "verified_anchors": 0,
       "unsigned_anchors": 0
     },
+    "brain_manifest_sha256": "sha256:7a399cd02502e5a8baf8f982e7300749da93f34205f2d9c84b93acbc217ef8c8",
+    "manifest_sources": [
+      "docs",
+      "history",
+      "seed",
+      "semantic",
+      "sessions"
+    ],
     "warnings": [
       "facts retriever has no active facts; facts-vs-raw release proof cannot be collected yet",
       "brain manifest has no facts source"
