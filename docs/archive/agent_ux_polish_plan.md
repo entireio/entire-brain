@@ -43,6 +43,10 @@ records with `name`/`file_path`/`start_line`, not just relation ids. Test:
 fixture with `caller -> ValidateToken`, assert the caller symbol appears in
 `neighbors`.
 
+**Status.** Implemented locally in `semanticContextResult.Neighbors`, populated
+by `semanticContextFacts`, surfaced by `inspect context` and `brain brief`, and
+covered by `TestSemanticContextJSONIncludesRelationNeighbors`.
+
 ## 2. `inspect changes`: clear "no changes" signal  *(done)*
 
 **Problem.** On a clean worktree `inspect changes --json` returns

@@ -52,6 +52,12 @@ func countFactProposals(brainDir string, branches []string) int {
 // manifest stay accurate. Chunk counts are preserved from the existing source
 // (they describe the last distill run, not these edits).
 func updateFactSourceManifest(brainDir string, now time.Time) error {
+	return withBrainWriteLock(brainDir, func() error {
+		return updateFactSourceManifestLocked(brainDir, now)
+	})
+}
+
+func updateFactSourceManifestLocked(brainDir string, now time.Time) error {
 	byBranch, err := loadAllFactBranches(brainDir)
 	if err != nil {
 		return err
@@ -66,12 +72,12 @@ func updateFactSourceManifest(brainDir string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	chunksScanned, chunksDistilled := 0, 0
+	var previous *factSourceManifest
 	if manifest.Sources != nil && manifest.Sources.Facts != nil {
-		chunksScanned = manifest.Sources.Facts.ChunksScanned
-		chunksDistilled = manifest.Sources.Facts.ChunksDistilled
+		previous = manifest.Sources.Facts
 	}
-	source := summarizeFactSource(now, byBranch, chunksScanned, chunksDistilled, proposals, nil)
+	source := summarizeFactSource(now, byBranch, 0, 0, proposals, nil)
+	preserveFactDistillEvidence(source, previous)
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}
 	}
@@ -80,4 +86,35 @@ func updateFactSourceManifest(brainDir string, now time.Time) error {
 		manifest.GeneratedAt = now
 	}
 	return writeBrainManifestAndReadme(brainDir, *manifest)
+}
+
+func preserveFactDistillEvidence(source, previous *factSourceManifest) {
+	if source == nil || previous == nil {
+		return
+	}
+	source.ChunksScanned = previous.ChunksScanned
+	source.ChunksDistilled = previous.ChunksDistilled
+	source.CacheHits = previous.CacheHits
+	source.FailedChunks = previous.FailedChunks
+	source.PreprocessedBytes = previous.PreprocessedBytes
+	source.ExtractionWaitSeconds = previous.ExtractionWaitSeconds
+	source.ReconcileSeconds = previous.ReconcileSeconds
+	source.WriteSeconds = previous.WriteSeconds
+	// The run-configuration and call-count evidence must survive too: facts
+	// admin commands (review/promote/gc) rebuild this summary, and zeroing
+	// these blanks the fields the release audit reads from the manifest.
+	source.Agent = previous.Agent
+	source.Model = previous.Model
+	source.Effort = previous.Effort
+	source.Branch = previous.Branch
+	source.Force = previous.Force
+	source.Jobs = previous.Jobs
+	source.ExtractionJobsCap = previous.ExtractionJobsCap
+	source.MaxChunkBytes = previous.MaxChunkBytes
+	source.Confidence = previous.Confidence
+	source.ExtractionCalls = previous.ExtractionCalls
+	source.ReconcileCalls = previous.ReconcileCalls
+	source.TotalAgentCalls = previous.TotalAgentCalls
+	source.TotalSeconds = previous.TotalSeconds
+	source.Warnings = append([]string(nil), previous.Warnings...)
 }

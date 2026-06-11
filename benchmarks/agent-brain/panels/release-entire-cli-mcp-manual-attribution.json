@@ -1,0 +1,15 @@
+{
+  "name": "release-entire-cli-mcp-manual-attribution",
+  "description": "Focused release-candidate MCP-history panel for the manual-commit attribution-base regression. This is a harder non-radar MCP proof lane: the brain should supply the historical invariant and likely file, while the agent still has to repair the code without hidden validation or expected text.",
+  "runners": [
+    "codex:gpt-5.4-mini:medium"
+  ],
+  "conditions": [
+    "no_brain",
+    "mcp_history"
+  ],
+  "repetitions": 4,
+  "tasks": [
+    "entireio-cli-manual-commit-attribution-base.json"
+  ]
+}

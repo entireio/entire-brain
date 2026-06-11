@@ -70,6 +70,7 @@ type historyIndex struct {
 type historyRecord struct {
 	ID      string   `json:"id"`
 	Kind    string   `json:"kind"`
+	Branch  string   `json:"branch,omitempty"`
 	Path    string   `json:"path"`
 	Line    int      `json:"line"`
 	Summary string   `json:"summary"`
@@ -136,7 +137,7 @@ func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, targ
 		return err
 	}
 	if !local {
-		return fmt.Errorf("history-index requires a local repository path: %s", target)
+		return fmt.Errorf("refresh sessions requires a local repository path: %s", target)
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
@@ -156,6 +157,16 @@ func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, targ
 type historyIndexProgress func(done, total int)
 
 func writeBrainHistoryIndexAndSource(outputDir string, now time.Time, progress historyIndexProgress) (*historySourceManifest, error) {
+	var source *historySourceManifest
+	err := withBrainWriteLock(outputDir, func() error {
+		var runErr error
+		source, runErr = writeBrainHistoryIndexAndSourceLocked(outputDir, now, progress)
+		return runErr
+	})
+	return source, err
+}
+
+func writeBrainHistoryIndexAndSourceLocked(outputDir string, now time.Time, progress historyIndexProgress) (*historySourceManifest, error) {
 	index, source, err := buildBrainHistoryIndex(outputDir, now, progress)
 	if err != nil {
 		return nil, err
@@ -165,13 +176,13 @@ func writeBrainHistoryIndexAndSource(outputDir string, now time.Time, progress h
 		return nil, err
 	}
 	data = append(data, '\n')
-	if err := writeFileAtomic(filepath.Join(outputDir, filepath.FromSlash(historyIndexPath)), data, 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, historyIndexPath, data, 0o600); err != nil {
 		return nil, fmt.Errorf("write history index: %w", err)
 	}
 	// Build the derived BM25 index alongside its truth so the search/query verbs
 	// do not pay a first-query rebuild. Best-effort: the query path rebuilds it
 	// lazily on any failure, so this must never fail the refresh.
-	if db, ftsErr := openHistoryFTS(outputDir, index); ftsErr == nil {
+	if db, ftsErr := openHistoryFTSLocked(outputDir, index); ftsErr == nil {
 		_ = db.Close()
 	}
 	manifest, err := loadBrainManifest(outputDir)
@@ -207,6 +218,8 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 
 	prevCache := loadHistoryScanCache(outputDir)
 	newCache := historyScanCache{Version: historyScanCacheVersion, Files: make(map[string]historyScanCacheEntry, len(files))}
+	manifest, _ := loadBrainManifest(outputDir)
+	branchByPath := historyBranchByTranscriptPath(manifest)
 
 	total := len(files)
 	if progress != nil {
@@ -234,6 +247,7 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 			}
 			records = scanned
 		}
+		records = annotateHistoryRecordBranches(records, rel, branchByPath)
 		// Only files that scanned cleanly (or were reused) are cached; a file
 		// that errored is left out so the next refresh retries it.
 		newCache.Files[rel] = historyScanCacheEntry{Size: file.Size, ModUnixNano: file.ModUnixNano, Records: records}
@@ -286,6 +300,69 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 	return index, source, nil
 }
 
+func historyBranchByTranscriptPath(manifest *exportManifest) map[string]string {
+	out := map[string]string{}
+	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
+		return out
+	}
+	defaultBranch := strings.TrimSpace(manifest.Sources.Sessions.DefaultBranch)
+	if defaultBranch == "" {
+		defaultBranch = strings.TrimSpace(manifest.DefaultBranch)
+	}
+	if defaultBranch == "" {
+		defaultBranch = distillDefaultBranch
+	}
+	for _, session := range manifest.Sources.Sessions.Sessions {
+		rel := filepath.ToSlash(strings.TrimSpace(session.TranscriptPath))
+		if rel == "" {
+			continue
+		}
+		branch := strings.TrimSpace(session.Branch)
+		if branch == "" {
+			branch = defaultBranch
+		}
+		out[rel] = branch
+	}
+	return out
+}
+
+func annotateHistoryRecordBranches(records []historyRecord, rel string, branchByPath map[string]string) []historyRecord {
+	branch := historyRecordBranchForPath(rel, branchByPath)
+	if branch == "" {
+		return records
+	}
+	out := append([]historyRecord(nil), records...)
+	for i := range out {
+		if out[i].Branch == "" {
+			out[i].Branch = branch
+		}
+	}
+	return out
+}
+
+func historyRecordBranchForPath(path string, branchByPath map[string]string) string {
+	rel := filepath.ToSlash(strings.TrimSpace(path))
+	if rel == "" {
+		return ""
+	}
+	if branch := strings.TrimSpace(branchByPath[rel]); branch != "" {
+		return branch
+	}
+	if strings.HasPrefix(rel, "sessions/branches/") {
+		rest := strings.TrimPrefix(rel, "sessions/branches/")
+		if idx := strings.Index(rest, "/"); idx > 0 {
+			return rest[:idx]
+		}
+	}
+	if strings.HasPrefix(rel, "sessions/") {
+		rest := strings.TrimPrefix(rel, "sessions/")
+		if idx := strings.Index(rest, "/"); idx > 0 {
+			return rest[:idx]
+		}
+	}
+	return ""
+}
+
 // loadHistoryScanCache reads the per-file scan cache. It always returns a
 // usable (non-nil map) value: any read/parse error or a version mismatch
 // yields an empty cache so the index simply rebuilds from scratch.
@@ -324,7 +401,7 @@ func saveHistoryScanCache(outputDir string, cache historyScanCache) {
 	if err := gz.Close(); err != nil {
 		return
 	}
-	_ = writeFileAtomic(filepath.Join(outputDir, filepath.FromSlash(historyScanCachePath)), buf.Bytes(), 0o600)
+	_ = writeBrainRelativeFileAtomic(outputDir, historyScanCachePath, buf.Bytes(), 0o600)
 }
 
 func brainSessionsFingerprint(outputDir string) string {

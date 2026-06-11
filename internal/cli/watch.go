@@ -28,6 +28,7 @@ type watchCommandOptions struct {
 	distill      bool
 	distillEvery time.Duration
 	distillAgent string
+	distillJobs  int
 	seedAgent    string
 	model        string
 	effort       string
@@ -41,6 +42,8 @@ type watchCursor struct {
 	LastRefreshAt    time.Time `json:"last_refresh_at,omitempty"`
 	LastAgentSpendAt time.Time `json:"last_agent_spend_at,omitempty"`
 }
+
+const watchCursorLockName = "watch.lock"
 
 // watchSteps are the side-effecting operations of one tick. Injected so the loop's gating logic
 // (change detection, agent interval/budget, cursor persistence) is unit-testable without running a real
@@ -60,6 +63,7 @@ func defaultWatchOptions() watchCommandOptions {
 		interval:     5 * time.Minute,
 		distillEvery: 24 * time.Hour,
 		distillAgent: "codex",
+		distillJobs:  1,
 		seedAgent:    "none",
 	}
 }
@@ -72,6 +76,7 @@ func bindWatchFlags(cmd *cobra.Command, w *watchCommandOptions) {
 	cmd.Flags().BoolVar(&w.distill, "distill", false, "Run distill (SPENDS TOKENS) when new sessions land — gated by --distill-every + --budget")
 	cmd.Flags().DurationVar(&w.distillEvery, "distill-every", w.distillEvery, "Minimum interval between gated agent runs (distill and/or seed synthesis)")
 	cmd.Flags().StringVar(&w.distillAgent, "agent", w.distillAgent, "Agent for the distill step (used only with --distill)")
+	cmd.Flags().IntVar(&w.distillJobs, "jobs", w.distillJobs, "Parallel distill extraction jobs when --distill is enabled; reconciliation and writes remain deterministic")
 	cmd.Flags().StringVar(&w.seedAgent, "seed-agent", w.seedAgent, "Agent for gated seed synthesis (SPENDS TOKENS); none = deterministic seed only. Bounded by --distill-every + --budget, NOT per-change")
 	cmd.Flags().StringVar(&w.model, "model", "", "Fast/cheap model for the gated agent steps (distill/seed)")
 	cmd.Flags().StringVar(&w.effort, "effort", "", "Reasoning effort for the gated agent steps (codex --config model_reasoning_effort=, claude --effort)")
@@ -100,6 +105,9 @@ func runWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchComm
 	if w.interval <= 0 {
 		w.interval = 5 * time.Minute
 	}
+	if w.distillJobs <= 0 {
+		return fmt.Errorf("--jobs must be greater than 0")
+	}
 	now := opts.Now
 	if now == nil {
 		now = time.Now
@@ -122,8 +130,8 @@ func runWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchComm
 	// Background context otherwise).
 	ctx, stop := watchSignalContext(ctx)
 	defer stop()
-	fmt.Fprintf(cmd.OutOrStdout(), "[watch] %s — interval %s, distill=%v (every %s, agent=%s, model=%q, budget=%d)\n",
-		storage.Key, w.interval, w.distill, w.distillEvery, w.distillAgent, w.model, w.budget)
+	fmt.Fprintf(cmd.OutOrStdout(), "[watch] %s — interval %s, distill=%v (every %s, agent=%s, jobs=%d, model=%q, budget=%d)\n",
+		storage.Key, w.interval, w.distill, w.distillEvery, w.distillAgent, w.distillJobs, w.model, w.budget)
 	return watchLoop(ctx, cmd.OutOrStdout(), w, cursorPath, steps)
 }
 
@@ -171,15 +179,17 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
 		return
 	}
-	cursor.LastFingerprint = fp
-	cursor.LastRefreshAt = steps.now().UTC()
-	_ = saveWatchCursor(cursorPath, cursor)
+	reserved, reason, err := reserveWatchAgentSpend(cursorPath, fp, w, agentCalls, steps.now().UTC())
+	if err != nil {
+		fmt.Fprintf(out, "[watch] cursor update failed (skipping agent work this tick): %v\n", err)
+		return
+	}
 	fmt.Fprintln(out, "[watch] refreshed (deterministic, no agent tokens)")
 
 	if !w.agentWorkEnabled() {
 		return
 	}
-	if ok, reason := watchShouldSpend(w, cursor, *agentCalls, steps.now().UTC()); !ok {
+	if !reserved {
 		fmt.Fprintf(out, "[watch] agent work skipped: %s\n", reason)
 		return
 	}
@@ -201,9 +211,6 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 			fmt.Fprintln(out, "[watch] distilled facts (agent step; spent tokens)")
 		}
 	}
-	*agentCalls++
-	cursor.LastAgentSpendAt = steps.now().UTC()
-	_ = saveWatchCursor(cursorPath, cursor)
 }
 
 // agentWorkEnabled reports whether any token-spending step is turned on.
@@ -239,6 +246,57 @@ func watchShouldSpend(w watchCommandOptions, cursor watchCursor, agentCalls int,
 		return false, fmt.Sprintf("--budget %d reached", w.budget)
 	}
 	return true, ""
+}
+
+func reserveWatchAgentSpend(cursorPath, fingerprint string, w watchCommandOptions, agentCalls *int, now time.Time) (bool, string, error) {
+	var cursor watchCursor
+	var reserved bool
+	var reason string
+	err := withWatchCursorLock(cursorPath, func() error {
+		cursor = loadWatchCursor(cursorPath)
+		changed := fingerprint != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero()
+		if changed {
+			cursor.LastFingerprint = fingerprint
+			cursor.LastRefreshAt = now
+		}
+		if !w.agentWorkEnabled() {
+			if changed {
+				return saveWatchCursor(cursorPath, cursor)
+			}
+			return nil
+		}
+		ok, skipReason := watchShouldSpend(w, cursor, *agentCalls, now)
+		if !ok {
+			reason = skipReason
+			if changed {
+				return saveWatchCursor(cursorPath, cursor)
+			}
+			return nil
+		}
+		cursor.LastAgentSpendAt = now
+		*agentCalls++
+		reserved = true
+		return saveWatchCursor(cursorPath, cursor)
+	})
+	return reserved, reason, err
+}
+
+func withWatchCursorLock(cursorPath string, fn func() error) error {
+	root := filepath.Dir(cursorPath)
+	if info, err := os.Lstat(root); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("watch cursor directory must not be a symlink: %s", root)
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := rejectExistingSymlinkPathComponents(root, brainLockDirName); err != nil {
+		return err
+	}
+	lock, err := acquireFileLock(filepath.Join(root, brainLockDirName, watchCursorLockName), "watch_locked", brainWriteLockTimeout)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
+	return fn()
 }
 
 // watchFingerprint is a token-free change signal: the local checkpoint ref, the fetched (origin)
@@ -318,19 +376,28 @@ func watchSeed(ctx context.Context, cmd *cobra.Command, opts Options, w watchCom
 }
 
 func watchDistill(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, repoDir string) error {
-	distillOpts := distillCommandOptions{
+	distillOpts := watchDistillOptions(w)
+	sub := &cobra.Command{}
+	sub.SetContext(ctx)
+	sub.SetOut(cmd.OutOrStdout())
+	sub.SetErr(cmd.ErrOrStderr())
+	return runDistill(ctx, sub, opts, distillOpts, repoDir)
+}
+
+func watchDistillOptions(w watchCommandOptions) distillCommandOptions {
+	jobs := w.distillJobs
+	if jobs <= 0 {
+		jobs = 1
+	}
+	return distillCommandOptions{
 		agent:               w.distillAgent,
 		model:               w.model,
 		effort:              w.effort,
 		timeout:             defaultDistillTimeout,
 		maxChunkBytes:       defaultDistillChunkSize,
 		confidenceThreshold: defaultFactConfidenceThreshold,
+		jobs:                jobs,
 	}
-	sub := &cobra.Command{}
-	sub.SetContext(ctx)
-	sub.SetOut(cmd.OutOrStdout())
-	sub.SetErr(cmd.ErrOrStderr())
-	return runDistill(ctx, sub, opts, distillOpts, repoDir)
 }
 
 func loadWatchCursor(path string) watchCursor {

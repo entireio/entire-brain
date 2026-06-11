@@ -350,6 +350,19 @@ func TestDistillAgentCommandArgs(t *testing.T) {
 	}
 }
 
+func TestDistillAgentCommandArgsRejectsRemoteAgentsInNoEgressMode(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
+	for _, agent := range []string{"codex", "claude-code", "command"} {
+		_, err := distillAgentCommandArgs(agent, []string{"local-agent"}, "PROMPT")
+		if err == nil || !strings.Contains(err.Error(), "no_egress") {
+			t.Fatalf("agent %s should be rejected in no-egress mode, got %v", agent, err)
+		}
+	}
+	if _, err := distillAgentCommandArgs("ollama", nil, "PROMPT"); err != nil {
+		t.Fatalf("ollama should remain available in no-egress mode: %v", err)
+	}
+}
+
 func TestInjectAgentModel(t *testing.T) {
 	codex, _ := distillAgentCommandArgs("codex", nil, "PROMPT")
 	got := injectAgentModel(codex, "codex", "gpt-5.3-codex-spark")
@@ -367,6 +380,15 @@ func TestInjectAgentModel(t *testing.T) {
 	}
 	if gotc[len(gotc)-1] != "PROMPT" {
 		t.Fatalf("prompt must stay last: %v", gotc)
+	}
+
+	ollama, _ := distillAgentCommandArgs("ollama", nil, "PROMPT")
+	gotOllama := injectAgentModel(ollama, "ollama", "llama3.2")
+	if !slices.Equal(gotOllama, []string{"ollama", "llama3.2", "PROMPT"}) {
+		t.Fatalf("ollama model not inserted into runner args: %v", gotOllama)
+	}
+	if !slices.Equal(ollama, []string{"ollama", "", "PROMPT"}) {
+		t.Fatalf("ollama model injection should not mutate original args: %v", ollama)
 	}
 
 	// Empty model and the `command` agent are no-ops.

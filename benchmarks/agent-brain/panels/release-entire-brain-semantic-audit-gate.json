@@ -1,0 +1,15 @@
+{
+  "name": "release-entire-brain-semantic-audit-gate",
+  "description": "Focused release-candidate semantic panel for a semantic-audit gate behavior that should benefit from symbol/test localization without naming the exact implementation in the prompt.",
+  "runners": [
+    "codex:gpt-5.5:high"
+  ],
+  "conditions": [
+    "no_brain",
+    "semantic_brain"
+  ],
+  "repetitions": 4,
+  "tasks": [
+    "entire-brain-semantic-audit-gate-report.json"
+  ]
+}

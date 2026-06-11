@@ -1,0 +1,16 @@
+{
+  "name": "release-entire-brain-history",
+  "description": "Small release-candidate panel for the local entire-brain history/full-brain lane. It is intentionally narrower than panels/full.json so it can run on machines without the sibling github-cli repo: one pinned Codex runner, no_brain vs full_brain, four repetitions, and checkpoint-backed history tasks from this repo.",
+  "runners": [
+    "codex:gpt-5.5:high"
+  ],
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "repetitions": 4,
+  "tasks": [
+    "entire-brain-history-codex-schema-contract.json",
+    "entire-brain-history-github-visibility.json"
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "claim_policy": "no_release_claim",
+  "claimable_workspace_radar": false,
+  "flags": [],
+  "manifest": "benchmarks/agent-brain/evidence/workspace-radar/manifest.json",
+  "notes": [
+    "workspace Radar is not release-claimable from this retained evidence; the retained candidate documents why it was rejected"
+  ],
+  "radar_report": {
+    "codex_audit_required": false,
+    "comparisons": [
+      {
+        "condition": "no_brain",
+        "delivery_scope": "early_stop",
+        "mean_search_calls_baseline": null,
+        "mean_search_calls_condition": null,
+        "mean_total_tokens_baseline": null,
+        "mean_total_tokens_condition": null,
+        "n_baseline": 1,
+        "n_condition": 0,
+        "radar_gate": {
+          "baseline_headroom": false,
+          "baseline_score": 89.0,
+          "brain_clean": null,
+          "pass_rate_baseline": null,
+          "pass_rate_condition": null,
+          "promotable": false,
+          "proof_ready": false,
+          "reasons": [
+            "no-brain pilot score 89 exceeded early-stop threshold 85"
+          ],
+          "recommendation": "do not spend Radar repetitions on this task; screen a harder target/source history",
+          "repeated": false,
+          "saturated": true,
+          "stability_tag": "early_stopped",
+          "status": "no-brain-too-easy",
+          "stop_after_no_brain_score": 85.0
+        },
+        "runner": "claude-haiku-xhigh",
+        "score_delta": null,
+        "suite": "release-candidate-cli-workspace-radar-transcript-haiku-xhigh-20260610T154230Z",
+        "task_id": "entireio-cli-transcript-reresolve",
+        "verdict": "early_stopped"
+      }
+    ],
+    "results": "benchmarks/agent-brain/evidence/workspace-radar",
+    "schema": 1,
+    "suite_globs": [
+      "release-candidate-*-workspace-radar-*"
+    ],
+    "totals": {
+      "promotable_or_proof": 0,
+      "proof_ready": 0,
+      "radar_comparisons": 1,
+      "status_counts": {
+        "no-brain-too-easy": 1
+      }
+    }
+  },
+  "release_evidence": true,
+  "required_proof_ready": 0,
+  "results": "benchmarks/agent-brain/evidence/workspace-radar",
+  "schema": 1,
+  "status": "pass",
+  "summary": {
+    "promotable_or_proof": 0,
+    "proof_ready": 0,
+    "radar_comparisons": 1,
+    "status_counts": {
+      "no-brain-too-easy": 1
+    }
+  }
+}

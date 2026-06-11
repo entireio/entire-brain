@@ -1,0 +1,18 @@
+{
+  "name": "release-entire-cli-radar-mcp-manual-attribution",
+  "description": "Focused release-candidate Regression Radar panel for the manual-commit attribution-base regression. The location-only MCP radar may reveal the suspected manual_commit_hooks file/line, but not the missing realignment call or expected/current values.",
+  "runners": [
+    "codex:gpt-5.4-mini:medium"
+  ],
+  "conditions": [
+    "no_brain",
+    "mcp_history"
+  ],
+  "env": {
+    "BENCH_RADAR_LOCATION_ONLY": "1"
+  },
+  "repetitions": 4,
+  "tasks": [
+    "entireio-cli-manual-commit-attribution-base.json"
+  ]
+}

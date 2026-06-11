@@ -21,6 +21,7 @@ const rrfK = 60.0
 type vectorStore interface {
 	load() map[string][]float32
 	save(map[string][]float32) error
+	savePresent(map[string][]float32, map[string]struct{}) error
 }
 
 // knnVectorStore is the optional vectorStore upgrade the brain_cgo build
@@ -151,7 +152,11 @@ func (s *semanticReranker) flush() error {
 	if !s.dirty && len(out) == len(s.cache) {
 		return nil
 	}
-	return s.store.save(out)
+	present := make(map[string]struct{}, len(s.touched))
+	for id := range s.touched {
+		present[id] = struct{}{}
+	}
+	return s.store.savePresent(out, present)
 }
 
 // rankFactsFused ranks facts by Reciprocal Rank Fusion of a lexical list and a

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type Config struct {
@@ -29,7 +30,10 @@ func Load(configDir string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	return loadPath(path)
+}
 
+func loadPath(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -53,6 +57,39 @@ func Save(configDir string, cfg Config) error {
 	if err != nil {
 		return err
 	}
+	unlock, err := acquireConfigLock(configDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return savePath(path, cfg)
+}
+
+func Update(configDir string, fn func(*Config) error) (Config, error) {
+	path, err := Path(configDir)
+	if err != nil {
+		return Config{}, err
+	}
+	unlock, err := acquireConfigLock(configDir)
+	if err != nil {
+		return Config{}, err
+	}
+	defer unlock()
+
+	cfg, err := loadPath(path)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := fn(&cfg); err != nil {
+		return Config{}, err
+	}
+	if err := savePath(path, cfg); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+func savePath(path string, cfg Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
@@ -61,8 +98,20 @@ func Save(configDir string, cfg Config) error {
 		return fmt.Errorf("encode config: %w", err)
 	}
 	data = append(data, '\n')
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := writeConfigFileAtomic(path, data, 0o600); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 	return nil
+}
+
+func acquireConfigLock(configDir string) (func(), error) {
+	if configDir == "" {
+		return nil, errors.New("plugin config dir is empty")
+	}
+	lockPath := filepath.Join(configDir, "locks", "config.lock")
+	lock, err := acquireFileLock(lockPath, "config_locked", 10*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	return func() { _ = lock.Close() }, nil
 }

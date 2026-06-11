@@ -31,9 +31,22 @@ func TestRegressionExtractSignals(t *testing.T) {
 	if len(deletes) != 0 {
 		t.Fatalf("`:=` local should not produce a delete signal, got %+v", deletes)
 	}
+
+	// A deleted helper call can be anchored to a same-line peer assignment, letting Radar localize
+	// "call this after that state update" regressions even when the helper still exists elsewhere.
+	_, deletes = regressionExtractSignals("realignattributionbase", `state.RealignAttributionBase(newHead) after state.BaseCommit = newHead`, "s.jsonl:4")
+	if len(deletes) != 1 || deletes[0].target != "state.realignattributionbase(" || deletes[0].rhs != "newhead" {
+		t.Fatalf("expected one helper-call delete signal, got %+v", deletes)
+	}
+	if len(deletes[0].anchors) != 1 || deletes[0].anchors[0] != "state.basecommit=" {
+		t.Fatalf("expected peer BaseCommit assignment anchor, got %+v", deletes[0].anchors)
+	}
 }
 
 func TestRegressionPathClassifiers(t *testing.T) {
+	if got := regressionCleanRelPath(`pkg\windows_path.go`); got != "pkg/windows_path.go" {
+		t.Fatalf("regression paths must be slash-normalized for JSON/MCP output, got %q", got)
+	}
 	for _, p := range []string{"a/b_test.go", "x/foo.test.ts", "pkg/tests/y.go", "a/testdata/z.go"} {
 		if !regressionIsTestPath(p) {
 			t.Errorf("expected %q classified as test", p)
@@ -92,6 +105,41 @@ func TestRegressionDetectsChangedOperand(t *testing.T) {
 	_, repoRoot2 := writeRegressionFixture(t, session, "pkg/review_context.go", clean)
 	if an2, _, _ := detectRegressionAnomalies(brainDir, repoRoot2, nil, "fix scopeBaseRef base scope", 20, false); len(an2) != 0 {
 		t.Fatalf("expected no anomaly on clean tree, got %+v", an2)
+	}
+}
+
+func TestRegressionChangedOperandReportsMissingHintedFileDespiteIntactPeer(t *testing.T) {
+	session := `{"text":"pkg/a.go and pkg/b.go should keep the range as scopeBaseRef+\"..HEAD\""}`
+	intact := "package x\nfunc a(scopeBaseRef string) string {\n\treturn scopeBaseRef + \"..HEAD\"\n}\n"
+	regressed := "package x\nfunc b() string {\n\treturn \"master..HEAD\"\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/a.go", intact)
+	if err := os.WriteFile(filepath.Join(repoRoot, "pkg", "b.go"), []byte(regressed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false)
+	if len(an) != 1 || an[0].Kind != "changed" || an[0].File != "pkg/b.go" {
+		t.Fatalf("expected only regressed hinted file b.go despite intact peer, got %+v", an)
+	}
+}
+
+func TestRegressionChangedOperandReportsEachRegressedHintedFile(t *testing.T) {
+	session := `{"text":"pkg/a.go and pkg/b.go should keep the range as scopeBaseRef+\"..HEAD\""}`
+	regressed := "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/a.go", regressed)
+	if err := os.WriteFile(filepath.Join(repoRoot, "pkg", "b.go"), []byte(regressed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix scopeBaseRef base scope", 20, false)
+	var files []string
+	for _, a := range an {
+		if a.Kind == "changed" {
+			files = append(files, a.File)
+		}
+	}
+	if len(files) != 2 || files[0] != "pkg/a.go" || files[1] != "pkg/b.go" {
+		t.Fatalf("expected changed findings for both hinted files, got files=%v anomalies=%+v", files, an)
 	}
 }
 
@@ -222,6 +270,9 @@ func TestInspectRegressionsCommandJSONAndLocationOnly(t *testing.T) {
 	if len(locRep.Anomalies) != 1 || locRep.Anomalies[0].Expected != "" || locRep.Anomalies[0].Current != "" {
 		t.Fatalf("--location-only flag must blank expected/current through the command: %+v", locRep.Anomalies)
 	}
+	if locRep.Anomalies[0].Symbol != "f" {
+		t.Fatalf("--location-only should retain enclosing symbol context, got %+v", locRep.Anomalies[0])
+	}
 }
 
 func TestRegressionDetectorWarnings(t *testing.T) {
@@ -247,7 +298,7 @@ func TestRegressionDetectorWarnings(t *testing.T) {
 func TestRegressionDeletionIsOptIn(t *testing.T) {
 	session := `{"text":"in pkg/resolve_transcript.go set state.TranscriptPath = resolved so later reads work"}`
 	// current file uses TranscriptPath but the assignment is gone.
-	body := "package x\nfunc resolveTranscriptPath() string {\n\tresolved := compute()\n\treturn resolved // TranscriptPath\n}\n"
+	body := "package x\n// TranscriptPath should be updated after re-resolution.\nfunc resolveTranscriptPath(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
 	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
 	q := "fix resolveTranscriptPath TranscriptPath"
 
@@ -258,6 +309,9 @@ func TestRegressionDeletionIsOptIn(t *testing.T) {
 	if len(an) != 1 || an[0].Kind != "deleted" {
 		t.Fatalf("expected one deleted anomaly with --include-deletions, got %+v", an)
 	}
+	if an[0].Line == 2 || strings.HasPrefix(strings.TrimSpace(an[0].Current), "//") {
+		t.Fatalf("deleted anomaly should prefer a code locus over a nearby comment, got %+v", an[0])
+	}
 	// location-only on a DELETED-kind finding: the commands blank Expected/Current before rendering
 	// (regression.go), and the mapping must then fall back to the generic detail — no leak. (The
 	// command-level blanking itself is covered for the changed kind in TestMCPBrainReviewTool.)
@@ -265,5 +319,245 @@ func TestRegressionDeletionIsOptIn(t *testing.T) {
 	del.Expected, del.Current = "", ""
 	if f := anomalyToReviewFinding(del); strings.Contains(f.Detail, "history shows") {
 		t.Fatalf("location-only deleted finding must not leak expected/current: %q", f.Detail)
+	}
+}
+
+func TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer(t *testing.T) {
+	session := `{"text":"pkg/resolve_a.go and pkg/resolve_b.go must set state.TranscriptPath = resolved so later reads work"}`
+	intact := "package x\nfunc resolveA(state *State) string {\n\tresolved := compute()\n\tstate.TranscriptPath = resolved\n\treturn resolved\n}\n"
+	missing := "package x\nfunc resolveB(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_a.go", intact)
+	if err := os.WriteFile(filepath.Join(repoRoot, "pkg", "resolve_b.go"), []byte(missing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
+	var deleted []regressionAnomaly
+	for _, a := range an {
+		if a.Kind == "deleted" && strings.Contains(strings.ToLower(a.Expected), "transcriptpath") {
+			deleted = append(deleted, a)
+		}
+	}
+	if len(deleted) != 1 || deleted[0].File != "pkg/resolve_b.go" {
+		t.Fatalf("expected only the missing hinted file despite intact peer assignment, got %+v", an)
+	}
+	if deleted[0].Line == 0 || strings.HasPrefix(strings.TrimSpace(deleted[0].Current), "//") {
+		t.Fatalf("expected an actionable code locus for missing assignment, got %+v", deleted[0])
+	}
+}
+
+func TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol(t *testing.T) {
+	session := `{"text":"pkg/resolve_transcript.go must set state.TranscriptPath = resolved so later reads work"}`
+	body := "package x\nfunc missOne(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\t// state.TranscriptPath = resolved\n\treturn resolved\n}\nfunc missTwo(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\t// state.TranscriptPath = resolved\n\treturn resolved\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
+	var lines []int
+	for _, a := range an {
+		if a.Kind == "deleted" && a.File == "pkg/resolve_transcript.go" {
+			lines = append(lines, a.Line)
+		}
+	}
+	if len(lines) != 2 || lines[0] != 4 || lines[1] != 10 {
+		t.Fatalf("expected missing assignment findings at lines 4 and 10, got lines=%v anomalies=%+v", lines, an)
+	}
+	if an[0].Symbol != "missOne" || an[1].Symbol != "missTwo" {
+		t.Fatalf("expected enclosing symbols for missing assignment sites, got %+v", an)
+	}
+	if len(an[0].RelatedLocations) == 0 || !strings.Contains(an[0].RelatedLocations[0], "missTwo") {
+		t.Fatalf("expected related same-file assignment location context, got %+v", an[0])
+	}
+}
+
+func TestRegressionAssignmentDeletionRelatedLocationsStayOnSameInvariant(t *testing.T) {
+	session := `{"text":"pkg/resolve_transcript.go must set state.TranscriptPath = resolved so later reads work, and pkg/resolve_transcript.go must set state.ResolveMode = nextMode when mode changes"}`
+	body := "package x\nfunc missPathOne(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc missPathTwo(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc missMode(state *State) string {\n\tnextMode := computeMode()\n\t_ = state.ResolveMode\n\treturn nextMode\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved ResolveMode nextMode", 20, true)
+	bySymbol := map[string]regressionAnomaly{}
+	for _, a := range an {
+		if a.Kind == "deleted" && a.File == "pkg/resolve_transcript.go" && a.Symbol != "" {
+			bySymbol[a.Symbol] = a
+		}
+	}
+	for _, want := range []string{"missPathOne", "missPathTwo", "missMode"} {
+		if _, ok := bySymbol[want]; !ok {
+			t.Fatalf("missing deletion finding for %s: %+v", want, an)
+		}
+	}
+	for _, sym := range []string{"missPathOne", "missPathTwo"} {
+		got := strings.Join(bySymbol[sym].RelatedLocations, "\n")
+		if !strings.Contains(got, "missPath") {
+			t.Fatalf("path finding %s missing related path peer: %+v", sym, bySymbol[sym])
+		}
+		if strings.Contains(got, "missMode") {
+			t.Fatalf("path finding %s cross-contaminated unrelated mode locus: %+v", sym, bySymbol[sym])
+		}
+	}
+	if got := strings.Join(bySymbol["missMode"].RelatedLocations, "\n"); strings.Contains(got, "missPath") {
+		t.Fatalf("mode finding cross-contaminated path loci: %+v", bySymbol["missMode"])
+	}
+}
+
+func TestRegressionAssignmentDeletionRelatedLocationsDistinguishSameIdentifierDifferentRHS(t *testing.T) {
+	session := `{"text":"pkg/resolve_transcript.go must set state.TranscriptPath = resolved for local transcripts, and pkg/resolve_transcript.go must set state.TranscriptPath = fallback for archived transcripts"}`
+	body := "package x\nfunc missResolved(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc missFallback(state *State) string {\n\tfallback := computeFallback()\n\t_ = state.TranscriptPath\n\treturn fallback\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved fallback", 20, true)
+	var foundResolved, foundFallback bool
+	for _, a := range an {
+		if a.Kind != "deleted" || a.File != "pkg/resolve_transcript.go" {
+			continue
+		}
+		related := strings.Join(a.RelatedLocations, "\n")
+		switch {
+		case a.Symbol == "missResolved" && strings.Contains(a.Expected, "resolved"):
+			foundResolved = true
+			if strings.Contains(related, "missFallback") {
+				t.Fatalf("resolved finding cross-contaminated fallback locus: %+v", a)
+			}
+		case a.Symbol == "missFallback" && strings.Contains(a.Expected, "fallback"):
+			foundFallback = true
+			if strings.Contains(related, "missResolved") {
+				t.Fatalf("fallback finding cross-contaminated resolved locus: %+v", a)
+			}
+		}
+	}
+	if !foundResolved || !foundFallback {
+		t.Fatalf("expected resolved and fallback deletion findings, found resolved=%v fallback=%v anomalies=%+v", foundResolved, foundFallback, an)
+	}
+}
+
+func TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite(t *testing.T) {
+	session := `{"text":"pkg/resolve_transcript.go must set state.TranscriptPath = resolved so later reads work"}`
+	body := "package x\nfunc ok(state *State) string {\n\tresolved := compute()\n\tstate.TranscriptPath = resolved\n\treturn resolved\n}\nfunc miss(state *State) string {\n\tresolved := compute()\n\treturn resolved\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
+	var deleted []regressionAnomaly
+	for _, a := range an {
+		if a.Kind == "deleted" && a.File == "pkg/resolve_transcript.go" {
+			deleted = append(deleted, a)
+		}
+	}
+	if len(deleted) != 1 || deleted[0].Symbol != "miss" {
+		t.Fatalf("expected missing RHS-only assignment site in miss, got %+v", an)
+	}
+	if deleted[0].Line != 8 {
+		t.Fatalf("expected missing site to land on miss resolved line 8, got %+v", deleted[0])
+	}
+}
+
+func TestRegressionAssignmentDeletionReportsSameNameReceiverMethods(t *testing.T) {
+	session := `{"text":"pkg/resolver.go must set state.TranscriptPath = resolved so later reads work"}`
+	body := "package x\nfunc (a *Alpha) Resolve(state *State) string {\n\tresolved := computeA()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc (b *Beta) Resolve(state *State) string {\n\tresolved := computeB()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolver.go", body)
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
+	var lines []int
+	for _, a := range an {
+		if a.Kind == "deleted" && a.File == "pkg/resolver.go" {
+			lines = append(lines, a.Line)
+		}
+	}
+	if len(lines) != 2 || lines[0] != 4 || lines[1] != 9 {
+		t.Fatalf("same-name receiver methods must each get a missing assignment finding, got lines=%v anomalies=%+v", lines, an)
+	}
+}
+
+func TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction(t *testing.T) {
+	session := `{"text":"pkg/resolve_transcript.go must set state.TranscriptPath = resolved so later reads work"}`
+	body := "package x\nfunc resolveBoth(state *State) string {\n\t{\n\t\tresolved := computeA()\n\t\tstate.TranscriptPath = resolved\n\t}\n\t{\n\t\tresolved := computeB()\n\t\treturn resolved\n\t}\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "pkg/resolve_transcript.go", body)
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "fix TranscriptPath resolved", 20, true)
+	var deleted []regressionAnomaly
+	for _, a := range an {
+		if a.Kind == "deleted" && a.File == "pkg/resolve_transcript.go" {
+			deleted = append(deleted, a)
+		}
+	}
+	if len(deleted) != 1 || deleted[0].Line != 8 {
+		t.Fatalf("expected only the second same-function locus to be missing, got %+v", an)
+	}
+}
+
+func TestRegressionDeletionRanksCallLocusWithHistoryFileHint(t *testing.T) {
+	session := `{"text":"cmd/entire/cli/strategy/manual_commit_hooks.go must call state.RealignAttributionBase(newHead) after state.BaseCommit = newHead; cmd/entire/cli/agent/cursor/types.go used HumanAdded+\"total\""}`
+	_, deletes := regressionExtractSignals("realignattributionbase", session, "sessions/s.jsonl:1")
+	if len(deletes) != 1 || deletes[0].target != "state.realignattributionbase(" || deletes[0].rhs != "newhead" {
+		t.Fatalf("expected call delete signal, got %+v", deletes)
+	}
+	hooks := "package strategy\nfunc f(state *State, newHead string) {\n\tstate.BaseCommit = newHead\n\tlog(\"AttributionBaseCommit\", newHead)\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "cmd/entire/cli/strategy/manual_commit_hooks.go", hooks)
+	noise := filepath.Join(repoRoot, "cmd", "entire", "cli", "agent", "cursor")
+	if err := os.MkdirAll(noise, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(noise, "types.go"), []byte("package cursor\ntype Summary struct { Total int }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "RealignAttributionBase newHead HumanAdded", 20, true)
+	if len(an) == 0 {
+		t.Fatal("expected a deleted call anomaly")
+	}
+	if an[0].Kind != "deleted" || an[0].File != "cmd/entire/cli/strategy/manual_commit_hooks.go" {
+		t.Fatalf("deleted call should rank the history-hinted hook locus first, got %+v", an)
+	}
+	if !strings.Contains(strings.ToLower(an[0].Expected), "realignattributionbase") {
+		t.Fatalf("expected deleted call in anomaly, got %+v", an[0])
+	}
+	if an[0].Line != 3 {
+		t.Fatalf("expected the current base-advance line as the location, got %+v", an[0])
+	}
+}
+
+func TestRegressionDeletionReportsEachMissingAnchoredCallSite(t *testing.T) {
+	session := `{"text":"cmd/entire/cli/strategy/manual_commit_hooks.go must call state.RealignAttributionBase(newHead) after state.BaseCommit = newHead"}`
+	body := "package strategy\nfunc ok(state *State, newHead string) {\n\tstate.BaseCommit = newHead\n\tstate.RealignAttributionBase(newHead)\n}\nfunc missOne(state *State, newHead string) {\n\tstate.BaseCommit = newHead\n\tlog(newHead)\n}\nfunc missTwo(state *State, newHead string) {\n\tstate.BaseCommit = newHead\n}\n"
+	brainDir, repoRoot := writeRegressionFixture(t, session, "cmd/entire/cli/strategy/manual_commit_hooks.go", body)
+
+	an, _, _ := detectRegressionAnomalies(brainDir, repoRoot, nil, "RealignAttributionBase newHead manual commit hooks", 20, true)
+	var lines []int
+	for _, a := range an {
+		if a.Kind == "deleted" && strings.Contains(strings.ToLower(a.Expected), "realignattributionbase") {
+			lines = append(lines, a.Line)
+		}
+	}
+	if len(lines) != 2 || lines[0] != 7 || lines[1] != 11 {
+		t.Fatalf("expected missing helper-call findings at lines 7 and 11, got lines=%v anomalies=%+v", lines, an)
+	}
+	if an[0].Symbol != "missOne" || an[1].Symbol != "missTwo" {
+		t.Fatalf("expected enclosing symbols for missing call sites, got %+v", an)
+	}
+	if len(an[0].RelatedLocations) == 0 || !strings.Contains(an[0].RelatedLocations[0], "missTwo") {
+		t.Fatalf("expected related same-file location context, got %+v", an[0])
+	}
+}
+
+func TestRegressionDedupeRankPrefersBoostedCallDeletion(t *testing.T) {
+	ranked := regressionDedupeRank([]regressionAnomaly{
+		{
+			File:       "cmd/entire/cli/agent/cursor/types.go",
+			Kind:       "changed",
+			Expected:   `HumanAdded+"total"`,
+			Confidence: 0.8,
+		},
+		{
+			File:       "cmd/entire/cli/strategy/manual_commit_hooks.go",
+			Kind:       "deleted",
+			Expected:   "state.RealignAttributionBase(newHead)",
+			Confidence: 0.65,
+			rankBoost:  2,
+		},
+	})
+	if len(ranked) != 2 {
+		t.Fatalf("expected two ranked anomalies, got %+v", ranked)
+	}
+	if ranked[0].Expected != "state.RealignAttributionBase(newHead)" {
+		t.Fatalf("boosted call deletion should rank above changed noise, got %+v", ranked)
 	}
 }

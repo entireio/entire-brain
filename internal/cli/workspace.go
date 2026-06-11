@@ -199,6 +199,9 @@ func newWorkspaceWatchCommand(opts Options) *cobra.Command {
 // deterministic-refresh + gated-distill + per-repo cursor. The --budget cap is shared across all members
 // so the --budget distill-run cap (and thus token spend) can't be multiplied across repos.
 func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, workspaceName string) error {
+	if w.distillJobs <= 0 {
+		return fmt.Errorf("--jobs must be greater than 0")
+	}
 	now := opts.Now
 	if now == nil {
 		now = time.Now
@@ -237,10 +240,23 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 			return err
 		}
 		fmt.Fprintf(out, "[watch] workspace %s — %d repos, distill=%v (budget=%d)\n", manifest.Name, len(manifest.Repos), w.distill, w.budget)
+		dirs, err := resolvePluginDirs(opts.Env)
+		if err != nil {
+			return err
+		}
 		for _, repo := range manifest.Repos {
 			repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
 			if err != nil || !local {
 				fmt.Fprintf(out, "[watch] %s: skipped (no resolvable local path)\n", repo.RepoKey)
+				continue
+			}
+			hintKey, err := repoStorageKey(ctx, opts.Runner, dirs.Config, repoDir)
+			if err != nil {
+				fmt.Fprintf(out, "[watch] %s: skipped (unsafe: %v)\n", repo.RepoKey, err)
+				continue
+			}
+			if hintKey != repo.RepoKey {
+				fmt.Fprintf(out, "[watch] %s: skipped (unsafe: local_path_hint repo_key mismatch: %s)\n", repo.RepoKey, hintKey)
 				continue
 			}
 			fmt.Fprintf(out, "[watch] %s:\n", repo.RepoKey)
@@ -480,28 +496,19 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		status.Detail = err.Error()
 		return status
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, exportManifestFileName)); err != nil {
-		if os.IsNotExist(err) {
-			status.State = "missing-brain"
-			return status
-		}
+	manifestPath := filepath.Join(brainDir, exportManifestFileName)
+	_, manifestErr := os.Stat(manifestPath)
+	manifestMissing := os.IsNotExist(manifestErr)
+	if manifestErr != nil && !manifestMissing {
 		status.State = "unsafe"
-		status.Detail = err.Error()
-		return status
-	}
-	brainManifest, err := loadBrainManifest(brainDir)
-	switch {
-	case err != nil:
-		status.State = "unsafe"
-		status.Detail = err.Error()
-		return status
-	case brainManifest.Sources == nil || brainManifest.Sources.Semantic == nil:
-		status.State = "missing-semantic"
-		status.ContractState = "missing"
-		status.ContractDetail = "semantic contract facts unavailable"
+		status.Detail = manifestErr.Error()
 		return status
 	}
 	if repo.LocalPathHint == "" {
+		if manifestMissing {
+			status.State = "missing-brain"
+			return status
+		}
 		status.State = "unknown"
 		status.Detail = "no local_path_hint"
 		return status
@@ -531,12 +538,28 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		status.Detail = err.Error()
 		return status
 	}
-	if hintKey != repo.RepoKey {
+	if workspaceRepoKeyMismatch(repo.RepoKey, hintKey) {
 		// The tree the hint points at is a DIFFERENT repo than the registered brain → scanning would
 		// manufacture bogus regressions. This is the genuine block case.
 		status.State = "unsafe"
 		status.PairingUnsafe = true
 		status.Detail = "local_path_hint repo_key mismatch: " + hintKey
+		return status
+	}
+	if manifestMissing {
+		status.State = "missing-brain"
+		return status
+	}
+	brainManifest, err := loadBrainManifest(brainDir)
+	switch {
+	case err != nil:
+		status.State = "unsafe"
+		status.Detail = err.Error()
+		return status
+	case brainManifest.Sources == nil || brainManifest.Sources.Semantic == nil:
+		status.State = "missing-semantic"
+		status.ContractState = "missing"
+		status.ContractDetail = "semantic contract facts unavailable"
 		return status
 	}
 	report, err := semanticStaleReport(ctx, opts, repoDir)
@@ -564,6 +587,13 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		status.ContractDetail = "semantic contract freshness unsafe"
 	}
 	return status
+}
+
+func workspaceRepoKeyMismatch(registered, hint string) bool {
+	if registered == hint {
+		return false
+	}
+	return true
 }
 
 func workspaceSemanticSource(brainDir string) (*semanticSourceManifest, error) {
@@ -927,6 +957,9 @@ func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo worksp
 			anomalies[i].Expected = ""
 			anomalies[i].Current = ""
 			anomalies[i].Reason = "suspected regression site (location only)"
+			if anomalies[i].Symbol != "" || len(anomalies[i].RelatedLocations) > 0 {
+				anomalies[i].Reason = "suspected regression site (location only); inspect the enclosing symbol and related same-file locations"
+			}
 		}
 	}
 	return repoDir, anomalies, warnings, ""

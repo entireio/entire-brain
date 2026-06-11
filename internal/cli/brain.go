@@ -5,10 +5,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 const brainManifestSchemaVersion = 3
+
+const (
+	brainLockDirName      = "locks"
+	brainWriteLockName    = "write.lock"
+	brainWriteLockTimeout = 10 * time.Second
+)
 
 type brainSources struct {
 	Seed     *seedSourceManifest     `json:"seed,omitempty"`
@@ -32,6 +39,37 @@ type sessionSourceManifest struct {
 	Branches           []exportBranch  `json:"branches,omitempty"`
 	Sessions           []exportSession `json:"sessions"`
 	Warnings           []string        `json:"warnings,omitempty"`
+}
+
+func brainWriteLockPath(brainDir string) string {
+	return filepath.Join(brainDir, brainLockDirName, brainWriteLockName)
+}
+
+func acquireBrainWriteLock(brainDir string) (func(), error) {
+	return acquireBrainWriteLockTimeout(brainDir, brainWriteLockTimeout)
+}
+
+func acquireBrainWriteLockTimeout(brainDir string, timeout time.Duration) (func(), error) {
+	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+		return nil, err
+	}
+	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
+		return nil, err
+	}
+	lock, err := acquireFileLock(brainWriteLockPath(brainDir), "brain_locked", timeout)
+	if err != nil {
+		return nil, err
+	}
+	return func() { _ = lock.Close() }, nil
+}
+
+func withBrainWriteLock(brainDir string, fn func() error) error {
+	unlock, err := acquireBrainWriteLock(brainDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return fn()
 }
 
 func loadBrainManifest(outputDir string) (*exportManifest, error) {
@@ -117,6 +155,12 @@ func shouldReplaceExportSession(current, candidate exportSession) bool {
 }
 
 func writeBrainSessionSource(outputDir, repoKey string, sessionManifest exportManifest) error {
+	return withBrainWriteLock(outputDir, func() error {
+		return writeBrainSessionSourceLocked(outputDir, repoKey, sessionManifest)
+	})
+}
+
+func writeBrainSessionSourceLocked(outputDir, repoKey string, sessionManifest exportManifest) error {
 	existing, err := loadBrainManifest(outputDir)
 	if err != nil {
 		return err
@@ -138,6 +182,12 @@ func writeBrainSessionSource(outputDir, repoKey string, sessionManifest exportMa
 }
 
 func writeBrainSeedSource(outputDir, repoKey string, seed *seedSourceManifest) error {
+	return withBrainWriteLock(outputDir, func() error {
+		return writeBrainSeedSourceLocked(outputDir, repoKey, seed)
+	})
+}
+
+func writeBrainSeedSourceLocked(outputDir, repoKey string, seed *seedSourceManifest) error {
 	manifest, err := loadBrainManifest(outputDir)
 	if err != nil {
 		return err
@@ -180,11 +230,88 @@ func writeBrainManifestAndReadme(outputDir string, manifest exportManifest) erro
 		return fmt.Errorf("encode %s: %w", exportManifestFileName, err)
 	}
 	data = append(data, '\n')
-	if err := writeFileAtomic(filepath.Join(outputDir, exportManifestFileName), data, 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, exportManifestFileName, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", exportManifestFileName, err)
 	}
-	if err := writeFileAtomic(filepath.Join(outputDir, exportReadmeFileName), []byte(renderBrainReadme(manifest)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, exportReadmeFileName, []byte(renderBrainReadme(manifest)), 0o600); err != nil {
 		return fmt.Errorf("write brain readme: %w", err)
+	}
+	return nil
+}
+
+func cleanBrainRelativePath(rel string) (string, error) {
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path is outside brain: %s", rel)
+	}
+	return clean, nil
+}
+
+func writeBrainRelativeFileAtomic(brainDir, rel string, data []byte, perm os.FileMode) error {
+	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+		return err
+	}
+	clean, err := cleanBrainRelativePath(rel)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(clean)
+	if dir != "." {
+		if err := rejectExistingSymlinkPathComponents(brainDir, dir); err != nil {
+			return err
+		}
+	}
+	abs := filepath.Join(brainDir, clean)
+	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
+		return err
+	}
+	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+		return err
+	}
+	return writeFileAtomic(abs, data, perm)
+}
+
+func prepareBrainRelativeSQLiteFile(brainDir, rel string) (string, error) {
+	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+		return "", err
+	}
+	clean, err := cleanBrainRelativePath(rel)
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Dir(clean)
+	if dir != "." {
+		if err := rejectExistingSymlinkPathComponents(brainDir, dir); err != nil {
+			return "", err
+		}
+	}
+	abs := filepath.Join(brainDir, clean)
+	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
+		return "", err
+	}
+	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+		return "", err
+	}
+	if err := rejectUnsafeExistingRegularFile(abs, "sqlite cache"); err != nil {
+		return "", err
+	}
+	return abs, nil
+}
+
+func removeBrainRelativeFile(brainDir, rel string) error {
+	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+		return err
+	}
+	clean, err := cleanBrainRelativePath(rel)
+	if err != nil {
+		return err
+	}
+	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+		return err
+	}
+	err = os.Remove(filepath.Join(brainDir, clean))
+	if err != nil && !os.IsNotExist(err) {
+		return err
 	}
 	return nil
 }
@@ -212,10 +339,14 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 		_ = tmp.Close()
 		return err
 	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := replaceFileAtomic(tmpName, path); err != nil {
 		return err
 	}
 	cleanup = false

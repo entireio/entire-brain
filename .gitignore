@@ -1,6 +1,9 @@
 /entire-brain
 /dist/
 /coverage.out
+.DS_Store
+__pycache__/
+.pytest_cache/
 
 # Machine-local Claude tooling state (pid/lock files), not shared config.
 .claude/scheduled_tasks.lock

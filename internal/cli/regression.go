@@ -26,13 +26,12 @@ import (
 //	         (e.g. scopeBaseRef+"..HEAD"  ->  "master..HEAD").
 //	deleted: history asserts an assignment whose target contains <id> (e.g.
 //	         `state.TranscriptPath = resolved`) and that assignment is now absent EVERYWHERE in
-//	         the candidate files, though the identifier still lives in the tree.
+//	         the candidate locus/file, though the identifier still lives in the tree.
 //
 // It reads RAW sessions (inspectBrainRawText), not the index, because the indexed Summary
-// collapses code to prose; the precise invariant survives only in raw text. Presence is checked
-// GLOBALLY across the candidate files (an assignment that simply lives in a different file is not
-// a regression) — a finding is emitted only when history asserts something the current code does
-// not contain anywhere.
+// collapses code to prose; the precise invariant survives only in raw text. History file hints
+// keep multi-locus checks local, so an intact peer file/site cannot mask a nearby regressed site.
+// Unhinted fallbacks stay conservative and global to avoid noisy deletion claims.
 
 const (
 	regressionMaxFileBytes = 1 << 20
@@ -40,15 +39,18 @@ const (
 )
 
 type regressionAnomaly struct {
-	File       string  `json:"file"`
-	Line       int     `json:"line,omitempty"`
-	Kind       string  `json:"kind"` // "changed" | "deleted"
-	Current    string  `json:"current"`
-	Expected   string  `json:"expected"`
-	Identifier string  `json:"identifier"`
-	Confidence float64 `json:"confidence"`
-	Reason     string  `json:"reason"`
-	Evidence   string  `json:"evidence"`
+	File             string   `json:"file"`
+	Line             int      `json:"line,omitempty"`
+	Kind             string   `json:"kind"` // "changed" | "deleted"
+	Current          string   `json:"current"`
+	Expected         string   `json:"expected"`
+	Identifier       string   `json:"identifier"`
+	Symbol           string   `json:"symbol,omitempty"`
+	RelatedLocations []string `json:"related_locations,omitempty"`
+	Confidence       float64  `json:"confidence"`
+	Reason           string   `json:"reason"`
+	Evidence         string   `json:"evidence"`
+	rankBoost        int
 }
 
 type regressionReport struct {
@@ -70,18 +72,21 @@ type regressionDetectorOptions struct {
 }
 
 type changeSignal struct {
-	id      string // lowercased identifier
-	operand string // distinctive operand, lowercased+despaced (e.g. `..head`)
-	raw     string // human-readable asserted expression
-	ev      string // session path:line
+	id      string   // lowercased identifier
+	operand string   // distinctive operand, lowercased+despaced (e.g. `..head`)
+	raw     string   // human-readable asserted expression
+	ev      string   // session path:line
+	hints   []string // code files named on the same history line as the asserted invariant
 }
 
 type deleteSignal struct {
-	id     string
-	target string // normalized LHS + assignment op (e.g. `state.transcriptpath=`)
-	rhs    string // despaced right-hand side token (e.g. `resolved`) — used to locate the home file
-	raw    string
-	ev     string
+	id      string
+	target  string // normalized LHS/callee + operator (e.g. `state.transcriptpath=` or `state.realign(`)
+	rhs     string // despaced right-hand side / first argument token — used to locate the home file
+	raw     string
+	ev      string
+	hints   []string // code files named on the same history line as the asserted invariant
+	anchors []string // peer assignments from the same history line, used to localize missing calls
 }
 
 type candFile struct {
@@ -107,6 +112,11 @@ func regressionIsTestPath(p string) bool {
 
 var regressionCodeFilePattern = regexp.MustCompile(`[\w./-]+\.(?:go|ts|tsx|js|jsx|py|rs|java|kt|swift|c|cc|cpp|h|hpp)`)
 
+func regressionCleanRelPath(path string) string {
+	path = strings.ReplaceAll(path, "\\", "/")
+	return filepath.ToSlash(filepath.Clean(path))
+}
+
 func regressionDespace(s string) string {
 	var b strings.Builder
 	for _, r := range s {
@@ -118,6 +128,49 @@ func regressionDespace(s string) string {
 	return strings.ToLower(b.String())
 }
 
+func regressionLineFileHints(line string) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, fn := range regressionCodeFilePattern.FindAllString(line, -1) {
+		clean := regressionCleanRelPath(strings.TrimLeft(fn, "+-/ "))
+		if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+			continue
+		}
+		if _, ok := seen[clean]; ok {
+			continue
+		}
+		seen[clean] = struct{}{}
+		out = append(out, clean)
+	}
+	return out
+}
+
+func mergeRegressionHints(a, b []string) []string {
+	if len(b) == 0 {
+		return a
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(a)+len(b))
+	for _, h := range a {
+		if h == "" {
+			continue
+		}
+		seen[h] = struct{}{}
+		out = append(out, h)
+	}
+	for _, h := range b {
+		if h == "" {
+			continue
+		}
+		if _, ok := seen[h]; ok {
+			continue
+		}
+		seen[h] = struct{}{}
+		out = append(out, h)
+	}
+	return out
+}
+
 // regressionExtractSignals pulls change + delete signals for one identifier from a (space-
 // collapsed) history excerpt using identifier-anchored regexes — tight enough that line-number
 // noise and common tokens don't leak in.
@@ -127,7 +180,8 @@ func regressionExtractSignals(id, excerpt, ev string) ([]changeSignal, []deleteS
 	// all-lowercase identifier is never extracted as a query id upstream, and a literal that embeds
 	// the id (e.g. `foo+"foobar"`) won't match. These bound recall, not precision.
 	changeRe := regexp.MustCompile(`(?i)` + q + `\s*\+?\s*(?:"([^"]{2,80})"|([A-Za-z0-9_]*\.\.[A-Za-z0-9_]+))`)
-	assignRe := regexp.MustCompile(`(?i)((?:[A-Za-z0-9_]+\.)*[A-Za-z0-9_]*` + q + `[A-Za-z0-9_]*)\s*(:?=)\s*([A-Za-z0-9_."'\[\]()+\-* ]{1,48})`)
+	assignRe := regexp.MustCompile(`(?i)((?:[A-Za-z0-9_]+\.)*[A-Za-z0-9_]+)\s*(:?=)\s*([A-Za-z0-9_."'\[\]()+\-* ]{1,48})`)
+	callRe := regexp.MustCompile(`(?i)((?:[A-Za-z0-9_]+\.)*[A-Za-z0-9_]*` + q + `[A-Za-z0-9_]*)\s*\(\s*([A-Za-z0-9_."'\[\]+\-* ]{1,48})\s*\)`)
 
 	var changes []changeSignal
 	seenC := map[string]struct{}{}
@@ -149,33 +203,72 @@ func regressionExtractSignals(id, excerpt, ev string) ([]changeSignal, []deleteS
 
 	var deletes []deleteSignal
 	seenD := map[string]struct{}{}
+	var peerAssignments []deleteSignal
 	for _, m := range assignRe.FindAllStringSubmatch(excerpt, -1) {
 		lhs := regressionDespace(m[1])
 		op := m[2]
-		if !strings.Contains(lhs, id) {
-			continue
-		}
 		// Only field/state assignments (`a.b = c`) are persistent invariants whose absence is a
 		// regression; `:=` locals are ephemeral, so their absence from a file is meaningless.
 		if op != "=" || !strings.Contains(lhs, ".") {
 			continue
 		}
 		target := lhs + op
-		if _, ok := seenD[target]; ok {
-			continue
-		}
-		seenD[target] = struct{}{}
-		rhsTok := strings.TrimSpace(m[3])
-		if i := strings.IndexAny(rhsTok, " (.,"); i > 0 {
-			rhsTok = rhsTok[:i]
-		}
+		rhsTok := regressionSignalHead(m[3])
 		if rhsTok == "" {
 			continue
 		}
+		peerAssignments = append(peerAssignments, deleteSignal{target: target, rhs: rhsTok})
+		if !strings.Contains(lhs, id) {
+			continue
+		}
+		k := target + "|" + rhsTok
+		if _, ok := seenD[k]; ok {
+			continue
+		}
+		seenD[k] = struct{}{}
 		raw := strings.TrimSpace(m[1]) + " " + op + " " + rhsTok
-		deletes = append(deletes, deleteSignal{id: id, target: target, rhs: strings.ToLower(rhsTok), raw: raw, ev: ev})
+		deletes = append(deletes, deleteSignal{id: id, target: target, rhs: rhsTok, raw: raw, ev: ev})
+	}
+	for _, m := range callRe.FindAllStringSubmatch(excerpt, -1) {
+		callee := regressionDespace(m[1])
+		if !strings.Contains(callee, id) || !strings.Contains(callee, ".") {
+			continue
+		}
+		argTok := regressionSignalHead(m[2])
+		if argTok == "" {
+			continue
+		}
+		target := callee + "("
+		k := target + "|" + argTok
+		if _, ok := seenD[k]; ok {
+			continue
+		}
+		seenD[k] = struct{}{}
+		var anchors []string
+		for _, p := range peerAssignments {
+			if p.rhs == argTok && p.target != target {
+				anchors = append(anchors, p.target)
+			}
+		}
+		raw := strings.TrimSpace(m[1]) + "(" + argTok + ")"
+		deletes = append(deletes, deleteSignal{id: id, target: target, rhs: argTok, raw: raw, ev: ev, anchors: anchors})
 	}
 	return changes, deletes
+}
+
+func regressionSignalHead(raw string) string {
+	token := strings.TrimSpace(raw)
+	token = strings.TrimLeft(token, "\"'`([{")
+	token = strings.TrimRight(token, "\"'`)]},;")
+	for i := 0; i < len(token); i++ {
+		c := token[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' {
+			continue
+		}
+		token = token[:i]
+		break
+	}
+	return strings.ToLower(token)
 }
 
 // regressionScanHistory walks the raw brain (sessions + exports) once and extracts change/delete
@@ -194,8 +287,8 @@ func regressionScanHistory(brainDir string, ids []string) ([]changeSignal, []del
 	var changes []changeSignal
 	var deletes []deleteSignal
 	files := map[string]struct{}{}
-	seenC := map[string]struct{}{}
-	seenD := map[string]struct{}{}
+	seenC := map[string]int{}
+	seenD := map[string]int{}
 	scanned := 0
 	_ = filepath.WalkDir(brainDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -224,7 +317,6 @@ func regressionScanHistory(brainDir string, ids []string) ([]changeSignal, []del
 		if openErr != nil {
 			return nil
 		}
-		defer f.Close()
 		scanned++
 		sc := bufio.NewScanner(f)
 		sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
@@ -242,26 +334,36 @@ func regressionScanHistory(brainDir string, ids []string) ([]changeSignal, []del
 				ex := normalizeHistoryTextForExcerpt(line)
 				ev := relSlash + ":" + strconv.Itoa(lineNo)
 				c, dl := regressionExtractSignals(id, ex, ev)
+				hints := regressionLineFileHints(line)
 				for _, s := range c {
-					if _, ok := seenC[s.id+"|"+s.operand]; !ok {
-						seenC[s.id+"|"+s.operand] = struct{}{}
+					s.hints = hints
+					k := s.id + "|" + s.operand
+					if idx, ok := seenC[k]; ok {
+						changes[idx].hints = mergeRegressionHints(changes[idx].hints, hints)
+					} else {
+						seenC[k] = len(changes)
 						changes = append(changes, s)
 					}
 				}
 				for _, s := range dl {
+					s.hints = hints
 					k := s.target + "|" + s.rhs
-					if _, ok := seenD[k]; !ok {
-						seenD[k] = struct{}{}
+					if idx, ok := seenD[k]; ok {
+						deletes[idx].hints = mergeRegressionHints(deletes[idx].hints, hints)
+						deletes[idx].anchors = mergeRegressionHints(deletes[idx].anchors, s.anchors)
+					} else {
+						seenD[k] = len(deletes)
 						deletes = append(deletes, s)
 					}
 				}
 			}
 			if matched {
-				for _, fn := range regressionCodeFilePattern.FindAllString(line, -1) {
-					files[strings.TrimLeft(fn, "+-/ ")] = struct{}{}
+				for _, fn := range regressionLineFileHints(line) {
+					files[fn] = struct{}{}
 				}
 			}
 		}
+		_ = f.Close()
 		return nil
 	})
 	return changes, deletes, files
@@ -284,8 +386,8 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 					if s.FilePath == "" {
 						continue
 					}
-					candidateFiles[s.FilePath] = struct{}{}
-					c := filepath.Clean(s.FilePath)
+					c := regressionCleanRelPath(s.FilePath)
+					candidateFiles[c] = struct{}{}
 					if r, ok := semanticRank[c]; !ok || rank < r {
 						semanticRank[c] = rank
 					}
@@ -307,12 +409,13 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 	// Load all candidate files once.
 	var files []candFile
 	for file := range candidateFiles {
-		clean := filepath.Clean(file)
+		clean := regressionCleanRelPath(file)
 		if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
 			continue
 		}
-		full := filepath.Join(repoRoot, clean)
-		if err := rejectSymlinkPathComponents(repoRoot, clean); err != nil {
+		nativeClean := filepath.FromSlash(clean)
+		full := filepath.Join(repoRoot, nativeClean)
+		if err := rejectSymlinkPathComponents(repoRoot, nativeClean); err != nil {
 			continue // per-component symlink guard, matching the brain's other repo reads
 		}
 		info, err := os.Stat(full)
@@ -352,18 +455,24 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 
 	// "invariant still holds" check — must use the SAME comment/test filter as the emit loop, or a
 	// stale comment/test copy of `operand+id` would falsely suppress a real regression (false negative).
-	anyLineBoth := func(a, b string) bool {
-		for _, f := range files {
-			if f.isTest {
+	fileLineBoth := func(f candFile, a, b string) bool {
+		if f.isTest {
+			return false
+		}
+		for i, n := range f.norm {
+			if regressionIsComment(f.lines[i]) {
 				continue
 			}
-			for i, n := range f.norm {
-				if regressionIsComment(f.lines[i]) {
-					continue
-				}
-				if strings.Contains(n, a) && strings.Contains(n, b) {
-					return true
-				}
+			if strings.Contains(n, a) && strings.Contains(n, b) {
+				return true
+			}
+		}
+		return false
+	}
+	anyLineBoth := func(a, b string) bool {
+		for _, f := range files {
+			if fileLineBoth(f, a, b) {
+				return true
 			}
 		}
 		return false
@@ -382,18 +491,46 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 	var anomalies []regressionAnomaly
 
 	for _, c := range dedupeChanges(changes) {
-		if anyLineBoth(c.operand, c.id) {
-			continue // invariant still holds somewhere
-		}
 		// Likely-rename guard: if the operand is still concatenated to SOME identifier
 		// (`<ident> + "...operand..."`, structure preserved), the invariant is intact under a renamed
 		// symbol, not regressed — only flag when the operand now sits in a bare/hardcoded literal.
 		renameRe := regexp.MustCompile(`[a-z_][a-z0-9_]*\s*\+\s*"[^"]*` + regexp.QuoteMeta(c.operand))
+		hinted := map[string]struct{}{}
+		for _, h := range c.hints {
+			hinted[regressionCleanRelPath(h)] = struct{}{}
+		}
+		if len(hinted) > 0 {
+			present := false
+			for _, f := range files {
+				if _, ok := hinted[f.clean]; ok {
+					present = true
+					break
+				}
+			}
+			if !present {
+				// Every hinted file is deleted or was skipped at load. Hints
+				// narrow the scan; they must not VETO it — dropping the
+				// candidate here would silently lose the strongest signal
+				// (history named exact loci) exactly when the code moved.
+				hinted = map[string]struct{}{}
+			}
+		}
+		if len(hinted) == 0 && anyLineBoth(c.operand, c.id) {
+			continue // invariant still holds somewhere, and history did not name per-file loci
+		}
+		found := false
 		for _, f := range files { // locate the swap: operand present, identifier gone
+			if len(hinted) > 0 {
+				if _, ok := hinted[f.clean]; !ok {
+					continue
+				}
+				if fileLineBoth(f, c.operand, c.id) {
+					continue // this hinted file still holds the invariant; do not let it mask peers
+				}
+			}
 			if f.isTest {
 				continue // a test's `..HEAD` is not the regressed implementation site
 			}
-			found := false
 			for i, n := range f.norm {
 				if regressionIsComment(f.lines[i]) {
 					continue // prose mentions of a range like `main...HEAD` are not the regression
@@ -412,7 +549,7 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 					break
 				}
 			}
-			if found {
+			if found && len(hinted) == 0 {
 				break
 			}
 		}
@@ -424,24 +561,70 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 		}
 		// The SPECIFIC assignment (target + its RHS) must be absent everywhere — a different
 		// assignment to the same field in another file is not this regression.
-		if anyHas(d.target+d.rhs) || !anyHas(d.id) {
+		isCallDeletion := strings.HasSuffix(d.target, "(")
+		if isCallDeletion && len(d.anchors) > 0 {
+			homes := regressionMissingCallHomes(files, d)
+			if len(homes) > 0 {
+				for _, h := range homes {
+					anomalies = append(anomalies, regressionAnomaly{
+						File: h.file, Line: h.line, Kind: "deleted",
+						Current: h.current, Expected: d.raw,
+						Identifier: d.id, Confidence: 0.65, Evidence: d.ev,
+						Reason:    fmt.Sprintf("history asserts `%s` near a peer state update, but that call is absent at this current locus", d.raw),
+						rankBoost: 3,
+					})
+				}
+				continue
+			}
+		}
+		if !isCallDeletion && len(d.hints) > 0 {
+			homes := regressionMissingAssignmentHomes(files, d)
+			if len(homes) > 0 {
+				for _, h := range homes {
+					anomalies = append(anomalies, regressionAnomaly{
+						File: h.file, Line: h.line, Kind: "deleted",
+						Current: h.current, Expected: d.raw,
+						Identifier: d.id, Confidence: 0.65, Evidence: d.ev,
+						Reason:    fmt.Sprintf("history asserts `%s` in this hinted file, but that assignment is absent at this current locus", d.raw),
+						rankBoost: 1,
+					})
+				}
+				continue
+			}
+		}
+		if anyHas(d.target+d.rhs) || (!isCallDeletion && !anyHas(d.id)) {
 			continue
 		}
 		// Locate the home file: prefer one that also holds the RHS token (the natural site of
 		// the assignment), else the first file where the identifier appears.
-		home, line, cur := regressionHomeFile(files, d.id, d.rhs)
+		home, line, cur := regressionHomeFile(files, d.id, d.rhs, d.hints)
 		if home == "" {
 			continue
+		}
+		invariantKind := "assignment"
+		if isCallDeletion {
+			invariantKind = "call"
+		}
+		rankBoost := 0
+		if len(d.hints) > 0 {
+			rankBoost = 1
+		}
+		if isCallDeletion {
+			rankBoost = 2
+			if len(d.hints) > 0 {
+				rankBoost = 3
+			}
 		}
 		anomalies = append(anomalies, regressionAnomaly{
 			File: home, Line: line, Kind: "deleted",
 			Current: cur, Expected: d.raw,
 			Identifier: d.id, Confidence: 0.65, Evidence: d.ev,
-			Reason: fmt.Sprintf("history asserts `%s` but that assignment is absent everywhere in the current tree", d.raw),
+			Reason:    fmt.Sprintf("history asserts `%s` but that %s is absent everywhere in the current tree", d.raw, invariantKind),
+			rankBoost: rankBoost,
 		})
 	}
 
-	anomalies = regressionDedupeRank(anomalies)
+	anomalies = annotateRegressionLocationContext(regressionDedupeRank(anomalies), files)
 	if limit > 0 && len(anomalies) > limit {
 		anomalies = anomalies[:limit]
 	}
@@ -454,26 +637,323 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 	return anomalies, len(files), warnings
 }
 
+type regressionHome struct {
+	file    string
+	line    int
+	current string
+}
+
+func regressionMissingCallHomes(files []candFile, d deleteSignal) []regressionHome {
+	if !strings.HasSuffix(d.target, "(") || len(d.anchors) == 0 {
+		return nil
+	}
+	callNeedle := d.target + d.rhs
+	hinted := map[string]struct{}{}
+	for _, h := range d.hints {
+		hinted[regressionCleanRelPath(h)] = struct{}{}
+	}
+	scan := func(requireHint bool) []regressionHome {
+		var homes []regressionHome
+		seen := map[string]struct{}{}
+		for _, f := range files {
+			if requireHint {
+				if _, ok := hinted[f.clean]; !ok {
+					continue
+				}
+			}
+			for i, n := range f.norm {
+				if regressionIsComment(f.lines[i]) {
+					continue
+				}
+				anchorHit := false
+				for _, anchor := range d.anchors {
+					if strings.Contains(n, anchor+d.rhs) {
+						anchorHit = true
+						break
+					}
+				}
+				if !anchorHit || regressionForwardWindowHas(f, i, callNeedle, 6) {
+					continue
+				}
+				key := f.clean + ":" + strconv.Itoa(i+1)
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+				homes = append(homes, regressionHome{file: f.clean, line: i + 1, current: strings.TrimSpace(f.lines[i])})
+			}
+		}
+		return homes
+	}
+	if len(hinted) > 0 {
+		if homes := scan(true); len(homes) > 0 {
+			return homes
+		}
+	}
+	return scan(false)
+}
+
+func regressionMissingAssignmentHomes(files []candFile, d deleteSignal) []regressionHome {
+	if strings.HasSuffix(d.target, "(") || len(d.hints) == 0 {
+		return nil
+	}
+	assignmentNeedle := d.target + d.rhs
+	hinted := map[string]struct{}{}
+	for _, h := range d.hints {
+		hinted[regressionCleanRelPath(h)] = struct{}{}
+	}
+	var homes []regressionHome
+	seen := map[string]struct{}{}
+	for _, f := range files {
+		if _, ok := hinted[f.clean]; !ok {
+			continue
+		}
+		for _, h := range regressionAssignmentCandidateHomes(f, d) {
+			if regressionAssignmentHomeHas(f, h.line, assignmentNeedle) {
+				continue
+			}
+			key := h.file + ":" + strconv.Itoa(h.line)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			homes = append(homes, h)
+			if len(homes) >= 8 {
+				return homes
+			}
+		}
+	}
+	return homes
+}
+
+func regressionAssignmentCandidateHomes(f candFile, d deleteSignal) []regressionHome {
+	var homes []regressionHome
+	seenLine := map[int]struct{}{}
+	var preferredLines []int
+	var rhsLines []int
+	fileHasRHS := false
+	if d.rhs != "" {
+		for i, n := range f.norm {
+			if regressionIsComment(f.lines[i]) {
+				continue
+			}
+			if strings.Contains(n, d.rhs) {
+				fileHasRHS = true
+				break
+			}
+		}
+	}
+	collect := func(needle string) {
+		if needle == "" {
+			return
+		}
+		for i, n := range f.norm {
+			if !strings.Contains(n, needle) || regressionIsComment(f.lines[i]) {
+				continue
+			}
+			if len(regressionFunctionPattern.FindStringSubmatch(strings.TrimSpace(f.lines[i]))) == 2 {
+				continue
+			}
+			line := i + 1
+			if needle == d.id {
+				if fileHasRHS && !regressionSymbolHas(f, line, d.rhs) {
+					continue
+				}
+				if regressionNearbyCandidateSeenInSameSymbol(f.lines, preferredLines, line, 2) {
+					continue
+				}
+			}
+			if needle == d.rhs {
+				if regressionNearbyCandidateSeenInSameSymbol(f.lines, preferredLines, line, 2) ||
+					regressionNearbyCandidateSeenInSameSymbol(f.lines, rhsLines, line, 2) {
+					continue
+				}
+			}
+			if _, ok := seenLine[line]; ok {
+				continue
+			}
+			seenLine[line] = struct{}{}
+			if needle == d.id {
+				preferredLines = append(preferredLines, line)
+			}
+			if needle == d.rhs {
+				rhsLines = append(rhsLines, line)
+			}
+			homes = append(homes, regressionHome{file: f.clean, line: line, current: strings.TrimSpace(f.lines[i])})
+		}
+	}
+	collect(d.id)
+	collect(d.rhs)
+	return homes
+}
+
+func regressionAssignmentHomeHas(f candFile, line int, needle string) bool {
+	if _, _, ok := regressionEnclosingSymbolRange(f.lines, line); ok {
+		return regressionWindowHas(f, line-1, needle, 2)
+	}
+	return regressionWindowHas(f, line-1, needle, 8)
+}
+
+func regressionNearbyCandidateSeenInSameSymbol(src []string, lines []int, line, radius int) bool {
+	start, end, ok := regressionEnclosingSymbolRange(src, line)
+	for _, seen := range lines {
+		if seen < line-radius || seen > line+radius {
+			continue
+		}
+		seenStart, seenEnd, seenOK := regressionEnclosingSymbolRange(src, seen)
+		if ok != seenOK {
+			continue // one resolved to a symbol, the other did not: different scopes
+		}
+		if ok && (start != seenStart || end != seenEnd) {
+			continue // both resolved, but to different symbols
+		}
+		return true // same symbol, or neither resolved (radius proximity decides)
+	}
+	return false
+}
+
+func regressionForwardWindowHas(f candFile, center int, needle string, radius int) bool {
+	end := center + radius + 1
+	if end > len(f.norm) {
+		end = len(f.norm)
+	}
+	for i := center; i < end; i++ {
+		if strings.Contains(f.norm[i], needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func regressionWindowHas(f candFile, center int, needle string, radius int) bool {
+	start := center - radius
+	if start < 0 {
+		start = 0
+	}
+	end := center + radius + 1
+	if end > len(f.norm) {
+		end = len(f.norm)
+	}
+	for i := start; i < end; i++ {
+		if regressionIsComment(f.lines[i]) {
+			continue
+		}
+		if strings.Contains(f.norm[i], needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func regressionSymbolHas(f candFile, line int, needle string) bool {
+	start, end, ok := regressionEnclosingSymbolRange(f.lines, line)
+	if !ok {
+		return false
+	}
+	for i := start; i < end; i++ {
+		if regressionIsComment(f.lines[i]) {
+			continue
+		}
+		if strings.Contains(f.norm[i], needle) {
+			return true
+		}
+	}
+	return false
+}
+
 // regressionHomeFile returns the best (file, line, text) to attribute a deletion to: a file
 // containing both the identifier and the RHS token, else the first file holding the identifier.
-func regressionHomeFile(files []candFile, id, rhs string) (string, int, string) {
+func regressionHomeFile(files []candFile, id, rhs string, hints []string) (string, int, string) {
+	findIDLine := func(f candFile, allowComment bool) (int, string, bool) {
+		for i, n := range f.norm {
+			if !strings.Contains(n, id) {
+				continue
+			}
+			if !allowComment && regressionIsComment(f.lines[i]) {
+				continue
+			}
+			return i + 1, strings.TrimSpace(f.lines[i]), true
+		}
+		return 0, "", false
+	}
+	findRHSLine := func(f candFile, allowComment bool) (int, string, bool) {
+		if rhs == "" {
+			return 0, "", false
+		}
+		for i, n := range f.norm {
+			if !strings.Contains(n, rhs) || !strings.Contains(n, "=") {
+				continue
+			}
+			if !allowComment && regressionIsComment(f.lines[i]) {
+				continue
+			}
+			return i + 1, strings.TrimSpace(f.lines[i]), true
+		}
+		for i, n := range f.norm {
+			if !strings.Contains(n, rhs) {
+				continue
+			}
+			if !allowComment && regressionIsComment(f.lines[i]) {
+				continue
+			}
+			return i + 1, strings.TrimSpace(f.lines[i]), true
+		}
+		return 0, "", false
+	}
+	if len(hints) > 0 {
+		hinted := map[string]struct{}{}
+		for _, h := range hints {
+			hinted[regressionCleanRelPath(h)] = struct{}{}
+		}
+		for _, f := range files {
+			if _, ok := hinted[f.clean]; !ok {
+				continue
+			}
+			if line, cur, ok := findIDLine(f, false); ok {
+				return f.clean, line, cur
+			}
+			if line, cur, ok := findRHSLine(f, false); ok {
+				return f.clean, line, cur
+			}
+		}
+		for _, f := range files {
+			if _, ok := hinted[f.clean]; !ok {
+				continue
+			}
+			if line, cur, ok := findIDLine(f, true); ok {
+				return f.clean, line, cur
+			}
+			if line, cur, ok := findRHSLine(f, true); ok {
+				return f.clean, line, cur
+			}
+		}
+	}
 	if rhs != "" {
 		for _, f := range files {
 			if !fileHasNorm(f.norm, rhs) {
 				continue
 			}
-			for i, n := range f.norm {
-				if strings.Contains(n, id) {
-					return f.clean, i + 1, strings.TrimSpace(f.lines[i])
-				}
+			if line, cur, ok := findIDLine(f, false); ok {
+				return f.clean, line, cur
+			}
+		}
+		for _, f := range files {
+			if !fileHasNorm(f.norm, rhs) {
+				continue
+			}
+			if line, cur, ok := findIDLine(f, true); ok {
+				return f.clean, line, cur
 			}
 		}
 	}
 	for _, f := range files {
-		for i, n := range f.norm {
-			if strings.Contains(n, id) {
-				return f.clean, i + 1, strings.TrimSpace(f.lines[i])
-			}
+		if line, cur, ok := findIDLine(f, false); ok {
+			return f.clean, line, cur
+		}
+	}
+	for _, f := range files {
+		if line, cur, ok := findIDLine(f, true); ok {
+			return f.clean, line, cur
 		}
 	}
 	return "", 0, "(absent)"
@@ -503,14 +983,16 @@ func dedupeChanges(in []changeSignal) []changeSignal {
 }
 
 func dedupeDeletes(in []deleteSignal) []deleteSignal {
-	seen := map[string]struct{}{}
+	seen := map[string]int{}
 	var out []deleteSignal
 	for _, d := range in {
 		k := d.target + "|" + d.rhs
-		if _, ok := seen[k]; ok {
+		if idx, ok := seen[k]; ok {
+			out[idx].hints = mergeRegressionHints(out[idx].hints, d.hints)
+			out[idx].anchors = mergeRegressionHints(out[idx].anchors, d.anchors)
 			continue
 		}
-		seen[k] = struct{}{}
+		seen[k] = len(out)
 		out = append(out, d)
 	}
 	return out
@@ -520,7 +1002,7 @@ func regressionDedupeRank(in []regressionAnomaly) []regressionAnomaly {
 	seen := map[string]struct{}{}
 	var out []regressionAnomaly
 	for _, a := range in {
-		key := a.File + "|" + a.Kind + "|" + regressionDespace(a.Expected)
+		key := a.File + "|" + strconv.Itoa(a.Line) + "|" + a.Kind + "|" + regressionDespace(a.Expected)
 		if _, ok := seen[key]; ok {
 			continue
 		}
@@ -528,12 +1010,103 @@ func regressionDedupeRank(in []regressionAnomaly) []regressionAnomaly {
 		out = append(out, a)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].rankBoost != out[j].rankBoost {
+			return out[i].rankBoost > out[j].rankBoost
+		}
 		if out[i].Confidence != out[j].Confidence {
 			return out[i].Confidence > out[j].Confidence
 		}
 		return out[i].File < out[j].File
 	})
 	return out
+}
+
+// regressionFunctionPattern recognizes the common declaration heads across
+// the languages regressionCodeFilePattern admits: Go func (with optional
+// receiver), Python def, Rust fn, JS/TS function (incl. export/async), and
+// class declarations. Best-effort by design — a miss only widens symbol
+// grouping back to line-radius proximity, it never drops a finding.
+var regressionFunctionPattern = regexp.MustCompile(`^\s*(?:func\s+(?:\([^)]+\)\s*)?|def\s+|fn\s+|(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*|class\s+)([A-Za-z_][A-Za-z0-9_]*)`)
+
+func regressionEnclosingSymbol(lines []string, line int) string {
+	start, _, ok := regressionEnclosingSymbolRange(lines, line)
+	if !ok {
+		return ""
+	}
+	match := regressionFunctionPattern.FindStringSubmatch(strings.TrimSpace(lines[start]))
+	if len(match) == 2 {
+		return match[1]
+	}
+	return ""
+}
+
+func regressionEnclosingSymbolRange(lines []string, line int) (int, int, bool) {
+	if line <= 0 || line > len(lines) {
+		return 0, 0, false
+	}
+	start := line - 1
+	for i := start; i >= 0 && i >= start-250; i-- {
+		match := regressionFunctionPattern.FindStringSubmatch(strings.TrimSpace(lines[i]))
+		if len(match) == 2 {
+			end := len(lines)
+			for j := i + 1; j < len(lines); j++ {
+				if len(regressionFunctionPattern.FindStringSubmatch(strings.TrimSpace(lines[j]))) == 2 {
+					end = j
+					break
+				}
+			}
+			return i, end, true
+		}
+	}
+	return 0, 0, false
+}
+
+func annotateRegressionLocationContext(anomalies []regressionAnomaly, files []candFile) []regressionAnomaly {
+	if len(anomalies) == 0 {
+		return anomalies
+	}
+	byFile := map[string]candFile{}
+	for _, f := range files {
+		byFile[f.clean] = f
+	}
+	for i := range anomalies {
+		if anomalies[i].Symbol != "" {
+			continue
+		}
+		if f, ok := byFile[regressionCleanRelPath(anomalies[i].File)]; ok {
+			anomalies[i].Symbol = regressionEnclosingSymbol(f.lines, anomalies[i].Line)
+		}
+	}
+	for i := range anomalies {
+		var related []string
+		for j := range anomalies {
+			if i == j || anomalies[i].File != anomalies[j].File || anomalies[i].Kind != anomalies[j].Kind || anomalies[j].Line <= 0 {
+				continue
+			}
+			if !regressionRelatedLocationMatch(anomalies[i], anomalies[j]) {
+				continue
+			}
+			loc := fmt.Sprintf("%s:%d", anomalies[j].File, anomalies[j].Line)
+			if anomalies[j].Symbol != "" {
+				loc += " (" + anomalies[j].Symbol + ")"
+			}
+			related = append(related, loc)
+			if len(related) >= 6 {
+				break
+			}
+		}
+		anomalies[i].RelatedLocations = related
+	}
+	return anomalies
+}
+
+func regressionRelatedLocationMatch(a, b regressionAnomaly) bool {
+	aExpected := regressionDespace(a.Expected)
+	bExpected := regressionDespace(b.Expected)
+	if aExpected != "" || bExpected != "" {
+		return aExpected != "" && aExpected == bExpected
+	}
+	return a.Identifier != "" && b.Identifier != "" && strings.EqualFold(a.Identifier, b.Identifier)
 }
 
 func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, ro regressionDetectorOptions, query string) error {
@@ -557,6 +1130,9 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 			anomalies[i].Expected = ""
 			anomalies[i].Current = ""
 			anomalies[i].Reason = "suspected regression site (location only)"
+			if anomalies[i].Symbol != "" || len(anomalies[i].RelatedLocations) > 0 {
+				anomalies[i].Reason = "suspected regression site (location only); inspect the enclosing symbol and related same-file locations"
+			}
 		}
 	}
 	report := regressionReport{

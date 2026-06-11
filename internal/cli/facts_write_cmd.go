@@ -13,6 +13,7 @@ type rememberCommandOptions struct {
 	kind         string
 	branch       string
 	agent        string
+	model        string
 	agentCommand []string
 	json         bool
 	run          distillAgentRunner
@@ -31,7 +32,8 @@ func newRememberCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&rememberOpts.path, "path", "", "Taxonomy path(s), comma-separated (e.g. preferences.coding.style). If omitted, the agent classifies the fact")
 	cmd.Flags().StringVar(&rememberOpts.kind, "kind", "", "Fact kind: decision|invariant|gotcha|preference|convention. If omitted, it is inferred")
 	cmd.Flags().StringVar(&rememberOpts.branch, "branch", "", "Branch to store the fact on (default: current branch)")
-	cmd.Flags().StringVar(&rememberOpts.agent, "agent", "auto", "Agent used to classify when --path is omitted: auto, codex, claude-code, command, or none")
+	cmd.Flags().StringVar(&rememberOpts.agent, "agent", "auto", "Agent used to classify when --path is omitted: auto, codex, claude-code, ollama, command, or none")
+	cmd.Flags().StringVar(&rememberOpts.model, "model", "", "Model for codex/claude-code/ollama classification")
 	cmd.Flags().StringArrayVar(&rememberOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().BoolVar(&rememberOpts.json, "json", false, "Emit the created fact as JSON")
 	return cmd
@@ -85,29 +87,31 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		UpdatedAt:  now,
 	}
 
-	facts, err := loadFacts(brainDir, branch)
-	if err != nil {
-		return err
-	}
-	facts = upsertFact(facts, record)
-	// An explicit --kind is a deliberate human correction and must win even when
-	// the fact already exists, where upsertFact's anti-thrash rule would
-	// otherwise keep the stored kind. The reported kind is then always the one
-	// actually persisted, never a discarded request.
 	storedKind := kind
-	if i := indexOfFact(facts, record.ID); i >= 0 {
-		if explicitKind != "" {
-			facts[i].Kind = explicitKind
+	if err := withBrainWriteLock(brainDir, func() error {
+		facts, err := loadFacts(brainDir, branch)
+		if err != nil {
+			return err
 		}
-		storedKind = factKindOrInferred(facts[i])
-	}
-	if err := writeFacts(brainDir, branch, facts); err != nil {
-		return err
-	}
-	if err := writeFactTaxonomy(brainDir, taxonomy); err != nil {
-		return err
-	}
-	if err := updateFactSourceManifest(brainDir, now); err != nil {
+		facts = upsertFact(facts, record)
+		// An explicit --kind is a deliberate human correction and must win even
+		// when the fact already exists, where upsertFact's anti-thrash rule would
+		// otherwise keep the stored kind. The reported kind is then always the one
+		// actually persisted, never a discarded request.
+		if i := indexOfFact(facts, record.ID); i >= 0 {
+			if explicitKind != "" {
+				facts[i].Kind = explicitKind
+			}
+			storedKind = factKindOrInferred(facts[i])
+		}
+		if err := writeFacts(brainDir, branch, facts); err != nil {
+			return err
+		}
+		if err := writeFactTaxonomy(brainDir, taxonomy); err != nil {
+			return err
+		}
+		return updateFactSourceManifestLocked(brainDir, now)
+	}); err != nil {
 		return err
 	}
 
@@ -154,9 +158,10 @@ func resolveRememberPaths(ctx context.Context, opts Options, rememberOpts rememb
 	if err != nil {
 		return nil, err
 	}
+	args = injectAgentModel(args, agent, rememberOpts.model)
 	run := rememberOpts.run
 	if run == nil {
-		run = execDistillAgent
+		run = defaultDistillAgentRunner(agent)
 	}
 	out, err := run(ctx, repoDir, args, []byte(text), defaultDistillTimeout)
 	if err != nil {

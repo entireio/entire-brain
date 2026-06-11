@@ -40,20 +40,43 @@ var factPathPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z0-9_]+){2}$`)
 // factSourceManifest is recorded under sources.facts in the brain manifest,
 // parallel to historySourceManifest and the semantic source metadata.
 type factSourceManifest struct {
-	GeneratedAt     time.Time      `json:"generated_at"`
-	TaxonomyPath    string         `json:"taxonomy_path"`
-	Branches        []string       `json:"branches,omitempty"`
-	Facts           int            `json:"facts"`
-	Distilled       int            `json:"distilled"`
-	Authored        int            `json:"authored"`
-	Superseded      int            `json:"superseded"`
-	Proposals       int            `json:"proposals"`
-	Verified        int            `json:"verified"`
-	Unsigned        int            `json:"unsigned"`
-	ByKind          map[string]int `json:"by_kind,omitempty"`
-	ChunksScanned   int            `json:"chunks_scanned"`
-	ChunksDistilled int            `json:"chunks_distilled"`
-	Warnings        []string       `json:"warnings,omitempty"`
+	GeneratedAt       time.Time      `json:"generated_at"`
+	TaxonomyPath      string         `json:"taxonomy_path"`
+	Branches          []string       `json:"branches,omitempty"`
+	Facts             int            `json:"facts"`
+	Distilled         int            `json:"distilled"`
+	Authored          int            `json:"authored"`
+	Superseded        int            `json:"superseded"`
+	Proposals         int            `json:"proposals"`
+	Verified          int            `json:"verified"`
+	Unsigned          int            `json:"unsigned"`
+	ByKind            map[string]int `json:"by_kind,omitempty"`
+	ChunksScanned     int            `json:"chunks_scanned"`
+	ChunksDistilled   int            `json:"chunks_distilled"`
+	CacheHits         int            `json:"cache_hits,omitempty"`
+	FailedChunks      int            `json:"failed_chunks,omitempty"`
+	PreprocessedBytes int64          `json:"preprocessed_bytes,omitempty"`
+	Agent             string         `json:"agent,omitempty"`
+	Model             string         `json:"model,omitempty"`
+	Effort            string         `json:"effort,omitempty"`
+	Branch            string         `json:"branch,omitempty"`
+	Force             bool           `json:"force,omitempty"`
+	Jobs              int            `json:"jobs,omitempty"`
+	ExtractionJobsCap int            `json:"extraction_jobs_cap,omitempty"`
+	MaxChunkBytes     int            `json:"max_chunk_bytes,omitempty"`
+	Confidence        float64        `json:"confidence_threshold,omitempty"`
+	ExtractionCalls   int            `json:"extraction_agent_calls,omitempty"`
+	ReconcileCalls    int            `json:"reconcile_agent_calls,omitempty"`
+	TotalAgentCalls   int            `json:"total_agent_calls,omitempty"`
+	// ExtractionWaitSeconds is the consumer's WAIT on prefetched results, not
+	// agent compute: with concurrency > 1, calls completing in the background
+	// register ~0s here. Compare total_seconds across --jobs settings for
+	// scheduling claims.
+	ExtractionWaitSeconds float64  `json:"extraction_wait_seconds,omitempty"`
+	ReconcileSeconds      float64  `json:"reconcile_seconds,omitempty"`
+	WriteSeconds          float64  `json:"write_seconds,omitempty"`
+	TotalSeconds          float64  `json:"total_seconds,omitempty"`
+	Warnings              []string `json:"warnings,omitempty"`
 }
 
 // factRecord is one durable, self-contained statement. The id is content
@@ -69,17 +92,17 @@ type factRecord struct {
 	Origin       string       `json:"origin"` // "distilled" | "authored"
 	Status       string       `json:"status"` // "active" | "superseded" | "retracted"
 	Confidence   string       `json:"confidence,omitempty"`
-	Provenance   []factAnchor `json:"provenance"` // >=1; signed source turns
+	Provenance   []factAnchor `json:"provenance"` // >=1; retained source/authored anchors
 	RelatedIDs   []string     `json:"related_ids,omitempty"`
 	SupersededBy string       `json:"superseded_by,omitempty"`
 	CreatedAt    time.Time    `json:"created_at"`
 	UpdatedAt    time.Time    `json:"updated_at"`
 }
 
-// factAnchor cites the source a fact was derived from or authored against. In
-// Phase A only the checkpoint-level fields are populated. TurnID is filled in
-// Phase B once Entire CLI exposes turn-level signed anchors; Verified is set by
-// `verify` against the checkpoint signature.
+// factAnchor cites the source a fact was derived from or authored against.
+// TurnID is populated when the source provides turn-level anchors. Verified is
+// retained signed-source metadata; `verify` is read-only and reports local
+// verdicts without mutating this bit.
 type factAnchor struct {
 	SessionID    string `json:"session_id"`
 	Commit       string `json:"commit,omitempty"`
@@ -87,7 +110,7 @@ type factAnchor struct {
 	TurnID       string `json:"turn_id,omitempty"`    // Phase B
 	Transcript   string `json:"transcript,omitempty"` // brain-relative path
 	Line         int    `json:"line,omitempty"`       // turn offset in transcript
-	Verified     bool   `json:"verified,omitempty"`   // set by `verify`
+	Verified     bool   `json:"verified,omitempty"`   // retained signed-source metadata
 }
 
 // factTaxonomy is the active taxonomy snapshot. Paths are validated against
@@ -235,12 +258,7 @@ func writeFacts(brainDir, branch string, records []factRecord) error {
 		buf.Write(data)
 		buf.WriteByte('\n')
 	}
-	dir := filepath.Join(brainDir, filepath.FromSlash(factsBranchRelDir(branch)))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create facts directory: %w", err)
-	}
-	path := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(branch)))
-	return writeFileAtomic(path, []byte(buf.String()), 0o600)
+	return writeBrainRelativeFileAtomic(brainDir, factsFileRelPath(branch), []byte(buf.String()), 0o600)
 }
 
 // sortFactRecords orders records by path, then text, then id so the on-disk
@@ -370,11 +388,7 @@ func writeFactTaxonomy(brainDir string, taxonomy factTaxonomy) error {
 		return err
 	}
 	data = append(data, '\n')
-	dir := filepath.Join(brainDir, factsDirName)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create facts directory: %w", err)
-	}
-	return writeFileAtomic(filepath.Join(brainDir, filepath.FromSlash(factsTaxonomyPath)), data, 0o600)
+	return writeBrainRelativeFileAtomic(brainDir, factsTaxonomyPath, data, 0o600)
 }
 
 // factTaxonomyTopLevels returns the set of top-level categories the taxonomy

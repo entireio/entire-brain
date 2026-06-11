@@ -1,0 +1,316 @@
+{
+  "agent": "codex",
+  "agent_baseline_history_reset": {
+    "parent_count": 0,
+    "root_commit": "8ea02d1b5eab4e686742c09496d8c5750b1b7c9f"
+  },
+  "agent_info": {
+    "activity": {
+      "activity_source": "protocol_json",
+      "brain_commands": [],
+      "checked_brief": false,
+      "checked_diff": false,
+      "checked_freshness": false,
+      "checked_stale": false,
+      "direct_brain_cli_calls": 0,
+      "mcp_tool_calls": 0,
+      "mcp_tool_details": [],
+      "mcp_tool_names": [],
+      "ran_tests": true,
+      "saw_index_locked": false,
+      "search_calls": 10,
+      "search_commands": [
+        "rg"
+      ],
+      "structured_tool_event_count": 36,
+      "test_commands": [
+        "go test"
+      ],
+      "used_brain": false,
+      "used_mcp": false
+    },
+    "agent": "codex",
+    "attempts": [
+      {
+        "attempt": 1,
+        "returncode": 0,
+        "seconds": 79.95864295959473,
+        "transient_failure_reason": null
+      }
+    ],
+    "cmd": [
+      "codex",
+      "..."
+    ],
+    "isolation": {
+      "auth": "host CODEX_HOME auth may still be used",
+      "mcp": "disabled",
+      "rules": "ignored",
+      "session": "ephemeral",
+      "user_config": "ignored"
+    },
+    "mcp": {
+      "condition": "no_brain",
+      "enabled": false,
+      "server": null
+    },
+    "resolved_model": null,
+    "returncode": 0,
+    "runner": {
+      "agent": "codex",
+      "effort": "low",
+      "id": "codex-gpt-5.4-mini-low",
+      "model": "gpt-5.4-mini"
+    },
+    "seconds": 79.97178030014038,
+    "stderr_bytes": 1521,
+    "stderr_tail": "Reading additional input from stdin...\n2026-06-10T17:55:08.045072Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/zsh -lc \"sed -n '260,520p' cmd/entire/cli/session/state.go\"`: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: No such file or directory (os error 2)\\\")\" }\n2026-06-10T17:55:08.058074Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/zsh -lc \"rg -n \\\"PhasePostCommit|ActionPostCommit|PostCommit\\\" cmd/entire/cli/strategy -g '*_test.go'\"`: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: No such file or directory (os error 2)\\\")\" }\n2026-06-10T17:55:23.384538Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/zsh -lc \"sed -n '330,380p' cmd/entire/cli/session/state.go\"`: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: No such file or directory (os error 2)\\\")\" }\n2026-06-10T17:55:29.880486Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/zsh -lc \"sed -n '1168,1230p' cmd/entire/cli/strategy/manual_commit_condensation.go\"`: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: No such file or directory (os error 2)\\\")\" }\n2026-06-10T17:55:34.616003Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/zsh -lc \"sed -n '700,875p' cmd/entire/cli/strategy/manual_commit_hooks.go\"`: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: No such file or directory (os error 2)\\\")\" }\n",
+    "stdout_bytes": 1225718,
+    "stdout_tail": "wt.Add(\\\"new-feature.txt\\\")\\n\\trequire.NoError(t, err)\\n\\n\\tcpID := \\\"de1de2de3de4\\\"\\n\\tcommitMsg := \\\"add new feature\\\\n\\\\n\\\" + trailers.CheckpointTrailerKey + \\\": \\\" + cpID + \\\"\\\\n\\\"\\n\\t_, err = wt.Commit(commitMsg, &git.CommitOptions{\\n\\t\\tAuthor: &object.Signature{Name: \\\"Test\\\", Email: \\\"test@test.com\\\", When: time.Now()},\\n\\t})\\n\\trequire.NoError(t, err)\\n\\n\\thead, err := repo.Head()\\n\\trequire.NoError(t, err)\\n\\tnewHead := head.Hash().String()\\n\\n\\t// Run PostCommit\\n\\terr = s.PostCommit(context.Background())\\n\\trequire.NoError(t, err)\\n\\n\\t// --- Verify: stale ACTIVE session was NOT condensed ---\\n\\tstaleState, err = s.loadSessionState(context.Background(), staleSessionID)\\n\\trequire.NoError(t, err)\\n\\n\\t// StepCount should be unchanged (not reset by condensation)\\n\\tassert.Equal(t, staleOriginalStepCount, staleState.StepCount,\\n\\t\\t\\\"Stale ACTIVE session StepCount should NOT be reset (no condensation)\\\")\\n\\n\\t// BaseCommit IS updated for ACTIVE sessions (updateBaseCommitIfChanged)\\n\\tassert.Equal(t, newHead, staleState.BaseCommit,\\n\\t\\t\\\"Stale ACTIVE session BaseCommit should be updated (ACTIVE sessions always get BaseCommit updated)\\\")\\n\\tassert.NotEqual(t, staleOriginalBaseCommit, staleState.BaseCommit,\\n\\t\\t\\\"Stale ACTIVE session BaseCommit should have changed\\\")\\n\\n\\t// Phase stays ACTIVE\\n\\tassert.Equal(t, session.PhaseActive, staleState.Phase,\\n\\t\\t\\\"Stale ACTIVE session should remain ACTIVE\\\")\\n\\n\\t// --- Verify: new ACTIVE session WAS condensed ---\\n\\tnewState, err = s.loadSessionState(context.Background(), newSessionID)\\n\\trequire.NoError(t, err)\\n\\n\\t// StepCount reset to 0 by condensation\\n\\tassert.Equal(t, 0, newState.StepCount,\\n\\t\\t\\\"New ACTIVE session StepCount should be reset by condensation\\\")\\n\\n\\t// BaseCommit updated to new HEAD\\n\\tassert.Equal(t, newHead, newState.BaseCommit,\\n\\t\\t\\\"New ACTIVE session BaseCommit should be updated after condensation\\\")\\n\\n\\t// Verify entire/checkpoints/v1 exists (new session was condensed)\\n\\t_, err = repo.Reference(plumbing.NewBranchReferenceName(paths.MetadataBranchName), true)\\n\\trequire.NoError(t, err,\\n\\t\\t\\\"entire/checkpoints/v1 should exist (new session was condensed)\\\")\\n}\\n\\n// TestPostCommit_IdleSessionEmptyFilesTouched_NotCondensed verifies that an IDLE\\n// session with hasNew=true but empty FilesTouched is NOT condensed into a commit.\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_24\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc \\\"env GOCACHE=[local-temp] go test ./cmd/entire/cli/strategy -run 'Test.*PostCommit|Test.*MidTurnCommit'\\\"\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_24\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc \\\"env GOCACHE=[local-temp] go test ./cmd/entire/cli/strategy -run 'Test.*PostCommit|Test.*MidTurnCommit'\\\"\",\"aggregated_output\":\"ok  \\tgithub.com/entireio/cli/cmd/entire/cli/strategy\\t4.420s\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_25\",\"type\":\"agent_message\",\"text\":\"Fixed the stale-session-state regression by realigning attribution state in the no-trailer post-commit path.\\n\\nChanged:\\n- [cmd/entire/cli/strategy/manual_commit_hooks.go]([repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/no_brain_r1/worktree/cmd/entire/cli/strategy/manual_commit_hooks.go)\\n- The `post-commit (no trailer)` mutation now calls `state.RealignAttributionBase(newHead)` after advancing `BaseCommit`.\\n\\nValidation:\\n- `env GOCACHE=[local-temp] go test ./cmd/entire/cli/strategy -run 'Test.*PostCommit|Test.*MidTurnCommit'` passed.\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":554183,\"cached_input_tokens\":493696,\"output_tokens\":5344,\"reasoning_output_tokens\":774}}\n",
+    "transient_retries": 0,
+    "usage": {
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_source": null,
+      "cost_usd": null,
+      "input_tokens": 554183,
+      "output_tokens": 5344,
+      "total_tokens": 559527,
+      "turns": null
+    }
+  },
+  "agent_leak_audit": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_secret_preflight": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_visible_entire_history_removed": false,
+  "agent_worktree_sanitization": {
+    "committed": false,
+    "removed_paths": []
+  },
+  "brain_prep": {
+    "commands": [],
+    "condition": "no_brain"
+  },
+  "brain_state": {},
+  "changed_files": [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go"
+  ],
+  "condition": "no_brain",
+  "diff_stat": {
+    "bytes": 563,
+    "shortstat": "1 file changed, 1 insertion(+)",
+    "untracked_files": []
+  },
+  "finished_at": "2026-06-10T17:56:08.939360+00:00",
+  "mcp_condition_audit": {
+    "findings": [],
+    "ok": true,
+    "required": false
+  },
+  "ok": true,
+  "post_brain_setup_applied": false,
+  "provenance": {
+    "captured_at": "2026-06-10T17:54:44.257434+00:00",
+    "fingerprint": "9e0d521e39b973068400cfe1344d2d70b16001c3a1f65c981a204fd8bc2c6b5d",
+    "harness": {
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "suhaanthayyil",
+        "available": true,
+        "commit": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
+        "committer_date": "2026-06-10T13:33:51-04:00",
+        "parent_count": 1,
+        "parents": [
+          "46ba2d8dd5092bdb3a869b3a8499eb23847b5f04"
+        ],
+        "ref": "HEAD",
+        "subject": "Harden release evidence audits"
+      },
+      "repo_path": "[repo-root]"
+    },
+    "run_config": {
+      "brain_cache": {
+        "enabled": true,
+        "refresh": false
+      },
+      "checkpoint_limit": 200,
+      "claude_budget": 0.0,
+      "command": "run",
+      "condition": "no_brain",
+      "env_flags": {
+        "BENCH_RADAR_LOCATION_ONLY": "1",
+        "BENCH_REGRESSION_RADAR": null
+      },
+      "fingerprint": "c86b9246d5d3674458da5e1f1ea2320b45c20086a1682b62e5257b1c4195d7d9",
+      "panel": {
+        "config_sha256": "d19bd0d68ebf07ebe8d37f8f5f15928f7e21ae241e6a23264f015a4ede233a43",
+        "name": "release-entire-cli-radar-mcp-manual-attribution-deletions",
+        "path": "benchmarks/agent-brain/panels/release-entire-cli-radar-mcp-manual-attribution-deletions.json"
+      },
+      "pricing": {
+        "file": null,
+        "inline_sha256": null
+      },
+      "repetition": 1,
+      "requested": {
+        "agents": "",
+        "conditions": "no_brain,mcp_history",
+        "repetitions": 4,
+        "runners": "codex:gpt-5.4-mini:low",
+        "tasks": [
+          "entireio-cli-radar-manual-attribution-deletions.json"
+        ]
+      },
+      "runner": {
+        "agent": "codex",
+        "effort": "low",
+        "id": "codex-gpt-5.4-mini-low",
+        "model": "gpt-5.4-mini"
+      },
+      "stop_after_no_brain_score": null,
+      "suite": "release-candidate-cli-radar-mcp-del-20260610-r2",
+      "timeout": 1800,
+      "workspace_name": null
+    },
+    "schema": 1,
+    "source": {
+      "base": {
+        "author_name": "Stefan Haubold",
+        "available": true,
+        "commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "committer_date": "2026-06-04T21:31:15+02:00",
+        "parent_count": 2,
+        "parents": [
+          "5f292e3cd4980f0a1179cf2f8687d4fc27a1c01e",
+          "75ed85eae33c28a76dfda37a99e8d7646724af56"
+        ],
+        "ref": "af713665091693a8301520159f3b4097a6ec36f9",
+        "subject": "Merge pull request #1368 from entireio/soph/e2e-canary-keychain"
+      },
+      "base_ref": "af713665091693a8301520159f3b4097a6ec36f9",
+      "base_ref_source": "task.base_commit",
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "Stefan Haubold",
+        "available": true,
+        "commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "committer_date": "2026-06-04T21:31:15+02:00",
+        "parent_count": 2,
+        "parents": [
+          "5f292e3cd4980f0a1179cf2f8687d4fc27a1c01e",
+          "75ed85eae33c28a76dfda37a99e8d7646724af56"
+        ],
+        "ref": "HEAD",
+        "subject": "Merge pull request #1368 from entireio/soph/e2e-canary-keychain"
+      },
+      "origin_url": "https://github.com/entireio/cli.git",
+      "repo": "entire-cli",
+      "repo_path_input": "cli-bench",
+      "repo_path_resolved": "[source-root:cli-bench]"
+    },
+    "task": {
+      "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+      "config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
+      "id": "entireio-cli-radar-manual-attribution-deletions",
+      "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+      "radar_include_deletions": true
+    },
+    "tools": {
+      "bin": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/bin"
+      },
+      "brain": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/bin/entire-brain",
+        "sha256": "7dd5264a7a8aa836371fe6f942d9efb62935282182a5782c860297895889fb72"
+      },
+      "entire": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/bin/entire",
+        "sha256": "0cb4e43aa5197b7c9205b318158dc8d7449bc779031b794bb0beedaf91b2af0d"
+      },
+      "sem": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/bin/entire-sem",
+        "sha256": "e8ef3a2c2c1a04e76f6bf995dd1aa11ad9c4357279d45cc7a35716332af3b96d"
+      }
+    }
+  },
+  "repetition": 1,
+  "repo": "entire-cli",
+  "run_id": "no_brain_r1",
+  "runner": {
+    "agent": "codex",
+    "effort": "low",
+    "id": "codex-gpt-5.4-mini-low",
+    "model": "gpt-5.4-mini"
+  },
+  "score": {
+    "brain_use": 5,
+    "details": {
+      "activity_source": "protocol_json",
+      "agent_seconds": 79.97178030014038,
+      "brain_commands": [],
+      "changed_file_count": 1,
+      "checked_diff": false,
+      "diff_bytes": 563,
+      "direct_brain_cli_calls": 0,
+      "expected_files_touched": [
+        "cmd/entire/cli/strategy/manual_commit_hooks.go"
+      ],
+      "forbidden_files_touched": [],
+      "mcp_tool_calls": 0,
+      "mcp_tool_details": [],
+      "mcp_tool_names": [],
+      "missing_expected_files": [],
+      "ran_tests": true,
+      "search_calls": 10,
+      "structured_tool_event_count": 36,
+      "total_tokens": 559527,
+      "unexpected_files_touched": [],
+      "validation_count": 1,
+      "validation_passed": 1
+    },
+    "outcome": 45,
+    "patch_focus": 29,
+    "runtime_efficiency": 7,
+    "total": 94,
+    "validation_discipline": 8,
+    "version": 2
+  },
+  "started_at": "2026-06-10T17:54:44.250608+00:00",
+  "task_id": "entireio-cli-radar-manual-attribution-deletions",
+  "validation": {
+    "ok": true,
+    "results": [
+      {
+        "command": "go test ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommitNoTrailerRealignsAttributionBaseHidden' -count=1",
+        "returncode": 0,
+        "seconds": 3.6341729164123535,
+        "stderr_tail": "",
+        "stdout_tail": "ok  \tgithub.com/entireio/cli/cmd/entire/cli/strategy\t0.627s\n"
+      }
+    ]
+  },
+  "worktree": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/no_brain_r1/worktree"
+}

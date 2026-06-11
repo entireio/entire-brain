@@ -33,6 +33,7 @@ BENCH_ROOT = pathlib.Path(__file__).resolve().parent
 TASK_DIR = BENCH_ROOT / "tasks"
 RESULT_DIR = BENCH_ROOT / "results"
 CACHE_DIR = BENCH_ROOT / "cache"
+VALIDATION_FIXTURE_DIR = BENCH_ROOT / "fixtures" / "validation"
 BENCHMARK_COMMIT_DATE = "2026-01-01T00:00:00Z"
 
 ISOLATION = {
@@ -82,7 +83,7 @@ PHASE2_PROJECT_TOPICS = [
         "repo": "entire-brain",
         "repo_path": str(ROOT),
         "area": "brain command surface",
-        "queries": ["brief", "inspect decisions", "agent surface"],
+        "queries": ["brief", "query decisions", "agent surface"],
         "brain_source": "hybrid",
         "signal": "The brief command should locate semantic code and warn about snapshot/live-state boundaries before edits.",
     },
@@ -112,7 +113,7 @@ PHASE2_PROJECT_TOPICS = [
     },
     {
         "repo": "entire-cli",
-        "repo_path": "/Users/thomi/Projects/cli",
+        "repo_path": "cli",
         "area": "review provenance env filtering",
         "queries": ["AppendReviewEnv", "provenance.IsEntry", "ENTIRE_INVESTIGATE"],
         "brain_source": "hybrid",
@@ -120,7 +121,7 @@ PHASE2_PROJECT_TOPICS = [
     },
     {
         "repo": "entire-cli",
-        "repo_path": "/Users/thomi/Projects/cli",
+        "repo_path": "cli",
         "area": "manual commit hooks",
         "queries": ["manual_commit_hooks", "hook lifecycle", "checkpoint committed"],
         "brain_source": "hybrid",
@@ -128,7 +129,7 @@ PHASE2_PROJECT_TOPICS = [
     },
     {
         "repo": "entire-cli",
-        "repo_path": "/Users/thomi/Projects/cli",
+        "repo_path": "cli",
         "area": "transcript path re-resolution",
         "queries": ["resolveTranscriptPath", "transcript re-resolution", "updates state"],
         "brain_source": "history",
@@ -136,7 +137,7 @@ PHASE2_PROJECT_TOPICS = [
     },
     {
         "repo": "github-cli",
-        "repo_path": "/Users/thomi/Projects/github-cli",
+        "repo_path": "github-cli",
         "area": "repository name normalization",
         "queries": ["NormalizeRepoName", "TrimSuffix", "invalidCharactersRE"],
         "brain_source": "semantic",
@@ -144,7 +145,7 @@ PHASE2_PROJECT_TOPICS = [
     },
     {
         "repo": "github-cli",
-        "repo_path": "/Users/thomi/Projects/github-cli",
+        "repo_path": "github-cli",
         "area": "http auth scope suggestions",
         "queries": ["HandleHTTPError", "ScopesSuggestion", "X-Accepted-Oauth-Scopes"],
         "brain_source": "semantic",
@@ -260,9 +261,15 @@ class RunnerSpec:
 
 
 SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
-FULL_HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mcp_history"}
+FULL_HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mcp_history", "mcp_workspace_radar"}
 CLI_HISTORY_EXCERPT_CONDITIONS = {"full_brain", "full_cli_original"}
-MCP_CONDITIONS = {"mcp_semantic", "mcp_history"}
+MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
+MCP_BRAIN_TOOL_RE = r"brain_(?:stale|brief|query|search|vsearch|get|multi_get|context|impact|changes|code|tests|boundaries|regressions|review|workspace_regressions|workspace_review)"
+MCP_SEMANTIC_CONTEXT_TOOLS = {"brain_context", "brain_impact", "brain_changes", "brain_code"}
+MCP_UNIFIED_RETRIEVAL_TOOLS = {"brain_query", "brain_search", "brain_vsearch", "brain_get", "brain_multi_get"}
+SAFE_MCP_BOOL_ARGUMENT_KEYS = {"location_only", "include_deletions", "blind_spots"}
+SAFE_MCP_STRING_ARGUMENT_KEYS = {"workspace"}
+SAFE_MCP_ARGUMENT_KEYS = SAFE_MCP_BOOL_ARGUMENT_KEYS | SAFE_MCP_STRING_ARGUMENT_KEYS
 BENCHMARK_PRIVATE_PREFIXES = (".benchmark/", ".entire/", ".codex/")
 HARNESS_SCAFFOLD_PATHS = (
     "benchmarks/agent-brain/tasks",
@@ -309,6 +316,64 @@ def condition_writes_history_excerpt(condition: str) -> bool:
 
 def condition_copies_entire_history(condition: str) -> bool:
     return condition_prepares_history(condition)
+
+
+def benchmark_workspace_name(task: dict[str, Any]) -> str:
+    name = str(task.get("workspace_name") or "benchmark")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", name) or name in {".", ".."} or not name.strip("."):
+        raise ValueError(f"invalid benchmark workspace_name: {name!r}")
+    return name
+
+
+def safe_workspace_name(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    name = value.strip()
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", name) or name in {".", ".."} or not name.strip("."):
+        return None
+    return name
+
+
+def manifest_source_counts(manifest: dict[str, Any]) -> dict[str, int]:
+    sources = manifest.get("sources") if isinstance(manifest, dict) else None
+    if not isinstance(sources, dict):
+        return {"sessions": 0, "history_records": 0}
+
+    sessions = sources.get("sessions")
+    session_count = 0
+    if isinstance(sessions, dict):
+        session_items = sessions.get("sessions")
+        if isinstance(session_items, list):
+            session_count = len(session_items)
+
+    history = sources.get("history")
+    history_records = 0
+    if isinstance(history, dict):
+        records = history.get("records")
+        if isinstance(records, int):
+            history_records = records
+        elif isinstance(records, float):
+            history_records = int(records)
+
+    return {"sessions": session_count, "history_records": history_records}
+
+
+def assert_brain_state_ready(task: dict[str, Any], condition: str, state: dict[str, Any]) -> None:
+    manifest = state.get("manifest") if isinstance(state, dict) else None
+    if not isinstance(manifest, dict):
+        raise RuntimeError(f"{condition} brain prep did not produce a readable manifest")
+
+    if task.get("prepare_semantic", True) and condition_prep_kind(condition) in {"semantic_brain", "full_brain"}:
+        if not manifest.get("has_semantic"):
+            raise RuntimeError(f"{condition} brain prep did not produce a semantic source")
+
+    if condition_prepares_history(condition):
+        session_count = int(manifest.get("session_count") or 0)
+        history_records = int(manifest.get("history_records") or 0)
+        if session_count <= 0:
+            raise RuntimeError(f"{condition} brain prep produced no exported sessions")
+        if history_records <= 0:
+            raise RuntimeError(f"{condition} brain prep produced no history index records")
 
 
 def parse_runner_spec(value: str) -> RunnerSpec:
@@ -503,9 +568,250 @@ def file_sha256(path: pathlib.Path) -> str:
     return h.hexdigest()
 
 
+def text_sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def stable_json_sha256(value: Any) -> str:
+    data = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    return text_sha256(data)
+
+
+def git_commit_metadata(repo: pathlib.Path, ref: str) -> dict[str, Any]:
+    fmt = "%H%x00%P%x00%cI%x00%an%x00%s"
+    proc = run_cmd(["git", "show", "-s", f"--format={fmt}", ref], cwd=repo)
+    if proc.returncode != 0:
+        return {
+            "ref": ref,
+            "available": False,
+            "error": (proc.stderr or proc.stdout)[-1000:],
+        }
+    parts = proc.stdout.rstrip("\n").split("\x00", 4)
+    if len(parts) != 5:
+        return {"ref": ref, "available": False, "error": "unexpected git show output"}
+    parents = parts[1].split() if parts[1] else []
+    return {
+        "ref": ref,
+        "available": True,
+        "commit": parts[0],
+        "parents": parents,
+        "parent_count": len(parents),
+        "committer_date": parts[2],
+        "author_name": parts[3],
+        "subject": parts[4],
+    }
+
+
+def git_dirty_metadata(repo: pathlib.Path) -> dict[str, Any]:
+    status = run_cmd(["git", "status", "--porcelain=v1"], cwd=repo)
+    if status.returncode != 0:
+        return {
+            "available": False,
+            "dirty": None,
+            "error": (status.stderr or status.stdout)[-1000:],
+        }
+    lines = status.stdout.splitlines()
+    diff = run_cmd(["git", "diff", "--binary", "--no-ext-diff", "HEAD", "--"], cwd=repo)
+    diff_text = diff.stdout if diff.returncode == 0 else ""
+    return {
+        "available": True,
+        "dirty": bool(lines),
+        "status_entries": lines[:200],
+        "status_count": len(lines),
+        "status_sha256": text_sha256(status.stdout),
+        "tracked_diff_sha256": text_sha256(diff_text),
+    }
+
+
+def git_remote_url(repo: pathlib.Path) -> str | None:
+    proc = run_cmd(["git", "remote", "get-url", "origin"], cwd=repo)
+    url = proc.stdout.strip()
+    return url if proc.returncode == 0 and url else None
+
+
+def display_path(path: pathlib.Path) -> str:
+    try:
+        return str(path.resolve().relative_to(ROOT))
+    except ValueError:
+        return str(path.resolve())
+
+
+def task_file_sha256(task: dict[str, Any]) -> str | None:
+    raw = task.get("_path")
+    if not raw:
+        return None
+    path = pathlib.Path(str(raw))
+    if not path.exists() or not path.is_file():
+        return None
+    return file_sha256(path)
+
+
+def task_config_payload(task: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in task.items() if not str(k).startswith("_")}
+
+
+def task_config_sha256(task: dict[str, Any]) -> str:
+    return task_file_sha256(task) or stable_json_sha256(task_config_payload(task))
+
+
+def bind_task_base_commit(task: dict[str, Any]) -> tuple[dict[str, Any], pathlib.Path, dict[str, Any]]:
+    source = resolve_repo_path(task["repo_path"])
+    base_ref = str(task.get("base_commit") or "HEAD")
+    base = git_commit_metadata(source, base_ref)
+    bound = dict(task)
+    if base.get("available") and base.get("commit"):
+        bound["_resolved_base_commit"] = base["commit"]
+    return bound, source, base
+
+
+def tools_provenance(tools: dict[str, pathlib.Path]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for name, path in sorted(tools.items()):
+        entry: dict[str, Any] = {"path": str(path), "exists": path.exists()}
+        if path.exists() and path.is_file():
+            entry["sha256"] = file_sha256(path)
+        out[name] = entry
+    return out
+
+
+def runner_payload(runner: RunnerSpec | None) -> dict[str, Any] | None:
+    if runner is None:
+        return None
+    return {
+        "id": runner.id,
+        "agent": runner.agent,
+        "model": runner.model,
+        "effort": runner.effort,
+    }
+
+
+def run_config_provenance(
+    command: str,
+    runner: RunnerSpec | None,
+    condition: str,
+    repetition: int | None,
+    suite_dir: pathlib.Path,
+    args: argparse.Namespace,
+    workspace_name: str | None = None,
+) -> dict[str, Any]:
+    pricing_json = getattr(args, "pricing_json", None)
+    payload: dict[str, Any] = {
+        "command": command,
+        "suite": suite_dir.name,
+        "condition": condition,
+        "repetition": repetition,
+        "runner": runner_payload(runner),
+        "checkpoint_limit": getattr(args, "checkpoint_limit", None),
+        "brain_cache": {
+            "enabled": not bool(getattr(args, "no_brain_cache", False)),
+            "refresh": bool(getattr(args, "refresh_brain_cache", False)),
+        },
+        "requested": {
+            "tasks": getattr(args, "tasks", None),
+            "agents": getattr(args, "agents", None),
+            "runners": getattr(args, "runners", None),
+            "conditions": getattr(args, "conditions", None),
+            "repetitions": getattr(args, "repetitions", None),
+        },
+        "timeout": getattr(args, "timeout", None),
+        "claude_budget": getattr(args, "claude_budget", None),
+        "stop_after_no_brain_score": getattr(args, "stop_after_no_brain_score", None),
+        "pricing": {
+            "file": getattr(args, "pricing_file", None),
+            "inline_sha256": text_sha256(pricing_json) if pricing_json else None,
+        },
+        "env_flags": {
+            "BENCH_REGRESSION_RADAR": os.environ.get("BENCH_REGRESSION_RADAR"),
+            "BENCH_RADAR_LOCATION_ONLY": os.environ.get("BENCH_RADAR_LOCATION_ONLY"),
+        },
+        "workspace_name": workspace_name if condition == "mcp_workspace_radar" else None,
+    }
+    panel_name = getattr(args, "panel_name", None)
+    panel_path = getattr(args, "panel_path", None)
+    panel_config_sha256 = getattr(args, "panel_config_sha256", None)
+    if panel_name or panel_path or panel_config_sha256:
+        payload["panel"] = {
+            "name": panel_name,
+            "path": panel_path,
+            "config_sha256": panel_config_sha256,
+        }
+    payload["fingerprint"] = stable_json_sha256(payload)
+    return payload
+
+
+def build_record_provenance(
+    task: dict[str, Any],
+    runner: RunnerSpec | None,
+    condition: str,
+    repetition: int | None,
+    suite_dir: pathlib.Path,
+    tools: dict[str, pathlib.Path],
+    args: argparse.Namespace,
+    *,
+    command: str,
+    source: pathlib.Path,
+    base: dict[str, Any],
+) -> dict[str, Any]:
+    task_path = pathlib.Path(str(task["_path"])) if task.get("_path") else None
+    source_head = git_commit_metadata(source, "HEAD")
+    task_base = task.get("base_commit")
+    payload: dict[str, Any] = {
+        "schema": 1,
+        "captured_at": dt.datetime.now(dt.UTC).isoformat(),
+        "harness": {
+            "repo_path": str(ROOT),
+            "head": git_commit_metadata(ROOT, "HEAD"),
+            "dirty": git_dirty_metadata(ROOT),
+        },
+        "source": {
+            "repo": task.get("repo"),
+            "repo_path_input": task.get("repo_path"),
+            "repo_path_resolved": str(source.resolve()),
+            "origin_url": git_remote_url(source),
+            "base_ref": str(task_base or "HEAD"),
+            "base_ref_source": "task.base_commit" if task_base else "source_head",
+            "base": base,
+            "head": source_head,
+            "dirty": git_dirty_metadata(source),
+        },
+        "task": {
+            "id": task.get("id"),
+            "path": display_path(task_path) if task_path else None,
+            "config_sha256": task_config_sha256(task),
+            "base_commit": task_base,
+        },
+        "run_config": run_config_provenance(
+            command,
+            runner,
+            condition,
+            repetition,
+            suite_dir,
+            args,
+            benchmark_workspace_name(task) if condition == "mcp_workspace_radar" else None,
+        ),
+        "tools": tools_provenance(tools),
+    }
+    payload["task"]["radar_include_deletions"] = bool(task.get("radar_include_deletions"))
+    payload["fingerprint"] = stable_json_sha256(
+        {
+            "harness_head": payload["harness"]["head"].get("commit"),
+            "source_base": payload["source"]["base"].get("commit"),
+            "source_head": payload["source"]["head"].get("commit"),
+            "task": payload["task"],
+            "run_config": payload["run_config"]["fingerprint"],
+            "tools": {
+                name: entry.get("sha256")
+                for name, entry in payload["tools"].items()
+                if isinstance(entry, dict)
+            },
+        }
+    )
+    return payload
+
+
 def create_worktree(task: dict[str, Any], run_dir: pathlib.Path) -> pathlib.Path:
     source = resolve_repo_path(task["repo_path"])
-    base = task.get("base_commit") or git_head(source)
+    base = task.get("_resolved_base_commit") or task.get("base_commit") or git_head(source)
     worktree = run_dir / "worktree"
     worktree.mkdir(parents=True, exist_ok=False)
     archive = run_dir / "source.tar"
@@ -644,9 +950,19 @@ def apply_replacements(worktree: pathlib.Path, replacements: list[dict[str, str]
         path.write_text(data.replace(old, new, 1))
 
 
-def sanitize_agent_worktree(worktree: pathlib.Path) -> dict[str, Any]:
+def agent_hidden_paths(task: dict[str, Any] | None = None) -> list[str]:
+    paths = list(HARNESS_SCAFFOLD_PATHS)
+    for rel in (task or {}).get("agent_hidden_paths", []):
+        clean = str(rel).strip().replace("\\", "/").strip("/")
+        if not clean or clean == "." or clean.startswith("../") or "/../" in clean:
+            raise ValueError(f"invalid agent_hidden_paths entry: {rel!r}")
+        paths.append(clean)
+    return sorted(dict.fromkeys(paths), key=lambda item: (item.count("/"), item))
+
+
+def sanitize_agent_worktree(worktree: pathlib.Path, task: dict[str, Any] | None = None) -> dict[str, Any]:
     removed: list[str] = []
-    for rel in HARNESS_SCAFFOLD_PATHS:
+    for rel in agent_hidden_paths(task):
         path = worktree / rel
         if not path.exists():
             continue
@@ -743,38 +1059,43 @@ def scrub_benchmark_secret_json(value: Any) -> tuple[Any, int]:
 
 
 def sanitize_brain_history(plugin: pathlib.Path) -> dict[str, Any]:
-    brain_data = plugin / "data" / "brain"
-    if not brain_data.exists():
+    brain_roots = [
+        plugin / "data" / "brain",
+        plugin / "data" / "repos",
+    ]
+    existing_roots = [root for root in brain_roots if root.exists()]
+    if not existing_roots:
         return {"ok": True, "files_checked": 0, "files_scrubbed": 0, "items_redacted": 0}
     files_checked = 0
     files_scrubbed = 0
     items_redacted = 0
-    for path in sorted(brain_data.rglob("*")):
-        if not path.is_file() or path.is_symlink():
-            continue
-        suffix = path.suffix.lower()
-        if suffix not in {".jsonl", ".json", ".md", ".txt"}:
-            continue
-        files_checked += 1
-        if suffix == ".json":
-            try:
-                payload = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
-            except (OSError, json.JSONDecodeError):
-                removed, _ = scrub_benchmark_secret_lines(path)
-                if removed:
-                    files_scrubbed += 1
-                    items_redacted += removed
+    for brain_data in existing_roots:
+        for path in sorted(brain_data.rglob("*")):
+            if not path.is_file() or path.is_symlink():
                 continue
-            scrubbed, changes = scrub_benchmark_secret_json(payload)
-            if changes:
-                path.write_text(json.dumps(scrubbed, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            suffix = path.suffix.lower()
+            if suffix not in {".jsonl", ".json", ".md", ".txt"}:
+                continue
+            files_checked += 1
+            if suffix == ".json":
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+                except (OSError, json.JSONDecodeError):
+                    removed, _ = scrub_benchmark_secret_lines(path)
+                    if removed:
+                        files_scrubbed += 1
+                        items_redacted += removed
+                    continue
+                scrubbed, changes = scrub_benchmark_secret_json(payload)
+                if changes:
+                    path.write_text(json.dumps(scrubbed, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                    files_scrubbed += 1
+                    items_redacted += changes
+                continue
+            removed, _ = scrub_benchmark_secret_lines(path)
+            if removed:
                 files_scrubbed += 1
-                items_redacted += changes
-            continue
-        removed, _ = scrub_benchmark_secret_lines(path)
-        if removed:
-            files_scrubbed += 1
-            items_redacted += removed
+                items_redacted += removed
     return {
         "ok": True,
         "files_checked": files_checked,
@@ -787,43 +1108,143 @@ def hidden_validation_markers(task: dict[str, Any]) -> list[str]:
     if not task.get("hide_validation_from_agent"):
         return []
     markers: list[str] = []
+    explicit_markers = task.get("leak_markers")
+    if explicit_markers is not None:
+        if isinstance(explicit_markers, list):
+            markers.extend(str(marker) for marker in explicit_markers if marker)
+        elif explicit_markers:
+            markers.append(str(explicit_markers))
+        return [marker for marker in markers if len(marker.strip()) >= 12]
     markers.extend(str(command) for command in task.get("validation", []) if command)
+    for entry in task.get("validation_files", []):
+        if not isinstance(entry, dict):
+            continue
+        markers.append(str(entry.get("path", "")))
+        markers.append(str(entry.get("fixture", "")))
+        markers.append(str(entry.get("content", "")))
     return [marker for marker in markers if len(marker.strip()) >= 12]
 
 
 def agent_output_leak_audit(task: dict[str, Any], stdout: str, stderr: str) -> dict[str, Any]:
-    text = stdout + "\n" + stderr
-    findings: list[dict[str, Any]] = []
-    pattern_hits = secret_pattern_hits(text, AGENT_OUTPUT_SECRET_PATTERNS)
-    if pattern_hits:
-        findings.append({"kind": "benchmark_secret_pattern_in_output", "patterns": pattern_hits})
-    marker_hits = []
-    for marker in hidden_validation_markers(task):
-        if marker in text:
-            marker_hits.append(hashlib.sha256(marker.encode()).hexdigest()[:16])
-    if marker_hits:
-        findings.append({"kind": "hidden_validation_marker_in_output", "marker_hashes": sorted(set(marker_hits))})
-    return {"ok": not findings, "findings": findings}
+	text = stdout + "\n" + stderr
+	findings: list[dict[str, Any]] = []
+	if not task.get("leak_markers"):
+		pattern_hits = secret_pattern_hits(text, AGENT_OUTPUT_SECRET_PATTERNS)
+		if pattern_hits:
+			findings.append({"kind": "benchmark_secret_pattern_in_output", "patterns": pattern_hits})
+	marker_hits = []
+	for marker in hidden_validation_markers(task):
+		if marker in text:
+			marker_hits.append(hashlib.sha256(marker.encode()).hexdigest()[:16])
+	if marker_hits:
+		findings.append({"kind": "hidden_validation_marker_in_output", "marker_hashes": sorted(set(marker_hits))})
+	return {"ok": not findings, "findings": findings}
 
 
 def mcp_history_required_tools(runner: "RunnerSpec | None") -> tuple[str, ...]:
     """Tools the mcp_history condition must call (a floor, not a ceiling). Opus's brief-only
-    delivery is told NOT to call brain_history, and the gpt-5.x disciplined delivery DOES call
-    brain_history but can also fix correctly from the brief alone — in both cases requiring
-    brain_history would mis-flag a correct run as a failure (the under-reporting bug). So these
+    delivery is told NOT to call brain_search, and the gpt-5.x disciplined delivery DOES call
+    brain_search but can also fix correctly from the brief alone — in both cases requiring
+    brain_search would mis-flag a correct run as a failure (the under-reporting bug). So these
     models only require brain_brief; all other models still require both.
 
     Radar deliveries (location-only / answer-assisted) reshape the mcp_history condition: the
-    policy tells the agent to call brain_regressions instead of brain_brief/brain_history, so
+    policy tells the agent to call brain_regressions instead of brain_brief/brain_search, so
     brain_regressions is the required floor there (requiring brain_brief would mis-flag a correct
     radar run — the bug that made every radar arm look like it bypassed the brain)."""
     if wants_radar_location_only(runner) or wants_regression_radar(runner):
         return ("brain_regressions",)
     compact = runner is not None and runner.model in (OPUS_COMPACT_MODELS | COMPACT_STRICT_MODELS)
-    return ("brain_brief",) if compact else ("brain_brief", "brain_history")
+    return ("brain_brief",) if compact else ("brain_brief", "brain_search")
 
 
-def mcp_condition_audit(condition: str, agent_info: dict[str, Any], runner: "RunnerSpec | None" = None) -> dict[str, Any]:
+def mcp_required_tools(condition: str, runner: "RunnerSpec | None") -> tuple[str, ...]:
+    if condition == "mcp_semantic":
+        return ("brain_stale",)
+    if condition == "mcp_workspace_radar":
+        return ("brain_workspace_regressions",)
+    if condition == "mcp_history":
+        return mcp_history_required_tools(runner)
+    return ()
+
+
+def bare_mcp_tool_name(name: Any) -> str:
+    text = str(name)
+    if "__" in text:
+        return text.rsplit("__", 1)[-1]
+    return text
+
+
+def safe_arg_matches(actual: Any, expected: Any) -> bool:
+    if isinstance(expected, bool):
+        return actual is expected
+    if isinstance(expected, str):
+        return isinstance(actual, str) and actual == expected
+    return actual == expected
+
+
+def required_arg_matches(args: dict[str, Any], required_args: dict[str, Any]) -> bool:
+    return all(safe_arg_matches(args.get(key), value) for key, value in required_args.items())
+
+
+def activity_has_mcp_call_with_args(activity: dict[str, Any], tool: str, required_args: dict[str, Any]) -> bool:
+    details = activity.get("mcp_tool_details") if isinstance(activity.get("mcp_tool_details"), list) else []
+    for detail in details:
+        if not isinstance(detail, dict):
+            continue
+        name = str(detail.get("name") or "")
+        if not (name == tool or name.endswith(f"__{tool}")):
+            continue
+        if detail.get("errored"):
+            continue
+        args = detail.get("arguments") if isinstance(detail.get("arguments"), dict) else {}
+        if required_arg_matches(args, required_args):
+            return True
+    return False
+
+
+def missing_mcp_call_args(activity: dict[str, Any], tool: str, required_args: dict[str, Any]) -> list[str]:
+    details = activity.get("mcp_tool_details") if isinstance(activity.get("mcp_tool_details"), list) else []
+    candidates: list[dict[str, Any]] = []
+    for detail in details:
+        if not isinstance(detail, dict):
+            continue
+        name = str(detail.get("name") or "")
+        if not (name == tool or name.endswith(f"__{tool}")):
+            continue
+        if detail.get("errored"):
+            continue
+        candidates.append(detail)
+    if not candidates:
+        return sorted(required_args)
+    missing = []
+    for key, value in required_args.items():
+        if not any(safe_arg_matches((detail.get("arguments") if isinstance(detail.get("arguments"), dict) else {}).get(key), value) for detail in candidates):
+            missing.append(key)
+    if not missing and not activity_has_mcp_call_with_args(activity, tool, required_args):
+        missing.append("combined_arguments")
+    return sorted(missing)
+
+
+def radar_required_args(task: dict[str, Any] | None) -> dict[str, Any]:
+    required = {"location_only": True}
+    if isinstance(task, dict) and task.get("radar_include_deletions"):
+        required["include_deletions"] = True
+    return required
+
+
+def workspace_radar_required_args(task: dict[str, Any] | None) -> dict[str, Any]:
+    required = radar_required_args(task)
+    required["workspace"] = benchmark_workspace_name(task or {})
+    return required
+
+
+def mcp_condition_audit(
+    condition: str,
+    agent_info: dict[str, Any],
+    runner: "RunnerSpec | None" = None,
+    task: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if not is_mcp_condition(condition):
         return {"ok": True, "required": False, "findings": []}
     activity = agent_info.get("activity") if isinstance(agent_info.get("activity"), dict) else {}
@@ -833,10 +1254,22 @@ def mcp_condition_audit(condition: str, agent_info: dict[str, Any], runner: "Run
         findings.append({"kind": "mcp_not_enabled"})
     if int(activity.get("mcp_tool_calls") or 0) <= 0:
         findings.append({"kind": "no_mcp_tool_calls"})
-    if condition == "mcp_history":
-        for required in mcp_history_required_tools(runner):
-            if not any(str(name).endswith(f"__{required}") or str(name) == required for name in mcp_tool_names):
-                findings.append({"kind": "missing_required_mcp_history_tool", "tool": required})
+    for required in mcp_required_tools(condition, runner):
+        if not any(str(name).endswith(f"__{required}") or str(name) == required for name in mcp_tool_names):
+            findings.append({"kind": "missing_required_mcp_tool", "condition": condition, "tool": required})
+    if condition == "mcp_workspace_radar":
+        for arg in missing_mcp_call_args(activity, "brain_workspace_regressions", workspace_radar_required_args(task)):
+            findings.append({"kind": "missing_required_mcp_argument", "condition": condition, "tool": "brain_workspace_regressions", "argument": arg})
+    if condition == "mcp_semantic" and (not isinstance(task, dict) or task.get("prepare_semantic", True)):
+        bare_names = {bare_mcp_tool_name(name) for name in mcp_tool_names}
+        forbidden = sorted(bare_names & MCP_UNIFIED_RETRIEVAL_TOOLS)
+        if forbidden:
+            findings.append({"kind": "forbidden_mcp_tool", "condition": condition, "tool": ",".join(forbidden)})
+        if not (bare_names & MCP_SEMANTIC_CONTEXT_TOOLS):
+            findings.append({"kind": "missing_required_mcp_tool_group", "condition": condition, "tool": "semantic_graph_context"})
+    if condition == "mcp_history" and wants_radar_location_only(runner):
+        for arg in missing_mcp_call_args(activity, "brain_regressions", radar_required_args(task)):
+            findings.append({"kind": "missing_required_mcp_argument", "condition": condition, "tool": "brain_regressions", "argument": arg})
     if int(activity.get("direct_brain_cli_calls") or 0) > 0:
         findings.append({"kind": "direct_brain_cli_used_in_mcp_condition"})
     return {
@@ -844,6 +1277,7 @@ def mcp_condition_audit(condition: str, agent_info: dict[str, Any], runner: "Run
         "required": True,
         "mcp_tool_calls": activity.get("mcp_tool_calls", 0),
         "mcp_tool_names": mcp_tool_names,
+        "mcp_tool_details": activity.get("mcp_tool_details", []),
         "direct_brain_cli_calls": activity.get("direct_brain_cli_calls", 0),
         "findings": findings,
     }
@@ -964,7 +1398,7 @@ def brain_cache_payload(
         "schema": 3,
         "repo": task.get("repo"),
         "repo_path": str(resolve_repo_path(task["repo_path"]).resolve()),
-        "base_ref": task.get("base_commit") or git_head(resolve_repo_path(task["repo_path"])),
+        "base_ref": task.get("_resolved_base_commit") or task.get("base_commit") or git_head(resolve_repo_path(task["repo_path"])),
         "condition": prep_kind,
         "prepare_semantic": bool(task.get("prepare_semantic", True)),
         "checkpoint_limit": checkpoint_limit if condition_prepares_history(prep_kind) else None,
@@ -974,6 +1408,7 @@ def brain_cache_payload(
         "checkpoint_ref_sha": checkpoint_ref_sha_for_task(task)
         if (condition_prepares_history(prep_kind) or task.get("copy_checkpoint_ref_from_source"))
         else None,
+        "workspace_name": benchmark_workspace_name(task) if condition == "mcp_workspace_radar" else None,
         "copy_entire_history_from_source": bool(task.get("copy_entire_history_from_source"))
         and condition_copies_entire_history(condition),
         "setup_patch": task.get("setup_patch", ""),
@@ -1016,6 +1451,11 @@ def brain_prep_commands(task: dict[str, Any], condition: str, worktree: pathlib.
         commands.append([str(tools["brain"]), "refresh", "index", str(worktree), "--sem-binary", str(tools["entire"]), "--force"])
     if condition_prepares_history(condition):
         commands.insert(0, [str(tools["brain"]), "export", "--checkpoint-limit", str(checkpoint_limit), "--history-index"])
+    if condition == "mcp_workspace_radar":
+        workspace = benchmark_workspace_name(task)
+        repo_name = str(task.get("repo") or "repo")
+        commands.append([str(tools["brain"]), "workspace", "create", workspace])
+        commands.append([str(tools["brain"]), "workspace", "add", workspace, str(worktree), "--name", repo_name])
     return commands
 
 
@@ -1125,6 +1565,7 @@ def collect_brain_state(worktree: pathlib.Path, env: dict[str, str], tools: dict
     manifest = read_json_file(manifest_path)
     sources = manifest.get("sources") if isinstance(manifest, dict) else None
     semantic = sources.get("semantic") if isinstance(sources, dict) else None
+    counts = manifest_source_counts(manifest)
     state["manifest"] = {
         "schema_version": manifest.get("schema_version"),
         "repo_key": manifest.get("repo_key"),
@@ -1132,6 +1573,10 @@ def collect_brain_state(worktree: pathlib.Path, env: dict[str, str], tools: dict
         "has_seed": bool(isinstance(sources, dict) and sources.get("seed")),
         "has_semantic": bool(semantic),
         "has_checkpoints": bool(isinstance(sources, dict) and sources.get("checkpoints")),
+        "has_sessions": counts["sessions"] > 0,
+        "session_count": counts["sessions"],
+        "has_history": counts["history_records"] > 0,
+        "history_records": counts["history_records"],
     }
     if isinstance(semantic, dict):
         state["semantic"] = semantic
@@ -1194,6 +1639,74 @@ def prep_record_summary(record: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+def unique_json_values(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    keyed = {json.dumps(value, sort_keys=True, separators=(",", ":"), default=str): value for value in values}
+    return [keyed[key] for key in sorted(keyed)]
+
+
+def suite_provenance(records: list[dict[str, Any]]) -> dict[str, Any]:
+    provenances = [record.get("provenance") for record in records if isinstance(record.get("provenance"), dict)]
+    sources = []
+    harnesses = []
+    tasks = []
+    run_configs = []
+    for prov in provenances:
+        source = prov.get("source") if isinstance(prov.get("source"), dict) else {}
+        harness = prov.get("harness") if isinstance(prov.get("harness"), dict) else {}
+        task = prov.get("task") if isinstance(prov.get("task"), dict) else {}
+        run_config = prov.get("run_config") if isinstance(prov.get("run_config"), dict) else {}
+        sources.append(
+            {
+                "repo": source.get("repo"),
+                "repo_path_input": source.get("repo_path_input"),
+                "repo_path_resolved": source.get("repo_path_resolved"),
+                "base_ref": source.get("base_ref"),
+                "base_ref_source": source.get("base_ref_source"),
+                "base_commit": (source.get("base") or {}).get("commit") if isinstance(source.get("base"), dict) else None,
+                "head_commit": (source.get("head") or {}).get("commit") if isinstance(source.get("head"), dict) else None,
+                "dirty": (source.get("dirty") or {}).get("dirty") if isinstance(source.get("dirty"), dict) else None,
+            }
+        )
+        harnesses.append(
+            {
+                "repo_path": harness.get("repo_path"),
+                "head_commit": (harness.get("head") or {}).get("commit") if isinstance(harness.get("head"), dict) else None,
+                "dirty": (harness.get("dirty") or {}).get("dirty") if isinstance(harness.get("dirty"), dict) else None,
+            }
+        )
+        tasks.append(
+            {
+                "id": task.get("id"),
+                "path": task.get("path"),
+                "config_sha256": task.get("config_sha256"),
+                "base_commit": task.get("base_commit"),
+            }
+        )
+        run_configs.append(
+            {
+                "command": run_config.get("command"),
+                "condition": run_config.get("condition"),
+                "runner": run_config.get("runner"),
+                "checkpoint_limit": run_config.get("checkpoint_limit"),
+                "brain_cache": run_config.get("brain_cache"),
+                "requested": run_config.get("requested"),
+                "fingerprint": run_config.get("fingerprint"),
+            }
+        )
+    payload = {
+        "schema": 1,
+        "records": len(records),
+        "records_with_provenance": len(provenances),
+        "missing_record_provenance": len(records) - len(provenances),
+        "harnesses": unique_json_values(harnesses),
+        "sources": unique_json_values(sources),
+        "tasks": unique_json_values(tasks),
+        "run_configs": unique_json_values(run_configs),
+    }
+    payload["fingerprint"] = stable_json_sha256(payload)
+    return payload
+
+
 def summarize_prep(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[str, Any]:
     summary_records = []
     for record in records:
@@ -1229,6 +1742,7 @@ def summarize_prep(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> di
         "records": len(records),
         "ok": sum(1 for record in records if record.get("ok")),
         "failed": sum(1 for record in records if not record.get("ok")),
+        "provenance": suite_provenance(records),
         "prep": summary_records,
     }
     (suite_dir / "prep-summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
@@ -1501,7 +2015,7 @@ def matching_history_lines(files: list[pathlib.Path], query: str) -> list[tuple[
 
 # GPT-5.x models that over-explore the full MCP history blob (spiral into extra searches/tokens).
 # On MCP they now get the "disciplined MCP" delivery (see wants_disciplined_mcp below): brief once
-# + ONE targeted brain_history for the invariant + hard stop. On the CLI path they still get the
+# + ONE targeted brain_search for the invariant + hard stop. On the CLI path they still get the
 # generic compact brief. (This set also keeps the audit's required-tools floor at brain_brief.)
 COMPACT_STRICT_MODELS = {"gpt-5.5", "gpt-5"}
 
@@ -1517,15 +2031,15 @@ OPUS_COMPACT_MODELS = {"opus", "claude-opus-4-8"}
 # but STARVED quality on MCP (−9.5 composite, 5/6 → 4/6 valid, with no token savings) — the
 # tiny limit:3 brief drops the one history hit it needs on the harder review task. gpt-5.5's
 # failure mode is under-context, not over-reading, so it is NOT added here. Its MCP fix is the
-# opposite of a trim — the "disciplined MCP" delivery below (one targeted brain_history for the
+# opposite of a trim — the "disciplined MCP" delivery below (one targeted brain_search for the
 # invariant + hard stop), which lifted gpt-5.5 mcp_history pass-rate 88%->100%.
 
 
-# The "disciplined MCP" delivery — brief ONCE, then ONE targeted brain_history for the exact
+# The "disciplined MCP" delivery — brief ONCE, then ONE targeted brain_search for the exact
 # invariant, open likely_edit_files[0], apply, one test, hard stop. Diagnosed root cause on the
 # review task: brain_brief ranks the true fix file #1 but its compound-query history section
-# misses the precise invariant (scopeBaseRef..HEAD), while a focused brain_history call surfaces
-# it cleanly — yet gpt-5.5's old COMPACT_STRICT prompt BANNED brain_history, starving it (it then
+# misses the precise invariant (scopeBaseRef..HEAD), while a focused brain_search call surfaces
+# it cleanly — yet gpt-5.5's old COMPACT_STRICT prompt BANNED brain_search, starving it (it then
 # edited a plausible-wrong file). This delivery restores the one history call + a hard stop. It
 # also gives gpt-5.4-mini the anti-spiral discipline it lacks at high/xhigh. General principle,
 # not a per-model hack: smallest packet that carries BOTH the right file and the exact invariant,
@@ -1568,6 +2082,10 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
     brief_query = f"{task['id']}: {base[:120]}"
     if queries:
         brief_query = f"{brief_query} | {queries}"
+    radar_arg_hint = "`location_only: true`"
+    if task.get("radar_include_deletions"):
+        radar_arg_hint = "`location_only: true` and `include_deletions: true`"
+    radar_shape_note = " It should also flag deleted assignments for this task." if task.get("radar_include_deletions") else ""
     brief_limit = " --limit 4" if condition == "full_cli_compact" else ""
     brief_command = f'entire brain brief "{brief_query}" --json{brief_limit}'
     is_opus = runner is not None and runner.model in OPUS_COMPACT_MODELS
@@ -1585,40 +2103,43 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
     elif condition in {"semantic_brain", "semantic_cli"}:
         policy = "Use the prepared Entire Brain seed context before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not rely on semantic query commands."
     elif condition == "mcp_semantic" and semantic_available:
-        policy = f"""Use the Entire Brain MCP server before editing. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Then start with the `brain_stale` MCP tool, followed by `brain_query`, `brain_context`, `brain_impact`, or `brain_changes` for focused semantic context. Useful query terms: {queries}. Do not run the `entire brain` CLI and do not inspect checkpoint transcripts or session history."""
+        policy = f"""Use the Entire Brain MCP server before editing. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Then start with the `brain_stale` MCP tool, followed by `brain_context`, `brain_impact`, `brain_changes`, or `brain_code` for focused semantic graph context. Useful query terms: {queries}. Do not call `brain_query` for this semantic-only condition; it is unified facts/history/docs retrieval, not semantic graph inspection. Do not run the `entire brain` CLI and do not inspect checkpoint transcripts or session history."""
     elif condition == "mcp_semantic":
         policy = "Use the Entire Brain MCP server before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not run semantic CLI commands or inspect checkpoint transcripts."
+    elif condition == "mcp_workspace_radar":
+        workspace = benchmark_workspace_name(task)
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a WORKSPACE REGRESSION. Call `mcp__entire_brain__brain_workspace_regressions` / `brain_workspace_regressions` EXACTLY ONCE with `workspace: "{workspace}"`, query terms `{queries}`, and {radar_arg_hint}.{radar_shape_note} It returns the suspected workspace repo plus `file` and `line` of the regression but NOT the fix. Treat any `symbol` and `related_locations` fields as location-only hints: inspect the enclosing symbol and every related same-file location before editing. Inspect every top anomaly that shares the top anomaly's repo/file/kind before editing; when the top results list multiple line numbers in the same file, open each listed line and fix the shared invariant at all affected sites. Work out what the code should be by reading the surrounding code, and apply the fix yourself. Then run exactly one relevant test and FINISH. If it returns no anomalies, stop immediately and report `WORKSPACE_RADAR_NO_FINDINGS`. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 3 targeted in-file searches. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history" and wants_radar_location_only(runner):
         # FAIR radar arm: brain_regressions(location_only) hands the suspected file:line but NOT the
         # fix — the agent must determine and apply the change itself (de-leaked detection test).
-        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a REGRESSION. Call `mcp__entire_brain__brain_regressions` / `brain_regressions` EXACTLY ONCE with `location_only: true` and these failing terms: `{queries}`. It returns the suspected `file` and `line` of the regression but NOT the fix. Open that `file` at that `line`, work out what the code should be by reading the surrounding code, and apply the fix yourself. Then run exactly one relevant test and FINISH. If it returns no anomalies, call `brain_brief` ONCE and fix the single most likely `likely_edit_files` file. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 3 targeted in-file searches. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a REGRESSION. Call `mcp__entire_brain__brain_regressions` / `brain_regressions` EXACTLY ONCE with {radar_arg_hint} and these failing terms: `{queries}`.{radar_shape_note} It returns the suspected `file` and `line` of the regression but NOT the fix. Treat any `symbol` and `related_locations` fields as location-only hints: inspect the enclosing symbol and every related same-file location before editing. Inspect every top anomaly that shares the top anomaly's file/kind before editing; when the top results list multiple line numbers in the same file, open each listed line and fix the shared invariant at all affected sites. Work out what the code should be by reading the surrounding code, and apply the fix yourself. Then run exactly one relevant test and FINISH. If it returns no anomalies, call `brain_brief` ONCE and fix the single most likely `likely_edit_files` file. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 3 targeted in-file searches. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history" and wants_regression_radar(runner):
         # ANSWER-ASSISTED radar arm (UPPER BOUND, not a fair detection measure): brain_regressions
         # hands file/line/expected/current and the agent pastes `expected`. Useful only to bound the
         # ceiling; the detector's real marginal value is the location-only arm vs the history control.
-        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a REGRESSION. Call `mcp__entire_brain__brain_regressions` / `brain_regressions` EXACTLY ONCE with these failing terms: `{queries}`. It returns suspected regressions, each with a `file`, `line`, the `expected` value (what the code should be) and the `current` value. Open the top finding's `file` at its `line` and restore `expected` exactly in place of `current`. Then run exactly one relevant test and FINISH. If `brain_regressions` returns no anomalies, call `brain_brief` ONCE and fix the single most likely `likely_edit_files` file. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. This task is a REGRESSION. Call `mcp__entire_brain__brain_regressions` / `brain_regressions` EXACTLY ONCE with these failing terms: `{queries}` and {"`include_deletions: true`" if task.get("radar_include_deletions") else "no extra deletion flag"}.{radar_shape_note} It returns suspected regressions, each with a `file`, `line`, the `expected` value (what the code should be) and the `current` value. Open the top finding's `file` at its `line` and restore `expected` exactly in place of `current`. Then run exactly one relevant test and FINISH. If `brain_regressions` returns no anomalies, call `brain_brief` ONCE and fix the single most likely `likely_edit_files` file. Do NOT call any other MCP tool, do NOT re-call, and keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history" and wants_disciplined_mcp(runner):
         # Disciplined MCP (gpt-5.5 all efforts; gpt-5.4-mini high/xhigh): brief once + ONE
-        # targeted brain_history for the exact invariant + open likely_edit_files[0] + one
+        # targeted brain_search for the exact invariant + open likely_edit_files[0] + one
         # test + hard stop. Fixes under-context (brief names the file, history names the change)
         # while bounding exploration (the spiral that motivated the brief-only delivery).
         policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server.
 Step 1 — call `mcp__entire_brain__brain_brief` / `brain_brief` for this task EXACTLY ONCE. Note `likely_edit_files[0]` (the single most likely fix site) and `likely_test_files`.
-Step 2 — call `mcp__entire_brain__brain_history` / `brain_history` EXACTLY ONCE with the focused query terms ({queries}). The brief names the FILE; brain_history names the exact INVARIANT — the precise expression/value/behavior this regression broke. Read only the top 1–2 hits.
-Step 3 — open `likely_edit_files[0]` (prefer the core implementation file over TUI or test scaffolding) and restore the exact invariant from the brain_history hit there.
+Step 2 — call `mcp__entire_brain__brain_search` / `brain_search` EXACTLY ONCE with the focused query terms ({queries}). The brief names the FILE; brain_search names the exact INVARIANT — the precise expression/value/behavior this regression broke. Read only the top 1–2 hits.
+Step 3 — open `likely_edit_files[0]` (prefer the core implementation file over TUI or test scaffolding) and restore the exact invariant from the brain_search hit there.
 Step 4 — run exactly one `likely_test_files` test, then FINISH.
 Hard stop: call each MCP tool AT MOST ONCE, do NOT call `brain_query`/`brain_context` or any other MCP tool, do NOT re-read the packet, do NOT open unrelated files, and do NOT broaden into repo-wide search. Keep `rg`/`grep`/`find` to at most 3 targeted in-file searches. Apply → validate once → stop. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history" and is_opus:
         # Opus-only compact MCP: tiny brief (limit 3), no forced history blob, hard stop.
-        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Call `mcp__entire_brain__brain_brief` / `brain_brief` EXACTLY ONCE, passing a small limit (`limit: 3`) so the packet stays compact — it returns `likely_edit_files`, `likely_test_files`, and the top high-signal history hits, which is all the context you need. From `likely_edit_files`, open the single most relevant implementation file (not TUI or test scaffolding) and apply the fix, using the history hits for the exact invariant. Treat that one packet as sufficient: do NOT re-call `brain_brief`, do NOT call `brain_history`/`brain_query` or any other MCP tool, and do not re-read the packet. Run exactly one `likely_test_files` test, then finish. Keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Your context window is a finite budget — be concise and stop once the fix validates. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Call `mcp__entire_brain__brain_brief` / `brain_brief` EXACTLY ONCE, passing a small limit (`limit: 3`) so the packet stays compact — it returns `likely_edit_files`, `likely_test_files`, and the top high-signal history hits, which is all the context you need. From `likely_edit_files`, open the single most relevant implementation file (not TUI or test scaffolding) and apply the fix, using the history hits for the exact invariant. Treat that one packet as sufficient: do NOT re-call `brain_brief`, do NOT call `brain_search`/`brain_query` or any other MCP tool, and do not re-read the packet. Run exactly one `likely_test_files` test, then finish. Keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Your context window is a finite budget — be concise and stop once the fix validates. Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history" and runner is not None and runner.model in COMPACT_STRICT_MODELS:
         # Compact strict delivery: one brain_brief, no forced history blob, hard stop.
         # NOTE: superseded for current COMPACT_STRICT models — wants_disciplined_mcp() catches
         # them first (the brief-only variant STARVED gpt-5.5 on the review task). Kept as a
         # fallback for any compact model deliberately excluded from the disciplined delivery.
-        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Call `mcp__entire_brain__brain_brief` / `brain_brief` for this task EXACTLY ONCE — it already includes the relevant `likely_edit_files`, `likely_test_files`, and compact session-history hits, so you do NOT need a separate `brain_history` call. From `likely_edit_files`, open the single file most relevant to the described regression (prefer the core implementation file over TUI or test scaffolding) and make the fix there, using the history hits to get the exact invariant right. Verify with a few targeted searches inside that file if needed, then run one `likely_test_files` test and finish. Do NOT re-call `brain_brief` and do NOT call `brain_history`/`brain_query` or any other MCP tool; do not open unrelated files or spiral into broad repo-wide search (keep `rg`/`grep`/`find` to at most 5 targeted searches). Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Call `mcp__entire_brain__brain_brief` / `brain_brief` for this task EXACTLY ONCE — it already includes the relevant `likely_edit_files`, `likely_test_files`, and compact session-history hits, so you do NOT need a separate `brain_search` call. From `likely_edit_files`, open the single file most relevant to the described regression (prefer the core implementation file over TUI or test scaffolding) and make the fix there, using the history hits to get the exact invariant right. Verify with a few targeted searches inside that file if needed, then run one `likely_test_files` test and finish. Do NOT re-call `brain_brief` and do NOT call `brain_search`/`brain_query` or any other MCP tool; do not open unrelated files or spiral into broad repo-wide search (keep `rg`/`grep`/`find` to at most 5 targeted searches). Useful query terms: {queries}. Do not run the `entire brain` CLI or read `.benchmark/brain-history-excerpt.md`. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING`."""
     elif condition == "mcp_history":
-        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Your first context action must be the MCP tool `mcp__entire_brain__brain_brief` / `brain_brief` for this task; then run exactly one `mcp__entire_brain__brain_history` / `brain_history` query with the useful query terms: {queries}. From `likely_edit_files`, open the file most relevant to the described regression first (prefer the core implementation file over TUI or test scaffolding); apply the fix there before any additional MCP calls or `rg`/`grep`/`find`, and broaden only if it is clearly not the regression site or focused validation fails. Do not run the `entire brain` CLI and do not read `.benchmark/brain-history-excerpt.md`; this condition is testing MCP-delivered history. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING` instead of using grep or normal code search."""
+        policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Your first context action must be the MCP tool `mcp__entire_brain__brain_brief` / `brain_brief` for this task; then run exactly one `mcp__entire_brain__brain_search` / `brain_search` query with the useful query terms: {queries}. From `likely_edit_files`, open the file most relevant to the described regression first (prefer the core implementation file over TUI or test scaffolding); apply the fix there before any additional MCP calls or `rg`/`grep`/`find`, and broaden only if it is clearly not the regression site or focused validation fails. Do not run the `entire brain` CLI and do not read `.benchmark/brain-history-excerpt.md`; this condition is testing MCP-delivered history. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING` instead of using grep or normal code search."""
     elif condition == "full_cli_compact" and is_opus and semantic_available:
         # Opus-only compact CLI: a tiny --limit 2 packet + hard stop, no re-reads.
         policy = f"""Use the full Entire Brain before editing. Your first and only context command must be `{opus_brief_command}` — a deliberately compact packet. Open `likely_edit_files` directly and apply the fix there, using the top history hits for the exact invariant. Treat the packet as sufficient: do NOT re-run brief, do not broaden to other files, and do not inspect checkpoint/session files. Run exactly one `likely_test_files` test, then finish. Keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Your context window is a finite budget — be concise and stop once the fix validates. Useful query terms: {queries}. {top_level_entire_guard}"""
@@ -1691,7 +2212,7 @@ def codex_mcp_config_args(tools: dict[str, pathlib.Path], env: dict[str, str]) -
         "--config",
         "mcp_servers.entire_brain.required=true",
         "--config",
-        'mcp_servers.entire_brain.enabled_tools=["brain_stale","brain_brief","brain_query","brain_context","brain_impact","brain_changes","brain_history","brain_regressions"]',
+        'mcp_servers.entire_brain.enabled_tools=["brain_stale","brain_brief","brain_query","brain_search","brain_vsearch","brain_get","brain_multi_get","brain_context","brain_impact","brain_changes","brain_regressions","brain_review","brain_workspace_regressions","brain_workspace_review"]',
         "--config",
         'mcp_servers.entire_brain.default_tools_approval_mode="approve"',
         "--config",
@@ -1702,6 +2223,26 @@ def codex_mcp_config_args(tools: dict[str, pathlib.Path], env: dict[str, str]) -
     for key, value in sorted(mcp_server_env(env).items()):
         args.extend(["--config", f"mcp_servers.entire_brain.env.{key}={toml_quote(value)}"])
     return args
+
+
+TRANSIENT_AGENT_FAILURE_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("selected_model_at_capacity", r"selected model is at capacity"),
+    ("model_at_capacity", r"\bmodel is at capacity\b"),
+    ("rate_limited", r"\brate[- ]?limit(?:ed|ing)?\b"),
+    ("temporarily_unavailable", r"\btemporarily unavailable\b"),
+    ("service_unavailable", r"\bservice unavailable\b"),
+    ("overloaded", r"\boverloaded\b"),
+)
+
+
+def transient_agent_failure_reason(returncode: int, stdout: str, stderr: str) -> str | None:
+    if returncode == 0:
+        return None
+    text = f"{stdout}\n{stderr}".lower()
+    for reason, pattern in TRANSIENT_AGENT_FAILURE_PATTERNS:
+        if re.search(pattern, text):
+            return reason
+    return None
 
 
 def run_agent(
@@ -1715,6 +2256,7 @@ def run_agent(
     timeout: int,
     claude_budget: float,
     pricing: dict[str, Any],
+    agent_retries: int = 0,
 ) -> dict[str, Any]:
     start = time.time()
     mcp_enabled = is_mcp_condition(condition)
@@ -1766,7 +2308,27 @@ def run_agent(
     else:
         raise ValueError(f"unknown agent: {runner.agent}")
 
-    proc = run_cmd(cmd, cwd=worktree, env=env, input_text="", timeout=timeout)
+    attempts: list[dict[str, Any]] = []
+    proc: subprocess.CompletedProcess[str] | None = None
+    max_attempts = max(1, int(agent_retries) + 1)
+    for attempt in range(1, max_attempts + 1):
+        attempt_start = time.time()
+        proc = run_cmd(cmd, cwd=worktree, env=env, input_text="", timeout=timeout)
+        reason = transient_agent_failure_reason(proc.returncode, proc.stdout, proc.stderr)
+        attempts.append(
+            {
+                "attempt": attempt,
+                "returncode": proc.returncode,
+                "seconds": time.time() - attempt_start,
+                "transient_failure_reason": reason,
+            }
+        )
+        (run_dir / f"agent.attempt{attempt}.stdout").write_text(proc.stdout)
+        (run_dir / f"agent.attempt{attempt}.stderr").write_text(proc.stderr)
+        if reason is None or attempt == max_attempts:
+            break
+        time.sleep(min(2 * attempt, 10))
+    assert proc is not None
     (run_dir / "agent.stdout").write_text(proc.stdout)
     (run_dir / "agent.stderr").write_text(proc.stderr)
     usage = extract_usage(runner.agent, proc.stdout, proc.stderr)
@@ -1797,6 +2359,8 @@ def run_agent(
         "cmd": cmd[:1] + ["..."],
         "returncode": proc.returncode,
         "seconds": time.time() - start,
+        "attempts": attempts,
+        "transient_retries": max(0, len(attempts) - 1),
         "usage": usage,
         "activity": activity,
         "stdout_bytes": len(proc.stdout.encode()),
@@ -1900,8 +2464,39 @@ def extract_tool_command(value: Any) -> str | None:
     return None
 
 
-def collect_json_tool_events(value: Any) -> list[dict[str, str | None]]:
-    events: list[dict[str, str | None]] = []
+def safe_tool_arguments(value: Any) -> dict[str, Any]:
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return safe_tool_arguments(parsed)
+    if not isinstance(value, dict):
+        return {}
+    safe: dict[str, Any] = {
+        key: bool(value[key])
+        for key in sorted(SAFE_MCP_BOOL_ARGUMENT_KEYS)
+        if isinstance(value.get(key), bool)
+    }
+    workspace = safe_workspace_name(value.get("workspace"))
+    if workspace is not None:
+        safe["workspace"] = workspace
+    return safe
+
+
+def tool_event_errored(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    status = str(value.get("status") or value.get("state") or "").lower()
+    if status in {"error", "errored", "failed", "failure"}:
+        return True
+    if value.get("is_error") is True or value.get("isError") is True:
+        return True
+    return value.get("error") not in (None, "", False)
+
+
+def collect_json_tool_events(value: Any) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
     if isinstance(value, dict):
         event_type = value.get("type")
         name = value.get("name") or value.get("tool_name") or value.get("toolName")
@@ -1918,12 +2513,15 @@ def collect_json_tool_events(value: Any) -> list[dict[str, str | None]]:
             if command:
                 events.append({"name": "Bash", "command": command})
         if isinstance(name, str) and event_type in {"tool_use", "tool_call", "function_call", "mcp_tool_call"}:
-            command = extract_tool_command(value.get("input"))
-            if command is None:
-                command = extract_tool_command(value.get("arguments"))
-            if command is None:
-                command = extract_tool_command(value.get("params"))
-            events.append({"name": name, "command": command})
+            arg_candidates = [value.get("input"), value.get("arguments"), value.get("params")]
+            raw_args = next((candidate for candidate in arg_candidates if candidate is not None), None)
+            command = next((cmd for candidate in arg_candidates for cmd in [extract_tool_command(candidate)] if cmd is not None), None)
+            events.append({
+                "name": name,
+                "command": command,
+                "arguments": safe_tool_arguments(raw_args),
+                "errored": tool_event_errored(value),
+            })
         for item in value.values():
             events.extend(collect_json_tool_events(item))
     elif isinstance(value, list):
@@ -1932,8 +2530,8 @@ def collect_json_tool_events(value: Any) -> list[dict[str, str | None]]:
     return events
 
 
-def structured_tool_events(stdout: str) -> list[dict[str, str | None]]:
-    events: list[dict[str, str | None]] = []
+def structured_tool_events(stdout: str) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
     for line in stdout.splitlines():
         line = line.strip()
         if not line.startswith("{"):
@@ -2006,10 +2604,20 @@ def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
             for command in [event.get("command")]
             if isinstance(command, str) and command.strip()
         ]
+        tool_details = [
+            {
+                "name": str(event["name"]),
+                "arguments": dict(event.get("arguments") or {}),
+                "errored": bool(event.get("errored")),
+            }
+            for event in events
+            if isinstance(event.get("name"), str)
+        ]
         return {
             "source": "protocol_json",
             "event_count": len(events),
             "tool_names": [str(event["name"]) for event in events if isinstance(event.get("name"), str)],
+            "tool_details": tool_details,
             "commands": commands,
             "lower": "\n".join(commands).lower(),
         }
@@ -2018,6 +2626,7 @@ def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
             "source": "protocol_json",
             "event_count": 0,
             "tool_names": [],
+            "tool_details": [],
             "commands": [],
             "lower": "",
         }
@@ -2026,7 +2635,8 @@ def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
     return {
         "source": "text_fallback",
         "event_count": 0,
-        "tool_names": re.findall(r"mcp__[a-z0-9_-]+__brain_(?:brief|history|query|context|impact|changes|stale|regressions|review|workspace_regressions|workspace_review)", lower),
+        "tool_names": re.findall(rf"mcp__[a-z0-9_-]+__{MCP_BRAIN_TOOL_RE}", lower),
+        "tool_details": [],
         "commands": [],
         "lower": lower,
     }
@@ -2061,7 +2671,12 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
     mcp_tool_names = [
         name
         for name in tool_names
-        if re.search(r"(?:^|__)brain_(?:brief|history|query|context|impact|changes|stale|regressions|review|workspace_regressions|workspace_review)$", name)
+        if re.search(rf"(?:^|__){MCP_BRAIN_TOOL_RE}$", name)
+    ]
+    mcp_tool_details = [
+        detail
+        for detail in activity_source.get("tool_details", [])
+        if isinstance(detail, dict) and re.search(rf"(?:^|__){MCP_BRAIN_TOOL_RE}$", str(detail.get("name") or ""))
     ]
     direct_brain_cli_calls = len(re.findall(r"\b(?:entire\s+brain|entire-brain)\s+[a-z][a-z-]*", command_lower))
     search_tool_calls = [name for name in tool_names if name in {"Grep", "Glob"}]
@@ -2084,6 +2699,7 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
         "brain_commands": brain_commands,
         "direct_brain_cli_calls": direct_brain_cli_calls,
         "mcp_tool_names": sorted(set(mcp_tool_names)),
+        "mcp_tool_details": mcp_tool_details,
         "mcp_tool_calls": len(mcp_tool_names),
         "used_mcp": bool(mcp_tool_names),
         "search_commands": sorted(set([*search_call_matches, *search_tool_calls])),
@@ -2133,22 +2749,77 @@ def diff_stat(worktree: pathlib.Path) -> dict[str, Any]:
     return {"shortstat": stat, "bytes": len(diff.encode()) + untracked_bytes, "untracked_files": sorted(untracked)}
 
 
+def safe_child_path(root: pathlib.Path, rel: str, *, label: str) -> pathlib.Path:
+    if not rel or pathlib.Path(rel).is_absolute():
+        raise ValueError(f"{label} must be a relative path")
+    root_resolved = root.resolve()
+    target = (root_resolved / rel).resolve()
+    try:
+        target.relative_to(root_resolved)
+    except ValueError as exc:
+        raise ValueError(f"{label} escapes {root}") from exc
+    return target
+
+
+def validation_file_content(entry: dict[str, Any]) -> str:
+    has_content = "content" in entry
+    has_fixture = "fixture" in entry
+    if has_content == has_fixture:
+        raise ValueError("validation file entries must set exactly one of content or fixture")
+    if has_content:
+        return str(entry["content"])
+    fixture = safe_child_path(VALIDATION_FIXTURE_DIR, str(entry.get("fixture", "")), label="validation fixture")
+    return fixture.read_text()
+
+
+def materialize_validation_files(task: dict[str, Any], worktree: pathlib.Path) -> list[tuple[pathlib.Path, bytes | None]]:
+    cleanups: list[tuple[pathlib.Path, bytes | None]] = []
+    for raw in task.get("validation_files", []):
+        if not isinstance(raw, dict):
+            raise ValueError("validation_files entries must be objects")
+        target = safe_child_path(worktree, str(raw.get("path", "")), label="validation file path")
+        original = target.read_bytes() if target.exists() else None
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(validation_file_content(raw))
+        cleanups.append((target, original))
+    return cleanups
+
+
+def cleanup_validation_files(cleanups: list[tuple[pathlib.Path, bytes | None]]) -> None:
+    for target, original in reversed(cleanups):
+        if original is None:
+            target.unlink(missing_ok=True)
+        else:
+            target.write_bytes(original)
+
+
 def validate(task: dict[str, Any], worktree: pathlib.Path, env: dict[str, str]) -> dict[str, Any]:
+    commands = task.get("validation", [])
+    if not commands:
+        return {"ok": False, "results": [], "error": "task has no validation commands"}
     results = []
     ok = True
-    for command in task.get("validation", []):
-        start = time.time()
-        proc = shell_cmd(command, cwd=worktree, env=env, timeout=600)
-        result = {
-            "command": command,
-            "returncode": proc.returncode,
-            "seconds": time.time() - start,
-            "stdout_tail": proc.stdout[-3000:],
-            "stderr_tail": proc.stderr[-3000:],
-        }
-        results.append(result)
-        if proc.returncode != 0:
-            ok = False
+    cleanups: list[tuple[pathlib.Path, bytes | None]] = []
+    try:
+        cleanups = materialize_validation_files(task, worktree)
+        for command in commands:
+            start = time.time()
+            proc = shell_cmd(command, cwd=worktree, env=env, timeout=600)
+            result = {
+                "command": command,
+                "returncode": proc.returncode,
+                "seconds": time.time() - start,
+                "stdout_tail": proc.stdout[-3000:],
+                "stderr_tail": proc.stderr[-3000:],
+            }
+            results.append(result)
+            if proc.returncode != 0:
+                ok = False
+    except Exception as exc:
+        ok = False
+        return {"ok": False, "results": results, "error": f"validation setup failed: {exc}"}
+    finally:
+        cleanup_validation_files(cleanups)
     return {"ok": ok, "results": results}
 
 
@@ -2276,6 +2947,7 @@ def score(
             "brain_commands": activity.get("brain_commands", []),
             "mcp_tool_calls": activity.get("mcp_tool_calls", 0),
             "mcp_tool_names": activity.get("mcp_tool_names", []),
+            "mcp_tool_details": activity.get("mcp_tool_details", []),
             "direct_brain_cli_calls": activity.get("direct_brain_cli_calls", 0),
             "search_calls": activity.get("search_calls", 0),
             "activity_source": activity.get("activity_source", "unknown"),
@@ -2296,10 +2968,10 @@ def run_one(
     args: argparse.Namespace,
     pricing: dict[str, Any],
 ) -> RunResult:
+    task, source, base_provenance = bind_task_base_commit(task)
     run_id = f"{task['id']}__{runner.id}__{condition}__r{repetition}"
     run_dir = suite_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
-    source = resolve_repo_path(task["repo_path"])
     worktree: pathlib.Path | None = None
     record: dict[str, Any] = {
         "run_id": run_id,
@@ -2315,10 +2987,22 @@ def run_one(
         "condition": condition,
         "repetition": repetition,
         "started_at": dt.datetime.now(dt.UTC).isoformat(),
+        "provenance": build_record_provenance(
+            task,
+            runner,
+            condition,
+            repetition,
+            suite_dir,
+            tools,
+            args,
+            command="run",
+            source=source,
+            base=base_provenance,
+        ),
     }
     try:
         worktree = create_worktree(task, run_dir)
-        worktree_sanitization = sanitize_agent_worktree(worktree)
+        worktree_sanitization = sanitize_agent_worktree(worktree, task)
         record["agent_worktree_sanitization"] = worktree_sanitization
         record["agent_baseline_history_reset"] = reset_agent_history_to_root(
             worktree,
@@ -2335,6 +3019,9 @@ def run_one(
             use_cache=not args.no_brain_cache,
             refresh_cache=args.refresh_brain_cache,
         )
+        brain_state = collect_brain_state(worktree, env, tools) if condition != "no_brain" else {}
+        if condition != "no_brain":
+            assert_brain_state_ready(task, condition, brain_state)
         post_brain_changed = apply_post_brain_setup(task, worktree)
         if post_brain_changed:
             record["post_brain_baseline_history_reset"] = reset_agent_history_to_root(
@@ -2351,13 +3038,25 @@ def run_one(
             raise RuntimeError(f"agent-visible benchmark secrets failed preflight: {secret_preflight['findings'][:3]}")
         prompt = prompt_for(task, condition, runner)
         (run_dir / "prompt.txt").write_text(prompt)
-        agent_info = run_agent(runner, prompt, worktree, env, run_dir, condition, tools, args.timeout, args.claude_budget, pricing)
+        agent_info = run_agent(
+            runner,
+            prompt,
+            worktree,
+            env,
+            run_dir,
+            condition,
+            tools,
+            args.timeout,
+            args.claude_budget,
+            pricing,
+            agent_retries=getattr(args, "agent_retries", 0),
+        )
         leak_audit = agent_output_leak_audit(
             task,
             (run_dir / "agent.stdout").read_text(encoding="utf-8", errors="ignore"),
             (run_dir / "agent.stderr").read_text(encoding="utf-8", errors="ignore"),
         )
-        mcp_audit = mcp_condition_audit(condition, agent_info, runner)
+        mcp_audit = mcp_condition_audit(condition, agent_info, runner, task)
         files = changed_files(worktree)
         validation = validate(task, worktree, env)
         diff = diff_stat(worktree)
@@ -2367,6 +3066,7 @@ def run_one(
                 "ok": validation["ok"] and agent_info["returncode"] == 0 and leak_audit["ok"] and mcp_audit["ok"],
                 "worktree": str(worktree),
                 "brain_prep": prep,
+                "brain_state": brain_state,
                 "post_brain_setup_applied": post_brain_changed,
                 "agent_visible_entire_history_removed": agent_visible_entire_removed,
                 "agent_leak_audit": leak_audit,
@@ -2492,7 +3192,7 @@ def brain_comparison_verdict(comparison: dict[str, Any]) -> dict[str, Any]:
     time_overhead = relative_delta(comparison.get("mean_agent_seconds_condition"), comparison.get("mean_agent_seconds_baseline"))
     token_overhead = relative_delta(comparison.get("mean_total_tokens_condition"), comparison.get("mean_total_tokens_baseline"))
 
-    repeated = n_condition >= 3 and n_baseline >= 3
+    proof_repeated = n_condition >= 4 and n_baseline >= 4
     brain_validation_clean = success_rate_condition == 1.0
     correctness_win = brain_validation_clean and (success_delta > 0 or score_delta >= 3)
     equal_or_better = success_delta >= 0 and score_delta >= 0
@@ -2511,8 +3211,8 @@ def brain_comparison_verdict(comparison: dict[str, Any]) -> dict[str, Any]:
     )
 
     reasons: list[str] = []
-    if not repeated:
-        reasons.append("pilot_n<3")
+    if not proof_repeated:
+        reasons.append("pilot_n<4")
     if not brain_validation_clean:
         reasons.append("brain_validation_not_clean")
     if both_solved:
@@ -2536,12 +3236,12 @@ def brain_comparison_verdict(comparison: dict[str, Any]) -> dict[str, Any]:
         verdict = "brain_negative"
     else:
         verdict = "inconclusive"
-    if not repeated and verdict == "brain_positive":
+    if not proof_repeated and verdict == "brain_positive":
         verdict = "pilot_brain_positive"
 
     return {
         "verdict": verdict,
-        "proof_ready": repeated and verdict == "brain_positive",
+        "proof_ready": proof_repeated and verdict == "brain_positive",
         "brain_positive_gate": {
             "score_delta": score_delta,
             "success_delta": success_delta,
@@ -2550,7 +3250,7 @@ def brain_comparison_verdict(comparison: dict[str, Any]) -> dict[str, Any]:
             "search_improvement_ratio": search_improvement,
             "time_overhead_ratio": time_overhead,
             "token_overhead_ratio": token_overhead,
-            "requires_repetitions_per_side": 3,
+            "requires_repetitions_per_side": 4,
         },
         "verdict_reasons": reasons,
     }
@@ -2736,14 +3436,39 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             passed = sum(1 for rec in recs if isinstance(rec.get("validation"), dict) and rec["validation"].get("ok"))
             return passed / len(recs)
 
+        def comparison_env_flags(recs: list[dict[str, Any]]) -> dict[str, str]:
+            flags: dict[str, str] = {}
+            for rec in recs:
+                provenance = rec.get("provenance") if isinstance(rec.get("provenance"), dict) else {}
+                run_config = provenance.get("run_config") if isinstance(provenance.get("run_config"), dict) else {}
+                env_flags = run_config.get("env_flags") if isinstance(run_config.get("env_flags"), dict) else {}
+                for key, value in env_flags.items():
+                    if value not in (None, ""):
+                        flags[str(key)] = str(value)
+            return dict(sorted(flags.items()))
+
+        def delivery_scope(condition: str, env_flags: dict[str, str]) -> str:
+            if condition == "mcp_workspace_radar":
+                return "mcp_workspace_radar_location_only"
+            if condition == "mcp_history" and env_flags.get("BENCH_RADAR_LOCATION_ONLY") == "1":
+                return "mcp_radar_location_only"
+            if condition == "mcp_history" and env_flags.get("BENCH_REGRESSION_RADAR") == "1":
+                return "mcp_radar_answer_assisted"
+            if condition == "mcp_history":
+                return "mcp"
+            return condition
+
         score_core_condition = score_core_values(condition_records)
         score_core_baseline = score_core_values(base_records)
+        env_flags = comparison_env_flags(condition_records)
 
         comparison = {
             "task_id": task_id,
             "agent": agent,
             "runner": runner_id,
             "condition": condition,
+            "delivery_scope": delivery_scope(condition, env_flags),
+            "env_flags": env_flags,
             "baseline": "no_brain",
             "n_condition": len(values),
             "n_baseline": len(base),
@@ -2869,6 +3594,8 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
     # cannot be tagged brain_positive_stable.
     for comp, (cond_recs, base_recs) in zip(comparisons, stability_inputs):
         comp["stability"] = comparison_stability(cond_recs, base_recs, comp)
+        comp["candidate_proof_ready"] = bool(comp.get("proof_ready"))
+        comp["proof_ready"] = bool(comp.get("candidate_proof_ready") and comp["stability"].get("tag") == "brain_positive_stable")
 
     stability_tags: dict[str, int] = {}
     for comp in comparisons:
@@ -2880,6 +3607,7 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
         "records": len(records),
         "comparisons": comparisons,
         "stability_tags": stability_tags,
+        "provenance": suite_provenance(records),
         "stats_notes": {
             "p_value_test": "two-sided Welch's t-test (Student-t, Welch-Satterthwaite df)",
             "multiple_comparison_correction": "holm-bonferroni across all suite p-values; see <field>_holm",
@@ -2908,6 +3636,7 @@ def load_task_index() -> dict[str, dict[str, Any]]:
 
 def load_existing_phase2_proofs() -> list[dict[str, Any]]:
     proofs: list[dict[str, Any]] = []
+    audit_report = load_retained_audit_report()
     if not RESULT_DIR.exists():
         return proofs
     for summary_path in sorted(RESULT_DIR.glob("*/summary.json")):
@@ -2915,28 +3644,63 @@ def load_existing_phase2_proofs() -> list[dict[str, Any]]:
             summary = json.loads(summary_path.read_text())
         except (OSError, json.JSONDecodeError):
             continue
+        suite = summary_path.parent.name
+        if not retained_suite_audit_clean(audit_report, suite):
+            continue
         for comparison in summary.get("comparisons", []):
             if not isinstance(comparison, dict):
                 continue
-            proof = retained_brain_positive_comparison(summary_path.parent.name, comparison)
+            proof = retained_brain_positive_comparison(suite, comparison)
             if proof:
                 proofs.append(proof)
     return proofs
+
+
+def load_retained_audit_report() -> dict[str, Any] | None:
+    path = RESULT_DIR / "codex-audit-report.json"
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def retained_suite_audit_clean(audit_report: dict[str, Any] | None, suite: str) -> bool:
+    if not audit_report:
+        return False
+    suite_report = audit_report.get("suites", {}).get(suite)
+    if not isinstance(suite_report, dict):
+        return False
+    records = int(suite_report.get("n_records") or 0)
+    if records == 0:
+        return False
+    if int(suite_report.get("n_flagged_records") or 0) != 0:
+        return False
+    if int(suite_report.get("n_provenance_ok") or 0) != records:
+        return False
+    for comparison in suite_report.get("comparisons", []):
+        if isinstance(comparison, dict) and comparison.get("flags"):
+            return False
+    return True
 
 
 def retained_brain_positive_comparison(suite: str, comparison: dict[str, Any]) -> dict[str, Any] | None:
     condition = comparison.get("condition")
     if condition == "no_brain":
         return None
+    if not comparison.get("proof_ready"):
+        return None
+    if comparison.get("stability", {}).get("tag") != "brain_positive_stable":
+        return None
     success_delta = float(comparison.get("success_rate_condition") or 0) - float(comparison.get("success_rate_baseline") or 0)
     score_delta = float(comparison.get("delta") or 0)
-    correctness_p = comparison.get("p_value_approx")
+    correctness_p = comparison.get("p_value_approx_holm")
     metric_hits: list[dict[str, Any]] = []
     for field, delta_field, p_field, lower_is_better in [
-        ("seconds", ("mean_agent_seconds_condition", "mean_agent_seconds_baseline"), "p_value_agent_seconds", True),
-        ("tokens", ("mean_total_tokens_condition", "mean_total_tokens_baseline"), "p_value_total_tokens", True),
-        ("turns", ("mean_turns_condition", "mean_turns_baseline"), "p_value_turns", True),
-        ("cost", ("mean_cost_usd_condition", "mean_cost_usd_baseline"), "p_value_cost_usd", True),
+        ("seconds", ("mean_agent_seconds_condition", "mean_agent_seconds_baseline"), "p_value_agent_seconds_holm", True),
+        ("tokens", ("mean_total_tokens_condition", "mean_total_tokens_baseline"), "p_value_total_tokens_holm", True),
+        ("turns", ("mean_turns_condition", "mean_turns_baseline"), "p_value_turns_holm", True),
+        ("cost", ("mean_cost_usd_condition", "mean_cost_usd_baseline"), "p_value_cost_usd_holm", True),
     ]:
         condition_mean = comparison.get(delta_field[0])
         baseline_mean = comparison.get(delta_field[1])
@@ -3276,14 +4040,18 @@ def cmd_run(args: argparse.Namespace) -> int:
 PANEL_DIR = BENCH_ROOT / "panels"
 
 
+def panel_manifest_path(name: str) -> pathlib.Path:
+    return pathlib.Path(name) if name.endswith(".json") else PANEL_DIR / f"{name}.json"
+
+
 def load_panel(name: str) -> dict[str, Any]:
-    path = pathlib.Path(name) if name.endswith(".json") else PANEL_DIR / f"{name}.json"
+    path = panel_manifest_path(name)
     if not path.exists():
         raise FileNotFoundError(f"panel manifest not found: {path}")
     return json.loads(path.read_text())
 
 
-def panel_preflight(panel: dict[str, Any]) -> list[str]:
+def panel_preflight(panel: dict[str, Any], check_local_artifacts: bool = False) -> list[str]:
     """Reject a panel that cannot produce a proof-grade result BEFORE spending tokens: runners must be
     fully pinned (agent:model:effort — defaults drift and are not visible in artifacts), there must be a
     no_brain baseline + tasks, and repetitions must reach the proof minimum so the stability gate has the
@@ -3305,6 +4073,55 @@ def panel_preflight(panel: dict[str, Any]) -> list[str]:
             )
     if not panel.get("tasks"):
         errors.append("panel has no tasks")
+    else:
+        try:
+            tasks = load_tasks(panel["tasks"])
+        except Exception as exc:
+            errors.append(f"panel tasks are not loadable: {exc}")
+            tasks = []
+        panel_conditions = set(panel.get("conditions", []))
+        release_panel = str(panel.get("name") or "").startswith("release-")
+        for task in tasks:
+            task_conditions = panel_conditions & set(task.get("conditions", []))
+            if release_panel:
+                if "benchmarks/agent-brain" not in agent_hidden_paths(task):
+                    errors.append(
+                        f"release panel task {task.get('id', '<unknown>')} must hide "
+                        "benchmarks/agent-brain from agent worktrees"
+                    )
+                if task.get("hide_validation_from_agent") and not task.get("leak_markers"):
+                    errors.append(
+                        f"release panel task {task.get('id', '<unknown>')} hides validation "
+                        "but has no explicit leak_markers canary"
+                    )
+            if any(condition_prepares_history(condition) for condition in task_conditions):
+                if not task.get("copy_entire_history_from_source") and not task.get("copy_checkpoint_ref_from_source"):
+                    errors.append(
+                        f"task {task.get('id', '<unknown>')} uses a history/full-brain condition "
+                        "but has no local history source (copy_checkpoint_ref_from_source or copy_entire_history_from_source)"
+                    )
+            if check_local_artifacts:
+                source = resolve_repo_path(task.get("repo_path", ""))
+                if not source.exists():
+                    errors.append(f"task {task.get('id', '<unknown>')} repo_path is missing locally: {source}")
+                    continue
+                repo_probe = run_cmd(["git", "rev-parse", "--show-toplevel"], cwd=source)
+                if repo_probe.returncode != 0:
+                    errors.append(f"task {task.get('id', '<unknown>')} repo_path is not a git repo: {source}")
+                    continue
+                if task.get("copy_entire_history_from_source") and not (source / ".entire").exists():
+                    errors.append(f"task {task.get('id', '<unknown>')} requested .entire history but {source / '.entire'} is missing")
+                if task.get("copy_checkpoint_ref_from_source"):
+                    ref_probe = run_cmd(["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=source)
+                    if ref_probe.returncode != 0 or not ref_probe.stdout.strip():
+                        errors.append(f"task {task.get('id', '<unknown>')} requested {CHECKPOINT_REF} but it is missing in {source}")
+    panel_env = panel.get("env", {})
+    if panel_env is not None and not isinstance(panel_env, dict):
+        errors.append("panel env must be an object when set")
+    elif isinstance(panel_env, dict):
+        for key, value in panel_env.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                errors.append("panel env keys and values must be strings")
     reps = int(panel.get("repetitions", 0) or 0)
     if reps < 4:
         errors.append(f"repetitions {reps} < 4 (proof_minimum); the stability gate needs enough reps to drop an outlier")
@@ -3314,8 +4131,9 @@ def panel_preflight(panel: dict[str, Any]) -> list[str]:
 
 
 def cmd_panel(args: argparse.Namespace) -> int:
+    panel_path = panel_manifest_path(args.name)
     panel = load_panel(args.name)
-    errors = panel_preflight(panel)
+    errors = panel_preflight(panel, check_local_artifacts=True)
     if errors:
         for e in errors:
             print(f"panel preflight: {e}", file=sys.stderr)
@@ -3327,6 +4145,9 @@ def cmd_panel(args: argparse.Namespace) -> int:
     args.agents = ""
     args.conditions = ",".join(panel["conditions"])
     args.repetitions = int(panel["repetitions"])
+    args.panel_name = str(panel.get("name") or args.name)
+    args.panel_path = display_path(panel_path)
+    args.panel_config_sha256 = file_sha256(panel_path)
     if not getattr(args, "suite_name", None):
         args.suite_name = f"panel-{slugify(args.name)}-{dt.datetime.now(dt.UTC).strftime('%Y%m%dT%H%M%SZ')}"
     print(
@@ -3334,7 +4155,18 @@ def cmd_panel(args: argparse.Namespace) -> int:
         f"{len(panel['conditions'])} conditions x {args.repetitions} reps",
         flush=True,
     )
-    return cmd_run(args)
+    panel_env = panel.get("env") or {}
+    old_env = {key: os.environ.get(key) for key in panel_env}
+    try:
+        for key, value in panel_env.items():
+            os.environ[str(key)] = str(value)
+        return cmd_run(args)
+    finally:
+        for key, value in old_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def cmd_prep(args: argparse.Namespace) -> int:
@@ -3350,10 +4182,10 @@ def cmd_prep(args: argparse.Namespace) -> int:
         for condition in conditions:
             if condition == "no_brain" or condition not in task.get("conditions", []):
                 continue
+            task, source, base_provenance = bind_task_base_commit(task)
             run_id = f"{task['id']}__prep__{condition}"
             run_dir = suite_dir / run_id
             run_dir.mkdir(parents=True, exist_ok=False)
-            source = resolve_repo_path(task["repo_path"])
             worktree: pathlib.Path | None = None
             record: dict[str, Any] = {
                 "run_id": run_id,
@@ -3361,6 +4193,18 @@ def cmd_prep(args: argparse.Namespace) -> int:
                 "repo": task["repo"],
                 "condition": condition,
                 "started_at": dt.datetime.now(dt.UTC).isoformat(),
+                "provenance": build_record_provenance(
+                    task,
+                    None,
+                    condition,
+                    None,
+                    suite_dir,
+                    tools,
+                    args,
+                    command="prep",
+                    source=source,
+                    base=base_provenance,
+                ),
             }
             try:
                 worktree = create_worktree(task, run_dir)
@@ -3375,12 +4219,14 @@ def cmd_prep(args: argparse.Namespace) -> int:
                     use_cache=not args.no_brain_cache,
                     refresh_cache=args.refresh_brain_cache,
                 )
+                brain_state = collect_brain_state(worktree, env, tools)
+                assert_brain_state_ready(task, condition, brain_state)
                 record.update(
                     {
                         "ok": True,
                         "worktree": str(worktree),
                         "brain_prep": prep,
-                        "brain_state": collect_brain_state(worktree, env, tools),
+                        "brain_state": brain_state,
                     }
                 )
             except Exception as exc:
@@ -3474,6 +4320,7 @@ def main() -> int:
         help="After the first no_brain repetition for a task/runner, skip the remaining repetitions and conditions if the score is above this threshold.",
     )
     run_p.add_argument("--timeout", type=int, default=1800)
+    run_p.add_argument("--agent-retries", type=int, default=2, help="Retry explicit transient agent-capacity/service failures")
     run_p.add_argument("--claude-budget", type=float, default=0.0, help="Claude max budget in USD; 0 disables the cap")
     run_p.add_argument("--pricing-file", help="JSON price map for estimated cost when the agent does not report cost")
     run_p.add_argument("--pricing-json", help="Inline JSON price map for estimated cost when the agent does not report cost")
@@ -3488,6 +4335,7 @@ def main() -> int:
     panel_p.add_argument("name", help="Panel manifest under panels/ (name without .json, or a path to a .json)")
     panel_p.add_argument("--suite-name")
     panel_p.add_argument("--timeout", type=int, default=1800)
+    panel_p.add_argument("--agent-retries", type=int, default=2, help="Retry explicit transient agent-capacity/service failures")
     panel_p.add_argument("--claude-budget", type=float, default=0.0, help="Claude max budget in USD; 0 disables the cap")
     panel_p.add_argument("--pricing-file", help="JSON price map for estimated cost when the agent does not report cost")
     panel_p.add_argument("--pricing-json", help="Inline JSON price map for estimated cost when the agent does not report cost")

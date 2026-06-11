@@ -1,0 +1,56 @@
+{
+  "id": "entireio-cli-manual-commit-attribution-base",
+  "repo": "entire-cli",
+  "repo_path": "cli-bench",
+  "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+  "conditions": [
+    "no_brain",
+    "full_cli_compact",
+    "mcp_history"
+  ],
+  "prompt": "Fix the release-candidate stale-session-state regression. A hidden integration shows that after an ordinary commit during an active session, later accounting remains anchored to stale state. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "radar_include_deletions": true,
+  "setup_replacements": [
+    {
+      "path": "cmd/entire/cli/strategy/manual_commit_hooks.go",
+      "old": "\t\tstate.BaseCommit = newHead\n\t\t// Keep AttributionBaseCommit in sync to prevent stale base drift.\n\t\t// Without this, a subsequent condensation would diff from the old base,\n\t\t// inflating human_added with lines from unrelated prior commits.\n\t\tstate.RealignAttributionBase(newHead)\n\t\tlogging.Debug(logCtx, \"post-commit: updated BaseCommit and AttributionBaseCommit\",",
+      "new": "\t\tstate.BaseCommit = newHead\n\t\tlogging.Debug(logCtx, \"post-commit: updated BaseCommit and AttributionBaseCommit\","
+    },
+    {
+      "path": "cmd/entire/cli/strategy/manual_commit_hooks.go",
+      "old": "\t\t\tstate.BaseCommit = newHead\n\t\t\t// Keep AttributionBaseCommit in sync to prevent stale base drift.\n\t\t\t// Without this, a subsequent condensation would diff from the old base,\n\t\t\t// inflating human_added with lines from unrelated prior commits.\n\t\t\tstate.RealignAttributionBase(newHead)\n\t\t\treturn nil",
+      "new": "\t\t\tstate.BaseCommit = newHead\n\t\t\treturn nil"
+    }
+  ],
+  "validation_files": [
+    {
+      "path": "cmd/entire/cli/strategy/no_trailer_realign_hidden_test.go",
+      "fixture": "entireio-cli/manual_attribution_no_trailer_realign_test.go.fixture"
+    }
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommitNoTrailerRealignsAttributionBaseHidden' -count=1"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "agent_hidden_paths": [
+    "benchmarks/agent-brain"
+  ],
+  "leak_markers": [
+    "release-mcp-manual-attribution-canary-20260610T0620Z"
+  ],
+  "brain_queries": [
+    "AttributionBaseCommit stale human_added no trailer",
+    "TestManualCommit_AttributionStaleBase",
+    "BaseCommit AttributionBaseCommit realign",
+    "RealignAttributionBase newHead manual commit hooks"
+  ],
+  "copy_checkpoint_ref_from_source": true
+}

@@ -101,9 +101,9 @@ def graph_tokens_fair():
     return list(zip(labels, nb, rd))
 
 
-# ---- Graph 2: fresh validation (radar-thomas, n=3): tokens + brain-called ----
+# ---- Graph 2: fresh validation (radar-release, n=3): tokens + brain-called ----
 def graph_fresh():
-    rows = load_suite("radar-thomas")
+    rows = load_suite("radar-release")
     cells = {}
     for r in rows:
         run = r["run"]
@@ -175,7 +175,7 @@ if __name__ == "__main__":
     for label, nb, rd in g1:
         d = f"{round(100*(rd-nb)/nb):+d}%" if nb else "n/a"  # negative = fewer tokens
         lines.append(f"| {label} | {nb:.0f} | {rd:.0f} | {d} |")
-    lines.append("\n## Fresh validation (radar-thomas, n=3, post parser-fix)\n")
+    lines.append("\n## Fresh validation (radar-release, n=3, post parser-fix)\n")
     lines.append("| model | no_brain (k) | radar (k) | delta | brain called |")
     lines.append("|---|---|---|---|---|")
     for m, nb, rd, bc in g2:

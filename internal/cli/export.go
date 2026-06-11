@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -153,8 +155,10 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	// An explicit --output target writes a throwaway brain, so caching is skipped.
 	var metadataCache *checkpointMetadataCache
 	var metadataCachePath string
+	var metadataCacheBrainDir string
 	if !outputExplicit {
 		if storage, storageErr := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir); storageErr == nil {
+			metadataCacheBrainDir = storage.BrainDir
 			metadataCachePath = filepath.Join(storage.BrainDir, filepath.FromSlash(checkpointMetadataCachePath))
 			metadataCache = loadCheckpointMetadataCache(metadataCachePath)
 		}
@@ -169,8 +173,11 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			checkpointsScanned = loadedSnapshot.CheckpointCount
 			warnings = append(warnings, snapshotWarnings...)
 			reportExportProgress(exportOpts.progress, checkpointsScanned, checkpointsScanned, len(selected))
-			if metadataCachePath != "" {
-				saveCheckpointMetadataCache(metadataCachePath, metadataCache)
+			if metadataCachePath != "" && metadataCacheBrainDir != "" {
+				_ = withBrainWriteLock(metadataCacheBrainDir, func() error {
+					saveCheckpointMetadataCache(metadataCachePath, metadataCache)
+					return nil
+				})
 			}
 		} else if !errors.Is(snapshotErr, errCheckpointSnapshotUnavailable) {
 			warnings = append(warnings, "direct checkpoint export unavailable: "+snapshotErr.Error())
@@ -274,52 +281,88 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		cursor = loadExportCursor(cursorFile)
 	}
 
-	outputDir, err = prepareExportDir(outputDir, persistentBrain)
-	if err != nil {
-		return err
-	}
-	if err := ensureExportDirectories(outputDir, branchDirs); err != nil {
-		return err
-	}
-
-	var transcriptWarnings []string
-	if snapshot != nil {
-		sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
-		if err != nil {
+	if persistentBrain {
+		// The exclusive brain lock brackets only the SHARED-ARTIFACT phases:
+		// directory preparation, then manifest/history-index/cursor writes.
+		// The transcript-writing phase between them runs UNLOCKED — it shells
+		// `entire checkpoint explain` per uncached session (minutes on a large
+		// brain), while every other lock user times out at 10s: holding the
+		// lock across it failed a concurrent distill's FINAL flush, killing an
+		// hours-long run at its last step. Transcript files are per-session
+		// and atomically replaced, and concurrent exports of one brain are
+		// already unsupported, so the unlocked window mutates nothing another
+		// writer reads mid-flight (a concurrent distill touches facts/* only).
+		if err := withBrainWriteLock(outputDir, func() error {
+			var err error
+			outputDir, err = prepareExportDir(outputDir, true)
+			if err != nil {
+				return err
+			}
+			return ensureExportDirectories(outputDir, branchDirs)
+		}); err != nil {
+			return err
+		}
+		var transcriptWarnings []string
+		if snapshot != nil {
+			sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
+			if err != nil {
+				return err
+			}
+		} else {
+			transcriptWarnings, err = writeSessionTranscripts(ctx, opts.Runner, repoDir, outputDir, exportOpts.entireBinary, exportOpts.rawTranscript, sessions, branchDirs, cursor)
+			if err != nil {
+				return err
+			}
+		}
+		if err := withBrainWriteLock(outputDir, func() error {
+			manifest.Warnings = usefulExportWarnings(append(manifest.Warnings, transcriptWarnings...), exportOpts.debug)
+			manifest.Sessions = sessions
+			manifest.Branches = summarizeBranchExports(sessions, branchDirs, defaultBranch)
+			if err := writeBrainSessionSourceLocked(outputDir, repoKey, manifest); err != nil {
+				return err
+			}
+			if exportOpts.historyIndex {
+				if _, err := writeBrainHistoryIndexAndSourceLocked(outputDir, opts.Now().UTC(), nil); err != nil {
+					return err
+				}
+			}
+			if err := writeExportCursor(cursorFile, manifest); err != nil {
+				return err
+			}
+			return cleanupStaleSessionFiles(outputDir, sessions)
+		}); err != nil {
 			return err
 		}
 	} else {
-		transcriptWarnings, err = writeSessionTranscripts(ctx, opts.Runner, repoDir, outputDir, exportOpts.entireBinary, exportOpts.rawTranscript, sessions, branchDirs, cursor)
+		outputDir, err = prepareExportDir(outputDir, false)
 		if err != nil {
 			return err
 		}
-	}
-	manifest.Warnings = usefulExportWarnings(append(manifest.Warnings, transcriptWarnings...), exportOpts.debug)
-	manifest.Sessions = sessions
-	manifest.Branches = summarizeBranchExports(sessions, branchDirs, defaultBranch)
-	if persistentBrain {
-		if err := cleanupStaleSessionFiles(outputDir, sessions); err != nil {
+		if err := ensureExportDirectories(outputDir, branchDirs); err != nil {
 			return err
 		}
-	}
-
-	if persistentBrain {
-		if err := writeBrainSessionSource(outputDir, repoKey, manifest); err != nil {
-			return err
+		var transcriptWarnings []string
+		if snapshot != nil {
+			sessions, transcriptWarnings, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
+			if err != nil {
+				return err
+			}
+		} else {
+			transcriptWarnings, err = writeSessionTranscripts(ctx, opts.Runner, repoDir, outputDir, exportOpts.entireBinary, exportOpts.rawTranscript, sessions, branchDirs, cursor)
+			if err != nil {
+				return err
+			}
 		}
-	} else {
+		manifest.Warnings = usefulExportWarnings(append(manifest.Warnings, transcriptWarnings...), exportOpts.debug)
+		manifest.Sessions = sessions
+		manifest.Branches = summarizeBranchExports(sessions, branchDirs, defaultBranch)
 		if err := writeBrainManifestAndReadme(outputDir, manifest); err != nil {
 			return err
 		}
-	}
-	if exportOpts.historyIndex {
-		if _, err := writeBrainHistoryIndexAndSource(outputDir, opts.Now().UTC(), nil); err != nil {
-			return err
-		}
-	}
-	if persistentBrain {
-		if err := writeExportCursor(cursorFile, manifest); err != nil {
-			return err
+		if exportOpts.historyIndex {
+			if _, err := writeBrainHistoryIndexAndSourceLocked(outputDir, opts.Now().UTC(), nil); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -382,9 +425,14 @@ func prepareExportDir(path string, allowExisting bool) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("resolve output directory: %w", err)
 		}
-		info, statErr := os.Stat(abs)
-		if statErr == nil && !info.IsDir() {
-			return "", fmt.Errorf("output path exists and is not a directory: %s", abs)
+		info, statErr := os.Lstat(abs)
+		if statErr == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return "", fmt.Errorf("output directory must not be a symlink: %s", abs)
+			}
+			if !info.IsDir() {
+				return "", fmt.Errorf("output path exists and is not a directory: %s", abs)
+			}
 		}
 		if statErr != nil && !os.IsNotExist(statErr) {
 			return "", fmt.Errorf("stat output directory: %w", statErr)
@@ -412,10 +460,12 @@ func validateExportDirAvailable(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve output directory: %w", err)
 	}
-
-	info, err := os.Stat(abs)
+	info, err := os.Lstat(abs)
 	switch {
 	case err == nil:
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("output directory must not be a symlink: %s", abs)
+		}
 		if !info.IsDir() {
 			return "", fmt.Errorf("output path exists and is not a directory: %s", abs)
 		}
@@ -432,6 +482,153 @@ func validateExportDirAvailable(path string) (string, error) {
 		return "", fmt.Errorf("stat output directory: %w", err)
 	}
 	return abs, nil
+}
+
+func removeForcedOutputDir(path, repoDir string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolve forced output directory: %w", err)
+	}
+	info, err := os.Lstat(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat forced output directory: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("forced output directory must not be a symlink: %s", abs)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("forced output path exists and is not a directory: %s", abs)
+	}
+	if err := rejectDangerousForcedOutputDir(abs, repoDir); err != nil {
+		return err
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return fmt.Errorf("resolve forced output symlinks: %w", err)
+	}
+	if !sameCleanPath(abs, resolved) {
+		if err := rejectDangerousForcedOutputDir(resolved, repoDir); err != nil {
+			return err
+		}
+	}
+	manifestPath := filepath.Join(abs, exportManifestFileName)
+	manifestInfo, err := os.Lstat(manifestPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("--force refuses to remove %s: missing %s", abs, exportManifestFileName)
+		}
+		return fmt.Errorf("stat forced output manifest: %w", err)
+	}
+	if manifestInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("--force refuses to remove %s: %s must not be a symlink", abs, exportManifestFileName)
+	}
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("read forced output manifest: %w", err)
+	}
+	if err := validateForcedOutputManifest(data); err != nil {
+		return fmt.Errorf("--force refuses to remove %s: invalid %s: %w", abs, exportManifestFileName, err)
+	}
+	if err := removeAllWithRetry(abs); err != nil {
+		return fmt.Errorf("remove forced output directory: %w", err)
+	}
+	return nil
+}
+
+func validateForcedOutputManifest(data []byte) error {
+	var manifest exportManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return err
+	}
+	normalizeBrainManifest(&manifest)
+	if manifest.SchemaVersion != brainManifestSchemaVersion {
+		return fmt.Errorf("schema_version %d does not match brain schema %d", manifest.SchemaVersion, brainManifestSchemaVersion)
+	}
+	if manifest.Sources == nil {
+		return errors.New("missing sources")
+	}
+	if manifest.Sources.Sessions != nil ||
+		manifest.Sources.Seed != nil ||
+		manifest.Sources.Semantic != nil ||
+		manifest.Sources.History != nil ||
+		manifest.Sources.Facts != nil ||
+		manifest.Sources.Docs != nil {
+		return nil
+	}
+	return errors.New("missing recognized brain sources")
+}
+
+func removeAllWithRetry(path string) error {
+	var lastErr error
+	for i := 0; i < 5; i++ {
+		if err := os.RemoveAll(path); err != nil {
+			lastErr = err
+			time.Sleep(time.Duration(i+1) * 25 * time.Millisecond)
+			continue
+		}
+		return nil
+	}
+	return lastErr
+}
+
+func rejectDangerousForcedOutputDir(abs, repoDir string) error {
+	clean := filepath.Clean(abs)
+	if isFilesystemRoot(clean) {
+		return fmt.Errorf("--force refuses to remove filesystem root: %s", abs)
+	}
+	if home, err := os.UserHomeDir(); err == nil && sameCleanPath(clean, home) {
+		return fmt.Errorf("--force refuses to remove home directory: %s", abs)
+	}
+	if cwd, err := os.Getwd(); err == nil && sameCleanPath(clean, cwd) {
+		return fmt.Errorf("--force refuses to remove current working directory: %s", abs)
+	}
+	if strings.TrimSpace(repoDir) != "" {
+		repoAbs, err := filepath.Abs(repoDir)
+		if err == nil {
+			repoCandidates := []string{filepath.Clean(repoAbs)}
+			if repoResolved, resolveErr := filepath.EvalSymlinks(repoAbs); resolveErr == nil {
+				repoCandidates = append(repoCandidates, filepath.Clean(repoResolved))
+			}
+			for _, repoCandidate := range uniqueCleanPaths(repoCandidates) {
+				if pathInside(clean, repoCandidate) {
+					return fmt.Errorf("--force refuses to remove a directory containing the repository: %s", abs)
+				}
+				if pathInside(repoCandidate, clean) {
+					return fmt.Errorf("--force refuses to remove a directory inside the repository: %s", abs)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func uniqueCleanPaths(paths []string) []string {
+	seen := map[string]struct{}{}
+	var result []string
+	for _, path := range paths {
+		clean := filepath.Clean(path)
+		if _, ok := seen[clean]; ok {
+			continue
+		}
+		seen[clean] = struct{}{}
+		result = append(result, clean)
+	}
+	return result
+}
+
+func isFilesystemRoot(path string) bool {
+	return filepath.Dir(path) == path
+}
+
+func sameCleanPath(a, b string) bool {
+	absB, err := filepath.Abs(b)
+	if err != nil {
+		return false
+	}
+	return filepath.Clean(a) == filepath.Clean(absB)
 }
 
 func detectDefaultBranch(ctx context.Context, runner CommandRunner, repoDir string) (string, []string) {
@@ -645,6 +842,9 @@ func authorLastCommitAt(author exportAuthor) time.Time {
 
 func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, entireBinary, scope string, limit int) ([]checkpointListEntry, []string, error) {
 	if scope == exportScopeBranch {
+		if brainNoEgressMode() {
+			return nil, []string{"no_egress: branch checkpoint fallback skipped"}, nil
+		}
 		return listBranchCheckpoints(ctx, runner, repoDir, entireBinary, limit)
 	}
 
@@ -653,6 +853,10 @@ func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, ent
 		return nil, nil, err
 	}
 	if len(checkpoints) > 0 {
+		return checkpoints, warnings, nil
+	}
+	if brainNoEgressMode() {
+		warnings = append(warnings, "no_egress: branch checkpoint fallback skipped")
 		return checkpoints, warnings, nil
 	}
 
@@ -688,6 +892,10 @@ func listAllCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir st
 	ids, warnings := listLocalCheckpointRefIDs(ctx, runner, repoDir, localCheckpointRefs(includeV2))
 	if len(ids) == 0 {
 		localWarnings := warnings
+		if brainNoEgressMode() {
+			warnings = append(localWarnings, "no_egress: checkpoint remote discovery skipped")
+			return checkpointEntriesFromIDs(ids, limit), warningsFromLimit(ids, limit, warnings), nil
+		}
 		remoteURL, remoteErr := settings.CheckpointRemoteFetchURL()
 		if settingsErr != nil {
 			remoteErr = settingsErr
@@ -901,6 +1109,11 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 			warnings = append(warnings, "compact transcript unavailable for v1 checkpoints; exported raw full.jsonl logs")
 		}
 		return snapshot, warnings, nil
+	}
+
+	if brainNoEgressMode() {
+		warnings = append(warnings, "no_egress: checkpoint remote snapshot fetch skipped")
+		return nil, warnings, fmt.Errorf("%w: local checkpoint refs unavailable and checkpoint remote disabled by no-egress mode", errCheckpointSnapshotUnavailable)
 	}
 
 	remoteURL, remoteErr := settings.CheckpointRemoteFetchURL()
@@ -1686,16 +1899,36 @@ func reuseTranscriptFromCursor(outputDir string, cursor *exportCursor, session e
 	if entry.TranscriptMode != transcriptMode {
 		return false
 	}
-	info, err := os.Stat(filepath.Join(outputDir, relPath))
-	return err == nil && !info.IsDir()
+	clean := filepath.Clean(filepath.FromSlash(relPath))
+	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return false
+	}
+	if err := rejectSymlinkPathComponents(outputDir, clean); err != nil {
+		return false
+	}
+	info, err := os.Lstat(filepath.Join(outputDir, clean))
+	return err == nil && !info.IsDir() && info.Mode()&os.ModeSymlink == 0
 }
 
 func writeTranscriptFile(outputDir, relPath string, data []byte) error {
-	abs := filepath.Join(outputDir, relPath)
+	clean := filepath.Clean(filepath.FromSlash(relPath))
+	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("unsafe transcript path: %s", relPath)
+	}
+	dir := filepath.Dir(clean)
+	if dir != "." {
+		if err := rejectExistingSymlinkPathComponents(outputDir, dir); err != nil {
+			return fmt.Errorf("validate transcript directory %s: %w", dir, err)
+		}
+	}
+	abs := filepath.Join(outputDir, clean)
 	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
 		return fmt.Errorf("create transcript directory: %w", err)
 	}
-	if err := os.WriteFile(abs, data, 0o600); err != nil {
+	if err := rejectExistingSymlinkPathComponents(outputDir, clean); err != nil {
+		return fmt.Errorf("validate transcript path %s: %w", clean, err)
+	}
+	if err := writeFileAtomic(abs, data, 0o600); err != nil {
 		return err
 	}
 	return nil
@@ -1703,7 +1936,14 @@ func writeTranscriptFile(outputDir, relPath string, data []byte) error {
 
 func ensureExportDirectories(outputDir string, branchDirs map[string]string) error {
 	for _, relPath := range branchDirs {
-		if err := os.MkdirAll(filepath.Join(outputDir, relPath), 0o700); err != nil {
+		clean := filepath.Clean(filepath.FromSlash(relPath))
+		if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("unsafe branch transcript directory: %s", relPath)
+		}
+		if err := rejectExistingSymlinkPathComponents(outputDir, clean); err != nil {
+			return fmt.Errorf("validate branch transcript directory %s: %w", relPath, err)
+		}
+		if err := os.MkdirAll(filepath.Join(outputDir, clean), 0o700); err != nil {
 			return fmt.Errorf("create branch transcript directory %s: %w", relPath, err)
 		}
 	}
@@ -1778,7 +2018,7 @@ func writeJSONFile(path string, value any) error {
 		return fmt.Errorf("encode %s: %w", filepath.Base(path), err)
 	}
 	data = append(data, '\n')
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := writeFileAtomic(path, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
 	}
 	return nil
@@ -1883,15 +2123,6 @@ func buildBranchDirectories(sessions []exportSession, defaultBranch string) map[
 	}
 	defaultDir := filepath.Join(exportSessionsDirectory, safePathComponent(defaultBranch, "main", 80))
 
-	slugCounts := make(map[string]int)
-	for _, branch := range branches {
-		if branch == "" || branch == defaultBranch {
-			continue
-		}
-		slugCounts[safePathComponent(branch, "branch", 100)]++
-	}
-
-	nextCollisionIndex := make(map[string]int)
 	dirs := make(map[string]string, len(branches))
 	for _, branch := range branches {
 		switch {
@@ -1900,15 +2131,16 @@ func buildBranchDirectories(sessions []exportSession, defaultBranch string) map[
 		case branch == "":
 			dirs[branch] = filepath.Join(exportSessionsDirectory, exportUnknownDirectory)
 		default:
-			slug := safePathComponent(branch, "branch", 100)
-			if slugCounts[slug] > 1 {
-				nextCollisionIndex[slug]++
-				slug = fmt.Sprintf("%s-%d", slug, nextCollisionIndex[slug])
-			}
-			dirs[branch] = filepath.Join(exportSessionsDirectory, exportBranchesDirectory, slug)
+			dirs[branch] = filepath.Join(exportSessionsDirectory, exportBranchesDirectory, stableBranchDirComponent(branch))
 		}
 	}
 	return dirs
+}
+
+func stableBranchDirComponent(branch string) string {
+	slug := safePathComponent(branch, "branch", 80)
+	sum := sha256.Sum256([]byte(branch))
+	return slug + "-" + hex.EncodeToString(sum[:])[:8]
 }
 
 func summarizeBranchExports(sessions []exportSession, branchDirs map[string]string, defaultBranch string) []exportBranch {

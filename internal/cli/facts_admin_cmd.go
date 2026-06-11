@@ -17,6 +17,7 @@ func newFactsCommand(opts Options) *cobra.Command {
 		Args:  cobra.NoArgs,
 	}
 	cmd.AddCommand(newFactsTreeCommand(opts))
+	cmd.AddCommand(newFactsStatusCommand(opts))
 	cmd.AddCommand(newFactsEvalCommand(opts))
 	cmd.AddCommand(newFactsEvalGenCommand(opts))
 	cmd.AddCommand(newFactsEvalCompareCommand(opts))
@@ -45,22 +46,27 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			facts, err := loadFacts(brainDir, resolvedBranch)
-			if err != nil {
-				return err
-			}
 			now := opts.Now().UTC()
-			found, changed := retractFact(facts, factID, now)
-			if !found {
-				return fmt.Errorf("no fact %s on %s", factID, resolvedBranch)
-			}
-			if changed {
+			changed := false
+			if err := withBrainWriteLock(brainDir, func() error {
+				facts, err := loadFacts(brainDir, resolvedBranch)
+				if err != nil {
+					return err
+				}
+				found, didChange := retractFact(facts, factID, now)
+				if !found {
+					return fmt.Errorf("no fact %s on %s", factID, resolvedBranch)
+				}
+				changed = didChange
+				if !changed {
+					return nil
+				}
 				if err := writeFacts(brainDir, resolvedBranch, facts); err != nil {
 					return err
 				}
-				if err := updateFactSourceManifest(brainDir, now); err != nil {
-					return err
-				}
+				return updateFactSourceManifestLocked(brainDir, now)
+			}); err != nil {
+				return err
 			}
 			if jsonOut {
 				return writeJSON(cmd, map[string]any{"id": factID, "branch": resolvedBranch, "status": factStatusRetracted, "changed": changed})
@@ -117,18 +123,18 @@ type factsReviewActions struct {
 }
 
 func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, act factsReviewActions) error {
-	proposals, err := loadFactProposals(brainDir, branch)
-	if err != nil {
-		return err
-	}
-	facts, err := loadFacts(brainDir, branch)
-	if err != nil {
-		return err
-	}
 	now := opts.Now().UTC()
 
 	// No resolution requested: list pending proposals.
 	if act.apply == "" && act.reject == "" && !act.applyAll && !act.rejectAll {
+		proposals, err := loadFactProposals(brainDir, branch)
+		if err != nil {
+			return err
+		}
+		facts, err := loadFacts(brainDir, branch)
+		if err != nil {
+			return err
+		}
 		if act.jsonOut {
 			return writeJSON(cmd, map[string]any{"branch": branch, "proposals": proposals})
 		}
@@ -143,41 +149,52 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 		return nil
 	}
 
-	resolved := 0
-	keep := proposals[:0:0]
-	for _, p := range proposals {
-		applyThis := act.applyAll || p.CandidateID == act.apply
-		rejectThis := act.rejectAll || p.CandidateID == act.reject
-		switch {
-		case applyThis:
-			updated, applyErr := applyProposal(facts, p, now)
-			if applyErr != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "skip stale proposal %s: %v\n", p.CandidateID, applyErr)
-				resolved++ // drop the stale proposal
-				continue
-			}
-			facts = updated
-			resolved++
-		case rejectThis:
-			facts = rejectProposal(facts, p)
-			resolved++
-		default:
-			keep = append(keep, p)
+	resolved, remaining := 0, 0
+	if err := withBrainWriteLock(brainDir, func() error {
+		proposals, err := loadFactProposals(brainDir, branch)
+		if err != nil {
+			return err
 		}
-	}
-	if resolved == 0 {
-		return fmt.Errorf("no proposal matched")
-	}
-	if err := writeFacts(brainDir, branch, facts); err != nil {
+		facts, err := loadFacts(brainDir, branch)
+		if err != nil {
+			return err
+		}
+		keep := proposals[:0:0]
+		for _, p := range proposals {
+			applyThis := act.applyAll || p.CandidateID == act.apply
+			rejectThis := act.rejectAll || p.CandidateID == act.reject
+			switch {
+			case applyThis:
+				updated, applyErr := applyProposal(facts, p, now)
+				if applyErr != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "skip stale proposal %s: %v\n", p.CandidateID, applyErr)
+					resolved++ // drop the stale proposal
+					continue
+				}
+				facts = updated
+				resolved++
+			case rejectThis:
+				facts = rejectProposal(facts, p)
+				resolved++
+			default:
+				keep = append(keep, p)
+			}
+		}
+		if resolved == 0 {
+			return fmt.Errorf("no proposal matched")
+		}
+		if err := writeFacts(brainDir, branch, facts); err != nil {
+			return err
+		}
+		if err := writeFactProposals(brainDir, branch, keep); err != nil {
+			return err
+		}
+		remaining = len(keep)
+		return updateFactSourceManifestLocked(brainDir, now)
+	}); err != nil {
 		return err
 	}
-	if err := writeFactProposals(brainDir, branch, keep); err != nil {
-		return err
-	}
-	if err := updateFactSourceManifest(brainDir, now); err != nil {
-		return err
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "resolved %d proposal(s) on %s; %d remaining\n", resolved, branch, len(keep))
+	fmt.Fprintf(cmd.OutOrStdout(), "resolved %d proposal(s) on %s; %d remaining\n", resolved, branch, remaining)
 	return nil
 }
 
@@ -239,33 +256,38 @@ func newFactsPromoteCommand(opts Options) *cobra.Command {
 }
 
 func runFactsPromote(cmd *cobra.Command, opts Options, brainDir, from, into, strategy string, jsonOut bool) error {
-	source, err := loadFacts(brainDir, from)
-	if err != nil {
-		return err
-	}
-	target, err := loadFacts(brainDir, into)
-	if err != nil {
-		return err
-	}
 	now := opts.Now().UTC()
-	merged, proposals, promoted := promoteFacts(source, target, strategy, into, now)
-	if err := writeFacts(brainDir, into, merged); err != nil {
-		return err
-	}
-	if len(proposals) > 0 {
-		existing, _ := loadFactProposals(brainDir, into)
-		if err := writeFactProposals(brainDir, into, dedupeProposals(append(existing, proposals...))); err != nil {
+	var promoted, proposalCount int
+	if err := withBrainWriteLock(brainDir, func() error {
+		source, err := loadFacts(brainDir, from)
+		if err != nil {
 			return err
 		}
-	}
-	if err := updateFactSourceManifest(brainDir, now); err != nil {
+		target, err := loadFacts(brainDir, into)
+		if err != nil {
+			return err
+		}
+		merged, proposals, promotedCount := promoteFacts(source, target, strategy, into, now)
+		promoted = promotedCount
+		proposalCount = len(proposals)
+		if err := writeFacts(brainDir, into, merged); err != nil {
+			return err
+		}
+		if len(proposals) > 0 {
+			existing, _ := loadFactProposals(brainDir, into)
+			if err := writeFactProposals(brainDir, into, dedupeProposals(append(existing, proposals...))); err != nil {
+				return err
+			}
+		}
+		return updateFactSourceManifestLocked(brainDir, now)
+	}); err != nil {
 		return err
 	}
-	summary := map[string]any{"from": from, "into": into, "strategy": strategy, "promoted": promoted, "proposals": len(proposals)}
+	summary := map[string]any{"from": from, "into": into, "strategy": strategy, "promoted": promoted, "proposals": proposalCount}
 	if jsonOut {
 		return writeJSON(cmd, summary)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "promoted %d fact(s) from %s into %s (%s); %d conflict(s) queued for review\n", promoted, from, into, strategy, len(proposals))
+	fmt.Fprintf(cmd.OutOrStdout(), "promoted %d fact(s) from %s into %s (%s); %d conflict(s) queued for review\n", promoted, from, into, strategy, proposalCount)
 	return nil
 }
 
@@ -487,10 +509,24 @@ func runFactsGC(cmd *cobra.Command, opts Options, brainDir, branch string, force
 		"applied":   force,
 	}
 	if force {
-		if err := writeFacts(brainDir, branch, result.Kept); err != nil {
-			return err
-		}
-		if err := updateFactSourceManifest(brainDir, now); err != nil {
+		if err := withBrainWriteLock(brainDir, func() error {
+			facts, err := loadFacts(brainDir, branch)
+			if err != nil {
+				return err
+			}
+			taxonomy, err := loadFactTaxonomy(brainDir, now)
+			if err != nil {
+				return err
+			}
+			result = gcFacts(facts, taxonomy, now, retain)
+			summary["pruned"] = len(result.Pruned)
+			summary["orphans"] = len(result.Orphans)
+			summary["remaining"] = len(result.Kept)
+			if err := writeFacts(brainDir, branch, result.Kept); err != nil {
+				return err
+			}
+			return updateFactSourceManifestLocked(brainDir, now)
+		}); err != nil {
 			return err
 		}
 	}

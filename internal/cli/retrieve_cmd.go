@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// retrieve_cmd.go wires the qmd-aligned verbs over the unified text index:
+// retrieve_cmd.go wires the qmd-inspired verbs over the unified text index:
 // search (lexical), vsearch (vector), query (hybrid), and get/multi-get (fetch by
 // id). These verbs subsumed the old per-source inspect kinds (facts/docs/history
 // text). What remains under `inspect` is only what the verbs can't do: symbol-graph
@@ -28,6 +28,7 @@ func newQueryCommand(opts Options) *cobra.Command {
 
 func newRetrieveCommand(opts Options, use string, mode retrievalMode, short string) *cobra.Command {
 	var jsonOut bool
+	var format string
 	var limit int
 	var branch string
 	cmd := &cobra.Command{
@@ -35,11 +36,17 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 		Short: short,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRetrieve(cmd.Context(), cmd, opts, args[0], mode, limit, branch, jsonOut)
+			wantJSON, err := outputWantsJSON(jsonOut, format)
+			if err != nil {
+				return err
+			}
+			return runRetrieve(cmd.Context(), cmd, opts, args[0], mode, limit, branch, wantJSON)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Maximum results")
+	cmd.Flags().IntVarP(&limit, "number", "n", 10, "Maximum results (QMD-style alias for --limit)")
+	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
 	return cmd
 }
@@ -88,34 +95,59 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 
 func newGetCommand(opts Options) *cobra.Command {
 	var jsonOut bool
+	var format string
 	var branch string
 	cmd := &cobra.Command{
 		Use:   "get <id>",
 		Short: "Fetch one item in full by id (fact:… | history:… | doc:…)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGet(cmd.Context(), cmd, opts, []string{args[0]}, branch, jsonOut)
+			wantJSON, err := outputWantsJSON(jsonOut, format)
+			if err != nil {
+				return err
+			}
+			return runGet(cmd.Context(), cmd, opts, []string{args[0]}, branch, wantJSON)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
 	return cmd
 }
 
 func newMultiGetCommand(opts Options) *cobra.Command {
 	var jsonOut bool
+	var format string
 	var branch string
 	cmd := &cobra.Command{
 		Use:   "multi-get <id>...",
 		Short: "Fetch multiple items by id",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGet(cmd.Context(), cmd, opts, args, branch, jsonOut)
+			wantJSON, err := outputWantsJSON(jsonOut, format)
+			if err != nil {
+				return err
+			}
+			return runGet(cmd.Context(), cmd, opts, args, branch, wantJSON)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
 	return cmd
+}
+
+func outputWantsJSON(jsonOut bool, format string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "":
+		return jsonOut, nil
+	case "json":
+		return true, nil
+	case "cli":
+		return false, nil
+	default:
+		return false, fmt.Errorf("--format must be json or cli")
+	}
 }
 
 func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string, branch string, jsonOut bool) error {
@@ -136,7 +168,7 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 		missing = []string{}
 	}
 	if jsonOut {
-		return writeJSON(cmd, map[string]any{"results": found, "missing": missing})
+		return writeJSON(cmd, map[string]any{"branch": resolvedBranch, "results": found, "missing": missing})
 	}
 	for _, r := range found {
 		loc := r.Path

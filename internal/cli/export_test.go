@@ -128,6 +128,174 @@ func TestDiscoverCheckpointsFallsBackToCheckpointRemote(t *testing.T) {
 	}
 }
 
+func TestListAllCheckpointRefsNoEgressSkipsCheckpointRemote(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
+	repoDir := t.TempDir()
+	settingsDir := filepath.Join(repoDir, ".entire")
+	if err := os.MkdirAll(settingsDir, 0o700); err != nil {
+		t.Fatalf("create settings dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(`{
+  "enabled": true,
+  "strategy_options": {
+    "checkpoints_version": 2,
+    "checkpoint_remote": {
+      "provider": "github",
+      "repo": "entireio/cli-checkpoints"
+    }
+  }
+}`), 0o600); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}, sequences: map[string][]fakeCommandResponse{
+		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v2MainRef): {{err: errors.New("local v2 missing")}},
+		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef): {{err: errors.New("local v1 missing")}},
+	}}
+
+	checkpoints, warnings, err := listAllCheckpointRefs(context.Background(), runner, repoDir, 10)
+	if err != nil {
+		t.Fatalf("listAllCheckpointRefs: %v", err)
+	}
+	if len(checkpoints) != 0 {
+		t.Fatalf("expected no checkpoints from remote in no-egress mode, got %+v", checkpoints)
+	}
+	if !strings.Contains(strings.Join(warnings, "\n"), "no_egress") {
+		t.Fatalf("expected no-egress warning, got %v", warnings)
+	}
+	for _, call := range runner.calls {
+		if call.name == "git" && len(call.args) > 0 && call.args[0] == "fetch" {
+			t.Fatalf("no-egress checkpoint discovery must not fetch: %+v", call)
+		}
+	}
+}
+
+func TestDiscoverCheckpointsNoEgressDoesNotRunEntireFallback(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
+	repoDir := t.TempDir()
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}, sequences: map[string][]fakeCommandResponse{
+		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef):   {{err: errors.New("local v1 missing")}},
+		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef): {{err: errors.New("local origin missing")}},
+	}}
+
+	checkpoints, warnings, err := discoverCheckpoints(context.Background(), runner, repoDir, "entire-test", exportScopeAll, 10)
+	if err != nil {
+		t.Fatalf("discoverCheckpoints: %v", err)
+	}
+	if len(checkpoints) != 0 {
+		t.Fatalf("expected no checkpoint fallback in no-egress mode, got %+v", checkpoints)
+	}
+	if !strings.Contains(strings.Join(warnings, "\n"), "branch checkpoint fallback skipped") {
+		t.Fatalf("expected no-egress fallback warning, got %v", warnings)
+	}
+	for _, call := range runner.calls {
+		if call.name == "entire-test" {
+			t.Fatalf("no-egress checkpoint discovery must not run entire fallback: %+v", runner.calls)
+		}
+	}
+}
+
+func TestValidateExportDirAvailableRejectsSymlinkOutput(t *testing.T) {
+	target := t.TempDir()
+	parent := t.TempDir()
+	link := filepath.Join(parent, "brain-link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := validateExportDirAvailable(link); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink output rejection, got %v", err)
+	}
+	if entries, err := os.ReadDir(target); err != nil || len(entries) != 0 {
+		t.Fatalf("symlink target should remain untouched, entries=%d err=%v", len(entries), err)
+	}
+}
+
+func TestRemoveForcedOutputDirRejectsArbitraryJSONManifest(t *testing.T) {
+	outputDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outputDir, exportManifestFileName), []byte(`{"name":"web-app"}`+"\n"), 0o600); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	oldPath := filepath.Join(outputDir, "old.txt")
+	if err := os.WriteFile(oldPath, []byte("old"), 0o600); err != nil {
+		t.Fatalf("write old file: %v", err)
+	}
+
+	err := removeForcedOutputDir(outputDir, "")
+	if err == nil || !strings.Contains(err.Error(), "schema_version") {
+		t.Fatalf("expected arbitrary manifest rejection, got %v", err)
+	}
+	if _, statErr := os.Stat(oldPath); statErr != nil {
+		t.Fatalf("arbitrary manifest output was removed: %v", statErr)
+	}
+}
+
+func TestRemoveForcedOutputDirChecksResolvedSymlinkParent(t *testing.T) {
+	root := t.TempDir()
+	repoDir := filepath.Join(root, "repo")
+	if err := os.MkdirAll(repoDir, 0o700); err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+	if err := writeBrainManifestAndReadme(repoDir, exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   time.Now().UTC(),
+		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: time.Now().UTC()}},
+	}); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	linkRoot := filepath.Join(t.TempDir(), "linked-root")
+	if err := os.Symlink(root, linkRoot); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	linkedRepo := filepath.Join(linkRoot, "repo")
+	err := removeForcedOutputDir(linkedRepo, repoDir)
+	if err == nil || !strings.Contains(err.Error(), "containing the repository") {
+		t.Fatalf("expected resolved repo deletion rejection, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(repoDir, exportManifestFileName)); statErr != nil {
+		t.Fatalf("repo manifest was removed through symlink parent: %v", statErr)
+	}
+}
+
+func TestLoadConfiguredCheckpointSnapshotNoEgressSkipsRemoteFetch(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
+	repoDir := t.TempDir()
+	settingsDir := filepath.Join(repoDir, ".entire")
+	if err := os.MkdirAll(settingsDir, 0o700); err != nil {
+		t.Fatalf("create settings dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(`{
+  "enabled": true,
+  "strategy_options": {
+    "checkpoints_version": 2,
+    "checkpoint_remote": {
+      "provider": "github",
+      "repo": "entireio/cli-checkpoints"
+    }
+  }
+}`), 0o600); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "ls-tree", "-r", "--name-only", v2MainRef): {err: errors.New("local v2 missing")},
+	}}
+
+	snapshot, warnings, err := loadConfiguredCheckpointSnapshot(context.Background(), runner, repoDir, false, 10, checkpointBranchDestinations{}, nil, nil)
+	if snapshot != nil {
+		t.Fatalf("expected no remote snapshot, got %+v", snapshot)
+	}
+	if err == nil || !errors.Is(err, errCheckpointSnapshotUnavailable) {
+		t.Fatalf("expected checkpoint snapshot unavailable, got %v", err)
+	}
+	if !strings.Contains(strings.Join(warnings, "\n"), "no_egress") {
+		t.Fatalf("expected no-egress warning, got %v", warnings)
+	}
+	for _, call := range runner.calls {
+		if call.name == "git" && len(call.args) > 0 && call.args[0] == "fetch" {
+			t.Fatalf("no-egress checkpoint snapshot must not fetch: %+v", call)
+		}
+	}
+}
+
 func TestDiscoverCheckpointsMirrorsV1Settings(t *testing.T) {
 	repoDir := t.TempDir()
 	settingsDir := filepath.Join(repoDir, ".entire")
@@ -839,6 +1007,86 @@ func TestExportRejectsNonEmptyOutputDirectory(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "output directory is not empty") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildBranchDirectoriesStableAcrossSlugCollisions(t *testing.T) {
+	base := buildBranchDirectories([]exportSession{{Branch: "a/b"}}, "main")
+	withCollision := buildBranchDirectories([]exportSession{{Branch: "a/b"}, {Branch: "a-b"}}, "main")
+
+	if base["main"] != filepath.Join(exportSessionsDirectory, "main") {
+		t.Fatalf("default branch directory changed: %q", base["main"])
+	}
+	if base["a/b"] != withCollision["a/b"] {
+		t.Fatalf("branch directory moved when a colliding branch appeared: base=%q collision=%q", base["a/b"], withCollision["a/b"])
+	}
+	if withCollision["a/b"] == withCollision["a-b"] {
+		t.Fatalf("colliding branches share a transcript directory: %+v", withCollision)
+	}
+	if !strings.HasPrefix(withCollision["a/b"], filepath.Join(exportSessionsDirectory, exportBranchesDirectory, "a-b-")) {
+		t.Fatalf("unexpected stable branch directory: %q", withCollision["a/b"])
+	}
+}
+
+func TestReadBrainRelativeFileRejectsSymlinkComponents(t *testing.T) {
+	brainDir := t.TempDir()
+	outsideDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outsideDir, "secret.jsonl"), []byte("outside brain\n"), 0o600); err != nil {
+		t.Fatalf("write outside transcript: %v", err)
+	}
+	if err := os.Symlink(outsideDir, filepath.Join(brainDir, "sessions")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	content, err := readBrainRelativeFile(brainDir, "sessions/secret.jsonl")
+	if err == nil {
+		t.Fatalf("expected symlink rejection, read %q", content)
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink error, got %v", err)
+	}
+}
+
+func TestWriteTranscriptFileRejectsSymlinkDirectory(t *testing.T) {
+	outputDir := t.TempDir()
+	outsideDir := t.TempDir()
+	if err := os.Symlink(outsideDir, filepath.Join(outputDir, exportSessionsDirectory)); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	err := writeTranscriptFile(outputDir, filepath.Join(exportSessionsDirectory, "main", "session.jsonl"), []byte("safe\n"))
+	if err == nil {
+		t.Fatal("expected writeTranscriptFile to reject symlink directory")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink error, got %v", err)
+	}
+}
+
+func TestReuseTranscriptFromCursorRejectsSymlinkedTranscript(t *testing.T) {
+	outputDir := t.TempDir()
+	relPath := filepath.Join(exportSessionsDirectory, "main", "session.jsonl")
+	if err := os.MkdirAll(filepath.Join(outputDir, exportSessionsDirectory, "main"), 0o700); err != nil {
+		t.Fatalf("create transcript dir: %v", err)
+	}
+	outsidePath := filepath.Join(t.TempDir(), "outside.jsonl")
+	if err := os.WriteFile(outsidePath, []byte("outside\n"), 0o600); err != nil {
+		t.Fatalf("write outside transcript: %v", err)
+	}
+	if err := os.Symlink(outsidePath, filepath.Join(outputDir, relPath)); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	session := exportSession{Branch: "main", SessionID: "sess1", LatestCheckpoint: "cp1"}
+	cursor := &exportCursor{Sessions: map[string]exportCursorSession{
+		selectedSessionKey(session.Branch, session.SessionID): {
+			LatestCheckpoint: session.LatestCheckpoint,
+			TranscriptMode:   "raw",
+			TranscriptPath:   filepath.ToSlash(relPath),
+		},
+	}}
+
+	if reuseTranscriptFromCursor(outputDir, cursor, session, relPath, "raw") {
+		t.Fatal("expected cursor reuse to reject symlinked transcript")
 	}
 }
 

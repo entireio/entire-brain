@@ -1,16 +1,19 @@
 {
   "id": "entireio-cli-transcript-reresolve",
   "repo": "entire-cli",
-  "repo_path": "/Users/suhaan/Documents/Coding/cli-bench",
+  "repo_path": "cli-bench",
   "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
   "conditions": [
     "no_brain",
     "full_cli_compact",
-    "mcp_history"
+    "mcp_history",
+    "mcp_workspace_radar"
   ],
   "prompt": "Fix the transcript re-resolution regression. When an agent relocates a transcript and the resolver finds the new path, session state must be updated so subsequent reads use the resolved path without repeating discovery.",
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
+  "radar_include_deletions": true,
+  "workspace_name": "release-radar",
   "setup_replacements": [
     {
       "path": "cmd/entire/cli/strategy/resolve_transcript.go",
@@ -28,6 +31,12 @@
   "forbidden_files": [
     "go.mod",
     "go.sum"
+  ],
+  "agent_hidden_paths": [
+    "benchmarks/agent-brain"
+  ],
+  "leak_markers": [
+    "release-radar-transcript-reresolve-canary-20260610T0530Z"
   ],
   "brain_queries": [
     "resolveTranscriptPath",

@@ -1,7 +1,7 @@
 {
   "id": "swe-style-entire-brain-history-github-visibility",
   "repo": "entire-brain",
-  "repo_path": "/Users/thomi/Projects/entire-brain",
+  "repo_path": "entire-brain",
   "conditions": ["no_brain", "full_brain"],
   "prepare_semantic": false,
   "prompt": "Issue: semantic snapshots no longer include GitHub workflow/tooling metadata. A default ignore rule seems to be hiding too much. Restore the intended visibility without exposing the actual .git directory.",

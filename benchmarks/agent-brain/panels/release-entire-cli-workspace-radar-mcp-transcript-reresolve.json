@@ -1,0 +1,15 @@
+{
+  "name": "release-entire-cli-workspace-radar-mcp-transcript-reresolve",
+  "description": "Focused MCP workspace-radar calibration panel for a deletion-shaped transcript re-resolution regression. The task declares radar_include_deletions and the mcp_workspace_radar condition calls brain_workspace_regressions with location_only so the tool localizes the repo/file/line while withholding expected/current fix text.",
+  "runners": [
+    "codex:gpt-5.4-mini:medium"
+  ],
+  "conditions": [
+    "no_brain",
+    "mcp_workspace_radar"
+  ],
+  "repetitions": 4,
+  "tasks": [
+    "entireio-cli-transcript-reresolve.json"
+  ]
+}

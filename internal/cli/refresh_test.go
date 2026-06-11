@@ -13,6 +13,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func TestDefaultRefreshAgentHonorsNoEgressMode(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("codex", "--version"):  {stdout: "codex 1.0"},
+		fakeCommandKey("claude", "--version"): {stdout: "claude 1.0"},
+	}}
+	if got := defaultRefreshAgent(context.Background(), runner, t.TempDir()); got != "none" {
+		t.Fatalf("defaultRefreshAgent in no-egress mode = %q, want none", got)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("no-egress auto-selection should not probe hosted agents, calls=%+v", runner.calls)
+	}
+}
+
 func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 	repoDir := seedFixtureRepo(t)
 	dataDir := filepath.Join(t.TempDir(), "data")
@@ -115,6 +129,34 @@ func TestRefreshOutputRequiresEmptyDirectoryUnlessForced(t *testing.T) {
 	}
 	if len(runner.calls) != 0 {
 		t.Fatalf("refresh touched runner before output validation: %+v", runner.calls)
+	}
+}
+
+func TestRefreshForceOutputRefusesRepoRoot(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	sentinel := filepath.Join(repoDir, "sentinel.txt")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := seedFixtureRunner(repoDir)
+	cmd := NewRootCommand(Options{
+		Version: "test-version",
+		Env: EntireEnv{
+			RepoRoot:        repoDir,
+			PluginConfigDir: filepath.Join(t.TempDir(), "config"),
+			PluginDataDir:   filepath.Join(t.TempDir(), "data"),
+			PluginStateDir:  filepath.Join(t.TempDir(), "state"),
+			PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
+		},
+		Runner: runner,
+		Now:    time.Now,
+	})
+	out, err := execute(t, cmd, "refresh", "--output", repoDir, "--force")
+	if err == nil || !strings.Contains(err.Error(), "refuses to remove") {
+		t.Fatalf("refresh --force --output repo root err = %v\n%s", err, out)
+	}
+	if data, err := os.ReadFile(sentinel); err != nil || string(data) != "keep" {
+		t.Fatalf("sentinel was removed or changed: %q err=%v", data, err)
 	}
 }
 

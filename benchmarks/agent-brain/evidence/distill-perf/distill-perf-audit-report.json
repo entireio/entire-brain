@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "manifest": "benchmarks/agent-brain/evidence/distill-perf/manifest.json",
+  "status": "pass",
+  "release_evidence": true,
+  "target": {
+    "repo": "github.com/ashtom/entire-brain",
+    "repo_key": "gh/ashtom/entire-brain",
+    "source_head": "d7a5968883b5a30aea8f5a6fe71ffa7aa63e52dc",
+    "brain_manifest_sha256": "sha256:94db24afdb46051654fd19587159ca3ba5aea46dab49be784a2b1b0a307afe07",
+    "claim_scope": "current-repo local command-agent distill extraction scheduling speedup"
+  },
+  "min_speedup": 1.25,
+  "speedup": 3.155729658673283,
+  "dry_run": {
+    "sessions": 158,
+    "sessions_to_distill": 158,
+    "chunks": 185,
+    "preprocessed_bytes": 11748560,
+    "estimated_agent_calls_upper_bound": 370
+  },
+  "serial_run": {
+    "jobs": 1,
+    "extraction_jobs_cap": 1,
+    "total_seconds": 18.492025125,
+    "total_agent_calls": 335
+  },
+  "parallel_run": {
+    "jobs": 4,
+    "extraction_jobs_cap": 4,
+    "total_seconds": 5.8598255,
+    "total_agent_calls": 335
+  },
+  "source_hashes": {
+    "repo_root": ".",
+    "required_paths": [
+      "internal/cli/distill.go",
+      "internal/cli/distill_cmd.go",
+      "internal/cli/distill_test.go",
+      "internal/cli/distill_cmd_test.go",
+      "benchmarks/agent-brain/audit_distill_perf.py",
+      "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py"
+    ],
+    "matched_paths": [
+      "internal/cli/distill.go",
+      "internal/cli/distill_cmd.go",
+      "internal/cli/distill_test.go",
+      "internal/cli/distill_cmd_test.go",
+      "benchmarks/agent-brain/audit_distill_perf.py",
+      "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py"
+    ]
+  },
+  "local_ollama_contract": {
+    "artifact": "go-test-internal-cli-ollama-distill.jsonl",
+    "sha256": "sha256:bc511ffa73e42b3b65dcbb8cb2139989d987e367e0ff7a7ff9d5739640c2230e",
+    "command": [
+      "go",
+      "test",
+      "-count=1",
+      "-json",
+      "./internal/cli",
+      "-run",
+      "Test(DistillCommandOllamaLoopbackProducesTimedSummary|ExecOllamaDistillAgentUsesLoopbackGenerateAPI|ExecOllamaDistillAgentIgnoresProxyTransport|ExecOllamaDistillAgentIgnoresCustomTLSDialHook|ExecOllamaDistillAgentRejectsNonLoopbackURL|ExecOllamaDistillAgentRejectsNonLoopbackRedirect|IsLoopbackHTTPURLAllowsFullLoopbackRange|LoopbackOnlyDialContextRejectsNonLoopbackTargets|LoopbackOnlyDialContextAllowsLocalhostResolution)$"
+    ],
+    "source_head": "848909cb75f7c0a0075d7509e6c3ec3b1682e3d8",
+    "source_paths": [
+      "internal/cli/distill.go",
+      "internal/cli/distill_cmd.go",
+      "internal/cli/distill_test.go",
+      "internal/cli/distill_cmd_test.go"
+    ],
+    "package_passed": true,
+    "required_tests": [
+      "TestDistillCommandOllamaLoopbackProducesTimedSummary",
+      "TestExecOllamaDistillAgentUsesLoopbackGenerateAPI",
+      "TestExecOllamaDistillAgentIgnoresProxyTransport",
+      "TestExecOllamaDistillAgentIgnoresCustomTLSDialHook",
+      "TestExecOllamaDistillAgentRejectsNonLoopbackURL",
+      "TestExecOllamaDistillAgentRejectsNonLoopbackRedirect",
+      "TestIsLoopbackHTTPURLAllowsFullLoopbackRange",
+      "TestLoopbackOnlyDialContextRejectsNonLoopbackTargets",
+      "TestLoopbackOnlyDialContextAllowsLocalhostResolution"
+    ],
+    "passed_required_tests": [
+      "TestDistillCommandOllamaLoopbackProducesTimedSummary",
+      "TestExecOllamaDistillAgentIgnoresCustomTLSDialHook",
+      "TestExecOllamaDistillAgentIgnoresProxyTransport",
+      "TestExecOllamaDistillAgentRejectsNonLoopbackRedirect",
+      "TestExecOllamaDistillAgentRejectsNonLoopbackURL",
+      "TestExecOllamaDistillAgentUsesLoopbackGenerateAPI",
+      "TestIsLoopbackHTTPURLAllowsFullLoopbackRange",
+      "TestLoopbackOnlyDialContextAllowsLocalhostResolution",
+      "TestLoopbackOnlyDialContextRejectsNonLoopbackTargets"
+    ]
+  },
+  "flags": [],
+  "notes": []
+}

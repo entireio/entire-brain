@@ -1,7 +1,7 @@
 {
   "id": "entire-brain-history-claude-seed-agent",
   "repo": "entire-brain",
-  "repo_path": "/Users/thomi/Projects/entire-brain",
+  "repo_path": "entire-brain",
   "conditions": ["no_brain", "full_brain"],
   "prepare_semantic": false,
   "prompt": "A checkpointed implementation added support for the second first-party seed synthesis agent and its matching intake template. A regression removed that support, the tests, and the docs. Restore the prior checkpointed behavior and keep the agent invocation isolated from project configuration.",

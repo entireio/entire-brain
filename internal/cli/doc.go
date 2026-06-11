@@ -70,11 +70,15 @@ func firstHeading(text string) string {
 // unreadable file doesn't lose the whole index) and surfaced via the manifest.
 func loadDocRecordsFromSeed(brainDir string) (records []docRecord, files int, warnings []string, err error) {
 	seedDir := filepath.Join(brainDir, seedDirName)
-	if _, statErr := os.Stat(seedDir); statErr != nil {
+	info, statErr := os.Lstat(seedDir)
+	if statErr != nil {
 		if os.IsNotExist(statErr) {
 			return nil, 0, nil, nil // no seed yet; not an error
 		}
 		return nil, 0, nil, statErr // a real stat failure (e.g. permissions) must not look like an empty index
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, 0, []string{"skip seed: path component must not be a symlink: seed"}, nil
 	}
 	relTo := func(path string) string {
 		if rel, relErr := filepath.Rel(brainDir, path); relErr == nil {
@@ -90,12 +94,17 @@ func loadDocRecordsFromSeed(brainDir string) (records []docRecord, files int, wa
 		if d.IsDir() || !strings.HasSuffix(strings.ToLower(path), ".md") {
 			return nil
 		}
-		data, rErr := os.ReadFile(path)
-		if rErr != nil {
-			warnings = append(warnings, fmt.Sprintf("read %s: %v", relTo(path), rErr))
+		rel := relTo(path)
+		clean := filepath.Clean(filepath.FromSlash(rel))
+		if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+			warnings = append(warnings, fmt.Sprintf("skip %s: %v", rel, err))
 			return nil
 		}
-		rel := relTo(path)
+		data, rErr := os.ReadFile(path)
+		if rErr != nil {
+			warnings = append(warnings, fmt.Sprintf("read %s: %v", rel, rErr))
+			return nil
+		}
 		files++
 		for _, c := range chunkLines(string(data), maxDocChunkBytes, false) {
 			if strings.TrimSpace(c.Text) == "" {
@@ -121,6 +130,16 @@ func loadDocRecordsFromSeed(brainDir string) (records []docRecord, files int, wa
 // writeDocIndexAndSource builds and persists the doc index + manifest source from
 // the seed markdown. It mirrors writeBrainHistoryIndexAndSource.
 func writeDocIndexAndSource(brainDir string, now time.Time) (*docSourceManifest, error) {
+	var source *docSourceManifest
+	err := withBrainWriteLock(brainDir, func() error {
+		var runErr error
+		source, runErr = writeDocIndexAndSourceLocked(brainDir, now)
+		return runErr
+	})
+	return source, err
+}
+
+func writeDocIndexAndSourceLocked(brainDir string, now time.Time) (*docSourceManifest, error) {
 	records, files, warnings, err := loadDocRecordsFromSeed(brainDir)
 	if err != nil {
 		return nil, err
@@ -131,12 +150,12 @@ func writeDocIndexAndSource(brainDir string, now time.Time) (*docSourceManifest,
 		return nil, err
 	}
 	data = append(data, '\n')
-	if err := writeFileAtomic(filepath.Join(brainDir, filepath.FromSlash(docIndexPath)), data, 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(brainDir, docIndexPath, data, 0o600); err != nil {
 		return nil, fmt.Errorf("write doc index: %w", err)
 	}
 	source := &docSourceManifest{GeneratedAt: now, IndexPath: docIndexPath, Records: len(records), Files: files, Warnings: warnings}
 	// Build the derived BM25 index alongside its truth (best-effort).
-	if db, ftsErr := openDocFTS(brainDir, index); ftsErr == nil {
+	if db, ftsErr := openDocFTSLocked(brainDir, index); ftsErr == nil {
 		_ = db.Close()
 	}
 	manifest, err := loadBrainManifest(brainDir)
@@ -161,8 +180,8 @@ func writeDocIndexAndSource(brainDir string, now time.Time) (*docSourceManifest,
 // model switch triggers a clean rebuild. This is the pure-Go stand-in for
 // sqlite-vec — brute-force cosine over a cached set, fast at the brain's scale.
 func newDocEmbedStore(brainDir, modelID string, dim int) *embedStore {
-	dir := filepath.Join(brainDir, docDirName, embedStoreDirName)
-	return &embedStore{path: filepath.Join(dir, embedStoreFileName), modelID: modelID, dim: dim}
+	rel := filepath.ToSlash(filepath.Join(docDirName, embedStoreDirName, embedStoreFileName))
+	return &embedStore{path: filepath.Join(brainDir, filepath.FromSlash(rel)), brainDir: brainDir, relPath: rel, modelID: modelID, dim: dim}
 }
 
 func loadDocIndex(brainDir string) (docIndex, error) {

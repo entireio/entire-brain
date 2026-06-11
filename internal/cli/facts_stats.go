@@ -147,20 +147,28 @@ func pairedTTest(a, b []float64) pairedStats {
 // level alpha, returning per-input rejection flags (true = significant after
 // correction).
 func holmReject(pvals []float64, alpha float64) []bool {
+	reject, _ := holmRejectWithThresholds(pvals, alpha)
+	return reject
+}
+
+func holmRejectWithThresholds(pvals []float64, alpha float64) ([]bool, []float64) {
 	n := len(pvals)
 	reject := make([]bool, n)
+	thresholds := make([]float64, n)
 	order := make([]int, n)
 	for i := range order {
 		order[i] = i
 	}
 	sort.SliceStable(order, func(i, j int) bool { return pvals[order[i]] < pvals[order[j]] })
 	for rank, idx := range order {
-		threshold := alpha / float64(n-rank)
-		if pvals[idx] <= threshold {
+		thresholds[idx] = alpha / float64(n-rank)
+	}
+	for _, idx := range order {
+		if pvals[idx] <= thresholds[idx] {
 			reject[idx] = true
 		} else {
 			break // step-down: once one fails, all larger fail
 		}
 	}
-	return reject
+	return reject, thresholds
 }

@@ -3,7 +3,6 @@ package cli
 import (
 	"database/sql"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -32,6 +31,10 @@ func docFTSDBPath(brainDir string) string {
 	return filepath.Join(brainDir, docDirName, docFTSFileName)
 }
 
+func docFTSDBRelPath() string {
+	return filepath.ToSlash(filepath.Join(docDirName, docFTSFileName))
+}
+
 func docFTSContent(r docRecord) string {
 	raw := r.Heading + " " + r.Text + " " + r.Path
 	return normalizeHistorySearchText(raw) + " " + strings.ToLower(raw)
@@ -42,8 +45,18 @@ func docFTSFingerprint(index docIndex) string {
 }
 
 func openDocFTS(brainDir string, index docIndex) (*sql.DB, error) {
-	path := docFTSDBPath(brainDir)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	var db *sql.DB
+	err := withBrainWriteLock(brainDir, func() error {
+		var runErr error
+		db, runErr = openDocFTSLocked(brainDir, index)
+		return runErr
+	})
+	return db, err
+}
+
+func openDocFTSLocked(brainDir string, index docIndex) (*sql.DB, error) {
+	path, err := prepareBrainRelativeSQLiteFile(brainDir, docFTSDBRelPath())
+	if err != nil {
 		return nil, err
 	}
 	db, err := sql.Open(sqliteDriverName, path)

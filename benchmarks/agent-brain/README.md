@@ -85,6 +85,11 @@ generation metrics, command durations, and cache hit/miss metadata.
 
 Each `record.json` includes:
 
+- `provenance` with the harness HEAD, source repo HEAD, source base commit used
+  for the archived worktree, task config hash, runner/config fingerprint, and
+  tool binary hashes. If a task omits `base_commit`, the recorded source base
+  must match the recorded source HEAD. If a task pins `base_commit`, the base
+  commit is recorded separately from source HEAD.
 - `agent_info.seconds` for wall-clock agent duration.
 - `brain_prep.commands[].seconds` for seed/export/index setup cost.
 - `validation.results[].seconds` for validation command duration.
@@ -111,13 +116,15 @@ MCP-specific conditions are separate from CLI/context-file delivery:
 - `full_cli_compact`: full Brain prep delivered through `brain brief` only:
   compact history hits, likely files/tests, and action checklist; no raw
   history excerpt file.
-- `mcp_semantic`: local `entire brain mcp` semantic tools only.
+- `mcp_semantic`: local `entire brain mcp` semantic graph tools only
+  (`brain_stale`, `brain_context`, `brain_impact`, `brain_changes`,
+  `brain_code`); unified `brain_query` retrieval is intentionally excluded from
+  this condition.
 - `mcp_history`: local `entire brain mcp` with `brain_brief` and indexed-history
   retrieval; no history excerpt file is provided as a shortcut.
-  > Note: this condition predates the qmd-retrieval refactor. The `brain_history`
-  > tool it was built around was removed (history is now a source within the
-  > unified `brain_query`/`brain_search` verbs), so the harness's `mcp_history`
-  > wiring needs a separate methodology update before this condition runs again.
+  > Note: this condition uses `brain_brief` plus unified `brain_search` /
+  > `brain_query` retrieval. The old dedicated `brain_history` tool was removed;
+  > history is now one source within the unified retrieval verbs.
 
 For a fast MCP session-history smoke on the local Ultron repo:
 
@@ -149,6 +156,16 @@ the brain condition is demonstrably cheaper or faster at equivalent correctness.
 Scenario prompts should withhold exact file names, test names, and prior
 rationale from no-brain runs when those facts are supposed to come from
 checkpoint/session history.
+
+When `hide_validation_from_agent` is true, tasks may set `leak_markers` to
+high-entropy canaries that should never appear in agent output. If omitted, the
+harness falls back to treating the hidden validation commands themselves as leak
+markers, which is intentionally strict but can false-flag agents that
+independently discover the same focused test command.
+
+Tasks that do not exercise the benchmark harness itself may set
+`agent_hidden_paths`, for example `["benchmarks/agent-brain"]`, to remove extra
+local scaffolding from the disposable worktree before the agent runs.
 
 Runner matrixes are supported with `--runners`. Specs are
 `agent[:model[:effort]]`, optionally prefixed by a stable id:
@@ -231,9 +248,48 @@ A/B/C scenarios, not a Phase 2 layer.
 
 The discovery ledger is not the same as statistical proof. It records why each
 scenario should favor the brain, which brain source should matter, which metric
-should retain the scenario, and which repetitions are needed. Existing repeated
-agent-run proof signals from local `results/*/summary.json` files are folded
-into the report separately.
+should retain the scenario, and which repetitions are needed. Local
+`results/*/summary.json` files are ignored working artifacts; treat them as
+leads until a retained subset is audited and committed under
+`benchmarks/agent-brain/evidence/release`. For release evidence, run:
+
+```sh
+python3 benchmarks/agent-brain/audit_codex.py \
+  --results <retained-results-dir> \
+  --out-dir <proof-output-dir> \
+  --suite-glob '<suite-pattern>' \
+  --fail-on-flags \
+  --min-suites <n> \
+  --min-records <n> \
+  --min-proof-ready <n>
+```
+
+The repo-level release gate is:
+
+```sh
+mise run release:evidence
+```
+
+That gate reads `benchmarks/agent-brain/evidence/release/manifest.json`,
+audits only suite directories matching `release-candidate-*`, rejects
+`release-local-*`, and enforces the manifest thresholds: currently 2 suites, 16
+records, 2 proof-ready comparisons, 4 repetitions per side, panel provenance,
+zero hard flags, at least one proof-ready comparison per retained suite, and
+required proof scopes `history` and generic `mcp`.
+
+The release evidence manifest lives at
+`benchmarks/agent-brain/evidence/release/manifest.json`; it records the citable
+suite pattern and minimum proof thresholds. Do not cite benchmark results from
+outside that retained lane.
+
+Audit mode treats missing or malformed provenance as a hard integrity flag. A
+release audit must therefore be able to show, per record, which harness revision,
+source base/head commits, task config hash, runner/config fingerprint, and tool
+hashes produced the result. Ignored `results/` panels remain
+quarantine/reference evidence unless copied or regenerated into the
+provenance-complete retained lane under
+`benchmarks/agent-brain/evidence/release` and passing `mise run
+release:evidence`.
 
 For a SWE-bench-style matrix, tag tasks with `source` and `suite_tags`. The
 current harness already supports the essential SWE shape: issue prompt,

@@ -1,8 +1,9 @@
 {
   "id": "entire-brain-history-github-visibility",
   "repo": "entire-brain",
-  "repo_path": "/Users/thomi/Projects/entire-brain",
+  "repo_path": "entire-brain",
   "conditions": ["no_brain", "full_brain"],
+  "copy_checkpoint_ref_from_source": true,
   "prepare_semantic": false,
   "prompt": "A previous review found that one built-in ignore rule overmatched repository metadata and hid workflow/tooling files from semantic snapshots. A regression brought that overmatch back. Restore the intended default visibility from project history.",
   "setup_replacements": [
@@ -21,7 +22,9 @@
   ],
   "expected_files": ["internal/cli/semantic.go"],
   "forbidden_files": ["go.mod", "go.sum"],
+  "agent_hidden_paths": ["benchmarks/agent-brain"],
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
+  "leak_markers": ["release-history-github-visibility-canary-20260610T0018Z"],
   "brain_queries": [".github visible default ignore", "git ignore matching too broad", "workflow files semantic snapshot"]
 }

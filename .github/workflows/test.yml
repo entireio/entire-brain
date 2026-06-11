@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
         with: { go-version: "1.26.2" }
-      - run: go test ./...
+      - run: go test -race ./...
 
   # Stage 1b cgo stack: mattn/go-sqlite3 + sqlite-vec (vec0) + FTS5. The
   # default jobs above stay pure-Go and prove the cgo-less fallback; this lane
@@ -85,3 +85,100 @@ jobs:
         run: go mod download
       - name: Run deterministic Phase 1 semantic tests
         run: go test -race ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'
+
+  release-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Check retained release evidence
+        run: |
+          set -e
+          python3 benchmarks/agent-brain/run_test.py
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          python3 benchmarks/agent-brain/audit_codex.py \
+            --results benchmarks/agent-brain/evidence/release \
+            --release-manifest benchmarks/agent-brain/evidence/release/manifest.json \
+            --out-dir "$tmp" \
+            --fail-on-flags
+          python3 benchmarks/agent-brain/audit_radar_evidence.py \
+            --results benchmarks/agent-brain/evidence/release \
+            --suite-glob 'release-candidate-*' \
+            --out-dir "$tmp" \
+            --codex-audit-report "$tmp/codex-audit-report.json" \
+            --fail-when-no-proof
+          python3 benchmarks/agent-brain/audit_radar_tool_evidence.py \
+            --manifest benchmarks/agent-brain/evidence/radar-tool/manifest.json \
+            --repo-root . \
+            --out-dir "$tmp" \
+            --fail-on-flags
+          python3 benchmarks/agent-brain/audit_workspace_radar_evidence.py \
+            --manifest benchmarks/agent-brain/evidence/workspace-radar/manifest.json \
+            --out-dir "$tmp" \
+            --fail-on-flags
+          python3 benchmarks/agent-brain/audit_distill_perf.py \
+            --manifest benchmarks/agent-brain/evidence/distill-perf/manifest.json \
+            --out-dir "$tmp" \
+            --fail-on-flags
+          python3 benchmarks/agent-brain/audit_facts_eval.py \
+            --manifest benchmarks/agent-brain/evidence/facts-eval/manifest.json \
+            --out-dir "$tmp" \
+            --fail-on-flags
+          python3 benchmarks/agent-brain/audit_release_matrix.py \
+            --manifest benchmarks/agent-brain/evidence/release-matrix/manifest.json \
+            --out-dir "$tmp" \
+            --fail-on-flags
+          for report in codex-audit-report.json codex-audit-report.md; do
+            committed="benchmarks/agent-brain/evidence/release/$report"
+            generated="$tmp/$report"
+            if ! cmp -s "$committed" "$generated"; then
+              echo "retained release evidence report is stale: $report" >&2
+              diff -u "$committed" "$generated" >&2 || true
+              exit 1
+            fi
+          done
+          for report in radar-tool-audit-report.json radar-tool-audit-report.md; do
+            committed="benchmarks/agent-brain/evidence/radar-tool/$report"
+            generated="$tmp/$report"
+            if ! cmp -s "$committed" "$generated"; then
+              echo "retained Radar tool evidence report is stale: $report" >&2
+              diff -u "$committed" "$generated" >&2 || true
+              exit 1
+            fi
+          done
+          for report in workspace-radar-audit-report.json workspace-radar-audit-report.md; do
+            committed="benchmarks/agent-brain/evidence/workspace-radar/$report"
+            generated="$tmp/$report"
+            if ! cmp -s "$committed" "$generated"; then
+              echo "retained workspace Radar evidence report is stale: $report" >&2
+              diff -u "$committed" "$generated" >&2 || true
+              exit 1
+            fi
+          done
+          for report in distill-perf-audit-report.json distill-perf-audit-report.md; do
+            committed="benchmarks/agent-brain/evidence/distill-perf/$report"
+            generated="$tmp/$report"
+            if ! cmp -s "$committed" "$generated"; then
+              echo "retained distill performance evidence report is stale: $report" >&2
+              diff -u "$committed" "$generated" >&2 || true
+              exit 1
+            fi
+          done
+          for report in facts-eval-audit-report.json facts-eval-audit-report.md; do
+            committed="benchmarks/agent-brain/evidence/facts-eval/$report"
+            generated="$tmp/$report"
+            if ! cmp -s "$committed" "$generated"; then
+              echo "retained facts eval evidence report is stale: $report" >&2
+              diff -u "$committed" "$generated" >&2 || true
+              exit 1
+            fi
+          done
+          for report in release-matrix-report.json release-matrix-report.md; do
+            committed="benchmarks/agent-brain/evidence/release-matrix/$report"
+            generated="$tmp/$report"
+            if ! cmp -s "$committed" "$generated"; then
+              echo "retained release matrix report is stale: $report" >&2
+              diff -u "$committed" "$generated" >&2 || true
+              exit 1
+            fi
+          done

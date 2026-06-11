@@ -45,14 +45,15 @@ type brainShowOptions struct {
 }
 
 type brainStatusReport struct {
-	GeneratedAt time.Time          `json:"generated_at"`
-	Repo        brainStatusRepo    `json:"repo"`
-	Brain       brainStatusBrain   `json:"brain"`
-	Sources     brainStatusSources `json:"sources"`
-	Freshness   *staleReport       `json:"freshness,omitempty"`
-	Live        brainLiveState     `json:"live"`
-	Warnings    []string           `json:"warnings,omitempty"`
-	Manifest    *exportManifest    `json:"manifest,omitempty"`
+	GeneratedAt  time.Time          `json:"generated_at"`
+	Repo         brainStatusRepo    `json:"repo"`
+	Brain        brainStatusBrain   `json:"brain"`
+	Sources      brainStatusSources `json:"sources"`
+	Verification *verifySummary     `json:"verification,omitempty"`
+	Freshness    *staleReport       `json:"freshness,omitempty"`
+	Live         brainLiveState     `json:"live"`
+	Warnings     []string           `json:"warnings,omitempty"`
+	Manifest     *exportManifest    `json:"manifest,omitempty"`
 }
 
 type brainStatusRepo struct {
@@ -455,8 +456,8 @@ Orient first (what is this project?):
 Then, for a task:
   entire brain brief "<task>" --json
 
-Retrieval (qmd-aligned verbs; search/vsearch/query take --json/--limit/--branch,
-get/multi-get take --json/--branch):
+Retrieval (qmd-inspired verbs; search/vsearch/query take --json/--format json|cli/--limit/-n/--branch,
+get/multi-get take --json/--format json|cli/--branch):
   entire brain query "<query>" --json       # hybrid (lexical+vector, RRF) — the default
   entire brain search "<query>" --json      # lexical keyword over facts + history + docs (BM25 for history/docs)
   entire brain vsearch "<query>" --json     # vector/semantic over facts + docs
@@ -472,10 +473,13 @@ Small top-level surface:
   entire brain guide
   entire brain path [repo]
   entire brain stale [repo] --blind-spots   # files the semantic index could not parse
+  entire brain semantic-audit [repo] --json # semantic coverage/freshness/blind spots
 
 Durable facts (curated, provenance-anchored repo knowledge):
+  entire brain distill --dry-run --json
   entire brain recall "<query>" [--scope local|cross-cutting] [--expand] --json
   entire brain remember "<fact>" [--path category.sub.type] --json
+  entire brain verify [<fact-id | query>] --json
   entire brain facts tree [--path <prefix>] [--depth N]
   entire brain facts retract <fact-id> --json
   entire brain inspect blame <fact-id> --json   # source anchors a fact was derived from
@@ -487,7 +491,7 @@ Specialist tools (symbol graph + regression analysis — what the verbs can't do
   entire brain inspect changes --json
   entire brain inspect tests "<query>" --json
   entire brain inspect boundaries --kind route|tool|workflow --json
-  entire brain inspect regressions "<query>" --json
+  entire brain inspect regressions "<query>" --location-only [--include-deletions] --json
 
 Search tips:
   - query first (fuses keyword + concept); fall back to search for exact
@@ -643,6 +647,7 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 	if err != nil {
 		return err
 	}
+	populateBrainStatusVerification(ctx, opts, &report)
 	if statusOpts.json {
 		return writeJSON(cmd, report)
 	}
@@ -653,6 +658,11 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 		f := report.Manifest.Sources.Facts
 		fmt.Fprintf(cmd.OutOrStdout(), "facts: %d (%d distilled, %d authored, %d superseded) across %d branch(es); %d proposals pending\n",
 			f.Facts, f.Distilled, f.Authored, f.Superseded, len(f.Branches), f.Proposals)
+	}
+	if report.Verification != nil {
+		v := report.Verification
+		fmt.Fprintf(cmd.OutOrStdout(), "verification: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
+			v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
 	}
 	if report.Freshness != nil {
 		fmt.Fprintf(cmd.OutOrStdout(), "freshness: %s\n", report.Freshness.Severity)
@@ -692,7 +702,11 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		if contextErr != nil {
 			report.Warnings = append(report.Warnings, "semantic context unavailable: "+contextErr.Error())
 		} else {
-			report.Semantic.Context = semanticContextResult{Symbols: nonNilRecords(contextSymbols), Relations: nonNilRecords(contextRelations), Neighbors: nonNilRecords(contextNeighbors)}
+			report.Semantic.Context = semanticContextResult{
+				Symbols:   nonNilRecords(contextSymbols),
+				Relations: nonNilRecords(contextRelations),
+				Neighbors: nonNilRecords(contextNeighbors),
+			}
 		}
 		tests, testsErr := semanticTestFacts(status.Brain.Path, status.Manifest.Sources.Semantic, task, briefOpts.limit)
 		if testsErr != nil {
@@ -929,7 +943,7 @@ func brainBriefCurrentCodeFileCountsByScore(repoRoot string, scoreFile func(stri
 		if statErr != nil || info.Size() > brainInspectHistoryMaxBytes {
 			return nil
 		}
-		data, readErr := os.ReadFile(path)
+		data, readErr := brainBriefReadRepoFile(repoRoot, rel)
 		if readErr != nil {
 			return nil
 		}
@@ -940,6 +954,40 @@ func brainBriefCurrentCodeFileCountsByScore(repoRoot string, scoreFile func(stri
 		return nil
 	})
 	return counts
+}
+
+func brainBriefReadRepoFile(repoRoot, rel string) ([]byte, error) {
+	clean, ok := cleanBrainBriefRepoRelativePath(rel)
+	if !ok {
+		return nil, fmt.Errorf("repo-relative path is unsafe: %s", rel)
+	}
+	nativeRel := filepath.FromSlash(clean)
+	if err := rejectSymlinkPathComponents(repoRoot, nativeRel); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(filepath.Join(repoRoot, nativeRel))
+}
+
+func brainBriefRepoFileExists(repoRoot, rel string) bool {
+	clean, ok := cleanBrainBriefRepoRelativePath(rel)
+	if !ok {
+		return false
+	}
+	nativeRel := filepath.FromSlash(clean)
+	if err := rejectSymlinkPathComponents(repoRoot, nativeRel); err != nil {
+		return false
+	}
+	info, err := os.Lstat(filepath.Join(repoRoot, nativeRel))
+	return err == nil && info.Mode()&os.ModeSymlink == 0 && !info.IsDir()
+}
+
+func cleanBrainBriefRepoRelativePath(rel string) (string, bool) {
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(rel)))
+	if clean == "." || clean == ".." || filepath.IsAbs(clean) ||
+		strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, `..\`) {
+		return "", false
+	}
+	return clean, true
 }
 
 func brainBriefSkipSourceDir(rel string) bool {
@@ -1053,7 +1101,7 @@ func brainBriefAddSiblingTestFiles(repoRoot string, editFiles, testFiles []strin
 			if _, ok := seen[candidate]; ok {
 				continue
 			}
-			if _, err := os.Stat(filepath.Join(repoRoot, filepath.FromSlash(candidate))); err != nil {
+			if !brainBriefRepoFileExists(repoRoot, candidate) {
 				continue
 			}
 			seen[candidate] = struct{}{}
@@ -1367,8 +1415,7 @@ func brainBriefLimitNormalizationActions(repoRoot string, likelyFiles []string) 
 		if !brainBriefSourceFile(rel) {
 			continue
 		}
-		path := filepath.Join(repoRoot, filepath.FromSlash(rel))
-		data, err := os.ReadFile(path)
+		data, err := brainBriefReadRepoFile(repoRoot, rel)
 		if err != nil {
 			continue
 		}
@@ -1509,8 +1556,7 @@ func brainBriefMetadataStringActions(repoRoot string, likelyFiles []string) []br
 		if !brainBriefSourceFile(rel) {
 			continue
 		}
-		path := filepath.Join(repoRoot, filepath.FromSlash(rel))
-		data, err := os.ReadFile(path)
+		data, err := brainBriefReadRepoFile(repoRoot, rel)
 		if err != nil {
 			continue
 		}
@@ -1544,8 +1590,7 @@ func brainBriefPreviousResponseActions(repoRoot string, likelyFiles []string) []
 		if !brainBriefSourceFile(rel) {
 			continue
 		}
-		path := filepath.Join(repoRoot, filepath.FromSlash(rel))
-		data, err := os.ReadFile(path)
+		data, err := brainBriefReadRepoFile(repoRoot, rel)
 		if err != nil {
 			continue
 		}
@@ -1682,7 +1727,7 @@ func runBrainShow(ctx context.Context, cmd *cobra.Command, opts Options, showOpt
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return errors.New("semantic index missing; run `entire brain refresh index`")
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {

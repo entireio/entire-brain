@@ -32,11 +32,13 @@ repository tasks when they can use Entire Brain.
 
 The first version should optimize for a repeatable harness, then use the same
 run artifacts to produce demo-quality before/after evidence. The benchmark
-starts with three local repositories:
+starts with three local repositories. The checked-in task fixtures use portable
+repo names; runners resolve them from the benchmark workspace or explicit task
+paths:
 
-- `entire-brain` at `/Users/thomi/Projects/entire-brain`
-- `entire-cli` at `/Users/thomi/Projects/cli`
-- GitHub CLI at `/Users/thomi/Projects/github-cli`
+- `entire-brain`
+- `entire-cli`
+- GitHub CLI
 
 The benchmark should compare agent performance across controlled context
 conditions, not just tool latency. Useful outcomes include faster localization,
@@ -323,13 +325,15 @@ entire brain path [repo]
 ```
 
 Specialist/debug commands live under `inspect`, for example
-`inspect code`, `inspect tests`, `inspect decisions`, `inspect history`,
-`inspect validation`, and `inspect tool-paths`. Workspace use keeps the same
-front door:
+`inspect code`, `inspect context`, `inspect impact`, `inspect changes`,
+`inspect tests`, `inspect boundaries`, `inspect regressions`, and
+`inspect blame`. Workspace use has its own front door:
 
 ```sh
-entire brain brief "<task>" --workspace <name> --json
-entire brain status --workspace <name> --json
+entire brain workspace query <name> "<symbol-or-query>" --json
+entire brain workspace impact <name> "<symbol-or-query>" --json
+entire brain workspace refresh <name> --json
+entire brain workspace watch <name>
 ```
 
 `brief` should be implemented as a context-graph query that ranks code facts,
@@ -337,10 +341,10 @@ history facts, validation recipes, and live-state overlays into one bounded
 task packet.
 
 For full-history repositories, `brief` must include ranked `history.matches`
-for the task prompt. Broad specialist reads such as `inspect history`,
-`inspect sessions`, and `inspect architecture` should use the same ranked
-history matcher. Narrow reads such as `inspect decisions` may remain stricter
-so exact decision queries do not become noisy.
+for the task prompt. Broad reads should go through `search`, `query`, `get`, and
+`multi-get`, while semantic/code reads should use the current `inspect`
+subcommands. Decision-like rationale is now a fact/history retrieval concern,
+not a separate `inspect decisions` surface.
 
 History ranking must preserve identifier signal. Terms such as
 `ENTIRE_REVIEW_*`, `ENTIRE_PLUGIN_ENV`, `XDG_*`, camel-case invariants, and
@@ -515,11 +519,12 @@ Current pilot-filtering status:
   a possible token/time efficiency signal at `n=1`, but `review-prompt`,
   `transcript-reresolve`, and the checkpoint-history `review-provenance-strip`
   task did not produce a retained correctness signal.
-- GitHub CLI semantic pilots produced two retained Codex candidates with five
+- GitHub CLI semantic pilots produced two local Codex candidate leads with five
   repetitions per condition: `github-cli-repo-name-trims-dotgit` and
-  `github-cli-http-scopes-suggestion`. Both improved mean score, time, tokens,
-  and patch locality under semantic brain. They now need Claude and alternate
-  Codex runner coverage before final claims.
+  `github-cli-http-scopes-suggestion`. Treat those ignored local results as
+  leads, not release evidence, until a retained subset is committed and
+  `audit_codex.py --fail-on-flags` passes against it. They also need Claude and
+  alternate Codex runner coverage before final claims.
 - A one-run Claude Code pilot on those two GitHub CLI candidates saturated:
   Claude scored 100 in both no-brain and semantic-brain conditions, and
   semantic-brain added overhead. Treat these as Codex-retained tasks unless
@@ -587,9 +592,9 @@ use, so the cache is usable for the expanded semantic task set.
 The earlier `entire-cli` semantic indexing pause is resolved for local
 benchmarking:
 
-- `entire-sem snapshot --repo /Users/thomi/Projects/cli --format ndjson
+- `entire-sem snapshot --repo <entire-cli-checkout> --format ndjson
   --no-network` completes in about 17 seconds with normal project ignores;
-- isolated `entire-brain index /Users/thomi/Projects/cli` completes in about 29
+- isolated `entire brain refresh index <entire-cli-checkout>` completes in about 29
   seconds using locally built `entire-brain` and `entire-sem`;
 - the artifact records 760 files, 9,130 symbols, 179,717 stored relations, zero
   warnings, zero partial failures, and a roughly 152 MB SQLite store;
@@ -746,7 +751,7 @@ Add these scenario families:
   - Add semantic query/context, workspace freshness, bundle import validation,
     and GitHub CLI JSON flag tasks where the correct focused test is not named
     in the prompt.
-  - Expected value: `entire brain tests` and checkpoint history should improve
+  - Expected value: `entire brain inspect tests` and checkpoint history should improve
     selected validation commands.
 
 - **Stale-context hygiene tasks**
@@ -764,9 +769,9 @@ Iteration loop:
 4. Keep tasks where brain improves correctness, tokens by at least 20%, time by
    at least 15%, cost by at least 15%, files read before relevant file by at
    least 30%, or validation quality.
-5. Run retained proof tasks with at least five repetitions per condition for
-   both Codex and Claude Code across at least two model/effort settings per
-   agent.
+5. Run retained proof tasks with the implemented proof minimum of at least four
+   repetitions per condition for both Codex and Claude Code across at least two
+   model/effort settings per agent.
 6. If no metric improves materially, redesign around more brain-specific
    information.
 

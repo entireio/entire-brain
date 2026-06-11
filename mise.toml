@@ -19,6 +19,418 @@ run = "go test -race ./..."
 description = "Run deterministic Phase 1 semantic brain contract tests"
 run = "ENTIRE_BRAIN_PHASE1_CI=1 go test -race ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'"
 
+[tasks."release:evidence"]
+description = "Check retained release-candidate replay-lab evidence without rewriting tracked reports"
+run = '''
+set -e
+python3 benchmarks/agent-brain/run_test.py
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_codex.py \
+  --results benchmarks/agent-brain/evidence/release \
+  --release-manifest benchmarks/agent-brain/evidence/release/manifest.json \
+  --out-dir "$tmp" \
+  --fail-on-flags
+for report in codex-audit-report.json codex-audit-report.md; do
+  committed="benchmarks/agent-brain/evidence/release/$report"
+  generated="$tmp/$report"
+  if ! cmp -s "$committed" "$generated"; then
+    echo "retained release evidence report is stale: $report" >&2
+    diff -u "$committed" "$generated" >&2 || true
+    echo "run: mise run release:evidence:update" >&2
+    exit 1
+  fi
+done
+'''
+
+[tasks."release:evidence:update"]
+description = "Regenerate retained release-candidate replay-lab audit reports after the release gate passes"
+run = '''
+set -e
+python3 benchmarks/agent-brain/run_test.py
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_codex.py \
+  --results benchmarks/agent-brain/evidence/release \
+  --release-manifest benchmarks/agent-brain/evidence/release/manifest.json \
+  --out-dir "$tmp" \
+  --fail-on-flags
+mkdir -p benchmarks/agent-brain/evidence/release
+cp "$tmp"/codex-audit-report.json "$tmp"/codex-audit-report.md benchmarks/agent-brain/evidence/release/
+'''
+
+[tasks."radar:screen"]
+description = "Summarize Regression Radar pilots/release-candidates and flag saturated candidates"
+run = '''
+set -e
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_codex.py \
+  --results benchmarks/agent-brain/results \
+  --suite-glob 'pilot-radar-*' \
+  --suite-glob 'release-candidate-*-radar-*' \
+  --suite-glob 'release-candidate-*-workspace-radar-*' \
+  --out-dir "$tmp" > "$tmp/codex-audit.stdout"
+python3 benchmarks/agent-brain/audit_radar_evidence.py \
+  --results benchmarks/agent-brain/results \
+  --suite-glob 'pilot-radar-*' \
+  --suite-glob 'release-candidate-*-radar-*' \
+  --suite-glob 'release-candidate-*-workspace-radar-*' \
+  --out-dir "$tmp" \
+  --codex-audit-report "$tmp/codex-audit-report.json"
+cat "$tmp/radar-candidate-report.md"
+'''
+
+[tasks."radar:screen:audit"]
+description = "Build the independent Codex audit used to back the Radar screen"
+run = '''
+set -e
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_codex.py \
+  --results benchmarks/agent-brain/results \
+  --suite-glob 'pilot-radar-*' \
+  --suite-glob 'release-candidate-*-radar-*' \
+  --suite-glob 'release-candidate-*-workspace-radar-*' \
+  --out-dir "$tmp"
+cat "$tmp/codex-audit-report.md"
+'''
+
+[tasks."radar:evidence"]
+description = "Check deterministic retained MCP/Radar tool-contract evidence"
+run = '''
+set -e
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_radar_tool_evidence.py \
+  --manifest benchmarks/agent-brain/evidence/radar-tool/manifest.json \
+  --repo-root . \
+  --out-dir "$tmp" \
+  --fail-on-flags
+for report in radar-tool-audit-report.json radar-tool-audit-report.md; do
+  committed="benchmarks/agent-brain/evidence/radar-tool/$report"
+  generated="$tmp/$report"
+  if ! cmp -s "$committed" "$generated"; then
+    echo "retained Radar tool evidence report is stale: $report" >&2
+    diff -u "$committed" "$generated" >&2 || true
+    echo "run: mise run radar:evidence:update" >&2
+    exit 1
+  fi
+done
+'''
+
+[tasks."radar:evidence:update"]
+description = "Regenerate retained deterministic MCP/Radar tool-contract audit reports after the gate passes"
+run = '''
+set -e
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/record_radar_tool_evidence.py \
+  --repo-root . \
+  --evidence-dir benchmarks/agent-brain/evidence/radar-tool
+python3 benchmarks/agent-brain/audit_radar_tool_evidence.py \
+  --manifest benchmarks/agent-brain/evidence/radar-tool/manifest.json \
+  --repo-root . \
+  --out-dir "$tmp" \
+  --fail-on-flags
+mkdir -p benchmarks/agent-brain/evidence/radar-tool
+cp "$tmp"/radar-tool-audit-report.json "$tmp"/radar-tool-audit-report.md benchmarks/agent-brain/evidence/radar-tool/
+'''
+
+[tasks."radar:agent-evidence"]
+description = "Require at least one retained proof-ready Regression Radar agent comparison"
+run = '''
+set -e
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_codex.py \
+  --results benchmarks/agent-brain/evidence/release \
+  --release-manifest benchmarks/agent-brain/evidence/release/manifest.json \
+  --out-dir "$tmp" \
+  --fail-on-flags
+python3 benchmarks/agent-brain/audit_radar_evidence.py \
+  --results benchmarks/agent-brain/evidence/release \
+  --suite-glob 'release-candidate-*' \
+  --out-dir "$tmp" \
+  --codex-audit-report "$tmp/codex-audit-report.json" \
+  --fail-when-no-proof
+cat "$tmp/radar-candidate-report.md"
+'''
+
+[tasks."workspace-radar:evidence"]
+description = "Check retained workspace-Radar agent evidence status without rewriting tracked reports"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/workspace-radar/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "workspace Radar evidence manifest is missing: $manifest" >&2
+  echo "retain a workspace-Radar no-claim or proof-required manifest before citing workspace Radar status" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_workspace_radar_evidence.py \
+  --manifest "$manifest" \
+  --out-dir "$tmp" \
+  --fail-on-flags
+for report in workspace-radar-audit-report.json workspace-radar-audit-report.md; do
+  committed="benchmarks/agent-brain/evidence/workspace-radar/$report"
+  generated="$tmp/$report"
+  if ! cmp -s "$committed" "$generated"; then
+    echo "retained workspace Radar evidence report is stale: $report" >&2
+    diff -u "$committed" "$generated" >&2 || true
+    echo "run: mise run workspace-radar:evidence:update" >&2
+    exit 1
+  fi
+done
+'''
+
+[tasks."workspace-radar:evidence:update"]
+description = "Regenerate retained workspace-Radar audit reports after the evidence gate passes"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/workspace-radar/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "workspace Radar evidence manifest is missing: $manifest" >&2
+  echo "retain a workspace-Radar no-claim or proof-required manifest before citing workspace Radar status" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_workspace_radar_evidence.py \
+  --manifest "$manifest" \
+  --out-dir "$tmp" \
+  --fail-on-flags
+mkdir -p benchmarks/agent-brain/evidence/workspace-radar
+cp "$tmp"/workspace-radar-audit-report.json "$tmp"/workspace-radar-audit-report.md benchmarks/agent-brain/evidence/workspace-radar/
+'''
+
+[tasks."facts:evidence"]
+description = "Check retained facts-vs-raw eval evidence and proof fixture without rewriting tracked reports"
+run = '''
+set -e
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+check_facts_manifest() {
+  evidence_dir="$1"
+  manifest="$evidence_dir/manifest.json"
+  name="$(basename "$evidence_dir")"
+  if [ ! -f "$manifest" ]; then
+    echo "facts eval evidence manifest is missing: $manifest" >&2
+    echo "collect paired facts/history/query/raw-sessions eval artifacts before citing facts-vs-raw proof" >&2
+    exit 1
+  fi
+  out="$tmp/$name"
+  python3 benchmarks/agent-brain/audit_facts_eval.py \
+    --manifest "$manifest" \
+    --out-dir "$out" \
+    --fail-on-flags
+  for report in facts-eval-audit-report.json facts-eval-audit-report.md; do
+    committed="$evidence_dir/$report"
+    generated="$out/$report"
+    if ! cmp -s "$committed" "$generated"; then
+      echo "retained facts eval evidence report is stale: $evidence_dir/$report" >&2
+      diff -u "$committed" "$generated" >&2 || true
+      echo "run: mise run facts:evidence:update" >&2
+      exit 1
+    fi
+  done
+}
+
+check_facts_manifest benchmarks/agent-brain/evidence/facts-eval
+check_facts_manifest benchmarks/agent-brain/evidence/facts-eval-proof-fixture
+'''
+
+[tasks."facts:evidence:update"]
+description = "Regenerate retained facts-vs-raw eval audit reports after the evidence gate passes"
+run = '''
+set -e
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+update_facts_manifest() {
+  evidence_dir="$1"
+  manifest="$evidence_dir/manifest.json"
+  name="$(basename "$evidence_dir")"
+  if [ ! -f "$manifest" ]; then
+    echo "facts eval evidence manifest is missing: $manifest" >&2
+    echo "collect paired facts/history/query/raw-sessions eval artifacts before citing facts-vs-raw proof" >&2
+    exit 1
+  fi
+  out="$tmp/$name"
+  python3 benchmarks/agent-brain/audit_facts_eval.py \
+    --manifest "$manifest" \
+    --out-dir "$out" \
+    --fail-on-flags
+  mkdir -p "$evidence_dir"
+  cp "$out"/facts-eval-audit-report.json "$out"/facts-eval-audit-report.md "$evidence_dir"/
+}
+
+update_facts_manifest benchmarks/agent-brain/evidence/facts-eval
+update_facts_manifest benchmarks/agent-brain/evidence/facts-eval-proof-fixture
+'''
+
+[tasks."distill:evidence"]
+description = "Check retained current-repo distill scheduler evidence without rewriting tracked reports"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/distill-perf/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "distill performance evidence manifest is missing: $manifest" >&2
+  echo "collect dry-run plus paired --jobs 1/--jobs N timed artifacts before citing a distill speedup" >&2
+  echo "target frontend/large-repo claims still require their own retained artifacts" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_distill_perf.py \
+  --manifest "$manifest" \
+  --repo-root . \
+  --out-dir "$tmp" \
+  --fail-on-flags
+for report in distill-perf-audit-report.json distill-perf-audit-report.md; do
+  committed="benchmarks/agent-brain/evidence/distill-perf/$report"
+  generated="$tmp/$report"
+  if ! cmp -s "$committed" "$generated"; then
+    echo "retained distill performance evidence report is stale: $report" >&2
+    diff -u "$committed" "$generated" >&2 || true
+    echo "run: mise run distill:evidence:update" >&2
+    exit 1
+  fi
+done
+'''
+
+[tasks."distill:evidence:update"]
+description = "Regenerate retained distill scheduler audit reports after the evidence gate passes"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/distill-perf/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "distill performance evidence manifest is missing: $manifest" >&2
+  echo "collect dry-run plus paired --jobs 1/--jobs N timed artifacts before citing a distill speedup" >&2
+  echo "target frontend/large-repo claims still require their own retained artifacts" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_distill_perf.py \
+  --manifest "$manifest" \
+  --repo-root . \
+  --out-dir "$tmp" \
+  --fail-on-flags
+mkdir -p benchmarks/agent-brain/evidence/distill-perf
+cp "$tmp"/distill-perf-audit-report.json "$tmp"/distill-perf-audit-report.md benchmarks/agent-brain/evidence/distill-perf/
+'''
+
+[tasks."semantic:evidence"]
+description = "Check the local semantic audit release gate against the current indexed brain"
+run = '''
+set -e
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+set +e
+go run ./cmd/entire-brain semantic-audit --json --fail-on release > "$tmp"
+rc=$?
+set -e
+python3 - "$tmp" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+except Exception as exc:
+    print(f"semantic audit: unable to parse report: {exc}", file=sys.stderr)
+    raise SystemExit(0)
+print(
+    "semantic audit:",
+    f"freshness={data['freshness']['severity']}",
+    f"files={data['files']}",
+    f"symbols={data['symbols']}",
+    f"relations={data['relations']}",
+    f"blind_spots={len(data.get('blind_spots', []))}",
+)
+for name, axis in sorted((data.get("freshness", {}).get("axes") or {}).items()):
+    if axis.get("state") != "ok":
+        print(f"semantic audit axis {name}: {axis.get('state')} {axis.get('detail', '')}".rstrip())
+PY
+exit "$rc"
+'''
+
+[tasks."release:matrix"]
+description = "Check the retained release-readiness evidence matrix without rewriting tracked reports"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/release-matrix/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "release matrix manifest is missing: $manifest" >&2
+  echo "retain a release matrix before citing aggregate release-readiness status" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_release_matrix.py \
+  --manifest "$manifest" \
+  --out-dir "$tmp" \
+  --fail-on-flags
+for report in release-matrix-report.json release-matrix-report.md; do
+  committed="benchmarks/agent-brain/evidence/release-matrix/$report"
+  generated="$tmp/$report"
+  if ! cmp -s "$committed" "$generated"; then
+    echo "retained release matrix report is stale: $report" >&2
+    diff -u "$committed" "$generated" >&2 || true
+    echo "run: mise run release:matrix:update" >&2
+    exit 1
+  fi
+done
+'''
+
+[tasks."release:matrix:update"]
+description = "Regenerate retained release-readiness matrix reports after the evidence gate passes"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/release-matrix/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "release matrix manifest is missing: $manifest" >&2
+  echo "retain a release matrix before citing aggregate release-readiness status" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_release_matrix.py \
+  --manifest "$manifest" \
+  --out-dir "$tmp" \
+  --fail-on-flags
+mkdir -p benchmarks/agent-brain/evidence/release-matrix
+cp "$tmp"/release-matrix-report.json "$tmp"/release-matrix-report.md benchmarks/agent-brain/evidence/release-matrix/
+'''
+
+[tasks."release:readiness"]
+description = "Run the full local release-readiness gate, including retained evidence checks"
+run = '''
+set +e
+failures=0
+failed=""
+for task in check release:evidence radar:evidence radar:agent-evidence workspace-radar:evidence distill:evidence facts:evidence semantic:evidence release:matrix; do
+  echo "==> mise run $task"
+  mise run "$task"
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    echo "PASS $task"
+  else
+    echo "FAIL $task (exit $rc)" >&2
+    failures=$((failures + 1))
+    failed="${failed}${failed:+, }$task"
+  fi
+done
+if [ "$failures" -ne 0 ]; then
+  echo "release readiness failed: $failed" >&2
+  exit 1
+fi
+echo "release readiness passed"
+'''
+
 [tasks.build]
 description = "Build the plugin binary (pure-Go fallback stack)"
 run = "go build -o entire-brain ./cmd/entire-brain"

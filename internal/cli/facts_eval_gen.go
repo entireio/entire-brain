@@ -2,9 +2,11 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -20,6 +22,9 @@ const (
 	queryTypeConvention = "convention" // about how work is done (cross-cutting)
 	queryTypeHowto      = "howto"      // where/how do I change X
 	queryTypeConcept    = "concept"    // natural-language conceptual question
+
+	evalGenSourceFacts    = "facts"
+	evalGenSourceSessions = "sessions"
 )
 
 func newFactsEvalGenCommand(opts Options) *cobra.Command {
@@ -31,19 +36,27 @@ func newFactsEvalGenCommand(opts Options) *cobra.Command {
 		maxFacts     int
 		refine       bool
 		agent        string
+		model        string
 		agentCommand []string
 		judgeCache   string
+		source       string
 	)
 	cmd := &cobra.Command{
 		Use:   "eval-gen",
-		Short: "Generate a labeled eval task set from the brain's own sessions (provenance-labeled)",
+		Short: "Generate a silver-labeled eval task set from the brain's own sessions",
 		Long: `eval-gen turns the brain into a self-labeled benchmark: each captured session
-becomes a task (its opening user request), and the facts whose provenance points
-back to that session are the ground-truth relevant set. No agent or hand labels
-needed. Each task is tagged with a query-type stratum (code/convention/howto/
-concept). Emits a tasks.json consumable by 'facts eval --tasks'.
+	becomes a task (its opening user request), and the facts whose provenance points
+	back to that session are provenance/silver labels. These labels are useful for
+	recall-oriented measurement, but hand labels or --refine are still required
+	before precision/recall release claims. Each task is tagged with a query-type
+	stratum (code/convention/howto/concept). Emits a tasks.json consumable by
+	'facts eval --tasks'.
 
---refine judge-filters each task's provenance label set with the agent, keeping
+	--source sessions emits tasks directly from exported sessions, including sessions
+	with zero distilled facts. Those tasks have source anchors but no relevance labels,
+	so use --judge or human labels before making relevance claims.
+
+	--refine judge-filters each task's provenance label set with the agent, keeping
 only facts genuinely relevant to the request — trading the recall-oriented "every
 session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 		Args: cobra.NoArgs,
@@ -59,12 +72,23 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 			if manifest.Sources == nil || manifest.Sources.Sessions == nil {
 				return fmt.Errorf("no exported sessions; run `entire brain refresh` first")
 			}
-			tasks, err := generateEvalTasks(brainDir, manifest, branch, minFacts, maxFacts, limit)
+			var tasks []evalTask
+			switch strings.TrimSpace(source) {
+			case "", evalGenSourceFacts:
+				tasks, err = generateEvalTasks(brainDir, manifest, branch, minFacts, maxFacts, limit)
+			case evalGenSourceSessions:
+				if refine {
+					return fmt.Errorf("--refine requires --source facts; session-derived tasks have no fact labels to refine")
+				}
+				tasks, err = generateSessionEvalTasks(brainDir, manifest, branch, limit)
+			default:
+				return fmt.Errorf("--source must be facts or sessions")
+			}
 			if err != nil {
 				return err
 			}
 			if refine {
-				tasks, err = refineEvalTaskLabels(cmd.Context(), opts, brainDir, repoDir, tasks, agent, agentCommand, judgeCache)
+				tasks, err = refineEvalTaskLabels(cmd.Context(), opts, brainDir, repoDir, tasks, agent, model, agentCommand, judgeCache)
 				if err != nil {
 					return err
 				}
@@ -78,7 +102,7 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 				_, err = cmd.OutOrStdout().Write(data)
 				return err
 			}
-			if err := os.WriteFile(out, data, 0o600); err != nil {
+			if err := writeFileAtomic(out, data, 0o600); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "wrote %d tasks to %s\n", len(tasks), out)
@@ -90,8 +114,10 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 	cmd.Flags().StringVar(&branch, "branch", "", "Limit to one branch (default: all branches with facts)")
 	cmd.Flags().IntVar(&minFacts, "min-facts", 2, "Minimum relevant facts for a session to become a task")
 	cmd.Flags().IntVar(&maxFacts, "max-facts", 30, "Skip broad sessions with more relevant facts than this (diffuse targets); 0 = no cap")
+	cmd.Flags().StringVar(&source, "source", evalGenSourceFacts, "Task source: facts (provenance-labeled) or sessions (source-anchored, unlabeled)")
 	cmd.Flags().BoolVar(&refine, "refine", false, "Judge-filter provenance labels to the genuinely-relevant subset (agent-required)")
-	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --refine: auto, codex, claude-code, or command")
+	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --refine: auto, codex, claude-code, ollama, or command")
+	cmd.Flags().StringVar(&model, "model", "", "Model for codex/claude-code/ollama refine calls")
 	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&judgeCache, "judge-cache", "", "Persist/reuse --refine verdicts at this path")
 	return cmd
@@ -101,7 +127,7 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 // subset the agent deems genuinely relevant to the request, re-tags the query
 // stratum from the surviving facts, and drops tasks left with no relevant facts.
 // Verdicts are cached so re-runs are cheap and deterministic.
-func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir string, tasks []evalTask, agent string, agentCommand []string, cachePath string) ([]evalTask, error) {
+func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir string, tasks []evalTask, agent, model string, agentCommand []string, cachePath string) ([]evalTask, error) {
 	resolved := agent
 	if resolved == "auto" {
 		resolved = defaultRefreshAgent(ctx, opts.Runner, repoDir)
@@ -110,6 +136,7 @@ func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir s
 	if err != nil {
 		return nil, fmt.Errorf("refine agent: %w", err)
 	}
+	judgeArgs = injectAgentModel(judgeArgs, resolved, model)
 	byBranch, err := loadAllFactBranches(brainDir)
 	if err != nil {
 		return nil, err
@@ -121,7 +148,10 @@ func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir s
 		}
 	}
 	cache := loadJudgeCache(cachePath)
-	run := execDistillAgent
+	if err := cache.validateLoaded(); err != nil {
+		return nil, err
+	}
+	run := defaultDistillAgentRunner(resolved)
 	out := make([]evalTask, 0, len(tasks))
 	for _, t := range tasks {
 		facts := make([]factRecord, 0, len(t.Relevant))
@@ -150,6 +180,7 @@ func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir s
 		}
 		sort.Strings(ids)
 		t.Relevant = ids
+		t.LabelSource = evalLabelSourceJudgeRefined
 		t.QueryType = classifyQueryType(t.Task, kept)
 		out = append(out, t)
 	}
@@ -167,7 +198,10 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 	if err != nil {
 		return nil, err
 	}
-	// session id -> the facts that cite it (deduped per session).
+	// branch+session+transcript -> the facts that cite it (deduped per
+	// session source). Older anchors may lack a transcript; those stay in the
+	// branch+session fallback bucket and are used only when no transcript-scoped
+	// labels exist for a manifest session.
 	sessionFacts := map[string][]factRecord{}
 	for b, recs := range byBranch {
 		if branch != "" && b != branch {
@@ -179,21 +213,24 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 				if a.SessionID == "" {
 					continue
 				}
-				if _, ok := seen[a.SessionID]; ok {
+				key := evalSessionFactKey(b, a.SessionID, a.Transcript)
+				if _, ok := seen[key]; ok {
 					continue
 				}
-				seen[a.SessionID] = struct{}{}
-				sessionFacts[a.SessionID] = append(sessionFacts[a.SessionID], r)
+				seen[key] = struct{}{}
+				sessionFacts[key] = append(sessionFacts[key], r)
 			}
 		}
 	}
 
 	var tasks []evalTask
+	idCollisions := evalSessionIDCollisions(manifest, branch)
 	for _, s := range manifest.Sources.Sessions.Sessions {
-		if branch != "" && s.Branch != branch {
+		resolvedBranch := resolveDistillBranch(manifest, s)
+		if branch != "" && resolvedBranch != branch {
 			continue
 		}
-		facts := sessionFacts[s.SessionID]
+		facts := evalFactsForSession(sessionFacts, resolvedBranch, s)
 		if len(facts) < minFacts {
 			continue
 		}
@@ -209,11 +246,15 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 			continue
 		}
 		tasks = append(tasks, evalTask{
-			ID:        shortSessionID(s.SessionID),
-			Task:      request,
-			Branch:    s.Branch,
-			QueryType: classifyQueryType(request, facts),
-			Relevant:  uniqueFactIDs(facts),
+			ID:                   evalTaskIDForSession(s.SessionID, resolvedBranch, s.TranscriptPath, idCollisions),
+			Task:                 request,
+			Branch:               resolvedBranch,
+			QueryType:            classifyQueryType(request, facts),
+			Relevant:             uniqueFactIDs(facts),
+			LabelSource:          evalLabelSourceProvenanceSilver,
+			SourceSessionID:      s.SessionID,
+			SourceTranscriptPath: filepath.ToSlash(s.TranscriptPath),
+			SourceLines:          sourceLinesForSessionFacts(facts, s),
 		})
 	}
 	tasks = dedupeEvalTasks(tasks)
@@ -224,16 +265,152 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 	return tasks, nil
 }
 
-// dedupeEvalTasks collapses tasks with the same normalized request (repeated
-// slash-command or templated sessions, e.g. "review the current branch", appear
-// many times), keeping the variant with the most relevant facts so the richest
-// labeling survives. This stops a few templated prompts from dominating the
-// benchmark.
+func evalSessionFactKey(branch, sessionID, transcript string) string {
+	return strings.TrimSpace(branch) + "\x00" + strings.TrimSpace(sessionID) + "\x00" + filepath.ToSlash(strings.TrimSpace(transcript))
+}
+
+func evalFactsForSession(sessionFacts map[string][]factRecord, branch string, session exportSession) []factRecord {
+	exactKey := evalSessionFactKey(branch, session.SessionID, session.TranscriptPath)
+	exact := dedupeFactRecords(sessionFacts[exactKey])
+	if len(exact) > 0 || strings.TrimSpace(session.TranscriptPath) == "" {
+		return exact
+	}
+	return dedupeFactRecords(sessionFacts[evalSessionFactKey(branch, session.SessionID, "")])
+}
+
+func dedupeFactRecords(facts []factRecord) []factRecord {
+	if len(facts) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]factRecord, 0, len(facts))
+	for _, fact := range facts {
+		if _, ok := seen[fact.ID]; ok {
+			continue
+		}
+		seen[fact.ID] = struct{}{}
+		out = append(out, fact)
+	}
+	return out
+}
+
+func evalSessionIDCollisions(manifest *exportManifest, branch string) map[string]bool {
+	collisions := map[string]bool{}
+	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
+		return collisions
+	}
+	counts := map[string]int{}
+	for _, s := range manifest.Sources.Sessions.Sessions {
+		resolvedBranch := resolveDistillBranch(manifest, s)
+		if branch != "" && resolvedBranch != branch {
+			continue
+		}
+		counts[shortSessionID(s.SessionID)]++
+	}
+	for id, count := range counts {
+		if count > 1 {
+			collisions[id] = true
+		}
+	}
+	return collisions
+}
+
+func evalTaskIDForSession(sessionID, branch, transcriptPath string, collisions map[string]bool) string {
+	id := shortSessionID(sessionID)
+	if !collisions[id] {
+		return id
+	}
+	cleanBranch := strings.NewReplacer("/", "_", "\\", "_", " ", "_", "\x00", "_").Replace(strings.TrimSpace(branch))
+	if cleanBranch == "" {
+		cleanBranch = "branch"
+	}
+	return cleanBranch + ":" + id + ":" + evalTaskIDDisambiguator(sessionID, branch, transcriptPath)
+}
+
+func evalTaskIDDisambiguator(sessionID, branch, transcriptPath string) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{
+		strings.TrimSpace(branch),
+		strings.TrimSpace(sessionID),
+		filepath.ToSlash(strings.TrimSpace(transcriptPath)),
+	}, "\x00")))
+	return hex.EncodeToString(sum[:4])
+}
+
+func sourceLinesForSessionFacts(facts []factRecord, session exportSession) []int {
+	sessionID := strings.TrimSpace(session.SessionID)
+	transcript := filepath.ToSlash(strings.TrimSpace(session.TranscriptPath))
+	seen := map[int]struct{}{}
+	for _, fact := range facts {
+		for _, anchor := range fact.Provenance {
+			if anchor.Line <= 0 {
+				continue
+			}
+			anchorTranscript := filepath.ToSlash(strings.TrimSpace(anchor.Transcript))
+			switch {
+			case transcript != "" && anchorTranscript != "" && anchorTranscript == transcript:
+			case transcript == "" && sessionID != "" && strings.TrimSpace(anchor.SessionID) == sessionID:
+			case transcript != "" && anchorTranscript == "" && sessionID != "" && strings.TrimSpace(anchor.SessionID) == sessionID:
+			default:
+				continue
+			}
+			seen[anchor.Line] = struct{}{}
+		}
+	}
+	lines := make([]int, 0, len(seen))
+	for line := range seen {
+		lines = append(lines, line)
+	}
+	sort.Ints(lines)
+	return lines
+}
+
+func generateSessionEvalTasks(brainDir string, manifest *exportManifest, branch string, limit int) ([]evalTask, error) {
+	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
+		return nil, fmt.Errorf("no exported sessions; run `entire brain refresh` first")
+	}
+	var tasks []evalTask
+	idCollisions := evalSessionIDCollisions(manifest, branch)
+	for _, s := range manifest.Sources.Sessions.Sessions {
+		resolvedBranch := resolveDistillBranch(manifest, s)
+		if branch != "" && resolvedBranch != branch {
+			continue
+		}
+		content, readErr := readBrainRelativeFile(brainDir, s.TranscriptPath)
+		if readErr != nil {
+			continue
+		}
+		request := firstUserRequest(content)
+		if request == "" {
+			continue
+		}
+		tasks = append(tasks, evalTask{
+			ID:                   evalTaskIDForSession(s.SessionID, resolvedBranch, s.TranscriptPath, idCollisions),
+			Task:                 request,
+			Branch:               resolvedBranch,
+			QueryType:            classifyQueryType(request, nil),
+			Relevant:             []string{},
+			SourceSessionID:      s.SessionID,
+			SourceTranscriptPath: filepath.ToSlash(s.TranscriptPath),
+		})
+	}
+	sort.SliceStable(tasks, func(i, j int) bool { return tasks[i].ID < tasks[j].ID })
+	if limit > 0 && len(tasks) > limit {
+		tasks = sampleAcrossStrata(tasks, limit)
+	}
+	return tasks, nil
+}
+
+// dedupeEvalTasks collapses unanchored tasks with the same normalized request
+// (repeated slash-command or templated sessions, e.g. "review the current
+// branch", appear many times), keeping the variant with the most relevant facts
+// so the richest labeling survives. Source-anchored generated tasks include the
+// source in the dedupe key so two sessions with the same opening request do not
+// lose distinct provenance labels.
 func dedupeEvalTasks(tasks []evalTask) []evalTask {
 	index := map[string]int{}
 	var out []evalTask
 	for _, t := range tasks {
-		key := normalizeTaskText(t.Task)
+		key := evalTaskDedupeKey(t)
 		if i, ok := index[key]; ok {
 			if len(t.Relevant) > len(out[i].Relevant) {
 				out[i] = t
@@ -244,6 +421,19 @@ func dedupeEvalTasks(tasks []evalTask) []evalTask {
 		out = append(out, t)
 	}
 	return out
+}
+
+func evalTaskDedupeKey(t evalTask) string {
+	key := normalizeTaskText(t.Task)
+	if strings.TrimSpace(t.SourceTranscriptPath) == "" && strings.TrimSpace(t.SourceSessionID) == "" {
+		return key
+	}
+	return strings.Join([]string{
+		key,
+		strings.TrimSpace(t.Branch),
+		strings.TrimSpace(t.SourceSessionID),
+		filepath.ToSlash(strings.TrimSpace(t.SourceTranscriptPath)),
+	}, "\x00")
 }
 
 // normalizeTaskText is the dedupe key: lowercased, whitespace-collapsed, and

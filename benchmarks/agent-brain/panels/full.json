@@ -9,6 +9,7 @@
   "repetitions": 4,
   "tasks": [
     "entire-brain-query-default-limit.json",
+    "entire-brain-semantic-completeness-tolerance.json",
     "entire-brain-mcp-tool-name.json",
     "entire-brain-history-github-visibility.json",
     "entire-brain-history-codex-schema-contract.json",

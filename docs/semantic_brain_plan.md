@@ -39,7 +39,7 @@ expose a brain service over the network.
 
 Phase 1 commands must not perform implicit network operations. In particular:
 
-- `entire brain index`, `refresh`, and `stale` must not run `git fetch`,
+- `entire brain refresh index`, `refresh`, and `stale` must not run `git fetch`,
   `git pull`, or remote discovery; they may only inspect local refs.
 - The semantic provider must run with no network egress during Phase 1 indexing.
 - Local MCP means stdio transport only. The Phase 1 adapter must not open TCP or
@@ -156,20 +156,19 @@ entire brain inspect context <symbol-or-id> --json
 entire brain inspect impact <symbol-or-file> --json
 entire brain inspect changes --base main --head HEAD --json
 entire brain inspect tests "<query>" --json
-entire brain inspect decisions "<query>" --json
-entire brain inspect history "<query>" --json
-entire brain inspect sessions "<query>" --json
-entire brain inspect validation "<query>" --json
-entire brain inspect tool-paths "<query>" --json
-entire brain inspect architecture "<area-or-query>" --json
 entire brain inspect boundaries --kind route|tool|workflow --json
+entire brain inspect regressions "<query>" --json
+entire brain search "<query>" --json
+entire brain query "<query>" --json
+entire brain get <result-id> --json
 ```
 
-Workspace use should keep the same front door:
+Workspace use has its own front door:
 
 ```sh
-entire brain brief "<task>" --workspace <name> --json
-entire brain status --workspace <name> --json
+entire brain workspace query <name> "<symbol-or-query>" --json
+entire brain workspace impact <name> "<symbol-or-query>" --json
+entire brain workspace refresh <name> --json
 ```
 
 Each command should provide concise human output and a stable `--json` mode.
@@ -524,8 +523,8 @@ Commands must include bounded controls:
 
 ```sh
 entire brain query "checkout" --limit 20
-entire brain impact ValidatePayment --depth 2 --limit 100
-entire brain context UserService --include-content=false
+entire brain inspect impact ValidatePayment --depth 2 --limit 100
+entire brain inspect context UserService --include-content=false
 ```
 
 ## Semantic Store Interface
@@ -567,11 +566,11 @@ semantics.
 ### Indexing
 
 ```sh
-entire brain index .
-entire brain index --force
-entire brain index --sem-binary entire
-entire brain index --skip-sem
-entire brain index --worktree
+entire brain refresh index .
+entire brain refresh index --force
+entire brain refresh index --sem-binary entire
+entire brain refresh --skip-sem
+entire brain refresh index --worktree
 ```
 
 `index` should:
@@ -657,7 +656,7 @@ commands.
 ### Context
 
 ```sh
-entire brain context validateToken
+entire brain inspect context validateToken
 ```
 
 Context should show:
@@ -676,9 +675,9 @@ Context should show:
 ### Impact
 
 ```sh
-entire brain impact validateToken
-entire brain impact --file internal/auth/token.go
-entire brain impact --changed
+entire brain inspect impact validateToken
+entire brain inspect impact --file internal/auth/token.go
+entire brain inspect impact --changed
 ```
 
 Impact reports should group facts by confidence:
@@ -700,8 +699,8 @@ Reports should include:
 ### Changes
 
 ```sh
-entire brain changes --base main --head HEAD
-entire brain changes --checkpoint <id>
+entire brain inspect changes --base main --head HEAD
+entire brain inspect changes --checkpoint <id>
 ```
 
 Change reports should combine:
@@ -722,9 +721,9 @@ semantic/changes/
 ### Routes, Tools, And Workflows
 
 ```sh
-entire brain routes
-entire brain tools
-entire brain workflows
+entire brain inspect boundaries --kind route
+entire brain inspect boundaries --kind tool
+entire brain inspect boundaries --kind workflow
 ```
 
 These commands should expose boundary-level context:
@@ -896,7 +895,7 @@ state stored under local Entire plugin directories.
 ### 1. Fresh Semantic Index
 
 - Add semantic manifest source.
-- Add `entire brain index`.
+- Add `entire brain refresh index`.
 - Add provider diagnostics.
 - Add `entire brain doctor`.
 - Store raw semantic artifacts.
@@ -928,7 +927,7 @@ state stored under local Entire plugin directories.
 ### 3. Query And Context
 
 - Add `entire brain query`.
-- Add `entire brain context`.
+- Add `entire brain inspect context`.
 - Add pagination and structured error codes.
 - Update intake templates.
 - Generate semantic agent guide.
@@ -936,8 +935,8 @@ state stored under local Entire plugin directories.
 ### 4. Impact And Changes
 
 - Add relation traversal.
-- Add `entire brain impact`.
-- Add `entire brain changes`.
+- Add `entire brain inspect impact`.
+- Add `entire brain inspect changes`.
 - Add checkpoint semantic change reports.
 - Combine semantic changes with relevant history and seed risks.
 

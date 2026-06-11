@@ -1067,7 +1067,7 @@ func TestRunDistillForBrainForceFlushDoesNotResurrectCache(t *testing.T) {
 	forceRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		calls++
 		if calls == 2 { // s2's distill call: at least one flush has happened
-			if _, ok := loadDistillCache(brainDir).Sessions["s2"]; ok {
+			if _, ok := loadDistillCache(brainDir).Sessions[distillSessionCacheKey("feature", "s2")]; ok {
 				sawResurrectedEntry = true
 			}
 		}
@@ -1209,10 +1209,10 @@ func TestRunDistillForBrainBranchFilterKeepsOtherBranchCacheEntries(t *testing.T
 		t.Fatalf("branch-filtered run: %v", err)
 	}
 	cache := loadDistillCache(brainDir)
-	if _, ok := cache.Sessions["s1"]; !ok {
+	if _, ok := cache.Sessions[distillSessionCacheKey("main", "s1")]; !ok {
 		t.Errorf("branch-filtered run evicted s1's cache entry; the next unfiltered run would re-distill it: %v", cache.Sessions)
 	}
-	if _, ok := cache.Sessions["s2"]; !ok {
+	if _, ok := cache.Sessions[distillSessionCacheKey("feature", "s2")]; !ok {
 		t.Errorf("cached unchanged session s2 missing from cache: %v", cache.Sessions)
 	}
 }
@@ -1294,10 +1294,10 @@ func TestRunDistillForBrainSessionFilter(t *testing.T) {
 		t.Fatalf("only s2 should be scanned, got %d chunks", source.ChunksScanned)
 	}
 	cache := loadDistillCache(brainDir)
-	if _, ok := cache.Sessions["s1"]; !ok {
+	if _, ok := cache.Sessions[distillSessionCacheKey("main", "s1")]; !ok {
 		t.Errorf("session-filtered run evicted s1's cache entry: %v", cache.Sessions)
 	}
-	if _, ok := cache.Sessions["s2"]; !ok {
+	if _, ok := cache.Sessions[distillSessionCacheKey("feature", "s2")]; !ok {
 		t.Errorf("s2 missing from cache after its own distill: %v", cache.Sessions)
 	}
 }
@@ -1316,5 +1316,128 @@ func TestRunDistillForBrainSessionWithForceRejected(t *testing.T) {
 		maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, session: "s1", force: true}
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err == nil || !strings.Contains(err.Error(), "--force") {
 		t.Fatalf("expected the --session/--force combination to be rejected, got %v", err)
+	}
+}
+
+// TestDistillCacheGrandfathersLegacyEntries locks in the lazy cache
+// migration: a pre-upgrade cache (legacy session-id keys, legacy pathful
+// unsalted fingerprints) must prove unchanged sessions cached — ZERO agent
+// calls — including sessions whose branch directory was renamed by
+// stableBranchDirComponent, and the run must rewrite entries under the new
+// key/format. Without this, the first post-upgrade run silently re-distills
+// the entire corpus.
+func TestDistillCacheGrandfathersLegacyEntries(t *testing.T) {
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	// s1 on main (path unchanged by the rename); s2 on a feature branch whose
+	// directory carries the NEW "-<sha8>" suffix, while its legacy cache entry
+	// was hashed against the OLD suffix-less path.
+	featureDir := "sessions/branches/" + stableBranchDirComponent("feature")
+	sessions := []exportSession{
+		{SessionID: "s1", Branch: "main", LatestCheckpoint: "cp1", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: now.Add(-2 * time.Hour)},
+		{SessionID: "s2", Branch: "feature", LatestCheckpoint: "cp2", TranscriptPath: featureDir + "/s2.jsonl", CreatedAt: now.Add(-time.Hour)},
+	}
+	for _, s := range sessions {
+		p := filepath.Join(brainDir, filepath.FromSlash(s.TranscriptPath))
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("turn one\nturn two\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	// Seed the cache exactly as a pre-upgrade binary left it: session-id keys,
+	// legacy formula, hashed against the PRE-RENAME paths.
+	input := preprocessTranscriptForDistill("turn one\nturn two\n")
+	legacy := distillCache{Version: distillCacheVersion, Sessions: map[string]string{
+		"s1": legacyDistillSessionFingerprint(sessions[0], "main", "sessions/main/s1.jsonl", input),
+		"s2": legacyDistillSessionFingerprint(sessions[1], "feature", "sessions/branches/feature/s2.jsonl", input),
+	}}
+	saveDistillCache(brainDir, legacy)
+
+	var calls int
+	countRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return "", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: countRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("runDistillForBrain: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("grandfathered sessions must cost ZERO agent calls, got %d", calls)
+	}
+	// Entries are rewritten under the new key/format (lazy migration done).
+	migrated := loadDistillCache(brainDir)
+	for _, s := range sessions {
+		key := distillSessionCacheKey(s.Branch, s.SessionID)
+		if _, ok := migrated.Sessions[key]; !ok {
+			t.Errorf("session %s not rewritten under the new cache key %q: %v", s.SessionID, key, migrated.Sessions)
+		}
+		if _, ok := migrated.Sessions[s.SessionID]; ok {
+			t.Errorf("legacy key for %s should be gone after migration: %v", s.SessionID, migrated.Sessions)
+		}
+	}
+	// And a CHANGED session must not be grandfathered: content invalidates.
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(sessions[0].TranscriptPath)), []byte("turn one\nturn two\na new turn\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	saveDistillCache(brainDir, legacy)
+	calls = 0
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if calls == 0 {
+		t.Fatal("changed session must re-distill, not be grandfathered")
+	}
+}
+
+// TestDistillDryRunPredictsCacheAccurately covers the previously-untested
+// dry-run cache prediction: after a real run, a dry-run with the SAME
+// configuration must predict every session cached and zero agent calls
+// (the salt — including the agent name — must match the real run's), while a
+// changed model must flip the prediction to re-distill (the salt working).
+func TestDistillDryRunPredictsCacheAccurately(t *testing.T) {
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now) // s1 (main) + s2 (feature)
+
+	seedRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return "preferences.coding.style\tThe user prefers concise commits.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: seedRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+
+	report, err := buildDistillDryRunReport(brainDir, opts, now)
+	if err != nil {
+		t.Fatalf("dry-run: %v", err)
+	}
+	if report.CachedSessions != 2 || report.SessionsToDistill != 0 {
+		t.Fatalf("same-config dry-run must predict all cached: cached=%d to_distill=%d", report.CachedSessions, report.SessionsToDistill)
+	}
+	if report.EstimatedAgentCallsUpperBound != 0 {
+		t.Fatalf("same-config dry-run must predict zero agent calls, got %d", report.EstimatedAgentCallsUpperBound)
+	}
+
+	// A different model salts differently: the dry-run must predict re-distill.
+	changed := opts
+	changed.model = "some-other-model"
+	report, err = buildDistillDryRunReport(brainDir, changed, now)
+	if err != nil {
+		t.Fatalf("dry-run (changed model): %v", err)
+	}
+	if report.SessionsToDistill != 2 || report.CachedSessions != 0 {
+		t.Fatalf("changed-model dry-run must predict re-distill: cached=%d to_distill=%d", report.CachedSessions, report.SessionsToDistill)
 	}
 }

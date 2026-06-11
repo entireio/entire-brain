@@ -56,6 +56,103 @@ than risk mis-parsing. Additive, backward-compatible fields do not bump the vers
 `--location-only` (CLI) / `location_only` (MCP) blanks `expected`/`current`/`reason`, handing the
 suspected site but not the fix — so a fair A/B measures detection, not answer-pasting.
 
+## Evidence Status
+
+The contract is implemented and covered locally: CLI and MCP tests exercise
+`brain_regressions`, `brain_review`, `brain_workspace_regressions`, and
+`brain_workspace_review`, including `location_only` checks that preserve the
+file/line while not leaking expected/current fix values.
+
+Release evidence is retained in two layers. Deterministic tool-contract proof
+lives under `benchmarks/agent-brain/evidence/radar-tool`: focused local tests
+cover location-only redaction, deletion opt-in, anchored call deletion, hinted
+changed/deleted loci across multiple files, same-name and same-function
+assignment-deletion sites, unsafe workspace pairing skips, workspace Radar,
+strict MCP argument validation plus schema/validator parity, branch-aware QMD
+retrieval over MCP, per-file raw-history scan closing under descriptor pressure,
+and safe `tool_result` logging.
+
+The retained Radar agent-lift proof is
+`benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2`.
+It compares `no_brain` against `mcp_history` with
+`mcp_radar_location_only` delivery on the manual-attribution deletion task:
+no-brain passed 2/4, Radar/MCP passed 4/4, mean score improved 73.0 -> 92.5,
+mean tokens dropped 811,466.5 -> 408,947.75, and mean search calls dropped
+11.5 -> 6.0. The independent release audit reports 0 hard flags, 8/8
+provenance-backed records, 4 MCP-verified condition records, 4 server-named
+`brain_regressions` records, and 4 completed `tool_result` records. This is
+citable as a focused location-only Radar proof; it is not workspace Radar,
+semantic, or broad multi-task proof.
+
+The committed `release-entire-cli-radar-mcp-review-base-scope` panel remains a
+reproducible Radar candidate lane: it sets `BENCH_RADAR_LOCATION_ONLY=1`, runs
+`no_brain` vs `mcp_history`, and is intended to graduate only if the independent
+audit sees zero hard flags, MCP-verified records, and a proof-ready
+`mcp_radar_location_only` comparison. The committed
+`release-entire-cli-workspace-radar-mcp-transcript-reresolve` panel exercises
+the workspace MCP delivery (`mcp_workspace_radar`) and audits proof-ready runs as
+`mcp_workspace_radar_location_only`, but it remains a calibration lane until a
+non-saturated regression task is found.
+The committed `release-entire-cli-radar-mcp-attribution-realign` panel is a
+true-Radar calibration lane: it uses a detector-shaped deleted state assignment,
+keeps the Radar arm location-only, and validates the state invariant without
+exposing expected/current values. Its clean 1x pilot saturated, so it is not
+retained release proof.
+The committed `release-entire-cli-radar-mcp-review-file-count` panel is the next
+Radar proof candidate: it targets explicit-base review file counts with a
+detector-shaped `baseRef+"...HEAD"` regression and a hidden behavioral
+validation that visible tests do not already cover. Its calibrated clean 1x
+pilot still saturated on pass rate, so it is directional efficiency calibration
+until a future task/runner revision creates baseline headroom.
+`mise run radar:screen` runs the dedicated Radar evidence audit over local
+`pilot-radar-*` suites and promoted `release-candidate-*-radar-*` /
+`release-candidate-*-workspace-radar-*` reruns. It now builds the independent
+Codex audit first, so rows with retained server logs can show whether the MCP
+server actually handled and completed the required named Radar tool. The screen
+labels each comparison as proof-ready, promotable, audit-gapped, saturated, or incomplete;
+when a pilot is stopped before Radar runs because the first no-brain score is
+already too high, it emits a `no-brain-too-easy` row instead of hiding the
+suite, and record-only runs now appear as `incomplete-suite` rows. Older
+manual-attribution deletion reruns without embedded deletion-policy attestation
+or completed server-side tool results remain diagnostic only. The retained
+`release-candidate-cli-radar-mcp-del-20260610-r2` rerun is the promoted
+audit-clean proof lane.
+`mise run radar:evidence` currently checks the deterministic MCP/Radar
+tool-contract artifact. The stricter agent-lift proof gate is
+`mise run radar:agent-evidence`; it checks retained Radar agent-lift proof and
+keeps generic MCP-history proof, deterministic tool proof, and stronger Radar
+agent-lift proof separate.
+New MCP/Radar runs also write redacted server-side tool names (`tool:
+brain_regressions`, `tool: brain_workspace_regressions`, etc.) to
+`mcp-server.log`; the independent audit cross-checks those names when present,
+so retained Radar proof shows which brain tool the server actually handled
+rather than relying only on agent transcript activity.
+For Radar proof, the audit pairs safe args and `tool_result` status on the same
+server-side call, so a failed location-only call cannot be combined with a later
+successful non-location-only call to manufacture proof.
+The retained release gate now also counts named-tool MCP datapoints separately
+from basic MCP-verified datapoints and can require named-tool proof by proof
+scope. The generic MCP-history proof is call-count-backed legacy evidence.
+Citable named-tool MCP proof currently comes from the deterministic local
+MCP/Radar contract tests and the retained `mcp_radar_location_only` agent-lift
+suite.
+Radar proof records only safe MCP boolean arguments (`location_only`,
+`include_deletions`) plus validated workspace names from structured tool-call
+events, so the audit can reject a would-be location-only or workspace proof that
+actually called the wrong mode or workspace without retaining query text. New
+records also embed the deletion-policy bit in record provenance, so future
+audits do not infer required Radar arguments from today's task file contents.
+The live harness audit now checks deletion-shaped Radar tasks for
+`include_deletions: true` too, so bad calls are visible in the run record before
+the retained-evidence audit.
+For non-radar MCP-history proof, the committed
+`release-entire-cli-mcp-manual-attribution` panel targets a harder manual-commit
+attribution invariant where the brain should provide historical localization and
+the agent still has to repair the code. Its retained
+`release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress` suite is
+now citable as MCP-history correctness/pass-rate evidence, not Radar or
+efficiency evidence.
+
 ## Consumer 1 — `entire review` (cli; prototyped, not landed)
 
 When entire-brain is installed and the review scope is empty (no commits unique to the branch and no

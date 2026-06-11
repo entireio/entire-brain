@@ -1,0 +1,310 @@
+{
+  "agent": "codex",
+  "agent_baseline_history_reset": {
+    "parent_count": 0,
+    "root_commit": "ee7fcee446fe5582df03235f2acd84d98258a2ba"
+  },
+  "agent_info": {
+    "activity": {
+      "activity_source": "protocol_json",
+      "brain_commands": [],
+      "checked_brief": false,
+      "checked_diff": true,
+      "checked_freshness": false,
+      "checked_stale": false,
+      "direct_brain_cli_calls": 0,
+      "mcp_tool_calls": 0,
+      "mcp_tool_names": [],
+      "ran_tests": true,
+      "saw_index_locked": false,
+      "search_calls": 12,
+      "search_commands": [
+        "rg"
+      ],
+      "structured_tool_event_count": 44,
+      "test_commands": [
+        "go test"
+      ],
+      "used_brain": false,
+      "used_mcp": false
+    },
+    "agent": "codex",
+    "cmd": [
+      "codex",
+      "..."
+    ],
+    "isolation": {
+      "auth": "host CODEX_HOME auth may still be used",
+      "mcp": "disabled",
+      "rules": "ignored",
+      "session": "ephemeral",
+      "user_config": "ignored"
+    },
+    "mcp": {
+      "condition": "no_brain",
+      "enabled": false,
+      "server": null
+    },
+    "resolved_model": null,
+    "returncode": 0,
+    "runner": {
+      "agent": "codex",
+      "effort": "medium",
+      "id": "codex-gpt-5.4-mini-medium",
+      "model": "gpt-5.4-mini"
+    },
+    "seconds": 84.08364415168762,
+    "stderr_bytes": 48055,
+    "stderr_tail": "er: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:44.357439Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:44.357444Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:44.358317Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:44.358322Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:44.732798Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=[local-home]s/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T05:31:44.740976Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=[local-home]s/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T05:31:44.740998Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=[local-home]s/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T05:31:49.164988Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=[local-home]s/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T05:31:49.179346Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:49.179352Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:49.179701Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:49.179707Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:49.180067Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:49.180072Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:49.180425Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:49.180430Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:49.180754Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:49.180760Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:49.181484Z  WARN codex_core_skills::loader: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:49.181489Z  WARN codex_core_skills::loader: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\n2026-06-10T05:31:49.543182Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=[local-home]s/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T05:31:49.550945Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=[local-home]s/plugins/ngs-analysis/.codex-plugin/plugin.json\n2026-06-10T05:31:49.550970Z  WARN codex_core_plugins::manifest: ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters path=[local-home]s/plugins/ngs-analysis/.codex-plugin/plugin.json\n",
+    "stdout_bytes": 164738,
+    "stdout_tail": "owBranchIfNeeded\\\" cmd/entire/cli/strategy/*_test.go'\",\"aggregated_output\":\"cmd/entire/cli/strategy/phase_postcommit_test.go:1670:func TestPostCommit_StaleActiveSession_NotCondensed(t *testing.T) {\\ncmd/entire/cli/strategy/mid_turn_commit_test.go:203:func TestPostCommit_NoTrailer_UpdatesBaseCommit(t *testing.T) {\\ncmd/entire/cli/strategy/manual_commit_attribution_test.go:1617:func TestWarnIfAttributionDiverged_MultipleDivergentSessions_FlagsAllOnce(t *testing.T) {\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_26\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc \\\"env GOCACHE=[local-temp]st ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommit_StaleActiveSession_NotCondensed'\\\"\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_26\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc \\\"env GOCACHE=[local-temp]st ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommit_StaleActiveSession_NotCondensed'\\\"\",\"aggregated_output\":\"ok  \\tgithub.com/entireio/cli/cmd/entire/cli/strategy\\t0.760s\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_27\",\"type\":\"agent_message\",\"text\":\"The patch is in place and the focused strategy tests passed with a writable Go cache. I\u2019m doing one quick diff check now to make sure the change stayed minimal before I hand back the result.\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_28\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc 'git diff -- cmd/entire/cli/strategy/manual_commit_hooks.go'\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_28\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc 'git diff -- cmd/entire/cli/strategy/manual_commit_hooks.go'\",\"aggregated_output\":\"diff --git a/cmd/entire/cli/strategy/manual_commit_hooks.go b/cmd/entire/cli/strategy/manual_commit_hooks.go\\nindex 0cafe5b..3503b41 100644\\n--- a/cmd/entire/cli/strategy/manual_commit_hooks.go\\n+++ b/cmd/entire/cli/strategy/manual_commit_hooks.go\\n@@ -1472,6 +1472,7 @@ func (s *ManualCommitStrategy) postCommitUpdateBaseCommitOnly(ctx context.Contex\\n \\t\\t\\t\\tslog.String(\\\"new_head\\\", truncateHash(newHead)),\\n \\t\\t\\t)\\n \\t\\t\\tstate.BaseCommit = newHead\\n+\\t\\t\\tstate.RealignAttributionBase(newHead)\\n \\t\\t\\treturn nil\\n \\t\\t})\\n \\t\\tif mutErr != nil && !errors.Is(mutErr, ErrStateNotFound) {\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_29\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc 'git status --short'\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_29\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc 'git status --short'\",\"aggregated_output\":\" M cmd/entire/cli/strategy/manual_commit_hooks.go\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_30\",\"type\":\"agent_message\",\"text\":\"Fixed the no-trailer post-commit path so it now realigns `AttributionBaseCommit` whenever `BaseCommit` is advanced for an active session. That restores the invariant that prevents attribution-base drift after unrelated commits.\\n\\nChanged:\\n- [`cmd/entire/cli/strategy/manual_commit_hooks.go`]([repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r1/worktree/cmd/entire/cli/strategy/manual_commit_hooks.go)\\n\\nValidation:\\n- `env GOCACHE=[local-temp]st ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommit_StaleActiveSession_NotCondensed'`\\n\\nNo tests were edited, and nothing was committed.\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":834870,\"cached_input_tokens\":776192,\"output_tokens\":5872,\"reasoning_output_tokens\":1558}}\n",
+    "usage": {
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_source": null,
+      "cost_usd": null,
+      "input_tokens": 834870,
+      "output_tokens": 5872,
+      "total_tokens": 840742,
+      "turns": null
+    }
+  },
+  "agent_leak_audit": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_secret_preflight": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_visible_entire_history_removed": false,
+  "agent_worktree_sanitization": {
+    "committed": false,
+    "removed_paths": []
+  },
+  "brain_prep": {
+    "commands": [],
+    "condition": "no_brain"
+  },
+  "brain_state": {},
+  "changed_files": [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go"
+  ],
+  "condition": "no_brain",
+  "diff_stat": {
+    "bytes": 563,
+    "shortstat": "1 file changed, 1 insertion(+)",
+    "untracked_files": []
+  },
+  "finished_at": "2026-06-10T05:31:56.904128+00:00",
+  "mcp_condition_audit": {
+    "findings": [],
+    "ok": true,
+    "required": false
+  },
+  "ok": false,
+  "post_brain_setup_applied": false,
+  "provenance": {
+    "captured_at": "2026-06-10T05:30:28.317061+00:00",
+    "fingerprint": "cfebecf81dc2e9610a67cd98a3507710b39a01f18da80dfbb2cb83d3fb8f7902",
+    "harness": {
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "suhaanthayyil",
+        "available": true,
+        "commit": "5a84c35c1a0c843908c862a678aa13f7595b1e6d",
+        "committer_date": "2026-06-10T01:23:13-04:00",
+        "parent_count": 1,
+        "parents": [
+          "6529a4862928dfe099fca1193e802dc5559ce380"
+        ],
+        "ref": "HEAD",
+        "subject": "Fix manual attribution benchmark validation"
+      },
+      "repo_path": "[repo-root]"
+    },
+    "run_config": {
+      "brain_cache": {
+        "enabled": true,
+        "refresh": false
+      },
+      "checkpoint_limit": 200,
+      "claude_budget": 0.0,
+      "command": "run",
+      "condition": "no_brain",
+      "env_flags": {
+        "BENCH_RADAR_LOCATION_ONLY": null,
+        "BENCH_REGRESSION_RADAR": null
+      },
+      "fingerprint": "40fa06a936ce5ea3e2c0a5fbcba2f25c8c5793d7b351a9ba12cb36d239b26ef6",
+      "panel": {
+        "config_sha256": "ffb6a1d763fd60372a6fddf0c30cd528aee3643108a1170a3faebe2d3dfa5962",
+        "name": "release-entire-cli-mcp-manual-attribution",
+        "path": "benchmarks/agent-brain/panels/release-entire-cli-mcp-manual-attribution.json"
+      },
+      "pricing": {
+        "file": null,
+        "inline_sha256": null
+      },
+      "repetition": 1,
+      "requested": {
+        "agents": "",
+        "conditions": "no_brain,mcp_history",
+        "repetitions": 4,
+        "runners": "codex:gpt-5.4-mini:medium",
+        "tasks": [
+          "entireio-cli-manual-commit-attribution-base.json"
+        ]
+      },
+      "runner": {
+        "agent": "codex",
+        "effort": "medium",
+        "id": "codex-gpt-5.4-mini-medium",
+        "model": "gpt-5.4-mini"
+      },
+      "stop_after_no_brain_score": null,
+      "suite": "release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress",
+      "timeout": 1800
+    },
+    "schema": 1,
+    "source": {
+      "base": {
+        "author_name": "Stefan Haubold",
+        "available": true,
+        "commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "committer_date": "2026-06-04T21:31:15+02:00",
+        "parent_count": 2,
+        "parents": [
+          "5f292e3cd4980f0a1179cf2f8687d4fc27a1c01e",
+          "75ed85eae33c28a76dfda37a99e8d7646724af56"
+        ],
+        "ref": "af713665091693a8301520159f3b4097a6ec36f9",
+        "subject": "Merge pull request #1368 from entireio/soph/e2e-canary-keychain"
+      },
+      "base_ref": "af713665091693a8301520159f3b4097a6ec36f9",
+      "base_ref_source": "task.base_commit",
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "Stefan Haubold",
+        "available": true,
+        "commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "committer_date": "2026-06-04T21:31:15+02:00",
+        "parent_count": 2,
+        "parents": [
+          "5f292e3cd4980f0a1179cf2f8687d4fc27a1c01e",
+          "75ed85eae33c28a76dfda37a99e8d7646724af56"
+        ],
+        "ref": "HEAD",
+        "subject": "Merge pull request #1368 from entireio/soph/e2e-canary-keychain"
+      },
+      "origin_url": "https://github.com/entireio/cli.git",
+      "repo": "entire-cli",
+      "repo_path_input": "cli-bench",
+      "repo_path_resolved": "[source-root:cli-bench]"
+    },
+    "task": {
+      "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+      "config_sha256": "dc545c6e68a2ec011a3b77fe6c210c80c4c7531211665ebe685f79cf9f5a0283",
+      "id": "entireio-cli-manual-commit-attribution-base",
+      "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json"
+    },
+    "tools": {
+      "bin": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress/bin"
+      },
+      "brain": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress/bin/entire-brain",
+        "sha256": "a1c9ed290837ec4d5b8b95d5401e01ed2bc80d2f2cadad5217a296a635ae8369"
+      },
+      "entire": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress/bin/entire",
+        "sha256": "4b92cbe078650aba380ca18ef52bebc2dea2486c3f5d07b684a3d86a9910e72d"
+      },
+      "sem": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress/bin/entire-sem",
+        "sha256": "e8ef3a2c2c1a04e76f6bf995dd1aa11ad9c4357279d45cc7a35716332af3b96d"
+      }
+    }
+  },
+  "repetition": 1,
+  "repo": "entire-cli",
+  "run_id": "entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r1",
+  "runner": {
+    "agent": "codex",
+    "effort": "medium",
+    "id": "codex-gpt-5.4-mini-medium",
+    "model": "gpt-5.4-mini"
+  },
+  "score": {
+    "brain_use": 5,
+    "details": {
+      "activity_source": "protocol_json",
+      "agent_seconds": 84.08364415168762,
+      "brain_commands": [],
+      "changed_file_count": 1,
+      "checked_diff": true,
+      "diff_bytes": 563,
+      "direct_brain_cli_calls": 0,
+      "expected_files_touched": [
+        "cmd/entire/cli/strategy/manual_commit_hooks.go"
+      ],
+      "forbidden_files_touched": [],
+      "mcp_tool_calls": 0,
+      "mcp_tool_names": [],
+      "missing_expected_files": [],
+      "ran_tests": true,
+      "search_calls": 12,
+      "structured_tool_event_count": 44,
+      "total_tokens": 840742,
+      "unexpected_files_touched": [],
+      "validation_count": 2,
+      "validation_passed": 1
+    },
+    "outcome": 23,
+    "patch_focus": 29,
+    "runtime_efficiency": 7,
+    "total": 72,
+    "validation_discipline": 8,
+    "version": 2
+  },
+  "started_at": "2026-06-10T05:30:28.310231+00:00",
+  "task_id": "entireio-cli-manual-commit-attribution-base",
+  "validation": {
+    "ok": false,
+    "results": [
+      {
+        "command": "test $(rg -n 'RealignAttributionBase\\(newHead\\)' cmd/entire/cli/strategy/manual_commit_hooks.go | wc -l | tr -d ' ') -eq 3",
+        "returncode": 1,
+        "seconds": 0.014826059341430664,
+        "stderr_tail": "",
+        "stdout_tail": ""
+      },
+      {
+        "command": "go test ./cmd/entire/cli/strategy -run TestPostCommit_NoTrailer_UpdatesBaseCommit",
+        "returncode": 0,
+        "seconds": 3.52475905418396,
+        "stderr_tail": "",
+        "stdout_tail": "ok  \tgithub.com/entireio/cli/cmd/entire/cli/strategy\t0.522s\n"
+      }
+    ]
+  },
+  "worktree": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r1/worktree"
+}

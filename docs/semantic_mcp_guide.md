@@ -7,7 +7,7 @@ Available tools:
 
 - `brain_stale`
 - `brain_brief`
-- Unified retrieval (qmd-aligned): `brain_query` (hybrid lexical+vector, RRF),
+- Unified retrieval (qmd-inspired): `brain_query` (hybrid lexical+vector, RRF),
   `brain_search` (lexical), `brain_vsearch` (vector), `brain_get`, `brain_multi_get`
 - Symbol graph: `brain_code`, `brain_context`, `brain_impact`, `brain_changes`,
   `brain_tests`, `brain_boundaries`
@@ -17,8 +17,11 @@ Available tools:
 The tool responses wrap the existing CLI `--json` output as text content. Treat
 the CLI JSON contracts as the source of truth for fields and freshness policy.
 
-`brain_query`/`brain_search`/`brain_vsearch` rank across the brain's facts,
-history, and docs and return ids you can pass to `brain_get`/`brain_multi_get`.
-(The earlier `brain_history` tool was removed — history is now one source within
-these unified verbs.) Use workspace commands through the CLI for now; the MCP
-adapter exposes single-repo brain tools.
+`brain_query` and `brain_search` rank across facts, history, and docs;
+`brain_vsearch` ranks vector-backed facts and docs. All three return ids you can
+pass to `brain_get`/`brain_multi_get`. (The earlier `brain_history` tool was
+removed — history is now one source within the unified lexical/hybrid verbs.)
+
+Workspace query and impact traversal currently live in the CLI
+(`entire brain workspace query|impact`). MCP exposes the single-repo tools plus
+workspace review/regression helpers.

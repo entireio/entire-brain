@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "release_citable_suite_globs": [
+    "release-candidate-*"
+  ],
+  "minimums": {
+    "suites": 3,
+    "records": 24,
+    "proof_ready_comparisons": 3,
+    "mcp_verified_records": 8,
+    "mcp_named_tool_verified_records": 4,
+    "hard_flags": 0
+  },
+  "min_repetitions_per_side": 4,
+  "forbidden_suite_globs": [
+    "release-local-*"
+  ],
+  "require_panel_provenance": true,
+  "require_proof_ready_per_suite": true,
+  "required_proof_scopes": [
+    "history",
+    "mcp",
+    "mcp_radar_location_only"
+  ],
+  "required_named_tool_proof_scopes": [
+    "mcp_radar_location_only"
+  ],
+  "quarantine_note": "Historical, exploratory, and release-local suites in benchmarks/agent-brain/results are not release-citable until regenerated or copied into an explicit release-candidate-* suite and re-audited."
+}

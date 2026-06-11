@@ -1,0 +1,18 @@
+{
+  "name": "release-entire-cli-radar-mcp-review-base-scope",
+  "description": "Focused release-candidate MCP/Regression Radar panel. It runs the fair location-only radar delivery for the entire-cli review base-scope regression: MCP may reveal the suspected file/line, but not the expected/current fix value.",
+  "runners": [
+    "codex:gpt-5.4-mini:medium"
+  ],
+  "conditions": [
+    "no_brain",
+    "mcp_history"
+  ],
+  "env": {
+    "BENCH_RADAR_LOCATION_ONLY": "1"
+  },
+  "repetitions": 4,
+  "tasks": [
+    "entireio-cli-review-base-flag-scope.json"
+  ]
+}

@@ -3,7 +3,7 @@
 Entire Brain is an external-command plugin for the Entire CLI. It builds a
 local, inspectable "brain" for a repository from Entire session history, seeded
 repository context, a local history index, an index of the brain's own docs (seed
-summaries and copied repo markdown), optional semantic facts from `entire-sem`,
+summaries and copied repo markdown), optional semantic records from `entire-sem`,
 and a curated layer of durable facts distilled from past sessions.
 
 The plugin binary is named `entire-brain` and is invoked through Entire as:
@@ -12,12 +12,19 @@ The plugin binary is named `entire-brain` and is invoked through Entire as:
 entire brain
 ```
 
-All generated brain data stays local (for now): features read local
-repositories and write local plugin data, and they do not publish or serve brain
-data over the network. The one network access is opt-in checkpoint discovery —
-when a repo configures a `checkpoint_remote`, `export`/`refresh` may `git fetch`
-the checkpoint history from that remote into a throwaway temp repo to build the
-brain. No other hydration occurs.
+Generated brain artifacts are local and inspectable by default: deterministic
+refresh/index/retrieval reads local repositories and writes local plugin data,
+and the MCP adapter is stdio-only. Optional agent-gated steps can send selected
+context to the configured agent (`refresh --agent auto`, `distill --agent
+codex|claude-code`, `recall --expand`, and judged evals). Use `--agent none`,
+`--dry-run`, `--agent command` with a local command, or loopback-only Ollama to
+avoid hosted model egress. Strict no-egress mode (`ENTIRE_BRAIN_NO_EGRESS=1` or
+`ENTIRE_BRAIN_LOCAL_ONLY=1`) can only enforce no-agent, dry-run, and Ollama
+paths whose URLs, redirects, and resolved dial targets stay loopback-only;
+arbitrary `--agent command` runners are trusted local commands but not
+enforceably loopback-only. Separately, repos that configure a
+`checkpoint_remote` allow `export`/`refresh` to `git fetch` checkpoint history
+from that remote into a throwaway temp repo unless no-egress mode is set.
 
 ## Install
 
@@ -55,10 +62,10 @@ overwrites an explicit output directory when one is provided.
 The semantic refresh stores semantic snapshots, a SQLite query store, metrics,
 parse cache, and branch overlays in the local brain directory. It refuses dirty
 worktrees unless semantic worktree indexing is explicitly enabled through the
-advanced `index --worktree` maintenance path.
+advanced `refresh index --worktree` maintenance path.
 
-Use `--worktree` on `index` only when you intentionally want the current dirty
-worktree represented. Bundle export rejects worktree-backed semantic indexes.
+Use `--worktree` on `refresh index` only when you intentionally want the current
+dirty worktree represented. Bundle export rejects worktree-backed semantic indexes.
 `repair` rebuilds derived semantic stores from the active local snapshot.
 `reset --semantic-only --force` removes semantic artifacts and manifest metadata
 without touching seed or session sources. `reset --force` removes the generated
@@ -146,23 +153,25 @@ entire brain workspace review <ws> "<query>"                  # same, review-sha
 `entire brain review` is hidden because it is the **machine contract**, not a human verb. The intended
 human surfaces are the cli's `entire review` (a diff-less mode that *would* turn on when the brain is installed)
 and `entire labs investigate`. Those consumers live in the `entireio/cli` repo and are **not yet wired**
-(review is prototyped on a held branch; investigate is designed only) — see `docs/diffless_review_seam.md`.
+(review has a CLI prototype; investigate is designed only) — see `docs/diffless_review_seam.md`.
 
 ### Ask The Brain
 
-The qmd-aligned retrieval verbs rank across the brain's text layers — durable
+The qmd-inspired retrieval verbs rank across the brain's text layers — durable
 facts, indexed history, and docs — and return ids you can fetch in full:
 
 ```sh
 entire brain query "how does checkpointing work" --json   # hybrid (lexical + vector, RRF) — the default
-entire brain search "checkpoint" --json                   # lexical keyword (BM25 over history + docs)
+entire brain search "checkpoint" --json                   # lexical keyword (facts + BM25 history/docs)
 entire brain vsearch "preventing data races" --json       # vector / semantic (facts + docs)
 entire brain get fact:<id> --json                         # fetch one item by id (fact:… | history:… | doc:…)
 entire brain multi-get fact:<id> doc:<id> --json          # fetch several by id
 ```
 
-All five accept `--json`; `search`/`vsearch`/`query` also take `--limit` and
-`--branch`. Every result carries an `id` you can pass to `get`/`multi-get`.
+All five accept `--json`, `--format json|cli`, and `--branch`; `search`,
+`vsearch`, and `query` also take `--limit`/`-n`. Every result carries an `id`
+you can pass to `get`/`multi-get`. `--branch` selects the durable-facts branch;
+history and docs come from the local indexed brain sources.
 
 #### Semantic embedder (vector arm)
 
@@ -245,39 +254,48 @@ The brain also keeps a curated **durable-facts** layer: short, self-contained,
 provenance-anchored statements about how work on the repo should be done —
 resolved decisions and their *why*, standing rules, stated preferences, and
 non-obvious constraints. Unlike the history index (read-only excerpts), facts
-are distilled, deduplicated, branch-scoped, and agent-writable, and every fact
-traces back to the signed session/checkpoint it came from. Like the rest of the
-brain, facts stay local and are never published.
+are distilled, deduplicated, branch-scoped, and agent-writable. Facts carry
+retained session/checkpoint anchors; `verify` reports whether those anchors are
+verified, stale, orphaned, or unverifiable-here. Full turn-level cryptographic
+verification depends on CLI-side turn signing.
 
 ```sh
 entire brain distill --agent codex                         # extract facts from captured sessions
+entire brain distill --dry-run --json                      # estimate sessions/chunks/calls without agent work
+entire brain distill --agent codex --jobs 4                # parallelize extraction, reconcile deterministically
+entire brain distill --agent ollama --model llama3.2       # local loopback Ollama
 entire brain distill --agent codex --model gpt-5.4-mini --effort low   # run it on a fast/cheap model
 entire brain remember "Prefer table-driven tests" --path preferences.coding.style
 entire brain recall "account deletion" --k 5
 entire brain recall "MirrorCommittedMetadataRef" --expand   # agent expands the query first
+entire brain facts status --json           # read-only fact/eval readiness summary
 entire brain facts tree --depth 1           # navigable map of what the brain knows
 entire brain facts tree --path constraints  # drill into a category
 ```
 
-`distill` runs one agent call per transcript chunk, so it is worth running on a **fast/cheap model**:
-`--model`/`--effort` pin the model + reasoning effort for both the distill and reconcile agent calls
-(codex: `--model <m> --config model_reasoning_effort=<e>`; claude-code: `--model <m> --effort <e>`).
+`distill` runs one extraction call per uncached transcript chunk, plus up to one
+reconcile call for chunks that produce candidates, so it is worth running on a
+**fast/cheap model**: `--model`/`--effort` pin the model + reasoning effort for
+both the distill and reconcile agent calls (codex: `--model <m> --config
+model_reasoning_effort=<e>`; claude-code: `--model <m> --effort <e>`).
 The same `--model`/`--effort` flags exist on `seed`, and `refresh` forwards them as `--seed-model`/
 `--seed-effort`, so a full `entire brain refresh` can synthesize its seed cheaply too.
 
 `distill` is agent-required: it sends line-numbered transcript chunks to the
-seed agent (Codex, then Claude Code) under a strict quality gate, then reconciles
-each candidate against the branch's existing facts so near-duplicates merge and
-contradictions supersede (low-confidence calls are queued for review). It is
-incremental by default; `--force` rebuilds. `remember` authors a fact directly
-(the agent classifies it when `--path` is omitted). `recall` retrieves by
-keyword + taxonomy + code-locus match, scoped to the current branch; `--scope
-local|cross-cutting` separates code facts from how-we-work facts, and `--expand`
-has the agent rewrite the query into the facts' vocabulary first.
+selected agent under a strict quality gate (`--agent auto` chooses Codex, then
+Claude Code; `ollama` and `command` are explicit), then reconciles each candidate
+against the branch's existing facts so near-duplicates merge and contradictions
+supersede (low-confidence calls are queued for review). It is incremental by
+default; `--force` rebuilds. `remember` authors a fact directly (the agent
+classifies it when `--path` is omitted). `recall` retrieves by keyword + taxonomy
++ code-locus match, scoped to the current branch; `--scope local|cross-cutting`
+separates code facts from how-we-work facts, and `--expand` has the agent
+rewrite the query into the facts' vocabulary first.
 
 Manage the fact store:
 
 ```sh
+entire brain facts status --json
 entire brain facts review                   # resolve queued merge/supersede proposals
 entire brain facts promote --from <branch> --strategy keep-both
 entire brain facts retract <fact-id>        # mark a fact no longer true (gc prunes later)
@@ -285,10 +303,30 @@ entire brain facts gc --force               # prune retracted/old-superseded; re
 ```
 
 The fact store also ships an evaluation harness for measuring retrieval quality
-(`facts eval-gen` builds a provenance-labeled benchmark from the brain's own
-sessions, `facts eval` reports precision / recall / useful-facts-per-1k-tokens,
-and `facts eval-compare` does a paired t-test with Holm correction). See
+(`facts eval-gen` builds a provenance/silver-labeled benchmark from the brain's
+own sessions, `facts eval` reports retrieved items, token estimates, precision,
+useful-per-1k, and recall only when labels exist for that retriever, and `facts
+eval-compare` does a paired t-test with Holm correction and rejects non-proof or
+different relevance sources unless `--allow-proxy-comparison` is explicit). Use `facts eval
+--retriever facts|history|query|raw-sessions` to compare distilled facts against
+history, unified query, and preprocessed session-chunk baselines before claiming
+a quality lift.
+Generated source-session fields give source-match credit for history/session
+arms; they are provenance/proxy evidence, not recall labels. Task files with
+`relevant` ids must set `label_source` (`human`, `judge_refined`, or
+`provenance_silver`), and paired proof runs must share the same task-file and
+brain-manifest hashes unless an override is called out.
+The eval `query` arm is a read-only lexical unified baseline over local brain
+layers; it does not write embedding caches or call an embedder. See
 `docs/durable_facts_plan.md` for the full design.
+
+For semantic release checks, `entire brain semantic-audit --json` reports the
+semantic provider/schema state, counts, file-language/symbol/relation coverage,
+warning/failure details, freshness axes, and blind spots in one local audit
+payload. Treat that as audit evidence for the reported provider output, not a
+global tree-sitter coverage claim; public semantic claims should name the covered
+languages, relation types, freshness state, and benchmark or audit records behind
+the claim.
 
 ## Storage
 

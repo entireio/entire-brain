@@ -1,0 +1,45 @@
+{
+  "id": "entireio-cli-radar-attribution-realign-state",
+  "repo": "entire-cli",
+  "repo_path": "cli-bench",
+  "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+  "conditions": [
+    "no_brain",
+    "mcp_history"
+  ],
+  "prompt": "Fix the attribution realignment regression. When session attribution is brought back into sync with a new base, future attribution must diff against that new base and stale divergence-warning bookkeeping must be cleared.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "radar_include_deletions": true,
+  "setup_replacements": [
+    {
+      "path": "cmd/entire/cli/session/state.go",
+      "old": "func (s *State) RealignAttributionBase(newBase string) {\n\ts.AttributionBaseCommit = newBase\n\ts.DivergenceNoticeShown = false\n}",
+      "new": "func (s *State) RealignAttributionBase(newBase string) {\n\ts.DivergenceNoticeShown = false\n}"
+    }
+  ],
+  "validation": [
+    "test $(rg -n 's\\.AttributionBaseCommit = newBase' cmd/entire/cli/session/state.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./cmd/entire/cli/session -run TestState_RealignAttributionBase_ClearsDivergenceFlag"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/session/state.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "agent_hidden_paths": [
+    "benchmarks/agent-brain"
+  ],
+  "leak_markers": [
+    "release-radar-attribution-realign-canary-20260610T0715Z"
+  ],
+  "brain_queries": [
+    "RealignAttributionBase",
+    "AttributionBaseCommit",
+    "DivergenceNoticeShown",
+    "newBase"
+  ],
+  "copy_checkpoint_ref_from_source": true
+}

@@ -268,8 +268,8 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	}
 	if outputExplicit && !seedOpts.update {
 		if seedOpts.force {
-			if err := os.RemoveAll(outputDir); err != nil {
-				return fmt.Errorf("remove forced output directory: %w", err)
+			if err := removeForcedOutputDir(outputDir, repoDir); err != nil {
+				return err
 			}
 		} else if _, err := validateExportDirAvailable(outputDir); err != nil {
 			return err
@@ -288,59 +288,70 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	if scan.Coverage != nil && scan.Coverage.MissingSessionCommits > 0 {
 		scan.Warnings = append(scan.Warnings, fmt.Sprintf("%d commits after oldest session have no Entire checkpoint trailer; see seed/history-gaps.md", scan.Coverage.MissingSessionCommits))
 	}
-	if err := writeSeedArtifacts(outputDir, scan); err != nil {
-		return err
-	}
-
-	seedManifest := &seedSourceManifest{
-		GeneratedAt:       opts.Now().UTC(),
-		Commit:            scan.Commit,
-		WorktreeMode:      seedWorktreeMode(seedOpts),
-		FileFingerprint:   scan.Fingerprint,
-		SummaryPath:       filepath.ToSlash(filepath.Join(seedDirName, "repo-overview.md")),
-		Documents:         scan.Docs,
-		Entrypoints:       scan.Entrypoints,
-		Commands:          scan.Commands,
-		HistoryBaseline:   buildSeedHistoryBaseline(ctx, opts.Runner, repoDir, outputDir),
-		HistoryCoverage:   scan.Coverage,
-		Warnings:          scan.Warnings,
-		DeterministicPath: []string{"seed/repo-overview.md", "seed/architecture.md", "seed/commands.md", "seed/conventions.md", "seed/risks.md", "seed/history-gaps.md", "seed/file-index.json"},
-	}
-
-	if seedOpts.agent != "none" {
-		agentManifest, err := runSeedAgent(ctx, repoDir, outputDir, scan, seedOpts)
-		if err != nil {
-			if seedOpts.requireAgent {
-				return err
-			}
-			seedManifest.Warnings = append(seedManifest.Warnings, err.Error())
-		}
-		if agentManifest != nil {
-			seedManifest.Agent = agentManifest
-		}
-	}
-
-	if err := writeBrainSeedSource(outputDir, storage.Key, seedManifest); err != nil {
-		return err
-	}
-	if persistentSeed {
-		cursor := seedCursor{
-			SchemaVersion:                  1,
-			UpdatedAt:                      seedManifest.GeneratedAt,
-			RepoRoot:                       repoDir,
-			RepoKey:                        storage.Key,
-			LastCommit:                     scan.Commit,
-			WorktreeMode:                   seedManifest.WorktreeMode,
-			Files:                          scan.Files,
-			DeterministicPacketFingerprint: scan.Fingerprint,
-		}
-		if seedManifest.Agent != nil {
-			cursor.QuickAgent = seedManifest.Agent.Quick
-			cursor.DeepAgent = seedManifest.Agent.Deep
-		}
-		if err := writeSeedCursor(storage.HeadPath, cursor); err != nil {
+	var seedManifest *seedSourceManifest
+	commitSeed := func() error {
+		if err := writeSeedArtifacts(outputDir, scan); err != nil {
 			return err
 		}
+
+		seedManifest = &seedSourceManifest{
+			GeneratedAt:       opts.Now().UTC(),
+			Commit:            scan.Commit,
+			WorktreeMode:      seedWorktreeMode(seedOpts),
+			FileFingerprint:   scan.Fingerprint,
+			SummaryPath:       filepath.ToSlash(filepath.Join(seedDirName, "repo-overview.md")),
+			Documents:         scan.Docs,
+			Entrypoints:       scan.Entrypoints,
+			Commands:          scan.Commands,
+			HistoryBaseline:   buildSeedHistoryBaseline(ctx, opts.Runner, repoDir, outputDir),
+			HistoryCoverage:   scan.Coverage,
+			Warnings:          scan.Warnings,
+			DeterministicPath: []string{"seed/repo-overview.md", "seed/architecture.md", "seed/commands.md", "seed/conventions.md", "seed/risks.md", "seed/history-gaps.md", "seed/file-index.json"},
+		}
+
+		if seedOpts.agent != "none" {
+			agentManifest, err := runSeedAgent(ctx, repoDir, outputDir, scan, seedOpts)
+			if err != nil {
+				if seedOpts.requireAgent {
+					return err
+				}
+				seedManifest.Warnings = append(seedManifest.Warnings, err.Error())
+			}
+			if agentManifest != nil {
+				seedManifest.Agent = agentManifest
+			}
+		}
+
+		if err := writeBrainSeedSourceLocked(outputDir, storage.Key, seedManifest); err != nil {
+			return err
+		}
+		if persistentSeed {
+			cursor := seedCursor{
+				SchemaVersion:                  1,
+				UpdatedAt:                      seedManifest.GeneratedAt,
+				RepoRoot:                       repoDir,
+				RepoKey:                        storage.Key,
+				LastCommit:                     scan.Commit,
+				WorktreeMode:                   seedManifest.WorktreeMode,
+				Files:                          scan.Files,
+				DeterministicPacketFingerprint: scan.Fingerprint,
+			}
+			if seedManifest.Agent != nil {
+				cursor.QuickAgent = seedManifest.Agent.Quick
+				cursor.DeepAgent = seedManifest.Agent.Deep
+			}
+			if err := writeSeedCursor(storage.HeadPath, cursor); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if persistentSeed {
+		if err := withBrainWriteLock(outputDir, commitSeed); err != nil {
+			return err
+		}
+	} else if err := commitSeed(); err != nil {
+		return err
 	}
 
 	out := cmd.OutOrStdout()
@@ -460,6 +471,12 @@ func splitNonEmptyLines(data []byte) []string {
 
 func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndexEntry {
 	entry := seedFileIndexEntry{Path: filepath.ToSlash(rel), Category: seedCategory(rel), Included: true, Reason: "included"}
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		entry.Included = false
+		entry.Reason = "unsafe path"
+		return entry
+	}
 	if isDeniedSeedPath(rel) {
 		entry.Included = false
 		entry.Reason = "denied path"
@@ -470,7 +487,12 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 		entry.Reason = "tests excluded"
 		return entry
 	}
-	info, err := os.Stat(filepath.Join(repoDir, rel))
+	if err := rejectSymlinkPathComponents(repoDir, clean); err != nil {
+		entry.Included = false
+		entry.Reason = "symlink path"
+		return entry
+	}
+	info, err := os.Stat(filepath.Join(repoDir, clean))
 	if err != nil {
 		entry.Included = false
 		entry.Reason = "stat failed"
@@ -491,7 +513,7 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 		entry.Reason = "binary or media"
 		return entry
 	}
-	data, err := os.ReadFile(filepath.Join(repoDir, rel))
+	data, err := os.ReadFile(filepath.Join(repoDir, clean))
 	if err == nil {
 		if bytes.IndexByte(data, 0) >= 0 {
 			entry.Included = false
@@ -682,32 +704,53 @@ func writeSeedArtifacts(outputDir string, scan seedScanResult) error {
 	if err := os.MkdirAll(filepath.Join(outputDir, seedDirName, seedDocsDirName), 0o700); err != nil {
 		return err
 	}
-	if err := writeJSONFile(filepath.Join(outputDir, seedDirName, "file-index.json"), scan.Files); err != nil {
+	fileIndexData, err := json.MarshalIndent(scan.Files, "", "  ")
+	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(outputDir, seedDirName, "repo-overview.md"), []byte(renderSeedOverview(scan)), 0o600); err != nil {
+	fileIndexData = append(fileIndexData, '\n')
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "file-index.json")), fileIndexData, 0o600); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(outputDir, seedDirName, "architecture.md"), []byte(renderSeedArchitecture(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "repo-overview.md")), []byte(renderSeedOverview(scan)), 0o600); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(outputDir, seedDirName, "commands.md"), []byte(renderSeedCommands(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "architecture.md")), []byte(renderSeedArchitecture(scan)), 0o600); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(outputDir, seedDirName, "conventions.md"), []byte(renderSeedConventions(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "commands.md")), []byte(renderSeedCommands(scan)), 0o600); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(outputDir, seedDirName, "risks.md"), []byte(renderSeedRisks(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "conventions.md")), []byte(renderSeedConventions(scan)), 0o600); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(outputDir, seedDirName, "history-gaps.md"), []byte(renderSeedHistoryGaps(scan)), 0o600); err != nil {
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "risks.md")), []byte(renderSeedRisks(scan)), 0o600); err != nil {
+		return err
+	}
+	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "history-gaps.md")), []byte(renderSeedHistoryGaps(scan)), 0o600); err != nil {
 		return err
 	}
 	for _, doc := range scan.Docs {
-		src := filepath.Join(scan.RepoDir, filepath.FromSlash(doc.Path))
-		dst := filepath.Join(outputDir, filepath.FromSlash(doc.SeedPath))
-		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
-			return err
+		cleanSrc := filepath.Clean(filepath.FromSlash(doc.Path))
+		if filepath.IsAbs(cleanSrc) || cleanSrc == "." || strings.HasPrefix(cleanSrc, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if err := rejectSymlinkPathComponents(scan.RepoDir, cleanSrc); err != nil {
+			continue
+		}
+		cleanDst := filepath.Clean(filepath.FromSlash(doc.SeedPath))
+		if filepath.IsAbs(cleanDst) || cleanDst == "." || strings.HasPrefix(cleanDst, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("unsafe seed document path: %s", doc.SeedPath)
+		}
+		dir := filepath.Dir(cleanDst)
+		if dir != "." {
+			if err := rejectExistingSymlinkPathComponents(outputDir, dir); err != nil {
+				return fmt.Errorf("validate seed document directory %s: %w", dir, err)
+			}
+		}
+		src := filepath.Join(scan.RepoDir, cleanSrc)
+		if err := rejectExistingSymlinkPathComponents(outputDir, cleanDst); err != nil {
+			return fmt.Errorf("validate seed document path %s: %w", cleanDst, err)
 		}
 		data, err := os.ReadFile(src)
 		if err != nil {
@@ -717,7 +760,7 @@ func writeSeedArtifacts(outputDir string, scan seedScanResult) error {
 			data = data[:defaultSeedMaxFileBytes]
 			data = append(data, []byte("\n\n[truncated]\n")...)
 		}
-		if err := os.WriteFile(dst, data, 0o600); err != nil {
+		if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), data, 0o600); err != nil {
 			return err
 		}
 	}
@@ -1158,7 +1201,7 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 		if semantic.Branch != "" {
 			fmt.Fprintf(&b, "- Branch: `%s`\n", semantic.Branch)
 		}
-		fmt.Fprintln(&b, "- Intake: run `entire brain query <symbol> --json` then `entire brain context <symbol> --json` for task-specific semantic context.")
+		fmt.Fprintln(&b, "- Intake: run `entire brain inspect code <symbol> --json` then `entire brain inspect context <symbol> --json` for task-specific semantic context.")
 	}
 	var warnings []string
 	warnings = append(warnings, manifest.Warnings...)
@@ -1445,6 +1488,10 @@ func stdinIsTerminal() bool {
 }
 
 func seedAgentCommandArgs(repoDir, phase string, opts seedCommandOptions) ([]string, error) {
+	_ = repoDir
+	if err := rejectAgentForNoEgress(opts.agent); err != nil {
+		return nil, err
+	}
 	switch opts.agent {
 	case "command":
 		if len(opts.agentCommand) == 0 {
@@ -1523,11 +1570,7 @@ func writeAgentArtifacts(outputDir string, artifacts map[string]string) ([]strin
 			return nil, fmt.Errorf("reject unsafe agent artifact path %q", name)
 		}
 		rel := filepath.Join(seedDirName, seedAgentDirName, clean)
-		abs := filepath.Join(outputDir, rel)
-		if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
-			return nil, err
-		}
-		if err := os.WriteFile(abs, []byte(content), 0o600); err != nil {
+		if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(rel), []byte(content), 0o600); err != nil {
 			return nil, err
 		}
 		written = append(written, filepath.ToSlash(rel))

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-06-10T21:00:19.133414Z",
+  "repo": "[repo-root]",
+  "brain_path": "[local-brain]/repos/gh/ashtom/entire-brain",
+  "repo_head": "96d229a27676c9bf2f4b6beb2d0501750988cb9a",
+  "brain_manifest_sha256": "sha256:afc4893800636c1e5c2d8a83dd75b51c03e56d291174251ce1c85e3dbfe17db6",
+  "branch": "codex/release-readiness-hardening",
+  "facts_arm_ready": false,
+  "totals": {
+    "facts": 0,
+    "active": 0,
+    "superseded": 0,
+    "retracted": 0,
+    "distilled": 0,
+    "authored": 0,
+    "proposals": 0,
+    "provenance_anchors": 0,
+    "verified_anchors": 0,
+    "unsigned_anchors": 0
+  },
+  "warnings": [
+    "facts retriever has no active facts; facts-vs-raw release proof cannot be collected yet",
+    "brain manifest has no facts source"
+  ]
+}

@@ -1,7 +1,11 @@
 package cli
 
 import (
+	"encoding/json"
 	"math"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -90,20 +94,22 @@ func TestHolmReject(t *testing.T) {
 }
 
 func TestCompareEvalSummaries(t *testing.T) {
-	a := evalSummary{Results: []evalTaskResult{
-		{ID: "t1", Recall: 0.1, UsefulPer1k: 1, Tokens: 100},
-		{ID: "t2", Recall: 0.2, UsefulPer1k: 2, Tokens: 100},
-		{ID: "t3", Recall: 0.15, UsefulPer1k: 1.5, Tokens: 100},
-		{ID: "only-a", Recall: 9, UsefulPer1k: 9, Tokens: 9},
+	a := evalSummary{RunConfig: &evalRunConfig{TasksSHA256: "tasks-a", BrainManifestSHA256: "brain-a"}, Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Recall: 0.1, UsefulPer1k: 1, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t2", Task: "two", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t3", Task: "three", Recall: 0.15, UsefulPer1k: 1.5, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
 	}}
-	b := evalSummary{Results: []evalTaskResult{
-		{ID: "t1", Recall: 0.2, UsefulPer1k: 2, Tokens: 100},
-		{ID: "t2", Recall: 0.3, UsefulPer1k: 3, Tokens: 100},
-		{ID: "t3", Recall: 0.25, UsefulPer1k: 2.5, Tokens: 100},
+	b := evalSummary{RunConfig: &evalRunConfig{TasksSHA256: "tasks-a", BrainManifestSHA256: "brain-a"}, Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t2", Task: "two", Recall: 0.3, UsefulPer1k: 3, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t3", Task: "three", Recall: 0.25, UsefulPer1k: 2.5, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
 	}}
-	comps, n := compareEvalSummaries(a, b, 0.05)
+	comps, n, err := compareEvalSummaries(a, b, 0.05)
+	if err != nil {
+		t.Fatalf("compareEvalSummaries: %v", err)
+	}
 	if n != 3 {
-		t.Fatalf("should compare only the 3 shared tasks, got n=%d", n)
+		t.Fatalf("should compare the 3 matched tasks, got n=%d", n)
 	}
 	byMetric := map[string]metricComparison{}
 	for _, c := range comps {
@@ -115,5 +121,299 @@ func TestCompareEvalSummaries(t *testing.T) {
 	// Tokens identical -> delta 0.
 	if tk := byMetric["tokens"]; tk.Delta != 0 {
 		t.Errorf("tokens delta should be 0, got %v", tk.Delta)
+	}
+	if byMetric["recall"].PHolm == 0 {
+		t.Errorf("recall Holm threshold should be populated: %+v", byMetric["recall"])
+	}
+	if byMetric["recall"].EvidenceBasis != evalMetricEvidenceProofLabels || !byMetric["recall"].ReleaseClaimable {
+		t.Errorf("proof-labeled recall should be release-claimable, got %+v", byMetric["recall"])
+	}
+	if byMetric["tokens"].EvidenceBasis != evalMetricEvidenceOperational {
+		t.Errorf("tokens should be operational evidence, got %+v", byMetric["tokens"])
+	}
+}
+
+func TestCompareEvalSummariesMissingHashesDisableReleaseClaimable(t *testing.T) {
+	a := evalSummary{Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Recall: 0.1, UsefulPer1k: 1, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t2", Task: "two", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t3", Task: "three", Recall: 0.15, UsefulPer1k: 1.5, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+	}}
+	b := evalSummary{Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Recall: 0.2, UsefulPer1k: 2, Tokens: 90, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t2", Task: "two", Recall: 0.3, UsefulPer1k: 3, Tokens: 90, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t3", Task: "three", Recall: 0.25, UsefulPer1k: 2.5, Tokens: 90, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+	}}
+	comps, _, err := compareEvalSummaries(a, b, 0.05)
+	if err != nil {
+		t.Fatalf("compareEvalSummaries: %v", err)
+	}
+	for _, c := range comps {
+		if c.Significant && c.ReleaseClaimable {
+			t.Fatalf("missing pairing hashes must disable release claimability: %+v", c)
+		}
+		if c.Significant && !strings.Contains(c.Claim, "matching task and brain manifest hashes") {
+			t.Fatalf("significant smoke claim should explain missing hashes: %+v", c)
+		}
+	}
+}
+
+func TestEvalCompareJSONMissingHashesMarksSmokeNotReleaseClaimable(t *testing.T) {
+	a := evalSummary{Retriever: evalRetrieverFacts, Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Recall: 0.1, UsefulPer1k: 1, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t2", Task: "two", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t3", Task: "three", Recall: 0.15, UsefulPer1k: 1.5, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+	}}
+	b := evalSummary{Retriever: evalRetrieverRawSessions, Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Recall: 0.22, UsefulPer1k: 2, Tokens: 80, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t2", Task: "two", Recall: 0.31, UsefulPer1k: 3.2, Tokens: 83, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t3", Task: "three", Recall: 0.24, UsefulPer1k: 2.4, Tokens: 79, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+	}}
+	dir := t.TempDir()
+	aPath := filepath.Join(dir, "a.json")
+	bPath := filepath.Join(dir, "b.json")
+	writeEvalSummaryForTest(t, aPath, a)
+	writeEvalSummaryForTest(t, bPath, b)
+
+	out, err := execute(t, newFactsEvalCompareCommand(Options{}), "--a", aPath, "--b", bPath, "--json")
+	if err != nil {
+		t.Fatalf("eval-compare json: %v\n%s", err, out)
+	}
+	var got struct {
+		ReleasePairingReady bool               `json:"release_pairing_ready"`
+		ReleaseClaimable    bool               `json:"release_claimable"`
+		ReleasePairingNote  string             `json:"release_pairing_note"`
+		Metrics             []metricComparison `json:"metrics"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("parse eval-compare json: %v\n%s", err, out)
+	}
+	if got.ReleasePairingReady || got.ReleaseClaimable {
+		t.Fatalf("missing hashes must keep comparison out of release lane: %+v", got)
+	}
+	if !strings.Contains(got.ReleasePairingNote, "missing task-file hash") || !strings.Contains(got.ReleasePairingNote, "missing brain manifest hash") {
+		t.Fatalf("missing-hash note should explain why this is smoke evidence: %+v", got)
+	}
+	for _, c := range got.Metrics {
+		if c.ReleaseClaimable {
+			t.Fatalf("metric must not be release-claimable when hashes are absent: %+v", c)
+		}
+	}
+}
+
+func TestCompareEvalSummariesPairingOverridesDisableReleaseClaimable(t *testing.T) {
+	a := evalSummary{RunConfig: &evalRunConfig{TasksSHA256: "tasks-a", BrainManifestSHA256: "brain-a"}, Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Recall: 0.1, UsefulPer1k: 1, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t2", Task: "two", Recall: 0.2, UsefulPer1k: 2, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t3", Task: "three", Recall: 0.15, UsefulPer1k: 1.5, Tokens: 100, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+	}}
+	b := evalSummary{RunConfig: &evalRunConfig{TasksSHA256: "tasks-a", BrainManifestSHA256: "brain-a"}, Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Recall: 0.2, UsefulPer1k: 2, Tokens: 90, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t2", Task: "two", Recall: 0.3, UsefulPer1k: 3, Tokens: 90, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+		{ID: "t3", Task: "three", Recall: 0.25, UsefulPer1k: 2.5, Tokens: 90, Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman},
+	}}
+	comps, n, _, _, err := compareEvalSummariesInternalWithOptions(a, b, 0.05, evalCompareOptions{AllowTaskHashMismatch: true})
+	if err != nil {
+		t.Fatalf("override comparison: %v", err)
+	}
+	if n != 3 {
+		t.Fatalf("n = %d, want 3", n)
+	}
+	for _, c := range comps {
+		if c.Significant && c.ReleaseClaimable {
+			t.Fatalf("explicit pairing override should keep significant metrics out of release claims: %+v", c)
+		}
+	}
+	note := evalCompareReleasePairingNote(a, b, evalCompareOptions{AllowTaskHashMismatch: true}, nil, nil)
+	if !strings.Contains(note, "task hash override") || !strings.Contains(note, "not release proof") {
+		t.Fatalf("override note should state this is not release proof: %q", note)
+	}
+}
+
+func TestCompareEvalSummariesRequiresMatchedTaskSets(t *testing.T) {
+	a := evalSummary{Results: []evalTaskResult{
+		{ID: "t1", Task: "one", UsefulPer1k: 1, Tokens: 100, RelevanceSource: evalRelevanceNone},
+		{ID: "t2", Task: "two", UsefulPer1k: 2, Tokens: 100, RelevanceSource: evalRelevanceNone},
+	}}
+	b := evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "one", UsefulPer1k: 2, Tokens: 100, RelevanceSource: evalRelevanceNone}}}
+	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil {
+		t.Fatal("missing task ids should be rejected by default")
+	}
+	comps, n, missingFromA, missingFromB, err := compareEvalSummariesInternal(a, b, 0.05, true, true)
+	if err != nil {
+		t.Fatalf("allow missing tasks: %v", err)
+	}
+	if n != 1 || len(comps) == 0 {
+		t.Fatalf("expected shared-id comparison, n=%d comps=%+v", n, comps)
+	}
+	if len(missingFromA) != 0 || len(missingFromB) != 1 || missingFromB[0] != "t2" {
+		t.Fatalf("unexpected missing id report: missingFromA=%v missingFromB=%v", missingFromA, missingFromB)
+	}
+}
+
+func writeEvalSummaryForTest(t *testing.T, path string, summary evalSummary) {
+	t.Helper()
+	data, err := json.Marshal(summary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCompareEvalSummariesRejectsTaskHashMismatch(t *testing.T) {
+	a := evalSummary{
+		RunConfig: &evalRunConfig{TasksSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		Results: []evalTaskResult{{
+			ID: "t1", Task: "same", Precision: 1, UsefulPer1k: 1, Tokens: 100,
+			Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman,
+		}},
+	}
+	b := evalSummary{
+		RunConfig: &evalRunConfig{TasksSHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+		Results: []evalTaskResult{{
+			ID: "t1", Task: "same", Precision: 1, UsefulPer1k: 2, Tokens: 120,
+			Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman,
+		}},
+	}
+	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil || !strings.Contains(err.Error(), "tasks_sha256") {
+		t.Fatalf("expected tasks_sha256 mismatch error, got %v", err)
+	}
+	comps, n, _, _, err := compareEvalSummariesInternalWithOptions(a, b, 0.05, evalCompareOptions{AllowTaskHashMismatch: true})
+	if err != nil {
+		t.Fatalf("explicit task hash mismatch override should allow comparison: %v", err)
+	}
+	if n != 1 || len(comps) == 0 {
+		t.Fatalf("unexpected comparison after override: n=%d comps=%+v", n, comps)
+	}
+}
+
+func TestCompareEvalSummariesRejectsBrainManifestMismatch(t *testing.T) {
+	a := evalSummary{
+		RunConfig: &evalRunConfig{BrainManifestSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		Results: []evalTaskResult{{
+			ID: "t1", Task: "same", Precision: 1, UsefulPer1k: 1, Tokens: 100,
+			Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman,
+		}},
+	}
+	b := evalSummary{
+		RunConfig: &evalRunConfig{BrainManifestSHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+		Results: []evalTaskResult{{
+			ID: "t1", Task: "same", Precision: 1, UsefulPer1k: 2, Tokens: 120,
+			Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman,
+		}},
+	}
+	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil || !strings.Contains(err.Error(), "brain_manifest_sha256") {
+		t.Fatalf("expected brain_manifest_sha256 mismatch error, got %v", err)
+	}
+	comps, n, _, _, err := compareEvalSummariesInternalWithOptions(a, b, 0.05, evalCompareOptions{AllowBrainManifestMismatch: true})
+	if err != nil {
+		t.Fatalf("explicit brain manifest mismatch override should allow comparison: %v", err)
+	}
+	if n != 1 || len(comps) == 0 {
+		t.Fatalf("unexpected comparison after override: n=%d comps=%+v", n, comps)
+	}
+}
+
+func TestCompareEvalSummariesSkipsUndefinedRecallAndRejectsBadPairs(t *testing.T) {
+	a := evalSummary{Results: []evalTaskResult{
+		{ID: "t1", Task: "same", UsefulPer1k: 1, Tokens: 100},
+		{ID: "dup", Task: "x"},
+		{ID: "dup", Task: "x"},
+	}}
+	b := evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "same", UsefulPer1k: 2, Tokens: 120}}}
+	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil {
+		t.Fatal("duplicate task ids should be rejected")
+	}
+
+	a = evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "old"}}}
+	b = evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "new"}}}
+	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil {
+		t.Fatal("mismatched task text should be rejected")
+	}
+
+	a = evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "same", UsefulPer1k: 1, Tokens: 100, RelevanceSource: evalRelevanceNone}}}
+	b = evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "same", UsefulPer1k: 2, Tokens: 120, RelevanceSource: evalRelevanceNone}}}
+	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil {
+		t.Fatal("unlabeled/no-relevance summaries should be rejected by default for relevance metrics")
+	}
+	comps, _, err := compareEvalSummariesWithOptions(a, b, 0.05, true)
+	if err != nil {
+		t.Fatalf("allow proxy compare unlabeled: %v", err)
+	}
+	for _, c := range comps {
+		if c.Metric == "recall" && c.N != 0 {
+			t.Fatalf("undefined recall should be skipped, got %+v", c)
+		}
+	}
+}
+
+func TestCompareEvalSummariesRejectsSourceMatchProxyWithoutOverride(t *testing.T) {
+	a := evalSummary{Retriever: evalRetrieverHistory, Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Precision: 1, UsefulPer1k: 10, Tokens: 100, Labeled: false, RelevanceSource: evalRelevanceSourceMatch},
+		{ID: "t2", Task: "two", Precision: 1, UsefulPer1k: 11, Tokens: 100, Labeled: false, RelevanceSource: evalRelevanceSourceMatch},
+		{ID: "t3", Task: "three", Precision: 1, UsefulPer1k: 12, Tokens: 100, Labeled: false, RelevanceSource: evalRelevanceSourceMatch},
+	}}
+	b := evalSummary{Retriever: evalRetrieverRawSessions, Results: []evalTaskResult{
+		{ID: "t1", Task: "one", Precision: 1, UsefulPer1k: 13, Tokens: 120, Labeled: false, RelevanceSource: evalRelevanceSourceMatch},
+		{ID: "t2", Task: "two", Precision: 1, UsefulPer1k: 14, Tokens: 120, Labeled: false, RelevanceSource: evalRelevanceSourceMatch},
+		{ID: "t3", Task: "three", Precision: 1, UsefulPer1k: 15, Tokens: 120, Labeled: false, RelevanceSource: evalRelevanceSourceMatch},
+	}}
+	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil || !strings.Contains(err.Error(), "--allow-proxy-comparison") {
+		t.Fatalf("same source-match proxy should be rejected without override, got %v", err)
+	}
+	comps, n, err := compareEvalSummariesWithOptions(a, b, 0.05, true)
+	if err != nil {
+		t.Fatalf("allow proxy source-match: %v", err)
+	}
+	if n != 3 || len(comps) == 0 {
+		t.Fatalf("unexpected allowed proxy comparison n=%d comps=%+v", n, comps)
+	}
+	byMetric := map[string]metricComparison{}
+	for _, c := range comps {
+		byMetric[c.Metric] = c
+	}
+	useful := byMetric["useful_per_1k"]
+	if useful.EvidenceBasis != evalMetricEvidenceProxyOrMixed {
+		t.Fatalf("proxy comparison should be marked proxy_or_mixed, got %+v", useful)
+	}
+	if useful.Significant && useful.ReleaseClaimable {
+		t.Fatalf("significant proxy comparison must not be release-claimable: %+v", useful)
+	}
+	if !strings.Contains(useful.Claim, "not proof evidence") {
+		t.Fatalf("proxy claim should warn that it is not proof evidence: %+v", useful)
+	}
+}
+
+func TestCompareEvalSummariesRejectsMissingRelevanceSource(t *testing.T) {
+	a := evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "same", Precision: 1, UsefulPer1k: 1, Tokens: 100}}}
+	b := evalSummary{Results: []evalTaskResult{{ID: "t1", Task: "same", Precision: 1, UsefulPer1k: 1, Tokens: 100}}}
+	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil {
+		t.Fatal("missing relevance_source should be rejected by default")
+	}
+	if _, _, err := compareEvalSummariesWithOptions(a, b, 0.05, true); err != nil {
+		t.Fatalf("allow proxy comparison should permit legacy summaries after an explicit override: %v", err)
+	}
+}
+
+func TestCompareEvalSummariesRejectsMixedRelevanceSources(t *testing.T) {
+	a := evalSummary{Retriever: evalRetrieverFacts, Results: []evalTaskResult{{
+		ID: "t1", Task: "same", Precision: 1, UsefulPer1k: 10, Tokens: 100,
+		Labeled: true, RelevanceSource: evalRelevanceExplicitLabel, LabelSource: evalLabelSourceHuman,
+	}}}
+	b := evalSummary{Retriever: evalRetrieverRawSessions, Results: []evalTaskResult{{
+		ID: "t1", Task: "same", Precision: 1, UsefulPer1k: 10, Tokens: 120,
+		Labeled: false, RelevanceSource: evalRelevanceSourceMatch,
+	}}}
+	if _, _, err := compareEvalSummaries(a, b, 0.05); err == nil {
+		t.Fatal("mixed explicit labels and source-match proxy relevance should be rejected by default")
+	}
+	comps, n, err := compareEvalSummariesWithOptions(a, b, 0.05, true)
+	if err != nil {
+		t.Fatalf("allow proxy comparison: %v", err)
+	}
+	if n != 1 || len(comps) == 0 {
+		t.Fatalf("unexpected allowed comparison n=%d comps=%+v", n, comps)
 	}
 }

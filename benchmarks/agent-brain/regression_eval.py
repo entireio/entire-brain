@@ -13,7 +13,14 @@ import glob, json, os, pathlib, shutil, subprocess, sys, tempfile
 
 BENCH = pathlib.Path(__file__).resolve().parent
 ROOT = BENCH.parents[1]
-CLI_BENCH = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else pathlib.Path("/Users/suhaan/Documents/Coding/cli-bench")
+
+
+def default_cli_bench() -> pathlib.Path:
+    base = pathlib.Path(os.environ.get("AGENT_BENCH_REPO_ROOT") or ROOT.parent)
+    return base / "cli-bench"
+
+
+CLI_BENCH = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else default_cli_bench()
 _cache = sys.argv[2] if len(sys.argv) > 2 else next(iter(sorted(glob.glob(str(BENCH / "cache" / "*")))), None)
 CACHE = pathlib.Path(_cache) if _cache else None
 

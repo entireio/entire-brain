@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,6 +21,30 @@ func execute(t *testing.T, cmd *cobra.Command, args ...string) (string, error) {
 	return stdout.String(), err
 }
 
+func TestFormatJSONRendersStructuredErrors(t *testing.T) {
+	cmd := NewRootCommand(Options{Version: "test-version"})
+	out, err := execute(t, cmd, "search", "alpha", "--format", "json", "--limit", "0")
+	if err == nil {
+		t.Fatalf("search succeeded unexpectedly:\n%s", out)
+	}
+	var envelope commandJSONError
+	if decodeErr := json.Unmarshal([]byte(out), &envelope); decodeErr != nil {
+		t.Fatalf("--format json error output was not JSON: %v\n%s", decodeErr, out)
+	}
+	if envelope.Code != "command_failed" || envelope.Message == "" {
+		t.Fatalf("unexpected JSON error envelope: %+v", envelope)
+	}
+
+	cmd = NewRootCommand(Options{Version: "test-version"})
+	out, err = execute(t, cmd, "search", "alpha", "--format", "cli", "--json", "--limit", "0")
+	if err == nil {
+		t.Fatalf("search succeeded unexpectedly:\n%s", out)
+	}
+	if json.Valid([]byte(out)) {
+		t.Fatalf("--format cli should force plain error output even with --json:\n%s", out)
+	}
+}
+
 func TestRootWithoutCommandShowsHelp(t *testing.T) {
 	cmd := NewRootCommand(Options{Version: "test-version"})
 	out, err := execute(t, cmd)
@@ -27,7 +52,7 @@ func TestRootWithoutCommandShowsHelp(t *testing.T) {
 		t.Fatalf("execute root: %v", err)
 	}
 	for _, want := range []string{
-		"entire-brain is an external-command plugin for the Entire CLI.",
+		"local, inspectable repository brain",
 		"Usage:",
 		// Commands are organized into use-case groups instead of one flat list.
 		"Create the brain:",

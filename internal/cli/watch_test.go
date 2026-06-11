@@ -5,10 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 func TestWatchShouldSpend(t *testing.T) {
@@ -113,6 +119,78 @@ func TestWatchLoopDistillWhenEnabledAndElapsed(t *testing.T) {
 	}
 	if got := readWatchCursor(t, cursor); got.LastAgentSpendAt.IsZero() {
 		t.Fatalf("agent-spend timestamp must advance so a restart does not re-spend: %+v", got)
+	}
+}
+
+func TestWatchDistillOptionsDefaultAndExplicitJobs(t *testing.T) {
+	defaultOpts := watchDistillOptions(defaultWatchOptions())
+	if defaultOpts.jobs != 1 {
+		t.Fatalf("default watch distill jobs = %d, want 1", defaultOpts.jobs)
+	}
+	explicit := defaultWatchOptions()
+	explicit.distillJobs = 4
+	explicit.distillAgent = "ollama"
+	explicit.model = "local-model"
+	got := watchDistillOptions(explicit)
+	if got.jobs != 4 || got.agent != "ollama" || got.model != "local-model" {
+		t.Fatalf("watch distill options not propagated: %+v", got)
+	}
+}
+
+func TestRunWatchRejectsInvalidJobsBeforeWork(t *testing.T) {
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	err := runWatch(context.Background(), cmd, Options{}, watchCommandOptions{
+		once:        true,
+		distill:     true,
+		distillJobs: 0,
+		seedAgent:   "none",
+	}, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "--jobs must be greater than 0") {
+		t.Fatalf("expected invalid jobs error, got %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("watch should fail before printing/running work, got %q", out.String())
+	}
+}
+
+func TestWatchTickConcurrentAgentSpendReservedOnce(t *testing.T) {
+	cursorPath := filepath.Join(t.TempDir(), "watch.json")
+	now := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	var refreshed atomic.Int32
+	var distilled atomic.Int32
+	steps := watchSteps{
+		now:         func() time.Time { return now },
+		fingerprint: func(context.Context) string { return "ck:orig:head" },
+		refresh:     func(context.Context) error { refreshed.Add(1); return nil },
+		seed:        func(context.Context) error { return nil },
+		distill:     func(context.Context) error { distilled.Add(1); return nil },
+	}
+	w := watchCommandOptions{distill: true, seedAgent: "none", distillEvery: time.Hour}
+	const workers = 16
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			calls := 0
+			watchTick(context.Background(), io.Discard, w, cursorPath, steps, &calls)
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if got := distilled.Load(); got != 1 {
+		t.Fatalf("concurrent ticks reserved %d agent spends, want 1", got)
+	}
+	if got := readWatchCursor(t, cursorPath); got.LastAgentSpendAt.IsZero() || got.LastFingerprint != "ck:orig:head" {
+		t.Fatalf("cursor did not record the single spend: %+v", got)
+	}
+	if refreshed.Load() == 0 {
+		t.Fatalf("expected at least one deterministic refresh")
 	}
 }
 

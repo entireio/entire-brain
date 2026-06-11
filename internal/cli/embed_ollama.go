@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 )
@@ -28,18 +31,23 @@ type ollamaEmbedder struct {
 }
 
 const defaultOllamaEmbedModel = "embeddinggemma"
+const maxOllamaEmbedResponseBytes = 8 << 20
 
 func newOllamaEmbedder() *ollamaEmbedder {
 	model := os.Getenv("ENTIRE_BRAIN_OLLAMA_MODEL")
 	if model == "" {
 		model = defaultOllamaEmbedModel
 	}
-	// Default to Ollama's embed API; ENTIRE_BRAIN_EMBED_URL points instead at any
-	// endpoint that accepts {"model","input"} and returns {"embeddings":[[...]]}
-	// — e.g. the node-llama-cpp spike server (qmd's in-process GGUF runner).
-	url := os.Getenv("ENTIRE_BRAIN_EMBED_URL")
-	if url == "" {
-		url = "http://localhost:11434/api/embed"
+	// Default to Ollama's embed API; ENTIRE_BRAIN_EMBED_URL may point at another
+	// loopback endpoint that accepts {"model","input"} and returns
+	// {"embeddings":[[...]]}, e.g. a local node-llama-cpp spike server.
+	embedURL := os.Getenv("ENTIRE_BRAIN_EMBED_URL")
+	if embedURL == "" {
+		embedURL = "http://localhost:11434/api/embed"
+	}
+	parsedURL, err := url.Parse(embedURL)
+	if err != nil || !isLoopbackHTTPURL(parsedURL) {
+		return nil
 	}
 	// Disable proxies on the transport: this embedder is local-first (the default
 	// URL is localhost), and honoring HTTP(S)_PROXY could route query/document text
@@ -53,10 +61,20 @@ func newOllamaEmbedder() *ollamaEmbedder {
 		tr = &http.Transport{}
 	}
 	tr.Proxy = nil
+	client := &http.Client{
+		Timeout:   60 * time.Second,
+		Transport: tr,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if !isLoopbackHTTPURL(req.URL) {
+				return fmt.Errorf("embed redirect must stay loopback-only: %s", req.URL.String())
+			}
+			return nil
+		},
+	}
 	return &ollamaEmbedder{
 		model: model,
-		url:   url,
-		hc:    &http.Client{Timeout: 60 * time.Second, Transport: tr},
+		url:   embedURL,
+		hc:    client,
 	}
 }
 
@@ -128,19 +146,33 @@ func (o *ollamaEmbedder) EmbedQuery(text string) []float32 {
 }
 
 func (o *ollamaEmbedder) embed(input string) []float32 {
+	if o == nil || o.hc == nil || o.url == "" {
+		return nil
+	}
+	u, err := url.Parse(o.url)
+	if err != nil || !isLoopbackHTTPURL(u) {
+		return nil
+	}
 	body, err := json.Marshal(map[string]any{"model": o.model, "input": input})
 	if err != nil {
 		return nil
 	}
-	resp, err := o.hc.Post(o.url, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, o.url, bytes.NewReader(body))
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := o.hc.Do(req)
 	if err != nil {
 		return nil
 	}
 	defer resp.Body.Close()
+	resp.Body = http.MaxBytesReader(nil, resp.Body, maxOllamaEmbedResponseBytes)
 	// A non-200 (model not pulled, server warming up) often still returns a JSON
 	// error body that decodes cleanly into an empty Embeddings — which would look
 	// like a successful nil vector. Treat any non-200 as an explicit failure.
 	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil
 	}
 	var out struct {

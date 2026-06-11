@@ -94,3 +94,42 @@ func TestLoadDocRecordsPreservesLeadingIndentation(t *testing.T) {
 		t.Fatalf("leading indentation was stripped: %q", joined)
 	}
 }
+
+func TestLoadDocRecordsFromSeedSkipsSymlinkedMarkdown(t *testing.T) {
+	dir := t.TempDir()
+	seedDocs := filepath.Join(dir, seedDirName, seedDocsDirName)
+	if err := os.MkdirAll(seedDocs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(seedDocs, "real.md"), []byte("# Real\nlocal docs only\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outsidePath := filepath.Join(t.TempDir(), "secret.md")
+	if err := os.WriteFile(outsidePath, []byte("# Outside\nsentinel secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsidePath, filepath.Join(seedDocs, "leak.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	recs, files, warnings, err := loadDocRecordsFromSeed(dir)
+	if err != nil {
+		t.Fatalf("loadDocRecordsFromSeed: %v", err)
+	}
+	if files != 1 {
+		t.Fatalf("files = %d, want only the real markdown file", files)
+	}
+	var joined string
+	for _, rec := range recs {
+		joined += rec.Text + "\n"
+		if rec.Path == filepath.ToSlash(filepath.Join(seedDirName, seedDocsDirName, "leak.md")) {
+			t.Fatalf("symlinked markdown was indexed: %+v", rec)
+		}
+	}
+	if strings.Contains(joined, "sentinel secret") {
+		t.Fatalf("outside symlink content was indexed: %q", joined)
+	}
+	if len(warnings) == 0 || !strings.Contains(strings.Join(warnings, "\n"), "symlink") {
+		t.Fatalf("expected symlink warning, got %v", warnings)
+	}
+}

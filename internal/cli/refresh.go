@@ -107,8 +107,8 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	}
 	if outputExplicit {
 		if refreshOpts.force {
-			if err := os.RemoveAll(refreshOpts.outputDir); err != nil {
-				return fmt.Errorf("remove forced output directory: %w", err)
+			if err := removeForcedOutputDir(refreshOpts.outputDir, repoDir); err != nil {
+				return err
 			}
 		} else if _, err := validateExportDirAvailable(refreshOpts.outputDir); err != nil {
 			return err
@@ -439,7 +439,10 @@ func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir 
 		if err != nil {
 			return false, fmt.Errorf("fingerprint worktree for semantic refresh: %w", err)
 		}
-		return source.WorktreeMode != "worktree" || source.WorktreeHash != hash, nil
+		if source.WorktreeMode != "worktree" || source.WorktreeHash != hash {
+			return true, nil
+		}
+		return !semanticRefreshArtifactsUsable(brainDir, source), nil
 	}
 	dirty, err := worktreeDirty(ctx, opts.Runner, repoDir)
 	if err != nil {
@@ -455,27 +458,34 @@ func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir 
 	if source.WorktreeMode == "worktree" || source.DirtyWorktree || source.Tree != tree {
 		return true, nil
 	}
-	if source.SnapshotPath == "" || source.StorePath == "" {
-		return true, nil
+	return !semanticRefreshArtifactsUsable(brainDir, source), nil
+}
+
+func semanticRefreshArtifactsUsable(brainDir string, source *semanticSourceManifest) bool {
+	if source == nil || source.SnapshotPath == "" || source.StorePath == "" {
+		return false
 	}
 	snapshotRel, err := validateSemanticSnapshotPath(source.SnapshotPath)
 	if err != nil {
-		return true, nil
+		return false
 	}
 	if err := rejectSymlinkPathComponents(brainDir, snapshotRel); err != nil {
-		return true, nil
+		return false
 	}
 	snapshotInfo, err := os.Stat(filepath.Join(brainDir, snapshotRel))
 	if err != nil || snapshotInfo.IsDir() {
-		return true, nil
+		return false
 	}
 	if _, err := validateSemanticDeclaredStore(brainDir, source); err != nil {
-		return true, nil
+		return false
 	}
-	return false, nil
+	return true
 }
 
 func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir string) string {
+	if brainNoEgressMode() {
+		return "none"
+	}
 	if commandLooksAvailable(ctx, runner, repoDir, "codex") {
 		return "codex"
 	}
@@ -513,7 +523,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.SnapshotPath == "" {
-		return errors.New("semantic index missing; run `entire brain index --force` first")
+		return errors.New("semantic index missing; run `entire brain refresh index --force` first")
 	}
 	defaultBranch, _ := detectDefaultBranch(ctx, opts.Runner, repoDir)
 	defaultHead := ""

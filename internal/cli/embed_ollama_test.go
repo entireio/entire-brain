@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -124,5 +125,24 @@ func TestOllamaEmbedderURLOverride(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_EMBED_URL", "")
 	if got := newOllamaEmbedder().url; got != "http://localhost:11434/api/embed" {
 		t.Fatalf("default url = %q", got)
+	}
+}
+
+// TestConfiguredEmbedderNonLoopbackURLFallsBack guards the loopback-guard
+// degrade path: a rejected ENTIRE_BRAIN_EMBED_URL must fall back to the
+// bundled Model2Vec embedder with a warning — not panic on the nil guard
+// result (the exact hardening scenario must not crash retrieval).
+func TestConfiguredEmbedderNonLoopbackURLFallsBack(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "ollama")
+	t.Setenv("ENTIRE_BRAIN_EMBED_URL", "http://example.com:11434/api/embed")
+	e, warn := configuredEmbedder()
+	if e == nil {
+		t.Fatalf("expected the bundled fallback embedder, got nil (warn: %s)", warn)
+	}
+	if !strings.Contains(warn, "loopback") || !strings.Contains(warn, "falling back") {
+		t.Fatalf("warning should explain the loopback rejection and fallback, got %q", warn)
+	}
+	if _, ok := e.(*staticEmbedder); !ok {
+		t.Fatalf("fallback should be the bundled static embedder, got %T", e)
 	}
 }

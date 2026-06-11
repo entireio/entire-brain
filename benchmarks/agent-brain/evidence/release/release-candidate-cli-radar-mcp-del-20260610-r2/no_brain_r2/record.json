@@ -1,0 +1,316 @@
+{
+  "agent": "codex",
+  "agent_baseline_history_reset": {
+    "parent_count": 0,
+    "root_commit": "8ea02d1b5eab4e686742c09496d8c5750b1b7c9f"
+  },
+  "agent_info": {
+    "activity": {
+      "activity_source": "protocol_json",
+      "brain_commands": [],
+      "checked_brief": false,
+      "checked_diff": true,
+      "checked_freshness": false,
+      "checked_stale": false,
+      "direct_brain_cli_calls": 0,
+      "mcp_tool_calls": 0,
+      "mcp_tool_details": [],
+      "mcp_tool_names": [],
+      "ran_tests": true,
+      "saw_index_locked": false,
+      "search_calls": 14,
+      "search_commands": [
+        "rg"
+      ],
+      "structured_tool_event_count": 50,
+      "test_commands": [
+        "go test"
+      ],
+      "used_brain": false,
+      "used_mcp": false
+    },
+    "agent": "codex",
+    "attempts": [
+      {
+        "attempt": 1,
+        "returncode": 0,
+        "seconds": 835.3980338573456,
+        "transient_failure_reason": null
+      }
+    ],
+    "cmd": [
+      "codex",
+      "..."
+    ],
+    "isolation": {
+      "auth": "host CODEX_HOME auth may still be used",
+      "mcp": "disabled",
+      "rules": "ignored",
+      "session": "ephemeral",
+      "user_config": "ignored"
+    },
+    "mcp": {
+      "condition": "no_brain",
+      "enabled": false,
+      "server": null
+    },
+    "resolved_model": null,
+    "returncode": 0,
+    "runner": {
+      "agent": "codex",
+      "effort": "low",
+      "id": "codex-gpt-5.4-mini-low",
+      "model": "gpt-5.4-mini"
+    },
+    "seconds": 835.4099838733673,
+    "stderr_bytes": 338,
+    "stderr_tail": "Reading additional input from stdin...\n2026-06-10T18:09:06.273110Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/zsh -lc \"sed -n '1815,1885p' cmd/entire/cli/strategy/phase_postcommit_test.go\"`: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: No such file or directory (os error 2)\\\")\" }\n",
+    "stdout_bytes": 908814,
+    "stdout_tail": "cmd/entire/cli/strategy/phase_postcommit_test.go:1245:func TestPostCommit_IdleSession_DoesNotRecordTurnCheckpointIDs(t *testing.T) {\\ncmd/entire/cli/strategy/phase_postcommit_test.go:1509:func TestPostCommit_OldIdleSession_BaseCommitNotUpdated(t *testing.T) {\\ncmd/entire/cli/strategy/phase_postcommit_test.go:1587:func TestPostCommit_OldEndedSession_BaseCommitNotUpdated(t *testing.T) {\\ncmd/entire/cli/strategy/phase_postcommit_test.go:1670:func TestPostCommit_StaleActiveSession_NotCondensed(t *testing.T) {\\ncmd/entire/cli/strategy/phase_postcommit_test.go:1811:func TestPostCommit_IdleSessionEmptyFilesTouched_NotCondensed(t *testing.T) {\\ncmd/entire/cli/strategy/phase_postcommit_test.go:1871:func TestPostCommit_IdleSession_NoTranscriptFallbackForCarryForward(t *testing.T) {\\ncmd/entire/cli/strategy/phase_postcommit_test.go:1942:func TestPostCommit_NonActiveSession_SkipsSentinelWait(t *testing.T) {\\ncmd/entire/cli/strategy/phase_postcommit_test.go:2014:func TestPostCommit_EndedSession_SetsFullyCondensed(t *testing.T) {\\ncmd/entire/cli/strategy/phase_postcommit_test.go:2057:func TestPostCommit_FullyCondensedEndedSession_SkippedOnNextCommit(t *testing.T) {\\ncmd/entire/cli/strategy/phase_postcommit_test.go:2126:func TestPostCommit_NonEndedSession_NotMarkedFullyCondensed(t *testing.T) {\\ncmd/entire/cli/strategy/phase_postcommit_test.go:2172:func TestPostCommit_ActiveSession_DifferentFilesThanCommit_ShouldCondense(t *testing.T) {\\ncmd/entire/cli/strategy/phase_postcommit_test.go:2267:func TestPostCommit_EmptyEndedSession_MarkedFullyCondensed(t *testing.T) {\\ncmd/entire/cli/strategy/phase_postcommit_test.go:2380:func TestPostCommit_WarnStaleEndedSessions_AfterProcessing(t *testing.T) {\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_33\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc \\\"GOCACHE=[local-temp] go test ./cmd/entire/cli/strategy -run '\\\"'^TestPostCommit_ActiveSession_CondensesImmediately$|''^TestPostCommit_IdleSessionEmptyFilesTouched_NotCondensed$'\\\"'\\\"\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_33\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc \\\"GOCACHE=[local-temp] go test ./cmd/entire/cli/strategy -run '\\\"'^TestPostCommit_ActiveSession_CondensesImmediately$|''^TestPostCommit_IdleSessionEmptyFilesTouched_NotCondensed$'\\\"'\\\"\",\"aggregated_output\":\"ok  \\tgithub.com/entireio/cli/cmd/entire/cli/strategy\\t0.699s\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_34\",\"type\":\"agent_message\",\"text\":\"Changed one line in [`cmd/entire/cli/strategy/manual_commit_hooks.go`]([repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/no_brain_r2/worktree/cmd/entire/cli/strategy/manual_commit_hooks.go#L1469):\\n- the no-trailer post-commit path now calls `state.RealignAttributionBase(newHead)` instead of only advancing `BaseCommit`\\n\\nThis keeps attribution anchored to the new HEAD after an ordinary commit during an active session, which is the stale-state regression.\\n\\nValidation that passed:\\n- `GOCACHE=[local-temp] go test ./cmd/entire/cli/strategy -run '^TestPostCommit_ActiveSession_CondensesImmediately$|^TestPostCommit_IdleSessionEmptyFilesTouched_NotCondensed$'`\\n- `GOCACHE=[local-temp] go test ./cmd/entire/cli/strategy -run '^TestPostCommit_ActiveSession_.*|^TestPostCommit_IdleSessionEmptyFilesTouched_NotCondensed$'`\\n\\nOne broader focused test, `TestPostCommit_NoTrailer_UpdatesBaseCommit`, still failed in this sandboxed run with an unexpected HEAD mismatch, but I did not change tests.\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":1030011,\"cached_input_tokens\":953856,\"output_tokens\":6991,\"reasoning_output_tokens\":1333}}\n",
+    "transient_retries": 0,
+    "usage": {
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_source": null,
+      "cost_usd": null,
+      "input_tokens": 1030011,
+      "output_tokens": 6991,
+      "total_tokens": 1037002,
+      "turns": null
+    }
+  },
+  "agent_leak_audit": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_secret_preflight": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_visible_entire_history_removed": false,
+  "agent_worktree_sanitization": {
+    "committed": false,
+    "removed_paths": []
+  },
+  "brain_prep": {
+    "commands": [],
+    "condition": "no_brain"
+  },
+  "brain_state": {},
+  "changed_files": [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go"
+  ],
+  "condition": "no_brain",
+  "diff_stat": {
+    "bytes": 616,
+    "shortstat": "1 file changed, 1 insertion(+), 1 deletion(-)",
+    "untracked_files": []
+  },
+  "finished_at": "2026-06-10T18:10:09.577441+00:00",
+  "mcp_condition_audit": {
+    "findings": [],
+    "ok": true,
+    "required": false
+  },
+  "ok": false,
+  "post_brain_setup_applied": false,
+  "provenance": {
+    "captured_at": "2026-06-10T17:56:09.113030+00:00",
+    "fingerprint": "78e5848aa9fb3fabc4b823d153d31cd905a01f0274c71c922cbafe456d1dd9bf",
+    "harness": {
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "suhaanthayyil",
+        "available": true,
+        "commit": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
+        "committer_date": "2026-06-10T13:33:51-04:00",
+        "parent_count": 1,
+        "parents": [
+          "46ba2d8dd5092bdb3a869b3a8499eb23847b5f04"
+        ],
+        "ref": "HEAD",
+        "subject": "Harden release evidence audits"
+      },
+      "repo_path": "[repo-root]"
+    },
+    "run_config": {
+      "brain_cache": {
+        "enabled": true,
+        "refresh": false
+      },
+      "checkpoint_limit": 200,
+      "claude_budget": 0.0,
+      "command": "run",
+      "condition": "no_brain",
+      "env_flags": {
+        "BENCH_RADAR_LOCATION_ONLY": "1",
+        "BENCH_REGRESSION_RADAR": null
+      },
+      "fingerprint": "522b23e8f59ee50cf5e6c36ceea1bf4839b956af8ab92bfbdba94ced05fb2296",
+      "panel": {
+        "config_sha256": "d19bd0d68ebf07ebe8d37f8f5f15928f7e21ae241e6a23264f015a4ede233a43",
+        "name": "release-entire-cli-radar-mcp-manual-attribution-deletions",
+        "path": "benchmarks/agent-brain/panels/release-entire-cli-radar-mcp-manual-attribution-deletions.json"
+      },
+      "pricing": {
+        "file": null,
+        "inline_sha256": null
+      },
+      "repetition": 2,
+      "requested": {
+        "agents": "",
+        "conditions": "no_brain,mcp_history",
+        "repetitions": 4,
+        "runners": "codex:gpt-5.4-mini:low",
+        "tasks": [
+          "entireio-cli-radar-manual-attribution-deletions.json"
+        ]
+      },
+      "runner": {
+        "agent": "codex",
+        "effort": "low",
+        "id": "codex-gpt-5.4-mini-low",
+        "model": "gpt-5.4-mini"
+      },
+      "stop_after_no_brain_score": null,
+      "suite": "release-candidate-cli-radar-mcp-del-20260610-r2",
+      "timeout": 1800,
+      "workspace_name": null
+    },
+    "schema": 1,
+    "source": {
+      "base": {
+        "author_name": "Stefan Haubold",
+        "available": true,
+        "commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "committer_date": "2026-06-04T21:31:15+02:00",
+        "parent_count": 2,
+        "parents": [
+          "5f292e3cd4980f0a1179cf2f8687d4fc27a1c01e",
+          "75ed85eae33c28a76dfda37a99e8d7646724af56"
+        ],
+        "ref": "af713665091693a8301520159f3b4097a6ec36f9",
+        "subject": "Merge pull request #1368 from entireio/soph/e2e-canary-keychain"
+      },
+      "base_ref": "af713665091693a8301520159f3b4097a6ec36f9",
+      "base_ref_source": "task.base_commit",
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "Stefan Haubold",
+        "available": true,
+        "commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "committer_date": "2026-06-04T21:31:15+02:00",
+        "parent_count": 2,
+        "parents": [
+          "5f292e3cd4980f0a1179cf2f8687d4fc27a1c01e",
+          "75ed85eae33c28a76dfda37a99e8d7646724af56"
+        ],
+        "ref": "HEAD",
+        "subject": "Merge pull request #1368 from entireio/soph/e2e-canary-keychain"
+      },
+      "origin_url": "https://github.com/entireio/cli.git",
+      "repo": "entire-cli",
+      "repo_path_input": "cli-bench",
+      "repo_path_resolved": "[source-root:cli-bench]"
+    },
+    "task": {
+      "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+      "config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
+      "id": "entireio-cli-radar-manual-attribution-deletions",
+      "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+      "radar_include_deletions": true
+    },
+    "tools": {
+      "bin": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/bin"
+      },
+      "brain": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/bin/entire-brain",
+        "sha256": "7dd5264a7a8aa836371fe6f942d9efb62935282182a5782c860297895889fb72"
+      },
+      "entire": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/bin/entire",
+        "sha256": "0cb4e43aa5197b7c9205b318158dc8d7449bc779031b794bb0beedaf91b2af0d"
+      },
+      "sem": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/bin/entire-sem",
+        "sha256": "e8ef3a2c2c1a04e76f6bf995dd1aa11ad9c4357279d45cc7a35716332af3b96d"
+      }
+    }
+  },
+  "repetition": 2,
+  "repo": "entire-cli",
+  "run_id": "no_brain_r2",
+  "runner": {
+    "agent": "codex",
+    "effort": "low",
+    "id": "codex-gpt-5.4-mini-low",
+    "model": "gpt-5.4-mini"
+  },
+  "score": {
+    "brain_use": 5,
+    "details": {
+      "activity_source": "protocol_json",
+      "agent_seconds": 835.4099838733673,
+      "brain_commands": [],
+      "changed_file_count": 1,
+      "checked_diff": true,
+      "diff_bytes": 616,
+      "direct_brain_cli_calls": 0,
+      "expected_files_touched": [
+        "cmd/entire/cli/strategy/manual_commit_hooks.go"
+      ],
+      "forbidden_files_touched": [],
+      "mcp_tool_calls": 0,
+      "mcp_tool_details": [],
+      "mcp_tool_names": [],
+      "missing_expected_files": [],
+      "ran_tests": true,
+      "search_calls": 14,
+      "structured_tool_event_count": 50,
+      "total_tokens": 1037002,
+      "unexpected_files_touched": [],
+      "validation_count": 1,
+      "validation_passed": 0
+    },
+    "outcome": 5,
+    "patch_focus": 29,
+    "runtime_efficiency": 3,
+    "total": 50,
+    "validation_discipline": 8,
+    "version": 2
+  },
+  "started_at": "2026-06-10T17:56:09.104786+00:00",
+  "task_id": "entireio-cli-radar-manual-attribution-deletions",
+  "validation": {
+    "ok": false,
+    "results": [
+      {
+        "command": "go test ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommitNoTrailerRealignsAttributionBaseHidden' -count=1",
+        "returncode": 1,
+        "seconds": 3.8686180114746094,
+        "stderr_tail": "",
+        "stdout_tail": "2026/06/10 14:10:09 INFO created shadow branch and committed changes component=checkpoint shadow_branch=entire/9f417a1-e3b0c4\n2026/06/10 14:10:09 INFO checkpoint saved component=checkpoint strategy=manual-commit checkpoint_type=session checkpoint_count=1 modified_files=1 new_files=0 deleted_files=0 shadow_branch=entire/9f417a1-e3b0c4 branch_created=true\n--- FAIL: TestPostCommit_NoTrailer_UpdatesBaseCommit (0.15s)\n    mid_turn_commit_test.go:254: \n        \tError Trace:\t[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/no_brain_r2/worktree/cmd/entire/cli/strategy/mid_turn_commit_test.go:254\n        \tError:      \tNot equal: \n        \t            \texpected: \"53c7f1f80a9d676310aa91b0bbbd10d26d658158\"\n        \t            \tactual  : \"9f417a10f853c0198c4e8494aa14f1e204e1a3d6\"\n        \t            \t\n        \t            \tDiff:\n        \t            \t--- Expected\n        \t            \t+++ Actual\n        \t            \t@@ -1 +1 @@\n        \t            \t-53c7f1f80a9d676310aa91b0bbbd10d26d658158\n        \t            \t+9f417a10f853c0198c4e8494aa14f1e204e1a3d6\n        \tTest:       \tTestPostCommit_NoTrailer_UpdatesBaseCommit\n        \tMessages:   \tBaseCommit should be updated to new HEAD even when commit has no trailer\n2026/06/10 14:10:09 INFO created shadow branch and committed changes component=checkpoint shadow_branch=entire/9f417a1-e3b0c4\n2026/06/10 14:10:09 INFO checkpoint saved component=checkpoint strategy=manual-commit checkpoint_type=session checkpoint_count=1 modified_files=1 new_files=0 deleted_files=0 shadow_branch=entire/9f417a1-e3b0c4 branch_created=true\n--- FAIL: TestPostCommitNoTrailerRealignsAttributionBaseHidden (0.07s)\n    no_trailer_realign_hidden_test.go:75: BaseCommit = 9f417a10f853c0198c4e8494aa14f1e204e1a3d6, want 53c7f1f80a9d676310aa91b0bbbd10d26d658158\nFAIL\nFAIL\tgithub.com/entireio/cli/cmd/entire/cli/strategy\t0.669s\nFAIL\n"
+      }
+    ]
+  },
+  "worktree": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-20260610-r2/no_brain_r2/worktree"
+}

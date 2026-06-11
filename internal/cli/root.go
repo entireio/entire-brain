@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -46,13 +47,14 @@ func NewRootCommand(opts Options) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:           "entire-brain",
-		Short:         "Export Entire session history for agent review",
+		Short:         "Build and query a local repository brain for agents",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Long: `entire-brain is an external-command plugin for the Entire CLI.
 
-It exports checkpointed session transcripts and metadata into a directory an
-agent can inspect to understand project history.`,
+It builds a local, inspectable repository brain from retained sessions, seed
+context, docs, history, semantic records, and durable facts, then exposes
+retrieval, verification, evaluation, and MCP surfaces for agents.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -96,7 +98,8 @@ agent can inspect to understand project history.`,
 	addGrouped("explore", newBrainInspectCommand(opts))
 	addGrouped("explore", newMCPCommand(opts))
 	addGrouped("explore", newRecallCommand(opts))
-	// qmd-aligned retrieval over the unified text index (facts + history + docs).
+	addGrouped("explore", newVerifyCommand(opts))
+	// qmd-inspired retrieval over the unified text index (facts + history + docs).
 	// Symbol/code search stays at `inspect code`.
 	addGrouped("explore", newQueryCommand(opts))
 	addGrouped("explore", newSearchCommand(opts))
@@ -114,6 +117,7 @@ agent can inspect to understand project history.`,
 	addGrouped("maintain", newSemanticRepairCommand(opts))
 	addGrouped("maintain", newSemanticResetCommand(opts))
 	addGrouped("maintain", newSemanticStaleCommand(opts))
+	addGrouped("maintain", newSemanticAuditCommand(opts))
 	addGrouped("maintain", newVersionCommand(opts.Version))
 
 	// Hidden: `review` is the machine contract `entire review`'s diff-less mode shells
@@ -173,8 +177,8 @@ func (e renderedCommandError) Is(target error) bool {
 }
 
 func commandErrorWasRendered(err error) bool {
-	_, ok := err.(renderedCommandError)
-	return ok
+	var rendered renderedCommandError
+	return errors.As(err, &rendered)
 }
 
 func wrapJSONErrorRendering(cmd *cobra.Command) {
@@ -196,6 +200,9 @@ func wrapJSONErrorRendering(cmd *cobra.Command) {
 			if err == nil || !commandWantsJSONError(cmd) {
 				return err
 			}
+			if commandErrorWasRendered(err) {
+				return err
+			}
 			_ = writeCommandJSONError(cmd.ErrOrStderr(), err)
 			return renderedCommandError{err: err}
 		}
@@ -213,6 +220,19 @@ func wrapJSONErrorRendering(cmd *cobra.Command) {
 }
 
 func commandWantsJSONError(cmd *cobra.Command) bool {
+	if flag := cmd.Flags().Lookup("format"); flag != nil && flag.Changed {
+		if wants, ok := commandFormatFlagWantsJSON(flag.Value.String()); ok {
+			return wants
+		}
+	}
+	if flag := cmd.InheritedFlags().Lookup("format"); flag != nil && flag.Changed {
+		if wants, ok := commandFormatFlagWantsJSON(flag.Value.String()); ok {
+			return wants
+		}
+	}
+	if wants, ok := commandRawFormatWantsJSON(append(cmd.Flags().Args(), commandRawArgs(cmd)...)); ok {
+		return wants
+	}
 	if flag := cmd.Flags().Lookup("json"); flag != nil && flag.Changed {
 		return commandJSONFlagEnabled(flag.Value.String())
 	}
@@ -229,6 +249,32 @@ func commandWantsJSONError(cmd *cobra.Command) bool {
 		}
 	}
 	return false
+}
+
+func commandFormatFlagWantsJSON(value string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "json":
+		return true, true
+	case "cli":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func commandRawFormatWantsJSON(args []string) (bool, bool) {
+	for i, arg := range args {
+		if arg == "--format" {
+			if i+1 >= len(args) {
+				return false, false
+			}
+			return commandFormatFlagWantsJSON(args[i+1])
+		}
+		if strings.HasPrefix(arg, "--format=") {
+			return commandFormatFlagWantsJSON(strings.TrimPrefix(arg, "--format="))
+		}
+	}
+	return false, false
 }
 
 func commandJSONFlagEnabled(value string) bool {
