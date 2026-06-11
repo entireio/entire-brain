@@ -1259,6 +1259,8 @@ def brain_query_answer_texts(task: dict[str, Any]) -> list[tuple[str, str]]:
         texts.append(("fix_text", str(replacement.get("old", ""))))
         texts.append(("fix_text", str(replacement.get("new", ""))))
         texts.append(("fix_location", str(replacement.get("path", ""))))
+    for command in task.get("setup_commands", []) + task.get("post_brain_commands", []):
+        texts.append(("fix_command", str(command)))
     if task.get("hide_expected_from_agent"):
         for expected in task.get("expected_files", []):
             texts.append(("hidden_expected_file", str(expected)))
@@ -1305,9 +1307,29 @@ BRAIN_QUERY_ANSWER_KIND_PRIORITY = (
     "hidden_validation_file",
     "hidden_validation_command",
     "fix_text",
+    "fix_command",
     "fix_location",
     "hidden_expected_file",
 )
+
+
+BRAIN_QUERY_HIDDEN_IDENTIFIER_RE = re.compile(r"[A-Za-z][A-Za-z0-9_./-]{4,}")
+
+
+def brain_query_hidden_identifier_folds(text: str) -> set[str]:
+    """Casefolded identifier-shaped tokens occurring in a hidden answer text — used to catch
+    queries that smuggle an identifier by lowercasing it or splitting it into words, two
+    transformations retrieval undoes. Dotted/path tokens are also folded per segment so
+    `state.RealignAttributionBase(newHead)` yields `realignattributionbase` as well."""
+    folds: set[str] = set()
+    for match in BRAIN_QUERY_HIDDEN_IDENTIFIER_RE.finditer(text):
+        token = match.group(0)
+        if brain_query_token_is_identifier(token):
+            folds.add(token.lower())
+        for segment in re.split(r"[._/-]", token):
+            if len(segment) >= 6 and brain_query_token_is_identifier(segment):
+                folds.add(segment.lower())
+    return folds
 
 
 def brain_query_leak_audit(task: dict[str, Any]) -> dict[str, Any]:
@@ -1315,8 +1337,10 @@ def brain_query_leak_audit(task: dict[str, Any]) -> dict[str, Any]:
     query content that also appears in the hidden fix or hidden validation hands that arm the
     answer and confounds the comparison. Flags (1) identifier-shaped query tokens found
     case-insensitively inside any hidden answer text (retrieval and agents fold case, so a
-    lowercased identifier is exactly as answer-bearing) and (2) any contiguous 3+ word query
-    phrase found there, reported as the maximal matching phrase."""
+    lowercased identifier is exactly as answer-bearing), (2) query tokens or 2-4 word runs whose
+    casefolded concatenation equals an identifier from a hidden text (lowercased or split
+    identifiers), and (3) any contiguous 3+ word query phrase found there after punctuation
+    normalization, reported as the maximal matching phrase."""
     answer_texts = brain_query_answer_texts(task)
     kind_rank = {kind: rank for rank, kind in enumerate(BRAIN_QUERY_ANSWER_KIND_PRIORITY)}
     best: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -1331,13 +1355,26 @@ def brain_query_leak_audit(task: dict[str, Any]) -> dict[str, Any]:
 
     for query in task.get("brain_queries", []):
         query_text = str(query)
-        tokens = [token.strip("`\"',;:()").rstrip(".?!") for token in query_text.split()]
-        words = query_text.split()
+        words = [word.strip("`\"',;:()").rstrip(".?!") for word in query_text.split()]
         for kind, text in answer_texts:
             folded_text = text.lower()
-            for token in tokens:
+            identifier_folds = brain_query_hidden_identifier_folds(text)
+            for token in words:
                 if brain_query_token_is_identifier(token) and token.lower() in folded_text:
                     record(query_text, token, kind, "answer_bearing_identifier")
+                elif len(token) >= 6 and token.lower() in identifier_folds:
+                    record(query_text, token, kind, "answer_bearing_identifier")
+            # split-identifier check: 3-4 word runs whose joined casefold IS a hidden identifier.
+            # Two-word runs are deliberately exempt — natural compounds ("base commit",
+            # "transcript path") match two-segment identifiers constantly; that residual is
+            # disclosed in docs/release-blockers.md alongside the 1-2-word plain-fragment one.
+            for size in (3, 4):
+                for start in range(len(words) - size + 1):
+                    joined = "".join(word.lower() for word in words[start:start + size])
+                    if len(joined) >= 8 and joined in identifier_folds:
+                        record(
+                            query_text, " ".join(words[start:start + size]), kind, "answer_bearing_identifier"
+                        )
             matched_starts = [
                 start
                 for start in range(len(words) - 2)

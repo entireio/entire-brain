@@ -1700,6 +1700,65 @@ class BrainQueryLeakAuditTests(unittest.TestCase):
         self.assertEqual(len(audit["findings"]), 1)
         self.assertEqual(audit["findings"][0]["where"], "hidden_test_name")
 
+    def test_lowercased_identifier_is_flagged(self) -> None:
+        task = {
+            "id": "lowercased",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["realignattributionbase behavior"],
+            "setup_replacements": [
+                {"path": "x.go", "old": "state.RealignAttributionBase(newHead)", "new": ""},
+            ],
+            "validation": ["go test ./..."],
+        }
+        self.assertIn("realignattributionbase", self._flagged_terms(task))
+
+    def test_split_identifier_is_flagged(self) -> None:
+        task = {
+            "id": "split",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["realign attribution base after commit"],
+            "setup_replacements": [
+                {"path": "x.go", "old": "state.RealignAttributionBase(newHead)", "new": ""},
+            ],
+            "validation": ["go test ./..."],
+        }
+        self.assertIn("realign attribution base", self._flagged_terms(task))
+
+    def test_punctuation_does_not_break_phrase_match(self) -> None:
+        task = {
+            "id": "punct-phrase",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["should rely, on prompt plus local validation"],
+            "validation": [
+                "rg 'should rely on prompt plus local validation' internal/cli/seed_test.go",
+            ],
+        }
+        self.assertFalse(run.brain_query_leak_audit(task)["ok"])
+
+    def test_setup_commands_are_answer_texts(self) -> None:
+        task = {
+            "id": "setup-cmd",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["normalizeLimit handling"],
+            "setup_commands": [
+                "perl -0pi -e 's/normalizeLimit\\(filter.limit, 250\\)/filter.limit ?? 250/' src/db.ts",
+            ],
+            "validation": ["npx vitest run"],
+        }
+        self.assertIn("normalizeLimit", self._flagged_terms(task))
+
+    def test_all_committed_tasks_pass_the_auditor(self) -> None:
+        task_dir = pathlib.Path(__file__).with_name("tasks")
+        flagged = {}
+        for path in sorted(task_dir.glob("*.json")):
+            task = json.loads(path.read_text())
+            audit = run.brain_query_leak_audit(task)
+            if not audit["ok"]:
+                flagged[task.get("id", path.name)] = [
+                    finding.get("token") or finding.get("phrase") for finding in audit["findings"]
+                ]
+        self.assertEqual(flagged, {}, "committed tasks carry answer-bearing brain_queries")
+
     def test_symptom_level_queries_pass(self) -> None:
         task = {
             "id": "clean",

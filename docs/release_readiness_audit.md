@@ -251,7 +251,10 @@ rewrite: task `github-cli-format-web-conflict` (Layer B, seed+semantic only),
 `claude:claude-opus-4-8:high`, 16 repetitions per side — tokens 988k -> 541k
 (Holm p=0.0495, drop-one survives), turns 19.4 -> 8.3 (Holm p=0.0030), agent
 seconds 111 -> 62 (Holm p=0.0414), pass 15/16 -> 16/16, score parity-plus. The
-claim is one task on one model: a stable semantic efficiency win, not a
+claim is one task on one model, and it is condition-level: per-run records show
+zero brain CLI invocations in the semantic arm, so the win belongs to the
+semantic_brain condition's delivery packet (auditor-verified symptom-level hints
+plus policy text plus prepared context), not to verified retrieval. Not a
 layer-wide or release-scope claim. The same lane retains the honest negatives
 from the matching campaign (`layer-hist-proof-20260611`: full-history delivery
 on entire-cli was net harmful or neutral across all three hard history tasks),
