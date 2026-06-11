@@ -1,0 +1,389 @@
+{
+  "agent": "codex",
+  "agent_baseline_history_reset": {
+    "parent_count": 0,
+    "root_commit": "a74ee2d2267eb970a5e2d8049e404c089767984a"
+  },
+  "agent_info": {
+    "activity": {
+      "activity_source": "protocol_json",
+      "brain_commands": [],
+      "checked_brief": false,
+      "checked_diff": true,
+      "checked_freshness": false,
+      "checked_stale": false,
+      "direct_brain_cli_calls": 0,
+      "mcp_tool_calls": 0,
+      "mcp_tool_details": [],
+      "mcp_tool_names": [],
+      "ran_tests": true,
+      "saw_index_locked": false,
+      "search_calls": 18,
+      "search_commands": [
+        "find",
+        "rg"
+      ],
+      "structured_tool_event_count": 50,
+      "test_commands": [
+        "go test"
+      ],
+      "used_brain": false,
+      "used_mcp": false
+    },
+    "agent": "codex",
+    "attempts": [
+      {
+        "attempt": 1,
+        "returncode": 0,
+        "seconds": 167.7725968360901,
+        "transient_failure_reason": null
+      }
+    ],
+    "cmd": [
+      "codex",
+      "..."
+    ],
+    "isolation": {
+      "auth": "host CODEX_HOME auth may still be used",
+      "mcp": "disabled",
+      "rules": "ignored",
+      "session": "ephemeral",
+      "user_config": "ignored"
+    },
+    "mcp": {
+      "condition": "full_brain",
+      "enabled": false,
+      "server": null
+    },
+    "resolved_model": null,
+    "returncode": 0,
+    "runner": {
+      "agent": "codex",
+      "effort": "high",
+      "id": "codex-gpt-5.5-high",
+      "model": "gpt-5.5"
+    },
+    "seconds": 167.79738593101501,
+    "stderr_bytes": 260,
+    "stderr_tail": "Reading additional input from stdin...\n2026-06-11T04:30:31.345133Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/zsh -lc 'rm -rf .tmp'`: CreateProcess { message: \"Rejected(\\\"`/bin/zsh -lc 'rm -rf .tmp'` rejected: blocked by policy\\\")\" }\n",
+    "stdout_bytes": 1332514,
+    "stdout_tail": "(\\\"claude-code args should not use --bare because it bypasses logged-in Claude auth: %#v\\\", args)\\n   204\\t\\t}\\n   205\\t\\tif !strings.Contains(args[len(args)-1], \\\"return only raw JSON\\\") {\\n   206\\t\\t\\tt.Fatalf(\\\"claude-code prompt missing structured-output instruction:\\\\n%s\\\", args[len(args)-1])\\n   207\\t\\t}\\n   208\\t}\\n   209\\t\\n   210\\tfunc TestSeedAgentCommandArgsCodexUsesPromptValidatedJSON(t *testing.T) {\\n   211\\t\\targs, err := seedAgentCommandArgs(\\\"/repo\\\", \\\"quick\\\", seedCommandOptions{agent: \\\"codex\\\"})\\n   212\\t\\tif err != nil {\\n   213\\t\\t\\tt.Fatalf(\\\"codex args: %v\\\", err)\\n   214\\t\\t}\\n   215\\t\\tjoined := strings.Join(args, \\\"\\\\x00\\\")\\n   216\\t\\tfor _, want := range []string{\\\"exec\\\", \\\"--skip-git-repo-check\\\", \\\"--ephemeral\\\", \\\"--ignore-user-config\\\", \\\"--ignore-rules\\\", \\\"--sandbox\\\", \\\"read-only\\\"} {\\n   217\\t\\t\\tif !strings.Contains(joined, want) {\\n   218\\t\\t\\t\\tt.Fatalf(\\\"codex args missing %q: %#v\\\", want, args)\\n   219\\t\\t\\t}\\n   220\\t\\t}\\n   221\\t\\tif strings.Contains(joined, \\\"--output-schema\\\") {\\n   222\\t\\t\\tt.Fatalf(\\\"known local CLI schema-dialect failure: Codex seed agent should rely on prompt plus local validation, not --output-schema; args = %#v\\\", args)\\n   223\\t\\t}\\n   224\\t\\tprompt := args[len(args)-1]\\n   225\\t\\tfor _, want := range []string{\\\"return only raw JSON\\\", \\\"schema_version must be the integer 1\\\", `status must be the string \\\"success\\\"`} {\\n   226\\t\\t\\tif !strings.Contains(prompt, want) {\\n   227\\t\\t\\t\\tt.Fatalf(\\\"codex prompt missing structured-output instruction %q:\\\\n%s\\\", want, prompt)\\n   228\\t\\t\\t}\\n   229\\t\\t}\\n   230\\t}\\n   231\\t\\n   232\\tfunc TestSeedAgentCommandArgsAcceptModelAndEffort(t *testing.T) {\\n   233\\t\\t// Seed reuses the distill injectors (applied in runSeedAgentPhase), so a full refresh can run\\n   234\\t\\t// seed synthesis on a fast/cheap model + effort. Prompt must stay last after injection.\\n   235\\t\\tcodex, _ := seedAgentCommandArgs(\\\"/repo\\\", \\\"quick\\\", seedCommandOptions{agent: \\\"codex\\\"})\\n   236\\t\\tcodex = injectAgentEffort(injectAgentModel(codex, \\\"codex\\\", \\\"gpt-5.4-mini\\\"), \\\"codex\\\", \\\"low\\\")\\n   237\\t\\tjoined := strings.Join(codex, \\\"\\\\x00\\\")\\n   238\\t\\tfor _, want := range []string{\\\"--model\\\\x00gpt-5.4-mini\\\", \\\"--config\\\\x00model_reasoning_effort=low\\\"} {\\n   239\\t\\t\\tif !strings.Contains(joined, want) {\\n   240\\t\\t\\t\\tt.Fatalf(\\\"seed codex args missing %q: %#v\\\", want, codex)\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_41\",\"type\":\"agent_message\",\"text\":\"Restored the checkpointed Codex seed-agent invocation: [internal/cli/seed.go]([repo-root]/benchmarks/agent-brain/results/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r3/worktree/internal/cli/seed.go:1502) no longer passes `--output-schema`, so Codex relies on prompt-shaped JSON plus local output validation.\\n\\nAdded focused regression coverage in [internal/cli/seed_test.go]([repo-root]/benchmarks/agent-brain/results/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r3/worktree/internal/cli/seed_test.go:210) checking the Codex command shape, absence of `--output-schema`, and the structured-output prompt requirements.\\n\\nValidation passed:\\n- `GOCACHE=$PWD/.tmp/go-build go test ./internal/cli -run 'TestSeedAgent(CommandArgsCodexUsesPromptValidatedJSON|CodexPhaseUsesPATHStdinAndWritesArtifacts|CommandArgsAcceptModelAndEffort|CommandArgsClaudeCodeDisablesToolsAndSessions|RejectsPathTraversalArtifact|CommandQuickAndDeep|ValidateSeedAgentOutputRequiresSuccessSchema|ValidateSeedAgentArtifactSetRejectsExtras)'`\\n- `GOCACHE=$PWD/.tmp/go-build go test ./internal/cli -run '^TestSeed'`\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":1152467,\"cached_input_tokens\":1068928,\"output_tokens\":6721,\"reasoning_output_tokens\":1182}}\n",
+    "transient_retries": 0,
+    "usage": {
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_source": null,
+      "cost_usd": null,
+      "input_tokens": 1152467,
+      "output_tokens": 6721,
+      "total_tokens": 1159188,
+      "turns": null
+    }
+  },
+  "agent_leak_audit": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_secret_preflight": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_visible_entire_history_removed": true,
+  "agent_worktree_sanitization": {
+    "committed": true,
+    "removed_paths": [
+      "benchmarks/agent-brain"
+    ]
+  },
+  "brain_prep": {
+    "cache": {
+      "created_at": "2026-06-11T04:22:32.661801+00:00",
+      "enabled": true,
+      "hit": true,
+      "key": "fcdec48ffaebf1f0a45efeeb",
+      "source_worktree": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r1/worktree"
+    },
+    "commands": [],
+    "condition": "full_brain",
+    "history_sanitization": {
+      "files_checked": 176,
+      "files_scrubbed": 0,
+      "items_redacted": 0,
+      "ok": true
+    }
+  },
+  "brain_state": {
+    "brain_dir": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r3/worktree/.benchmark/plugin/data/repos/gh/ashtom/entire-brain",
+    "manifest": {
+      "has_checkpoints": false,
+      "has_history": true,
+      "has_seed": true,
+      "has_semantic": false,
+      "has_sessions": true,
+      "history_records": 60511,
+      "repo_key": "gh/ashtom/entire-brain",
+      "repo_root": "[redacted benchmark scaffold]",
+      "schema_version": 3,
+      "session_count": 148
+    },
+    "path_command": {
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r3/worktree/.benchmark/plugin/data/repos/gh/ashtom/entire-brain\n"
+    },
+    "stale": {
+      "axes": {
+        "semantic": {
+          "detail": "no semantic source in manifest",
+          "state": "missing"
+        }
+      },
+      "severity": "unsafe"
+    },
+    "stale_command": {
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "{\n  \"severity\": \"unsafe\",\n  \"axes\": {\n    \"semantic\": {\n      \"state\": \"missing\",\n      \"detail\": \"no semantic source in manifest\"\n    }\n  }\n}\n"
+    }
+  },
+  "changed_files": [
+    "internal/cli/seed.go",
+    "internal/cli/seed_test.go"
+  ],
+  "condition": "full_brain",
+  "diff_stat": {
+    "bytes": 2591,
+    "shortstat": "2 files changed, 23 insertions(+), 1 deletion(-)",
+    "untracked_files": []
+  },
+  "finished_at": "2026-06-11T04:31:06.151376+00:00",
+  "mcp_condition_audit": {
+    "findings": [],
+    "ok": true,
+    "required": false
+  },
+  "ok": true,
+  "post_brain_setup_applied": false,
+  "provenance": {
+    "captured_at": "2026-06-11T04:28:01.261976+00:00",
+    "fingerprint": "5cb7c493216c6939c1cc6f1fa658782b5474fb0018c570c2f4d7a869d7e8b6e6",
+    "harness": {
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "suhaanthayyil",
+        "available": true,
+        "commit": "077714aee1313c5e604cb57f2eb414f322132bd9",
+        "committer_date": "2026-06-11T00:01:50-04:00",
+        "parent_count": 2,
+        "parents": [
+          "3cddc05a68de2e9c818d244bd5af699e4bc24b85",
+          "90f06f3565587787a7ce6e882b2bbfd98abfd48c"
+        ],
+        "ref": "HEAD",
+        "subject": "merge layer-b benchmark hardening"
+      },
+      "repo_path": "[repo-root]"
+    },
+    "run_config": {
+      "brain_cache": {
+        "enabled": true,
+        "refresh": false
+      },
+      "checkpoint_limit": 200,
+      "claude_budget": 0.0,
+      "command": "run",
+      "condition": "full_brain",
+      "env_flags": {
+        "BENCH_RADAR_LOCATION_ONLY": null,
+        "BENCH_REGRESSION_RADAR": null
+      },
+      "fingerprint": "c5bc162fd7c8b885910167618e73ca733e5265f719b56b03bdf3ceb41584174a",
+      "panel": {
+        "config_sha256": "aa2964e80e41e92447870f95e989b8dfdc656ebf72b7b6a41219408b8ae1d733",
+        "name": "release-entire-brain-schema-contract",
+        "path": "benchmarks/agent-brain/panels/release-entire-brain-schema-contract.json"
+      },
+      "pricing": {
+        "file": null,
+        "inline_sha256": null
+      },
+      "repetition": 3,
+      "requested": {
+        "agents": "",
+        "conditions": "no_brain,full_brain",
+        "repetitions": 4,
+        "runners": "codex:gpt-5.5:high",
+        "tasks": [
+          "entire-brain-history-codex-schema-contract.json"
+        ]
+      },
+      "runner": {
+        "agent": "codex",
+        "effort": "high",
+        "id": "codex-gpt-5.5-high",
+        "model": "gpt-5.5"
+      },
+      "stop_after_no_brain_score": null,
+      "suite": "release-candidate-entire-brain-schema-contract-clean-20260611T0412Z",
+      "timeout": 1800,
+      "workspace_name": null
+    },
+    "schema": 1,
+    "source": {
+      "base": {
+        "author_name": "suhaanthayyil",
+        "available": true,
+        "commit": "077714aee1313c5e604cb57f2eb414f322132bd9",
+        "committer_date": "2026-06-11T00:01:50-04:00",
+        "parent_count": 2,
+        "parents": [
+          "3cddc05a68de2e9c818d244bd5af699e4bc24b85",
+          "90f06f3565587787a7ce6e882b2bbfd98abfd48c"
+        ],
+        "ref": "HEAD",
+        "subject": "merge layer-b benchmark hardening"
+      },
+      "base_ref": "HEAD",
+      "base_ref_source": "source_head",
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "suhaanthayyil",
+        "available": true,
+        "commit": "077714aee1313c5e604cb57f2eb414f322132bd9",
+        "committer_date": "2026-06-11T00:01:50-04:00",
+        "parent_count": 2,
+        "parents": [
+          "3cddc05a68de2e9c818d244bd5af699e4bc24b85",
+          "90f06f3565587787a7ce6e882b2bbfd98abfd48c"
+        ],
+        "ref": "HEAD",
+        "subject": "merge layer-b benchmark hardening"
+      },
+      "origin_url": "https://github.com/ashtom/entire-brain.git",
+      "repo": "entire-brain",
+      "repo_path_input": "entire-brain",
+      "repo_path_resolved": "[repo-root]"
+    },
+    "task": {
+      "base_commit": null,
+      "config_sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f",
+      "id": "entire-brain-history-codex-schema-contract",
+      "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+      "radar_include_deletions": false
+    },
+    "tools": {
+      "bin": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/bin"
+      },
+      "brain": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/bin/entire-brain",
+        "sha256": "41d5930853bd43e091e1c8ef87a8a911c68cc51d3ff6d9cd9fdef9ad3a4a07ac"
+      },
+      "entire": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/bin/entire",
+        "sha256": "1b54c6771c91a60c2aa582d593c7c019676a3a60c214e3a022ed6d5f13848405"
+      },
+      "sem": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/bin/entire-sem",
+        "sha256": "e8ef3a2c2c1a04e76f6bf995dd1aa11ad9c4357279d45cc7a35716332af3b96d"
+      }
+    }
+  },
+  "repetition": 3,
+  "repo": "entire-brain",
+  "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r3",
+  "runner": {
+    "agent": "codex",
+    "effort": "high",
+    "id": "codex-gpt-5.5-high",
+    "model": "gpt-5.5"
+  },
+  "score": {
+    "brain_use": 3,
+    "details": {
+      "activity_source": "protocol_json",
+      "agent_seconds": 167.79738593101501,
+      "brain_commands": [],
+      "changed_file_count": 2,
+      "checked_diff": true,
+      "diff_bytes": 2591,
+      "direct_brain_cli_calls": 0,
+      "expected_files_touched": [
+        "internal/cli/seed.go",
+        "internal/cli/seed_test.go"
+      ],
+      "forbidden_files_touched": [],
+      "mcp_tool_calls": 0,
+      "mcp_tool_details": [],
+      "mcp_tool_names": [],
+      "missing_expected_files": [],
+      "ran_tests": true,
+      "search_calls": 18,
+      "structured_tool_event_count": 50,
+      "total_tokens": 1159188,
+      "unexpected_files_touched": [],
+      "validation_count": 4,
+      "validation_passed": 4
+    },
+    "outcome": 45,
+    "patch_focus": 28,
+    "runtime_efficiency": 5,
+    "total": 91,
+    "validation_discipline": 10,
+    "version": 2
+  },
+  "started_at": "2026-06-11T04:28:01.253808+00:00",
+  "task_id": "entire-brain-history-codex-schema-contract",
+  "validation": {
+    "ok": true,
+    "results": [
+      {
+        "command": "test $(rg -n -- '--output-schema' internal/cli/seed.go | wc -l | tr -d ' ') -eq 0",
+        "returncode": 0,
+        "seconds": 0.015096902847290039,
+        "stderr_tail": "",
+        "stdout_tail": ""
+      },
+      {
+        "command": "test $(rg -n 'TestSeedAgentCommandArgsCodex' internal/cli/seed_test.go | wc -l | tr -d ' ') -ge 1",
+        "returncode": 0,
+        "seconds": 0.00806879997253418,
+        "stderr_tail": "",
+        "stdout_tail": ""
+      },
+      {
+        "command": "test $(rg -n 'should rely on prompt plus local validation, not --output-schema' internal/cli/seed_test.go | wc -l | tr -d ' ') -eq 1",
+        "returncode": 0,
+        "seconds": 0.00746917724609375,
+        "stderr_tail": "",
+        "stdout_tail": ""
+      },
+      {
+        "command": "go test ./internal/cli -run 'TestSeedAgentCommandArgsCodex'",
+        "returncode": 0,
+        "seconds": 2.5374481678009033,
+        "stderr_tail": "",
+        "stdout_tail": "ok  \tgithub.com/ashtom/entire-brain/internal/cli\t0.520s\n"
+      }
+    ]
+  },
+  "worktree": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r3/worktree"
+}

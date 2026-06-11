@@ -2276,10 +2276,10 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertEqual(release_report["release_manifest"]["path"], "[external]/manifest.json")
 
     def test_audit_codex_flags_answer_bearing_brain_queries_in_hidden_validation(self):
-        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out, tempfile.TemporaryDirectory(dir=run.BENCH_ROOT) as task_dir:
             results_dir = pathlib.Path(results)
             out_dir = pathlib.Path(out)
-            task_path = results_dir / "leaky-task.json"
+            task_path = pathlib.Path(task_dir) / "leaky-task.json"
             task_path.write_text(json.dumps({
                 "id": "t",
                 "prompt": "Fix the regression without seeing hidden validation.",
@@ -2300,7 +2300,7 @@ class CodexAuditScriptTests(unittest.TestCase):
                 base = self._release_record(suite, condition="no_brain", repetition=i, run_id=f"base-{i}")
                 brain = self._release_record(suite, condition="full_brain", repetition=i, run_id=f"brain-{i}")
                 for record in (base, brain):
-                    record["provenance"]["task"]["path"] = str(task_path)
+                    record["provenance"]["task"]["path"] = str(task_path.relative_to(run.ROOT))
                     record["provenance"]["task"]["config_sha256"] = task_sha
                 records.extend([base, brain])
             suite_dir = self._write_records(results_dir, suite, records)

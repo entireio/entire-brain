@@ -1,0 +1,14 @@
+start
+message: initialize
+response: initialize
+message: notifications/initialized
+message: tools/list
+response: tools/list
+message: tools/call
+response: tools/call
+tool: brain_brief
+tool_result: brain_brief ok
+message: tools/call
+response: tools/call
+tool: brain_search
+tool_result: brain_search ok

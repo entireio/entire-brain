@@ -73,14 +73,13 @@ retrieval over MCP, per-file raw-history scan closing under descriptor pressure,
 and safe `tool_result` logging.
 
 The retained Radar agent-lift candidate is
-`benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2`.
+`benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z`.
 It compares `no_brain` against `mcp_history` with
 `mcp_radar_location_only` delivery on the manual-attribution deletion task and
 retains useful server-side MCP/Radar activity. It is not currently citable
-agent-lift proof: release blocker B1 found that the retained run was produced
-before the current symptom-level query hints and preflight guard, so the
-release evidence lane is in `no_release_claim` mode until a clean rerun proves
-the claim.
+agent-lift proof: the clean B1 rerun is hard-flag clean but saturated and
+brain-negative, so the release evidence lane remains in `no_release_claim`
+mode until a future clean task produces a proof-ready lift.
 
 The committed `release-entire-cli-radar-mcp-review-base-scope` panel remains a
 reproducible Radar candidate lane: it sets `BENCH_RADAR_LOCATION_ONLY=1`, runs
@@ -113,13 +112,12 @@ already too high, it emits a `no-brain-too-easy` row instead of hiding the
 suite, and record-only runs now appear as `incomplete-suite` rows. Older
 manual-attribution deletion reruns without embedded deletion-policy attestation
 or completed server-side tool results remain diagnostic only. The retained
-`release-candidate-cli-radar-mcp-del-20260610-r2` rerun is also diagnostic
-until B1 is cleared by a clean rerun.
+`release-candidate-cli-radar-mcp-del-clean-20260611T0412Z` rerun is also
+diagnostic because it saturated after the B1 confound was removed.
 `mise run radar:evidence` currently checks the deterministic MCP/Radar
 tool-contract artifact. The stricter agent-lift proof gate remains separate
-from deterministic tool proof and should be used only after the retained
-candidate is rerun from the sanitized task config without the B1 query-hint
-confound.
+from deterministic tool proof and should be used only after a clean retained
+candidate has enough baseline headroom to pass the proof-ready gate.
 New MCP/Radar runs also write redacted server-side tool names (`tool:
 brain_regressions`, `tool: brain_workspace_regressions`, etc.) to
 `mcp-server.log`; the independent audit cross-checks those names when present,
@@ -133,7 +131,7 @@ from basic MCP-verified datapoints and can require named-tool proof by proof
 scope. The generic MCP-history proof is call-count-backed legacy evidence.
 Citable named-tool MCP proof currently comes from the deterministic local
 MCP/Radar contract tests. The retained `mcp_radar_location_only` agent-lift
-candidate is no-claim until B1 is cleared by a clean rerun.
+candidate is no-claim because its clean rerun saturated.
 Radar proof records only safe MCP boolean arguments (`location_only`,
 `include_deletions`) plus validated workspace names from structured tool-call
 events, so the audit can reject a would-be location-only or workspace proof that
@@ -147,9 +145,9 @@ For non-radar MCP-history proof, the committed
 `release-entire-cli-mcp-manual-attribution` panel targets a harder manual-commit
 attribution invariant where the brain should provide historical localization and
 the agent still has to repair the code. Its retained
-`release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress` suite is
-also no-claim until B1 is cleared by a clean rerun from the sanitized task
-config.
+`release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z`
+suite is also no-claim: the clean rerun removed the B1 confound but saturated
+and remained proof-negative.
 
 ## Consumer 1 — `entire review` (cli; prototyped, not landed)
 

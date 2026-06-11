@@ -1,0 +1,317 @@
+{
+  "agent": "codex",
+  "agent_baseline_history_reset": {
+    "parent_count": 0,
+    "root_commit": "ee7fcee446fe5582df03235f2acd84d98258a2ba"
+  },
+  "agent_info": {
+    "activity": {
+      "activity_source": "protocol_json",
+      "brain_commands": [],
+      "checked_brief": false,
+      "checked_diff": true,
+      "checked_freshness": false,
+      "checked_stale": false,
+      "direct_brain_cli_calls": 0,
+      "mcp_tool_calls": 0,
+      "mcp_tool_details": [],
+      "mcp_tool_names": [],
+      "ran_tests": true,
+      "saw_index_locked": false,
+      "search_calls": 16,
+      "search_commands": [
+        "rg"
+      ],
+      "structured_tool_event_count": 70,
+      "test_commands": [
+        "go test"
+      ],
+      "used_brain": false,
+      "used_mcp": false
+    },
+    "agent": "codex",
+    "attempts": [
+      {
+        "attempt": 1,
+        "returncode": 0,
+        "seconds": 124.99386191368103,
+        "transient_failure_reason": null
+      }
+    ],
+    "cmd": [
+      "codex",
+      "..."
+    ],
+    "isolation": {
+      "auth": "host CODEX_HOME auth may still be used",
+      "mcp": "disabled",
+      "rules": "ignored",
+      "session": "ephemeral",
+      "user_config": "ignored"
+    },
+    "mcp": {
+      "condition": "no_brain",
+      "enabled": false,
+      "server": null
+    },
+    "resolved_model": null,
+    "returncode": 0,
+    "runner": {
+      "agent": "codex",
+      "effort": "medium",
+      "id": "codex-gpt-5.4-mini-medium",
+      "model": "gpt-5.4-mini"
+    },
+    "seconds": 125.00693988800049,
+    "stderr_bytes": 1620,
+    "stderr_tail": "Reading additional input from stdin...\n2026-06-11T04:12:02.983534Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/zsh -lc \"sed -n '520,920p' cmd/entire/cli/strategy/manual_commit_hooks.go\"`: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: No such file or directory (os error 2)\\\")\" }\n2026-06-11T04:12:02.983576Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/zsh -lc \"sed -n '1,260p' cmd/entire/cli/strategy/phase_postcommit_test.go\"`: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: No such file or directory (os error 2)\\\")\" }\n2026-06-11T04:12:02.983718Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/zsh -lc \"rg -n \\\"func \\\\(s \\\\*ManualCommitStrategy\\\\) PostCommit|PostCommit\\\\(\\\" cmd/entire/cli/strategy -g '*.go'\"`: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: No such file or directory (os error 2)\\\")\" }\n2026-06-11T04:12:09.021854Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/bash -c \"sed -n '1,260p' cmd/entire/cli/strategy/phase_postcommit_test.go\"`: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: No such file or directory (os error 2)\\\")\" }\n2026-06-11T04:12:37.141490Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/bash -c \"rg -n \\\"func \\\\(.*RealignAttributionBase|AttributionBaseCommit\\\" cmd/entire/cli/strategy/session*.go cmd/entire/cli/strategy/*.go\"`: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: No such file or directory (os error 2)\\\")\" }\n",
+    "stdout_bytes": 988489,
+    "stdout_tail": "xit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_42\",\"type\":\"command_execution\",\"command\":\"/bin/bash -c 'git status --short'\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_42\",\"type\":\"command_execution\",\"command\":\"/bin/bash -c 'git status --short'\",\"aggregated_output\":\" M cmd/entire/cli/strategy/manual_commit_hooks.go\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_43\",\"type\":\"command_execution\",\"command\":\"/bin/bash -c \\\"nl -ba cmd/entire/cli/strategy/manual_commit_hooks.go | sed -n '1440,1478p'\\\"\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_43\",\"type\":\"command_execution\",\"command\":\"/bin/bash -c \\\"nl -ba cmd/entire/cli/strategy/manual_commit_hooks.go | sed -n '1440,1478p'\\\"\",\"aggregated_output\":\"  1440\\t// worktree when a commit has no Entire-Checkpoint trailer. This prevents BaseCommit\\n  1441\\t// from going stale, which would cause future PrepareCommitMsg calls to skip the\\n  1442\\t// session (BaseCommit != currentHeadHash filter).\\n  1443\\t//\\n  1444\\t// Unlike the full PostCommit flow, this does NOT fire EventGitCommit or trigger\\n  1445\\t// condensation \u2014 it only keeps the session base pointers in sync with HEAD.\\n  1446\\tfunc (s *ManualCommitStrategy) postCommitUpdateBaseCommitOnly(ctx context.Context, head *plumbing.Reference) {\\n  1447\\t\\tlogCtx := logging.WithComponent(ctx, \\\"checkpoint\\\")\\n  1448\\t\\tworktreePath, err := paths.WorktreeRoot(ctx)\\n  1449\\t\\tif err != nil {\\n  1450\\t\\t\\treturn // Silent failure \u2014 hooks must be resilient\\n  1451\\t\\t}\\n  1452\\t\\n  1453\\t\\tsessions, err := s.findSessionsForWorktree(ctx, worktreePath)\\n  1454\\t\\tif err != nil || len(sessions) == 0 {\\n  1455\\t\\t\\treturn\\n  1456\\t\\t}\\n  1457\\t\\n  1458\\t\\tnewHead := head.Hash().String()\\n  1459\\t\\tfor _, sess := range sessions {\\n  1460\\t\\t\\tif !sess.Phase.IsActive() || sess.BaseCommit == newHead {\\n  1461\\t\\t\\t\\tcontinue\\n  1462\\t\\t\\t}\\n  1463\\t\\t\\tsessionID := sess.SessionID\\n  1464\\t\\t\\toldBase := sess.BaseCommit\\n  1465\\t\\t\\tmutErr := MutateSessionState(ctx, sessionID, func(state *SessionState) error {\\n  1466\\t\\t\\t\\tif !state.Phase.IsActive() || state.BaseCommit == newHead {\\n  1467\\t\\t\\t\\t\\treturn ErrMutationSkip\\n  1468\\t\\t\\t\\t}\\n  1469\\t\\t\\t\\tlogging.Debug(logCtx, \\\"post-commit (no trailer): updating BaseCommit and AttributionBaseCommit\\\",\\n  1470\\t\\t\\t\\t\\tslog.String(\\\"session_id\\\", state.SessionID),\\n  1471\\t\\t\\t\\t\\tslog.String(\\\"old_base\\\", truncateHash(oldBase)),\\n  1472\\t\\t\\t\\t\\tslog.String(\\\"new_head\\\", truncateHash(newHead)),\\n  1473\\t\\t\\t\\t)\\n  1474\\t\\t\\t\\tstate.BaseCommit = newHead\\n  1475\\t\\t\\t\\tstate.RealignAttributionBase(newHead)\\n  1476\\t\\t\\t\\treturn nil\\n  1477\\t\\t\\t})\\n  1478\\t\\t\\tif mutErr != nil && !errors.Is(mutErr, ErrStateNotFound) {\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_44\",\"type\":\"agent_message\",\"text\":\"Updated the no-trailer `PostCommit` path so active sessions advance both base pointers, not just `BaseCommit`. That keeps later attribution/accounting from staying pinned to the old commit after an ordinary commit.\\n\\nChanged:\\n- [`cmd/entire/cli/strategy/manual_commit_hooks.go:1446`](file://[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r1/worktree/cmd/entire/cli/strategy/manual_commit_hooks.go#L1446) now calls `state.RealignAttributionBase(newHead)` in `postCommitUpdateBaseCommitOnly`.\\n\\nValidation passed:\\n- `GOCACHE=[local-temp]/gocache-entire go test ./cmd/entire/cli/strategy -run 'TestPostCommit_.*BaseCommit|TestPostCommit_.*trailer|TestPostCommit_.*no trailer'`\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":1409258,\"cached_input_tokens\":1318016,\"output_tokens\":8933,\"reasoning_output_tokens\":2184}}\n",
+    "transient_retries": 0,
+    "usage": {
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_source": null,
+      "cost_usd": null,
+      "input_tokens": 1409258,
+      "output_tokens": 8933,
+      "total_tokens": 1418191,
+      "turns": null
+    }
+  },
+  "agent_leak_audit": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_secret_preflight": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_visible_entire_history_removed": false,
+  "agent_worktree_sanitization": {
+    "committed": false,
+    "removed_paths": []
+  },
+  "brain_prep": {
+    "commands": [],
+    "condition": "no_brain"
+  },
+  "brain_state": {},
+  "changed_files": [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go"
+  ],
+  "condition": "no_brain",
+  "diff_stat": {
+    "bytes": 1161,
+    "shortstat": "1 file changed, 2 insertions(+), 1 deletion(-)",
+    "untracked_files": []
+  },
+  "finished_at": "2026-06-11T04:13:45.943499+00:00",
+  "mcp_condition_audit": {
+    "findings": [],
+    "ok": true,
+    "required": false
+  },
+  "ok": true,
+  "post_brain_setup_applied": false,
+  "provenance": {
+    "captured_at": "2026-06-11T04:11:35.454456+00:00",
+    "fingerprint": "92544f8fa5f377befb3a741bd220b5eb52a3b71e3b205f4f697bc323b95b3dfd",
+    "harness": {
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "suhaanthayyil",
+        "available": true,
+        "commit": "077714aee1313c5e604cb57f2eb414f322132bd9",
+        "committer_date": "2026-06-11T00:01:50-04:00",
+        "parent_count": 2,
+        "parents": [
+          "3cddc05a68de2e9c818d244bd5af699e4bc24b85",
+          "90f06f3565587787a7ce6e882b2bbfd98abfd48c"
+        ],
+        "ref": "HEAD",
+        "subject": "merge layer-b benchmark hardening"
+      },
+      "repo_path": "[repo-root]"
+    },
+    "run_config": {
+      "brain_cache": {
+        "enabled": true,
+        "refresh": false
+      },
+      "checkpoint_limit": 200,
+      "claude_budget": 0.0,
+      "command": "run",
+      "condition": "no_brain",
+      "env_flags": {
+        "BENCH_RADAR_LOCATION_ONLY": null,
+        "BENCH_REGRESSION_RADAR": null
+      },
+      "fingerprint": "30376effd1e09a180a0b867da61795d53fcfda73cebc3b9f959c4216394cabfe",
+      "panel": {
+        "config_sha256": "ffb6a1d763fd60372a6fddf0c30cd528aee3643108a1170a3faebe2d3dfa5962",
+        "name": "release-entire-cli-mcp-manual-attribution",
+        "path": "benchmarks/agent-brain/panels/release-entire-cli-mcp-manual-attribution.json"
+      },
+      "pricing": {
+        "file": null,
+        "inline_sha256": null
+      },
+      "repetition": 1,
+      "requested": {
+        "agents": "",
+        "conditions": "no_brain,mcp_history",
+        "repetitions": 4,
+        "runners": "codex:gpt-5.4-mini:medium",
+        "tasks": [
+          "entireio-cli-manual-commit-attribution-base.json"
+        ]
+      },
+      "runner": {
+        "agent": "codex",
+        "effort": "medium",
+        "id": "codex-gpt-5.4-mini-medium",
+        "model": "gpt-5.4-mini"
+      },
+      "stop_after_no_brain_score": null,
+      "suite": "release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z",
+      "timeout": 1800,
+      "workspace_name": null
+    },
+    "schema": 1,
+    "source": {
+      "base": {
+        "author_name": "Stefan Haubold",
+        "available": true,
+        "commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "committer_date": "2026-06-04T21:31:15+02:00",
+        "parent_count": 2,
+        "parents": [
+          "5f292e3cd4980f0a1179cf2f8687d4fc27a1c01e",
+          "75ed85eae33c28a76dfda37a99e8d7646724af56"
+        ],
+        "ref": "af713665091693a8301520159f3b4097a6ec36f9",
+        "subject": "Merge pull request #1368 from entireio/soph/e2e-canary-keychain"
+      },
+      "base_ref": "af713665091693a8301520159f3b4097a6ec36f9",
+      "base_ref_source": "task.base_commit",
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "Stefan Haubold",
+        "available": true,
+        "commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "committer_date": "2026-06-04T21:31:15+02:00",
+        "parent_count": 2,
+        "parents": [
+          "5f292e3cd4980f0a1179cf2f8687d4fc27a1c01e",
+          "75ed85eae33c28a76dfda37a99e8d7646724af56"
+        ],
+        "ref": "HEAD",
+        "subject": "Merge pull request #1368 from entireio/soph/e2e-canary-keychain"
+      },
+      "origin_url": "https://github.com/entireio/cli.git",
+      "repo": "entire-cli",
+      "repo_path_input": "cli-bench",
+      "repo_path_resolved": "[source-root]/cli-bench"
+    },
+    "task": {
+      "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+      "config_sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2",
+      "id": "entireio-cli-manual-commit-attribution-base",
+      "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+      "radar_include_deletions": true
+    },
+    "tools": {
+      "bin": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/bin"
+      },
+      "brain": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/bin/entire-brain",
+        "sha256": "41d5930853bd43e091e1c8ef87a8a911c68cc51d3ff6d9cd9fdef9ad3a4a07ac"
+      },
+      "entire": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/bin/entire",
+        "sha256": "8402d885db21f386f2c48a2c60c18cee06d36e231f76459ed10e0d5c454cc84d"
+      },
+      "sem": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/bin/entire-sem",
+        "sha256": "e8ef3a2c2c1a04e76f6bf995dd1aa11ad9c4357279d45cc7a35716332af3b96d"
+      }
+    }
+  },
+  "repetition": 1,
+  "repo": "entire-cli",
+  "run_id": "entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r1",
+  "runner": {
+    "agent": "codex",
+    "effort": "medium",
+    "id": "codex-gpt-5.4-mini-medium",
+    "model": "gpt-5.4-mini"
+  },
+  "score": {
+    "brain_use": 5,
+    "details": {
+      "activity_source": "protocol_json",
+      "agent_seconds": 125.00693988800049,
+      "brain_commands": [],
+      "changed_file_count": 1,
+      "checked_diff": true,
+      "diff_bytes": 1161,
+      "direct_brain_cli_calls": 0,
+      "expected_files_touched": [
+        "cmd/entire/cli/strategy/manual_commit_hooks.go"
+      ],
+      "forbidden_files_touched": [],
+      "mcp_tool_calls": 0,
+      "mcp_tool_details": [],
+      "mcp_tool_names": [],
+      "missing_expected_files": [],
+      "ran_tests": true,
+      "search_calls": 16,
+      "structured_tool_event_count": 70,
+      "total_tokens": 1418191,
+      "unexpected_files_touched": [],
+      "validation_count": 1,
+      "validation_passed": 1
+    },
+    "outcome": 45,
+    "patch_focus": 29,
+    "runtime_efficiency": 5,
+    "total": 94,
+    "validation_discipline": 10,
+    "version": 2
+  },
+  "started_at": "2026-06-11T04:11:35.446024+00:00",
+  "task_id": "entireio-cli-manual-commit-attribution-base",
+  "validation": {
+    "ok": true,
+    "results": [
+      {
+        "command": "go test ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommitNoTrailerRealignsAttributionBaseHidden' -count=1",
+        "returncode": 0,
+        "seconds": 3.9513628482818604,
+        "stderr_tail": "",
+        "stdout_tail": "ok  \tgithub.com/entireio/cli/cmd/entire/cli/strategy\t0.625s\n"
+      }
+    ]
+  },
+  "worktree": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r1/worktree"
+}
