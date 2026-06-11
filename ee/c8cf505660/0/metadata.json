@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "eec8cf505660",
+  "session_id": "019eacc8-4c81-7c91-b807-b3c82bbba45d",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-11T02:23:50.168791Z",
+  "branch": "codex/release-readiness-audit-cleanup",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "benchmarks/agent-brain/audit_codex.py",
+    "benchmarks/agent-brain/run_test.py",
+    "benchmarks/agent-brain/evidence/release/manifest.json",
+    "benchmarks/agent-brain/audit_release_matrix.py",
+    "benchmarks/agent-brain/evidence/release/README.md",
+    "docs/release-blockers.md",
+    "docs/release_press_release.md",
+    "docs/release_readiness_audit.md",
+    "docs/diffless_review_seam.md",
+    "benchmarks/agent-brain/evidence/release-matrix/README.md",
+    "mise.toml",
+    "benchmarks/agent-brain/evidence/radar-tool/README.md",
+    "benchmarks/agent-brain/evidence/radar-tool/manifest.json",
+    "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.json",
+    "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.md"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.5",
+  "turn_id": "dd993db5ce69",
+  "checkpoint_transcript_start": 59372,
+  "transcript_lines_at_start": 59372,
+  "token_usage": {
+    "input_tokens": 681631,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 21965184,
+    "output_tokens": 71268,
+    "api_call_count": 175
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-11T02:23:48.256227Z",
+    "agent_lines": 0,
+    "agent_removed": 8355,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 0,
+    "total_lines_changed": 9935,
+    "agent_percentage": 84.09662808253648,
+    "metric_version": 2
+  }
+}

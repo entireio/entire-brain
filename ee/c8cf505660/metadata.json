@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "eec8cf505660",
+  "strategy": "manual-commit",
+  "branch": "codex/release-readiness-audit-cleanup",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "benchmarks/agent-brain/audit_codex.py",
+    "benchmarks/agent-brain/audit_release_matrix.py",
+    "benchmarks/agent-brain/evidence/radar-tool/README.md",
+    "benchmarks/agent-brain/evidence/radar-tool/manifest.json",
+    "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.json",
+    "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.md",
+    "benchmarks/agent-brain/evidence/release-matrix/README.md",
+    "benchmarks/agent-brain/evidence/release/README.md",
+    "benchmarks/agent-brain/evidence/release/manifest.json",
+    "benchmarks/agent-brain/run_test.py",
+    "docs/diffless_review_seam.md",
+    "docs/release-blockers.md",
+    "docs/release_press_release.md",
+    "docs/release_readiness_audit.md",
+    "mise.toml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ee/c8cf505660/0/metadata.json",
+      "transcript": "/ee/c8cf505660/0/full.jsonl",
+      "content_hash": "/ee/c8cf505660/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 681631,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 21965184,
+    "output_tokens": 71268,
+    "api_call_count": 175
+  }
+}
