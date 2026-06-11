@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,7 +131,7 @@ func TestWorkspaceCreateAddRefreshAndContext(t *testing.T) {
 	if !strings.Contains(refreshOut, "gh/example/repo ok") {
 		t.Fatalf("refresh output = %q", refreshOut)
 	}
-	contextOut, err := execute(t, cmd, "workspace", "context", "payments-platform", "ValidateToken", "--json")
+	contextOut, err := execute(t, cmd, "workspace", "inspect", "context", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
 		t.Fatalf("workspace context: %v", err)
 	}
@@ -140,7 +141,7 @@ func TestWorkspaceCreateAddRefreshAndContext(t *testing.T) {
 	if !strings.Contains(contextOut, `"contract_state": "ok"`) {
 		t.Fatalf("context output missing contract freshness:\n%s", contextOut)
 	}
-	impactOut, err := execute(t, cmd, "workspace", "impact", "payments-platform", "ValidateToken", "--json")
+	impactOut, err := execute(t, cmd, "workspace", "inspect", "impact", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
 		t.Fatalf("workspace impact: %v", err)
 	}
@@ -175,7 +176,7 @@ func TestWorkspaceRefreshReportsRepoSemanticFreshness(t *testing.T) {
 	if !strings.Contains(out, "gh/example/repo unsafe") {
 		t.Fatalf("refresh output = %q", out)
 	}
-	contextOut, err := execute(t, cmd, "workspace", "context", "payments-platform", "ValidateToken", "--json")
+	contextOut, err := execute(t, cmd, "workspace", "inspect", "context", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
 		t.Fatalf("workspace context: %v", err)
 	}
@@ -205,14 +206,14 @@ func TestWorkspaceContextAndImpactReportLockedSemanticIndex(t *testing.T) {
 	}
 	defer unlock()
 
-	contextOut, err := execute(t, cmd, "workspace", "context", "payments-platform", "ValidateToken", "--json")
+	contextOut, err := execute(t, cmd, "workspace", "inspect", "context", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
 		t.Fatalf("workspace context: %v", err)
 	}
 	if !strings.Contains(contextOut, `"error": "index_locked:`) {
 		t.Fatalf("context output missing lock error:\n%s", contextOut)
 	}
-	impactOut, err := execute(t, cmd, "workspace", "impact", "payments-platform", "ValidateToken", "--json")
+	impactOut, err := execute(t, cmd, "workspace", "inspect", "impact", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
 		t.Fatalf("workspace impact: %v", err)
 	}
@@ -631,7 +632,7 @@ func TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain(t *testing.T) {
 		t.Fatalf("write workspace: %v", err)
 	}
 
-	out, err := execute(t, cmd, "workspace", "regressions", "related", "fix scopeBaseRef base scope", "--json", "--location-only")
+	out, err := execute(t, cmd, "workspace", "inspect", "regressions", "related", "fix scopeBaseRef base scope", "--json", "--location-only")
 	if err != nil {
 		t.Fatalf("workspace regressions: %v", err)
 	}
@@ -675,7 +676,7 @@ func TestWorkspaceRegressionsDeletionLocationOnlyReportsRelatedLoci(t *testing.T
 		t.Fatalf("write workspace: %v", err)
 	}
 
-	out, err := execute(t, cmd, "workspace", "regressions", "related", "fix TranscriptPath resolved", "--json", "--include-deletions", "--location-only")
+	out, err := execute(t, cmd, "workspace", "inspect", "regressions", "related", "fix TranscriptPath resolved", "--json", "--include-deletions", "--location-only")
 	if err != nil {
 		t.Fatalf("workspace regressions: %v", err)
 	}
@@ -769,7 +770,7 @@ func TestWorkspaceRegressionsSkipsUnsafeRepo(t *testing.T) {
 	// Flip the remote so the hint's repo_key no longer matches the registered key -> unsafe.
 	runner.responses[fakeCommandKey("git", "remote", "get-url", "origin")] = fakeCommandResponse{stdout: "git@github.com:other/repo.git\n"}
 
-	out, err := execute(t, cmd, "workspace", "regressions", "related", "fix scopeBaseRef base scope", "--json")
+	out, err := execute(t, cmd, "workspace", "inspect", "regressions", "related", "fix scopeBaseRef base scope", "--json")
 	if err != nil {
 		t.Fatalf("workspace regressions: %v", err)
 	}
@@ -793,7 +794,7 @@ func TestWorkspaceRegressionsSkipsUnsafeRepo(t *testing.T) {
 	// Text output must also surface the unsafe state + skip, and must NOT print a bogus finding.
 	// Use a fresh command: cobra flag state (--json) persists on a reused root command.
 	textCmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	textOut, err := execute(t, textCmd, "workspace", "regressions", "related", "fix scopeBaseRef base scope")
+	textOut, err := execute(t, textCmd, "workspace", "inspect", "regressions", "related", "fix scopeBaseRef base scope")
 	if err != nil {
 		t.Fatalf("workspace regressions (text): %v", err)
 	}
@@ -838,7 +839,7 @@ func TestWorkspaceRegressionsSkipsUnsafeSessionsOnlyRepo(t *testing.T) {
 	}
 	runner.responses[fakeCommandKey("git", "remote", "get-url", "origin")] = fakeCommandResponse{stdout: "git@github.com:other/repo.git\n"}
 
-	out, err := execute(t, cmd, "workspace", "regressions", "related", "fix scopeBaseRef base scope", "--json")
+	out, err := execute(t, cmd, "workspace", "inspect", "regressions", "related", "fix scopeBaseRef base scope", "--json")
 	if err != nil {
 		t.Fatalf("workspace regressions: %v", err)
 	}
@@ -894,7 +895,7 @@ func TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint(t *testing.T) {
 		t.Fatalf("write workspace: %v", err)
 	}
 
-	out, err := execute(t, cmd, "workspace", "regressions", "related", "fix scopeBaseRef base scope", "--json")
+	out, err := execute(t, cmd, "workspace", "inspect", "regressions", "related", "fix scopeBaseRef base scope", "--json")
 	if err != nil {
 		t.Fatalf("workspace regressions: %v", err)
 	}
@@ -1121,5 +1122,49 @@ func TestSplitWorkspaceID(t *testing.T) {
 		if repoKey != tc.repoKey || id != tc.id {
 			t.Errorf("splitWorkspaceID(%q) = %q, %q; want %q, %q", tc.in, repoKey, id, tc.repoKey, tc.id)
 		}
+	}
+}
+
+func TestWorkspaceFullRefreshGatesAndCarriesPerMemberFailures(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
+	repoGood, keyGood := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "a.go", "package x\n")
+	repoBad, keyBad := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "b.go", "package x\n")
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos: []workspaceRepo{
+			{RepoKey: keyGood, LocalPathHint: repoGood},
+			{RepoKey: keyBad, LocalPathHint: repoBad},
+			{RepoKey: "gh/example/nohint"}, // no local_path_hint: must be gated out, not refreshed
+		},
+	}
+
+	var refreshed []string
+	out := &bytes.Buffer{}
+	err := workspaceFullRefresh(context.Background(), out, opts, manifest, func(repoDir string) error {
+		refreshed = append(refreshed, repoDir)
+		if repoDir == repoBad {
+			return errors.New("boom")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("workspaceFullRefresh: %v", err)
+	}
+	if len(refreshed) != 2 || refreshed[0] != repoGood || refreshed[1] != repoBad {
+		t.Fatalf("expected refresh attempts on both local members, got %v", refreshed)
+	}
+	got := out.String()
+	if !strings.Contains(got, keyGood+" refreshed") {
+		t.Fatalf("missing success line for %s:\n%s", keyGood, got)
+	}
+	// A failing member is reported and must not abort the fan-out.
+	if !strings.Contains(got, keyBad+" refresh failed: boom") {
+		t.Fatalf("missing failure line for %s:\n%s", keyBad, got)
+	}
+	if !strings.Contains(got, "gh/example/nohint skipped (no resolvable local path)") {
+		t.Fatalf("missing identity-gate skip line:\n%s", got)
 	}
 }

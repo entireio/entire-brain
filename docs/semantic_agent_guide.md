@@ -14,7 +14,7 @@ Recommended intake flow:
    `entire brain inspect boundaries --kind workflow --json` when the task is about project boundaries.
 5. Use `entire brain inspect tests <symbol> --json` before choosing validation
    commands for a changed symbol.
-6. Use `entire brain workspace context <workspace> <query> --json` (symbols) or
+6. Use `entire brain workspace inspect context <workspace> <query> --json` (symbols) or
    `entire brain workspace search|vsearch|query <workspace> <query> --json`
    (facts/history/docs, grouped per repo; ids are repo-qualified for
    `workspace get`) only for local workspaces that already list local repo

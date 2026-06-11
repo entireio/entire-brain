@@ -147,14 +147,26 @@ func newWorkspaceCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newWorkspaceRemoveCommand(opts))
 	cmd.AddCommand(newWorkspaceRefreshCommand(opts))
 	cmd.AddCommand(newWorkspaceWatchCommand(opts))
-	cmd.AddCommand(newWorkspaceContextCommand(opts))
-	cmd.AddCommand(newWorkspaceImpactCommand(opts))
+	cmd.AddCommand(newWorkspaceInspectCommand(opts))
 	cmd.AddCommand(newWorkspaceSearchCommand(opts))
 	cmd.AddCommand(newWorkspaceVsearchCommand(opts))
 	cmd.AddCommand(newWorkspaceQueryCommand(opts))
 	cmd.AddCommand(newWorkspaceGetCommand(opts))
-	cmd.AddCommand(newWorkspaceRegressionsCommand(opts))
 	cmd.AddCommand(newWorkspaceReviewCommand(opts))
+	return cmd
+}
+
+// newWorkspaceInspectCommand mirrors the single-repo `inspect` group: the
+// specialist symbol-graph and regression verbs live one level down, keeping the
+// workspace surface a faithful multi-repo projection of the top-level one.
+func newWorkspaceInspectCommand(opts Options) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "inspect",
+		Short: "Run specialist inspection commands across workspace repos",
+	}
+	cmd.AddCommand(newWorkspaceContextCommand(opts))
+	cmd.AddCommand(newWorkspaceImpactCommand(opts))
+	cmd.AddCommand(newWorkspaceRegressionsCommand(opts))
 	return cmd
 }
 
@@ -198,14 +210,17 @@ func newWorkspaceAddCommand(opts Options) *cobra.Command {
 }
 
 func newWorkspaceRefreshCommand(opts Options) *cobra.Command {
-	return &cobra.Command{
+	var full bool
+	cmd := &cobra.Command{
 		Use:   "refresh <workspace>",
-		Short: "Refresh local workspace membership freshness",
+		Short: "Refresh local workspace membership freshness (--full also refreshes each member brain)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWorkspaceRefresh(cmd.Context(), cmd, opts, args[0])
+			return runWorkspaceRefresh(cmd.Context(), cmd, opts, args[0], full)
 		},
 	}
+	cmd.Flags().BoolVar(&full, "full", false, "Run the deterministic single-repo refresh on every member first (no agent tokens)")
+	return cmd
 }
 
 func newWorkspaceWatchCommand(opts Options) *cobra.Command {
@@ -272,18 +287,9 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 			return err
 		}
 		for _, repo := range manifest.Repos {
-			repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
-			if err != nil || !local {
-				fmt.Fprintf(out, "[watch] %s: skipped (no resolvable local path)\n", repo.RepoKey)
-				continue
-			}
-			hintKey, err := repoStorageKey(ctx, opts.Runner, dirs.Config, repoDir)
+			repoDir, err := resolveWorkspaceMemberRepoDir(ctx, opts, dirs.Config, repo)
 			if err != nil {
-				fmt.Fprintf(out, "[watch] %s: skipped (unsafe: %v)\n", repo.RepoKey, err)
-				continue
-			}
-			if hintKey != repo.RepoKey {
-				fmt.Fprintf(out, "[watch] %s: skipped (unsafe: local_path_hint repo_key mismatch: %s)\n", repo.RepoKey, hintKey)
+				fmt.Fprintf(out, "[watch] %s: skipped (%v)\n", repo.RepoKey, err)
 				continue
 			}
 			fmt.Fprintf(out, "[watch] %s:\n", repo.RepoKey)
@@ -305,7 +311,7 @@ func newWorkspaceContextCommand(opts Options) *cobra.Command {
 	contextOpts := workspaceContextOptions{limit: 10}
 	cmd := &cobra.Command{
 		Use:   "context <workspace> <symbol-or-text>",
-		Short: "Look up semantic symbols across workspace repos (multi-repo `context`)",
+		Short: "Build semantic context for a symbol or query across workspace repos",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runWorkspaceContext(cmd, opts, contextOpts, args[0], args[1])
@@ -420,10 +426,16 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 	return nil
 }
 
-func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, workspaceName string) error {
+func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, workspaceName string, full bool) error {
 	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 	if err != nil {
 		return err
+	}
+	if full {
+		refreshRepo := func(repoDir string) error { return watchDeterministicRefresh(ctx, cmd, opts, repoDir) }
+		if err := workspaceFullRefresh(ctx, cmd.OutOrStdout(), opts, manifest, refreshRepo); err != nil {
+			return err
+		}
 	}
 	freshness, err := workspaceFreshness(ctx, opts, manifest)
 	if err != nil {
@@ -721,6 +733,51 @@ func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
 		}
 	}
 	return "", "", fmt.Errorf("unrecognized id %q (expected <repo-key>/fact:…, <repo-key>/history:…, or <repo-key>/doc:…)", qualified)
+}
+
+// workspaceFullRefresh fans the free deterministic single-repo refresh over
+// every member, behind the same identity gate as the watch loop. An explicit
+// refresh always runs (no watch cursor), spends no agent tokens, and one
+// member's failure never aborts the others. refreshRepo is injected so the
+// fan-out is testable without a real refresh (matching workspaceWatchLoop).
+func workspaceFullRefresh(ctx context.Context, out io.Writer, opts Options, manifest workspaceManifest, refreshRepo func(repoDir string) error) error {
+	dirs, err := resolvePluginDirs(opts.Env)
+	if err != nil {
+		return err
+	}
+	for _, repo := range manifest.Repos {
+		repoDir, err := resolveWorkspaceMemberRepoDir(ctx, opts, dirs.Config, repo)
+		if err != nil {
+			fmt.Fprintf(out, "%s skipped (%v)\n", repo.RepoKey, err)
+			continue
+		}
+		if err := refreshRepo(repoDir); err != nil {
+			fmt.Fprintf(out, "%s refresh failed: %v\n", repo.RepoKey, err)
+			continue
+		}
+		fmt.Fprintf(out, "%s refreshed\n", repo.RepoKey)
+	}
+	return nil
+}
+
+// resolveWorkspaceMemberRepoDir resolves a member's local checkout from its
+// local_path_hint and verifies the brain<->tree identity: the hint's derived
+// repo key must still match the member's. This is the gate every workspace
+// fan-out that touches a member's working tree (watch, refresh --full) applies
+// before acting on a repo.
+func resolveWorkspaceMemberRepoDir(ctx context.Context, opts Options, configDir string, repo workspaceRepo) (string, error) {
+	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
+	if err != nil || !local {
+		return "", errors.New("no resolvable local path")
+	}
+	hintKey, err := repoStorageKey(ctx, opts.Runner, configDir, repoDir)
+	if err != nil {
+		return "", fmt.Errorf("unsafe: %w", err)
+	}
+	if hintKey != repo.RepoKey {
+		return "", fmt.Errorf("unsafe: local_path_hint repo_key mismatch: %s", hintKey)
+	}
+	return repoDir, nil
 }
 
 func workspaceFreshness(ctx context.Context, opts Options, manifest workspaceManifest) ([]workspaceRepoFreshness, error) {
@@ -1151,7 +1208,7 @@ func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey
 // sessions and uses the semantic index only when present, so a missing export manifest / semantic
 // index is not fatal — the detector degrades to a raw-session scan. Each repo is scanned
 // independently (one repo's missing/locked brain never aborts the others), then aggregated by
-// repo_key, mirroring runWorkspaceQuery.
+// repo_key, mirroring runWorkspaceContext.
 
 func newWorkspaceRegressionsCommand(opts Options) *cobra.Command {
 	ro := regressionDetectorOptions{limit: 20}
