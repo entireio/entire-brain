@@ -607,6 +607,14 @@ func workspaceSemanticSource(brainDir string) (*semanticSourceManifest, error) {
 	return manifest.Sources.Semantic, nil
 }
 
+// workspaceDir resolves a workspace's home at <data>/workspaces/<name> — a
+// SIBLING of the repos/ tree, not inside it. Workspaces are not repos:
+// keeping them under repos/ parked a magic "workspaces" directory in the
+// middle of the repo keyspace (an unknown host slug or hand-edited
+// DomainSlugs entry could legitimately claim the same segment and collide),
+// and forced any future repos/-enumerator to know to skip it. Manifests
+// written by older builds under repos/workspaces/<name> are migrated lazily
+// on first touch (a directory rename; the payload is kilobytes).
 func workspaceDir(env EntireEnv, name string) (string, error) {
 	if err := validateWorkspaceName(name); err != nil {
 		return "", err
@@ -615,11 +623,44 @@ func workspaceDir(env EntireEnv, name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	brainRoot := filepath.Join(dirs.Data, repoStoreDirName)
-	if err := rejectBrainRootPathSymlinks(brainRoot, filepath.Join(workspaceDirName, name)); err != nil {
+	workspaceRoot := filepath.Join(dirs.Data, workspaceDirName)
+	if err := rejectBrainRootPathSymlinks(workspaceRoot, name); err != nil {
 		return "", err
 	}
-	return filepath.Join(brainRoot, workspaceDirName, name), nil
+	dir := filepath.Join(workspaceRoot, name)
+	if err := migrateLegacyWorkspaceDir(dirs.Data, name, dir); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// migrateLegacyWorkspaceDir moves a pre-relocation workspace
+// (<data>/repos/workspaces/<name>) to its new home on first touch. A no-op
+// when the legacy dir is absent or the new dir already exists (the new copy
+// wins: it is the one current builds have been writing to).
+func migrateLegacyWorkspaceDir(dataDir, name, newDir string) error {
+	legacyRoot := filepath.Join(dataDir, repoStoreDirName)
+	legacy := filepath.Join(legacyRoot, workspaceDirName, name)
+	info, err := os.Lstat(legacy)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 {
+		// Absent, unreadable, or a SYMLINK: never migrate. Renaming a symlink
+		// would move the link itself into the new home, making every future
+		// workspace write flow through an attacker-placed target.
+		return nil
+	}
+	if rejectBrainRootPathSymlinks(legacyRoot, filepath.Join(workspaceDirName, name)) != nil {
+		return nil // tampered legacy tree (symlinked root/components): leave it alone
+	}
+	if _, err := os.Stat(newDir); err == nil {
+		return nil // the new copy wins: it is the one current builds write to
+	}
+	if err := os.MkdirAll(filepath.Dir(newDir), 0o700); err != nil {
+		return err
+	}
+	if err := os.Rename(legacy, newDir); err != nil {
+		return fmt.Errorf("migrate workspace %s to %s: %w", name, newDir, err)
+	}
+	return nil
 }
 
 func loadWorkspaceManifest(env EntireEnv, name string) (workspaceManifest, error) {
@@ -755,17 +796,30 @@ func runWorkspaceList(cmd *cobra.Command, opts Options, asJSON bool) error {
 	if err != nil {
 		return err
 	}
-	root := filepath.Join(dirs.Data, repoStoreDirName, workspaceDirName)
-	entries, err := os.ReadDir(root)
-	if err != nil && !os.IsNotExist(err) {
-		return err
+	// Enumerate the new home plus any not-yet-migrated legacy entries
+	// (loadWorkspaceManifest migrates each on touch, so listing is also the
+	// bulk-migration path for old installs).
+	names := map[string]struct{}{}
+	for _, root := range []string{
+		filepath.Join(dirs.Data, workspaceDirName),
+		filepath.Join(dirs.Data, repoStoreDirName, workspaceDirName),
+	} {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				names[e.Name()] = struct{}{}
+			}
+		}
 	}
 	var summaries []workspaceSummary
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		manifest, err := loadWorkspaceManifest(opts.Env, e.Name())
+	for name := range names {
+		manifest, err := loadWorkspaceManifest(opts.Env, name)
 		if err != nil {
 			// Skip directories that are not valid workspaces (unreadable, bad name, schema drift).
 			continue
