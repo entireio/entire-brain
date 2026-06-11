@@ -1,7 +1,9 @@
 {
   "cli_version": "0.7.3",
   "checkpoint_id": "a5858a09fdd4",
+  "session_id": "c975c9b8-80ec-4090-85c4-93a68e3e83f1",
   "strategy": "manual-commit",
+  "created_at": "2026-06-11T04:02:39.019655Z",
   "branch": "codex/release-readiness-audit-cleanup",
   "checkpoints_count": 0,
   "files_touched": [
@@ -55,25 +57,28 @@
     "docs/release-blockers.md",
     "docs/release_readiness_audit.md"
   ],
-  "sessions": [
-    {
-      "metadata": "/a5/858a09fdd4/0/metadata.json",
-      "transcript": "/a5/858a09fdd4/0/full.jsonl",
-      "content_hash": "/a5/858a09fdd4/0/content_hash.txt",
-      "prompt": ""
-    },
-    {
-      "metadata": "/a5/858a09fdd4/1/metadata.json",
-      "transcript": "/a5/858a09fdd4/1/full.jsonl",
-      "content_hash": "/a5/858a09fdd4/1/content_hash.txt",
-      "prompt": ""
-    }
-  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5[1m]",
+  "turn_id": "55e03bc3e68d",
+  "checkpoint_transcript_start": 182,
+  "transcript_lines_at_start": 182,
   "token_usage": {
-    "input_tokens": 606874,
+    "input_tokens": 0,
     "cache_creation_tokens": 0,
-    "cache_read_tokens": 20283392,
-    "output_tokens": 39779,
-    "api_call_count": 190
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-11T04:02:39.010202Z",
+    "agent_lines": 0,
+    "agent_removed": 12716,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 0,
+    "total_lines_changed": 12716,
+    "agent_percentage": 100,
+    "metric_version": 2
   }
 }
