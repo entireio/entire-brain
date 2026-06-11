@@ -22,7 +22,9 @@ sanitized summaries before using the number in public claims.
 
 # 2. optionally start the EmbeddingGemma embed server (qmd's runner, no cgo).
 #    This setup downloads a model; skip it for offline/no-egress release checks.
-npm install node-llama-cpp
+#    Run npm from THIS directory — package.json here anchors the install so npm
+#    can't resolve a parent directory (e.g. $HOME) as the package root.
+npm install
 curl -L -o /tmp/eg.gguf \
   https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/main/embeddinggemma-300M-Q8_0.gguf
 GGUF=/tmp/eg.gguf PORT=11500 node embed-server.mjs &

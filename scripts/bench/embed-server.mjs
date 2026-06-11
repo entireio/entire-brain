@@ -6,7 +6,7 @@
 //   POST {"model": "…", "input": "…"} -> {"embeddings": [[...768 floats...]]}
 //
 // Setup (see README.md):
-//   npm install node-llama-cpp
+//   npm install   # from scripts/bench — package.json there anchors the install
 //   # canonical GGUF (open, not Gemma-gated):
 //   #   ggml-org/embeddinggemma-300M-GGUF / embeddinggemma-300M-Q8_0.gguf
 //   GGUF=/path/to/embeddinggemma-300M-Q8_0.gguf PORT=11500 node embed-server.mjs

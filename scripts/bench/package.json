@@ -1,0 +1,9 @@
+{
+  "name": "entire-brain-bench",
+  "private": true,
+  "description": "Local deps for the Stage 1b embed server (embed-server.mjs). Anchors npm installs to this directory so they never land in a parent package root.",
+  "type": "module",
+  "dependencies": {
+    "node-llama-cpp": "^3"
+  }
+}
