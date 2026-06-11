@@ -259,11 +259,13 @@ baseline failed all 4 reps while `full_brain` passed all 4 reps on the
 schema-contract history task, with mean score `66.0 -> 91.5`, pass rate
 `0.0 -> 1.0`, and summary `proof_ready=true` /
 `brain_positive_stable`. The independent release audit retained under
-`benchmarks/agent-brain/evidence/release` reports 1 suite, 8 records, 0 hard
-flags, 8/8 provenance-backed records, and 1 proof-ready comparison. This is
-citable evidence that the history/full-brain lane can improve one checkpointed
-task; it is not evidence that semantic indexing or facts retrieval are broadly
-better.
+`benchmarks/agent-brain/evidence/release` reports 3 suites, 24 records, 0 hard
+flags, 24/24 provenance-backed records, and 3 proof-ready comparisons. Subject
+to open release blocker B1 (`docs/release-blockers.md`): the brain-arm prompts
+of these suites carry answer-bearing query terms, so until the suites re-run
+with those terms removed, the comparisons demonstrate the harness/evidence
+machinery rather than brain-attribution proof. They are not evidence that
+semantic indexing or facts retrieval are broadly better.
 
 Semantic replay-lab pilot: the committed `release-entire-cli-semantic-xdg`
 panel generated `release-candidate-entire-cli-semantic-xdg-20260610T0205Z` with
@@ -512,8 +514,14 @@ Release claims must stay local-first and evidence-backed:
 - The committed `release-entire-cli-mcp-manual-attribution` panel targets a
   harder MCP-history proof lane on `cli-bench`: it regresses the manual-commit
   attribution-base invariant and requires `mcp_history` to surface the prior
-  `RealignAttributionBase(newHead)` behavior without handing over hidden
-  validation or expected text.
+  `RealignAttributionBase(newHead)` behavior. CONFOUND (open release blocker
+  B1, see `docs/release-blockers.md`): the task's `brain_queries` hand the
+  brain arm the fix's exact identifier (`RealignAttributionBase newHead`) and
+  the hidden-adjacent test name, and the harness injects those terms into the
+  brain-arm prompt only — so the retained comparison measures hint+brain vs
+  no-hint, not brain vs no-brain. The numbers are faithfully transcribed but
+  must not be cited as brain-attribution proof until the suite re-runs with
+  the answer-bearing terms removed.
 - Retained MCP evidence now includes
   `release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress` under
   `benchmarks/agent-brain/evidence/release`: no-brain passed 1/4, `mcp_history`
@@ -525,7 +533,7 @@ Release claims must stay local-first and evidence-backed:
   tokens.
 - Retained MCP/Radar tool-contract evidence now includes
   `benchmarks/agent-brain/evidence/radar-tool`: a hashed `go test -json`
-  artifact over 51 focused `internal/cli` tests. It proves QMD-inspired MCP tool
+  artifact over 52 focused `internal/cli` tests. It proves QMD-inspired MCP tool
   listing and local retrieval (`brain_search`, `brain_vsearch`, `brain_query`,
   `brain_get`, `brain_multi_get`), branch-scoped fact retrieval over MCP,
   changed-operand detection without per-file hint masking, location-only

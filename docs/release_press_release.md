@@ -31,6 +31,16 @@ task outcomes instead of relying on demos or anecdotes.
 - Local benchmark harness for no-brain, semantic-brain, and full-brain agent
   conditions.
 
+## Known Confound (Release Blocker B1)
+
+The two MCP "proof" comparisons and the schema-contract history proof cited in
+this document carry an open evidence confound: the benchmark harness injects
+each task's `brain_queries` into the brain-arm prompt only, and for these
+suites those queries contain answer-bearing terms (the fix's exact identifier,
+or a near-verbatim fragment of a hidden validation string). See
+`docs/release-blockers.md` (B1) for the exact strings and the remediation
+required before these numbers may be cited as brain-attribution proof.
+
 ## What Must Be Proven Before Public Claims
 
 - Distill performance on a large session repo, using `distill --dry-run --json`

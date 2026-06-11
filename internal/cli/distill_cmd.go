@@ -531,6 +531,21 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		}
 		distillOpts.concurrency = distillOpts.jobs
 	}
+	if err := rejectAgentForNoEgress(distillOpts.agent); err != nil {
+		return err
+	}
+	// Resolve the agent BEFORE the dry-run branch: the cache salt hashes the
+	// agent name, so a dry-run salted with the literal "auto" while real runs
+	// salt with the resolved agent would predict every cached session as
+	// to-distill — defeating the dry-run's whole purpose of matching the run.
+	if distillOpts.agent == "auto" {
+		distillOpts.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
+	}
+	if distillOpts.session != "" && distillOpts.force {
+		// Mirror runDistillForBrain's guard so a dry-run rejects the same
+		// combination the real run rejects, instead of planning it.
+		return errors.New("--session cannot be combined with --force: a forced rebuild drops every distilled fact on the session's branch but would re-derive only that session's")
+	}
 	if distillOpts.dryRun {
 		report, err := buildDistillDryRunReport(storage.BrainDir, distillOpts, opts.Now().UTC())
 		if err != nil {
@@ -541,12 +556,6 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		}
 		printDistillDryRunReport(cmd, report)
 		return nil
-	}
-	if err := rejectAgentForNoEgress(distillOpts.agent); err != nil {
-		return err
-	}
-	if distillOpts.agent == "auto" {
-		distillOpts.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
 	}
 	if distillOpts.agent == "none" {
 		return errors.New("distillation requires an agent (codex or claude-code); none found on PATH")

@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -476,4 +478,58 @@ func TestStatusIncludesVerificationSummary(t *testing.T) {
 	if report.Verification == nil || report.Verification.UnverifiableHere != 1 {
 		t.Fatalf("missing verification summary: %+v", report.Verification)
 	}
+}
+
+// TestVerifySamplingAndCommitMemoization covers the brain-status hot path:
+// sampling caps verification to the most recent facts (with the corpus size
+// recorded so a sampled summary cannot be misread as full verification), and
+// commit checks are memoized — facts sharing a checkpoint commit must not
+// re-shell git per fact.
+func TestVerifySamplingAndCommitMemoization(t *testing.T) {
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	facts := make([]factRecord, 0, 30)
+	for i := 0; i < 30; i++ {
+		facts = append(facts, factRecord{
+			ID:        fmt.Sprintf("fact:%02d", i),
+			Text:      fmt.Sprintf("fact number %d", i),
+			Status:    factStatusActive,
+			UpdatedAt: now.Add(time.Duration(i) * time.Minute),
+		})
+	}
+	selected, _, err := selectFactsForVerify(facts, "", verifyCommandOptions{limit: 10, sample: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected) != 10 {
+		t.Fatalf("sample should cap at 10, got %d", len(selected))
+	}
+	if selected[0].ID != "fact:29" {
+		t.Fatalf("sample should be most-recent-first, got %s", selected[0].ID)
+	}
+	// Without sample, no-target mode still verifies everything (the verify
+	// command's contract is unchanged).
+	all, _, err := selectFactsForVerify(facts, "", verifyCommandOptions{limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 30 {
+		t.Fatalf("no-target verify must keep checking everything, got %d", len(all))
+	}
+
+	// Memoization: two checks of one commit cost one git round, not two.
+	runner := &countingRunner{}
+	vctx := &verifyContext{ctx: context.Background(), opts: Options{Runner: runner, Now: time.Now}, repoDir: t.TempDir()}
+	vctx.verifyCommit("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	callsAfterFirst := runner.calls
+	vctx.verifyCommit("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	if runner.calls != callsAfterFirst {
+		t.Fatalf("repeated commit check must be memoized: %d -> %d git calls", callsAfterFirst, runner.calls)
+	}
+}
+
+type countingRunner struct{ calls int }
+
+func (r *countingRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	r.calls++
+	return nil, nil, fmt.Errorf("not a repo")
 }

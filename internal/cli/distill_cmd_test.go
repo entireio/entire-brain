@@ -1401,3 +1401,43 @@ func TestDistillCacheGrandfathersLegacyEntries(t *testing.T) {
 		t.Fatal("changed session must re-distill, not be grandfathered")
 	}
 }
+
+// TestDistillDryRunPredictsCacheAccurately covers the previously-untested
+// dry-run cache prediction: after a real run, a dry-run with the SAME
+// configuration must predict every session cached and zero agent calls
+// (the salt — including the agent name — must match the real run's), while a
+// changed model must flip the prediction to re-distill (the salt working).
+func TestDistillDryRunPredictsCacheAccurately(t *testing.T) {
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now) // s1 (main) + s2 (feature)
+
+	seedRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return "preferences.coding.style\tThe user prefers concise commits.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: seedRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("seed run: %v", err)
+	}
+
+	report, err := buildDistillDryRunReport(brainDir, opts, now)
+	if err != nil {
+		t.Fatalf("dry-run: %v", err)
+	}
+	if report.CachedSessions != 2 || report.SessionsToDistill != 0 {
+		t.Fatalf("same-config dry-run must predict all cached: cached=%d to_distill=%d", report.CachedSessions, report.SessionsToDistill)
+	}
+	if report.EstimatedAgentCallsUpperBound != 0 {
+		t.Fatalf("same-config dry-run must predict zero agent calls, got %d", report.EstimatedAgentCallsUpperBound)
+	}
+
+	// A different model salts differently: the dry-run must predict re-distill.
+	changed := opts
+	changed.model = "some-other-model"
+	report, err = buildDistillDryRunReport(brainDir, changed, now)
+	if err != nil {
+		t.Fatalf("dry-run (changed model): %v", err)
+	}
+	if report.SessionsToDistill != 2 || report.CachedSessions != 0 {
+		t.Fatalf("changed-model dry-run must predict re-distill: cached=%d to_distill=%d", report.CachedSessions, report.SessionsToDistill)
+	}
+}
