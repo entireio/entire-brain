@@ -3,7 +3,7 @@
   "target": {
     "repo": "github.com/ashtom/entire-brain",
     "repo_key": "gh/ashtom/entire-brain",
-    "source_head": "6acfb5a8a25b734219739c7d8bbc4c11dce82b2c",
+    "source_head": "d7a5968883b5a30aea8f5a6fe71ffa7aa63e52dc",
     "brain_manifest_sha256": "sha256:94db24afdb46051654fd19587159ca3ba5aea46dab49be784a2b1b0a307afe07",
     "claim_scope": "current-repo local command-agent distill extraction scheduling speedup"
   },
@@ -12,16 +12,16 @@
   "serial_run": "jobs-1.json",
   "parallel_run": "jobs-4.json",
   "artifact_sha256": {
-    "dry_run": "sha256:10125d0d9e896b44073433d3127b5588f2b53877df82404984d5174a94b09ce4",
-    "serial_run": "sha256:a5af67a58213be2b531c654924c64d3c787e49146f608b1c192eeb1103d79d57",
-    "parallel_run": "sha256:58f5d3ef58f40a76ea2e0ae4ad1e7c1e46a72f27188ccb12b4322819caa5806b"
+    "dry_run": "sha256:e6f4c44b77731dc850d7f381869b0caaad3c67abb123a39894bcf0bf53324a96",
+    "serial_run": "sha256:4ac0d4b099f89e4c852b7c79137e27feb061567528b8910e8b07516174a75b18",
+    "parallel_run": "sha256:4ad6ce4e5b93abd470d4eb5a91b586a78df7931e8673158318e29d5882ea4294"
   },
   "source_sha256": {
     "internal/cli/distill.go": "sha256:3ed50065343ec866616b35f4c63aab0d30f9b511ffdc0060e829971381b5d91a",
-    "internal/cli/distill_cmd.go": "sha256:99470ee108bf77a6f691b5ed08f07713c8bc671664a7f855d7422534bf6b7f63",
+    "internal/cli/distill_cmd.go": "sha256:c5cc68f2db5a62c306bd15629339f670bd4f7507c4ce2fd10fa9c452ee6119c2",
     "internal/cli/distill_test.go": "sha256:fcf0491e34dc42b0ab054fe5c91f00f9b573af37abd83240d04004625e9118f5",
     "internal/cli/distill_cmd_test.go": "sha256:f253c41b85ce349a36893d5c21b8f701257fec72e7e156feb333e4a9d158436d",
-    "benchmarks/agent-brain/audit_distill_perf.py": "sha256:76cdadbd5fd62f39f6cbd6cc0ea357f6b2e6d590e19e3fc553a6bce3f398a1a5",
+    "benchmarks/agent-brain/audit_distill_perf.py": "sha256:abfcbd9dbd6c1d5724ca8fe71eac39688dfc46a99151474f0e9f289305d5c855",
     "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py": "sha256:a7bd42a7de1b482b79c3a757034714eee0b77826ad500e6e82806577f2a611ba"
   },
   "commands": {

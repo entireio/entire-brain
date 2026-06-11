@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-06-11T00:17:48.60861Z",
+  "generated_at": "2026-06-11T00:59:27.154407Z",
   "brain_path": "/tmp/pr33-evidence-data/repos/gh/ashtom/entire-brain",
   "force": true,
   "agent": "command",
   "jobs": 1,
-  "effective_extraction_jobs": 1,
+  "extraction_jobs_cap": 1,
   "max_chunk_bytes": 262144,
   "confidence_threshold": 0.75,
   "sessions": 158,

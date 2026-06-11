@@ -6,12 +6,12 @@
   "target": {
     "repo": "github.com/ashtom/entire-brain",
     "repo_key": "gh/ashtom/entire-brain",
-    "source_head": "6acfb5a8a25b734219739c7d8bbc4c11dce82b2c",
+    "source_head": "d7a5968883b5a30aea8f5a6fe71ffa7aa63e52dc",
     "brain_manifest_sha256": "sha256:94db24afdb46051654fd19587159ca3ba5aea46dab49be784a2b1b0a307afe07",
     "claim_scope": "current-repo local command-agent distill extraction scheduling speedup"
   },
   "min_speedup": 1.25,
-  "speedup": 2.801338874225657,
+  "speedup": 3.155729658673283,
   "dry_run": {
     "sessions": 158,
     "sessions_to_distill": 158,
@@ -21,14 +21,14 @@
   },
   "serial_run": {
     "jobs": 1,
-    "effective_extraction_jobs": 1,
-    "total_seconds": 19.084618083,
+    "extraction_jobs_cap": 1,
+    "total_seconds": 18.492025125,
     "total_agent_calls": 335
   },
   "parallel_run": {
     "jobs": 4,
-    "effective_extraction_jobs": 4,
-    "total_seconds": 6.812677416,
+    "extraction_jobs_cap": 4,
+    "total_seconds": 5.8598255,
     "total_agent_calls": 335
   },
   "source_hashes": {

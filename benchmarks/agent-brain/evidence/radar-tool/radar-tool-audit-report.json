@@ -60,14 +60,16 @@
     "sha256": "sha256:de337055302850ac2eb75fa926489a875a1b2ba56e8aeee2ec4d8bb72f41b4b7"
   },
   "claim_scope": "mcp_radar_tool_contract",
-  "errors": [],
+  "errors": [
+    "Radar tool source file hashes are stale: internal/cli/regression.go, internal/cli/mcp.go"
+  ],
   "limitations": [
     "Tool-contract proof only; this is not agent lift proof.",
     "Radar agent-lift proof is retained separately under benchmarks/agent-brain/evidence/release and enforced by mise run radar:agent-evidence.",
     "This artifact proves local deterministic MCP/Radar behavior for the current internal/cli test fixtures."
   ],
   "manifest": "benchmarks/agent-brain/evidence/radar-tool/manifest.json",
-  "ok": true,
+  "ok": false,
   "required_tests": [
     "TestRegressionDetectsChangedOperand",
     "TestRegressionChangedOperandReportsMissingHintedFileDespiteIntactPeer",
@@ -123,7 +125,10 @@
     "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint"
   ],
   "schema": 1,
-  "source_drift_paths": [],
+  "source_drift_paths": [
+    "internal/cli/regression.go",
+    "internal/cli/mcp.go"
+  ],
   "source_head": "62284e6937c706e2bf40103b0894c1920bec5be5",
   "warnings": []
 }
