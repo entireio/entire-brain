@@ -114,8 +114,11 @@ func TestWorkspaceCreateAddRefreshAndQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workspace create: %v", err)
 	}
-	if !strings.Contains(out, filepath.Join(repoStoreDirName, workspaceDirName, "payments-platform")) {
+	if !strings.Contains(out, filepath.Join(workspaceDirName, "payments-platform")) {
 		t.Fatalf("create output = %q", out)
+	}
+	if strings.Contains(out, filepath.Join(repoStoreDirName, workspaceDirName)) {
+		t.Fatalf("workspace must live beside repos/, not inside it: %q", out)
 	}
 	if _, err := execute(t, cmd, "workspace", "add", "payments-platform", repoDir, "--name", "api"); err != nil {
 		t.Fatalf("workspace add: %v", err)
@@ -255,7 +258,7 @@ func TestWorkspaceStoresRepoKeyAndLocalPathHint(t *testing.T) {
 	if _, err := execute(t, cmd, "workspace", "add", "payments-platform", repoDir, "--name", "api"); err != nil {
 		t.Fatalf("workspace add: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(env.PluginDataDir, repoStoreDirName, workspaceDirName, "payments-platform", workspaceManifestName))
+	data, err := os.ReadFile(filepath.Join(env.PluginDataDir, workspaceDirName, "payments-platform", workspaceManifestName))
 	if err != nil {
 		t.Fatalf("read workspace: %v", err)
 	}
@@ -387,7 +390,7 @@ func TestWorkspaceRejectsDotRepoKeys(t *testing.T) {
 
 func TestWorkspaceRejectsSymlinkedWorkspacePath(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
-	workspacesRoot := filepath.Join(env.PluginDataDir, repoStoreDirName, workspaceDirName)
+	workspacesRoot := filepath.Join(env.PluginDataDir, workspaceDirName)
 	if err := os.MkdirAll(workspacesRoot, 0o700); err != nil {
 		t.Fatalf("mkdir workspaces: %v", err)
 	}
@@ -404,19 +407,70 @@ func TestWorkspaceRejectsSymlinkedWorkspacePath(t *testing.T) {
 	}
 }
 
-func TestWorkspaceRejectsSymlinkedBrainRoot(t *testing.T) {
+func TestWorkspaceCreateIgnoresSymlinkedLegacyTree(t *testing.T) {
+	// Workspaces live beside repos/, so a symlinked repos root no longer
+	// blocks workspace create — but the legacy-migration path must refuse to
+	// read through it, and nothing may be written behind the symlink.
 	env := semanticTestEnv(t, t.TempDir())
 	brainRoot := filepath.Join(env.PluginDataDir, repoStoreDirName)
 	external := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(external, workspaceDirName, "payments-platform"), 0o700); err != nil {
+		t.Fatalf("seed external legacy tree: %v", err)
+	}
 	if err := os.Symlink(external, brainRoot); err != nil {
 		t.Fatalf("symlink brain root: %v", err)
 	}
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}, Now: time.Now})
-	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err == nil || !strings.Contains(err.Error(), "brain directory must not be a symlink") {
-		t.Fatalf("workspace create err = %v", err)
+	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err != nil {
+		t.Fatalf("workspace create: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(external, workspaceDirName)); !os.IsNotExist(err) {
-		t.Fatalf("workspace directory was created through symlinked brain root: %v", err)
+	if _, err := os.Stat(filepath.Join(env.PluginDataDir, workspaceDirName, "payments-platform", workspaceManifestName)); err != nil {
+		t.Fatalf("workspace not created at its new home: %v", err)
+	}
+	// The symlinked legacy entry was neither migrated nor written through.
+	if _, err := os.Stat(filepath.Join(external, workspaceDirName, "payments-platform", workspaceManifestName)); !os.IsNotExist(err) {
+		t.Fatalf("write leaked through symlinked legacy tree: %v", err)
+	}
+}
+
+func TestWorkspaceLegacyDirMigratesOnTouch(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	// A pre-relocation workspace at repos/workspaces/<name> with a valid manifest.
+	legacy := filepath.Join(env.PluginDataDir, repoStoreDirName, workspaceDirName, "payments-platform")
+	if err := os.MkdirAll(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := workspaceManifest{SchemaVersion: workspaceSchemaVersion, Name: "payments-platform", Repos: []workspaceRepo{{RepoKey: "gh/acme/api"}}}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, workspaceManifestName), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := loadWorkspaceManifest(env, "payments-platform")
+	if err != nil {
+		t.Fatalf("legacy workspace must load (and migrate): %v", err)
+	}
+	if len(loaded.Repos) != 1 || loaded.Repos[0].RepoKey != "gh/acme/api" {
+		t.Fatalf("migrated manifest content wrong: %+v", loaded)
+	}
+	if _, err := os.Stat(filepath.Join(env.PluginDataDir, workspaceDirName, "payments-platform", workspaceManifestName)); err != nil {
+		t.Fatalf("manifest not at the new home after migration: %v", err)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatalf("legacy dir should be gone after migration: %v", err)
+	}
+}
+
+func TestBrainDirForKeyReservesWorkspacesSegment(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	if _, err := brainDirForKey(env, "workspaces/acme/api"); err == nil || !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("workspaces/ must be reserved in the repo keyspace, got %v", err)
+	}
+	if _, err := brainDirForKey(env, "gh/acme/api"); err != nil {
+		t.Fatalf("ordinary key must resolve: %v", err)
 	}
 }
 
