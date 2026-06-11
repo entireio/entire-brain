@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "59303df2d854",
+  "strategy": "manual-commit",
+  "branch": "feat/export-under-refresh",
+  "checkpoints_count": 2,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/59/303df2d854/0/metadata.json",
+      "transcript": "/59/303df2d854/0/full.jsonl",
+      "content_hash": "/59/303df2d854/0/content_hash.txt",
+      "prompt": "/59/303df2d854/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 74606,
+    "cache_creation_tokens": 4240631,
+    "cache_read_tokens": 391031908,
+    "output_tokens": 739399,
+    "api_call_count": 885
+  }
+}
