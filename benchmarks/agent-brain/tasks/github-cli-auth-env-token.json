@@ -18,5 +18,5 @@
   ],
   "expected_files": ["pkg/cmdutil/auth_check.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["CheckAuth", "HasEnvToken", "GH_ENTERPRISE_TOKEN"]
+  "brain_queries": ["environment token treated as authenticated", "GH_TOKEN environment variable", "auth required error despite token in environment", "valid credentials with no configured hosts"]
 }

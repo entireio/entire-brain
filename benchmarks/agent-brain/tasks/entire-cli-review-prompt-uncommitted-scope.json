@@ -19,5 +19,5 @@
   ],
   "expected_files": ["cmd/entire/cli/review/prompt.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["ComposeReviewPrompt", "uncommitted changes", "ScopeBaseRef"]
+  "brain_queries": ["review scope clause omits uncommitted edits", "base ref limits review to committed work", "working tree edits ignored during review", "review agents silently skip pending edits"]
 }

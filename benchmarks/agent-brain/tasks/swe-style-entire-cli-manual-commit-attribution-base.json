@@ -25,5 +25,5 @@
   ],
   "expected_files": ["cmd/entire/cli/strategy/manual_commit_hooks.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["AttributionBaseCommit stale human_added no trailer", "TestManualCommit_AttributionStaleBase", "BaseCommit AttributionBaseCommit realign"]
+  "brain_queries": ["manual commit attribution drift unrelated user commit", "stale attribution base after user commits mid session", "condensation miscounts human versus agent lines", "agent percentage collapses during condensation"]
 }

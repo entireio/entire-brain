@@ -18,5 +18,5 @@
   ],
   "expected_files": ["internal/cli/mcp.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["brain_context", "mcpToolDefinitions", "handleMCPToolCall"]
+  "brain_queries": ["MCP tool list regression", "renamed brain tool breaks tools/list", "public MCP tool name stability", "local brain tools MCP stdio server"]
 }

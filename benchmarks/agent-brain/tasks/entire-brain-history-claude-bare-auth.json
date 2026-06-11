@@ -27,11 +27,6 @@
   "forbidden_files": ["go.mod", "go.sum"],
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
-  "brain_queries": [
-    "should not use --bare because it bypasses logged-in Claude auth",
-    "logged-in Claude auth",
-    "--setting-sources\", \"user\"",
-    "strict-mcp-config"
-  ],
+  "brain_queries": ["claude code seed agent local authentication failure", "checkpoint review reverted seed agent invocation flag", "synthesis isolated from local agent configuration", "flag bypassed signed-in claude credentials"],
   "history_excerpt_lines": 24
 }

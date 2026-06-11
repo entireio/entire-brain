@@ -18,5 +18,5 @@
   ],
   "expected_files": ["pkg/cmd/repo/shared/repo.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["NormalizeRepoName", "invalidCharactersRE", "TrimSuffix"]
+  "brain_queries": ["repo name normalization when creating a repository", "trailing git extension stripped from entered name", "match github new repository form naming behavior", "invalid characters in repo name replaced with dashes"]
 }

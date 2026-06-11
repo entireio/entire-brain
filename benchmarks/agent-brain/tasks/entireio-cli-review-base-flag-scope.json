@@ -35,10 +35,6 @@
   "leak_markers": [
     "release-radar-review-base-scope-canary-20260610T0500Z"
   ],
-  "brain_queries": [
-    "reviewContextCommitMessages",
-    "scopeBaseRef",
-    "BaseFlagThreadsThroughToPromptAndBanner"
-  ],
+  "brain_queries": ["review scope ignores explicit base override", "checkpoint context commits in scope", "mainline auto-detection bypass for review", "agent prompt banner wrong diff range"],
   "copy_checkpoint_ref_from_source": true
 }

@@ -18,5 +18,5 @@
   ],
   "expected_files": ["api/client.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["HandleHTTPError", "ScopesSuggestion", "X-Accepted-Oauth-Scopes"]
+  "brain_queries": ["4xx error missing OAuth scope suggestion", "token lacks scope refresh hint", "suggestion to request additional OAuth scopes", "gh auth refresh advice in error message"]
 }

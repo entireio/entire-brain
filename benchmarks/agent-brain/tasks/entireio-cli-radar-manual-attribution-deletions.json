@@ -45,11 +45,6 @@
   "leak_markers": [
     "release-radar-manual-attribution-deletions-canary-20260610T1040Z"
   ],
-  "brain_queries": [
-    "AttributionBaseCommit stale human_added no trailer",
-    "TestManualCommit_AttributionStaleBase",
-    "BaseCommit AttributionBaseCommit realign",
-    "RealignAttributionBase newHead manual commit hooks"
-  ],
+  "brain_queries": ["stale attribution base after manual commit", "session state keeps old base commit", "condensation overcounts human lines from earlier commits", "attribution accounting wrong after ordinary commit during session"],
   "copy_checkpoint_ref_from_source": true
 }

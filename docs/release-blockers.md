@@ -59,6 +59,26 @@ to "citable proof".
 4. Until then, correct the audit sentence and the two press-release "proof"
    bullets to disclose the confound explicitly.
 
+**Progress (this branch).** Items 1, 2, and 4 are done; item 3 is NOT, so B1
+stays open:
+
+- Item 2: `brain_query_leak_audit` (run.py) flags identifier-shaped query
+  tokens and verbatim 3+-word query phrases that appear in the hidden fix
+  text, hidden validation commands, expected-string greps, hidden test
+  names, or validation fixtures. It is wired into `panel_preflight` for
+  every panel, and `run_test.BrainQueryLeakAuditTests` freezes the four
+  rows above with their original queries and asserts each fails the
+  auditor as committed.
+- Item 1: every task the auditor flagged (33 task files, including the
+  four named rows and the 10 pre-existing tasks on main with the same
+  mechanism) had its `brain_queries` rewritten to symptom-level retrieval
+  terms; the auditor passes tree-wide.
+- Item 3 (open): the three promoted suites have NOT been re-run with the
+  clean queries. Their retained evidence is unchanged and still carries
+  the confound disclosed in `docs/release_readiness_audit.md` and the
+  press release; the lift attribution remains unsupported until clean
+  re-runs land and only survivors are re-promoted.
+
 ## RESOLVED — fixed during review on this branch
 
 **R1 — Eval label discipline orphaned the history-eval pipeline** (fixed in

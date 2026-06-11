@@ -19,5 +19,5 @@
   ],
   "expected_files": ["cmd/entire/cli/strategy/resolve_transcript.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["resolveTranscriptPath", "TranscriptPath", "ReResolvesToNestedLayout"]
+  "brain_queries": ["transcript relocated mid-session", "session state not updated after re-resolution", "stale transcript path repeats discovery"]
 }

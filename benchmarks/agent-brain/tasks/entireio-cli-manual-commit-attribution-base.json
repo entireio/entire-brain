@@ -46,11 +46,6 @@
   "leak_markers": [
     "release-mcp-manual-attribution-canary-20260610T0620Z"
   ],
-  "brain_queries": [
-    "AttributionBaseCommit stale human_added no trailer",
-    "TestManualCommit_AttributionStaleBase",
-    "BaseCommit AttributionBaseCommit realign",
-    "RealignAttributionBase newHead manual commit hooks"
-  ],
+  "brain_queries": ["stale attribution base after manual commit", "session accounting anchored to outdated state", "commit hook fails to refresh attribution base", "condensation uses wrong base commit"],
   "copy_checkpoint_ref_from_source": true
 }

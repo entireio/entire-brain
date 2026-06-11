@@ -1141,6 +1141,74 @@ def agent_output_leak_audit(task: dict[str, Any], stdout: str, stderr: str) -> d
 	return {"ok": not findings, "findings": findings}
 
 
+def brain_query_answer_texts(task: dict[str, Any]) -> list[tuple[str, str]]:
+    """The hidden, answer-bearing texts a brain_queries hint must not overlap (release blocker B1):
+    the fix itself (setup replacements) is always hidden from the agent; validation commands,
+    expected-string greps, hidden test names, and validation fixtures count only when the task
+    hides validation, because visible validation reaches both arms and is not an asymmetry."""
+    texts: list[tuple[str, str]] = []
+    for replacement in task.get("setup_replacements", []) + task.get("post_brain_replacements", []):
+        texts.append(("fix_text", str(replacement.get("old", ""))))
+        texts.append(("fix_text", str(replacement.get("new", ""))))
+    if task.get("hide_validation_from_agent"):
+        for command in task.get("validation", []):
+            texts.append(("hidden_validation_command", str(command)))
+            for match in re.finditer(r"-run\s+'([^']+)'|-run\s+(\S+)", str(command)):
+                texts.append(("hidden_test_name", match.group(1) or match.group(2)))
+            for match in re.finditer(r"rg\s+(?:-\S+\s+)*'([^']+)'", str(command)):
+                texts.append(("hidden_expected_string", match.group(1)))
+        for entry in task.get("validation_files", []):
+            if isinstance(entry, dict):
+                for key in ("path", "fixture", "content"):
+                    if entry.get(key):
+                        texts.append(("hidden_validation_file", str(entry[key])))
+    return [(kind, text) for kind, text in texts if text]
+
+
+def brain_query_token_is_identifier(token: str) -> bool:
+    """Code-shaped tokens (PascalCase/camelCase, snake_case, dotted, flags, paths) are the
+    answer-bearing carriers B1 names; plain lowercase English words are matched only as part
+    of a verbatim phrase, never alone, so symptom vocabulary stays usable."""
+    if len(token) < 4:
+        return False
+    if token.startswith("--") or "_" in token or "." in token or "/" in token:
+        return True
+    return any(ch.isupper() for ch in token[1:])
+
+
+def brain_query_leak_audit(task: dict[str, Any]) -> dict[str, Any]:
+    """Release blocker B1: `Useful query terms: {brain_queries}` reaches the brain arm only, so any
+    query content that also appears in the hidden fix or hidden validation hands that arm the
+    answer and confounds the comparison. Flags (1) identifier-shaped query tokens found inside any
+    hidden answer text and (2) any contiguous 3+ word query phrase found verbatim there."""
+    findings: list[dict[str, Any]] = []
+    answer_texts = brain_query_answer_texts(task)
+    for query in task.get("brain_queries", []):
+        query_text = str(query)
+        tokens = [token.strip("`\"',;:()") for token in query_text.split()]
+        words = query_text.split()
+        for kind, text in answer_texts:
+            for token in tokens:
+                if brain_query_token_is_identifier(token) and token in text:
+                    findings.append(
+                        {"kind": "answer_bearing_identifier", "query": query_text, "token": token, "where": kind}
+                    )
+            for start in range(len(words) - 2):
+                phrase = " ".join(words[start:start + 3])
+                if phrase in text:
+                    findings.append(
+                        {"kind": "answer_bearing_phrase", "query": query_text, "phrase": phrase, "where": kind}
+                    )
+    unique: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for finding in findings:
+        key = json.dumps(finding, sort_keys=True)
+        if key not in seen:
+            seen.add(key)
+            unique.append(finding)
+    return {"ok": not unique, "findings": unique}
+
+
 def mcp_history_required_tools(runner: "RunnerSpec | None") -> tuple[str, ...]:
     """Tools the mcp_history condition must call (a floor, not a ceiling). Opus's brief-only
     delivery is told NOT to call brain_search, and the gpt-5.x disciplined delivery DOES call
@@ -4093,6 +4161,15 @@ def panel_preflight(panel: dict[str, Any], check_local_artifacts: bool = False) 
                     errors.append(
                         f"release panel task {task.get('id', '<unknown>')} hides validation "
                         "but has no explicit leak_markers canary"
+                    )
+            query_audit = brain_query_leak_audit(task)
+            if not query_audit["ok"]:
+                for finding in query_audit["findings"]:
+                    leaked = finding.get("token") or finding.get("phrase")
+                    errors.append(
+                        f"task {task.get('id', '<unknown>')} brain_queries hand the brain arm "
+                        f"answer-bearing content: {leaked!r} appears in {finding['where']} "
+                        "(release blocker B1 — strip it or give both arms identical hints)"
                     )
             if any(condition_prepares_history(condition) for condition in task_conditions):
                 if not task.get("copy_entire_history_from_source") and not task.get("copy_checkpoint_ref_from_source"):

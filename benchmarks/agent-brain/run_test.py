@@ -1491,6 +1491,137 @@ class PanelAndStabilityTests(unittest.TestCase):
             run.RESULT_DIR = old_result_dir
 
 
+class BrainQueryLeakAuditTests(unittest.TestCase):
+    """Release blocker B1: the four suites named in docs/release-blockers.md must fail this
+    auditor with the brain_queries they were committed with, frozen here as fixtures."""
+
+    def _flagged_terms(self, task: dict) -> set:
+        audit = run.brain_query_leak_audit(task)
+        return {finding.get("token") or finding.get("phrase") for finding in audit["findings"]}
+
+    def test_schema_contract_suite_fails_as_committed(self) -> None:
+        task = {
+            "id": "entire-brain-history-codex-schema-contract",
+            "hide_validation_from_agent": True,
+            "brain_queries": [
+                "Checkpoint-context review reverted Codex `--output-schema` usage",
+                "prompt plus local `schema_version` and `status` validation",
+            ],
+            "validation": [
+                "rg 'should rely on prompt plus local validation, not --output-schema' internal/cli/seed_test.go",
+            ],
+        }
+        audit = run.brain_query_leak_audit(task)
+        self.assertFalse(audit["ok"])
+        self.assertIn("--output-schema", self._flagged_terms(task))
+
+    def test_attribution_base_suite_fails_as_committed(self) -> None:
+        task = {
+            "id": "entireio-cli-manual-commit-attribution-base",
+            "hide_validation_from_agent": True,
+            "brain_queries": [
+                "RealignAttributionBase newHead manual commit hooks",
+                "BaseCommit AttributionBaseCommit realign",
+                "TestManualCommit_AttributionStaleBase",
+            ],
+            "setup_replacements": [
+                {"path": "x.go", "old": "state.RealignAttributionBase(newHead)\n", "new": "\n"},
+            ],
+            "validation": ["go test ./internal/x -run TestManualCommit_AttributionStaleBase"],
+        }
+        flagged = self._flagged_terms(task)
+        self.assertIn("RealignAttributionBase", flagged)
+        self.assertIn("TestManualCommit_AttributionStaleBase", flagged)
+
+    def test_radar_deletions_suite_fails_as_committed(self) -> None:
+        task = {
+            "id": "entireio-cli-radar-manual-attribution-deletions",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["RealignAttributionBase newHead manual commit hooks"],
+            "setup_replacements": [
+                {"path": "x.go", "old": "state.RealignAttributionBase(newHead)\n", "new": "\n"},
+            ],
+            "validation": ["go test ./internal/x -run TestManualCommit_AttributionStaleBase"],
+        }
+        self.assertFalse(run.brain_query_leak_audit(task)["ok"])
+
+    def test_tokenized_idf_suite_fails_as_committed(self) -> None:
+        task = {
+            "id": "entire-brain-semantic-tokenized-idf-ranking",
+            "hide_validation_from_agent": True,
+            "brain_queries": [
+                "tokenIDFWeight rare token ranking",
+                "TestTokenizedSearchRanksRareTokenAboveCommonTokens",
+            ],
+            "validation": [
+                "rg 'weights\\[i\\] = tokenIDFWeight\\(total, df\\)' internal/cli/semantic.go",
+                "go test ./internal/cli -run TestTokenizedSearchRanksRareTokenAboveCommonTokens",
+            ],
+        }
+        flagged = self._flagged_terms(task)
+        self.assertIn("tokenIDFWeight", flagged)
+        self.assertIn("TestTokenizedSearchRanksRareTokenAboveCommonTokens", flagged)
+
+    def test_symptom_level_queries_pass(self) -> None:
+        task = {
+            "id": "clean",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["environment token treated as authenticated", "auth check stored hosts"],
+            "setup_replacements": [{"path": "x.go", "old": "return true", "new": "return false"}],
+            "validation": ["go test ./pkg/cmdutil -run Test_CheckAuth"],
+        }
+        self.assertTrue(run.brain_query_leak_audit(task)["ok"])
+
+    def test_identifier_allowed_when_not_answer_bearing(self) -> None:
+        task = {
+            "id": "env-var-hint",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["GH_ENTERPRISE_TOKEN"],
+            "setup_replacements": [{"path": "x.go", "old": "return true", "new": "return false"}],
+            "validation": ["go test ./pkg/cmdutil -run Test_CheckAuth"],
+        }
+        self.assertTrue(run.brain_query_leak_audit(task)["ok"])
+
+    def test_visible_validation_is_not_an_asymmetry(self) -> None:
+        task = {
+            "id": "visible-validation",
+            "hide_validation_from_agent": False,
+            "brain_queries": ["Test_CheckAuth"],
+            "validation": ["go test ./pkg/cmdutil -run Test_CheckAuth"],
+        }
+        self.assertTrue(run.brain_query_leak_audit(task)["ok"])
+        task_with_fix_leak = dict(task, setup_replacements=[{"path": "x.go", "old": "Test_CheckAuth helper", "new": ""}])
+        self.assertFalse(run.brain_query_leak_audit(task_with_fix_leak)["ok"])
+
+    def test_panel_preflight_reports_confounded_queries(self) -> None:
+        confounded = {
+            "id": "confounded-task",
+            "repo": "github-cli",
+            "repo_path": "github-cli",
+            "conditions": ["no_brain", "semantic_brain"],
+            "prompt": "Fix it.",
+            "hide_validation_from_agent": True,
+            "leak_markers": ["go test ./internal/x -run TestHiddenName"],
+            "agent_hidden_paths": ["benchmarks/agent-brain"],
+            "brain_queries": ["TestHiddenName"],
+            "validation": ["go test ./internal/x -run TestHiddenName"],
+        }
+        panel = {
+            "name": "release-test-panel",
+            "runners": ["claude:claude-sonnet-4-6:high"],
+            "tasks": ["confounded-task.json"],
+            "conditions": ["no_brain", "semantic_brain"],
+            "repetitions": 4,
+        }
+        old_loader = run.load_tasks
+        run.load_tasks = lambda patterns: [confounded]
+        try:
+            errors = run.panel_preflight(panel)
+        finally:
+            run.load_tasks = old_loader
+        self.assertTrue(any("answer-bearing" in error for error in errors), errors)
+
+
 class CodexAuditScriptTests(unittest.TestCase):
     SOURCE_SHA = "1" * 40
     TOOL_SHA = "2" * 64

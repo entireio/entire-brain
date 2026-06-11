@@ -19,5 +19,5 @@
   ],
   "expected_files": ["cmd/entire/cli/plugin_env.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["shouldForwardPluginEnv", "EnvFiltered", "ExternalCommand"]
+  "brain_queries": ["plugin subprocess environment filtering", "credential leak to third-party plugin process", "ENTIRE_PLUGIN_ENV user override", "allowlisted environment variables forwarded to child"]
 }

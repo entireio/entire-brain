@@ -48,12 +48,6 @@
   "forbidden_files": ["go.mod", "go.sum"],
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
-  "brain_queries": [
-    "claude-code",
-    "templates/entire-brain-intake-claude-agent.md",
-    "--no-session-persistence",
-    "--setting-sources",
-    "should not use --bare"
-  ],
+  "brain_queries": ["second seed synthesis agent", "intake template for seed agent", "agent invocation ignores project configuration", "agent runs without session persistence"],
   "history_excerpt_lines": 40
 }

@@ -19,5 +19,5 @@
   ],
   "expected_files": ["cmd/entire/cli/review_context.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["reviewContextCommitMessages", "scopeBaseRef", "BaseFlagThreadsThroughToPromptAndBanner"]
+  "brain_queries": ["review scope ignores explicit base ref", "checkpoint context built from wrong commit range", "review banner and agent prompt show incorrect base", "hardcoded default branch in review diff scope"]
 }
