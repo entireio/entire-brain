@@ -1,25 +1,29 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
 
 type factsStatusReport struct {
-	SchemaVersion       int                 `json:"schema_version"`
-	Repo                string              `json:"repo"`
-	BrainPath           string              `json:"brain_path"`
-	BrainManifestSHA256 string              `json:"brain_manifest_sha256,omitempty"`
-	ManifestSources     []string            `json:"manifest_sources,omitempty"`
-	Branch              string              `json:"branch,omitempty"`
-	AllBranches         bool                `json:"all_branches,omitempty"`
-	FactsArmReady       bool                `json:"facts_arm_ready"`
-	Totals              factsStatusCounts   `json:"totals"`
-	Branches            []factsBranchState  `json:"branches,omitempty"`
-	ManifestFacts       *factSourceManifest `json:"manifest_facts,omitempty"`
-	Warnings            []string            `json:"warnings,omitempty"`
+	SchemaVersion int                 `json:"schema_version"`
+	GeneratedAt   time.Time           `json:"generated_at"`
+	Repo          string              `json:"repo"`
+	BrainPath     string              `json:"brain_path"`
+	RepoHead      string              `json:"repo_head,omitempty"`
+	BrainManifest string              `json:"brain_manifest_sha256,omitempty"`
+	Branch        string              `json:"branch,omitempty"`
+	AllBranches   bool                `json:"all_branches,omitempty"`
+	FactsArmReady bool                `json:"facts_arm_ready"`
+	Totals        factsStatusCounts   `json:"totals"`
+	Branches      []factsBranchState  `json:"branches,omitempty"`
+	ManifestFacts *factSourceManifest `json:"manifest_facts,omitempty"`
+	Warnings      []string            `json:"warnings,omitempty"`
 }
 
 type factsBranchState struct {
@@ -59,7 +63,11 @@ func newFactsStatusCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			report, err := buildFactsStatusReport(repoDir, brainDir, resolvedBranch, allBranches)
+			now := time.Now
+			if opts.Now != nil {
+				now = opts.Now
+			}
+			report, err := buildFactsStatusReport(cmd.Context(), opts.Runner, repoDir, brainDir, resolvedBranch, allBranches, now())
 			if err != nil {
 				return err
 			}
@@ -76,11 +84,14 @@ func newFactsStatusCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-func buildFactsStatusReport(repoDir, brainDir, branch string, allBranches bool) (factsStatusReport, error) {
+func buildFactsStatusReport(ctx context.Context, runner CommandRunner, repoDir, brainDir, branch string, allBranches bool, now time.Time) (factsStatusReport, error) {
 	report := factsStatusReport{
 		SchemaVersion: 1,
+		GeneratedAt:   now.UTC(),
 		Repo:          repoDir,
 		BrainPath:     brainDir,
+		RepoHead:      strings.TrimSpace(string(runGitOutput(ctx, runner, repoDir, "rev-parse", "HEAD"))),
+		BrainManifest: evalBrainManifestSHA256(brainDir),
 		Branch:        branch,
 		AllBranches:   allBranches,
 	}
@@ -88,8 +99,6 @@ func buildFactsStatusReport(repoDir, brainDir, branch string, allBranches bool) 
 	if err != nil {
 		return report, err
 	}
-	report.BrainManifestSHA256 = evalBrainManifestSHA256(brainDir)
-	report.ManifestSources = factsStatusManifestSources(manifest.Sources)
 	if manifest.Sources != nil && manifest.Sources.Facts != nil {
 		report.ManifestFacts = manifest.Sources.Facts
 	}
@@ -180,33 +189,6 @@ func (counts *factsStatusCounts) add(other factsStatusCounts) {
 	counts.ProvenanceAnchors += other.ProvenanceAnchors
 	counts.VerifiedAnchors += other.VerifiedAnchors
 	counts.UnsignedAnchors += other.UnsignedAnchors
-}
-
-func factsStatusManifestSources(sources *brainSources) []string {
-	if sources == nil {
-		return nil
-	}
-	var keys []string
-	if sources.Docs != nil {
-		keys = append(keys, "docs")
-	}
-	if sources.Facts != nil {
-		keys = append(keys, "facts")
-	}
-	if sources.History != nil {
-		keys = append(keys, "history")
-	}
-	if sources.Seed != nil {
-		keys = append(keys, "seed")
-	}
-	if sources.Semantic != nil {
-		keys = append(keys, "semantic")
-	}
-	if sources.Sessions != nil {
-		keys = append(keys, "sessions")
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func factsStatusWarnings(report factsStatusReport) []string {

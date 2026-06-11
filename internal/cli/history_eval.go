@@ -169,11 +169,12 @@ func generateHistoryEvalTasks(brainDir string, manifest *exportManifest, index h
 		}
 		sort.Strings(ids)
 		tasks = append(tasks, evalTask{
-			ID:        shortSessionID(s.SessionID),
-			Task:      request,
-			Branch:    s.Branch,
-			QueryType: classifyHistoryQueryType(request),
-			Relevant:  ids,
+			ID:          shortSessionID(s.SessionID),
+			Task:        request,
+			Branch:      s.Branch,
+			QueryType:   classifyHistoryQueryType(request),
+			Relevant:    ids,
+			LabelSource: evalLabelSourceProvenanceSilver, // provenance-derived, never proof-grade
 		})
 		if midtask {
 			tasks = append(tasks, midtaskEvalTasks(s, pr.requests, pr.rankable, minRecords, maxRecords)...)
@@ -208,11 +209,12 @@ func midtaskEvalTasks(s exportSession, requests, rankable []historyRecord, minRe
 		}
 		sort.Strings(ids)
 		tasks = append(tasks, evalTask{
-			ID:        fmt.Sprintf("%s-m%d", shortSessionID(s.SessionID), req.Line),
-			Task:      req.Summary,
-			Branch:    s.Branch,
-			QueryType: queryTypeMidtask,
-			Relevant:  ids,
+			ID:          fmt.Sprintf("%s-m%d", shortSessionID(s.SessionID), req.Line),
+			Task:        req.Summary,
+			Branch:      s.Branch,
+			QueryType:   queryTypeMidtask,
+			Relevant:    ids,
+			LabelSource: evalLabelSourceProvenanceSilver, // provenance-derived, never proof-grade
 		})
 		if len(tasks) >= midtaskTasksPerSession {
 			break
@@ -374,6 +376,13 @@ func runHistoryEval(tasks []evalTask, defaultK int, arm historyEvalArm) ([]evalT
 		}
 		res := historyEvalMetrics(surfaced, relevant, len(relevant))
 		res.ID, res.Task, res.QueryType, res.Labeled = task.ID, task.Task, task.QueryType, len(task.Relevant) > 0
+		if res.Labeled {
+			// Provenance labels, declared as such: eval-compare pairs two
+			// history runs as same-truth, and EvidenceBasis stays proxy (the
+			// labels are silver, never proof-grade).
+			res.RelevanceSource = evalRelevanceExplicitLabel
+			res.LabelSource = normalizedEvalLabelSource(task)
+		}
 		results = append(results, res)
 	}
 	return results, nil

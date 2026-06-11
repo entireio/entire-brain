@@ -38,13 +38,6 @@ assert AUDIT_DISTILL_PERF_SPEC.loader is not None
 sys.modules[AUDIT_DISTILL_PERF_SPEC.name] = audit_distill_perf
 AUDIT_DISTILL_PERF_SPEC.loader.exec_module(audit_distill_perf)
 
-AUDIT_TARGET_DISTILL_PATH = pathlib.Path(__file__).with_name("audit_target_distill_evidence.py")
-AUDIT_TARGET_DISTILL_SPEC = importlib.util.spec_from_file_location("agent_brain_audit_target_distill", AUDIT_TARGET_DISTILL_PATH)
-audit_target_distill_evidence = importlib.util.module_from_spec(AUDIT_TARGET_DISTILL_SPEC)
-assert AUDIT_TARGET_DISTILL_SPEC.loader is not None
-sys.modules[AUDIT_TARGET_DISTILL_SPEC.name] = audit_target_distill_evidence
-AUDIT_TARGET_DISTILL_SPEC.loader.exec_module(audit_target_distill_evidence)
-
 AUDIT_RADAR_EVIDENCE_PATH = pathlib.Path(__file__).with_name("audit_radar_evidence.py")
 AUDIT_RADAR_EVIDENCE_SPEC = importlib.util.spec_from_file_location("agent_brain_audit_radar_evidence", AUDIT_RADAR_EVIDENCE_PATH)
 audit_radar_evidence = importlib.util.module_from_spec(AUDIT_RADAR_EVIDENCE_SPEC)
@@ -579,27 +572,17 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("related_locations", prompt)
 
     def test_manual_attribution_radar_task_declares_deletion_signals(self):
-        for name in (
-            "entireio-cli-manual-commit-attribution-base.json",
-            "entireio-cli-radar-manual-attribution-deletions.json",
-        ):
-            task_path = RUN_PATH.with_name("tasks") / name
-            task = json.loads(task_path.read_text())
-            self.assertIs(task.get("radar_include_deletions"), True, name)
-            self.assertIn("mcp_workspace_radar", task.get("conditions", []), name)
-            self.assertEqual(task.get("workspace_name"), "release-radar", name)
-            removed = "\n".join(str(rep.get("old", "")) for rep in task.get("setup_replacements", []))
-            self.assertIn("RealignAttributionBase", removed, name)
-            os.environ["BENCH_RADAR_LOCATION_ONLY"] = "1"
-            try:
-                prompt = run.prompt_for(task, "mcp_history", run.parse_runner_spec("codex:gpt-5.4-mini:medium"))
-                workspace_prompt = run.prompt_for(task, "mcp_workspace_radar", run.parse_runner_spec("codex:gpt-5.4-mini:medium"))
-            finally:
-                del os.environ["BENCH_RADAR_LOCATION_ONLY"]
-            self.assertIn("include_deletions: true", prompt)
-            self.assertIn("brain_workspace_regressions", workspace_prompt)
-            self.assertIn('workspace: "release-radar"', workspace_prompt)
-            self.assertIn("include_deletions: true", workspace_prompt)
+        task_path = RUN_PATH.with_name("tasks") / "entireio-cli-manual-commit-attribution-base.json"
+        task = json.loads(task_path.read_text())
+        self.assertIs(task.get("radar_include_deletions"), True)
+        removed = "\n".join(str(rep.get("old", "")) for rep in task.get("setup_replacements", []))
+        self.assertIn("RealignAttributionBase", removed)
+        os.environ["BENCH_RADAR_LOCATION_ONLY"] = "1"
+        try:
+            prompt = run.prompt_for(task, "mcp_history", run.parse_runner_spec("codex:gpt-5.4-mini:medium"))
+        finally:
+            del os.environ["BENCH_RADAR_LOCATION_ONLY"]
+        self.assertIn("include_deletions: true", prompt)
 
     def test_workspace_radar_prompt_uses_workspace_regressions(self):
         task = {
@@ -1292,36 +1275,6 @@ class PanelAndStabilityTests(unittest.TestCase):
         for path in sorted((run.BENCH_ROOT / "panels").glob("release-*.json")):
             panel = json.loads(path.read_text())
             self.assertEqual(run.panel_preflight(panel), [], path.name)
-
-    def test_workspace_radar_manual_attribution_panel_is_proof_shaped(self):
-        for panel_name, task_name in (
-            ("release-entire-cli-workspace-radar-mcp-manual-attribution", "entireio-cli-manual-commit-attribution-base.json"),
-            ("release-entire-cli-workspace-radar-mcp-manual-attribution-deletions", "entireio-cli-radar-manual-attribution-deletions.json"),
-        ):
-            panel = run.load_panel(panel_name)
-            self.assertEqual(panel["conditions"], ["no_brain", "mcp_workspace_radar"], panel_name)
-            self.assertEqual(panel.get("env", {}).get("BENCH_RADAR_LOCATION_ONLY"), "1", panel_name)
-            self.assertEqual(panel["repetitions"], 4, panel_name)
-            self.assertEqual(panel["tasks"], [task_name], panel_name)
-            task = run.load_tasks(panel["tasks"])[0]
-            self.assertIn("mcp_workspace_radar", task.get("conditions", []), panel_name)
-            self.assertEqual(task.get("workspace_name"), "release-radar", panel_name)
-            self.assertIs(task.get("radar_include_deletions"), True, panel_name)
-            self.assertEqual(run.panel_preflight(panel), [], panel_name)
-
-    def test_workspace_radar_review_base_scope_panel_is_proof_shaped(self):
-        panel_name = "release-entire-cli-workspace-radar-mcp-review-base-scope"
-        task_name = "entireio-cli-workspace-radar-review-base-flag-scope.json"
-        panel = run.load_panel(panel_name)
-        self.assertEqual(panel["conditions"], ["no_brain", "mcp_workspace_radar"])
-        self.assertEqual(panel.get("env", {}).get("BENCH_RADAR_LOCATION_ONLY"), "1")
-        self.assertEqual(panel["repetitions"], 4)
-        self.assertEqual(panel["tasks"], [task_name])
-        task = run.load_tasks(panel["tasks"])[0]
-        self.assertIn("mcp_workspace_radar", task.get("conditions", []))
-        self.assertEqual(task.get("workspace_name"), "release-radar")
-        self.assertNotIn("radar_include_deletions", task)
-        self.assertEqual(run.panel_preflight(panel), [])
 
     def test_panel_preflight_validates_env_values(self):
         panel = {
@@ -2626,47 +2579,6 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertIn("B:mcp_workspace_radar_missing_workspace", audited["flags"])
             self.assertIn("B:mcp_workspace_radar_server_missing_workspace", audited["flags"])
 
-    def test_audit_codex_rejects_workspace_radar_extra_brain_tools(self):
-        with tempfile.TemporaryDirectory() as results:
-            results_dir = pathlib.Path(results)
-            suite = "release-candidate-workspace-radar-extra-tools"
-            record = self._workspace_mcp_release_record(suite, repetition=1, run_id="workspace-radar-1")
-            details = [
-                {"name": "mcp__entire_brain__brain_workspace_regressions", "arguments": {"location_only": True, "workspace": "related"}, "errored": False},
-                {"name": "mcp__entire_brain__brain_query", "arguments": {}, "errored": False},
-            ]
-            record["agent_info"]["activity"]["mcp_tool_calls"] = 2
-            record["agent_info"]["activity"]["mcp_tool_names"] = [detail["name"] for detail in details]
-            record["agent_info"]["activity"]["mcp_tool_details"] = details
-            record["mcp_condition_audit"]["mcp_tool_calls"] = 2
-            record["mcp_condition_audit"]["mcp_tool_names"] = [detail["name"] for detail in details]
-            record["mcp_condition_audit"]["mcp_tool_details"] = copy.deepcopy(details)
-            suite_dir = self._write_records(results_dir, suite, [record])
-            run_dir = suite_dir / "workspace-radar-1"
-            run_dir.mkdir(exist_ok=True)
-            run_dir.joinpath("mcp-server.log").write_text(
-                "\n".join([
-                    "start",
-                    "message: tools/call",
-                    "response: tools/call",
-                    "tool: brain_workspace_regressions",
-                    'tool_args: {"location_only":true,"workspace":"related"}',
-                    "tool_result: brain_workspace_regressions ok",
-                    "message: tools/call",
-                    "response: tools/call",
-                    "tool: brain_query",
-                    "tool_result: brain_query ok",
-                ]) + "\n"
-            )
-
-            report = audit_codex.build_audit_report(results_dir, [suite])
-            audited = report["suites"][suite]["records"][0]
-
-            self.assertFalse(audited["pass"], audited)
-            self.assertFalse(audited["mcp_verified"], audited)
-            self.assertIn("B:mcp_workspace_radar_extra_brain_tools(brain_query)", audited["flags"])
-            self.assertIn("B:mcp_workspace_radar_server_extra_brain_tools(brain_query)", audited["flags"])
-
     def test_audit_codex_flags_unsafe_server_tool_args_without_leaking_values(self):
         with tempfile.TemporaryDirectory() as results:
             results_dir = pathlib.Path(results)
@@ -2843,17 +2755,12 @@ class CodexAuditScriptTests(unittest.TestCase):
 
 
 class FactsEvalAuditScriptTests(unittest.TestCase):
+    TASKS_SHA = "sha256:" + "a" * 64
     BRAIN_SHA = "sha256:" + "b" * 64
 
     def _write_facts_eval_fixture(self, root: pathlib.Path, *, claimable: bool = True, proxy: bool = False) -> pathlib.Path:
         summaries = {}
         task_ids = [f"task-{i}" for i in range(1, 13)]
-        tasks_path = root / "tasks.json"
-        tasks_path.write_text(json.dumps([
-            {"id": task_id, "query": f"Task {index}", "expected": ["fact"]}
-            for index, task_id in enumerate(task_ids, start=1)
-        ], sort_keys=True))
-        tasks_sha = audit_facts_eval.sha256_file(tasks_path)
         metric_values = {
             "facts": {
                 "surfaced": 2,
@@ -2899,16 +2806,14 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             (root / path).write_text(json.dumps({
                 "retriever": retriever,
                 "run_config": {
-                    "tasks_sha256": tasks_sha,
+                    "tasks_sha256": self.TASKS_SHA,
                     "brain_manifest_sha256": self.BRAIN_SHA,
-                    "include_ids": True,
                 },
                 "results": [
                     {
                         "id": task_id,
                         "task": f"Task {index}",
                         "query_type": "code",
-                        "retrieved_ids": [f"{retriever}:{task_id}"],
                         "labeled": True,
                         "relevance_source": "explicit_label",
                         "label_source": "human",
@@ -2924,8 +2829,8 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             "alpha": 0.05,
             "a_retriever": "raw-sessions",
             "b_retriever": "facts",
-            "a_tasks_sha256": tasks_sha,
-            "b_tasks_sha256": tasks_sha,
+            "a_tasks_sha256": self.TASKS_SHA,
+            "b_tasks_sha256": self.TASKS_SHA,
             "a_brain_manifest_sha256": self.BRAIN_SHA,
             "b_brain_manifest_sha256": self.BRAIN_SHA,
             "release_pairing_ready": True,
@@ -2952,21 +2857,9 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
                 "winner": "b",
             }],
         }))
-        (root / "facts-status.json").write_text(json.dumps({
-            "schema_version": 1,
-            "facts_arm_ready": True,
-            "brain_manifest_sha256": self.BRAIN_SHA,
-            "manifest_sources": ["facts", "history", "sessions"],
-            "totals": {"active": 3, "facts": 3},
-            "warnings": [],
-        }))
         manifest = root / "manifest.json"
         manifest.write_text(json.dumps({
             "schema": 1,
-            "claim_policy": "proof_required",
-            "proof_contract": audit_facts_eval.default_proof_contract(),
-            "facts_status": "facts-status.json",
-            "tasks": "tasks.json",
             "required_retrievers": ["facts", "history", "query", "raw-sessions"],
             "summaries": summaries,
             "comparisons": {"raw_vs_facts": "raw-vs-facts.compare.json"},
@@ -2986,9 +2879,27 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             manifest = self._write_facts_eval_fixture(pathlib.Path(root))
             report = audit_facts_eval.audit_facts_eval_manifest(manifest)
             self.assertTrue(report["release_evidence"], report)
+            self.assertEqual(report["claim_scope"], "release")
             self.assertEqual(report["required_claims"][0]["b_retriever"], "facts")
             self.assertEqual(audit_facts_eval.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 0)
             self.assertTrue((pathlib.Path(out) / "facts-eval-audit-report.json").exists())
+
+    def test_facts_eval_audit_accepts_fixture_contract_without_release_claim(self):
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            data = json.loads(manifest.read_text())
+            data["claim_scope"] = "fixture_contract"
+            manifest.write_text(json.dumps(data))
+
+            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
+
+            self.assertEqual(report["status"], "pass", report)
+            self.assertFalse(report["release_evidence"], report)
+            self.assertFalse(report["claimable_facts_vs_raw"], report)
+            self.assertTrue(report["fixture_claimable_facts_vs_raw"], report)
+            self.assertEqual(report["claim_scope"], "fixture_contract")
+            self.assertEqual(audit_facts_eval.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 0)
 
     def test_facts_eval_audit_rejects_forged_aggregate_n(self):
         with tempfile.TemporaryDirectory() as root:
@@ -3126,9 +3037,10 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             root_path = pathlib.Path(root)
             (root_path / "facts-status.json").write_text(json.dumps({
                 "schema_version": 1,
+                "generated_at": "2026-06-10T20:00:00Z",
+                "repo_head": "c" * 40,
+                "brain_manifest_sha256": "sha256:" + "d" * 64,
                 "facts_arm_ready": False,
-                "brain_manifest_sha256": "sha256:" + "0" * 64,
-                "manifest_sources": [],
                 "totals": {"active": 0, "facts": 0},
                 "warnings": ["facts retriever has no active facts; facts-vs-raw release proof cannot be collected yet"],
             }))
@@ -3153,9 +3065,10 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             root_path = pathlib.Path(root)
             (root_path / "facts-status.json").write_text(json.dumps({
                 "schema_version": 1,
+                "generated_at": "2026-06-10T20:00:00Z",
+                "repo_head": "c" * 40,
+                "brain_manifest_sha256": "sha256:" + "d" * 64,
                 "facts_arm_ready": True,
-                "brain_manifest_sha256": "sha256:" + "0" * 64,
-                "manifest_sources": ["facts"],
                 "totals": {"active": 3, "facts": 3},
                 "warnings": [],
             }))
@@ -3171,19 +3084,27 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             self.assertIn("facts_status.facts_arm_ready must be false for no_release_claim evidence", report["flags"])
             self.assertIn("facts_status.totals.active must be 0 for no_release_claim evidence", report["flags"])
 
-    def test_facts_eval_audit_rejects_status_brain_manifest_mismatch(self):
+    def test_facts_eval_audit_rejects_no_release_claim_without_fresh_status_provenance(self):
         with tempfile.TemporaryDirectory() as root:
             root_path = pathlib.Path(root)
-            manifest = self._write_facts_eval_fixture(root_path)
-            status_path = root_path / "facts-status.json"
-            status = json.loads(status_path.read_text())
-            status["brain_manifest_sha256"] = "sha256:" + "c" * 64
-            status_path.write_text(json.dumps(status))
+            (root_path / "facts-status.json").write_text(json.dumps({
+                "schema_version": 1,
+                "facts_arm_ready": False,
+                "totals": {"active": 0, "facts": 0},
+            }))
+            manifest = root_path / "manifest.json"
+            manifest.write_text(json.dumps({
+                "schema": 1,
+                "claim_policy": "no_release_claim",
+                "facts_status": "facts-status.json",
+            }))
 
             report = audit_facts_eval.audit_facts_eval_manifest(manifest)
 
             self.assertFalse(report["release_evidence"], report)
-            self.assertIn("facts_status.brain_manifest_sha256 must match eval summary brain_manifest_sha256", report["flags"])
+            self.assertIn("facts_status.generated_at must be an RFC3339 timestamp", report["flags"])
+            self.assertIn("facts_status.repo_head must be a 40-character git commit", report["flags"])
+            self.assertIn("facts_status.brain_manifest_sha256 must be sha256:<64 hex>", report["flags"])
 
     def test_facts_eval_audit_rejects_proxy_or_nonclaimable_comparison(self):
         with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
@@ -3221,62 +3142,6 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             report = audit_facts_eval.audit_facts_eval_manifest(manifest)
             self.assertFalse(report["release_evidence"], report)
             self.assertIn("required_retrievers missing canonical retrievers: history, query", report["flags"])
-            self.assertIn("required_retrievers must match proof_contract.required_retrievers ['facts', 'history', 'query', 'raw-sessions']", report["flags"])
-
-    def test_facts_eval_audit_rejects_missing_proof_contract(self):
-        with tempfile.TemporaryDirectory() as root:
-            root_path = pathlib.Path(root)
-            manifest = self._write_facts_eval_fixture(root_path)
-            data = json.loads(manifest.read_text())
-            data.pop("proof_contract")
-            manifest.write_text(json.dumps(data))
-
-            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
-
-            self.assertFalse(report["release_evidence"], report)
-            self.assertIn("proof_contract must be present for proof_required evidence", report["flags"])
-
-    def test_facts_eval_audit_rejects_missing_tasks_artifact(self):
-        with tempfile.TemporaryDirectory() as root:
-            root_path = pathlib.Path(root)
-            manifest = self._write_facts_eval_fixture(root_path)
-            data = json.loads(manifest.read_text())
-            data.pop("tasks")
-            manifest.write_text(json.dumps(data))
-
-            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
-
-            self.assertFalse(report["release_evidence"], report)
-            self.assertIn("proof_required manifest requires tasks artifact", report["flags"])
-
-    def test_facts_eval_audit_rejects_tasks_artifact_hash_mismatch(self):
-        with tempfile.TemporaryDirectory() as root:
-            root_path = pathlib.Path(root)
-            manifest = self._write_facts_eval_fixture(root_path)
-            (root_path / "tasks.json").write_text(json.dumps([{"id": "different"}], sort_keys=True))
-
-            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
-
-            self.assertFalse(report["release_evidence"], report)
-            self.assertTrue(
-                any(flag.startswith("retained tasks artifact sha256") for flag in report["flags"]),
-                report["flags"],
-            )
-
-    def test_facts_eval_audit_rejects_missing_retrieved_ids(self):
-        with tempfile.TemporaryDirectory() as root:
-            root_path = pathlib.Path(root)
-            manifest = self._write_facts_eval_fixture(root_path)
-            facts = json.loads((root_path / "facts.json").read_text())
-            facts["run_config"]["include_ids"] = False
-            facts["results"][0].pop("retrieved_ids")
-            (root_path / "facts.json").write_text(json.dumps(facts))
-
-            report = audit_facts_eval.audit_facts_eval_manifest(manifest)
-
-            self.assertFalse(report["release_evidence"], report)
-            self.assertIn("facts: run_config.include_ids must be true for proof_required evidence", report["flags"])
-            self.assertIn("facts: result 'task-1' must include non-empty string-list retrieved_ids", report["flags"])
 
     def test_facts_eval_audit_rejects_stale_compare_claiming_proof_labels(self):
         with tempfile.TemporaryDirectory() as root:
@@ -3355,10 +3220,31 @@ class FactsEvalAuditScriptTests(unittest.TestCase):
             self.assertFalse(report["release_evidence"], report)
             self.assertIn("eval summaries have differing brain_manifest_sha256 values", report["flags"])
 
+    def test_facts_eval_audit_rejects_unknown_claim_scope(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_facts_eval_fixture(root_path)
+            data = json.loads(manifest.read_text())
+            data["claim_scope"] = "demo"
+            manifest.write_text(json.dumps(data))
+
+            with self.assertRaises(SystemExit) as ctx:
+                audit_facts_eval.audit_facts_eval_manifest(manifest)
+            self.assertIn("claim_scope must be release or fixture_contract", str(ctx.exception))
+
 
 class DistillPerfAuditScriptTests(unittest.TestCase):
     def _sha256(self, path: pathlib.Path) -> str:
         return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def _write_distill_source_fixture(self, repo_root: pathlib.Path) -> dict[str, str]:
+        hashes: dict[str, str] = {}
+        for rel in audit_distill_perf.DISTILL_PERF_SOURCE_PATHS:
+            path = repo_root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"source fixture for {rel}\n")
+            hashes[rel] = self._sha256(path)
+        return hashes
 
     def _write_ollama_contract_fixture(self, root: pathlib.Path, *, failed_test: str | None = None) -> pathlib.Path:
         path = root / "go-test-internal-cli-ollama-distill.jsonl"
@@ -3383,7 +3269,7 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
             "model": "llama3.2",
             "effort": "",
             "jobs": 1,
-            "effective_extraction_jobs": 1,
+            "extraction_jobs_cap": 1,
             "max_chunk_bytes": 32000,
             "confidence_threshold": 0.75,
             "sessions": 12,
@@ -3423,13 +3309,13 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
                 "branch": "",
                 "force": True,
                 "jobs": jobs,
-                "effective_extraction_jobs": effective_jobs,
+                "extraction_jobs_cap": effective_jobs,
                 "max_chunk_bytes": 32000,
                 "confidence_threshold": 0.75,
                 "extraction_agent_calls": 20,
                 "reconcile_agent_calls": 4,
                 "total_agent_calls": 24,
-                "extraction_seconds": total_seconds * 0.8,
+                "extraction_wait_seconds": total_seconds * 0.8,
                 "reconcile_seconds": total_seconds * 0.15,
                 "write_seconds": total_seconds * 0.05,
                 "total_seconds": total_seconds,
@@ -3439,6 +3325,7 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
         parallel = run(4, 4, parallel_seconds)
         if mismatch:
             parallel["facts"] = 79
+        source_hashes = self._write_distill_source_fixture(root)
         dry_path = root / "dry-run.json"
         serial_path = root / "jobs-1.json"
         parallel_path = root / "jobs-4.json"
@@ -3464,6 +3351,7 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
                 "serial_run": self._sha256(serial_path),
                 "parallel_run": self._sha256(parallel_path),
             },
+            "source_sha256": source_hashes,
             "commands": {
                 "dry_run": ["entire", "brain", "distill", "--dry-run", "--json", "--agent", "ollama", "--model", "llama3.2", "--force", "--jobs", "1", "--max-chunk-bytes", "32000", "--confidence", "0.75"],
                 "serial_run": ["entire", "brain", "distill", "--json", "--agent", "ollama", "--model", "llama3.2", "--force", "--jobs", "1", "--max-chunk-bytes", "32000", "--confidence", "0.75"],
@@ -3491,8 +3379,9 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
             self.assertTrue(report["release_evidence"], report)
             self.assertGreaterEqual(report["speedup"], 1.25)
             self.assertEqual(report["target"]["repo"], "github.com/example/large-repo")
+            self.assertEqual(report["source_hashes"]["matched_paths"], audit_distill_perf.DISTILL_PERF_SOURCE_PATHS)
             self.assertEqual(len(report["local_ollama_contract"]["passed_required_tests"]), len(audit_distill_perf.DISTILL_OLLAMA_REQUIRED_TESTS))
-            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 0)
+            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--repo-root", root, "--out-dir", out, "--fail-on-flags"]), 0)
             self.assertTrue((pathlib.Path(out) / "distill-perf-audit-report.json").exists())
 
     def test_distill_perf_audit_accepts_omitted_zero_cache_hits(self):
@@ -3515,12 +3404,12 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
     def test_distill_perf_audit_rejects_weak_speedup_or_mismatched_output(self):
         with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
             manifest = self._write_distill_perf_fixture(pathlib.Path(root), speedup=1.05)
-            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
+            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--repo-root", root, "--out-dir", out, "--fail-on-flags"]), 1)
             weak = json.loads((pathlib.Path(out) / "distill-perf-audit-report.json").read_text())
             self.assertTrue(any(flag.startswith("speedup ") for flag in weak["flags"]))
 
             manifest = self._write_distill_perf_fixture(pathlib.Path(root), mismatch=True)
-            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
+            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--repo-root", root, "--out-dir", out, "--fail-on-flags"]), 1)
             mismatch = json.loads((pathlib.Path(out) / "distill-perf-audit-report.json").read_text())
             self.assertIn("serial/parallel mismatch: facts", mismatch["flags"])
 
@@ -3532,11 +3421,22 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
             data["artifact_sha256"]["serial_run"] = "sha256:" + "0" * 64
             data["commands"]["parallel_run"] = ["entire", "brain", "distill", "--json", "--agent", "auto", "--force", "--jobs", "4", "--confidence", "0.75"]
             manifest.write_text(json.dumps(data))
-            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
+            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--repo-root", root, "--out-dir", out, "--fail-on-flags"]), 1)
             report = json.loads((pathlib.Path(out) / "distill-perf-audit-report.json").read_text())
             self.assertIn("artifact_sha256.serial_run mismatch", report["flags"])
             self.assertIn("commands.parallel_run: --agent must match artifact agent", report["flags"])
             self.assertIn("commands.parallel_run: --max-chunk-bytes must match artifact max_chunk_bytes", report["flags"])
+
+    def test_distill_perf_audit_rejects_source_hash_drift(self):
+        with tempfile.TemporaryDirectory() as root:
+            root_path = pathlib.Path(root)
+            manifest = self._write_distill_perf_fixture(root_path)
+            changed = root_path / audit_distill_perf.DISTILL_PERF_SOURCE_PATHS[0]
+            changed.write_text(changed.read_text() + "changed after evidence capture\n")
+
+            report = audit_distill_perf.audit_distill_perf_manifest(manifest)
+            self.assertFalse(report["release_evidence"], report)
+            self.assertIn(f"source_sha256.{audit_distill_perf.DISTILL_PERF_SOURCE_PATHS[0]} mismatch", report["flags"])
 
     def test_distill_perf_audit_requires_target_provenance(self):
         with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
@@ -3554,7 +3454,7 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
             data["target"]["brain_manifest_sha256"] = "sha256:not64hex"
             data["target"]["claim_scope"] = ""
             manifest.write_text(json.dumps(data))
-            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]), 1)
+            self.assertEqual(audit_distill_perf.main(["--manifest", str(manifest), "--repo-root", root, "--out-dir", out, "--fail-on-flags"]), 1)
             report = json.loads((pathlib.Path(out) / "distill-perf-audit-report.json").read_text())
             self.assertIn("target.source_head must be a 40-character git commit", report["flags"])
             self.assertIn("target.brain_manifest_sha256 must be sha256:<64 hex>", report["flags"])
@@ -3574,141 +3474,6 @@ class DistillPerfAuditScriptTests(unittest.TestCase):
             self.assertFalse(report["release_evidence"], report)
             self.assertTrue(any("go test event failed" in flag and failed in flag for flag in report["flags"]))
             self.assertTrue(any("missing required passed tests" in flag and failed in flag for flag in report["flags"]))
-
-
-class TargetDistillAuditScriptTests(unittest.TestCase):
-    def _write_target_distill_no_claim_manifest(self, root: pathlib.Path) -> pathlib.Path:
-        manifest = root / "manifest.json"
-        manifest.write_text(json.dumps({
-            "schema": 1,
-            "claim_policy": "no_release_claim",
-            "target": {
-                "repo": "frontend/entire.io target repo",
-                "claim_scope": "target large-repo/frontend distill backfill performance",
-            },
-            "missing_evidence": [
-                "target dry-run artifact",
-                "paired timed jobs artifacts",
-            ],
-        }))
-        return manifest
-
-    def test_target_distill_accepts_no_claim_manifest(self):
-        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as out:
-            manifest = self._write_target_distill_no_claim_manifest(pathlib.Path(tmp))
-            report = audit_target_distill_evidence.audit_manifest(manifest)
-            self.assertEqual(report["status"], "pass", report)
-            self.assertFalse(report["claimable_target_distill"])
-            self.assertEqual(
-                audit_target_distill_evidence.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]),
-                0,
-            )
-            self.assertTrue((pathlib.Path(out) / "target-distill-audit-report.json").exists())
-
-    def test_target_distill_rejects_no_claim_without_missing_evidence(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            manifest = self._write_target_distill_no_claim_manifest(root)
-            data = json.loads(manifest.read_text())
-            data["missing_evidence"] = []
-            manifest.write_text(json.dumps(data))
-
-            report = audit_target_distill_evidence.audit_manifest(manifest)
-
-            self.assertEqual(report["status"], "fail", report)
-            self.assertIn("missing_evidence", " | ".join(report["flags"]))
-
-    def test_target_distill_proof_rejects_current_repo_scheduler_report(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            distill_report = root / "distill.json"
-            distill_report.write_text(json.dumps({
-                "schema": 1,
-                "status": "pass",
-                "release_evidence": True,
-                "target": {
-                    "repo": "github.com/ashtom/entire-brain",
-                    "claim_scope": "current-repo local command-agent scheduler proof",
-                },
-            }))
-            manifest = root / "manifest.json"
-            manifest.write_text(json.dumps({
-                "schema": 1,
-                "claim_policy": "proof_required",
-                "target": {
-                    "repo": "github.com/entireio/frontend",
-                    "claim_scope": "target large-repo/frontend distill backfill performance",
-                },
-                "distill_report": "distill.json",
-            }))
-
-            report = audit_target_distill_evidence.audit_manifest(manifest)
-
-            self.assertEqual(report["status"], "fail", report)
-            self.assertIn("target distill_report target.repo does not match manifest target.repo", report["flags"])
-
-    def test_target_distill_proof_rejects_missing_target_provenance(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            distill_report = root / "distill.json"
-            distill_report.write_text(json.dumps({
-                "schema": 1,
-                "status": "pass",
-                "release_evidence": True,
-                "target": {
-                    "repo": "github.com/entireio/frontend",
-                    "claim_scope": "target large-repo/frontend distill backfill performance",
-                },
-            }))
-            manifest = root / "manifest.json"
-            manifest.write_text(json.dumps({
-                "schema": 1,
-                "claim_policy": "proof_required",
-                "target": {
-                    "repo": "github.com/entireio/frontend",
-                    "claim_scope": "target large-repo/frontend distill backfill performance",
-                },
-                "distill_report": "distill.json",
-            }))
-
-            report = audit_target_distill_evidence.audit_manifest(manifest)
-
-            self.assertEqual(report["status"], "fail", report)
-            self.assertIn("target distill_report target.repo_key must be a non-empty string", report["flags"])
-            self.assertIn("target distill_report target.source_head must be a 40-character git commit", report["flags"])
-            self.assertIn("target distill_report target.brain_manifest_sha256 must be sha256:<64 hex>", report["flags"])
-
-    def test_target_distill_proof_rejects_matching_current_repo_scheduler_scope(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            distill_report = root / "distill.json"
-            distill_report.write_text(json.dumps({
-                "schema": 1,
-                "status": "pass",
-                "release_evidence": True,
-                "target": {
-                    "repo": "github.com/ashtom/entire-brain",
-                    "repo_key": "gh/ashtom/entire-brain",
-                    "source_head": "a" * 40,
-                    "brain_manifest_sha256": "sha256:" + "b" * 64,
-                    "claim_scope": "current-repo local command-agent distill extraction scheduling speedup",
-                },
-            }))
-            manifest = root / "manifest.json"
-            manifest.write_text(json.dumps({
-                "schema": 1,
-                "claim_policy": "proof_required",
-                "target": {
-                    "repo": "github.com/ashtom/entire-brain",
-                    "claim_scope": "current-repo local command-agent distill extraction scheduling speedup",
-                },
-                "distill_report": "distill.json",
-            }))
-
-            report = audit_target_distill_evidence.audit_manifest(manifest)
-
-            self.assertEqual(report["status"], "fail", report)
-            self.assertIn("target distill proof must not cite the current-repo scheduler evidence", report["flags"])
 
 
 class RadarEvidenceAuditScriptTests(unittest.TestCase):
@@ -4201,6 +3966,7 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
         root: pathlib.Path,
         *,
         claim_policy: str = "no_release_claim",
+        codex_audit_report: str | None = None,
         expected_status_counts: dict[str, int] | None = None,
     ) -> pathlib.Path:
         manifest = root / "manifest.json"
@@ -4210,6 +3976,8 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             "results_dir": ".",
             "suite_globs": ["release-candidate-*-workspace-radar-*"],
         }
+        if codex_audit_report:
+            data["codex_audit_report"] = codex_audit_report
         if expected_status_counts is not None:
             data["expected_status_counts"] = expected_status_counts
         manifest.write_text(json.dumps(data))
@@ -4249,6 +4017,58 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
         }))
         return suite
 
+    def _write_workspace_codex_audit_report(self, root: pathlib.Path, suite: str) -> pathlib.Path:
+        records = []
+        for index in range(1, 5):
+            records.append({
+                "task_id": "workspace-radar-task",
+                "runner": "codex-mini-low",
+                "condition": "no_brain",
+                "delivery_scope": "none",
+                "pass": index == 1,
+                "valid": index == 1,
+                "mcp_verified": False,
+                "mcp_named_tool_verified": False,
+                "mcp_named_tool_completed": False,
+                "flags": [] if index == 1 else ["baseline_failed"],
+            })
+            records.append({
+                "task_id": "workspace-radar-task",
+                "runner": "codex-mini-low",
+                "condition": "mcp_workspace_radar",
+                "delivery_scope": "mcp_workspace_radar_location_only",
+                "pass": True,
+                "valid": True,
+                "mcp_verified": True,
+                "mcp_named_tool_verified": True,
+                "mcp_named_tool_completed": True,
+                "flags": [],
+            })
+        report = root / "codex-audit-report.json"
+        report.write_text(json.dumps({
+            "schema": 1,
+            "suites": {
+                suite: {
+                    "records": records,
+                    "comparisons": [{
+                        "task": "workspace-radar-task",
+                        "runner": "codex-mini-low",
+                        "condition": "mcp_workspace_radar",
+                        "delivery_scope": "mcp_workspace_radar_location_only",
+                        "proof_scope": "mcp_workspace_radar_location_only",
+                        "pass": True,
+                        "proof_ready": True,
+                        "record_backing": {
+                            "condition_mcp_verified_ok": True,
+                            "condition_mcp_named_tool_verified_ok": True,
+                            "condition_mcp_named_tool_completed_ok": True,
+                        },
+                    }],
+                },
+            },
+        }))
+        return report
+
     def test_workspace_radar_evidence_accepts_retained_no_claim_candidate(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as out:
             root = pathlib.Path(tmp)
@@ -4281,7 +4101,7 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 1,
             )
 
-    def test_workspace_radar_evidence_allows_future_proof_policy(self):
+    def test_workspace_radar_evidence_rejects_future_proof_policy_without_codex_audit(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             self._write_workspace_proof_suite(root)
@@ -4289,8 +4109,30 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
 
             report = audit_workspace_radar_evidence.audit_manifest(manifest)
 
+            self.assertEqual(report["status"], "fail", report)
+            self.assertFalse(report["claimable_workspace_radar"])
+            self.assertIn(
+                "proof_required workspace Radar evidence requires codex_audit_report with MCP named-tool backing",
+                report["flags"],
+            )
+            self.assertIn(
+                "proof_required workspace Radar evidence lacks enough Codex-audited brain_workspace_regressions named-tool completions",
+                report["flags"],
+            )
+
+    def test_workspace_radar_evidence_allows_future_proof_policy_with_codex_audit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            suite = self._write_workspace_proof_suite(root)
+            self._write_workspace_codex_audit_report(root, suite.name)
+            manifest = self._write_workspace_manifest(root, claim_policy="proof_required", codex_audit_report="codex-audit-report.json")
+
+            report = audit_workspace_radar_evidence.audit_manifest(manifest)
+
             self.assertEqual(report["status"], "pass", report)
             self.assertTrue(report["claimable_workspace_radar"])
+            gate = report["radar_report"]["comparisons"][0]["radar_gate"]
+            self.assertTrue(gate["codex_audit_record_backing"]["condition_mcp_named_tool_completed_ok"])
 
     def _write_radar_tool_manifest(self, root: pathlib.Path, tests: list[str], source_head: str = "a" * 40) -> pathlib.Path:
         artifact = root / "go-test-radar.jsonl"
@@ -4361,6 +4203,28 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             self.assertIn("internal/cli/regression.go", " | ".join(report["errors"]))
             self.assertEqual(report["source_drift_paths"], ["internal/cli/regression.go"])
 
+    def test_radar_tool_evidence_rejects_changed_source_hashes_without_git_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            for rel in audit_radar_tool_evidence.RADAR_TOOL_SOURCE_PATHS:
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"package cli\n// {rel}\n")
+            manifest = self._write_radar_tool_manifest(root, audit_radar_tool_evidence.REQUIRED_TESTS)
+            data = json.loads(manifest.read_text())
+            data["source_files"] = {
+                rel: audit_radar_tool_evidence.sha256_file(root / rel)
+                for rel in audit_radar_tool_evidence.RADAR_TOOL_SOURCE_PATHS
+            }
+            manifest.write_text(json.dumps(data))
+            (root / "internal" / "cli" / "mcp.go").write_text("package cli\n// changed\n")
+
+            report = audit_radar_tool_evidence.audit_manifest(manifest, repo_root=root)
+
+            self.assertFalse(report["ok"])
+            self.assertIn("source file hashes are stale", " | ".join(report["errors"]))
+            self.assertEqual(report["source_drift_paths"], ["internal/cli/mcp.go"])
+
     def _write_release_matrix_fixture(self, root: pathlib.Path) -> pathlib.Path:
         (root / "reports").mkdir()
         (root / "docs").mkdir()
@@ -4373,7 +4237,6 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                     "history": 1,
                     "mcp": 1,
                     "mcp_radar_location_only": 1,
-                    "semantic": 1,
                 },
                 "named_tool_proof_ready_comparisons_by_scope": {
                     "mcp_radar_location_only": 1,
@@ -4400,18 +4263,6 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             "release_evidence": True,
             "target": {"claim_scope": "current-repo local command-agent scheduler proof"},
         }))
-        (root / "reports" / "target-distill.json").write_text(json.dumps({
-            "schema": 1,
-            "status": "pass",
-            "release_evidence": True,
-            "claim_policy": "no_release_claim",
-            "claimable_target_distill": False,
-            "target": {
-                "repo": "frontend/entire.io target repo",
-                "claim_scope": "target large-repo/frontend distill backfill performance",
-            },
-            "missing_evidence": ["target artifacts"],
-        }))
         (root / "reports" / "facts.json").write_text(json.dumps({
             "schema": 1,
             "status": "pass",
@@ -4419,6 +4270,15 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             "claim_policy": "no_release_claim",
             "claimable_facts_vs_raw": False,
         }))
+        press_guardrails = [
+            "target large-repo/frontend distill",
+            "facts beat raw",
+            "semantic usefulness",
+            "workspace Radar",
+            "multi-agent collaboration is complete",
+            "backend/Slack access",
+            "turn signing",
+        ]
         (root / "docs" / "release_press_release.md").write_text(
             "\n".join([
                 "# Draft",
@@ -4427,6 +4287,7 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 "entire-replay-lab",
                 "Future Claims We Should Not Make Yet",
                 "Release Checklist",
+                *press_guardrails,
             ])
         )
         required = [
@@ -4436,7 +4297,6 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             "radar:agent-evidence",
             "workspace-radar:evidence",
             "distill:evidence",
-            "target-distill:evidence",
             "facts:evidence",
             "semantic:evidence",
             "release:matrix",
@@ -4455,14 +4315,14 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 "radar_tool": "reports/radar-tool.json",
                 "workspace_radar": "reports/workspace-radar.json",
                 "distill": "reports/distill.json",
-                "target_distill": "reports/target-distill.json",
                 "facts": "reports/facts.json",
             },
             "docs": {
                 "press_release": "docs/release_press_release.md",
             },
-            "required_release_proof_scopes": ["history", "mcp", "mcp_radar_location_only", "semantic"],
+            "required_release_proof_scopes": ["history", "mcp", "mcp_radar_location_only"],
             "required_named_tool_proof_scopes": ["mcp_radar_location_only"],
+            "required_press_guardrails": press_guardrails,
             "required_mise_tasks": required,
         }))
         return manifest
@@ -4477,9 +4337,6 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             self.assertEqual(report["status"], "pass", report)
             self.assertFalse(report["release_fully_ready"])
             self.assertIn("facts vs raw/session retrieval quality", [row["track"] for row in report["rows"]])
-            semantic_row = next(row for row in report["rows"] if row["track"] == "semantic usefulness benchmark claim")
-            self.assertTrue(semantic_row["claimable"], semantic_row)
-            self.assertEqual(semantic_row["status"], "proven")
             no_claim = {row["track"]: row for row in report["rows"] if not row["claimable"]}
             self.assertIn("target large-repo/frontend distill performance", no_claim)
             self.assertIn("workspace Radar agent lift", no_claim)
@@ -4489,88 +4346,85 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             )
             self.assertTrue((pathlib.Path(out) / "release-matrix-report.json").exists())
 
-    def test_release_matrix_rejects_claimable_facts_without_paired_proof(self):
+    def test_release_matrix_accepts_claimable_facts_with_release_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            manifest = self._write_release_matrix_fixture(root)
+            facts = root / "reports" / "facts.json"
+            data = json.loads(facts.read_text())
+            data["claim_policy"] = "proof_required"
+            data["claim_scope"] = "release"
+            data["claimable_facts_vs_raw"] = True
+            facts.write_text(json.dumps(data))
+
+            report = audit_release_matrix.audit_manifest(manifest)
+
+            self.assertEqual(report["status"], "pass", report)
+            facts_rows = [row for row in report["rows"] if row["track"] == "facts vs raw/session retrieval quality"]
+            self.assertEqual(len(facts_rows), 1, facts_rows)
+            self.assertEqual(facts_rows[0]["status"], "proven")
+            self.assertTrue(facts_rows[0]["claimable"])
+
+    def test_release_matrix_rejects_facts_proof_without_claimable_report(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as out:
             root = pathlib.Path(tmp)
             manifest = self._write_release_matrix_fixture(root)
             facts = root / "reports" / "facts.json"
             data = json.loads(facts.read_text())
             data["claim_policy"] = "proof_required"
-            data["claimable_facts_vs_raw"] = True
+            data["claim_scope"] = "release"
+            data["claimable_facts_vs_raw"] = False
             facts.write_text(json.dumps(data))
 
             report = audit_release_matrix.audit_manifest(manifest)
 
             self.assertEqual(report["status"], "fail", report)
-            self.assertIn("facts proof_contract must match the release facts-vs-raw proof contract", " | ".join(report["flags"]))
+            self.assertIn("proof_required facts evidence must mark facts-vs-raw claimable", report["flags"])
             self.assertEqual(
                 audit_release_matrix.main(["--manifest", str(manifest), "--out-dir", out, "--fail-on-flags"]),
                 1,
             )
 
-    def test_release_matrix_accepts_claimable_facts_with_release_proof(self):
+    def test_release_matrix_rejects_press_release_missing_guardrails(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             manifest = self._write_release_matrix_fixture(root)
-            facts = root / "reports" / "facts.json"
-            data = {
-                "schema": 1,
-                "status": "pass",
-                "release_evidence": True,
-                "claim_policy": "proof_required",
-                "claimable_facts_vs_raw": True,
-                "tasks_sha256": "sha256:" + "c" * 64,
-                "tasks_artifact": {
-                    "path": "tasks.json",
-                    "sha256": "sha256:" + "c" * 64,
-                },
-                "required_retrievers": ["facts", "history", "query", "raw-sessions"],
-                "proof_contract": audit_release_matrix.FACTS_PROOF_CONTRACT,
-                "facts_status": {
-                    "facts_arm_ready": True,
-                    "totals": {"active": 4, "facts": 4},
-                },
-                "required_claims": [{
-                    "comparison": "raw_vs_facts",
-                    "metric": "useful_per_1k",
-                    "a_retriever": "raw-sessions",
-                    "b_retriever": "facts",
-                    "winner": "b",
-                    "evidence_basis": "proof_labels",
-                    "release_claimable": True,
-                    "significant": True,
-                    "retained_n": 12,
-                    "retained_release_claimable": True,
-                }],
-            }
-            facts.write_text(json.dumps(data))
-
-            report = audit_release_matrix.audit_manifest(manifest)
-
-            self.assertEqual(report["status"], "pass", report)
-            facts_row = next(row for row in report["rows"] if row["track"] == "facts vs raw/session retrieval quality")
-            self.assertTrue(facts_row["claimable"], facts_row)
-            self.assertEqual(facts_row["status"], "proven")
-            self.assertFalse(report["release_fully_ready"])
-
-    def test_release_matrix_rejects_target_distill_current_repo_promotion(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            manifest = self._write_release_matrix_fixture(root)
-            target_distill = root / "reports" / "target-distill.json"
-            data = json.loads(target_distill.read_text())
-            data["claim_policy"] = "proof_required"
-            data["claimable_target_distill"] = True
-            data["distill_report_target"] = {
-                "repo": "github.com/ashtom/entire-brain",
-                "claim_scope": "current-repo local command-agent scheduler proof",
-            }
-            target_distill.write_text(json.dumps(data))
+            (root / "docs" / "release_press_release.md").write_text(
+                "\n".join([
+                    "# Draft",
+                    "entire-brain",
+                    "entire-sem",
+                    "entire-replay-lab",
+                    "Future Claims We Should Not Make Yet",
+                    "Release Checklist",
+                ])
+            )
 
             report = audit_release_matrix.audit_manifest(manifest)
 
             self.assertEqual(report["status"], "fail", report)
-            self.assertIn("target distill proof must not cite the current-repo scheduler claim_scope", report["flags"])
+            self.assertIn(
+                "release press release missing guardrail phrase 'facts beat raw'",
+                report["flags"],
+            )
+
+    def test_release_matrix_rejects_claimable_workspace_without_retained_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            manifest = self._write_release_matrix_fixture(root)
+            workspace = root / "reports" / "workspace-radar.json"
+            data = json.loads(workspace.read_text())
+            data["claim_policy"] = "proof_required"
+            data["claimable_workspace_radar"] = True
+            workspace.write_text(json.dumps(data))
+
+            report = audit_release_matrix.audit_manifest(manifest)
+
+            self.assertEqual(report["status"], "fail", report)
+            self.assertIn(
+                "workspace Radar must remain no_release_claim until proof-ready workspace evidence exists",
+                report["flags"],
+            )
 
     def test_release_matrix_rejects_missing_required_replay_scope(self):
         with tempfile.TemporaryDirectory() as tmp:

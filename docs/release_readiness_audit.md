@@ -112,11 +112,6 @@ Implemented eval surfaces:
   `run_config.brain_manifest_sha256` values unless the matching override is
   explicit, so same-id eval runs with different task labels or brain state
   cannot masquerade as paired proof.
-- `facts status --json` now includes additive `brain_manifest_sha256` and
-  `manifest_sources` fields. Retained facts-eval audits require a valid status
-  manifest hash, require `manifest_sources` to include `facts` for proof
-  manifests, and reject proof summaries whose brain-manifest hash differs from
-  the retained status artifact.
 - `benchmarks/agent-brain/audit_facts_eval.py` audits retained facts-eval
   artifacts for release proof: proof manifests require the four retriever
   summaries, matching non-empty task and brain-manifest hashes, no proxy/missing
@@ -128,16 +123,26 @@ Implemented eval surfaces:
   proxy or unrelated comparison cannot be promoted into a facts-vs-raw claim by
   editing manifest text. It also supports an explicit
   `claim_policy: "no_release_claim"` manifest backed by `facts status --json`;
-  that passes only when the facts arm is not ready and has zero active facts.
+  that passes only when the facts arm is not ready, has zero active facts, and
+  carries retained freshness provenance (`generated_at`, `repo_head`, and
+  `brain_manifest_sha256`).
+- The retained proof-mode contract fixture under
+  `benchmarks/agent-brain/evidence/facts-eval-proof-fixture` exercises a
+  complete proof-labeled facts-over-raw comparison with
+  `claim_scope: "fixture_contract"`. It proves the auditor accepts the required
+  artifact shape and recomputes the claim from retained rows, while explicitly
+  setting `release_evidence: false` so the fixture cannot become production
+  facts-vs-raw copy.
 - The retained facts auditor now recomputes paired means, deltas, winners,
   two-sided paired t-test p-values, Holm thresholds, significance, and
   per-metric `release_claimable` from the retained summary rows before accepting
   a positive facts-vs-raw claim.
-- `mise run facts:evidence` checks committed facts-eval artifacts without
-  rewriting them, while `facts:evidence:update` regenerates the audit report
-  only after the validator passes. The current retained artifact is no-claim
-  evidence: it records that the current branch has zero active durable facts, so
-  no facts-vs-raw win is being cited.
+- `mise run facts:evidence` checks the committed no-claim facts-eval release
+  artifact and the proof-mode fixture without rewriting either report, while
+  `facts:evidence:update` regenerates both audit reports only after the
+  validator passes. The current retained release artifact is no-claim evidence:
+  it records that the current branch has zero active durable facts, so no
+  facts-vs-raw win is being cited.
 
 Claim policy: do not say facts are better than raw/preprocessed sessions unless
 paired evals show a significant lift for the metric being claimed. Do not compare
@@ -148,9 +153,10 @@ Local baseline smoke collected on this repo: `go run ./cmd/entire-brain refresh
 sessions` indexed 39,242 history records. A source-session task set generated
 with `facts eval-gen --source sessions --limit 8` had
 `tasks_sha256=sha256:8453817d5a9bb87e33e266e6b18e0fa832ea07934f9e2d1534e0c658f65321f7`.
-Against that task file, `raw-sessions` returned mean 42,124.75 tokens and
-source-match proxy useful/1k of 0.0148; `history` returned mean 921.25 tokens
-and source-match proxy useful/1k of 1.0342; `query` had no relevance labels for
+Against that task file, `raw-sessions` returned roughly 42k mean tokens and
+source-match proxy useful/1k of ~0.015; `history` returned roughly 920 mean
+tokens and source-match proxy useful/1k of ~1.03 (non-retained local smoke —
+rounded deliberately; re-run locally rather than citing these digits); `query` had no relevance labels for
 the surfaced mixed-source rows; `facts` surfaced zero rows because this local
 brain has no durable facts. This validates the offline eval plumbing and the
 token-cost contrast, but it is not facts-vs-raw release proof.
@@ -206,14 +212,14 @@ Implemented audit surfaces:
   during Entire Brain's own snapshot filtering before persisting records.
 - The benchmark task inventory includes
   `entire-brain-semantic-completeness-tolerance`, a semantic freshness task whose
-  prompt does not name the implementation file. That task remains useful as a
-  freshness/audit smoke lane, but it is not the retained usefulness proof.
+  prompt does not name the implementation file. Retained benchmark outcomes are
+  still needed before claiming agent improvement.
 - The semantic release-candidate inventory now also includes
   `entire-brain-semantic-tokenized-idf-ranking` and the committed
   `release-entire-brain-semantic-tokenized-idf` panel. The task regresses the
   IDF-weighted tokenized code-search ranking line and hides the expected file,
-  validation, and benchmark scaffold. A retained 4x4 release-candidate run for
-  this task is now audited under the release evidence lane.
+  validation, and benchmark scaffold. `run.py check` confirms it fails as
+  expected; it still needs pilot/release repetitions before any usefulness claim.
 
 Claim policy: do not say semantic indexing works globally. Say which languages,
 relations, and freshness states are covered, and show blind spots.
@@ -234,22 +240,8 @@ after refresh for those clean checkpoints, not agent usefulness. The final
 release head must rerun `mise run semantic:evidence` on a clean checkout before
 this is current release evidence.
 
-Current local semantic evidence after this release-readiness pass:
-`go run ./cmd/entire-brain refresh index --force --worktree` indexed 145 files,
-2,668 symbols, and 20,831 relations in snapshot
-`semantic/snapshots/worktree-de771ca4b0a9cbfd/snapshot.ndjson`. The subsequent
-`mise run semantic:evidence` passed with freshness `ok`, worktree state
-`dirty-indexed`, and zero blind spots.
-
-Retained semantic usefulness proof:
-`release-candidate-entire-brain-semantic-tokenized-idf-mini-low-20260610T232641Z`
-ran one pinned Codex runner, `no_brain` vs `semantic_brain`, and 4 repetitions
-per side. Baseline passed 3/4; `semantic_brain` passed 4/4. Mean score improved
-`79.0 -> 92.0`, mean tokens dropped `663,613.75 -> 184,061.5`, mean search
-calls dropped `13.0 -> 2.0`, and the summary reports `proof_ready=true` with
-stability `brain_positive_stable`. The retained records were sanitized for
-host-path hygiene and are audited under
-`benchmarks/agent-brain/evidence/release`.
+Blocked evidence collection: semantic benchmark/proof records must still be
+retained and audited before usefulness claims graduate from draft language.
 
 Negative replay-lab pilot: `python3 benchmarks/agent-brain/run.py run --tasks
 entire-brain-semantic-completeness-tolerance.json --runners
@@ -268,21 +260,23 @@ baseline failed all 4 reps while `full_brain` passed all 4 reps on the
 schema-contract history task, with mean score `66.0 -> 91.5`, pass rate
 `0.0 -> 1.0`, and summary `proof_ready=true` /
 `brain_positive_stable`. The independent release audit retained under
-`benchmarks/agent-brain/evidence/release` reports 1 suite, 8 records, 0 hard
-flags, 8/8 provenance-backed records, and 1 proof-ready comparison. This is
-citable evidence that the history/full-brain lane can improve one checkpointed
-task; it is not evidence that semantic indexing or facts retrieval are broadly
-better.
+`benchmarks/agent-brain/evidence/release` reports 3 suites, 24 records, 0 hard
+flags, 24/24 provenance-backed records, and 3 proof-ready comparisons. Subject
+to open release blocker B1 (`docs/release-blockers.md`): the brain-arm prompts
+of these suites carry answer-bearing query terms, so until the suites re-run
+with those terms removed, the comparisons demonstrate the harness/evidence
+machinery rather than brain-attribution proof. They are not evidence that
+semantic indexing or facts retrieval are broadly better.
 
-Earlier semantic replay-lab pilot: the committed `release-entire-cli-semantic-xdg`
+Semantic replay-lab pilot: the committed `release-entire-cli-semantic-xdg`
 panel generated `release-candidate-entire-cli-semantic-xdg-20260610T0205Z` with
 one pinned Codex runner, `no_brain` vs `semantic_brain`, and 4 repetitions per
 side on a local `entire-cli` task. The audit was integrity-clean (0 hard flags,
 8/8 provenance-backed records), but the task was saturated: both arms passed
 4/4, semantic changed mean score only `96.0 -> 96.25`, added time/tokens, and
 the summary reported `proof_ready=false` / `saturated/overhead_negative`. It was
-not copied into `benchmarks/agent-brain/evidence/release`; the later
-tokenized-IDF suite above is the semantic usefulness proof.
+not copied into `benchmarks/agent-brain/evidence/release`; a stronger semantic
+task is still needed before semantic usefulness claims graduate.
 
 Rejected semantic replay-lab candidate:
 `release-candidate-entire-brain-semantic-audit-gate-20260610T0320Z` ran the
@@ -316,11 +310,13 @@ QMD-inspired aliases added:
 - `--format json|cli` as an alias for JSON/CLI output selection.
 - `-n` / `--number` as an alias for result count on search verbs.
 
-Local smoke evidence collected on this repo: `go run ./cmd/entire-brain search
-"semantic provider" --format json -n 2`, `query "distill dry run" --format json
--n 2`, and `vsearch "semantic audit" --format json -n 2` all returned stable
-JSON envelopes with two results. `search --help` lists both `--format` and
-`-n, --number`.
+Non-retained local smoke used during the audit: `go run ./cmd/entire-brain
+search "semantic provider" --format json -n 2`, `query "distill dry run"
+--format json -n 2`, and `vsearch "semantic audit" --format json -n 2` returned
+stable JSON envelopes with two results, and `search --help` listed both
+`--format` and `-n, --number`. These smoke commands are calibration only; the
+retained QMD-inspired release evidence is the hashed Radar/MCP tool-contract
+artifact under `benchmarks/agent-brain/evidence/radar-tool`.
 
 Fixture-backed contract coverage: `TestQMDAliasesAcrossRetrievalVerbs` exercises
 the supported local surface across `search`, `query`, `vsearch`, `get`, and
@@ -470,11 +466,6 @@ Release claims must stay local-first and evidence-backed:
   `radar_include_deletions` in record provenance, and the independent auditor
   rejects retained Radar MCP records whose actual call omitted
   `include_deletions: true`.
-- Workspace-Radar proof is stricter than generic MCP proof: the independent
-  audit now rejects `mcp_workspace_radar` records that call any brain MCP tool
-  other than `brain_workspace_regressions`, both from recorded agent activity
-  and from the server-side `mcp-server.log`. This prevents a location-only
-  workspace-Radar claim from being supported by extra retrieval tools.
 - The committed `release-entire-cli-radar-mcp-review-base-scope` panel encodes
   `BENCH_RADAR_LOCATION_ONLY=1` in the panel manifest, so the fair radar run is
   reproducible and hashed with the panel config.
@@ -492,16 +483,6 @@ Release claims must stay local-first and evidence-backed:
   only as `claim_policy: "no_release_claim"` with status
   `no-brain-too-easy`, zero proof-ready comparisons, and zero promotable pilots.
   This is a guard against overclaiming, not workspace-Radar proof.
-- A harder local workspace-Radar screen was attempted on
-  `entireio-cli-workspace-radar-review-base-flag-scope` with
-  `claude:haiku:xhigh` on 2026-06-11. It showed directional lift
-  (`no_brain` mean 84.5, `mcp_workspace_radar` mean 93.5), but it is still not
-  proof: both arms passed 4/4, the summary marked the comparison saturated
-  rather than proof-ready, and the stricter audit found two Radar reps that used
-  extra brain MCP tools in addition to `brain_workspace_regressions`. The
-  committed panel remains useful for future screening, but promotion requires an
-  audit-clean rerun with exactly the workspace-Radar tool and a stable
-  proof-ready comparison.
 - The committed `release-entire-cli-radar-mcp-attribution-realign` panel is a
   true-Radar calibration lane: it mutates a detector-shaped deleted state
   assignment in `RealignAttributionBase`, keeps Radar location-only, and validates
@@ -534,8 +515,14 @@ Release claims must stay local-first and evidence-backed:
 - The committed `release-entire-cli-mcp-manual-attribution` panel targets a
   harder MCP-history proof lane on `cli-bench`: it regresses the manual-commit
   attribution-base invariant and requires `mcp_history` to surface the prior
-  `RealignAttributionBase(newHead)` behavior without handing over hidden
-  validation or expected text.
+  `RealignAttributionBase(newHead)` behavior. CONFOUND (open release blocker
+  B1, see `docs/release-blockers.md`): the task's `brain_queries` hand the
+  brain arm the fix's exact identifier (`RealignAttributionBase newHead`) and
+  the hidden-adjacent test name, and the harness injects those terms into the
+  brain-arm prompt only — so the retained comparison measures hint+brain vs
+  no-hint, not brain vs no-brain. The numbers are faithfully transcribed but
+  must not be cited as brain-attribution proof until the suite re-runs with
+  the answer-bearing terms removed.
 - Retained MCP evidence now includes
   `release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress` under
   `benchmarks/agent-brain/evidence/release`: no-brain passed 1/4, `mcp_history`
@@ -547,18 +534,20 @@ Release claims must stay local-first and evidence-backed:
   tokens.
 - Retained MCP/Radar tool-contract evidence now includes
   `benchmarks/agent-brain/evidence/radar-tool`: a hashed `go test -json`
-  artifact over 49 focused `internal/cli` tests. It proves QMD-inspired MCP tool
+  artifact over 52 focused `internal/cli` tests. It proves QMD-inspired MCP tool
   listing and local retrieval (`brain_search`, `brain_vsearch`, `brain_query`,
   `brain_get`, `brain_multi_get`), branch-scoped fact retrieval over MCP,
   changed-operand detection without per-file hint masking, location-only
   redaction, deletion opt-in, missing anchored call-site ranking, hinted
   assignment-deletion loci without suppressing missing files behind intact peers,
   same-name receiver methods, or adjacent same-function loci, strict argument
-  validation, MCP framing, safe debug logging with `tool_result`,
-  `brain_regressions`, `brain_workspace_regressions`,
+  validation plus schema/validator parity, MCP framing, safe debug logging with
+  `tool_result`, `brain_regressions`, `brain_workspace_regressions`,
   `brain_workspace_review`, workspace deletion redaction, and unsafe
-  workspace-repo skipping. This is citable as deterministic local MCP/Radar tool
-  behavior only, not as agent pass-rate lift.
+  workspace-repo skipping. It also proves the raw-history Radar scan closes files
+  during large walks instead of retaining descriptors until the whole scan ends.
+  This is citable as deterministic local MCP/Radar tool behavior only, not as
+  agent pass-rate lift.
 - The query default-limit benchmark tasks now target the current unified
   retrieval implementation in `internal/cli/retrieve_cmd.go`, including the
   QMD-inspired `-n` alias, instead of the old semantic-query implementation.
@@ -587,20 +576,20 @@ depend on retained evidence artifacts.
 
 `mise run release:readiness` is the local release-claim gate. It runs
 `mise run check`, `mise run release:evidence`, `mise run radar:evidence`,
-`mise run radar:agent-evidence`, `mise run distill:evidence`,
-`mise run facts:evidence`, `mise run semantic:evidence`, and
-`mise run release:matrix`, continuing after individual failures and printing the
-complete failing-task summary at the end.
+`mise run radar:agent-evidence`, `mise run workspace-radar:evidence`,
+`mise run distill:evidence`, `mise run facts:evidence`,
+`mise run semantic:evidence`, and `mise run release:matrix`, continuing after
+individual failures and printing the complete failing-task summary at the end.
 Distill and facts now have retained evidence, but their claim scopes are
 deliberately narrow: distill proves current-repo local command-agent extraction
 scheduling speedup plus fake loopback Ollama wiring/no-egress safety, and facts
-records
-`claim_policy: "no_release_claim"` because the current branch has no active
-durable facts. These gates keep "distill is fast on the frontend repo"
-and "facts beat raw sessions" blocked until target proof exists, instead of
-hiding them behind a green implementation check. Semantic freshness is local
-health evidence, and one focused semantic usefulness claim is backed by retained
-benchmark proof; broader semantic claims still need separate retained proof.
+records `claim_policy: "no_release_claim"` because the current branch has no
+active durable facts. The facts proof fixture validates the proof-mode audit
+contract only; it is not release evidence. These gates keep "distill is fast on
+the frontend repo" and "facts beat raw sessions" blocked until target proof
+exists, instead of hiding them behind a green implementation check. Semantic
+freshness is local health evidence; semantic usefulness claims still need
+separate retained benchmark proof before they should ship.
 
 `mise run radar:screen` is the calibration check for local `pilot-radar-*`
 suites plus promoted `release-candidate-*-radar-*` and
@@ -623,12 +612,13 @@ are reported as `no-brain-too-easy`, and record-only suites without
 the screen report.
 `mise run radar:evidence` now checks the retained deterministic MCP/Radar
 tool-contract artifact instead of promoting those saturated agent panels. It
-requires the retained `go test -json` artifact hash to match and all 49 required
+requires the retained `go test -json` artifact hash to match and all 52 required
 MCP/Radar tests to pass, including branch-aware QMD-inspired retrieval tools and
 Radar-specific MCP behavior, invariant-scoped related locations that distinguish
 same-identifier assignment deletions with different RHS values, workspace
-multi-locus deletion redaction, and safe success-path tool-result logging for
-Radar and review tools.
+multi-locus deletion redaction, MCP schema/validator parity, schema-derived
+required-argument enforcement, per-file raw-history scan closing under descriptor
+pressure, and safe success-path tool-result logging for Radar and review tools.
 `mise run radar:agent-evidence` checks the retained focused Radar agent-lift
 suite and fails unless the release evidence contains a proof-ready Radar
 comparison backed by MCP-verified, server-named, completed Radar tool calls.
@@ -644,8 +634,8 @@ no-claim/proof policy.
 `mise run release:matrix` is the aggregate claim-hygiene gate: it maps each
 release-readiness ask to retained proof, explicit no-claim status, or pending
 evidence. Its retained report intentionally keeps `release_fully_ready=false`
-until target large-repo distill, paired facts-vs-raw, workspace Radar, and
-broader replay proof are collected.
+until target large-repo distill, paired facts-vs-raw, semantic usefulness,
+workspace Radar, and broader replay proof are collected.
 
 CI now includes race-enabled package tests, deterministic Phase 1 semantic tests,
 the retained replay-lab release-evidence audit, focused Radar agent-lift audit,
@@ -681,23 +671,25 @@ repo/access/artifacts are available:
   this positive proof.
 - Additional Regression Radar agent-lift evidence for other tasks/repos remains
   useful, especially workspace Radar. The current workspace-Radar lane is
-  explicitly retained as no-claim evidence because retained candidates are
-  either `no-brain-too-easy` or fail proof requirements; promotion requires
-  replacing that manifest with proof-required evidence. Future Radar agent
-  claims still need 4 repetitions per side, MCP-verified records, the
-  appropriate proof scope
+  explicitly retained as no-claim evidence because the latest candidate was
+  `no-brain-too-easy`; promotion requires replacing that manifest with
+  proof-required evidence. Future Radar agent claims still need 4 repetitions per
+  side, MCP-verified records, the appropriate proof scope
   (`mcp_radar_location_only` or `mcp_workspace_radar_location_only`), zero hard
   flags, a stable proof-ready comparison, deletion-aware MCP arguments when the
-  task requests deletion signals, exactly the allowed workspace tool for
-  workspace-Radar claims, committed sanitized artifacts, and retained
+  task requests deletion signals, committed sanitized artifacts, and retained
   `mcp-server.log` files with server-backed named-tool plus `tool_result` proof.
+- Semantic benchmark evidence from a retained proof suite. A clean local
+  `semantic-audit --json --fail-on release` run after refreshing the semantic
+  index is recorded above, but it is regenerated local coverage evidence, not a
+  retained usefulness proof by itself.
 - Additional benchmark panels or retained proof subsets from
   `benchmarks/agent-brain`, audited with `audit_codex.py --fail-on-flags` and
   committed under `benchmarks/agent-brain/evidence/release` as sanitized
   evidence. One focused history proof, one generic MCP-history proof, and one
-  location-only Radar agent-lift proof, and one semantic usefulness proof are
-  now retained; facts, workspace Radar, and broader multi-task replay evidence
-  are still needed for broader claims.
+  location-only Radar agent-lift proof are now retained; semantic/facts,
+  workspace Radar, and broader multi-task replay evidence are still needed for
+  broader claims.
 - `mise run release:evidence` must pass before any replay-lab proof claim; it runs
   benchmark harness self-tests and then audits explicit `release-candidate-*`
   suites through `benchmarks/agent-brain/evidence/release/manifest.json`.
@@ -708,8 +700,8 @@ repo/access/artifacts are available:
   can also require minimum counts for integrity-verified MCP datapoints and
   server-named MCP datapoints, and can require named-tool proof-ready comparisons
   for specific scopes. The committed release lane currently requires `history`,
-  generic `mcp`, one `mcp_radar_location_only` scope, and one `semantic` scope,
-  so it cannot be cited as workspace Radar or facts proof by aggregation. The check writes
+  generic `mcp`, and one `mcp_radar_location_only` scope, so it cannot be cited
+  as workspace Radar, semantic, or facts proof by aggregation. The check writes
   the Codex replay-lab report to
   a temp directory and compares it with the committed report; updating retained
   reports is explicit via

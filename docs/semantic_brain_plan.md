@@ -161,7 +161,6 @@ entire brain inspect regressions "<query>" --json
 entire brain search "<query>" --json
 entire brain query "<query>" --json
 entire brain get <result-id> --json
-entire brain inspect boundaries --kind route|tool|workflow --json
 ```
 
 Workspace use has its own front door:

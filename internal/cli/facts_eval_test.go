@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -182,25 +181,12 @@ func TestRunFactsEvalRetrieverArms(t *testing.T) {
 
 	tasks := []evalTask{{ID: "t1", Task: "alpha checkpoint guidance", Branch: "main", Relevant: []string{fact.ID}, LabelSource: evalLabelSourceHuman, SourceSessionID: session.SessionID, SourceTranscriptPath: transcriptRel}}
 	for _, retriever := range []string{evalRetrieverFacts, evalRetrieverHistory, evalRetrieverQuery, evalRetrieverRawSessions} {
-		baseline, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), nil, nil, retriever)
-		if err != nil {
-			t.Fatalf("%s baseline eval: %v", retriever, err)
-		}
-		res, err := runFactsEvalWithOptions(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), nil, nil, retriever, factsEvalRunOptions{IncludeIDs: true})
+		res, err := runFactsEval(context.Background(), Options{}, brainDir, "/repo", "main", tasks, 10, false, nil, nil, loadJudgeCache(""), nil, nil, retriever)
 		if err != nil {
 			t.Fatalf("%s eval: %v", retriever, err)
 		}
 		if len(res) != 1 || res[0].Retriever != retriever {
 			t.Fatalf("%s result missing retriever: %+v", retriever, res)
-		}
-		if len(res[0].RetrievedIDs) == 0 {
-			t.Fatalf("%s include ids should retain surfaced ids: %+v", retriever, res[0])
-		}
-		if baseline[0].RetrievedIDs != nil {
-			t.Fatalf("%s baseline should omit retrieved ids: %+v", retriever, baseline[0].RetrievedIDs)
-		}
-		if baseline[0].Tokens != res[0].Tokens || baseline[0].RelevantSurfaced != res[0].RelevantSurfaced || baseline[0].UsefulPer1k != res[0].UsefulPer1k {
-			t.Fatalf("%s include ids changed metrics: baseline=%+v with_ids=%+v", retriever, baseline[0], res[0])
 		}
 		if res[0].RelevantSurfaced < 1 || res[0].Tokens == 0 {
 			t.Fatalf("%s should surface relevant evidence with tokens, got %+v", retriever, res[0])
@@ -604,7 +590,7 @@ func TestFactsEvalRawSessionsJSONIncludesProofBoundaryMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := execute(t, NewRootCommand(opts), "facts", "eval", "--tasks", tasksPath, "--retriever", evalRetrieverRawSessions, "--include-ids", "--json")
+	out, err := execute(t, NewRootCommand(opts), "facts", "eval", "--tasks", tasksPath, "--retriever", evalRetrieverRawSessions, "--json")
 	if err != nil {
 		t.Fatalf("facts eval raw-sessions --json: %v\n%s", err, out)
 	}
@@ -621,152 +607,11 @@ func TestFactsEvalRawSessionsJSONIncludesProofBoundaryMetadata(t *testing.T) {
 	if summary.RunConfig.RawSessionIDScheme != "raw:sha256(session_id)[:16]:start-end" {
 		t.Fatalf("raw session id scheme not recorded: %+v", summary.RunConfig)
 	}
-	if !summary.RunConfig.IncludeIDs {
-		t.Fatalf("include ids flag not recorded: %+v", summary.RunConfig)
-	}
 	if !strings.Contains(summary.RunConfig.TurnSigningLimitation, "turn-level") {
 		t.Fatalf("turn-signing limitation not recorded: %+v", summary.RunConfig)
 	}
 	if len(summary.Results) != 1 || summary.Results[0].RelevanceSource != evalRelevanceSourceMatch || summary.Results[0].Labeled {
 		t.Fatalf("raw-session source match should be proxy, not labeled proof: %+v", summary.Results)
-	}
-	if len(summary.Results[0].RetrievedIDs) != 1 || !strings.HasPrefix(summary.Results[0].RetrievedIDs[0], "raw:") {
-		t.Fatalf("raw-session retrieved ids missing: %+v", summary.Results[0].RetrievedIDs)
-	}
-}
-
-func TestFactsEvalCLICompareUsesProofLabeledRealSummaries(t *testing.T) {
-	f := newVerifyFixture(t)
-	transcriptRel := "sessions/main/session-one.jsonl"
-	var needles []string
-	for i := 1; i <= 12; i++ {
-		needles = append(needles, fmt.Sprintf("needle-%02d", i))
-	}
-	f.writeBrainFile(t, transcriptRel, strings.Join(needles, " ")+" compact shared raw session context "+strings.Repeat("padding ", 160)+"\n")
-	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
-		GeneratedAt:   f.now,
-		RepoRoot:      f.repoDir,
-		RepoKey:       f.storage.Key,
-		DefaultBranch: "main",
-		Sources: &brainSources{
-			Sessions: &sessionSourceManifest{GeneratedAt: f.now, DefaultBranch: "main", Sessions: []exportSession{{
-				SessionID:        "session-one",
-				Branch:           "main",
-				TranscriptPath:   transcriptRel,
-				LatestCheckpoint: "cp1",
-				CreatedAt:        f.now,
-			}}},
-		},
-	}
-	if err := writeBrainManifestAndReadme(f.brainDir, manifest); err != nil {
-		t.Fatalf("write manifest: %v", err)
-	}
-	rawID := rawSessionChunkID(exportSession{SessionID: "session-one"}, transcriptChunk{StartLine: 1, EndLine: 1})
-	paths := normalizeFactPaths([]string{"architecture.data.flow"})
-	var facts []factRecord
-	var tasks []evalTask
-	for i, needle := range needles {
-		text := needle + " compact fact"
-		fact := factRecord{
-			ID:        factRecordID(text, paths),
-			Paths:     paths,
-			Text:      text,
-			Branch:    "main",
-			Origin:    factOriginDistilled,
-			Status:    factStatusActive,
-			UpdatedAt: f.now,
-		}
-		facts = append(facts, fact)
-		tasks = append(tasks, evalTask{
-			ID:          fmt.Sprintf("task-%02d", i+1),
-			Task:        needle + " compact",
-			Branch:      "main",
-			K:           1,
-			Relevant:    []string{fact.ID, rawID},
-			LabelSource: evalLabelSourceHuman,
-		})
-	}
-	f.writeFacts(t, "main", facts)
-	tasksPath := filepath.Join(t.TempDir(), "tasks.json")
-	data, err := json.Marshal(tasks)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(tasksPath, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	factsOut, err := execute(t, NewRootCommand(f.opts), "facts", "eval", "--tasks", tasksPath, "--retriever", evalRetrieverFacts, "--k", "1", "--include-ids", "--json")
-	if err != nil {
-		t.Fatalf("facts eval facts: %v\n%s", err, factsOut)
-	}
-	rawOut, err := execute(t, NewRootCommand(f.opts), "facts", "eval", "--tasks", tasksPath, "--retriever", evalRetrieverRawSessions, "--k", "1", "--include-ids", "--json")
-	if err != nil {
-		t.Fatalf("facts eval raw-sessions: %v\n%s", err, rawOut)
-	}
-	var factsSummary, rawSummary evalSummary
-	if err := json.Unmarshal([]byte(factsOut), &factsSummary); err != nil {
-		t.Fatalf("parse facts summary: %v\n%s", err, factsOut)
-	}
-	if err := json.Unmarshal([]byte(rawOut), &rawSummary); err != nil {
-		t.Fatalf("parse raw summary: %v\n%s", err, rawOut)
-	}
-	if factsSummary.Retriever != evalRetrieverFacts || factsSummary.RunConfig == nil || !factsSummary.RunConfig.IncludeIDs || factsSummary.RunConfig.BrainManifestSHA256 == "" {
-		t.Fatalf("facts summary missing proof config: %+v", factsSummary)
-	}
-	if rawSummary.Retriever != evalRetrieverRawSessions || rawSummary.RunConfig == nil || !rawSummary.RunConfig.IncludeIDs {
-		t.Fatalf("raw summary missing proof config: %+v", rawSummary)
-	}
-	if factsSummary.RunConfig.BrainManifestSHA256 != rawSummary.RunConfig.BrainManifestSHA256 {
-		t.Fatalf("brain hash mismatch: facts=%s raw=%s", factsSummary.RunConfig.BrainManifestSHA256, rawSummary.RunConfig.BrainManifestSHA256)
-	}
-	for _, summary := range []evalSummary{factsSummary, rawSummary} {
-		if len(summary.Results) != len(tasks) {
-			t.Fatalf("%s result count = %d, want %d", summary.Retriever, len(summary.Results), len(tasks))
-		}
-		for _, result := range summary.Results {
-			if !result.Labeled || result.RelevanceSource != evalRelevanceExplicitLabel || result.LabelSource != evalLabelSourceHuman || len(result.RetrievedIDs) != 1 {
-				t.Fatalf("%s result is not retained proof-labeled output: %+v", summary.Retriever, result)
-			}
-		}
-	}
-	dir := t.TempDir()
-	factsPath := filepath.Join(dir, "facts.json")
-	rawPath := filepath.Join(dir, "raw.json")
-	if err := os.WriteFile(factsPath, []byte(factsOut), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(rawPath, []byte(rawOut), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	compareOut, err := execute(t, NewRootCommand(f.opts), "facts", "eval-compare", "--a", rawPath, "--b", factsPath, "--json")
-	if err != nil {
-		t.Fatalf("facts eval-compare: %v\n%s", err, compareOut)
-	}
-	var compare struct {
-		N                   int                `json:"n"`
-		ARetriever          string             `json:"a_retriever"`
-		BRetriever          string             `json:"b_retriever"`
-		ReleasePairingReady bool               `json:"release_pairing_ready"`
-		ReleaseClaimable    bool               `json:"release_claimable"`
-		Metrics             []metricComparison `json:"metrics"`
-	}
-	if err := json.Unmarshal([]byte(compareOut), &compare); err != nil {
-		t.Fatalf("parse compare: %v\n%s", err, compareOut)
-	}
-	if compare.N != len(tasks) || compare.ARetriever != evalRetrieverRawSessions || compare.BRetriever != evalRetrieverFacts || !compare.ReleasePairingReady || !compare.ReleaseClaimable {
-		t.Fatalf("compare summary not release-ready: %+v\n%s", compare, compareOut)
-	}
-	var useful *metricComparison
-	for i := range compare.Metrics {
-		if compare.Metrics[i].Metric == "useful_per_1k" {
-			useful = &compare.Metrics[i]
-			break
-		}
-	}
-	if useful == nil || useful.EvidenceBasis != evalMetricEvidenceProofLabels || useful.Winner != "b" || !useful.ReleaseClaimable {
-		t.Fatalf("useful_per_1k should be a proof-labeled facts win: %+v\n%s", useful, compareOut)
 	}
 }
 
@@ -843,9 +688,14 @@ func TestLoadEvalTasks(t *testing.T) {
 	if err != nil || len(tasks) != 1 || tasks[0].ID != "t1" {
 		t.Fatalf("loadEvalTasks: %v %+v", err, tasks)
 	}
+	// A legacy file (labels, no label_source) loads with the conservative
+	// provenance_silver default: every generator that ever emitted unlabeled
+	// sources labeled by provenance, and silver is never claimable as proof —
+	// rejecting these files would orphan every retained task set on disk.
 	os.WriteFile(path, []byte(`[{"id":"t1","task":"do X","relevant":["fact:a"]}]`), 0o600)
-	if _, err := loadEvalTasks(path); err == nil || !strings.Contains(err.Error(), "label_source") {
-		t.Fatalf("missing label_source should be rejected, got %v", err)
+	legacy, err := loadEvalTasks(path)
+	if err != nil || len(legacy) != 1 || legacy[0].LabelSource != evalLabelSourceProvenanceSilver {
+		t.Fatalf("legacy labels should default to provenance_silver, got %v %+v", err, legacy)
 	}
 	os.WriteFile(path, []byte(`[{"id":"t1","task":"do X","relevant":["fact:a"],"label_source":"typo"}]`), 0o600)
 	if _, err := loadEvalTasks(path); err == nil || !strings.Contains(err.Error(), "label_source") {

@@ -3,8 +3,8 @@
   "target": {
     "repo": "github.com/ashtom/entire-brain",
     "repo_key": "gh/ashtom/entire-brain",
-    "source_head": "55518db0766bf7eab6b902bfee6ad178870003e2",
-    "brain_manifest_sha256": "sha256:f40ff62f445e2dda7b8523fbdb63e40a7c37abe6e9c89b31ee1f2c10cd95f03f",
+    "source_head": "d7a5968883b5a30aea8f5a6fe71ffa7aa63e52dc",
+    "brain_manifest_sha256": "sha256:94db24afdb46051654fd19587159ca3ba5aea46dab49be784a2b1b0a307afe07",
     "claim_scope": "current-repo local command-agent distill extraction scheduling speedup"
   },
   "cache_state": "force_recomputed_each_run",
@@ -12,9 +12,17 @@
   "serial_run": "jobs-1.json",
   "parallel_run": "jobs-4.json",
   "artifact_sha256": {
-    "dry_run": "sha256:17f9aef2309a055fe7426debd4409b5ba5b2cdfdbc69537141de24007f80aeaf",
-    "serial_run": "sha256:963c4862f604da8ea8bbd3650e0b9c4486bcdce59651033ee4a1a90a09271e21",
-    "parallel_run": "sha256:d065d8daf51d1259947279ed47ef7f679b445dfb22288f1f84396adc262d6574"
+    "dry_run": "sha256:e6f4c44b77731dc850d7f381869b0caaad3c67abb123a39894bcf0bf53324a96",
+    "serial_run": "sha256:4ac0d4b099f89e4c852b7c79137e27feb061567528b8910e8b07516174a75b18",
+    "parallel_run": "sha256:4ad6ce4e5b93abd470d4eb5a91b586a78df7931e8673158318e29d5882ea4294"
+  },
+  "source_sha256": {
+    "internal/cli/distill.go": "sha256:3ed50065343ec866616b35f4c63aab0d30f9b511ffdc0060e829971381b5d91a",
+    "internal/cli/distill_cmd.go": "sha256:c5cc68f2db5a62c306bd15629339f670bd4f7507c4ce2fd10fa9c452ee6119c2",
+    "internal/cli/distill_test.go": "sha256:fcf0491e34dc42b0ab054fe5c91f00f9b573af37abd83240d04004625e9118f5",
+    "internal/cli/distill_cmd_test.go": "sha256:f253c41b85ce349a36893d5c21b8f701257fec72e7e156feb333e4a9d158436d",
+    "benchmarks/agent-brain/audit_distill_perf.py": "sha256:abfcbd9dbd6c1d5724ca8fe71eac39688dfc46a99151474f0e9f289305d5c855",
+    "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py": "sha256:a7bd42a7de1b482b79c3a757034714eee0b77826ad500e6e82806577f2a611ba"
   },
   "commands": {
     "dry_run": [

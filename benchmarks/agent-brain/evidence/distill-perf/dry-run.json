@@ -1,27 +1,27 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-06-10T11:17:40.827224Z",
-  "brain_path": "[isolated-temp-brain]/repos/gh/ashtom/entire-brain",
+  "generated_at": "2026-06-11T00:59:27.154407Z",
+  "brain_path": "/tmp/pr33-evidence-data/repos/gh/ashtom/entire-brain",
   "force": true,
   "agent": "command",
   "jobs": 1,
-  "effective_extraction_jobs": 1,
+  "extraction_jobs_cap": 1,
   "max_chunk_bytes": 262144,
   "confidence_threshold": 0.75,
-  "sessions": 147,
+  "sessions": 158,
   "cached_sessions": 0,
-  "sessions_to_distill": 147,
+  "sessions_to_distill": 158,
   "missing_transcripts": 0,
-  "raw_bytes": 250321142,
-  "preprocessed_bytes": 7419024,
-  "chunks": 159,
-  "chunks_if_uncached": 159,
-  "extraction_agent_calls": 159,
-  "reconcile_agent_calls_upper_bound": 159,
-  "estimated_agent_calls_upper_bound": 318,
+  "raw_bytes": 379742189,
+  "preprocessed_bytes": 11748560,
+  "chunks": 185,
+  "chunks_if_uncached": 185,
+  "extraction_agent_calls": 185,
+  "reconcile_agent_calls_upper_bound": 185,
+  "estimated_agent_calls_upper_bound": 370,
   "branches": [
     {
-      "branch": "redacted/branch-1",
+      "branch": "claude/thomas-asks",
       "sessions": 1,
       "cached_sessions": 0,
       "sessions_to_distill": 1,
@@ -30,22 +30,31 @@
       "preprocessed_bytes": 806422
     },
     {
-      "branch": "redacted/branch-2",
+      "branch": "codex/release-readiness-audit-cleanup",
+      "sessions": 2,
+      "cached_sessions": 0,
+      "sessions_to_distill": 2,
+      "chunks": 13,
+      "chunks_if_uncached": 13,
+      "preprocessed_bytes": 3036863
+    },
+    {
+      "branch": "codex/release-readiness-hardening",
+      "sessions": 7,
+      "cached_sessions": 0,
+      "sessions_to_distill": 7,
+      "chunks": 11,
+      "chunks_if_uncached": 11,
+      "preprocessed_bytes": 1165174
+    },
+    {
+      "branch": "codex/thomas-release-readiness",
       "sessions": 1,
       "cached_sessions": 0,
       "sessions_to_distill": 1,
       "chunks": 4,
       "chunks_if_uncached": 4,
       "preprocessed_bytes": 849723
-    },
-    {
-      "branch": "feat/fact-quality-appendix-d",
-      "sessions": 2,
-      "cached_sessions": 0,
-      "sessions_to_distill": 2,
-      "chunks": 2,
-      "chunks_if_uncached": 2,
-      "preprocessed_bytes": 115469
     },
     {
       "branch": "feat/qmd-retrieval",
@@ -81,23 +90,53 @@
       "sessions_to_distill": 1,
       "chunks": 1,
       "chunks_if_uncached": 1,
-      "preprocessed_bytes": 98120
+      "preprocessed_bytes": 86427
     },
     {
       "branch": "main",
-      "sessions": 139,
+      "sessions": 143,
       "cached_sessions": 0,
-      "sessions_to_distill": 139,
-      "chunks": 144,
-      "chunks_if_uncached": 144,
-      "preprocessed_bytes": 5050650
+      "sessions_to_distill": 143,
+      "chunks": 148,
+      "chunks_if_uncached": 148,
+      "preprocessed_bytes": 5305311
     }
   ],
   "largest_sessions": [
     {
+      "session_id": "019eacc8-4c81-7c91-b807-b3c82bbba45d",
+      "branch": "codex/release-readiness-audit-cleanup",
+      "transcript": "sessions/branches/codex-release-readiness-audit-cleanup-62d9e2f9/20260610T193245Z_codex_019eacc8-4c81-7c91-b807-b3c82bbba45d_2a5d7c0001d4.jsonl",
+      "cached": false,
+      "chunks": 9,
+      "chunks_if_uncached": 9,
+      "raw_bytes": 52428580,
+      "preprocessed_bytes": 2156598
+    },
+    {
       "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
-      "branch": "redacted/branch-2",
-      "transcript": "sessions/branches/redacted-branch-2/20260609T182817Z_claude-code_af861ed9-9e1d-41a7-8400-b53c2995aed8_fb77fbd043d2.jsonl",
+      "branch": "codex/release-readiness-audit-cleanup",
+      "transcript": "sessions/branches/codex-release-readiness-audit-cleanup-62d9e2f9/20260610T192127Z_claude-code_af861ed9-9e1d-41a7-8400-b53c2995aed8_ef1b4e94861f.jsonl",
+      "cached": false,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "raw_bytes": 31099090,
+      "preprocessed_bytes": 880265
+    },
+    {
+      "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+      "branch": "codex/release-readiness-hardening",
+      "transcript": "sessions/branches/codex-release-readiness-hardening-7906d857/20260610T173430Z_claude-code_af861ed9-9e1d-41a7-8400-b53c2995aed8_f46f98590028.jsonl",
+      "cached": false,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "raw_bytes": 30982901,
+      "preprocessed_bytes": 875745
+    },
+    {
+      "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+      "branch": "codex/thomas-release-readiness",
+      "transcript": "sessions/branches/codex-thomas-release-readiness-ee13324e/20260609T182817Z_claude-code_af861ed9-9e1d-41a7-8400-b53c2995aed8_fb77fbd043d2.jsonl",
       "cached": false,
       "chunks": 4,
       "chunks_if_uncached": 4,
@@ -116,8 +155,8 @@
     },
     {
       "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
-      "branch": "redacted/branch-1",
-      "transcript": "sessions/branches/redacted-branch-1/20260607T215519Z_claude-code_af861ed9-9e1d-41a7-8400-b53c2995aed8_60447aa90070.jsonl",
+      "branch": "claude/thomas-asks",
+      "transcript": "sessions/branches/claude-thomas-asks-98742e3e/20260607T215519Z_claude-code_af861ed9-9e1d-41a7-8400-b53c2995aed8_60447aa90070.jsonl",
       "cached": false,
       "chunks": 4,
       "chunks_if_uncached": 4,
@@ -147,7 +186,7 @@
     {
       "session_id": "93850a3b-823a-4400-affb-afd0a1ad0282",
       "branch": "feat/qmd-retrieval",
-      "transcript": "sessions/branches/feat-qmd-retrieval/20260609T103140Z_claude-code_93850a3b-823a-4400-affb-afd0a1ad0282_a108e53d0b64.jsonl",
+      "transcript": "sessions/branches/feat-qmd-retrieval-6e45b6af/20260609T103140Z_claude-code_93850a3b-823a-4400-affb-afd0a1ad0282_a108e53d0b64.jsonl",
       "cached": false,
       "chunks": 2,
       "chunks_if_uncached": 2,
@@ -155,44 +194,14 @@
       "preprocessed_bytes": 298305
     },
     {
-      "session_id": "019e7da2-8676-7200-8373-559999113025",
-      "branch": "main",
-      "transcript": "sessions/main/20260601T044321Z_codex_019e7da2-8676-7200-8373-559999113025_9632939935ca.jsonl",
-      "cached": false,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "raw_bytes": 9722093,
-      "preprocessed_bytes": 258982
-    },
-    {
       "session_id": "3c8f3e78-b939-42b0-8ab8-aae534b6f768",
-      "branch": "main",
-      "transcript": "sessions/main/20260609T165344Z_claude-code_3c8f3e78-b939-42b0-8ab8-aae534b6f768_eccdab54b573.jsonl",
+      "branch": "codex/release-readiness-hardening",
+      "transcript": "sessions/branches/codex-release-readiness-hardening-7906d857/20260610T173425Z_claude-code_3c8f3e78-b939-42b0-8ab8-aae534b6f768_f46f98590028.jsonl",
       "cached": false,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "raw_bytes": 3815782,
-      "preprocessed_bytes": 230327
-    },
-    {
-      "session_id": "019e81aa-6c40-7690-8c0a-dd90d56d369a",
-      "branch": "main",
-      "transcript": "sessions/main/20260601T140930Z_codex_019e81aa-6c40-7690-8c0a-dd90d56d369a_a98678f5da84.jsonl",
-      "cached": false,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "raw_bytes": 4249620,
-      "preprocessed_bytes": 230213
-    },
-    {
-      "session_id": "019e5dd1-d451-7ca1-b1e4-df15cf69fcc0",
-      "branch": "main",
-      "transcript": "sessions/main/20260525T230531Z_codex_019e5dd1-d451-7ca1-b1e4-df15cf69fcc0_1516a9d8f651.jsonl",
-      "cached": false,
-      "chunks": 1,
-      "chunks_if_uncached": 1,
-      "raw_bytes": 5833289,
-      "preprocessed_bytes": 218605
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "raw_bytes": 4414879,
+      "preprocessed_bytes": 266234
     }
   ]
 }

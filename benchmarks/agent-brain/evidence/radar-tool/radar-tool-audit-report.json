@@ -29,6 +29,8 @@
       "TestMCPRejectsOversizedAndNegativeFrames",
       "TestMCPToolCallRejectsInvalidDepth",
       "TestMCPToolCallRejectsInvalidIntegerArguments",
+      "TestMCPToolRequiredArgumentsAreEnforced",
+      "TestMCPToolSchemasMatchArgumentValidator",
       "TestMCPToolSchemasRejectAdditionalProperties",
       "TestMCPToolsListAdvertisesStaleBlindSpots",
       "TestMCPToolsListIncludesQMDRetrievalSurface",
@@ -47,6 +49,7 @@
       "TestRegressionDeletionRanksCallLocusWithHistoryFileHint",
       "TestRegressionDeletionReportsEachMissingAnchoredCallSite",
       "TestRegressionDetectsChangedOperand",
+      "TestRegressionScanHistoryClosesFilesDuringLargeWalk",
       "TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain",
       "TestWorkspaceRegressionsDeletionLocationOnlyReportsRelatedLoci",
       "TestWorkspaceRegressionsSkipsUnsafeRepo",
@@ -54,7 +57,7 @@
       "TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint"
     ],
     "path": "go-test-internal-cli-radar.jsonl",
-    "sha256": "sha256:d5a46b2efe76006a8028b475e4496713816b529fdaa964771a7d5e440f29d50b"
+    "sha256": "sha256:b1f2011679a3fafb0b462912fc5287698787229dff364ac6409daf117a82f44f"
   },
   "claim_scope": "mcp_radar_tool_contract",
   "errors": [],
@@ -81,11 +84,14 @@
     "TestRegressionAssignmentDeletionReportsSameNameReceiverMethods",
     "TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction",
     "TestRegressionDedupeRankPrefersBoostedCallDeletion",
+    "TestRegressionScanHistoryClosesFilesDuringLargeWalk",
     "TestMCPInitializeAndToolsList",
     "TestMCPToolsListIncludesRegressions",
     "TestMCPToolsListIncludesQMDRetrievalSurface",
     "TestMCPToolsListAdvertisesStaleBlindSpots",
     "TestMCPToolSchemasRejectAdditionalProperties",
+    "TestMCPToolSchemasMatchArgumentValidator",
+    "TestMCPToolRequiredArgumentsAreEnforced",
     "TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet",
     "TestMCPRejectsInvalidBooleanArguments",
     "TestMCPRejectsInvalidStringAndUnknownArguments",
@@ -118,6 +124,6 @@
   ],
   "schema": 1,
   "source_drift_paths": [],
-  "source_head": "3be0ab18d6736ea476f5b418557d783eb7fd1e4c",
+  "source_head": "45dd399558287b5eecfa788d28966b6ecaa01178",
   "warnings": []
 }

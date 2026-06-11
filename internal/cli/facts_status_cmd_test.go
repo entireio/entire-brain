@@ -21,14 +21,17 @@ func TestFactsStatusEmptyStoreJSON(t *testing.T) {
 	if report.SchemaVersion != 1 {
 		t.Fatalf("schema = %d", report.SchemaVersion)
 	}
+	if !report.GeneratedAt.Equal(f.now) {
+		t.Fatalf("generated_at = %s, want %s", report.GeneratedAt, f.now)
+	}
+	if report.RepoHead != "abc123abc123abc123abc123abc123abc123abcd" {
+		t.Fatalf("repo_head = %q", report.RepoHead)
+	}
 	if report.Branch != "main" || report.AllBranches {
 		t.Fatalf("unexpected target: branch=%q all=%v", report.Branch, report.AllBranches)
 	}
 	if report.FactsArmReady {
 		t.Fatalf("empty store should not be facts-arm ready: %+v", report)
-	}
-	if len(report.ManifestSources) != 0 {
-		t.Fatalf("empty store should not report manifest sources: %+v", report.ManifestSources)
 	}
 	if report.Totals.Facts != 0 || report.Totals.Active != 0 || report.Totals.Proposals != 0 {
 		t.Fatalf("empty totals = %+v", report.Totals)
@@ -77,6 +80,9 @@ func TestFactsStatusCountsBranchJSON(t *testing.T) {
 	if report.Branch != "feature" || !report.FactsArmReady {
 		t.Fatalf("unexpected status target/readiness: %+v", report)
 	}
+	if report.BrainManifest == "" || !strings.HasPrefix(report.BrainManifest, "sha256:") {
+		t.Fatalf("brain_manifest_sha256 = %q", report.BrainManifest)
+	}
 	want := factsStatusCounts{
 		Facts:             4,
 		Active:            2,
@@ -94,12 +100,6 @@ func TestFactsStatusCountsBranchJSON(t *testing.T) {
 	}
 	if report.ManifestFacts == nil || report.ManifestFacts.Facts != 4 || report.ManifestFacts.Proposals != 2 {
 		t.Fatalf("manifest facts source missing counts: %+v", report.ManifestFacts)
-	}
-	if !strings.HasPrefix(report.BrainManifestSHA256, "sha256:") {
-		t.Fatalf("brain manifest hash missing from status: %+v", report)
-	}
-	if !strings.Contains(strings.Join(report.ManifestSources, ","), "facts") {
-		t.Fatalf("manifest sources should include facts: %+v", report.ManifestSources)
 	}
 	if len(report.Warnings) != 0 {
 		t.Fatalf("unexpected warnings: %+v", report.Warnings)

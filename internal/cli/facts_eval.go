@@ -41,23 +41,22 @@ type evalTask struct {
 // UsefulPer1k — relevant items surfaced per 1,000 tokens spent — which captures
 // the Appendix D agent constraint (value per token, not item count).
 type evalTaskResult struct {
-	ID                 string   `json:"id"`
-	Task               string   `json:"task"`
-	QueryType          string   `json:"query_type,omitempty"`
-	Retriever          string   `json:"retriever,omitempty"`
-	RetrievedIDs       []string `json:"retrieved_ids,omitempty"`
-	RelevanceSource    string   `json:"relevance_source,omitempty"`
-	Surfaced           int      `json:"surfaced"`
-	Tokens             int      `json:"tokens"`
-	LatencyMS          int64    `json:"latency_ms"`
-	ExpansionLatencyMS int64    `json:"expansion_latency_ms"`
-	EndToEndLatencyMS  int64    `json:"end_to_end_latency_ms"`
-	RelevantSurfaced   int      `json:"relevant_surfaced"`
-	Precision          float64  `json:"precision"`
-	Recall             float64  `json:"recall"`
-	UsefulPer1k        float64  `json:"useful_per_1k"`
-	Labeled            bool     `json:"labeled"`
-	LabelSource        string   `json:"label_source,omitempty"`
+	ID                 string  `json:"id"`
+	Task               string  `json:"task"`
+	QueryType          string  `json:"query_type,omitempty"`
+	Retriever          string  `json:"retriever,omitempty"`
+	RelevanceSource    string  `json:"relevance_source,omitempty"`
+	Surfaced           int     `json:"surfaced"`
+	Tokens             int     `json:"tokens"`
+	LatencyMS          int64   `json:"latency_ms"`
+	ExpansionLatencyMS int64   `json:"expansion_latency_ms"`
+	EndToEndLatencyMS  int64   `json:"end_to_end_latency_ms"`
+	RelevantSurfaced   int     `json:"relevant_surfaced"`
+	Precision          float64 `json:"precision"`
+	Recall             float64 `json:"recall"`
+	UsefulPer1k        float64 `json:"useful_per_1k"`
+	Labeled            bool    `json:"labeled"`
+	LabelSource        string  `json:"label_source,omitempty"`
 }
 
 // evalStratum aggregates metrics for one query-type stratum.
@@ -99,7 +98,6 @@ type evalRunConfig struct {
 	JudgeCachePath        string `json:"judge_cache_path,omitempty"`
 	ExpansionCachePath    string `json:"expansion_cache_path,omitempty"`
 	LabelPolicy           string `json:"label_policy"`
-	IncludeIDs            bool   `json:"include_ids,omitempty"`
 	RawSessionIDScheme    string `json:"raw_session_id_scheme"`
 	TurnSigningLimitation string `json:"turn_signing_limitation,omitempty"`
 }
@@ -190,6 +188,7 @@ func summarizeEvalWithConfig(results []evalTaskResult, config *evalRunConfig) ev
 	if config != nil {
 		copy := *config
 		s.RunConfig = &copy
+		s.Arm = copy.Arm
 	}
 	if len(results) == 0 {
 		return s
@@ -337,7 +336,6 @@ func newFactsEvalCommand(opts Options) *cobra.Command {
 		judge        bool
 		judgeSource  bool
 		semantic     bool
-		arm          string
 		expand       bool
 		agent        string
 		model        string
@@ -345,7 +343,7 @@ func newFactsEvalCommand(opts Options) *cobra.Command {
 		judgeCache   string
 		expandCache  string
 		retriever    string
-		includeIDs   bool
+		arm          string
 		jsonOut      bool
 		run          distillAgentRunner
 	)
@@ -385,6 +383,10 @@ The tasks file is a JSON array:
 				return err
 			}
 			if err := validateEvalSemanticRetriever(semantic, retriever); err != nil {
+				return err
+			}
+			armFn, err := selectRetrievalArm(arm)
+			if err != nil {
 				return err
 			}
 			repoDir, brainDir, defaultBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
@@ -429,30 +431,24 @@ The tasks file is a JSON array:
 					return fmt.Errorf("--semantic requested but the embedding backend is unavailable")
 				}
 			}
-			armFn, err := selectRetrievalArm(arm)
-			if err != nil {
-				return err
-			}
 			cache := loadJudgeCache(judgeCache)
 			if err := cache.validateLoaded(); err != nil {
 				return err
 			}
-			runOpts := factsEvalRunOptions{
-				JudgeSourceMatches: judgeSource,
-				Arm:                armFn,
-				SurfacedByKind:     map[string]int{},
-				IncludeIDs:         includeIDs,
-			}
-			results, err := runFactsEvalWithOptions(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, cache, expander, rr, retriever, runOpts)
+			results, err := runFactsEvalWithOptions(cmd.Context(), opts, brainDir, repoDir, defaultBranch, tasks, k, judge, run, judgeArgs, cache, expander, rr, retriever, factsEvalRunOptions{JudgeSourceMatches: judgeSource, Arm: armFn, ArmName: arm})
 			if err != nil {
 				return err
 			}
 			if err := expCache.save(); err != nil {
 				return fmt.Errorf("save expansion cache: %w", err)
 			}
+			tasksSHA := fileSHA256Hex(tasksFile)
+			if tasksSHA == "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not hash tasks file %s; eval-compare pairing checks will downgrade this run\n", tasksFile)
+			}
 			summary := summarizeEvalWithConfig(results, &evalRunConfig{
 				TasksPath:             tasksFile,
-				TasksSHA256:           fileSHA256Hex(tasksFile),
+				TasksSHA256:           tasksSHA,
 				BrainManifestSHA256:   evalBrainManifestSHA256(brainDir),
 				Branch:                defaultBranch,
 				K:                     k,
@@ -465,14 +461,9 @@ The tasks file is a JSON array:
 				JudgeCachePath:        judgeCache,
 				ExpansionCachePath:    expandCache,
 				LabelPolicy:           "human and judge_refined labels define precision/recall; provenance_silver is reported but not proof-labeled",
-				IncludeIDs:            includeIDs,
 				RawSessionIDScheme:    "raw:sha256(session_id)[:16]:start-end",
 				TurnSigningLimitation: "turn-level cryptographic verification remains pending CLI-side turn signing",
 			})
-			summary.Arm = arm
-			if len(runOpts.SurfacedByKind) > 0 {
-				summary.SurfacedByKind = runOpts.SurfacedByKind
-			}
 			if jsonOut {
 				return writeJSON(cmd, summary)
 			}
@@ -490,11 +481,10 @@ The tasks file is a JSON array:
 	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&judgeCache, "judge-cache", "", "Persist/reuse judge verdicts at this path so re-runs are deterministic and cheap")
 	cmd.Flags().BoolVar(&semantic, "semantic", false, "Rerank with the local embedding backend (RRF fusion of lexical + semantic)")
-	cmd.Flags().StringVar(&arm, "arm", "flat", "Facts retrieval structure to evaluate: flat | scoped | scoped-floor | outline")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand each task query with agent-generated retrieval terms before retrieval")
 	cmd.Flags().StringVar(&expandCache, "expand-cache", "", "Persist/reuse query expansions at this path")
 	cmd.Flags().StringVar(&retriever, "retriever", evalRetrieverFacts, "Retrieval arm: facts, history, query, or raw-sessions")
-	cmd.Flags().BoolVar(&includeIDs, "include-ids", false, "Include per-task retrieved item ids in JSON output for retained proof artifacts")
+	cmd.Flags().StringVar(&arm, "arm", "flat", "Fact retrieval arm: flat, scoped, scoped-floor, or outline")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the summary as JSON")
 	return cmd
 }
@@ -585,6 +575,17 @@ func loadEvalTasks(path string) ([]evalTask, error) {
 	if len(tasks) == 0 {
 		return nil, fmt.Errorf("tasks file has no tasks")
 	}
+	// Legacy task files predate label_source. Every generator that ever
+	// emitted labels without one (facts eval-gen pre-claim-discipline, history
+	// eval-gen) labeled by PROVENANCE, so defaulting to provenance_silver is
+	// factually right and conservative: silver is never claimable as proof, so
+	// a mislabeled hand-curated file can only understate its evidence grade.
+	// Refusing to load would orphan every retained task set on disk.
+	for i := range tasks {
+		if len(tasks[i].Relevant) > 0 && strings.TrimSpace(tasks[i].LabelSource) == "" {
+			tasks[i].LabelSource = evalLabelSourceProvenanceSilver
+		}
+	}
 	if err := validateEvalTasks(tasks); err != nil {
 		return nil, err
 	}
@@ -633,10 +634,13 @@ func validateEvalSemanticRetriever(semantic bool, retriever string) error {
 	return nil
 }
 
-func retrieveEvalItems(brainDir, branch, query string, limit int, retriever string, facts []factRecord, rr *semanticReranker) ([]evalRetrievedItem, error) {
+func retrieveEvalItems(brainDir, branch, query string, limit int, retriever string, facts []factRecord, rr *semanticReranker, arm retrievalArm) ([]evalRetrievedItem, error) {
 	switch retriever {
 	case evalRetrieverFacts:
-		return factsToEvalItems(rankFactsFused(facts, query, limit, false, rr)), nil
+		if arm == nil {
+			arm = flatArm
+		}
+		return factsToEvalItems(arm(facts, query, limit, rr)), nil
 	case evalRetrieverHistory:
 		manifest, err := loadBrainManifest(brainDir)
 		if err != nil {
@@ -1040,8 +1044,7 @@ type queryExpanderFunc func(query string) (string, error)
 type factsEvalRunOptions struct {
 	JudgeSourceMatches bool
 	Arm                retrievalArm
-	SurfacedByKind     map[string]int
-	IncludeIDs         bool
+	ArmName            string
 }
 
 func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, rr *semanticReranker, retriever string) ([]evalTaskResult, error) {
@@ -1057,9 +1060,6 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 	}
 	if err := validateEvalSemanticRetriever(rr != nil, retriever); err != nil {
 		return nil, err
-	}
-	if runOpts.Arm == nil {
-		runOpts.Arm = flatArm
 	}
 	results := make([]evalTaskResult, 0, len(tasks))
 	factsByBranch := map[string][]factRecord{} // load each branch's facts once per run
@@ -1098,21 +1098,9 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 			}
 		}
 		started := time.Now()
-		var surfaced []evalRetrievedItem
-		if retriever == evalRetrieverFacts {
-			surfacedFacts := runOpts.Arm(facts, query, k, rr)
-			if runOpts.SurfacedByKind != nil {
-				for _, fact := range surfacedFacts {
-					runOpts.SurfacedByKind[factKindOrInferred(fact)]++
-				}
-			}
-			surfaced = factsToEvalItems(surfacedFacts)
-		} else {
-			var retrieveErr error
-			surfaced, retrieveErr = retrieveEvalItems(brainDir, branch, query, k, retriever, facts, rr)
-			if retrieveErr != nil {
-				return nil, fmt.Errorf("retrieve task %s: %w", task.ID, retrieveErr)
-			}
+		surfaced, err := retrieveEvalItems(brainDir, branch, query, k, retriever, facts, rr, runOpts.Arm)
+		if err != nil {
+			return nil, fmt.Errorf("retrieve task %s: %w", task.ID, err)
 		}
 		latencyMS := time.Since(started).Milliseconds()
 		endToEndLatencyMS := time.Since(taskStarted).Milliseconds()
@@ -1134,9 +1122,6 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 		res := evalItemMetrics(surfaced, relevant, totalRelevant)
 		res.ID, res.Task, res.QueryType, res.Labeled = task.ID, task.Task, task.QueryType, labeled
 		res.Retriever = retriever
-		if runOpts.IncludeIDs {
-			res.RetrievedIDs = evalRetrievedIDs(surfaced)
-		}
 		res.RelevanceSource = relevanceSource
 		res.LabelSource = normalizedEvalLabelSource(task)
 		res.LatencyMS = latencyMS
@@ -1148,17 +1133,6 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 		return nil, fmt.Errorf("save judge cache: %w", err)
 	}
 	return results, nil
-}
-
-func evalRetrievedIDs(items []evalRetrievedItem) []string {
-	ids := make([]string, 0, len(items))
-	for _, item := range items {
-		if strings.TrimSpace(item.ID) == "" {
-			continue
-		}
-		ids = append(ids, item.ID)
-	}
-	return ids
 }
 
 // judgeRelevance returns the set of surfaced-fact ids judged relevant for a

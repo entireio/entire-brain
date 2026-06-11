@@ -114,12 +114,13 @@ func compareEvalSummariesInternalWithOptions(a, b evalSummary, alpha float64, op
 				continue
 			}
 			if m.requiresSameTruth {
-				comparable := evalRelevanceSourcesComparable(ar, br)
-				if !comparable {
+				// Same truth gates whether the comparison RUNS; proof-grade
+				// labels gate whether its result is claimable (EvidenceBasis).
+				if !evalRelevanceSourceIsProofLabel(ar) || !evalRelevanceSourceIsProofLabel(br) {
 					proofComparable = false
 				}
-				if !opts.AllowProxyComparison && !comparable {
-					return nil, 0, missingFromA, missingFromB, fmt.Errorf("task %q compares %s with non-proof or different relevance sources (A=%s label_source=%s labeled=%t, B=%s label_source=%s labeled=%t); rerun with human/judge_refined labels or pass --allow-proxy-comparison", id, m.name, valueOrUnset(ar.RelevanceSource), valueOrUnset(ar.LabelSource), ar.Labeled, valueOrUnset(br.RelevanceSource), valueOrUnset(br.LabelSource), br.Labeled)
+				if !opts.AllowProxyComparison && !evalRelevanceSourcesComparable(ar, br) {
+					return nil, 0, missingFromA, missingFromB, fmt.Errorf("task %q compares %s across different ground truths (A=%s label_source=%s labeled=%t, B=%s label_source=%s labeled=%t); rerun both sides on the same labels or pass --allow-proxy-comparison", id, m.name, valueOrUnset(ar.RelevanceSource), valueOrUnset(ar.LabelSource), ar.Labeled, valueOrUnset(br.RelevanceSource), valueOrUnset(br.LabelSource), br.Labeled)
 				}
 			}
 			av = append(av, m.get(ar))
@@ -250,14 +251,27 @@ func missingEvalTaskIDs(aByID, bByID map[string]evalTaskResult) ([]string, []str
 	return missingFromA, missingFromB
 }
 
+// evalRelevanceSourcesComparable reports whether two results share the SAME,
+// task-fixed ground truth: both sides ran against explicit task labels from
+// the same label source. That is the only truth independent of what each arm
+// surfaced — source_match and runtime-judge relevance are derived from each
+// side's own result set, so even "matching" sources are different truths and
+// stay gated behind --allow-proxy-comparison. Same-truth comparisons are
+// statistically meaningful regardless of evidence GRADE: two
+// provenance_silver runs over one task set compare apples to apples; whether
+// the result is CLAIMABLE as release proof is the separate, stricter question
+// answered by evalRelevanceSourceIsProofLabel (feeding EvidenceBasis).
+// Conflating grade with truth made eval-compare hard-error on its own default
+// eval-gen output and on every history-eval summary.
 func evalRelevanceSourcesComparable(a, b evalTaskResult) bool {
-	if a.RelevanceSource == "" || b.RelevanceSource == "" {
+	if !a.Labeled || !b.Labeled {
 		return false
 	}
-	if a.Labeled != b.Labeled || a.RelevanceSource != b.RelevanceSource {
+	if a.RelevanceSource != evalRelevanceExplicitLabel || b.RelevanceSource != evalRelevanceExplicitLabel {
 		return false
 	}
-	return evalRelevanceSourceIsProofLabel(a) && evalRelevanceSourceIsProofLabel(b)
+	src := strings.TrimSpace(a.LabelSource)
+	return src != "" && src == strings.TrimSpace(b.LabelSource)
 }
 
 func evalRelevanceSourceIsProofLabel(r evalTaskResult) bool {

@@ -18,9 +18,9 @@ comparison backing. The current generic MCP release manifest requires at least
 four basic MCP-verified datapoints; server-named `tool:` and completed
 `tool_result:` proof is required before Radar agent-lift evidence can be
 cited.
-Today those scopes are `history`, generic `mcp`, `mcp_radar_location_only`, and
-`semantic`, so this directory cannot be used as facts or workspace Radar proof
-by aggregation. Historical,
+Today those scopes are `history`, generic `mcp`, and
+`mcp_radar_location_only`, so this directory cannot be used as semantic, facts,
+or workspace Radar proof by aggregation. Historical,
 exploratory, quarantine, or `release-local-*` suites under
 `benchmarks/agent-brain/results/` do not become release evidence just because
 they exist; they must be regenerated from a committed panel into an explicit
@@ -66,12 +66,6 @@ Current retained proof:
   records. No-brain passed 2/4, `mcp_history` passed 4/4, mean score improved
   73.0 -> 92.5, mean tokens dropped 811,466.5 -> 408,947.75, mean search calls
   dropped 11.5 -> 6.0, and the stability tag is `brain_positive_stable`.
-- `release-candidate-entire-brain-semantic-tokenized-idf-mini-low-20260610T232641Z`:
-  one semantic tokenized-IDF ranking task, 4 repetitions per side, audited with
-  0 hard flags and 1 semantic proof-ready comparison. No-brain passed 3/4,
-  `semantic_brain` passed 4/4, mean score improved 79.0 -> 92.0, mean tokens
-  dropped 663,613.75 -> 184,061.5, mean search calls dropped 13.0 -> 2.0, and
-  the stability tag is `brain_positive_stable`.
 
 Radar agent-lift status: one deletion-attribution Radar agent-lift suite is now
 retained and release-citable for `mcp_radar_location_only`. Older Radar agent

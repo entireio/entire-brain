@@ -293,6 +293,16 @@ var (
 func configuredEmbedder() (Embedder, string) {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")), "ollama") {
 		o := newOllamaEmbedder()
+		if o == nil {
+			// The loopback guard rejected ENTIRE_BRAIN_EMBED_URL (non-loopback
+			// or unparseable). The exact scenario the guard hardens must
+			// degrade to the bundled model, not panic.
+			base := "ENTIRE_BRAIN_EMBEDDER=ollama set but ENTIRE_BRAIN_EMBED_URL is not a loopback URL (rejected to keep embeddings on-box)"
+			if e, err := loadStaticEmbedder(entirebrain.EmbedModel); err == nil {
+				return e, base + "; falling back to the bundled Model2Vec embedder"
+			}
+			return nil, base + " and the bundled Model2Vec fallback could not be loaded; semantic retrieval is unavailable (lexical only)"
+		}
 		if o.reachable() {
 			return o, ""
 		}

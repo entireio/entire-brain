@@ -146,10 +146,6 @@ func mcpDebugToolCall(raw json.RawMessage) mcpDebugToolCallInfo {
 	return mcpDebugToolCallInfo{name: name, safeArgs: safe}
 }
 
-func mcpDebugToolName(raw json.RawMessage) string {
-	return mcpDebugToolCall(raw).name
-}
-
 func mcpDebugLogToolResult(path string, msg mcpMessage, response mcpMessage) {
 	if msg.Method != "tools/call" {
 		return
@@ -238,7 +234,7 @@ func mcpToolDefinitions() []map[string]any {
 		{
 			"name":        "brain_stale",
 			"description": "Report local semantic brain freshness for the current repository.",
-			"inputSchema": objectSchema(nil, map[string]any{"blind_spots": booleanArg("blind_spots", "Include semantic blind spots: files the provider could not fully index, where semantic answers are untrustworthy")}),
+			"inputSchema": objectSchema(nil, map[string]any{"blind_spots": booleanArg("blind_spots", "Also list files the provider could not fully index (where semantic answers are untrustworthy)")}),
 		},
 		{
 			"name":        "brain_brief",

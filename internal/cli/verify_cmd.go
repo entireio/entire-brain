@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -34,6 +36,12 @@ type verifyCommandOptions struct {
 	all                bool
 	json               bool
 	failOnUnverifiable bool
+	strict             bool // alias flag for failOnUnverifiable; OR'd in at run time
+	// sample verifies only the `limit` most recently updated facts in
+	// no-target mode. Set by hot-path callers (brain status): full
+	// verification shells two git subprocesses per distinct commit anchor,
+	// which is `verify`'s job, not a status check's.
+	sample bool
 }
 
 type verifyReport struct {
@@ -55,6 +63,10 @@ type verifySummary struct {
 	Stale            int `json:"stale"`
 	Orphaned         int `json:"orphaned"`
 	UnverifiableHere int `json:"unverifiable_here"`
+	// SampledOf is the active-fact count the sample was drawn from, set only
+	// when sampling truncated the selection — so a sampled summary can never
+	// be misread as full-corpus verification.
+	SampledOf int `json:"sampled_of,omitempty"`
 }
 
 type verifyFactResult struct {
@@ -94,6 +106,11 @@ type verifyContext struct {
 
 	manifest *exportManifest
 
+	// commitChecks memoizes verifyCommit results: a distill run anchors many
+	// facts to the same checkpoint commits, and each uncached check costs two
+	// git subprocesses (cat-file + for-each-ref --contains).
+	commitChecks map[string]verifyCheck
+
 	snapshotLoaded   bool
 	snapshot         *checkpointSnapshot
 	snapshotErr      error
@@ -118,8 +135,8 @@ func newVerifyCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&verifyOpts.limit, "limit", 10, "Maximum facts to verify for query mode")
 	cmd.Flags().BoolVar(&verifyOpts.all, "all", false, "Include superseded and retracted facts")
 	cmd.Flags().BoolVar(&verifyOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&verifyOpts.failOnUnverifiable, "strict", false, "Return nonzero for unverifiable-here facts as well as stale or orphaned facts")
-	cmd.Flags().BoolVar(&verifyOpts.failOnUnverifiable, "fail-on-unverifiable", false, "Return nonzero when any matched fact is unverifiable-here")
+	cmd.Flags().BoolVar(&verifyOpts.strict, "strict", false, "Alias for --fail-on-unverifiable")
+	cmd.Flags().BoolVar(&verifyOpts.failOnUnverifiable, "fail-on-unverifiable", false, "Return nonzero when any matched fact is unverifiable-here (stale/orphaned always fail)")
 	return cmd
 }
 
@@ -156,7 +173,7 @@ func verifyFailureForReport(report verifyReport, verifyOpts verifyCommandOptions
 	if report.Summary.Stale > 0 || report.Summary.Orphaned > 0 {
 		return errVerifyIssues
 	}
-	if verifyOpts.failOnUnverifiable && report.Summary.UnverifiableHere > 0 {
+	if (verifyOpts.failOnUnverifiable || verifyOpts.strict) && report.Summary.UnverifiableHere > 0 {
 		return errVerifyStrictIssues
 	}
 	return nil
@@ -198,6 +215,17 @@ func buildVerifyReport(ctx context.Context, opts Options, repoDir, brainDir, rep
 		report.Results = append(report.Results, result)
 		addVerifyResultToSummary(&report.Summary, result)
 	}
+	if verifyOpts.sample && target == "" {
+		selectable := 0
+		for _, fact := range allFacts {
+			if verifyOpts.all || fact.Status == factStatusActive {
+				selectable++
+			}
+		}
+		if selectable > len(selected) {
+			report.Summary.SampledOf = selectable
+		}
+	}
 	report.Warnings = append(report.Warnings, vctx.snapshotWarnings...)
 	return report, nil
 }
@@ -219,6 +247,12 @@ func selectFactsForVerify(facts []factRecord, target string, opts verifyCommandO
 		if opts.all || fact.Status == factStatusActive {
 			selected = append(selected, fact)
 		}
+	}
+	if opts.sample && opts.limit > 0 && len(selected) > opts.limit {
+		// Most recently updated first: the facts an agent is most likely to
+		// consume next are the most valuable ones to spot-check.
+		sort.SliceStable(selected, func(i, j int) bool { return selected[i].UpdatedAt.After(selected[j].UpdatedAt) })
+		selected = selected[:opts.limit]
 	}
 	return selected, "", nil
 }
@@ -335,6 +369,25 @@ func (v *verifyContext) verifyCommit(commit string) verifyCheck {
 	if commit == "" {
 		return verifyCheck{}
 	}
+	// Anchors are data: a crafted "commit" like --upload-pack=... must never
+	// reach git argv. Hex object ids only, matching the repo's hardening.
+	if !verifyCommitIDPattern.MatchString(commit) {
+		return verifyCheck{Name: "commit", Verdict: verifyVerdictOrphaned, Reason: "anchor commit is not a valid commit id"}
+	}
+	if cached, ok := v.commitChecks[commit]; ok {
+		return cached
+	}
+	check := v.verifyCommitUncached(commit)
+	if v.commitChecks == nil {
+		v.commitChecks = map[string]verifyCheck{}
+	}
+	v.commitChecks[commit] = check
+	return check
+}
+
+var verifyCommitIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{4,64}$`)
+
+func (v *verifyContext) verifyCommitUncached(commit string) verifyCheck {
 	if _, _, err := v.opts.Runner.Run(v.ctx, v.repoDir, "git", "cat-file", "-e", commit+"^{commit}"); err != nil {
 		return verifyCheck{Name: "commit", Verdict: verifyVerdictOrphaned, Reason: "commit is missing locally"}
 	}
@@ -557,7 +610,7 @@ func verificationSummaryForBranch(ctx context.Context, opts Options, repoDir, br
 	if err != nil {
 		return verifySummary{}, err
 	}
-	report, err := buildVerifyReport(ctx, opts, repoDir, brainDir, storage.Key, branch, verifyCommandOptions{limit: 10}, "")
+	report, err := buildVerifyReport(ctx, opts, repoDir, brainDir, storage.Key, branch, verifyCommandOptions{limit: 10, sample: true}, "")
 	if err != nil {
 		return verifySummary{}, err
 	}

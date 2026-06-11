@@ -317,7 +317,6 @@ func regressionScanHistory(brainDir string, ids []string) ([]changeSignal, []del
 		if openErr != nil {
 			return nil
 		}
-		defer f.Close()
 		scanned++
 		sc := bufio.NewScanner(f)
 		sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
@@ -364,6 +363,7 @@ func regressionScanHistory(brainDir string, ids []string) ([]changeSignal, []del
 				}
 			}
 		}
+		_ = f.Close()
 		return nil
 	})
 	return changes, deletes, files
@@ -498,6 +498,22 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 		hinted := map[string]struct{}{}
 		for _, h := range c.hints {
 			hinted[regressionCleanRelPath(h)] = struct{}{}
+		}
+		if len(hinted) > 0 {
+			present := false
+			for _, f := range files {
+				if _, ok := hinted[f.clean]; ok {
+					present = true
+					break
+				}
+			}
+			if !present {
+				// Every hinted file is deleted or was skipped at load. Hints
+				// narrow the scan; they must not VETO it — dropping the
+				// candidate here would silently lose the strongest signal
+				// (history named exact loci) exactly when the code moved.
+				hinted = map[string]struct{}{}
+			}
 		}
 		if len(hinted) == 0 && anyLineBoth(c.operand, c.id) {
 			continue // invariant still holds somewhere, and history did not name per-file loci
@@ -785,15 +801,13 @@ func regressionNearbyCandidateSeenInSameSymbol(src []string, lines []int, line, 
 			continue
 		}
 		seenStart, seenEnd, seenOK := regressionEnclosingSymbolRange(src, seen)
-		if ok && seenOK && (start != seenStart || end != seenEnd) {
-			continue
-		}
 		if ok != seenOK {
-			continue
+			continue // one resolved to a symbol, the other did not: different scopes
 		}
-		if ok || !seenOK {
-			return true
+		if ok && (start != seenStart || end != seenEnd) {
+			continue // both resolved, but to different symbols
 		}
+		return true // same symbol, or neither resolved (radius proximity decides)
 	}
 	return false
 }
@@ -1007,7 +1021,12 @@ func regressionDedupeRank(in []regressionAnomaly) []regressionAnomaly {
 	return out
 }
 
-var regressionFunctionPattern = regexp.MustCompile(`^func\s+(?:\([^)]+\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+// regressionFunctionPattern recognizes the common declaration heads across
+// the languages regressionCodeFilePattern admits: Go func (with optional
+// receiver), Python def, Rust fn, JS/TS function (incl. export/async), and
+// class declarations. Best-effort by design — a miss only widens symbol
+// grouping back to line-radius proximity, it never drops a finding.
+var regressionFunctionPattern = regexp.MustCompile(`^\s*(?:func\s+(?:\([^)]+\)\s*)?|def\s+|fn\s+|(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*|class\s+)([A-Za-z_][A-Za-z0-9_]*)`)
 
 func regressionEnclosingSymbol(lines []string, line int) string {
 	start, _, ok := regressionEnclosingSymbolRange(lines, line)

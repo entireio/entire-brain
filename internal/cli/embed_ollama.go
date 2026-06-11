@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -40,11 +41,11 @@ func newOllamaEmbedder() *ollamaEmbedder {
 	// Default to Ollama's embed API; ENTIRE_BRAIN_EMBED_URL may point at another
 	// loopback endpoint that accepts {"model","input"} and returns
 	// {"embeddings":[[...]]}, e.g. a local node-llama-cpp spike server.
-	url := os.Getenv("ENTIRE_BRAIN_EMBED_URL")
-	if url == "" {
-		url = "http://localhost:11434/api/embed"
+	embedURL := os.Getenv("ENTIRE_BRAIN_EMBED_URL")
+	if embedURL == "" {
+		embedURL = "http://localhost:11434/api/embed"
 	}
-	parsedURL, err := urlpkgParse(url)
+	parsedURL, err := url.Parse(embedURL)
 	if err != nil || !isLoopbackHTTPURL(parsedURL) {
 		return nil
 	}
@@ -65,14 +66,14 @@ func newOllamaEmbedder() *ollamaEmbedder {
 		Transport: tr,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if !isLoopbackHTTPURL(req.URL) {
-				return http.ErrUseLastResponse
+				return fmt.Errorf("embed redirect must stay loopback-only: %s", req.URL.String())
 			}
 			return nil
 		},
 	}
 	return &ollamaEmbedder{
 		model: model,
-		url:   url,
+		url:   embedURL,
 		hc:    client,
 	}
 }
@@ -148,7 +149,7 @@ func (o *ollamaEmbedder) embed(input string) []float32 {
 	if o == nil || o.hc == nil || o.url == "" {
 		return nil
 	}
-	u, err := urlpkgParse(o.url)
+	u, err := url.Parse(o.url)
 	if err != nil || !isLoopbackHTTPURL(u) {
 		return nil
 	}
@@ -186,5 +187,3 @@ func (o *ollamaEmbedder) embed(input string) []float32 {
 	}
 	return v
 }
-
-var urlpkgParse = url.Parse

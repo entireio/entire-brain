@@ -207,8 +207,6 @@ func TestSemanticIndexFallsBackWhenProviderRejectsBrainignoreFlag(t *testing.T) 
 	}
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	anySnapshot := fakeCommandResponse{stdout: semanticFixtureSnapshot("1.0")}
-	runner.semanticSnapshotAny = &anySnapshot
 	runner.responses[fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--ignore-file", brainignorePath)] = fakeCommandResponse{
 		stderr: "unexpected arguments: --ignore-file " + brainignorePath,
 		err:    errors.New("exit status 1"),
@@ -227,32 +225,13 @@ func TestSemanticIndexFallsBackWhenProviderRejectsBrainignoreFlag(t *testing.T) 
 	if !fakeRunnerCalled(runner, "entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--ignore-file", brainignorePath) {
 		t.Fatalf("semantic provider was not first called with .brainignore: %+v", runner.calls)
 	}
-	if !fakeRunnerCalledWithFilteredSnapshotRepo(runner, repoDir) {
-		t.Fatalf("semantic provider did not retry against a filtered temp repo: %+v", runner.calls)
+	if !fakeRunnerCalled(runner, "entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network") {
+		t.Fatalf("semantic provider did not retry without .brainignore: %+v", runner.calls)
 	}
 	source := mustSemanticSource(t, env)
 	if !semanticWarningsContainCode(source.Warnings, "provider_ignore_file_unsupported") {
 		t.Fatalf("fallback warning missing from semantic source: %+v", source.Warnings)
 	}
-}
-
-func fakeRunnerCalledWithFilteredSnapshotRepo(runner *fakeCommandRunner, originalRepo string) bool {
-	for _, call := range runner.calls {
-		if call.name != "entire" || len(call.args) < 6 {
-			continue
-		}
-		if call.args[0] != "sem" || call.args[1] != "snapshot" || call.args[2] != "--repo" {
-			continue
-		}
-		if call.args[3] == originalRepo {
-			continue
-		}
-		if !semanticArgsEqual(call.args[4:], []string{"--format", "ndjson", "--no-network"}) {
-			continue
-		}
-		return true
-	}
-	return false
 }
 
 func TestSemanticIndexWritesBranchOverlayForFeatureBranch(t *testing.T) {
@@ -1744,7 +1723,7 @@ func TestSemanticContextJSONIncludesRelations(t *testing.T) {
 func TestSemanticContextJSONIncludesRelationNeighbors(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshotWithCallerSymbol())
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshotWithQualifiedCallerSymbol())
 	cmd := &cobra.Command{Use: "index"}
 	opts := Options{Env: env, Runner: runner, Now: time.Now}
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
@@ -2107,7 +2086,7 @@ func TestSemanticContextSQLiteFiltersRelationsBeforeLimit(t *testing.T) {
 
 // semanticFixtureSnapshotWithCallerSymbol has the relation endpoint present as
 // its own symbol record, so context can materialize it as a neighbor.
-func semanticFixtureSnapshotWithShortCallerSymbol() string {
+func semanticFixtureSnapshotWithCallerSymbol() string {
 	return `{"schema_version":"1.0","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"target","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"symbol","id":"caller","kind":"function","name":"HandleLogin","qualified_name":"api.HandleLogin","file_path":"internal/api/login.go","start_line":30,"end_line":50,"signature":"func HandleLogin() error","language":"Go","stable_id_version":"1"}
@@ -2118,7 +2097,7 @@ func semanticFixtureSnapshotWithShortCallerSymbol() string {
 func TestSemanticContextMaterializesNeighbors(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshotWithShortCallerSymbol())
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshotWithCallerSymbol())
 	cmd := &cobra.Command{Use: "index"}
 	opts := Options{Env: env, Runner: runner, Now: time.Now}
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
@@ -4157,7 +4136,7 @@ func semanticFixtureSnapshot(schema string) string {
 `
 }
 
-func semanticFixtureSnapshotWithCallerSymbol() string {
+func semanticFixtureSnapshotWithQualifiedCallerSymbol() string {
 	return `{"schema_version":"1.0","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/caller.go:function:auth.CallValidateToken","kind":"function","name":"CallValidateToken","qualified_name":"auth.CallValidateToken","file_path":"internal/auth/caller.go","start_line":30,"end_line":40,"signature":"func CallValidateToken(token string) error","language":"Go","stable_id_version":"1"}

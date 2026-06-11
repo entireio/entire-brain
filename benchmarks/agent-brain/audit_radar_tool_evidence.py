@@ -21,11 +21,14 @@ from typing import Any
 CLAIM_SCOPE = "mcp_radar_tool_contract"
 
 RADAR_TOOL_SOURCE_PATHS = [
+    "benchmarks/agent-brain/audit_radar_tool_evidence.py",
+    "benchmarks/agent-brain/record_radar_tool_evidence.py",
     "internal/cli/retrieve.go",
     "internal/cli/retrieve_cmd.go",
     "internal/cli/retrieve_test.go",
     "internal/cli/regression.go",
     "internal/cli/regression_test.go",
+    "internal/cli/regression_unix_test.go",
     "internal/cli/mcp.go",
     "internal/cli/mcp_test.go",
     "internal/cli/workspace.go",
@@ -48,11 +51,14 @@ REQUIRED_TESTS = [
     "TestRegressionAssignmentDeletionReportsSameNameReceiverMethods",
     "TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction",
     "TestRegressionDedupeRankPrefersBoostedCallDeletion",
+    "TestRegressionScanHistoryClosesFilesDuringLargeWalk",
     "TestMCPInitializeAndToolsList",
     "TestMCPToolsListIncludesRegressions",
     "TestMCPToolsListIncludesQMDRetrievalSurface",
     "TestMCPToolsListAdvertisesStaleBlindSpots",
     "TestMCPToolSchemasRejectAdditionalProperties",
+    "TestMCPToolSchemasMatchArgumentValidator",
+    "TestMCPToolRequiredArgumentsAreEnforced",
     "TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet",
     "TestMCPRejectsInvalidBooleanArguments",
     "TestMCPRejectsInvalidStringAndUnknownArguments",
@@ -169,6 +175,38 @@ def source_head_drift(repo_root: pathlib.Path, source_head: str) -> tuple[str | 
     return current_head, changed, errors
 
 
+def source_file_hash_drift(repo_root: pathlib.Path, source_files: Any) -> tuple[list[str], list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    changed: list[str] = []
+    if not isinstance(source_files, dict):
+        return [], [], ["source_files must be an object when present"]
+    expected_paths = set(RADAR_TOOL_SOURCE_PATHS)
+    extra = sorted(str(path) for path in source_files if str(path) not in expected_paths)
+    if extra:
+        warnings.append("source_files includes extra paths: " + ", ".join(extra[:10]))
+    for rel in RADAR_TOOL_SOURCE_PATHS:
+        expected = source_files.get(rel)
+        digest = expected.removeprefix("sha256:") if isinstance(expected, str) else ""
+        if (
+            not isinstance(expected, str)
+            or not expected.startswith("sha256:")
+            or len(digest) != 64
+            or any(c not in "0123456789abcdef" for c in digest.lower())
+        ):
+            errors.append(f"source_files.{rel} must be a sha256:<64 hex> string")
+            continue
+        path = repo_root / rel
+        if not path.is_file():
+            errors.append(f"source file missing for Radar tool contract: {rel}")
+            changed.append(rel)
+            continue
+        actual = sha256_file(path)
+        if actual != expected:
+            changed.append(rel)
+    return changed, errors, warnings
+
+
 def audit_manifest(
     manifest_path: pathlib.Path,
     *,
@@ -192,9 +230,19 @@ def audit_manifest(
     if len(source_head) != 40 or any(c not in "0123456789abcdef" for c in source_head.lower()):
         errors.append("source_head must be a 40-character git commit")
     elif repo_root is not None and not allow_stale_source_head:
-        _, source_drift_paths, git_errors = source_head_drift(repo_root, source_head)
-        errors.extend(git_errors)
-        if source_drift_paths:
+        source_files = manifest.get("source_files")
+        if isinstance(source_files, dict):
+            source_drift_paths, hash_errors, hash_warnings = source_file_hash_drift(repo_root, source_files)
+            errors.extend(hash_errors)
+            warnings.extend(hash_warnings)
+            if source_drift_paths:
+                errors.append(
+                    "Radar tool source file hashes are stale: " + ", ".join(source_drift_paths)
+                )
+        else:
+            _, source_drift_paths, git_errors = source_head_drift(repo_root, source_head)
+            errors.extend(git_errors)
+        if source_drift_paths and not any("Radar tool source file hashes are stale" in err for err in errors):
             errors.append(
                 "source_head is stale for Radar tool contract; changed paths since source_head: "
                 + ", ".join(source_drift_paths)

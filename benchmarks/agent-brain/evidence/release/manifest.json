@@ -4,9 +4,9 @@
     "release-candidate-*"
   ],
   "minimums": {
-    "suites": 4,
-    "records": 32,
-    "proof_ready_comparisons": 4,
+    "suites": 3,
+    "records": 24,
+    "proof_ready_comparisons": 3,
     "mcp_verified_records": 8,
     "mcp_named_tool_verified_records": 4,
     "hard_flags": 0
@@ -20,8 +20,7 @@
   "required_proof_scopes": [
     "history",
     "mcp",
-    "mcp_radar_location_only",
-    "semantic"
+    "mcp_radar_location_only"
   ],
   "required_named_tool_proof_scopes": [
     "mcp_radar_location_only"

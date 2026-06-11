@@ -95,9 +95,9 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		}
 		facts = upsertFact(facts, record)
 		// An explicit --kind is a deliberate human correction and must win even
-		// when the fact already exists, where upsertFact's anti-thrash rule
-		// would otherwise keep the stored kind. The reported kind is then always
-		// the one actually persisted, never a discarded request.
+		// when the fact already exists, where upsertFact's anti-thrash rule would
+		// otherwise keep the stored kind. The reported kind is then always the one
+		// actually persisted, never a discarded request.
 		if i := indexOfFact(facts, record.ID); i >= 0 {
 			if explicitKind != "" {
 				facts[i].Kind = explicitKind

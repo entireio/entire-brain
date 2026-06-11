@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "manifest": "benchmarks/agent-brain/evidence/facts-eval-proof-fixture/manifest.json",
+  "status": "pass",
+  "release_evidence": false,
+  "claim_policy": "proof_required",
+  "claim_scope": "fixture_contract",
+  "claimable_facts_vs_raw": false,
+  "fixture_claimable_facts_vs_raw": true,
+  "tasks_sha256": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "brain_manifest_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "required_retrievers": [
+    "facts",
+    "history",
+    "query",
+    "raw-sessions"
+  ],
+  "summary_paths": {
+    "facts": "facts.json",
+    "history": "history.json",
+    "query": "query.json",
+    "raw-sessions": "raw-sessions.json"
+  },
+  "comparison_paths": {
+    "raw_vs_facts": "raw-vs-facts.compare.json"
+  },
+  "required_claims": [
+    {
+      "comparison": "raw_vs_facts",
+      "metric": "useful_per_1k",
+      "a_retriever": "raw-sessions",
+      "b_retriever": "facts",
+      "winner": "b",
+      "evidence_basis": "proof_labels",
+      "release_claimable": true,
+      "significant": true,
+      "n": 12,
+      "retained_n": 12,
+      "retained_mean_a": 5.0,
+      "retained_mean_b": 20.0,
+      "retained_delta": 15.0,
+      "retained_winner": "b",
+      "retained_evidence_basis": "proof_labels",
+      "retained_p": 0.0,
+      "retained_p_holm_threshold": 0.05,
+      "retained_significant": true,
+      "retained_release_claimable": true
+    }
+  ],
+  "flags": [],
+  "notes": [
+    "fixture_contract scope validates the proof-mode auditor mechanics only; it is not production facts-vs-raw release evidence"
+  ]
+}

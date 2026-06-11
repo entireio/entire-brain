@@ -311,17 +311,17 @@ func TestUpdateFactSourceManifestPreservesDistillEvidence(t *testing.T) {
 		t.Fatalf("write facts: %v", err)
 	}
 	prior := &factSourceManifest{
-		GeneratedAt:       now.Add(-time.Hour),
-		TaxonomyPath:      factsTaxonomyPath,
-		ChunksScanned:     42,
-		ChunksDistilled:   17,
-		CacheHits:         9,
-		FailedChunks:      3,
-		PreprocessedBytes: 123456,
-		ExtractionSeconds: 1.25,
-		ReconcileSeconds:  0.5,
-		WriteSeconds:      0.125,
-		Warnings:          []string{"agent timeout"},
+		GeneratedAt:           now.Add(-time.Hour),
+		TaxonomyPath:          factsTaxonomyPath,
+		ChunksScanned:         42,
+		ChunksDistilled:       17,
+		CacheHits:             9,
+		FailedChunks:          3,
+		PreprocessedBytes:     123456,
+		ExtractionWaitSeconds: 1.25,
+		ReconcileSeconds:      0.5,
+		WriteSeconds:          0.125,
+		Warnings:              []string{"agent timeout"},
 	}
 	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, Sources: &brainSources{Facts: prior}}); err != nil {
 		t.Fatalf("write manifest: %v", err)
@@ -341,7 +341,7 @@ func TestUpdateFactSourceManifestPreservesDistillEvidence(t *testing.T) {
 	if source.ChunksScanned != prior.ChunksScanned || source.ChunksDistilled != prior.ChunksDistilled ||
 		source.CacheHits != prior.CacheHits || source.FailedChunks != prior.FailedChunks ||
 		source.PreprocessedBytes != prior.PreprocessedBytes ||
-		source.ExtractionSeconds != prior.ExtractionSeconds ||
+		source.ExtractionWaitSeconds != prior.ExtractionWaitSeconds ||
 		source.ReconcileSeconds != prior.ReconcileSeconds ||
 		source.WriteSeconds != prior.WriteSeconds {
 		t.Fatalf("distill evidence was not preserved: %+v", source)

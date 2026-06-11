@@ -115,6 +115,24 @@ func (s *vecStore) load() map[string][]float32 {
 }
 
 func (s *vecStore) save(vecs map[string][]float32) error {
+	return s.savePresent(vecs, nil)
+}
+
+func (s *vecStore) savePresent(vecs map[string][]float32, present map[string]struct{}) error {
+	if present != nil {
+		merged := s.load()
+		for id := range merged {
+			if _, ok := present[id]; !ok {
+				delete(merged, id)
+			}
+		}
+		for id, vec := range vecs {
+			if _, ok := present[id]; ok {
+				merged[id] = vec
+			}
+		}
+		vecs = merged
+	}
 	db, err := s.open()
 	if err != nil {
 		return err
@@ -163,10 +181,6 @@ func (s *vecStore) save(vecs map[string][]float32) error {
 		}
 	}
 	return tx.Commit()
-}
-
-func (s *vecStore) savePresent(vecs map[string][]float32, present map[string]struct{}) error {
-	return s.save(vecs)
 }
 
 // knnCos runs one vec0 KNN MATCH over the whole store and returns cosine

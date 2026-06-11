@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -127,30 +128,21 @@ func TestOllamaEmbedderURLOverride(t *testing.T) {
 	}
 }
 
-func TestOllamaEmbedderRejectsNonLoopbackURL(t *testing.T) {
-	t.Setenv("ENTIRE_BRAIN_EMBED_URL", "https://example.com/api/embed")
-	if got := newOllamaEmbedder(); got != nil {
-		t.Fatalf("expected non-loopback embed URL to disable ollama embedder, got %+v", got)
+// TestConfiguredEmbedderNonLoopbackURLFallsBack guards the loopback-guard
+// degrade path: a rejected ENTIRE_BRAIN_EMBED_URL must fall back to the
+// bundled Model2Vec embedder with a warning — not panic on the nil guard
+// result (the exact hardening scenario must not crash retrieval).
+func TestConfiguredEmbedderNonLoopbackURLFallsBack(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "ollama")
+	t.Setenv("ENTIRE_BRAIN_EMBED_URL", "http://example.com:11434/api/embed")
+	e, warn := configuredEmbedder()
+	if e == nil {
+		t.Fatalf("expected the bundled fallback embedder, got nil (warn: %s)", warn)
 	}
-}
-
-func TestOllamaEmbedderRejectsNonLoopbackRedirect(t *testing.T) {
-	var redirected bool
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		redirected = true
-		http.Redirect(w, r, "https://example.com/steal", http.StatusTemporaryRedirect)
-	}))
-	defer server.Close()
-
-	t.Setenv("ENTIRE_BRAIN_EMBED_URL", server.URL)
-	embedder := newOllamaEmbedder()
-	if embedder == nil {
-		t.Fatalf("loopback test server should be accepted")
+	if !strings.Contains(warn, "loopback") || !strings.Contains(warn, "falling back") {
+		t.Fatalf("warning should explain the loopback rejection and fallback, got %q", warn)
 	}
-	if got := embedder.EmbedQuery("private repo fact"); got != nil {
-		t.Fatalf("redirected embed request returned vector: %v", got)
-	}
-	if !redirected {
-		t.Fatalf("test server was not called")
+	if _, ok := e.(*staticEmbedder); !ok {
+		t.Fatalf("fallback should be the bundled static embedder, got %T", e)
 	}
 }

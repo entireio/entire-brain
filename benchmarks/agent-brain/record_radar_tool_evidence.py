@@ -31,6 +31,13 @@ def test_regex() -> str:
     return "^(" + "|".join(audit.REQUIRED_TESTS) + ")$"
 
 
+def source_file_hashes(repo_root: pathlib.Path) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    for rel in audit.RADAR_TOOL_SOURCE_PATHS:
+        hashes[rel] = audit.sha256_file(repo_root / rel)
+    return hashes
+
+
 def load_manifest(path: pathlib.Path) -> dict:
     if not path.exists():
         return {}
@@ -68,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
         "schema": 1,
         "claim_scope": audit.CLAIM_SCOPE,
         "source_head": git_output(repo_root, "rev-parse", "HEAD"),
+        "source_files": source_file_hashes(repo_root),
         "generated_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "required_tests": audit.REQUIRED_TESTS,
         "artifacts": [{

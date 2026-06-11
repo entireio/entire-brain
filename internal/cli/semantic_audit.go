@@ -297,9 +297,8 @@ func semanticAuditStoreCoverage(brainDir string, source *semanticSourceManifest,
 	}
 	storePath, err := validateSemanticDeclaredStore(brainDir, source)
 	if err != nil {
-		if axis, ok := freshness.Axes["store"]; ok && axis.State != "ok" {
-			return semanticAuditCoverage{}, nil
-		}
+		// The store axis was already confirmed "ok" above, so a validation
+		// error here is a real inconsistency, not expected staleness.
 		return semanticAuditCoverage{}, fmt.Errorf("validate semantic store for audit: %w", err)
 	}
 	db, err := sql.Open(sqliteDriverName, storePath)

@@ -19,6 +19,11 @@ DISTILL_OLLAMA_SOURCE_PATHS = [
     "internal/cli/distill_test.go",
     "internal/cli/distill_cmd_test.go",
 ]
+DISTILL_PERF_SOURCE_PATHS = [
+    *DISTILL_OLLAMA_SOURCE_PATHS,
+    "benchmarks/agent-brain/audit_distill_perf.py",
+    "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py",
+]
 DISTILL_OLLAMA_REQUIRED_TESTS = [
     "TestDistillCommandOllamaLoopbackProducesTimedSummary",
     "TestExecOllamaDistillAgentUsesLoopbackGenerateAPI",
@@ -306,6 +311,30 @@ def validate_artifact_hashes(manifest: dict[str, Any], paths: dict[str, pathlib.
             flags.append(f"artifact_sha256.{key} mismatch")
 
 
+def validate_source_hashes(manifest: dict[str, Any], repo_root: pathlib.Path, flags: list[str]) -> dict[str, Any]:
+    hashes = manifest.get("source_sha256")
+    if not isinstance(hashes, dict):
+        flags.append("source_sha256 must retain current distill/evidence source hashes")
+        return {"repo_root": display_path(repo_root), "required_paths": DISTILL_PERF_SOURCE_PATHS, "matched_paths": []}
+
+    matched: list[str] = []
+    for rel in DISTILL_PERF_SOURCE_PATHS:
+        expected = hashes.get(rel)
+        if not isinstance(expected, str) or not SHA256_VALUE_RE.fullmatch(expected):
+            flags.append(f"source_sha256.{rel} must be sha256:<64 hex>")
+            continue
+        path = repo_root / rel
+        if not path.exists():
+            flags.append(f"source_sha256.{rel} source file missing under repo root")
+            continue
+        actual = file_sha256(path)
+        if actual != expected:
+            flags.append(f"source_sha256.{rel} mismatch")
+            continue
+        matched.append(rel)
+    return {"repo_root": display_path(repo_root), "required_paths": DISTILL_PERF_SOURCE_PATHS, "matched_paths": matched}
+
+
 def validate_branch_sums(dry: dict[str, Any], flags: list[str]) -> None:
     branches = dry.get("branches")
     if not isinstance(branches, list) or not branches:
@@ -316,9 +345,10 @@ def validate_branch_sums(dry: dict[str, Any], flags: list[str]) -> None:
             flags.append(f"dry_run: branch {field} sum {total} != total {dry.get(field)}")
 
 
-def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
+def audit_distill_perf_manifest(manifest_path: pathlib.Path, repo_root: pathlib.Path | None = None) -> dict[str, Any]:
     manifest_path = manifest_path.resolve()
     root = manifest_path.parent
+    repo_root = (repo_root or root).resolve()
     manifest = load_json(manifest_path)
     validate_manifest(manifest)
 
@@ -331,6 +361,7 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
     }
     target = validate_target(manifest, flags)
     validate_artifact_hashes(manifest, paths, flags)
+    source_hashes = validate_source_hashes(manifest, repo_root, flags)
     local_ollama_contract = validate_local_ollama_contract(manifest, root, flags)
     dry = load_json(paths["dry_run"])
     serial = load_json(paths["serial_run"])
@@ -371,16 +402,16 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
     for label, run in (("serial_run", serial), ("parallel_run", parallel)):
         if config_tuple(run) != expected_config:
             flags.append(f"{label}: agent/model/branch/force/chunk/confidence config differs from dry_run")
-        if run.get("jobs") is None or run.get("effective_extraction_jobs") is None:
-            flags.append(f"{label}: jobs and effective_extraction_jobs are required")
+        if run.get("jobs") is None or run.get("extraction_jobs_cap") is None:
+            flags.append(f"{label}: jobs and extraction_jobs_cap are required")
         if not positive_number(run.get("max_chunk_bytes")):
             flags.append(f"{label}: max_chunk_bytes must be positive")
         if not positive_number(run.get("total_seconds")):
             flags.append(f"{label}: total_seconds must be positive")
-        for field in ("extraction_seconds", "reconcile_seconds", "write_seconds"):
+        for field in ("extraction_wait_seconds", "reconcile_seconds", "write_seconds"):
             if not nonnegative_number(run.get(field)):
                 flags.append(f"{label}: {field} must be non-negative")
-        component_seconds = sum(float(run.get(field) or 0) for field in ("extraction_seconds", "reconcile_seconds", "write_seconds"))
+        component_seconds = sum(float(run.get(field) or 0) for field in ("extraction_wait_seconds", "reconcile_seconds", "write_seconds"))
         if positive_number(run.get("total_seconds")) and component_seconds > float(run["total_seconds"]) + 0.01:
             flags.append(f"{label}: timing components exceed total_seconds")
         if not isinstance(run.get("extraction_agent_calls"), int) or run.get("extraction_agent_calls") <= 0:
@@ -404,12 +435,12 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
 
     if serial.get("jobs") != 1:
         flags.append("serial_run: jobs must be 1")
-    if serial.get("effective_extraction_jobs") not in (0, 1):
-        flags.append("serial_run: effective_extraction_jobs must be 1 or 0 when no work exists")
+    if serial.get("extraction_jobs_cap") not in (0, 1):
+        flags.append("serial_run: extraction_jobs_cap must be 1 or 0 when no work exists")
     if not isinstance(parallel.get("jobs"), int) or parallel.get("jobs") <= 1:
         flags.append("parallel_run: jobs must be greater than 1")
-    if not isinstance(parallel.get("effective_extraction_jobs"), int) or parallel.get("effective_extraction_jobs") <= 1:
-        flags.append("parallel_run: effective_extraction_jobs must be greater than 1")
+    if not isinstance(parallel.get("extraction_jobs_cap"), int) or parallel.get("extraction_jobs_cap") <= 1:
+        flags.append("parallel_run: extraction_jobs_cap must be greater than 1")
 
     comparable_fields = ("facts", "distilled", "authored", "superseded", "proposals", "chunks_scanned", "chunks_distilled", "preprocessed_bytes", "extraction_agent_calls")
     for field in comparable_fields:
@@ -446,16 +477,17 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path) -> dict[str, Any]:
         },
         "serial_run": {
             "jobs": serial.get("jobs"),
-            "effective_extraction_jobs": serial.get("effective_extraction_jobs"),
+            "extraction_jobs_cap": serial.get("extraction_jobs_cap"),
             "total_seconds": serial.get("total_seconds"),
             "total_agent_calls": serial.get("total_agent_calls"),
         },
         "parallel_run": {
             "jobs": parallel.get("jobs"),
-            "effective_extraction_jobs": parallel.get("effective_extraction_jobs"),
+            "extraction_jobs_cap": parallel.get("extraction_jobs_cap"),
             "total_seconds": parallel.get("total_seconds"),
             "total_agent_calls": parallel.get("total_agent_calls"),
         },
+        "source_hashes": source_hashes,
         "local_ollama_contract": local_ollama_contract,
         "flags": flags,
         "notes": notes,
@@ -473,6 +505,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Required speedup: **{report['min_speedup']}x**",
         f"- Observed speedup: **{report['speedup'] if report['speedup'] is not None else 'unavailable'}x**",
         f"- Dry-run chunks: **{get(report, 'dry_run', 'chunks', default='unset')}**",
+        f"- Source hashes checked: **{len(get(report, 'source_hashes', 'matched_paths', default=[]))}/{len(get(report, 'source_hashes', 'required_paths', default=[]))}**",
     ]
     local_ollama = report.get("local_ollama_contract")
     if isinstance(local_ollama, dict):
@@ -503,6 +536,7 @@ def write_report(report: dict[str, Any], out_dir: pathlib.Path) -> pathlib.Path:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Audit retained distill dry-run and timed-run performance artifacts.")
     parser.add_argument("--manifest", type=pathlib.Path, required=True, help="Path to distill performance evidence manifest.json")
+    parser.add_argument("--repo-root", type=pathlib.Path, default=pathlib.Path.cwd(), help="Repository root used to validate source_sha256 entries")
     parser.add_argument("--out-dir", type=pathlib.Path, default=None, help="Output directory for distill-perf-audit-report.{json,md}")
     parser.add_argument("--fail-on-flags", action="store_true", help="Exit nonzero when the retained artifacts are not release evidence")
     return parser.parse_args(argv)
@@ -510,7 +544,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    report = audit_distill_perf_manifest(args.manifest)
+    report = audit_distill_perf_manifest(args.manifest, args.repo_root)
     out_dir = (args.out_dir or args.manifest.parent).resolve()
     json_path = write_report(report, out_dir)
     print(render_markdown(report).split("\n## Flags", 1)[0].rstrip())

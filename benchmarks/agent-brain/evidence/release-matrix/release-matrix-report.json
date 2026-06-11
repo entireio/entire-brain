@@ -3,13 +3,13 @@
   "manifest": "benchmarks/agent-brain/evidence/release-matrix/manifest.json",
   "notes": [
     "This is a claim-hygiene gate, not a declaration that every release blocker is closed.",
-    "release_fully_ready remains false while target large-repo distill, facts-vs-raw, workspace Radar, and broader replay proof are pending."
+    "release_fully_ready remains false while target large-repo distill, facts-vs-raw, semantic usefulness, workspace Radar, and broader replay proof are pending."
   ],
   "release_fully_ready": false,
   "rows": [
     {
       "claimable": true,
-      "detail": "proof scopes: history, mcp, mcp_radar_location_only, semantic",
+      "detail": "proof scopes: history, mcp, mcp_radar_location_only",
       "evidence": "benchmarks/agent-brain/evidence/release/codex-audit-report.json",
       "flags": [],
       "status": "proven",
@@ -33,8 +33,8 @@
     },
     {
       "claimable": false,
-      "detail": "target frontend/large-repo dry-run and paired timed artifacts still required",
-      "evidence": "benchmarks/agent-brain/evidence/target-distill/target-distill-audit-report.json",
+      "detail": "current retained speedup is current-repo command-agent scheduler proof, not the frontend/large-repo claim",
+      "evidence": "benchmarks/agent-brain/evidence/distill-perf/distill-perf-audit-report.json",
       "flags": [],
       "status": "pending-target-evidence",
       "track": "target large-repo/frontend distill performance"
@@ -56,19 +56,19 @@
       "track": "workspace Radar agent lift"
     },
     {
-      "claimable": true,
-      "detail": "freshness is verified by the live semantic:evidence gate on the current checkout",
+      "claimable": false,
+      "detail": "freshness must be verified by the live semantic:evidence gate on the final clean release checkout",
       "evidence": "mise.toml",
       "flags": [],
       "status": "local-gated",
       "track": "semantic freshness/audit health"
     },
     {
-      "claimable": true,
-      "detail": "retained semantic proof-ready benchmark shows semantic_brain lift",
+      "claimable": false,
+      "detail": "release evidence has no semantic proof-ready scope; semantic usefulness remains unclaimed",
       "evidence": "benchmarks/agent-brain/evidence/release/codex-audit-report.json",
       "flags": [],
-      "status": "proven",
+      "status": "pending-retained-proof",
       "track": "semantic usefulness benchmark claim"
     },
     {
@@ -91,9 +91,9 @@
   "schema": 1,
   "status": "pass",
   "summary": {
-    "claimable_tracks": 7,
+    "claimable_tracks": 5,
     "flags": 0,
-    "no_claim_or_pending_tracks": 3,
+    "no_claim_or_pending_tracks": 5,
     "tracks": 10
   }
 }

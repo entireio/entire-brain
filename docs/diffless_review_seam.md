@@ -68,8 +68,9 @@ lives under `benchmarks/agent-brain/evidence/radar-tool`: focused local tests
 cover location-only redaction, deletion opt-in, anchored call deletion, hinted
 changed/deleted loci across multiple files, same-name and same-function
 assignment-deletion sites, unsafe workspace pairing skips, workspace Radar,
-strict MCP argument validation, branch-aware QMD retrieval over MCP, and safe
-`tool_result` logging.
+strict MCP argument validation plus schema/validator parity, branch-aware QMD
+retrieval over MCP, per-file raw-history scan closing under descriptor pressure,
+and safe `tool_result` logging.
 
 The retained Radar agent-lift proof is
 `benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-20260610-r2`.

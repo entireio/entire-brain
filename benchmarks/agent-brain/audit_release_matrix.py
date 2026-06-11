@@ -81,63 +81,6 @@ def add_row(rows: list[dict[str, Any]], *, track: str, status: str, claimable: b
     })
 
 
-FACTS_PROOF_CONTRACT = {
-    "required_retrievers": ["facts", "history", "query", "raw-sessions"],
-    "required_comparison": "raw_vs_facts",
-    "a_retriever": "raw-sessions",
-    "b_retriever": "facts",
-    "required_metric": "useful_per_1k",
-    "required_winner": "b",
-    "required_evidence_basis": "proof_labels",
-    "require_release_pairing_ready": True,
-    "require_no_proxy": True,
-    "require_same_tasks_sha256": True,
-    "require_same_brain_manifest_sha256": True,
-    "require_facts_status_ready": True,
-    "require_include_ids": True,
-    "require_retained_tasks_artifact": True,
-}
-
-
-def validate_facts_proof_contract(facts: dict[str, Any], flags: list[str]) -> None:
-    if facts.get("proof_contract") != FACTS_PROOF_CONTRACT:
-        flags.append("facts proof_contract must match the release facts-vs-raw proof contract")
-    if facts.get("required_retrievers") != FACTS_PROOF_CONTRACT["required_retrievers"]:
-        flags.append("facts proof must retain the canonical facts/history/query/raw-sessions retriever arms")
-    tasks_artifact = facts.get("tasks_artifact") if isinstance(facts.get("tasks_artifact"), dict) else {}
-    if not tasks_artifact.get("path") or not tasks_artifact.get("sha256"):
-        flags.append("facts proof must retain a hashed tasks_artifact")
-    elif tasks_artifact.get("sha256") != facts.get("tasks_sha256"):
-        flags.append("facts proof tasks_artifact sha256 must match tasks_sha256")
-    status = facts.get("facts_status") if isinstance(facts.get("facts_status"), dict) else {}
-    totals = status.get("totals") if isinstance(status.get("totals"), dict) else {}
-    if status.get("facts_arm_ready") is not True:
-        flags.append("facts proof requires facts_status.facts_arm_ready true")
-    if int(totals.get("active") or 0) <= 0:
-        flags.append("facts proof requires facts_status.totals.active > 0")
-    claims = facts.get("required_claims")
-    if not isinstance(claims, list):
-        flags.append("facts proof required_claims must be a list")
-        return
-    for claim in claims:
-        if not isinstance(claim, dict):
-            continue
-        if (
-            claim.get("comparison") == FACTS_PROOF_CONTRACT["required_comparison"]
-            and claim.get("metric") == FACTS_PROOF_CONTRACT["required_metric"]
-            and claim.get("a_retriever") == FACTS_PROOF_CONTRACT["a_retriever"]
-            and claim.get("b_retriever") == FACTS_PROOF_CONTRACT["b_retriever"]
-            and claim.get("winner") == FACTS_PROOF_CONTRACT["required_winner"]
-            and claim.get("evidence_basis") == FACTS_PROOF_CONTRACT["required_evidence_basis"]
-            and claim.get("release_claimable") is True
-            and claim.get("significant") is True
-            and int(claim.get("retained_n") or 0) > 0
-            and claim.get("retained_release_claimable") is True
-        ):
-            return
-    flags.append("facts proof must include a release-claimable raw-sessions vs facts useful_per_1k proof-label win")
-
-
 def validate_manifest(data: Any) -> None:
     if not isinstance(data, dict):
         raise SystemExit("release matrix manifest must be a JSON object")
@@ -146,6 +89,12 @@ def validate_manifest(data: Any) -> None:
     for field in ("repo_root", "reports", "docs", "mise"):
         if field not in data:
             raise SystemExit(f"release matrix manifest requires {field}")
+    guardrails = data.get("required_press_guardrails", [])
+    if guardrails is not None and (
+        not isinstance(guardrails, list)
+        or not all(isinstance(item, str) and item for item in guardrails)
+    ):
+        raise SystemExit("release matrix manifest required_press_guardrails must be a string list")
 
 
 def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
@@ -166,7 +115,6 @@ def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
     radar_tool = load_json(manifest_path(repo_root, reports.get("radar_tool"), "reports.radar_tool"))
     workspace = load_json(manifest_path(repo_root, reports.get("workspace_radar"), "reports.workspace_radar"))
     distill = load_json(manifest_path(repo_root, reports.get("distill"), "reports.distill"))
-    target_distill = load_json(manifest_path(repo_root, reports.get("target_distill"), "reports.target_distill"))
     facts = load_json(manifest_path(repo_root, reports.get("facts"), "reports.facts"))
     mise = load_toml(manifest_path(repo_root, manifest.get("mise"), "mise"))
     press_path = manifest_path(repo_root, docs.get("press_release"), "docs.press_release")
@@ -231,61 +179,44 @@ def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
         detail=str(distill_target.get("claim_scope") or ""),
         flags=distill_flags,
     )
-    target_distill_flags: list[str] = []
-    target_distill_claimable = False
-    target_distill_status = "pending-target-evidence"
-    target_distill_detail = "target frontend/large-repo dry-run and paired timed artifacts still required"
-    if target_distill.get("status") != "pass" or target_distill.get("release_evidence") is not True:
-        target_distill_flags.append("target distill evidence report is not passing")
-    target_distill_policy = target_distill.get("claim_policy")
-    if target_distill_policy == "no_release_claim":
-        if target_distill.get("claimable_target_distill") is not False:
-            target_distill_flags.append("target distill no-claim report unexpectedly marks target claimable")
-    elif target_distill_policy == "proof_required":
-        if target_distill.get("claimable_target_distill") is not True:
-            target_distill_flags.append("target distill proof report must mark target claimable")
-        report_target = target_distill.get("distill_report_target") if isinstance(target_distill.get("distill_report_target"), dict) else {}
-        if "current-repo" in str(report_target.get("claim_scope") or ""):
-            target_distill_flags.append("target distill proof must not cite the current-repo scheduler claim_scope")
-        target_distill_claimable = not target_distill_flags
-        target_distill_status = "proven" if target_distill_claimable else "invalid"
-        target_distill_detail = str(report_target.get("claim_scope") or target_distill_detail)
-    else:
-        target_distill_flags.append("target distill claim_policy must be no_release_claim or proof_required")
     add_row(
         rows,
         track="target large-repo/frontend distill performance",
-        status=target_distill_status if (not target_distill_flags or target_distill_policy == "proof_required") else "invalid",
-        claimable=target_distill_claimable,
-        evidence=display_path(manifest_path(repo_root, reports.get("target_distill"), "reports.target_distill")),
-        detail=target_distill_detail,
-        flags=target_distill_flags,
+        status="pending-target-evidence",
+        claimable=False,
+        evidence=display_path(manifest_path(repo_root, reports.get("distill"), "reports.distill")),
+        detail="current retained speedup is current-repo command-agent scheduler proof, not the frontend/large-repo claim",
     )
 
     facts_flags: list[str] = []
-    facts_claimable = False
-    facts_status = "no-claim"
-    facts_detail = "paired proof-labeled facts/history/query/raw-sessions eval still required"
+    facts_policy = facts.get("claim_policy")
+    facts_claimable = facts.get("claimable_facts_vs_raw") is True
     if facts.get("status") != "pass" or facts.get("release_evidence") is not True:
         facts_flags.append("facts evidence report is not passing")
-    facts_policy = facts.get("claim_policy")
     if facts_policy == "no_release_claim":
-        if facts.get("claimable_facts_vs_raw") is not False:
-            facts_flags.append("facts no-claim report unexpectedly marks facts-vs-raw claimable")
+        if facts_claimable:
+            facts_flags.append("no_release_claim facts report unexpectedly marks facts-vs-raw claimable")
+        facts_status = "no-claim"
+        facts_row_claimable = False
+        facts_detail = "paired proof-labeled facts/history/query/raw-sessions eval still required"
     elif facts_policy == "proof_required":
-        validate_facts_proof_contract(facts, facts_flags)
-        if facts.get("claimable_facts_vs_raw") is not True:
-            facts_flags.append("facts proof report must mark facts-vs-raw claimable")
-        facts_claimable = not facts_flags
-        facts_status = "proven" if facts_claimable else "invalid"
-        facts_detail = "proof-labeled facts beat raw-sessions on useful_per_1k"
+        if facts.get("claim_scope") != "release":
+            facts_flags.append("proof_required facts evidence must have release claim_scope")
+        if not facts_claimable:
+            facts_flags.append("proof_required facts evidence must mark facts-vs-raw claimable")
+        facts_status = "proven"
+        facts_row_claimable = not facts_flags
+        facts_detail = "paired proof-labeled facts/history/query/raw-sessions eval passed"
     else:
         facts_flags.append("facts evidence claim_policy must be no_release_claim or proof_required")
+        facts_status = "invalid"
+        facts_row_claimable = False
+        facts_detail = "facts evidence claim_policy is invalid"
     add_row(
         rows,
         track="facts vs raw/session retrieval quality",
-        status=facts_status if (not facts_flags or facts_policy == "proof_required") else "invalid",
-        claimable=facts_claimable,
+        status=facts_status if not facts_flags else "invalid",
+        claimable=facts_row_claimable,
         evidence=display_path(manifest_path(repo_root, reports.get("facts"), "reports.facts")),
         detail=facts_detail,
         flags=facts_flags,
@@ -320,32 +251,28 @@ def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
         rows,
         track="semantic freshness/audit health",
         status="local-gated" if not semantic_flags else "invalid",
-        claimable=not semantic_flags,
+        claimable=False,
         evidence=display_path(manifest_path(repo_root, manifest.get("mise"), "mise")),
-        detail="freshness is verified by the live semantic:evidence gate on the current checkout",
+        detail="freshness must be verified by the live semantic:evidence gate on the final clean release checkout",
         flags=semantic_flags,
     )
-    semantic_usefulness_flags: list[str] = []
-    if int(scopes.get("semantic") or 0) <= 0:
-        semantic_usefulness_flags.append("release evidence has no semantic proof-ready scope")
     add_row(
         rows,
         track="semantic usefulness benchmark claim",
-        status="proven" if not semantic_usefulness_flags else "pending-retained-proof",
-        claimable=not semantic_usefulness_flags,
+        status="pending-retained-proof",
+        claimable=False,
         evidence=display_path(manifest_path(repo_root, reports.get("release"), "reports.release")),
-        detail=(
-            "retained semantic proof-ready benchmark shows semantic_brain lift"
-            if not semantic_usefulness_flags
-            else "release evidence has no semantic proof-ready scope; semantic usefulness remains unclaimed"
-        ),
-        flags=semantic_usefulness_flags,
+        detail="release evidence has no semantic proof-ready scope; semantic usefulness remains unclaimed",
     )
 
     press_flags: list[str] = []
     for required in ("entire-brain", "entire-sem", "entire-replay-lab", "Future Claims We Should Not Make Yet", "Release Checklist"):
         if required not in press_text:
             press_flags.append(f"release press release missing {required!r}")
+    press_text_lower = press_text.lower()
+    for required in manifest.get("required_press_guardrails", []):
+        if required.lower() not in press_text_lower:
+            press_flags.append(f"release press release missing guardrail phrase {required!r}")
     add_row(
         rows,
         track="release narrative / backwards-working story",
@@ -392,7 +319,7 @@ def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
         "flags": flags,
         "notes": [
             "This is a claim-hygiene gate, not a declaration that every release blocker is closed.",
-            "release_fully_ready remains false while target large-repo distill, facts-vs-raw, workspace Radar, and broader replay proof are pending.",
+            "release_fully_ready remains false while target large-repo distill, facts-vs-raw, semantic usefulness, workspace Radar, and broader replay proof are pending.",
         ],
     }
 

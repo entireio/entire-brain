@@ -577,6 +577,14 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     forbidden_logged_tool_args = forbidden_server_tool_args(str(cond), delivery_scope)
 
     # A. no_brain purity (HARD: no_brain must never touch Brain/MCP/CLI/private)
+    # Cross-check the record's claimed MCP call count against the server log.
+    # A mismatch is a NOTE, not a flag: retained evidence stays auditable, but
+    # client-side double-counting (observed: records claiming 2 calls where
+    # the log shows one tools/call) must be visible in the report instead of
+    # silently passing a "records are cross-checked" story.
+    if slog is not None and mcp_calls > 0 and slog != mcp_calls:
+        notes.append(f"N:mcp_call_count_mismatch(record={mcp_calls},server_log={slog})")
+
     if cond == "no_brain":
         if mcp_calls > 0:
             flags.append(f"A:no_brain_used_mcp({mcp_calls})")

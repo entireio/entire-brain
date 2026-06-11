@@ -62,17 +62,21 @@ type factSourceManifest struct {
 	Branch            string         `json:"branch,omitempty"`
 	Force             bool           `json:"force,omitempty"`
 	Jobs              int            `json:"jobs,omitempty"`
-	EffectiveJobs     int            `json:"effective_extraction_jobs,omitempty"`
+	ExtractionJobsCap int            `json:"extraction_jobs_cap,omitempty"`
 	MaxChunkBytes     int            `json:"max_chunk_bytes,omitempty"`
 	Confidence        float64        `json:"confidence_threshold,omitempty"`
 	ExtractionCalls   int            `json:"extraction_agent_calls,omitempty"`
 	ReconcileCalls    int            `json:"reconcile_agent_calls,omitempty"`
 	TotalAgentCalls   int            `json:"total_agent_calls,omitempty"`
-	ExtractionSeconds float64        `json:"extraction_seconds,omitempty"`
-	ReconcileSeconds  float64        `json:"reconcile_seconds,omitempty"`
-	WriteSeconds      float64        `json:"write_seconds,omitempty"`
-	TotalSeconds      float64        `json:"total_seconds,omitempty"`
-	Warnings          []string       `json:"warnings,omitempty"`
+	// ExtractionWaitSeconds is the consumer's WAIT on prefetched results, not
+	// agent compute: with concurrency > 1, calls completing in the background
+	// register ~0s here. Compare total_seconds across --jobs settings for
+	// scheduling claims.
+	ExtractionWaitSeconds float64  `json:"extraction_wait_seconds,omitempty"`
+	ReconcileSeconds      float64  `json:"reconcile_seconds,omitempty"`
+	WriteSeconds          float64  `json:"write_seconds,omitempty"`
+	TotalSeconds          float64  `json:"total_seconds,omitempty"`
+	Warnings              []string `json:"warnings,omitempty"`
 }
 
 // factRecord is one durable, self-contained statement. The id is content

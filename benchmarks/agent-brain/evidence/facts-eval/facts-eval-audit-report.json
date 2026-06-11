@@ -4,40 +4,20 @@
   "status": "pass",
   "release_evidence": true,
   "claim_policy": "no_release_claim",
+  "claim_scope": "release",
   "claimable_facts_vs_raw": false,
+  "fixture_claimable_facts_vs_raw": false,
   "tasks_sha256": "",
-  "tasks_artifact": {
-    "path": "",
-    "sha256": ""
-  },
   "brain_manifest_sha256": "",
   "required_retrievers": [],
-  "proof_contract": {
-    "required_retrievers": [
-      "facts",
-      "history",
-      "query",
-      "raw-sessions"
-    ],
-    "required_comparison": "raw_vs_facts",
-    "a_retriever": "raw-sessions",
-    "b_retriever": "facts",
-    "required_metric": "useful_per_1k",
-    "required_winner": "b",
-    "required_evidence_basis": "proof_labels",
-    "require_release_pairing_ready": true,
-    "require_no_proxy": true,
-    "require_same_tasks_sha256": true,
-    "require_same_brain_manifest_sha256": true,
-    "require_facts_status_ready": true,
-    "require_include_ids": true,
-    "require_retained_tasks_artifact": true
-  },
   "summary_paths": {},
   "comparison_paths": {},
   "required_claims": [],
   "facts_status": {
     "path": "facts-status.json",
+    "generated_at": "2026-06-10T21:00:19.133414Z",
+    "repo_head": "96d229a27676c9bf2f4b6beb2d0501750988cb9a",
+    "brain_manifest_sha256": "sha256:afc4893800636c1e5c2d8a83dd75b51c03e56d291174251ce1c85e3dbfe17db6",
     "facts_arm_ready": false,
     "totals": {
       "facts": 0,
@@ -51,14 +31,6 @@
       "verified_anchors": 0,
       "unsigned_anchors": 0
     },
-    "brain_manifest_sha256": "sha256:7a399cd02502e5a8baf8f982e7300749da93f34205f2d9c84b93acbc217ef8c8",
-    "manifest_sources": [
-      "docs",
-      "history",
-      "seed",
-      "semantic",
-      "sessions"
-    ],
     "warnings": [
       "facts retriever has no active facts; facts-vs-raw release proof cannot be collected yet",
       "brain manifest has no facts source"
