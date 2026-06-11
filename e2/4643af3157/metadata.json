@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "e24643af3157",
+  "strategy": "manual-commit",
+  "branch": "feat/workspace-verb-alignment",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/agent_benchmark_plan.md",
+    "docs/semantic_brain_plan.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e2/4643af3157/0/metadata.json",
+      "transcript": "/e2/4643af3157/0/full.jsonl",
+      "content_hash": "/e2/4643af3157/0/content_hash.txt",
+      "prompt": "/e2/4643af3157/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 60754,
+    "cache_creation_tokens": 3299844,
+    "cache_read_tokens": 345980686,
+    "output_tokens": 616896,
+    "api_call_count": 685
+  }
+}
