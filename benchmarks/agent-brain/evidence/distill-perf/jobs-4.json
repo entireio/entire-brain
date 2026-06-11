@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-10T23:45:18.42482Z",
+  "generated_at": "2026-06-11T00:17:41.733387Z",
   "taxonomy_path": "facts/taxonomy.json",
   "branches": [
     "claude/thomas-asks",
@@ -37,8 +37,8 @@
   "extraction_agent_calls": 185,
   "reconcile_agent_calls": 150,
   "total_agent_calls": 335,
-  "extraction_seconds": 1.046207959,
-  "reconcile_seconds": 3.965828253000001,
-  "write_seconds": 0.105673792,
-  "total_seconds": 5.731739375
+  "extraction_seconds": 1.0514785410000003,
+  "reconcile_seconds": 5.032472283,
+  "write_seconds": 0.114743833,
+  "total_seconds": 6.812677416
 }
