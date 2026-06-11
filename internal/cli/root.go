@@ -129,6 +129,16 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addHidden(newDoctorCommand(opts))
 	addHidden(newConfigCommand(opts.Env))
 
+	// Hidden measurement harness for the history retrieval layer (the facts
+	// analog lives under `facts eval`/`eval-gen`; summaries are compatible with
+	// `facts eval-compare`). Developer tooling, not agent surface.
+	addHidden(newHistoryEvalGenCommand(opts))
+	addHidden(newHistoryEvalCommand(opts))
+
+	// Hidden agent-harness hook surface (Phase 2 item 2): wired into hooks by
+	// the harness (Claude Code, Entire CLI), not invoked by humans or agents.
+	addHidden(newHookCommand(opts))
+
 	cmd.SetHelpCommandGroupID("maintain")
 
 	wrapJSONErrorRendering(cmd)

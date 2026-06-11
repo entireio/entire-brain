@@ -173,6 +173,39 @@ All five accept `--json`, `--format json|cli`, and `--branch`; `search`,
 you can pass to `get`/`multi-get`. `--branch` selects the durable-facts branch;
 history and docs come from the local indexed brain sources.
 
+#### Semantic embedder (vector arm)
+
+The vector arm behind `vsearch`/`query` embeds with a **bundled, pure-Go
+Model2Vec** static model by default — zero config, no daemon, fully offline. For
+higher recall you can opt into a **transformer embedder (EmbeddingGemma-300M)**
+served over a local HTTP endpoint (Ollama, or qmd's node-llama-cpp server):
+
+```sh
+ollama pull embeddinggemma                       # one-time
+ENTIRE_BRAIN_EMBEDDER=ollama entire brain query "preventing data races" --json
+```
+
+- `ENTIRE_BRAIN_EMBEDDER=ollama` selects the transformer arm. It measured **+14%
+  useful-facts-per-1k-tokens** over Model2Vec on the facts eval (pooled across
+  repos), driven mostly by *reachability* — it surfaces conceptually-related
+  facts that share no query term.
+- `ENTIRE_BRAIN_OLLAMA_MODEL` (default `embeddinggemma`) and
+  `ENTIRE_BRAIN_EMBED_URL` (default `http://localhost:11434/api/embed`) override
+  the model and endpoint. The endpoint just needs to accept `{"model","input"}`
+  and return `{"embeddings":[[…]]}`.
+- **Graceful fallback (one-time startup probe):** the embedder is chosen once, on
+  first use. If the opt-in is set but the embed server does not return an
+  embedding then (unreachable, wrong model, or an error response), the brain
+  selects the bundled Model2Vec model (one consistent vector space) and prints a
+  one-line notice on stderr rather than selecting an embedder that fails every
+  call. The probe is not repeated per embed: if a server that was healthy at
+  startup later fails mid-run, those individual embeds degrade to lexical for
+  that run. Switching embedders re-namespaces the vector cache, so the two never
+  mix.
+
+This is the Stage 1b transformer embedder available **without cgo** today; the
+in-process single-binary form is deferred (tracked in the alignment plan outside this repository).
+
 `overview` is the fastest way to orient on an unfamiliar repo: it returns a
 single project map — stack stats, route/tool/workflow counts, build/test
 commands, entrypoints, key documents, and recent decisions newest-first.
@@ -309,6 +342,19 @@ The parent Entire CLI supplies these directories:
 
 Repo keys come from the repository origin. For example,
 `github.com/entireio/cli` becomes `gh/entireio/cli`.
+
+### Environment toggles
+
+Optional `ENTIRE_BRAIN_*` variables tune retrieval and diagnostics. All are
+off/default unless set; none are required for normal use.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `ENTIRE_BRAIN_EMBEDDER` | (unset → Model2Vec) | Set to `ollama` to use the transformer embedder (EmbeddingGemma) for the vector arm instead of the bundled Model2Vec model. Falls back to Model2Vec with a stderr notice if a one-time startup probe finds the server does not return an embedding (unreachable, wrong model, or error response). See [Semantic embedder](#semantic-embedder-vector-arm). |
+| `ENTIRE_BRAIN_OLLAMA_MODEL` | `embeddinggemma` | Model name requested from the embed server when `ENTIRE_BRAIN_EMBEDDER=ollama`. |
+| `ENTIRE_BRAIN_EMBED_URL` | `http://localhost:11434/api/embed` | Embed endpoint (Ollama, or qmd's node-llama-cpp server). Must accept `{"model","input"}` and return `{"embeddings":[[…]]}`. |
+| `ENTIRE_BRAIN_FACTS_BM25` | (unset → token-overlap) | `1`/`true`/`yes`/`on` switches the facts **lexical** arm to FTS5 BM25. Experimental; measured at parity with the default scorer, kept for A/B'ing the lexical engine. |
+| `ENTIRE_BRAIN_MCP_DEBUG_LOG` | (unset) | Path to a file the stdio MCP adapter appends frame-level debug lines to. Diagnostics only. |
 
 ## Development
 

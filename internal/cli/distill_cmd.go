@@ -63,6 +63,7 @@ type distillAgentRunner func(ctx context.Context, dir string, args []string, inp
 
 type distillCommandOptions struct {
 	branch              string
+	session             string
 	force               bool
 	json                bool
 	agent               string
@@ -230,6 +231,7 @@ func newDistillCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&distillOpts.branch, "branch", "", "Limit distillation to a single branch (default: all exported branches)")
+	cmd.Flags().StringVar(&distillOpts.session, "session", "", "Limit distillation to a single session id (the fast per-session path; incompatible with --force)")
 	cmd.Flags().BoolVar(&distillOpts.force, "force", false, "Recompute all distilled facts from scratch instead of skipping unchanged sessions")
 	cmd.Flags().BoolVar(&distillOpts.json, "json", false, "Emit the fact source summary as JSON")
 	cmd.Flags().StringVar(&distillOpts.agent, "agent", "auto", "Distillation agent: auto, codex, claude-code, ollama, or command")
@@ -257,6 +259,9 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	}
 	if distillOpts.jobs <= 0 {
 		return fmt.Errorf("--jobs must be greater than 0")
+	}
+	if distillOpts.session != "" && distillOpts.force {
+		return fmt.Errorf("--session cannot be combined with --force: a forced rebuild drops every distilled fact on the session's branch but would re-derive only that session's")
 	}
 	if distillOpts.maxChunkBytes <= 0 {
 		return fmt.Errorf("--max-chunk-bytes must be greater than 0")
@@ -829,6 +834,9 @@ func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts dis
 	for _, session := range sessions {
 		branch := resolveDistillBranch(manifest, session)
 		if distillOpts.branch != "" && branch != distillOpts.branch {
+			continue
+		}
+		if distillOpts.session != "" && session.SessionID != distillOpts.session {
 			continue
 		}
 		if _, ok := branchSeen[branch]; !ok {

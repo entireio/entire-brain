@@ -10,6 +10,7 @@ import (
 
 type rememberCommandOptions struct {
 	path         string
+	kind         string
 	branch       string
 	agent        string
 	model        string
@@ -29,6 +30,7 @@ func newRememberCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&rememberOpts.path, "path", "", "Taxonomy path(s), comma-separated (e.g. preferences.coding.style). If omitted, the agent classifies the fact")
+	cmd.Flags().StringVar(&rememberOpts.kind, "kind", "", "Fact kind: decision|invariant|gotcha|preference|convention. If omitted, it is inferred")
 	cmd.Flags().StringVar(&rememberOpts.branch, "branch", "", "Branch to store the fact on (default: current branch)")
 	cmd.Flags().StringVar(&rememberOpts.agent, "agent", "auto", "Agent used to classify when --path is omitted: auto, codex, claude-code, ollama, command, or none")
 	cmd.Flags().StringVar(&rememberOpts.model, "model", "", "Model for codex/claude-code/ollama classification")
@@ -57,6 +59,15 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		return err
 	}
 
+	if err := validateKindFlag(rememberOpts.kind); err != nil {
+		return err
+	}
+	explicitKind := strings.ToLower(strings.TrimSpace(rememberOpts.kind))
+	kind := explicitKind
+	if kind == "" {
+		kind = inferFactKind(paths, text)
+	}
+
 	anchor := factAnchor{}
 	if commit, gitErr := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD"); gitErr == nil {
 		anchor.Commit = strings.TrimSpace(commit)
@@ -65,6 +76,8 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 	record := factRecord{
 		ID:         factRecordID(text, paths),
 		Paths:      paths,
+		Kind:       kind,
+		Locus:      factLocus(text),
 		Text:       text,
 		Branch:     branch,
 		Origin:     factOriginAuthored,
@@ -74,12 +87,23 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		UpdatedAt:  now,
 	}
 
+	storedKind := kind
 	if err := withBrainWriteLock(brainDir, func() error {
 		facts, err := loadFacts(brainDir, branch)
 		if err != nil {
 			return err
 		}
 		facts = upsertFact(facts, record)
+		// An explicit --kind is a deliberate human correction and must win even
+		// when the fact already exists, where upsertFact's anti-thrash rule
+		// would otherwise keep the stored kind. The reported kind is then always
+		// the one actually persisted, never a discarded request.
+		if i := indexOfFact(facts, record.ID); i >= 0 {
+			if explicitKind != "" {
+				facts[i].Kind = explicitKind
+			}
+			storedKind = factKindOrInferred(facts[i])
+		}
 		if err := writeFacts(brainDir, branch, facts); err != nil {
 			return err
 		}
@@ -91,10 +115,11 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		return err
 	}
 
+	record.Kind = storedKind // report what was actually persisted
 	if rememberOpts.json {
 		return writeJSON(cmd, record)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "remembered %s [%s] on %s\n", record.ID, strings.Join(paths, ","), branch)
+	fmt.Fprintf(cmd.OutOrStdout(), "remembered %s [%s] %s on %s\n", record.ID, storedKind, strings.Join(paths, ","), branch)
 	return nil
 }
 

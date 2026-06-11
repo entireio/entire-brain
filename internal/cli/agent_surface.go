@@ -89,18 +89,22 @@ type brainLiveState struct {
 }
 
 type brainBriefReport struct {
-	GeneratedAt     time.Time          `json:"generated_at"`
-	Task            string             `json:"task"`
-	Status          brainStatusReport  `json:"status"`
-	Semantic        brainBriefSemantic `json:"semantic"`
-	History         brainBriefHistory  `json:"history"`
-	Facts           []factRecord       `json:"facts,omitempty"`
-	ActionChecklist []brainBriefAction `json:"action_checklist,omitempty"`
-	LikelyEditFiles []string           `json:"likely_edit_files,omitempty"`
-	LikelyTestFiles []string           `json:"likely_test_files,omitempty"`
-	LikelyFiles     []string           `json:"likely_files,omitempty"`
-	Guidance        []string           `json:"guidance"`
-	Warnings        []string           `json:"warnings,omitempty"`
+	GeneratedAt time.Time          `json:"generated_at"`
+	Task        string             `json:"task"`
+	Status      brainStatusReport  `json:"status"`
+	Semantic    brainBriefSemantic `json:"semantic"`
+	History     brainBriefHistory  `json:"history"`
+	Facts       []factRecord       `json:"facts,omitempty"`
+	// FactsLocusDrift flags surfaced facts whose code locus no longer exists
+	// in the worktree (fact id -> departed locus tokens) — the "re-verify
+	// before trusting" signal (Phase 2 item 4).
+	FactsLocusDrift map[string][]string `json:"facts_locus_drift,omitempty"`
+	ActionChecklist []brainBriefAction  `json:"action_checklist,omitempty"`
+	LikelyEditFiles []string            `json:"likely_edit_files,omitempty"`
+	LikelyTestFiles []string            `json:"likely_test_files,omitempty"`
+	LikelyFiles     []string            `json:"likely_files,omitempty"`
+	Guidance        []string            `json:"guidance"`
+	Warnings        []string            `json:"warnings,omitempty"`
 }
 
 type brainBriefSemantic struct {
@@ -204,6 +208,27 @@ func newBrainOverviewCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
+// dedupSeedCommands removes exact (Name, Command) duplicates — common in a
+// monorepo where several package.json files surface the same scripted command —
+// while preserving order. Same-name/different-command entries are kept (they are
+// genuinely distinct) and disambiguated by source at render time.
+func dedupSeedCommands(commands []seedCommand) []seedCommand {
+	if len(commands) == 0 {
+		return commands
+	}
+	seen := make(map[string]struct{}, len(commands))
+	out := make([]seedCommand, 0, len(commands))
+	for _, c := range commands {
+		key := c.Name + "\x00" + c.Command
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, c)
+	}
+	return out
+}
+
 func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, target string, jsonOut bool, decisions int) error {
 	status, err := buildBrainStatusReport(ctx, opts, target)
 	if err != nil {
@@ -241,7 +266,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 		}
 		if seed := status.Manifest.Sources.Seed; seed != nil {
 			report.Entrypoints = seed.Entrypoints
-			report.Commands = seed.Commands
+			report.Commands = dedupSeedCommands(seed.Commands)
 			for _, doc := range seed.Documents {
 				report.Documents = append(report.Documents, doc.Path)
 			}
@@ -312,9 +337,20 @@ func renderBrainOverviewText(cmd *cobra.Command, report brainOverviewReport) {
 		fmt.Fprintf(out, "boundaries: routes=%d tools=%d workflows=%d\n", report.Boundaries["routes"], report.Boundaries["tools"], report.Boundaries["workflows"])
 	}
 	if len(report.Commands) > 0 {
+		nameCounts := map[string]int{}
+		for _, c := range report.Commands {
+			nameCounts[c.Name]++
+		}
 		fmt.Fprintln(out, "commands:")
 		for _, c := range report.Commands {
-			fmt.Fprintf(out, "  %s: %s\n", c.Name, c.Command)
+			// Same-name different-command entries (e.g. two `build`s from
+			// different package.json files) are disambiguated by source so
+			// they don't read as accidental duplicates.
+			if nameCounts[c.Name] > 1 && c.Source != "" {
+				fmt.Fprintf(out, "  %s (%s): %s\n", c.Name, c.Source, c.Command)
+			} else {
+				fmt.Fprintf(out, "  %s: %s\n", c.Name, c.Command)
+			}
 		}
 	}
 	if len(report.Entrypoints) > 0 {
@@ -364,17 +400,32 @@ func freshnessSummary(report staleReport) string {
 
 func newBrainBriefCommand(opts Options) *cobra.Command {
 	briefOpts := brainBriefOptions{limit: brainBriefDefaultLimit}
+	var (
+		handoff         bool
+		handoffSessions int
+	)
 	cmd := &cobra.Command{
-		Use:   "brief <task>",
+		Use:   "brief <task> | brief --handoff",
 		Short: "Build a bounded task packet from brain context and live state",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if handoff {
+				// The handoff packet is session-trajectory-driven, not
+				// query-driven: "what was in flight, what failed, what's
+				// blocked" for an agent resuming cold (Phase 2 item 3).
+				return runBrainHandoff(cmd.Context(), cmd, opts, handoffSessions, briefOpts.json)
+			}
+			if len(args) != 1 {
+				return fmt.Errorf("brief requires a <task> argument (or --handoff for a resumption packet)")
+			}
 			return runBrainBrief(cmd.Context(), cmd, opts, briefOpts, args[0])
 		},
 	}
 	cmd.Flags().BoolVar(&briefOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum semantic records per section")
 	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Disable embedding rerank for facts; use lexical ranking only")
+	cmd.Flags().BoolVar(&handoff, "handoff", false, "Emit a session-resumption packet (recent sessions' requests, decisions, validations) instead of a task packet")
+	cmd.Flags().IntVar(&handoffSessions, "sessions", handoffDefaultSessions, "Sessions to include in the --handoff packet")
 	return cmd
 }
 
@@ -714,6 +765,7 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			}
 		}
 	}
+	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, report.Facts)
 	report.LikelyEditFiles, report.LikelyTestFiles, report.LikelyFiles = brainBriefLikelyFileGroups(status.Repo.Root, report, task)
 	report.LikelyTestFiles = brainBriefAddSiblingTestFiles(status.Repo.Root, report.LikelyEditFiles, report.LikelyTestFiles)
 	report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
@@ -753,6 +805,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	}
 	for _, fact := range report.Facts {
 		fmt.Fprintf(cmd.OutOrStdout(), "fact [%s] %s\n", strings.Join(fact.Paths, ","), fact.Text)
+		if gone := report.FactsLocusDrift[fact.ID]; len(gone) > 0 {
+			fmt.Fprintf(cmd.OutOrStdout(), "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
+		}
 	}
 	for _, item := range report.ActionChecklist {
 		location := item.File
@@ -1838,7 +1893,7 @@ func findSemanticRecordByIDOrName(brainDir string, source *semanticSourceManifes
 }
 
 func findSemanticRecordByIDOrNameSQLite(storePath, idOrName string) (semanticRecord, error) {
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		return semanticRecord{}, err
 	}

@@ -1828,6 +1828,40 @@ func TestSemanticChangesMapsChangedFilesToSymbols(t *testing.T) {
 	}
 }
 
+func TestSemanticChangesCleanWorktreeSignalsNoChanges(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{stdout: ""}
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	var out bytes.Buffer
+	changesCmd := &cobra.Command{Use: "changes"}
+	changesCmd.SetOut(&out)
+	if err := runSemanticChanges(changesCmd.Context(), changesCmd, opts, semanticChangesOptions{limit: 10, json: true}); err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	if !strings.Contains(out.String(), `"clean": true`) {
+		t.Fatalf("clean worktree JSON missing clean=true:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), `"files": []`) || !strings.Contains(out.String(), `"symbols": []`) {
+		t.Fatalf("clean worktree JSON should have empty arrays not null:\n%s", out.String())
+	}
+	// Text mode should say so explicitly rather than render nothing.
+	var textOut bytes.Buffer
+	textCmd := &cobra.Command{Use: "changes"}
+	textCmd.SetOut(&textOut)
+	if err := runSemanticChanges(textCmd.Context(), textCmd, opts, semanticChangesOptions{limit: 10, json: false}); err != nil {
+		t.Fatalf("changes text: %v", err)
+	}
+	if !strings.Contains(textOut.String(), "no changes since the indexed HEAD") {
+		t.Fatalf("clean worktree text missing explicit signal:\n%s", textOut.String())
+	}
+}
+
 func TestSemanticChangesIncludesRenamedOldPath(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -2047,6 +2081,46 @@ func TestSemanticContextSQLiteFiltersRelationsBeforeLimit(t *testing.T) {
 	}
 	if len(symbols) != 1 || len(relations) != 1 || relations[0].FromID != "caller" {
 		t.Fatalf("context = symbols %+v relations %+v", symbols, relations)
+	}
+}
+
+// semanticFixtureSnapshotWithCallerSymbol has the relation endpoint present as
+// its own symbol record, so context can materialize it as a neighbor.
+func semanticFixtureSnapshotWithShortCallerSymbol() string {
+	return `{"schema_version":"1.0","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
+{"record_type":"symbol","id":"target","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
+{"record_type":"symbol","id":"caller","kind":"function","name":"HandleLogin","qualified_name":"api.HandleLogin","file_path":"internal/api/login.go","start_line":30,"end_line":50,"signature":"func HandleLogin() error","language":"Go","stable_id_version":"1"}
+{"record_type":"relation","from_id":"caller","to_id":"target","type":"CALLS","confidence":1}
+`
+}
+
+func TestSemanticContextMaterializesNeighbors(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshotWithShortCallerSymbol())
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	source := mustSemanticSource(t, env)
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	symbols, relations, neighbors, err := semanticContextFacts(brainDir, source, "ValidateToken", 1, 0)
+	if err != nil {
+		t.Fatalf("context facts: %v", err)
+	}
+	if len(symbols) != 1 || symbols[0].ID != "target" {
+		t.Fatalf("symbols = %+v", symbols)
+	}
+	if len(relations) != 1 || relations[0].FromID != "caller" {
+		t.Fatalf("relations = %+v", relations)
+	}
+	if len(neighbors) != 1 {
+		t.Fatalf("neighbors = %+v, want the caller materialized", neighbors)
+	}
+	got := neighbors[0]
+	if got.ID != "caller" || got.Name != "HandleLogin" || got.FilePath != "internal/api/login.go" || got.StartLine != 30 {
+		t.Fatalf("neighbor = %+v, want the HandleLogin caller record", got)
 	}
 }
 
@@ -3242,7 +3316,7 @@ func TestBundleImportRejectsSQLiteCountMismatchWithOmittedCounts(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	dbPath := filepath.Join(t.TempDir(), semanticSQLiteName)
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open(sqliteDriverName, dbPath)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -3274,7 +3348,7 @@ func TestBundleImportRebuildsSQLiteStoreFromSnapshot(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	dbPath := filepath.Join(t.TempDir(), semanticSQLiteName)
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open(sqliteDriverName, dbPath)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -3441,7 +3515,7 @@ func TestBundleExportRedactsSnapshotRecordFreeText(t *testing.T) {
 	if err := os.WriteFile(storePath, storeData, 0o600); err != nil {
 		t.Fatalf("write bundled sqlite: %v", err)
 	}
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		t.Fatalf("open bundled sqlite: %v", err)
 	}
@@ -3545,7 +3619,7 @@ func TestBundleExportPreservesDistinctRedactedRecordIDs(t *testing.T) {
 	if err := os.WriteFile(storePath, storeData, 0o600); err != nil {
 		t.Fatalf("write bundled sqlite: %v", err)
 	}
-	db, err := sql.Open("sqlite", storePath)
+	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		t.Fatalf("open bundled sqlite: %v", err)
 	}
@@ -3977,7 +4051,7 @@ func writeSemanticTestLock(t *testing.T, brainDir string) {
 
 func semanticTestSQLCount(t *testing.T, path, table string) int {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open(sqliteDriverName, path)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

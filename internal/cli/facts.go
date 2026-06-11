@@ -40,38 +40,39 @@ var factPathPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z0-9_]+){2}$`)
 // factSourceManifest is recorded under sources.facts in the brain manifest,
 // parallel to historySourceManifest and the semantic source metadata.
 type factSourceManifest struct {
-	GeneratedAt       time.Time `json:"generated_at"`
-	TaxonomyPath      string    `json:"taxonomy_path"`
-	Branches          []string  `json:"branches,omitempty"`
-	Facts             int       `json:"facts"`
-	Distilled         int       `json:"distilled"`
-	Authored          int       `json:"authored"`
-	Superseded        int       `json:"superseded"`
-	Proposals         int       `json:"proposals"`
-	Verified          int       `json:"verified"`
-	Unsigned          int       `json:"unsigned"`
-	ChunksScanned     int       `json:"chunks_scanned"`
-	ChunksDistilled   int       `json:"chunks_distilled"`
-	CacheHits         int       `json:"cache_hits,omitempty"`
-	FailedChunks      int       `json:"failed_chunks,omitempty"`
-	PreprocessedBytes int64     `json:"preprocessed_bytes,omitempty"`
-	Agent             string    `json:"agent,omitempty"`
-	Model             string    `json:"model,omitempty"`
-	Effort            string    `json:"effort,omitempty"`
-	Branch            string    `json:"branch,omitempty"`
-	Force             bool      `json:"force,omitempty"`
-	Jobs              int       `json:"jobs,omitempty"`
-	EffectiveJobs     int       `json:"effective_extraction_jobs,omitempty"`
-	MaxChunkBytes     int       `json:"max_chunk_bytes,omitempty"`
-	Confidence        float64   `json:"confidence_threshold,omitempty"`
-	ExtractionCalls   int       `json:"extraction_agent_calls,omitempty"`
-	ReconcileCalls    int       `json:"reconcile_agent_calls,omitempty"`
-	TotalAgentCalls   int       `json:"total_agent_calls,omitempty"`
-	ExtractionSeconds float64   `json:"extraction_seconds,omitempty"`
-	ReconcileSeconds  float64   `json:"reconcile_seconds,omitempty"`
-	WriteSeconds      float64   `json:"write_seconds,omitempty"`
-	TotalSeconds      float64   `json:"total_seconds,omitempty"`
-	Warnings          []string  `json:"warnings,omitempty"`
+	GeneratedAt       time.Time      `json:"generated_at"`
+	TaxonomyPath      string         `json:"taxonomy_path"`
+	Branches          []string       `json:"branches,omitempty"`
+	Facts             int            `json:"facts"`
+	Distilled         int            `json:"distilled"`
+	Authored          int            `json:"authored"`
+	Superseded        int            `json:"superseded"`
+	Proposals         int            `json:"proposals"`
+	Verified          int            `json:"verified"`
+	Unsigned          int            `json:"unsigned"`
+	ByKind            map[string]int `json:"by_kind,omitempty"`
+	ChunksScanned     int            `json:"chunks_scanned"`
+	ChunksDistilled   int            `json:"chunks_distilled"`
+	CacheHits         int            `json:"cache_hits,omitempty"`
+	FailedChunks      int            `json:"failed_chunks,omitempty"`
+	PreprocessedBytes int64          `json:"preprocessed_bytes,omitempty"`
+	Agent             string         `json:"agent,omitempty"`
+	Model             string         `json:"model,omitempty"`
+	Effort            string         `json:"effort,omitempty"`
+	Branch            string         `json:"branch,omitempty"`
+	Force             bool           `json:"force,omitempty"`
+	Jobs              int            `json:"jobs,omitempty"`
+	EffectiveJobs     int            `json:"effective_extraction_jobs,omitempty"`
+	MaxChunkBytes     int            `json:"max_chunk_bytes,omitempty"`
+	Confidence        float64        `json:"confidence_threshold,omitempty"`
+	ExtractionCalls   int            `json:"extraction_agent_calls,omitempty"`
+	ReconcileCalls    int            `json:"reconcile_agent_calls,omitempty"`
+	TotalAgentCalls   int            `json:"total_agent_calls,omitempty"`
+	ExtractionSeconds float64        `json:"extraction_seconds,omitempty"`
+	ReconcileSeconds  float64        `json:"reconcile_seconds,omitempty"`
+	WriteSeconds      float64        `json:"write_seconds,omitempty"`
+	TotalSeconds      float64        `json:"total_seconds,omitempty"`
+	Warnings          []string       `json:"warnings,omitempty"`
 }
 
 // factRecord is one durable, self-contained statement. The id is content
@@ -79,8 +80,10 @@ type factSourceManifest struct {
 // is idempotent and dedupe is a map lookup.
 type factRecord struct {
 	ID           string       `json:"id"`
-	Paths        []string     `json:"paths"` // 1-2 taxonomy paths
-	Text         string       `json:"text"`  // third person about the user
+	Paths        []string     `json:"paths"`           // 1-2 taxonomy paths (topic label)
+	Kind         string       `json:"kind,omitempty"`  // decision|invariant|gotcha|preference|convention|closed-negative
+	Locus        []string     `json:"locus,omitempty"` // code identifiers/paths the fact is about (WHERE)
+	Text         string       `json:"text"`            // third person about the user
 	Branch       string       `json:"branch"`
 	Origin       string       `json:"origin"` // "distilled" | "authored"
 	Status       string       `json:"status"` // "active" | "superseded" | "retracted"
@@ -286,6 +289,12 @@ func upsertFact(records []factRecord, incoming factRecord) []factRecord {
 		if incoming.UpdatedAt.After(records[i].UpdatedAt) {
 			records[i].UpdatedAt = incoming.UpdatedAt
 		}
+		// Fill Kind from a re-distill when the stored fact lacks a valid one, but
+		// don't overwrite an existing valid kind (avoids thrash between an
+		// agent-labeled and an inferred value across runs).
+		if !validFactKind(records[i].Kind) && validFactKind(incoming.Kind) {
+			records[i].Kind = incoming.Kind
+		}
 		return records
 	}
 	return append(records, incoming)
@@ -422,6 +431,7 @@ func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, chunks
 		ChunksScanned:   chunksScanned,
 		ChunksDistilled: chunksDistilled,
 		Warnings:        append([]string(nil), warnings...),
+		ByKind:          map[string]int{},
 	}
 	branches := make([]string, 0, len(byBranch))
 	for branch := range byBranch {
@@ -440,6 +450,12 @@ func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, chunks
 			}
 			if record.Status == factStatusSuperseded {
 				source.Superseded++
+			}
+			// by_kind counts only active facts, matching what recall/tree surface
+			// (superseded/retracted facts are not retrievable), so the histogram
+			// answers "what kinds can I recall" rather than paralleling Facts.
+			if record.Status == factStatusActive {
+				source.ByKind[factKindOrInferred(record)]++
 			}
 			for _, anchor := range record.Provenance {
 				if anchor.Verified {
