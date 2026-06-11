@@ -1999,38 +1999,6 @@ type staleAxis struct {
 	Indexed string `json:"indexed,omitempty"`
 }
 
-func newSemanticStaleCommand(opts Options) *cobra.Command {
-	var jsonOut bool
-	var blindSpots bool
-	cmd := &cobra.Command{
-		Use:   "stale [path]",
-		Short: "Report semantic brain freshness",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			target := "."
-			if opts.Env.RepoRoot != "" {
-				target = opts.Env.RepoRoot
-			}
-			if len(args) == 1 {
-				target = args[0]
-			}
-			return runSemanticStale(cmd.Context(), cmd, opts, target, jsonOut, blindSpots)
-		},
-	}
-	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&blindSpots, "blind-spots", false, "List the files the semantic provider failed to fully index")
-	return cmd
-}
-
-// staleReportWithBlindSpots augments a freshness report with the concrete list
-// of files the semantic provider could not fully index, so an agent knows
-// exactly where its semantic answers are untrustworthy instead of only seeing
-// an aggregate "N partial failures" count.
-type staleReportWithBlindSpots struct {
-	staleReport
-	BlindSpots []brainBlindSpot `json:"blind_spots,omitempty"`
-}
-
 type brainBlindSpot struct {
 	Path   string `json:"path"`
 	Code   string `json:"code,omitempty"`
@@ -2082,61 +2050,6 @@ func brainBlindSpotsForRepo(ctx context.Context, opts Options, target string) ([
 		})
 	}
 	return spots, nil
-}
-
-func runSemanticStale(ctx context.Context, cmd *cobra.Command, opts Options, target string, jsonOut, blindSpots bool) error {
-	report, err := semanticStaleReport(ctx, opts, target)
-	if err != nil {
-		return err
-	}
-	var spots []brainBlindSpot
-	if blindSpots {
-		spots, err = brainBlindSpotsForRepo(ctx, opts, target)
-		if err != nil {
-			return err
-		}
-	}
-	if jsonOut {
-		var payload any = report
-		if blindSpots {
-			payload = staleReportWithBlindSpots{staleReport: report, BlindSpots: spots}
-		}
-		data, err := json.MarshalIndent(payload, "", "  ")
-		if err != nil {
-			return err
-		}
-		fmt.Fprintln(cmd.OutOrStdout(), string(data))
-		return nil
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", report.Severity)
-	keys := make([]string, 0, len(report.Axes))
-	for key := range report.Axes {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		axis := report.Axes[key]
-		fmt.Fprintf(cmd.OutOrStdout(), "%s: %s", key, axis.State)
-		if axis.Detail != "" {
-			fmt.Fprintf(cmd.OutOrStdout(), " (%s)", axis.Detail)
-		}
-		fmt.Fprintln(cmd.OutOrStdout())
-	}
-	if blindSpots {
-		if len(spots) == 0 {
-			fmt.Fprintln(cmd.OutOrStdout(), "blind-spots: none")
-		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "blind-spots: %d files not fully indexed\n", len(spots))
-			for _, spot := range spots {
-				fmt.Fprintf(cmd.OutOrStdout(), "  %s", spot.Path)
-				if spot.Code != "" {
-					fmt.Fprintf(cmd.OutOrStdout(), " [%s]", spot.Code)
-				}
-				fmt.Fprintln(cmd.OutOrStdout())
-			}
-		}
-	}
-	return nil
 }
 
 func semanticStaleReport(ctx context.Context, opts Options, target string) (staleReport, error) {

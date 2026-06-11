@@ -5,7 +5,7 @@ network listener, fetch remote data, or call hosted models.
 
 Available tools:
 
-- `brain_stale`
+- `brain_status`
 - `brain_brief`
 - Unified retrieval (qmd-inspired): `brain_query` (hybrid lexical+vector, RRF),
   `brain_search` (lexical), `brain_vsearch` (vector), `brain_get`, `brain_multi_get`
@@ -22,6 +22,7 @@ the CLI JSON contracts as the source of truth for fields and freshness policy.
 pass to `brain_get`/`brain_multi_get`. (The earlier `brain_history` tool was
 removed — history is now one source within the unified lexical/hybrid verbs.)
 
-Workspace query and impact traversal currently live in the CLI
-(`entire brain workspace query|impact`). MCP exposes the single-repo tools plus
-workspace review/regression helpers.
+Workspace symbol traversal and unified retrieval currently live in the CLI
+(`entire brain workspace inspect context|impact|regressions` and
+`entire brain workspace search|vsearch|query|get`). MCP exposes
+the single-repo tools plus workspace review/regression helpers.

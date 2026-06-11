@@ -1413,7 +1413,7 @@ def mcp_history_required_tools(runner: "RunnerSpec | None") -> tuple[str, ...]:
 
 def mcp_required_tools(condition: str, runner: "RunnerSpec | None") -> tuple[str, ...]:
     if condition == "mcp_semantic":
-        return ("brain_stale",)
+        return ("brain_status",)
     if condition == "mcp_workspace_radar":
         return ("brain_workspace_regressions",)
     if condition == "mcp_history":
@@ -1558,7 +1558,7 @@ def prepare_condition_history(task: dict[str, Any], condition: str, worktree: pa
 def copy_checkpoint_ref(source: pathlib.Path, worktree: pathlib.Path) -> None:
     """Bring the Entire checkpoint branch (real session history, synced from the
     checkpoint remote, e.g. entireio/cli-checkpoints) into the disposable worktree
-    so `entire brain export` materializes the same sessions the live repo sees.
+    so `entire brain refresh sessions` materializes the same sessions the live repo sees.
     The ref is removed again before the agent runs (remove_agent_visible_entire_history),
     so the agent cannot read raw transcripts via git; only the indexed brain remains."""
     probe = run_cmd(["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=source)
@@ -2356,7 +2356,7 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
     elif condition in {"semantic_brain", "semantic_cli"}:
         policy = "Use the prepared Entire Brain seed context before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not rely on semantic query commands."
     elif condition == "mcp_semantic" and semantic_available:
-        policy = f"""Use the Entire Brain MCP server before editing. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Then start with the `brain_stale` MCP tool, followed by `brain_context`, `brain_impact`, `brain_changes`, or `brain_code` for focused semantic graph context. Useful query terms: {queries}. Do not call `brain_query` for this semantic-only condition; it is unified facts/history/docs retrieval, not semantic graph inspection. Do not run the `entire brain` CLI and do not inspect checkpoint transcripts or session history."""
+        policy = f"""Use the Entire Brain MCP server before editing. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Then start with the `brain_status` MCP tool, followed by `brain_context`, `brain_impact`, `brain_changes`, or `brain_code` for focused semantic graph context. Useful query terms: {queries}. Do not call `brain_query` for this semantic-only condition; it is unified facts/history/docs retrieval, not semantic graph inspection. Do not run the `entire brain` CLI and do not inspect checkpoint transcripts or session history."""
     elif condition == "mcp_semantic":
         policy = "Use the Entire Brain MCP server before editing. Semantic indexing is disabled for this large-repo benchmark condition, so do not run semantic CLI commands or inspect checkpoint transcripts."
     elif condition == "mcp_workspace_radar":
@@ -2465,7 +2465,7 @@ def codex_mcp_config_args(tools: dict[str, pathlib.Path], env: dict[str, str]) -
         "--config",
         "mcp_servers.entire_brain.required=true",
         "--config",
-        'mcp_servers.entire_brain.enabled_tools=["brain_stale","brain_brief","brain_query","brain_search","brain_vsearch","brain_get","brain_multi_get","brain_context","brain_impact","brain_changes","brain_regressions","brain_review","brain_workspace_regressions","brain_workspace_review"]',
+        'mcp_servers.entire_brain.enabled_tools=["brain_status","brain_brief","brain_query","brain_search","brain_vsearch","brain_get","brain_multi_get","brain_context","brain_impact","brain_changes","brain_regressions","brain_review","brain_workspace_regressions","brain_workspace_review"]',
         "--config",
         'mcp_servers.entire_brain.default_tools_approval_mode="approve"',
         "--config",
@@ -2937,7 +2937,7 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
     checked_brief = "brief" in brain_commands
     if any(name.endswith("brain_brief") or name == "brain_brief" for name in mcp_tool_names):
         checked_brief = True
-    checked_freshness = bool({"brief", "status", "stale"} & set(brain_commands)) or any(name.endswith("brain_stale") for name in mcp_tool_names)
+    checked_freshness = bool({"brief", "status", "stale"} & set(brain_commands)) or any(name.endswith(("brain_stale", "brain_status")) for name in mcp_tool_names)
     test_commands = sorted(
         set(
             re.findall(

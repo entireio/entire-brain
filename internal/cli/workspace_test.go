@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,7 +102,7 @@ func TestWorkspaceWatchRejectsInvalidJobsBeforeWork(t *testing.T) {
 	}
 }
 
-func TestWorkspaceCreateAddRefreshAndQuery(t *testing.T) {
+func TestWorkspaceCreateAddRefreshAndContext(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
@@ -114,8 +115,11 @@ func TestWorkspaceCreateAddRefreshAndQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workspace create: %v", err)
 	}
-	if !strings.Contains(out, filepath.Join(repoStoreDirName, workspaceDirName, "payments-platform")) {
+	if !strings.Contains(out, filepath.Join(workspaceDirName, "payments-platform")) {
 		t.Fatalf("create output = %q", out)
+	}
+	if strings.Contains(out, filepath.Join(repoStoreDirName, workspaceDirName)) {
+		t.Fatalf("workspace must live beside repos/, not inside it: %q", out)
 	}
 	if _, err := execute(t, cmd, "workspace", "add", "payments-platform", repoDir, "--name", "api"); err != nil {
 		t.Fatalf("workspace add: %v", err)
@@ -127,17 +131,17 @@ func TestWorkspaceCreateAddRefreshAndQuery(t *testing.T) {
 	if !strings.Contains(refreshOut, "gh/example/repo ok") {
 		t.Fatalf("refresh output = %q", refreshOut)
 	}
-	queryOut, err := execute(t, cmd, "workspace", "query", "payments-platform", "ValidateToken", "--json")
+	contextOut, err := execute(t, cmd, "workspace", "inspect", "context", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
-		t.Fatalf("workspace query: %v", err)
+		t.Fatalf("workspace context: %v", err)
 	}
-	if !strings.Contains(queryOut, `"repo_key": "gh/example/repo"`) || !strings.Contains(queryOut, `"ValidateToken"`) {
-		t.Fatalf("query output missing workspace symbol:\n%s", queryOut)
+	if !strings.Contains(contextOut, `"repo_key": "gh/example/repo"`) || !strings.Contains(contextOut, `"ValidateToken"`) {
+		t.Fatalf("context output missing workspace symbol:\n%s", contextOut)
 	}
-	if !strings.Contains(queryOut, `"contract_state": "ok"`) {
-		t.Fatalf("query output missing contract freshness:\n%s", queryOut)
+	if !strings.Contains(contextOut, `"contract_state": "ok"`) {
+		t.Fatalf("context output missing contract freshness:\n%s", contextOut)
 	}
-	impactOut, err := execute(t, cmd, "workspace", "impact", "payments-platform", "ValidateToken", "--json")
+	impactOut, err := execute(t, cmd, "workspace", "inspect", "impact", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
 		t.Fatalf("workspace impact: %v", err)
 	}
@@ -172,16 +176,16 @@ func TestWorkspaceRefreshReportsRepoSemanticFreshness(t *testing.T) {
 	if !strings.Contains(out, "gh/example/repo unsafe") {
 		t.Fatalf("refresh output = %q", out)
 	}
-	queryOut, err := execute(t, cmd, "workspace", "query", "payments-platform", "ValidateToken", "--json")
+	contextOut, err := execute(t, cmd, "workspace", "inspect", "context", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
-		t.Fatalf("workspace query: %v", err)
+		t.Fatalf("workspace context: %v", err)
 	}
-	if !strings.Contains(queryOut, `"state": "unsafe"`) {
-		t.Fatalf("query output missing freshness:\n%s", queryOut)
+	if !strings.Contains(contextOut, `"state": "unsafe"`) {
+		t.Fatalf("context output missing freshness:\n%s", contextOut)
 	}
 }
 
-func TestWorkspaceQueryAndImpactReportLockedSemanticIndex(t *testing.T) {
+func TestWorkspaceContextAndImpactReportLockedSemanticIndex(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
@@ -202,14 +206,14 @@ func TestWorkspaceQueryAndImpactReportLockedSemanticIndex(t *testing.T) {
 	}
 	defer unlock()
 
-	queryOut, err := execute(t, cmd, "workspace", "query", "payments-platform", "ValidateToken", "--json")
+	contextOut, err := execute(t, cmd, "workspace", "inspect", "context", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
-		t.Fatalf("workspace query: %v", err)
+		t.Fatalf("workspace context: %v", err)
 	}
-	if !strings.Contains(queryOut, `"error": "index_locked:`) {
-		t.Fatalf("query output missing lock error:\n%s", queryOut)
+	if !strings.Contains(contextOut, `"error": "index_locked:`) {
+		t.Fatalf("context output missing lock error:\n%s", contextOut)
 	}
-	impactOut, err := execute(t, cmd, "workspace", "impact", "payments-platform", "ValidateToken", "--json")
+	impactOut, err := execute(t, cmd, "workspace", "inspect", "impact", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
 		t.Fatalf("workspace impact: %v", err)
 	}
@@ -255,7 +259,7 @@ func TestWorkspaceStoresRepoKeyAndLocalPathHint(t *testing.T) {
 	if _, err := execute(t, cmd, "workspace", "add", "payments-platform", repoDir, "--name", "api"); err != nil {
 		t.Fatalf("workspace add: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(env.PluginDataDir, repoStoreDirName, workspaceDirName, "payments-platform", workspaceManifestName))
+	data, err := os.ReadFile(filepath.Join(env.PluginDataDir, workspaceDirName, "payments-platform", workspaceManifestName))
 	if err != nil {
 		t.Fatalf("read workspace: %v", err)
 	}
@@ -387,7 +391,7 @@ func TestWorkspaceRejectsDotRepoKeys(t *testing.T) {
 
 func TestWorkspaceRejectsSymlinkedWorkspacePath(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
-	workspacesRoot := filepath.Join(env.PluginDataDir, repoStoreDirName, workspaceDirName)
+	workspacesRoot := filepath.Join(env.PluginDataDir, workspaceDirName)
 	if err := os.MkdirAll(workspacesRoot, 0o700); err != nil {
 		t.Fatalf("mkdir workspaces: %v", err)
 	}
@@ -404,19 +408,70 @@ func TestWorkspaceRejectsSymlinkedWorkspacePath(t *testing.T) {
 	}
 }
 
-func TestWorkspaceRejectsSymlinkedBrainRoot(t *testing.T) {
+func TestWorkspaceCreateIgnoresSymlinkedLegacyTree(t *testing.T) {
+	// Workspaces live beside repos/, so a symlinked repos root no longer
+	// blocks workspace create — but the legacy-migration path must refuse to
+	// read through it, and nothing may be written behind the symlink.
 	env := semanticTestEnv(t, t.TempDir())
 	brainRoot := filepath.Join(env.PluginDataDir, repoStoreDirName)
 	external := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(external, workspaceDirName, "payments-platform"), 0o700); err != nil {
+		t.Fatalf("seed external legacy tree: %v", err)
+	}
 	if err := os.Symlink(external, brainRoot); err != nil {
 		t.Fatalf("symlink brain root: %v", err)
 	}
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}, Now: time.Now})
-	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err == nil || !strings.Contains(err.Error(), "brain directory must not be a symlink") {
-		t.Fatalf("workspace create err = %v", err)
+	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err != nil {
+		t.Fatalf("workspace create: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(external, workspaceDirName)); !os.IsNotExist(err) {
-		t.Fatalf("workspace directory was created through symlinked brain root: %v", err)
+	if _, err := os.Stat(filepath.Join(env.PluginDataDir, workspaceDirName, "payments-platform", workspaceManifestName)); err != nil {
+		t.Fatalf("workspace not created at its new home: %v", err)
+	}
+	// The symlinked legacy entry was neither migrated nor written through.
+	if _, err := os.Stat(filepath.Join(external, workspaceDirName, "payments-platform", workspaceManifestName)); !os.IsNotExist(err) {
+		t.Fatalf("write leaked through symlinked legacy tree: %v", err)
+	}
+}
+
+func TestWorkspaceLegacyDirMigratesOnTouch(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	// A pre-relocation workspace at repos/workspaces/<name> with a valid manifest.
+	legacy := filepath.Join(env.PluginDataDir, repoStoreDirName, workspaceDirName, "payments-platform")
+	if err := os.MkdirAll(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := workspaceManifest{SchemaVersion: workspaceSchemaVersion, Name: "payments-platform", Repos: []workspaceRepo{{RepoKey: "gh/acme/api"}}}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, workspaceManifestName), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := loadWorkspaceManifest(env, "payments-platform")
+	if err != nil {
+		t.Fatalf("legacy workspace must load (and migrate): %v", err)
+	}
+	if len(loaded.Repos) != 1 || loaded.Repos[0].RepoKey != "gh/acme/api" {
+		t.Fatalf("migrated manifest content wrong: %+v", loaded)
+	}
+	if _, err := os.Stat(filepath.Join(env.PluginDataDir, workspaceDirName, "payments-platform", workspaceManifestName)); err != nil {
+		t.Fatalf("manifest not at the new home after migration: %v", err)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatalf("legacy dir should be gone after migration: %v", err)
+	}
+}
+
+func TestBrainDirForKeyReservesWorkspacesSegment(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	if _, err := brainDirForKey(env, "workspaces/acme/api"); err == nil || !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("workspaces/ must be reserved in the repo keyspace, got %v", err)
+	}
+	if _, err := brainDirForKey(env, "gh/acme/api"); err != nil {
+		t.Fatalf("ordinary key must resolve: %v", err)
 	}
 }
 
@@ -577,7 +632,7 @@ func TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain(t *testing.T) {
 		t.Fatalf("write workspace: %v", err)
 	}
 
-	out, err := execute(t, cmd, "workspace", "regressions", "related", "fix scopeBaseRef base scope", "--json", "--location-only")
+	out, err := execute(t, cmd, "workspace", "inspect", "regressions", "related", "fix scopeBaseRef base scope", "--json", "--location-only")
 	if err != nil {
 		t.Fatalf("workspace regressions: %v", err)
 	}
@@ -621,7 +676,7 @@ func TestWorkspaceRegressionsDeletionLocationOnlyReportsRelatedLoci(t *testing.T
 		t.Fatalf("write workspace: %v", err)
 	}
 
-	out, err := execute(t, cmd, "workspace", "regressions", "related", "fix TranscriptPath resolved", "--json", "--include-deletions", "--location-only")
+	out, err := execute(t, cmd, "workspace", "inspect", "regressions", "related", "fix TranscriptPath resolved", "--json", "--include-deletions", "--location-only")
 	if err != nil {
 		t.Fatalf("workspace regressions: %v", err)
 	}
@@ -715,7 +770,7 @@ func TestWorkspaceRegressionsSkipsUnsafeRepo(t *testing.T) {
 	// Flip the remote so the hint's repo_key no longer matches the registered key -> unsafe.
 	runner.responses[fakeCommandKey("git", "remote", "get-url", "origin")] = fakeCommandResponse{stdout: "git@github.com:other/repo.git\n"}
 
-	out, err := execute(t, cmd, "workspace", "regressions", "related", "fix scopeBaseRef base scope", "--json")
+	out, err := execute(t, cmd, "workspace", "inspect", "regressions", "related", "fix scopeBaseRef base scope", "--json")
 	if err != nil {
 		t.Fatalf("workspace regressions: %v", err)
 	}
@@ -739,7 +794,7 @@ func TestWorkspaceRegressionsSkipsUnsafeRepo(t *testing.T) {
 	// Text output must also surface the unsafe state + skip, and must NOT print a bogus finding.
 	// Use a fresh command: cobra flag state (--json) persists on a reused root command.
 	textCmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	textOut, err := execute(t, textCmd, "workspace", "regressions", "related", "fix scopeBaseRef base scope")
+	textOut, err := execute(t, textCmd, "workspace", "inspect", "regressions", "related", "fix scopeBaseRef base scope")
 	if err != nil {
 		t.Fatalf("workspace regressions (text): %v", err)
 	}
@@ -784,7 +839,7 @@ func TestWorkspaceRegressionsSkipsUnsafeSessionsOnlyRepo(t *testing.T) {
 	}
 	runner.responses[fakeCommandKey("git", "remote", "get-url", "origin")] = fakeCommandResponse{stdout: "git@github.com:other/repo.git\n"}
 
-	out, err := execute(t, cmd, "workspace", "regressions", "related", "fix scopeBaseRef base scope", "--json")
+	out, err := execute(t, cmd, "workspace", "inspect", "regressions", "related", "fix scopeBaseRef base scope", "--json")
 	if err != nil {
 		t.Fatalf("workspace regressions: %v", err)
 	}
@@ -840,7 +895,7 @@ func TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint(t *testing.T) {
 		t.Fatalf("write workspace: %v", err)
 	}
 
-	out, err := execute(t, cmd, "workspace", "regressions", "related", "fix scopeBaseRef base scope", "--json")
+	out, err := execute(t, cmd, "workspace", "inspect", "regressions", "related", "fix scopeBaseRef base scope", "--json")
 	if err != nil {
 		t.Fatalf("workspace regressions: %v", err)
 	}
@@ -945,5 +1000,171 @@ func TestWorkspaceRefreshReportsMissingBrains(t *testing.T) {
 	}
 	if !strings.Contains(out, "gh/example/missing missing-brain") {
 		t.Fatalf("refresh output = %q", out)
+	}
+}
+
+func writeWorkspaceDocIndex(t *testing.T, env EntireEnv, key string, records ...docRecord) {
+	t.Helper()
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, filepath.FromSlash(key))
+	if err := os.MkdirAll(filepath.Join(brainDir, docDirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(docIndex{Records: records})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(docIndexPath)), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkspaceSearchAndGetFanOutWithQualifiedIDs(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+
+	_, keyA := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "a.go", "package x\n")
+	_, keyB := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "b.go", "package x\n")
+	writeWorkspaceDocIndex(t, env, keyA, docRecord{ID: "guide", Path: "docs/guide.md", Line: 1, Text: "checkout flow retries twice before failing"})
+	writeWorkspaceDocIndex(t, env, keyB, docRecord{ID: "other", Path: "docs/other.md", Line: 1, Text: "billing ledger reconciliation"})
+
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos:         []workspaceRepo{{RepoKey: keyA, Name: "a"}, {RepoKey: keyB, Name: "b"}},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	searchOut, err := execute(t, cmd, "workspace", "search", "related", "checkout", "--json")
+	if err != nil {
+		t.Fatalf("workspace search: %v", err)
+	}
+	if !strings.Contains(searchOut, `"id": "doc:guide"`) {
+		t.Fatalf("search output missing doc hit from repo A:\n%s", searchOut)
+	}
+	// Results stay grouped per repo: repo B has no "checkout" hit, but its group
+	// (with an empty results array) is still present.
+	if !strings.Contains(searchOut, `"repo_key": "`+keyB+`"`) {
+		t.Fatalf("search output missing repo B group:\n%s", searchOut)
+	}
+	if strings.Contains(searchOut, `"id": "doc:other"`) {
+		t.Fatalf("search output leaked repo B's unrelated doc:\n%s", searchOut)
+	}
+
+	// Text mode prints repo-qualified ids so they can be pasted into `workspace get`.
+	// Fresh root command: cobra flag values (--json) stick across executions.
+	textCmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
+	textOut, err := execute(t, textCmd, "workspace", "search", "related", "checkout")
+	if err != nil {
+		t.Fatalf("workspace search (text): %v", err)
+	}
+	if !strings.Contains(textOut, keyA+"/doc:guide") {
+		t.Fatalf("text output missing qualified id %s/doc:guide:\n%s", keyA, textOut)
+	}
+
+	// The hybrid verb shares the same fan-out; without an embedder it degrades to
+	// the lexical arms and must still return the doc hit.
+	queryOut, err := execute(t, cmd, "workspace", "query", "related", "checkout", "--json")
+	if err != nil {
+		t.Fatalf("workspace query: %v", err)
+	}
+	if !strings.Contains(queryOut, `"id": "doc:guide"`) {
+		t.Fatalf("query output missing doc hit:\n%s", queryOut)
+	}
+
+	getOut, err := execute(t, cmd, "workspace", "get", "related", keyA+"/doc:guide", keyB+"/doc:nope", "--json")
+	if err != nil {
+		t.Fatalf("workspace get: %v", err)
+	}
+	if !strings.Contains(getOut, "checkout flow retries twice before failing") {
+		t.Fatalf("get output missing full doc text:\n%s", getOut)
+	}
+	if !strings.Contains(getOut, `"`+keyB+`/doc:nope"`) {
+		t.Fatalf("get output missing re-qualified missing id:\n%s", getOut)
+	}
+
+	if _, err := execute(t, cmd, "workspace", "get", "related", "local/notamember/doc:x"); err == nil || !strings.Contains(err.Error(), "not a member") {
+		t.Fatalf("expected non-member error, got %v", err)
+	}
+	if _, err := execute(t, cmd, "workspace", "get", "related", "doc:guide"); err == nil || !strings.Contains(err.Error(), "missing its repo key") {
+		t.Fatalf("expected unqualified-id error, got %v", err)
+	}
+}
+
+func TestSplitWorkspaceID(t *testing.T) {
+	cases := []struct {
+		in      string
+		repoKey string
+		id      string
+		wantErr bool
+	}{
+		{in: "gh/owner/repo/fact:abc", repoKey: "gh/owner/repo", id: "fact:abc"},
+		{in: "local/abc123/history:h1", repoKey: "local/abc123", id: "history:h1"},
+		{in: "gh/owner/repo/doc:guide", repoKey: "gh/owner/repo", id: "doc:guide"},
+		{in: "fact:abc", wantErr: true},      // unqualified
+		{in: "gh/owner/repo", wantErr: true}, // no id
+		{in: "gh/owner/repo/note:x", wantErr: true},
+	}
+	for _, tc := range cases {
+		repoKey, id, err := splitWorkspaceID(tc.in)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("splitWorkspaceID(%q): expected error, got %q %q", tc.in, repoKey, id)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("splitWorkspaceID(%q): %v", tc.in, err)
+			continue
+		}
+		if repoKey != tc.repoKey || id != tc.id {
+			t.Errorf("splitWorkspaceID(%q) = %q, %q; want %q, %q", tc.in, repoKey, id, tc.repoKey, tc.id)
+		}
+	}
+}
+
+func TestWorkspaceFullRefreshGatesAndCarriesPerMemberFailures(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
+	repoGood, keyGood := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "a.go", "package x\n")
+	repoBad, keyBad := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "b.go", "package x\n")
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos: []workspaceRepo{
+			{RepoKey: keyGood, LocalPathHint: repoGood},
+			{RepoKey: keyBad, LocalPathHint: repoBad},
+			{RepoKey: "gh/example/nohint"}, // no local_path_hint: must be gated out, not refreshed
+		},
+	}
+
+	var refreshed []string
+	out := &bytes.Buffer{}
+	err := workspaceFullRefresh(context.Background(), out, opts, manifest, func(repoDir string) error {
+		refreshed = append(refreshed, repoDir)
+		if repoDir == repoBad {
+			return errors.New("boom")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("workspaceFullRefresh: %v", err)
+	}
+	if len(refreshed) != 2 || refreshed[0] != repoGood || refreshed[1] != repoBad {
+		t.Fatalf("expected refresh attempts on both local members, got %v", refreshed)
+	}
+	got := out.String()
+	if !strings.Contains(got, keyGood+" refreshed") {
+		t.Fatalf("missing success line for %s:\n%s", keyGood, got)
+	}
+	// A failing member is reported and must not abort the fan-out.
+	if !strings.Contains(got, keyBad+" refresh failed: boom") {
+		t.Fatalf("missing failure line for %s:\n%s", keyBad, got)
+	}
+	if !strings.Contains(got, "gh/example/nohint skipped (no resolvable local path)") {
+		t.Fatalf("missing identity-gate skip line:\n%s", got)
 	}
 }

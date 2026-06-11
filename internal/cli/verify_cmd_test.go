@@ -475,8 +475,8 @@ func TestStatusIncludesVerificationSummary(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("parse status json: %v\n%s", err, out)
 	}
-	if report.Verification == nil || report.Verification.UnverifiableHere != 1 {
-		t.Fatalf("missing verification summary: %+v", report.Verification)
+	if report.Facts == nil || report.Facts.Verification == nil || report.Facts.Verification.UnverifiableHere != 1 {
+		t.Fatalf("missing verification summary: %+v", report.Facts)
 	}
 }
 

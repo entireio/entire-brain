@@ -22,7 +22,7 @@ func TestPhase1SemanticCommandJSONContracts(t *testing.T) {
 	}
 	assertPhase1NoNetworkCommands(t, runner, repoDir)
 
-	assertCommandJSONContains(t, cmd, "stale", []string{"--json"}, `"severity": "ok"`)
+	assertCommandJSONContains(t, cmd, "status", []string{"--json"}, `"severity": "ok"`)
 	assertCommandJSONContains(t, cmd, "inspect", []string{"code", "ValidateToken", "--json", "--limit", "2", "--offset", "0"}, `"results"`)
 	assertCommandJSONContains(t, cmd, "inspect", []string{"context", "ValidateToken", "--json", "--limit", "2"}, `"relations"`)
 	assertCommandJSONContains(t, cmd, "inspect", []string{"impact", "ValidateToken", "--json", "--depth", "1", "--limit", "2"}, `"roots"`)

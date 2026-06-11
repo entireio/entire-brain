@@ -160,6 +160,14 @@ func repoStoragePaths(ctx context.Context, runner CommandRunner, env EntireEnv, 
 }
 
 func brainDirForKey(env EntireEnv, key string) (string, error) {
+	// "workspaces" is reserved in the repo keyspace: older builds stored
+	// workspace manifests at repos/workspaces/<name> (since relocated to a
+	// sibling of repos/), and a host slug or hand-edited DomainSlugs entry
+	// claiming the segment would collide with any legacy data still awaiting
+	// migration.
+	if first, _, _ := strings.Cut(key, "/"); first == workspaceDirName {
+		return "", fmt.Errorf("repo key uses the reserved %q segment: %s", workspaceDirName, key)
+	}
 	dirs, err := resolvePluginDirs(env)
 	if err != nil {
 		return "", err

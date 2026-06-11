@@ -630,7 +630,10 @@ func populateBrainStatusVerification(ctx context.Context, opts Options, report *
 		report.Warnings = append(report.Warnings, "fact verification unavailable: "+err.Error())
 		return
 	}
-	report.Verification = &summary
+	if report.Facts == nil {
+		report.Facts = &brainStatusFacts{}
+	}
+	report.Facts.Verification = &summary
 }
 
 func renderVerifyReportText(cmd *cobra.Command, report verifyReport) {

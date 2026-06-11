@@ -117,7 +117,7 @@ MCP-specific conditions are separate from CLI/context-file delivery:
   compact history hits, likely files/tests, and action checklist; no raw
   history excerpt file.
 - `mcp_semantic`: local `entire brain mcp` semantic graph tools only
-  (`brain_stale`, `brain_context`, `brain_impact`, `brain_changes`,
+  (`brain_status`, `brain_context`, `brain_impact`, `brain_changes`,
   `brain_code`); unified `brain_query` retrieval is intentionally excluded from
   this condition.
 - `mcp_history`: local `entire brain mcp` with `brain_brief` and indexed-history

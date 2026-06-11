@@ -111,13 +111,10 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	// Maintain & share — freshness, cleanup, portability, version.
 	// (Build stages live under `refresh`: sessions, index, seed.)
 	addGrouped("maintain", newSemanticBundleCommand(opts))
-	addGrouped("maintain", newExportCommand(opts))
 	addGrouped("maintain", newFactsCommand(opts))
 	addGrouped("maintain", newSemanticGCCommand(opts))
 	addGrouped("maintain", newSemanticRepairCommand(opts))
 	addGrouped("maintain", newSemanticResetCommand(opts))
-	addGrouped("maintain", newSemanticStaleCommand(opts))
-	addGrouped("maintain", newSemanticAuditCommand(opts))
 	addGrouped("maintain", newVersionCommand(opts.Version))
 
 	// Hidden: `review` is the machine contract `entire review`'s diff-less mode shells

@@ -195,7 +195,8 @@ relations, freshness state, and blind spots.
 
 Implemented audit surfaces:
 
-- `entire brain semantic-audit --json` reports provider/schema state, files,
+- The `semantic` section of `entire brain status --json` (formerly
+  `semantic-audit`) reports provider/schema state, files,
   symbols, relations, file-language counts, symbol-language counts, symbol-kind
   counts, relation-type counts, warning/failure details, freshness axes, and
   blind spots from the local semantic manifest/store.
@@ -203,7 +204,7 @@ Implemented audit surfaces:
   relation endpoint `neighbors` as full symbol records, so agents can see
   caller/callee names and file/line spans without parsing relation ids and
   issuing extra lookups.
-- `semantic-audit --fail-on release` is the release-health gate for semantic
+- `status --fail-on release` is the release-health gate for semantic
   coverage: it emits the full report, then fails unless freshness is `ok` and
   blind spots are empty.
 - `refresh index` now tolerates local semantic providers that do not support the

@@ -58,9 +58,15 @@ type workspaceAddOptions struct {
 	name string
 }
 
-type workspaceQueryOptions struct {
+type workspaceContextOptions struct {
 	limit int
 	json  bool
+}
+
+type workspaceRetrieveOptions struct {
+	limit  int
+	branch string
+	json   bool
 }
 
 type workspaceImpactOptions struct {
@@ -69,12 +75,29 @@ type workspaceImpactOptions struct {
 	json  bool
 }
 
-type workspaceQueryResult struct {
+type workspaceContextResult struct {
 	RepoKey   string                 `json:"repo_key"`
 	Name      string                 `json:"name,omitempty"`
 	Freshness workspaceRepoFreshness `json:"freshness"`
 	Symbols   []semanticRecord       `json:"symbols"`
 	Error     string                 `json:"error,omitempty"`
+}
+
+type workspaceRetrieveResult struct {
+	RepoKey   string                 `json:"repo_key"`
+	Name      string                 `json:"name,omitempty"`
+	Branch    string                 `json:"branch,omitempty"`
+	Freshness workspaceRepoFreshness `json:"freshness"`
+	Results   []unifiedResult        `json:"results"`
+	Error     string                 `json:"error,omitempty"`
+}
+
+type workspaceGetResult struct {
+	RepoKey string          `json:"repo_key"`
+	Branch  string          `json:"branch,omitempty"`
+	Results []unifiedResult `json:"results"`
+	Missing []string        `json:"missing"`
+	Error   string          `json:"error,omitempty"`
 }
 
 type workspaceImpactResult struct {
@@ -124,10 +147,26 @@ func newWorkspaceCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newWorkspaceRemoveCommand(opts))
 	cmd.AddCommand(newWorkspaceRefreshCommand(opts))
 	cmd.AddCommand(newWorkspaceWatchCommand(opts))
+	cmd.AddCommand(newWorkspaceInspectCommand(opts))
+	cmd.AddCommand(newWorkspaceSearchCommand(opts))
+	cmd.AddCommand(newWorkspaceVsearchCommand(opts))
 	cmd.AddCommand(newWorkspaceQueryCommand(opts))
+	cmd.AddCommand(newWorkspaceGetCommand(opts))
+	cmd.AddCommand(newWorkspaceReviewCommand(opts))
+	return cmd
+}
+
+// newWorkspaceInspectCommand mirrors the single-repo `inspect` group: the
+// specialist symbol-graph and regression verbs live one level down, keeping the
+// workspace surface a faithful multi-repo projection of the top-level one.
+func newWorkspaceInspectCommand(opts Options) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "inspect",
+		Short: "Run specialist inspection commands across workspace repos",
+	}
+	cmd.AddCommand(newWorkspaceContextCommand(opts))
 	cmd.AddCommand(newWorkspaceImpactCommand(opts))
 	cmd.AddCommand(newWorkspaceRegressionsCommand(opts))
-	cmd.AddCommand(newWorkspaceReviewCommand(opts))
 	return cmd
 }
 
@@ -171,14 +210,17 @@ func newWorkspaceAddCommand(opts Options) *cobra.Command {
 }
 
 func newWorkspaceRefreshCommand(opts Options) *cobra.Command {
-	return &cobra.Command{
+	var full bool
+	cmd := &cobra.Command{
 		Use:   "refresh <workspace>",
-		Short: "Refresh local workspace membership freshness",
+		Short: "Refresh local workspace membership freshness (--full also refreshes each member brain)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWorkspaceRefresh(cmd.Context(), cmd, opts, args[0])
+			return runWorkspaceRefresh(cmd.Context(), cmd, opts, args[0], full)
 		},
 	}
+	cmd.Flags().BoolVar(&full, "full", false, "Run the deterministic single-repo refresh on every member first (no agent tokens)")
+	return cmd
 }
 
 func newWorkspaceWatchCommand(opts Options) *cobra.Command {
@@ -245,18 +287,9 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 			return err
 		}
 		for _, repo := range manifest.Repos {
-			repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
-			if err != nil || !local {
-				fmt.Fprintf(out, "[watch] %s: skipped (no resolvable local path)\n", repo.RepoKey)
-				continue
-			}
-			hintKey, err := repoStorageKey(ctx, opts.Runner, dirs.Config, repoDir)
+			repoDir, err := resolveWorkspaceMemberRepoDir(ctx, opts, dirs.Config, repo)
 			if err != nil {
-				fmt.Fprintf(out, "[watch] %s: skipped (unsafe: %v)\n", repo.RepoKey, err)
-				continue
-			}
-			if hintKey != repo.RepoKey {
-				fmt.Fprintf(out, "[watch] %s: skipped (unsafe: local_path_hint repo_key mismatch: %s)\n", repo.RepoKey, hintKey)
+				fmt.Fprintf(out, "[watch] %s: skipped (%v)\n", repo.RepoKey, err)
 				continue
 			}
 			fmt.Fprintf(out, "[watch] %s:\n", repo.RepoKey)
@@ -274,18 +307,18 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 	}
 }
 
-func newWorkspaceQueryCommand(opts Options) *cobra.Command {
-	queryOpts := workspaceQueryOptions{limit: 10}
+func newWorkspaceContextCommand(opts Options) *cobra.Command {
+	contextOpts := workspaceContextOptions{limit: 10}
 	cmd := &cobra.Command{
-		Use:   "query <workspace> <symbol-or-text>",
-		Short: "Query semantic symbols across workspace repos",
+		Use:   "context <workspace> <symbol-or-text>",
+		Short: "Build semantic context for a symbol or query across workspace repos",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWorkspaceQuery(cmd, opts, queryOpts, args[0], args[1])
+			return runWorkspaceContext(cmd, opts, contextOpts, args[0], args[1])
 		},
 	}
-	cmd.Flags().IntVar(&queryOpts.limit, "limit", 10, "Maximum symbols per repo")
-	cmd.Flags().BoolVar(&queryOpts.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().IntVar(&contextOpts.limit, "limit", 10, "Maximum symbols per repo")
+	cmd.Flags().BoolVar(&contextOpts.json, "json", false, "Emit machine-readable JSON")
 	return cmd
 }
 
@@ -302,6 +335,54 @@ func newWorkspaceImpactCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&impactOpts.limit, "limit", 20, "Maximum symbols per repo")
 	cmd.Flags().IntVar(&impactOpts.depth, "depth", 1, "Relation traversal depth")
 	cmd.Flags().BoolVar(&impactOpts.json, "json", false, "Emit machine-readable JSON")
+	return cmd
+}
+
+func newWorkspaceSearchCommand(opts Options) *cobra.Command {
+	return newWorkspaceRetrieveCommand(opts, "search", modeLexical, "Lexical keyword search across every workspace repo's brain (facts, history, docs)")
+}
+
+func newWorkspaceVsearchCommand(opts Options) *cobra.Command {
+	return newWorkspaceRetrieveCommand(opts, "vsearch", modeVector, "Vector (semantic) search across every workspace repo's brain (facts, docs)")
+}
+
+func newWorkspaceQueryCommand(opts Options) *cobra.Command {
+	return newWorkspaceRetrieveCommand(opts, "query", modeHybrid, "Hybrid (lexical+vector, RRF) search across every workspace repo's brain")
+}
+
+// newWorkspaceRetrieveCommand mirrors the top-level search/vsearch/query verbs
+// (retrieve_cmd.go) as a per-member fan-out: each repo's brain is ranked
+// independently and results stay grouped by repo — scores from different brains'
+// indexes are not comparable, so there is no cross-repo fusion.
+func newWorkspaceRetrieveCommand(opts Options, use string, mode retrievalMode, short string) *cobra.Command {
+	retrieveOpts := workspaceRetrieveOptions{limit: 10}
+	cmd := &cobra.Command{
+		Use:   use + " <workspace> <query>",
+		Short: short,
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkspaceRetrieve(cmd, opts, retrieveOpts, mode, args[0], args[1])
+		},
+	}
+	cmd.Flags().IntVar(&retrieveOpts.limit, "limit", 10, "Maximum results per repo")
+	cmd.Flags().StringVar(&retrieveOpts.branch, "branch", "", "Branch for facts in every repo (default: each repo's distill default)")
+	cmd.Flags().BoolVar(&retrieveOpts.json, "json", false, "Emit machine-readable JSON")
+	return cmd
+}
+
+func newWorkspaceGetCommand(opts Options) *cobra.Command {
+	var jsonOut bool
+	var branch string
+	cmd := &cobra.Command{
+		Use:   "get <workspace> <repo-key/id>...",
+		Short: "Fetch items in full by repo-qualified id (e.g. gh/owner/repo/fact:…, as printed by workspace search)",
+		Args:  cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkspaceGet(cmd, opts, args[0], args[1:], branch, jsonOut)
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts in every repo (default: each repo's distill default)")
 	return cmd
 }
 
@@ -345,10 +426,16 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 	return nil
 }
 
-func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, workspaceName string) error {
+func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, workspaceName string, full bool) error {
 	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 	if err != nil {
 		return err
+	}
+	if full {
+		refreshRepo := func(repoDir string) error { return watchDeterministicRefresh(ctx, cmd, opts, repoDir) }
+		if err := workspaceFullRefresh(ctx, cmd.OutOrStdout(), opts, manifest, refreshRepo); err != nil {
+			return err
+		}
 	}
 	freshness, err := workspaceFreshness(ctx, opts, manifest)
 	if err != nil {
@@ -365,18 +452,18 @@ func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, 
 	return nil
 }
 
-func runWorkspaceQuery(cmd *cobra.Command, opts Options, queryOpts workspaceQueryOptions, workspaceName, query string) error {
-	if queryOpts.limit <= 0 {
+func runWorkspaceContext(cmd *cobra.Command, opts Options, contextOpts workspaceContextOptions, workspaceName, query string) error {
+	if contextOpts.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
 	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 	if err != nil {
 		return err
 	}
-	var results []workspaceQueryResult
+	var results []workspaceContextResult
 	for _, repo := range manifest.Repos {
 		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
-		result := workspaceQueryResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
+		result := workspaceContextResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
 		brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
 		if err != nil {
 			return err
@@ -394,7 +481,7 @@ func runWorkspaceQuery(cmd *cobra.Command, opts Options, queryOpts workspaceQuer
 			results = append(results, result)
 			continue
 		}
-		symbols, _, _, err := semanticContextFacts(brainDir, source, query, queryOpts.limit, 0)
+		symbols, _, _, err := semanticContextFacts(brainDir, source, query, contextOpts.limit, 0)
 		unlock()
 		if err != nil {
 			result.Error = err.Error()
@@ -403,10 +490,10 @@ func runWorkspaceQuery(cmd *cobra.Command, opts Options, queryOpts workspaceQuer
 		}
 		results = append(results, result)
 	}
-	if queryOpts.json {
+	if contextOpts.json {
 		return writeJSON(cmd, struct {
-			Workspace string                 `json:"workspace"`
-			Results   []workspaceQueryResult `json:"results"`
+			Workspace string                   `json:"workspace"`
+			Results   []workspaceContextResult `json:"results"`
 		}{Workspace: manifest.Name, Results: results})
 	}
 	for _, result := range results {
@@ -478,6 +565,219 @@ func runWorkspaceImpact(cmd *cobra.Command, opts Options, impactOpts workspaceIm
 		}
 	}
 	return nil
+}
+
+func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspaceRetrieveOptions, mode retrievalMode, workspaceName, query string) error {
+	if retrieveOpts.limit <= 0 {
+		return errors.New("--limit must be greater than zero")
+	}
+	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	if err != nil {
+		return err
+	}
+	var results []workspaceRetrieveResult
+	for _, repo := range manifest.Repos {
+		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
+		result := workspaceRetrieveResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness, Results: []unifiedResult{}}
+		brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
+		if err != nil {
+			return err
+		}
+		branch, err := workspaceMemberBranch(brainDir, retrieveOpts.branch)
+		if err != nil {
+			result.Error = err.Error()
+			results = append(results, result)
+			continue
+		}
+		result.Branch = branch
+		found, err := retrieveUnified(brainDir, branch, query, retrieveOpts.limit, mode)
+		if err != nil {
+			result.Error = err.Error()
+		} else if found != nil {
+			result.Results = found
+		}
+		results = append(results, result)
+	}
+	if retrieveOpts.json {
+		return writeJSON(cmd, struct {
+			Workspace string                    `json:"workspace"`
+			Query     string                    `json:"query"`
+			Results   []workspaceRetrieveResult `json:"results"`
+		}{Workspace: manifest.Name, Query: query, Results: results})
+	}
+	out := cmd.OutOrStdout()
+	for _, result := range results {
+		for _, r := range result.Results {
+			loc := r.Path
+			if r.Line > 0 {
+				loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
+			}
+			ex := truncateString(strings.Join(strings.Fields(r.Text), " "), 200)
+			// The id is printed repo-qualified so it can be pasted into `workspace get`.
+			fmt.Fprintf(out, "[%s] %s/%s  %s\n    %s\n", r.Source, result.RepoKey, r.ID, loc, ex)
+		}
+		if result.Error != "" {
+			fmt.Fprintf(out, "%s error %s\n", result.RepoKey, result.Error)
+		}
+	}
+	return nil
+}
+
+func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qualifiedIDs []string, branchOverride string, jsonOut bool) error {
+	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	if err != nil {
+		return err
+	}
+	members := make(map[string]bool, len(manifest.Repos))
+	for _, repo := range manifest.Repos {
+		members[repo.RepoKey] = true
+	}
+	// Group ids by repo key, preserving first-appearance order of repos and the
+	// input order of ids within each repo.
+	var repoOrder []string
+	idsByRepo := make(map[string][]string)
+	for _, qualified := range qualifiedIDs {
+		repoKey, id, err := splitWorkspaceID(qualified)
+		if err != nil {
+			return err
+		}
+		if !members[repoKey] {
+			return fmt.Errorf("repo %s is not a member of workspace %s", repoKey, manifest.Name)
+		}
+		if _, seen := idsByRepo[repoKey]; !seen {
+			repoOrder = append(repoOrder, repoKey)
+		}
+		idsByRepo[repoKey] = append(idsByRepo[repoKey], id)
+	}
+	var results []workspaceGetResult
+	for _, repoKey := range repoOrder {
+		result := workspaceGetResult{RepoKey: repoKey, Results: []unifiedResult{}, Missing: []string{}}
+		brainDir, err := brainDirForKey(opts.Env, repoKey)
+		if err != nil {
+			return err
+		}
+		branch, err := workspaceMemberBranch(brainDir, branchOverride)
+		if err != nil {
+			result.Error = err.Error()
+			results = append(results, result)
+			continue
+		}
+		result.Branch = branch
+		found, missing, err := getUnifiedBatch(brainDir, branch, idsByRepo[repoKey])
+		if err != nil {
+			result.Error = err.Error()
+			results = append(results, result)
+			continue
+		}
+		if found != nil {
+			result.Results = found
+		}
+		// Re-qualify missing ids so the output names the brain they were missing from.
+		for _, id := range missing {
+			result.Missing = append(result.Missing, repoKey+"/"+id)
+		}
+		results = append(results, result)
+	}
+	if jsonOut {
+		return writeJSON(cmd, struct {
+			Workspace string               `json:"workspace"`
+			Results   []workspaceGetResult `json:"results"`
+		}{Workspace: manifest.Name, Results: results})
+	}
+	out := cmd.OutOrStdout()
+	for _, result := range results {
+		for _, r := range result.Results {
+			loc := r.Path
+			if r.Line > 0 {
+				loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
+			}
+			fmt.Fprintf(out, "[%s] %s/%s  %s\n%s\n\n", r.Source, result.RepoKey, r.ID, loc, r.Text)
+		}
+		for _, id := range result.Missing {
+			fmt.Fprintf(out, "not found: %s\n", id)
+		}
+		if result.Error != "" {
+			fmt.Fprintf(out, "%s error %s\n", result.RepoKey, result.Error)
+		}
+	}
+	return nil
+}
+
+// workspaceMemberBranch picks the facts branch for a member brain. Workspace
+// retrieval reads brains, not checkouts, so the branch comes from the member's
+// export manifest (its distill default) rather than a live git branch.
+func workspaceMemberBranch(brainDir, override string) (string, error) {
+	if b := strings.TrimSpace(override); b != "" {
+		return b, nil
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return "", err
+	}
+	if manifest.Sources != nil && manifest.Sources.Sessions != nil && manifest.Sources.Sessions.DefaultBranch != "" {
+		return manifest.Sources.Sessions.DefaultBranch, nil
+	}
+	return distillDefaultBranch, nil
+}
+
+// splitWorkspaceID splits a repo-qualified unified id ("gh/owner/repo/fact:abc")
+// into the repo key and the brain-local id. Repo keys never contain ':', so the
+// first path segment starting a known source prefix is the boundary.
+func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
+	for _, prefix := range []string{"fact:", "history:", "doc:"} {
+		if strings.HasPrefix(qualified, prefix) {
+			return "", "", fmt.Errorf("id %q is missing its repo key (expected <repo-key>/%s…)", qualified, prefix)
+		}
+		if i := strings.Index(qualified, "/"+prefix); i > 0 {
+			return qualified[:i], qualified[i+1:], nil
+		}
+	}
+	return "", "", fmt.Errorf("unrecognized id %q (expected <repo-key>/fact:…, <repo-key>/history:…, or <repo-key>/doc:…)", qualified)
+}
+
+// workspaceFullRefresh fans the free deterministic single-repo refresh over
+// every member, behind the same identity gate as the watch loop. An explicit
+// refresh always runs (no watch cursor), spends no agent tokens, and one
+// member's failure never aborts the others. refreshRepo is injected so the
+// fan-out is testable without a real refresh (matching workspaceWatchLoop).
+func workspaceFullRefresh(ctx context.Context, out io.Writer, opts Options, manifest workspaceManifest, refreshRepo func(repoDir string) error) error {
+	dirs, err := resolvePluginDirs(opts.Env)
+	if err != nil {
+		return err
+	}
+	for _, repo := range manifest.Repos {
+		repoDir, err := resolveWorkspaceMemberRepoDir(ctx, opts, dirs.Config, repo)
+		if err != nil {
+			fmt.Fprintf(out, "%s skipped (%v)\n", repo.RepoKey, err)
+			continue
+		}
+		if err := refreshRepo(repoDir); err != nil {
+			fmt.Fprintf(out, "%s refresh failed: %v\n", repo.RepoKey, err)
+			continue
+		}
+		fmt.Fprintf(out, "%s refreshed\n", repo.RepoKey)
+	}
+	return nil
+}
+
+// resolveWorkspaceMemberRepoDir resolves a member's local checkout from its
+// local_path_hint and verifies the brain<->tree identity: the hint's derived
+// repo key must still match the member's. This is the gate every workspace
+// fan-out that touches a member's working tree (watch, refresh --full) applies
+// before acting on a repo.
+func resolveWorkspaceMemberRepoDir(ctx context.Context, opts Options, configDir string, repo workspaceRepo) (string, error) {
+	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
+	if err != nil || !local {
+		return "", errors.New("no resolvable local path")
+	}
+	hintKey, err := repoStorageKey(ctx, opts.Runner, configDir, repoDir)
+	if err != nil {
+		return "", fmt.Errorf("unsafe: %w", err)
+	}
+	if hintKey != repo.RepoKey {
+		return "", fmt.Errorf("unsafe: local_path_hint repo_key mismatch: %s", hintKey)
+	}
+	return repoDir, nil
 }
 
 func workspaceFreshness(ctx context.Context, opts Options, manifest workspaceManifest) ([]workspaceRepoFreshness, error) {
@@ -570,7 +870,7 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		status.ContractDetail = "semantic freshness unavailable"
 		return status
 	}
-	// State reflects overall freshness for display (refresh/query/impact). The brain<->tree IDENTITY
+	// State reflects overall freshness for display (refresh/context/impact). The brain<->tree IDENTITY
 	// was already verified above, so semantic staleness here does NOT set PairingUnsafe — the scan
 	// (which reads raw sessions) is still safe to run; only the index is stale.
 	status.State = report.Severity
@@ -607,6 +907,14 @@ func workspaceSemanticSource(brainDir string) (*semanticSourceManifest, error) {
 	return manifest.Sources.Semantic, nil
 }
 
+// workspaceDir resolves a workspace's home at <data>/workspaces/<name> — a
+// SIBLING of the repos/ tree, not inside it. Workspaces are not repos:
+// keeping them under repos/ parked a magic "workspaces" directory in the
+// middle of the repo keyspace (an unknown host slug or hand-edited
+// DomainSlugs entry could legitimately claim the same segment and collide),
+// and forced any future repos/-enumerator to know to skip it. Manifests
+// written by older builds under repos/workspaces/<name> are migrated lazily
+// on first touch (a directory rename; the payload is kilobytes).
 func workspaceDir(env EntireEnv, name string) (string, error) {
 	if err := validateWorkspaceName(name); err != nil {
 		return "", err
@@ -615,11 +923,44 @@ func workspaceDir(env EntireEnv, name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	brainRoot := filepath.Join(dirs.Data, repoStoreDirName)
-	if err := rejectBrainRootPathSymlinks(brainRoot, filepath.Join(workspaceDirName, name)); err != nil {
+	workspaceRoot := filepath.Join(dirs.Data, workspaceDirName)
+	if err := rejectBrainRootPathSymlinks(workspaceRoot, name); err != nil {
 		return "", err
 	}
-	return filepath.Join(brainRoot, workspaceDirName, name), nil
+	dir := filepath.Join(workspaceRoot, name)
+	if err := migrateLegacyWorkspaceDir(dirs.Data, name, dir); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// migrateLegacyWorkspaceDir moves a pre-relocation workspace
+// (<data>/repos/workspaces/<name>) to its new home on first touch. A no-op
+// when the legacy dir is absent or the new dir already exists (the new copy
+// wins: it is the one current builds have been writing to).
+func migrateLegacyWorkspaceDir(dataDir, name, newDir string) error {
+	legacyRoot := filepath.Join(dataDir, repoStoreDirName)
+	legacy := filepath.Join(legacyRoot, workspaceDirName, name)
+	info, err := os.Lstat(legacy)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 {
+		// Absent, unreadable, or a SYMLINK: never migrate. Renaming a symlink
+		// would move the link itself into the new home, making every future
+		// workspace write flow through an attacker-placed target.
+		return nil
+	}
+	if rejectBrainRootPathSymlinks(legacyRoot, filepath.Join(workspaceDirName, name)) != nil {
+		return nil // tampered legacy tree (symlinked root/components): leave it alone
+	}
+	if _, err := os.Stat(newDir); err == nil {
+		return nil // the new copy wins: it is the one current builds write to
+	}
+	if err := os.MkdirAll(filepath.Dir(newDir), 0o700); err != nil {
+		return err
+	}
+	if err := os.Rename(legacy, newDir); err != nil {
+		return fmt.Errorf("migrate workspace %s to %s: %w", name, newDir, err)
+	}
+	return nil
 }
 
 func loadWorkspaceManifest(env EntireEnv, name string) (workspaceManifest, error) {
@@ -755,17 +1096,30 @@ func runWorkspaceList(cmd *cobra.Command, opts Options, asJSON bool) error {
 	if err != nil {
 		return err
 	}
-	root := filepath.Join(dirs.Data, repoStoreDirName, workspaceDirName)
-	entries, err := os.ReadDir(root)
-	if err != nil && !os.IsNotExist(err) {
-		return err
+	// Enumerate the new home plus any not-yet-migrated legacy entries
+	// (loadWorkspaceManifest migrates each on touch, so listing is also the
+	// bulk-migration path for old installs).
+	names := map[string]struct{}{}
+	for _, root := range []string{
+		filepath.Join(dirs.Data, workspaceDirName),
+		filepath.Join(dirs.Data, repoStoreDirName, workspaceDirName),
+	} {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				names[e.Name()] = struct{}{}
+			}
+		}
 	}
 	var summaries []workspaceSummary
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		manifest, err := loadWorkspaceManifest(opts.Env, e.Name())
+	for name := range names {
+		manifest, err := loadWorkspaceManifest(opts.Env, name)
 		if err != nil {
 			// Skip directories that are not valid workspaces (unreadable, bad name, schema drift).
 			continue
@@ -850,11 +1204,11 @@ func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey
 
 // ---- workspace regressions / review (cross-repo diff-less review) ----
 //
-// Unlike query/impact, these tolerate a sessions-only brain: detectRegressionAnomalies reads RAW
+// Unlike context/impact, these tolerate a sessions-only brain: detectRegressionAnomalies reads RAW
 // sessions and uses the semantic index only when present, so a missing export manifest / semantic
 // index is not fatal — the detector degrades to a raw-session scan. Each repo is scanned
 // independently (one repo's missing/locked brain never aborts the others), then aggregated by
-// repo_key, mirroring runWorkspaceQuery.
+// repo_key, mirroring runWorkspaceContext.
 
 func newWorkspaceRegressionsCommand(opts Options) *cobra.Command {
 	ro := regressionDetectorOptions{limit: 20}

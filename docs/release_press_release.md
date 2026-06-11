@@ -49,7 +49,7 @@ evidence lane therefore stays in `no_release_claim` mode. See
 - Facts-vs-session retrieval quality, using paired `facts eval --retriever`
   comparisons over shared proof labels; proxy-comparison opt-in remains
   smoke/calibration only and must be labeled as such.
-- Semantic usefulness, using semantic-audit output plus benchmark tasks where
+- Semantic usefulness, using the `status` semantic-audit output plus benchmark tasks where
   semantic context changes file/test localization or agent efficiency.
 - Replay-lab agent-lift evidence from harder clean retained tasks that survive
   the proof-ready gate. The deterministic Radar/MCP tool-contract evidence

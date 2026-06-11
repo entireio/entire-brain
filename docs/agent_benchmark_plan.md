@@ -72,7 +72,7 @@ Run each task under these conditions when the repo supports them:
    - The agent receives the task prompt plus Entire Brain semantic intake
      instructions.
    - The harness prepares seed and semantic artifacts with local-only commands.
-   - The agent may use `stale`, `query`, `context`, `impact`, `changes`,
+   - The agent may use `status`, `query`, `context`, `impact`, `changes`,
      `routes`, `tools`, `workflows`, `tests`, and workspace commands.
    - Checkpoint transcript/session history is withheld.
 
@@ -146,7 +146,7 @@ Start with nine tasks: three per repository.
 ### `entire-brain`
 
 1. **Semantic command bugfix**
-   - Fix a narrow issue in `stale`, `query`, or `context`.
+   - Fix a narrow issue in `status`, `query`, or `context`.
    - Brain benefit: semantic commands should identify the relevant functions and
      tests quickly.
    - Validate with focused semantic tests and `go test ./...`.
@@ -158,8 +158,8 @@ Start with nine tasks: three per repository.
    - Validate with semantic and MCP tests.
 
 3. **Workspace behavior task**
-   - Change workspace query or impact behavior in a bounded way.
-   - Brain benefit: workspace context should locate freshness handling and
+   - Change workspace inspect context or impact behavior in a bounded way.
+   - Brain benefit: workspace inspect context should locate freshness handling and
      workspace tests.
    - Validate with workspace tests.
 
@@ -218,7 +218,7 @@ Collect hard metrics for every run:
 
 Collect brain-specific metrics for brain-enabled runs:
 
-- whether the agent checked `stale`
+- whether the agent checked freshness (`status`)
 - which brain commands were used
 - whether semantic results led to relevant files/tests
 - whether full brain runs cited useful checkpoint history
@@ -319,7 +319,7 @@ entire brain status [repo] --json
 entire brain brief "<task>" --json
 entire brain search "<query>" --json
 entire brain show <id> --json
-entire brain refresh [repo] --json
+entire brain refresh
 entire brain guide
 entire brain path [repo]
 ```
@@ -330,8 +330,9 @@ Specialist/debug commands live under `inspect`, for example
 `inspect blame`. Workspace use has its own front door:
 
 ```sh
-entire brain workspace query <name> "<symbol-or-query>" --json
-entire brain workspace impact <name> "<symbol-or-query>" --json
+entire brain workspace inspect context <name> "<symbol-or-query>" --json
+entire brain workspace inspect impact <name> "<symbol-or-query>" --json
+entire brain workspace search <name> "<query>" --json   # also: vsearch, query, get
 entire brain workspace refresh <name> --json
 entire brain workspace watch <name>
 ```
@@ -353,7 +354,7 @@ summaries.
 
 #### Question 3: What Full Session Data Teaches Agents
 
-Build a history index during `export`/`refresh --history-index`, not during
+Build a history index during `refresh sessions`/`refresh --history-index`, not during
 normal read commands. Extract decisions, learnings, validation recipes, tool
 paths, topic clusters, repeated failure modes, and provenance back to
 sessions/checkpoints.
@@ -744,7 +745,7 @@ Add these scenario families:
     in `entire-brain` or `../cli`.
   - Later include `../entire-sem` for provider/consumer contract mismatch
     scenarios.
-  - Expected value: workspace context should orient the agent to the right repo
+  - Expected value: workspace inspect context should orient the agent to the right repo
     boundary faster.
 
 - **Validation-selection tasks**
@@ -757,7 +758,7 @@ Add these scenario families:
 - **Stale-context hygiene tasks**
   - Prepare a semantic brain, apply the setup regression after indexing, then
     allow brain use.
-  - Expected value: brain-enabled agents should run `stale`, detect unsafe or
+  - Expected value: brain-enabled agents should run `status`, detect unsafe or
     dirty context, refresh or fall back, and avoid blindly trusting stale data.
 
 Iteration loop:

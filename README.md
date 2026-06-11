@@ -23,7 +23,7 @@ avoid hosted model egress. Strict no-egress mode (`ENTIRE_BRAIN_NO_EGRESS=1` or
 paths whose URLs, redirects, and resolved dial targets stay loopback-only;
 arbitrary `--agent command` runners are trusted local commands but not
 enforceably loopback-only. Separately, repos that configure a
-`checkpoint_remote` allow `export`/`refresh` to `git fetch` checkpoint history
+`checkpoint_remote` allow `refresh` (and its `sessions` export stage) to `git fetch` checkpoint history
 from that remote into a throwaway temp repo unless no-egress mode is set.
 
 ## Install
@@ -106,9 +106,10 @@ every commit, so the semantic reindex can be CPU/IO-heavy; widen `--interval` if
 entire brain workspace create platform
 entire brain workspace add platform ../api --name api
 entire brain workspace add platform ../web --name web
-entire brain workspace refresh platform
-entire brain workspace query platform "checkout" --json
-entire brain workspace impact platform "checkout" --json
+entire brain workspace refresh platform          # membership freshness; --full also refreshes each member brain
+entire brain workspace inspect context platform "checkout" --json   # symbols (multi-repo `context`)
+entire brain workspace search platform "checkout" --json    # facts/history/docs (also: vsearch, query)
+entire brain workspace inspect impact platform "checkout" --json
 entire brain workspace watch platform --once          # fan the token-frugal daemon over every member
 ```
 
@@ -123,7 +124,7 @@ single `--budget` shared across all members so a workspace tick can't multiply t
 entire brain mcp
 ```
 
-The MCP adapter is stdio-only and exposes local tools `brain_stale`,
+The MCP adapter is stdio-only and exposes local tools `brain_status`,
 `brain_brief`, the unified retrieval verbs `brain_query` (hybrid lexical+vector
 over facts/history/docs), `brain_search`, `brain_vsearch`, `brain_get`, and
 `brain_multi_get`, the symbol-graph tools `brain_code`/`brain_context`/`brain_impact`/`brain_changes`/`brain_tests`/`brain_boundaries`,
@@ -140,7 +141,7 @@ vs current, confidence, provenance). Surfaces:
 ```sh
 entire brain inspect regressions "<task + failing symbols>"   # raw anomalies
 entire brain review "<task + failing symbols>" --json         # review-shaped findings (hidden; the machine contract)
-entire brain workspace regressions <ws> "<query>"             # fan out across a multi-repo workspace
+entire brain workspace inspect regressions <ws> "<query>"             # fan out across a multi-repo workspace
 entire brain workspace review <ws> "<query>"                  # same, review-shaped, per repo
 ```
 
@@ -241,11 +242,12 @@ surfaced through the unified `search`/`query` verbs above. Symbol lookup that us
 to be the top-level `search` now lives at `inspect code`; `inspect context`/`impact`
 accept a symbol name or a record id.
 
-Use `stale --blind-spots` to list the files the semantic provider could not
-fully index, so an agent knows where its semantic answers are untrustworthy:
+The `status` Semantic section lists the files the semantic provider could not
+fully index (blind spots), so an agent knows where its semantic answers are
+untrustworthy:
 
 ```sh
-entire brain stale --blind-spots
+entire brain status
 ```
 
 ### Durable Facts
@@ -320,10 +322,10 @@ The eval `query` arm is a read-only lexical unified baseline over local brain
 layers; it does not write embedding caches or call an embedder. See
 `docs/durable_facts_plan.md` for the full design.
 
-For semantic release checks, `entire brain semantic-audit --json` reports the
-semantic provider/schema state, counts, file-language/symbol/relation coverage,
-warning/failure details, freshness axes, and blind spots in one local audit
-payload. Treat that as audit evidence for the reported provider output, not a
+For semantic release checks, the `semantic` section of `entire brain status
+--json` reports the provider/schema state, counts, file-language/symbol/relation
+coverage, warning/failure details, freshness axes, and blind spots in one local
+audit payload (`status --fail-on release` is the CI gate form). Treat that as audit evidence for the reported provider output, not a
 global tree-sitter coverage claim; public semantic claims should name the covered
 languages, relation types, freshness state, and benchmark or audit records behind
 the claim.
@@ -335,7 +337,7 @@ The parent Entire CLI supplies these directories:
 | Variable | Purpose |
 |---|---|
 | `ENTIRE_PLUGIN_CONFIG_DIR` | Plugin config, including `brain.json`. |
-| `ENTIRE_PLUGIN_DATA_DIR` | Durable brains under `repos/<repo-key>/`. |
+| `ENTIRE_PLUGIN_DATA_DIR` | Durable brains under `repos/<repo-key>/`; workspaces under `workspaces/<name>/`. |
 | `ENTIRE_PLUGIN_STATE_DIR` | Regenerable cursors under `repos/<repo-key>/`. |
 | `ENTIRE_PLUGIN_CACHE_DIR` | Cache data. |
 | `ENTIRE_REPO_ROOT` | Current git checkout when invoked inside a repo. |

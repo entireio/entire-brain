@@ -362,7 +362,7 @@ set -e
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 set +e
-go run ./cmd/entire-brain semantic-audit --json --fail-on release > "$tmp"
+go run ./cmd/entire-brain status --json --fail-on release > "$tmp"
 rc=$?
 set -e
 python3 - "$tmp" <<'PY'
@@ -375,15 +375,18 @@ try:
 except Exception as exc:
     print(f"semantic audit: unable to parse report: {exc}", file=sys.stderr)
     raise SystemExit(0)
+semantic = data.get("semantic") or {}
+freshness = semantic.get("freshness") or {}
+coverage = semantic.get("coverage") or {}
 print(
     "semantic audit:",
-    f"freshness={data['freshness']['severity']}",
-    f"files={data['files']}",
-    f"symbols={data['symbols']}",
-    f"relations={data['relations']}",
-    f"blind_spots={len(data.get('blind_spots', []))}",
+    f"freshness={freshness.get('severity', 'missing')}",
+    f"files={coverage.get('files', 0)}",
+    f"symbols={coverage.get('symbols', 0)}",
+    f"relations={coverage.get('relations', 0)}",
+    f"blind_spots={len(semantic.get('blind_spots') or [])}",
 )
-for name, axis in sorted((data.get("freshness", {}).get("axes") or {}).items()):
+for name, axis in sorted((freshness.get("axes") or {}).items()):
     if axis.get("state") != "ok":
         print(f"semantic audit axis {name}: {axis.get('state')} {axis.get('detail', '')}".rstrip())
 PY
