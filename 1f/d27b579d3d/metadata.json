@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "1fd27b579d3d",
+  "strategy": "manual-commit",
+  "branch": "feat/export-under-refresh",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/history.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/1f/d27b579d3d/0/metadata.json",
+      "transcript": "/1f/d27b579d3d/0/full.jsonl",
+      "content_hash": "/1f/d27b579d3d/0/content_hash.txt",
+      "prompt": "/1f/d27b579d3d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 70660,
+    "cache_creation_tokens": 4230135,
+    "cache_read_tokens": 388692779,
+    "output_tokens": 734254,
+    "api_call_count": 878
+  }
+}

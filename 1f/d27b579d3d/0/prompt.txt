@@ -1,0 +1,189 @@
+Give me an update on the distill processes
+
+---
+
+Give me an update on the distill processes
+
+---
+
+While we wait, review https://github.com/ashtom/entire-brain/pull/33
+
+---
+
+Fix all the blockers first, and give me an alternative for #5
+
+---
+
+Implement the lazy stuff. For the confound disclosure, document in your finding in a new docs/release-blockers.md. Be as explicit as possible.
+
+---
+
+Is the PR mergeable now? Any other findings that you overlooked?
+
+---
+
+<task-notification>
+<task-id>bpwk438ru</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/fc0c6aa0-0ea8-4d17-85f7-7893119994e3/tasks/bpwk438ru.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for PR CI; check distill" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Wait, why didn't you fix the majors?
+
+---
+
+What's the minor pile?
+
+---
+
+Nah, fix them all
+
+---
+
+<task-notification>
+<task-id>byrmt0uug</task-id>
+<tool-use-id>toolu_014ectpr8Mm3EffeNtbnX1ZK</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/fc0c6aa0-0ea8-4d17-85f7-7893119994e3/tasks/byrmt0uug.output</output-file>
+<status>completed</status>
+<summary>Background command "Commit, push, wait for CI" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+What's the status?
+
+---
+
+Ok, merge #33 then
+
+---
+
+Next, look at https://github.com/ashtom/entire-brain/pull/34
+
+---
+
+Make both fixes and run the eval again
+
+---
+
+Give me a status update
+
+---
+
+No, wait for capstone to finish
+
+---
+
+Explain how entire brain workspace works behind the scenes
+
+---
+
+Instead of <plugin-data>/brain/repos/workspaces/, wouldn't it make more sense to put them under <plugin-data>/brain/workspaces/?
+
+---
+
+Now
+
+---
+
+Next: entire brain workspace has a query sub command. entire brain has search, vsearch, get, etc. Should we align those?
+
+---
+
+Nobody is using workspace yet, so you don't need keep hidden deprecated commands.
+
+---
+
+<task-notification>
+<task-id>b8g0dcisx</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/fc0c6aa0-0ea8-4d17-85f7-7893119994e3/tasks/b8g0dcisx.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for CI checks to register and complete" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bgivvrwa3</task-id>
+<tool-use-id>toolu_012nSLvWyLQWjTuC4LLKDEEB</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/fc0c6aa0-0ea8-4d17-85f7-7893119994e3/tasks/bgivvrwa3.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for main CI to complete" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Show me a comparison for the verbs for repo vs. workspace.
+
+---
+
+Push alignment further, pls.
+
+---
+
+Ok, what are remaining differences and why?
+
+---
+
+<task-notification>
+<task-id>b0n25wnvp</task-id>
+<tool-use-id>toolu_019rRpLd58Ng5wF9RCNCox26</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/fc0c6aa0-0ea8-4d17-85f7-7893119994e3/tasks/b0n25wnvp.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for PR 38 checks" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bv2eppfpn</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/fc0c6aa0-0ea8-4d17-85f7-7893119994e3/tasks/bv2eppfpn.output</output-file>
+<status>completed</status>
+<summary>Background command "Confirm main CI green post-merge" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+How about the other way round, what verbs on repos are redundant or overkill?
+
+---
+
+How do you call semantic-audit?
+
+---
+
+Hm, any chance it's not on the current binary yet?
+
+---
+
+Merge stale and semantic-audit into status. Make sure to structure the plain text output with headlines and the json output by logical function. Also check that the mcp definition and other callers are updated accordingly.
+
+---
+
+<task-notification>
+<task-id>b5j0bhoy5</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/fc0c6aa0-0ea8-4d17-85f7-7893119994e3/tasks/b5j0bhoy5.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for PR 39 checks" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>brhybfxrb</task-id>
+<tool-use-id>toolu_01NF1b1zWzk8RUbb5LxFzCeK</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/fc0c6aa0-0ea8-4d17-85f7-7893119994e3/tasks/brhybfxrb.output</output-file>
+<status>completed</status>
+<summary>Background command "Confirm main CI green post-merge" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Next, roll export into refresh
