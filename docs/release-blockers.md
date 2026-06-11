@@ -5,7 +5,7 @@ kept next to the audit so a release decision can see what is open, what was
 fixed, and exactly why. The standard for this file is the eval ledger's:
 explicit claims, exact evidence, no euphemism.
 
-## OPEN — B1: Answer-bearing query hints confound every "citable proof" suite
+## OPEN / PARTIALLY MITIGATED — B1: Answer-bearing query hints confound every "citable proof" suite
 
 **The claim under audit.** `docs/release_readiness_audit.md` graduates three
 benchmark suites to citable release proof and asserts the panels work
@@ -37,13 +37,22 @@ token counts, and logs are consistent and one genuine no-brain failure run is
 retained) — what is unsupported is the *attribution* of the lift to the
 brain.
 
-**Why the PR's own hygiene machinery missed it.** The leak auditor checks
-*transcripts* for harness markers and host paths; it never intersects
+**Why the PR's own hygiene machinery missed it.** The previous leak auditor
+checked *transcripts* for harness markers and host paths; it did not intersect
 `brain_queries` with hidden-validation command strings, expected-text greps,
 or hidden test names. The `Useful query terms` mechanism predates this PR
-(present on `main` in 10 tasks), so prior comparisons carry the same
-confound; this PR is gated on it because it is the one promoting these suites
-to "citable proof".
+(present on `main` in 10 tasks), so prior comparisons carry the same confound;
+this PR is gated on it because it is the one promoting these suites to
+"citable proof".
+
+**Mitigation now on this branch.** `audit_codex.py` now flags brain-only query
+terms that overlap hidden validation, hidden test names, or expected strings,
+and it flags retained task config hash drift. The retained release manifest has
+been demoted to `claim_policy: "no_release_claim"`; the generated audit report
+passes only as a no-claim artifact with 35 hard flags and zero proof-ready
+comparisons. The release matrix now marks "replay-lab retained agent proof" as
+`no-claim`, so the branch can no longer accidentally cite these suites as
+agent-lift evidence.
 
 **Required to clear B1 (all of):**
 
@@ -51,13 +60,16 @@ to "citable proof".
    identifiers from the expected fix, no substrings of hidden-validation
    greps, no hidden test names — or give both arms identical hints so the
    delta isolates retrieval.
-2. Extend the leak auditor: flag any `brain_queries` token (or ≥3-word
+2. Extend the leak auditor: flag any `brain_queries` token (or >=3-word
    substring) that appears in hidden validation commands, expected strings,
-   or hidden test names. The four rows above must fail the auditor as it
-   stands.
+   or hidden test names. **Done on this branch for retained release audits.**
 3. Re-run the three suites clean and re-promote only what survives.
 4. Until then, correct the audit sentence and the two press-release "proof"
-   bullets to disclose the confound explicitly.
+   bullets to disclose the confound explicitly. **Done on this branch by
+   demoting the retained replay-lab lane to no-claim.**
+
+Remaining to close B1: strip/equalize the hints and rerun the affected suites
+cleanly before any replay-lab agent-lift claim is citable.
 
 ## RESOLVED — fixed during review on this branch
 

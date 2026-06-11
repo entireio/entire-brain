@@ -1940,6 +1940,108 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertFalse(release_report["suites"][suite]["records"][1]["release_hygiene"]["host_path_clean"])
             self.assertEqual(release_report["release_manifest"]["path"], "[external]/manifest.json")
 
+    def test_audit_codex_flags_answer_bearing_brain_queries_in_hidden_validation(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            task_path = results_dir / "leaky-task.json"
+            task_path.write_text(json.dumps({
+                "id": "t",
+                "prompt": "Fix the regression without seeing hidden validation.",
+                "hide_validation_from_agent": True,
+                "validation": [
+                    "go test ./pkg -run TestRestoreExactInvariant",
+                    "test $(rg -n 'restore exact invariant wording' pkg/file.go | wc -l) -eq 1",
+                ],
+                "brain_queries": [
+                    "TestRestoreExactInvariant",
+                    "restore exact invariant wording",
+                ],
+            }))
+            task_sha = hashlib.sha256(task_path.read_bytes()).hexdigest()
+            suite = "release-candidate-leaky-queries"
+            records = []
+            for i in range(1, 5):
+                base = self._release_record(suite, condition="no_brain", repetition=i, run_id=f"base-{i}")
+                brain = self._release_record(suite, condition="full_brain", repetition=i, run_id=f"brain-{i}")
+                for record in (base, brain):
+                    record["provenance"]["task"]["path"] = str(task_path)
+                    record["provenance"]["task"]["config_sha256"] = task_sha
+                records.extend([base, brain])
+            suite_dir = self._write_records(results_dir, suite, records)
+            (suite_dir / "summary.json").write_text(json.dumps({
+                "comparisons": [{
+                    "task_id": "t",
+                    "runner": "codex",
+                    "condition": "full_brain",
+                    "verdict": "brain_positive",
+                    "proof_ready": True,
+                    "n_condition": 4,
+                    "n_baseline": 4,
+                    "stability": {"tag": "brain_positive_stable"},
+                }]
+            }))
+
+            report = audit_codex.build_audit_report(results_dir, ["release-candidate-*"])
+            brain_record = report["suites"][suite]["records"][1]
+            base_record = report["suites"][suite]["records"][0]
+            self.assertTrue(base_record["pass"], base_record)
+            self.assertFalse(brain_record["pass"], brain_record)
+            self.assertTrue(any(flag.startswith("J:answer_bearing_brain_queries") for flag in brain_record["flags"]))
+            self.assertIn("answer_bearing_brain_queries", brain_record["task_hygiene"])
+            self.assertEqual(report["totals"]["proof_ready_comparisons"], 0)
+            self.assertIn("G:proof_ready_without_matching_records", report["suites"][suite]["comparisons"][0]["flags"])
+
+            manifest = self._write_release_manifest(out_dir)
+            self.assertEqual(
+                audit_codex.main(["--results", str(results_dir), "--release-manifest", str(manifest), "--out-dir", str(out_dir), "--fail-on-flags"]),
+                1,
+            )
+            gated = json.loads((out_dir / "codex-audit-report.json").read_text())
+            self.assertGreater(gated["totals"]["hard_flags"], 0)
+
+            manifest_data = json.loads(manifest.read_text())
+            manifest_data["claim_policy"] = "no_release_claim"
+            manifest_data["minimums"]["proof_ready_comparisons"] = 0
+            manifest_data["minimums"]["mcp_verified_records"] = 0
+            manifest_data["minimums"]["mcp_named_tool_verified_records"] = 0
+            manifest_data["require_proof_ready_per_suite"] = False
+            manifest_data["required_proof_scopes"] = []
+            manifest_data["required_named_tool_proof_scopes"] = []
+            manifest_data["allowed_no_claim_flag_kinds"] = [
+                "J:answer_bearing_brain_queries",
+                "G:proof_ready_without_matching_records",
+            ]
+            manifest.write_text(json.dumps(manifest_data))
+            self.assertEqual(
+                audit_codex.main(["--results", str(results_dir), "--release-manifest", str(manifest), "--out-dir", str(out_dir), "--fail-on-flags"]),
+                0,
+            )
+            no_claim = json.loads((out_dir / "codex-audit-report.json").read_text())
+            self.assertEqual(no_claim["gate_status"]["claim_policy"], "no_release_claim")
+            self.assertFalse(no_claim["gate_status"]["release_evidence"])
+            self.assertIn("PASS (NO RELEASE CLAIM)", (out_dir / "codex-audit-report.md").read_text())
+
+    def test_audit_codex_flags_task_config_hash_drift(self):
+        with tempfile.TemporaryDirectory() as results:
+            results_dir = pathlib.Path(results)
+            task_path = results_dir / "task.json"
+            task_path.write_text(json.dumps({
+                "id": "t",
+                "prompt": "Task",
+                "validation": ["go test ./..."],
+            }))
+            suite = "release-candidate-task-drift"
+            record = self._release_record(suite, condition="no_brain", repetition=1, run_id="base-1")
+            record["provenance"]["task"]["path"] = str(task_path)
+            record["provenance"]["task"]["config_sha256"] = "0" * 64
+            self._write_records(results_dir, suite, [record])
+
+            report = audit_codex.build_audit_report(results_dir, [suite])
+            audited = report["suites"][suite]["records"][0]
+            self.assertFalse(audited["pass"], audited)
+            self.assertIn("H:task_config_sha256_mismatch", audited["flags"])
+
     def test_release_manifest_requires_proof_ready_per_suite(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
             results_dir = pathlib.Path(results)
@@ -2416,10 +2518,12 @@ class CodexAuditScriptTests(unittest.TestCase):
             results_dir = pathlib.Path(results)
             task_path = results_dir / "deletion-radar-task.json"
             task_path.write_text(json.dumps({"id": "t", "radar_include_deletions": True}))
+            task_sha = hashlib.sha256(task_path.read_bytes()).hexdigest()
 
             missing_suite = "release-candidate-radar-deletions-missing"
             missing = self._mcp_release_record(missing_suite, repetition=1, run_id="radar-1")
             missing["provenance"]["task"]["path"] = str(task_path)
+            missing["provenance"]["task"]["config_sha256"] = task_sha
             missing["provenance"]["task"]["radar_include_deletions"] = True
             missing_dir = self._write_records(results_dir, missing_suite, [missing])
             self._write_mcp_server_log(missing_dir, "radar-1", "brain_regressions", tool_args={"location_only": True})
@@ -2433,6 +2537,7 @@ class CodexAuditScriptTests(unittest.TestCase):
             ok_suite = "release-candidate-radar-deletions-ok"
             ok = self._mcp_release_record(ok_suite, repetition=1, run_id="radar-1")
             ok["provenance"]["task"]["path"] = str(task_path)
+            ok["provenance"]["task"]["config_sha256"] = task_sha
             ok["provenance"]["task"]["radar_include_deletions"] = True
             ok["agent_info"]["activity"]["mcp_tool_details"][0]["arguments"]["include_deletions"] = True
             ok["mcp_condition_audit"]["mcp_tool_details"][0]["arguments"]["include_deletions"] = True
@@ -4345,6 +4450,34 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 0,
             )
             self.assertTrue((pathlib.Path(out) / "release-matrix-report.json").exists())
+
+    def test_release_matrix_accepts_demoted_replay_no_claim_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            manifest = self._write_release_matrix_fixture(root)
+            release = root / "reports" / "release.json"
+            data = json.loads(release.read_text())
+            data["totals"] = {
+                "hard_flags": 12,
+                "proof_ready_comparisons": 0,
+                "proof_ready_comparisons_by_scope": {},
+                "named_tool_proof_ready_comparisons_by_scope": {},
+            }
+            data["gate_status"] = {
+                "status": "pass",
+                "claim_policy": "no_release_claim",
+                "release_evidence": False,
+            }
+            release.write_text(json.dumps(data))
+
+            report = audit_release_matrix.audit_manifest(manifest)
+
+            self.assertEqual(report["status"], "pass", report)
+            replay_rows = [row for row in report["rows"] if row["track"] == "replay-lab retained agent proof"]
+            self.assertEqual(len(replay_rows), 1, replay_rows)
+            self.assertEqual(replay_rows[0]["status"], "no-claim")
+            self.assertFalse(replay_rows[0]["claimable"])
+            self.assertIn("clean replay-lab reruns", replay_rows[0]["detail"])
 
     def test_release_matrix_accepts_claimable_facts_with_release_proof(self):
         with tempfile.TemporaryDirectory() as tmp:

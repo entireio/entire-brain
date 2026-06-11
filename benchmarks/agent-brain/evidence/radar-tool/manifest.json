@@ -24,7 +24,7 @@
   "generated_at": "2026-06-11T01:00:54Z",
   "limitations": [
     "Tool-contract proof only; this is not agent lift proof.",
-    "Radar agent-lift proof is retained separately under benchmarks/agent-brain/evidence/release and enforced by mise run radar:agent-evidence.",
+    "Radar agent-lift proof/no-claim status is retained separately under benchmarks/agent-brain/evidence/release and checked by mise run radar:agent-evidence.",
     "This artifact proves local deterministic MCP/Radar behavior for the current internal/cli test fixtures."
   ],
   "required_tests": [

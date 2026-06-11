@@ -35,6 +35,7 @@ from typing import Any
 BENCH = pathlib.Path(__file__).resolve().parent
 RESULTS = BENCH / "results"
 TASK_DIR = BENCH / "tasks"
+VALIDATION_FIXTURE_DIR = BENCH / "fixtures" / "validation"
 DEFAULT_PROOF_MIN_REPETITIONS = 4
 
 MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
@@ -64,6 +65,15 @@ HOST_PATH_RE = re.compile(
     r"|[A-Z]:\\Users\\[^\s\"'`]+"   # Windows home paths
     r")"
 )
+TEST_NAME_RE = re.compile(r"\bTest[A-Za-z0-9_]+\b")
+TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\([^)]+\))?|[0-9a-f]{7,}")
+GENERIC_QUERY_TOKENS = {
+    "after", "agent", "base", "before", "benchmark", "brain", "check",
+    "code", "command", "context", "current", "default", "edit", "error",
+    "failure", "file", "fix", "hidden", "history", "local", "manual",
+    "prompt", "query", "release", "run", "runs", "session", "state",
+    "test", "tests", "the", "tool", "validation", "with", "without",
+}
 
 
 def valid_workspace_name(value: Any) -> bool:
@@ -404,6 +414,167 @@ def get(d: Any, *path, default=None):
     return cur if cur is not None else default
 
 
+def task_path_candidates(rec: dict[str, Any]) -> list[pathlib.Path]:
+    raw_path = get(rec, "provenance", "task", "path")
+    task_id = str(rec.get("task_id") or get(rec, "provenance", "task", "id") or "")
+    candidates: list[pathlib.Path] = []
+    if isinstance(raw_path, str) and raw_path:
+        path = pathlib.Path(raw_path)
+        candidates.append(path)
+        if not path.is_absolute():
+            candidates.append((pathlib.Path.cwd() / path).resolve())
+            candidates.append((BENCH.parent.parent / path).resolve())
+    if task_id:
+        candidates.append(TASK_DIR / f"{task_id}.json")
+        for path in TASK_DIR.glob("*.json"):
+            if path.name == f"{task_id}.json":
+                continue
+            candidates.append(path)
+    seen: set[pathlib.Path] = set()
+    out: list[pathlib.Path] = []
+    for path in candidates:
+        resolved = path.resolve() if not path.is_absolute() else path
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        out.append(resolved)
+    return out
+
+
+def load_task_for_record(rec: dict[str, Any]) -> tuple[dict[str, Any] | None, pathlib.Path | None, str | None]:
+    task_id = str(rec.get("task_id") or get(rec, "provenance", "task", "id") or "")
+    fallback_mismatches: list[str] = []
+    for path in task_path_candidates(rec):
+        if not path.exists() or not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        if task_id and data.get("id") != task_id:
+            fallback_mismatches.append(str(path))
+            continue
+        return data, path, None
+    if fallback_mismatches:
+        return None, None, "task_id_mismatch"
+    return None, None, "task_not_found"
+
+
+def file_sha256(path: pathlib.Path | None) -> str | None:
+    if path is None:
+        return None
+    try:
+        import hashlib
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def normalized_words(text: str) -> list[str]:
+    return [w.lower() for w in re.findall(r"[A-Za-z0-9_]+", text.replace("`", " ")) if w]
+
+
+def query_substrings(words: list[str], min_len: int = 3) -> set[str]:
+    out: set[str] = set()
+    for size in range(min_len, len(words) + 1):
+        for i in range(0, len(words) - size + 1):
+            out.add(" ".join(words[i:i + size]))
+    return out
+
+
+def query_tokens(text: str) -> set[str]:
+    out: set[str] = set()
+    for token in TOKEN_RE.findall(text):
+        stripped = token.strip("`'\"")
+        lower = stripped.lower()
+        if len(stripped) < 6 and not TEST_NAME_RE.fullmatch(stripped):
+            continue
+        if lower in GENERIC_QUERY_TOKENS:
+            continue
+        out.add(stripped)
+    return out
+
+
+def validation_file_text(entry: dict[str, Any]) -> str:
+    parts = [str(entry.get("path", ""))]
+    if entry.get("content"):
+        parts.append(str(entry.get("content")))
+    fixture = str(entry.get("fixture", ""))
+    if fixture:
+        parts.append(fixture)
+        fixture_path = (VALIDATION_FIXTURE_DIR / fixture).resolve()
+        try:
+            parts.append(fixture_path.read_text(errors="ignore"))
+        except OSError:
+            pass
+    return "\n".join(part for part in parts if part)
+
+
+def hidden_validation_texts(task: dict[str, Any]) -> list[tuple[str, str]]:
+    if not task.get("hide_validation_from_agent"):
+        return []
+    texts: list[tuple[str, str]] = []
+    for idx, command in enumerate(task.get("validation", []) or []):
+        if command:
+            texts.append((f"validation[{idx}]", str(command)))
+    for idx, entry in enumerate(task.get("validation_files", []) or []):
+        if isinstance(entry, dict):
+            text = validation_file_text(entry)
+            if text:
+                texts.append((f"validation_files[{idx}]", text))
+    return texts
+
+
+def brain_query_leak_findings(task: dict[str, Any]) -> list[dict[str, Any]]:
+    queries = [str(query) for query in task.get("brain_queries", []) or [] if str(query).strip()]
+    hidden = hidden_validation_texts(task)
+    if not queries or not hidden:
+        return []
+    findings: list[dict[str, Any]] = []
+    for qidx, query in enumerate(queries):
+        words = normalized_words(query)
+        substrings = query_substrings(words)
+        tokens = query_tokens(query)
+        tests = set(TEST_NAME_RE.findall(query))
+        for source, text in hidden:
+            hidden_words_joined = " ".join(normalized_words(text))
+            hidden_tokens = set(query_tokens(text))
+            hidden_tests = set(TEST_NAME_RE.findall(text))
+            for test_name in sorted(tests & hidden_tests):
+                findings.append({"query_index": qidx, "source": source, "kind": "hidden_test_name", "term": test_name})
+            for token in sorted(tokens & hidden_tokens):
+                findings.append({"query_index": qidx, "source": source, "kind": "token", "term": token})
+            for phrase in sorted(substrings):
+                if phrase and phrase in hidden_words_joined:
+                    findings.append({"query_index": qidx, "source": source, "kind": "phrase", "term": phrase})
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for finding in findings:
+        key = (finding["query_index"], finding["source"], finding["kind"], finding["term"])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(finding)
+    return deduped
+
+
+def redact_leak_findings(findings: list[dict[str, Any]], limit: int = 8) -> list[dict[str, Any]]:
+    import hashlib
+    redacted: list[dict[str, Any]] = []
+    for finding in findings[:limit]:
+        term = str(finding.get("term", ""))
+        redacted.append({
+            "query_index": finding.get("query_index"),
+            "source": finding.get("source"),
+            "kind": finding.get("kind"),
+            "term_hash": hashlib.sha256(term.encode()).hexdigest()[:16],
+            "term_preview": term[:96],
+        })
+    return redacted
+
+
 def portable_report_path(path: pathlib.Path) -> str:
     resolved = path.resolve()
     for base in (pathlib.Path.cwd().resolve(), BENCH.parent.parent):
@@ -575,6 +746,19 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     workspace_name = record_workspace_name(rec)
     required_logged_tool_args = required_server_tool_args(str(cond), delivery_scope, radar_requires_deletions, workspace_name)
     forbidden_logged_tool_args = forbidden_server_tool_args(str(cond), delivery_scope)
+    task_data, task_path, task_load_error = load_task_for_record(rec)
+    task_hygiene: dict[str, Any] = {
+        "loaded": task_data is not None,
+        "path": portable_report_path(task_path) if task_path else None,
+    }
+    if task_load_error:
+        task_hygiene["load_error"] = task_load_error
+    recorded_task_sha = get(rec, "provenance", "task", "config_sha256")
+    actual_task_sha = file_sha256(task_path)
+    if actual_task_sha:
+        task_hygiene["sha256"] = actual_task_sha
+    if recorded_task_sha and actual_task_sha and actual_task_sha != recorded_task_sha:
+        flags.append("H:task_config_sha256_mismatch")
 
     # A. no_brain purity (HARD: no_brain must never touch Brain/MCP/CLI/private)
     # Cross-check the record's claimed MCP call count against the server log.
@@ -735,6 +919,11 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
             if isinstance(arg, dict)
         })
         flags.append("E:mcp_server_log_unsafe_tool_args(" + ",".join(unsafe_keys) + ")")
+    if cond in BRAIN_CONDITIONS and isinstance(task_data, dict):
+        query_leaks = brain_query_leak_findings(task_data)
+        if query_leaks:
+            flags.append(f"J:answer_bearing_brain_queries(count={len(query_leaks)})")
+            task_hygiene["answer_bearing_brain_queries"] = redact_leak_findings(query_leaks)
 
     # F. validation present
     vres = get(rec, "validation", "results", default=None)
@@ -815,6 +1004,8 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         "notes": notes,
         "pass": not flags,
     }
+    if task_hygiene.get("loaded") or task_hygiene.get("load_error"):
+        audit["task_hygiene"] = task_hygiene
     if slog_names is not None:
         audit["server_tool_names"] = slog_names
     if slog_results is not None:
@@ -1035,6 +1226,12 @@ def load_release_manifest(path: pathlib.Path) -> dict[str, Any]:
     required_named_scopes = data.get("required_named_tool_proof_scopes", [])
     if not isinstance(required_named_scopes, list) or not all(isinstance(s, str) and s for s in required_named_scopes):
         raise SystemExit("release manifest required_named_tool_proof_scopes must be a string list")
+    claim_policy = data.get("claim_policy", "proof_required")
+    if claim_policy not in {"proof_required", "no_release_claim"}:
+        raise SystemExit("release manifest claim_policy must be proof_required or no_release_claim")
+    allowed_no_claim_flags = data.get("allowed_no_claim_flag_kinds", [])
+    if not isinstance(allowed_no_claim_flags, list) or not all(isinstance(s, str) and s for s in allowed_no_claim_flags):
+        raise SystemExit("release manifest allowed_no_claim_flag_kinds must be a string list")
     return data
 
 
@@ -1187,6 +1384,8 @@ def build_gate_status(
     min_mcp_verified: int,
     min_mcp_named_tool_verified: int,
     *,
+    claim_policy: str = "proof_required",
+    allowed_no_claim_flag_kinds: list[str] | None = None,
     require_proof_ready_per_suite: bool = False,
     required_proof_scopes: list[str] | None = None,
     required_named_tool_proof_scopes: list[str] | None = None,
@@ -1199,6 +1398,30 @@ def build_gate_status(
     mcp_verified = int(totals.get("mcp_verified_records") or 0)
     mcp_named_tool_verified = int(totals.get("mcp_named_tool_verified_records") or 0)
     hard_flags = int(totals.get("hard_flags") or 0)
+    flag_kinds = totals.get("flag_kinds") if isinstance(totals.get("flag_kinds"), dict) else {}
+    allowed_no_claim_flag_kinds = allowed_no_claim_flag_kinds or []
+    if claim_policy == "no_release_claim":
+        if suites < min_suites:
+            failures.append(f"suites {suites} < required {min_suites}")
+        if records < min_records:
+            failures.append(f"records {records} < required {min_records}")
+        if proof_ready > 0:
+            failures.append(f"no_release_claim has proof_ready_comparisons {proof_ready} > 0")
+        unexpected = sorted(kind for kind in flag_kinds if kind not in set(allowed_no_claim_flag_kinds))
+        if unexpected:
+            failures.append("unexpected no_release_claim flag kinds: " + ", ".join(unexpected))
+        return {
+            "status": "fail" if failures else "pass",
+            "release_evidence": False,
+            "claim_policy": claim_policy,
+            "requirements": {
+                "min_suites": min_suites,
+                "min_records": min_records,
+                "proof_ready_comparisons": 0,
+                "allowed_no_claim_flag_kinds": allowed_no_claim_flag_kinds,
+            },
+            "failures": failures,
+        }
     if suites < min_suites:
         failures.append(f"suites {suites} < required {min_suites}")
     if records < min_records:
@@ -1228,6 +1451,7 @@ def build_gate_status(
     return {
         "status": "fail" if failures else "pass",
         "release_evidence": not failures,
+        "claim_policy": claim_policy,
         "requirements": {
             "min_suites": min_suites,
             "min_records": min_records,
@@ -1276,7 +1500,9 @@ def render_audit_markdown(report: dict[str, Any]) -> str:
     gate_status = report.get("gate_status")
     if isinstance(gate_status, dict):
         md.append("## Release Gate")
-        if gate_status.get("release_evidence"):
+        if gate_status.get("claim_policy") == "no_release_claim" and gate_status.get("status") == "pass":
+            md.append("**PASS (NO RELEASE CLAIM).** This audit satisfies the retained no-claim gate and is not citable proof.")
+        elif gate_status.get("release_evidence"):
             md.append("**PASS.** This audit satisfies the configured release-evidence gate.")
         else:
             md.append("**NOT RELEASE EVIDENCE.** This audit does not satisfy the configured release-evidence gate.")
@@ -1362,6 +1588,8 @@ def main(argv: list[str] | None = None) -> int:
     require_proof_ready_per_suite = False
     required_proof_scopes: list[str] = []
     required_named_tool_proof_scopes: list[str] = []
+    claim_policy = "proof_required"
+    allowed_no_claim_flag_kinds: list[str] = []
     manifest = None
     if args.release_manifest:
         manifest = load_release_manifest(args.release_manifest.resolve())
@@ -1385,6 +1613,8 @@ def main(argv: list[str] | None = None) -> int:
         require_proof_ready_per_suite = bool(manifest.get("require_proof_ready_per_suite"))
         required_proof_scopes = list(manifest.get("required_proof_scopes") or [])
         required_named_tool_proof_scopes = list(manifest.get("required_named_tool_proof_scopes") or [])
+        claim_policy = str(manifest.get("claim_policy", claim_policy))
+        allowed_no_claim_flag_kinds = list(manifest.get("allowed_no_claim_flag_kinds") or [])
     report = build_audit_report(
         results_dir,
         suite_globs,
@@ -1404,6 +1634,8 @@ def main(argv: list[str] | None = None) -> int:
             "require_proof_ready_per_suite": require_proof_ready_per_suite,
             "required_proof_scopes": required_proof_scopes,
             "required_named_tool_proof_scopes": required_named_tool_proof_scopes,
+            "claim_policy": claim_policy,
+            "allowed_no_claim_flag_kinds": allowed_no_claim_flag_kinds,
         }
     gate_status = None
     if args.fail_on_flags:
@@ -1414,6 +1646,8 @@ def main(argv: list[str] | None = None) -> int:
             min_proof_ready,
             min_mcp_verified,
             min_mcp_named_tool_verified,
+            claim_policy=claim_policy,
+            allowed_no_claim_flag_kinds=allowed_no_claim_flag_kinds,
             require_proof_ready_per_suite=require_proof_ready_per_suite,
             required_proof_scopes=required_proof_scopes,
             required_named_tool_proof_scopes=required_named_tool_proof_scopes,

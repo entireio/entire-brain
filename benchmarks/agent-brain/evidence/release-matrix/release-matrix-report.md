@@ -3,8 +3,8 @@
 - Status: **PASS**
 - Release fully ready: **false**
 - Tracks: **10**
-- Claimable tracks: **5**
-- No-claim or pending tracks: **5**
+- Claimable tracks: **4**
+- No-claim or pending tracks: **6**
 
 ## Notes
 - This is a claim-hygiene gate, not a declaration that every release blocker is closed.
@@ -14,7 +14,7 @@
 
 | Track | Status | Claimable | Evidence | Detail |
 |---|---|---:|---|---|
-| replay-lab retained agent proof | proven | true | benchmarks/agent-brain/evidence/release/codex-audit-report.json | proof scopes: history, mcp, mcp_radar_location_only |
+| replay-lab retained agent proof | no-claim | false | benchmarks/agent-brain/evidence/release/codex-audit-report.json | B1 query-hint/task-hash confound is detected; clean replay-lab reruns are required before citing agent lift |
 | QMD-inspired MCP/Radar tool contract | proven | true | benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.json | deterministic MCP/Radar Go test artifact |
 | distill local scheduler/backfill mechanics | proven-local | true | benchmarks/agent-brain/evidence/distill-perf/distill-perf-audit-report.json | current-repo local command-agent distill extraction scheduling speedup |
 | target large-repo/frontend distill performance | pending-target-evidence | false | benchmarks/agent-brain/evidence/distill-perf/distill-perf-audit-report.json | current retained speedup is current-repo command-agent scheduler proof, not the frontend/large-repo claim |

@@ -37,9 +37,16 @@
             "run_config_fingerprint": "c86b9246d5d3674458da5e1f1ea2320b45c20086a1682b62e5257b1c4195d7d9",
             "record_fingerprint": "9e0d521e39b973068400cfe1344d2d70b16001c3a1f65c981a204fd8bc2c6b5d"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
           "notes": [],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+            "sha256": "d4b592d1d488f782b36e7a8866d06018e0458f8b22c6907ec60d859fd2369213"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -80,9 +87,16 @@
             "run_config_fingerprint": "522b23e8f59ee50cf5e6c36ceea1bf4839b956af8ab92bfbdba94ced05fb2296",
             "record_fingerprint": "78e5848aa9fb3fabc4b823d153d31cd905a01f0274c71c922cbafe456d1dd9bf"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
           "notes": [],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+            "sha256": "d4b592d1d488f782b36e7a8866d06018e0458f8b22c6907ec60d859fd2369213"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -123,9 +137,16 @@
             "run_config_fingerprint": "f646cca92f96ddb6854a9fb1985d5a589ccb951bd321f3125111ad33f35bd014",
             "record_fingerprint": "f18741470c64ce49de303d09f47b49014de03fdcd17090c83c04e607ba2c621f"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
           "notes": [],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+            "sha256": "d4b592d1d488f782b36e7a8866d06018e0458f8b22c6907ec60d859fd2369213"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -166,9 +187,16 @@
             "run_config_fingerprint": "6ec6cd0fa1e306e1e1274fb13ff9926655e064db07aac7a4651388a004106076",
             "record_fingerprint": "fa82ab8568c3c05b4a7c95f7bb5a78166beccbaf056cd399890a921a3dddd142"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
           "notes": [],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+            "sha256": "d4b592d1d488f782b36e7a8866d06018e0458f8b22c6907ec60d859fd2369213"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -194,7 +222,7 @@
           "server_toolcall_responses": 1,
           "search_calls": 4,
           "parent_count": 0,
-          "mcp_verified": true,
+          "mcp_verified": false,
           "mcp_named_tool_verified": true,
           "mcp_named_tool_completed": true,
           "mcp_named_tool_result_verified": true,
@@ -211,13 +239,65 @@
             "run_config_fingerprint": "3429a1753c84037bed575050b9ca17b87a132a6ef21d7486a42cb3e7fa4b23a4",
             "record_fingerprint": "df714bbe45a365c26ed3475fcaca02cd79bba5d0c5f76a9977d96195d2aeef77"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch",
+            "J:answer_bearing_brain_queries(count=6)"
+          ],
           "notes": [
             "N:mcp_call_count_mismatch(record=2,server_log=1)",
             "B:mcp_history_partial_missing_brain_brief",
             "B:mcp_history_partial_missing_brain_search"
           ],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+            "sha256": "d4b592d1d488f782b36e7a8866d06018e0458f8b22c6907ec60d859fd2369213",
+            "answer_bearing_brain_queries": [
+              {
+                "query_index": 0,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "271933c184e28c42",
+                "term_preview": "AttributionBaseCommit"
+              },
+              {
+                "query_index": 0,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "542fca62348fc051",
+                "term_preview": "trailer"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "271933c184e28c42",
+                "term_preview": "AttributionBaseCommit"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "add20569cdf376a5",
+                "term_preview": "BaseCommit"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "e4949e328d9e9825",
+                "term_preview": "realign"
+              },
+              {
+                "query_index": 3,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "a1fe8ddd40352eb2",
+                "term_preview": "newHead"
+              }
+            ]
+          },
           "server_tool_names": [
             "brain_regressions"
           ],
@@ -271,7 +351,7 @@
           "server_toolcall_responses": 1,
           "search_calls": 8,
           "parent_count": 0,
-          "mcp_verified": true,
+          "mcp_verified": false,
           "mcp_named_tool_verified": true,
           "mcp_named_tool_completed": true,
           "mcp_named_tool_result_verified": true,
@@ -288,13 +368,65 @@
             "run_config_fingerprint": "4b74a716cb7742a9c1de993a3327cb10e172ef6a39c02bf1b6db62e1d058e4d2",
             "record_fingerprint": "a8f1d864c0aabab70687a97b190e9c0d5bd7ce09600c3f65124527efbdf19e48"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch",
+            "J:answer_bearing_brain_queries(count=6)"
+          ],
           "notes": [
             "N:mcp_call_count_mismatch(record=2,server_log=1)",
             "B:mcp_history_partial_missing_brain_brief",
             "B:mcp_history_partial_missing_brain_search"
           ],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+            "sha256": "d4b592d1d488f782b36e7a8866d06018e0458f8b22c6907ec60d859fd2369213",
+            "answer_bearing_brain_queries": [
+              {
+                "query_index": 0,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "271933c184e28c42",
+                "term_preview": "AttributionBaseCommit"
+              },
+              {
+                "query_index": 0,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "542fca62348fc051",
+                "term_preview": "trailer"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "271933c184e28c42",
+                "term_preview": "AttributionBaseCommit"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "add20569cdf376a5",
+                "term_preview": "BaseCommit"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "e4949e328d9e9825",
+                "term_preview": "realign"
+              },
+              {
+                "query_index": 3,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "a1fe8ddd40352eb2",
+                "term_preview": "newHead"
+              }
+            ]
+          },
           "server_tool_names": [
             "brain_regressions"
           ],
@@ -348,7 +480,7 @@
           "server_toolcall_responses": 1,
           "search_calls": 4,
           "parent_count": 0,
-          "mcp_verified": true,
+          "mcp_verified": false,
           "mcp_named_tool_verified": true,
           "mcp_named_tool_completed": true,
           "mcp_named_tool_result_verified": true,
@@ -365,13 +497,65 @@
             "run_config_fingerprint": "5aea1710d74e0c268afa0d3bde05a1ea4bb196401c14d207e21b1aa198d17db3",
             "record_fingerprint": "a8ee03faeab8306ff57ea969533a1098421b06049ac903f23188db9f51577445"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch",
+            "J:answer_bearing_brain_queries(count=6)"
+          ],
           "notes": [
             "N:mcp_call_count_mismatch(record=2,server_log=1)",
             "B:mcp_history_partial_missing_brain_brief",
             "B:mcp_history_partial_missing_brain_search"
           ],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+            "sha256": "d4b592d1d488f782b36e7a8866d06018e0458f8b22c6907ec60d859fd2369213",
+            "answer_bearing_brain_queries": [
+              {
+                "query_index": 0,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "271933c184e28c42",
+                "term_preview": "AttributionBaseCommit"
+              },
+              {
+                "query_index": 0,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "542fca62348fc051",
+                "term_preview": "trailer"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "271933c184e28c42",
+                "term_preview": "AttributionBaseCommit"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "add20569cdf376a5",
+                "term_preview": "BaseCommit"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "e4949e328d9e9825",
+                "term_preview": "realign"
+              },
+              {
+                "query_index": 3,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "a1fe8ddd40352eb2",
+                "term_preview": "newHead"
+              }
+            ]
+          },
           "server_tool_names": [
             "brain_regressions"
           ],
@@ -425,7 +609,7 @@
           "server_toolcall_responses": 1,
           "search_calls": 8,
           "parent_count": 0,
-          "mcp_verified": true,
+          "mcp_verified": false,
           "mcp_named_tool_verified": true,
           "mcp_named_tool_completed": true,
           "mcp_named_tool_result_verified": true,
@@ -442,13 +626,65 @@
             "run_config_fingerprint": "c5c78e7166319be3c01b2d6ce65edd391f438e785b1be5a3552085f257fcf827",
             "record_fingerprint": "bc69b09e6491c80c6c005f5824a5ea52d5aeaac3e19ae90661aef752cf2205f8"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch",
+            "J:answer_bearing_brain_queries(count=6)"
+          ],
           "notes": [
             "N:mcp_call_count_mismatch(record=2,server_log=1)",
             "B:mcp_history_partial_missing_brain_brief",
             "B:mcp_history_partial_missing_brain_search"
           ],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+            "sha256": "d4b592d1d488f782b36e7a8866d06018e0458f8b22c6907ec60d859fd2369213",
+            "answer_bearing_brain_queries": [
+              {
+                "query_index": 0,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "271933c184e28c42",
+                "term_preview": "AttributionBaseCommit"
+              },
+              {
+                "query_index": 0,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "542fca62348fc051",
+                "term_preview": "trailer"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "271933c184e28c42",
+                "term_preview": "AttributionBaseCommit"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "add20569cdf376a5",
+                "term_preview": "BaseCommit"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "e4949e328d9e9825",
+                "term_preview": "realign"
+              },
+              {
+                "query_index": 3,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "a1fe8ddd40352eb2",
+                "term_preview": "newHead"
+              }
+            ]
+          },
           "server_tool_names": [
             "brain_regressions"
           ],
@@ -502,50 +738,53 @@
             "time_or_tokens_improved>=20%",
             "search_calls_dropped>=20%"
           ],
-          "flags": [],
-          "pass": true,
+          "flags": [
+            "G:proof_ready_without_mcp_verified_condition_records",
+            "G:proof_ready_without_named_mcp_tool_condition_records",
+            "G:proof_ready_without_completed_named_mcp_tool_condition_records",
+            "G:proof_ready_without_matching_records"
+          ],
+          "pass": false,
           "proof_scope": "mcp_radar_location_only",
           "record_backing": {
-            "condition_records": 4,
-            "baseline_records": 4,
-            "condition_mcp_verified_records": 4,
-            "condition_mcp_named_tool_verified_records": 4,
-            "condition_mcp_named_tool_completed_records": 4,
-            "condition_unique_run_ids": 4,
-            "baseline_unique_run_ids": 4,
-            "condition_mcp_verified_unique_run_ids": 4,
-            "condition_mcp_named_tool_verified_unique_run_ids": 4,
-            "condition_mcp_named_tool_completed_unique_run_ids": 4,
-            "condition_unique_repetitions": 4,
-            "baseline_unique_repetitions": 4,
-            "condition_mcp_verified_unique_repetitions": 4,
-            "condition_mcp_named_tool_verified_unique_repetitions": 4,
-            "condition_mcp_named_tool_completed_unique_repetitions": 4,
+            "condition_records": 0,
+            "baseline_records": 0,
+            "condition_mcp_verified_records": 0,
+            "condition_mcp_named_tool_verified_records": 0,
+            "condition_mcp_named_tool_completed_records": 0,
+            "condition_unique_run_ids": 0,
+            "baseline_unique_run_ids": 0,
+            "condition_mcp_verified_unique_run_ids": 0,
+            "condition_mcp_named_tool_verified_unique_run_ids": 0,
+            "condition_mcp_named_tool_completed_unique_run_ids": 0,
+            "condition_unique_repetitions": 0,
+            "baseline_unique_repetitions": 0,
+            "condition_mcp_verified_unique_repetitions": 0,
+            "condition_mcp_named_tool_verified_unique_repetitions": 0,
+            "condition_mcp_named_tool_completed_unique_repetitions": 0,
             "required_condition": 4,
             "required_baseline": 4,
             "required_delivery_scope": "mcp_radar_location_only",
             "condition_requires_mcp_verified": true,
             "condition_requires_mcp_named_tool_verified": true,
-            "condition_records_ok": true,
-            "baseline_records_ok": true,
-            "condition_mcp_verified_ok": true,
-            "condition_mcp_named_tool_verified_ok": true,
-            "condition_mcp_named_tool_completed_ok": true,
-            "condition_mcp_named_tool_required_ok": true,
-            "ok": true
+            "condition_records_ok": false,
+            "baseline_records_ok": false,
+            "condition_mcp_verified_ok": false,
+            "condition_mcp_named_tool_verified_ok": false,
+            "condition_mcp_named_tool_completed_ok": false,
+            "condition_mcp_named_tool_required_ok": false,
+            "ok": false
           }
         }
       ],
       "n_records": 8,
-      "n_flagged_records": 0,
-      "n_mcp_verified": 4,
+      "n_flagged_records": 8,
+      "n_mcp_verified": 0,
       "n_mcp_named_tool_verified": 4,
       "n_mcp_named_tool_completed": 4,
       "n_provenance_ok": 8,
-      "n_proof_ready_comparisons": 1,
-      "n_proof_ready_comparisons_by_scope": {
-        "mcp_radar_location_only": 1
-      }
+      "n_proof_ready_comparisons": 0,
+      "n_proof_ready_comparisons_by_scope": {}
     },
     "release-candidate-entire-brain-schema-contract-20260610T0115Z": {
       "records": [
@@ -585,6 +824,11 @@
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+            "sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -626,6 +870,11 @@
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+            "sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -667,6 +916,11 @@
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+            "sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -708,6 +962,11 @@
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+            "sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -746,9 +1005,74 @@
             "run_config_fingerprint": "f9052526b1aa0cdf74af99a4637244334c8442b75379953488068cd335a5b58e",
             "record_fingerprint": "f656f76e16dc631f2fc6e9aa283cc04e7ff43400f46da757be694f427fef03a7"
           },
-          "flags": [],
+          "flags": [
+            "J:answer_bearing_brain_queries(count=23)"
+          ],
           "notes": [],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+            "sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
+            "answer_bearing_brain_queries": [
+              {
+                "query_index": 0,
+                "source": "validation[0]",
+                "kind": "token",
+                "term_hash": "e0ee8bb50685e05f",
+                "term_preview": "output"
+              },
+              {
+                "query_index": 0,
+                "source": "validation[0]",
+                "kind": "token",
+                "term_hash": "df0ad6e43880f09c",
+                "term_preview": "schema"
+              },
+              {
+                "query_index": 0,
+                "source": "validation[2]",
+                "kind": "token",
+                "term_hash": "e0ee8bb50685e05f",
+                "term_preview": "output"
+              },
+              {
+                "query_index": 0,
+                "source": "validation[2]",
+                "kind": "token",
+                "term_hash": "df0ad6e43880f09c",
+                "term_preview": "schema"
+              },
+              {
+                "query_index": 1,
+                "source": "validation[0]",
+                "kind": "token",
+                "term_hash": "df0ad6e43880f09c",
+                "term_preview": "schema"
+              },
+              {
+                "query_index": 1,
+                "source": "validation[2]",
+                "kind": "token",
+                "term_hash": "df0ad6e43880f09c",
+                "term_preview": "schema"
+              },
+              {
+                "query_index": 2,
+                "source": "validation[2]",
+                "kind": "phrase",
+                "term_hash": "36bbcdfd6ceaa49b",
+                "term_preview": "prompt plus local"
+              },
+              {
+                "query_index": 3,
+                "source": "validation[2]",
+                "kind": "token",
+                "term_hash": "f86b1f62a8554232",
+                "term_preview": "should"
+              }
+            ]
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -787,9 +1111,74 @@
             "run_config_fingerprint": "0a5dfac7486b23ccb0295bfbbae597ec2cecba8d74b8b2f850bd85927408dc9b",
             "record_fingerprint": "1c02aa588cfa399c991b70e4710b957cca33d0d9ddbf17a2763cb70014181b85"
           },
-          "flags": [],
+          "flags": [
+            "J:answer_bearing_brain_queries(count=23)"
+          ],
           "notes": [],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+            "sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
+            "answer_bearing_brain_queries": [
+              {
+                "query_index": 0,
+                "source": "validation[0]",
+                "kind": "token",
+                "term_hash": "e0ee8bb50685e05f",
+                "term_preview": "output"
+              },
+              {
+                "query_index": 0,
+                "source": "validation[0]",
+                "kind": "token",
+                "term_hash": "df0ad6e43880f09c",
+                "term_preview": "schema"
+              },
+              {
+                "query_index": 0,
+                "source": "validation[2]",
+                "kind": "token",
+                "term_hash": "e0ee8bb50685e05f",
+                "term_preview": "output"
+              },
+              {
+                "query_index": 0,
+                "source": "validation[2]",
+                "kind": "token",
+                "term_hash": "df0ad6e43880f09c",
+                "term_preview": "schema"
+              },
+              {
+                "query_index": 1,
+                "source": "validation[0]",
+                "kind": "token",
+                "term_hash": "df0ad6e43880f09c",
+                "term_preview": "schema"
+              },
+              {
+                "query_index": 1,
+                "source": "validation[2]",
+                "kind": "token",
+                "term_hash": "df0ad6e43880f09c",
+                "term_preview": "schema"
+              },
+              {
+                "query_index": 2,
+                "source": "validation[2]",
+                "kind": "phrase",
+                "term_hash": "36bbcdfd6ceaa49b",
+                "term_preview": "prompt plus local"
+              },
+              {
+                "query_index": 3,
+                "source": "validation[2]",
+                "kind": "token",
+                "term_hash": "f86b1f62a8554232",
+                "term_preview": "should"
+              }
+            ]
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -828,9 +1217,74 @@
             "run_config_fingerprint": "3d520131946ab3d6680ff67517bcc39d7a0dc7de0c5f9f125bdb4aac12d3094a",
             "record_fingerprint": "c79390960629817e79f50383b1f209ee1b1678ec0e3437893782a3a5100b8e27"
           },
-          "flags": [],
+          "flags": [
+            "J:answer_bearing_brain_queries(count=23)"
+          ],
           "notes": [],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+            "sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
+            "answer_bearing_brain_queries": [
+              {
+                "query_index": 0,
+                "source": "validation[0]",
+                "kind": "token",
+                "term_hash": "e0ee8bb50685e05f",
+                "term_preview": "output"
+              },
+              {
+                "query_index": 0,
+                "source": "validation[0]",
+                "kind": "token",
+                "term_hash": "df0ad6e43880f09c",
+                "term_preview": "schema"
+              },
+              {
+                "query_index": 0,
+                "source": "validation[2]",
+                "kind": "token",
+                "term_hash": "e0ee8bb50685e05f",
+                "term_preview": "output"
+              },
+              {
+                "query_index": 0,
+                "source": "validation[2]",
+                "kind": "token",
+                "term_hash": "df0ad6e43880f09c",
+                "term_preview": "schema"
+              },
+              {
+                "query_index": 1,
+                "source": "validation[0]",
+                "kind": "token",
+                "term_hash": "df0ad6e43880f09c",
+                "term_preview": "schema"
+              },
+              {
+                "query_index": 1,
+                "source": "validation[2]",
+                "kind": "token",
+                "term_hash": "df0ad6e43880f09c",
+                "term_preview": "schema"
+              },
+              {
+                "query_index": 2,
+                "source": "validation[2]",
+                "kind": "phrase",
+                "term_hash": "36bbcdfd6ceaa49b",
+                "term_preview": "prompt plus local"
+              },
+              {
+                "query_index": 3,
+                "source": "validation[2]",
+                "kind": "token",
+                "term_hash": "f86b1f62a8554232",
+                "term_preview": "should"
+              }
+            ]
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -869,9 +1323,74 @@
             "run_config_fingerprint": "f36215667ce9c28e800397b6e56f06b1feed2198afc64d6adcb80d76e214e3ee",
             "record_fingerprint": "7a898ce041f65544ca69ad73149fb7cf25b331f3ffb83fde2560355f6ebab811"
           },
-          "flags": [],
+          "flags": [
+            "J:answer_bearing_brain_queries(count=23)"
+          ],
           "notes": [],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+            "sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
+            "answer_bearing_brain_queries": [
+              {
+                "query_index": 0,
+                "source": "validation[0]",
+                "kind": "token",
+                "term_hash": "e0ee8bb50685e05f",
+                "term_preview": "output"
+              },
+              {
+                "query_index": 0,
+                "source": "validation[0]",
+                "kind": "token",
+                "term_hash": "df0ad6e43880f09c",
+                "term_preview": "schema"
+              },
+              {
+                "query_index": 0,
+                "source": "validation[2]",
+                "kind": "token",
+                "term_hash": "e0ee8bb50685e05f",
+                "term_preview": "output"
+              },
+              {
+                "query_index": 0,
+                "source": "validation[2]",
+                "kind": "token",
+                "term_hash": "df0ad6e43880f09c",
+                "term_preview": "schema"
+              },
+              {
+                "query_index": 1,
+                "source": "validation[0]",
+                "kind": "token",
+                "term_hash": "df0ad6e43880f09c",
+                "term_preview": "schema"
+              },
+              {
+                "query_index": 1,
+                "source": "validation[2]",
+                "kind": "token",
+                "term_hash": "df0ad6e43880f09c",
+                "term_preview": "schema"
+              },
+              {
+                "query_index": 2,
+                "source": "validation[2]",
+                "kind": "phrase",
+                "term_hash": "36bbcdfd6ceaa49b",
+                "term_preview": "prompt plus local"
+              },
+              {
+                "query_index": 3,
+                "source": "validation[2]",
+                "kind": "token",
+                "term_hash": "f86b1f62a8554232",
+                "term_preview": "should"
+              }
+            ]
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -894,21 +1413,23 @@
             "score_or_success_improved=+25.5",
             "score_drop_or_overhead_exceeds_gate"
           ],
-          "flags": [],
-          "pass": true,
+          "flags": [
+            "G:proof_ready_without_matching_records"
+          ],
+          "pass": false,
           "proof_scope": "history",
           "record_backing": {
-            "condition_records": 4,
+            "condition_records": 0,
             "baseline_records": 4,
             "condition_mcp_verified_records": 0,
             "condition_mcp_named_tool_verified_records": 0,
             "condition_mcp_named_tool_completed_records": 0,
-            "condition_unique_run_ids": 4,
+            "condition_unique_run_ids": 0,
             "baseline_unique_run_ids": 4,
             "condition_mcp_verified_unique_run_ids": 0,
             "condition_mcp_named_tool_verified_unique_run_ids": 0,
             "condition_mcp_named_tool_completed_unique_run_ids": 0,
-            "condition_unique_repetitions": 4,
+            "condition_unique_repetitions": 0,
             "baseline_unique_repetitions": 4,
             "condition_mcp_verified_unique_repetitions": 0,
             "condition_mcp_named_tool_verified_unique_repetitions": 0,
@@ -918,26 +1439,24 @@
             "required_delivery_scope": null,
             "condition_requires_mcp_verified": false,
             "condition_requires_mcp_named_tool_verified": false,
-            "condition_records_ok": true,
+            "condition_records_ok": false,
             "baseline_records_ok": true,
             "condition_mcp_verified_ok": true,
             "condition_mcp_named_tool_verified_ok": false,
             "condition_mcp_named_tool_completed_ok": false,
             "condition_mcp_named_tool_required_ok": true,
-            "ok": true
+            "ok": false
           }
         }
       ],
       "n_records": 8,
-      "n_flagged_records": 0,
+      "n_flagged_records": 4,
       "n_mcp_verified": 0,
       "n_mcp_named_tool_verified": 0,
       "n_mcp_named_tool_completed": 0,
       "n_provenance_ok": 8,
-      "n_proof_ready_comparisons": 1,
-      "n_proof_ready_comparisons_by_scope": {
-        "history": 1
-      }
+      "n_proof_ready_comparisons": 0,
+      "n_proof_ready_comparisons_by_scope": {}
     },
     "release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress": {
       "records": [
@@ -974,9 +1493,16 @@
             "run_config_fingerprint": "40fa06a936ce5ea3e2c0a5fbcba2f25c8c5793d7b351a9ba12cb36d239b26ef6",
             "record_fingerprint": "cfebecf81dc2e9610a67cd98a3507710b39a01f18da80dfbb2cb83d3fb8f7902"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
           "notes": [],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+            "sha256": "edbbf66448fef579441afee03f4dbbdec70340e72e2a215770635e329b0095d3"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -1015,9 +1541,16 @@
             "run_config_fingerprint": "b585ec7ba69eda2764158d636975b334beb2659507de55020754532f2722470b",
             "record_fingerprint": "4d95e0a63d62a176f46e98009fd4023e3ee15f3eb5d597c6cb21b3f8442ec5a2"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
           "notes": [],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+            "sha256": "edbbf66448fef579441afee03f4dbbdec70340e72e2a215770635e329b0095d3"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -1056,9 +1589,16 @@
             "run_config_fingerprint": "edb6bd531c5eedce6904af6769efbd2b0208c135bd4ecefc04683c1ed305053f",
             "record_fingerprint": "d37cc165e7db079d6fade73ec888c176f240b71f62334af993d345dbe804a1f6"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
           "notes": [],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+            "sha256": "edbbf66448fef579441afee03f4dbbdec70340e72e2a215770635e329b0095d3"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -1097,9 +1637,16 @@
             "run_config_fingerprint": "c06e3b0ebbc9ada4ad82882d575dd98b5c6a2fbc7780583de7008db410fcef8e",
             "record_fingerprint": "b9b74916ab1347c4f4e664f30d0447fda28dac79534ef24a62886746f793c910"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch"
+          ],
           "notes": [],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+            "sha256": "edbbf66448fef579441afee03f4dbbdec70340e72e2a215770635e329b0095d3"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -1123,7 +1670,7 @@
           "server_toolcall_responses": 2,
           "search_calls": 16,
           "parent_count": 0,
-          "mcp_verified": true,
+          "mcp_verified": false,
           "mcp_named_tool_verified": false,
           "mcp_named_tool_completed": false,
           "mcp_named_tool_result_verified": false,
@@ -1138,11 +1685,63 @@
             "run_config_fingerprint": "aba85282699f26ca8367512d8211b7372be87d6ec5cf0359a250410440985639",
             "record_fingerprint": "b965f40cf269f5f6abc80a54df8fa16e0a4dca3d8eab56ed32a2abbb129853aa"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch",
+            "J:answer_bearing_brain_queries(count=6)"
+          ],
           "notes": [
             "N:mcp_call_count_mismatch(record=4,server_log=2)"
           ],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+            "sha256": "edbbf66448fef579441afee03f4dbbdec70340e72e2a215770635e329b0095d3",
+            "answer_bearing_brain_queries": [
+              {
+                "query_index": 0,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "271933c184e28c42",
+                "term_preview": "AttributionBaseCommit"
+              },
+              {
+                "query_index": 0,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "542fca62348fc051",
+                "term_preview": "trailer"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "271933c184e28c42",
+                "term_preview": "AttributionBaseCommit"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "add20569cdf376a5",
+                "term_preview": "BaseCommit"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "e4949e328d9e9825",
+                "term_preview": "realign"
+              },
+              {
+                "query_index": 3,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "a1fe8ddd40352eb2",
+                "term_preview": "newHead"
+              }
+            ]
+          },
           "server_tool_names": [],
           "server_tool_results": [],
           "release_hygiene": {
@@ -1168,7 +1767,7 @@
           "server_toolcall_responses": 2,
           "search_calls": 14,
           "parent_count": 0,
-          "mcp_verified": true,
+          "mcp_verified": false,
           "mcp_named_tool_verified": false,
           "mcp_named_tool_completed": false,
           "mcp_named_tool_result_verified": false,
@@ -1183,11 +1782,63 @@
             "run_config_fingerprint": "a6e5eb285995c12b0fd924b01284b940ca3d2ae87f881b23ca79685d9550af94",
             "record_fingerprint": "171a1bfdfd6892dd6c3f399bbb3b17fbee8db5903b69c9a13b4ca46d5b77d4b4"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch",
+            "J:answer_bearing_brain_queries(count=6)"
+          ],
           "notes": [
             "N:mcp_call_count_mismatch(record=4,server_log=2)"
           ],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+            "sha256": "edbbf66448fef579441afee03f4dbbdec70340e72e2a215770635e329b0095d3",
+            "answer_bearing_brain_queries": [
+              {
+                "query_index": 0,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "271933c184e28c42",
+                "term_preview": "AttributionBaseCommit"
+              },
+              {
+                "query_index": 0,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "542fca62348fc051",
+                "term_preview": "trailer"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "271933c184e28c42",
+                "term_preview": "AttributionBaseCommit"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "add20569cdf376a5",
+                "term_preview": "BaseCommit"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "e4949e328d9e9825",
+                "term_preview": "realign"
+              },
+              {
+                "query_index": 3,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "a1fe8ddd40352eb2",
+                "term_preview": "newHead"
+              }
+            ]
+          },
           "server_tool_names": [],
           "server_tool_results": [],
           "release_hygiene": {
@@ -1213,7 +1864,7 @@
           "server_toolcall_responses": 2,
           "search_calls": 18,
           "parent_count": 0,
-          "mcp_verified": true,
+          "mcp_verified": false,
           "mcp_named_tool_verified": false,
           "mcp_named_tool_completed": false,
           "mcp_named_tool_result_verified": false,
@@ -1228,11 +1879,63 @@
             "run_config_fingerprint": "fea962f7704cdc28803650f2908fddd9cd0943c15b9c0a4223184dca6751c0f4",
             "record_fingerprint": "ed048849461003aba7a21c23d810f358fc2e5cbaf4de26c7436e4fc54595e488"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch",
+            "J:answer_bearing_brain_queries(count=6)"
+          ],
           "notes": [
             "N:mcp_call_count_mismatch(record=4,server_log=2)"
           ],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+            "sha256": "edbbf66448fef579441afee03f4dbbdec70340e72e2a215770635e329b0095d3",
+            "answer_bearing_brain_queries": [
+              {
+                "query_index": 0,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "271933c184e28c42",
+                "term_preview": "AttributionBaseCommit"
+              },
+              {
+                "query_index": 0,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "542fca62348fc051",
+                "term_preview": "trailer"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "271933c184e28c42",
+                "term_preview": "AttributionBaseCommit"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "add20569cdf376a5",
+                "term_preview": "BaseCommit"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "e4949e328d9e9825",
+                "term_preview": "realign"
+              },
+              {
+                "query_index": 3,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "a1fe8ddd40352eb2",
+                "term_preview": "newHead"
+              }
+            ]
+          },
           "server_tool_names": [],
           "server_tool_results": [],
           "release_hygiene": {
@@ -1258,7 +1961,7 @@
           "server_toolcall_responses": 2,
           "search_calls": 16,
           "parent_count": 0,
-          "mcp_verified": true,
+          "mcp_verified": false,
           "mcp_named_tool_verified": false,
           "mcp_named_tool_completed": false,
           "mcp_named_tool_result_verified": false,
@@ -1273,11 +1976,63 @@
             "run_config_fingerprint": "a389a6608077fb9f3adc7acf98a3a1d655ba760e813ea95899f92ed049fdd6f5",
             "record_fingerprint": "610d386bc0c8bce8f555608a94e921671bbb32d74f06d3204c36e1e567898da1"
           },
-          "flags": [],
+          "flags": [
+            "H:task_config_sha256_mismatch",
+            "J:answer_bearing_brain_queries(count=6)"
+          ],
           "notes": [
             "N:mcp_call_count_mismatch(record=4,server_log=2)"
           ],
-          "pass": true,
+          "pass": false,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+            "sha256": "edbbf66448fef579441afee03f4dbbdec70340e72e2a215770635e329b0095d3",
+            "answer_bearing_brain_queries": [
+              {
+                "query_index": 0,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "271933c184e28c42",
+                "term_preview": "AttributionBaseCommit"
+              },
+              {
+                "query_index": 0,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "542fca62348fc051",
+                "term_preview": "trailer"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "271933c184e28c42",
+                "term_preview": "AttributionBaseCommit"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "add20569cdf376a5",
+                "term_preview": "BaseCommit"
+              },
+              {
+                "query_index": 2,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "e4949e328d9e9825",
+                "term_preview": "realign"
+              },
+              {
+                "query_index": 3,
+                "source": "validation_files[0]",
+                "kind": "token",
+                "term_hash": "a1fe8ddd40352eb2",
+                "term_preview": "newHead"
+              }
+            ]
+          },
           "server_tool_names": [],
           "server_tool_results": [],
           "release_hygiene": {
@@ -1302,23 +2057,26 @@
             "score_or_success_improved=+15.8",
             "score_drop_or_overhead_exceeds_gate"
           ],
-          "flags": [],
-          "pass": true,
+          "flags": [
+            "G:proof_ready_without_mcp_verified_condition_records",
+            "G:proof_ready_without_matching_records"
+          ],
+          "pass": false,
           "proof_scope": "mcp",
           "record_backing": {
-            "condition_records": 4,
-            "baseline_records": 4,
-            "condition_mcp_verified_records": 4,
+            "condition_records": 0,
+            "baseline_records": 0,
+            "condition_mcp_verified_records": 0,
             "condition_mcp_named_tool_verified_records": 0,
             "condition_mcp_named_tool_completed_records": 0,
-            "condition_unique_run_ids": 4,
-            "baseline_unique_run_ids": 4,
-            "condition_mcp_verified_unique_run_ids": 4,
+            "condition_unique_run_ids": 0,
+            "baseline_unique_run_ids": 0,
+            "condition_mcp_verified_unique_run_ids": 0,
             "condition_mcp_named_tool_verified_unique_run_ids": 0,
             "condition_mcp_named_tool_completed_unique_run_ids": 0,
-            "condition_unique_repetitions": 4,
-            "baseline_unique_repetitions": 4,
-            "condition_mcp_verified_unique_repetitions": 4,
+            "condition_unique_repetitions": 0,
+            "baseline_unique_repetitions": 0,
+            "condition_mcp_verified_unique_repetitions": 0,
             "condition_mcp_named_tool_verified_unique_repetitions": 0,
             "condition_mcp_named_tool_completed_unique_repetitions": 0,
             "required_condition": 4,
@@ -1326,46 +2084,45 @@
             "required_delivery_scope": "mcp",
             "condition_requires_mcp_verified": true,
             "condition_requires_mcp_named_tool_verified": false,
-            "condition_records_ok": true,
-            "baseline_records_ok": true,
-            "condition_mcp_verified_ok": true,
+            "condition_records_ok": false,
+            "baseline_records_ok": false,
+            "condition_mcp_verified_ok": false,
             "condition_mcp_named_tool_verified_ok": false,
             "condition_mcp_named_tool_completed_ok": false,
             "condition_mcp_named_tool_required_ok": true,
-            "ok": true
+            "ok": false
           }
         }
       ],
       "n_records": 8,
-      "n_flagged_records": 0,
-      "n_mcp_verified": 4,
+      "n_flagged_records": 8,
+      "n_mcp_verified": 0,
       "n_mcp_named_tool_verified": 0,
       "n_mcp_named_tool_completed": 0,
       "n_provenance_ok": 8,
-      "n_proof_ready_comparisons": 1,
-      "n_proof_ready_comparisons_by_scope": {
-        "mcp": 1
-      }
+      "n_proof_ready_comparisons": 0,
+      "n_proof_ready_comparisons_by_scope": {}
     }
   },
   "totals": {
     "suites": 3,
     "records": 24,
-    "hard_flags": 0,
-    "mcp_verified_records": 8,
+    "hard_flags": 35,
+    "mcp_verified_records": 0,
     "mcp_named_tool_verified_records": 4,
     "mcp_named_tool_completed_records": 4,
     "provenance_ok_records": 24,
-    "proof_ready_comparisons": 3,
-    "proof_ready_comparisons_by_scope": {
-      "history": 1,
-      "mcp": 1,
-      "mcp_radar_location_only": 1
+    "proof_ready_comparisons": 0,
+    "proof_ready_comparisons_by_scope": {},
+    "named_tool_proof_ready_comparisons_by_scope": {},
+    "flag_kinds": {
+      "H:task_config_sha256_mismatch": 16,
+      "J:answer_bearing_brain_queries": 12,
+      "G:proof_ready_without_matching_records": 3,
+      "G:proof_ready_without_mcp_verified_condition_records": 2,
+      "G:proof_ready_without_named_mcp_tool_condition_records": 1,
+      "G:proof_ready_without_completed_named_mcp_tool_condition_records": 1
     },
-    "named_tool_proof_ready_comparisons_by_scope": {
-      "mcp_radar_location_only": 1
-    },
-    "flag_kinds": {},
     "note_kinds": {
       "N:mcp_call_count_mismatch": 8,
       "B:mcp_history_partial_missing_brain_brief": 4,
@@ -1381,37 +2138,37 @@
       "release-local-*"
     ],
     "min_repetitions_per_side": 4,
-    "min_mcp_verified": 8,
-    "min_mcp_named_tool_verified": 4,
+    "min_mcp_verified": 0,
+    "min_mcp_named_tool_verified": 0,
     "require_panel_provenance": true,
-    "require_proof_ready_per_suite": true,
-    "required_proof_scopes": [
-      "history",
-      "mcp",
-      "mcp_radar_location_only"
-    ],
-    "required_named_tool_proof_scopes": [
-      "mcp_radar_location_only"
+    "require_proof_ready_per_suite": false,
+    "required_proof_scopes": [],
+    "required_named_tool_proof_scopes": [],
+    "claim_policy": "no_release_claim",
+    "allowed_no_claim_flag_kinds": [
+      "H:task_config_sha256_mismatch",
+      "J:answer_bearing_brain_queries",
+      "G:proof_ready_without_matching_records",
+      "G:proof_ready_without_mcp_verified_condition_records",
+      "G:proof_ready_without_named_mcp_tool_condition_records",
+      "G:proof_ready_without_completed_named_mcp_tool_condition_records"
     ]
   },
   "gate_status": {
     "status": "pass",
-    "release_evidence": true,
+    "release_evidence": false,
+    "claim_policy": "no_release_claim",
     "requirements": {
       "min_suites": 3,
       "min_records": 24,
-      "min_proof_ready": 3,
-      "min_mcp_verified": 8,
-      "min_mcp_named_tool_verified": 4,
-      "hard_flags": 0,
-      "require_proof_ready_per_suite": true,
-      "required_proof_scopes": [
-        "history",
-        "mcp",
-        "mcp_radar_location_only"
-      ],
-      "required_named_tool_proof_scopes": [
-        "mcp_radar_location_only"
+      "proof_ready_comparisons": 0,
+      "allowed_no_claim_flag_kinds": [
+        "H:task_config_sha256_mismatch",
+        "J:answer_bearing_brain_queries",
+        "G:proof_ready_without_matching_records",
+        "G:proof_ready_without_mcp_verified_condition_records",
+        "G:proof_ready_without_named_mcp_tool_condition_records",
+        "G:proof_ready_without_completed_named_mcp_tool_condition_records"
       ]
     },
     "failures": []

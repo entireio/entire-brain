@@ -138,7 +138,7 @@ cp "$tmp"/radar-tool-audit-report.json "$tmp"/radar-tool-audit-report.md benchma
 '''
 
 [tasks."radar:agent-evidence"]
-description = "Require at least one retained proof-ready Regression Radar agent comparison"
+description = "Check retained Regression Radar agent evidence or explicit no-claim policy"
 run = '''
 set -e
 tmp="$(mktemp -d)"
@@ -148,6 +148,38 @@ python3 benchmarks/agent-brain/audit_codex.py \
   --release-manifest benchmarks/agent-brain/evidence/release/manifest.json \
   --out-dir "$tmp" \
   --fail-on-flags
+set +e
+python3 - "$tmp/codex-audit-report.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as f:
+    report = json.load(f)
+gate = report.get("gate_status") or {}
+totals = report.get("totals") or {}
+policy = gate.get("claim_policy")
+if policy != "no_release_claim":
+    raise SystemExit(0)
+if gate.get("status") != "pass":
+    print("radar agent no-claim gate did not pass", file=sys.stderr)
+    raise SystemExit(1)
+if gate.get("release_evidence") is not False:
+    print("radar agent no-claim gate must not be release evidence", file=sys.stderr)
+    raise SystemExit(1)
+if int(totals.get("proof_ready_comparisons") or 0) != 0:
+    print("radar agent no-claim gate must have zero proof-ready comparisons", file=sys.stderr)
+    raise SystemExit(1)
+print("Radar agent-lift evidence is no-claim; clean reruns are required before proof claims.")
+raise SystemExit(42)
+PY
+policy_rc=$?
+set -e
+if [ "$policy_rc" -eq 42 ]; then
+  exit 0
+fi
+if [ "$policy_rc" -ne 0 ]; then
+  exit "$policy_rc"
+fi
 python3 benchmarks/agent-brain/audit_radar_evidence.py \
   --results benchmarks/agent-brain/evidence/release \
   --suite-glob 'release-candidate-*' \
