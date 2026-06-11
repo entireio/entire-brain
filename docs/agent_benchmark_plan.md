@@ -319,7 +319,7 @@ entire brain status [repo] --json
 entire brain brief "<task>" --json
 entire brain search "<query>" --json
 entire brain show <id> --json
-entire brain refresh [repo] --json
+entire brain refresh
 entire brain guide
 entire brain path [repo]
 ```
@@ -354,7 +354,7 @@ summaries.
 
 #### Question 3: What Full Session Data Teaches Agents
 
-Build a history index during `export`/`refresh --history-index`, not during
+Build a history index during `refresh sessions`/`refresh --history-index`, not during
 normal read commands. Extract decisions, learnings, validation recipes, tool
 paths, topic clusters, repeated failure modes, and provenance back to
 sessions/checkpoints.

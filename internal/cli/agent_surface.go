@@ -520,7 +520,7 @@ Small top-level surface:
   entire brain overview [repo] --json
   entire brain brief "<task>" --json
   entire brain show <id> --json
-  entire brain refresh [repo] --json
+  entire brain refresh                      # full rebuild; single stages: refresh sessions|history|index|seed
   entire brain guide
   entire brain path [repo]
 

@@ -1305,7 +1305,7 @@ def prepare_condition_history(task: dict[str, Any], condition: str, worktree: pa
 def copy_checkpoint_ref(source: pathlib.Path, worktree: pathlib.Path) -> None:
     """Bring the Entire checkpoint branch (real session history, synced from the
     checkpoint remote, e.g. entireio/cli-checkpoints) into the disposable worktree
-    so `entire brain export` materializes the same sessions the live repo sees.
+    so `entire brain refresh sessions` materializes the same sessions the live repo sees.
     The ref is removed again before the agent runs (remove_agent_visible_entire_history),
     so the agent cannot read raw transcripts via git; only the indexed brain remains."""
     probe = run_cmd(["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=source)

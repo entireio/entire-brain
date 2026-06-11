@@ -111,7 +111,6 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	// Maintain & share — freshness, cleanup, portability, version.
 	// (Build stages live under `refresh`: sessions, index, seed.)
 	addGrouped("maintain", newSemanticBundleCommand(opts))
-	addGrouped("maintain", newExportCommand(opts))
 	addGrouped("maintain", newFactsCommand(opts))
 	addGrouped("maintain", newSemanticGCCommand(opts))
 	addGrouped("maintain", newSemanticRepairCommand(opts))

@@ -23,7 +23,7 @@ avoid hosted model egress. Strict no-egress mode (`ENTIRE_BRAIN_NO_EGRESS=1` or
 paths whose URLs, redirects, and resolved dial targets stay loopback-only;
 arbitrary `--agent command` runners are trusted local commands but not
 enforceably loopback-only. Separately, repos that configure a
-`checkpoint_remote` allow `export`/`refresh` to `git fetch` checkpoint history
+`checkpoint_remote` allow `refresh` (and its `sessions` export stage) to `git fetch` checkpoint history
 from that remote into a throwaway temp repo unless no-egress mode is set.
 
 ## Install
@@ -337,7 +337,7 @@ The parent Entire CLI supplies these directories:
 | Variable | Purpose |
 |---|---|
 | `ENTIRE_PLUGIN_CONFIG_DIR` | Plugin config, including `brain.json`. |
-| `ENTIRE_PLUGIN_DATA_DIR` | Durable brains under `repos/<repo-key>/`. |
+| `ENTIRE_PLUGIN_DATA_DIR` | Durable brains under `repos/<repo-key>/`; workspaces under `workspaces/<name>/`. |
 | `ENTIRE_PLUGIN_STATE_DIR` | Regenerable cursors under `repos/<repo-key>/`. |
 | `ENTIRE_PLUGIN_CACHE_DIR` | Cache data. |
 | `ENTIRE_REPO_ROOT` | Current git checkout when invoked inside a repo. |

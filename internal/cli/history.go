@@ -114,8 +114,8 @@ type historyScanCacheEntry struct {
 
 func newHistoryIndexCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "sessions [path]",
-		Short: "Rebuild the session decision/rationale index from exported transcripts",
+		Use:   "history [path]",
+		Short: "Rebuild the decision/rationale history index from exported session transcripts",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."
@@ -137,7 +137,7 @@ func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, targ
 		return err
 	}
 	if !local {
-		return fmt.Errorf("refresh sessions requires a local repository path: %s", target)
+		return fmt.Errorf("refresh history requires a local repository path: %s", target)
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
@@ -207,7 +207,7 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 	index := historyIndex{GeneratedAt: now}
 	if _, err := os.Stat(sessionsRoot); err != nil {
 		if os.IsNotExist(err) {
-			return index, nil, errors.New("session history missing; run `entire brain export` first")
+			return index, nil, errors.New("session history missing; run `entire brain refresh sessions` first")
 		}
 		return index, nil, err
 	}
