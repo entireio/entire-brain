@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "6d2886a38c78",
+  "strategy": "manual-commit",
+  "branch": "feat/workspace-inspect-and-full-refresh",
+  "checkpoints_count": 3,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/6d/2886a38c78/0/metadata.json",
+      "transcript": "/6d/2886a38c78/0/full.jsonl",
+      "content_hash": "/6d/2886a38c78/0/content_hash.txt",
+      "prompt": "/6d/2886a38c78/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 62043,
+    "cache_creation_tokens": 3349918,
+    "cache_read_tokens": 352998328,
+    "output_tokens": 642384,
+    "api_call_count": 738
+  }
+}
