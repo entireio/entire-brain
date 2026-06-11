@@ -207,7 +207,7 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 	index := historyIndex{GeneratedAt: now}
 	if _, err := os.Stat(sessionsRoot); err != nil {
 		if os.IsNotExist(err) {
-			return index, nil, errors.New("session history missing; run `entire brain export` first")
+			return index, nil, errors.New("session history missing; run `entire brain refresh export` first")
 		}
 		return index, nil, err
 	}

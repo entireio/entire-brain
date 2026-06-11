@@ -420,7 +420,7 @@ func TestExportUsesConfiguredV1CheckpointRemoteDirectly(t *testing.T) {
 		},
 	})
 
-	out, err := execute(t, cmd, "export", "--output", outputDir, "--checkpoint-limit", "10", "--entire-binary", "entire-test")
+	out, err := execute(t, cmd, "refresh", "export", "--output", outputDir, "--checkpoint-limit", "10", "--entire-binary", "entire-test")
 	if err != nil {
 		t.Fatalf("export: %v\n%s", err, out)
 	}
@@ -546,7 +546,7 @@ func TestExportDebugShowsCheckpointFallbackDiagnostics(t *testing.T) {
 		},
 	})
 
-	out, err := execute(t, cmd, "export", "--debug", "--output", outputDir, "--checkpoint-limit", "10", "--entire-binary", "entire-test")
+	out, err := execute(t, cmd, "refresh", "export", "--debug", "--output", outputDir, "--checkpoint-limit", "10", "--entire-binary", "entire-test")
 	if err != nil {
 		t.Fatalf("export: %v\n%s", err, out)
 	}
@@ -598,7 +598,7 @@ func TestExportUsesLocalV1WithoutSettings(t *testing.T) {
 		},
 	})
 
-	out, err := execute(t, cmd, "export", "--output", outputDir, "--entire-binary", "entire-test")
+	out, err := execute(t, cmd, "refresh", "export", "--output", outputDir, "--entire-binary", "entire-test")
 	if err != nil {
 		t.Fatalf("export: %v\n%s", err, out)
 	}
@@ -670,7 +670,7 @@ func TestExportUsesOriginTrackingV1RefWithoutSettings(t *testing.T) {
 		},
 	})
 
-	out, err := execute(t, cmd, "export", "--output", outputDir, "--entire-binary", "entire-test")
+	out, err := execute(t, cmd, "refresh", "export", "--output", outputDir, "--entire-binary", "entire-test")
 	if err != nil {
 		t.Fatalf("export: %v\n%s", err, out)
 	}
@@ -938,7 +938,7 @@ func TestExportSelectsLatestCheckpointPerSession(t *testing.T) {
 		},
 	})
 
-	out, err := execute(t, cmd, "export", "--output", outputDir, "--checkpoint-limit", "2", "--entire-binary", "entire-test")
+	out, err := execute(t, cmd, "refresh", "export", "--output", outputDir, "--checkpoint-limit", "2", "--entire-binary", "entire-test")
 	if err != nil {
 		t.Fatalf("export: %v\n%s", err, out)
 	}
@@ -1001,7 +1001,7 @@ func TestExportRejectsNonEmptyOutputDirectory(t *testing.T) {
 		Runner:  &fakeCommandRunner{responses: map[string]fakeCommandResponse{}},
 	})
 
-	_, err := execute(t, cmd, "export", "--output", outputDir)
+	_, err := execute(t, cmd, "refresh", "export", "--output", outputDir)
 	if err == nil {
 		t.Fatal("export returned nil error for non-empty output directory")
 	}
@@ -1135,7 +1135,7 @@ func TestExportDefaultUsesBrainAndCursor(t *testing.T) {
 		},
 	})
 
-	out, err := execute(t, cmd, "export", "--entire-binary", "entire-test")
+	out, err := execute(t, cmd, "refresh", "export", "--entire-binary", "entire-test")
 	if err != nil {
 		t.Fatalf("export: %v\n%s", err, out)
 	}
@@ -1204,7 +1204,7 @@ func TestExportDefaultUsesBrainAndCursor(t *testing.T) {
 			return time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)
 		},
 	})
-	if _, err := execute(t, cmd, "export", "--entire-binary", "entire-test"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "export", "--entire-binary", "entire-test"); err != nil {
 		t.Fatalf("second export should reuse cursor transcript: %v", err)
 	}
 	for _, call := range secondRunner.calls {

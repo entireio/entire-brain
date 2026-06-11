@@ -354,7 +354,7 @@ summaries.
 
 #### Question 3: What Full Session Data Teaches Agents
 
-Build a history index during `export`/`refresh --history-index`, not during
+Build a history index during `refresh export`/`refresh --history-index`, not during
 normal read commands. Extract decisions, learnings, validation recipes, tool
 paths, topic clusters, repeated failure modes, and provenance back to
 sessions/checkpoints.

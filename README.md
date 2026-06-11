@@ -23,7 +23,7 @@ avoid hosted model egress. Strict no-egress mode (`ENTIRE_BRAIN_NO_EGRESS=1` or
 paths whose URLs, redirects, and resolved dial targets stay loopback-only;
 arbitrary `--agent command` runners are trusted local commands but not
 enforceably loopback-only. Separately, repos that configure a
-`checkpoint_remote` allow `export`/`refresh` to `git fetch` checkpoint history
+`checkpoint_remote` allow `refresh` (and its `export` stage) to `git fetch` checkpoint history
 from that remote into a throwaway temp repo unless no-egress mode is set.
 
 ## Install

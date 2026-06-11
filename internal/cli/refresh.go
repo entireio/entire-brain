@@ -84,6 +84,7 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	}
 	// Individual refresh stages, runnable on their own: `refresh` does all of
 	// them; these target a single source.
+	cmd.AddCommand(newExportCommand(opts))        // refresh export
 	cmd.AddCommand(newHistoryIndexCommand(opts))  // refresh sessions
 	cmd.AddCommand(newSemanticIndexCommand(opts)) // refresh index
 	cmd.AddCommand(newSeedCommand(opts))          // refresh seed
