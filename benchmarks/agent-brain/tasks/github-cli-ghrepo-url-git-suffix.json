@@ -23,5 +23,5 @@
   ],
   "expected_files": ["internal/ghrepo/repo.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["FromURL", "ghrepo", "NewWithHost"]
+  "brain_queries": ["remote URL repository resolution", "git suffix owner name parsing", "repository identity from remote"]
 }

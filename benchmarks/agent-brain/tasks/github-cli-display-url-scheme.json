@@ -23,5 +23,5 @@
   ],
   "expected_files": ["internal/text/text.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["DisplayURL", "internal/text", "u.Scheme"]
+  "brain_queries": ["trimmed link output formatting", "preserve insecure scheme display", "printed issue link address"]
 }

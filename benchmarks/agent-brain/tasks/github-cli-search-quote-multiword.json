@@ -23,5 +23,5 @@
   ],
   "expected_files": ["pkg/search/query.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["StandardSearchString", "formatQualifiers", "AdvancedIssueSearchString", "groupWithOR"]
+  "brain_queries": ["multi word qualifier quoting", "search query serialization spaces", "quoted phrase qualifier values"]
 }

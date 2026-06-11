@@ -646,9 +646,10 @@
       "primary_metric": "success_rate and score",
       "prompt_shape": "Remove or invert a historical decision and ask the agent to restore intended behavior.",
       "queries": [
-        "CheckAuth",
-        "HasEnvToken",
-        "GH_ENTERPRISE_TOKEN"
+        "environment token treated as authenticated",
+        "GH_TOKEN environment variable",
+        "auth required error despite token in environment",
+        "valid credentials with no configured hosts"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -676,9 +677,9 @@
       "primary_metric": "score and changed_file_count",
       "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
       "queries": [
-        "DisplayURL",
-        "internal/text",
-        "u.Scheme"
+        "trimmed link output formatting",
+        "preserve insecure scheme display",
+        "printed issue link address"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -706,9 +707,10 @@
       "primary_metric": "success_rate, score, tokens, and changed_file_count",
       "prompt_shape": "Ask for the stable CLI contract without naming the exact helper or validation path.",
       "queries": [
-        "AddFormatFlags",
-        "checkFormatFlags",
-        "webFlag"
+        "web mode combined with json output",
+        "mutually exclusive output and browser flags",
+        "cobra flag mutual exclusion check",
+        "missing conflict validation for output format"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -736,9 +738,9 @@
       "primary_metric": "score and changed_file_count",
       "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
       "queries": [
-        "FromURL",
-        "ghrepo",
-        "NewWithHost"
+        "remote URL repository resolution",
+        "git suffix owner name parsing",
+        "repository identity from remote"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -766,9 +768,10 @@
       "primary_metric": "score and changed_file_count",
       "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
       "queries": [
-        "HandleHTTPError",
-        "ScopesSuggestion",
-        "X-Accepted-Oauth-Scopes"
+        "4xx error missing OAuth scope suggestion",
+        "token lacks scope refresh hint",
+        "suggestion to request additional OAuth scopes",
+        "gh auth refresh advice in error message"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -796,9 +799,10 @@
       "primary_metric": "success_rate, score, tokens, and changed_file_count",
       "prompt_shape": "Ask for the stable CLI contract without naming the exact helper or validation path.",
       "queries": [
-        "AddJSONFlags",
-        "checkJSONFlags",
-        "JSONFlagError"
+        "json output flag conflicting with web browser flag",
+        "mutually exclusive command flags validation",
+        "cannot use web with json error message",
+        "machine-readable output combined with opening in browser"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -826,9 +830,9 @@
       "primary_metric": "tokens, seconds, and validation_discipline",
       "prompt_shape": "Hide focused validation and require the agent to infer the right tests.",
       "queries": [
-        "PrCheckStatusSummaryWithColor",
-        "PullRequestChecksStatus",
-        "StateTitleWithColor"
+        "checks rollup summary line",
+        "failing checks count display",
+        "PullRequestChecksStatus"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -856,9 +860,10 @@
       "primary_metric": "score and changed_file_count",
       "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
       "queries": [
-        "NormalizeRepoName",
-        "invalidCharactersRE",
-        "TrimSuffix"
+        "repo name normalization when creating a repository",
+        "trailing git extension stripped from entered name",
+        "match github new repository form naming behavior",
+        "invalid characters in repo name replaced with dashes"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -886,10 +891,9 @@
       "primary_metric": "score and changed_file_count",
       "prompt_shape": "Ask for the minimal fix in an area with many adjacent plausible files.",
       "queries": [
-        "StandardSearchString",
-        "formatQualifiers",
-        "AdvancedIssueSearchString",
-        "groupWithOR"
+        "multi word qualifier quoting",
+        "search query serialization spaces",
+        "quoted phrase qualifier values"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -917,10 +921,10 @@
       "primary_metric": "success_rate and score",
       "prompt_shape": "Remove or invert a historical decision and ask the agent to restore intended behavior.",
       "queries": [
-        "TenantName",
-        "tenancyHost",
-        "ghauth.NormalizeHostname",
-        "FormatRemoteURL"
+        "enterprise cloud tenant detection",
+        "hostname tenant identity derivation",
+        "FormatRemoteURL",
+        "ghe.com host handling"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -1068,10 +1072,10 @@
       "primary_metric": "success_rate and score",
       "prompt_shape": "Issue-style bug report omits expected files and exposes only failing behavior.",
       "queries": [
-        "should not use --bare because it bypasses logged-in Claude auth",
-        "logged-in Claude auth",
-        "--setting-sources\", \"user\"",
-        "strict-mcp-config"
+        "claude seed agent fails for signed-in users",
+        "command invocation regressed to compatibility mode",
+        "flag that skips local login credentials",
+        "coverage for seed agent command arguments"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -1099,10 +1103,10 @@
       "primary_metric": "tokens and changed_file_count",
       "prompt_shape": "Issue wording names a symptom shared by several nearby modules.",
       "queries": [
-        "should not use --bare because it bypasses logged-in Claude auth",
-        "logged-in Claude auth",
-        "--setting-sources\", \"user\"",
-        "strict-mcp-config"
+        "claude seed agent fails for signed-in users",
+        "command invocation regressed to compatibility mode",
+        "flag that skips local login credentials",
+        "coverage for seed agent command arguments"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -1130,10 +1134,10 @@
       "primary_metric": "success_rate",
       "prompt_shape": "Issue says a previous fix regressed but does not name the rationale.",
       "queries": [
-        "should not use --bare because it bypasses logged-in Claude auth",
-        "logged-in Claude auth",
-        "--setting-sources\", \"user\"",
-        "strict-mcp-config"
+        "claude seed agent fails for signed-in users",
+        "command invocation regressed to compatibility mode",
+        "flag that skips local login credentials",
+        "coverage for seed agent command arguments"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -1161,10 +1165,10 @@
       "primary_metric": "success_rate and file_read_count",
       "prompt_shape": "Issue is created after semantic prep and mutates the relevant file post-prep.",
       "queries": [
-        "should not use --bare because it bypasses logged-in Claude auth",
-        "logged-in Claude auth",
-        "--setting-sources\", \"user\"",
-        "strict-mcp-config"
+        "claude seed agent fails for signed-in users",
+        "command invocation regressed to compatibility mode",
+        "flag that skips local login credentials",
+        "coverage for seed agent command arguments"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -1192,11 +1196,10 @@
       "primary_metric": "success_rate and score",
       "prompt_shape": "Issue-style bug report omits expected files and exposes only failing behavior.",
       "queries": [
-        "claude-code",
-        "templates/entire-brain-intake-claude-agent.md",
-        "--no-session-persistence",
-        "--setting-sources",
-        "should not use --bare"
+        "Claude Code seed synthesis mode",
+        "seed agent intake template",
+        "run seed agent without local project configuration",
+        "restore agent mode in docs and tests"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -1224,11 +1227,10 @@
       "primary_metric": "tokens and changed_file_count",
       "prompt_shape": "Issue wording names a symptom shared by several nearby modules.",
       "queries": [
-        "claude-code",
-        "templates/entire-brain-intake-claude-agent.md",
-        "--no-session-persistence",
-        "--setting-sources",
-        "should not use --bare"
+        "Claude Code seed synthesis mode",
+        "seed agent intake template",
+        "run seed agent without local project configuration",
+        "restore agent mode in docs and tests"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -1256,11 +1258,10 @@
       "primary_metric": "success_rate",
       "prompt_shape": "Issue says a previous fix regressed but does not name the rationale.",
       "queries": [
-        "claude-code",
-        "templates/entire-brain-intake-claude-agent.md",
-        "--no-session-persistence",
-        "--setting-sources",
-        "should not use --bare"
+        "Claude Code seed synthesis mode",
+        "seed agent intake template",
+        "run seed agent without local project configuration",
+        "restore agent mode in docs and tests"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -1288,11 +1289,10 @@
       "primary_metric": "success_rate and file_read_count",
       "prompt_shape": "Issue is created after semantic prep and mutates the relevant file post-prep.",
       "queries": [
-        "claude-code",
-        "templates/entire-brain-intake-claude-agent.md",
-        "--no-session-persistence",
-        "--setting-sources",
-        "should not use --bare"
+        "Claude Code seed synthesis mode",
+        "seed agent intake template",
+        "run seed agent without local project configuration",
+        "restore agent mode in docs and tests"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -1320,10 +1320,10 @@
       "primary_metric": "success_rate and score",
       "prompt_shape": "Issue-style bug report omits expected files and exposes only failing behavior.",
       "queries": [
-        "Checkpoint-context review reverted Codex `--output-schema` usage",
-        "schema-dialect failure",
-        "prompt plus local `schema_version` and `status` validation",
-        "should rely on prompt plus local validation"
+        "codex seed agent structured output failure",
+        "seed command reverted to legacy compatibility mode",
+        "schema dialect failure during seed synthesis",
+        "codex structured output contract decision"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -1351,10 +1351,10 @@
       "primary_metric": "tokens and changed_file_count",
       "prompt_shape": "Issue wording names a symptom shared by several nearby modules.",
       "queries": [
-        "Checkpoint-context review reverted Codex `--output-schema` usage",
-        "schema-dialect failure",
-        "prompt plus local `schema_version` and `status` validation",
-        "should rely on prompt plus local validation"
+        "codex seed agent structured output failure",
+        "seed command reverted to legacy compatibility mode",
+        "schema dialect failure during seed synthesis",
+        "codex structured output contract decision"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -1382,10 +1382,10 @@
       "primary_metric": "success_rate",
       "prompt_shape": "Issue says a previous fix regressed but does not name the rationale.",
       "queries": [
-        "Checkpoint-context review reverted Codex `--output-schema` usage",
-        "schema-dialect failure",
-        "prompt plus local `schema_version` and `status` validation",
-        "should rely on prompt plus local validation"
+        "codex seed agent structured output failure",
+        "seed command reverted to legacy compatibility mode",
+        "schema dialect failure during seed synthesis",
+        "codex structured output contract decision"
       ],
       "recommended_repetitions": {
         "pilot": 1,
@@ -1413,10 +1413,10 @@
       "primary_metric": "success_rate and file_read_count",
       "prompt_shape": "Issue is created after semantic prep and mutates the relevant file post-prep.",
       "queries": [
-        "Checkpoint-context review reverted Codex `--output-schema` usage",
-        "schema-dialect failure",
-        "prompt plus local `schema_version` and `status` validation",
-        "should rely on prompt plus local validation"
+        "codex seed agent structured output failure",
+        "seed command reverted to legacy compatibility mode",
+        "schema dialect failure during seed synthesis",
+        "codex structured output contract decision"
       ],
       "recommended_repetitions": {
         "pilot": 1,

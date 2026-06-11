@@ -1,6 +1,6 @@
 # Phase 2 Brain-Positive Scenario Discovery
 
-Generated at: `2026-06-10T23:18:10.205937+00:00`
+Generated at: `2026-06-11T01:26:14.533749+00:00`
 
 This report is the scenario-discovery ledger for Phase 2. It finds more than 20 candidate scenarios per layer where the brain should have a measurable advantage. Existing repeated-run proof signals are listed separately; candidates still require the proof repetitions before final claims.
 

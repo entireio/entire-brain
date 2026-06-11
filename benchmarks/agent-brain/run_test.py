@@ -1620,6 +1620,8 @@ class BrainQueryLeakAuditTests(unittest.TestCase):
         finally:
             run.load_tasks = old_loader
         self.assertTrue(any("answer-bearing" in error for error in errors), errors)
+
+
 class LayerBScenarioGenerationTests(unittest.TestCase):
     def _github_task(self, task_id: str, **extra: object) -> dict:
         task = {
