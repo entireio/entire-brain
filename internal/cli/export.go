@@ -86,7 +86,7 @@ func newExportCommand(opts Options) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "export",
+		Use:   "sessions",
 		Short: "Export latest known transcript for each Entire session",
 		Long: `Export writes an agent-reviewable snapshot of Entire session history.
 

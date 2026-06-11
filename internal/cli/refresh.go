@@ -83,10 +83,11 @@ func newRefreshCommand(opts Options) *cobra.Command {
 		_ = cmd.Flags().MarkHidden(name)
 	}
 	// Individual refresh stages, runnable on their own: `refresh` does all of
-	// them; these target a single source.
-	cmd.AddCommand(newExportCommand(opts))        // refresh export
-	cmd.AddCommand(newHistoryIndexCommand(opts))  // refresh sessions
-	cmd.AddCommand(newSemanticIndexCommand(opts)) // refresh index
+	// them. Each stage is named after the brain source it refreshes (the same
+	// vocabulary as the status sources line).
+	cmd.AddCommand(newExportCommand(opts))        // refresh sessions: export transcripts from checkpoints
+	cmd.AddCommand(newHistoryIndexCommand(opts))  // refresh history: decision index from exported transcripts
+	cmd.AddCommand(newSemanticIndexCommand(opts)) // refresh index: semantic symbol graph
 	cmd.AddCommand(newSeedCommand(opts))          // refresh seed
 	return cmd
 }
