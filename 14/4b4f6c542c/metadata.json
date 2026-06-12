@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "144b4f6c542c",
+  "strategy": "manual-commit",
+  "branch": "feat/gemma-history-fusion",
+  "checkpoints_count": 2,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/14/4b4f6c542c/0/metadata.json",
+      "transcript": "/14/4b4f6c542c/0/full.jsonl",
+      "content_hash": "/14/4b4f6c542c/0/content_hash.txt",
+      "prompt": "/14/4b4f6c542c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 80066,
+    "cache_creation_tokens": 3995996,
+    "cache_read_tokens": 364356350,
+    "output_tokens": 737926,
+    "api_call_count": 829
+  }
+}
