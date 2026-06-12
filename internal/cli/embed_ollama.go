@@ -80,6 +80,12 @@ func newOllamaEmbedder() *ollamaEmbedder {
 
 func (o *ollamaEmbedder) ID() string { return "ollama:" + o.model }
 
+// historyFusionEligible: the external (EmbeddingGemma-class) embedder is the
+// one validated for history fusion (docs/eval_ledger.md 2026-06-12 capstone).
+// The bundled Model2Vec deliberately does not implement this marker — it
+// measured significantly below BM25 on history precision at scale.
+func (o *ollamaEmbedder) historyFusionEligible() bool { return true }
+
 // reachable reports whether the embed server actually returns a usable embedding
 // within a short timeout — not merely that it answers 200. The selector uses it
 // to fall back to the bundled Model2Vec model — one consistent vector space —

@@ -18,7 +18,8 @@ The tool responses wrap the existing CLI `--json` output as text content. Treat
 the CLI JSON contracts as the source of truth for fields and freshness policy.
 
 `brain_query` and `brain_search` rank across facts, history, and docs;
-`brain_vsearch` ranks vector-backed facts and docs. All three return ids you can
+`brain_vsearch` ranks vector-backed facts and docs (plus history when a
+Gemma-class embedder is configured and `refresh` has built history vectors). All three return ids you can
 pass to `brain_get`/`brain_multi_get`. (The earlier `brain_history` tool was
 removed — history is now one source within the unified lexical/hybrid verbs.)
 

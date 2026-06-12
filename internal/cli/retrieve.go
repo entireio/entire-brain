@@ -39,10 +39,12 @@ func embedQueryWith(e Embedder, q string) []float32 {
 }
 
 // retrieveUnified ranks across facts + history + docs. Lexical (search) and
-// hybrid (query) include all three; vector (vsearch) covers facts + docs —
-// history vectors are Model2Vec noise and embedding tens of thousands of records
-// per query is too slow, so they join the vector arm once Stage 1b's embedder
-// lands. Missing layers are skipped, not errors.
+// hybrid (query) include all three; vector (vsearch) covers facts + docs always,
+// and history only behind the fusion gate (a fusion-eligible embedder plus the
+// brain_cgo vec0 store with refresh-built vectors — see history_vec.go). The
+// gate exists because Model2Vec on history is a measured closed negative and
+// embedding hundreds of thousands of records per query is hours of work that
+// belongs in refresh. Missing layers are skipped, not errors.
 func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMode) ([]unifiedResult, error) {
 	if limit <= 0 {
 		limit = 10
@@ -90,13 +92,15 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 		}
 	}
 
-	// History — BM25 (lexical / hybrid only). The FTS index is an optimization,
-	// never load-bearing (see history_fts.go): on a build/open/query failure fall
+	// History — BM25 (lexical / hybrid), plus the gated semantic arm (hybrid /
+	// vector; see history_vec.go). The FTS index is an optimization, never
+	// load-bearing (see history_fts.go): on a build/open/query failure fall
 	// back to the in-memory substring scorer. But a corrupt manifest, or a history
 	// index the manifest declares yet is missing/unreadable, is a real storage
 	// problem — surface it rather than returning silently-incomplete results. A
 	// brain with no history source (nil) is legitimately skipped.
-	if mode != modeVector {
+	historySem := historySemanticEmbedder(e)
+	if mode != modeVector || historySem != nil {
 		manifest, err := loadBrainManifest(brainDir)
 		if err != nil {
 			return nil, err
@@ -106,12 +110,22 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 			if err != nil {
 				return nil, fmt.Errorf("load history index: %w", err)
 			}
-			scored, ok := rankHistoryViaFTS(brainDir, index, "history", query, limit*2)
-			if !ok {
-				scored = rankHistoryRecordsScored(index, "history", query, limit*2, 0)
+			if mode != modeVector {
+				scored, ok := rankHistoryViaFTS(brainDir, index, "history", query, limit*2)
+				if !ok {
+					scored = rankHistoryRecordsScored(index, "history", query, limit*2, 0)
+				}
+				if len(scored) > 0 {
+					lists = append(lists, historyToUnified(scored))
+				}
 			}
-			if len(scored) > 0 {
-				lists = append(lists, historyToUnified(scored))
+			if mode != modeLexical && historySem != nil {
+				// A second, independently-ranked history list: the global RRF
+				// merge below fuses it with the lexical list, which is exactly
+				// the capstone's fused-arm shape (RRF of BM25 + cosine ranks).
+				if sem := rankHistorySemantic(index, historySemanticScores(brainDir, historySem, query), limit*2); len(sem) > 0 {
+					lists = append(lists, historyToUnified(sem))
+				}
 			}
 		}
 	}

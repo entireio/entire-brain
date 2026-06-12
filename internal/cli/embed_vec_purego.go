@@ -8,3 +8,13 @@ package cli
 func newVectorStore(brainDir, branch, modelID string, dim int) vectorStore {
 	return newEmbedStore(brainDir, branch, modelID, dim)
 }
+
+// newHistoryVectorStore has no pure-Go implementation, deliberately: history
+// vectors number in the hundreds of thousands on large repos, and the flat
+// vectors.bin design loads the whole file on every query. ok=false keeps the
+// history semantic arm gated to BM25-only on this build (the validated
+// fallback), rather than shipping a path that melts at exactly the corpus
+// size the capstone validated fusion on.
+func newHistoryVectorStore(brainDir, modelID string, dim int) (historyVectorStore, bool) {
+	return nil, false
+}
