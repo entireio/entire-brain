@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "92a8c4d00180",
+  "strategy": "manual-commit",
+  "branch": "evidence-recapture",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/92/a8c4d00180/0/metadata.json",
+      "transcript": "/92/a8c4d00180/0/full.jsonl",
+      "content_hash": "/92/a8c4d00180/0/content_hash.txt",
+      "prompt": "/92/a8c4d00180/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 93371,
+    "cache_creation_tokens": 4032938,
+    "cache_read_tokens": 371593925,
+    "output_tokens": 755708,
+    "api_call_count": 859
+  }
+}
