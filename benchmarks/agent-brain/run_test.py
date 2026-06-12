@@ -1888,10 +1888,27 @@ class LayerBScenarioGenerationTests(unittest.TestCase):
 class CodexAuditScriptTests(unittest.TestCase):
     SOURCE_SHA = "1" * 40
     TOOL_SHA = "2" * 64
-    TASK_SHA = "3" * 64
     CONFIG_SHA = "4" * 64
     RECORD_SHA = "5" * 64
     HARNESS_SHA = "6" * 40
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Fixture records must model AUDITABLE evidence: the audit hard-flags a
+        # record whose task config cannot be resolved (H:task_not_found), so the
+        # shared provenance points at a real, leak-free task file whose sha the
+        # records pin. Tests that exercise drift/missing-task paths override it.
+        super().setUpClass()
+        cls._task_dir = tempfile.TemporaryDirectory(dir=run.BENCH_ROOT)
+        cls.addClassCleanup(cls._task_dir.cleanup)
+        task_path = pathlib.Path(cls._task_dir.name) / "t.json"
+        task_path.write_text(json.dumps({
+            "id": "t",
+            "prompt": "Fix the regression.",
+            "validation": ["go test ./..."],
+        }))
+        cls.TASK_PATH = str(task_path.relative_to(run.ROOT))
+        cls.TASK_SHA = hashlib.sha256(task_path.read_bytes()).hexdigest()
 
     def _write_records(self, root: pathlib.Path, suite: str, records: list[dict]) -> pathlib.Path:
         suite_dir = root / suite
@@ -1949,7 +1966,7 @@ class CodexAuditScriptTests(unittest.TestCase):
             },
             "task": {
                 "id": "t",
-                "path": "benchmarks/agent-brain/tasks/t.json",
+                "path": self.TASK_PATH,
                 "config_sha256": self.TASK_SHA,
                 "base_commit": None,
                 "radar_include_deletions": False,
@@ -2435,6 +2452,64 @@ class CodexAuditScriptTests(unittest.TestCase):
             audited = report["suites"][suite]["records"][0]
             self.assertFalse(audited["pass"], audited)
             self.assertIn("H:task_config_sha256_mismatch", audited["flags"])
+
+    def test_audit_side_leak_detector_catches_hardened_variants(self):
+        # The audit-side check delegates to run.py's hardened auditor. These are
+        # the variants the pre-unification local copy passed (review finding):
+        # a case-variant identifier, a split identifier, a lowercased identifier,
+        # and a fix-text leak on a task with NO hidden validation at all (the
+        # old copy never looked at setup_replacements).
+        hidden_validation = {
+            "id": "t",
+            "hide_validation_from_agent": True,
+            "validation": ["go test ./pkg -run TestRestoreExactInvariant"],
+        }
+        leaky_variants = {
+            "case_variant": dict(hidden_validation, brain_queries=["testRestoreExactInvariant"]),
+            "lowercased": dict(hidden_validation, brain_queries=["testrestoreexactinvariant"]),
+            "split_identifier": dict(hidden_validation, brain_queries=["test restore exact invariant"]),
+            "fix_text_without_hidden_validation": {
+                "id": "t",
+                "setup_replacements": [{
+                    "path": "pkg/file.go",
+                    "old": "weights[i] = tokenIDFWeight(total, df)",
+                    "new": "weights[i] = 1",
+                }],
+                "brain_queries": ["tokenIDFWeight"],
+            },
+        }
+        for name, task in leaky_variants.items():
+            findings = audit_codex.brain_query_leak_findings(task)
+            self.assertTrue(findings, f"{name}: hardened audit-side detector must flag this")
+            for finding in findings:
+                # legacy report shape consumed by redaction
+                self.assertIn("term", finding)
+                self.assertIn("kind", finding)
+                self.assertIn("source", finding)
+        clean = dict(hidden_validation, brain_queries=["restore behaves wrong after refactor"])
+        self.assertEqual(audit_codex.brain_query_leak_findings(clean), [])
+
+    def test_audit_codex_hard_flags_missing_task_file(self):
+        # A record whose task config cannot be resolved gets no leak check and
+        # no sha-drift check; that must hard-fail the record, otherwise deleting
+        # a leaky task file launders its records into flag-free evidence.
+        with tempfile.TemporaryDirectory() as results:
+            results_dir = pathlib.Path(results)
+            suite = "release-candidate-task-missing"
+            record = self._release_record(suite, condition="no_brain", repetition=1, run_id="base-1")
+            record["provenance"]["task"]["path"] = str(results_dir / "deleted-task.json")
+            record["provenance"]["task"]["config_sha256"] = "0" * 64
+            self._write_records(results_dir, suite, [record])
+
+            report = audit_codex.build_audit_report(results_dir, [suite])
+            audited = report["suites"][suite]["records"][0]
+            self.assertFalse(audited["pass"], audited)
+            # The candidate scan may surface unrelated task files (wrong id) for
+            # the deleted path, so either load-error flag proves the hard gate.
+            self.assertTrue(
+                any(flag in ("H:task_not_found", "H:task_id_mismatch") for flag in audited["flags"]),
+                audited["flags"],
+            )
 
     def test_release_manifest_requires_proof_ready_per_suite(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
@@ -4356,6 +4431,44 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                     "--fail-when-no-proof",
                 ]),
                 0,
+            )
+
+    def test_radar_audit_no_claim_does_not_skip_promotable_requirement(self):
+        # A verified no-claim posture waives only --fail-when-no-proof; when
+        # --fail-when-no-promotable is also passed it must still be enforced
+        # (the old early return skipped it).
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            self._write_radar_summary(
+                results_dir,
+                "release-candidate-radar-no-claim",
+                baseline_pass=1.0,
+                condition_pass=1.0,
+                proof_ready=False,
+                stability_tag="saturated",
+                n=4,
+            )
+            no_claim_audit = out_dir / "no-claim-codex-audit.json"
+            no_claim_audit.write_text(json.dumps({
+                "gate_status": {
+                    "claim_policy": "no_release_claim",
+                    "status": "pass",
+                    "release_evidence": False,
+                },
+                "totals": {"proof_ready_comparisons": 0, "hard_flags": 0},
+                "suites": {},
+            }))
+            self.assertEqual(
+                audit_radar_evidence.main([
+                    "--results", str(results_dir),
+                    "--suite-glob", "release-candidate-*",
+                    "--out-dir", out,
+                    "--codex-audit-report", str(no_claim_audit),
+                    "--fail-when-no-proof",
+                    "--fail-when-no-promotable",
+                ]),
+                1,
             )
 
     def test_radar_audit_requires_codex_audit_backing_when_supplied(self):

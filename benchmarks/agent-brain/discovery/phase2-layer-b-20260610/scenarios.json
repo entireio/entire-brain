@@ -26,7 +26,7 @@
         "proof_minimum": 4
       },
       "repo": "entire-brain",
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "repo_path": "<layer-b-worktree>",
       "status": "candidate-needs-pilot",
       "validation_strategy": "Hidden validation checks that only the shared implementation changed."
     },
@@ -56,7 +56,7 @@
         "proof_minimum": 4
       },
       "repo": "entire-brain",
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "repo_path": "<layer-b-worktree>",
       "status": "candidate-needs-pilot",
       "validation_strategy": "Hidden validation checks the exact invariant and regression wording."
     },
@@ -86,7 +86,7 @@
         "proof_minimum": 4
       },
       "repo": "entire-brain",
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "repo_path": "<layer-b-worktree>",
       "status": "candidate-needs-pilot",
       "validation_strategy": "Score rewards focused test selection and penalizes broad unrelated edits."
     },
@@ -116,7 +116,7 @@
         "proof_minimum": 4
       },
       "repo": "entire-brain",
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "repo_path": "<layer-b-worktree>",
       "status": "candidate-needs-pilot",
       "validation_strategy": "Hidden validation checks whether the agent accounted for live changes."
     },
@@ -146,7 +146,7 @@
         "proof_minimum": 4
       },
       "repo": "entire-brain",
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "repo_path": "<layer-b-worktree>",
       "status": "candidate-needs-pilot",
       "validation_strategy": "Hidden validation checks that only the shared implementation changed."
     },
@@ -176,7 +176,7 @@
         "proof_minimum": 4
       },
       "repo": "entire-brain",
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "repo_path": "<layer-b-worktree>",
       "status": "candidate-needs-pilot",
       "validation_strategy": "Hidden validation checks the exact invariant and regression wording."
     },
@@ -206,7 +206,7 @@
         "proof_minimum": 4
       },
       "repo": "entire-brain",
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "repo_path": "<layer-b-worktree>",
       "status": "candidate-needs-pilot",
       "validation_strategy": "Score rewards focused test selection and penalizes broad unrelated edits."
     },
@@ -236,7 +236,7 @@
         "proof_minimum": 4
       },
       "repo": "entire-brain",
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "repo_path": "<layer-b-worktree>",
       "status": "candidate-needs-pilot",
       "validation_strategy": "Hidden validation checks whether the agent accounted for live changes."
     },
@@ -266,7 +266,7 @@
         "proof_minimum": 4
       },
       "repo": "entire-brain",
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "repo_path": "<layer-b-worktree>",
       "status": "candidate-needs-pilot",
       "validation_strategy": "Hidden validation checks that only the shared implementation changed."
     },
@@ -296,7 +296,7 @@
         "proof_minimum": 4
       },
       "repo": "entire-brain",
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "repo_path": "<layer-b-worktree>",
       "status": "candidate-needs-pilot",
       "validation_strategy": "Hidden validation checks the exact invariant and regression wording."
     },
@@ -326,7 +326,7 @@
         "proof_minimum": 4
       },
       "repo": "entire-brain",
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "repo_path": "<layer-b-worktree>",
       "status": "candidate-needs-pilot",
       "validation_strategy": "Score rewards focused test selection and penalizes broad unrelated edits."
     },
@@ -356,7 +356,7 @@
         "proof_minimum": 4
       },
       "repo": "entire-brain",
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "repo_path": "<layer-b-worktree>",
       "status": "candidate-needs-pilot",
       "validation_strategy": "Hidden validation checks whether the agent accounted for live changes."
     },
@@ -386,7 +386,7 @@
         "proof_minimum": 4
       },
       "repo": "entire-brain",
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "repo_path": "<layer-b-worktree>",
       "status": "candidate-needs-pilot",
       "validation_strategy": "Hidden validation checks that only the shared implementation changed."
     },
@@ -416,7 +416,7 @@
         "proof_minimum": 4
       },
       "repo": "entire-brain",
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "repo_path": "<layer-b-worktree>",
       "status": "candidate-needs-pilot",
       "validation_strategy": "Hidden validation checks the exact invariant and regression wording."
     },
@@ -446,7 +446,7 @@
         "proof_minimum": 4
       },
       "repo": "entire-brain",
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "repo_path": "<layer-b-worktree>",
       "status": "candidate-needs-pilot",
       "validation_strategy": "Score rewards focused test selection and penalizes broad unrelated edits."
     },
@@ -476,7 +476,7 @@
         "proof_minimum": 4
       },
       "repo": "entire-brain",
-      "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb",
+      "repo_path": "<layer-b-worktree>",
       "status": "candidate-needs-pilot",
       "validation_strategy": "Hidden validation checks whether the agent accounted for live changes."
     },

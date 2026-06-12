@@ -632,11 +632,14 @@ def main(argv: list[str] | None = None) -> int:
         print("Release-candidate Radar proof requires --codex-audit-report.", file=sys.stderr)
         return 1
     if args.fail_when_no_proof and int(totals["proof_ready"]) <= 0:
+        # A verified no-claim posture satisfies the proof requirement only; it
+        # must not early-return past --fail-when-no-promotable below, which is
+        # an independent requirement when both flags are passed.
         if codex_audit_is_no_claim_pass(codex_audit):
             print("Radar evidence is no-claim; no proof-ready comparison required.")
-            return 0
-        print("Radar evidence has no proof-ready comparison.", file=sys.stderr)
-        return 1
+        else:
+            print("Radar evidence has no proof-ready comparison.", file=sys.stderr)
+            return 1
     if args.fail_when_no_promotable and int(totals["promotable_or_proof"]) <= 0:
         print("Radar evidence has no promotable pilot or proof-ready comparison.", file=sys.stderr)
         return 1

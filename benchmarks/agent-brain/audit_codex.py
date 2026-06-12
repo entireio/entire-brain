@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import importlib.util
 import json
 import pathlib
 import re
@@ -35,7 +36,6 @@ from typing import Any
 BENCH = pathlib.Path(__file__).resolve().parent
 RESULTS = BENCH / "results"
 TASK_DIR = BENCH / "tasks"
-VALIDATION_FIXTURE_DIR = BENCH / "fixtures" / "validation"
 DEFAULT_PROOF_MIN_REPETITIONS = 4
 
 MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
@@ -65,15 +65,6 @@ HOST_PATH_RE = re.compile(
     r"|[A-Z]:\\Users\\[^\s\"'`]+"   # Windows home paths
     r")"
 )
-TEST_NAME_RE = re.compile(r"\bTest[A-Za-z0-9_]+\b")
-TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\([^)]+\))?|[0-9a-f]{7,}")
-GENERIC_QUERY_TOKENS = {
-    "after", "agent", "base", "before", "benchmark", "brain", "check",
-    "code", "command", "context", "current", "default", "edit", "error",
-    "failure", "file", "fix", "hidden", "history", "local", "manual",
-    "prompt", "query", "release", "run", "runs", "session", "state",
-    "test", "tests", "the", "tool", "validation", "with", "without",
-}
 
 
 def valid_workspace_name(value: Any) -> bool:
@@ -472,108 +463,39 @@ def file_sha256(path: pathlib.Path | None) -> str | None:
         return None
 
 
-def normalized_words(text: str) -> list[str]:
-    return [w.lower() for w in re.findall(r"[A-Za-z0-9_]+", text.replace("`", " ")) if w]
-
-
-def query_substrings(words: list[str], min_len: int = 4) -> set[str]:
-    out: set[str] = set()
-    for size in range(min_len, len(words) + 1):
-        for i in range(0, len(words) - size + 1):
-            out.add(" ".join(words[i:i + size]))
-    return out
-
-
-def code_like_query_token(token: str) -> bool:
-    if TEST_NAME_RE.fullmatch(token):
-        return True
-    if "_" in token or "(" in token or ")" in token:
-        return True
-    has_lower = any(ch.islower() for ch in token)
-    has_upper = any(ch.isupper() for ch in token)
-    if has_lower and has_upper:
-        return True
-    if re.fullmatch(r"[0-9a-f]{12,}", token):
-        return True
-    return False
-
-
-def query_tokens(text: str) -> set[str]:
-    out: set[str] = set()
-    for token in TOKEN_RE.findall(text):
-        stripped = token.strip("`'\"")
-        lower = stripped.lower()
-        if len(stripped) < 6 and not TEST_NAME_RE.fullmatch(stripped):
-            continue
-        if lower in GENERIC_QUERY_TOKENS:
-            continue
-        if not code_like_query_token(stripped):
-            continue
-        out.add(stripped)
-    return out
-
-
-def validation_file_text(entry: dict[str, Any]) -> str:
-    parts = [str(entry.get("path", ""))]
-    if entry.get("content"):
-        parts.append(str(entry.get("content")))
-    fixture = str(entry.get("fixture", ""))
-    if fixture:
-        parts.append(fixture)
-        fixture_path = (VALIDATION_FIXTURE_DIR / fixture).resolve()
-        try:
-            parts.append(fixture_path.read_text(errors="ignore"))
-        except OSError:
-            pass
-    return "\n".join(part for part in parts if part)
-
-
-def hidden_validation_texts(task: dict[str, Any]) -> list[tuple[str, str]]:
-    if not task.get("hide_validation_from_agent"):
-        return []
-    texts: list[tuple[str, str]] = []
-    for idx, command in enumerate(task.get("validation", []) or []):
-        if command:
-            texts.append((f"validation[{idx}]", str(command)))
-    for idx, entry in enumerate(task.get("validation_files", []) or []):
-        if isinstance(entry, dict):
-            text = validation_file_text(entry)
-            if text:
-                texts.append((f"validation_files[{idx}]", text))
-    return texts
+def _run_module():
+    """run.py owns the hardened brain-query leak auditor (the B1 confound fix);
+    audit-side enforcement delegates to it so the two can never diverge again —
+    a diverged, weaker copy living here is exactly how the original B1 leaks
+    kept passing this audit after run.py was hardened. run_test.py registers
+    run.py under this module name; standalone audit runs load it on demand."""
+    existing = sys.modules.get("agent_brain_run")
+    if existing is not None:
+        return existing
+    spec = importlib.util.spec_from_file_location("agent_brain_run", pathlib.Path(__file__).with_name("run.py"))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def brain_query_leak_findings(task: dict[str, Any]) -> list[dict[str, Any]]:
-    queries = [str(query) for query in task.get("brain_queries", []) or [] if str(query).strip()]
-    hidden = hidden_validation_texts(task)
-    if not queries or not hidden:
-        return []
+    """The audit-side B1 leak check, in the legacy finding shape redaction and
+    reports expect ({query_index, source, kind, term}). Detection itself is
+    run.py's brain_query_leak_audit: identifier-fold and split-identifier
+    matching, 3-gram phrase windows, and the always-hidden fix texts the old
+    local detector never looked at."""
+    queries = [str(query) for query in task.get("brain_queries", []) or []]
     findings: list[dict[str, Any]] = []
-    for qidx, query in enumerate(queries):
-        words = normalized_words(query)
-        substrings = query_substrings(words)
-        tokens = query_tokens(query)
-        tests = set(TEST_NAME_RE.findall(query))
-        for source, text in hidden:
-            hidden_words_joined = " ".join(normalized_words(text))
-            hidden_tokens = set(query_tokens(text))
-            hidden_tests = set(TEST_NAME_RE.findall(text))
-            for test_name in sorted(tests & hidden_tests):
-                findings.append({"query_index": qidx, "source": source, "kind": "hidden_test_name", "term": test_name})
-            for token in sorted(tokens & hidden_tokens):
-                findings.append({"query_index": qidx, "source": source, "kind": "token", "term": token})
-            for phrase in sorted(substrings):
-                if phrase and phrase in hidden_words_joined:
-                    findings.append({"query_index": qidx, "source": source, "kind": "phrase", "term": phrase})
-    deduped: list[dict[str, Any]] = []
-    seen: set[tuple[Any, ...]] = set()
-    for finding in findings:
-        key = (finding["query_index"], finding["source"], finding["kind"], finding["term"])
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(finding)
-    return deduped
+    for found in _run_module().brain_query_leak_audit(task)["findings"]:
+        query = str(found.get("query", ""))
+        findings.append({
+            "query_index": queries.index(query) if query in queries else None,
+            "source": found.get("where"),
+            "kind": found.get("kind"),
+            "term": str(found.get("token") or found.get("phrase") or ""),
+        })
+    return findings
 
 
 def redact_leak_findings(findings: list[dict[str, Any]], limit: int = 8) -> list[dict[str, Any]]:
@@ -769,6 +691,14 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     }
     if task_load_error:
         task_hygiene["load_error"] = task_load_error
+        # A record that CLAIMS a task identity but whose config cannot be
+        # resolved gets NO leak check and NO sha-drift check — that must be a
+        # hard failure, not a silently weaker audit: deleting or renaming a
+        # leaky task file would otherwise launder its records into flag-free,
+        # proof-countable evidence. A record with no task provenance at all is
+        # already hard-flagged by the provenance checks; no second flag here.
+        if get(rec, "provenance", "task", "path") or get(rec, "provenance", "task", "id"):
+            flags.append(f"H:{task_load_error}")
     recorded_task_sha = get(rec, "provenance", "task", "config_sha256")
     actual_task_sha = file_sha256(task_path)
     if actual_task_sha:

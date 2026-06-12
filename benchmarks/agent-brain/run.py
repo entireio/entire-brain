@@ -35,15 +35,6 @@ RESULT_DIR = BENCH_ROOT / "results"
 CACHE_DIR = BENCH_ROOT / "cache"
 VALIDATION_FIXTURE_DIR = BENCH_ROOT / "fixtures" / "validation"
 BENCHMARK_COMMIT_DATE = "2026-01-01T00:00:00Z"
-TEST_NAME_RE = re.compile(r"\bTest[A-Za-z0-9_]+\b")
-TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\([^)]+\))?|[0-9a-f]{7,}")
-GENERIC_QUERY_TOKENS = {
-    "after", "agent", "base", "before", "benchmark", "brain", "check",
-    "code", "command", "context", "current", "default", "edit", "error",
-    "failure", "file", "fix", "hidden", "history", "local", "manual",
-    "prompt", "query", "release", "run", "runs", "session", "state",
-    "test", "tests", "the", "tool", "validation", "with", "without",
-}
 
 ISOLATION = {
     "codex": {
@@ -1132,104 +1123,6 @@ def hidden_validation_markers(task: dict[str, Any]) -> list[str]:
         markers.append(str(entry.get("fixture", "")))
         markers.append(str(entry.get("content", "")))
     return [marker for marker in markers if len(marker.strip()) >= 12]
-
-
-def normalized_words(text: str) -> list[str]:
-    return [word.lower() for word in re.findall(r"[A-Za-z0-9_]+", text.replace("`", " ")) if word]
-
-
-def query_substrings(words: list[str], min_len: int = 4) -> set[str]:
-    out: set[str] = set()
-    for size in range(min_len, len(words) + 1):
-        for index in range(0, len(words) - size + 1):
-            out.add(" ".join(words[index:index + size]))
-    return out
-
-
-def code_like_query_token(token: str) -> bool:
-    if TEST_NAME_RE.fullmatch(token):
-        return True
-    if "_" in token or "(" in token or ")" in token:
-        return True
-    has_lower = any(ch.islower() for ch in token)
-    has_upper = any(ch.isupper() for ch in token)
-    if has_lower and has_upper:
-        return True
-    if re.fullmatch(r"[0-9a-f]{12,}", token):
-        return True
-    return False
-
-
-def query_tokens(text: str) -> set[str]:
-    out: set[str] = set()
-    for token in TOKEN_RE.findall(text):
-        stripped = token.strip("`'\"")
-        lower = stripped.lower()
-        if len(stripped) < 6 and not TEST_NAME_RE.fullmatch(stripped):
-            continue
-        if lower in GENERIC_QUERY_TOKENS:
-            continue
-        if not code_like_query_token(stripped):
-            continue
-        out.add(stripped)
-    return out
-
-
-def hidden_validation_texts(task: dict[str, Any]) -> list[tuple[str, str]]:
-    if not task.get("hide_validation_from_agent"):
-        return []
-    texts: list[tuple[str, str]] = []
-    for index, command in enumerate(task.get("validation", []) or []):
-        if command:
-            texts.append((f"validation[{index}]", str(command)))
-    for index, entry in enumerate(task.get("validation_files", []) or []):
-        if not isinstance(entry, dict):
-            continue
-        parts = [str(entry.get("path", "")), str(entry.get("content", ""))]
-        fixture = str(entry.get("fixture", ""))
-        if fixture:
-            parts.append(fixture)
-            try:
-                parts.append((VALIDATION_FIXTURE_DIR / fixture).resolve().read_text(errors="ignore"))
-            except OSError:
-                pass
-        text = "\n".join(part for part in parts if part)
-        if text:
-            texts.append((f"validation_files[{index}]", text))
-    return texts
-
-
-def brain_query_leak_findings(task: dict[str, Any]) -> list[dict[str, Any]]:
-    queries = [str(query) for query in task.get("brain_queries", []) or [] if str(query).strip()]
-    hidden = hidden_validation_texts(task)
-    if not queries or not hidden:
-        return []
-    findings: list[dict[str, Any]] = []
-    for query_index, query in enumerate(queries):
-        words = normalized_words(query)
-        substrings = query_substrings(words)
-        tokens = query_tokens(query)
-        tests = set(TEST_NAME_RE.findall(query))
-        for source, text in hidden:
-            hidden_words_joined = " ".join(normalized_words(text))
-            hidden_tokens = set(query_tokens(text))
-            hidden_tests = set(TEST_NAME_RE.findall(text))
-            for test_name in sorted(tests & hidden_tests):
-                findings.append({"query_index": query_index, "source": source, "kind": "hidden_test_name", "term": test_name})
-            for token in sorted(tokens & hidden_tokens):
-                findings.append({"query_index": query_index, "source": source, "kind": "code_identifier", "term": token})
-            for phrase in sorted(substrings):
-                if phrase and phrase in hidden_words_joined:
-                    findings.append({"query_index": query_index, "source": source, "kind": "phrase", "term": phrase})
-    deduped: list[dict[str, Any]] = []
-    seen: set[tuple[Any, ...]] = set()
-    for finding in findings:
-        key = (finding["query_index"], finding["source"], finding["kind"], finding["term"])
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(finding)
-    return deduped
 
 
 def agent_output_leak_audit(task: dict[str, Any], stdout: str, stderr: str) -> dict[str, Any]:
