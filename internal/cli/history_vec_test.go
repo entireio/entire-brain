@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -60,13 +61,25 @@ func (m *memHistoryVecStore) upsert(add map[string][]float32, drop []string) err
 	return nil
 }
 
-func (m *memHistoryVecStore) knnCos(qvec []float32) (map[string]float64, bool) {
-	if len(m.vecs) == 0 {
+func (m *memHistoryVecStore) knnCos(qvec []float32, k int) (map[string]float64, bool) {
+	if len(m.vecs) == 0 || k <= 0 {
 		return nil, false
 	}
-	out := make(map[string]float64, len(m.vecs))
+	type sc struct {
+		id  string
+		cos float64
+	}
+	all := make([]sc, 0, len(m.vecs))
 	for id, v := range m.vecs {
-		out[id] = cosineFloat32(qvec, v)
+		all = append(all, sc{id, cosineFloat32(qvec, v)})
+	}
+	sort.Slice(all, func(a, b int) bool { return all[a].cos > all[b].cos })
+	if len(all) > k {
+		all = all[:k]
+	}
+	out := make(map[string]float64, len(all))
+	for _, s := range all {
+		out[s.id] = s.cos
 	}
 	return out, true
 }

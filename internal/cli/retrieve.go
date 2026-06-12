@@ -123,7 +123,7 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 				// A second, independently-ranked history list: the global RRF
 				// merge below fuses it with the lexical list, which is exactly
 				// the capstone's fused-arm shape (RRF of BM25 + cosine ranks).
-				if sem := rankHistorySemantic(index, historySemanticScores(brainDir, historySem, query), limit*2); len(sem) > 0 {
+				if sem := rankHistorySemantic(index, historySemanticScores(brainDir, historySem, query, limit*2), limit*2); len(sem) > 0 {
 					lists = append(lists, historyToUnified(sem))
 				}
 			}

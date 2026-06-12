@@ -34,7 +34,11 @@ type historyVectorStore interface {
 	// wanted vector is missing and a sync rebuilds from scratch).
 	ids() (map[string]struct{}, bool)
 	upsert(add map[string][]float32, drop []string) error
-	knnCos(qvec []float32) (map[string]float64, bool)
+	// knnCos returns cosine similarity for the k nearest records only — unlike
+	// the facts store's all-rows variant. vec0 caps MATCH k (and a history KNN
+	// over hundreds of thousands of rows shouldn't materialize them all anyway);
+	// callers over-fetch enough for downstream dedup, nothing more.
+	knnCos(qvec []float32, k int) (map[string]float64, bool)
 }
 
 // historyFusionEligible marks embedders validated for history fusion. The
@@ -66,11 +70,13 @@ func historyVectorStoreFor(brainDir string, e Embedder) (historyVectorStore, boo
 }
 
 // historySemanticScores embeds the query and runs one KNN over the persisted
-// history vectors. nil means the semantic arm is unavailable for this query
-// (gate closed upstream, no store, model/dim mismatch, embedder down) — every
-// caller falls back to lexical-only, so a degraded arm never breaks ranking.
-func historySemanticScores(brainDir string, e Embedder, query string) map[string]float64 {
-	if e == nil {
+// history vectors, returning the top-limit*4 neighborhood (the same ×4
+// over-fetch the FTS ranker uses, so summary dedup can still fill limit).
+// nil means the semantic arm is unavailable for this query (gate closed
+// upstream, no store, model/dim mismatch, embedder down) — every caller falls
+// back to lexical-only, so a degraded arm never breaks ranking.
+func historySemanticScores(brainDir string, e Embedder, query string, limit int) map[string]float64 {
+	if e == nil || limit <= 0 {
 		return nil
 	}
 	store, ok := newHistoryVectorStore(brainDir, e.ID(), e.Dim())
@@ -81,7 +87,7 @@ func historySemanticScores(brainDir string, e Embedder, query string) map[string
 	if len(qvec) == 0 {
 		return nil
 	}
-	scores, ok := store.knnCos(qvec)
+	scores, ok := store.knnCos(qvec, limit*4)
 	if !ok {
 		return nil
 	}
@@ -144,7 +150,7 @@ func rankHistorySemantic(index historyIndex, scores map[string]float64, limit in
 // rankHistoryViaFTS — same list, same ok contract — so call sites need no
 // fallback of their own beyond what they already have.
 func rankHistoryFused(brainDir string, index historyIndex, kind, query string, limit int, e Embedder) ([]scoredHistoryRecord, bool) {
-	scores := historySemanticScores(brainDir, historySemanticEmbedder(e), query)
+	scores := historySemanticScores(brainDir, historySemanticEmbedder(e), query, limit)
 	if len(scores) == 0 {
 		return rankHistoryViaFTS(brainDir, index, kind, query, limit)
 	}

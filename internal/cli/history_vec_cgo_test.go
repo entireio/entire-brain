@@ -31,7 +31,7 @@ func TestHistoryVecStoreRoundtrip(t *testing.T) {
 	}
 
 	// KNN: query along r1's direction must score r1 ~1 and r2 ~0.
-	scores, ok := store.knnCos([]float32{1, 0})
+	scores, ok := store.knnCos([]float32{1, 0}, 10)
 	if !ok {
 		t.Fatal("knnCos must succeed on a populated store")
 	}
@@ -47,7 +47,7 @@ func TestHistoryVecStoreRoundtrip(t *testing.T) {
 	if len(ids) != 1 {
 		t.Fatalf("after drop: %v", ids)
 	}
-	scores, ok = store.knnCos([]float32{1, 0})
+	scores, ok = store.knnCos([]float32{1, 0}, 10)
 	if !ok || scores["r1"] < 0.99 {
 		t.Fatalf("re-add of a known id must not overwrite its vector: %v (ok=%v)", scores, ok)
 	}

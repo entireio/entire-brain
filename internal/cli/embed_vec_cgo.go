@@ -333,10 +333,16 @@ func (s *historyVecStore) upsert(add map[string][]float32, drop []string) error 
 	return tx.Commit()
 }
 
-// knnCos mirrors vecStore.knnCos over the history tables: one MATCH with
-// k = row count, cosine similarity per record id, ok=false on any miss.
-func (s *historyVecStore) knnCos(qvec []float32) (map[string]float64, bool) {
-	if len(qvec) != s.dim {
+// vec0KnnMaxK is sqlite-vec's MATCH k ceiling: a KNN with k above it errors,
+// which read as "no semantic arm" until the history store (the first corpus
+// big enough to hit it) made the cap explicit. Top-k requests clamp to it.
+const vec0KnnMaxK = 4096
+
+// knnCos mirrors vecStore.knnCos over the history tables, but top-k instead
+// of all-rows: cosine similarity for the k nearest record ids, ok=false on
+// any miss.
+func (s *historyVecStore) knnCos(qvec []float32, k int) (map[string]float64, bool) {
+	if len(qvec) != s.dim || k <= 0 {
 		return nil, false
 	}
 	if _, err := os.Stat(s.path); err != nil {
@@ -354,13 +360,14 @@ func (s *historyVecStore) knnCos(qvec []float32) (map[string]float64, bool) {
 	if err := db.QueryRow(`SELECT count(*) FROM vec_history`).Scan(&count); err != nil || count == 0 {
 		return nil, false
 	}
+	k = min(k, count, vec0KnnMaxK)
 	qblob, err := sqlitevec.SerializeFloat32(qvec)
 	if err != nil {
 		return nil, false
 	}
 	rows, err := db.Query(
 		`SELECT h.record_id, v.distance FROM vec_history v JOIN history_ids h ON h.rowid = v.rowid WHERE v.embedding MATCH ? AND k = ?`,
-		qblob, count)
+		qblob, k)
 	if err != nil {
 		return nil, false
 	}
