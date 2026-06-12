@@ -20,5 +20,5 @@
   "hide_validation_from_agent": true,
   "expected_files": ["internal/cli/semantic.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["semantic completeness parse errors freshness degraded unsafe", "tree-sitter parse-error tolerance", "TestSemanticCompletenessAxisToleratesFewParseErrors"]
+  "brain_queries": ["benign parse errors tolerated fraction", "completeness axis degraded partial failures", "tree-sitter grammar version parse failure threshold", "few unparseable files should not degrade the index"]
 }

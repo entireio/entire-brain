@@ -1,0 +1,37 @@
+{
+  "id": "entireio-cli-condense-drops-latest-turn",
+  "repo": "entire-cli",
+  "repo_path": "cli-bench",
+  "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+  "conditions": ["no_brain", "full_cli_compact", "mcp_history"],
+  "prompt": "In multi-turn Claude Code sessions, the checkpoint condensed at the end of a turn is sometimes incomplete: it contains earlier turns' content but none of the lines from the turn that just finished. First turns of a session are always captured fully; the loss only appears from the second turn onward and is intermittent, more frequent when turns finish quickly back-to-back. Diagnose the root cause and fix it with a minimal change.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "cmd/entire/cli/agent/claudecode/lifecycle.go",
+      "old": "\t\t// Validate timestamp is within acceptable range:\n\t\t// - Not too far in the past (before hook started minus skew)\n\t\t// - Not too far in the future (after hook started plus skew)\n\t\tlowerBound := hookStartTime.Add(-maxSkew)\n\t\tupperBound := hookStartTime.Add(maxSkew)\n\t\tif ts.After(lowerBound) && ts.Before(upperBound) {\n\t\t\treturn true\n\t\t}",
+      "new": "\t\t// Validate the entry was not written in the future relative to this\n\t\t// hook invocation (allowing for clock skew). Writes can lag the hook\n\t\t// start by more than the skew window on loaded machines, so rejecting\n\t\t// older entries here would make the wait flaky.\n\t\tupperBound := hookStartTime.Add(maxSkew)\n\t\tif ts.Before(upperBound) {\n\t\t\treturn true\n\t\t}"
+    }
+  ],
+  "validation_files": [
+    {
+      "path": "cmd/entire/cli/agent/claudecode/flush_probe_window_hidden_test.go",
+      "fixture": "entireio-cli/flush_probe_window_hidden_test.go.fixture"
+    }
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/agent/claudecode/ -run 'TestFlushProbe_EntryFromEarlierInvocationRejectedHidden|TestFlushProbe_FreshEntryAcceptedHidden' -count=1"
+  ],
+  "leak_markers": ["layerb-history-flushprobe-canary-20260611T0640Z"],
+  "expected_files": ["cmd/entire/cli/agent/claudecode/lifecycle.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "agent_hidden_paths": ["benchmarks/agent-brain"],
+  "brain_queries": [
+    "checkpoint dropped the whole latest turn",
+    "lines missing from a saved checkpoint in later turns of a session",
+    "picked up leftover completion record from the prior turn",
+    "condensed snapshot ends at the previous turn"
+  ],
+  "copy_checkpoint_ref_from_source": true
+}

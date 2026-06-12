@@ -2,6 +2,8 @@
   "id": "github-cli-auth-env-token",
   "repo": "github-cli",
   "repo_path": "github-cli",
+  "base_commit": "da68cb8f6f597cfc3838cf40f89ecc01f4e53233",
+  "archetype": "rationale-recovery",
   "conditions": ["no_brain", "semantic_brain"],
   "prompt": "Fix the auth check regression. The CLI should consider environment-provided GitHub tokens as valid authentication even when no hosts are stored in config.",
   "hide_expected_from_agent": true,
@@ -16,7 +18,10 @@
   "validation": [
     "go test ./pkg/cmdutil -run Test_CheckAuth"
   ],
+  "leak_markers": [
+    "go test ./pkg/cmdutil -run Test_CheckAuth"
+  ],
   "expected_files": ["pkg/cmdutil/auth_check.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["CheckAuth", "HasEnvToken", "GH_ENTERPRISE_TOKEN"]
+  "brain_queries": ["environment token treated as authenticated", "GH_TOKEN environment variable", "auth required error despite token in environment", "valid credentials with no configured hosts"]
 }

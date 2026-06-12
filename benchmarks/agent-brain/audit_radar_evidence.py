@@ -593,6 +593,19 @@ def write_report(report: dict[str, Any], out_dir: pathlib.Path) -> pathlib.Path:
     return json_path
 
 
+def codex_audit_is_no_claim_pass(report: dict[str, Any] | None) -> bool:
+    if not isinstance(report, dict):
+        return False
+    gate = report.get("gate_status") if isinstance(report.get("gate_status"), dict) else {}
+    totals = report.get("totals") if isinstance(report.get("totals"), dict) else {}
+    return (
+        gate.get("claim_policy") == "no_release_claim"
+        and gate.get("status") == "pass"
+        and gate.get("release_evidence") is False
+        and int(totals.get("proof_ready_comparisons") or 0) == 0
+    )
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Audit Regression Radar benchmark evidence for saturation/headroom.")
     parser.add_argument("--results", type=pathlib.Path, default=RESULTS, help="Directory containing benchmark suites")
@@ -619,8 +632,14 @@ def main(argv: list[str] | None = None) -> int:
         print("Release-candidate Radar proof requires --codex-audit-report.", file=sys.stderr)
         return 1
     if args.fail_when_no_proof and int(totals["proof_ready"]) <= 0:
-        print("Radar evidence has no proof-ready comparison.", file=sys.stderr)
-        return 1
+        # A verified no-claim posture satisfies the proof requirement only; it
+        # must not early-return past --fail-when-no-promotable below, which is
+        # an independent requirement when both flags are passed.
+        if codex_audit_is_no_claim_pass(codex_audit):
+            print("Radar evidence is no-claim; no proof-ready comparison required.")
+        else:
+            print("Radar evidence has no proof-ready comparison.", file=sys.stderr)
+            return 1
     if args.fail_when_no_promotable and int(totals["promotable_or_proof"]) <= 0:
         print("Radar evidence has no promotable pilot or proof-ready comparison.", file=sys.stderr)
         return 1

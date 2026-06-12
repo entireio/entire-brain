@@ -25,5 +25,5 @@
   "forbidden_files": ["go.mod", "go.sum"],
   "hide_expected_from_agent": true,
   "hide_validation_from_agent": true,
-  "brain_queries": ["bundle import sha256 required", "expected SHA-256 input", "local bundle archive integrity"]
+  "brain_queries": ["local bundle archive integrity", "bundle import fail closed without integrity input", "import accepts archive without verification"]
 }

@@ -31,15 +31,15 @@ task outcomes instead of relying on demos or anecdotes.
 - Local benchmark harness for no-brain, semantic-brain, and full-brain agent
   conditions.
 
-## Known Confound (Release Blocker B1)
+## Known Replay-Lab Outcome
 
-The two MCP "proof" comparisons and the schema-contract history proof cited in
-this document carry an open evidence confound: the benchmark harness injects
-each task's `brain_queries` into the brain-arm prompt only, and for these
-suites those queries contain answer-bearing terms (the fix's exact identifier,
-or a near-verbatim fragment of a hidden validation string). See
-`docs/release-blockers.md` (B1) for the exact strings and the remediation
-required before these numbers may be cited as brain-attribution proof.
+The retained replay-lab history, MCP-history, and location-only Radar
+agent-lift candidate suites were rerun after the B1 query-hint confound was
+removed. The retained release lane is now audit-clean with zero hard integrity
+flags, but all three clean comparisons remain `proof_ready=false`: one was
+noisy/brain-negative, and two were saturated/brain-negative. The release
+evidence lane therefore stays in `no_release_claim` mode. See
+`docs/release-blockers.md` (B1) for the clean suite names and outcomes.
 
 ## What Must Be Proven Before Public Claims
 
@@ -51,12 +51,11 @@ required before these numbers may be cited as brain-attribution proof.
   smoke/calibration only and must be labeled as such.
 - Semantic usefulness, using the `status` semantic-audit output plus benchmark tasks where
   semantic context changes file/test localization or agent efficiency.
-- More replay-lab evidence beyond the first retained focused history proof and
-  retained generic MCP-history proof, plus separate deterministic Radar
-  tool-contract evidence; focused location-only Radar agent-lift now has one
-  retained audited proof, while broader/workspace Radar claims still need
-  repeated benchmark scenarios, stable verdicts, and committed release/Radar
-  audit reports.
+- Replay-lab agent-lift evidence from harder clean retained tasks that survive
+  the proof-ready gate. The deterministic Radar/MCP tool-contract evidence
+  remains separate; focused location-only Radar, broader Radar, and workspace
+  Radar agent-lift claims all still need repeated benchmark scenarios, stable
+  verdicts, and committed release/Radar audit reports.
 
 ## Blocked Or Access-Dependent
 
@@ -89,20 +88,17 @@ required before these numbers may be cited as brain-attribution proof.
   clean release checkout,
   distill dry-run sizing, current-repo local command-agent distill scheduler
   speedup evidence, facts-eval baseline plumbing and no-claim evidence guard,
-  local QMD-inspired retrieval contract tests, one retained replay-lab history
-  proof where `full_brain` improved the task score/pass-rate over `no_brain`,
-  and one retained MCP-history proof where `mcp_history` improved pass rate
-  1/4 -> 4/4 on a manual-attribution regression without proving efficiency
-  gains, one focused retained location-only Radar agent-lift proof where
-  `mcp_history` improved pass rate 2/4 -> 4/4 on a deletion-shaped
-  manual-attribution regression, plus retained deterministic MCP/Radar
-  tool-contract proof for QMD-inspired MCP retrieval, branch-scoped facts,
-  location-only Radar, deletion opt-in, workspace Radar, strict MCP schemas, and
-  safe tool-result logging.
+  local QMD-inspired retrieval contract tests, the B1 clean replay-lab no-claim
+  evidence guard that prevents non-proof-ready retained suites from becoming
+  release claims,
+  plus retained deterministic MCP/Radar tool-contract proof for QMD-inspired MCP
+  retrieval, branch-scoped facts, location-only Radar, deletion opt-in,
+  workspace Radar, strict MCP schemas, and safe tool-result logging.
 - Pending proof: target large-repo/frontend distill timing, paired facts evals
   with active durable facts and proof labels,
-  workspace Radar outcome proof, answer-assisted/broad Radar claims, semantic
-  usefulness, and broader retained replay-lab benchmark evidence.
+  proof-ready clean replay-lab agent-lift tasks, workspace Radar outcome proof,
+  answer-assisted/broad Radar claims, semantic usefulness, and broader retained
+  replay-lab benchmark evidence.
 - Blocked: target large-repo evidence, backend/Slack access, turn signing,
   checkpoint-time fact generation.
 - Future: distributed/shared brain, team artifact hydration, multi-agent write

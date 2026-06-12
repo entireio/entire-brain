@@ -1,0 +1,527 @@
+{
+  "agent": "codex",
+  "agent_baseline_history_reset": {
+    "parent_count": 0,
+    "root_commit": "ee7fcee446fe5582df03235f2acd84d98258a2ba"
+  },
+  "agent_info": {
+    "activity": {
+      "activity_source": "protocol_json",
+      "brain_commands": [],
+      "checked_brief": true,
+      "checked_diff": true,
+      "checked_freshness": false,
+      "checked_stale": false,
+      "direct_brain_cli_calls": 0,
+      "mcp_tool_calls": 4,
+      "mcp_tool_details": [
+        {
+          "arguments": {},
+          "errored": false,
+          "name": "mcp__entire_brain__brain_brief"
+        },
+        {
+          "arguments": {},
+          "errored": false,
+          "name": "mcp__entire_brain__brain_brief"
+        },
+        {
+          "arguments": {},
+          "errored": false,
+          "name": "mcp__entire_brain__brain_search"
+        },
+        {
+          "arguments": {},
+          "errored": false,
+          "name": "mcp__entire_brain__brain_search"
+        }
+      ],
+      "mcp_tool_names": [
+        "mcp__entire_brain__brain_brief",
+        "mcp__entire_brain__brain_search"
+      ],
+      "ran_tests": true,
+      "saw_index_locked": false,
+      "search_calls": 10,
+      "search_commands": [
+        "rg"
+      ],
+      "structured_tool_event_count": 30,
+      "test_commands": [
+        "go test"
+      ],
+      "used_brain": true,
+      "used_mcp": true
+    },
+    "agent": "codex",
+    "attempts": [
+      {
+        "attempt": 1,
+        "returncode": 0,
+        "seconds": 147.22048211097717,
+        "transient_failure_reason": null
+      }
+    ],
+    "cmd": [
+      "codex",
+      "..."
+    ],
+    "isolation": {
+      "auth": "host CODEX_HOME auth may still be used",
+      "mcp": "entire-brain local stdio only",
+      "rules": "ignored",
+      "session": "ephemeral",
+      "user_config": "ignored"
+    },
+    "mcp": {
+      "condition": "mcp_history",
+      "enabled": true,
+      "server": "entire-brain"
+    },
+    "resolved_model": null,
+    "returncode": 0,
+    "runner": {
+      "agent": "codex",
+      "effort": "medium",
+      "id": "codex-gpt-5.4-mini-medium",
+      "model": "gpt-5.4-mini"
+    },
+    "seconds": 147.2250270843506,
+    "stderr_bytes": 39,
+    "stderr_tail": "Reading additional input from stdin...\n",
+    "stdout_bytes": 238236,
+    "stdout_tail": "e path. I\u2019m running that plus one adjacent active-session case so we verify the hook still advances state correctly without broad package churn.\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_20\",\"type\":\"agent_message\",\"text\":\"The first test run hit the sandboxed default Go build cache path. I\u2019m rerunning with `GOCACHE` redirected into the writable temp area so we get an actual signal from the tests.\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_21\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc \\\"GOCACHE=[local-temp]/entire-gocache go test ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommit_ActiveSession_CondensesImmediately|TestPostCommit_StaleActiveSession_NotCondensed'\\\"\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_21\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc \\\"GOCACHE=[local-temp]/entire-gocache go test ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommit_ActiveSession_CondensesImmediately|TestPostCommit_StaleActiveSession_NotCondensed'\\\"\",\"aggregated_output\":\"ok  \\tgithub.com/entireio/cli/cmd/entire/cli/strategy\\t0.897s\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_22\",\"type\":\"agent_message\",\"text\":\"Validation passed on the focused strategy tests. I\u2019m checking the final diff now to make sure the change stayed minimal and didn\u2019t accidentally touch anything else.\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_23\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc 'git diff -- cmd/entire/cli/strategy/manual_commit_hooks.go'\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_23\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc 'git diff -- cmd/entire/cli/strategy/manual_commit_hooks.go'\",\"aggregated_output\":\"diff --git a/cmd/entire/cli/strategy/manual_commit_hooks.go b/cmd/entire/cli/strategy/manual_commit_hooks.go\\nindex 0cafe5b1c..80482fbc8 100644\\n--- a/cmd/entire/cli/strategy/manual_commit_hooks.go\\n+++ b/cmd/entire/cli/strategy/manual_commit_hooks.go\\n@@ -1429,6 +1429,7 @@ func (s *ManualCommitStrategy) updateBaseCommitIfChanged(ctx context.Context, st\\n \\t}\\n \\tif state.BaseCommit != newHead {\\n \\t\\tstate.BaseCommit = newHead\\n+\\t\\tstate.AttributionBaseCommit = newHead\\n \\t\\tlogging.Debug(logCtx, \\\"post-commit: updated BaseCommit and AttributionBaseCommit\\\",\\n \\t\\t\\tslog.String(\\\"session_id\\\", state.SessionID),\\n \\t\\t\\tslog.String(\\\"new_head\\\", truncateHash(newHead)),\\n@@ -1472,6 +1473,7 @@ func (s *ManualCommitStrategy) postCommitUpdateBaseCommitOnly(ctx context.Contex\\n \\t\\t\\t\\tslog.String(\\\"new_head\\\", truncateHash(newHead)),\\n \\t\\t\\t)\\n \\t\\t\\tstate.BaseCommit = newHead\\n+\\t\\t\\tstate.AttributionBaseCommit = newHead\\n \\t\\t\\treturn nil\\n \\t\\t})\\n \\t\\tif mutErr != nil && !errors.Is(mutErr, ErrStateNotFound) {\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_24\",\"type\":\"agent_message\",\"text\":\"Updated [`cmd/entire/cli/strategy/manual_commit_hooks.go`]([repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r1/worktree/cmd/entire/cli/strategy/manual_commit_hooks.go) so both post-commit update paths now advance `AttributionBaseCommit` alongside `BaseCommit`. This keeps later attribution/accounting from staying anchored to the stale pre-commit base after an ordinary commit during an active session.\\n\\nValidation passed:\\n- `GOCACHE=[local-temp]/entire-gocache go test ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommit_ActiveSession_CondensesImmediately|TestPostCommit_StaleActiveSession_NotCondensed'`\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":893406,\"cached_input_tokens\":839680,\"output_tokens\":5935,\"reasoning_output_tokens\":2848}}\n",
+    "transient_retries": 0,
+    "usage": {
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_source": null,
+      "cost_usd": null,
+      "input_tokens": 893406,
+      "output_tokens": 5935,
+      "total_tokens": 899341,
+      "turns": null
+    }
+  },
+  "agent_leak_audit": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_secret_preflight": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_visible_entire_history_removed": true,
+  "agent_worktree_sanitization": {
+    "committed": false,
+    "removed_paths": []
+  },
+  "brain_prep": {
+    "cache": {
+      "created_at": "2026-06-11T04:18:25.272879+00:00",
+      "enabled": true,
+      "hit": true,
+      "key": "8fec01caaa20ea0c1cf685ba",
+      "source_worktree": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1/worktree"
+    },
+    "commands": [],
+    "condition": "mcp_history",
+    "history_sanitization": {
+      "files_checked": 1172,
+      "files_scrubbed": 0,
+      "items_redacted": 0,
+      "ok": true
+    }
+  },
+  "brain_state": {
+    "brain_dir": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r1/worktree/.benchmark/plugin/data/repos/gh/entireio/cli",
+    "manifest": {
+      "has_checkpoints": false,
+      "has_history": true,
+      "has_seed": true,
+      "has_semantic": true,
+      "has_sessions": true,
+      "history_records": 53721,
+      "repo_key": "gh/entireio/cli",
+      "repo_root": "[redacted benchmark scaffold]",
+      "schema_version": 3,
+      "session_count": 228
+    },
+    "path_command": {
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r1/worktree/.benchmark/plugin/data/repos/gh/entireio/cli\n"
+    },
+    "semantic": {
+      "branch": "master",
+      "capabilities": [
+        "ndjson",
+        "stable-symbol-id-v1",
+        "local-only",
+        "partial-failures"
+      ],
+      "commit": "8ea02d1b5eab4e686742c09496d8c5750b1b7c9f",
+      "default_branch": "master",
+      "dirty_worktree": false,
+      "files": 905,
+      "generated_at": "2026-06-11T04:18:20.308717Z",
+      "generation_path": "semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b",
+      "metrics_path": "semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/metrics.json",
+      "no_egress_verified": true,
+      "parse_cache_path": "semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/parse-cache",
+      "provider": "entire-sem",
+      "provider_version": "dev",
+      "relations": 298184,
+      "schema_version": "1.0",
+      "snapshot_path": "semantic/snapshots/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/snapshot.ndjson",
+      "store_path": "semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/semantic.sqlite",
+      "symbols": 11293,
+      "tree": "a30a8dc9e25b8b117ad3245e05cbe831a08651e5",
+      "worktree_mode": "head"
+    },
+    "semantic_artifacts": {
+      "metrics_path": {
+        "bytes": 451,
+        "exists": true,
+        "path": "semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/metrics.json"
+      },
+      "parse_cache_path": {
+        "entries": 2053,
+        "exists": true,
+        "path": "semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/parse-cache"
+      },
+      "snapshot_path": {
+        "bytes": 160099052,
+        "exists": true,
+        "path": "semantic/snapshots/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/snapshot.ndjson"
+      },
+      "store_path": {
+        "bytes": 249147392,
+        "exists": true,
+        "path": "semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/semantic.sqlite"
+      }
+    },
+    "semantic_metrics": {
+      "build_millis": 14492,
+      "commit": "8ea02d1b5eab4e686742c09496d8c5750b1b7c9f",
+      "files": 905,
+      "generated_at": "2026-06-11T04:18:05.798833Z",
+      "generation_id": "8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b",
+      "parse_cache_files": 905,
+      "partial_failures": 0,
+      "relations": 298184,
+      "reverse_edges": 298184,
+      "store_bytes": 249147392,
+      "symbols": 11293,
+      "tree": "a30a8dc9e25b8b117ad3245e05cbe831a08651e5",
+      "warnings": 0
+    },
+    "stale": {
+      "axes": {
+        "branch_tip": {
+          "current": "master",
+          "indexed": "master",
+          "state": "ok"
+        },
+        "head": {
+          "current": "ee7fcee446fe5582df03235f2acd84d98258a2ba",
+          "indexed": "8ea02d1b5eab4e686742c09496d8c5750b1b7c9f",
+          "state": "stale"
+        },
+        "provider": {
+          "detail": "entire-sem dev",
+          "state": "ok"
+        },
+        "semantic_completeness": {
+          "state": "ok"
+        },
+        "snapshot": {
+          "detail": "semantic/snapshots/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/snapshot.ndjson",
+          "state": "ok"
+        },
+        "store": {
+          "detail": "semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/semantic.sqlite",
+          "state": "ok"
+        },
+        "worktree": {
+          "state": "clean"
+        }
+      },
+      "severity": "unsafe"
+    },
+    "stale_command": {
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "{\n  \"severity\": \"unsafe\",\n  \"axes\": {\n    \"branch_tip\": {\n      \"state\": \"ok\",\n      \"current\": \"master\",\n      \"indexed\": \"master\"\n    },\n    \"head\": {\n      \"state\": \"stale\",\n      \"current\": \"ee7fcee446fe5582df03235f2acd84d98258a2ba\",\n      \"indexed\": \"8ea02d1b5eab4e686742c09496d8c5750b1b7c9f\"\n    },\n    \"provider\": {\n      \"state\": \"ok\",\n      \"detail\": \"entire-sem dev\"\n    },\n    \"semantic_completeness\": {\n      \"state\": \"ok\"\n    },\n    \"snapshot\": {\n      \"state\": \"ok\",\n      \"detail\": \"semantic/snapshots/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/snapshot.ndjson\"\n    },\n    \"store\": {\n      \"state\": \"ok\",\n      \"detail\": \"semantic/generations/8ea02d1b5eab4e686742c09496d8c5750b1b7c9f-71ffcadd69a0461b/semantic.sqlite\"\n    },\n    \"worktree\": {\n      \"state\": \"clean\"\n    }\n  }\n}\n"
+    }
+  },
+  "changed_files": [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go"
+  ],
+  "condition": "mcp_history",
+  "diff_stat": {
+    "bytes": 966,
+    "shortstat": "1 file changed, 2 insertions(+)",
+    "untracked_files": []
+  },
+  "finished_at": "2026-06-11T04:24:08.746586+00:00",
+  "mcp_condition_audit": {
+    "direct_brain_cli_calls": 0,
+    "findings": [],
+    "mcp_tool_calls": 4,
+    "mcp_tool_details": [
+      {
+        "arguments": {},
+        "errored": false,
+        "name": "mcp__entire_brain__brain_brief"
+      },
+      {
+        "arguments": {},
+        "errored": false,
+        "name": "mcp__entire_brain__brain_brief"
+      },
+      {
+        "arguments": {},
+        "errored": false,
+        "name": "mcp__entire_brain__brain_search"
+      },
+      {
+        "arguments": {},
+        "errored": false,
+        "name": "mcp__entire_brain__brain_search"
+      }
+    ],
+    "mcp_tool_names": [
+      "mcp__entire_brain__brain_brief",
+      "mcp__entire_brain__brain_search"
+    ],
+    "ok": true,
+    "required": true
+  },
+  "ok": true,
+  "post_brain_setup_applied": false,
+  "provenance": {
+    "captured_at": "2026-06-11T04:21:06.685054+00:00",
+    "fingerprint": "b6b3eec21fb7f6c65c64787c423592548b1f240cffee0733b7f35d242f4f1481",
+    "harness": {
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "suhaanthayyil",
+        "available": true,
+        "commit": "077714aee1313c5e604cb57f2eb414f322132bd9",
+        "committer_date": "2026-06-11T00:01:50-04:00",
+        "parent_count": 2,
+        "parents": [
+          "3cddc05a68de2e9c818d244bd5af699e4bc24b85",
+          "90f06f3565587787a7ce6e882b2bbfd98abfd48c"
+        ],
+        "ref": "HEAD",
+        "subject": "merge layer-b benchmark hardening"
+      },
+      "repo_path": "[repo-root]"
+    },
+    "run_config": {
+      "brain_cache": {
+        "enabled": true,
+        "refresh": false
+      },
+      "checkpoint_limit": 200,
+      "claude_budget": 0.0,
+      "command": "run",
+      "condition": "mcp_history",
+      "env_flags": {
+        "BENCH_RADAR_LOCATION_ONLY": null,
+        "BENCH_REGRESSION_RADAR": null
+      },
+      "fingerprint": "fd40d72a7c313a3e186e036364194a4fc3133ddfe2215e1b86c90fc2fc128292",
+      "panel": {
+        "config_sha256": "ffb6a1d763fd60372a6fddf0c30cd528aee3643108a1170a3faebe2d3dfa5962",
+        "name": "release-entire-cli-mcp-manual-attribution",
+        "path": "benchmarks/agent-brain/panels/release-entire-cli-mcp-manual-attribution.json"
+      },
+      "pricing": {
+        "file": null,
+        "inline_sha256": null
+      },
+      "repetition": 1,
+      "requested": {
+        "agents": "",
+        "conditions": "no_brain,mcp_history",
+        "repetitions": 4,
+        "runners": "codex:gpt-5.4-mini:medium",
+        "tasks": [
+          "entireio-cli-manual-commit-attribution-base.json"
+        ]
+      },
+      "runner": {
+        "agent": "codex",
+        "effort": "medium",
+        "id": "codex-gpt-5.4-mini-medium",
+        "model": "gpt-5.4-mini"
+      },
+      "stop_after_no_brain_score": null,
+      "suite": "release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z",
+      "timeout": 1800,
+      "workspace_name": null
+    },
+    "schema": 1,
+    "source": {
+      "base": {
+        "author_name": "Stefan Haubold",
+        "available": true,
+        "commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "committer_date": "2026-06-04T21:31:15+02:00",
+        "parent_count": 2,
+        "parents": [
+          "5f292e3cd4980f0a1179cf2f8687d4fc27a1c01e",
+          "75ed85eae33c28a76dfda37a99e8d7646724af56"
+        ],
+        "ref": "af713665091693a8301520159f3b4097a6ec36f9",
+        "subject": "Merge pull request #1368 from entireio/soph/e2e-canary-keychain"
+      },
+      "base_ref": "af713665091693a8301520159f3b4097a6ec36f9",
+      "base_ref_source": "task.base_commit",
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "Stefan Haubold",
+        "available": true,
+        "commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "committer_date": "2026-06-04T21:31:15+02:00",
+        "parent_count": 2,
+        "parents": [
+          "5f292e3cd4980f0a1179cf2f8687d4fc27a1c01e",
+          "75ed85eae33c28a76dfda37a99e8d7646724af56"
+        ],
+        "ref": "HEAD",
+        "subject": "Merge pull request #1368 from entireio/soph/e2e-canary-keychain"
+      },
+      "origin_url": "https://github.com/entireio/cli.git",
+      "repo": "entire-cli",
+      "repo_path_input": "cli-bench",
+      "repo_path_resolved": "[source-root]/cli-bench"
+    },
+    "task": {
+      "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+      "config_sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2",
+      "id": "entireio-cli-manual-commit-attribution-base",
+      "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+      "radar_include_deletions": true
+    },
+    "tools": {
+      "bin": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/bin"
+      },
+      "brain": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/bin/entire-brain",
+        "sha256": "41d5930853bd43e091e1c8ef87a8a911c68cc51d3ff6d9cd9fdef9ad3a4a07ac"
+      },
+      "entire": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/bin/entire",
+        "sha256": "8402d885db21f386f2c48a2c60c18cee06d36e231f76459ed10e0d5c454cc84d"
+      },
+      "sem": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/bin/entire-sem",
+        "sha256": "e8ef3a2c2c1a04e76f6bf995dd1aa11ad9c4357279d45cc7a35716332af3b96d"
+      }
+    }
+  },
+  "repetition": 1,
+  "repo": "entire-cli",
+  "run_id": "entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r1",
+  "runner": {
+    "agent": "codex",
+    "effort": "medium",
+    "id": "codex-gpt-5.4-mini-medium",
+    "model": "gpt-5.4-mini"
+  },
+  "score": {
+    "brain_use": 4,
+    "details": {
+      "activity_source": "protocol_json",
+      "agent_seconds": 147.2250270843506,
+      "brain_commands": [],
+      "changed_file_count": 1,
+      "checked_diff": true,
+      "diff_bytes": 966,
+      "direct_brain_cli_calls": 0,
+      "expected_files_touched": [
+        "cmd/entire/cli/strategy/manual_commit_hooks.go"
+      ],
+      "forbidden_files_touched": [],
+      "mcp_tool_calls": 4,
+      "mcp_tool_details": [
+        {
+          "arguments": {},
+          "errored": false,
+          "name": "mcp__entire_brain__brain_brief"
+        },
+        {
+          "arguments": {},
+          "errored": false,
+          "name": "mcp__entire_brain__brain_brief"
+        },
+        {
+          "arguments": {},
+          "errored": false,
+          "name": "mcp__entire_brain__brain_search"
+        },
+        {
+          "arguments": {},
+          "errored": false,
+          "name": "mcp__entire_brain__brain_search"
+        }
+      ],
+      "mcp_tool_names": [
+        "mcp__entire_brain__brain_brief",
+        "mcp__entire_brain__brain_search"
+      ],
+      "missing_expected_files": [],
+      "ran_tests": true,
+      "search_calls": 10,
+      "structured_tool_event_count": 30,
+      "total_tokens": 899341,
+      "unexpected_files_touched": [],
+      "validation_count": 1,
+      "validation_passed": 1
+    },
+    "outcome": 45,
+    "patch_focus": 29,
+    "runtime_efficiency": 6,
+    "total": 94,
+    "validation_discipline": 10,
+    "version": 2
+  },
+  "started_at": "2026-06-11T04:21:06.676880+00:00",
+  "task_id": "entireio-cli-manual-commit-attribution-base",
+  "validation": {
+    "ok": true,
+    "results": [
+      {
+        "command": "go test ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommitNoTrailerRealignsAttributionBaseHidden' -count=1",
+        "returncode": 0,
+        "seconds": 3.306002140045166,
+        "stderr_tail": "",
+        "stdout_tail": "ok  \tgithub.com/entireio/cli/cmd/entire/cli/strategy\t0.632s\n"
+      }
+    ]
+  },
+  "worktree": "[repo-root]/benchmarks/agent-brain/results/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r1/worktree"
+}

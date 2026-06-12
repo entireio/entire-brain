@@ -1141,6 +1141,152 @@ def agent_output_leak_audit(task: dict[str, Any], stdout: str, stderr: str) -> d
 	return {"ok": not findings, "findings": findings}
 
 
+def brain_query_answer_texts(task: dict[str, Any]) -> list[tuple[str, str]]:
+    """The hidden, answer-bearing texts a brain_queries hint must not overlap (release blocker B1):
+    the fix itself (setup replacements, including WHERE it lives) is always hidden from the agent,
+    as are expected_files when the task hides them; validation commands, expected-string greps,
+    hidden test names, and validation fixtures (including fixture file CONTENTS) count only when
+    the task hides validation, because visible validation reaches both arms and is not an asymmetry."""
+    texts: list[tuple[str, str]] = []
+    for replacement in task.get("setup_replacements", []) + task.get("post_brain_replacements", []):
+        texts.append(("fix_text", str(replacement.get("old", ""))))
+        texts.append(("fix_text", str(replacement.get("new", ""))))
+        texts.append(("fix_location", str(replacement.get("path", ""))))
+    for command in task.get("setup_commands", []) + task.get("post_brain_commands", []):
+        texts.append(("fix_command", str(command)))
+    if task.get("hide_expected_from_agent"):
+        for expected in task.get("expected_files", []):
+            texts.append(("hidden_expected_file", str(expected)))
+    if task.get("hide_validation_from_agent"):
+        for command in task.get("validation", []):
+            texts.append(("hidden_validation_command", str(command)))
+            for match in re.finditer(r"-run\s+'([^']+)'|-run\s+(\S+)", str(command)):
+                texts.append(("hidden_test_name", match.group(1) or match.group(2)))
+            for match in re.finditer(r"rg\s+(?:-\S+\s+)*'([^']+)'", str(command)):
+                texts.append(("hidden_expected_string", match.group(1)))
+        for entry in task.get("validation_files", []):
+            if isinstance(entry, dict):
+                for key in ("path", "fixture", "content"):
+                    if entry.get(key):
+                        texts.append(("hidden_validation_file", str(entry[key])))
+                if entry.get("fixture"):
+                    try:
+                        fixture = safe_child_path(
+                            VALIDATION_FIXTURE_DIR, str(entry["fixture"]), label="validation fixture"
+                        )
+                    except Exception:
+                        fixture = None
+                    if fixture is not None and fixture.is_file():
+                        texts.append(("hidden_validation_file", fixture.read_text()))
+    return [(kind, text) for kind, text in texts if text]
+
+
+def brain_query_token_is_identifier(token: str) -> bool:
+    """Code-shaped tokens (PascalCase/camelCase, snake_case, dotted, flags, paths) are the
+    answer-bearing carriers B1 names; plain lowercase English words are matched only as part
+    of a verbatim phrase, never alone, so symptom vocabulary stays usable."""
+    if len(token) < 4:
+        return False
+    if token.startswith("--") or "_" in token or "." in token or "/" in token:
+        return True
+    return any(ch.isupper() for ch in token[1:])
+
+
+# Most-specific-first: a leak found in several overlapping texts (a test name is a substring of
+# its own validation command) is reported once, labeled with the most specific source.
+BRAIN_QUERY_ANSWER_KIND_PRIORITY = (
+    "hidden_test_name",
+    "hidden_expected_string",
+    "hidden_validation_file",
+    "hidden_validation_command",
+    "fix_text",
+    "fix_command",
+    "fix_location",
+    "hidden_expected_file",
+)
+
+
+BRAIN_QUERY_HIDDEN_IDENTIFIER_RE = re.compile(r"[A-Za-z][A-Za-z0-9_./-]{4,}")
+
+
+def brain_query_hidden_identifier_folds(text: str) -> set[str]:
+    """Casefolded identifier-shaped tokens occurring in a hidden answer text — used to catch
+    queries that smuggle an identifier by lowercasing it or splitting it into words, two
+    transformations retrieval undoes. Dotted/path tokens are also folded per segment so
+    `state.RealignAttributionBase(newHead)` yields `realignattributionbase` as well."""
+    folds: set[str] = set()
+    for match in BRAIN_QUERY_HIDDEN_IDENTIFIER_RE.finditer(text):
+        token = match.group(0)
+        if brain_query_token_is_identifier(token):
+            folds.add(token.lower())
+        for segment in re.split(r"[._/-]", token):
+            if len(segment) >= 6 and brain_query_token_is_identifier(segment):
+                folds.add(segment.lower())
+    return folds
+
+
+def brain_query_leak_audit(task: dict[str, Any]) -> dict[str, Any]:
+    """Release blocker B1: `Useful query terms: {brain_queries}` reaches the brain arm only, so any
+    query content that also appears in the hidden fix or hidden validation hands that arm the
+    answer and confounds the comparison. Flags (1) identifier-shaped query tokens found
+    case-insensitively inside any hidden answer text (retrieval and agents fold case, so a
+    lowercased identifier is exactly as answer-bearing), (2) query tokens or 2-4 word runs whose
+    casefolded concatenation equals an identifier from a hidden text (lowercased or split
+    identifiers), and (3) any contiguous 3+ word query phrase found there after punctuation
+    normalization, reported as the maximal matching phrase."""
+    answer_texts = brain_query_answer_texts(task)
+    kind_rank = {kind: rank for rank, kind in enumerate(BRAIN_QUERY_ANSWER_KIND_PRIORITY)}
+    best: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+    def record(query_text: str, term: str, where: str, finding_kind: str) -> None:
+        key = (finding_kind, query_text, term.lower())
+        rank = kind_rank.get(where, len(kind_rank))
+        existing = best.get(key)
+        if existing is None or rank < kind_rank.get(existing["where"], len(kind_rank)):
+            field = "token" if finding_kind == "answer_bearing_identifier" else "phrase"
+            best[key] = {"kind": finding_kind, "query": query_text, field: term, "where": where}
+
+    for query in task.get("brain_queries", []):
+        query_text = str(query)
+        words = [word.strip("`\"',;:()").rstrip(".?!") for word in query_text.split()]
+        for kind, text in answer_texts:
+            folded_text = text.lower()
+            identifier_folds = brain_query_hidden_identifier_folds(text)
+            for token in words:
+                if brain_query_token_is_identifier(token) and token.lower() in folded_text:
+                    record(query_text, token, kind, "answer_bearing_identifier")
+                elif len(token) >= 6 and token.lower() in identifier_folds:
+                    record(query_text, token, kind, "answer_bearing_identifier")
+            # split-identifier check: 3-4 word runs whose joined casefold IS a hidden identifier.
+            # Two-word runs are deliberately exempt — natural compounds ("base commit",
+            # "transcript path") match two-segment identifiers constantly; that residual is
+            # disclosed in docs/release-blockers.md alongside the 1-2-word plain-fragment one.
+            for size in (3, 4):
+                for start in range(len(words) - size + 1):
+                    joined = "".join(word.lower() for word in words[start:start + size])
+                    if len(joined) >= 8 and joined in identifier_folds:
+                        record(
+                            query_text, " ".join(words[start:start + size]), kind, "answer_bearing_identifier"
+                        )
+            matched_starts = [
+                start
+                for start in range(len(words) - 2)
+                if " ".join(words[start:start + 3]).lower() in folded_text
+            ]
+            # merge consecutive matching 3-gram windows into one maximal phrase
+            run_start: int | None = None
+            for index, start in enumerate(matched_starts):
+                if run_start is None:
+                    run_start = start
+                last_in_run = index + 1 >= len(matched_starts) or matched_starts[index + 1] != start + 1
+                if last_in_run:
+                    phrase = " ".join(words[run_start:start + 3])
+                    record(query_text, phrase, kind, "answer_bearing_phrase")
+                    run_start = None
+    unique = sorted(best.values(), key=lambda f: (f["query"], f.get("token") or f.get("phrase") or ""))
+    return {"ok": not unique, "findings": unique}
+
+
 def mcp_history_required_tools(runner: "RunnerSpec | None") -> tuple[str, ...]:
     """Tools the mcp_history condition must call (a floor, not a ceiling). Opus's brief-only
     delivery is told NOT to call brain_search, and the gpt-5.x disciplined delivery DOES call
@@ -3770,17 +3916,31 @@ def generate_layer_a_scenarios(minimum: int) -> list[dict[str, Any]]:
 
 
 def generate_layer_b_scenarios(minimum: int) -> list[dict[str, Any]]:
+    """One ledger row per task when the task declares its `archetype` (the Phase-2 counting
+    rule: a scenario is one unique task shape, not a task x archetype cross-join). Tasks
+    without the field keep the historical cross-join so old ledgers stay reproducible."""
     task_index = load_task_index()
     github_tasks = [
         task
         for task in sorted(task_index.values(), key=lambda item: item.get("id", ""))
         if task.get("repo") == "github-cli" and not str(task.get("id", "")).startswith("swe-style-")
     ]
+    archetype_index = {archetype["id"]: archetype for archetype in PHASE2_GITHUB_PROJECT_ARCHETYPES}
     scenarios: list[dict[str, Any]] = []
     counter = 1
     for task in github_tasks:
         condition = phase2_preferred_condition(task)
-        for archetype in PHASE2_GITHUB_PROJECT_ARCHETYPES:
+        declared_archetype = task.get("archetype")
+        if declared_archetype is not None:
+            if declared_archetype not in archetype_index:
+                raise RuntimeError(
+                    f"task {task.get('id', '<unknown>')} declares unknown archetype {declared_archetype!r}; "
+                    f"valid archetypes: {sorted(archetype_index)}"
+                )
+            task_archetypes = [archetype_index[declared_archetype]]
+        else:
+            task_archetypes = PHASE2_GITHUB_PROJECT_ARCHETYPES
+        for archetype in task_archetypes:
             scenarios.append(
                 {
                     "id": f"phase2-b-{counter:02d}-{slugify(task['id'])}-{archetype['id']}",
@@ -3906,7 +4066,7 @@ def write_phase2_discovery_markdown(output_dir: pathlib.Path, summary: dict[str,
         "",
         f"Generated at: `{summary['generated_at']}`",
         "",
-        "This report is the scenario-discovery ledger for Phase 2. It finds more than 20 candidate scenarios per layer where the brain should have a measurable advantage. Existing repeated-run proof signals are listed separately; candidates still require the proof repetitions before final claims.",
+        "This report is the scenario-discovery ledger for Phase 2. The target is more than 20 candidate scenarios per layer where the brain should have a measurable advantage; the actual per-layer counts (which may be below target) are in the table below. Existing repeated-run proof signals are listed separately; candidates still require the proof repetitions before final claims.",
         "",
         "## Counts",
         "",
@@ -4093,6 +4253,15 @@ def panel_preflight(panel: dict[str, Any], check_local_artifacts: bool = False) 
                     errors.append(
                         f"release panel task {task.get('id', '<unknown>')} hides validation "
                         "but has no explicit leak_markers canary"
+                    )
+            query_audit = brain_query_leak_audit(task)
+            if not query_audit["ok"]:
+                for finding in query_audit["findings"]:
+                    leaked = finding.get("token") or finding.get("phrase")
+                    errors.append(
+                        f"task {task.get('id', '<unknown>')} brain_queries hand the brain arm "
+                        f"answer-bearing content: {leaked!r} appears in {finding['where']} "
+                        "(release blocker B1 — strip it or give both arms identical hints)"
                     )
             if any(condition_prepares_history(condition) for condition in task_conditions):
                 if not task.get("copy_entire_history_from_source") and not task.get("copy_checkpoint_ref_from_source"):

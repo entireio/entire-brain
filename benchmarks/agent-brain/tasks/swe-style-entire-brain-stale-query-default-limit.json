@@ -25,5 +25,5 @@
   ],
   "expected_files": ["internal/cli/semantic.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["stale", "semantic query default limit", "TestSemanticQueryJSONIncludesFreshness"]
+  "brain_queries": ["stale", "semantic query default limit", "query returns fewer results than documented default"]
 }

@@ -12,9 +12,10 @@ import (
 )
 
 type fakeCommandRunner struct {
-	responses map[string]fakeCommandResponse
-	sequences map[string][]fakeCommandResponse
-	calls     []fakeCommandCall
+	responses           map[string]fakeCommandResponse
+	sequences           map[string][]fakeCommandResponse
+	semanticSnapshotAny *fakeCommandResponse
+	calls               []fakeCommandCall
 }
 
 type fakeCommandResponse struct {
@@ -51,6 +52,10 @@ func (r *fakeCommandRunner) Run(ctx context.Context, dir, name string, args ...s
 
 	response, ok := r.responses[key]
 	if !ok {
+		if r.semanticSnapshotAny != nil && fakeCommandIsSemanticSnapshotAnyRepo(name, args) {
+			response := *r.semanticSnapshotAny
+			return []byte(response.stdout), []byte(response.stderr), response.err
+		}
 		if key == fakeCommandKey("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD") {
 			return []byte("origin/main\n"), nil, nil
 		}
@@ -61,6 +66,21 @@ func (r *fakeCommandRunner) Run(ctx context.Context, dir, name string, args ...s
 
 func fakeCommandKey(name string, args ...string) string {
 	return name + "\x00" + strings.Join(args, "\x00")
+}
+
+func fakeCommandIsSemanticSnapshotAnyRepo(name string, args []string) bool {
+	if name != "entire" || len(args) < 6 {
+		return false
+	}
+	if args[0] != "sem" || args[1] != "snapshot" || args[2] != "--repo" {
+		return false
+	}
+	for _, arg := range args {
+		if arg == "--ignore-file" {
+			return false
+		}
+	}
+	return true
 }
 
 func TestDiscoverCheckpointsFallsBackToCheckpointRemote(t *testing.T) {

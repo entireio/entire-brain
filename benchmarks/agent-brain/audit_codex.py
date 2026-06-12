@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import importlib.util
 import json
 import pathlib
 import re
@@ -404,6 +405,114 @@ def get(d: Any, *path, default=None):
     return cur if cur is not None else default
 
 
+def task_path_candidates(rec: dict[str, Any]) -> list[pathlib.Path]:
+    raw_path = get(rec, "provenance", "task", "path")
+    task_id = str(rec.get("task_id") or get(rec, "provenance", "task", "id") or "")
+    candidates: list[pathlib.Path] = []
+    if isinstance(raw_path, str) and raw_path:
+        path = pathlib.Path(raw_path)
+        candidates.append(path)
+        if not path.is_absolute():
+            candidates.append((pathlib.Path.cwd() / path).resolve())
+            candidates.append((BENCH.parent.parent / path).resolve())
+    if task_id:
+        candidates.append(TASK_DIR / f"{task_id}.json")
+        for path in TASK_DIR.glob("*.json"):
+            if path.name == f"{task_id}.json":
+                continue
+            candidates.append(path)
+    seen: set[pathlib.Path] = set()
+    out: list[pathlib.Path] = []
+    for path in candidates:
+        resolved = path.resolve() if not path.is_absolute() else path
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        out.append(resolved)
+    return out
+
+
+def load_task_for_record(rec: dict[str, Any]) -> tuple[dict[str, Any] | None, pathlib.Path | None, str | None]:
+    task_id = str(rec.get("task_id") or get(rec, "provenance", "task", "id") or "")
+    fallback_mismatches: list[str] = []
+    for path in task_path_candidates(rec):
+        if not path.exists() or not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        if task_id and data.get("id") != task_id:
+            fallback_mismatches.append(str(path))
+            continue
+        return data, path, None
+    if fallback_mismatches:
+        return None, None, "task_id_mismatch"
+    return None, None, "task_not_found"
+
+
+def file_sha256(path: pathlib.Path | None) -> str | None:
+    if path is None:
+        return None
+    try:
+        import hashlib
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def _run_module():
+    """run.py owns the hardened brain-query leak auditor (the B1 confound fix);
+    audit-side enforcement delegates to it so the two can never diverge again —
+    a diverged, weaker copy living here is exactly how the original B1 leaks
+    kept passing this audit after run.py was hardened. run_test.py registers
+    run.py under this module name; standalone audit runs load it on demand."""
+    existing = sys.modules.get("agent_brain_run")
+    if existing is not None:
+        return existing
+    spec = importlib.util.spec_from_file_location("agent_brain_run", pathlib.Path(__file__).with_name("run.py"))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def brain_query_leak_findings(task: dict[str, Any]) -> list[dict[str, Any]]:
+    """The audit-side B1 leak check, in the legacy finding shape redaction and
+    reports expect ({query_index, source, kind, term}). Detection itself is
+    run.py's brain_query_leak_audit: identifier-fold and split-identifier
+    matching, 3-gram phrase windows, and the always-hidden fix texts the old
+    local detector never looked at."""
+    queries = [str(query) for query in task.get("brain_queries", []) or []]
+    findings: list[dict[str, Any]] = []
+    for found in _run_module().brain_query_leak_audit(task)["findings"]:
+        query = str(found.get("query", ""))
+        findings.append({
+            "query_index": queries.index(query) if query in queries else None,
+            "source": found.get("where"),
+            "kind": found.get("kind"),
+            "term": str(found.get("token") or found.get("phrase") or ""),
+        })
+    return findings
+
+
+def redact_leak_findings(findings: list[dict[str, Any]], limit: int = 8) -> list[dict[str, Any]]:
+    import hashlib
+    redacted: list[dict[str, Any]] = []
+    for finding in findings[:limit]:
+        term = str(finding.get("term", ""))
+        redacted.append({
+            "query_index": finding.get("query_index"),
+            "source": finding.get("source"),
+            "kind": finding.get("kind"),
+            "term_hash": hashlib.sha256(term.encode()).hexdigest()[:16],
+            "term_preview": term[:96],
+        })
+    return redacted
+
+
 def portable_report_path(path: pathlib.Path) -> str:
     resolved = path.resolve()
     for base in (pathlib.Path.cwd().resolve(), BENCH.parent.parent):
@@ -575,6 +684,27 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
     workspace_name = record_workspace_name(rec)
     required_logged_tool_args = required_server_tool_args(str(cond), delivery_scope, radar_requires_deletions, workspace_name)
     forbidden_logged_tool_args = forbidden_server_tool_args(str(cond), delivery_scope)
+    task_data, task_path, task_load_error = load_task_for_record(rec)
+    task_hygiene: dict[str, Any] = {
+        "loaded": task_data is not None,
+        "path": portable_report_path(task_path) if task_path else None,
+    }
+    if task_load_error:
+        task_hygiene["load_error"] = task_load_error
+        # A record that CLAIMS a task identity but whose config cannot be
+        # resolved gets NO leak check and NO sha-drift check — that must be a
+        # hard failure, not a silently weaker audit: deleting or renaming a
+        # leaky task file would otherwise launder its records into flag-free,
+        # proof-countable evidence. A record with no task provenance at all is
+        # already hard-flagged by the provenance checks; no second flag here.
+        if get(rec, "provenance", "task", "path") or get(rec, "provenance", "task", "id"):
+            flags.append(f"H:{task_load_error}")
+    recorded_task_sha = get(rec, "provenance", "task", "config_sha256")
+    actual_task_sha = file_sha256(task_path)
+    if actual_task_sha:
+        task_hygiene["sha256"] = actual_task_sha
+    if recorded_task_sha and actual_task_sha and actual_task_sha != recorded_task_sha:
+        flags.append("H:task_config_sha256_mismatch")
 
     # A. no_brain purity (HARD: no_brain must never touch Brain/MCP/CLI/private)
     # Cross-check the record's claimed MCP call count against the server log.
@@ -621,6 +751,13 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
                     notes.append(f"B:mcp_history_partial_missing_{req}")
         if cond == "mcp_workspace_radar" and mcp_calls > 0:
             req = "brain_workspace_regressions"
+            extra_activity_tools = sorted(real_bare_names - {req})
+            if extra_activity_tools:
+                flags.append("B:mcp_workspace_radar_extra_brain_tools(" + ",".join(extra_activity_tools) + ")")
+            if slog_names is not None:
+                extra_server_tools = sorted(logged_bare_names - {req})
+                if extra_server_tools:
+                    flags.append("B:mcp_workspace_radar_server_extra_brain_tools(" + ",".join(extra_server_tools) + ")")
             if not radar_policy_attested:
                 flags.append("H:provenance_missing_radar_include_deletions_policy")
             if workspace_name is None:
@@ -728,6 +865,11 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
             if isinstance(arg, dict)
         })
         flags.append("E:mcp_server_log_unsafe_tool_args(" + ",".join(unsafe_keys) + ")")
+    if cond in BRAIN_CONDITIONS and isinstance(task_data, dict):
+        query_leaks = brain_query_leak_findings(task_data)
+        if query_leaks:
+            flags.append(f"J:answer_bearing_brain_queries(count={len(query_leaks)})")
+            task_hygiene["answer_bearing_brain_queries"] = redact_leak_findings(query_leaks)
 
     # F. validation present
     vres = get(rec, "validation", "results", default=None)
@@ -808,6 +950,8 @@ def audit_record(rec: dict[str, Any], suite_dir: pathlib.Path) -> dict[str, Any]
         "notes": notes,
         "pass": not flags,
     }
+    if task_hygiene.get("loaded") or task_hygiene.get("load_error"):
+        audit["task_hygiene"] = task_hygiene
     if slog_names is not None:
         audit["server_tool_names"] = slog_names
     if slog_results is not None:
@@ -1028,6 +1172,12 @@ def load_release_manifest(path: pathlib.Path) -> dict[str, Any]:
     required_named_scopes = data.get("required_named_tool_proof_scopes", [])
     if not isinstance(required_named_scopes, list) or not all(isinstance(s, str) and s for s in required_named_scopes):
         raise SystemExit("release manifest required_named_tool_proof_scopes must be a string list")
+    claim_policy = data.get("claim_policy", "proof_required")
+    if claim_policy not in {"proof_required", "no_release_claim"}:
+        raise SystemExit("release manifest claim_policy must be proof_required or no_release_claim")
+    allowed_no_claim_flags = data.get("allowed_no_claim_flag_kinds", [])
+    if not isinstance(allowed_no_claim_flags, list) or not all(isinstance(s, str) and s for s in allowed_no_claim_flags):
+        raise SystemExit("release manifest allowed_no_claim_flag_kinds must be a string list")
     return data
 
 
@@ -1180,6 +1330,8 @@ def build_gate_status(
     min_mcp_verified: int,
     min_mcp_named_tool_verified: int,
     *,
+    claim_policy: str = "proof_required",
+    allowed_no_claim_flag_kinds: list[str] | None = None,
     require_proof_ready_per_suite: bool = False,
     required_proof_scopes: list[str] | None = None,
     required_named_tool_proof_scopes: list[str] | None = None,
@@ -1192,6 +1344,30 @@ def build_gate_status(
     mcp_verified = int(totals.get("mcp_verified_records") or 0)
     mcp_named_tool_verified = int(totals.get("mcp_named_tool_verified_records") or 0)
     hard_flags = int(totals.get("hard_flags") or 0)
+    flag_kinds = totals.get("flag_kinds") if isinstance(totals.get("flag_kinds"), dict) else {}
+    allowed_no_claim_flag_kinds = allowed_no_claim_flag_kinds or []
+    if claim_policy == "no_release_claim":
+        if suites < min_suites:
+            failures.append(f"suites {suites} < required {min_suites}")
+        if records < min_records:
+            failures.append(f"records {records} < required {min_records}")
+        if proof_ready > 0:
+            failures.append(f"no_release_claim has proof_ready_comparisons {proof_ready} > 0")
+        unexpected = sorted(kind for kind in flag_kinds if kind not in set(allowed_no_claim_flag_kinds))
+        if unexpected:
+            failures.append("unexpected no_release_claim flag kinds: " + ", ".join(unexpected))
+        return {
+            "status": "fail" if failures else "pass",
+            "release_evidence": False,
+            "claim_policy": claim_policy,
+            "requirements": {
+                "min_suites": min_suites,
+                "min_records": min_records,
+                "proof_ready_comparisons": 0,
+                "allowed_no_claim_flag_kinds": allowed_no_claim_flag_kinds,
+            },
+            "failures": failures,
+        }
     if suites < min_suites:
         failures.append(f"suites {suites} < required {min_suites}")
     if records < min_records:
@@ -1221,6 +1397,7 @@ def build_gate_status(
     return {
         "status": "fail" if failures else "pass",
         "release_evidence": not failures,
+        "claim_policy": claim_policy,
         "requirements": {
             "min_suites": min_suites,
             "min_records": min_records,
@@ -1269,7 +1446,9 @@ def render_audit_markdown(report: dict[str, Any]) -> str:
     gate_status = report.get("gate_status")
     if isinstance(gate_status, dict):
         md.append("## Release Gate")
-        if gate_status.get("release_evidence"):
+        if gate_status.get("claim_policy") == "no_release_claim" and gate_status.get("status") == "pass":
+            md.append("**PASS (NO RELEASE CLAIM).** This audit satisfies the retained no-claim gate and is not citable proof.")
+        elif gate_status.get("release_evidence"):
             md.append("**PASS.** This audit satisfies the configured release-evidence gate.")
         else:
             md.append("**NOT RELEASE EVIDENCE.** This audit does not satisfy the configured release-evidence gate.")
@@ -1355,6 +1534,8 @@ def main(argv: list[str] | None = None) -> int:
     require_proof_ready_per_suite = False
     required_proof_scopes: list[str] = []
     required_named_tool_proof_scopes: list[str] = []
+    claim_policy = "proof_required"
+    allowed_no_claim_flag_kinds: list[str] = []
     manifest = None
     if args.release_manifest:
         manifest = load_release_manifest(args.release_manifest.resolve())
@@ -1378,6 +1559,8 @@ def main(argv: list[str] | None = None) -> int:
         require_proof_ready_per_suite = bool(manifest.get("require_proof_ready_per_suite"))
         required_proof_scopes = list(manifest.get("required_proof_scopes") or [])
         required_named_tool_proof_scopes = list(manifest.get("required_named_tool_proof_scopes") or [])
+        claim_policy = str(manifest.get("claim_policy", claim_policy))
+        allowed_no_claim_flag_kinds = list(manifest.get("allowed_no_claim_flag_kinds") or [])
     report = build_audit_report(
         results_dir,
         suite_globs,
@@ -1397,6 +1580,8 @@ def main(argv: list[str] | None = None) -> int:
             "require_proof_ready_per_suite": require_proof_ready_per_suite,
             "required_proof_scopes": required_proof_scopes,
             "required_named_tool_proof_scopes": required_named_tool_proof_scopes,
+            "claim_policy": claim_policy,
+            "allowed_no_claim_flag_kinds": allowed_no_claim_flag_kinds,
         }
     gate_status = None
     if args.fail_on_flags:
@@ -1407,6 +1592,8 @@ def main(argv: list[str] | None = None) -> int:
             min_proof_ready,
             min_mcp_verified,
             min_mcp_named_tool_verified,
+            claim_policy=claim_policy,
+            allowed_no_claim_flag_kinds=allowed_no_claim_flag_kinds,
             require_proof_ready_per_suite=require_proof_ready_per_suite,
             required_proof_scopes=required_proof_scopes,
             required_named_tool_proof_scopes=required_named_tool_proof_scopes,

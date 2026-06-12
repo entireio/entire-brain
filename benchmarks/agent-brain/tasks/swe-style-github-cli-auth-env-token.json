@@ -20,5 +20,5 @@
   ],
   "expected_files": ["pkg/cmdutil/auth_check.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["environment token auth check", "HasEnvToken"]
+  "brain_queries": ["GH_TOKEN not recognized as logged in", "unauthenticated despite token in environment", "login check without stored host configuration"]
 }

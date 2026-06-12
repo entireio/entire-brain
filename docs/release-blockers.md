@@ -5,59 +5,58 @@ kept next to the audit so a release decision can see what is open, what was
 fixed, and exactly why. The standard for this file is the eval ledger's:
 explicit claims, exact evidence, no euphemism.
 
-## OPEN — B1: Answer-bearing query hints confound every "citable proof" suite
+## RESOLVED AS CLAIM DEMOTION — B1: Answer-bearing query hints invalidated the old replay-lab proof
 
-**The claim under audit.** `docs/release_readiness_audit.md` graduates three
-benchmark suites to citable release proof and asserts the panels work
-"without handing over hidden validation or expected text". **That sentence is
-false as written**, for all three suites and for at least one newer task.
+**The claim under audit.** `docs/release_readiness_audit.md` previously treated
+three replay-lab suites as citable proof that history/MCP/Radar context improved
+agent outcomes without handing over hidden validation or expected text. That
+attribution was unsupported.
 
-**The mechanism.** `benchmarks/agent-brain/run.py` (`prompt_for`) injects
-`Useful query terms: {brain_queries}` into the **brain/MCP-arm prompts only**;
-the `no_brain` arm receives no such terms. Whatever appears in a task's
-`brain_queries` is therefore handed to exactly the arm whose superiority the
-suite is supposed to prove. The committed task files put answer-bearing
-content there:
+**The confound.** `benchmarks/agent-brain/run.py` injects `brain_queries` into
+brain/MCP-arm prompts only; the `no_brain` arm receives none. In the retained
+pre-B1 suites, several `brain_queries` contained answer-bearing identifiers,
+hidden-test names, or near-verbatim hidden-validation strings. The old
+comparison therefore measured *(answer-bearing hint + brain)* versus *(no hint,
+no brain)*, not brain value alone.
 
-| Suite (claimed result) | What `brain_queries` hands the brain arm | What the hidden validation requires |
-|---|---|---|
-| `entire-brain-history-codex-schema-contract` (score 66.0→91.5, pass 0/4→4/4) | The literal strings `"should rely on prompt plus local validation"` and ``"Checkpoint-context review reverted Codex `--output-schema` usage"`` | `rg 'should rely on prompt plus local validation, not --output-schema' internal/cli/seed_test.go` finds ≥1 match, and `--output-schema` is removed from `seed.go` — i.e. the prompt contains, near-verbatim, the exact string a hidden check greps for. An agent can pass by echoing its own prompt into a comment. |
-| `entireio-cli-manual-commit-attribution-base` (pass 1/4→4/4, score 76.25→92.0) | `"RealignAttributionBase newHead manual commit hooks"`, `"BaseCommit AttributionBaseCommit realign"`, and the hidden-adjacent test name `"TestManualCommit_AttributionStaleBase"` | Hidden tests pass only when the fix re-adds the call `state.RealignAttributionBase(newHead)` — **the exact function name and argument are in the brain arm's prompt**. |
-| `entireio-cli-radar-manual-attribution-deletions` (pass 2/4→4/4, score 73.0→92.5) | Identical `brain_queries` to the row above | Same hidden tests; same leak. |
-| `entire-brain-semantic-tokenized-idf-ranking` (newer, not yet promoted) | `"tokenIDFWeight rare token ranking"` and the **hidden test's exact name** `"TestTokenizedSearchRanksRareTokenAboveCommonTokens"` | `rg 'weights\[i\] = tokenIDFWeight\(total, df\)'` finds exactly one match — the prompt names the function the hidden grep requires verbatim. |
+**Fixes landed.**
 
-**Why this is a confound and not a nitpick.** The suites measure
-*(answer-bearing hint + brain)* versus *(no hint, no brain)*. Any observed
-lift decomposes into (a) the hint telling the agent what the fix is and (b)
-the brain retrieving context — and the committed artifacts cannot separate
-them. In the schema-contract case the hint alone is sufficient to pass the
-hidden exact-string gate with zero retrieval. The numbers themselves are
-real (recomputed from the per-record artifacts during review; timestamps,
-token counts, and logs are consistent and one genuine no-brain failure run is
-retained) — what is unsupported is the *attribution* of the lift to the
-brain.
+- `brain_query_leak_audit` now rejects answer-bearing `brain_queries` before a
+  panel can run. It checks code-shaped identifiers and verbatim 3+-word phrases
+  against hidden fix text and paths, expected files, hidden validation commands,
+  expected-string greps, hidden test names, and validation fixture contents.
+- All committed benchmark task queries that tripped the auditor were rewritten
+  to symptom-level retrieval terms. The all-task sweep now reports zero flagged
+  task files.
+- The retained evidence manifest is stricter again: even in `no_release_claim`
+  mode it requires zero hard integrity flags.
+- The old confounded retained suites were removed from
+  `benchmarks/agent-brain/evidence/release` and replaced with clean reruns.
 
-**Why the PR's own hygiene machinery missed it.** The leak auditor checks
-*transcripts* for harness markers and host paths; it never intersects
-`brain_queries` with hidden-validation command strings, expected-text greps,
-or hidden test names. The `Useful query terms` mechanism predates this PR
-(present on `main` in 10 tasks), so prior comparisons carry the same
-confound; this PR is gated on it because it is the one promoting these suites
-to "citable proof".
+**Clean rerun result (2026-06-11).** Item 3 is now complete: the three promoted
+suites were rerun from a clean checkout with the sanitized task configs, four
+repetitions per side, retained panel provenance, and host paths redacted before
+commit. The independent audit now reports 3 suites, 24 records, 24/24 provenance
+complete, 0 hard integrity flags, 8 MCP-verified datapoints, 4 completed
+named-tool Radar datapoints, and 0 proof-ready comparisons.
 
-**Required to clear B1 (all of):**
+| Clean retained suite | Outcome |
+|---|---|
+| `release-candidate-entire-brain-schema-contract-clean-20260611T0412Z` | Audit-clean but noisy: pass rate 50% -> 75%, mean score 86.5 -> 87.75, `proof_ready=false`. |
+| `release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z` | Audit-clean but saturated/negative: both arms passed 100%, mean score 94.25 -> 91.25, `proof_ready=false`. |
+| `release-candidate-cli-radar-mcp-del-clean-20260611T0412Z` | Audit-clean but saturated/negative: both arms passed 100%, mean score 94.5 -> 90.5, `proof_ready=false`. |
 
-1. Strip answer-bearing terms from `brain_queries` in the affected tasks — no
-   identifiers from the expected fix, no substrings of hidden-validation
-   greps, no hidden test names — or give both arms identical hints so the
-   delta isolates retrieval.
-2. Extend the leak auditor: flag any `brain_queries` token (or ≥3-word
-   substring) that appears in hidden validation commands, expected strings,
-   or hidden test names. The four rows above must fail the auditor as it
-   stands.
-3. Re-run the three suites clean and re-promote only what survives.
-4. Until then, correct the audit sentence and the two press-release "proof"
-   bullets to disclose the confound explicitly.
+**Current release implication.** B1 is resolved as an integrity/confound blocker:
+the retained release lane no longer contains answer-bearing query-hint artifacts.
+It is still `no_release_claim`, because the clean reruns did not produce a
+proof-ready replay-lab lift. Any future agent-lift claim needs harder clean
+retained tasks that survive the proof-ready gate; the old numbers stay removed
+from the release story.
+
+Operationalization note: the literal "any token" wording from the review is not
+implemented because it would false-flag ordinary symptom text. The enforced rule
+is code-shaped identifiers plus verbatim 3+-word phrases, with the known residual
+that 1-2 word plain-English overlaps are not flagged.
 
 ## RESOLVED — fixed during review on this branch
 

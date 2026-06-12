@@ -46,10 +46,10 @@
   "hide_validation_from_agent": true,
   "brain_queries": [
     "agentic browser self-contained perception stale model state",
-    "loop stopped chaining previous_response_id",
+    "browser loop stops carrying forward prior turn context",
     "agentic Chrome rebuild robustness self-contained",
     "browser decision turns recent history screenshot page text",
-    "previous response id poisoned browser loop"
+    "stale turn reference poisons the browser loop"
   ],
   "history_excerpt_lines": 32
 }

@@ -36,7 +36,7 @@
   ],
   "brain_queries": [
     "status semantic gate emits report before failure",
-    "runAgentStatus semanticAuditFailureForReport writeJSON",
-    "TestStatusFailOnBlindSpotsEmitsJSONBeforeError"
+    "machine report suppressed when coverage gate fails",
+    "nonzero exit only after emitting the report"
   ]
 }

@@ -7,6 +7,9 @@ It is not a declaration that the product is fully release-ready. The generated
 `release-matrix-report.json` intentionally keeps `release_fully_ready` false while
 target large-repo distill evidence, paired facts-vs-raw proof, semantic usefulness
 proof, workspace Radar outcome proof, and broader replay evidence remain pending.
+The current retained replay-lab row is also explicitly `no-claim`: B1 clean
+reruns are retained and audit-clean, but no comparison survived the proof-ready
+gate.
 
 Regenerate after changing any referenced evidence report with:
 

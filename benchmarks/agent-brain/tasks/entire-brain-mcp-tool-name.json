@@ -5,6 +5,8 @@
   "conditions": ["no_brain", "semantic_brain", "full_brain"],
   "copy_checkpoint_ref_from_source": true,
   "prompt": "Fix the failing MCP tool-list regression. Keep the public MCP tool names stable and run the focused MCP tests before finishing.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
   "setup_replacements": [
     {
       "path": "internal/cli/mcp.go",
@@ -18,5 +20,5 @@
   ],
   "expected_files": ["internal/cli/mcp.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["brain_context", "mcpToolDefinitions", "handleMCPToolCall"]
+  "brain_queries": ["MCP tool list regression", "renamed brain tool breaks tools/list", "public MCP tool name stability", "local brain tools MCP stdio server"]
 }

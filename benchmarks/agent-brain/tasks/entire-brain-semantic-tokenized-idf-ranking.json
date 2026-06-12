@@ -22,9 +22,5 @@
   "forbidden_files": ["go.mod", "go.sum", "internal/cli/agent_ux_test.go"],
   "agent_hidden_paths": ["benchmarks/agent-brain"],
   "leak_markers": ["release-semantic-tokenized-idf-canary-20260610T0415Z"],
-  "brain_queries": [
-    "findSemanticSymbolsTokenizedSQLite IDF token weighting",
-    "tokenIDFWeight rare token ranking",
-    "TestTokenizedSearchRanksRareTokenAboveCommonTokens"
-  ]
+  "brain_queries": ["semantic search rare term ranking", "specific term outranked by generic helper matches", "multi-term code query ranks generic match first", "discriminating concept lost among helper words"]
 }

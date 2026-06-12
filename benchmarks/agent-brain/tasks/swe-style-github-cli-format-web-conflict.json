@@ -20,5 +20,5 @@
   ],
   "expected_files": ["pkg/cmdutil/json_flags.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["format json web conflict", "checkFormatFlags"]
+  "brain_queries": ["format json web conflict", "mutually exclusive output flags accepted together"]
 }

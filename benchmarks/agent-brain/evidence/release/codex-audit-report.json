@@ -1,9 +1,9 @@
 {
   "suites": {
-    "release-candidate-cli-radar-mcp-del-20260610-r2": {
+    "release-candidate-cli-radar-mcp-del-clean-20260611T0412Z": {
       "records": [
         {
-          "run_id": "no_brain_r1",
+          "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r1",
           "task_id": "entireio-cli-radar-manual-attribution-deletions",
           "condition": "no_brain",
           "delivery_scope": "no_brain",
@@ -30,23 +30,28 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
             "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
             "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
-            "task_config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
-            "run_config_fingerprint": "c86b9246d5d3674458da5e1f1ea2320b45c20086a1682b62e5257b1c4195d7d9",
-            "record_fingerprint": "9e0d521e39b973068400cfe1344d2d70b16001c3a1f65c981a204fd8bc2c6b5d"
+            "task_config_sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985",
+            "run_config_fingerprint": "0f97600fc5cda3a24318f6b4f88ef0dd70de3957441c1de36f2c4d4c2f0f95f6",
+            "record_fingerprint": "dea379578a315770208b9388f399c604019af6fe53aa3546dc1fec60dc41eccd"
           },
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
           }
         },
         {
-          "run_id": "no_brain_r2",
+          "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r2",
           "task_id": "entireio-cli-radar-manual-attribution-deletions",
           "condition": "no_brain",
           "delivery_scope": "no_brain",
@@ -57,52 +62,9 @@
           "runner": "codex-gpt-5.4-mini-low",
           "model": "gpt-5.4-mini",
           "effort": "low",
-          "ok": false,
-          "valid": false,
-          "score": 50,
-          "mcp_calls": 0,
-          "server_toolcalls": null,
-          "server_toolcall_responses": null,
-          "search_calls": 14,
-          "parent_count": 0,
-          "mcp_verified": false,
-          "mcp_named_tool_verified": false,
-          "mcp_named_tool_completed": false,
-          "mcp_named_tool_result_verified": false,
-          "required_server_tool_names": [],
-          "provenance": {
-            "present": true,
-            "ok": true,
-            "harness_head": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
-            "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
-            "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
-            "task_config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
-            "run_config_fingerprint": "522b23e8f59ee50cf5e6c36ceea1bf4839b956af8ab92bfbdba94ced05fb2296",
-            "record_fingerprint": "78e5848aa9fb3fabc4b823d153d31cd905a01f0274c71c922cbafe456d1dd9bf"
-          },
-          "flags": [],
-          "notes": [],
-          "pass": true,
-          "release_hygiene": {
-            "host_path_clean": true,
-            "leak_paths": []
-          }
-        },
-        {
-          "run_id": "no_brain_r3",
-          "task_id": "entireio-cli-radar-manual-attribution-deletions",
-          "condition": "no_brain",
-          "delivery_scope": "no_brain",
-          "env_flags": {
-            "BENCH_RADAR_LOCATION_ONLY": "1"
-          },
-          "repetition": 3,
-          "runner": "codex-gpt-5.4-mini-low",
-          "model": "gpt-5.4-mini",
-          "effort": "low",
-          "ok": false,
-          "valid": false,
-          "score": 54,
+          "ok": true,
+          "valid": true,
+          "score": 96,
           "mcp_calls": 0,
           "server_toolcalls": null,
           "server_toolcall_responses": null,
@@ -116,23 +78,76 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
             "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
             "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
-            "task_config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
-            "run_config_fingerprint": "f646cca92f96ddb6854a9fb1985d5a589ccb951bd321f3125111ad33f35bd014",
-            "record_fingerprint": "f18741470c64ce49de303d09f47b49014de03fdcd17090c83c04e607ba2c621f"
+            "task_config_sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985",
+            "run_config_fingerprint": "18a8c1cbbba07d9eab8ac1da1e33611d28e4511ebf6dfbf7d9f2219608846261",
+            "record_fingerprint": "4e21e5d370360a255d9de946fd5fa03181d94fe46067065bb78147e351e273c4"
           },
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
           }
         },
         {
-          "run_id": "no_brain_r4",
+          "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r3",
+          "task_id": "entireio-cli-radar-manual-attribution-deletions",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
+          "repetition": 3,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": true,
+          "valid": true,
+          "score": 94,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 8,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
+            "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
+            "task_config_sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985",
+            "run_config_fingerprint": "77c3c7db865dedc7e7679c886a0b48df0e05f243e04afe065e3f6da5a0bf67e7",
+            "record_fingerprint": "7c47899bd363d4df10b9da2ce70f034ed1181252680b40826a39bf5b42652304"
+          },
+          "flags": [],
+          "notes": [],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r4",
           "task_id": "entireio-cli-radar-manual-attribution-deletions",
           "condition": "no_brain",
           "delivery_scope": "no_brain",
@@ -149,7 +164,7 @@
           "mcp_calls": 0,
           "server_toolcalls": null,
           "server_toolcall_responses": null,
-          "search_calls": 12,
+          "search_calls": 6,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
@@ -159,23 +174,28 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
             "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
             "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
-            "task_config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
-            "run_config_fingerprint": "6ec6cd0fa1e306e1e1274fb13ff9926655e064db07aac7a4651388a004106076",
-            "record_fingerprint": "fa82ab8568c3c05b4a7c95f7bb5a78166beccbaf056cd399890a921a3dddd142"
+            "task_config_sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985",
+            "run_config_fingerprint": "c9d68dc575f3bea976052e1f8f82c6a4fb98f9c6bd5187b993ffb9c8f342c0dc",
+            "record_fingerprint": "e9ab55a858d7887c145d565fa048e4465882c1cffd50a1956f33d86ae044c935"
           },
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
           }
         },
         {
-          "run_id": "mcp_history_r1",
+          "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1",
           "task_id": "entireio-cli-radar-manual-attribution-deletions",
           "condition": "mcp_history",
           "delivery_scope": "mcp_radar_location_only",
@@ -189,9 +209,9 @@
           "ok": true,
           "valid": true,
           "score": 93,
-          "mcp_calls": 2,
-          "server_toolcalls": 1,
-          "server_toolcall_responses": 1,
+          "mcp_calls": 4,
+          "server_toolcalls": 2,
+          "server_toolcall_responses": 2,
           "search_calls": 4,
           "parent_count": 0,
           "mcp_verified": true,
@@ -204,26 +224,35 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
             "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
             "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
-            "task_config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
-            "run_config_fingerprint": "3429a1753c84037bed575050b9ca17b87a132a6ef21d7486a42cb3e7fa4b23a4",
-            "record_fingerprint": "df714bbe45a365c26ed3475fcaca02cd79bba5d0c5f76a9977d96195d2aeef77"
+            "task_config_sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985",
+            "run_config_fingerprint": "6863262a09dd2b4e75cdf356c296ea6c8f4ae3ef0f4b48ddf245f554098d8ded",
+            "record_fingerprint": "7e1c4e293d1f975823a95dfb5ec33ba17c544208ef73550f29139f107538616c"
           },
           "flags": [],
           "notes": [
-            "N:mcp_call_count_mismatch(record=2,server_log=1)",
-            "B:mcp_history_partial_missing_brain_brief",
+            "N:mcp_call_count_mismatch(record=4,server_log=2)",
             "B:mcp_history_partial_missing_brain_search"
           ],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
+          },
           "server_tool_names": [
-            "brain_regressions"
+            "brain_regressions",
+            "brain_brief"
           ],
           "server_tool_results": [
             {
               "tool": "brain_regressions",
+              "status": "ok"
+            },
+            {
+              "tool": "brain_brief",
               "status": "ok"
             }
           ],
@@ -244,6 +273,11 @@
                 "location_only": true
               },
               "status": "ok"
+            },
+            {
+              "tool": "brain_brief",
+              "arguments": {},
+              "status": "ok"
             }
           ],
           "release_hygiene": {
@@ -252,7 +286,7 @@
           }
         },
         {
-          "run_id": "mcp_history_r2",
+          "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r2",
           "task_id": "entireio-cli-radar-manual-attribution-deletions",
           "condition": "mcp_history",
           "delivery_scope": "mcp_radar_location_only",
@@ -266,86 +300,9 @@
           "ok": true,
           "valid": true,
           "score": 93,
-          "mcp_calls": 2,
-          "server_toolcalls": 1,
-          "server_toolcall_responses": 1,
-          "search_calls": 8,
-          "parent_count": 0,
-          "mcp_verified": true,
-          "mcp_named_tool_verified": true,
-          "mcp_named_tool_completed": true,
-          "mcp_named_tool_result_verified": true,
-          "required_server_tool_names": [
-            "brain_regressions"
-          ],
-          "provenance": {
-            "present": true,
-            "ok": true,
-            "harness_head": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
-            "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
-            "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
-            "task_config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
-            "run_config_fingerprint": "4b74a716cb7742a9c1de993a3327cb10e172ef6a39c02bf1b6db62e1d058e4d2",
-            "record_fingerprint": "a8f1d864c0aabab70687a97b190e9c0d5bd7ce09600c3f65124527efbdf19e48"
-          },
-          "flags": [],
-          "notes": [
-            "N:mcp_call_count_mismatch(record=2,server_log=1)",
-            "B:mcp_history_partial_missing_brain_brief",
-            "B:mcp_history_partial_missing_brain_search"
-          ],
-          "pass": true,
-          "server_tool_names": [
-            "brain_regressions"
-          ],
-          "server_tool_results": [
-            {
-              "tool": "brain_regressions",
-              "status": "ok"
-            }
-          ],
-          "server_tool_args": [
-            {
-              "tool": "brain_regressions",
-              "arguments": {
-                "include_deletions": true,
-                "location_only": true
-              }
-            }
-          ],
-          "server_tool_calls": [
-            {
-              "tool": "brain_regressions",
-              "arguments": {
-                "include_deletions": true,
-                "location_only": true
-              },
-              "status": "ok"
-            }
-          ],
-          "release_hygiene": {
-            "host_path_clean": true,
-            "leak_paths": []
-          }
-        },
-        {
-          "run_id": "mcp_history_r3",
-          "task_id": "entireio-cli-radar-manual-attribution-deletions",
-          "condition": "mcp_history",
-          "delivery_scope": "mcp_radar_location_only",
-          "env_flags": {
-            "BENCH_RADAR_LOCATION_ONLY": "1"
-          },
-          "repetition": 3,
-          "runner": "codex-gpt-5.4-mini-low",
-          "model": "gpt-5.4-mini",
-          "effort": "low",
-          "ok": true,
-          "valid": true,
-          "score": 93,
-          "mcp_calls": 2,
-          "server_toolcalls": 1,
-          "server_toolcall_responses": 1,
+          "mcp_calls": 4,
+          "server_toolcalls": 2,
+          "server_toolcall_responses": 2,
           "search_calls": 4,
           "parent_count": 0,
           "mcp_verified": true,
@@ -358,26 +315,35 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
             "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
             "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
-            "task_config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
-            "run_config_fingerprint": "5aea1710d74e0c268afa0d3bde05a1ea4bb196401c14d207e21b1aa198d17db3",
-            "record_fingerprint": "a8ee03faeab8306ff57ea969533a1098421b06049ac903f23188db9f51577445"
+            "task_config_sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985",
+            "run_config_fingerprint": "77c28d9646eb1738a7ca20d3ba3835b5e37653efb17b90a4baba037e6b9cdf49",
+            "record_fingerprint": "485e0c0dafff2ce133d2962dad7d978205fbb81648ee5fd56632e48ad7770350"
           },
           "flags": [],
           "notes": [
-            "N:mcp_call_count_mismatch(record=2,server_log=1)",
-            "B:mcp_history_partial_missing_brain_brief",
+            "N:mcp_call_count_mismatch(record=4,server_log=2)",
             "B:mcp_history_partial_missing_brain_search"
           ],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
+          },
           "server_tool_names": [
-            "brain_regressions"
+            "brain_regressions",
+            "brain_brief"
           ],
           "server_tool_results": [
             {
               "tool": "brain_regressions",
+              "status": "ok"
+            },
+            {
+              "tool": "brain_brief",
               "status": "ok"
             }
           ],
@@ -398,6 +364,11 @@
                 "location_only": true
               },
               "status": "ok"
+            },
+            {
+              "tool": "brain_brief",
+              "arguments": {},
+              "status": "ok"
             }
           ],
           "release_hygiene": {
@@ -406,7 +377,98 @@
           }
         },
         {
-          "run_id": "mcp_history_r4",
+          "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r3",
+          "task_id": "entireio-cli-radar-manual-attribution-deletions",
+          "condition": "mcp_history",
+          "delivery_scope": "mcp_radar_location_only",
+          "env_flags": {
+            "BENCH_RADAR_LOCATION_ONLY": "1"
+          },
+          "repetition": 3,
+          "runner": "codex-gpt-5.4-mini-low",
+          "model": "gpt-5.4-mini",
+          "effort": "low",
+          "ok": true,
+          "valid": true,
+          "score": 82,
+          "mcp_calls": 4,
+          "server_toolcalls": 2,
+          "server_toolcall_responses": 2,
+          "search_calls": 2,
+          "parent_count": 0,
+          "mcp_verified": true,
+          "mcp_named_tool_verified": true,
+          "mcp_named_tool_completed": true,
+          "mcp_named_tool_result_verified": true,
+          "required_server_tool_names": [
+            "brain_regressions"
+          ],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
+            "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
+            "task_config_sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985",
+            "run_config_fingerprint": "99efba13040356e21c8de1b8b8eb07532070f2666b6822d93d79a7dc5d1f052f",
+            "record_fingerprint": "804339f5fbb8da01bc4ef492dd4a3a8f472a8ade8b2f475dc100c487c455b298"
+          },
+          "flags": [],
+          "notes": [
+            "N:mcp_call_count_mismatch(record=4,server_log=2)",
+            "B:mcp_history_partial_missing_brain_search"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
+          },
+          "server_tool_names": [
+            "brain_regressions",
+            "brain_brief"
+          ],
+          "server_tool_results": [
+            {
+              "tool": "brain_regressions",
+              "status": "ok"
+            },
+            {
+              "tool": "brain_brief",
+              "status": "ok"
+            }
+          ],
+          "server_tool_args": [
+            {
+              "tool": "brain_regressions",
+              "arguments": {
+                "include_deletions": true,
+                "location_only": true
+              }
+            }
+          ],
+          "server_tool_calls": [
+            {
+              "tool": "brain_regressions",
+              "arguments": {
+                "include_deletions": true,
+                "location_only": true
+              },
+              "status": "ok"
+            },
+            {
+              "tool": "brain_brief",
+              "arguments": {},
+              "status": "ok"
+            }
+          ],
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4",
           "task_id": "entireio-cli-radar-manual-attribution-deletions",
           "condition": "mcp_history",
           "delivery_scope": "mcp_radar_location_only",
@@ -419,11 +481,11 @@
           "effort": "low",
           "ok": true,
           "valid": true,
-          "score": 91,
-          "mcp_calls": 2,
-          "server_toolcalls": 1,
-          "server_toolcall_responses": 1,
-          "search_calls": 8,
+          "score": 94,
+          "mcp_calls": 4,
+          "server_toolcalls": 2,
+          "server_toolcall_responses": 2,
+          "search_calls": 2,
           "parent_count": 0,
           "mcp_verified": true,
           "mcp_named_tool_verified": true,
@@ -435,26 +497,35 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "c0d93b6c8f688fabe32436cc430f0bf5dba8d06f",
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
             "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
             "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
-            "task_config_sha256": "03f06eeda64cc9fa444b4a0d95e6f23afb4d241cf7786dc7a687ceccbcf3119f",
-            "run_config_fingerprint": "c5c78e7166319be3c01b2d6ce65edd391f438e785b1be5a3552085f257fcf827",
-            "record_fingerprint": "bc69b09e6491c80c6c005f5824a5ea52d5aeaac3e19ae90661aef752cf2205f8"
+            "task_config_sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985",
+            "run_config_fingerprint": "272487bad9c11023f66441dde3c700414baf9f67179dcf35f16c13271022f841",
+            "record_fingerprint": "9ab891baa0849706f15cb503ec09f617c1b638703eb0cc1cc9bb59e3275e76ce"
           },
           "flags": [],
           "notes": [
-            "N:mcp_call_count_mismatch(record=2,server_log=1)",
-            "B:mcp_history_partial_missing_brain_brief",
+            "N:mcp_call_count_mismatch(record=4,server_log=2)",
             "B:mcp_history_partial_missing_brain_search"
           ],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+            "sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985"
+          },
           "server_tool_names": [
-            "brain_regressions"
+            "brain_regressions",
+            "brain_brief"
           ],
           "server_tool_results": [
             {
               "tool": "brain_regressions",
+              "status": "ok"
+            },
+            {
+              "tool": "brain_brief",
               "status": "ok"
             }
           ],
@@ -474,6 +545,11 @@
                 "include_deletions": true,
                 "location_only": true
               },
+              "status": "ok"
+            },
+            {
+              "tool": "brain_brief",
+              "arguments": {},
               "status": "ok"
             }
           ],
@@ -492,15 +568,14 @@
           "env_flags": {
             "BENCH_RADAR_LOCATION_ONLY": "1"
           },
-          "verdict": "brain_positive",
-          "proof_ready": true,
-          "delta": 19.5,
+          "verdict": "brain_negative",
+          "proof_ready": false,
+          "delta": -4.0,
           "n_condition": 4,
           "n_baseline": 4,
           "reasons": [
-            "score_or_success_improved=+19.5",
-            "time_or_tokens_improved>=20%",
-            "search_calls_dropped>=20%"
+            "both_conditions_passed",
+            "score_drop_or_overhead_exceeds_gate"
           ],
           "flags": [],
           "pass": true,
@@ -542,12 +617,10 @@
       "n_mcp_named_tool_verified": 4,
       "n_mcp_named_tool_completed": 4,
       "n_provenance_ok": 8,
-      "n_proof_ready_comparisons": 1,
-      "n_proof_ready_comparisons_by_scope": {
-        "mcp_radar_location_only": 1
-      }
+      "n_proof_ready_comparisons": 0,
+      "n_proof_ready_comparisons_by_scope": {}
     },
-    "release-candidate-entire-brain-schema-contract-20260610T0115Z": {
+    "release-candidate-entire-brain-schema-contract-clean-20260611T0412Z": {
       "records": [
         {
           "run_id": "entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r1",
@@ -561,11 +634,11 @@
           "effort": "high",
           "ok": false,
           "valid": false,
-          "score": 26,
+          "score": 79,
           "mcp_calls": 0,
           "server_toolcalls": null,
           "server_toolcall_responses": null,
-          "search_calls": 6,
+          "search_calls": 16,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
@@ -575,16 +648,21 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "source_base": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "source_head": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "task_config_sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
-            "run_config_fingerprint": "808140ae8075a95091bbe73cd0eb280bedde2007d164962be6be5c4e14a60fc0",
-            "record_fingerprint": "bdcf37d40a1473030c0fdaf650e43f8a1427a37c862c28571ad06fe17cb9d33d"
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_base": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "task_config_sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f",
+            "run_config_fingerprint": "2e22e585d298d19905e7def5540bd44c581d56a82eab68de55efa3b578656724",
+            "record_fingerprint": "bc0d93942d2d9453ab706eed4f56dd3a1a4763e2cdeb6ac644d3511ae117deab"
           },
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -602,11 +680,11 @@
           "effort": "high",
           "ok": false,
           "valid": false,
-          "score": 80,
+          "score": 78,
           "mcp_calls": 0,
           "server_toolcalls": null,
           "server_toolcall_responses": null,
-          "search_calls": 6,
+          "search_calls": 14,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
@@ -616,16 +694,21 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "source_base": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "source_head": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "task_config_sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
-            "run_config_fingerprint": "d4379d76b881dd2c32553a424e263e5673479e48c7d466ea61fbb3fa9f568554",
-            "record_fingerprint": "530541a56b3f2aef9444d08e1d222540ad48b8925975eb79c8ea5416389c163f"
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_base": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "task_config_sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f",
+            "run_config_fingerprint": "05f83957786f7cde60c48060383c1f07a7dc5e41477c5db1d6d725aa64144672",
+            "record_fingerprint": "47ce134ea3cf7cb978bd50664b3dfc81e407fe12d35ca933566f2bb3b184e60e"
           },
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -641,13 +724,13 @@
           "runner": "codex-gpt-5.5-high",
           "model": "gpt-5.5",
           "effort": "high",
-          "ok": false,
-          "valid": false,
-          "score": 79,
+          "ok": true,
+          "valid": true,
+          "score": 95,
           "mcp_calls": 0,
           "server_toolcalls": null,
           "server_toolcall_responses": null,
-          "search_calls": 8,
+          "search_calls": 10,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
@@ -657,16 +740,21 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "source_base": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "source_head": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "task_config_sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
-            "run_config_fingerprint": "b5856bfc007321d03cec14a18ead99df032230a81fdbc2aeddf09c9aee14b4de",
-            "record_fingerprint": "c1da8fe11d9436a7fd2169421e563bf14912adbe31cabb4b789a356342490c15"
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_base": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "task_config_sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f",
+            "run_config_fingerprint": "2e8e52edf5e12244400feccdba9877a29c9a0fd43d0109cfac8779b1c503bd28",
+            "record_fingerprint": "df00a4f79992de1782f1c5980fde6a95a4c06768a73d14102c137d3582a25811"
           },
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -682,13 +770,13 @@
           "runner": "codex-gpt-5.5-high",
           "model": "gpt-5.5",
           "effort": "high",
-          "ok": false,
-          "valid": false,
-          "score": 79,
+          "ok": true,
+          "valid": true,
+          "score": 94,
           "mcp_calls": 0,
           "server_toolcalls": null,
           "server_toolcall_responses": null,
-          "search_calls": 10,
+          "search_calls": 8,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
@@ -698,16 +786,21 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "source_base": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "source_head": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "task_config_sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
-            "run_config_fingerprint": "1f9c120b276c4eac21f39f51b2270272c1145f99aef60e53dc61b4ea7dd22177",
-            "record_fingerprint": "45fa68dffd93bdf44221e9cbfc0f87199d4ff94fabb5751cefc8a85e6139a71e"
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_base": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "task_config_sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f",
+            "run_config_fingerprint": "5fd1d13937333d1fd9437242914473693fb1d837c3ff9278e668e0c82f8f7a3c",
+            "record_fingerprint": "e297d6925ea39ede4b00f95e6f188e57ec9ec8a2b72e11f031d459e04fe2034d"
           },
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -723,13 +816,13 @@
           "runner": "codex-gpt-5.5-high",
           "model": "gpt-5.5",
           "effort": "high",
-          "ok": true,
-          "valid": true,
-          "score": 91,
+          "ok": false,
+          "valid": false,
+          "score": 75,
           "mcp_calls": 0,
           "server_toolcalls": null,
           "server_toolcall_responses": null,
-          "search_calls": 24,
+          "search_calls": 16,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
@@ -739,16 +832,21 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "source_base": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "source_head": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "task_config_sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
-            "run_config_fingerprint": "f9052526b1aa0cdf74af99a4637244334c8442b75379953488068cd335a5b58e",
-            "record_fingerprint": "f656f76e16dc631f2fc6e9aa283cc04e7ff43400f46da757be694f427fef03a7"
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_base": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "task_config_sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f",
+            "run_config_fingerprint": "01c9a86d408417f8beb42fde39d8a262e8e0c75ca0cf55780ad1e6edffb0cc9d",
+            "record_fingerprint": "c82627510ab80d11495e483ad2b6b2b7ae994e06338dfbe645bbe3bfa0ca040b"
           },
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -766,11 +864,11 @@
           "effort": "high",
           "ok": true,
           "valid": true,
-          "score": 92,
+          "score": 93,
           "mcp_calls": 0,
           "server_toolcalls": null,
           "server_toolcall_responses": null,
-          "search_calls": 12,
+          "search_calls": 10,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
@@ -780,16 +878,21 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "source_base": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "source_head": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "task_config_sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
-            "run_config_fingerprint": "0a5dfac7486b23ccb0295bfbbae597ec2cecba8d74b8b2f850bd85927408dc9b",
-            "record_fingerprint": "1c02aa588cfa399c991b70e4710b957cca33d0d9ddbf17a2763cb70014181b85"
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_base": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "task_config_sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f",
+            "run_config_fingerprint": "93b55e8973a8055ef80d3a618f475335fa3847d54860f3bd45af35c1c05470ee",
+            "record_fingerprint": "adb32f98060f252966827cd7a138610a0a4ed074fc2d19689be538be6d5230fc"
           },
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -807,11 +910,11 @@
           "effort": "high",
           "ok": true,
           "valid": true,
-          "score": 92,
+          "score": 91,
           "mcp_calls": 0,
           "server_toolcalls": null,
           "server_toolcall_responses": null,
-          "search_calls": 14,
+          "search_calls": 18,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
@@ -821,16 +924,21 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "source_base": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "source_head": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "task_config_sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
-            "run_config_fingerprint": "3d520131946ab3d6680ff67517bcc39d7a0dc7de0c5f9f125bdb4aac12d3094a",
-            "record_fingerprint": "c79390960629817e79f50383b1f209ee1b1678ec0e3437893782a3a5100b8e27"
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_base": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "task_config_sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f",
+            "run_config_fingerprint": "c5bc162fd7c8b885910167618e73ca733e5265f719b56b03bdf3ceb41584174a",
+            "record_fingerprint": "5cb7c493216c6939c1cc6f1fa658782b5474fb0018c570c2f4d7a869d7e8b6e6"
           },
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -848,11 +956,11 @@
           "effort": "high",
           "ok": true,
           "valid": true,
-          "score": 91,
+          "score": 92,
           "mcp_calls": 0,
           "server_toolcalls": null,
           "server_toolcall_responses": null,
-          "search_calls": 24,
+          "search_calls": 18,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
@@ -862,16 +970,21 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "source_base": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "source_head": "1a92bc28f22ca89c9d79ca836171fba716183c6a",
-            "task_config_sha256": "2ff39c7fba417ec7c0d8084bd10d30b130d8497a123d04335878063493dfc675",
-            "run_config_fingerprint": "f36215667ce9c28e800397b6e56f06b1feed2198afc64d6adcb80d76e214e3ee",
-            "record_fingerprint": "7a898ce041f65544ca69ad73149fb7cf25b331f3ffb83fde2560355f6ebab811"
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_base": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "source_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
+            "task_config_sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f",
+            "run_config_fingerprint": "669d5c5fe0392114bc9ba6bdc31bfd42bcc21f85bc5c041b7dad17c84c44a9c2",
+            "record_fingerprint": "52606c5a396c0ecb1b64189e0ebfa040b2788d38275794d06a0a8cf8474c114a"
           },
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json",
+            "sha256": "cca36e4f82302ecbbc01c517a16dde473048ef1854e9e15fe8f0375cab0a1e6f"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -883,48 +996,48 @@
           "task": "entire-brain-history-codex-schema-contract",
           "runner": "codex-gpt-5.5-high",
           "condition": "full_brain",
-          "delivery_scope": null,
-          "env_flags": null,
-          "verdict": "brain_positive",
-          "proof_ready": true,
-          "delta": 25.5,
+          "delivery_scope": "full_brain",
+          "env_flags": {},
+          "verdict": "brain_negative",
+          "proof_ready": false,
+          "delta": 1.25,
           "n_condition": 4,
           "n_baseline": 4,
           "reasons": [
-            "score_or_success_improved=+25.5",
+            "brain_validation_not_clean",
             "score_drop_or_overhead_exceeds_gate"
           ],
           "flags": [],
           "pass": true,
           "proof_scope": "history",
           "record_backing": {
-            "condition_records": 4,
+            "condition_records": 3,
             "baseline_records": 4,
             "condition_mcp_verified_records": 0,
             "condition_mcp_named_tool_verified_records": 0,
             "condition_mcp_named_tool_completed_records": 0,
-            "condition_unique_run_ids": 4,
+            "condition_unique_run_ids": 3,
             "baseline_unique_run_ids": 4,
             "condition_mcp_verified_unique_run_ids": 0,
             "condition_mcp_named_tool_verified_unique_run_ids": 0,
             "condition_mcp_named_tool_completed_unique_run_ids": 0,
-            "condition_unique_repetitions": 4,
+            "condition_unique_repetitions": 3,
             "baseline_unique_repetitions": 4,
             "condition_mcp_verified_unique_repetitions": 0,
             "condition_mcp_named_tool_verified_unique_repetitions": 0,
             "condition_mcp_named_tool_completed_unique_repetitions": 0,
             "required_condition": 4,
             "required_baseline": 4,
-            "required_delivery_scope": null,
+            "required_delivery_scope": "full_brain",
             "condition_requires_mcp_verified": false,
             "condition_requires_mcp_named_tool_verified": false,
-            "condition_records_ok": true,
+            "condition_records_ok": false,
             "baseline_records_ok": true,
             "condition_mcp_verified_ok": true,
             "condition_mcp_named_tool_verified_ok": false,
             "condition_mcp_named_tool_completed_ok": false,
             "condition_mcp_named_tool_required_ok": true,
-            "ok": true
+            "ok": false
           }
         }
       ],
@@ -934,12 +1047,10 @@
       "n_mcp_named_tool_verified": 0,
       "n_mcp_named_tool_completed": 0,
       "n_provenance_ok": 8,
-      "n_proof_ready_comparisons": 1,
-      "n_proof_ready_comparisons_by_scope": {
-        "history": 1
-      }
+      "n_proof_ready_comparisons": 0,
+      "n_proof_ready_comparisons_by_scope": {}
     },
-    "release-candidate-entire-cli-mcp-manual-attribution-20260610Tprogress": {
+    "release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z": {
       "records": [
         {
           "run_id": "entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r1",
@@ -951,13 +1062,13 @@
           "runner": "codex-gpt-5.4-mini-medium",
           "model": "gpt-5.4-mini",
           "effort": "medium",
-          "ok": false,
-          "valid": false,
-          "score": 72,
+          "ok": true,
+          "valid": true,
+          "score": 94,
           "mcp_calls": 0,
           "server_toolcalls": null,
           "server_toolcall_responses": null,
-          "search_calls": 12,
+          "search_calls": 16,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
@@ -967,16 +1078,21 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "5a84c35c1a0c843908c862a678aa13f7595b1e6d",
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
             "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
             "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
-            "task_config_sha256": "dc545c6e68a2ec011a3b77fe6c210c80c4c7531211665ebe685f79cf9f5a0283",
-            "run_config_fingerprint": "40fa06a936ce5ea3e2c0a5fbcba2f25c8c5793d7b351a9ba12cb36d239b26ef6",
-            "record_fingerprint": "cfebecf81dc2e9610a67cd98a3507710b39a01f18da80dfbb2cb83d3fb8f7902"
+            "task_config_sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2",
+            "run_config_fingerprint": "30376effd1e09a180a0b867da61795d53fcfda73cebc3b9f959c4216394cabfe",
+            "record_fingerprint": "92544f8fa5f377befb3a741bd220b5eb52a3b71e3b205f4f697bc323b95b3dfd"
           },
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -992,13 +1108,13 @@
           "runner": "codex-gpt-5.4-mini-medium",
           "model": "gpt-5.4-mini",
           "effort": "medium",
-          "ok": false,
-          "valid": false,
-          "score": 68,
+          "ok": true,
+          "valid": true,
+          "score": 96,
           "mcp_calls": 0,
           "server_toolcalls": null,
           "server_toolcall_responses": null,
-          "search_calls": 22,
+          "search_calls": 12,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
@@ -1008,16 +1124,21 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "5a84c35c1a0c843908c862a678aa13f7595b1e6d",
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
             "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
             "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
-            "task_config_sha256": "dc545c6e68a2ec011a3b77fe6c210c80c4c7531211665ebe685f79cf9f5a0283",
-            "run_config_fingerprint": "b585ec7ba69eda2764158d636975b334beb2659507de55020754532f2722470b",
-            "record_fingerprint": "4d95e0a63d62a176f46e98009fd4023e3ee15f3eb5d597c6cb21b3f8442ec5a2"
+            "task_config_sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2",
+            "run_config_fingerprint": "040d65729e03fa41101aaf6cabeb80805d895e4c0ca13b5f8fae5fb0fd8985ac",
+            "record_fingerprint": "cc1ef7a7a557018cd96656364d268b43e260e3f53d0ef371642dd1cb4bea16f8"
           },
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -1033,9 +1154,9 @@
           "runner": "codex-gpt-5.4-mini-medium",
           "model": "gpt-5.4-mini",
           "effort": "medium",
-          "ok": false,
-          "valid": false,
-          "score": 72,
+          "ok": true,
+          "valid": true,
+          "score": 94,
           "mcp_calls": 0,
           "server_toolcalls": null,
           "server_toolcall_responses": null,
@@ -1049,16 +1170,21 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "5a84c35c1a0c843908c862a678aa13f7595b1e6d",
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
             "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
             "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
-            "task_config_sha256": "dc545c6e68a2ec011a3b77fe6c210c80c4c7531211665ebe685f79cf9f5a0283",
-            "run_config_fingerprint": "edb6bd531c5eedce6904af6769efbd2b0208c135bd4ecefc04683c1ed305053f",
-            "record_fingerprint": "d37cc165e7db079d6fade73ec888c176f240b71f62334af993d345dbe804a1f6"
+            "task_config_sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2",
+            "run_config_fingerprint": "27266fe2ed1c5da220bee9614895f44784c7e284672eaff69eb0631b95b2eaff",
+            "record_fingerprint": "c2ef566c742df50a149bc86a86e5aaf1b1f71a3c9423fb0e7f873c588e4537fc"
           },
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -1080,7 +1206,7 @@
           "mcp_calls": 0,
           "server_toolcalls": null,
           "server_toolcall_responses": null,
-          "search_calls": 18,
+          "search_calls": 12,
           "parent_count": 0,
           "mcp_verified": false,
           "mcp_named_tool_verified": false,
@@ -1090,16 +1216,21 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "5a84c35c1a0c843908c862a678aa13f7595b1e6d",
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
             "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
             "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
-            "task_config_sha256": "dc545c6e68a2ec011a3b77fe6c210c80c4c7531211665ebe685f79cf9f5a0283",
-            "run_config_fingerprint": "c06e3b0ebbc9ada4ad82882d575dd98b5c6a2fbc7780583de7008db410fcef8e",
-            "record_fingerprint": "b9b74916ab1347c4f4e664f30d0447fda28dac79534ef24a62886746f793c910"
+            "task_config_sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2",
+            "run_config_fingerprint": "3375f8ad47928c059625afab696c3af42d179b06724d26a4f8c2b121a77bfbb5",
+            "record_fingerprint": "253f95528b3bcf2f20ac7dcdb8ae41e7d1ecbb460b46041bbef361059982a0b5"
           },
           "flags": [],
           "notes": [],
           "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
+          },
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -1117,11 +1248,11 @@
           "effort": "medium",
           "ok": true,
           "valid": true,
-          "score": 91,
+          "score": 94,
           "mcp_calls": 4,
           "server_toolcalls": 2,
           "server_toolcall_responses": 2,
-          "search_calls": 16,
+          "search_calls": 10,
           "parent_count": 0,
           "mcp_verified": true,
           "mcp_named_tool_verified": false,
@@ -1131,20 +1262,49 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "5a84c35c1a0c843908c862a678aa13f7595b1e6d",
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
             "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
             "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
-            "task_config_sha256": "dc545c6e68a2ec011a3b77fe6c210c80c4c7531211665ebe685f79cf9f5a0283",
-            "run_config_fingerprint": "aba85282699f26ca8367512d8211b7372be87d6ec5cf0359a250410440985639",
-            "record_fingerprint": "b965f40cf269f5f6abc80a54df8fa16e0a4dca3d8eab56ed32a2abbb129853aa"
+            "task_config_sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2",
+            "run_config_fingerprint": "fd40d72a7c313a3e186e036364194a4fc3133ddfe2215e1b86c90fc2fc128292",
+            "record_fingerprint": "b6b3eec21fb7f6c65c64787c423592548b1f240cffee0733b7f35d242f4f1481"
           },
           "flags": [],
           "notes": [
             "N:mcp_call_count_mismatch(record=4,server_log=2)"
           ],
           "pass": true,
-          "server_tool_names": [],
-          "server_tool_results": [],
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
+          },
+          "server_tool_names": [
+            "brain_brief",
+            "brain_search"
+          ],
+          "server_tool_results": [
+            {
+              "tool": "brain_brief",
+              "status": "ok"
+            },
+            {
+              "tool": "brain_search",
+              "status": "ok"
+            }
+          ],
+          "server_tool_calls": [
+            {
+              "tool": "brain_brief",
+              "arguments": {},
+              "status": "ok"
+            },
+            {
+              "tool": "brain_search",
+              "arguments": {},
+              "status": "ok"
+            }
+          ],
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -1162,7 +1322,7 @@
           "effort": "medium",
           "ok": true,
           "valid": true,
-          "score": 93,
+          "score": 95,
           "mcp_calls": 4,
           "server_toolcalls": 2,
           "server_toolcall_responses": 2,
@@ -1176,20 +1336,49 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "5a84c35c1a0c843908c862a678aa13f7595b1e6d",
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
             "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
             "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
-            "task_config_sha256": "dc545c6e68a2ec011a3b77fe6c210c80c4c7531211665ebe685f79cf9f5a0283",
-            "run_config_fingerprint": "a6e5eb285995c12b0fd924b01284b940ca3d2ae87f881b23ca79685d9550af94",
-            "record_fingerprint": "171a1bfdfd6892dd6c3f399bbb3b17fbee8db5903b69c9a13b4ca46d5b77d4b4"
+            "task_config_sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2",
+            "run_config_fingerprint": "0c22f1b54d6e311e9e88afa1f526a45390982d7b11529281b91fe179923e8923",
+            "record_fingerprint": "a3e46fba3138284201c70ff64dcb01802689320c49b84159f26246feb6927cd7"
           },
           "flags": [],
           "notes": [
             "N:mcp_call_count_mismatch(record=4,server_log=2)"
           ],
           "pass": true,
-          "server_tool_names": [],
-          "server_tool_results": [],
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
+          },
+          "server_tool_names": [
+            "brain_brief",
+            "brain_search"
+          ],
+          "server_tool_results": [
+            {
+              "tool": "brain_brief",
+              "status": "ok"
+            },
+            {
+              "tool": "brain_search",
+              "status": "ok"
+            }
+          ],
+          "server_tool_calls": [
+            {
+              "tool": "brain_brief",
+              "arguments": {},
+              "status": "ok"
+            },
+            {
+              "tool": "brain_search",
+              "arguments": {},
+              "status": "ok"
+            }
+          ],
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -1207,11 +1396,11 @@
           "effort": "medium",
           "ok": true,
           "valid": true,
-          "score": 91,
+          "score": 81,
           "mcp_calls": 4,
           "server_toolcalls": 2,
           "server_toolcall_responses": 2,
-          "search_calls": 18,
+          "search_calls": 12,
           "parent_count": 0,
           "mcp_verified": true,
           "mcp_named_tool_verified": false,
@@ -1221,20 +1410,49 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "5a84c35c1a0c843908c862a678aa13f7595b1e6d",
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
             "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
             "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
-            "task_config_sha256": "dc545c6e68a2ec011a3b77fe6c210c80c4c7531211665ebe685f79cf9f5a0283",
-            "run_config_fingerprint": "fea962f7704cdc28803650f2908fddd9cd0943c15b9c0a4223184dca6751c0f4",
-            "record_fingerprint": "ed048849461003aba7a21c23d810f358fc2e5cbaf4de26c7436e4fc54595e488"
+            "task_config_sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2",
+            "run_config_fingerprint": "5558b08dc3aee22b20ed48f85da1af8ac8a4377a086131cab4550c588c0d58fc",
+            "record_fingerprint": "f8239fa2c184c542e733fd8bb0bc8081f66751799a3051437413ee2c0dee4355"
           },
           "flags": [],
           "notes": [
             "N:mcp_call_count_mismatch(record=4,server_log=2)"
           ],
           "pass": true,
-          "server_tool_names": [],
-          "server_tool_results": [],
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
+          },
+          "server_tool_names": [
+            "brain_brief",
+            "brain_search"
+          ],
+          "server_tool_results": [
+            {
+              "tool": "brain_brief",
+              "status": "ok"
+            },
+            {
+              "tool": "brain_search",
+              "status": "ok"
+            }
+          ],
+          "server_tool_calls": [
+            {
+              "tool": "brain_brief",
+              "arguments": {},
+              "status": "ok"
+            },
+            {
+              "tool": "brain_search",
+              "arguments": {},
+              "status": "ok"
+            }
+          ],
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -1252,11 +1470,11 @@
           "effort": "medium",
           "ok": true,
           "valid": true,
-          "score": 93,
+          "score": 95,
           "mcp_calls": 4,
           "server_toolcalls": 2,
           "server_toolcall_responses": 2,
-          "search_calls": 16,
+          "search_calls": 8,
           "parent_count": 0,
           "mcp_verified": true,
           "mcp_named_tool_verified": false,
@@ -1266,20 +1484,49 @@
           "provenance": {
             "present": true,
             "ok": true,
-            "harness_head": "5a84c35c1a0c843908c862a678aa13f7595b1e6d",
+            "harness_head": "077714aee1313c5e604cb57f2eb414f322132bd9",
             "source_base": "af713665091693a8301520159f3b4097a6ec36f9",
             "source_head": "af713665091693a8301520159f3b4097a6ec36f9",
-            "task_config_sha256": "dc545c6e68a2ec011a3b77fe6c210c80c4c7531211665ebe685f79cf9f5a0283",
-            "run_config_fingerprint": "a389a6608077fb9f3adc7acf98a3a1d655ba760e813ea95899f92ed049fdd6f5",
-            "record_fingerprint": "610d386bc0c8bce8f555608a94e921671bbb32d74f06d3204c36e1e567898da1"
+            "task_config_sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2",
+            "run_config_fingerprint": "0c6d4b5f9f33c8028a66991ece388cac3a499104f5673e46f8222501b25dd9d6",
+            "record_fingerprint": "aa543abcae9e4d0f67f5ab008c1d998f6accd837dc5dbe1736de308d3e0179fb"
           },
           "flags": [],
           "notes": [
             "N:mcp_call_count_mismatch(record=4,server_log=2)"
           ],
           "pass": true,
-          "server_tool_names": [],
-          "server_tool_results": [],
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json",
+            "sha256": "dedf71c166f5da85a19393b3c56026dd3be3d0bc95a8136d47b43c72b58f48e2"
+          },
+          "server_tool_names": [
+            "brain_brief",
+            "brain_search"
+          ],
+          "server_tool_results": [
+            {
+              "tool": "brain_brief",
+              "status": "ok"
+            },
+            {
+              "tool": "brain_search",
+              "status": "ok"
+            }
+          ],
+          "server_tool_calls": [
+            {
+              "tool": "brain_brief",
+              "arguments": {},
+              "status": "ok"
+            },
+            {
+              "tool": "brain_search",
+              "arguments": {},
+              "status": "ok"
+            }
+          ],
           "release_hygiene": {
             "host_path_clean": true,
             "leak_paths": []
@@ -1293,13 +1540,13 @@
           "condition": "mcp_history",
           "delivery_scope": "mcp",
           "env_flags": {},
-          "verdict": "brain_positive",
-          "proof_ready": true,
-          "delta": 15.75,
+          "verdict": "brain_negative",
+          "proof_ready": false,
+          "delta": -3.0,
           "n_condition": 4,
           "n_baseline": 4,
           "reasons": [
-            "score_or_success_improved=+15.8",
+            "both_conditions_passed",
             "score_drop_or_overhead_exceeds_gate"
           ],
           "flags": [],
@@ -1342,10 +1589,8 @@
       "n_mcp_named_tool_verified": 0,
       "n_mcp_named_tool_completed": 0,
       "n_provenance_ok": 8,
-      "n_proof_ready_comparisons": 1,
-      "n_proof_ready_comparisons_by_scope": {
-        "mcp": 1
-      }
+      "n_proof_ready_comparisons": 0,
+      "n_proof_ready_comparisons_by_scope": {}
     }
   },
   "totals": {
@@ -1356,19 +1601,12 @@
     "mcp_named_tool_verified_records": 4,
     "mcp_named_tool_completed_records": 4,
     "provenance_ok_records": 24,
-    "proof_ready_comparisons": 3,
-    "proof_ready_comparisons_by_scope": {
-      "history": 1,
-      "mcp": 1,
-      "mcp_radar_location_only": 1
-    },
-    "named_tool_proof_ready_comparisons_by_scope": {
-      "mcp_radar_location_only": 1
-    },
+    "proof_ready_comparisons": 0,
+    "proof_ready_comparisons_by_scope": {},
+    "named_tool_proof_ready_comparisons_by_scope": {},
     "flag_kinds": {},
     "note_kinds": {
       "N:mcp_call_count_mismatch": 8,
-      "B:mcp_history_partial_missing_brain_brief": 4,
       "B:mcp_history_partial_missing_brain_search": 4
     }
   },
@@ -1381,38 +1619,24 @@
       "release-local-*"
     ],
     "min_repetitions_per_side": 4,
-    "min_mcp_verified": 8,
-    "min_mcp_named_tool_verified": 4,
+    "min_mcp_verified": 0,
+    "min_mcp_named_tool_verified": 0,
     "require_panel_provenance": true,
-    "require_proof_ready_per_suite": true,
-    "required_proof_scopes": [
-      "history",
-      "mcp",
-      "mcp_radar_location_only"
-    ],
-    "required_named_tool_proof_scopes": [
-      "mcp_radar_location_only"
-    ]
+    "require_proof_ready_per_suite": false,
+    "required_proof_scopes": [],
+    "required_named_tool_proof_scopes": [],
+    "claim_policy": "no_release_claim",
+    "allowed_no_claim_flag_kinds": []
   },
   "gate_status": {
     "status": "pass",
-    "release_evidence": true,
+    "release_evidence": false,
+    "claim_policy": "no_release_claim",
     "requirements": {
       "min_suites": 3,
       "min_records": 24,
-      "min_proof_ready": 3,
-      "min_mcp_verified": 8,
-      "min_mcp_named_tool_verified": 4,
-      "hard_flags": 0,
-      "require_proof_ready_per_suite": true,
-      "required_proof_scopes": [
-        "history",
-        "mcp",
-        "mcp_radar_location_only"
-      ],
-      "required_named_tool_proof_scopes": [
-        "mcp_radar_location_only"
-      ]
+      "proof_ready_comparisons": 0,
+      "allowed_no_claim_flag_kinds": []
     },
     "failures": []
   }

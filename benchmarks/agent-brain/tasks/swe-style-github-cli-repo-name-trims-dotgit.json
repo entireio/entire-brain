@@ -32,9 +32,5 @@
     "go.mod",
     "go.sum"
   ],
-  "brain_queries": [
-    "NormalizeRepoName",
-    "invalidCharactersRE",
-    "TrimSuffix"
-  ]
+  "brain_queries": ["repository name normalization on create", "trim trailing git suffix from repo name", "match github web form naming rules"]
 }

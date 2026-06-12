@@ -133,7 +133,7 @@ func pairedTTest(a, b []float64) pairedStats {
 			return s // identical: no effect, p=1
 		}
 		s.P = 0 // a perfectly consistent shift
-		s.CohenD = math.Copysign(math.Inf(1), s.Delta)
+		s.CohenD = math.Copysign(1e9, s.Delta)
 		s.T = s.CohenD
 		return s
 	}

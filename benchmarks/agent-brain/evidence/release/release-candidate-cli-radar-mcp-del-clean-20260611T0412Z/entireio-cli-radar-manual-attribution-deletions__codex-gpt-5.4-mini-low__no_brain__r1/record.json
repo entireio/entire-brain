@@ -1,0 +1,317 @@
+{
+  "agent": "codex",
+  "agent_baseline_history_reset": {
+    "parent_count": 0,
+    "root_commit": "8ea02d1b5eab4e686742c09496d8c5750b1b7c9f"
+  },
+  "agent_info": {
+    "activity": {
+      "activity_source": "protocol_json",
+      "brain_commands": [],
+      "checked_brief": false,
+      "checked_diff": false,
+      "checked_freshness": false,
+      "checked_stale": false,
+      "direct_brain_cli_calls": 0,
+      "mcp_tool_calls": 0,
+      "mcp_tool_details": [],
+      "mcp_tool_names": [],
+      "ran_tests": true,
+      "saw_index_locked": false,
+      "search_calls": 10,
+      "search_commands": [
+        "rg"
+      ],
+      "structured_tool_event_count": 38,
+      "test_commands": [
+        "go test"
+      ],
+      "used_brain": false,
+      "used_mcp": false
+    },
+    "agent": "codex",
+    "attempts": [
+      {
+        "attempt": 1,
+        "returncode": 0,
+        "seconds": 71.35087823867798,
+        "transient_failure_reason": null
+      }
+    ],
+    "cmd": [
+      "codex",
+      "..."
+    ],
+    "isolation": {
+      "auth": "host CODEX_HOME auth may still be used",
+      "mcp": "disabled",
+      "rules": "ignored",
+      "session": "ephemeral",
+      "user_config": "ignored"
+    },
+    "mcp": {
+      "condition": "no_brain",
+      "enabled": false,
+      "server": null
+    },
+    "resolved_model": null,
+    "returncode": 0,
+    "runner": {
+      "agent": "codex",
+      "effort": "low",
+      "id": "codex-gpt-5.4-mini-low",
+      "model": "gpt-5.4-mini"
+    },
+    "seconds": 71.3678572177887,
+    "stderr_bytes": 39,
+    "stderr_tail": "Reading additional input from stdin...\n",
+    "stdout_bytes": 1602785,
+    "stdout_tail": "on phase unchanged.\\nfunc TestPostCommit_RebaseDuringActive_SkipsTransition(t *testing.T) {\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_20\",\"type\":\"agent_message\",\"text\":\"I\u2019m applying a one-line behavioral fix in the no-trailer commit path: advance attribution together with `BaseCommit` so the session doesn\u2019t stay pinned to the pre-commit base.\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_21\",\"type\":\"file_change\",\"changes\":[{\"path\":\"[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r1/worktree/cmd/entire/cli/strategy/manual_commit_hooks.go\",\"kind\":\"update\"}],\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_21\",\"type\":\"file_change\",\"changes\":[{\"path\":\"[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r1/worktree/cmd/entire/cli/strategy/manual_commit_hooks.go\",\"kind\":\"update\"}],\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_22\",\"type\":\"agent_message\",\"text\":\"The code change is in place. The first test run hit the sandboxed default Go build cache path, so I\u2019m rerunning with a workspace-local `GOCACHE` and the same focused test set.\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_23\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc \\\"mkdir -p [local-temp]/gocache && GOCACHE=[local-temp]/gocache go test ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommit_ActiveSession_CondensesImmediately'\\\"\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.started\",\"item\":{\"id\":\"item_24\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc \\\"mkdir -p [local-temp]/gocache && GOCACHE=[local-temp]/gocache go test ./cmd/entire/cli/strategy -run 'TestPostCommit_RebaseDuringActive_SkipsTransition'\\\"\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_24\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc \\\"mkdir -p [local-temp]/gocache && GOCACHE=[local-temp]/gocache go test ./cmd/entire/cli/strategy -run 'TestPostCommit_RebaseDuringActive_SkipsTransition'\\\"\",\"aggregated_output\":\"ok  \\tgithub.com/entireio/cli/cmd/entire/cli/strategy\\t0.569s\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_23\",\"type\":\"command_execution\",\"command\":\"/bin/zsh -lc \\\"mkdir -p [local-temp]/gocache && GOCACHE=[local-temp]/gocache go test ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommit_ActiveSession_CondensesImmediately'\\\"\",\"aggregated_output\":\"ok  \\tgithub.com/entireio/cli/cmd/entire/cli/strategy\\t1.015s\\n\",\"exit_code\":0,\"status\":\"completed\"}}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_25\",\"type\":\"agent_message\",\"text\":\"Fixed the no-trailer post-commit path so an ordinary commit during an active session now realigns both `BaseCommit` and `AttributionBaseCommit`, instead of leaving attribution anchored to stale state.\\n\\nChanged:\\n- [`cmd/entire/cli/strategy/manual_commit_hooks.go`]([repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r1/worktree/cmd/entire/cli/strategy/manual_commit_hooks.go)\\n\\nValidation passed:\\n- `GOCACHE=[local-temp]/gocache go test ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommit_ActiveSession_CondensesImmediately'`\\n- `GOCACHE=[local-temp]/gocache go test ./cmd/entire/cli/strategy -run 'TestPostCommit_RebaseDuringActive_SkipsTransition'`\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":628402,\"cached_input_tokens\":562304,\"output_tokens\":4076,\"reasoning_output_tokens\":546}}\n",
+    "transient_retries": 0,
+    "usage": {
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "cost_source": null,
+      "cost_usd": null,
+      "input_tokens": 628402,
+      "output_tokens": 4076,
+      "total_tokens": 632478,
+      "turns": null
+    }
+  },
+  "agent_leak_audit": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_secret_preflight": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_visible_entire_history_removed": false,
+  "agent_worktree_sanitization": {
+    "committed": false,
+    "removed_paths": []
+  },
+  "brain_prep": {
+    "commands": [],
+    "condition": "no_brain"
+  },
+  "brain_state": {},
+  "changed_files": [
+    "cmd/entire/cli/strategy/manual_commit_hooks.go"
+  ],
+  "condition": "no_brain",
+  "diff_stat": {
+    "bytes": 563,
+    "shortstat": "1 file changed, 1 insertion(+)",
+    "untracked_files": []
+  },
+  "finished_at": "2026-06-11T04:12:52.161982+00:00",
+  "mcp_condition_audit": {
+    "findings": [],
+    "ok": true,
+    "required": false
+  },
+  "ok": true,
+  "post_brain_setup_applied": false,
+  "provenance": {
+    "captured_at": "2026-06-11T04:11:35.470946+00:00",
+    "fingerprint": "dea379578a315770208b9388f399c604019af6fe53aa3546dc1fec60dc41eccd",
+    "harness": {
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "suhaanthayyil",
+        "available": true,
+        "commit": "077714aee1313c5e604cb57f2eb414f322132bd9",
+        "committer_date": "2026-06-11T00:01:50-04:00",
+        "parent_count": 2,
+        "parents": [
+          "3cddc05a68de2e9c818d244bd5af699e4bc24b85",
+          "90f06f3565587787a7ce6e882b2bbfd98abfd48c"
+        ],
+        "ref": "HEAD",
+        "subject": "merge layer-b benchmark hardening"
+      },
+      "repo_path": "[repo-root]"
+    },
+    "run_config": {
+      "brain_cache": {
+        "enabled": true,
+        "refresh": false
+      },
+      "checkpoint_limit": 200,
+      "claude_budget": 0.0,
+      "command": "run",
+      "condition": "no_brain",
+      "env_flags": {
+        "BENCH_RADAR_LOCATION_ONLY": "1",
+        "BENCH_REGRESSION_RADAR": null
+      },
+      "fingerprint": "0f97600fc5cda3a24318f6b4f88ef0dd70de3957441c1de36f2c4d4c2f0f95f6",
+      "panel": {
+        "config_sha256": "d19bd0d68ebf07ebe8d37f8f5f15928f7e21ae241e6a23264f015a4ede233a43",
+        "name": "release-entire-cli-radar-mcp-manual-attribution-deletions",
+        "path": "benchmarks/agent-brain/panels/release-entire-cli-radar-mcp-manual-attribution-deletions.json"
+      },
+      "pricing": {
+        "file": null,
+        "inline_sha256": null
+      },
+      "repetition": 1,
+      "requested": {
+        "agents": "",
+        "conditions": "no_brain,mcp_history",
+        "repetitions": 4,
+        "runners": "codex:gpt-5.4-mini:low",
+        "tasks": [
+          "entireio-cli-radar-manual-attribution-deletions.json"
+        ]
+      },
+      "runner": {
+        "agent": "codex",
+        "effort": "low",
+        "id": "codex-gpt-5.4-mini-low",
+        "model": "gpt-5.4-mini"
+      },
+      "stop_after_no_brain_score": null,
+      "suite": "release-candidate-cli-radar-mcp-del-clean-20260611T0412Z",
+      "timeout": 1800,
+      "workspace_name": null
+    },
+    "schema": 1,
+    "source": {
+      "base": {
+        "author_name": "Stefan Haubold",
+        "available": true,
+        "commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "committer_date": "2026-06-04T21:31:15+02:00",
+        "parent_count": 2,
+        "parents": [
+          "5f292e3cd4980f0a1179cf2f8687d4fc27a1c01e",
+          "75ed85eae33c28a76dfda37a99e8d7646724af56"
+        ],
+        "ref": "af713665091693a8301520159f3b4097a6ec36f9",
+        "subject": "Merge pull request #1368 from entireio/soph/e2e-canary-keychain"
+      },
+      "base_ref": "af713665091693a8301520159f3b4097a6ec36f9",
+      "base_ref_source": "task.base_commit",
+      "dirty": {
+        "available": true,
+        "dirty": false,
+        "status_count": 0,
+        "status_entries": [],
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "head": {
+        "author_name": "Stefan Haubold",
+        "available": true,
+        "commit": "af713665091693a8301520159f3b4097a6ec36f9",
+        "committer_date": "2026-06-04T21:31:15+02:00",
+        "parent_count": 2,
+        "parents": [
+          "5f292e3cd4980f0a1179cf2f8687d4fc27a1c01e",
+          "75ed85eae33c28a76dfda37a99e8d7646724af56"
+        ],
+        "ref": "HEAD",
+        "subject": "Merge pull request #1368 from entireio/soph/e2e-canary-keychain"
+      },
+      "origin_url": "https://github.com/entireio/cli.git",
+      "repo": "entire-cli",
+      "repo_path_input": "cli-bench",
+      "repo_path_resolved": "[source-root]/cli-bench"
+    },
+    "task": {
+      "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+      "config_sha256": "a45242603fac34630fb4b201cd5ad8fb8649fe3d4ad0564c5587d0b049887985",
+      "id": "entireio-cli-radar-manual-attribution-deletions",
+      "path": "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json",
+      "radar_include_deletions": true
+    },
+    "tools": {
+      "bin": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/bin"
+      },
+      "brain": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/bin/entire-brain",
+        "sha256": "41d5930853bd43e091e1c8ef87a8a911c68cc51d3ff6d9cd9fdef9ad3a4a07ac"
+      },
+      "entire": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/bin/entire",
+        "sha256": "e3130cd39684027ccac83fecf7c72ea0a128af3b726251e2a151d75758e37599"
+      },
+      "sem": {
+        "exists": true,
+        "path": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/bin/entire-sem",
+        "sha256": "e8ef3a2c2c1a04e76f6bf995dd1aa11ad9c4357279d45cc7a35716332af3b96d"
+      }
+    }
+  },
+  "repetition": 1,
+  "repo": "entire-cli",
+  "run_id": "entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r1",
+  "runner": {
+    "agent": "codex",
+    "effort": "low",
+    "id": "codex-gpt-5.4-mini-low",
+    "model": "gpt-5.4-mini"
+  },
+  "score": {
+    "brain_use": 5,
+    "details": {
+      "activity_source": "protocol_json",
+      "agent_seconds": 71.3678572177887,
+      "brain_commands": [],
+      "changed_file_count": 1,
+      "checked_diff": false,
+      "diff_bytes": 563,
+      "direct_brain_cli_calls": 0,
+      "expected_files_touched": [
+        "cmd/entire/cli/strategy/manual_commit_hooks.go"
+      ],
+      "forbidden_files_touched": [],
+      "mcp_tool_calls": 0,
+      "mcp_tool_details": [],
+      "mcp_tool_names": [],
+      "missing_expected_files": [],
+      "ran_tests": true,
+      "search_calls": 10,
+      "structured_tool_event_count": 38,
+      "total_tokens": 632478,
+      "unexpected_files_touched": [],
+      "validation_count": 1,
+      "validation_passed": 1
+    },
+    "outcome": 45,
+    "patch_focus": 29,
+    "runtime_efficiency": 7,
+    "total": 94,
+    "validation_discipline": 8,
+    "version": 2
+  },
+  "started_at": "2026-06-11T04:11:35.462995+00:00",
+  "task_id": "entireio-cli-radar-manual-attribution-deletions",
+  "validation": {
+    "ok": true,
+    "results": [
+      {
+        "command": "go test ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommitNoTrailerRealignsAttributionBaseHidden' -count=1",
+        "returncode": 0,
+        "seconds": 3.810708999633789,
+        "stderr_tail": "",
+        "stdout_tail": "ok  \tgithub.com/entireio/cli/cmd/entire/cli/strategy\t0.636s\n"
+      }
+    ]
+  },
+  "worktree": "[repo-root]/benchmarks/agent-brain/results/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r1/worktree"
+}

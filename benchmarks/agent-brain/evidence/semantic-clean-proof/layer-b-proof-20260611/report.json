@@ -1,0 +1,452 @@
+{
+ "comparisons": [
+  {
+   "agent": "claude",
+   "baseline": "no_brain",
+   "brain_positive_gate": {
+    "requires_repetitions_per_side": 4,
+    "score_delta": 13.75,
+    "search_improvement_ratio": null,
+    "success_delta": 0.25,
+    "time_improvement_ratio": 0.5374725674123956,
+    "time_overhead_ratio": -0.5374725674123956,
+    "token_improvement_ratio": 0.5547885881034498,
+    "token_overhead_ratio": -0.5547885881034498
+   },
+   "candidate_proof_ready": true,
+   "condition": "semantic_brain",
+   "delivery_scope": "semantic_brain",
+   "delta": 13.75,
+   "delta_score_core": 15.75,
+   "env_flags": {},
+   "mean_agent_seconds_baseline": 132.13663321733475,
+   "mean_agent_seconds_condition": 61.11681771278381,
+   "mean_baseline": 72.5,
+   "mean_brain_use_baseline": 5.0,
+   "mean_brain_use_condition": 1.0,
+   "mean_condition": 86.25,
+   "mean_cost_usd_baseline": 0.9772317500000001,
+   "mean_cost_usd_condition": 0.688884125,
+   "mean_direct_brain_cli_calls_baseline": 0.0,
+   "mean_direct_brain_cli_calls_condition": 0.0,
+   "mean_mcp_tool_calls_baseline": 0.0,
+   "mean_mcp_tool_calls_condition": 0.0,
+   "mean_outcome_baseline": 35.0,
+   "mean_outcome_condition": 45.0,
+   "mean_patch_focus_baseline": 24.75,
+   "mean_patch_focus_condition": 30.0,
+   "mean_runtime_efficiency_baseline": 6.25,
+   "mean_runtime_efficiency_condition": 8.25,
+   "mean_score_core_baseline": 61.25,
+   "mean_score_core_condition": 77.0,
+   "mean_search_calls_baseline": 0.0,
+   "mean_search_calls_condition": 0.0,
+   "mean_total_tokens_baseline": 1070558.25,
+   "mean_total_tokens_condition": 476624.75,
+   "mean_turns_baseline": 20.0,
+   "mean_turns_condition": 7.75,
+   "mean_validation_discipline_baseline": 1.5,
+   "mean_validation_discipline_condition": 2.0,
+   "n_baseline": 4,
+   "n_condition": 4,
+   "p_value_agent_seconds": 0.12867519881289272,
+   "p_value_agent_seconds_holm": 1.0,
+   "p_value_approx": 0.45817216184521925,
+   "p_value_approx_holm": 1.0,
+   "p_value_cost_usd": 0.31755357758465197,
+   "p_value_cost_usd_holm": 1.0,
+   "p_value_score_core": 0.39100221895575804,
+   "p_value_score_core_holm": 1.0,
+   "p_value_total_tokens": 0.1284051531104782,
+   "p_value_total_tokens_holm": 1.0,
+   "p_value_turns": 0.08087690288270163,
+   "p_value_turns_holm": 0.889645931709718,
+   "pass_rate_baseline": 0.75,
+   "pass_rate_condition": 1.0,
+   "proof_ready": false,
+   "runner": "claude-claude-opus-4-8-high",
+   "score_versions_baseline": [
+    2
+   ],
+   "score_versions_condition": [
+    2
+   ],
+   "stability": {
+    "coefficient_of_variation_score_baseline": 0.446592773154347,
+    "coefficient_of_variation_score_condition": 0.011100604147899573,
+    "coefficient_of_variation_total_tokens_baseline": 0.5326045146774511,
+    "coefficient_of_variation_total_tokens_condition": 0.07201368743155279,
+    "pass_rate_lift_survives_drop_one": false,
+    "saturated": false,
+    "tag": "noisy",
+    "token_win_survives_drop_one": false,
+    "tokens_p_holm": 1.0,
+    "tokens_p_raw": 0.1284051531104782,
+    "tokens_significant_p_lt_0_05": false
+   },
+   "success_rate_baseline": 0.75,
+   "success_rate_condition": 1.0,
+   "task_id": "github-cli-format-web-conflict",
+   "verdict": "brain_positive",
+   "verdict_reasons": [
+    "score_or_success_improved=+13.8",
+    "time_or_tokens_improved>=20%"
+   ]
+  },
+  {
+   "agent": "claude",
+   "baseline": "no_brain",
+   "brain_positive_gate": {
+    "requires_repetitions_per_side": 4,
+    "score_delta": -3.25,
+    "search_improvement_ratio": null,
+    "success_delta": 0.0,
+    "time_improvement_ratio": 0.35351196854426314,
+    "time_overhead_ratio": -0.35351196854426314,
+    "token_improvement_ratio": 0.23593095345940437,
+    "token_overhead_ratio": -0.23593095345940437
+   },
+   "candidate_proof_ready": false,
+   "condition": "semantic_brain",
+   "delivery_scope": "semantic_brain",
+   "delta": -3.25,
+   "delta_score_core": 0.0,
+   "env_flags": {},
+   "mean_agent_seconds_baseline": 81.56175601482391,
+   "mean_agent_seconds_condition": 52.72869908809662,
+   "mean_baseline": 88.5,
+   "mean_brain_use_baseline": 5.0,
+   "mean_brain_use_condition": 1.0,
+   "mean_condition": 85.25,
+   "mean_cost_usd_baseline": 0.6343998750000001,
+   "mean_cost_usd_condition": 0.6951625,
+   "mean_direct_brain_cli_calls_baseline": 0.0,
+   "mean_direct_brain_cli_calls_condition": 0.0,
+   "mean_mcp_tool_calls_baseline": 0.0,
+   "mean_mcp_tool_calls_condition": 0.0,
+   "mean_outcome_baseline": 45.0,
+   "mean_outcome_condition": 45.0,
+   "mean_patch_focus_baseline": 29.0,
+   "mean_patch_focus_condition": 29.0,
+   "mean_runtime_efficiency_baseline": 7.5,
+   "mean_runtime_efficiency_condition": 8.25,
+   "mean_score_core_baseline": 76.0,
+   "mean_score_core_condition": 76.0,
+   "mean_search_calls_baseline": 0.0,
+   "mean_search_calls_condition": 0.0,
+   "mean_total_tokens_baseline": 706480.0,
+   "mean_total_tokens_condition": 539799.5,
+   "mean_turns_baseline": 15.25,
+   "mean_turns_condition": 8.5,
+   "mean_validation_discipline_baseline": 2.0,
+   "mean_validation_discipline_condition": 2.0,
+   "n_baseline": 4,
+   "n_condition": 4,
+   "p_value_agent_seconds": 0.2446043495495916,
+   "p_value_agent_seconds_holm": 1.0,
+   "p_value_approx": 0.03845507247741209,
+   "p_value_approx_holm": 0.46146086972894507,
+   "p_value_cost_usd": 0.7499353410377279,
+   "p_value_cost_usd_holm": 1.0,
+   "p_value_score_core": 1.0,
+   "p_value_score_core_holm": 1.0,
+   "p_value_total_tokens": 0.48736371695586833,
+   "p_value_total_tokens_holm": 1.0,
+   "p_value_turns": 0.16400022952856103,
+   "p_value_turns_holm": 1.0,
+   "pass_rate_baseline": 1.0,
+   "pass_rate_condition": 1.0,
+   "proof_ready": false,
+   "runner": "claude-claude-opus-4-8-high",
+   "score_versions_baseline": [
+    2
+   ],
+   "score_versions_condition": [
+    2
+   ],
+   "stability": {
+    "coefficient_of_variation_score_baseline": 0.021636770796753402,
+    "coefficient_of_variation_score_condition": 0.005865102639296188,
+    "coefficient_of_variation_total_tokens_baseline": 0.5956420315481452,
+    "coefficient_of_variation_total_tokens_condition": 0.08942279955675146,
+    "pass_rate_lift_survives_drop_one": false,
+    "saturated": true,
+    "tag": "saturated",
+    "token_win_survives_drop_one": false,
+    "tokens_p_holm": 1.0,
+    "tokens_p_raw": 0.48736371695586833,
+    "tokens_significant_p_lt_0_05": false
+   },
+   "success_rate_baseline": 1.0,
+   "success_rate_condition": 1.0,
+   "task_id": "github-cli-json-web-conflict",
+   "verdict": "brain_negative",
+   "verdict_reasons": [
+    "both_conditions_passed",
+    "score_drop_or_overhead_exceeds_gate"
+   ]
+  }
+ ],
+ "provenance": {
+  "fingerprint": "81a47e22e75207ca77c16fd808f6f70a2861e435cd303ad520170abb756d7597",
+  "harnesses": [
+   {
+    "dirty": true,
+    "head_commit": "df53638ac3f5b4d687d32885814a0be1e7cf7350",
+    "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb"
+   }
+  ],
+  "missing_record_provenance": 0,
+  "records": 16,
+  "records_with_provenance": 16,
+  "run_configs": [
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "891677a9f63932e150399d07cefcf5ee2c7b841fa83c16aecac0c3f4d09d5ce2",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 4,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*",
+      "github-cli-json-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "a1b7f7cc4befd6ab316d936c38551fb10be99de86583fe5f92f64c69e6e8c03f",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 4,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*",
+      "github-cli-json-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "ba01bf83e7f405eb5cf9d82a73bae281be851bd3a6ecfce3eb1211287ce315cc",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 4,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*",
+      "github-cli-json-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "f71d1816877bed3d8ab02cf9ad94d62d79ae9d4f215eaf59348237674df38c62",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 4,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*",
+      "github-cli-json-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "038a06ca16586f0da584981f7d65124619c9ab73b4d7adcee34c41442bd2fa20",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 4,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*",
+      "github-cli-json-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "129f760f7f3cd8debbcd4d16ad62bcec5175bff05a29a4287a0a4b500260605d",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 4,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*",
+      "github-cli-json-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "c8fe78cfe5f5427562c9b501a95659e6a1e538a7094a507952d5f1ee90e9734c",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 4,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*",
+      "github-cli-json-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "semantic_brain",
+    "fingerprint": "fa608f390139eecf07d6823531ab0cdc78c020173426f354311470a2f4e4d2db",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,semantic_brain",
+     "repetitions": 4,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "github-cli-format-web-conflict*",
+      "github-cli-json-web-conflict*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   }
+  ],
+  "schema": 1,
+  "sources": [
+   {
+    "base_commit": "da68cb8f6f597cfc3838cf40f89ecc01f4e53233",
+    "base_ref": "da68cb8f6f597cfc3838cf40f89ecc01f4e53233",
+    "base_ref_source": "task.base_commit",
+    "dirty": false,
+    "head_commit": "da68cb8f6f597cfc3838cf40f89ecc01f4e53233",
+    "repo": "github-cli",
+    "repo_path_input": "github-cli",
+    "repo_path_resolved": "/Users/suhaan/Documents/Coding/github-cli"
+   }
+  ],
+  "tasks": [
+   {
+    "base_commit": "da68cb8f6f597cfc3838cf40f89ecc01f4e53233",
+    "config_sha256": "2d54f75f2e7ef45c1a180d820d0c93b9803d6e7ed37dd1a52b3fa0565ca4e725",
+    "id": "github-cli-format-web-conflict",
+    "path": "benchmarks/agent-brain/tasks/github-cli-format-web-conflict.json"
+   },
+   {
+    "base_commit": "da68cb8f6f597cfc3838cf40f89ecc01f4e53233",
+    "config_sha256": "5a7eead405840b35b2a778e2e00bfb3b861a6d250c0e6cd3177ac7eb7d094fb4",
+    "id": "github-cli-json-web-conflict",
+    "path": "benchmarks/agent-brain/tasks/github-cli-json-web-conflict.json"
+   }
+  ]
+ },
+ "records": 16,
+ "stability_tags": {
+  "noisy": 1,
+  "saturated": 1
+ },
+ "stats_notes": {
+  "headline_metric": "validation pass-rate + measured tokens; composite score and p-values are secondary",
+  "multiple_comparison_correction": "holm-bonferroni across all suite p-values; see <field>_holm",
+  "n_pvalues_in_family": 12,
+  "p_value_test": "two-sided Welch's t-test (Student-t, Welch-Satterthwaite df)",
+  "stability": "per comparison: coefficient_of_variation + tag (brain_positive_stable requires a token win significant at p<0.05 using max(raw Welch p, Holm-adjusted p), or a pass-rate lift, that survives dropping the single most-favourable rep; saturated = both arms pass 100%; noisy otherwise). The gate only downgrades; it never manufactures significance."
+ }
+}

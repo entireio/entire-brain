@@ -1,0 +1,558 @@
+{
+ "comparisons": [
+  {
+   "agent": "claude",
+   "baseline": "no_brain",
+   "brain_positive_gate": {
+    "requires_repetitions_per_side": 4,
+    "score_delta": -34.25,
+    "search_improvement_ratio": null,
+    "success_delta": -0.5,
+    "time_improvement_ratio": -0.19915702493231652,
+    "time_overhead_ratio": 0.19915702493231652,
+    "token_improvement_ratio": 0.1122531730320313,
+    "token_overhead_ratio": -0.1122531730320313
+   },
+   "candidate_proof_ready": false,
+   "condition": "full_cli_compact",
+   "delivery_scope": "full_cli_compact",
+   "delta": -34.25,
+   "delta_score_core": -30.0,
+   "env_flags": {},
+   "mean_agent_seconds_baseline": 647.7395231127739,
+   "mean_agent_seconds_condition": 776.7413994669914,
+   "mean_baseline": 82.5,
+   "mean_brain_use_baseline": 5.0,
+   "mean_brain_use_condition": 1.0,
+   "mean_condition": 48.25,
+   "mean_cost_usd_baseline": 4.446491125,
+   "mean_cost_usd_condition": 4.410022375,
+   "mean_direct_brain_cli_calls_baseline": 0.0,
+   "mean_direct_brain_cli_calls_condition": 0.0,
+   "mean_mcp_tool_calls_baseline": 0.0,
+   "mean_mcp_tool_calls_condition": 0.0,
+   "mean_outcome_baseline": 45.0,
+   "mean_outcome_condition": 25.0,
+   "mean_patch_focus_baseline": 29.0,
+   "mean_patch_focus_condition": 20.0,
+   "mean_runtime_efficiency_baseline": 1.5,
+   "mean_runtime_efficiency_condition": 1.25,
+   "mean_score_core_baseline": 76.0,
+   "mean_score_core_condition": 46.0,
+   "mean_search_calls_baseline": 0.0,
+   "mean_search_calls_condition": 0.0,
+   "mean_total_tokens_baseline": 4507636.5,
+   "mean_total_tokens_condition": 4001640.0,
+   "mean_turns_baseline": 41.0,
+   "mean_turns_condition": 35.75,
+   "mean_validation_discipline_baseline": 2.0,
+   "mean_validation_discipline_condition": 1.0,
+   "n_baseline": 4,
+   "n_condition": 4,
+   "p_value_agent_seconds": 0.5083942200529159,
+   "p_value_agent_seconds_holm": 1.0,
+   "p_value_approx": 0.15387296273912035,
+   "p_value_approx_holm": 1.0,
+   "p_value_cost_usd": 0.9746697545871235,
+   "p_value_cost_usd_holm": 1.0,
+   "p_value_score_core": 0.18169011381612657,
+   "p_value_score_core_holm": 1.0,
+   "p_value_total_tokens": 0.6839804323458782,
+   "p_value_total_tokens_holm": 1.0,
+   "p_value_turns": 0.4970597632619206,
+   "p_value_turns_holm": 1.0,
+   "pass_rate_baseline": 1.0,
+   "pass_rate_condition": 0.5,
+   "proof_ready": false,
+   "runner": "claude-claude-opus-4-8-high",
+   "score_versions_baseline": [
+    2
+   ],
+   "score_versions_condition": [
+    2
+   ],
+   "stability": {
+    "coefficient_of_variation_score_baseline": 0.012121212121212121,
+    "coefficient_of_variation_score_condition": 0.7479109046949691,
+    "coefficient_of_variation_total_tokens_baseline": 0.3905277108535901,
+    "coefficient_of_variation_total_tokens_condition": 0.3951623743329031,
+    "pass_rate_lift_survives_drop_one": false,
+    "saturated": false,
+    "tag": "noisy",
+    "token_win_survives_drop_one": false,
+    "tokens_p_holm": 1.0,
+    "tokens_p_raw": 0.6839804323458782,
+    "tokens_significant_p_lt_0_05": false
+   },
+   "success_rate_baseline": 1.0,
+   "success_rate_condition": 0.5,
+   "task_id": "entireio-cli-condense-drops-latest-turn",
+   "verdict": "brain_negative",
+   "verdict_reasons": [
+    "brain_validation_not_clean",
+    "score_drop_or_overhead_exceeds_gate"
+   ]
+  },
+  {
+   "agent": "claude",
+   "baseline": "no_brain",
+   "brain_positive_gate": {
+    "requires_repetitions_per_side": 4,
+    "score_delta": -29.75,
+    "search_improvement_ratio": null,
+    "success_delta": -0.5,
+    "time_improvement_ratio": 0.4610907327209315,
+    "time_overhead_ratio": -0.4610907327209315,
+    "token_improvement_ratio": 0.5411956991754522,
+    "token_overhead_ratio": -0.5411956991754522
+   },
+   "candidate_proof_ready": false,
+   "condition": "full_cli_compact",
+   "delivery_scope": "full_cli_compact",
+   "delta": -29.75,
+   "delta_score_core": -27.25,
+   "env_flags": {},
+   "mean_agent_seconds_baseline": 431.70546704530716,
+   "mean_agent_seconds_condition": 232.65007692575455,
+   "mean_baseline": 83.0,
+   "mean_brain_use_baseline": 5.0,
+   "mean_brain_use_condition": 1.0,
+   "mean_condition": 53.25,
+   "mean_cost_usd_baseline": 2.9413300000000007,
+   "mean_cost_usd_condition": 1.59532175,
+   "mean_direct_brain_cli_calls_baseline": 0.0,
+   "mean_direct_brain_cli_calls_condition": 0.0,
+   "mean_mcp_tool_calls_baseline": 0.0,
+   "mean_mcp_tool_calls_condition": 0.0,
+   "mean_outcome_baseline": 45.0,
+   "mean_outcome_condition": 25.0,
+   "mean_patch_focus_baseline": 28.0,
+   "mean_patch_focus_condition": 21.75,
+   "mean_runtime_efficiency_baseline": 3.0,
+   "mean_runtime_efficiency_condition": 4.5,
+   "mean_score_core_baseline": 75.0,
+   "mean_score_core_condition": 47.75,
+   "mean_search_calls_baseline": 0.0,
+   "mean_search_calls_condition": 0.0,
+   "mean_total_tokens_baseline": 3242262.0,
+   "mean_total_tokens_condition": 1487563.75,
+   "mean_turns_baseline": 35.75,
+   "mean_turns_condition": 17.75,
+   "mean_validation_discipline_baseline": 2.0,
+   "mean_validation_discipline_condition": 1.0,
+   "n_baseline": 4,
+   "n_condition": 4,
+   "p_value_agent_seconds": 0.1378017009162727,
+   "p_value_agent_seconds_holm": 1.0,
+   "p_value_approx": 0.16731515253956825,
+   "p_value_approx_holm": 1.0,
+   "p_value_cost_usd": 0.27688022302543625,
+   "p_value_cost_usd_holm": 1.0,
+   "p_value_score_core": 0.1980023558965661,
+   "p_value_score_core_holm": 1.0,
+   "p_value_total_tokens": 0.2565783502219764,
+   "p_value_total_tokens_holm": 1.0,
+   "p_value_turns": 0.10208158375406623,
+   "p_value_turns_holm": 1.0,
+   "pass_rate_baseline": 1.0,
+   "pass_rate_condition": 0.5,
+   "proof_ready": false,
+   "runner": "claude-claude-opus-4-8-high",
+   "score_versions_baseline": [
+    2
+   ],
+   "score_versions_condition": [
+    2
+   ],
+   "stability": {
+    "coefficient_of_variation_score_baseline": 0.017038717618952953,
+    "coefficient_of_variation_score_condition": 0.6160798010262628,
+    "coefficient_of_variation_total_tokens_baseline": 0.7709145723604418,
+    "coefficient_of_variation_total_tokens_condition": 0.3884875172672687,
+    "pass_rate_lift_survives_drop_one": false,
+    "saturated": false,
+    "tag": "noisy",
+    "token_win_survives_drop_one": false,
+    "tokens_p_holm": 1.0,
+    "tokens_p_raw": 0.2565783502219764,
+    "tokens_significant_p_lt_0_05": false
+   },
+   "success_rate_baseline": 1.0,
+   "success_rate_condition": 0.5,
+   "task_id": "entireio-cli-finalize-redaction-raw-live",
+   "verdict": "brain_negative",
+   "verdict_reasons": [
+    "brain_validation_not_clean",
+    "score_drop_or_overhead_exceeds_gate"
+   ]
+  },
+  {
+   "agent": "claude",
+   "baseline": "no_brain",
+   "brain_positive_gate": {
+    "requires_repetitions_per_side": 4,
+    "score_delta": -1.75,
+    "search_improvement_ratio": null,
+    "success_delta": 0.0,
+    "time_improvement_ratio": 0.5404104595847379,
+    "time_overhead_ratio": -0.5404104595847379,
+    "token_improvement_ratio": 0.5660987528729249,
+    "token_overhead_ratio": -0.5660987528729249
+   },
+   "candidate_proof_ready": false,
+   "condition": "full_cli_compact",
+   "delivery_scope": "full_cli_compact",
+   "delta": -1.75,
+   "delta_score_core": 0.0,
+   "env_flags": {},
+   "mean_agent_seconds_baseline": 348.2765040397644,
+   "mean_agent_seconds_condition": 160.06423842906952,
+   "mean_baseline": 41.75,
+   "mean_brain_use_baseline": 5.0,
+   "mean_brain_use_condition": 1.0,
+   "mean_condition": 40.0,
+   "mean_cost_usd_baseline": 1.805742625,
+   "mean_cost_usd_condition": 0.945717125,
+   "mean_direct_brain_cli_calls_baseline": 0.0,
+   "mean_direct_brain_cli_calls_condition": 0.0,
+   "mean_mcp_tool_calls_baseline": 0.0,
+   "mean_mcp_tool_calls_condition": 0.0,
+   "mean_outcome_baseline": 5.0,
+   "mean_outcome_condition": 5.0,
+   "mean_patch_focus_baseline": 28.0,
+   "mean_patch_focus_condition": 28.0,
+   "mean_runtime_efficiency_baseline": 3.75,
+   "mean_runtime_efficiency_condition": 6.0,
+   "mean_score_core_baseline": 33.0,
+   "mean_score_core_condition": 33.0,
+   "mean_search_calls_baseline": 0.0,
+   "mean_search_calls_condition": 0.0,
+   "mean_total_tokens_baseline": 1670118.5,
+   "mean_total_tokens_condition": 724666.5,
+   "mean_turns_baseline": 23.25,
+   "mean_turns_condition": 11.0,
+   "mean_validation_discipline_baseline": 0.0,
+   "mean_validation_discipline_condition": 0.0,
+   "n_baseline": 4,
+   "n_condition": 4,
+   "p_value_agent_seconds": 0.0017568339364568155,
+   "p_value_agent_seconds_holm": 0.029866176919765862,
+   "p_value_approx": 0.005986255697707089,
+   "p_value_approx_holm": 0.08380757976789925,
+   "p_value_cost_usd": 0.0008819188246422951,
+   "p_value_cost_usd_holm": 0.01587453884356131,
+   "p_value_score_core": 1.0,
+   "p_value_score_core_holm": 1.0,
+   "p_value_total_tokens": 0.004022987826028178,
+   "p_value_total_tokens_holm": 0.06436780521645084,
+   "p_value_turns": 0.005072865104427897,
+   "p_value_turns_holm": 0.07609297656641846,
+   "pass_rate_baseline": 0.0,
+   "pass_rate_condition": 0.0,
+   "proof_ready": false,
+   "runner": "claude-claude-opus-4-8-high",
+   "score_versions_baseline": [
+    2
+   ],
+   "score_versions_condition": [
+    2
+   ],
+   "stability": {
+    "coefficient_of_variation_score_baseline": 0.011976047904191617,
+    "coefficient_of_variation_score_condition": 0.0,
+    "coefficient_of_variation_total_tokens_baseline": 0.15193391205749754,
+    "coefficient_of_variation_total_tokens_condition": 0.07171952411596705,
+    "pass_rate_lift_survives_drop_one": false,
+    "saturated": false,
+    "tag": "noisy",
+    "token_win_survives_drop_one": false,
+    "tokens_p_holm": 0.06436780521645084,
+    "tokens_p_raw": 0.004022987826028178,
+    "tokens_significant_p_lt_0_05": false
+   },
+   "success_rate_baseline": 0.0,
+   "success_rate_condition": 0.0,
+   "task_id": "entireio-cli-uncommitted-filter-exact-compare",
+   "verdict": "brain_negative",
+   "verdict_reasons": [
+    "brain_validation_not_clean",
+    "score_drop_or_overhead_exceeds_gate"
+   ]
+  }
+ ],
+ "provenance": {
+  "fingerprint": "2de2c9edac5a7e3d518023b9ca1151405ef616b330df306ede1536351fd16067",
+  "harnesses": [
+   {
+    "dirty": true,
+    "head_commit": "450238ec300a7002d4c4307c1f3dc0c6e0469840",
+    "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-layerb"
+   }
+  ],
+  "missing_record_provenance": 0,
+  "records": 24,
+  "records_with_provenance": 24,
+  "run_configs": [
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "full_cli_compact",
+    "fingerprint": "1b6adf8d43236e2742cb2748db960aca2d34b48d2e7a05a478e48baef138c6e0",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 4,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-uncommitted-filter-exact-compare*",
+      "entireio-cli-condense-drops-latest-turn*",
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "full_cli_compact",
+    "fingerprint": "747fc964bbabc66e527026bfd20ec08f79e425c2355ded799321db3f6bf987a6",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 4,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-uncommitted-filter-exact-compare*",
+      "entireio-cli-condense-drops-latest-turn*",
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "full_cli_compact",
+    "fingerprint": "983b9150ad3aea2a3469bc66a90a552bafb5b9202be63b6b7341c268c3876fc4",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 4,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-uncommitted-filter-exact-compare*",
+      "entireio-cli-condense-drops-latest-turn*",
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "full_cli_compact",
+    "fingerprint": "ab0e9181662195a5649f146d139173eff41f5dd14da22c34121ad9c147fd64d9",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 4,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-uncommitted-filter-exact-compare*",
+      "entireio-cli-condense-drops-latest-turn*",
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "0b25b6583c3267bf76f62b051e9dd31a1f5808bf54cdf95d369e089bca9b3759",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 4,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-uncommitted-filter-exact-compare*",
+      "entireio-cli-condense-drops-latest-turn*",
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "29f6eab330878c9b5183056df8f5322fdec102a558c34421ed293c722185a248",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 4,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-uncommitted-filter-exact-compare*",
+      "entireio-cli-condense-drops-latest-turn*",
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "39102da00ffa34bd36ddf8f7d91e5e271e474017c1fe94cf95dcc71c5d26a44d",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 4,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-uncommitted-filter-exact-compare*",
+      "entireio-cli-condense-drops-latest-turn*",
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 200,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "7b050d5d998f97be2eb94a4185dfc421bb1c2ad1510ae7a80eedbc0c5cc3c47d",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 4,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-uncommitted-filter-exact-compare*",
+      "entireio-cli-condense-drops-latest-turn*",
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   }
+  ],
+  "schema": 1,
+  "sources": [
+   {
+    "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+    "base_ref": "af713665091693a8301520159f3b4097a6ec36f9",
+    "base_ref_source": "task.base_commit",
+    "dirty": false,
+    "head_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+    "repo": "entire-cli",
+    "repo_path_input": "cli-bench",
+    "repo_path_resolved": "/Users/suhaan/Documents/Coding/cli-bench"
+   }
+  ],
+  "tasks": [
+   {
+    "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+    "config_sha256": "5952168a0e22a30a04f5534347203ac5ce8adf6f688b741614bcc1101779ab6d",
+    "id": "entireio-cli-condense-drops-latest-turn",
+    "path": "benchmarks/agent-brain/tasks/entireio-cli-condense-drops-latest-turn.json"
+   },
+   {
+    "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+    "config_sha256": "59ba560584630cdecd4ed6909812184c755eee6a2f917de40c872485819240ef",
+    "id": "entireio-cli-uncommitted-filter-exact-compare",
+    "path": "benchmarks/agent-brain/tasks/entireio-cli-uncommitted-filter-exact-compare.json"
+   },
+   {
+    "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+    "config_sha256": "5b37237467dbfef3654be7a10f1325ba7e1c5ccdeedbc4d9713112111c2d569e",
+    "id": "entireio-cli-finalize-redaction-raw-live",
+    "path": "benchmarks/agent-brain/tasks/entireio-cli-finalize-redaction-raw-live.json"
+   }
+  ]
+ },
+ "records": 24,
+ "stability_tags": {
+  "noisy": 3
+ },
+ "stats_notes": {
+  "headline_metric": "validation pass-rate + measured tokens; composite score and p-values are secondary",
+  "multiple_comparison_correction": "holm-bonferroni across all suite p-values; see <field>_holm",
+  "n_pvalues_in_family": 18,
+  "p_value_test": "two-sided Welch's t-test (Student-t, Welch-Satterthwaite df)",
+  "stability": "per comparison: coefficient_of_variation + tag (brain_positive_stable requires a token win significant at p<0.05 using max(raw Welch p, Holm-adjusted p), or a pass-rate lift, that survives dropping the single most-favourable rep; saturated = both arms pass 100%; noisy otherwise). The gate only downgrades; it never manufactures significance."
+ }
+}

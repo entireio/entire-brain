@@ -8,11 +8,11 @@
   "release_fully_ready": false,
   "rows": [
     {
-      "claimable": true,
-      "detail": "proof scopes: history, mcp, mcp_radar_location_only",
+      "claimable": false,
+      "detail": "B1 clean reruns are retained and audit-clean, but no comparison survived the proof-ready gate",
       "evidence": "benchmarks/agent-brain/evidence/release/codex-audit-report.json",
       "flags": [],
-      "status": "proven",
+      "status": "no-claim",
       "track": "replay-lab retained agent proof"
     },
     {
@@ -91,9 +91,9 @@
   "schema": 1,
   "status": "pass",
   "summary": {
-    "claimable_tracks": 5,
+    "claimable_tracks": 4,
     "flags": 0,
-    "no_claim_or_pending_tracks": 5,
+    "no_claim_or_pending_tracks": 6,
     "tracks": 10
   }
 }

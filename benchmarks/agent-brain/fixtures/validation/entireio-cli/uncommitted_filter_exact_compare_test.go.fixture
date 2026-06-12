@@ -1,0 +1,76 @@
+package cli
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/go-git/go-git/v6"
+	gitconfig "github.com/go-git/go-git/v6/plumbing/format/config"
+	"github.com/go-git/go-git/v6/plumbing/object"
+)
+
+func TestFilterToUncommittedFilesExactCompareHidden(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+
+	// The helper must keep working in-process even when no external
+	// tooling is available on PATH.
+	t.Setenv("PATH", "")
+
+	repo, err := git.PlainInit(tmpDir, false)
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	cfg, err := repo.Config()
+	if err != nil {
+		t.Fatalf("read repo cfg: %v", err)
+	}
+	if cfg.Raw == nil {
+		cfg.Raw = gitconfig.New()
+	}
+	cfg.Raw.Section("commit").SetOption("gpgsign", "false")
+	cfg.Core.AutoCRLF = "false"
+	if err := repo.SetConfig(cfg); err != nil {
+		t.Fatalf("set repo cfg: %v", err)
+	}
+
+	filePath := filepath.Join(tmpDir, "notes.txt")
+	if err := os.WriteFile(filePath, []byte("alpha\r\nbeta\r\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("worktree: %v", err)
+	}
+	if _, err := wt.Add("notes.txt"); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if _, err := wt.Commit("add notes", &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Test User",
+			Email: "test@example.com",
+		},
+	}); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	// Byte-identical content must be filtered out.
+	got := filterToUncommittedFiles(context.Background(), []string{"notes.txt"}, tmpDir)
+	if len(got) != 0 {
+		t.Fatalf("identical content: got %v, want []", got)
+	}
+
+	// Rewriting the same text with \n instead of \r\n is a genuine
+	// working-tree difference and the file must be kept.
+	if err := os.WriteFile(filePath, []byte("alpha\nbeta\n"), 0o644); err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+	got = filterToUncommittedFiles(context.Background(), []string{"notes.txt"}, tmpDir)
+	if len(got) != 1 || got[0] != "notes.txt" {
+		t.Fatalf("separator-only difference: got %v, want [notes.txt]", got)
+	}
+}

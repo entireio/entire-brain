@@ -21,5 +21,5 @@
   ],
   "expected_files": ["cmd/entire/cli/review/env.go"],
   "forbidden_files": ["go.mod", "go.sum"],
-  "brain_queries": ["AppendReviewEnv", "provenance.IsEntry", "ENTIRE_INVESTIGATE", "stale env inheritance"]
+  "brain_queries": ["stale provenance carried over from parent session", "ENTIRE_REVIEW_SESSION env contract", "nested review runs duplicate env keys", "investigate session provenance carryover"]
 }

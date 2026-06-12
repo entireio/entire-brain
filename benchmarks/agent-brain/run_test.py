@@ -1271,6 +1271,34 @@ class PanelAndStabilityTests(unittest.TestCase):
             task_path.unlink(missing_ok=True)
         self.assertIn("has no explicit leak_markers canary", " | ".join(errors))
 
+        try:
+            task_path.write_text(json.dumps({
+                "id": "release-leaky-query-fixture",
+                "repo": "entire-brain",
+                "repo_path": "entire-brain",
+                "conditions": ["no_brain", "semantic_brain"],
+                "prompt": "Fix the regression.",
+                "hide_validation_from_agent": True,
+                "validation": ["go test ./internal/cli -run TestHiddenReleaseFixture"],
+                "agent_hidden_paths": ["benchmarks/agent-brain"],
+                "leak_markers": ["release-leaky-query-fixture-canary"],
+                "brain_queries": ["TestHiddenReleaseFixture"],
+            }))
+            errors = run.panel_preflight(
+                {
+                    "name": "release-leaky-query",
+                    "runners": ["codex:gpt-test:low"],
+                    "tasks": [task_path.name],
+                    "conditions": ["no_brain", "semantic_brain"],
+                    "repetitions": 4,
+                }
+            )
+        finally:
+            task_path.unlink(missing_ok=True)
+        joined = " | ".join(errors)
+        self.assertIn("answer-bearing content", joined)
+        self.assertIn("hidden_test_name", joined)
+
     def test_committed_release_panels_pass_preflight(self):
         for path in sorted((run.BENCH_ROOT / "panels").glob("release-*.json")):
             panel = json.loads(path.read_text())
@@ -1491,13 +1519,396 @@ class PanelAndStabilityTests(unittest.TestCase):
             run.RESULT_DIR = old_result_dir
 
 
+class BrainQueryLeakAuditTests(unittest.TestCase):
+    """Release blocker B1: the four suites named in docs/release-blockers.md must fail this
+    auditor with the brain_queries they were committed with, frozen here as fixtures."""
+
+    def _flagged_terms(self, task: dict) -> set:
+        audit = run.brain_query_leak_audit(task)
+        return {finding.get("token") or finding.get("phrase") for finding in audit["findings"]}
+
+    # The committed brain_queries, setup_replacements, and validation arrays of the two
+    # attribution suites, verbatim from main as of the PR #33 review (both rows share them).
+    ATTRIBUTION_QUERIES = [
+        "AttributionBaseCommit stale human_added no trailer",
+        "TestManualCommit_AttributionStaleBase",
+        "BaseCommit AttributionBaseCommit realign",
+        "RealignAttributionBase newHead manual commit hooks",
+    ]
+    ATTRIBUTION_REPLACEMENT = {
+        "path": "cmd/entire/cli/strategy/manual_commit_hooks.go",
+        "old": (
+            "\t\tstate.BaseCommit = newHead\n"
+            "\t\t// Keep AttributionBaseCommit in sync to prevent stale base drift.\n"
+            "\t\t// Without this, a subsequent condensation would diff from the old base,\n"
+            "\t\t// inflating human_added with lines from unrelated prior commits.\n"
+            "\t\tstate.RealignAttributionBase(newHead)\n"
+            "\t\tlogging.Debug(logCtx, \"post-commit: updated BaseCommit and AttributionBaseCommit\","
+        ),
+        "new": (
+            "\t\tstate.BaseCommit = newHead\n"
+            "\t\tlogging.Debug(logCtx, \"post-commit: updated BaseCommit and AttributionBaseCommit\","
+        ),
+    }
+    ATTRIBUTION_VALIDATION = [
+        "go test ./cmd/entire/cli/strategy -run 'TestPostCommit_NoTrailer_UpdatesBaseCommit|TestPostCommitNoTrailerRealignsAttributionBaseHidden' -count=1",
+    ]
+
+    def test_schema_contract_suite_fails_as_committed(self) -> None:
+        task = {
+            "id": "entire-brain-history-codex-schema-contract",
+            "hide_validation_from_agent": True,
+            "hide_expected_from_agent": True,
+            "brain_queries": [
+                "Checkpoint-context review reverted Codex `--output-schema` usage",
+                "schema-dialect failure",
+                "prompt plus local `schema_version` and `status` validation",
+                "should rely on prompt plus local validation",
+            ],
+            "setup_replacements": [
+                {
+                    "path": "internal/cli/seed.go",
+                    "old": "case \"codex\":\n\t\treturn []string{\"codex\", \"exec\", \"--skip-git-repo-check\", \"--ephemeral\", \"--ignore-user-config\", \"--ignore-rules\", \"--sandbox\", \"read-only\", seedAgentPrompt(phase)}, nil",
+                    "new": "case \"codex\":\n\t\treturn []string{\"codex\", \"exec\", \"--skip-git-repo-check\", \"--ephemeral\", \"--ignore-user-config\", \"--ignore-rules\", \"--sandbox\", \"read-only\", \"--output-schema\", \"seed-agent.schema.json\", seedAgentPrompt(phase)}, nil",
+                }
+            ],
+            "validation": [
+                "test $(rg -n -- '--output-schema' internal/cli/seed.go | wc -l | tr -d ' ') -eq 0",
+                "test $(rg -n 'TestSeedAgentCommandArgsCodex' internal/cli/seed_test.go | wc -l | tr -d ' ') -ge 1",
+                "test $(rg -n 'should rely on prompt plus local validation, not --output-schema' internal/cli/seed_test.go | wc -l | tr -d ' ') -eq 1",
+                "go test ./internal/cli -run 'TestSeedAgentCommandArgsCodex'",
+            ],
+        }
+        flagged = self._flagged_terms(task)
+        self.assertIn("--output-schema", flagged)
+        self.assertIn("should rely on prompt plus local validation", flagged)
+
+    def test_attribution_base_suite_fails_as_committed(self) -> None:
+        task = {
+            "id": "entireio-cli-manual-commit-attribution-base",
+            "hide_validation_from_agent": True,
+            "hide_expected_from_agent": True,
+            "brain_queries": list(self.ATTRIBUTION_QUERIES),
+            "setup_replacements": [dict(self.ATTRIBUTION_REPLACEMENT)],
+            "validation": list(self.ATTRIBUTION_VALIDATION),
+        }
+        flagged = self._flagged_terms(task)
+        for leaked in ("RealignAttributionBase", "AttributionBaseCommit", "human_added", "BaseCommit"):
+            self.assertIn(leaked, flagged)
+
+    def test_radar_deletions_suite_fails_as_committed(self) -> None:
+        task = {
+            "id": "entireio-cli-radar-manual-attribution-deletions",
+            "hide_validation_from_agent": True,
+            "hide_expected_from_agent": True,
+            "brain_queries": list(self.ATTRIBUTION_QUERIES),
+            "setup_replacements": [dict(self.ATTRIBUTION_REPLACEMENT)],
+            "validation": list(self.ATTRIBUTION_VALIDATION),
+        }
+        self.assertFalse(run.brain_query_leak_audit(task)["ok"])
+
+    def test_tokenized_idf_suite_fails_as_committed(self) -> None:
+        task = {
+            "id": "entire-brain-semantic-tokenized-idf-ranking",
+            "hide_validation_from_agent": True,
+            "hide_expected_from_agent": True,
+            "brain_queries": [
+                "findSemanticSymbolsTokenizedSQLite IDF token weighting",
+                "tokenIDFWeight rare token ranking",
+                "TestTokenizedSearchRanksRareTokenAboveCommonTokens",
+            ],
+            "setup_replacements": [
+                {
+                    "path": "internal/cli/semantic.go",
+                    "old": "\t\tweights[i] = tokenIDFWeight(total, df)",
+                    "new": "\t\tweights[i] = 1",
+                }
+            ],
+            "validation": [
+                "test $(rg -n 'weights\\[i\\] = tokenIDFWeight\\(total, df\\)' internal/cli/semantic.go | wc -l | tr -d ' ') -eq 1",
+                "go test ./internal/cli -run 'TestTokenizedSearchRanksRareTokenAboveCommonTokens|TestTokenIDFWeightFavorsRareTokens|TestSemanticQueryTokensDropsStopwordsAndShortTerms'",
+            ],
+        }
+        flagged = self._flagged_terms(task)
+        self.assertIn("tokenIDFWeight", flagged)
+        self.assertIn("TestTokenizedSearchRanksRareTokenAboveCommonTokens", flagged)
+
+    def test_case_variant_identifier_is_flagged(self) -> None:
+        task = {
+            "id": "case-variant",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["resolveTranscriptPath"],
+            "validation": ["go test ./internal/cli -run 'TestResolveTranscriptPath_Nested'"],
+        }
+        self.assertFalse(run.brain_query_leak_audit(task)["ok"])
+
+    def test_trailing_sentence_punctuation_is_stripped(self) -> None:
+        task = {
+            "id": "trailing-punct",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["where is RealignAttributionBase?"],
+            "setup_replacements": [
+                {"path": "x.go", "old": "state.RealignAttributionBase(newHead)", "new": ""},
+            ],
+            "validation": ["go test ./..."],
+        }
+        self.assertIn("RealignAttributionBase", self._flagged_terms(task))
+
+    def test_fix_location_and_hidden_expected_files_are_answer_texts(self) -> None:
+        task = {
+            "id": "fix-location",
+            "hide_validation_from_agent": True,
+            "hide_expected_from_agent": True,
+            "brain_queries": ["checks summary display.go"],
+            "setup_replacements": [
+                {"path": "pkg/cmd/pr/shared/display.go", "old": "a", "new": "b"},
+            ],
+            "expected_files": ["pkg/cmd/pr/shared/display.go"],
+            "validation": ["go test ./pkg/cmd/pr/shared -run TestSomethingElse"],
+        }
+        self.assertIn("display.go", self._flagged_terms(task))
+
+    def test_validation_fixture_contents_are_answer_texts(self) -> None:
+        old_dir = run.VALIDATION_FIXTURE_DIR
+        with tempfile.TemporaryDirectory() as tmp:
+            run.VALIDATION_FIXTURE_DIR = pathlib.Path(tmp)
+            (pathlib.Path(tmp) / "hidden_test.go.fixture").write_text(
+                "func TestHiddenFixtureOnlyName(t *testing.T) {}\n"
+            )
+            task = {
+                "id": "fixture-contents",
+                "hide_validation_from_agent": True,
+                "brain_queries": ["TestHiddenFixtureOnlyName"],
+                "validation": ["go test ./pkg -count=1"],
+                "validation_files": [
+                    {"path": "pkg/hidden_test.go", "fixture": "hidden_test.go.fixture"},
+                ],
+            }
+            try:
+                self.assertIn("TestHiddenFixtureOnlyName", self._flagged_terms(task))
+            finally:
+                run.VALIDATION_FIXTURE_DIR = old_dir
+
+    def test_overlapping_leaks_report_once_with_most_specific_source(self) -> None:
+        task = {
+            "id": "dedup",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["TestLeakedName"],
+            "validation": ["go test ./internal/x -run TestLeakedName"],
+        }
+        audit = run.brain_query_leak_audit(task)
+        self.assertEqual(len(audit["findings"]), 1)
+        self.assertEqual(audit["findings"][0]["where"], "hidden_test_name")
+
+    def test_lowercased_identifier_is_flagged(self) -> None:
+        task = {
+            "id": "lowercased",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["realignattributionbase behavior"],
+            "setup_replacements": [
+                {"path": "x.go", "old": "state.RealignAttributionBase(newHead)", "new": ""},
+            ],
+            "validation": ["go test ./..."],
+        }
+        self.assertIn("realignattributionbase", self._flagged_terms(task))
+
+    def test_split_identifier_is_flagged(self) -> None:
+        task = {
+            "id": "split",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["realign attribution base after commit"],
+            "setup_replacements": [
+                {"path": "x.go", "old": "state.RealignAttributionBase(newHead)", "new": ""},
+            ],
+            "validation": ["go test ./..."],
+        }
+        self.assertIn("realign attribution base", self._flagged_terms(task))
+
+    def test_punctuation_does_not_break_phrase_match(self) -> None:
+        task = {
+            "id": "punct-phrase",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["should rely, on prompt plus local validation"],
+            "validation": [
+                "rg 'should rely on prompt plus local validation' internal/cli/seed_test.go",
+            ],
+        }
+        self.assertFalse(run.brain_query_leak_audit(task)["ok"])
+
+    def test_setup_commands_are_answer_texts(self) -> None:
+        task = {
+            "id": "setup-cmd",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["normalizeLimit handling"],
+            "setup_commands": [
+                "perl -0pi -e 's/normalizeLimit\\(filter.limit, 250\\)/filter.limit ?? 250/' src/db.ts",
+            ],
+            "validation": ["npx vitest run"],
+        }
+        self.assertIn("normalizeLimit", self._flagged_terms(task))
+
+    def test_all_committed_tasks_pass_the_auditor(self) -> None:
+        task_dir = pathlib.Path(__file__).with_name("tasks")
+        flagged = {}
+        for path in sorted(task_dir.glob("*.json")):
+            task = json.loads(path.read_text())
+            audit = run.brain_query_leak_audit(task)
+            if not audit["ok"]:
+                flagged[task.get("id", path.name)] = [
+                    finding.get("token") or finding.get("phrase") for finding in audit["findings"]
+                ]
+        self.assertEqual(flagged, {}, "committed tasks carry answer-bearing brain_queries")
+
+    def test_symptom_level_queries_pass(self) -> None:
+        task = {
+            "id": "clean",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["environment token treated as authenticated", "auth check stored hosts"],
+            "setup_replacements": [{"path": "x.go", "old": "return true", "new": "return false"}],
+            "validation": ["go test ./pkg/cmdutil -run Test_CheckAuth"],
+        }
+        self.assertTrue(run.brain_query_leak_audit(task)["ok"])
+
+    def test_identifier_allowed_when_not_answer_bearing(self) -> None:
+        task = {
+            "id": "env-var-hint",
+            "hide_validation_from_agent": True,
+            "brain_queries": ["GH_ENTERPRISE_TOKEN"],
+            "setup_replacements": [{"path": "x.go", "old": "return true", "new": "return false"}],
+            "validation": ["go test ./pkg/cmdutil -run Test_CheckAuth"],
+        }
+        self.assertTrue(run.brain_query_leak_audit(task)["ok"])
+
+    def test_visible_validation_is_not_an_asymmetry(self) -> None:
+        task = {
+            "id": "visible-validation",
+            "hide_validation_from_agent": False,
+            "brain_queries": ["Test_CheckAuth"],
+            "validation": ["go test ./pkg/cmdutil -run Test_CheckAuth"],
+        }
+        self.assertTrue(run.brain_query_leak_audit(task)["ok"])
+        task_with_fix_leak = dict(task, setup_replacements=[{"path": "x.go", "old": "Test_CheckAuth helper", "new": ""}])
+        self.assertFalse(run.brain_query_leak_audit(task_with_fix_leak)["ok"])
+
+    def test_panel_preflight_reports_confounded_queries(self) -> None:
+        confounded = {
+            "id": "confounded-task",
+            "repo": "github-cli",
+            "repo_path": "github-cli",
+            "conditions": ["no_brain", "semantic_brain"],
+            "prompt": "Fix it.",
+            "hide_validation_from_agent": True,
+            "leak_markers": ["go test ./internal/x -run TestHiddenName"],
+            "agent_hidden_paths": ["benchmarks/agent-brain"],
+            "brain_queries": ["TestHiddenName"],
+            "validation": ["go test ./internal/x -run TestHiddenName"],
+        }
+        panel = {
+            "name": "release-test-panel",
+            "runners": ["claude:claude-sonnet-4-6:high"],
+            "tasks": ["confounded-task.json"],
+            "conditions": ["no_brain", "semantic_brain"],
+            "repetitions": 4,
+        }
+        old_loader = run.load_tasks
+        run.load_tasks = lambda patterns: [confounded]
+        try:
+            errors = run.panel_preflight(panel)
+        finally:
+            run.load_tasks = old_loader
+        self.assertTrue(any("answer-bearing" in error for error in errors), errors)
+
+
+class LayerBScenarioGenerationTests(unittest.TestCase):
+    def _github_task(self, task_id: str, **extra: object) -> dict:
+        task = {
+            "id": task_id,
+            "repo": "github-cli",
+            "repo_path": "github-cli",
+            "conditions": ["no_brain", "semantic_brain"],
+            "brain_queries": ["SomeHelper"],
+        }
+        task.update(extra)
+        return task
+
+    def _with_task_index(self, tasks: list[dict]):
+        old_loader = run.load_task_index
+        run.load_task_index = lambda: {task["id"]: task for task in tasks}
+        return old_loader
+
+    def test_declared_archetype_yields_one_scenario_per_task(self) -> None:
+        tasks = [
+            self._github_task("github-cli-alpha", archetype="rationale-recovery"),
+            self._github_task("github-cli-beta", archetype="protocol-contract-recovery"),
+        ]
+        old_loader = self._with_task_index(tasks)
+        try:
+            scenarios = run.generate_layer_b_scenarios(minimum=50)
+        finally:
+            run.load_task_index = old_loader
+        self.assertEqual(len(scenarios), 2)
+        self.assertEqual(
+            [scenario["task_id"] for scenario in scenarios],
+            ["github-cli-alpha", "github-cli-beta"],
+        )
+        self.assertEqual(scenarios[0]["archetype"], "rationale-recovery")
+        self.assertEqual(scenarios[1]["archetype"], "protocol-contract-recovery")
+
+    def test_missing_archetype_keeps_legacy_cross_join(self) -> None:
+        old_loader = self._with_task_index([self._github_task("github-cli-legacy")])
+        try:
+            scenarios = run.generate_layer_b_scenarios(minimum=50)
+        finally:
+            run.load_task_index = old_loader
+        self.assertEqual(len(scenarios), len(run.PHASE2_GITHUB_PROJECT_ARCHETYPES))
+
+    def test_unknown_archetype_fails_loudly(self) -> None:
+        old_loader = self._with_task_index(
+            [self._github_task("github-cli-typo", archetype="not-a-real-archetype")]
+        )
+        try:
+            with self.assertRaisesRegex(RuntimeError, "unknown archetype"):
+                run.generate_layer_b_scenarios(minimum=50)
+        finally:
+            run.load_task_index = old_loader
+
+    def test_minimum_still_truncates(self) -> None:
+        tasks = [
+            self._github_task(f"github-cli-task-{index:02d}", archetype="architecture-localization")
+            for index in range(10)
+        ]
+        old_loader = self._with_task_index(tasks)
+        try:
+            scenarios = run.generate_layer_b_scenarios(minimum=4)
+        finally:
+            run.load_task_index = old_loader
+        self.assertEqual(len(scenarios), 4)
+
+
 class CodexAuditScriptTests(unittest.TestCase):
     SOURCE_SHA = "1" * 40
     TOOL_SHA = "2" * 64
-    TASK_SHA = "3" * 64
     CONFIG_SHA = "4" * 64
     RECORD_SHA = "5" * 64
     HARNESS_SHA = "6" * 40
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Fixture records must model AUDITABLE evidence: the audit hard-flags a
+        # record whose task config cannot be resolved (H:task_not_found), so the
+        # shared provenance points at a real, leak-free task file whose sha the
+        # records pin. Tests that exercise drift/missing-task paths override it.
+        super().setUpClass()
+        cls._task_dir = tempfile.TemporaryDirectory(dir=run.BENCH_ROOT)
+        cls.addClassCleanup(cls._task_dir.cleanup)
+        task_path = pathlib.Path(cls._task_dir.name) / "t.json"
+        task_path.write_text(json.dumps({
+            "id": "t",
+            "prompt": "Fix the regression.",
+            "validation": ["go test ./..."],
+        }))
+        cls.TASK_PATH = str(task_path.relative_to(run.ROOT))
+        cls.TASK_SHA = hashlib.sha256(task_path.read_bytes()).hexdigest()
 
     def _write_records(self, root: pathlib.Path, suite: str, records: list[dict]) -> pathlib.Path:
         suite_dir = root / suite
@@ -1555,7 +1966,7 @@ class CodexAuditScriptTests(unittest.TestCase):
             },
             "task": {
                 "id": "t",
-                "path": "benchmarks/agent-brain/tasks/t.json",
+                "path": self.TASK_PATH,
                 "config_sha256": self.TASK_SHA,
                 "base_commit": None,
                 "radar_include_deletions": False,
@@ -1939,6 +2350,166 @@ class CodexAuditScriptTests(unittest.TestCase):
             self.assertTrue(any(flag.startswith("I:release_host_path_leak") for flag in flags))
             self.assertFalse(release_report["suites"][suite]["records"][1]["release_hygiene"]["host_path_clean"])
             self.assertEqual(release_report["release_manifest"]["path"], "[external]/manifest.json")
+
+    def test_audit_codex_flags_answer_bearing_brain_queries_in_hidden_validation(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out, tempfile.TemporaryDirectory(dir=run.BENCH_ROOT) as task_dir:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            task_path = pathlib.Path(task_dir) / "leaky-task.json"
+            task_path.write_text(json.dumps({
+                "id": "t",
+                "prompt": "Fix the regression without seeing hidden validation.",
+                "hide_validation_from_agent": True,
+                "validation": [
+                    "go test ./pkg -run TestRestoreExactInvariant",
+                    "test $(rg -n 'restore exact invariant wording' pkg/file.go | wc -l) -eq 1",
+                ],
+                "brain_queries": [
+                    "TestRestoreExactInvariant",
+                    "restore exact invariant wording",
+                ],
+            }))
+            task_sha = hashlib.sha256(task_path.read_bytes()).hexdigest()
+            suite = "release-candidate-leaky-queries"
+            records = []
+            for i in range(1, 5):
+                base = self._release_record(suite, condition="no_brain", repetition=i, run_id=f"base-{i}")
+                brain = self._release_record(suite, condition="full_brain", repetition=i, run_id=f"brain-{i}")
+                for record in (base, brain):
+                    record["provenance"]["task"]["path"] = str(task_path.relative_to(run.ROOT))
+                    record["provenance"]["task"]["config_sha256"] = task_sha
+                records.extend([base, brain])
+            suite_dir = self._write_records(results_dir, suite, records)
+            (suite_dir / "summary.json").write_text(json.dumps({
+                "comparisons": [{
+                    "task_id": "t",
+                    "runner": "codex",
+                    "condition": "full_brain",
+                    "verdict": "brain_positive",
+                    "proof_ready": True,
+                    "n_condition": 4,
+                    "n_baseline": 4,
+                    "stability": {"tag": "brain_positive_stable"},
+                }]
+            }))
+
+            report = audit_codex.build_audit_report(results_dir, ["release-candidate-*"])
+            brain_record = report["suites"][suite]["records"][1]
+            base_record = report["suites"][suite]["records"][0]
+            self.assertTrue(base_record["pass"], base_record)
+            self.assertFalse(brain_record["pass"], brain_record)
+            self.assertTrue(any(flag.startswith("J:answer_bearing_brain_queries") for flag in brain_record["flags"]))
+            self.assertIn("answer_bearing_brain_queries", brain_record["task_hygiene"])
+            self.assertEqual(report["totals"]["proof_ready_comparisons"], 0)
+            self.assertIn("G:proof_ready_without_matching_records", report["suites"][suite]["comparisons"][0]["flags"])
+
+            manifest = self._write_release_manifest(out_dir)
+            self.assertEqual(
+                audit_codex.main(["--results", str(results_dir), "--release-manifest", str(manifest), "--out-dir", str(out_dir), "--fail-on-flags"]),
+                1,
+            )
+            gated = json.loads((out_dir / "codex-audit-report.json").read_text())
+            self.assertGreater(gated["totals"]["hard_flags"], 0)
+
+            manifest_data = json.loads(manifest.read_text())
+            manifest_data["claim_policy"] = "no_release_claim"
+            manifest_data["minimums"]["proof_ready_comparisons"] = 0
+            manifest_data["minimums"]["mcp_verified_records"] = 0
+            manifest_data["minimums"]["mcp_named_tool_verified_records"] = 0
+            manifest_data["require_proof_ready_per_suite"] = False
+            manifest_data["required_proof_scopes"] = []
+            manifest_data["required_named_tool_proof_scopes"] = []
+            manifest_data["allowed_no_claim_flag_kinds"] = [
+                "J:answer_bearing_brain_queries",
+                "G:proof_ready_without_matching_records",
+            ]
+            manifest.write_text(json.dumps(manifest_data))
+            self.assertEqual(
+                audit_codex.main(["--results", str(results_dir), "--release-manifest", str(manifest), "--out-dir", str(out_dir), "--fail-on-flags"]),
+                0,
+            )
+            no_claim = json.loads((out_dir / "codex-audit-report.json").read_text())
+            self.assertEqual(no_claim["gate_status"]["claim_policy"], "no_release_claim")
+            self.assertFalse(no_claim["gate_status"]["release_evidence"])
+            self.assertIn("PASS (NO RELEASE CLAIM)", (out_dir / "codex-audit-report.md").read_text())
+
+    def test_audit_codex_flags_task_config_hash_drift(self):
+        with tempfile.TemporaryDirectory() as results:
+            results_dir = pathlib.Path(results)
+            task_path = results_dir / "task.json"
+            task_path.write_text(json.dumps({
+                "id": "t",
+                "prompt": "Task",
+                "validation": ["go test ./..."],
+            }))
+            suite = "release-candidate-task-drift"
+            record = self._release_record(suite, condition="no_brain", repetition=1, run_id="base-1")
+            record["provenance"]["task"]["path"] = str(task_path)
+            record["provenance"]["task"]["config_sha256"] = "0" * 64
+            self._write_records(results_dir, suite, [record])
+
+            report = audit_codex.build_audit_report(results_dir, [suite])
+            audited = report["suites"][suite]["records"][0]
+            self.assertFalse(audited["pass"], audited)
+            self.assertIn("H:task_config_sha256_mismatch", audited["flags"])
+
+    def test_audit_side_leak_detector_catches_hardened_variants(self):
+        # The audit-side check delegates to run.py's hardened auditor. These are
+        # the variants the pre-unification local copy passed (review finding):
+        # a case-variant identifier, a split identifier, a lowercased identifier,
+        # and a fix-text leak on a task with NO hidden validation at all (the
+        # old copy never looked at setup_replacements).
+        hidden_validation = {
+            "id": "t",
+            "hide_validation_from_agent": True,
+            "validation": ["go test ./pkg -run TestRestoreExactInvariant"],
+        }
+        leaky_variants = {
+            "case_variant": dict(hidden_validation, brain_queries=["testRestoreExactInvariant"]),
+            "lowercased": dict(hidden_validation, brain_queries=["testrestoreexactinvariant"]),
+            "split_identifier": dict(hidden_validation, brain_queries=["test restore exact invariant"]),
+            "fix_text_without_hidden_validation": {
+                "id": "t",
+                "setup_replacements": [{
+                    "path": "pkg/file.go",
+                    "old": "weights[i] = tokenIDFWeight(total, df)",
+                    "new": "weights[i] = 1",
+                }],
+                "brain_queries": ["tokenIDFWeight"],
+            },
+        }
+        for name, task in leaky_variants.items():
+            findings = audit_codex.brain_query_leak_findings(task)
+            self.assertTrue(findings, f"{name}: hardened audit-side detector must flag this")
+            for finding in findings:
+                # legacy report shape consumed by redaction
+                self.assertIn("term", finding)
+                self.assertIn("kind", finding)
+                self.assertIn("source", finding)
+        clean = dict(hidden_validation, brain_queries=["restore behaves wrong after refactor"])
+        self.assertEqual(audit_codex.brain_query_leak_findings(clean), [])
+
+    def test_audit_codex_hard_flags_missing_task_file(self):
+        # A record whose task config cannot be resolved gets no leak check and
+        # no sha-drift check; that must hard-fail the record, otherwise deleting
+        # a leaky task file launders its records into flag-free evidence.
+        with tempfile.TemporaryDirectory() as results:
+            results_dir = pathlib.Path(results)
+            suite = "release-candidate-task-missing"
+            record = self._release_record(suite, condition="no_brain", repetition=1, run_id="base-1")
+            record["provenance"]["task"]["path"] = str(results_dir / "deleted-task.json")
+            record["provenance"]["task"]["config_sha256"] = "0" * 64
+            self._write_records(results_dir, suite, [record])
+
+            report = audit_codex.build_audit_report(results_dir, [suite])
+            audited = report["suites"][suite]["records"][0]
+            self.assertFalse(audited["pass"], audited)
+            # The candidate scan may surface unrelated task files (wrong id) for
+            # the deleted path, so either load-error flag proves the hard gate.
+            self.assertTrue(
+                any(flag in ("H:task_not_found", "H:task_id_mismatch") for flag in audited["flags"]),
+                audited["flags"],
+            )
 
     def test_release_manifest_requires_proof_ready_per_suite(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
@@ -2416,10 +2987,12 @@ class CodexAuditScriptTests(unittest.TestCase):
             results_dir = pathlib.Path(results)
             task_path = results_dir / "deletion-radar-task.json"
             task_path.write_text(json.dumps({"id": "t", "radar_include_deletions": True}))
+            task_sha = hashlib.sha256(task_path.read_bytes()).hexdigest()
 
             missing_suite = "release-candidate-radar-deletions-missing"
             missing = self._mcp_release_record(missing_suite, repetition=1, run_id="radar-1")
             missing["provenance"]["task"]["path"] = str(task_path)
+            missing["provenance"]["task"]["config_sha256"] = task_sha
             missing["provenance"]["task"]["radar_include_deletions"] = True
             missing_dir = self._write_records(results_dir, missing_suite, [missing])
             self._write_mcp_server_log(missing_dir, "radar-1", "brain_regressions", tool_args={"location_only": True})
@@ -2433,6 +3006,7 @@ class CodexAuditScriptTests(unittest.TestCase):
             ok_suite = "release-candidate-radar-deletions-ok"
             ok = self._mcp_release_record(ok_suite, repetition=1, run_id="radar-1")
             ok["provenance"]["task"]["path"] = str(task_path)
+            ok["provenance"]["task"]["config_sha256"] = task_sha
             ok["provenance"]["task"]["radar_include_deletions"] = True
             ok["agent_info"]["activity"]["mcp_tool_details"][0]["arguments"]["include_deletions"] = True
             ok["mcp_condition_audit"]["mcp_tool_details"][0]["arguments"]["include_deletions"] = True
@@ -3822,6 +4396,81 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 0,
             )
 
+    def test_radar_audit_allows_explicit_no_claim_codex_gate(self):
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            self._write_radar_summary(
+                results_dir,
+                "release-candidate-radar-no-claim",
+                baseline_pass=1.0,
+                condition_pass=1.0,
+                proof_ready=False,
+                stability_tag="saturated",
+                n=4,
+            )
+            no_claim_audit = out_dir / "no-claim-codex-audit.json"
+            no_claim_audit.write_text(json.dumps({
+                "gate_status": {
+                    "claim_policy": "no_release_claim",
+                    "status": "pass",
+                    "release_evidence": False,
+                },
+                "totals": {
+                    "proof_ready_comparisons": 0,
+                    "hard_flags": 0,
+                },
+                "suites": {},
+            }))
+            self.assertEqual(
+                audit_radar_evidence.main([
+                    "--results", str(results_dir),
+                    "--suite-glob", "release-candidate-*",
+                    "--out-dir", out,
+                    "--codex-audit-report", str(no_claim_audit),
+                    "--fail-when-no-proof",
+                ]),
+                0,
+            )
+
+    def test_radar_audit_no_claim_does_not_skip_promotable_requirement(self):
+        # A verified no-claim posture waives only --fail-when-no-proof; when
+        # --fail-when-no-promotable is also passed it must still be enforced
+        # (the old early return skipped it).
+        with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
+            results_dir = pathlib.Path(results)
+            out_dir = pathlib.Path(out)
+            self._write_radar_summary(
+                results_dir,
+                "release-candidate-radar-no-claim",
+                baseline_pass=1.0,
+                condition_pass=1.0,
+                proof_ready=False,
+                stability_tag="saturated",
+                n=4,
+            )
+            no_claim_audit = out_dir / "no-claim-codex-audit.json"
+            no_claim_audit.write_text(json.dumps({
+                "gate_status": {
+                    "claim_policy": "no_release_claim",
+                    "status": "pass",
+                    "release_evidence": False,
+                },
+                "totals": {"proof_ready_comparisons": 0, "hard_flags": 0},
+                "suites": {},
+            }))
+            self.assertEqual(
+                audit_radar_evidence.main([
+                    "--results", str(results_dir),
+                    "--suite-glob", "release-candidate-*",
+                    "--out-dir", out,
+                    "--codex-audit-report", str(no_claim_audit),
+                    "--fail-when-no-proof",
+                    "--fail-when-no-promotable",
+                ]),
+                1,
+            )
+
     def test_radar_audit_requires_codex_audit_backing_when_supplied(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
             results_dir = pathlib.Path(results)
@@ -4345,6 +4994,34 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 0,
             )
             self.assertTrue((pathlib.Path(out) / "release-matrix-report.json").exists())
+
+    def test_release_matrix_accepts_demoted_replay_no_claim_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            manifest = self._write_release_matrix_fixture(root)
+            release = root / "reports" / "release.json"
+            data = json.loads(release.read_text())
+            data["totals"] = {
+                "hard_flags": 12,
+                "proof_ready_comparisons": 0,
+                "proof_ready_comparisons_by_scope": {},
+                "named_tool_proof_ready_comparisons_by_scope": {},
+            }
+            data["gate_status"] = {
+                "status": "pass",
+                "claim_policy": "no_release_claim",
+                "release_evidence": False,
+            }
+            release.write_text(json.dumps(data))
+
+            report = audit_release_matrix.audit_manifest(manifest)
+
+            self.assertEqual(report["status"], "pass", report)
+            replay_rows = [row for row in report["rows"] if row["track"] == "replay-lab retained agent proof"]
+            self.assertEqual(len(replay_rows), 1, replay_rows)
+            self.assertEqual(replay_rows[0]["status"], "no-claim")
+            self.assertFalse(replay_rows[0]["claimable"])
+            self.assertIn("clean replay-lab reruns", replay_rows[0]["detail"])
 
     def test_release_matrix_accepts_claimable_facts_with_release_proof(self):
         with tempfile.TemporaryDirectory() as tmp:

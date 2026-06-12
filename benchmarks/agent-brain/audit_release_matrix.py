@@ -125,22 +125,41 @@ def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
     release_totals = release.get("totals") if isinstance(release.get("totals"), dict) else {}
     scopes = release_totals.get("proof_ready_comparisons_by_scope") if isinstance(release_totals.get("proof_ready_comparisons_by_scope"), dict) else {}
     named_scopes = release_totals.get("named_tool_proof_ready_comparisons_by_scope") if isinstance(release_totals.get("named_tool_proof_ready_comparisons_by_scope"), dict) else {}
+    release_gate = release.get("gate_status") if isinstance(release.get("gate_status"), dict) else {}
+    release_claim_policy = release_gate.get("claim_policy") or (release.get("release_manifest") or {}).get("claim_policy") or "proof_required"
     release_flags: list[str] = []
-    for scope in manifest.get("required_release_proof_scopes", []):
-        if int(scopes.get(scope) or 0) <= 0:
-            release_flags.append(f"missing retained release proof scope {scope}")
-    for scope in manifest.get("required_named_tool_proof_scopes", []):
-        if int(named_scopes.get(scope) or 0) <= 0:
-            release_flags.append(f"missing named-tool retained proof scope {scope}")
-    if int(release_totals.get("hard_flags") or 0) != 0:
-        release_flags.append("release audit has hard flags")
+    if release_claim_policy == "no_release_claim":
+        if release_gate.get("status") != "pass":
+            release_flags.append("release no-claim audit gate is not passing")
+        if release_gate.get("release_evidence") is True:
+            release_flags.append("release no-claim audit unexpectedly marks release_evidence true")
+        if int(release_totals.get("proof_ready_comparisons") or 0) != 0:
+            release_flags.append("release no-claim audit unexpectedly retains proof-ready comparisons")
+        release_status = "no-claim"
+        release_claimable = False
+        if int(release_totals.get("hard_flags") or 0) == 0:
+            release_detail = "B1 clean reruns are retained and audit-clean, but no comparison survived the proof-ready gate"
+        else:
+            release_detail = "B1 retained query-hint/task-hash confound is detected; clean replay-lab reruns are required before citing agent lift"
+    else:
+        for scope in manifest.get("required_release_proof_scopes", []):
+            if int(scopes.get(scope) or 0) <= 0:
+                release_flags.append(f"missing retained release proof scope {scope}")
+        for scope in manifest.get("required_named_tool_proof_scopes", []):
+            if int(named_scopes.get(scope) or 0) <= 0:
+                release_flags.append(f"missing named-tool retained proof scope {scope}")
+        if int(release_totals.get("hard_flags") or 0) != 0:
+            release_flags.append("release audit has hard flags")
+        release_status = "proven"
+        release_claimable = not release_flags
+        release_detail = f"proof scopes: {', '.join(sorted(scopes)) or 'none'}"
     add_row(
         rows,
         track="replay-lab retained agent proof",
-        status="proven" if not release_flags else "invalid",
-        claimable=not release_flags,
+        status=release_status if not release_flags else "invalid",
+        claimable=release_claimable and not release_flags,
         evidence=display_path(manifest_path(repo_root, reports.get("release"), "reports.release")),
-        detail=f"proof scopes: {', '.join(sorted(scopes)) or 'none'}",
+        detail=release_detail,
         flags=release_flags,
     )
 

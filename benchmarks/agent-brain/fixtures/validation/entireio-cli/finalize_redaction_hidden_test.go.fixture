@@ -1,0 +1,80 @@
+package strategy
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/entireio/cli/cmd/entire/cli/checkpoint"
+	"github.com/entireio/cli/cmd/entire/cli/checkpoint/id"
+	"github.com/entireio/cli/cmd/entire/cli/session"
+
+	"github.com/go-git/go-git/v6"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestHiddenInvariantW1 verifies that content typed into the live session
+// transcript after the last mid-turn commit is scrubbed of secrets before the
+// stop-time pass persists it to the per-checkpoint storage. The live file on
+// disk is raw/untrusted: nothing on the persistence side may assume it was
+// sanitized earlier in the pipeline.
+func TestHiddenInvariantW1(t *testing.T) {
+	dir := setupGitRepo(t)
+	t.Chdir(dir)
+
+	repo, err := git.PlainOpen(dir)
+	require.NoError(t, err)
+
+	s := &ManualCommitStrategy{}
+	sessionID := "hidden-invariant-w1"
+
+	setupSessionWithCheckpoint(t, s, repo, dir, sessionID)
+
+	state, err := s.loadSessionState(context.Background(), sessionID)
+	require.NoError(t, err)
+	state.Phase = session.PhaseActive
+	state.TurnCheckpointIDs = nil
+	require.NoError(t, s.saveSessionState(context.Background(), state))
+
+	// Mid-turn commit → creates a real checkpoint on the metadata ref.
+	commitWithCheckpointTrailer(t, repo, dir, "a1b2c3d4e5f6")
+	require.NoError(t, s.PostCommit(context.Background()))
+
+	state, err = s.loadSessionState(context.Background(), sessionID)
+	require.NoError(t, err)
+	require.Len(t, state.TurnCheckpointIDs, 1,
+		"should have 1 real checkpoint ID after the mid-turn commit")
+
+	// After the commit, the user pastes an AWS access key into the chat. It
+	// lands in the live transcript file on disk, which is raw and untrusted.
+	const awsKey = "AKIAYRWQG5EJLPZLBYNP"
+	fullTranscript := `{"type":"human","message":{"content":"build something"}}
+{"type":"assistant","message":{"content":"done building"}}
+{"type":"human","message":{"content":"use key=` + awsKey + ` for the deploy"}}
+{"type":"assistant","message":{"content":"configured"}}
+`
+	transcriptPath := filepath.Join(dir, ".entire", "metadata", sessionID, "full_transcript.jsonl")
+	require.NoError(t, os.MkdirAll(filepath.Dir(transcriptPath), 0o755))
+	require.NoError(t, os.WriteFile(transcriptPath, []byte(fullTranscript), 0o644))
+	state.TranscriptPath = transcriptPath
+	require.NoError(t, s.saveSessionState(context.Background(), state))
+
+	// Turn ends: the stop-time pass replaces each checkpoint's provisional
+	// content with the full live transcript read from disk.
+	require.NoError(t, s.HandleTurnEnd(context.Background(), state))
+
+	store := checkpoint.NewGitStore(repo)
+	cpID := id.MustCheckpointID("a1b2c3d4e5f6")
+	content, readErr := store.ReadSessionContent(context.Background(), cpID, 0)
+	require.NoError(t, readErr, "finalized checkpoint content should be readable")
+
+	stored := string(content.Transcript)
+	assert.Contains(t, stored, "build something",
+		"stop-time pass should persist the full conversation")
+	assert.NotContains(t, stored, awsKey,
+		"raw secret from the live on-disk file must never reach persisted storage")
+	assert.Contains(t, stored, "REDACTED",
+		"the secret must be masked, not silently dropped along with the rest of the line")
+}

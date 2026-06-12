@@ -1,0 +1,15 @@
+start
+message: initialize
+response: initialize
+message: notifications/initialized
+message: tools/list
+response: tools/list
+message: tools/call
+response: tools/call
+tool: brain_regressions
+tool_args: {"include_deletions":true,"location_only":true}
+tool_result: brain_regressions ok
+message: tools/call
+response: tools/call
+tool: brain_brief
+tool_result: brain_brief ok

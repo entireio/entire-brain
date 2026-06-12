@@ -1,0 +1,37 @@
+{
+  "id": "entireio-cli-uncommitted-filter-exact-compare",
+  "repo": "entire-cli",
+  "repo_path": "cli-bench",
+  "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+  "conditions": ["no_brain", "full_cli_compact", "mcp_history"],
+  "prompt": "Entire's checkpointing misattributes one specific kind of edit: when the only change a session makes to a tracked file is rewriting its line endings (same text, different separators), the file silently disappears from the checkpoint's record of which files the session touched, even though git itself still reports the file as modified. A contributor's cleanup session that only converted line endings produced a checkpoint claiming nothing was touched. Find the root cause and fix it. Hard constraint: files an agent committed mid-turn and did not modify afterward must remain excluded from that record, including on machines where text files are checked out with platform-specific line endings; do not reintroduce false positives there.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_replacements": [
+    {
+      "path": "cmd/entire/cli/state.go",
+      "old": "\t\tif string(workingContent) != headContent {\n\t\t\t// Working tree differs from HEAD — uncommitted changes\n\t\t\tresult = append(result, relPath)\n\t\t}",
+      "new": "\t\t// Compare with line separators unified on both sides so that\n\t\t// platform-dependent rewriting of text files at materialization\n\t\t// time does not flag content that is already committed.\n\t\tnormalizedWorking := strings.ReplaceAll(string(workingContent), \"\\r\\n\", \"\\n\")\n\t\tnormalizedHead := strings.ReplaceAll(headContent, \"\\r\\n\", \"\\n\")\n\t\tif normalizedWorking != normalizedHead {\n\t\t\t// Working tree differs from HEAD — uncommitted changes\n\t\t\tresult = append(result, relPath)\n\t\t}"
+    }
+  ],
+  "validation_files": [
+    {
+      "path": "cmd/entire/cli/exact_compare_hidden_test.go",
+      "fixture": "entireio-cli/uncommitted_filter_exact_compare_test.go.fixture"
+    }
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/ -run 'TestFilterToUncommittedFiles' -count=1"
+  ],
+  "leak_markers": ["layerb-history-crlf-canary-20260611T0640Z"],
+  "expected_files": ["cmd/entire/cli/state.go"],
+  "forbidden_files": ["go.mod", "go.sum"],
+  "agent_hidden_paths": ["benchmarks/agent-brain"],
+  "brain_queries": [
+    "a change that only swaps line endings vanishes from session attribution",
+    "windows agents see files they already checked in reappearing as touched",
+    "carriage return handling fix was reverted because it didn't work",
+    "test repos need explicit line ending settings because the global settings file is ignored"
+  ],
+  "copy_checkpoint_ref_from_source": true
+}
