@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "0aeb50a9b74a",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "docs/eval_ledger.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0a/eb50a9b74a/0/metadata.json",
+      "transcript": "/0a/eb50a9b74a/0/full.jsonl",
+      "content_hash": "/0a/eb50a9b74a/0/content_hash.txt",
+      "prompt": "/0a/eb50a9b74a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 74118,
+    "cache_creation_tokens": 3766627,
+    "cache_read_tokens": 351985590,
+    "output_tokens": 673062,
+    "api_call_count": 762
+  }
+}
