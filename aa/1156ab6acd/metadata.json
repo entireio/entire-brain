@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.7.6-nightly.202606090725.7ef77eaf",
+  "checkpoint_id": "aa1156ab6acd",
+  "strategy": "manual-commit",
+  "branch": "pr35-fixes",
+  "checkpoints_count": 5,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/aa/1156ab6acd/0/metadata.json",
+      "transcript": "/aa/1156ab6acd/0/full.jsonl",
+      "content_hash": "/aa/1156ab6acd/0/content_hash.txt",
+      "prompt": "/aa/1156ab6acd/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 99335,
+    "cache_creation_tokens": 4946208,
+    "cache_read_tokens": 394044397,
+    "output_tokens": 812618,
+    "api_call_count": 931
+  }
+}
