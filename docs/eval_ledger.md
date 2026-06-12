@@ -21,6 +21,7 @@ its exact config; the source doc has the repro commands.
 
 | 2026-06-10 | entire-brain live brain, **midtask stratum**: 33 tasks (20 midtask) | substring vs BM25 vs Model2Vec-fused, per stratum | midtask useful/1k: 0.317 / 0.631 / 0.881 — BM25's lift over substring is **smaller on midtask (2.0×)** than on opening concept queries (5.9×), and fusion helps midtask most in relative terms (+40% over BM25). n=20, directional | Mid-session questions are a real, harder stratum; powered confirmation queued on the entire-cli v4 re-scan and the entire.io capstone | this repo (`history-eval-gen --midtask`) |
 | 2026-06-11 | entire-cli v4 index (273k records, 6.2k requests), **1,522 tasks** incl. **632 midtask** | substring vs BM25 vs Model2Vec-fused, per stratum, paired | midtask useful/1k: 0.260 / 0.709 / 0.737. BM25 over substring holds on every stratum (2.7×–5.1×) but is **weakest on midtask (2.7×)**. M2V-fused vs BM25: **overall parity (453W/425L, p=0.34)** — consistent with the three-repo finding — but **positive on the midtask stratum (181W/144L, p=0.040)**: even the weak embedder helps where questions are narrow and in-flight | Item 8 premise confirmed at power: the midtask stratum leans on semantics where opening requests do not. Evaluate retrieval levers against it before shipping hook-path defaults; the Gemma midtask read rides the entire.io capstone batch | this repo (`history-eval-gen` v4) |
+| 2026-06-12 | **capstone**: entire.io v4 (**418k records, 2,584 tasks**, 1,049 midtask) + entire-cli v4 (1,522 tasks, 632 midtask), paired per-task t-tests | BM25 vs Model2Vec-fused vs **EmbeddingGemma-fused**, first read at production scale | entire.io useful/1k: BM25 0.883 / M2V 0.857 / **Gemma 0.998 (+13%, t=7.08)**; precision: Gemma **+0.016 (t=7.68)** while **M2V −0.013 (t=−6.33)** — at 418k records the weak embedder costs significant precision and buys nothing. entire-cli replicates: Gemma +12.5% useful/1k (t=5.09), precision +0.017 (t=6.38); M2V precision **−0.007 (t=−2.84)**, useful/1k parity (t=0.73). Midtask: Gemma beats BM25 on both repos (t=5.19 eio / t=2.06 cli); the 06-11 cli M2V midtask positive does **not** generalize — eio midtask M2V is flat (t=0.33). Third independent ~+13% Gemma read (facts +14%, three-repo history +14%, capstone +13%/+12.5%) | **Item 9 verdict: ship the history fused arm gated on a configured Gemma-class embedder; Model2Vec fusion on history is a closed negative at scale.** BM25 stays the no-embedder default. (Substring arm abandoned mid-run: its per-task re-scoring is O(tasks×records) — 6.5h without finishing at this scale; its baseline is already established at 2.7–5.1× on three repos) | this repo (`history-eval`); artifacts in `~/.entire-brain-eval/` (regenerable) |
 
 ## Closed negatives — do not re-litigate without new evidence
 
@@ -41,6 +42,11 @@ new measurements, never by forgetting why they closed.
   regressed precision; BM25 is the fix, not gate tuning.
 - **Scoped-floor (recall floor via backfill facts):** dead end; backfill facts
   don't help.
+- **Model2Vec fusion on history:** significantly *worse* than BM25 on precision
+  at production scale (t=−6.33 on 418k-record entire.io, t=−2.84 on entire-cli;
+  2026-06-12 capstone), with no useful/1k gain. The 06-11 midtask positive was a
+  sign-test artifact that didn't generalize. History fusion requires a
+  Gemma-class embedder; do not enable it with the built-in M2V.
 
 ## Adding a row
 
