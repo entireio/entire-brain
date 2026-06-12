@@ -1142,27 +1142,27 @@ branches dirty under --force?"). Tune retrieval for the actual workload.
 - Re-run the ranking levers (cutoff, fused arm) against that stratum before
   shipping hook-path defaults.
 
-### 9. Gemma-Fused History Arm In Production (Phase 2 Capstone)
+### 9. Gemma-Fused History Arm In Production (Phase 2 Capstone) — SHIPPED 2026-06-12
 
-Measured 2026-06-10 (see `docs/eval_ledger.md`): on entire-cli (882 tasks,
-267k records) EmbeddingGemma-fused beat the shipped BM25 history ranker by
-**+14% useful/1k (sign test p=0.00075)**, while Model2Vec-fused measured
-parity — the history semantic arm is validated *with the transformer
-embedder only*. Production wiring is deliberately last: it depends on
-infrastructure the earlier items don't.
+The validation gate passed (capstone row in `docs/eval_ledger.md`,
+2026-06-12): on entire.io (418k records, 2,584 tasks) Gemma-fused beat BM25
+by **+13% useful/1k (t=7.08)** and replicated on entire-cli v4 (+12.5%,
+t=5.09), while Model2Vec-fused measured significantly *below* BM25 on
+precision (t=−6.33) — M2V-on-history is a closed negative. Production wiring
+landed as designed:
 
-- Persist history vectors (query-time embedding of a 267k-record index is
-  not viable): a derived, rebuildable history vector store, incremental on
-  refresh — naturally the vec0 store under `brain_cgo`, converging with the
-  Stage 1b fact-vector store.
-- Gate the fused arm on a configured AND reachable Gemma embedder
-  (`ENTIRE_BRAIN_EMBEDDER=ollama` today; the in-process runner when it
-  lands); BM25-only remains the default and the fallback.
-- **Additional validation gate before shipping:** re-run the four-arm
-  history eval on the `entire.io` brain (TypeScript, different domain;
-  brain distill in progress as of 2026-06-10) once its build completes —
-  a fourth repo confirming the +14% generalizes beyond Go codebases, per
-  the multi-repo discipline the facts-layer Gemma decision used.
+- History vectors persist in the vec0 store (`history/embeddings/
+  vectors.sqlite`, brain_cgo only) with incremental upsert/prune writes,
+  synced by a `history vectors` refresh stage that appears only under the
+  `ENTIRE_BRAIN_EMBEDDER` opt-in; an interrupted backfill resumes.
+- The fused arm is gated on a fusion-eligible embedder (the
+  `historyFusionEligible` marker — implemented by the external
+  ollama/EmbeddingGemma embedder, deliberately never by Model2Vec); BM25-only
+  remains the default and the fallback (`history_vec.go`).
+- Wired surfaces: `query` (hybrid) fuses the history semantic list via the
+  global RRF merge, `vsearch` includes history behind the gate, and `brief`'s
+  history context uses the fused ranking — the midtask stratum it serves is
+  where fusion measured strongest.
 
 ## Phase 3: Shared And Distributed Brain
 

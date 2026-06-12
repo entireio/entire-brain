@@ -164,7 +164,7 @@ facts, indexed history, and docs — and return ids you can fetch in full:
 ```sh
 entire brain query "how does checkpointing work" --json   # hybrid (lexical + vector, RRF) — the default
 entire brain search "checkpoint" --json                   # lexical keyword (facts + BM25 history/docs)
-entire brain vsearch "preventing data races" --json       # vector / semantic (facts + docs)
+entire brain vsearch "preventing data races" --json       # vector / semantic (facts + docs; + history with a Gemma-class embedder)
 entire brain get fact:<id> --json                         # fetch one item by id (fact:… | history:… | doc:…)
 entire brain multi-get fact:<id> doc:<id> --json          # fetch several by id
 ```

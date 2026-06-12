@@ -510,7 +510,7 @@ Retrieval (qmd-inspired verbs; search/vsearch/query take --json/--format json|cl
 get/multi-get take --json/--format json|cli/--branch):
   entire brain query "<query>" --json       # hybrid (lexical+vector, RRF) — the default
   entire brain search "<query>" --json      # lexical keyword over facts + history + docs (BM25 for history/docs)
-  entire brain vsearch "<query>" --json     # vector/semantic over facts + docs
+  entire brain vsearch "<query>" --json     # vector/semantic over facts + docs (+ history with a Gemma-class embedder)
   entire brain get <id> --json              # fetch one item by id (fact:… | history:… | doc:…)
   entire brain multi-get <id>... --json     # fetch several by id
 
@@ -908,7 +908,12 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
 		} else {
 			var indexedMatches []brainTextMatch
-			if scored, ok := rankHistoryViaFTS(status.Brain.Path, index, "history", task, briefOpts.limit); ok {
+			// rankHistoryFused is rankHistoryViaFTS unless the history fusion
+			// gate is open (fusion-eligible embedder + refresh-built vec0
+			// vectors), in which case the brief's history context gets the
+			// capstone-validated fused ranking — the midtask stratum this
+			// surface serves is exactly where fusion measured strongest.
+			if scored, ok := rankHistoryFused(status.Brain.Path, index, "history", task, briefOpts.limit, defaultEmbedder()); ok {
 				for _, s := range scored {
 					indexedMatches = append(indexedMatches, historyRecordTextMatch(s.Record))
 				}

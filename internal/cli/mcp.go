@@ -250,7 +250,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_vsearch",
-			"description": "Vector (semantic) search across the brain's facts and docs — conceptual/paraphrased queries.",
+			"description": "Vector (semantic) search across the brain's facts and docs (and history when a Gemma-class embedder is configured) — conceptual/paraphrased queries.",
 			"inputSchema": objectSchema([]string{"query"}, retrievalArgs()),
 		},
 		{

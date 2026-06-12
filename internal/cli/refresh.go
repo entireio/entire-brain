@@ -225,6 +225,43 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	} else if refreshOpts.historyIndex {
 		progress.Skip(refreshHistoryLabel(existingHistorySource(manifest)))
 	}
+	// History vectors: the persisted semantic arm behind the fusion gate (see
+	// history_vec.go). The stage exists only when the user has opted into an
+	// external embedder — without ENTIRE_BRAIN_EMBEDDER there is no line at
+	// all, so the default refresh output is unchanged. The first sync of a
+	// large repo embeds every record (potentially hours, one HTTP embed at a
+	// time); progress is batched to disk, so interrupting and re-running
+	// refresh resumes rather than restarts.
+	if refreshOpts.historyIndex && strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")) != "" &&
+		manifest != nil && manifest.Sources != nil && manifest.Sources.History != nil {
+		e := historySemanticEmbedder(defaultEmbedder())
+		store, storeOK := historyVectorStoreFor(brainDir, e)
+		switch {
+		case e == nil:
+			// Opt-in set but not honored (server unreachable → Model2Vec
+			// fallback, which is a closed negative on history). defaultEmbedder
+			// already printed the fallback warning.
+			progress.Skip("history vectors: embed server unavailable")
+		case !storeOK:
+			progress.Skip("history vectors: requires the brain_cgo build")
+		default:
+			vecTask := progress.Begin("history vectors")
+			index, ierr := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+			if ierr != nil {
+				vecTask.Finish(ierr)
+				return ierr
+			}
+			added, droppedVecs, total, serr := syncHistoryVectors(store, index, e, func(done, totalNew int) {
+				vecTask.Update(fmt.Sprintf("history vectors: %d/%d new %s embedded", done, totalNew, pluralUnit("record", totalNew)))
+			})
+			if serr != nil {
+				vecTask.Finish(serr)
+				return serr
+			}
+			vecTask.Update(fmt.Sprintf("history vectors: %d embedded, %d pruned (%d total)", added, droppedVecs, total))
+			vecTask.Finish(nil)
+		}
+	}
 	// Doc index: retrievable chunks of the brain's own markdown (seed summaries
 	// + copied repo docs). It derives from seed, not history, so gate it on its own
 	// inputs — rebuild when seed ran, when the docs source is missing, on --force,

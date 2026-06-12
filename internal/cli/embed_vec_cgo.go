@@ -183,6 +183,210 @@ func (s *vecStore) savePresent(vecs map[string][]float32, present map[string]str
 	return tx.Commit()
 }
 
+// historyVecStore is the vec0 store for history record vectors, at
+// history/embeddings/vectors.sqlite (history is repo-level, so no branch in
+// the path). It shares vecStore's regenerable-cache semantics but not its
+// write strategy: savePresent's full rewrite is sized for hundreds of facts,
+// while a large repo's history holds hundreds of thousands of records — so
+// every write here is an incremental upsert/delete and the present set is
+// never rewritten.
+type historyVecStore struct {
+	path    string
+	modelID string
+	dim     int
+}
+
+// newHistoryVectorStore on the brain_cgo build returns the vec0-backed history
+// store. There is deliberately no pure-Go fallback (see embed_vec_purego.go).
+func newHistoryVectorStore(brainDir, modelID string, dim int) (historyVectorStore, bool) {
+	dir := filepath.Join(brainDir, historyDirName, embedStoreDirName)
+	return &historyVecStore{path: filepath.Join(dir, vecStoreFileName), modelID: modelID, dim: dim}, true
+}
+
+func (s *historyVecStore) open() (*sql.DB, error) {
+	return (&vecStore{path: s.path}).open()
+}
+
+func (s *historyVecStore) metaMatches(db *sql.DB) bool {
+	return (&vecStore{path: s.path, modelID: s.modelID, dim: s.dim}).metaMatches(db)
+}
+
+// ensure makes the store writable for this model+dim: a fresh schema when the
+// file is new, a drop-and-recreate when the on-disk meta mismatches (a model
+// or dim change alters the vec0 column declaration, and the old vectors are
+// another model's cache — useless, not migratable).
+func (s *historyVecStore) ensure(db *sql.DB) error {
+	if s.metaMatches(db) {
+		return nil
+	}
+	ddl := []string{
+		`DROP TABLE IF EXISTS vec_history`,
+		`DROP TABLE IF EXISTS history_ids`,
+		`CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)`,
+		fmt.Sprintf(`CREATE VIRTUAL TABLE vec_history USING vec0(embedding float[%d] distance_metric=cosine)`, s.dim),
+		`CREATE TABLE history_ids(rowid INTEGER PRIMARY KEY, record_id TEXT UNIQUE NOT NULL)`,
+	}
+	for _, stmt := range ddl {
+		if _, err := db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	for _, kv := range [][2]string{{"model_id", s.modelID}, {"dim", strconv.Itoa(s.dim)}} {
+		if _, err := db.Exec(`INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, kv[0], kv[1]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *historyVecStore) ids() (map[string]struct{}, bool) {
+	if _, err := os.Stat(s.path); err != nil {
+		return nil, false
+	}
+	db, err := s.open()
+	if err != nil {
+		return nil, false
+	}
+	defer db.Close()
+	if !s.metaMatches(db) {
+		return nil, false
+	}
+	rows, err := db.Query(`SELECT record_id FROM history_ids`)
+	if err != nil {
+		return nil, false
+	}
+	defer rows.Close()
+	out := map[string]struct{}{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, false
+		}
+		out[id] = struct{}{}
+	}
+	if rows.Err() != nil {
+		return nil, false
+	}
+	return out, true
+}
+
+func (s *historyVecStore) upsert(add map[string][]float32, drop []string) error {
+	db, err := s.open()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if err := s.ensure(db); err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, id := range drop {
+		var rowid int64
+		err := tx.QueryRow(`SELECT rowid FROM history_ids WHERE record_id = ?`, id).Scan(&rowid)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM vec_history WHERE rowid = ?`, rowid); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM history_ids WHERE rowid = ?`, rowid); err != nil {
+			return err
+		}
+	}
+	var next int64
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(rowid), 0) FROM history_ids`).Scan(&next); err != nil {
+		return err
+	}
+	for id, vec := range add {
+		if len(vec) != s.dim {
+			continue // wrong-dim vector: skip, as the facts stores do
+		}
+		// Re-adding a known id is a no-op, not a duplicate row: ids are
+		// content-addressed, so the stored vector is already this vector.
+		var existing int64
+		switch err := tx.QueryRow(`SELECT rowid FROM history_ids WHERE record_id = ?`, id).Scan(&existing); err {
+		case nil:
+			continue
+		case sql.ErrNoRows:
+		default:
+			return err
+		}
+		blob, err := sqlitevec.SerializeFloat32(vec)
+		if err != nil {
+			return err
+		}
+		next++
+		if _, err := tx.Exec(`INSERT INTO history_ids(rowid, record_id) VALUES (?, ?)`, next, id); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO vec_history(rowid, embedding) VALUES (?, ?)`, next, blob); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// vec0KnnMaxK is sqlite-vec's MATCH k ceiling: a KNN with k above it errors,
+// which read as "no semantic arm" until the history store (the first corpus
+// big enough to hit it) made the cap explicit. Top-k requests clamp to it.
+const vec0KnnMaxK = 4096
+
+// knnCos mirrors vecStore.knnCos over the history tables, but top-k instead
+// of all-rows: cosine similarity for the k nearest record ids, ok=false on
+// any miss.
+func (s *historyVecStore) knnCos(qvec []float32, k int) (map[string]float64, bool) {
+	if len(qvec) != s.dim || k <= 0 {
+		return nil, false
+	}
+	if _, err := os.Stat(s.path); err != nil {
+		return nil, false
+	}
+	db, err := s.open()
+	if err != nil {
+		return nil, false
+	}
+	defer db.Close()
+	if !s.metaMatches(db) {
+		return nil, false
+	}
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM vec_history`).Scan(&count); err != nil || count == 0 {
+		return nil, false
+	}
+	k = min(k, count, vec0KnnMaxK)
+	qblob, err := sqlitevec.SerializeFloat32(qvec)
+	if err != nil {
+		return nil, false
+	}
+	rows, err := db.Query(
+		`SELECT h.record_id, v.distance FROM vec_history v JOIN history_ids h ON h.rowid = v.rowid WHERE v.embedding MATCH ? AND k = ?`,
+		qblob, k)
+	if err != nil {
+		return nil, false
+	}
+	defer rows.Close()
+	out := make(map[string]float64, count)
+	for rows.Next() {
+		var id string
+		var dist float64
+		if err := rows.Scan(&id, &dist); err != nil {
+			return nil, false
+		}
+		out[id] = 1 - dist // vec0 cosine distance = 1 - cosine similarity
+	}
+	if rows.Err() != nil || len(out) == 0 {
+		return nil, false
+	}
+	return out, true
+}
+
 // knnCos runs one vec0 KNN MATCH over the whole store and returns cosine
 // similarity per fact id — the semantic arm ranks the full candidate set, so
 // k is the store's row count, not a top-k. ok=false on any miss (no store,
