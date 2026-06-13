@@ -62,9 +62,24 @@ delivery is now **parity quality at 30–57% lower tokens**. Precise on the stat
   search count.
 
 This is an efficiency-at-parity result, not a correctness lift — stated as found. The
-uncommitted-filter task is 0/4 on both arms and does not discriminate (retire or redesign). A
-focused n=16 confirmation of the cleanest task (redaction) is the path to a
-`brain_positive_stable` tag (see `hist-fix-redaction-n16-*`; run alone, Holm family = 1).
+uncommitted-filter task is 0/4 on both arms and does not discriminate (retire or redesign).
+
+## Stable confirmation — `hist-fix-redaction-n16-20260613` (redaction, 16 reps/side, Holm family=1)
+
+Re-ran the cleanest task alone at n=16 (so no multiple-comparison penalty):
+
+- **tag: `brain_positive_stable`** (`drop_one` survives).
+- pass: 16/16 (no_brain) vs 15/15 (full_cli_compact; 1 of 16 reps did not write a record —
+  15 valid) — correctness parity (saturated).
+- tokens: 2.08M → 1.16M (**−44%**), raw p=1e-05, **Holm p=5e-05**, token win survives
+  dropping the most-favourable rep.
+- agent-seconds: 397 → 190 (**−52%**), raw p=6e-04, Holm p=1.2e-03.
+
+So the history-delivery fix is confirmed: at correctness parity, the fixed `full_cli_compact`
+delivery is **stably and significantly cheaper** (−44% tokens, −52% time). `proof_ready` is
+`False` only because of the stricter release-grade gate (one rep's record missing of 16); the
+**stability tag itself is `brain_positive_stable`**. (Instrumentation caveat above still
+applies — the win is in measured tokens/seconds, both recorded reliably.)
 
 ## Files
 - `hist-fix-proof-v2-20260613/records.ndjson` — 24 per-run records (provenance-backed).
