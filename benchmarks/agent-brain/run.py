@@ -728,6 +728,9 @@ def run_config_provenance(
         "env_flags": {
             "BENCH_REGRESSION_RADAR": os.environ.get("BENCH_REGRESSION_RADAR"),
             "BENCH_RADAR_LOCATION_ONLY": os.environ.get("BENCH_RADAR_LOCATION_ONLY"),
+            # Recorded so a captured run (which runs an extra diagnostic brief subprocess) is
+            # distinguishable from an un-instrumented one in records.ndjson provenance.
+            "ENTIRE_BENCH_CAPTURE_BRIEF": os.environ.get("ENTIRE_BENCH_CAPTURE_BRIEF"),
         },
         "workspace_name": workspace_name if condition == "mcp_workspace_radar" else None,
     }
@@ -1734,11 +1737,15 @@ def capture_brief_packet(
     what the agent runs at BOTH the Python-string layer and the shell layer (no quoting drift).
     Captured ONLY for conditions whose policy actually issues that CLI brief — the explicit
     `CLI_BRIEF_CONDITIONS` set gated on prepare_semantic, NOT a "not mcp_*" proxy: mcp_* conditions
-    use MCP brain_brief and no-semantic runs work from the history-excerpt, so the agent never runs
-    this CLI brief there. The gate must be condition-explicit because the packet lands at run_dir/
+    use MCP brain_brief and no-semantic runs work from seed/excerpt context (full_brain/
+    full_cli_original from .benchmark/brain-history-excerpt.md, full_cli_compact from seed only),
+    never the CLI brief. The gate must be condition-explicit because the packet lands at run_dir/
     — the agent worktree's parent, reachable via `..` — so writing the CLI-brief channel for any
     condition that withholds it (now or a future one) would over-expose a channel the policy denies.
-    Never fails the run."""
+    Caveat: this runs an EXTRA `brief` subprocess (not the agent's own), so on the cgo/sqlite-vec
+    build it can warm the embedding cache; a near-tie at the --limit boundary could in principle
+    rank-flip the agent's later brief. Capture is an off-by-default DIAGNOSTIC, never part of a
+    measured/retained run, so this never affects evidence. Never fails the run."""
     try:
         if str(condition) == "no_brain":
             return  # defense-in-depth: no_brain purity is enforced here, not only at the call site
@@ -1747,8 +1754,8 @@ def capture_brief_packet(
         # The agent issues a CLI `entire brain brief` only on a semantic-available condition whose
         # policy emits {brief_command}. Mirror prompt_for's actual brief-emitting branches via the
         # explicit CLI_BRIEF_CONDITIONS set (mcp_* use MCP brain_brief; no-semantic runs work from
-        # the excerpt). Explicit, not a "not mcp_*" proxy, so a future non-mcp brief-withholding
-        # condition cannot silently get a `..`-reachable packet written.
+        # seed/excerpt context, never the CLI brief). Explicit, not a "not mcp_*" proxy, so a future
+        # non-mcp brief-withholding condition cannot silently get a `..`-reachable packet written.
         agent_runs_cli_brief = semantic_available and str(condition) in CLI_BRIEF_CONDITIONS
         if not agent_runs_cli_brief:
             return  # agent never runs this CLI brief — capturing it would mislead and over-expose
@@ -1758,6 +1765,10 @@ def capture_brief_packet(
         if limit is not None:
             args += ["--limit", str(limit)]
         proc = run_cmd(args, cwd=worktree, env=env, timeout=180)
+        # Bound stdout symmetrically with stderr (an unlimited full_brain/full_cli_original brief can
+        # be hundreds of KB); keep the head (the JSON is most useful from the top) and flag truncation.
+        stdout_cap = 200_000
+        stdout = proc.stdout[:stdout_cap]
         (run_dir / "brief-packet.json").write_text(
             json.dumps(
                 {
@@ -1765,8 +1776,10 @@ def capture_brief_packet(
                     "query": brief_query,
                     "args": args[1:],
                     "agent_runs_cli_brief": agent_runs_cli_brief,
+                    "ok": proc.returncode == 0,  # explicit flag: a non-zero brief is a FAILED capture
                     "returncode": proc.returncode,
-                    "stdout": proc.stdout,
+                    "stdout": stdout,
+                    "stdout_truncated": len(proc.stdout) > stdout_cap,
                     "stderr_tail": proc.stderr[-2000:],
                 },
                 indent=2,
@@ -2332,6 +2345,8 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
     # a subprocess argv element (no shell) — so both channels deliver an identical query.
     brief_query_sh = shlex.quote(brief_query)
     brief_command = f'entire brain brief {brief_query_sh} --json{brief_limit}'
+    # opus_brief_command is emitted ONLY in the full_cli_compact + is_opus branch below, so the
+    # limit is correctly pinned to that condition's policy (the literal is intentional, not drift).
     opus_brief_command = f'entire brain brief {brief_query_sh} --json --limit {brain_brief_limit("full_cli_compact", is_opus=True)}'
     top_level_entire_guard = (
         "Do not run top-level `entire doctor`, `entire status`, `entire session`, "
@@ -2389,7 +2404,7 @@ Hard stop: call each MCP tool AT MOST ONCE, do NOT call `brain_query`/`brain_con
         # right, verification reuses the same file-open the agent must do to edit (a code-path
         # argument — marginal reasoning tokens, not an extra round; not A/B-measured vs the old
         # policy); when wrong, it is the rescue that fixes the net-harmful history case.
-        policy = f"""Use the full Entire Brain before editing. Your first context command must be `{opus_brief_command}` — a deliberately compact packet. Work in this order: (1) read the top session-history hits and name the EXACT broken invariant — the specific expression, value, or behavior this regression changed; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing — open it and confirm the broken behavior is present there; (3) if it does NOT, the invariant decides the file, not the ranking — check the next `likely_edit_files` candidate or run at most ONE targeted `rg` for the invariant, then edit the file that truly contains it. Apply the minimal fix, run exactly one `likely_test_files` test, then finish. The history hits are the authority; `likely_edit_files` is a hint that can be wrong. Do NOT re-run brief or inspect checkpoint/session files, and keep `rg`/`grep`/`find` to at most 2 targeted searches. Your context window is a finite budget — stop once the fix validates. Useful query terms: {queries}. {top_level_entire_guard}"""
+        policy = f"""Use the full Entire Brain before editing. Your first context command must be `{opus_brief_command}` — a deliberately compact packet. Work in this order: (1) read the top session-history hits and name the EXACT broken invariant — the specific expression, value, or behavior this regression changed; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing — open it and confirm the broken behavior is present there; (3) if it does NOT, the invariant decides the file, not the ranking — open at most ONE additional `likely_edit_files` candidate or run at most ONE targeted `rg` for the invariant, then edit the file that truly contains it. Apply the minimal fix, run exactly one `likely_test_files` test, then finish. The history hits are the authority; `likely_edit_files` is a hint that can be wrong. Do NOT re-run brief or inspect checkpoint/session files, and keep `rg`/`grep`/`find` to at most 2 targeted searches (at most ONE additional candidate opened). Your context window is a finite budget — stop once the fix validates. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif condition == "full_cli_compact" and semantic_available:
         policy = f"""Use the full Entire Brain before editing. Your first context command must be `{brief_command}`. Work in this order: (1) read the top session-history hits in the JSON and name the EXACT broken invariant — the specific expression, value, or behavior this regression changed; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing — open it and confirm the broken behavior is present there; (3) if it does NOT, the invariant decides the file, not the ranking — check the next `likely_edit_files` candidate or run at most ONE targeted `rg` for the invariant, then edit the file that truly contains it. Apply the minimal fix and run one `likely_test_files` validation command; if a test fails because of unrelated temp-file or project-environment setup, do not spend extra rounds debugging test infrastructure. The history hits are the authority; `likely_edit_files`/`action_checklist` are hints that can be lexically wrong. Hard caps (keep the discipline tight): at most ONE rescue `rg` in step (3), at most ONE additional `likely_edit_files` candidate opened, and at most 2 targeted `rg`/`grep`/`find` total — do not broaden into repo-wide search, do not re-run brief, and do not inspect checkpoint/session files directly. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif semantic_available:

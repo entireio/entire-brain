@@ -480,6 +480,39 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("Do NOT re-run brief", prompt)
         self.assertIn("at most 2 targeted searches", prompt)
         self.assertIn("stop once the fix validates", prompt)
+        # The candidate-walk cap must match the generic branch — an uncapped Opus candidate walk
+        # on a lexical-false-positive task could erode the proven token margin (the only win).
+        self.assertIn("at most ONE additional candidate opened", prompt)
+
+    def test_cli_brief_conditions_match_prompt_for_emission(self):
+        # LOCKSTEP GUARD: capture_brief_packet gates packet-writing on CLI_BRIEF_CONDITIONS, while
+        # prompt_for decides brief emission via an independent if/elif chain. The "cannot drift"
+        # guarantee must be ENFORCED, not just commented: for every condition x semantic x runner,
+        # capture's gate (semantic and condition in CLI_BRIEF_CONDITIONS) must equal whether
+        # prompt_for actually emits the CLI `entire brain brief '...'` command. A new brief-emitting
+        # condition omitted from the set (or vice versa) fails here instead of silently going dark.
+        all_conditions = sorted(
+            run.SEMANTIC_CONDITIONS | run.FULL_HISTORY_CONDITIONS | {"no_brain"}
+        )
+        for cond in all_conditions:
+            for sem in (True, False):
+                for runner_spec in (None, "codex:gpt-5.5:high", "claude:claude-opus-4-8:high"):
+                    runner = run.parse_runner_spec(runner_spec) if runner_spec else None
+                    task = {
+                        "id": "t", "prompt": "Fix it.", "brain_queries": ["q"],
+                        "expected_files": ["a.go"], "validation": ["go test ./..."],
+                        "prepare_semantic": sem,
+                    }
+                    prompt = run.prompt_for(task, cond, runner)
+                    # shlex.quote always single-quotes the (space-bearing) query, so this prefix is
+                    # the reliable marker of an emitted CLI brief (mcp_* emit `brain_brief`, not this).
+                    emits_cli_brief = "entire brain brief '" in prompt
+                    capture_gate = sem and cond in run.CLI_BRIEF_CONDITIONS
+                    self.assertEqual(
+                        emits_cli_brief, capture_gate,
+                        f"{cond}/sem={sem}/{runner_spec}: prompt_for emits_cli_brief={emits_cli_brief} "
+                        f"but capture gate={capture_gate} (CLI_BRIEF_CONDITIONS drift)",
+                    )
 
     def test_no_brain_prompt_forbids_history_artifacts(self):
         prompt = run.prompt_for(
