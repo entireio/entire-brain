@@ -1710,6 +1710,8 @@ def capture_brief_packet(
     parent, reachable via `..`); writing the CLI-brief channel there for an mcp/no-brief run
     would expose a channel the policy withholds. Never fails the run."""
     try:
+        if str(condition) == "no_brain":
+            return  # defense-in-depth: no_brain purity is enforced here, not only at the call site
         is_opus = runner is not None and runner.model in OPUS_COMPACT_MODELS
         semantic_available = task.get("prepare_semantic", True)
         # The agent issues a CLI `entire brain brief` only on a semantic-available CLI condition;

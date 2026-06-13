@@ -384,6 +384,7 @@ class RunnerAndConditionTests(unittest.TestCase):
             ("semantic_brain", generic, True, [], True),
             ("mcp_history", generic, True, None, False),         # agent uses MCP -> no CLI packet (no over-exposure)
             ("full_brain", generic, False, None, False),         # no semantic -> agent works from excerpt
+            ("no_brain", generic, True, None, False),            # defense-in-depth: no_brain never captures
         ]
         old = run.run_cmd
         run.run_cmd = fake_run_cmd

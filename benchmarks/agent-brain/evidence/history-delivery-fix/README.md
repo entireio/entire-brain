@@ -63,6 +63,11 @@ delivery is now **parity quality at 30–57% lower tokens**. Precise on the stat
 
 This is an efficiency-at-parity result, not a correctness lift — stated as found. The
 uncommitted-filter task is 0/4 on both arms and does not discriminate (retire or redesign).
+Note (same honesty as the n=16 section): condense and uncommitted both carry
+`verdict=brain_negative` in this run — condense's composite score is genuinely *lower* under
+the brain (composite 70.25 → 62.25, core 65.25 → 61.0). "Parity" here means **pass-rate
+parity** (3/4 = 3/4, the headline correctness metric); the per-comparison `verdict` field
+(score-delta-driven) is negative, and the win is purely on the efficiency axis (−30% tokens).
 
 **Prep-change coverage (export → `refresh sessions`):** the prep command is a single shared
 code path in `brain_prep_commands` (gated by `condition_prepares_history`, identical for every
