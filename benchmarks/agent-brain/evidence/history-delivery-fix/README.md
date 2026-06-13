@@ -80,7 +80,7 @@ is unavailable) — `refresh sessions` runs clean and simply finds zero sessions
 identically under the old `export`. So the rename is proven; the two unvalidated conditions are
 blocked by data availability, not by the command.
 
-## Stable confirmation — `hist-fix-redaction-n16-20260613` (redaction, 16 reps/side, single task)
+## Stable confirmation — `hist-fix-redaction-n16-20260613` (redaction, 16 reps/side launched; n_baseline=16, n_condition=15, single task)
 
 Re-ran the cleanest task alone at n=16 — a **single task, so no cross-task** multiple-comparison
 penalty (the per-run within-task 6-metric Holm adjustment that report.json records as
