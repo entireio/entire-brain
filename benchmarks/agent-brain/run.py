@@ -3227,7 +3227,6 @@ def run_one(
         brain_state = collect_brain_state(worktree, env, tools) if condition != "no_brain" else {}
         if condition != "no_brain":
             assert_brain_state_ready(task, condition, brain_state)
-            capture_brief_packet(task, condition, runner, worktree, env, tools, run_dir)
         post_brain_changed = apply_post_brain_setup(task, worktree)
         if post_brain_changed:
             record["post_brain_baseline_history_reset"] = reset_agent_history_to_root(
@@ -3242,6 +3241,11 @@ def run_one(
         record["agent_secret_preflight"] = secret_preflight
         if not secret_preflight["ok"]:
             raise RuntimeError(f"agent-visible benchmark secrets failed preflight: {secret_preflight['findings'][:3]}")
+        # Capture the diagnostic brief packet against the SAME worktree state the agent's own
+        # brief will see — i.e. after post-brain setup (which injects the regression for tasks
+        # that defer it) and agent-history reset — so the packet's live-state overlay matches.
+        if condition != "no_brain":
+            capture_brief_packet(task, condition, runner, worktree, env, tools, run_dir)
         prompt = prompt_for(task, condition, runner)
         (run_dir / "prompt.txt").write_text(prompt)
         agent_info = run_agent(
