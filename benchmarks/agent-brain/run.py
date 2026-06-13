@@ -262,10 +262,14 @@ class RunnerSpec:
 
 SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
 FULL_HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mcp_history", "mcp_workspace_radar"}
-# Conditions whose prompt_for policy directs the agent to run `entire brain brief` itself
-# (when prepare_semantic is true). Kept in sync with prompt_for's {brief_command}/
-# {opus_brief_command}-emitting branches; capture_brief_packet mirrors EXACTLY these and nothing
-# else, so a future non-mcp condition that withholds the CLI brief never gets a packet written.
+# Conditions whose prompt_for policy directs the agent to run `entire brain brief` itself (when
+# prepare_semantic is true). test_cli_brief_conditions_match_prompt_for_emission enforces this set
+# equals prompt_for's brief-emitting branches for every REGISTERED condition. Because the gate is a
+# CLOSED set, capture never OVER-captures (it cannot write a `..`-reachable packet for a withholding
+# or mcp_* condition — the security-relevant direction). A new condition added to prompt_for but not
+# here would merely UNDER-capture (no diagnostic packet) until registered — benign for an opt-in
+# diagnostic, and the prompt_for catch-all (elif semantic_available) is the only path that could
+# emit for an unregistered condition.
 CLI_BRIEF_CONDITIONS = {"semantic_brain", "semantic_cli", "full_brain", "full_cli_original", "full_cli_compact"}
 CLI_HISTORY_EXCERPT_CONDITIONS = {"full_brain", "full_cli_original"}
 MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
@@ -1709,7 +1713,13 @@ def brain_brief_query(task: dict[str, Any]) -> str:
     base = task["prompt"].strip()
     queries = ", ".join(task.get("brain_queries", []))
     query = f"{task['id']}: {base[:120]}"
-    return f"{query} | {queries}" if queries else query
+    full = f"{query} | {queries}" if queries else query
+    # Collapse all whitespace (incl. newlines/tabs) to single spaces so the shell-quoted command
+    # the agent runs is always SINGLE-LINE. shlex.quote preserves a newline byte-for-byte inside
+    # single quotes, but a multi-line backtick-wrapped command in the prompt can be mangled when an
+    # agent re-types/issues it (only the first line reaching the brain) — diverging from the
+    # diagnostic packet's subprocess-argv query. Normalizing here keeps both channels identical.
+    return " ".join(full.split())
 
 
 def brain_brief_limit(condition: str, is_opus: bool) -> int | None:
