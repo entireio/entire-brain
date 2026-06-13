@@ -64,22 +64,29 @@ delivery is now **parity quality at 30–57% lower tokens**. Precise on the stat
 This is an efficiency-at-parity result, not a correctness lift — stated as found. The
 uncommitted-filter task is 0/4 on both arms and does not discriminate (retire or redesign).
 
-## Stable confirmation — `hist-fix-redaction-n16-20260613` (redaction, 16 reps/side, Holm family=1)
+## Stable confirmation — `hist-fix-redaction-n16-20260613` (redaction, 16 reps/side, single task)
 
-Re-ran the cleanest task alone at n=16 (so no multiple-comparison penalty):
+Re-ran the cleanest task alone at n=16 — a **single task, so no cross-task** multiple-comparison
+penalty (the per-run within-task 6-metric Holm adjustment that report.json records as
+`n_pvalues_in_family=6` is still applied and is reflected in the Holm p-values below):
 
-- **tag: `brain_positive_stable`** (`drop_one` survives).
+- **stability tag: `brain_positive_stable`** (`drop_one` survives).
 - pass: 16/16 (no_brain) vs 15/15 (full_cli_compact; 1 of 16 reps did not write a record —
-  15 valid) — correctness parity (saturated).
-- tokens: 2.08M → 1.16M (**−44%**), raw p=1e-05, **Holm p=5e-05**, token win survives
-  dropping the most-favourable rep.
-- agent-seconds: 397 → 190 (**−52%**), raw p=6e-04, Holm p=1.2e-03.
+  15 valid) — correctness **parity** (saturated).
+- tokens: 2.08M → 1.16M (**−44%**), raw p=1.1e-05, **Holm p=4.6e-05** (6-metric within-run
+  Holm), survives dropping the most-favourable rep.
+- agent-seconds: 397 → 190 (**−52%**), raw p=6.0e-04, Holm p=1.2e-03.
 
-So the history-delivery fix is confirmed: at correctness parity, the fixed `full_cli_compact`
-delivery is **stably and significantly cheaper** (−44% tokens, −52% time). `proof_ready` is
-`False` only because of the stricter release-grade gate (one rep's record missing of 16); the
-**stability tag itself is `brain_positive_stable`**. (Instrumentation caveat above still
-applies — the win is in measured tokens/seconds, both recorded reliably.)
+**Read this precisely — it is an efficiency win, NOT a quality win.** The comparison's own
+top-line `verdict` field reads **`brain_negative`**, because that field is driven by the
+score/success delta and the score is essentially flat (core score 75.0 → 75.2, success
+1.0 → 1.0 — no correctness lift). The `brain_positive_stable` **stability tag** is awarded on
+the **efficiency axis** (tokens/seconds), which is where the significant, drop-one-stable win
+lives. So the honest one-liner is: *at correctness parity the fixed delivery is stably and
+significantly cheaper (−44% tokens, −52% time); it does not improve correctness.* `proof_ready`
+is `False` (stricter release gate — one rep's record missing of 16, and a `brain_negative`
+verdict). The instrumentation caveat above still applies — the win is in measured
+tokens/seconds, both recorded reliably; the activity counters are not.
 
 ## Files
 - `hist-fix-proof-v2-20260613/records.ndjson` — 24 per-run records (provenance-backed).

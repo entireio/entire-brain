@@ -361,6 +361,47 @@ class RunnerAndConditionTests(unittest.TestCase):
             self.assertNotIn("do not broaden to other files", prompt, label)
             self.assertNotIn("Treat the packet as sufficient", prompt, label)
 
+    def test_capture_brief_packet_mirrors_prompt_for(self):
+        # The diagnostic packet must use the SAME brief command (and --limit) the agent's
+        # policy issues, and must honestly flag whether the agent actually runs a CLI brief.
+        import types
+
+        captured = {}
+
+        def fake_run_cmd(args, **kwargs):
+            captured["args"] = args
+            return types.SimpleNamespace(returncode=0, stdout="{}", stderr="")
+
+        opus = run.parse_runner_spec("claude:claude-opus-4-8:high")
+        generic = run.parse_runner_spec("codex:gpt-5.5:high")
+        tools = {"brain": pathlib.Path("/tmp/entire-brain")}
+        cases = [
+            # (condition, runner, prepare_semantic) -> (expected_limit, agent_runs_cli_brief)
+            ("full_cli_compact", opus, True, ["--limit", "2"], True),
+            ("full_cli_compact", generic, True, ["--limit", "4"], True),
+            ("full_cli_compact", generic, False, [], False),  # no semantic -> prompt_for emits no brief, no --limit
+            ("semantic_brain", generic, True, [], True),
+            ("mcp_history", generic, True, [], False),  # agent uses MCP, not the CLI brief
+            ("full_brain", generic, False, [], False),  # no semantic -> agent works from excerpt
+        ]
+        old = run.run_cmd
+        run.run_cmd = fake_run_cmd
+        try:
+            for cond, runner, prep, exp_limit, exp_flag in cases:
+                with tempfile.TemporaryDirectory() as tmp:
+                    run_dir = pathlib.Path(tmp)
+                    task = {"id": "t", "prompt": "Fix it.", "brain_queries": ["q"], "prepare_semantic": prep}
+                    run.capture_brief_packet(task, cond, runner, run_dir, {}, tools, run_dir)
+                    packet = json.loads((run_dir / "brief-packet.json").read_text())
+                    label = f"{cond}/{runner.model}/sem={prep}"
+                    limit_in = [a for a in captured["args"] if a in ("--limit", "2", "4")]
+                    self.assertEqual(limit_in, exp_limit, label)
+                    self.assertEqual(packet["agent_runs_cli_brief"], exp_flag, label)
+                    # brief query mirrors prompt_for: "<id>: <prompt> | <queries>"
+                    self.assertEqual(packet["query"], "t: Fix it. | q", label)
+        finally:
+            run.run_cmd = old
+
     def test_no_brain_prompt_forbids_history_artifacts(self):
         prompt = run.prompt_for(
             {
