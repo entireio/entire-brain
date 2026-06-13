@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import shlex
 import sys
 import tempfile
 import unittest
@@ -127,7 +128,7 @@ class RunnerAndConditionTests(unittest.TestCase):
         }
         worktree = pathlib.Path("/tmp/worktree")
         commands = run.brain_prep_commands(task, "mcp_workspace_radar", worktree, tools, 200)
-        self.assertEqual(commands[0], ["/tmp/entire-brain", "export", "--checkpoint-limit", "200", "--history-index"])
+        self.assertEqual(commands[0], ["/tmp/entire-brain", "refresh", "sessions", "--checkpoint-limit", "200", "--history-index"])
         self.assertIn(["/tmp/entire-brain", "workspace", "create", "release-radar"], commands)
         self.assertIn(
             ["/tmp/entire-brain", "workspace", "add", "release-radar", "/tmp/worktree", "--name", "entire-cli"],
@@ -325,7 +326,9 @@ class RunnerAndConditionTests(unittest.TestCase):
             "prepare_semantic": True,
         }
         prompt = run.prompt_for(task, "full_cli_original")
-        self.assertIn('entire brain brief "task: Fix the regression. | ExactSymbol, important invariant" --json', prompt)
+        # The query is shell-quoted (shlex.quote) — it has spaces so it is single-quoted, NOT the
+        # old unescaped double-quoted form that let shell metacharacters corrupt the query.
+        self.assertIn("entire brain brief 'task: Fix the regression. | ExactSymbol, important invariant' --json", prompt)
         self.assertIn("Your first context command must be", prompt)
         self.assertIn("prefer `action_checklist`", prompt)
         self.assertIn("Read `.benchmark/brain-history-excerpt.md` only if", prompt)
@@ -333,6 +336,183 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("likely_test_files", prompt)
         self.assertIn("Do not run top-level `entire doctor`", prompt)
         self.assertIn("Do not edit tests unless the task explicitly asks", prompt)
+
+    def test_brief_command_shell_quotes_query_for_metachar_tasks(self):
+        # Release blocker (query corruption): brief_command is run VERBATIM in the agent's shell.
+        # Real task prompts/brain_queries contain backticks and double-quotes (e.g. `--format json`,
+        # ".git"). An unescaped double-quoted query would let the shell command-substitute the
+        # backticks or close the quote early, so the brain receives a mangled query — and the
+        # diagnostic packet (subprocess argv, no shell) would NOT reproduce it. The query must be
+        # shell-quoted so shlex.split recovers the exact literal the brain is meant to see.
+        task = {
+            "id": "github-cli-format-web-conflict",
+            "prompt": 'Fix regression where `--format json` combines with the web flag and ".git" suffix.',
+            "brain_queries": ["`--format json`", 'trim ".git"'],
+            "expected_files": ["pkg/cmd.go"],
+            "validation": ["go test ./..."],
+            "prepare_semantic": True,
+        }
+        expected_query = run.brain_brief_query(task)
+        self.assertIn("`", expected_query)  # the query genuinely contains shell metacharacters
+        self.assertIn('"', expected_query)
+        for runner_spec, exp_limit in ((None, 4), ("claude:claude-opus-4-8:high", 2)):
+            runner = run.parse_runner_spec(runner_spec) if runner_spec else None
+            prompt = run.prompt_for(task, "full_cli_compact", runner)
+            expected_cmd = f"entire brain brief {shlex.quote(expected_query)} --json --limit {exp_limit}"
+            label = runner_spec or "generic"
+            # prompt_for emits exactly the shell-quoted command...
+            self.assertIn(expected_cmd, prompt, label)
+            # ...and never the old unescaped double-quoted form.
+            self.assertNotIn(f'brief "{expected_query}"', prompt, label)
+            # the agent's shell would hand the brain the EXACT literal query (no substitution).
+            self.assertEqual(shlex.split(expected_cmd)[3], expected_query, label)
+
+    def test_full_cli_compact_is_self_correcting_not_blind_trust(self):
+        # Release blocker (history delivery): the compact CLI packet must make the agent VERIFY
+        # the likely_edit_files pointer against the broken invariant, and must NOT force blind
+        # trust ("do not broaden") — that turned a lexically-wrong pointer into a guaranteed
+        # wrong edit (condense task: pickLatestVersion false positive). Applies to both the
+        # generic compact path and the Opus --limit 2 path.
+        task = {
+            "id": "task",
+            "prompt": "Fix the regression.",
+            "brain_queries": ["broken invariant phrase"],
+            "expected_files": ["pkg/file.go"],
+            "validation": ["go test ./..."],
+            "prepare_semantic": True,
+            "hide_expected_from_agent": True,
+            "hide_validation_from_agent": True,
+        }
+        for runner_spec in (None, "claude:claude-opus-4-8:high"):
+            runner = run.parse_runner_spec(runner_spec) if runner_spec else None
+            prompt = run.prompt_for(task, "full_cli_compact", runner)
+            label = runner_spec or "generic"
+            self.assertIn("VERIFY", prompt, label)
+            self.assertIn("invariant", prompt, label)
+            self.assertIn("likely_edit_files", prompt, label)
+            # the blind-trust phrasings that caused the net-harmful result must be gone
+            self.assertNotIn("do not broaden to other files", prompt, label)
+            self.assertNotIn("Treat the packet as sufficient", prompt, label)
+
+    def test_capture_brief_packet_mirrors_prompt_for(self):
+        # The diagnostic packet must use the SAME brief command (and --limit) the agent's
+        # policy issues, and must honestly flag whether the agent actually runs a CLI brief.
+        import types
+
+        captured = {}
+
+        def fake_run_cmd(args, **kwargs):
+            captured["args"] = args
+            captured["cwd"] = kwargs.get("cwd")
+            return types.SimpleNamespace(returncode=0, stdout="{}", stderr="")
+
+        opus = run.parse_runner_spec("claude:claude-opus-4-8:high")
+        generic = run.parse_runner_spec("codex:gpt-5.5:high")
+        tools = {"brain": pathlib.Path("/tmp/entire-brain")}
+        cases = [
+            # (condition, runner, prepare_semantic) -> (expected_limit, packet_written)
+            # The packet is captured ONLY when the agent itself runs that CLI brief.
+            ("full_cli_compact", opus, True, ["--limit", "2"], True),
+            ("full_cli_compact", generic, True, ["--limit", "4"], True),
+            ("full_cli_compact", generic, False, None, False),   # no semantic -> no brief, no packet
+            ("semantic_brain", generic, True, [], True),
+            ("mcp_history", generic, True, None, False),         # agent uses MCP -> no CLI packet (no over-exposure)
+            ("full_brain", generic, False, None, False),         # no semantic -> agent works from excerpt
+            ("no_brain", generic, True, None, False),            # defense-in-depth: no_brain never captures
+        ]
+        old = run.run_cmd
+        run.run_cmd = fake_run_cmd
+        try:
+            for cond, runner, prep, exp_limit, written in cases:
+                captured.clear()
+                with tempfile.TemporaryDirectory() as tmp:
+                    run_dir = pathlib.Path(tmp)
+                    worktree = run_dir / "worktree"  # distinct from run_dir, so an arg swap is catchable
+                    worktree.mkdir()
+                    task = {"id": "t", "prompt": "Fix it.", "brain_queries": ["q"], "prepare_semantic": prep}
+                    run.capture_brief_packet(task, cond, runner, worktree, {}, tools, run_dir)
+                    label = f"{cond}/{runner.model}/sem={prep}"
+                    packet_path = run_dir / "brief-packet.json"
+                    if not written:
+                        # skipped conditions: no brief run, no packet file
+                        self.assertNotIn("args", captured, label)
+                        self.assertFalse(packet_path.exists(), label)
+                        continue
+                    # the brief must run in the worktree (the agent's cwd), and the packet must
+                    # land in run_dir — a swap of the two args would fail one of these.
+                    self.assertEqual(captured["cwd"], worktree, label)
+                    self.assertTrue(packet_path.exists() and not (worktree / "brief-packet.json").exists(), label)
+                    packet = json.loads(packet_path.read_text())
+                    self.assertTrue(packet["agent_runs_cli_brief"], label)
+                    # --limit must be POSITIONAL (flag immediately followed by its value) and equal
+                    # brain_brief_limit — NOT a hardcoded {2,4} membership filter, which would mask a
+                    # future limit change or a wrong-order/duplicated emission.
+                    args = captured["args"]
+                    limit_pair = args[args.index("--limit"):args.index("--limit") + 2] if "--limit" in args else []
+                    self.assertEqual(limit_pair, exp_limit, label)
+                    expected_limit_val = run.brain_brief_limit(cond, runner.model in run.OPUS_COMPACT_MODELS)
+                    self.assertEqual(
+                        limit_pair,
+                        ["--limit", str(expected_limit_val)] if expected_limit_val is not None else [],
+                        label,
+                    )
+                    self.assertEqual(packet["query"], "t: Fix it. | q", label)
+                    self.assertEqual(args[2], packet["query"], label)
+                    # MIRROR INVARIANT (the point of the shared helpers + shlex.quote): the command
+                    # the agent is told to run must shell-quote back to the SAME query the diagnostic
+                    # captured. This is exactly what the unescaped-double-quote bug broke.
+                    agent_prompt = run.prompt_for(task, cond, runner)
+                    self.assertIn(f"entire brain brief {shlex.quote(packet['query'])} --json", agent_prompt, label)
+        finally:
+            run.run_cmd = old
+
+    def test_opus_cli_compact_pins_token_discipline(self):
+        # The opus full_cli_compact CLI path's anti-spiral strings are the mechanism behind the
+        # proven efficiency win; pin them so a future edit can't silently drop them (the generic
+        # branch is already pinned by test_compact_full_brain_prompt_has_no_raw_excerpt).
+        task = {
+            "id": "t", "prompt": "Fix it.", "brain_queries": ["q"],
+            "expected_files": ["a.go"], "validation": ["go test ./..."],
+            "prepare_semantic": True, "hide_expected_from_agent": True, "hide_validation_from_agent": True,
+        }
+        prompt = run.prompt_for(task, "full_cli_compact", run.parse_runner_spec("claude:claude-opus-4-8:high"))
+        self.assertIn("--limit 2", prompt)
+        self.assertIn("Do NOT re-run brief", prompt)
+        self.assertIn("at most 2 targeted searches", prompt)
+        self.assertIn("stop once the fix validates", prompt)
+        # The candidate-walk cap must match the generic branch — an uncapped Opus candidate walk
+        # on a lexical-false-positive task could erode the proven token margin (the only win).
+        self.assertIn("at most ONE additional candidate opened", prompt)
+
+    def test_cli_brief_conditions_match_prompt_for_emission(self):
+        # LOCKSTEP GUARD: capture_brief_packet gates packet-writing on CLI_BRIEF_CONDITIONS, while
+        # prompt_for decides brief emission via an independent if/elif chain. The "cannot drift"
+        # guarantee must be ENFORCED, not just commented: for every condition x semantic x runner,
+        # capture's gate (semantic and condition in CLI_BRIEF_CONDITIONS) must equal whether
+        # prompt_for actually emits the CLI `entire brain brief '...'` command. A new brief-emitting
+        # condition omitted from the set (or vice versa) fails here instead of silently going dark.
+        all_conditions = sorted(
+            run.SEMANTIC_CONDITIONS | run.FULL_HISTORY_CONDITIONS | {"no_brain"}
+        )
+        for cond in all_conditions:
+            for sem in (True, False):
+                for runner_spec in (None, "codex:gpt-5.5:high", "claude:claude-opus-4-8:high"):
+                    runner = run.parse_runner_spec(runner_spec) if runner_spec else None
+                    task = {
+                        "id": "t", "prompt": "Fix it.", "brain_queries": ["q"],
+                        "expected_files": ["a.go"], "validation": ["go test ./..."],
+                        "prepare_semantic": sem,
+                    }
+                    prompt = run.prompt_for(task, cond, runner)
+                    # shlex.quote always single-quotes the (space-bearing) query, so this prefix is
+                    # the reliable marker of an emitted CLI brief (mcp_* emit `brain_brief`, not this).
+                    emits_cli_brief = "entire brain brief '" in prompt
+                    capture_gate = sem and cond in run.CLI_BRIEF_CONDITIONS
+                    self.assertEqual(
+                        emits_cli_brief, capture_gate,
+                        f"{cond}/sem={sem}/{runner_spec}: prompt_for emits_cli_brief={emits_cli_brief} "
+                        f"but capture gate={capture_gate} (CLI_BRIEF_CONDITIONS drift)",
+                    )
 
     def test_no_brain_prompt_forbids_history_artifacts(self):
         prompt = run.prompt_for(
@@ -359,12 +539,15 @@ class RunnerAndConditionTests(unittest.TestCase):
             },
             "full_cli_compact",
         )
-        self.assertIn("treat `action_checklist` as the first-pass current-code inventory", prompt)
+        # Compact CLI keeps its tight packet (--limit 4) and provides no raw history excerpt
+        # file — the agent works from the brief's history hits, not a checkpoint dump.
         self.assertIn("--json --limit 4", prompt)
-        self.assertIn("Avoid broad `rg`/`grep`/`find` unless", prompt)
-        self.assertIn("Prefer `likely_test_files` for one focused validation command", prompt)
-        self.assertIn("provides no raw history excerpt", prompt)
-        self.assertIn("do not inspect checkpoint/session files directly", prompt)
+        self.assertIn("session-history hits", prompt)
+        self.assertIn("at most 2 targeted `rg`/`grep`/`find` total", prompt)
+        self.assertIn("do not broaden into repo-wide search", prompt)
+        self.assertIn("likely_test_files", prompt)
+        self.assertNotIn("brain-history-excerpt.md", prompt)
+        self.assertIn("do not re-run brief, and do not inspect checkpoint/session files directly", prompt)
 
     def test_apply_task_env_prepends_path_prefix(self):
         env = run.apply_task_env({"PATH": "/usr/bin"}, {"path_prefix": "/node24/bin"})
