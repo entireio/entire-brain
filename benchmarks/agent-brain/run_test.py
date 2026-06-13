@@ -127,7 +127,7 @@ class RunnerAndConditionTests(unittest.TestCase):
         }
         worktree = pathlib.Path("/tmp/worktree")
         commands = run.brain_prep_commands(task, "mcp_workspace_radar", worktree, tools, 200)
-        self.assertEqual(commands[0], ["/tmp/entire-brain", "export", "--checkpoint-limit", "200", "--history-index"])
+        self.assertEqual(commands[0], ["/tmp/entire-brain", "refresh", "sessions", "--checkpoint-limit", "200", "--history-index"])
         self.assertIn(["/tmp/entire-brain", "workspace", "create", "release-radar"], commands)
         self.assertIn(
             ["/tmp/entire-brain", "workspace", "add", "release-radar", "/tmp/worktree", "--name", "entire-cli"],
