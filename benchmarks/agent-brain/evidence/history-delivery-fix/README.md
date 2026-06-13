@@ -38,13 +38,13 @@ Two bugs were behind it:
 | task | before | after (brain vs no_brain) | tokens |
 |---|---|---|---|
 | condense-drops-latest-turn | 2/4 vs 4/4 (harmful) | **3/4 vs 3/4 parity** | 6.79M vs 9.65M (**−30%**, raw p=0.036) |
-| finalize-redaction-raw-live | 2/4 vs 4/4 (harmful) | **4/4 vs 4/4 parity** | 0.97M vs 2.27M (**−57%**, raw token p=0.053; secs p=0.0499) |
+| finalize-redaction-raw-live | 2/4 vs 4/4 (harmful) | **4/4 vs 4/4 parity** | 0.97M vs 2.27M (**−57%**, raw token p=0.052; secs p=0.0499) |
 | uncommitted-filter-exact-compare | 0/4 vs 0/4 | 0/4 vs 0/4 (non-discriminating) | 0.93M vs 2.23M (−58%) |
 
 **Honest reading:** the net-harm is **eliminated** on both discriminating tasks — history
 delivery is now **parity quality at 30–57% lower tokens**. Precise on the statistics:
 
-- **condense** token win raw p=0.036 (`<0.05`); **redaction** token raw p=0.053 (just over
+- **condense** token win raw p=0.036 (`<0.05`); **redaction** token raw p=0.052 (just over
   0.05) but its agent-seconds win is raw p=0.0499 (`<0.05`). So "raw-significant" holds for
   condense's tokens and redaction's seconds — not a blanket claim across every metric.
 - None survive Holm correction across the 3-task family at n=4, so the stability gate
@@ -91,3 +91,5 @@ tokens/seconds, both recorded reliably; the activity counters are not.
 ## Files
 - `hist-fix-proof-v2-20260613/records.ndjson` — 24 per-run records (provenance-backed).
 - `hist-fix-proof-v2-20260613/report.json` — stability gate output (Welch + Holm p-values, CV, tags).
+- `hist-fix-redaction-n16-20260613/records.ndjson` — 31 per-run records (16 no_brain + 15 valid full_cli_compact, provenance-backed).
+- `hist-fix-redaction-n16-20260613/report.json` — n=16 stability gate output (the `brain_positive_stable` tag + Holm p-values).
