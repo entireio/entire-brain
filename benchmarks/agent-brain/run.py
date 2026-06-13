@@ -1739,23 +1739,21 @@ def capture_brief_packet(
     tools: dict[str, pathlib.Path],
     run_dir: pathlib.Path,
 ) -> None:
-    """Best-effort diagnostic (OPT-IN — only called when ENTIRE_BENCH_CAPTURE_BRIEF=1, see the
-    call site): dump the brain's `brief --json` output into the run dir so delivery can be
-    diagnosed from the actual packet. Uses the shared brain_brief_query/brain_brief_limit helpers,
-    and because prompt_for shell-quotes that same query (shlex.quote), the agent's shell-issued
-    brief and this subprocess-argv brief deliver an IDENTICAL literal query — the packet mirrors
-    what the agent runs at BOTH the Python-string layer and the shell layer (no quoting drift).
-    Captured ONLY for conditions whose policy actually issues that CLI brief — the explicit
-    `CLI_BRIEF_CONDITIONS` set gated on prepare_semantic, NOT a "not mcp_*" proxy: mcp_* conditions
-    use MCP brain_brief and no-semantic runs work from seed/excerpt context (full_brain/
-    full_cli_original from .benchmark/brain-history-excerpt.md, full_cli_compact from seed only),
-    never the CLI brief. The gate must be condition-explicit because the packet lands at run_dir/
-    — the agent worktree's parent, reachable via `..` — so writing the CLI-brief channel for any
-    condition that withholds it (now or a future one) would over-expose a channel the policy denies.
-    Caveat: this runs an EXTRA `brief` subprocess (not the agent's own), so on the cgo/sqlite-vec
-    build it can warm the embedding cache; a near-tie at the --limit boundary could in principle
-    rank-flip the agent's later brief. Capture is an off-by-default DIAGNOSTIC, never part of a
-    measured/retained run, so this never affects evidence. Never fails the run."""
+    """Best-effort, OPT-IN diagnostic (only called when ENTIRE_BENCH_CAPTURE_BRIEF=1): dump the
+    brain's `brief --json` packet into the run dir so a delivery failure can be diagnosed from the
+    real packet. Uses the shared brain_brief_query/brain_brief_limit helpers, so the captured query
+    matches the one prompt_for shell-quotes for the agent (see the shlex.quote note in prompt_for).
+
+    Security-relevant gate: brief-packet.json lands at run_dir/ — the agent worktree's PARENT,
+    reachable via `..` — so it is written ONLY for conditions whose policy actually issues the CLI
+    brief (the explicit CLI_BRIEF_CONDITIONS set, gated on prepare_semantic; see that set's comment).
+    Writing it for a condition that withholds the CLI brief (mcp_* or no-semantic) would over-expose
+    a channel the policy denies.
+
+    Caveat: this runs an EXTRA `brief` subprocess (not the agent's own); on the cgo/sqlite-vec build
+    it can warm the embedding cache and, at a --limit boundary, rank-flip the agent's later brief. It
+    is off by default and never part of a retained/measured run, so it never affects evidence. Never
+    fails the run."""
     try:
         if str(condition) == "no_brain":
             return  # defense-in-depth: no_brain purity is enforced here, not only at the call site
