@@ -1596,7 +1596,8 @@ def brain_prep_commands(task: dict[str, Any], condition: str, worktree: pathlib.
     if task.get("prepare_semantic", True):
         commands.append([str(tools["brain"]), "refresh", "index", str(worktree), "--sem-binary", str(tools["entire"]), "--force"])
     if condition_prepares_history(condition):
-        commands.insert(0, [str(tools["brain"]), "export", "--checkpoint-limit", str(checkpoint_limit), "--history-index"])
+        # `export` moved under `refresh sessions` (PR #40 export-under-refresh); same flags.
+        commands.insert(0, [str(tools["brain"]), "refresh", "sessions", "--checkpoint-limit", str(checkpoint_limit), "--history-index"])
     if condition == "mcp_workspace_radar":
         workspace = benchmark_workspace_name(task)
         repo_name = str(task.get("repo") or "repo")
