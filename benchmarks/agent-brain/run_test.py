@@ -370,6 +370,7 @@ class RunnerAndConditionTests(unittest.TestCase):
 
         def fake_run_cmd(args, **kwargs):
             captured["args"] = args
+            captured["cwd"] = kwargs.get("cwd")
             return types.SimpleNamespace(returncode=0, stdout="{}", stderr="")
 
         opus = run.parse_runner_spec("claude:claude-opus-4-8:high")
@@ -393,8 +394,10 @@ class RunnerAndConditionTests(unittest.TestCase):
                 captured.clear()
                 with tempfile.TemporaryDirectory() as tmp:
                     run_dir = pathlib.Path(tmp)
+                    worktree = run_dir / "worktree"  # distinct from run_dir, so an arg swap is catchable
+                    worktree.mkdir()
                     task = {"id": "t", "prompt": "Fix it.", "brain_queries": ["q"], "prepare_semantic": prep}
-                    run.capture_brief_packet(task, cond, runner, run_dir, {}, tools, run_dir)
+                    run.capture_brief_packet(task, cond, runner, worktree, {}, tools, run_dir)
                     label = f"{cond}/{runner.model}/sem={prep}"
                     packet_path = run_dir / "brief-packet.json"
                     if not written:
@@ -402,6 +405,10 @@ class RunnerAndConditionTests(unittest.TestCase):
                         self.assertNotIn("args", captured, label)
                         self.assertFalse(packet_path.exists(), label)
                         continue
+                    # the brief must run in the worktree (the agent's cwd), and the packet must
+                    # land in run_dir — a swap of the two args would fail one of these.
+                    self.assertEqual(captured["cwd"], worktree, label)
+                    self.assertTrue(packet_path.exists() and not (worktree / "brief-packet.json").exists(), label)
                     packet = json.loads(packet_path.read_text())
                     self.assertTrue(packet["agent_runs_cli_brief"], label)
                     limit_in = [a for a in captured["args"] if a in ("--limit", "2", "4")]
@@ -454,10 +461,11 @@ class RunnerAndConditionTests(unittest.TestCase):
         # file — the agent works from the brief's history hits, not a checkpoint dump.
         self.assertIn("--json --limit 4", prompt)
         self.assertIn("session-history hits", prompt)
-        self.assertIn("Avoid broad repo-wide `rg`/`grep`/`find`", prompt)
+        self.assertIn("at most 2 targeted `rg`/`grep`/`find` total", prompt)
+        self.assertIn("do not broaden into repo-wide search", prompt)
         self.assertIn("likely_test_files", prompt)
         self.assertNotIn("brain-history-excerpt.md", prompt)
-        self.assertIn("do not re-run brief or inspect checkpoint/session files", prompt)
+        self.assertIn("do not re-run brief, and do not inspect checkpoint/session files directly", prompt)
 
     def test_apply_task_env_prepends_path_prefix(self):
         env = run.apply_task_env({"PATH": "/usr/bin"}, {"path_prefix": "/node24/bin"})

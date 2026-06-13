@@ -2,17 +2,22 @@
 
 ## The problem (measured, tonight)
 
-The brain's `full_cli_compact` history delivery was **net-harmful** on cli-bench: the
-compact policy made the agent blindly trust the brief's `likely_edit_files` pointer and
-"do not broaden," so when that pointer was a lexical false positive (e.g. `pickLatestVersion`
-matching the word "latest"), the agent confidently edited the wrong file. Prior result:
-condense 2/4 vs 4/4, redaction 2/4 vs 4/4 (brain worse than no-brain).
+Two **separate** bugs, found at two different points (the timeline matters — they are not the
+same code state):
 
-Two bugs were behind it:
-1. **Delivery shape** — blind-trust packet with no step to verify the pointer.
-2. **Prep drift** — `brain_prep_commands` called `entire-brain export`, but main moved that
-   under `refresh sessions` (PR #40), so *every* history-condition run had been failing at
-   prep with `unknown command export`. (This silently broke the history benchmark entirely.)
+1. **Delivery shape (the net-harm).** Measured on the prior main where history prep still
+   worked (suite `layer-hist-proof-20260611`): `full_cli_compact` was net-harmful — condense
+   2/4 vs 4/4, redaction 2/4 vs 4/4 (brain worse than no-brain). The compact policy made the
+   agent blindly trust the brief's `likely_edit_files` pointer and "do not broaden," so when
+   that pointer was a lexical false positive (e.g. `pickLatestVersion` matching "latest"), the
+   agent confidently edited the wrong file. This is the result the fix targets.
+2. **Prep drift (a later, separate breakage).** When re-running the fix on the *current* main —
+   which had since merged PR #40 moving `export` under `refresh sessions` — the benchmark's
+   `brain_prep_commands` (still calling the old top-level `export`) failed at prep with
+   `unknown command export`. That breakage is how this bug was discovered (the first re-run
+   attempt errored 24/24 at prep); it post-dates the "before" net-harm numbers above, which
+   were collected when `export` still existed. Fixing it un-blocks history benchmarking on
+   current main.
 
 ## The fix
 

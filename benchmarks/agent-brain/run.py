@@ -1691,6 +1691,24 @@ def read_json_file(path: pathlib.Path) -> Any:
         return json.load(f)
 
 
+def brain_brief_query(task: dict[str, Any]) -> str:
+    """Single source of truth for the `entire brain brief` query string — shared by prompt_for
+    (the command the agent runs) and capture_brief_packet (the diagnostic mirror) so they
+    cannot drift."""
+    base = task["prompt"].strip()
+    queries = ", ".join(task.get("brain_queries", []))
+    query = f"{task['id']}: {base[:120]}"
+    return f"{query} | {queries}" if queries else query
+
+
+def brain_brief_limit(condition: str, is_opus: bool) -> int | None:
+    """Single source of truth for the brief `--limit` policy (shared by prompt_for + capture).
+    Only the full_cli_compact CLI packet is limited: Opus gets the tiny top-2, others top-4."""
+    if condition != "full_cli_compact":
+        return None
+    return 2 if is_opus else 4
+
+
 def capture_brief_packet(
     task: dict[str, Any],
     condition: str,
@@ -1700,13 +1718,14 @@ def capture_brief_packet(
     tools: dict[str, pathlib.Path],
     run_dir: pathlib.Path,
 ) -> None:
-    """Best-effort diagnostic: dump the brain's `brief --json` output into the run dir so
-    delivery can be diagnosed from the actual packet (not just what the agent quoted). Mirrors
-    prompt_for's brief query/limit construction EXACTLY, and is captured ONLY for conditions
-    where the agent itself issues that same CLI brief (`agent_runs_cli_brief`). For mcp_*
-    conditions (agent uses MCP brain_brief) and no-semantic runs (agent works from the
-    history-excerpt), the agent never runs this CLI brief, so we skip capture entirely — both
-    to avoid a misleading packet AND because the packet lands at run_dir/ (the agent worktree's
+    """Best-effort diagnostic (OPT-IN — only called when ENTIRE_BENCH_CAPTURE_BRIEF=1, see the
+    call site): dump the brain's `brief --json` output into the run dir so delivery can be
+    diagnosed from the actual packet. Uses the shared brain_brief_query/brain_brief_limit
+    helpers so it mirrors prompt_for EXACTLY (no hand-re-encoding drift), and is captured ONLY
+    for conditions where the agent itself issues that same CLI brief (`agent_runs_cli_brief`).
+    For mcp_* conditions (agent uses MCP brain_brief) and no-semantic runs (agent works from the
+    history-excerpt), the agent never runs this CLI brief, so we skip capture entirely — both to
+    avoid a misleading packet AND because the packet lands at run_dir/ (the agent worktree's
     parent, reachable via `..`); writing the CLI-brief channel there for an mcp/no-brief run
     would expose a channel the policy withholds. Never fails the run."""
     try:
@@ -1719,16 +1738,11 @@ def capture_brief_packet(
         agent_runs_cli_brief = semantic_available and not str(condition).startswith("mcp")
         if not agent_runs_cli_brief:
             return  # agent never runs this CLI brief — capturing it would mislead and over-expose
-        base = task["prompt"].strip()
-        queries = ", ".join(task.get("brain_queries", []))
-        brief_query = f"{task['id']}: {base[:120]}"
-        if queries:
-            brief_query = f"{brief_query} | {queries}"
+        brief_query = brain_brief_query(task)
         args = [str(tools["brain"]), "brief", brief_query, "--json"]
-        # --limit mirrors prompt_for: only the full_cli_compact CLI brief is limited, and only
-        # when semantic is available (otherwise prompt_for emits no brief at all).
-        if condition == "full_cli_compact" and semantic_available:
-            args += ["--limit", "2"] if is_opus else ["--limit", "4"]
+        limit = brain_brief_limit(condition, is_opus)
+        if limit is not None:
+            args += ["--limit", str(limit)]
         proc = run_cmd(args, cwd=worktree, env=env, timeout=180)
         (run_dir / "brief-packet.json").write_text(
             json.dumps(
@@ -2286,18 +2300,18 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
     validation = "\n".join(f"- `{cmd}`" for cmd in task.get("validation", []))
     expected = ", ".join(task.get("expected_files", []))
     queries = ", ".join(task.get("brain_queries", []))
-    brief_query = f"{task['id']}: {base[:120]}"
-    if queries:
-        brief_query = f"{brief_query} | {queries}"
+    brief_query = brain_brief_query(task)
     radar_arg_hint = "`location_only: true`"
     if task.get("radar_include_deletions"):
         radar_arg_hint = "`location_only: true` and `include_deletions: true`"
     radar_shape_note = " It should also flag deleted assignments for this task." if task.get("radar_include_deletions") else ""
-    brief_limit = " --limit 4" if condition == "full_cli_compact" else ""
-    brief_command = f'entire brain brief "{brief_query}" --json{brief_limit}'
     is_opus = runner is not None and runner.model in OPUS_COMPACT_MODELS
-    # Opus gets a deliberately tiny packet (top-2 history hits) on the CLI path.
-    opus_brief_command = f'entire brain brief "{brief_query}" --json --limit 2'
+    # Shared limit policy (brain_brief_limit) so the agent's command and the diagnostic packet
+    # never drift. Generic CLI gets top-4 on full_cli_compact; Opus gets the tiny top-2 packet.
+    _generic_limit = brain_brief_limit(condition, is_opus=False)
+    brief_limit = f" --limit {_generic_limit}" if _generic_limit is not None else ""
+    brief_command = f'entire brain brief "{brief_query}" --json{brief_limit}'
+    opus_brief_command = f'entire brain brief "{brief_query}" --json --limit {brain_brief_limit("full_cli_compact", is_opus=True)}'
     top_level_entire_guard = (
         "Do not run top-level `entire doctor`, `entire status`, `entire session`, "
         "or `entire checkpoint`; they are not Brain context for this benchmark and may be interactive."
@@ -2356,7 +2370,7 @@ Hard stop: call each MCP tool AT MOST ONCE, do NOT call `brain_query`/`brain_con
         # policy); when wrong, it is the rescue that fixes the net-harmful history case.
         policy = f"""Use the full Entire Brain before editing. Your first context command must be `{opus_brief_command}` — a deliberately compact packet. Work in this order: (1) read the top session-history hits and name the EXACT broken invariant — the specific expression, value, or behavior this regression changed; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing — open it and confirm the broken behavior is present there; (3) if it does NOT, the invariant decides the file, not the ranking — check the next `likely_edit_files` candidate or run at most ONE targeted `rg` for the invariant, then edit the file that truly contains it. Apply the minimal fix, run exactly one `likely_test_files` test, then finish. The history hits are the authority; `likely_edit_files` is a hint that can be wrong. Do NOT re-run brief or inspect checkpoint/session files, and keep `rg`/`grep`/`find` to at most 2 targeted searches. Your context window is a finite budget — stop once the fix validates. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif condition == "full_cli_compact" and semantic_available:
-        policy = f"""Use the full Entire Brain before editing. Your first context command must be `{brief_command}`. Work in this order: (1) read the top session-history hits in the JSON and name the EXACT broken invariant — the specific expression, value, or behavior this regression changed; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing — open it and confirm the broken behavior is present there; (3) if it does NOT, the invariant decides the file, not the ranking — check the next `likely_edit_files` candidate or run at most ONE targeted `rg` for the invariant, then edit the file that truly contains it. Apply the minimal fix and run one `likely_test_files` validation command; if a test fails because of unrelated temp-file or project-environment setup, do not spend extra rounds debugging test infrastructure. The history hits are the authority; `likely_edit_files`/`action_checklist` are hints that can be lexically wrong. Avoid broad repo-wide `rg`/`grep`/`find`, and do not re-run brief or inspect checkpoint/session files directly. Useful query terms: {queries}. {top_level_entire_guard}"""
+        policy = f"""Use the full Entire Brain before editing. Your first context command must be `{brief_command}`. Work in this order: (1) read the top session-history hits in the JSON and name the EXACT broken invariant — the specific expression, value, or behavior this regression changed; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing — open it and confirm the broken behavior is present there; (3) if it does NOT, the invariant decides the file, not the ranking — check the next `likely_edit_files` candidate or run at most ONE targeted `rg` for the invariant, then edit the file that truly contains it. Apply the minimal fix and run one `likely_test_files` validation command; if a test fails because of unrelated temp-file or project-environment setup, do not spend extra rounds debugging test infrastructure. The history hits are the authority; `likely_edit_files`/`action_checklist` are hints that can be lexically wrong. Hard caps (keep the discipline tight): at most ONE rescue `rg` in step (3), at most ONE additional `likely_edit_files` candidate opened, and at most 2 targeted `rg`/`grep`/`find` total — do not broaden into repo-wide search, do not re-run brief, and do not inspect checkpoint/session files directly. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif semantic_available:
         policy = f"""Use the full Entire Brain before editing. Your first context command must be `{brief_command}`. In the JSON, prefer `action_checklist`, `likely_edit_files`, `likely_test_files`, and compact history hits before broad text search. Read `.benchmark/brain-history-excerpt.md` only if the brief does not give enough exact invariant or file guidance. Useful query terms: {queries}. {top_level_entire_guard}"""
     else:
@@ -3248,10 +3262,12 @@ def run_one(
         record["agent_secret_preflight"] = secret_preflight
         if not secret_preflight["ok"]:
             raise RuntimeError(f"agent-visible benchmark secrets failed preflight: {secret_preflight['findings'][:3]}")
-        # Capture the diagnostic brief packet against the SAME worktree state the agent's own
-        # brief will see — i.e. after post-brain setup (which injects the regression for tasks
-        # that defer it) and agent-history reset — so the packet's live-state overlay matches.
-        if condition != "no_brain":
+        # OPT-IN diagnostic only (ENTIRE_BENCH_CAPTURE_BRIEF=1): off by default so normal runs
+        # add zero extra `entire brain brief` subprocess/overhead and no run_dir packet. When
+        # enabled (debugging delivery), capture against the SAME worktree state the agent's own
+        # brief will see — after post-brain setup (which injects the regression for tasks that
+        # defer it) and agent-history reset — so the packet's live-state overlay matches.
+        if condition != "no_brain" and os.environ.get("ENTIRE_BENCH_CAPTURE_BRIEF") == "1":
             capture_brief_packet(task, condition, runner, worktree, env, tools, run_dir)
         prompt = prompt_for(task, condition, runner)
         (run_dir / "prompt.txt").write_text(prompt)
