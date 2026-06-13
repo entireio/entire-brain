@@ -64,6 +64,17 @@ delivery is now **parity quality at 30–57% lower tokens**. Precise on the stat
 This is an efficiency-at-parity result, not a correctness lift — stated as found. The
 uncommitted-filter task is 0/4 on both arms and does not discriminate (retire or redesign).
 
+**Prep-change coverage (export → `refresh sessions`):** the prep command is a single shared
+code path in `brain_prep_commands` (gated by `condition_prepares_history`, identical for every
+history condition). It is empirically confirmed via prep-only runs on the conditions that have
+exportable history in this environment — `full_cli_compact`, `mcp_history`, and
+`mcp_workspace_radar` (all `ok=True`, `has_history=True` on cli-bench). `full_brain` and
+`full_cli_original` were not runtime-validated here because their repos lack exportable Entire
+sessions in this checkout (the entire-brain dev repo has no `checkpoint_remote`; the ultron repo
+is unavailable) — `refresh sessions` runs clean and simply finds zero sessions, which would fail
+identically under the old `export`. So the rename is proven; the two unvalidated conditions are
+blocked by data availability, not by the command.
+
 ## Stable confirmation — `hist-fix-redaction-n16-20260613` (redaction, 16 reps/side, single task)
 
 Re-ran the cleanest task alone at n=16 — a **single task, so no cross-task** multiple-comparison
