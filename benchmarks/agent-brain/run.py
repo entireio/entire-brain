@@ -1700,10 +1700,13 @@ def capture_brief_packet(
     tools: dict[str, pathlib.Path],
     run_dir: pathlib.Path,
 ) -> None:
-    """Best-effort: dump the exact `entire brain brief --json` packet the agent will receive
-    into the run dir, so delivery failures can be diagnosed from the actual packet (not just
-    what the agent quoted). Mirrors the brief query/limit construction in prompt_for. Never
-    fails the run."""
+    """Best-effort diagnostic: dump the brain's `brief --json` output for this run into the run
+    dir so delivery can be diagnosed from real brain content (not just what the agent quoted).
+    Mirrors prompt_for's brief query/limit construction. The `agent_runs_cli_brief` flag records
+    whether the agent's policy actually issues a CLI brief for this run: it does NOT when the
+    agent uses MCP tools (mcp_* conditions) or when semantic is disabled and it works from the
+    history-excerpt file instead — in those cases this packet is brain-content context, not the
+    literal text the agent saw. Never fails the run."""
     try:
         base = task["prompt"].strip()
         queries = ", ".join(task.get("brain_queries", []))
@@ -1711,8 +1714,14 @@ def capture_brief_packet(
         if queries:
             brief_query = f"{brief_query} | {queries}"
         is_opus = runner is not None and runner.model in OPUS_COMPACT_MODELS
+        semantic_available = task.get("prepare_semantic", True)
+        # The agent issues a CLI `entire brain brief` only on a semantic-available CLI condition;
+        # mcp_* conditions use MCP brain_brief, and a no-semantic run works from the excerpt.
+        agent_runs_cli_brief = semantic_available and not str(condition).startswith("mcp")
         args = [str(tools["brain"]), "brief", brief_query, "--json"]
-        if condition == "full_cli_compact":
+        # --limit mirrors prompt_for: only the full_cli_compact CLI brief is limited, and only
+        # when semantic is available (otherwise prompt_for emits no brief at all).
+        if condition == "full_cli_compact" and semantic_available:
             args += ["--limit", "2"] if is_opus else ["--limit", "4"]
         proc = run_cmd(args, cwd=worktree, env=env, timeout=180)
         (run_dir / "brief-packet.json").write_text(
@@ -1721,6 +1730,7 @@ def capture_brief_packet(
                     "condition": condition,
                     "query": brief_query,
                     "args": args[1:],
+                    "agent_runs_cli_brief": agent_runs_cli_brief,
                     "returncode": proc.returncode,
                     "stdout": proc.stdout,
                     "stderr_tail": proc.stderr[-2000:],
