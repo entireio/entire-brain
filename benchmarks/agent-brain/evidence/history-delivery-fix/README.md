@@ -38,6 +38,38 @@ same code state):
   itself was never a shipped win; it appears only in the net-harmful "before" proof and this
   "after" proof.
 
+## Provenance of the retained numbers (read this first)
+
+The records below were produced by the **core fix** (the `export`→`refresh sessions` prep rename
+and the self-correcting `full_cli_compact` policy) at an **earlier commit on this branch**, before
+the later review-hardening commits (diagnostic capture made opt-in, brief query shell-quoted with
+`shlex.quote`, cache schema bumped 3→4, `ENTIRE_BENCH_CAPTURE_BRIEF` added to provenance, query
+normalized to a single line). They are **real measured data**, but they do **not** carry the exact
+provenance fingerprint of shipped HEAD, and at capture time the brief diagnostic still ran
+unconditionally. A clean re-run on shipped HEAD was scoped but not completed (gpt-5.5 is
+codex-quota-blocked; opus was rate-throttled). What that means, precisely and honestly:
+
+- **The numbers are not corrupted by the later commits.** All three evidence tasks
+  (redaction / condense / uncommitted-filter) have brief queries with **no shell metacharacters**,
+  so the old double-quoted command and the new `shlex.quote`d command deliver a **byte-identical**
+  query to the brain — the shell-quoting fix changes nothing for these tasks (it matters only for
+  metachar tasks like `github-cli-format-web-conflict`, covered by a unit test, not by these runs).
+- **The diagnostic capture fired during these runs**, writing `brief-packet.json` into each run
+  dir under git-ignored `results/` (**not** part of this PR). That packet was reachable from the
+  agent at `../brief-packet.json`; had an agent re-read it, that would only **add** context tokens
+  to the brain arm — i.e. it makes the **−30%/−44% token result conservative, not inflated**. On
+  shipped HEAD the capture is **off by default**, so a normal run writes no packet at all.
+- **The prep rename is verified on shipped HEAD** — not by these cached records (which show
+  `cache.hit=true`), but by a fresh prep run on the current code: `entire brain refresh sessions
+  --checkpoint-limit 200 --history-index` returned `rc=0` ("exported 228 sessions from 200
+  checkpoints") and built the schema-4 cache. The shipped code's correctness rests on that prep
+  verification plus the deterministic test suite (including the shell round-trip test), not on a
+  benchmark re-run.
+
+Bottom line: the **shipped code is clean**; the **retained numbers are honest, earlier-code
+measurements** whose direction is unaffected by the hardening commits. Read the magnitudes as
+"core-fix on cli-bench," not as a fingerprint-matched shipped-HEAD benchmark.
+
 ## Result — `hist-fix-proof-v2-20260613` (no_brain vs full_cli_compact, opus-4-8 high, 4 reps/side)
 
 | task | before | after (brain vs no_brain) | tokens |
@@ -82,8 +114,9 @@ exportable history in this environment — `full_cli_compact`, `mcp_history`, an
 `full_cli_original` were not runtime-validated here because their repos lack exportable Entire
 sessions in this checkout (the entire-brain dev repo has no `checkpoint_remote`; the ultron repo
 is unavailable) — `refresh sessions` runs clean and simply finds zero sessions, which would fail
-identically under the old `export`. So the rename is proven; the two unvalidated conditions are
-blocked by data availability, not by the command.
+identically under the old `export`. The rename is additionally verified on **shipped HEAD** by a
+fresh prep run (see Provenance above: `refresh sessions` rc=0, "exported 228 sessions", schema-4
+cache built); the two unvalidated conditions are blocked by data availability, not by the command.
 
 ## Stable confirmation — `hist-fix-redaction-n16-20260613` (redaction, 16 reps/side launched; n_baseline=16, n_condition=15, single task)
 
