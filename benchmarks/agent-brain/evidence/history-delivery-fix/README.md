@@ -38,7 +38,7 @@ Two bugs were behind it:
 | task | before | after (brain vs no_brain) | tokens |
 |---|---|---|---|
 | condense-drops-latest-turn | 2/4 vs 4/4 (harmful) | **3/4 vs 3/4 parity** | 6.79M vs 9.65M (**−30%**, raw p=0.036) |
-| finalize-redaction-raw-live | 2/4 vs 4/4 (harmful) | **4/4 vs 4/4 parity** | 0.97M vs 2.27M (**−57%**, raw p=0.053; secs p=0.050) |
+| finalize-redaction-raw-live | 2/4 vs 4/4 (harmful) | **4/4 vs 4/4 parity** | 0.97M vs 2.27M (**−57%**, raw token p=0.053; secs p=0.0499) |
 | uncommitted-filter-exact-compare | 0/4 vs 0/4 | 0/4 vs 0/4 (non-discriminating) | 0.93M vs 2.23M (−58%) |
 
 **Honest reading:** the net-harm is **eliminated** on both discriminating tasks — history

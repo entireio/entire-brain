@@ -376,31 +376,53 @@ class RunnerAndConditionTests(unittest.TestCase):
         generic = run.parse_runner_spec("codex:gpt-5.5:high")
         tools = {"brain": pathlib.Path("/tmp/entire-brain")}
         cases = [
-            # (condition, runner, prepare_semantic) -> (expected_limit, agent_runs_cli_brief)
+            # (condition, runner, prepare_semantic) -> (expected_limit, packet_written)
+            # The packet is captured ONLY when the agent itself runs that CLI brief.
             ("full_cli_compact", opus, True, ["--limit", "2"], True),
             ("full_cli_compact", generic, True, ["--limit", "4"], True),
-            ("full_cli_compact", generic, False, [], False),  # no semantic -> prompt_for emits no brief, no --limit
+            ("full_cli_compact", generic, False, None, False),   # no semantic -> no brief, no packet
             ("semantic_brain", generic, True, [], True),
-            ("mcp_history", generic, True, [], False),  # agent uses MCP, not the CLI brief
-            ("full_brain", generic, False, [], False),  # no semantic -> agent works from excerpt
+            ("mcp_history", generic, True, None, False),         # agent uses MCP -> no CLI packet (no over-exposure)
+            ("full_brain", generic, False, None, False),         # no semantic -> agent works from excerpt
         ]
         old = run.run_cmd
         run.run_cmd = fake_run_cmd
         try:
-            for cond, runner, prep, exp_limit, exp_flag in cases:
+            for cond, runner, prep, exp_limit, written in cases:
+                captured.clear()
                 with tempfile.TemporaryDirectory() as tmp:
                     run_dir = pathlib.Path(tmp)
                     task = {"id": "t", "prompt": "Fix it.", "brain_queries": ["q"], "prepare_semantic": prep}
                     run.capture_brief_packet(task, cond, runner, run_dir, {}, tools, run_dir)
-                    packet = json.loads((run_dir / "brief-packet.json").read_text())
                     label = f"{cond}/{runner.model}/sem={prep}"
+                    packet_path = run_dir / "brief-packet.json"
+                    if not written:
+                        # skipped conditions: no brief run, no packet file
+                        self.assertNotIn("args", captured, label)
+                        self.assertFalse(packet_path.exists(), label)
+                        continue
+                    packet = json.loads(packet_path.read_text())
+                    self.assertTrue(packet["agent_runs_cli_brief"], label)
                     limit_in = [a for a in captured["args"] if a in ("--limit", "2", "4")]
                     self.assertEqual(limit_in, exp_limit, label)
-                    self.assertEqual(packet["agent_runs_cli_brief"], exp_flag, label)
-                    # brief query mirrors prompt_for: "<id>: <prompt> | <queries>"
                     self.assertEqual(packet["query"], "t: Fix it. | q", label)
         finally:
             run.run_cmd = old
+
+    def test_opus_cli_compact_pins_token_discipline(self):
+        # The opus full_cli_compact CLI path's anti-spiral strings are the mechanism behind the
+        # proven efficiency win; pin them so a future edit can't silently drop them (the generic
+        # branch is already pinned by test_compact_full_brain_prompt_has_no_raw_excerpt).
+        task = {
+            "id": "t", "prompt": "Fix it.", "brain_queries": ["q"],
+            "expected_files": ["a.go"], "validation": ["go test ./..."],
+            "prepare_semantic": True, "hide_expected_from_agent": True, "hide_validation_from_agent": True,
+        }
+        prompt = run.prompt_for(task, "full_cli_compact", run.parse_runner_spec("claude:claude-opus-4-8:high"))
+        self.assertIn("--limit 2", prompt)
+        self.assertIn("Do NOT re-run brief", prompt)
+        self.assertIn("at most 2 targeted searches", prompt)
+        self.assertIn("stop once the fix validates", prompt)
 
     def test_no_brain_prompt_forbids_history_artifacts(self):
         prompt = run.prompt_for(

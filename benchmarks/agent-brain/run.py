@@ -1700,24 +1700,28 @@ def capture_brief_packet(
     tools: dict[str, pathlib.Path],
     run_dir: pathlib.Path,
 ) -> None:
-    """Best-effort diagnostic: dump the brain's `brief --json` output for this run into the run
-    dir so delivery can be diagnosed from real brain content (not just what the agent quoted).
-    Mirrors prompt_for's brief query/limit construction. The `agent_runs_cli_brief` flag records
-    whether the agent's policy actually issues a CLI brief for this run: it does NOT when the
-    agent uses MCP tools (mcp_* conditions) or when semantic is disabled and it works from the
-    history-excerpt file instead — in those cases this packet is brain-content context, not the
-    literal text the agent saw. Never fails the run."""
+    """Best-effort diagnostic: dump the brain's `brief --json` output into the run dir so
+    delivery can be diagnosed from the actual packet (not just what the agent quoted). Mirrors
+    prompt_for's brief query/limit construction EXACTLY, and is captured ONLY for conditions
+    where the agent itself issues that same CLI brief (`agent_runs_cli_brief`). For mcp_*
+    conditions (agent uses MCP brain_brief) and no-semantic runs (agent works from the
+    history-excerpt), the agent never runs this CLI brief, so we skip capture entirely — both
+    to avoid a misleading packet AND because the packet lands at run_dir/ (the agent worktree's
+    parent, reachable via `..`); writing the CLI-brief channel there for an mcp/no-brief run
+    would expose a channel the policy withholds. Never fails the run."""
     try:
-        base = task["prompt"].strip()
-        queries = ", ".join(task.get("brain_queries", []))
-        brief_query = f"{task['id']}: {base[:120]}"
-        if queries:
-            brief_query = f"{brief_query} | {queries}"
         is_opus = runner is not None and runner.model in OPUS_COMPACT_MODELS
         semantic_available = task.get("prepare_semantic", True)
         # The agent issues a CLI `entire brain brief` only on a semantic-available CLI condition;
         # mcp_* conditions use MCP brain_brief, and a no-semantic run works from the excerpt.
         agent_runs_cli_brief = semantic_available and not str(condition).startswith("mcp")
+        if not agent_runs_cli_brief:
+            return  # agent never runs this CLI brief — capturing it would mislead and over-expose
+        base = task["prompt"].strip()
+        queries = ", ".join(task.get("brain_queries", []))
+        brief_query = f"{task['id']}: {base[:120]}"
+        if queries:
+            brief_query = f"{brief_query} | {queries}"
         args = [str(tools["brain"]), "brief", brief_query, "--json"]
         # --limit mirrors prompt_for: only the full_cli_compact CLI brief is limited, and only
         # when semantic is available (otherwise prompt_for emits no brief at all).
