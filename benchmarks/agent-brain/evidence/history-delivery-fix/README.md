@@ -136,5 +136,5 @@ Limit 1000 exports cleanly (76 empty sessions skipped, no error).
 - `hist-fix-proof-v2-20260613/report.json` — stability gate output (Welch + Holm p-values, CV, tags).
 - `hist-fix-redaction-n16-20260613/records.ndjson` — 31 per-run records (16 no_brain + 15 valid full_cli_compact, provenance-backed).
 - `hist-fix-redaction-n16-20260613/report.json` — n=16 stability gate output (the `brain_positive_stable` tag + Holm p-values).
-- `hist-fix-redaction-ckpt1000-20260613/records.ndjson` — 15 per-run records (limit-1000 depth reverification, n=8/side).
+- `hist-fix-redaction-ckpt1000-20260613/records.ndjson` — 16 per-run records (8 no_brain + 8 full_cli_compact, limit-1000 depth reverification, n=8/side).
 - `hist-fix-redaction-ckpt1000-20260613/report.json` — depth-reverification stability output (`noisy`; −25% tokens, Holm 0.12).

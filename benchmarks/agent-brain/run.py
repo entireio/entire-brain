@@ -262,6 +262,11 @@ class RunnerSpec:
 
 SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
 FULL_HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mcp_history", "mcp_workspace_radar"}
+# Conditions whose prompt_for policy directs the agent to run `entire brain brief` itself
+# (when prepare_semantic is true). Kept in sync with prompt_for's {brief_command}/
+# {opus_brief_command}-emitting branches; capture_brief_packet mirrors EXACTLY these and nothing
+# else, so a future non-mcp condition that withholds the CLI brief never gets a packet written.
+CLI_BRIEF_CONDITIONS = {"semantic_brain", "semantic_cli", "full_brain", "full_cli_original", "full_cli_compact"}
 CLI_HISTORY_EXCERPT_CONDITIONS = {"full_brain", "full_cli_original"}
 MCP_CONDITIONS = {"mcp_semantic", "mcp_history", "mcp_workspace_radar"}
 MCP_BRAIN_TOOL_RE = r"brain_(?:stale|brief|query|search|vsearch|get|multi_get|context|impact|changes|code|tests|boundaries|regressions|review|workspace_regressions|workspace_review)"
@@ -1541,7 +1546,10 @@ def brain_cache_payload(
 ) -> dict[str, Any]:
     prep_kind = condition_prep_kind(condition)
     return {
-        "schema": 3,
+        # schema 4: invalidates pre-rename caches so a plugin built by the old top-level `export`
+        # prep command (PR #40 moved it under `refresh sessions`) is never served — guarantees the
+        # renamed prep command is actually exercised on the next build, not masked by a stale hit.
+        "schema": 4,
         "repo": task.get("repo"),
         "repo_path": str(resolve_repo_path(task["repo_path"]).resolve()),
         "base_ref": task.get("_resolved_base_commit") or task.get("base_commit") or git_head(resolve_repo_path(task["repo_path"])),
@@ -1720,22 +1728,28 @@ def capture_brief_packet(
 ) -> None:
     """Best-effort diagnostic (OPT-IN — only called when ENTIRE_BENCH_CAPTURE_BRIEF=1, see the
     call site): dump the brain's `brief --json` output into the run dir so delivery can be
-    diagnosed from the actual packet. Uses the shared brain_brief_query/brain_brief_limit
-    helpers so it mirrors prompt_for EXACTLY (no hand-re-encoding drift), and is captured ONLY
-    for conditions where the agent itself issues that same CLI brief (`agent_runs_cli_brief`).
-    For mcp_* conditions (agent uses MCP brain_brief) and no-semantic runs (agent works from the
-    history-excerpt), the agent never runs this CLI brief, so we skip capture entirely — both to
-    avoid a misleading packet AND because the packet lands at run_dir/ (the agent worktree's
-    parent, reachable via `..`); writing the CLI-brief channel there for an mcp/no-brief run
-    would expose a channel the policy withholds. Never fails the run."""
+    diagnosed from the actual packet. Uses the shared brain_brief_query/brain_brief_limit helpers,
+    and because prompt_for shell-quotes that same query (shlex.quote), the agent's shell-issued
+    brief and this subprocess-argv brief deliver an IDENTICAL literal query — the packet mirrors
+    what the agent runs at BOTH the Python-string layer and the shell layer (no quoting drift).
+    Captured ONLY for conditions whose policy actually issues that CLI brief — the explicit
+    `CLI_BRIEF_CONDITIONS` set gated on prepare_semantic, NOT a "not mcp_*" proxy: mcp_* conditions
+    use MCP brain_brief and no-semantic runs work from the history-excerpt, so the agent never runs
+    this CLI brief there. The gate must be condition-explicit because the packet lands at run_dir/
+    — the agent worktree's parent, reachable via `..` — so writing the CLI-brief channel for any
+    condition that withholds it (now or a future one) would over-expose a channel the policy denies.
+    Never fails the run."""
     try:
         if str(condition) == "no_brain":
             return  # defense-in-depth: no_brain purity is enforced here, not only at the call site
         is_opus = runner is not None and runner.model in OPUS_COMPACT_MODELS
         semantic_available = task.get("prepare_semantic", True)
-        # The agent issues a CLI `entire brain brief` only on a semantic-available CLI condition;
-        # mcp_* conditions use MCP brain_brief, and a no-semantic run works from the excerpt.
-        agent_runs_cli_brief = semantic_available and not str(condition).startswith("mcp")
+        # The agent issues a CLI `entire brain brief` only on a semantic-available condition whose
+        # policy emits {brief_command}. Mirror prompt_for's actual brief-emitting branches via the
+        # explicit CLI_BRIEF_CONDITIONS set (mcp_* use MCP brain_brief; no-semantic runs work from
+        # the excerpt). Explicit, not a "not mcp_*" proxy, so a future non-mcp brief-withholding
+        # condition cannot silently get a `..`-reachable packet written.
+        agent_runs_cli_brief = semantic_available and str(condition) in CLI_BRIEF_CONDITIONS
         if not agent_runs_cli_brief:
             return  # agent never runs this CLI brief — capturing it would mislead and over-expose
         brief_query = brain_brief_query(task)
@@ -2310,8 +2324,15 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
     # never drift. Generic CLI gets top-4 on full_cli_compact; Opus gets the tiny top-2 packet.
     _generic_limit = brain_brief_limit(condition, is_opus=False)
     brief_limit = f" --limit {_generic_limit}" if _generic_limit is not None else ""
-    brief_command = f'entire brain brief "{brief_query}" --json{brief_limit}'
-    opus_brief_command = f'entire brain brief "{brief_query}" --json --limit {brain_brief_limit("full_cli_compact", is_opus=True)}'
+    # The agent runs brief_command verbatim in its OWN shell, so the query MUST be shell-quoted.
+    # Task prompts/brain_queries contain backticks, `$`, and `"` (e.g. `--format json`, ".git"):
+    # inside a double-quoted string a shell would command-substitute the backticks or let an
+    # embedded `"` close the quote early, corrupting the query the brain actually receives.
+    # shlex.quote single-quotes it, yielding the SAME literal bytes capture_brief_packet sends as
+    # a subprocess argv element (no shell) — so both channels deliver an identical query.
+    brief_query_sh = shlex.quote(brief_query)
+    brief_command = f'entire brain brief {brief_query_sh} --json{brief_limit}'
+    opus_brief_command = f'entire brain brief {brief_query_sh} --json --limit {brain_brief_limit("full_cli_compact", is_opus=True)}'
     top_level_entire_guard = (
         "Do not run top-level `entire doctor`, `entire status`, `entire session`, "
         "or `entire checkpoint`; they are not Brain context for this benchmark and may be interactive."
@@ -2875,12 +2896,11 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
     command_lower = command_text.lower()
     known_brain_commands = {
         "brief",
-        "export",
         "index",
         "inspect",
         "path",
         "query",
-        "refresh",
+        "refresh",  # `entire brain refresh sessions ...` (the leading token; replaced top-level `export`)
         "seed",
         "search",
         "stale",

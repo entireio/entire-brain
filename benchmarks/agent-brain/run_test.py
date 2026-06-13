@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import shlex
 import sys
 import tempfile
 import unittest
@@ -325,7 +326,9 @@ class RunnerAndConditionTests(unittest.TestCase):
             "prepare_semantic": True,
         }
         prompt = run.prompt_for(task, "full_cli_original")
-        self.assertIn('entire brain brief "task: Fix the regression. | ExactSymbol, important invariant" --json', prompt)
+        # The query is shell-quoted (shlex.quote) — it has spaces so it is single-quoted, NOT the
+        # old unescaped double-quoted form that let shell metacharacters corrupt the query.
+        self.assertIn("entire brain brief 'task: Fix the regression. | ExactSymbol, important invariant' --json", prompt)
         self.assertIn("Your first context command must be", prompt)
         self.assertIn("prefer `action_checklist`", prompt)
         self.assertIn("Read `.benchmark/brain-history-excerpt.md` only if", prompt)
@@ -333,6 +336,36 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("likely_test_files", prompt)
         self.assertIn("Do not run top-level `entire doctor`", prompt)
         self.assertIn("Do not edit tests unless the task explicitly asks", prompt)
+
+    def test_brief_command_shell_quotes_query_for_metachar_tasks(self):
+        # Release blocker (query corruption): brief_command is run VERBATIM in the agent's shell.
+        # Real task prompts/brain_queries contain backticks and double-quotes (e.g. `--format json`,
+        # ".git"). An unescaped double-quoted query would let the shell command-substitute the
+        # backticks or close the quote early, so the brain receives a mangled query — and the
+        # diagnostic packet (subprocess argv, no shell) would NOT reproduce it. The query must be
+        # shell-quoted so shlex.split recovers the exact literal the brain is meant to see.
+        task = {
+            "id": "github-cli-format-web-conflict",
+            "prompt": 'Fix regression where `--format json` combines with the web flag and ".git" suffix.',
+            "brain_queries": ["`--format json`", 'trim ".git"'],
+            "expected_files": ["pkg/cmd.go"],
+            "validation": ["go test ./..."],
+            "prepare_semantic": True,
+        }
+        expected_query = run.brain_brief_query(task)
+        self.assertIn("`", expected_query)  # the query genuinely contains shell metacharacters
+        self.assertIn('"', expected_query)
+        for runner_spec, exp_limit in ((None, 4), ("claude:claude-opus-4-8:high", 2)):
+            runner = run.parse_runner_spec(runner_spec) if runner_spec else None
+            prompt = run.prompt_for(task, "full_cli_compact", runner)
+            expected_cmd = f"entire brain brief {shlex.quote(expected_query)} --json --limit {exp_limit}"
+            label = runner_spec or "generic"
+            # prompt_for emits exactly the shell-quoted command...
+            self.assertIn(expected_cmd, prompt, label)
+            # ...and never the old unescaped double-quoted form.
+            self.assertNotIn(f'brief "{expected_query}"', prompt, label)
+            # the agent's shell would hand the brain the EXACT literal query (no substitution).
+            self.assertEqual(shlex.split(expected_cmd)[3], expected_query, label)
 
     def test_full_cli_compact_is_self_correcting_not_blind_trust(self):
         # Release blocker (history delivery): the compact CLI packet must make the agent VERIFY
@@ -411,9 +444,25 @@ class RunnerAndConditionTests(unittest.TestCase):
                     self.assertTrue(packet_path.exists() and not (worktree / "brief-packet.json").exists(), label)
                     packet = json.loads(packet_path.read_text())
                     self.assertTrue(packet["agent_runs_cli_brief"], label)
-                    limit_in = [a for a in captured["args"] if a in ("--limit", "2", "4")]
-                    self.assertEqual(limit_in, exp_limit, label)
+                    # --limit must be POSITIONAL (flag immediately followed by its value) and equal
+                    # brain_brief_limit — NOT a hardcoded {2,4} membership filter, which would mask a
+                    # future limit change or a wrong-order/duplicated emission.
+                    args = captured["args"]
+                    limit_pair = args[args.index("--limit"):args.index("--limit") + 2] if "--limit" in args else []
+                    self.assertEqual(limit_pair, exp_limit, label)
+                    expected_limit_val = run.brain_brief_limit(cond, runner.model in run.OPUS_COMPACT_MODELS)
+                    self.assertEqual(
+                        limit_pair,
+                        ["--limit", str(expected_limit_val)] if expected_limit_val is not None else [],
+                        label,
+                    )
                     self.assertEqual(packet["query"], "t: Fix it. | q", label)
+                    self.assertEqual(args[2], packet["query"], label)
+                    # MIRROR INVARIANT (the point of the shared helpers + shlex.quote): the command
+                    # the agent is told to run must shell-quote back to the SAME query the diagnostic
+                    # captured. This is exactly what the unescaped-double-quote bug broke.
+                    agent_prompt = run.prompt_for(task, cond, runner)
+                    self.assertIn(f"entire brain brief {shlex.quote(packet['query'])} --json", agent_prompt, label)
         finally:
             run.run_cmd = old
 
