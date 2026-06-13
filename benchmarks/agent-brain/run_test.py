@@ -334,6 +334,33 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertIn("Do not run top-level `entire doctor`", prompt)
         self.assertIn("Do not edit tests unless the task explicitly asks", prompt)
 
+    def test_full_cli_compact_is_self_correcting_not_blind_trust(self):
+        # Release blocker (history delivery): the compact CLI packet must make the agent VERIFY
+        # the likely_edit_files pointer against the broken invariant, and must NOT force blind
+        # trust ("do not broaden") — that turned a lexically-wrong pointer into a guaranteed
+        # wrong edit (condense task: pickLatestVersion false positive). Applies to both the
+        # generic compact path and the Opus --limit 2 path.
+        task = {
+            "id": "task",
+            "prompt": "Fix the regression.",
+            "brain_queries": ["broken invariant phrase"],
+            "expected_files": ["pkg/file.go"],
+            "validation": ["go test ./..."],
+            "prepare_semantic": True,
+            "hide_expected_from_agent": True,
+            "hide_validation_from_agent": True,
+        }
+        for runner_spec in (None, "claude:claude-opus-4-8:high"):
+            runner = run.parse_runner_spec(runner_spec) if runner_spec else None
+            prompt = run.prompt_for(task, "full_cli_compact", runner)
+            label = runner_spec or "generic"
+            self.assertIn("VERIFY", prompt, label)
+            self.assertIn("invariant", prompt, label)
+            self.assertIn("likely_edit_files", prompt, label)
+            # the blind-trust phrasings that caused the net-harmful result must be gone
+            self.assertNotIn("do not broaden to other files", prompt, label)
+            self.assertNotIn("Treat the packet as sufficient", prompt, label)
+
     def test_no_brain_prompt_forbids_history_artifacts(self):
         prompt = run.prompt_for(
             {
@@ -359,12 +386,14 @@ class RunnerAndConditionTests(unittest.TestCase):
             },
             "full_cli_compact",
         )
-        self.assertIn("treat `action_checklist` as the first-pass current-code inventory", prompt)
+        # Compact CLI keeps its tight packet (--limit 4) and provides no raw history excerpt
+        # file — the agent works from the brief's history hits, not a checkpoint dump.
         self.assertIn("--json --limit 4", prompt)
-        self.assertIn("Avoid broad `rg`/`grep`/`find` unless", prompt)
-        self.assertIn("Prefer `likely_test_files` for one focused validation command", prompt)
-        self.assertIn("provides no raw history excerpt", prompt)
-        self.assertIn("do not inspect checkpoint/session files directly", prompt)
+        self.assertIn("session-history hits", prompt)
+        self.assertIn("Avoid broad repo-wide `rg`/`grep`/`find`", prompt)
+        self.assertIn("likely_test_files", prompt)
+        self.assertNotIn("brain-history-excerpt.md", prompt)
+        self.assertIn("do not re-run brief or inspect checkpoint/session files", prompt)
 
     def test_apply_task_env_prepends_path_prefix(self):
         env = run.apply_task_env({"PATH": "/usr/bin"}, {"path_prefix": "/node24/bin"})

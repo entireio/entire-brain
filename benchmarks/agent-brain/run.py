@@ -1690,6 +1690,50 @@ def read_json_file(path: pathlib.Path) -> Any:
         return json.load(f)
 
 
+def capture_brief_packet(
+    task: dict[str, Any],
+    condition: str,
+    runner: "RunnerSpec | None",
+    worktree: pathlib.Path,
+    env: dict[str, str],
+    tools: dict[str, pathlib.Path],
+    run_dir: pathlib.Path,
+) -> None:
+    """Best-effort: dump the exact `entire brain brief --json` packet the agent will receive
+    into the run dir, so delivery failures can be diagnosed from the actual packet (not just
+    what the agent quoted). Mirrors the brief query/limit construction in prompt_for. Never
+    fails the run."""
+    try:
+        base = task["prompt"].strip()
+        queries = ", ".join(task.get("brain_queries", []))
+        brief_query = f"{task['id']}: {base[:120]}"
+        if queries:
+            brief_query = f"{brief_query} | {queries}"
+        is_opus = runner is not None and runner.model in OPUS_COMPACT_MODELS
+        args = [str(tools["brain"]), "brief", brief_query, "--json"]
+        if condition == "full_cli_compact":
+            args += ["--limit", "2"] if is_opus else ["--limit", "4"]
+        proc = run_cmd(args, cwd=worktree, env=env, timeout=180)
+        (run_dir / "brief-packet.json").write_text(
+            json.dumps(
+                {
+                    "condition": condition,
+                    "query": brief_query,
+                    "args": args[1:],
+                    "returncode": proc.returncode,
+                    "stdout": proc.stdout,
+                    "stderr_tail": proc.stderr[-2000:],
+                },
+                indent=2,
+            )
+        )
+    except Exception as exc:  # diagnostic only — never block the run
+        try:
+            (run_dir / "brief-packet.json").write_text(json.dumps({"error": str(exc)}, indent=2))
+        except Exception:
+            pass
+
+
 def collect_brain_state(worktree: pathlib.Path, env: dict[str, str], tools: dict[str, pathlib.Path]) -> dict[str, Any]:
     state: dict[str, Any] = {}
     path_proc = run_cmd([str(tools["brain"]), "path", str(worktree)], cwd=worktree, env=env, timeout=120)
@@ -2287,10 +2331,14 @@ Hard stop: call each MCP tool AT MOST ONCE, do NOT call `brain_query`/`brain_con
     elif condition == "mcp_history":
         policy = f"""Use the Entire Brain MCP server before any shell search or file reads. If your client exposes a `WaitForMcpServers` tool, first wait for the `entire_brain` server. Your first context action must be the MCP tool `mcp__entire_brain__brain_brief` / `brain_brief` for this task; then run exactly one `mcp__entire_brain__brain_search` / `brain_search` query with the useful query terms: {queries}. From `likely_edit_files`, open the file most relevant to the described regression first (prefer the core implementation file over TUI or test scaffolding); apply the fix there before any additional MCP calls or `rg`/`grep`/`find`, and broaden only if it is clearly not the regression site or focused validation fails. Do not run the `entire brain` CLI and do not read `.benchmark/brain-history-excerpt.md`; this condition is testing MCP-delivered history. If no Entire Brain MCP tools are visible, stop immediately and report `MCP_TOOLS_MISSING` instead of using grep or normal code search."""
     elif condition == "full_cli_compact" and is_opus and semantic_available:
-        # Opus-only compact CLI: a tiny --limit 2 packet + hard stop, no re-reads.
-        policy = f"""Use the full Entire Brain before editing. Your first and only context command must be `{opus_brief_command}` — a deliberately compact packet. Open `likely_edit_files` directly and apply the fix there, using the top history hits for the exact invariant. Treat the packet as sufficient: do NOT re-run brief, do not broaden to other files, and do not inspect checkpoint/session files. Run exactly one `likely_test_files` test, then finish. Keep `rg`/`grep`/`find` to at most 2 targeted in-file searches. Your context window is a finite budget — be concise and stop once the fix validates. Useful query terms: {queries}. {top_level_entire_guard}"""
+        # Opus-only compact CLI: a tiny --limit 2 packet + hard stop, no re-reads — but
+        # self-correcting: the history hit (the invariant) is the authority, likely_edit_files
+        # is a hint that can be lexically wrong, so verify before editing. Verification is a
+        # no-op when the pointer is already right (preserves the seed+semantic win) and a
+        # rescue when it is wrong (fixes the net-harmful history case).
+        policy = f"""Use the full Entire Brain before editing. Your first context command must be `{opus_brief_command}` — a deliberately compact packet. Work in this order: (1) read the top session-history hits and name the EXACT broken invariant — the specific expression, value, or behavior this regression changed; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing — open it and confirm the broken behavior is present there; (3) if it does NOT, the invariant decides the file, not the ranking — check the next `likely_edit_files` candidate or run at most ONE targeted `rg` for the invariant, then edit the file that truly contains it. Apply the minimal fix, run exactly one `likely_test_files` test, then finish. The history hits are the authority; `likely_edit_files` is a hint that can be wrong. Do NOT re-run brief or inspect checkpoint/session files, and keep `rg`/`grep`/`find` to at most 2 targeted searches. Your context window is a finite budget — stop once the fix validates. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif condition == "full_cli_compact" and semantic_available:
-        policy = f"""Use the full Entire Brain before editing. Your first context command must be `{brief_command}`. In the JSON, treat `action_checklist` as the first-pass current-code inventory: open `likely_edit_files` directly, apply/verify the listed actions in those files first, and do not broaden to other files unless the checklist is missing, ambiguous, or validation fails. Avoid broad `rg`/`grep`/`find` unless that first pass is insufficient. Prefer `likely_test_files` for one focused validation command; if a test fails because of unrelated temp-file or project-environment setup, do not spend extra rounds debugging test infrastructure. This condition intentionally provides no raw history excerpt; do not inspect checkpoint/session files directly. Useful query terms: {queries}. {top_level_entire_guard}"""
+        policy = f"""Use the full Entire Brain before editing. Your first context command must be `{brief_command}`. Work in this order: (1) read the top session-history hits in the JSON and name the EXACT broken invariant — the specific expression, value, or behavior this regression changed; (2) treat `likely_edit_files[0]` as a CANDIDATE and VERIFY it actually contains that invariant before editing — open it and confirm the broken behavior is present there; (3) if it does NOT, the invariant decides the file, not the ranking — check the next `likely_edit_files` candidate or run at most ONE targeted `rg` for the invariant, then edit the file that truly contains it. Apply the minimal fix and run one `likely_test_files` validation command; if a test fails because of unrelated temp-file or project-environment setup, do not spend extra rounds debugging test infrastructure. The history hits are the authority; `likely_edit_files`/`action_checklist` are hints that can be lexically wrong. Avoid broad repo-wide `rg`/`grep`/`find`, and do not re-run brief or inspect checkpoint/session files directly. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif semantic_available:
         policy = f"""Use the full Entire Brain before editing. Your first context command must be `{brief_command}`. In the JSON, prefer `action_checklist`, `likely_edit_files`, `likely_test_files`, and compact history hits before broad text search. Read `.benchmark/brain-history-excerpt.md` only if the brief does not give enough exact invariant or file guidance. Useful query terms: {queries}. {top_level_entire_guard}"""
     else:
@@ -3168,6 +3216,7 @@ def run_one(
         brain_state = collect_brain_state(worktree, env, tools) if condition != "no_brain" else {}
         if condition != "no_brain":
             assert_brain_state_ready(task, condition, brain_state)
+            capture_brief_packet(task, condition, runner, worktree, env, tools, run_dir)
         post_brain_changed = apply_post_brain_setup(task, worktree)
         if post_brain_changed:
             record["post_brain_baseline_history_reset"] = reset_agent_history_to_root(
