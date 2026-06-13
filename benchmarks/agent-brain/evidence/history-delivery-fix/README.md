@@ -104,8 +104,32 @@ is `False` (stricter release gate — one rep's record missing of 16, and a `bra
 verdict). The instrumentation caveat above still applies — the win is in measured
 tokens/seconds, both recorded reliably; the activity counters are not.
 
+## Depth reverification — `hist-fix-redaction-ckpt1000-20260613` (redaction, checkpoint-limit 1000 = 5× the benchmark default, n=8)
+
+Reran redaction with `--checkpoint-limit 1000` (5× the standard 200) to test whether the
+stable win holds with much more history loaded. **It attenuates and loses stability:**
+
+- pass: 8/8 (no_brain) vs 7/8 (full_cli_compact) — a one-rep dip, no longer clean parity.
+- tokens: 2.20M → 1.64M (**−25%**, down from −44% at limit 200), raw p=0.024, **Holm p=0.12**,
+  drop-one does **not** survive → stability tag **`noisy`**, not `brain_positive_stable`.
+- agent-seconds: 329 → 279 (−15%), raw p=0.066 (n.s.).
+
+**Honest conclusion:** the stable `brain_positive_stable` result is **specific to the
+limit-200 default**; loading 5× more checkpoints shrinks the token margin (−44% → −25%) and it
+no longer clears Holm at n=8. Two confounds (depth and the smaller n=8 vs n=16) are not fully
+separated here, but the direction is clear — the efficiency advantage is **depth-sensitive**,
+not a fixed property. The fix still reduces tokens at roughly-parity quality across depths; the
+*magnitude and significance* depend on how much history the packet carries.
+
+Data note: literal `--checkpoint-limit 0` (all ~3593 checkpoints) **fails** during export on a
+corrupt checkpoint deep in history (`00c9e235…: failed to read metadata for 1 session`) — a
+remote-data issue, unrelated to this fix, and the reason the benchmark pins a recent window.
+Limit 1000 exports cleanly (76 empty sessions skipped, no error).
+
 ## Files
 - `hist-fix-proof-v2-20260613/records.ndjson` — 24 per-run records (provenance-backed).
 - `hist-fix-proof-v2-20260613/report.json` — stability gate output (Welch + Holm p-values, CV, tags).
 - `hist-fix-redaction-n16-20260613/records.ndjson` — 31 per-run records (16 no_brain + 15 valid full_cli_compact, provenance-backed).
 - `hist-fix-redaction-n16-20260613/report.json` — n=16 stability gate output (the `brain_positive_stable` tag + Holm p-values).
+- `hist-fix-redaction-ckpt1000-20260613/records.ndjson` — 15 per-run records (limit-1000 depth reverification, n=8/side).
+- `hist-fix-redaction-ckpt1000-20260613/report.json` — depth-reverification stability output (`noisy`; −25% tokens, Holm 0.12).

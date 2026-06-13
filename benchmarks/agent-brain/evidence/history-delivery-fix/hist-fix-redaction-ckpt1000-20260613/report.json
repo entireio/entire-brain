@@ -1,0 +1,554 @@
+{
+ "comparisons": [
+  {
+   "agent": "claude",
+   "baseline": "no_brain",
+   "brain_positive_gate": {
+    "requires_repetitions_per_side": 4,
+    "score_delta": -10.125,
+    "search_improvement_ratio": null,
+    "success_delta": -0.125,
+    "time_improvement_ratio": 0.15287132042562415,
+    "time_overhead_ratio": -0.15287132042562415,
+    "token_improvement_ratio": 0.2528276478368255,
+    "token_overhead_ratio": -0.2528276478368255
+   },
+   "candidate_proof_ready": false,
+   "condition": "full_cli_compact",
+   "delivery_scope": "full_cli_compact",
+   "delta": -10.125,
+   "delta_score_core": -7.0,
+   "env_flags": {},
+   "mean_agent_seconds_baseline": 329.0110109448433,
+   "mean_agent_seconds_condition": 278.7146632671356,
+   "mean_baseline": 83.125,
+   "mean_brain_use_baseline": 5.0,
+   "mean_brain_use_condition": 1.0,
+   "mean_condition": 73.0,
+   "mean_cost_usd_baseline": 2.1974454375000003,
+   "mean_cost_usd_condition": 1.7944312500000001,
+   "mean_direct_brain_cli_calls_baseline": 0.0,
+   "mean_direct_brain_cli_calls_condition": 0.0,
+   "mean_mcp_tool_calls_baseline": 0.0,
+   "mean_mcp_tool_calls_condition": 0.0,
+   "mean_outcome_baseline": 45.0,
+   "mean_outcome_condition": 40.0,
+   "mean_patch_focus_baseline": 28.0,
+   "mean_patch_focus_condition": 26.25,
+   "mean_runtime_efficiency_baseline": 3.125,
+   "mean_runtime_efficiency_condition": 4.0,
+   "mean_score_core_baseline": 75.0,
+   "mean_score_core_condition": 68.0,
+   "mean_search_calls_baseline": 0.0,
+   "mean_search_calls_condition": 0.0,
+   "mean_total_tokens_baseline": 2199166.625,
+   "mean_total_tokens_condition": 1643156.5,
+   "mean_turns_baseline": 28.0,
+   "mean_turns_condition": 20.875,
+   "mean_validation_discipline_baseline": 2.0,
+   "mean_validation_discipline_condition": 1.75,
+   "n_baseline": 8,
+   "n_condition": 8,
+   "p_value_agent_seconds": 0.06584939607269687,
+   "p_value_agent_seconds_holm": 0.21314307877986532,
+   "p_value_approx": 0.21552110272588165,
+   "p_value_approx_holm": 0.4310422054517633,
+   "p_value_cost_usd": 0.05328576969496633,
+   "p_value_cost_usd_holm": 0.21314307877986532,
+   "p_value_score_core": 0.36877304475954564,
+   "p_value_score_core_holm": 0.4310422054517633,
+   "p_value_total_tokens": 0.023969743117426705,
+   "p_value_total_tokens_holm": 0.11984871558713353,
+   "p_value_turns": 0.01297186289501113,
+   "p_value_turns_holm": 0.07783117737006678,
+   "pass_rate_baseline": 1.0,
+   "pass_rate_condition": 0.875,
+   "proof_ready": false,
+   "runner": "claude-claude-opus-4-8-high",
+   "score_versions_baseline": [
+    2
+   ],
+   "score_versions_condition": [
+    2
+   ],
+   "stability": {
+    "coefficient_of_variation_score_baseline": 0.004253273871798783,
+    "coefficient_of_variation_score_condition": 0.2880902734963279,
+    "coefficient_of_variation_total_tokens_baseline": 0.15336440653468963,
+    "coefficient_of_variation_total_tokens_condition": 0.3093494176857499,
+    "pass_rate_lift_survives_drop_one": false,
+    "saturated": false,
+    "tag": "noisy",
+    "token_win_survives_drop_one": false,
+    "tokens_p_holm": 0.11984871558713353,
+    "tokens_p_raw": 0.023969743117426705,
+    "tokens_significant_p_lt_0_05": false
+   },
+   "success_rate_baseline": 1.0,
+   "success_rate_condition": 0.875,
+   "task_id": "entireio-cli-finalize-redaction-raw-live",
+   "verdict": "brain_negative",
+   "verdict_reasons": [
+    "brain_validation_not_clean",
+    "score_drop_or_overhead_exceeds_gate"
+   ]
+  }
+ ],
+ "provenance": {
+  "fingerprint": "225e92eb592b000ae7e2856e23c748c27334d9e067a6e7503606aa9577ab33c8",
+  "harnesses": [
+   {
+    "dirty": true,
+    "head_commit": "0bf4d6033aa65298bcfb0722e0be0e64b79811b1",
+    "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-histfix"
+   },
+   {
+    "dirty": true,
+    "head_commit": "345186b0bdd43d5e3ecc4f65b49ce82a327dee28",
+    "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-histfix"
+   },
+   {
+    "dirty": true,
+    "head_commit": "50227965ca415ba450bf5dd53ccf8371c8706e13",
+    "repo_path": "/Users/suhaan/Documents/Coding/entire-brain-histfix"
+   }
+  ],
+  "missing_record_provenance": 0,
+  "records": 16,
+  "records_with_provenance": 16,
+  "run_configs": [
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 1000,
+    "command": "run",
+    "condition": "full_cli_compact",
+    "fingerprint": "5c4f210f7ab5068ba1ec66df868bfd9a8741e6cb4c112bf4996ce2d8551c3e16",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 8,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 1000,
+    "command": "run",
+    "condition": "full_cli_compact",
+    "fingerprint": "6cb0850b268290bc63f18eecab82a19b145999a1d681b35981c2c85094c60570",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 8,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 1000,
+    "command": "run",
+    "condition": "full_cli_compact",
+    "fingerprint": "77e83c01bc3ebb1908d17ae7ec64b1bbb42450cd3a07874ebafbc172b8f2d4c9",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 8,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 1000,
+    "command": "run",
+    "condition": "full_cli_compact",
+    "fingerprint": "8ac750d98c9dfc354efcaa14d8105b2494b82f238de5afe53565082c383e34cd",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 8,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 1000,
+    "command": "run",
+    "condition": "full_cli_compact",
+    "fingerprint": "c1c73dcc19a2ec3e9e62861f36c8824760b0a36a7bcc1ccce13a8628f9c4768b",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 8,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 1000,
+    "command": "run",
+    "condition": "full_cli_compact",
+    "fingerprint": "d7ea425790346a8a72a30a18176deb2c82292700ec3dffec8e1f61f256644aaf",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 8,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 1000,
+    "command": "run",
+    "condition": "full_cli_compact",
+    "fingerprint": "dab0465f993007ecc986389783ce794270f4b02537c79db074edcf52a6de6d7b",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 8,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 1000,
+    "command": "run",
+    "condition": "full_cli_compact",
+    "fingerprint": "f8a863d357bdad3067652949a733aa6b94e7e075d6f32381e93a256d0926cbcd",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 8,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 1000,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "37d7cb4e3c74f4459b310d6bb3ec26df80bbeb42d6dbd4ed653c1f5f70757aa1",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 8,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 1000,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "3a3753d17a07e6842514f9ef42de8132ac1437b34676df598acef9ed15f6423e",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 8,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 1000,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "6bb7ec424e87c3008f66e23cf4bde5dabfe939d7811c04702889245750df146d",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 8,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 1000,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "81c6a3414969adecdd2522feca0c7488068245410fdfd56c02d9f86f27faf358",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 8,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 1000,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "92f01361c1b5ddb8231ee436e2ff67881706190d51320e907cac944523fe0783",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 8,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 1000,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "9c5a98c55557362c1ebc925bfea163fb62763f29219475f94add375115025cbb",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 8,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 1000,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "adaa55c5a872f1eb0b278d72e8dfc216bd3c8c36b144f8d448329acc19f2adcb",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 8,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   },
+   {
+    "brain_cache": {
+     "enabled": true,
+     "refresh": false
+    },
+    "checkpoint_limit": 1000,
+    "command": "run",
+    "condition": "no_brain",
+    "fingerprint": "d6ed696512fb544e23fa2ffbed485baa3dc130eb82df6fd4eedd39659819ddfe",
+    "requested": {
+     "agents": "codex",
+     "conditions": "no_brain,full_cli_compact",
+     "repetitions": 8,
+     "runners": "claude:claude-opus-4-8:high",
+     "tasks": [
+      "entireio-cli-finalize-redaction-raw-live*"
+     ]
+    },
+    "runner": {
+     "agent": "claude",
+     "effort": "high",
+     "id": "claude-claude-opus-4-8-high",
+     "model": "claude-opus-4-8"
+    }
+   }
+  ],
+  "schema": 1,
+  "sources": [
+   {
+    "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+    "base_ref": "af713665091693a8301520159f3b4097a6ec36f9",
+    "base_ref_source": "task.base_commit",
+    "dirty": false,
+    "head_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+    "repo": "entire-cli",
+    "repo_path_input": "cli-bench",
+    "repo_path_resolved": "/Users/suhaan/Documents/Coding/cli-bench"
+   }
+  ],
+  "tasks": [
+   {
+    "base_commit": "af713665091693a8301520159f3b4097a6ec36f9",
+    "config_sha256": "5b37237467dbfef3654be7a10f1325ba7e1c5ccdeedbc4d9713112111c2d569e",
+    "id": "entireio-cli-finalize-redaction-raw-live",
+    "path": "benchmarks/agent-brain/tasks/entireio-cli-finalize-redaction-raw-live.json"
+   }
+  ]
+ },
+ "records": 16,
+ "stability_tags": {
+  "noisy": 1
+ },
+ "stats_notes": {
+  "headline_metric": "validation pass-rate + measured tokens; composite score and p-values are secondary",
+  "multiple_comparison_correction": "holm-bonferroni across all suite p-values; see <field>_holm",
+  "n_pvalues_in_family": 6,
+  "p_value_test": "two-sided Welch's t-test (Student-t, Welch-Satterthwaite df)",
+  "stability": "per comparison: coefficient_of_variation + tag (brain_positive_stable requires a token win significant at p<0.05 using max(raw Welch p, Holm-adjusted p), or a pass-rate lift, that survives dropping the single most-favourable rep; saturated = both arms pass 100%; noisy otherwise). The gate only downgrades; it never manufactures significance."
+ }
+}
