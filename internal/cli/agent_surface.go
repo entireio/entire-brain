@@ -153,8 +153,12 @@ type brainBriefReport struct {
 	LikelyTestFiles []string            `json:"likely_test_files,omitempty"`
 	LikelyFiles     []string            `json:"likely_files,omitempty"`
 	Patterns        []patternView       `json:"patterns,omitempty"`
-	Guidance        []string            `json:"guidance"`
-	Warnings        []string            `json:"warnings,omitempty"`
+	// Consolidations are corpus-backed dossiers (v2) relevant to the task:
+	// trigger + workflow + verification + failure modes, anchored. Task-gated
+	// and capped — an unrelated task carries none.
+	Consolidations []briefConsolidation `json:"consolidations,omitempty"`
+	Guidance       []string             `json:"guidance"`
+	Warnings       []string             `json:"warnings,omitempty"`
 }
 
 type brainBriefSemantic struct {
@@ -229,7 +233,10 @@ type brainOverviewReport struct {
 	Documents         []string              `json:"key_documents,omitempty"`
 	RecentDecisions   []brainTextMatch      `json:"recent_decisions,omitempty"`
 	StrongestPatterns []patternView         `json:"strongest_patterns,omitempty"`
-	Warnings          []string              `json:"warnings,omitempty"`
+	// StrongestConsolidations are the corpus's top current dossiers (v2),
+	// capped so the overview shows the repo's strongest patterns without flooding.
+	StrongestConsolidations []briefConsolidation `json:"strongest_consolidations,omitempty"`
+	Warnings                []string             `json:"warnings,omitempty"`
 }
 
 type brainOverviewFresh struct {
@@ -327,6 +334,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 			report.RecentDecisions = recentDecisionMatches(status.Brain.Path, status.Manifest.Sources.History, decisions)
 		}
 		report.StrongestPatterns = strongestPatterns(status.Brain.Path, 3)
+		report.StrongestConsolidations = strongestConsolidations(status.Brain.Path, 3)
 	}
 	if jsonOut {
 		return writeJSON(cmd, report)
@@ -426,6 +434,12 @@ func renderBrainOverviewText(cmd *cobra.Command, report brainOverviewReport) {
 		fmt.Fprintln(out, "strongest patterns:")
 		for _, p := range report.StrongestPatterns {
 			fmt.Fprintf(out, "  [%s] %s (strength %.2f, support %d)\n", p.Type, p.Title, p.Strength, p.Support)
+		}
+	}
+	if len(report.StrongestConsolidations) > 0 {
+		fmt.Fprintln(out, "strongest consolidations:")
+		for _, c := range report.StrongestConsolidations {
+			fmt.Fprintf(out, "  [%s] %s (confidence %.2f)\n", c.Type, c.Title, c.Confidence)
 		}
 	}
 }
@@ -978,6 +992,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	if views, _, perr := loadPatternViews(status.Brain.Path); perr == nil {
 		report.Patterns = rankTaskRelevantPatterns(views, brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
 	}
+	// Corpus consolidations (v2): task-relevant dossiers, capped, no ambient
+	// noise. Graceful — absent corpus contributes nothing.
+	report.Consolidations = loadBriefConsolidations(status.Brain.Path, brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
 	if briefOpts.json {
 		return writeJSON(cmd, report)
 	}
@@ -1020,6 +1037,22 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			fmt.Fprintf(cmd.OutOrStdout(), "action %s: %s\n", location, item.Action)
 		} else {
 			fmt.Fprintf(cmd.OutOrStdout(), "action %s\n", item.Action)
+		}
+	}
+	for _, c := range report.Consolidations {
+		state := c.Status
+		if c.Verdict != "" {
+			state += "/" + c.Verdict
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "consolidation [%s %.2f %s] %s\n", c.Type, c.Confidence, state, c.Title)
+		if len(c.Workflow) > 0 {
+			fmt.Fprintf(cmd.OutOrStdout(), "  workflow: %s\n", strings.Join(c.Workflow, " → "))
+		}
+		if len(c.Verification) > 0 {
+			fmt.Fprintf(cmd.OutOrStdout(), "  verify: %s\n", strings.Join(c.Verification, ", "))
+		}
+		if c.Anchor != nil {
+			fmt.Fprintf(cmd.OutOrStdout(), "  e.g. %s:%d   id %s\n", c.Anchor.Transcript, c.Anchor.StartLine, c.PatternID)
 		}
 	}
 	for _, warning := range append(report.Status.Warnings, report.Warnings...) {

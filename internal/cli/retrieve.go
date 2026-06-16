@@ -404,6 +404,13 @@ func getUnifiedBatch(brainDir, branch string, ids []string) (found []unifiedResu
 				found = append(found, docToUnified(r))
 				continue
 			}
+		case strings.HasPrefix(id, "pattern:"):
+			// Consolidation dossier addressed by its pattern id (v2). Corpus is
+			// rebuildable/optional, so a missing corpus is "not found", not an error.
+			if r, ok := getCorpusConsolidation(brainDir, id); ok {
+				found = append(found, r)
+				continue
+			}
 		}
 		missing = append(missing, id)
 	}
