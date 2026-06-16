@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "0f5493d8d842",
+  "session_id": "7fc2ec8e-fd41-4e80-ac5e-d7b4a87b7c35",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-16T17:27:05.728874Z",
+  "branch": "claude/patterns-phase0-reinforcement",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/pattern_consolidation_plan.md",
+    "internal/cli/episodes.go",
+    "internal/cli/patterns_cmd.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "d6691de26d30",
+  "token_usage": {
+    "input_tokens": 22116,
+    "cache_creation_tokens": 974682,
+    "cache_read_tokens": 114463233,
+    "output_tokens": 395133,
+    "api_call_count": 350
+  },
+  "session_metrics": {
+    "turn_count": 21
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-16T17:27:05.636382Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 840,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 840,
+    "total_lines_changed": 840,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 80,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 80
+      }
+    }
+  ]
+}
