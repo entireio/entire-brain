@@ -239,7 +239,6 @@ func writeBrainEpisodesAndSourceLocked(outputDir string, now time.Time) (*patter
 		return nil, err
 	}
 	source.Procedures = len(procedures)
-	source.Patterns = len(procedures) // procedures are the only pattern family until practices (Phase 3)
 
 	manifest, err := loadBrainManifest(outputDir)
 	if err != nil {
@@ -248,6 +247,17 @@ func writeBrainEpisodesAndSourceLocked(outputDir string, now time.Time) (*patter
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}
 	}
+
+	practices, err := buildBrainPractices(outputDir, manifest, now)
+	if err != nil {
+		return nil, err
+	}
+	if err := writeBrainPracticesFile(outputDir, practices); err != nil {
+		return nil, err
+	}
+	source.Practices = len(practices)
+	source.Patterns = len(procedures) + len(practices)
+
 	manifest.Sources.Patterns = source
 	if manifest.GeneratedAt.IsZero() {
 		manifest.GeneratedAt = now

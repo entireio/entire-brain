@@ -590,11 +590,21 @@ Scope deferred to later phases (documented in `episodes.go`): per-episode `tool_
 
 Residual noise (e.g. `cd → echo`) survives via the diversity bonus; the **specificity floor / weight is the documented tuning lever**. Deferred: per-episode `files`, tool-sequence-shape procedures (only command n-grams implemented), workspace scope (Phase 6).
 
-### Phase 3: Practices
+### Phase 3: Practices — DONE (2026-06-16)
 
-- Use durable facts, history records, validation records, corrections, and read-only episodes to detect repeated practices.
-- Score practices separately from procedures.
-- Render practice cards with facts/history/source anchors.
+- Use durable facts … to detect repeated practices. → `buildBrainPractices` (`practices.go`) derives a practice from each active durable fact, deduped by content id across branches. **History-record/validation and read-only-episode augmentation are deferred** — facts are the Phase 3 source (the richest one, already present).
+- Score practices separately from procedures. → kind-led blend in [0,1]: **kind (0.45)** via the normalized `factKindPriority` (closed-negative/gotcha/invariant high, decision low), recency (0.25), support (0.20), confidence (0.10); shared high/medium/low cutoffs.
+- Render practice cards with facts/source anchors. → the unified `patternView` lists procedures and practices together, sorted by strength; practice cards show kind, statement, provenance-session support, and an example anchor.
+
+**Two data realities handled (verified against the live brain):**
+- All 1663 facts have an **empty `Kind`** (distilled before kind-storage), so the kind is taken via the deterministic `factKindOrInferred` (paths+text inference), never raw `f.Kind`.
+- A fact's `UpdatedAt` is its (uniform) distill time, so **recency is derived from the newest session timestamp among the fact's provenance**, looked up in the manifest — real content recency.
+
+**Real run:** 1609 active facts → **1609 practices**. Top by strength are exactly the high-value kinds — `closed-negative` (rejected dead-ends with evidence; strength ~0.88) then `invariant` (must-hold rules; ~0.83) — surfaced ahead of one-off `decision` facts.
+
+**Honest caveats:**
+- Practices are **1:1 with durable facts**, not clustered/recurring behaviors — the fact's distillation (it was deemed durable) is the recurrence proxy, so single-session facts are included rather than requiring multi-session support. A future refinement could cluster facts by topic/locus or require a recurrence floor.
+- In the current corpus `support`/`confidence`/`recency` vary little (mean 1.19 anchors, confidence mostly 1.0), so **strength is dominated by kind**; the other terms will matter on richer data. `decision`-kind facts are arguably records, not practices — a candidate filter.
 
 ### Phase 4: Skill Memory
 

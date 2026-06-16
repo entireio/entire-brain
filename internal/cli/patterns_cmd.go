@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -52,16 +53,29 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, targ
 	if err != nil {
 		return err
 	}
-	filtered := procedures[:0:0]
-	for _, p := range procedures {
-		if listOpts.typ != "" && p.Type != listOpts.typ {
-			continue
-		}
-		if listOpts.scope != "" && p.Scope != listOpts.scope {
-			continue
-		}
-		filtered = append(filtered, p)
+	practices, err := loadBrainPractices(brainDir)
+	if err != nil {
+		return err
 	}
+
+	views := make([]patternView, 0, len(procedures)+len(practices))
+	for _, p := range procedures {
+		views = append(views, procedureView(p))
+	}
+	for _, p := range practices {
+		views = append(views, practiceView(p))
+	}
+	filtered := views[:0:0]
+	for _, v := range views {
+		if listOpts.typ != "" && v.Type != listOpts.typ {
+			continue
+		}
+		if listOpts.scope != "" && v.Scope != listOpts.scope {
+			continue
+		}
+		filtered = append(filtered, v)
+	}
+	sort.SliceStable(filtered, func(i, j int) bool { return filtered[i].Strength > filtered[j].Strength })
 	if listOpts.limit > 0 && len(filtered) > listOpts.limit {
 		filtered = filtered[:listOpts.limit]
 	}
@@ -78,24 +92,72 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, targ
 		}
 		return nil
 	}
-	for _, p := range filtered {
-		renderProcedureCard(out, p)
+	for _, v := range filtered {
+		renderPatternView(out, v)
 	}
 	return nil
 }
 
-// renderProcedureCard prints a concise pattern card (the basic card; the full
-// approval card lands with `patterns form` in Phase 5).
-func renderProcedureCard(out io.Writer, p procedureRecord) {
+// patternView is the unified listing shape for both pattern families, so
+// procedures and practices sort and render through one path.
+type patternView struct {
+	ID            string               `json:"id"`
+	Type          string               `json:"type"`
+	Scope         string               `json:"scope"`
+	Kind          string               `json:"kind,omitempty"`
+	Title         string               `json:"title"`
+	Strength      float64              `json:"strength"`
+	StrengthLabel string               `json:"strength_label"`
+	Support       int                  `json:"support"`
+	Reinforcement *reinforcementCounts `json:"reinforcement,omitempty"`
+	Example       *episodeAnchor       `json:"example,omitempty"`
+}
+
+func procedureView(p procedureRecord) patternView {
 	r := p.Reinforcement
-	fmt.Fprintf(out, "[%s] %s  (%s, strength %.2f)\n", strings.ToUpper(p.StrengthLabel), strings.Join(p.Commands, " → "), p.Type, p.Strength)
-	fmt.Fprintf(out, "    seen in %d episode(s), %d author(s), %d branch(es); reinforcement %d↑ %d↓ %d·\n",
-		p.Support, p.Authors, p.Branches, r.Success, r.Corrected, r.Neutral)
+	v := patternView{
+		ID: p.ID, Type: p.Type, Scope: p.Scope,
+		Title:    strings.Join(p.Commands, " → "),
+		Strength: p.Strength, StrengthLabel: p.StrengthLabel,
+		Support: p.Support, Reinforcement: &r,
+	}
 	if len(p.Examples) > 0 {
-		ex := p.Examples[0]
-		fmt.Fprintf(out, "    e.g. %s:%d   id %s\n", ex.Path, ex.Line, p.ID)
+		v.Example = &p.Examples[0]
+	}
+	return v
+}
+
+func practiceView(p practiceRecord) patternView {
+	v := patternView{
+		ID: p.ID, Type: p.Type, Scope: p.Scope, Kind: p.Kind,
+		Title:    p.Statement,
+		Strength: p.Strength, StrengthLabel: p.StrengthLabel,
+		Support:  p.Support,
+	}
+	if len(p.Examples) > 0 {
+		v.Example = &p.Examples[0]
+	}
+	return v
+}
+
+// renderPatternView prints a concise pattern card (the basic card; the full
+// approval card lands with `patterns form` in Phase 5).
+func renderPatternView(out io.Writer, v patternView) {
+	label := v.Type
+	if v.Kind != "" {
+		label += "/" + v.Kind
+	}
+	fmt.Fprintf(out, "[%s] %s  (%s, strength %.2f)\n", strings.ToUpper(v.StrengthLabel), v.Title, label, v.Strength)
+	if v.Reinforcement != nil {
+		r := v.Reinforcement
+		fmt.Fprintf(out, "    seen in %d episode(s); reinforcement %d↑ %d↓ %d·\n", v.Support, r.Success, r.Corrected, r.Neutral)
 	} else {
-		fmt.Fprintf(out, "    id %s\n", p.ID)
+		fmt.Fprintf(out, "    seen in %d session(s)\n", v.Support)
+	}
+	if v.Example != nil {
+		fmt.Fprintf(out, "    e.g. %s:%d   id %s\n", v.Example.Path, v.Example.Line, v.ID)
+	} else {
+		fmt.Fprintf(out, "    id %s\n", v.ID)
 	}
 }
 
