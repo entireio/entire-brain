@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "88095a7a651c",
+  "strategy": "manual-commit",
+  "branch": "claude/patterns-phase0-reinforcement",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/mcp.go",
+    "internal/cli/skill_memory.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/88/095a7a651c/0/metadata.json",
+      "transcript": "/88/095a7a651c/0/full.jsonl",
+      "content_hash": "/88/095a7a651c/0/content_hash.txt",
+      "prompt": "/88/095a7a651c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 44712,
+    "cache_creation_tokens": 1773197,
+    "cache_read_tokens": 212870030,
+    "output_tokens": 528953,
+    "api_call_count": 488
+  }
+}
