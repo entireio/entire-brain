@@ -1,0 +1,36 @@
+Review /Users/thomi/Projects/entire-brain/docs/pattern_consolidation_plan.md
+
+---
+
+Mark up the doc. Add phase 0. Before you start the implementation, understand how “entire brain distill” works.
+<system-reminder>Message sent at Tue 2026-06-16 10:00:24 UTC.</system-reminder>
+
+---
+
+Yes
+<system-reminder>Message sent at Tue 2026-06-16 10:07:10 UTC.</system-reminder>
+
+---
+
+Where do other agents store their skills? Do research for all the agents that the Entire CLI supports.
+<system-reminder>Message sent at Tue 2026-06-16 10:16:59 UTC.</system-reminder>
+
+---
+
+You are wrong
+<system-reminder>Message sent at Tue 2026-06-16 10:20:29 UTC.</system-reminder>
+
+---
+
+Yes
+<system-reminder>Message sent at Tue 2026-06-16 10:23:26 UTC.</system-reminder>
+
+---
+
+Alright, start with the phase 0 spike
+<system-reminder>Message sent at Tue 2026-06-16 10:25:58 UTC.</system-reminder>
+
+---
+
+Both
+<system-reminder>Message sent at Tue 2026-06-16 11:18:54 UTC.</system-reminder>
