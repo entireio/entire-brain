@@ -21,13 +21,12 @@ import (
 // transcripts already on disk, so extraction is deterministic and token-free —
 // it must be safe to run during refresh.
 //
-// SCOPE NOTE: Phase 1 extracts the episode spine — identity, intent, the
-// reinforcement label (via the Phase 0 classifier), and a source anchor. The
-// richer operational fields the plan lists on an episode (tool_sequence,
-// command_sequence, files) feed procedure detection and are populated in Phase 2;
-// they are intentionally absent here rather than half-filled. AgentErrored is not
-// yet available per turn (it is per-checkpoint metadata the manifest session
-// record does not carry), so Phase 1 uses only the next-user-turn signal.
+// SCOPE NOTE: episodes carry identity, intent, the reinforcement label (via the
+// Phase 0 classifier + commit-success signal), a source anchor, and the
+// operational shape — tool_sequence and command_sequence (Phase 2,
+// episode_tools.go) — that procedure detection groups on. Still deferred:
+// per-episode `files` (needs apply_patch/edit target parsing) and a per-checkpoint
+// Error -> WorkFailed signal (the manifest session record does not carry it).
 
 const patternsEpisodesPath = "patterns/episodes.ndjson"
 
@@ -68,6 +67,8 @@ type episodeRecord struct {
 	Agent           string        `json:"agent,omitempty"`
 	Intent          string        `json:"intent,omitempty"`
 	IntentSignature string        `json:"intent_signature,omitempty"`
+	ToolSequence    []string      `json:"tool_sequence,omitempty"`
+	CommandSequence []string      `json:"command_sequence,omitempty"`
 	Reinforcement   string        `json:"reinforcement"`
 	Source          episodeAnchor `json:"source"`
 	CreatedAt       *time.Time    `json:"created_at,omitempty"`
@@ -149,6 +150,7 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 				FeedbackText:  feedback,
 				WorkCommitted: workCommitted(seg.WorkText),
 			})
+			tools, commands := episodeToolAndCommandSequences(seg.WorkText)
 			switch label {
 			case reinforcementSuccess:
 				counts.Success++
@@ -167,6 +169,8 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 				Agent:           session.Agent,
 				Intent:          truncateString(turn.Text, 280),
 				IntentSignature: intentSignature(turn.Text),
+				ToolSequence:    tools,
+				CommandSequence: commands,
 				Reinforcement:   label,
 				Source:          episodeAnchor{Path: filepath.ToSlash(rel), Line: turn.Line},
 			}
