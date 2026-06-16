@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -15,18 +17,86 @@ import (
 // strongest-patterns listing arrives with procedure detection (Phase 2).
 
 func newPatternsCommand(opts Options) *cobra.Command {
+	var listOpts patternsListOptions
 	cmd := &cobra.Command{
 		Use:     "patterns [path]",
 		Short:   "Inspect and rebuild repeated-work patterns derived from session history",
 		GroupID: "create",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPatternsStatus(cmd.Context(), cmd, opts, targetFromArgs(opts, args), false)
+			return runPatternsList(cmd.Context(), cmd, opts, targetFromArgs(opts, args), listOpts)
 		},
 	}
+	cmd.Flags().BoolVar(&listOpts.asJSON, "json", false, "Emit patterns as JSON")
+	cmd.Flags().IntVar(&listOpts.limit, "limit", 20, "Maximum number of patterns to show")
+	cmd.Flags().StringVar(&listOpts.typ, "type", "", "Filter by type: procedure|practice")
+	cmd.Flags().StringVar(&listOpts.scope, "scope", "", "Filter by scope: repo|workspace")
 	cmd.AddCommand(newPatternsRefreshCommand(opts))
 	cmd.AddCommand(newPatternsStatusCommand(opts))
 	return cmd
+}
+
+type patternsListOptions struct {
+	asJSON bool
+	limit  int
+	typ    string
+	scope  string
+}
+
+func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, target string, listOpts patternsListOptions) error {
+	brainDir, err := resolvePatternsBrainDir(ctx, opts, target)
+	if err != nil {
+		return err
+	}
+	procedures, err := loadBrainProcedures(brainDir)
+	if err != nil {
+		return err
+	}
+	filtered := procedures[:0:0]
+	for _, p := range procedures {
+		if listOpts.typ != "" && p.Type != listOpts.typ {
+			continue
+		}
+		if listOpts.scope != "" && p.Scope != listOpts.scope {
+			continue
+		}
+		filtered = append(filtered, p)
+	}
+	if listOpts.limit > 0 && len(filtered) > listOpts.limit {
+		filtered = filtered[:listOpts.limit]
+	}
+
+	if listOpts.asJSON {
+		return writeJSON(cmd, filtered)
+	}
+	out := cmd.OutOrStdout()
+	if len(filtered) == 0 {
+		if !buildPatternsStatusReport(brainDir).Present {
+			fmt.Fprintln(out, "patterns: not built (run `entire brain patterns refresh`)")
+		} else {
+			fmt.Fprintln(out, "patterns: none detected yet")
+		}
+		return nil
+	}
+	for _, p := range filtered {
+		renderProcedureCard(out, p)
+	}
+	return nil
+}
+
+// renderProcedureCard prints a concise pattern card (the basic card; the full
+// approval card lands with `patterns form` in Phase 5).
+func renderProcedureCard(out io.Writer, p procedureRecord) {
+	r := p.Reinforcement
+	fmt.Fprintf(out, "[%s] %s  (%s, strength %.2f)\n", strings.ToUpper(p.StrengthLabel), strings.Join(p.Commands, " → "), p.Type, p.Strength)
+	fmt.Fprintf(out, "    seen in %d episode(s), %d author(s), %d branch(es); reinforcement %d↑ %d↓ %d·\n",
+		p.Support, p.Authors, p.Branches, r.Success, r.Corrected, r.Neutral)
+	if len(p.Examples) > 0 {
+		ex := p.Examples[0]
+		fmt.Fprintf(out, "    e.g. %s:%d   id %s\n", ex.Path, ex.Line, p.ID)
+	} else {
+		fmt.Fprintf(out, "    id %s\n", p.ID)
+	}
 }
 
 func newPatternsRefreshCommand(opts Options) *cobra.Command {

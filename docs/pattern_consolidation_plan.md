@@ -571,13 +571,24 @@ Implemented in `internal/cli/reinforcement.go` (+ `reinforcement_test.go`):
 Scope deferred to later phases (documented in `episodes.go`): per-episode `tool_sequence` / `command_sequence` / `files` (Phase 2 procedure detection), and per-checkpoint `Error` → a `WorkFailed`/`corrected` branch (the manifest session record does not carry it).
 - Test Codex and Claude transcript fixtures.
 
-### Phase 2: Procedures
+### Phase 2: Procedures — DONE (2026-06-16)
 
-- Extract command and tool-sequence procedures.
-- Build procedure ids and supporting synapses.
-- Score repo-local procedure patterns.
-- Add `entire brain patterns` read-only listing.
-- Render basic pattern cards.
+- Extract command and tool-sequence procedures. → episodes carry `tool_sequence` / `command_sequence` (`episode_tools.go`, cross-dialect, with a dependency-free command normalizer). Procedures are recurring command n-grams (length 2–3, consecutive runs collapsed) over the episode set (`buildBrainProcedures` in `procedures.go`).
+- Build procedure ids — stable content-hash (`procedureID`). **Supporting synapses deferred** per the review note: each procedure instead carries `support` (distinct episodes), author/branch counts, reinforcement tally, and up to 3 example source anchors — no separate edge store.
+- Score repo-local procedure patterns. → weighted blend in [0,1]: **specificity (idf, weight 0.40)** to suppress ubiquitous-command noise, recurrence (log-saturated support, 0.30), reinforcement quality (success lifts / corrected sinks, 0.20), author+branch diversity (0.10); cutoffs high ≥ 0.6 / medium ≥ 0.4 / low. A specificity floor drops shapes built from ubiquitous commands.
+- Add `entire brain patterns` read-only listing (`patterns_cmd.go`): bare `patterns` lists strongest procedures, flags `--json` / `--limit` / `--type` / `--scope`.
+- Render basic pattern cards. → `renderProcedureCard` (concise: strength label, command chain, support/authors/branches, reinforcement tally, example anchor + id). The full approval card is Phase 5 (`patterns form`).
+
+**Real run (this repo's brain):** 683 episodes → **266 procedures**. Top by strength are genuine workflows, and the reinforcement pipeline shows through clearly — commit workflows surface as high-success because the commit-success signal feeds strength:
+
+```
+[HIGH] git commit → git push        14 episodes, 14↑ 0↓ 0·   strength 0.67
+[HIGH] git add → git push           20 episodes, 20↑ 0↓ 0·   strength 0.64
+[HIGH] git diff → git add → git push 11 episodes, 11↑ 0↓ 0·  strength 0.60
+[HIGH] python3 → benchmarks/agent-brain/run.py  10 episodes  strength 0.62
+```
+
+Residual noise (e.g. `cd → echo`) survives via the diversity bonus; the **specificity floor / weight is the documented tuning lever**. Deferred: per-episode `files`, tool-sequence-shape procedures (only command n-grams implemented), workspace scope (Phase 6).
 
 ### Phase 3: Practices
 

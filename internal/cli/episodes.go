@@ -234,6 +234,13 @@ func writeBrainEpisodesAndSourceLocked(outputDir string, now time.Time) (*patter
 		return nil, fmt.Errorf("write episodes: %w", err)
 	}
 
+	procedures := buildBrainProcedures(episodes)
+	if err := writeBrainProceduresFile(outputDir, procedures); err != nil {
+		return nil, err
+	}
+	source.Procedures = len(procedures)
+	source.Patterns = len(procedures) // procedures are the only pattern family until practices (Phase 3)
+
 	manifest, err := loadBrainManifest(outputDir)
 	if err != nil {
 		return nil, err
