@@ -353,6 +353,12 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			finishPatterns(err)
 			return err
 		}
+		// The internal pattern corpus is a rebuildable cache; a corpus failure must
+		// not break the rest of the brain, so it is a warning here (the explicit
+		// `patterns refresh` is the stricter surface that fails on corpus errors).
+		if cerr := buildPatternCorpus(brainDir, opts.Now().UTC()); cerr != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: pattern corpus: %v\n", cerr)
+		}
 		finishPatterns(nil)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "refreshed brain: %s\n", brainDir)

@@ -344,6 +344,10 @@ func runPatternsRefresh(ctx context.Context, cmd *cobra.Command, opts Options, t
 	if err != nil {
 		return err
 	}
+	// Explicit refresh is the stricter surface: a corpus failure is fatal here.
+	if err := buildPatternCorpus(brainDir, opts.Now().UTC()); err != nil {
+		return fmt.Errorf("pattern corpus: %w", err)
+	}
 	if asJSON {
 		return writeJSON(cmd, source)
 	}
