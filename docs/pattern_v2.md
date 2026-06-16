@@ -1058,3 +1058,12 @@ Validation:
 - Validated: idempotency (no duplicate rows on re-build), version-bump rebuild, changed-session replace, deleted-session prune; `go vet` + `gofmt` clean. Real run on this repo's brain: 131 sessions → 674 episodes, 9.8k commands, 12.4k grams.
 
 **Next slices (this branch):** richer evidence (`episode_files`, `meta_hits` classifier, fact/symbol/commit links), synapses, the corpus-driven multi-family candidate/scoring layer (replacing the flat-file discovery as the analytical source), consolidation dossiers, then surface integration and product eval — each proven against the existing brain before it joins default retrieval.
+
+**Phase 2 landed: episodes as brain events.** Corpus episodes now carry the
+operational evidence Phase 3 corroboration needs (`pattern_corpus_enrich.go`):
+- `episode_commands` get exit codes + `failed` (correlated to outputs by call id) and `episodes.exit_fails`.
+- `episode_files` (apply_patch `*** Update/Add/Delete File`, Claude `edit/write/read` tools) with actions; `episodes.files` JSON.
+- `meta_hits` deterministic way-of-working classifier (review_request, validation_loop, handoff_resume, read_only_diagnosis, correction_followup, user_preference, no_egress_constraint).
+- `episode_facts` branch-scoped durable-fact links (text + locus overlap), graceful when no facts exist; facts never leak across branches.
+- Tool OUTPUT is never parsed as a command; everything is redacted at rest.
+- **Evidence** (parser fixtures + live run on this brain): 588 file refs, 3,315 fact links, 713 meta-hits, 145 failed commands, 8,196 exit codes; redaction leak check = 0. `pattern_indexer_version` bumped to 2 (forces re-index; idempotency test proves it).

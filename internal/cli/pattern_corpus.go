@@ -36,8 +36,9 @@ const patternCorpusPath = "patterns/corpus.sqlite"
 const (
 	patternCorpusSchemaVersion = 1
 	// Bump when the parser/extractor output changes in a way that requires
-	// re-indexing already-indexed sessions.
-	patternIndexerVersion = 1
+	// re-indexing already-indexed sessions. v2: Phase 2 enrichment (exit codes,
+	// files, meta-hits, fact links).
+	patternIndexerVersion = 2
 )
 
 // patternCorpusSchema is the full target schema (additive). Tables not yet
@@ -126,6 +127,11 @@ var patternCorpusSchema = []string{
 		PRIMARY KEY (episode_id, path, action, line),
 		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
 	)`,
+	`CREATE TABLE IF NOT EXISTS episode_facts (
+		episode_id TEXT NOT NULL, fact_id TEXT NOT NULL, branch TEXT, kind TEXT, paths TEXT, weight REAL NOT NULL DEFAULT 1.0,
+		PRIMARY KEY (episode_id, fact_id),
+		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
+	)`,
 	`CREATE TABLE IF NOT EXISTS synapses (
 		id TEXT PRIMARY KEY, from_id TEXT NOT NULL, to_id TEXT NOT NULL, kind TEXT NOT NULL,
 		weight REAL NOT NULL DEFAULT 1.0, source_anchor TEXT, evidence_sha TEXT, created_at TEXT NOT NULL
@@ -154,6 +160,7 @@ var patternCorpusSchema = []string{
 	`CREATE INDEX IF NOT EXISTS idx_grams_gram ON grams(gram)`,
 	`CREATE INDEX IF NOT EXISTS idx_meta_hits_meta ON meta_hits(meta_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_episode_files_path ON episode_files(path)`,
+	`CREATE INDEX IF NOT EXISTS idx_episode_facts_fact ON episode_facts(fact_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_synapses_from ON synapses(from_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_synapses_to ON synapses(to_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_patterns_type_scope ON patterns(type, scope)`,
@@ -208,6 +215,9 @@ func buildPatternCorpus(brainDir string, now time.Time) error {
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		sessions = manifest.Sources.Sessions.Sessions
 	}
+	// Optional enrichment source: durable facts, branch-scoped. Absent/missing
+	// facts degrade gracefully (no episode_facts links).
+	factsByBranch, _ := loadAllFactBranches(brainDir)
 
 	present := map[string]bool{}
 	for _, s := range sessions {
@@ -225,7 +235,7 @@ func buildPatternCorpus(brainDir string, now time.Time) error {
 		if corpusSessionUnchanged(db, id, size, mtime, sha) {
 			continue
 		}
-		if err := indexSessionIntoCorpus(db, repoKey, s, id, rel, abs, size, mtime, sha); err != nil {
+		if err := indexSessionIntoCorpus(db, repoKey, s, id, rel, abs, size, mtime, sha, factsByBranch); err != nil {
 			return err
 		}
 	}
@@ -258,7 +268,7 @@ func corpusSessionUnchanged(db *sql.DB, id string, size, mtime int64, sha string
 	return gotSize == size && gotMtime == mtime && gotSha == sha && parser == patternIndexerVersion
 }
 
-func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel, abs string, size, mtime int64, sha string) error {
+func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel, abs string, size, mtime int64, sha string, factsByBranch map[string][]factRecord) error {
 	content, err := os.ReadFile(abs)
 	if err != nil {
 		return nil // tolerate: pruned later if truly gone
@@ -296,7 +306,13 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 		}
 		committed := workCommitted(seg.WorkText)
 		outcome, outcomeSource := corpusOutcome(feedback, committed)
-		tools, commands := corpusOperations(seg.WorkText)
+		tools, commands, files := corpusEpisodeOps(seg.WorkText)
+		exitFails := 0
+		for _, c := range commands {
+			if c.failed {
+				exitFails++
+			}
+		}
 
 		startLine := seg.Request.Line
 		endLine := startLine
@@ -309,11 +325,11 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 
 		if _, err := tx.Exec(`INSERT INTO episodes
 			(id, episode_key, repo_key, workspace, session_id, checkpoint_id, turn_id, turn_ord, branch, author_name, agent, created_at,
-			 source_path, start_line, end_line, intent_raw, intent_sig, n_tools, tool_mix, n_cmds, outcome, outcome_source)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			 source_path, start_line, end_line, intent_raw, intent_sig, n_tools, tool_mix, files, n_cmds, exit_fails, outcome, outcome_source)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			epID, epKey, repoKey, "", s.SessionID, s.LatestCheckpoint, s.TurnID, ord, s.Branch, author, s.Agent, createdAt,
 			filepath.ToSlash(rel), startLine, endLine, redactText(truncateString(seg.Request.Text, 280)), intentSignature(seg.Request.Text),
-			len(tools), toolMix(tools), len(commands), outcome, outcomeSource,
+			len(tools), toolMix(tools), filesJSON(files), len(commands), exitFails, outcome, outcomeSource,
 		); err != nil {
 			return err
 		}
@@ -323,8 +339,22 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 			}
 		}
 		for i, c := range commands {
-			if _, err := tx.Exec(`INSERT INTO episode_commands (episode_id, ord, head, raw_redacted, line) VALUES (?,?,?,?,?)`,
-				epID, i, c.head, redactText(c.raw), c.line); err != nil {
+			var exit any
+			if c.exitCode != nil {
+				exit = *c.exitCode
+			}
+			failed := 0
+			if c.failed {
+				failed = 1
+			}
+			if _, err := tx.Exec(`INSERT INTO episode_commands (episode_id, ord, head, raw_redacted, line, exit_code, failed) VALUES (?,?,?,?,?,?,?)`,
+				epID, i, c.head, redactText(c.raw), c.line, exit, failed); err != nil {
+				return err
+			}
+		}
+		for _, f := range files {
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO episode_files (episode_id, path, action, line) VALUES (?,?,?,?)`,
+				epID, redactText(f.path), f.action, f.line); err != nil {
 				return err
 			}
 		}
@@ -334,6 +364,18 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 		}
 		for _, g := range commandGrams(heads) {
 			if _, err := tx.Exec(`INSERT OR IGNORE INTO grams (episode_id, n, gram) VALUES (?,?,?)`, epID, g.n, g.gram); err != nil {
+				return err
+			}
+		}
+		for _, h := range classifyMetaHits(seg.Request.Text, seg.WorkText, len(commands), episodeHasValidationCommand(commands)) {
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO meta_hits (episode_id, meta_id, quote_redacted, line) VALUES (?,?,?,?)`,
+				epID, h.metaID, h.quote, startLine); err != nil {
+				return err
+			}
+		}
+		for _, fl := range linkEpisodeFacts(factsByBranch[s.Branch], seg.Request.Text, files) {
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO episode_facts (episode_id, fact_id, branch, kind, paths, weight) VALUES (?,?,?,?,?,?)`,
+				epID, fl.factID, fl.branch, fl.kind, fl.paths, fl.weight); err != nil {
 				return err
 			}
 		}
@@ -399,35 +441,29 @@ type corpusToolOp struct {
 	name string
 	line int
 }
-type corpusCommandOp struct {
-	head string
-	raw  string
-	line int
-}
 
-// corpusOperations extracts ordered tool calls and shell commands (with raw +
-// line) from an episode's work segment, reusing the v1 dialect-aware extractor.
-func corpusOperations(workText string) (tools []corpusToolOp, commands []corpusCommandOp) {
-	for i, line := range strings.Split(workText, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "{") {
+// filesJSON renders the episode's unique file paths (redacted) as a sorted JSON
+// array for the episodes.files column.
+func filesJSON(files []corpusFileRef) string {
+	seen := map[string]bool{}
+	var paths []string
+	for _, f := range files {
+		p := redactText(f.path)
+		if p == "" || seen[p] {
 			continue
 		}
-		var obj map[string]any
-		if json.Unmarshal([]byte(line), &obj) != nil {
-			continue
-		}
-		for _, call := range toolCallsFromObj(obj) {
-			if call.name == "" {
-				continue
-			}
-			tools = append(tools, corpusToolOp{name: call.name, line: i + 1})
-			if norm := normalizeCommand(call.command); norm != "" {
-				commands = append(commands, corpusCommandOp{head: norm, raw: call.command, line: i + 1})
-			}
-		}
+		seen[p] = true
+		paths = append(paths, p)
 	}
-	return tools, commands
+	if len(paths) == 0 {
+		return ""
+	}
+	sort.Strings(paths)
+	data, err := json.Marshal(paths)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 type corpusGram struct {
