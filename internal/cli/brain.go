@@ -24,6 +24,7 @@ type brainSources struct {
 	History  *historySourceManifest  `json:"history,omitempty"`
 	Facts    *factSourceManifest     `json:"facts,omitempty"`
 	Docs     *docSourceManifest      `json:"docs,omitempty"`
+	Patterns *patternSourceManifest  `json:"patterns,omitempty"`
 }
 
 type sessionSourceManifest struct {

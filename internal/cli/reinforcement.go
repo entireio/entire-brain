@@ -159,27 +159,34 @@ func reinforcementSignalsFromTranscript(transcript string) []reinforcementSignal
 	}
 	signals := make([]reinforcementSignal, 0, len(turns)-1)
 	for _, feedback := range turns[1:] {
-		signals = append(signals, reinforcementSignal{FeedbackText: feedback})
+		signals = append(signals, reinforcementSignal{FeedbackText: feedback.Text})
 	}
 	return signals
 }
 
+// userTurn is a substantive user request with its anchor line in the transcript.
+type userTurn struct {
+	Text string
+	Line int // 1-based; 0 when the dialect does not expose a line
+}
+
 // substantiveUserTurns returns the real user requests in transcript order,
 // skipping injected wrappers. Unlike firstUserRequest it collects every turn and
-// does not truncate, so cue scanning sees the full text.
-func substantiveUserTurns(transcript string) []string {
+// does not truncate, so cue scanning sees the full text; it also carries the
+// anchor line so the episode layer can record a source pointer.
+func substantiveUserTurns(transcript string) []userTurn {
 	if messages, ok := parseDocumentConversation(transcript); ok {
-		var turns []string
+		var turns []userTurn
 		for _, message := range messages {
 			if message.Role != "user" || message.Text == "" || isWrapperRequest(message.Text) {
 				continue
 			}
-			turns = append(turns, message.Text)
+			turns = append(turns, userTurn{Text: message.Text, Line: message.Line})
 		}
 		return turns
 	}
-	var turns []string
-	for _, line := range strings.Split(transcript, "\n") {
+	var turns []userTurn
+	for i, line := range strings.Split(transcript, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "{") {
 			continue
@@ -192,7 +199,7 @@ func substantiveUserTurns(transcript string) []string {
 		if text == "" || isWrapperRequest(text) {
 			continue
 		}
-		turns = append(turns, strings.Join(strings.Fields(text), " "))
+		turns = append(turns, userTurn{Text: strings.Join(strings.Fields(text), " "), Line: i + 1})
 	}
 	return turns
 }

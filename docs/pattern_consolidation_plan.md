@@ -556,14 +556,18 @@ Implemented in `internal/cli/reinforcement.go` (+ `reinforcement_test.go`):
 - **Fixtures + precision target:** `TestClassifyReinforcement` (24 labeled cases) and `TestReinforcementSignalsFromTranscript` (per-dialect extraction). Targets: accuracy ≥ 0.85, `corrected` precision ≥ 0.90, and **zero** approvals mislabeled as `corrected`. Current eval: accuracy 1.000, corrected precision 1.000, 0 violations.
 - **Deferred refinements (noted in code):** re-prompt-same-intent detection, requiring an intervening assistant turn before treating a user turn as feedback, and commit/checkpoint-success as a positive signal — all need the episode layer (Phase 1).
 
-### Phase 1: Episodes
+### Phase 1: Episodes — DONE (2026-06-16)
 
-- Add `patterns` source manifest.
-- Add episode extraction from exported sessions.
-- Persist `patterns/episodes.ndjson`.
-- Apply the Phase 0 reinforcement classifier to label each episode (do not re-derive classification here).
-- Add `entire brain patterns refresh`.
-- Add `entire brain patterns status`.
+- Add `patterns` source manifest. → `patternSourceManifest` in `episodes.go`, wired into `brainSources` (`brain.go`). Freshness derives from the shared sessions fingerprint; procedure/practice/pattern/skill-memory counters reserved at zero.
+- Add episode extraction from exported sessions. → `buildBrainEpisodes` (`episodes.go`): deterministic, token-free, per substantive user turn, across all four transcript dialects; reuses the dialect helpers. Stable content-hash ids (`episodeID`) over identity-defining fields only.
+- Persist `patterns/episodes.ndjson`. → `writeBrainEpisodesAndSource` (atomic, under the write lock); `loadBrainEpisodes` reads it back.
+- Apply the Phase 0 reinforcement classifier to label each episode (label is the classification of the *next* substantive user turn).
+- Add `entire brain patterns refresh` and `entire brain patterns status` (`patterns_cmd.go`), both with `--json`; bare `patterns` shows status.
+- Tests: `episodes_test.go` (extraction, cross-dialect, stable ids, write/load, status freshness) + the Phase 0 reinforcement tests.
+
+**Empirical finding (first real run, this repo's brain — 683 episodes):** reinforcement came out **1 success / 10 corrected / 672 neutral**. The `corrected` labels are accurate on inspection ("Try again", "Revert this…", "No, …"), but positive reinforcement is nearly invisible to next-turn cues — on real CLI sessions users rarely type "thanks/lgtm"; they just issue the next request. **Implication for Phase 2:** strength scoring must not lean on `success` counts yet. The deferred **commit/checkpoint-success positive signal** (Phase 0 known-gaps list) should be prioritized to recover positive reinforcement; until then, treat `corrected` (high-precision) as the reliable reinforcement axis and `neutral` as "no signal", not "no value".
+
+Scope deferred to later phases (documented in `episodes.go`): per-episode `tool_sequence` / `command_sequence` / `files` (Phase 2 procedure detection), and per-checkpoint `Error` → `AgentErrored` wiring (the manifest session record does not carry it).
 - Test Codex and Claude transcript fixtures.
 
 ### Phase 2: Procedures
