@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "77592827a610",
+  "session_id": "7fc2ec8e-fd41-4e80-ac5e-d7b4a87b7c35",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-16T22:02:52.528119Z",
+  "branch": "claude/patterns-v2-corpus",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "8212a8d4dd3b",
+  "token_usage": {
+    "input_tokens": 45691,
+    "cache_creation_tokens": 1836920,
+    "cache_read_tokens": 236558275,
+    "output_tokens": 569171,
+    "api_call_count": 516
+  },
+  "session_metrics": {
+    "turn_count": 27
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 80,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 80
+      }
+    }
+  ]
+}
