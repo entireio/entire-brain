@@ -4,6 +4,8 @@ This plan adds a pattern layer to Entire Brain: the brain notices repeated repos
 
 The design keeps the public surface small and task-oriented. Internal terms should support the brain metaphor without leaking implementation details into the user workflow.
 
+> **Review note (2026-06-16).** This plan was reviewed against the codebase. Inline `> Review:` callouts mark places where the plan's assumptions about existing data do not match the code, plus design risks to resolve before building. A new **Phase 0** captures the highest-risk prerequisite (reinforcement classification). The single most important reuse target is the `distill` pipeline (`internal/cli/distill_cmd.go`, `facts.go`, `facts_locus.go`), which already implements the idempotent upsert, provenance anchoring, deterministic inference fallback, and agent abstraction this feature needs — see [Reuse From Distill](#reuse-from-distill).
+
 ## Vocabulary
 
 | Term | Meaning |
@@ -73,9 +75,13 @@ patterns/
 
 Use the existing brain write lock and atomic write helpers. Treat all files as derived and rebuildable except `skill-memory.ndjson`, which is user-state and must be preserved across refreshes.
 
+> **Review: manifest freshness signal.** There is no central `fingerprint` field on sources in the current manifest — freshness is tracked per-source with input-derived signals (e.g. `SessionsFingerprint` for history, `WorktreeHash` for semantic, the per-session fingerprint distill uses to skip cached work). Define the patterns staleness signal the same way: derive it from the inputs the layer actually consumes (sessions fingerprint + history index + facts presence), so `patterns status: current/stale` is computable without re-running detection. Follow the global write-lock discipline used elsewhere (`withBrainWriteLock` in `internal/cli/filelock.go`): the existing pipeline deliberately runs the transcript-writing phase *unlocked* between locked stages — mirror that shape rather than holding the lock across the whole pattern build.
+
 ## Episode Layer
 
 Build episodes from exported session transcripts. An episode is the normalized unit used by pattern detection:
+
+> **Review: episode unit does not exist yet, and its boundary is underspecified.** The brain has sessions and checkpoints (`exportSession` in `export.go`) and turn-level structure inside the v2 `transcript.jsonl`, but no "episode" concept. The plan defines an episode as "request + agent work + *next user feedback signal*" — specify exactly where that boundary falls (within one checkpoint? across checkpoints in a session?) and which record supplies the "next feedback" turn. History extraction (`classifyHistoryFragment` in `history.go`) does produce a `request` kind that can anchor the request side; reuse it rather than re-parsing transcripts.
 
 ```json
 {
@@ -108,6 +114,8 @@ Episode extraction should:
 - Keep branch, repo, author, agent, and workspace identity on every episode.
 - Be deterministic and safe to run during `refresh`.
 
+> **Review: reinforcement classification has no existing foundation — this is the linchpin, see [Phase 0](#phase-0-reinforcement-classification-spike-prerequisite).** No code today labels a turn or checkpoint as `success` / `corrected` / `neutral`. Checkpoint metadata (`checkpointExportSession`) carries `Error`, `TokenUsage`, `Summary` but no outcome. Facts have a `Status` lifecycle (active/superseded/retracted), which is not a feedback signal. Yet reinforcement feeds the strength formula, the card header ("12 success, 2 corrected"), and the skill-memory `reinforcement` block. Do not treat "classify basic reinforcement" as a plumbing bullet — build and validate the rubric in Phase 0 first.
+
 ## Synapse Graph
 
 Use synapses internally to preserve why a pattern exists:
@@ -132,6 +140,8 @@ Initial synapse kinds:
 
 Do not expose synapses as commands. They are internal evidence edges used for scoring, cards, and future debugging through files/tests.
 
+> **Review: defer the persisted synapse store for v1.** A standalone `synapses.ndjson` edge store is real build-and-maintain cost, and the plan itself scopes it as internal-only and partly for "future debugging." Patterns already carry supporting-episode lists and source anchors, which cover scoring and cards. Keep evidence as anchors on the pattern record until something actually consumes edges (e.g. cross-pattern contradiction reasoning), then add the store. This drops a whole consistency surface from the early phases.
+
 ## Pattern Detection
 
 Detect two pattern families.
@@ -150,12 +160,19 @@ Procedures come from repeated operational shapes:
 
 Practices come from repeated judgment and interaction:
 
-- durable facts with kinds such as `preference`, `convention`, `gotcha`, `decision`, and `closed-negative`
+- durable facts with kinds such as `preference`, `convention`, `gotcha`, `decision`, `invariant`, and `closed-negative`
 - history records around validations, corrections, and reviews
 - conversational or read-only episodes
 - repeated user steering or verification expectations
 
+> **Review: two source-shape corrections here.**
+> - **Fact kinds are six, not five.** The code (`facts_locus.go`) defines `decision`, `invariant`, `gotcha`, `preference`, `convention`, `closed-negative`. The plan omitted `invariant` (must-hold rules) — a strong practice signal — now added above.
+> - **History has no `correction` or `review` kind.** `classifyHistoryFragment` (`history.go`) emits `request`, `decision`, `learning`, `validation`, `architecture`, `tool_call`, `code_fact`. Only `validation` exists; corrections and reviews are not modeled. So "Failure modes from corrections" (used in cards and skill bodies) depends entirely on the Phase 0 reinforcement classifier, not on existing history records — state this dependency explicitly.
+> - **Facts are LLM-distilled and frequently absent.** They are produced by the separate, token-heavy `entire brain distill` command, not by `refresh` (see [Refresh Integration](#refresh-integration)). Practices must degrade gracefully to an empty (not broken) result when no facts exist, so the deterministic/token-free guarantee for the refresh path holds.
+
 Each pattern receives a stable id, type, scope, strength, source anchors, supporting episodes, and variant metadata.
+
+> **Review: pattern-id stability is a hard requirement, not a nice-to-have.** `skill-memory.ndjson` is keyed on `pattern_id` and is the one file preserved across refreshes. If an id changes when unrelated episodes are added, every skill-memory linkage breaks silently. Mirror the fact-id scheme exactly: a content hash over the *identity-defining* fields only — `sha256(normalize(canonical signature) + \x00 + scope + \x00 + repo_or_workspace_key)` — and explicitly exclude volatile fields (episode counts, recency, strength) from the hash. Document the invariant: a pattern's id MUST NOT change when supporting episodes are added or reinforcement shifts.
 
 Strength should include:
 
@@ -169,6 +186,10 @@ recurrence
 + author count
 + branch count
 ```
+
+> **Review: this is a wish-list, not a scoring function.** Eight `+` terms with no weights, no normalization, and no thresholds leave "strongest patterns" and `Strength: high/medium/low` undefined. Two concrete requirements before Phase 2 ships scoring:
+> - **Weights + normalized cutoffs.** Specify per-term weights and the numeric boundaries that map to high/medium/low.
+> - **Specificity must down-weight ubiquitous shapes.** Without idf-style weighting, universal commands (`go test ./...`, `gofmt -w .`) will dominate every repo. Reuse the existing query-tokenizer/stopword machinery rather than inventing a third regime (see the two intentionally-divergent stopword regimes already in the codebase — extend, don't fork).
 
 ## Workspace Semantics
 
@@ -350,6 +371,8 @@ Rules:
 - Distinguish common workflow from repo-specific variants.
 - Do not include raw transcripts or secrets.
 
+> **Review: "no secrets" needs an active mechanism.** Cards show "real command/tool sequence," and commands routinely embed tokens (auth URLs, env assignments). A passive rule is not enough — add an explicit redaction pass over command/tool text, and prefer `path:line` anchors over inlined command strings wherever the anchor alone is sufficient.
+
 ## Skill Memory
 
 Track user decisions in `patterns/skill-memory.ndjson`:
@@ -360,9 +383,12 @@ Track user decisions in `patterns/skill-memory.ndjson`:
   "scope": "repo",
   "status": "active",
   "skill_name": "verify-release-readiness",
-  "skill_path": "~/.agents/skills/verify-release-readiness/SKILL.md",
+  "installs": [
+    { "agents": ["copilot-cli", "cursor", "gemini", "pi"], "path": "~/.agents/skills/verify-release-readiness/SKILL.md", "content_sha": "sha256:..." },
+    { "agents": ["claude-code", "opencode"], "path": "~/.claude/skills/verify-release-readiness/SKILL.md", "content_sha": "sha256:..." },
+    { "agents": ["codex"], "path": "~/.codex/skills/verify-release-readiness/SKILL.md", "content_sha": "sha256:..." }
+  ],
   "fingerprint": "sha256:...",
-  "content_sha": "sha256:...",
   "sessions": 8,
   "reinforcement": {
     "success": 12,
@@ -384,36 +410,61 @@ Recommendations:
 - `declined/reconsider`: evidence materially changed; show what changed before asking again.
 - `missing`: skill memory points to a missing file; offer to recreate or forget.
 
+Because a skill may be written to several install paths (see `installs[]`), evaluate `edited` and `missing` **per install entry**, not once per record: store `content_sha` per install, and report the worst state across them (e.g. any edited install ⇒ `active/edited`; some-but-not-all paths missing ⇒ partial, offer to re-sync the missing ones).
+
 ## Skill Formation
 
 `patterns form` prepares a skill draft from the selected pattern card. It writes selected skills only after the user chooses an install destination.
+
+> **Resolved (2026-06-16): default to the cross-agent standard, then fan out to holdouts.** The Entire CLI integrates with eight agents (`entire agent add`: claude-code, codex, copilot-cli, cursor, factoryai-droid, gemini, opencode, pi). All use the same `<dir>/<skill-name>/SKILL.md` shape with `name` + `description` frontmatter, but the roots differ — see [Skill Install Destinations (per agent)](#skill-install-destinations-per-agent). The key fact: `.agents/skills/` (project) and `~/.agents/skills/` (global) is the **Agent Skills open standard**, read natively by copilot-cli, cursor, gemini, and pi. So the destination model is: write the standard path **once** to cover those four, then add the per-agent path for the holdouts (claude-code → `.claude/skills/`, codex → `.codex/skills/`, factoryai-droid → `.factory/skills/`; opencode rides on the `.claude/skills/` path it also reads). Two-to-four writes cover all eight, not eight separate prompts.
 
 Interactive flow:
 
 1. Render the full pattern card.
 2. Render the proposed `SKILL.md` draft.
-3. Ask where to install it:
-   - Global: `~/.agents/skills/<skill-name>/SKILL.md`
-   - Repo-local: if a repo-local convention is implemented
-   - Draft only: print the draft without writing
-   - Cancel
-4. Write only after the user chooses a write destination.
+3. Ask which scope, then which agents to install for (default: detect installed agents via `entire agent list`):
+   - Scope: global (home-dir roots) or repo-local (in-repo roots).
+   - Agents: default to all installed agents; the writer collapses these to the minimal set of paths (standard path + holdout paths).
+   - Draft only: print the draft without writing.
+   - Cancel.
+4. Write only after the user confirms scope + agent selection.
 
-The initial implementation may support only global install, draft-only output, and cancel. Add repo-local or workspace-local destinations after the project settles those conventions.
+The initial implementation may support only the standard `.agents/skills/` global path, draft-only output, and cancel — that alone serves copilot-cli/cursor/gemini/pi. Add the holdout per-agent writers (`.claude`, `.codex`, `.factory`, `.opencode`) next. Document the final set in `README.md`.
 
-Default destination:
-
-```text
-~/.agents/skills/<skill-name>/SKILL.md
-```
-
-Repo-local destination:
+Default destination (cross-agent standard — covers copilot-cli, cursor, gemini, pi):
 
 ```text
-<repo>/.agents/skills/<skill-name>/SKILL.md
+~/.agents/skills/<skill-name>/SKILL.md       # global
+.agents/skills/<skill-name>/SKILL.md         # repo-local
 ```
 
-If the project settles on a different repo-local convention, use that consistently and document it in `README.md`.
+Holdout destinations (agents that do not read the standard path):
+
+```text
+~/.claude/skills/<skill-name>/SKILL.md   |  <repo>/.claude/skills/...     # claude-code (also serves opencode)
+$CODEX_HOME/skills/<skill-name>/SKILL.md |  <repo>/.codex/skills/...      # codex ($CODEX_HOME ≈ ~/.codex)
+~/.factory/skills/<skill-name>/SKILL.md  |  <repo>/.factory/skills/...    # factoryai-droid
+~/.config/opencode/skills/<skill-name>/SKILL.md | <repo>/.opencode/skills/...  # opencode (optional; .claude path already covers it)
+```
+
+Implementation notes: honor `$CODEX_HOME` rather than hard-coding `~/.codex`; for claude-code the bare `~/.claude/skills/` path is the documented convention but may be plugin-gated on some installs — verify it is loaded, or package as a plugin if guaranteed loading is required.
+
+### Skill Install Destinations (per agent)
+
+Reference for all eight agents the Entire CLI integrates with (`entire agent add`). All use `<dir>/<skill-name>/SKILL.md` with `name` + `description` YAML frontmatter. "Standard" = reads the `.agents/skills/` open standard (agentskills.io).
+
+| Agent | Standard? | Global root(s) | Repo-local root(s) |
+| --- | --- | --- | --- |
+| `copilot-cli` | yes | `~/.agents/skills/` or `~/.copilot/skills/` | `.agents/skills/`, `.github/skills/`, or `.claude/skills/` |
+| `cursor` | yes | `~/.agents/skills/` or `~/.cursor/skills/` | `.agents/skills/` or `.cursor/skills/` |
+| `gemini` | yes (alias) | `~/.agents/skills/` or `~/.gemini/skills/` | `.agents/skills/` or `.gemini/skills/` |
+| `pi` | yes | `~/.agents/skills/` or `~/.pi/agent/skills/` | `.agents/skills/` or `.pi/skills/` |
+| `claude-code` | no | `~/.claude/skills/` (or via plugin) | `<repo>/.claude/skills/` |
+| `opencode` | no (Claude-compat) | `~/.config/opencode/skills/`; also reads `~/.claude/skills/` | `.opencode/skills/`; also reads `.claude/skills/` |
+| `codex` | no | `$CODEX_HOME/skills/` (≈ `~/.codex/skills/`) | `<repo>/.codex/skills/` |
+| `factoryai-droid` | no | `~/.factory/skills/` | `<repo>/.factory/skills/` |
+
+Minimal write set to cover all eight: `.agents/skills/` (the four standard readers) + `.claude/skills/` (claude-code, also serves opencode) + `.codex/skills/` (codex) + `.factory/skills/` (factoryai-droid).
 
 Generated skill shape:
 
@@ -464,6 +515,10 @@ Skill body rules:
 
 The pattern layer should be deterministic and token-free by default. Agent-assisted card synthesis can be optional later, but the initial path should produce usable cards from structured evidence.
 
+> **Review: facts are not produced by `refresh`.** `entire brain distill` is a separate, manual, token-heavy command that calls a model per transcript chunk; `refresh` never invokes it. So step 6 ("facts, when present") is correct only because facts may already exist from a prior distill run — patterns refresh must read facts opportunistically and **must never trigger distillation itself** (that would break the token-free guarantee). The real refresh order in `refresh.go` is sessions → seed → history → history-vectors → docs → semantic → branch overlays; insert pattern refresh after these, gated on its own input-derived freshness signal.
+>
+> **Review: make refresh incremental.** episodes.ndjson over all history can be large and refresh runs often. Reuse the size+mtime scan cache pattern (`historyScanCache` in `history.go`) and the per-session fingerprint skip that distill uses, so refresh is incremental rather than a full re-scan every time.
+
 Status and overview integration:
 
 - `status` reports pattern source presence, freshness, counts, and update recommendations.
@@ -471,14 +526,42 @@ Status and overview integration:
 - `brief` includes relevant patterns for the task.
 - MCP exposes the same job-oriented surface: list patterns, status, and form only if the client explicitly asks for a write-capable action.
 
+## Reuse From Distill
+
+The `entire brain distill` pipeline already solves most of the hard mechanics this feature needs. Mirror it rather than reinventing:
+
+| Distill primitive | Location | Reuse for patterns |
+| --- | --- | --- |
+| Content-hash idempotent upsert | `upsertFact` (`facts.go`) | Stable pattern/episode ids; safe re-runs during refresh. |
+| Provenance-union anchors | `factAnchor` + union logic (`facts.go`) | Episode/pattern source anchors that accumulate across refreshes without duplication. |
+| Deterministic inference fallback | `inferFactKind`, `factLocus` (`facts_locus.go`) | When optional agent synthesis misbehaves, fall back to deterministic classification — keeps the token-free path whole. |
+| Single mockable agent abstraction | `distillAgentRunner` (`distill.go`) | Reuse the exact injection point for any later optional agent card synthesis; gives tests a seam. |
+| Confidence-gated proposals | `applyFactActions` (`facts_merge.go`) | Non-destructive handling of uncertain pattern updates — auto-apply high confidence, queue the rest. |
+| Mid-run checkpointing | flush-every-N-calls in `distill_cmd.go` | Only relevant if optional agent synthesis is added; not needed for the deterministic path. |
+| Per-session fingerprint skip | distill cache (`distill_cmd.go`) | Incremental refresh — skip episodes whose source session is unchanged. |
+
+Critically, distill is **not** wired into `refresh` and is **token-heavy**. The patterns refresh path is the opposite by design: deterministic, token-free, and part of `refresh`. Borrow distill's data primitives, not its always-call-a-model control flow.
+
 ## Implementation Phases
+
+### Phase 0: Reinforcement Classification (Spike, prerequisite) — DONE (2026-06-16)
+
+Reinforcement is the linchpin signal with no existing implementation, and Phases 1–5 plus the card format all encode its output. Resolve it before committing to those formats.
+
+Implemented in `internal/cli/reinforcement.go` (+ `reinforcement_test.go`):
+
+- **Rubric** (documented as the file's package-level comment). Two evidence sources combined by precedence: (1) high-precision phrase cues on the next substantive user turn → `corrected` (negative) or `success` (positive); (2) non-empty `checkpointExportSession.Error` → `corrected`. Precedence: correction cue → approval cue → agent error → `neutral`. Correction cues are deliberately narrow and beat a co-occurring "thanks but…" so the false-`corrected` direction stays rare.
+- **Episode boundary (spike resolution):** within one session transcript, each substantive user turn is feedback on the work after the previous one; signals are the user turns after the first (`reinforcementSignalsFromTranscript`). Reuses the dialect helpers (`transcriptUserText`, `parseDocumentConversation`, `isWrapperRequest`) so it works across Codex, Claude, pi, and opencode shapes; injected wrappers are skipped. The episode layer (Phase 1) joins per-checkpoint `Error` into `AgentErrored`.
+- **Classifier:** `classifyReinforcement(reinforcementSignal) string`, deterministic and token-free.
+- **Fixtures + precision target:** `TestClassifyReinforcement` (24 labeled cases) and `TestReinforcementSignalsFromTranscript` (per-dialect extraction). Targets: accuracy ≥ 0.85, `corrected` precision ≥ 0.90, and **zero** approvals mislabeled as `corrected`. Current eval: accuracy 1.000, corrected precision 1.000, 0 violations.
+- **Deferred refinements (noted in code):** re-prompt-same-intent detection, requiring an intervening assistant turn before treating a user turn as feedback, and commit/checkpoint-success as a positive signal — all need the episode layer (Phase 1).
 
 ### Phase 1: Episodes
 
 - Add `patterns` source manifest.
 - Add episode extraction from exported sessions.
 - Persist `patterns/episodes.ndjson`.
-- Classify basic reinforcement.
+- Apply the Phase 0 reinforcement classifier to label each episode (do not re-derive classification here).
 - Add `entire brain patterns refresh`.
 - Add `entire brain patterns status`.
 - Test Codex and Claude transcript fixtures.
@@ -546,11 +629,13 @@ Add coverage for:
 
 ## Suggested First PR
 
-Keep the first PR narrow:
+Land Phase 0 (reinforcement classifier + fixtures + rubric) as its own small PR first — it carries the most risk and unblocks everything else.
 
-1. Add the `patterns` manifest source and storage paths.
-2. Extract and persist `episodes.ndjson`.
-3. Add `patterns refresh` and `patterns status`.
+Then keep the first feature PR narrow:
+
+1. Add the `patterns` manifest source and storage paths (with an input-derived freshness signal, not a central fingerprint).
+2. Extract and persist `episodes.ndjson`, labeled by the Phase 0 classifier.
+3. Add `patterns refresh` and `patterns status` (status will report 0 procedures/practices at this stage — scaffolding, not a regression).
 4. Add tests for episode extraction and reinforcement labels.
 
 Then add procedure grouping, cards, skill memory, and workspace consolidation in separate PRs.
