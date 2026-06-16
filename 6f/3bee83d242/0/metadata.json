@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "6f3bee83d242",
+  "session_id": "7fc2ec8e-fd41-4e80-ac5e-d7b4a87b7c35",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-16T16:04:19.11024Z",
+  "branch": "claude/patterns-phase0-reinforcement",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "ed2672c7f696",
+  "token_usage": {
+    "input_tokens": 20449,
+    "cache_creation_tokens": 895260,
+    "cache_read_tokens": 89791337,
+    "output_tokens": 333188,
+    "api_call_count": 306
+  },
+  "session_metrics": {
+    "turn_count": 15
+  }
+}
