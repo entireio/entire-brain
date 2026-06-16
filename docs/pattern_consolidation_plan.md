@@ -639,12 +639,14 @@ Deferred: a true interactive prompt (the flag-driven flow is the MVP), and riche
 Tests cover the cross-repo procedure/practice merge (shared-only, summed support, breakdown, workspace ids) and the breadth score. Not smoke-tested against live multi-repo data (this machine has a single-repo brain); the merge logic is unit-tested.
 - Render workspace cards with repo breakdowns.
 
-### Phase 7: Agent/MCP Integration
+### Phase 7: Agent/MCP Integration — DONE (2026-06-16)
 
-- Include relevant patterns in `brief`.
-- Include strongest patterns in `overview`.
-- Add MCP tools matching the public jobs.
-- Add JSON contracts for patterns, cards, status, and form results.
+- Include relevant patterns in `brief`: `brainBriefReport.Patterns` is populated by `rankTaskRelevantPatterns` — patterns whose title/kind share a term with the task, ranked by term overlap then strength, capped small; an unrelated task yields none (no ambient noise). Rendered in text mode and emitted in `--json`.
+- Include strongest patterns in `overview`: `brainOverviewReport.StrongestPatterns` (top 3 by strength), rendered + JSON.
+- Add MCP tools matching the public jobs (`mcp.go`): `brain_patterns` (list; args `type`/`scope`/`limit`) and `brain_patterns_status`, both read-only and calling the same `runPatternsList` / `runPatternsStatus` the CLI uses. Forming a skill stays a CLI-only write action (`patterns form`) — not exposed as an MCP write tool — honoring "form only if the client explicitly asks for a write-capable action."
+- JSON contracts: `patternView` (list items, incl. `repo_breakdown` for workspace), `patternsStatusReport`, and the form result are all stable JSON shapes; `--json` on every surface.
+
+**Verified live:** `overview` shows the strongest patterns; `brief "commit and push the changes"` surfaced both the commit/push procedures and the matching practices via term overlap; existing MCP definition tests pass with the two new tools registered.
 
 ## Tests
 

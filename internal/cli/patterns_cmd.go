@@ -143,6 +143,73 @@ func loadPatternViews(brainDir string) ([]patternView, map[string]patternView, e
 	return views, idx, nil
 }
 
+// strongestPatterns loads the top-N patterns by strength for the overview.
+func strongestPatterns(brainDir string, limit int) []patternView {
+	views, _, err := loadPatternViews(brainDir)
+	if err != nil || len(views) == 0 {
+		return nil
+	}
+	sort.SliceStable(views, func(i, j int) bool { return views[i].Strength > views[j].Strength })
+	if limit > 0 && len(views) > limit {
+		views = views[:limit]
+	}
+	return views
+}
+
+// brainBriefPatternsCount caps how many task-relevant patterns the brief carries.
+func brainBriefPatternsCount(limit int) int {
+	if limit <= 0 || limit > 5 {
+		return 5
+	}
+	return limit
+}
+
+// rankTaskRelevantPatterns returns the patterns whose title/kind share a term
+// with the task, ranked by term overlap then strength. Patterns with no overlap
+// are dropped — the brief should surface task-relevant patterns, not ambient
+// noise — so an unrelated task yields none.
+func rankTaskRelevantPatterns(views []patternView, terms []string, limit int) []patternView {
+	if limit <= 0 || len(terms) == 0 {
+		return nil
+	}
+	termSet := make(map[string]bool, len(terms))
+	for _, t := range terms {
+		termSet[t] = true
+	}
+	type scored struct {
+		v       patternView
+		overlap int
+	}
+	var matched []scored
+	for _, v := range views {
+		seen := map[string]bool{}
+		overlap := 0
+		for _, w := range brainBriefTaskWordPattern.FindAllString(strings.ToLower(v.Title+" "+v.Kind), -1) {
+			if termSet[w] && !seen[w] {
+				seen[w] = true
+				overlap++
+			}
+		}
+		if overlap > 0 {
+			matched = append(matched, scored{v, overlap})
+		}
+	}
+	sort.SliceStable(matched, func(i, j int) bool {
+		if matched[i].overlap != matched[j].overlap {
+			return matched[i].overlap > matched[j].overlap
+		}
+		return matched[i].v.Strength > matched[j].v.Strength
+	})
+	out := make([]patternView, 0, limit)
+	for _, m := range matched {
+		if len(out) >= limit {
+			break
+		}
+		out = append(out, m.v)
+	}
+	return out
+}
+
 // mustLoadSkillMemory returns skill-memory records, treating a read/parse error
 // as empty — the listing should degrade to "no recommendations", not fail.
 func mustLoadSkillMemory(brainDir string) []skillMemoryRecord {
