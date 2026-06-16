@@ -30,8 +30,8 @@ import (
 const patternsProceduresPath = "patterns/procedures.ndjson"
 
 const (
-	procedureMinSupport     = 3   // distinct episodes a shape needs to be a procedure
-	procedureSupportSaturat = 10  // episode count at which the recurrence term saturates
+	procedureMinSupport     = 3    // distinct episodes a shape needs to be a procedure
+	procedureSupportSaturat = 10   // episode count at which the recurrence term saturates
 	procedureSpecFloor      = 0.20 // drop shapes whose commands are too ubiquitous to matter
 	procedureNGramMin       = 2
 	procedureNGramMax       = 3

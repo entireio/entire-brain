@@ -691,3 +691,18 @@ Then keep the first feature PR narrow:
 4. Add tests for episode extraction and reinforcement labels.
 
 Then add procedure grouping, cards, skill memory, and workspace consolidation in separate PRs.
+
+## Code review response (2026-06-16)
+
+Addressed an 8-point review of the PR, in priority order:
+
+1. **Mechanically clean.** `gofmt -s` across the package; `TestSkillDestinations` made platform-stable by emitting slash-style display paths (converted to OS paths only at the write boundary, `skillFilePath`); release evidence (`radar-tool`) regenerated for the edited `mcp.go`/`workspace.go`.
+2. **Refresh builds patterns.** `entire brain refresh` now runs `refreshPatternLayer` after sessions/history/docs/semantic/reclassify — gated on the sessions fingerprint or `--force`. `patterns refresh` remains as an explicit rebuild. The user never has to find a second command.
+3. **One skill-creation path.** `patterns form` (which formed skills from raw procedures/practices) is **removed**. Skills come only from corroborated task candidates via `patterns skills form`; `patterns` is read-only inspection of the diagnostic procedures/practices.
+4. **Active redaction boundary.** `redactText` (tokens, JWTs, secret-looking env assignments, private-key blocks, GitHub tokens, `/Users/<name>` paths) is applied to synthesis evidence (the agent's input), rendered cards, transcript excerpts, drafts, and JSON egress.
+5. **Candidate model fixed.** A candidate is now intent + co-occurring procedure evidence + outcome + matching repo facts. Candidates with no *recurring, specific* command shape and no matching fact are rejected before any agent call (`hasNonObviousEvidence`). N-grams are evidence, not candidates.
+6. **Evidence-first preview.** Before any write, `patterns skills form` shows the candidate (support, reinforcement, sample intents, co-occurring procedures, facts, source anchors), the synthesized `SKILL.md`, and the exact would-write destinations; `--yes` is the only writer; existing files need `--force`.
+7. **Workspace candidates.** `workspace patterns skills` produces cross-repo task candidates (≥2 member repos) with per-repo breakdown, synthesized via the same path; skill-memory is recorded in the workspace store; no generated repo data is copied into the workspace brain.
+8. **Quality eval.** A compact fixture suite (`TestCandidateEval`) asserts keep/reject for generic commit/push, repo-specific release checks, conversational clusters, read-only diagnosis backed by facts, incoherent same-signature clusters, and cross-repo workflows — by candidate id/type/evidence, not generated prose.
+
+Intended architecture: deterministic refresh builds trustworthy evidence → n-grams/procedures are diagnostic → skill candidates are corroborated recurring tasks → the agent authors the draft only after evidence is strong → preview shows evidence + draft → `--yes` is the final write.

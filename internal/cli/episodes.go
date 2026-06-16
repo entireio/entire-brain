@@ -235,7 +235,7 @@ func writeBrainEpisodesAndSourceLocked(outputDir string, now time.Time) (*patter
 		return nil, fmt.Errorf("write episodes: %w", err)
 	}
 
-	tasks := buildTaskCandidates(episodes)
+	tasks := buildTaskCandidates(episodes, loadAllActiveFacts(outputDir))
 	if err := writeBrainTasksFile(outputDir, tasks); err != nil {
 		return nil, err
 	}
@@ -273,6 +273,29 @@ func writeBrainEpisodesAndSourceLocked(outputDir string, now time.Time) (*patter
 		return nil, err
 	}
 	return source, nil
+}
+
+// refreshPatternLayer rebuilds the pattern layer (episodes -> tasks, procedures,
+// practices) when sessions changed or force is set, and reports whether it
+// rebuilt. Deterministic and token-free; called by `entire brain refresh` so the
+// pattern layer is populated without a separate command. Staleness is the same
+// input-derived sessions fingerprint the status surface uses.
+func refreshPatternLayer(brainDir string, force bool, now time.Time) (bool, error) {
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return false, err
+	}
+	if manifest.Sources == nil || manifest.Sources.Sessions == nil {
+		return false, nil // no sessions to build from
+	}
+	if !force && manifest.Sources.Patterns != nil &&
+		manifest.Sources.Patterns.SessionsFingerprint == brainSessionsFingerprint(brainDir) {
+		return false, nil // current
+	}
+	if _, err := writeBrainEpisodesAndSource(brainDir, now); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // loadBrainEpisodes reads the persisted episode layer. Missing file -> empty.

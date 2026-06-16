@@ -34,7 +34,6 @@ func newPatternsCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&listOpts.scope, "scope", "", "Filter by scope: repo|workspace")
 	cmd.AddCommand(newPatternsRefreshCommand(opts))
 	cmd.AddCommand(newPatternsStatusCommand(opts))
-	cmd.AddCommand(newPatternsFormCommand(opts))
 	cmd.AddCommand(newPatternsSkillsCommand(opts))
 	return cmd
 }
@@ -241,8 +240,8 @@ func practiceView(p practiceRecord) patternView {
 		ID: p.ID, Type: p.Type, Scope: p.Scope, Kind: p.Kind,
 		Title:    p.Statement,
 		Strength: p.Strength, StrengthLabel: p.StrengthLabel,
-		Support:  p.Support,
-		Repos:    p.Repos, RepoBreakdown: p.RepoBreakdown,
+		Support: p.Support,
+		Repos:   p.Repos, RepoBreakdown: p.RepoBreakdown,
 	}
 	if len(p.Examples) > 0 {
 		v.Example = &p.Examples[0]
@@ -257,7 +256,7 @@ func renderPatternView(out io.Writer, v patternView) {
 	if v.Kind != "" {
 		label += "/" + v.Kind
 	}
-	fmt.Fprintf(out, "[%s] %s  (%s, strength %.2f)\n", strings.ToUpper(v.StrengthLabel), v.Title, label, v.Strength)
+	fmt.Fprintf(out, "[%s] %s  (%s, strength %.2f)\n", strings.ToUpper(v.StrengthLabel), redactText(v.Title), label, v.Strength)
 	if v.Reinforcement != nil {
 		r := v.Reinforcement
 		fmt.Fprintf(out, "    seen in %d episode(s); reinforcement %d↑ %d↓ %d·\n", v.Support, r.Success, r.Corrected, r.Neutral)
@@ -272,7 +271,7 @@ func renderPatternView(out io.Writer, v patternView) {
 		fmt.Fprintf(out, "    across %d repo(s): %s\n", v.Repos, strings.Join(repos, ", "))
 	}
 	if v.Example != nil {
-		fmt.Fprintf(out, "    e.g. %s:%d   id %s\n", v.Example.Path, v.Example.Line, v.ID)
+		fmt.Fprintf(out, "    e.g. %s:%d   id %s\n", redactText(v.Example.Path), v.Example.Line, v.ID)
 	} else {
 		fmt.Fprintf(out, "    id %s\n", v.ID)
 	}

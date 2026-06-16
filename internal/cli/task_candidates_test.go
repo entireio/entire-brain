@@ -39,7 +39,7 @@ func TestBuildTaskCandidates(t *testing.T) {
 		eps = append(eps, taskEp("q"+string(rune('a'+i)), "two:questions", "Two questions about X", reinforcementNeutral))
 	}
 
-	tasks := buildTaskCandidates(eps)
+	tasks := buildTaskCandidates(eps, nil)
 
 	cp := findTask(tasks, "commit:push")
 	if cp == nil {
@@ -50,6 +50,9 @@ func TestBuildTaskCandidates(t *testing.T) {
 	}
 	if len(cp.Commands) == 0 || cp.Commands[0] == "" {
 		t.Errorf("commit:push commands empty")
+	}
+	if len(cp.Procedures) == 0 {
+		t.Errorf("commit:push should carry co-occurring procedure evidence")
 	}
 	if findTask(tasks, "yes") != nil {
 		t.Error("conversational 'yes' cluster should be dropped")

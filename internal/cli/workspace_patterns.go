@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"sort"
@@ -46,46 +48,78 @@ func newWorkspacePatternsCommand(opts Options) *cobra.Command {
 		Use:   "refresh <workspace>",
 		Short: "Rebuild cross-repo patterns by merging member-repo patterns",
 		Args:  cobra.ExactArgs(1),
-		RunE:  func(cmd *cobra.Command, args []string) error { return runWorkspacePatternsRefresh(cmd.Context(), cmd, opts, args[0]) },
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkspacePatternsRefresh(cmd.Context(), cmd, opts, args[0])
+		},
 	}
 	status := &cobra.Command{
 		Use:   "status <workspace>",
 		Short: "Show workspace pattern counts and member coverage",
 		Args:  cobra.ExactArgs(1),
-		RunE:  func(cmd *cobra.Command, args []string) error { return runWorkspacePatternsStatus(cmd.Context(), cmd, opts, args[0]) },
-	}
-	var f formOptions
-	form := &cobra.Command{
-		Use:   "form <workspace> <pattern-id>",
-		Short: "Form a cross-repo pattern into a reusable skill (previews until --yes)",
-		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			f.patternID = args[1]
-			return runWorkspacePatternsForm(cmd.Context(), cmd, opts, args[0], f)
+			return runWorkspacePatternsStatus(cmd.Context(), cmd, opts, args[0])
 		},
 	}
-	form.Flags().StringVar(&f.name, "name", "", "Skill name (required with --yes)")
-	form.Flags().StringVar(&f.target, "target", "standard", "Install target: standard|claude-code|codex|factoryai-droid|all")
-	form.Flags().StringVar(&f.scope, "scope", "global", "Install scope (workspace skills install global)")
-	form.Flags().BoolVar(&f.yes, "yes", false, "Confirm and write the skill files")
-	form.Flags().BoolVar(&f.force, "force", false, "Overwrite an existing skill file")
-	form.Flags().BoolVar(&f.draftOnly, "draft-only", false, "Print the SKILL.md draft without writing")
-	form.Flags().BoolVar(&f.decline, "decline", false, "Record a decline for this pattern")
-	form.Flags().BoolVar(&f.asJSON, "json", false, "Emit the result as JSON")
+	skills := newWorkspaceSkillsCommand(opts)
 
-	cmd.AddCommand(refresh, status, form)
+	cmd.AddCommand(refresh, status, skills)
+	return cmd
+}
+
+// newWorkspaceSkillsCommand mirrors `patterns skills`: list cross-repo task
+// candidates and synthesize a skill from one. This is the only workspace
+// skill-creation path; cross-repo procedures/practices are diagnostic only.
+func newWorkspaceSkillsCommand(opts Options) *cobra.Command {
+	var (
+		asJSON bool
+		limit  int
+	)
+	cmd := &cobra.Command{
+		Use:   "skills <workspace>",
+		Short: "List cross-repo task candidates for a workspace",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkspaceSkillsList(cmd.Context(), cmd, opts, args[0], asJSON, limit)
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit task candidates as JSON")
+	cmd.Flags().IntVar(&limit, "limit", 20, "Maximum candidates to show")
+
+	var s skillFormOptions
+	form := &cobra.Command{
+		Use:   "form <workspace> <task-id>",
+		Short: "Synthesize a SKILL.md from a cross-repo task candidate (previews until --yes)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s.taskID = args[1]
+			return runWorkspaceSkillsForm(cmd.Context(), cmd, opts, args[0], s)
+		},
+	}
+	form.Flags().StringVar(&s.name, "name", "", "Override the skill name")
+	form.Flags().StringVar(&s.target, "target", "standard", "Install target: standard|claude-code|codex|factoryai-droid|all")
+	form.Flags().StringVar(&s.agent, "agent", "auto", "Synthesis agent: auto|codex|claude-code")
+	form.Flags().StringVar(&s.model, "model", "", "Override the agent model")
+	form.Flags().StringVar(&s.effort, "effort", "", "Override the agent reasoning effort")
+	form.Flags().BoolVar(&s.yes, "yes", false, "Write the synthesized skill files")
+	form.Flags().BoolVar(&s.force, "force", false, "Overwrite an existing skill file")
+	form.Flags().BoolVar(&s.draftOnly, "draft-only", false, "Print the synthesized SKILL.md without writing")
+	form.Flags().BoolVar(&s.asJSON, "json", false, "Emit the result as JSON")
+	// Workspace skills always install global (a workspace pattern spans repos).
+	s.scope = "global"
+	cmd.AddCommand(form)
 	return cmd
 }
 
 type memberPatterns struct {
 	procsByRepo map[string][]procedureRecord
 	pracsByRepo map[string][]practiceRecord
+	tasksByRepo map[string][]taskCandidate
 	repoOrder   []string
 	warnings    []string
 }
 
 func loadMemberPatterns(opts Options, manifest workspaceManifest) (memberPatterns, error) {
-	m := memberPatterns{procsByRepo: map[string][]procedureRecord{}, pracsByRepo: map[string][]practiceRecord{}}
+	m := memberPatterns{procsByRepo: map[string][]procedureRecord{}, pracsByRepo: map[string][]practiceRecord{}, tasksByRepo: map[string][]taskCandidate{}}
 	repos := append([]workspaceRepo(nil), manifest.Repos...)
 	sort.Slice(repos, func(i, j int) bool { return repos[i].RepoKey < repos[j].RepoKey })
 	for _, repo := range repos {
@@ -102,11 +136,16 @@ func loadMemberPatterns(opts Options, manifest workspaceManifest) (memberPattern
 		if err != nil {
 			m.warnings = append(m.warnings, fmt.Sprintf("%s: practices: %v", repo.RepoKey, err))
 		}
-		if len(procs) == 0 && len(pracs) == 0 {
-			m.warnings = append(m.warnings, fmt.Sprintf("%s: no patterns (run `entire brain patterns refresh` in that repo)", repo.RepoKey))
+		tasks, err := loadBrainTasks(brainDir)
+		if err != nil {
+			m.warnings = append(m.warnings, fmt.Sprintf("%s: tasks: %v", repo.RepoKey, err))
+		}
+		if len(procs) == 0 && len(pracs) == 0 && len(tasks) == 0 {
+			m.warnings = append(m.warnings, fmt.Sprintf("%s: no patterns (run `entire brain refresh` in that repo)", repo.RepoKey))
 		}
 		m.procsByRepo[repo.RepoKey] = procs
 		m.pracsByRepo[repo.RepoKey] = pracs
+		m.tasksByRepo[repo.RepoKey] = tasks
 		m.repoOrder = append(m.repoOrder, repo.RepoKey)
 	}
 	return m, nil
@@ -268,6 +307,37 @@ func sortedBreakdown(m map[string]*patternRepoStat) []patternRepoStat {
 	return out
 }
 
+func hexSHA(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
+func sortedSetKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func sortedProcedures(m map[string]taskProcedure) []taskProcedure {
+	out := make([]taskProcedure, 0, len(m))
+	for _, p := range m {
+		out = append(out, p)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Specificity != out[j].Specificity {
+			return out[i].Specificity > out[j].Specificity
+		}
+		return strings.Join(out[i].Commands, " ") < strings.Join(out[j].Commands, " ")
+	})
+	if len(out) > taskMaxProcedures {
+		out = out[:taskMaxProcedures]
+	}
+	return out
+}
+
 func sortPatternsByStrength[T any](items []T, key func(i int) (float64, int, string)) {
 	sort.SliceStable(items, func(i, j int) bool {
 		si, ri, idi := key(i)
@@ -297,14 +367,18 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 	}
 	procs := buildWorkspaceProcedures(members.procsByRepo, members.repoOrder, len(manifest.Repos), name)
 	pracs := buildWorkspacePractices(members.pracsByRepo, members.repoOrder, len(manifest.Repos), name)
+	tasks := buildWorkspaceTaskCandidates(members.tasksByRepo, members.repoOrder, len(manifest.Repos), name)
 	if err := writeBrainProceduresFile(wsDir, procs); err != nil {
 		return err
 	}
 	if err := writeBrainPracticesFile(wsDir, pracs); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "workspace %s: %d cross-repo procedure(s), %d cross-repo practice(s) across %d member repo(s)\n",
-		name, len(procs), len(pracs), len(manifest.Repos))
+	if err := writeBrainTasksFile(wsDir, tasks); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "workspace %s: %d cross-repo task candidate(s), %d procedure(s), %d practice(s) across %d member repo(s)\n",
+		name, len(tasks), len(procs), len(pracs), len(manifest.Repos))
 	for _, w := range members.warnings {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
 	}
@@ -374,23 +448,149 @@ func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Op
 	return nil
 }
 
-func runWorkspacePatternsForm(ctx context.Context, cmd *cobra.Command, opts Options, name string, f formOptions) error {
-	if f.scope == "repo" {
-		return fmt.Errorf("workspace skills install with --scope global (a workspace pattern spans repos)")
+// buildWorkspaceTaskCandidates merges member-repo task candidates by intent
+// signature, keeping tasks shared by ≥2 repos. Evidence (procedures, facts,
+// commands) is unioned and a per-repo breakdown is attached; the candidate is
+// workspace-scoped.
+func buildWorkspaceTaskCandidates(byRepo map[string][]taskCandidate, repoOrder []string, memberCount int, workspace string) []taskCandidate {
+	type agg struct {
+		base      taskCandidate
+		repos     map[string]bool
+		support   int
+		reinf     reinforcementCounts
+		cmds      map[string]bool
+		procKeys  map[string]taskProcedure
+		facts     map[string]bool
+		intents   map[string]bool
+		breakdown map[string]*patternRepoStat
 	}
+	aggs := map[string]*agg{}
+	for _, repoKey := range repoOrder {
+		for _, t := range byRepo[repoKey] {
+			a := aggs[t.IntentSignature]
+			if a == nil {
+				a = &agg{base: t, repos: map[string]bool{}, cmds: map[string]bool{}, procKeys: map[string]taskProcedure{}, facts: map[string]bool{}, intents: map[string]bool{}, breakdown: map[string]*patternRepoStat{}}
+				aggs[t.IntentSignature] = a
+			}
+			a.repos[repoKey] = true
+			a.support += t.Support
+			a.reinf = addReinf(a.reinf, t.Reinforcement)
+			for _, c := range t.Commands {
+				a.cmds[c] = true
+			}
+			for _, p := range t.Procedures {
+				key := strings.Join(p.Commands, "\x00")
+				if cur, ok := a.procKeys[key]; !ok || p.Specificity > cur.Specificity {
+					a.procKeys[key] = p
+				}
+			}
+			for _, f := range t.MatchingFacts {
+				a.facts[f] = true
+			}
+			for _, s := range t.SampleIntents {
+				a.intents[s] = true
+			}
+			bd := a.breakdown[repoKey]
+			if bd == nil {
+				bd = &patternRepoStat{RepoKey: repoKey}
+				a.breakdown[repoKey] = bd
+			}
+			bd.Support += t.Support
+			bd.Reinforcement = addReinf(bd.Reinforcement, t.Reinforcement)
+		}
+	}
+
+	var out []taskCandidate
+	for sig, a := range aggs {
+		repos := len(a.repos)
+		if repos < workspaceMinRepos {
+			continue
+		}
+		strength := workspacePracticeStrength("", repos, memberCount, a.support) // breadth+support blend
+		out = append(out, taskCandidate{
+			ID:              "task:ws:" + hexSHA(workspace+"\x00"+sig),
+			Workspace:       workspace,
+			IntentSignature: sig,
+			Label:           a.base.Label,
+			Support:         a.support,
+			Reinforcement:   a.reinf,
+			Commands:        sortedSetKeys(a.cmds),
+			Procedures:      sortedProcedures(a.procKeys),
+			MatchingFacts:   sortedSetKeys(a.facts),
+			SampleIntents:   sortedSetKeys(a.intents),
+			Repos:           repos,
+			RepoBreakdown:   sortedBreakdown(a.breakdown),
+			Strength:        math.Round(strength*1000) / 1000,
+			StrengthLabel:   strengthLabel(strength),
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Strength != out[j].Strength {
+			return out[i].Strength > out[j].Strength
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, asJSON bool, limit int) error {
 	wsDir, err := workspaceDir(opts.Env, name)
 	if err != nil {
 		return err
 	}
-	_, byID, err := loadPatternViews(wsDir)
+	tasks, err := loadBrainTasks(wsDir)
 	if err != nil {
 		return err
 	}
-	view, ok := byID[f.patternID]
-	if !ok {
-		return fmt.Errorf("workspace pattern not found: %s (run `entire brain workspace patterns %s`)", f.patternID, name)
+	if limit > 0 && len(tasks) > limit {
+		tasks = tasks[:limit]
 	}
-	// storeDir = workspace dir (skill-memory lives with the workspace); repoDir
-	// empty (global install only).
-	return formFromView(cmd, view, wsDir, "", f, opts.Now().UTC())
+	if asJSON {
+		return writeJSON(cmd, tasks)
+	}
+	out := cmd.OutOrStdout()
+	if len(tasks) == 0 {
+		fmt.Fprintf(out, "workspace %s: no cross-repo task candidates (run `entire brain workspace patterns refresh %s`)\n", name, name)
+		return nil
+	}
+	for _, t := range tasks {
+		repos := make([]string, 0, len(t.RepoBreakdown))
+		for _, b := range t.RepoBreakdown {
+			repos = append(repos, fmt.Sprintf("%s(%d)", b.RepoKey, b.Support))
+		}
+		fmt.Fprintf(out, "[%s] %s  (strength %.2f)\n", t.StrengthLabel, t.Label, t.Strength)
+		fmt.Fprintf(out, "    %d session(s) across %d repo(s): %s\n", t.Support, t.Repos, strings.Join(repos, ", "))
+		fmt.Fprintf(out, "    id %s\n", t.ID)
+	}
+	return nil
+}
+
+func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options, name string, s skillFormOptions) error {
+	wsDir, err := workspaceDir(opts.Env, name)
+	if err != nil {
+		return err
+	}
+	tasks, err := loadBrainTasks(wsDir)
+	if err != nil {
+		return err
+	}
+	var cand *taskCandidate
+	for i := range tasks {
+		if tasks[i].ID == s.taskID {
+			cand = &tasks[i]
+			break
+		}
+	}
+	if cand == nil {
+		return fmt.Errorf("workspace task candidate not found: %s (run `entire brain workspace patterns skills %s`)", s.taskID, name)
+	}
+	// Agent availability is checked against the cwd; synthesis runs read-only.
+	agent := s.agent
+	if agent == "" || agent == "auto" {
+		agent = defaultRefreshAgent(ctx, opts.Runner, ".")
+	}
+	if agent == "none" {
+		return fmt.Errorf("skill synthesis requires an agent (codex or claude-code); none found on PATH")
+	}
+	return synthesizeAndForm(ctx, cmd, *cand, wsDir, ".", agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
 }

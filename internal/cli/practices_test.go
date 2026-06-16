@@ -20,9 +20,9 @@ func TestBuildBrainPractices(t *testing.T) {
 
 	facts := []factRecord{
 		{
-			ID:    "fact:cn",
-			Paths: []string{"architecture.data.flow"},
-			Text:  "Approach X was rejected because it made the benchmark slower.",
+			ID:     "fact:cn",
+			Paths:  []string{"architecture.data.flow"},
+			Text:   "Approach X was rejected because it made the benchmark slower.",
 			Branch: "main", Origin: "distilled", Status: "active", Confidence: "1.00",
 			Provenance: []factAnchor{
 				{SessionID: "s1", Transcript: "sessions/main/s1.jsonl", Line: 10},
@@ -31,20 +31,20 @@ func TestBuildBrainPractices(t *testing.T) {
 			UpdatedAt: now.Add(-200 * 24 * time.Hour),
 		},
 		{
-			ID:    "fact:dec",
-			Paths: []string{"project.layout.dirs"},
-			Text:  "The CLI lives under cmd/entire-brain.",
+			ID:     "fact:dec",
+			Paths:  []string{"project.layout.dirs"},
+			Text:   "The CLI lives under cmd/entire-brain.",
 			Branch: "main", Origin: "distilled", Status: "active", Confidence: "1.00",
 			Provenance: []factAnchor{{SessionID: "s1", Transcript: "sessions/main/s1.jsonl", Line: 5}},
-			UpdatedAt: now.Add(-200 * 24 * time.Hour),
+			UpdatedAt:  now.Add(-200 * 24 * time.Hour),
 		},
 		{
-			ID:    "fact:dead",
-			Paths: []string{"project.layout.dirs"},
-			Text:  "A superseded statement that must not appear.",
+			ID:     "fact:dead",
+			Paths:  []string{"project.layout.dirs"},
+			Text:   "A superseded statement that must not appear.",
 			Branch: "main", Origin: "distilled", Status: "superseded", Confidence: "1.00",
 			Provenance: []factAnchor{{SessionID: "s1"}},
-			UpdatedAt: now,
+			UpdatedAt:  now,
 		},
 	}
 	if err := writeFacts(brainDir, "main", facts); err != nil {

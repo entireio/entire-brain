@@ -3,8 +3,10 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -88,7 +90,11 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 		tasks = tasks[:limit]
 	}
 	if asJSON {
-		return writeJSON(cmd, tasks)
+		redacted := make([]taskCandidate, len(tasks))
+		for i, t := range tasks {
+			redacted[i] = redactCandidate(t)
+		}
+		return writeJSON(cmd, redacted)
 	}
 	out := cmd.OutOrStdout()
 	if len(tasks) == 0 {
@@ -97,9 +103,9 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 	}
 	for _, t := range tasks {
 		r := t.Reinforcement
-		fmt.Fprintf(out, "[%s] %s  (strength %.2f)\n", t.StrengthLabel, t.Label, t.Strength)
+		fmt.Fprintf(out, "[%s] %s  (strength %.2f)\n", t.StrengthLabel, redactText(t.Label), t.Strength)
 		fmt.Fprintf(out, "    %d session(s), %d with commands; %d↑ %d↓ %d·; commands: %s\n",
-			t.Support, t.WithCommands, r.Success, r.Corrected, r.Neutral, joinMax(t.Commands, 5))
+			t.Support, t.WithCommands, r.Success, r.Corrected, r.Neutral, redactText(joinMax(t.Commands, 5)))
 		fmt.Fprintf(out, "    id %s\n", t.ID)
 	}
 	return nil
@@ -141,14 +147,19 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 	if agent == "none" {
 		return fmt.Errorf("skill synthesis requires an agent (codex or claude-code); none found on PATH")
 	}
-	run := defaultDistillAgentRunner(agent)
+	return synthesizeAndForm(ctx, cmd, *cand, brainDir, repoDir, agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
+}
 
+// synthesizeAndForm is the single skill-creation path (repo and workspace):
+// synthesize via the agent, reject NOT_A_SKILL, then show evidence + draft and
+// stop unless --yes. All evidence/draft egress is redacted. storeDir is where the
+// skill-memory decision is recorded. run is injected so tests can stub the agent.
+func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandidate, storeDir, repoDir, agent string, run distillAgentRunner, s skillFormOptions, now time.Time) error {
 	fmt.Fprintf(cmd.ErrOrStderr(), "synthesizing skill from %d sessions via %s…\n", cand.Support, agent)
-	res, err := synthesizeSkill(ctx, repoDir, brainDir, *cand, agent, s.model, s.effort, run)
+	res, err := synthesizeSkill(ctx, repoDir, storeDir, cand, agent, s.model, s.effort, run)
 	if err != nil {
 		return err
 	}
-
 	if !res.IsSkill {
 		if s.asJSON {
 			return writeJSON(cmd, map[string]any{"task_id": cand.ID, "is_skill": false, "reason": res.Reason})
@@ -156,7 +167,6 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 		fmt.Fprintf(cmd.OutOrStdout(), "not a skill: %s\n", res.Reason)
 		return nil
 	}
-
 	name := s.name
 	if name == "" {
 		name = res.Name
@@ -164,43 +174,55 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 	if name == "" {
 		name = "skill"
 	}
+	skillText := redactText(res.SkillText)
 
-	if s.draftOnly || !s.yes {
+	if s.draftOnly {
 		if s.asJSON {
-			return writeJSON(cmd, map[string]any{"task_id": cand.ID, "is_skill": true, "name": name, "skill": res.SkillText})
+			return writeJSON(cmd, map[string]any{"task_id": cand.ID, "is_skill": true, "name": name, "skill": skillText})
 		}
-		out := cmd.OutOrStdout()
-		fmt.Fprintln(out, res.SkillText)
-		if !s.draftOnly {
-			dests, derr := skillDestinations(s.target, s.scope, name, repoDir)
-			if derr == nil {
-				fmt.Fprintln(out, "\nwould write to:")
-				for _, d := range dests {
-					fmt.Fprintf(out, "  %s   (%s)\n", d.Path, joinMax(d.Agents, 8))
-				}
-				fmt.Fprintln(out, "\nre-run with --yes to write")
-			}
-		}
+		fmt.Fprintln(cmd.OutOrStdout(), skillText)
 		return nil
 	}
 
-	// Write path.
 	dests, err := skillDestinations(s.target, s.scope, name, repoDir)
 	if err != nil {
 		return err
 	}
+
+	// Evidence-first preview (Priority 6): show WHY this is a skill, then the
+	// draft and the exact would-write destinations. Nothing is written.
+	if !s.yes {
+		if s.asJSON {
+			return writeJSON(cmd, map[string]any{
+				"task_id": cand.ID, "is_skill": true, "name": name,
+				"evidence": redactCandidate(cand), "skill": skillText, "would_write": dests,
+			})
+		}
+		out := cmd.OutOrStdout()
+		renderCandidateEvidence(out, cand)
+		fmt.Fprintln(out, "\n--- proposed SKILL.md ---")
+		fmt.Fprintln(out, skillText)
+		fmt.Fprintln(out, "\nwould write to:")
+		for _, d := range dests {
+			fmt.Fprintf(out, "  %s   (%s)\n", d.Path, joinMax(d.Agents, 8))
+		}
+		fmt.Fprintf(out, "\nre-run with --yes to write%s\n", overwriteHint(dests))
+		return nil
+	}
+
+	// Write path.
 	if !s.force {
 		for _, d := range dests {
-			if _, statErr := os.Stat(expandHomePath(d.Path)); statErr == nil {
+			if _, statErr := os.Stat(skillFilePath(d.Path)); statErr == nil {
 				return fmt.Errorf("refusing to overwrite existing skill file: %s (use --force)", d.Path)
 			}
 		}
 	}
-	data := []byte(res.SkillText)
+	data := []byte(skillText)
 	sha := "sha256:" + fmt.Sprintf("%x", sha256Sum(data))
 	var installs []skillInstall
 	for _, d := range dests {
-		abs := expandHomePath(d.Path)
+		abs := skillFilePath(d.Path)
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 			return fmt.Errorf("create skill dir: %w", err)
 		}
@@ -209,10 +231,9 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 		}
 		installs = append(installs, skillInstall{Agents: d.Agents, Path: d.Path, ContentSHA: sha})
 	}
-	now := opts.Now().UTC()
-	if err := recordSkillDecision(brainDir, skillMemoryRecord{
-		PatternID: cand.ID, Scope: "repo", Status: skillStatusActive, SkillName: name,
-		Installs: installs, Fingerprint: patternEvidenceFingerprint(taskView(*cand)),
+	if err := recordSkillDecision(storeDir, skillMemoryRecord{
+		PatternID: cand.ID, Scope: candScope(cand), Status: skillStatusActive, SkillName: name,
+		Installs: installs, Fingerprint: patternEvidenceFingerprint(taskView(cand)),
 		Support: cand.Support, Reinforcement: cand.Reinforcement, CreatedAt: now, UpdatedAt: now,
 	}); err != nil {
 		return err
@@ -227,10 +248,67 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 	return nil
 }
 
+// renderCandidateEvidence prints the evidence-first approval view: why this is a
+// skill, before the draft. All fields are redacted.
+func renderCandidateEvidence(out io.Writer, cand taskCandidate) {
+	c := redactCandidate(cand)
+	r := c.Reinforcement
+	fmt.Fprintf(out, "Candidate: %s\n", c.Label)
+	fmt.Fprintf(out, "id %s\n", cand.ID)
+	if c.Repos > 0 {
+		fmt.Fprintf(out, "Support: %d session(s) across %d repo(s); reinforcement %d↑ %d↓ %d·\n", c.Support, c.Repos, r.Success, r.Corrected, r.Neutral)
+	} else {
+		fmt.Fprintf(out, "Support: %d session(s) (%d with commands); reinforcement %d↑ %d↓ %d·\n", c.Support, c.WithCommands, r.Success, r.Corrected, r.Neutral)
+	}
+	if len(c.SampleIntents) > 0 {
+		fmt.Fprintln(out, "Sample intents:")
+		for _, s := range c.SampleIntents {
+			fmt.Fprintf(out, "  - %s\n", s)
+		}
+	}
+	if len(c.Procedures) > 0 {
+		fmt.Fprintln(out, "Co-occurring procedure evidence:")
+		for _, p := range c.Procedures {
+			fmt.Fprintf(out, "  - %s  (in %d sessions, specificity %.2f)\n", joinArrow(p.Commands), p.Count, p.Specificity)
+		}
+	}
+	if len(c.MatchingFacts) > 0 {
+		fmt.Fprintln(out, "Relevant durable facts:")
+		for _, f := range c.MatchingFacts {
+			fmt.Fprintf(out, "  - %s\n", f)
+		}
+	}
+	if len(cand.Examples) > 0 {
+		fmt.Fprintln(out, "Source anchors:")
+		for _, a := range cand.Examples {
+			fmt.Fprintf(out, "  - %s:%d\n", redactText(a.Path), a.Line)
+		}
+	}
+}
+
+func joinArrow(cmds []string) string {
+	out := ""
+	for i, c := range cmds {
+		if i > 0 {
+			out += " → "
+		}
+		out += c
+	}
+	return out
+}
+
+// candScope reports the scope of a task candidate for skill-memory.
+func candScope(c taskCandidate) string {
+	if c.Workspace != "" {
+		return "workspace"
+	}
+	return "repo"
+}
+
 // taskView adapts a task candidate to a patternView for fingerprinting/skill memory.
 func taskView(c taskCandidate) patternView {
 	r := c.Reinforcement
-	return patternView{ID: c.ID, Type: "task", Scope: "repo", Title: c.Label,
+	return patternView{ID: c.ID, Type: "task", Scope: candScope(c), Title: c.Label,
 		Strength: c.Strength, StrengthLabel: c.StrengthLabel, Support: c.Support, Reinforcement: &r}
 }
 

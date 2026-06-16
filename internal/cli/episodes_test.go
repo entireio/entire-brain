@@ -156,6 +156,52 @@ func TestBuildBrainEpisodesCrossDialect(t *testing.T) {
 	}
 }
 
+func TestRefreshPatternLayer(t *testing.T) {
+	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	brainDir := writeEpisodeFixture(t, now, "gh/acme/cli", []sessionFixture{
+		{id: "s1", branch: "main", agent: "Claude", checkpoint: "cp1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: claudeReviewTranscript},
+	})
+
+	rebuilt, err := refreshPatternLayer(brainDir, false, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rebuilt {
+		t.Fatal("first refresh should rebuild the pattern layer")
+	}
+	// The refresh path must populate every pattern artifact + the manifest source.
+	for _, rel := range []string{"patterns/episodes.ndjson", "patterns/tasks.ndjson", "patterns/procedures.ndjson", "patterns/practices.ndjson"} {
+		if _, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(rel))); statErr != nil {
+			t.Errorf("missing %s after refresh: %v", rel, statErr)
+		}
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Sources == nil || manifest.Sources.Patterns == nil {
+		t.Fatal("manifest missing sources.patterns after refresh")
+	}
+
+	// Unchanged sessions -> current, no rebuild.
+	if rebuilt, err := refreshPatternLayer(brainDir, false, now); err != nil || rebuilt {
+		t.Errorf("unchanged refresh rebuilt=%v err=%v, want false/nil", rebuilt, err)
+	}
+	// --force always rebuilds.
+	if rebuilt, err := refreshPatternLayer(brainDir, true, now); err != nil || !rebuilt {
+		t.Errorf("forced refresh rebuilt=%v err=%v, want true/nil", rebuilt, err)
+	}
+	// Changed session fingerprint -> rebuild.
+	manifest, _ = loadBrainManifest(brainDir)
+	manifest.Sources.Sessions.Sessions[0].LatestCheckpoint = "cp1-moved"
+	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
+		t.Fatal(err)
+	}
+	if rebuilt, err := refreshPatternLayer(brainDir, false, now); err != nil || !rebuilt {
+		t.Errorf("changed-session refresh rebuilt=%v err=%v, want true/nil", rebuilt, err)
+	}
+}
+
 func TestEpisodeCommitSignal(t *testing.T) {
 	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
 	// A Codex work segment that lands a commit, with a neutral next user turn:

@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 )
@@ -113,10 +112,18 @@ func buildSkillEvidence(brainDir string, c taskCandidate) string {
 		b.WriteByte('\n')
 	}
 
-	if facts := matchingFactsForTask(brainDir, c); len(facts) > 0 {
+	if len(c.Procedures) > 0 {
+		fmt.Fprintf(&b, "Co-occurring command shapes (specificity in [0,1]):\n")
+		for _, p := range c.Procedures {
+			fmt.Fprintf(&b, "- %s  (in %d sessions, specificity %.2f)\n", strings.Join(p.Commands, " → "), p.Count, p.Specificity)
+		}
+		b.WriteByte('\n')
+	}
+
+	if len(c.MatchingFacts) > 0 {
 		fmt.Fprintf(&b, "Relevant durable repository facts:\n")
-		for _, f := range facts {
-			fmt.Fprintf(&b, "- [%s] %s\n", factKindOrInferred(f), f.Text)
+		for _, f := range c.MatchingFacts {
+			fmt.Fprintf(&b, "- %s\n", f)
 		}
 		b.WriteByte('\n')
 	}
@@ -131,58 +138,9 @@ func buildSkillEvidence(brainDir string, c taskCandidate) string {
 			excerpts++
 		}
 	}
-	return b.String()
-}
-
-// matchingFactsForTask returns durable facts whose text overlaps the task's
-// label/command terms, ranked by overlap, capped.
-func matchingFactsForTask(brainDir string, c taskCandidate) []factRecord {
-	facts, err := loadFacts(brainDir, distillDefaultBranch)
-	if err != nil || len(facts) == 0 {
-		return nil
-	}
-	terms := map[string]bool{}
-	for _, t := range brainBriefFileMatchTerms(c.Label + " " + strings.Join(c.SampleIntents, " ")) {
-		terms[t] = true
-	}
-	for _, cmd := range c.Commands {
-		for _, w := range strings.Fields(strings.ToLower(cmd)) {
-			terms[w] = true
-		}
-	}
-	if len(terms) == 0 {
-		return nil
-	}
-	type scored struct {
-		f       factRecord
-		overlap int
-	}
-	var matched []scored
-	for _, f := range facts {
-		if f.Status != "active" {
-			continue
-		}
-		seen := map[string]bool{}
-		overlap := 0
-		for _, w := range brainBriefTaskWordPattern.FindAllString(strings.ToLower(f.Text), -1) {
-			if terms[w] && !seen[w] {
-				seen[w] = true
-				overlap++
-			}
-		}
-		if overlap > 0 {
-			matched = append(matched, scored{f, overlap})
-		}
-	}
-	sort.SliceStable(matched, func(i, j int) bool { return matched[i].overlap > matched[j].overlap })
-	var out []factRecord
-	for _, m := range matched {
-		if len(out) >= 6 {
-			break
-		}
-		out = append(out, m.f)
-	}
-	return out
+	// Redaction boundary: this bundle is the agent's input — strip secrets and
+	// home-dir usernames before it leaves the brain.
+	return redactText(b.String())
 }
 
 // transcriptExcerpt returns up to maxLines of a transcript starting at the

@@ -15,7 +15,7 @@ import (
 // NO model call here: the refresh path that builds patterns must stay token-free,
 // so the signal is read from cheap, high-precision evidence only.
 //
-// RUBRIC
+// # RUBRIC
 //
 // Two evidence sources, combined by the precedence below:
 //
@@ -36,9 +36,9 @@ import (
 // PRECEDENCE (first match wins):
 //
 //  1. correction cue in feedback   -> corrected   (strongest negative; beats a
-//                                                   co-occurring "thanks but…",
-//                                                   and beats a committed work
-//                                                   segment the user then rejects)
+//     co-occurring "thanks but…",
+//     and beats a committed work
+//     segment the user then rejects)
 //  2. approval cue in feedback     -> success
 //  3. work segment committed        -> success
 //  4. otherwise                    -> neutral      (no feedback turn, no cue, no commit)

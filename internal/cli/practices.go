@@ -46,14 +46,14 @@ const (
 )
 
 type practiceRecord struct {
-	ID            string          `json:"id"`
-	Type          string          `json:"type"`  // always "practice"
-	Scope         string          `json:"scope"` // "repo" (workspace is Phase 6)
-	RepoKey       string          `json:"repo_key,omitempty"`
-	Kind          string          `json:"kind"`
-	Statement     string          `json:"statement"`
-	Paths         []string        `json:"paths,omitempty"`
-	Locus         []string        `json:"locus,omitempty"`
+	ID            string            `json:"id"`
+	Type          string            `json:"type"`  // always "practice"
+	Scope         string            `json:"scope"` // "repo" (workspace is Phase 6)
+	RepoKey       string            `json:"repo_key,omitempty"`
+	Kind          string            `json:"kind"`
+	Statement     string            `json:"statement"`
+	Paths         []string          `json:"paths,omitempty"`
+	Locus         []string          `json:"locus,omitempty"`
 	Support       int               `json:"support"` // distinct provenance sessions
 	Branches      int               `json:"branches"`
 	Repos         int               `json:"repos,omitempty"`          // workspace scope

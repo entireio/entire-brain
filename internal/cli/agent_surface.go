@@ -216,16 +216,16 @@ func newAgentStatusCommand(opts Options) *cobra.Command {
 }
 
 type brainOverviewReport struct {
-	GeneratedAt     time.Time             `json:"generated_at"`
-	Repo            brainStatusRepo       `json:"repo"`
-	Brain           brainStatusBrain      `json:"brain"`
-	Freshness       brainOverviewFresh    `json:"freshness"`
-	Sources         brainStatusSources    `json:"sources"`
-	Live            brainLiveState        `json:"live"`
-	Semantic        brainOverviewSemantic `json:"semantic"`
-	Boundaries      map[string]int        `json:"boundaries,omitempty"`
-	Entrypoints     []string              `json:"entrypoints,omitempty"`
-	Commands        []seedCommand         `json:"commands,omitempty"`
+	GeneratedAt       time.Time             `json:"generated_at"`
+	Repo              brainStatusRepo       `json:"repo"`
+	Brain             brainStatusBrain      `json:"brain"`
+	Freshness         brainOverviewFresh    `json:"freshness"`
+	Sources           brainStatusSources    `json:"sources"`
+	Live              brainLiveState        `json:"live"`
+	Semantic          brainOverviewSemantic `json:"semantic"`
+	Boundaries        map[string]int        `json:"boundaries,omitempty"`
+	Entrypoints       []string              `json:"entrypoints,omitempty"`
+	Commands          []seedCommand         `json:"commands,omitempty"`
 	Documents         []string              `json:"key_documents,omitempty"`
 	RecentDecisions   []brainTextMatch      `json:"recent_decisions,omitempty"`
 	StrongestPatterns []patternView         `json:"strongest_patterns,omitempty"`

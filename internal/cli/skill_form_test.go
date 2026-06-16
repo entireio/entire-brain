@@ -45,26 +45,6 @@ func TestSkillDestinations(t *testing.T) {
 	}
 }
 
-func TestDeriveSkillNameAndDraft(t *testing.T) {
-	proc := patternView{ID: "P1", Type: "procedure", Scope: "repo", Title: "git commit → git push",
-		StrengthLabel: "high", Strength: 0.67, Support: 14, Reinforcement: &reinforcementCounts{Success: 14}}
-	if name := deriveSkillName(proc); name != "do-git-commit-git-push" {
-		t.Errorf("procedure name = %q", name)
-	}
-	draft := renderSkillDraft(proc, "do-git-commit-git-push", time.Now())
-	for _, want := range []string{"name: do-git-commit-git-push", "description:", "## Steps", "1. `git commit`", "2. `git push`", "## Verification", "## Failure Modes", "## Evidence", "14 observation"} {
-		if !strings.Contains(draft, want) {
-			t.Errorf("draft missing %q\n---\n%s", want, draft)
-		}
-	}
-
-	practice := patternView{ID: "P2", Type: "practice", Kind: "closed-negative", Scope: "repo",
-		Title: "Approach X was rejected because it was slow.", StrengthLabel: "high", Support: 2}
-	if name := deriveSkillName(practice); !strings.HasPrefix(name, "closed-negative-") {
-		t.Errorf("practice name = %q, want closed-negative- prefix", name)
-	}
-}
-
 func TestRecordSkillDecisionUpsert(t *testing.T) {
 	brainDir := t.TempDir()
 	t0 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)

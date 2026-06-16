@@ -95,8 +95,8 @@ func TestSkillMemoryStatusCounts(t *testing.T) {
 
 	mem := []skillMemoryRecord{
 		{PatternID: "P1", Status: skillStatusActive, Fingerprint: patternEvidenceFingerprint(procedureView(p1))}, // current
-		{PatternID: "P2", Status: skillStatusActive, Fingerprint: "sha256:stale"},                                 // update
-		{PatternID: "gone", Status: skillStatusDeclined, Fingerprint: "sha256:whatever"},                          // declined/current
+		{PatternID: "P2", Status: skillStatusActive, Fingerprint: "sha256:stale"},                                // update
+		{PatternID: "gone", Status: skillStatusDeclined, Fingerprint: "sha256:whatever"},                         // declined/current
 	}
 	if err := writeBrainSkillMemory(brainDir, mem); err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestSkillMemoryStatusCounts(t *testing.T) {
 func TestSkillMemoryRoundTrip(t *testing.T) {
 	brainDir := t.TempDir()
 	in := []skillMemoryRecord{{PatternID: "P1", Status: skillStatusActive, SkillName: "verify-release",
-		Installs: []skillInstall{{Agents: []string{"claude-code"}, Path: "~/.claude/skills/verify-release/SKILL.md", ContentSHA: "sha256:abc"}},
+		Installs:    []skillInstall{{Agents: []string{"claude-code"}, Path: "~/.claude/skills/verify-release/SKILL.md", ContentSHA: "sha256:abc"}},
 		Fingerprint: "sha256:fp"}}
 	if err := writeBrainSkillMemory(brainDir, in); err != nil {
 		t.Fatal(err)
