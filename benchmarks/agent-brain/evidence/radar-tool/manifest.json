@@ -3,7 +3,7 @@
     {
       "kind": "go_test_json",
       "path": "go-test-internal-cli-radar.jsonl",
-      "sha256": "sha256:264663fb920bd7c839b34b1cb08451621176465893d836b236357d0602683257"
+      "sha256": "sha256:924b465c9b6b0ffcba66b6d232cee2840edee9993298ffe17b8ab15df8df4c69"
     }
   ],
   "claim_scope": "mcp_radar_tool_contract",
@@ -21,7 +21,7 @@
   "commands": [
     "go test -json ./internal/cli -run '^(TestRegressionDetectsChangedOperand|TestRegressionChangedOperandReportsMissingHintedFileDespiteIntactPeer|TestRegressionChangedOperandReportsEachRegressedHintedFile|TestInspectRegressionsCommandJSONAndLocationOnly|TestRegressionDeletionIsOptIn|TestRegressionDeletionRanksCallLocusWithHistoryFileHint|TestRegressionDeletionReportsEachMissingAnchoredCallSite|TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer|TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol|TestRegressionAssignmentDeletionRelatedLocationsStayOnSameInvariant|TestRegressionAssignmentDeletionRelatedLocationsDistinguishSameIdentifierDifferentRHS|TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite|TestRegressionAssignmentDeletionReportsSameNameReceiverMethods|TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction|TestRegressionDedupeRankPrefersBoostedCallDeletion|TestRegressionScanHistoryClosesFilesDuringLargeWalk|TestMCPInitializeAndToolsList|TestMCPToolsListIncludesRegressions|TestMCPToolsListIncludesQMDRetrievalSurface|TestMCPToolsListAdvertisesStaleBlindSpots|TestMCPToolSchemasRejectAdditionalProperties|TestMCPToolSchemasMatchArgumentValidator|TestMCPToolRequiredArgumentsAreEnforced|TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet|TestMCPRejectsInvalidBooleanArguments|TestMCPRejectsInvalidStringAndUnknownArguments|TestMCPDebugLogIncludesToolCallNameAndSafeArgsOnly|TestMCPDebugLogIncludesSuccessfulWorkspaceRadarResult|TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools|TestMCPDebugLogReviewToolsRedactAndLogSuccess|TestMCPBrainRegressionsTool|TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites|TestMCPBrainReviewTool|TestMCPBrainWorkspaceReviewTool|TestMCPBrainWorkspaceRegressionsDeletionLocationOnlyAndReviewRedaction|TestMCPBrainWorkspaceToolRequiresWorkspace|TestMCPInitializeEchoesClientProtocolVersion|TestMCPInitializeSupportsJSONLineFraming|TestMCPBrainQueryToolUsesLocalSemanticJSON|TestMCPQMDRetrievalToolsUseLocalFacts|TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON|TestMCPBrainBriefAndQueryToolsUseIndexedHistory|TestMCPToolCallRejectsInvalidIntegerArguments|TestMCPToolCallRejectsInvalidDepth|TestMCPRecoversFromMalformedJSONLineFrame|TestMCPRejectsOversizedAndNegativeFrames|TestMCPBrainStaleUsesEnvRepoRoot|TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain|TestWorkspaceRegressionsDeletionLocationOnlyReportsRelatedLoci|TestWorkspaceRegressionsSkipsUnsafeRepo|TestWorkspaceRegressionsSkipsUnsafeSessionsOnlyRepo|TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint)$' > benchmarks/agent-brain/evidence/radar-tool/go-test-internal-cli-radar.jsonl"
   ],
-  "generated_at": "2026-06-16T20:34:12Z",
+  "generated_at": "2026-06-16T20:59:07Z",
   "limitations": [
     "Tool-contract proof only; this is not agent lift proof.",
     "Radar agent-lift proof/no-claim status is retained separately under benchmarks/agent-brain/evidence/release and checked by mise run radar:agent-evidence.",
@@ -85,7 +85,7 @@
   "source_files": {
     "benchmarks/agent-brain/audit_radar_tool_evidence.py": "sha256:efbdfb2ed30a1141838a92f206a776bbab464acbe331adb81c13ef530d61a418",
     "benchmarks/agent-brain/record_radar_tool_evidence.py": "sha256:e6a0ec7893558b1c4c36276d3dc9376767661ee53d7c7fe2aa2083747259bd0f",
-    "internal/cli/mcp.go": "sha256:f545f295f2ce37f73ddf7a5c560756a5916c3739f402d18d49f17ef37d4a3f30",
+    "internal/cli/mcp.go": "sha256:5eaee1aebdb203f4a7552297adad1f678fdb4d70143b75158709a6785a61e7d2",
     "internal/cli/mcp_test.go": "sha256:25b9034762f3b9f1aafac92d5fcba3392d9e0015f41814d9c58283dad8ef06b7",
     "internal/cli/regression.go": "sha256:4da509c708c8d9f5bbe59b07a577d85e2ae8ba9aa12901e6a94eb63b9a339a95",
     "internal/cli/regression_test.go": "sha256:f6b25e65744573eca8f9ee537c9dc318d3a5104b4e7a27458df6fcdbe1a14275",
@@ -96,5 +96,5 @@
     "internal/cli/workspace.go": "sha256:46cf5947d3d70577e66a026949c9e55d0e85611c31e74498ac6a5ddcb28578fd",
     "internal/cli/workspace_test.go": "sha256:6a1d240be220c5f8ead3dccd956cb654e92043d289073856de1170ec33d26e79"
   },
-  "source_head": "5b86d32c9a45fedb8c2917889ddcd5cc93253586"
+  "source_head": "7c67481a19b4a2b7c07403286bd09363da06c7ee"
 }
