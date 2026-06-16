@@ -55,7 +55,9 @@ func buildPatternCandidates(db *sql.DB, repoKey string, now time.Time) error {
 			return err
 		}
 	}
-	return nil
+	// Consolidate promotable patterns into dossiers (deterministic, token-free).
+	// The optional agent verifier runs only through explicit maintenance surfaces.
+	return buildDossiers(db, repoKey, now)
 }
 
 func insertTaskCandidates(db *sql.DB, repoKey string, commandDF map[string]int, corpusN int, ts string) error {

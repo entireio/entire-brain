@@ -34,6 +34,7 @@ func newPatternsCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&listOpts.scope, "scope", "", "Filter by scope: repo|workspace")
 	cmd.AddCommand(newPatternsRefreshCommand(opts))
 	cmd.AddCommand(newPatternsStatusCommand(opts))
+	cmd.AddCommand(newPatternsVerifyCommand(opts))
 	cmd.AddCommand(newPatternsSkillsCommand(opts))
 	return cmd
 }
@@ -308,6 +309,56 @@ func newPatternsStatusCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
+func newPatternsVerifyCommand(opts Options) *cobra.Command {
+	var (
+		asJSON       bool
+		agent, model string
+		effort       string
+	)
+	cmd := &cobra.Command{
+		Use:   "verify [path]",
+		Short: "Agent-audit promotable consolidation dossiers (explicit, egress-gated, cached)",
+		Long: "Run the optional consolidation verifier over promotable dossiers. This is the " +
+			"only surface that may invoke an agent for patterns; refresh/watch/brief/query/MCP " +
+			"never do. Verdicts are cached by evidence fingerprint and re-used until the evidence changes.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPatternsVerify(cmd.Context(), cmd, opts, targetFromArgs(opts, args), agent, model, effort, asJSON)
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit the verification summary as JSON")
+	cmd.Flags().StringVar(&agent, "agent", "auto", "Verifier agent: auto, codex, claude-code, ollama, or command")
+	cmd.Flags().StringVar(&model, "model", "", "Override the agent model, or select the local Ollama model")
+	cmd.Flags().StringVar(&effort, "effort", "", "Agent reasoning effort (codex/claude-code)")
+	return cmd
+}
+
+func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, target, agent, model, effort string, asJSON bool) error {
+	repoDir, brainDir, err := resolvePatternsRepoAndBrain(ctx, opts, target)
+	if err != nil {
+		return err
+	}
+	if err := rejectAgentForNoEgress(agent); err != nil {
+		return err
+	}
+	db, err := openPatternCorpusDB(brainDir)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	run := defaultDistillAgentRunner(agent)
+	stats, err := verifyDossiers(ctx, db, repoDir, agent, model, effort, run, opts.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return writeJSON(cmd, stats)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "patterns verify: %d dossier(s) — %d verified, %d cached, %d failed\n",
+		stats.Considered, stats.Verified, stats.Cached, stats.Failed)
+	return nil
+}
+
 // targetFromArgs resolves the repo path argument, defaulting to the env repo root
 // then the working directory — the same precedence the other brain commands use.
 func targetFromArgs(opts Options, args []string) string {
@@ -321,18 +372,25 @@ func targetFromArgs(opts Options, args []string) string {
 }
 
 func resolvePatternsBrainDir(ctx context.Context, opts Options, target string) (string, error) {
+	_, brainDir, err := resolvePatternsRepoAndBrain(ctx, opts, target)
+	return brainDir, err
+}
+
+// resolvePatternsRepoAndBrain resolves both the local repo directory (needed as
+// the agent runner's working dir) and the brain storage dir for that repo.
+func resolvePatternsRepoAndBrain(ctx context.Context, opts Options, target string) (repoDir, brainDir string, err error) {
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if !local {
-		return "", fmt.Errorf("patterns require a local repository path: %s", target)
+		return "", "", fmt.Errorf("patterns require a local repository path: %s", target)
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return storage.BrainDir, nil
+	return repoDir, storage.BrainDir, nil
 }
 
 func runPatternsRefresh(ctx context.Context, cmd *cobra.Command, opts Options, target string, asJSON bool) error {

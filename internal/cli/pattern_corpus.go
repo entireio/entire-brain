@@ -152,6 +152,24 @@ var patternCorpusSchema = []string{
 		FOREIGN KEY (pattern_id) REFERENCES patterns(id) ON DELETE CASCADE,
 		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
 	)`,
+	// dossiers cache the consolidation record for each promotable pattern. The
+	// deterministic consolidation (json_redacted) is rebuilt token-free on every
+	// refresh; the optional agent verifier output (verifier_json_redacted/verdict)
+	// is cached by evidence fingerprint and survives pattern rebuilds (no FK
+	// cascade — reconciled manually so verifier work is not lost). status flips to
+	// 'stale' when the evidence fingerprint changes under a cached verdict.
+	`CREATE TABLE IF NOT EXISTS dossiers (
+		pattern_id TEXT PRIMARY KEY,
+		cluster_key TEXT NOT NULL,
+		fingerprint TEXT NOT NULL,
+		json_redacted TEXT NOT NULL,
+		verifier_json_redacted TEXT,
+		verdict TEXT,
+		verified_fingerprint TEXT,
+		status TEXT NOT NULL DEFAULT 'current',
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`,
 	`CREATE INDEX IF NOT EXISTS idx_episodes_repo_branch ON episodes(repo_key, branch)`,
 	`CREATE INDEX IF NOT EXISTS idx_episodes_intent_sig ON episodes(intent_sig)`,
 	`CREATE INDEX IF NOT EXISTS idx_episodes_outcome ON episodes(outcome)`,
@@ -166,6 +184,27 @@ var patternCorpusSchema = []string{
 	`CREATE INDEX IF NOT EXISTS idx_patterns_type_scope ON patterns(type, scope)`,
 	`CREATE INDEX IF NOT EXISTS idx_patterns_strength ON patterns(strength DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_pattern_evidence_episode ON pattern_evidence(episode_id)`,
+}
+
+// openPatternCorpusDB opens an existing corpus database with the standard
+// pragmas. It does NOT create or migrate schema — callers that build the corpus
+// use buildPatternCorpus. Returns an error if the corpus is absent.
+func openPatternCorpusDB(brainDir string) (*sql.DB, error) {
+	path := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("pattern corpus not found (run `entire brain patterns refresh` first): %w", err)
+	}
+	db, err := sql.Open(sqliteDriverName, path)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range []string{"PRAGMA busy_timeout=5000", "PRAGMA foreign_keys=ON"} {
+		if _, err := db.Exec(p); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	return db, nil
 }
 
 // buildPatternCorpus (re)indexes the brain's sessions into patterns/corpus.sqlite.
