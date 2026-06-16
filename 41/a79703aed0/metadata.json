@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "41a79703aed0",
+  "strategy": "manual-commit",
+  "branch": "claude/patterns-phase0-reinforcement",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/41/a79703aed0/0/metadata.json",
+      "transcript": "/41/a79703aed0/0/full.jsonl",
+      "content_hash": "/41/a79703aed0/0/content_hash.txt",
+      "prompt": "/41/a79703aed0/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 18734,
+    "cache_creation_tokens": 825767,
+    "cache_read_tokens": 63163270,
+    "output_tokens": 288231,
+    "api_call_count": 251
+  }
+}
