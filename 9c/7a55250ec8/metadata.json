@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "9c7a55250ec8",
+  "strategy": "manual-commit",
+  "branch": "claude/patterns-phase0-reinforcement",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/pattern_consolidation_plan.md",
+    "internal/cli/episodes.go",
+    "internal/cli/episodes_test.go",
+    "internal/cli/reinforcement.go",
+    "internal/cli/reinforcement_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9c/7a55250ec8/0/metadata.json",
+      "transcript": "/9c/7a55250ec8/0/full.jsonl",
+      "content_hash": "/9c/7a55250ec8/0/content_hash.txt",
+      "prompt": "/9c/7a55250ec8/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 564,
+    "cache_creation_tokens": 39427,
+    "cache_read_tokens": 5628896,
+    "output_tokens": 32678,
+    "api_call_count": 24
+  }
+}
