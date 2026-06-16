@@ -34,6 +34,7 @@ func newPatternsCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&listOpts.scope, "scope", "", "Filter by scope: repo|workspace")
 	cmd.AddCommand(newPatternsRefreshCommand(opts))
 	cmd.AddCommand(newPatternsStatusCommand(opts))
+	cmd.AddCommand(newPatternsFormCommand(opts))
 	return cmd
 }
 

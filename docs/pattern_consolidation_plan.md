@@ -615,13 +615,17 @@ Residual noise (e.g. `cd → echo`) survives via the diversity bonus; the **spec
 
 Records are created by `patterns form` (Phase 5); Phase 4 is the layer + state machine + surfacing. Real run with no decisions yet: status shows `accepted 0 / declined 0 / updates 0`, listing unaffected.
 
-### Phase 5: Skill Formation
+### Phase 5: Skill Formation — DONE (2026-06-16)
 
-- Add `entire brain patterns form <pattern-id>`.
-- Render full card and proposed skill draft before any write.
-- Ask for an install destination, then write selected skill files only after confirmation.
-- Store skill memory records.
-- Refuse accidental overwrite without explicit confirmation.
+- Add `entire brain patterns form <pattern-id>` (`skill_form.go`).
+- Render full card + proposed `SKILL.md` before any write. The safety contract is enforced via flags rather than a TUI prompt (testable, scriptable): **no `--yes` → preview only** (card + draft + would-write paths, no write); `--draft-only` prints the draft; `--yes` (which **requires `--name`**) writes; `--decline` records a decline.
+- Install destinations resolved from the agent research (`skillDestinations`): `--target standard` (default) writes the cross-agent `.agents/skills/` path read by copilot-cli/cursor/gemini/pi; `claude-code` / `codex` / `factoryai-droid` write their own roots (opencode rides the `.claude` path); `all` writes the minimal covering set. `--scope global|repo`; honors `$CODEX_HOME`.
+- Store skill-memory records (`recordSkillDecision`, upsert by pattern id, preserves original `created_at`) with installs + content_sha + evidence fingerprint, for both the form and decline paths.
+- **Refuse accidental overwrite** of an existing skill file unless `--force`.
+
+**Real end-to-end run (verified, then cleaned up):** preview wrote nothing; `--yes --name` wrote `~/.agents/skills/<name>/SKILL.md` (agents: copilot-cli, cursor, gemini, pi); a second `--yes` was refused without `--force`; `patterns status` showed `accepted skills: 1`; the formed pattern was suppressed from the listing. Tests cover destination resolution, name/draft generation, and skill-memory upsert.
+
+Deferred: a true interactive prompt (the flag-driven flow is the MVP), and richer card synthesis (optional agent pass).
 
 ### Phase 6: Workspace Patterns
 
