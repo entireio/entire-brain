@@ -38,7 +38,7 @@ const (
 	// Bump when the parser/extractor output changes in a way that requires
 	// re-indexing already-indexed sessions. v2: Phase 2 enrichment (exit codes,
 	// files, meta-hits, fact links).
-	patternIndexerVersion = 2
+	patternIndexerVersion = 3
 )
 
 // patternCorpusSchema is the full target schema (additive). Tables not yet
@@ -242,6 +242,11 @@ func buildPatternCorpus(brainDir string, now time.Time) error {
 
 	// Prune sessions no longer in the manifest (deleted transcripts).
 	if err := pruneCorpusSessions(db, present); err != nil {
+		return err
+	}
+
+	// Rebuild candidate patterns from the fresh corpus.
+	if err := buildPatternCandidates(db, repoKey, now); err != nil {
 		return err
 	}
 
@@ -471,6 +476,11 @@ type corpusGram struct {
 	gram string
 }
 
+// gramSep joins command heads inside a gram. It must be recoverable: command
+// heads themselves contain spaces ("git push"), so a plain space join would be
+// ambiguous and break per-command specificity (gramSpecificity splits on this).
+const gramSep = " ▷ "
+
 // commandGrams builds deduped command n-grams (n=2..4) within one episode, over
 // the run-collapsed command heads — the procedure-shape evidence.
 func commandGrams(heads []string) []corpusGram {
@@ -479,12 +489,12 @@ func commandGrams(heads []string) []corpusGram {
 	var out []corpusGram
 	for n := 2; n <= 4; n++ {
 		for _, w := range commandWindows(collapsed, n) {
-			key := strconv.Itoa(n) + ":" + strings.Join(w, " ")
+			key := strconv.Itoa(n) + ":" + strings.Join(w, gramSep)
 			if seen[key] {
 				continue
 			}
 			seen[key] = true
-			out = append(out, corpusGram{n: n, gram: strings.Join(w, " ")})
+			out = append(out, corpusGram{n: n, gram: strings.Join(w, gramSep)})
 		}
 	}
 	return out
