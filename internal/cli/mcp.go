@@ -315,7 +315,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_patterns",
-			"description": "List repeated-work patterns (procedures = command workflows, practices = durable judgments) with strength, support, and reinforcement. Read-only; forming a skill from a pattern is a write action done via the CLI `entire brain patterns form`.",
+			"description": "List repeated-work patterns (procedures = command workflows, practices = durable judgments) with strength, support, and reinforcement. Read-only; forming a skill is a write action done via the CLI `entire brain patterns skills form`.",
 			"inputSchema": objectSchema(nil, map[string]any{"type": stringArg("type", "Filter by type: procedure or practice (empty = both)"), "scope": stringArg("scope", "Filter by scope: repo or workspace (empty = both)"), "limit": integerArg("limit", "Maximum patterns to return")}),
 		},
 		{

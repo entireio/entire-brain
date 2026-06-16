@@ -23,7 +23,7 @@ import (
 //
 // This phase establishes the record, its persistence, the state machine, and the
 // recommendations surfaced in `patterns` / `patterns status`. Records are created
-// by `patterns form` (Phase 5); here they are read and evaluated.
+// by `patterns skills form`; here they are read and evaluated.
 
 const patternsSkillMemoryPath = "patterns/skill-memory.ndjson"
 
@@ -207,7 +207,7 @@ func skillMemoryByPatternID(records []skillMemoryRecord) map[string]skillMemoryR
 }
 
 // writeBrainSkillMemory persists the user-state skill memory atomically. Refresh
-// never calls this; only the decision surfaces (`patterns form` / decline) do.
+// never calls this; only the skill-creation surface (`patterns skills form`) does.
 func writeBrainSkillMemory(brainDir string, records []skillMemoryRecord) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)

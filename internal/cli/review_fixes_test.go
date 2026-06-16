@@ -275,6 +275,29 @@ func TestCandidateEval(t *testing.T) {
 	}
 }
 
+func TestWorkspaceSkillsListJSONRedacts(t *testing.T) {
+	env := EntireEnv{PluginDataDir: t.TempDir()}
+	wsDir, err := workspaceDir(env, "platform")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cand := taskCandidate{
+		ID: "task:ws:x", Workspace: "platform", IntentSignature: "deploy:it", Label: "deploy it",
+		Support: 3, Repos: 2,
+		MatchingFacts: []string{"token is ghp_SECRETTOKEN0123456789abcdef"},
+	}
+	if err := writeBrainTasksFile(wsDir, []taskCandidate{cand}); err != nil {
+		t.Fatal(err)
+	}
+	cmd, out := formCmd()
+	if err := runWorkspaceSkillsList(context.Background(), cmd, Options{Env: env}, "platform", true, 10); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "ghp_SECRETTOKEN0123456789abcdef") {
+		t.Errorf("workspace skills --json leaked a secret:\n%s", out.String())
+	}
+}
+
 func TestWorkspaceTaskCandidatesCrossRepo(t *testing.T) {
 	mk := func(sig string) taskCandidate {
 		return taskCandidate{IntentSignature: sig, Label: sig, Support: 3, Reinforcement: reinforcementCounts{Success: 3},

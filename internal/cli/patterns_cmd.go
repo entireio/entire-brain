@@ -249,8 +249,8 @@ func practiceView(p practiceRecord) patternView {
 	return v
 }
 
-// renderPatternView prints a concise pattern card (the basic card; the full
-// approval card lands with `patterns form` in Phase 5).
+// renderPatternView prints a concise read-only pattern card. Patterns are
+// diagnostic; the evidence-first approval card lives in `patterns skills form`.
 func renderPatternView(out io.Writer, v patternView) {
 	label := v.Type
 	if v.Kind != "" {

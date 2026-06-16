@@ -249,44 +249,23 @@ Repo-specific variations:
 
 ## Public Commands
 
-Keep the public command surface aligned to user jobs.
+The command surface is aligned to user jobs. **`patterns` is read-only diagnostic inspection of procedures/practices; the only skill-creation path is `patterns skills form`** (skills are never formed from raw procedures/practices — those are evidence, not candidates).
 
 ### Repo Commands
 
 ```sh
-entire brain patterns
-entire brain patterns refresh
-entire brain patterns status
-entire brain patterns form <pattern-id>
+entire brain patterns                      # read-only: strongest procedures/practices
+entire brain patterns refresh              # rebuild the pattern layer (also run by `entire brain refresh`)
+entire brain patterns status               # freshness, counts, skill-memory state
+entire brain patterns skills               # list recurring task candidates (skill candidates)
+entire brain patterns skills form <task-id>  # synthesize a SKILL.md from a candidate (preview until --yes)
 ```
 
-`entire brain patterns`
+`entire brain patterns` — default read-only view of the strongest procedures/practices with evidence and ids. Options: `--json`, `--limit N`, `--type procedure|practice`, `--scope repo|workspace`.
 
-Default read-only view. Shows strongest current patterns with concise evidence summaries and ids.
+`entire brain patterns refresh` — rebuilds the pattern layer (episodes → tasks, procedures, practices) from current brain sources. **`entire brain refresh` runs this automatically** when sessions changed or `--force`; the explicit command remains for a forced/standalone rebuild. Options: `--force`, `--json`.
 
-Options:
-
-```sh
---json
---limit N
---type procedure|practice
---scope repo|workspace
-```
-
-`entire brain patterns refresh`
-
-Rebuilds the pattern layer from current brain sources. `entire brain refresh` should run this by default after sessions, history, facts, docs, and semantic sources are current.
-
-Options:
-
-```sh
---force
---json
-```
-
-`entire brain patterns status`
-
-Shows freshness and skill memory state:
+`entire brain patterns status` — freshness + counts:
 
 ```text
 patterns: current
@@ -298,39 +277,25 @@ declined patterns: 3
 updates available: 2
 ```
 
-Options:
+Options: `--json`.
 
-```sh
---json
-```
+`entire brain patterns skills` — lists recurring **task candidates** (intent + co-occurring procedure evidence + reinforcement + matching repo facts) — the only thing eligible to become a skill. Options: `--json` (redacted), `--limit N`.
 
-`entire brain patterns form <pattern-id>`
-
-Shows the full pattern card, prepares a proposed `SKILL.md` draft, then asks where, if anywhere, to install it. The command must not write files until the user chooses a destination.
-
-Options:
-
-```sh
---name <skill-name>
---destination global|repo
---yes
---json
-```
-
-In non-interactive mode, require both `--name` and `--yes`.
+`entire brain patterns skills form <task-id>` — synthesizes a `SKILL.md` from the candidate via an agent, gated on non-obvious evidence (returns `NOT_A_SKILL` otherwise). Without `--yes` it shows an **evidence-first preview** (candidate evidence + draft + exact would-write destinations) and writes nothing; `--yes` writes; existing files require `--force`. All evidence/draft egress is redacted. Options: `--name`, `--target standard|claude-code|codex|factoryai-droid|all`, `--scope global|repo`, `--agent`, `--model`, `--effort`, `--yes`, `--force`, `--draft-only`, `--json`.
 
 ### Workspace Commands
 
-Mirror the repo commands without expanding the surface:
+Mirror the repo surface:
 
 ```sh
-entire brain workspace patterns <workspace>
-entire brain workspace patterns refresh <workspace>
-entire brain workspace patterns status <workspace>
-entire brain workspace patterns form <workspace> <pattern-id>
+entire brain workspace patterns <workspace>                  # read-only: cross-repo procedures/practices
+entire brain workspace patterns refresh <workspace>          # merge member patterns into cross-repo patterns + task candidates
+entire brain workspace patterns status <workspace>           # counts + member coverage
+entire brain workspace patterns skills <workspace>           # list cross-repo task candidates (≥2 member repos)
+entire brain workspace patterns skills form <workspace> <task-id>  # synthesize a skill (global install; skill-memory in the workspace store)
 ```
 
-Workspace `patterns` should show cross-repo patterns by default and include repo breakdowns in each card.
+Workspace `patterns` shows cross-repo patterns with per-repo breakdowns; `workspace patterns skills` is the cross-repo skill-candidate surface, formed via the same synthesis + evidence-first preview path.
 
 ## Pattern Cards
 
@@ -414,22 +379,18 @@ Because a skill may be written to several install paths (see `installs[]`), eval
 
 ## Skill Formation
 
-`patterns form` prepares a skill draft from the selected pattern card. It writes selected skills only after the user chooses an install destination.
+Skill formation is `entire brain patterns skills form <task-id>` (and the workspace mirror). It synthesizes a `SKILL.md` from a corroborated **task candidate** — not from a selected procedure/practice — and writes only after the user confirms with `--yes`. (The earlier `patterns form <pattern-id>` design that formed skills directly from procedures/practices was removed; procedures/practices are diagnostic evidence.) The destination model below is unchanged and applies to the synthesized skill.
 
 > **Resolved (2026-06-16): default to the cross-agent standard, then fan out to holdouts.** The Entire CLI integrates with eight agents (`entire agent add`: claude-code, codex, copilot-cli, cursor, factoryai-droid, gemini, opencode, pi). All use the same `<dir>/<skill-name>/SKILL.md` shape with `name` + `description` frontmatter, but the roots differ — see [Skill Install Destinations (per agent)](#skill-install-destinations-per-agent). The key fact: `.agents/skills/` (project) and `~/.agents/skills/` (global) is the **Agent Skills open standard**, read natively by copilot-cli, cursor, gemini, and pi. So the destination model is: write the standard path **once** to cover those four, then add the per-agent path for the holdouts (claude-code → `.claude/skills/`, codex → `.codex/skills/`, factoryai-droid → `.factory/skills/`; opencode rides on the `.claude/skills/` path it also reads). Two-to-four writes cover all eight, not eight separate prompts.
 
-Interactive flow:
+Flow (flag-driven; nothing is written without `--yes`):
 
-1. Render the full pattern card.
-2. Render the proposed `SKILL.md` draft.
-3. Ask which scope, then which agents to install for (default: detect installed agents via `entire agent list`):
-   - Scope: global (home-dir roots) or repo-local (in-repo roots).
-   - Agents: default to all installed agents; the writer collapses these to the minimal set of paths (standard path + holdout paths).
-   - Draft only: print the draft without writing.
-   - Cancel.
-4. Write only after the user confirms scope + agent selection.
+1. Synthesize the `SKILL.md` from the candidate's evidence via an agent; if the evidence holds nothing non-obvious, the agent returns `NOT_A_SKILL` and nothing is written.
+2. **Evidence-first preview** (default, no `--yes`): show the candidate (support, reinforcement, sample intents, co-occurring procedure evidence, matching facts, source anchors), the synthesized `SKILL.md`, and the exact would-write destinations. Writes nothing.
+3. `--draft-only`: print only the synthesized draft.
+4. `--yes`: write to the selected destinations (`--target`/`--scope`); an existing file requires `--force`. The decision is recorded in skill memory.
 
-The initial implementation may support only the standard `.agents/skills/` global path, draft-only output, and cancel — that alone serves copilot-cli/cursor/gemini/pi. Add the holdout per-agent writers (`.claude`, `.codex`, `.factory`, `.opencode`) next. Document the final set in `README.md`.
+`--target standard` (default) writes the cross-agent `.agents/skills/` path (copilot-cli/cursor/gemini/pi); `claude-code`/`codex`/`factoryai-droid` write their own roots; `all` writes the minimal covering set. All preview/draft/JSON egress is redacted.
 
 Default destination (cross-agent standard — covers copilot-cli, cursor, gemini, pi):
 
@@ -577,7 +538,7 @@ Scope deferred to later phases (documented in `episodes.go`): per-episode `tool_
 - Build procedure ids — stable content-hash (`procedureID`). **Supporting synapses deferred** per the review note: each procedure instead carries `support` (distinct episodes), author/branch counts, reinforcement tally, and up to 3 example source anchors — no separate edge store.
 - Score repo-local procedure patterns. → weighted blend in [0,1]: **specificity (idf, weight 0.40)** to suppress ubiquitous-command noise, recurrence (log-saturated support, 0.30), reinforcement quality (success lifts / corrected sinks, 0.20), author+branch diversity (0.10); cutoffs high ≥ 0.6 / medium ≥ 0.4 / low. A specificity floor drops shapes built from ubiquitous commands.
 - Add `entire brain patterns` read-only listing (`patterns_cmd.go`): bare `patterns` lists strongest procedures, flags `--json` / `--limit` / `--type` / `--scope`.
-- Render basic pattern cards. → `renderProcedureCard` (concise: strength label, command chain, support/authors/branches, reinforcement tally, example anchor + id). The full approval card is Phase 5 (`patterns form`).
+- Render basic pattern cards. → concise read-only cards (strength label, command chain, support/branches, reinforcement tally, example anchor + id). The full evidence-first approval card lives in `patterns skills form` (Phase 5 redo).
 
 **Real run (this repo's brain):** 683 episodes → **266 procedures**. Top by strength are genuine workflows, and the reinforcement pipeline shows through clearly — commit workflows surface as high-success because the commit-success signal feeds strength:
 
@@ -627,23 +588,21 @@ The original command-n-gram procedures (`procedures.go`) are retained as a secon
 - Add recommendations to `patterns` and `patterns status`: the listing **suppresses** already-formed-and-current and declined-and-unchanged patterns (duplicate suppression) and annotates the rest with their recommendation + `skill_status` (JSON); status reports `accepted skills` / `declined patterns` / `updates available`.
 - Tests: evidence-state machine, file edited/missing detection, fingerprint stability (minor drift stable, re-tier changes), status counts, and persistence round-trip.
 
-Records are created by `patterns form` (Phase 5); Phase 4 is the layer + state machine + surfacing. Real run with no decisions yet: status shows `accepted 0 / declined 0 / updates 0`, listing unaffected.
+Records are created by `patterns skills form` (Phase 5 redo); Phase 4 is the layer + state machine + surfacing. Real run with no decisions yet: status shows `accepted 0 / declined 0 / updates 0`, listing unaffected.
 
-### Phase 5: Skill Formation — DONE (2026-06-16)
+### Phase 5: Skill Formation — DONE (2026-06-16; superseded by the Phase 2 redo + review)
 
-- Add `entire brain patterns form <pattern-id>` (`skill_form.go`).
-- Render full card + proposed `SKILL.md` before any write. The safety contract is enforced via flags rather than a TUI prompt (testable, scriptable): **no `--yes` → preview only** (card + draft + would-write paths, no write); `--draft-only` prints the draft; `--yes` (which **requires `--name`**) writes; `--decline` records a decline.
-- Install destinations resolved from the agent research (`skillDestinations`): `--target standard` (default) writes the cross-agent `.agents/skills/` path read by copilot-cli/cursor/gemini/pi; `claude-code` / `codex` / `factoryai-droid` write their own roots (opencode rides the `.claude` path); `all` writes the minimal covering set. `--scope global|repo`; honors `$CODEX_HOME`.
-- Store skill-memory records (`recordSkillDecision`, upsert by pattern id, preserves original `created_at`) with installs + content_sha + evidence fingerprint, for both the form and decline paths.
-- **Refuse accidental overwrite** of an existing skill file unless `--force`.
+The skill-creation command is **`entire brain patterns skills form <task-id>`** (`skill_cmd.go` → `synthesizeAndForm`). It synthesizes a `SKILL.md` from a corroborated task candidate (not a raw procedure/practice) and is the *only* skill-creation path. (The first cut's `patterns form <pattern-id>` — which formed boilerplate skills from procedures/practices — was **removed**.)
 
-**Real end-to-end run (verified, then cleaned up):** preview wrote nothing; `--yes --name` wrote `~/.agents/skills/<name>/SKILL.md` (agents: copilot-cli, cursor, gemini, pi); a second `--yes` was refused without `--force`; `patterns status` showed `accepted skills: 1`; the formed pattern was suppressed from the listing. Tests cover destination resolution, name/draft generation, and skill-memory upsert.
+- Evidence-first, flag-driven safety contract (testable, scriptable): **no `--yes` → preview only** (candidate evidence + draft + would-write paths, no write); `--draft-only` prints the draft; `--yes` writes; existing files require `--force`. `NOT_A_SKILL` from the agent writes nothing.
+- Install destinations (`skillDestinations`): `--target standard` (default, cross-agent `.agents/skills/`); `claude-code`/`codex`/`factoryai-droid` write their own roots; `all` writes the minimal covering set. `--scope global|repo`; honors `$CODEX_HOME`; paths are slash-style for stable cross-platform display, converted to OS paths only at the write boundary.
+- Records skill memory (`recordSkillDecision`, upsert by task id, preserves `created_at`) with installs + content_sha + evidence fingerprint.
 
-Deferred: a true interactive prompt (the flag-driven flow is the MVP), and richer card synthesis (optional agent pass).
+**Verified end-to-end:** preview wrote nothing; `--yes` wrote the SKILL.md; re-run refused without `--force`; skill memory recorded.
 
 ### Phase 6: Workspace Patterns — DONE (2026-06-16)
 
-- Add workspace pattern refresh/list/status/form commands (`workspace_patterns.go`): `entire brain workspace patterns <ws>` (list), `… refresh <ws>`, `… status <ws>`, `… form <ws> <id>`. Registered under `workspace`.
+- Add workspace pattern commands (`workspace_patterns.go`): `entire brain workspace patterns <ws>` (read-only list), `… refresh <ws>`, `… status <ws>`, `… skills <ws>` (cross-repo task candidates), and `… skills form <ws> <task-id>` (synthesize). Registered under `workspace`.
 - Aggregate member-repo patterns: **merges each member's already-built `procedures.ndjson` / `practices.ndjson`** (via `brainDirForKey`) rather than re-deriving — no generated brain data is copied between repos. Procedures group by command shape; practices group by their content-stable id.
 - Preserve repo-specific variants: every workspace pattern carries a per-repo `repo_breakdown` (repo → support/reinforcement); single-repo patterns stay repo-local (excluded from the workspace listing, which shows only **cross-repo** patterns, ≥2 repos).
 - Score cross-repo strength: `repoBreadthScore` (fraction of members sharing the pattern) is the dominant term — procedures `0.45 breadth + 0.30 support + 0.25 reinforcement`; practices `0.40 kind + 0.35 breadth + 0.25 support`. Workspace patterns persist under the workspace dir (sibling of `repos/`).
@@ -657,7 +616,7 @@ Tests cover the cross-repo procedure/practice merge (shared-only, summed support
 
 - Include relevant patterns in `brief`: `brainBriefReport.Patterns` is populated by `rankTaskRelevantPatterns` — patterns whose title/kind share a term with the task, ranked by term overlap then strength, capped small; an unrelated task yields none (no ambient noise). Rendered in text mode and emitted in `--json`.
 - Include strongest patterns in `overview`: `brainOverviewReport.StrongestPatterns` (top 3 by strength), rendered + JSON.
-- Add MCP tools matching the public jobs (`mcp.go`): `brain_patterns` (list; args `type`/`scope`/`limit`) and `brain_patterns_status`, both read-only and calling the same `runPatternsList` / `runPatternsStatus` the CLI uses. Forming a skill stays a CLI-only write action (`patterns form`) — not exposed as an MCP write tool — honoring "form only if the client explicitly asks for a write-capable action."
+- Add MCP tools matching the public jobs (`mcp.go`): `brain_patterns` (list; args `type`/`scope`/`limit`) and `brain_patterns_status`, both read-only and calling the same `runPatternsList` / `runPatternsStatus` the CLI uses. Forming a skill stays a CLI-only write action (`patterns skills form`) — not exposed as an MCP write tool — honoring "form only if the client explicitly asks for a write-capable action."
 - JSON contracts: `patternView` (list items, incl. `repo_breakdown` for workspace), `patternsStatusReport`, and the form result are all stable JSON shapes; `--json` on every surface.
 
 **Verified live:** `overview` shows the strongest patterns; `brief "commit and push the changes"` surfaced both the commit/push procedures and the matching practices via term overlap; existing MCP definition tests pass with the two new tools registered.

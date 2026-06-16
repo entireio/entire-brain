@@ -546,7 +546,11 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 		tasks = tasks[:limit]
 	}
 	if asJSON {
-		return writeJSON(cmd, tasks)
+		redacted := make([]taskCandidate, len(tasks))
+		for i, t := range tasks {
+			redacted[i] = redactCandidate(t)
+		}
+		return writeJSON(cmd, redacted)
 	}
 	out := cmd.OutOrStdout()
 	if len(tasks) == 0 {
@@ -558,7 +562,7 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 		for _, b := range t.RepoBreakdown {
 			repos = append(repos, fmt.Sprintf("%s(%d)", b.RepoKey, b.Support))
 		}
-		fmt.Fprintf(out, "[%s] %s  (strength %.2f)\n", t.StrengthLabel, t.Label, t.Strength)
+		fmt.Fprintf(out, "[%s] %s  (strength %.2f)\n", t.StrengthLabel, redactText(t.Label), t.Strength)
 		fmt.Fprintf(out, "    %d session(s) across %d repo(s): %s\n", t.Support, t.Repos, strings.Join(repos, ", "))
 		fmt.Fprintf(out, "    id %s\n", t.ID)
 	}
