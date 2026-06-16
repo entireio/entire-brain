@@ -590,6 +590,20 @@ Scope deferred to later phases (documented in `episodes.go`): per-episode `tool_
 
 Residual noise (e.g. `cd → echo`) survives via the diversity bonus; the **specificity floor / weight is the documented tuning lever**. Deferred: per-episode `files`, tool-sequence-shape procedures (only command n-grams implemented), workspace scope (Phase 6).
 
+#### Phase 2 REDONE (2026-06-16): command n-grams were the wrong unit
+
+**Why the first cut failed.** A skill, per Anthropic's own guidance and every real reference skill (`yeet`, `gh-fix-ci`, `skill-creator`), is *"procedural knowledge no model can fully possess."* Command n-grams produce the opposite: `git commit → git push` is knowledge every model already has, so it can never be a skill — no scoring fixes a wrong unit. `yeet` is the same action (commit→push→PR) as a *real* skill: PR-template discovery, conventional-commit format, "never re-draft a ready PR", "explain why before what". 100% of the value is the non-obvious knowledge around the commands, which an n-gram discards.
+
+**The redo — two parts:**
+
+1. **Candidate unit = a recurring task intent, not a command shape** (`task_candidates.go`). `buildTaskCandidates` clusters episodes by `intent_signature`, keeping clusters with ≥3 episodes *and* real tool activity (≥2 episodes that ran commands) — which drops conversational fragments (`yes`, `great:now`). Each candidate carries support, reinforcement, the top recurring commands, sample intents, and example transcript anchors. On this brain: `review:current` (220), `commit:push` (37), `entire:brain` (9), `create:branch` (6) … — real recurring tasks.
+
+2. **The skill is *synthesized*, gated on non-obviousness** (`skill_synthesis.go`). `patterns skills form <task-id>` builds an evidence bundle (recurring intents + actual commands + reinforcement + session-transcript excerpts + matching durable facts) and calls an agent (reusing the distill agent runner; Sonnet / Codex Spark) to write a `yeet`-shaped `SKILL.md` — **or** return `NOT_A_SKILL: <reason>` when the evidence holds nothing a model doesn't already know. The gate is the whole point: deterministic clustering *finds and ranks*; the agent *authors* and *rejects the generic*. Preview prints the synthesized skill; `--yes` writes it (per-agent destinations) and records skill memory.
+
+The original command-n-gram procedures (`procedures.go`) are retained as a secondary/diagnostic signal but are **no longer the skill source** — `patterns skills` is. Workspace + downstream phases consume task candidates the same way.
+
+**Verified on the live brain (Codex synthesis).** `patterns skills form` on the `commit/push` candidate (37 sessions) produced a real skill — not "git commit → git push" but repo-specific, non-obvious knowledge drawn from the durable facts: *don't trust semantic-index freshness, inspect git directly; leave `.codex/hooks.json` (unrelated pre-existing changes) out; `.brainignore` doesn't filter the binary diff bytes `worktreeFingerprint` hashes; `git diff --cached` is mandatory because dirty fingerprinting omits staged-only changes.* The `entire brain` candidate produced a history-inspection skill (export against the cli repo, read the manifest first, inspect from the index). The gate + candidate hygiene (continuation-word signatures like `yes`/`keep going` are dropped at clustering; incoherent clusters are rejected at synthesis) keep junk out. This is the output the feature was supposed to produce; command n-grams never could.
+
 ### Phase 3: Practices — DONE (2026-06-16)
 
 - Use durable facts … to detect repeated practices. → `buildBrainPractices` (`practices.go`) derives a practice from each active durable fact, deduped by content id across branches. **History-record/validation and read-only-episode augmentation are deferred** — facts are the Phase 3 source (the richest one, already present).

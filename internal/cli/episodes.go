@@ -42,6 +42,7 @@ type patternSourceManifest struct {
 	SessionsFingerprint string              `json:"sessions_fingerprint,omitempty"`
 	Episodes            int                 `json:"episodes"`
 	Reinforcement       reinforcementCounts `json:"reinforcement"`
+	Tasks               int                 `json:"tasks,omitempty"`
 	Procedures          int                 `json:"procedures,omitempty"`
 	Practices           int                 `json:"practices,omitempty"`
 	Patterns            int                 `json:"patterns,omitempty"`
@@ -233,6 +234,12 @@ func writeBrainEpisodesAndSourceLocked(outputDir string, now time.Time) (*patter
 	if err := writeBrainRelativeFileAtomic(outputDir, patternsEpisodesPath, buf.Bytes(), 0o600); err != nil {
 		return nil, fmt.Errorf("write episodes: %w", err)
 	}
+
+	tasks := buildTaskCandidates(episodes)
+	if err := writeBrainTasksFile(outputDir, tasks); err != nil {
+		return nil, err
+	}
+	source.Tasks = len(tasks)
 
 	procedures := buildBrainProcedures(episodes)
 	if err := writeBrainProceduresFile(outputDir, procedures); err != nil {

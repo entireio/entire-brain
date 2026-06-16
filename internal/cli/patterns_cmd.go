@@ -35,6 +35,7 @@ func newPatternsCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newPatternsRefreshCommand(opts))
 	cmd.AddCommand(newPatternsStatusCommand(opts))
 	cmd.AddCommand(newPatternsFormCommand(opts))
+	cmd.AddCommand(newPatternsSkillsCommand(opts))
 	return cmd
 }
 
