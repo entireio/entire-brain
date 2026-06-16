@@ -110,6 +110,8 @@ type patternView struct {
 	Strength      float64              `json:"strength"`
 	StrengthLabel string               `json:"strength_label"`
 	Support       int                  `json:"support"`
+	Repos         int                  `json:"repos,omitempty"`          // workspace scope
+	RepoBreakdown []patternRepoStat    `json:"repo_breakdown,omitempty"` // workspace scope
 	Reinforcement *reinforcementCounts `json:"reinforcement,omitempty"`
 	Example       *episodeAnchor       `json:"example,omitempty"`
 	SkillStatus   string               `json:"skill_status,omitempty"` // e.g. "active/update", "declined/reconsider"
@@ -158,6 +160,7 @@ func procedureView(p procedureRecord) patternView {
 		Title:    strings.Join(p.Commands, " → "),
 		Strength: p.Strength, StrengthLabel: p.StrengthLabel,
 		Support: p.Support, Reinforcement: &r,
+		Repos: p.Repos, RepoBreakdown: p.RepoBreakdown,
 	}
 	if len(p.Examples) > 0 {
 		v.Example = &p.Examples[0]
@@ -171,6 +174,7 @@ func practiceView(p practiceRecord) patternView {
 		Title:    p.Statement,
 		Strength: p.Strength, StrengthLabel: p.StrengthLabel,
 		Support:  p.Support,
+		Repos:    p.Repos, RepoBreakdown: p.RepoBreakdown,
 	}
 	if len(p.Examples) > 0 {
 		v.Example = &p.Examples[0]
@@ -191,6 +195,13 @@ func renderPatternView(out io.Writer, v patternView) {
 		fmt.Fprintf(out, "    seen in %d episode(s); reinforcement %d↑ %d↓ %d·\n", v.Support, r.Success, r.Corrected, r.Neutral)
 	} else {
 		fmt.Fprintf(out, "    seen in %d session(s)\n", v.Support)
+	}
+	if v.Repos > 0 {
+		repos := make([]string, 0, len(v.RepoBreakdown))
+		for _, b := range v.RepoBreakdown {
+			repos = append(repos, fmt.Sprintf("%s(%d)", b.RepoKey, b.Support))
+		}
+		fmt.Fprintf(out, "    across %d repo(s): %s\n", v.Repos, strings.Join(repos, ", "))
 	}
 	if v.Example != nil {
 		fmt.Fprintf(out, "    e.g. %s:%d   id %s\n", v.Example.Path, v.Example.Line, v.ID)

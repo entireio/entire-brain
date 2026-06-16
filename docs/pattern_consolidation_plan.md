@@ -627,12 +627,16 @@ Records are created by `patterns form` (Phase 5); Phase 4 is the layer + state m
 
 Deferred: a true interactive prompt (the flag-driven flow is the MVP), and richer card synthesis (optional agent pass).
 
-### Phase 6: Workspace Patterns
+### Phase 6: Workspace Patterns — DONE (2026-06-16)
 
-- Add workspace pattern refresh/list/status/form commands.
-- Aggregate member repo episodes and patterns.
-- Preserve repo-specific variants.
-- Score cross-repo and multi-author strength.
+- Add workspace pattern refresh/list/status/form commands (`workspace_patterns.go`): `entire brain workspace patterns <ws>` (list), `… refresh <ws>`, `… status <ws>`, `… form <ws> <id>`. Registered under `workspace`.
+- Aggregate member-repo patterns: **merges each member's already-built `procedures.ndjson` / `practices.ndjson`** (via `brainDirForKey`) rather than re-deriving — no generated brain data is copied between repos. Procedures group by command shape; practices group by their content-stable id.
+- Preserve repo-specific variants: every workspace pattern carries a per-repo `repo_breakdown` (repo → support/reinforcement); single-repo patterns stay repo-local (excluded from the workspace listing, which shows only **cross-repo** patterns, ≥2 repos).
+- Score cross-repo strength: `repoBreadthScore` (fraction of members sharing the pattern) is the dominant term — procedures `0.45 breadth + 0.30 support + 0.25 reinforcement`; practices `0.40 kind + 0.35 breadth + 0.25 support`. Workspace patterns persist under the workspace dir (sibling of `repos/`).
+- Render workspace cards with the repo breakdown (`across N repo(s): a(5), b(4)`).
+- `form` reuses the Phase 5 core (`formFromView`) with the workspace dir as the skill-memory store; installs are global-scope (a workspace pattern spans repos).
+
+Tests cover the cross-repo procedure/practice merge (shared-only, summed support, breakdown, workspace ids) and the breadth score. Not smoke-tested against live multi-repo data (this machine has a single-repo brain); the merge logic is unit-tested.
 - Render workspace cards with repo breakdowns.
 
 ### Phase 7: Agent/MCP Integration

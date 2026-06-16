@@ -92,11 +92,16 @@ func runPatternsForm(ctx context.Context, cmd *cobra.Command, opts Options, targ
 	if !ok {
 		return fmt.Errorf("pattern not found: %s (run `entire brain patterns` to list ids)", f.patternID)
 	}
-	now := opts.Now().UTC()
+	return formFromView(cmd, view, brainDir, repoDir, f, opts.Now().UTC())
+}
 
+// formFromView runs the form decision flow for a resolved pattern. storeDir is
+// where the skill-memory decision is recorded (the repo brain, or the workspace
+// dir); repoDir backs repo-scope install destinations.
+func formFromView(cmd *cobra.Command, view patternView, storeDir, repoDir string, f formOptions, now time.Time) error {
 	// Decline path: record the decision, write no files.
 	if f.decline {
-		if err := recordSkillDecision(brainDir, skillMemoryRecord{
+		if err := recordSkillDecision(storeDir, skillMemoryRecord{
 			PatternID: view.ID, Scope: view.Scope, Status: skillStatusDeclined,
 			Fingerprint: patternEvidenceFingerprint(view), CreatedAt: now, UpdatedAt: now,
 		}); err != nil {
@@ -178,7 +183,7 @@ func runPatternsForm(ctx context.Context, cmd *cobra.Command, opts Options, targ
 	if view.Reinforcement != nil {
 		rec.Reinforcement = *view.Reinforcement
 	}
-	if err := recordSkillDecision(brainDir, rec); err != nil {
+	if err := recordSkillDecision(storeDir, rec); err != nil {
 		return err
 	}
 

@@ -54,13 +54,16 @@ type practiceRecord struct {
 	Statement     string          `json:"statement"`
 	Paths         []string        `json:"paths,omitempty"`
 	Locus         []string        `json:"locus,omitempty"`
-	Support       int             `json:"support"` // distinct provenance sessions
-	Branches      int             `json:"branches"`
-	Confidence    float64         `json:"confidence,omitempty"`
-	Strength      float64         `json:"strength"`
-	StrengthLabel string          `json:"strength_label"`
-	Examples      []episodeAnchor `json:"examples,omitempty"`
-	LastSeen      *time.Time      `json:"last_seen,omitempty"`
+	Support       int               `json:"support"` // distinct provenance sessions
+	Branches      int               `json:"branches"`
+	Repos         int               `json:"repos,omitempty"`          // workspace scope
+	RepoBreakdown []patternRepoStat `json:"repo_breakdown,omitempty"` // workspace scope
+	Workspace     string            `json:"workspace,omitempty"`
+	Confidence    float64           `json:"confidence,omitempty"`
+	Strength      float64           `json:"strength"`
+	StrengthLabel string            `json:"strength_label"`
+	Examples      []episodeAnchor   `json:"examples,omitempty"`
+	LastSeen      *time.Time        `json:"last_seen,omitempty"`
 }
 
 type practiceAgg struct {

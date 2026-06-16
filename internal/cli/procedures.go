@@ -48,17 +48,27 @@ const (
 type procedureRecord struct {
 	ID            string              `json:"id"`
 	Type          string              `json:"type"`  // always "procedure"
-	Scope         string              `json:"scope"` // "repo" (workspace scope is Phase 6)
+	Scope         string              `json:"scope"` // "repo" | "workspace"
 	RepoKey       string              `json:"repo_key,omitempty"`
+	Workspace     string              `json:"workspace,omitempty"`
 	Commands      []string            `json:"commands"`
 	Support       int                 `json:"support"` // distinct episodes
 	Authors       int                 `json:"authors"`
 	Branches      int                 `json:"branches"`
+	Repos         int                 `json:"repos,omitempty"`          // workspace scope: repos sharing this shape
+	RepoBreakdown []patternRepoStat   `json:"repo_breakdown,omitempty"` // workspace scope
 	Reinforcement reinforcementCounts `json:"reinforcement"`
 	Strength      float64             `json:"strength"`
 	StrengthLabel string              `json:"strength_label"` // high|medium|low
 	Examples      []episodeAnchor     `json:"examples,omitempty"`
 	LastSeen      *time.Time          `json:"last_seen,omitempty"`
+}
+
+// patternRepoStat is one repo's contribution to a workspace pattern.
+type patternRepoStat struct {
+	RepoKey       string              `json:"repo_key"`
+	Support       int                 `json:"support"`
+	Reinforcement reinforcementCounts `json:"reinforcement,omitempty"`
 }
 
 func procedureID(scope, repoKey string, commands []string) string {
