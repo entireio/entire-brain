@@ -9,10 +9,10 @@ import (
 // phrasings and all three labels; they are the eval guardrail for the Phase 0
 // deterministic classifier and the regression guard if cues change later.
 type reinforcementFixture struct {
-	name     string
-	feedback string
-	errored  bool
-	want     string
+	name      string
+	feedback  string
+	committed bool
+	want      string
 }
 
 var reinforcementFixtures = []reinforcementFixture{
@@ -37,10 +37,12 @@ var reinforcementFixtures = []reinforcementFixture{
 	// correction beats a co-occurring thanks (the "most damaging" direction must
 	// still resolve to the negative label).
 	{"thanks-but-broken", "thanks but it still doesn't quite match the style", false, reinforcementCorrected},
+	// correction also beats a committed work segment the user then rejects.
+	{"committed-but-corrected", "no, that's wrong — revert it", true, reinforcementCorrected},
 
-	// corrected: agent run errored, feedback neutral or absent.
-	{"errored-no-feedback", "", true, reinforcementCorrected},
-	{"errored-neutral-feedback", "ok let me take a look", true, reinforcementCorrected},
+	// success: work segment landed a commit and the user did not push back.
+	{"committed-no-feedback", "", true, reinforcementSuccess},
+	{"committed-then-next-task", "now add logging to the fetcher", true, reinforcementSuccess},
 
 	// neutral: no feedback, or a follow-up that carries no approval/correction.
 	{"empty", "", false, reinforcementNeutral},
@@ -55,12 +57,12 @@ var reinforcementFixtures = []reinforcementFixture{
 func TestClassifyReinforcement(t *testing.T) {
 	var total, correct, predictedCorrected, correctedHits, successAsCorrected int
 	for _, f := range reinforcementFixtures {
-		got := classifyReinforcement(reinforcementSignal{FeedbackText: f.feedback, AgentErrored: f.errored})
+		got := classifyReinforcement(reinforcementSignal{FeedbackText: f.feedback, WorkCommitted: f.committed})
 		total++
 		if got == f.want {
 			correct++
 		} else {
-			t.Errorf("%s: classifyReinforcement(%q, errored=%v) = %q, want %q", f.name, f.feedback, f.errored, got, f.want)
+			t.Errorf("%s: classifyReinforcement(%q, committed=%v) = %q, want %q", f.name, f.feedback, f.committed, got, f.want)
 		}
 		if got == reinforcementCorrected {
 			predictedCorrected++

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 )
 
@@ -24,23 +25,33 @@ import (
 //     neutral, and the false-`corrected` direction is the most damaging (it would
 //     fabricate failure-mode evidence in skill bodies), so correction cues never
 //     rely on a bare ambiguous word.
-//  2. Checkpoint metadata: a non-empty checkpointExportSession.Error means the
-//     agent's own run failed. That is a negative outcome even absent user words.
+//  2. The agent's work segment (the turns between this request and the next). A
+//     successful git commit — git prints its `[branch hash] subject` confirmation
+//     line only when a commit lands — is a positive signal. This matters because,
+//     empirically, users almost never type "thanks/lgtm" in CLI sessions; they
+//     just move on, so next-turn approval cues have near-zero recall. A landed
+//     commit that the user does not then push back on is the most reliable
+//     token-free positive reinforcement available.
 //
 // PRECEDENCE (first match wins):
 //
 //  1. correction cue in feedback   -> corrected   (strongest negative; beats a
-//                                                   co-occurring "thanks but…")
+//                                                   co-occurring "thanks but…",
+//                                                   and beats a committed work
+//                                                   segment the user then rejects)
 //  2. approval cue in feedback     -> success
-//  3. agent run errored            -> corrected
-//  4. otherwise                    -> neutral      (no feedback turn, or no cue)
+//  3. work segment committed        -> success
+//  4. otherwise                    -> neutral      (no feedback turn, no cue, no commit)
 //
-// KNOWN GAPS (deferred to the episode layer in Phase 1, not implemented here):
-//   - "re-prompting the same intent" as a correction signal needs intent
-//     comparison across turns, which the episode layer provides.
-//   - requiring an intervening assistant turn before treating a user turn as
-//     feedback (vs. a continuation/clarification of the prior request).
-//   - linking a following commit/checkpoint success as a positive signal.
+// KNOWN GAPS (deferred, not implemented here):
+//   - per-checkpoint Error -> a WorkFailed/corrected branch: the manifest session
+//     record does not carry checkpointExportSession.Error, so the negative
+//     work-outcome signal has no source yet.
+//   - test/build-pass as an additional positive signal (needs reliable per-tool
+//     command+output correlation; commit is the higher-precision proxy for now).
+//   - "re-prompting the same intent" as a correction signal (needs cross-turn
+//     intent comparison), and requiring an intervening assistant turn before
+//     treating a user turn as feedback vs. a continuation.
 const (
 	reinforcementSuccess   = "success"
 	reinforcementCorrected = "corrected"
@@ -95,18 +106,19 @@ func classifyReinforcement(sig reinforcementSignal) string {
 	if hasApprovalCue(feedback) {
 		return reinforcementSuccess
 	}
-	if sig.AgentErrored {
-		return reinforcementCorrected
+	if sig.WorkCommitted {
+		return reinforcementSuccess
 	}
 	return reinforcementNeutral
 }
 
 // reinforcementSignal is the minimal evidence the classifier needs about one
-// episode. The episode layer (Phase 1) populates it: FeedbackText from the next
-// substantive user turn, AgentErrored from the judged checkpoint's Error field.
+// episode. The episode layer populates it: FeedbackText from the next substantive
+// user turn, WorkCommitted from a git commit confirmation in this episode's work
+// segment.
 type reinforcementSignal struct {
-	FeedbackText string // next substantive user turn; "" when the session ended
-	AgentErrored bool   // checkpointExportSession.Error was non-empty
+	FeedbackText  string // next substantive user turn; "" when the session ended
+	WorkCommitted bool   // the agent's work segment landed a git commit
 }
 
 func normalizeFeedback(text string) string {
@@ -162,6 +174,91 @@ func reinforcementSignalsFromTranscript(transcript string) []reinforcementSignal
 		signals = append(signals, reinforcementSignal{FeedbackText: feedback.Text})
 	}
 	return signals
+}
+
+// commitConfirmationPattern matches a git commit confirmation line
+// ("[main 7249258] Subject"). git emits this only when a commit lands, and it
+// appears literally in the raw transcript (inside the tool-output JSON string)
+// regardless of agent dialect — so a raw scan of the work segment is a
+// high-precision, dialect-agnostic "work committed" signal. The trailing space
+// before the subject avoids matching bare bracketed hex elsewhere.
+var commitConfirmationPattern = regexp.MustCompile(`\[[A-Za-z0-9._/+-]+ [0-9a-f]{7,40}\] `)
+
+// workCommitted reports whether the episode's work segment shows a landed commit.
+func workCommitted(workText string) bool {
+	return commitConfirmationPattern.MatchString(workText)
+}
+
+// episodeSegment is a substantive user request paired with the raw text of the
+// agent work that followed it, up to the next substantive request. WorkText is
+// kept raw (the verbatim non-user transcript lines) so commit detection sees tool
+// output without per-dialect extraction.
+type episodeSegment struct {
+	Request  userTurn
+	WorkText string
+}
+
+// transcriptEpisodeSegments splits a transcript into episodes: each substantive
+// user turn opens a segment, and every following non-user turn (assistant, tool
+// output, reasoning, injected wrappers) accrues to that segment's work text until
+// the next substantive user turn. Document-form (opencode) transcripts expose
+// only conversation text via the shared parser, so tool output — and thus commit
+// detection — is best-effort there; JSONL dialects (Codex, Claude, pi) carry it.
+func transcriptEpisodeSegments(transcript string) []episodeSegment {
+	var (
+		segments []episodeSegment
+		open     bool
+		current  episodeSegment
+		work     strings.Builder
+	)
+	flush := func() {
+		if open {
+			current.WorkText = work.String()
+			segments = append(segments, current)
+			work.Reset()
+		}
+	}
+
+	if messages, ok := parseDocumentConversation(transcript); ok {
+		for _, m := range messages {
+			if m.Role == "user" && m.Text != "" && !isWrapperRequest(m.Text) {
+				flush()
+				current = episodeSegment{Request: userTurn{Text: m.Text, Line: m.Line}}
+				open = true
+				continue
+			}
+			if open && m.Text != "" {
+				work.WriteString(m.Text)
+				work.WriteByte('\n')
+			}
+		}
+		flush()
+		return segments
+	}
+
+	for i, raw := range strings.Split(transcript, "\n") {
+		line := strings.TrimSpace(raw)
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var obj map[string]any
+		if json.Unmarshal([]byte(line), &obj) != nil {
+			continue
+		}
+		text := strings.TrimSpace(transcriptUserText(obj))
+		if text != "" && !isWrapperRequest(text) {
+			flush()
+			current = episodeSegment{Request: userTurn{Text: strings.Join(strings.Fields(text), " "), Line: i + 1}}
+			open = true
+			continue
+		}
+		if open {
+			work.WriteString(raw)
+			work.WriteByte('\n')
+		}
+	}
+	flush()
+	return segments
 }
 
 // userTurn is a substantive user request with its anchor line in the transcript.

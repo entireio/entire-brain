@@ -134,17 +134,21 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 			warnings = append(warnings, fmt.Sprintf("read transcript %s: %v", rel, readErr))
 			continue
 		}
-		turns := substantiveUserTurns(transcript)
+		segments := transcriptEpisodeSegments(transcript)
 		author := ""
 		if len(session.Authors) > 0 {
 			author = session.Authors[0].Name
 		}
-		for i, turn := range turns {
+		for i, seg := range segments {
+			turn := seg.Request
 			feedback := ""
-			if i+1 < len(turns) {
-				feedback = turns[i+1].Text
+			if i+1 < len(segments) {
+				feedback = segments[i+1].Request.Text
 			}
-			label := classifyReinforcement(reinforcementSignal{FeedbackText: feedback})
+			label := classifyReinforcement(reinforcementSignal{
+				FeedbackText:  feedback,
+				WorkCommitted: workCommitted(seg.WorkText),
+			})
 			switch label {
 			case reinforcementSuccess:
 				counts.Success++

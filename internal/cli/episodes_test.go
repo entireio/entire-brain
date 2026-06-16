@@ -156,6 +156,33 @@ func TestBuildBrainEpisodesCrossDialect(t *testing.T) {
 	}
 }
 
+func TestEpisodeCommitSignal(t *testing.T) {
+	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
+	// A Codex work segment that lands a commit, with a neutral next user turn:
+	// next-turn cues say nothing, but the commit confirmation makes it success.
+	transcript := `{"type":"event_msg","payload":{"type":"user_message","message":"commit the rename"}}
+{"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"git commit -am rename\"}"}}
+{"type":"response_item","payload":{"type":"function_call_output","output":"[main 7249258] Rename plugin to entire-brain\n 3 files changed"}}
+{"type":"event_msg","payload":{"type":"user_message","message":"now update the docs"}}`
+	brainDir := writeEpisodeFixture(t, now, "gh/acme/cli", []sessionFixture{
+		{id: "s1", branch: "main", agent: "Codex", checkpoint: "cp1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: transcript},
+	})
+
+	episodes, _, err := buildBrainEpisodes(brainDir, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(episodes) != 2 {
+		t.Fatalf("got %d episodes, want 2", len(episodes))
+	}
+	if episodes[0].Reinforcement != reinforcementSuccess {
+		t.Errorf("commit episode = %q, want success (neutral next turn, but commit landed)", episodes[0].Reinforcement)
+	}
+	if episodes[1].Reinforcement != reinforcementNeutral {
+		t.Errorf("trailing episode = %q, want neutral", episodes[1].Reinforcement)
+	}
+}
+
 func TestEpisodeIDStableAcrossRebuilds(t *testing.T) {
 	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/cli", []sessionFixture{
