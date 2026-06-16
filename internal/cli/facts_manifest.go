@@ -57,6 +57,38 @@ func updateFactSourceManifest(brainDir string, now time.Time) error {
 	})
 }
 
+// reclassifyAllFactBranches backfills the deterministic KIND/LOCUS onto every
+// fact branch (non-destructive: only fills facts missing a valid kind, while
+// locus is always reconciled) and rebuilds the fact source manifest so by_kind
+// stays accurate. No agent, no tokens. A no-op when no facts exist. Returns the
+// number of facts changed. Holds the brain write lock for the whole pass.
+//
+// This runs from `refresh` so a kind never goes stale: facts distilled before
+// kind-storage, or any fact left without a valid kind, are repaired on the next
+// refresh rather than needing a manual `facts reclassify`.
+func reclassifyAllFactBranches(brainDir string, now time.Time) (int, error) {
+	changed := 0
+	err := withBrainWriteLock(brainDir, func() error {
+		byBranch, err := loadAllFactBranches(brainDir)
+		if err != nil {
+			return err
+		}
+		if len(byBranch) == 0 {
+			return nil
+		}
+		for branch, facts := range byBranch {
+			if c := reclassifyFacts(facts, false); c > 0 {
+				if err := writeFacts(brainDir, branch, facts); err != nil {
+					return err
+				}
+				changed += c
+			}
+		}
+		return updateFactSourceManifestLocked(brainDir, now)
+	})
+	return changed, err
+}
+
 func updateFactSourceManifestLocked(brainDir string, now time.Time) error {
 	byBranch, err := loadAllFactBranches(brainDir)
 	if err != nil {

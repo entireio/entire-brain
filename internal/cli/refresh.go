@@ -331,6 +331,18 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		}
 		finishBranches(nil)
 	}
+	// Backfill deterministic fact kinds/locus when a fact store exists, so a kind
+	// distilled before kind-storage (or otherwise left empty) is repaired here
+	// rather than needing a manual `facts reclassify`. No agent, no tokens.
+	manifest, _ = loadBrainManifest(brainDir)
+	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
+		finishReclass := progress.Step("reclassify facts")
+		if _, err := reclassifyAllFactBranches(brainDir, opts.Now().UTC()); err != nil {
+			finishReclass(err)
+			return err
+		}
+		finishReclass(nil)
+	}
 	fmt.Fprintf(cmd.OutOrStdout(), "refreshed brain: %s\n", brainDir)
 	if refreshOpts.statusAfter && !outputExplicit {
 		statusCmd := &cobra.Command{Use: "status"}
