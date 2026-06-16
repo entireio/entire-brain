@@ -606,12 +606,14 @@ Residual noise (e.g. `cd → echo`) survives via the diversity bonus; the **spec
 - Practices are **1:1 with durable facts**, not clustered/recurring behaviors — the fact's distillation (it was deemed durable) is the recurrence proxy, so single-session facts are included rather than requiring multi-session support. A future refinement could cluster facts by topic/locus or require a recurrence floor.
 - In the current corpus `support`/`confidence`/`recency` vary little (mean 1.19 anchors, confidence mostly 1.0), so **strength is dominated by kind**; the other terms will matter on richer data. `decision`-kind facts are arguably records, not practices — a candidate filter.
 
-### Phase 4: Skill Memory
+### Phase 4: Skill Memory — DONE (2026-06-16)
 
-- Add `patterns/skill-memory.ndjson`.
-- Detect active, declined, changed, edited, and missing states.
-- Add recommendations to `patterns status` and `patterns`.
-- Test duplicate suppression and changed-evidence detection.
+- Add `patterns/skill-memory.ndjson` (`skill_memory.go`): the `skillMemoryRecord` user-state layer (pattern_id, status, skill_name, per-agent `installs[]` with content_sha, evidence fingerprint, reinforcement, timestamps). **Never written by refresh** — only the decision surfaces write it — so a decision survives every rebuild; the stable pattern id keeps the link valid across rebuilds.
+- Detect states (`evaluateSkillMemory`): `active/current`, `active/update` (evidence drifted), `active/edited` (a written skill file changed — checked via per-install `content_sha`), `active/missing` (a recorded file is gone), `declined/current` (suppress), `declined/reconsider` (declined but evidence drifted). File integrity takes precedence over evidence drift. Material change is judged by `patternEvidenceFingerprint` (type+scope+strength-tier+support-magnitude-bucket+reinforcement-sign), so a one-episode drift does not read as a change while a re-tier does.
+- Add recommendations to `patterns` and `patterns status`: the listing **suppresses** already-formed-and-current and declined-and-unchanged patterns (duplicate suppression) and annotates the rest with their recommendation + `skill_status` (JSON); status reports `accepted skills` / `declined patterns` / `updates available`.
+- Tests: evidence-state machine, file edited/missing detection, fingerprint stability (minor drift stable, re-tier changes), status counts, and persistence round-trip.
+
+Records are created by `patterns form` (Phase 5); Phase 4 is the layer + state machine + surfacing. Real run with no decisions yet: status shows `accepted 0 / declined 0 / updates 0`, listing unaffected.
 
 ### Phase 5: Skill Formation
 

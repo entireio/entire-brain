@@ -49,22 +49,12 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, targ
 	if err != nil {
 		return err
 	}
-	procedures, err := loadBrainProcedures(brainDir)
+	views, _, err := loadPatternViews(brainDir)
 	if err != nil {
 		return err
 	}
-	practices, err := loadBrainPractices(brainDir)
-	if err != nil {
-		return err
-	}
+	memIdx := skillMemoryByPatternID(mustLoadSkillMemory(brainDir))
 
-	views := make([]patternView, 0, len(procedures)+len(practices))
-	for _, p := range procedures {
-		views = append(views, procedureView(p))
-	}
-	for _, p := range practices {
-		views = append(views, practiceView(p))
-	}
 	filtered := views[:0:0]
 	for _, v := range views {
 		if listOpts.typ != "" && v.Type != listOpts.typ {
@@ -72,6 +62,16 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, targ
 		}
 		if listOpts.scope != "" && v.Scope != listOpts.scope {
 			continue
+		}
+		// Skill-memory recommendation: suppress already-formed-and-current and
+		// declined-and-unchanged patterns; annotate the rest that have a decision.
+		if rec, ok := memIdx[v.ID]; ok {
+			eval := evaluateSkillMemory(rec, &v)
+			if eval.suppressInListing() {
+				continue
+			}
+			v.SkillStatus = eval.Status + "/" + eval.Sub
+			v.Note = eval.annotation()
 		}
 		filtered = append(filtered, v)
 	}
@@ -111,6 +111,43 @@ type patternView struct {
 	Support       int                  `json:"support"`
 	Reinforcement *reinforcementCounts `json:"reinforcement,omitempty"`
 	Example       *episodeAnchor       `json:"example,omitempty"`
+	SkillStatus   string               `json:"skill_status,omitempty"` // e.g. "active/update", "declined/reconsider"
+	Note          string               `json:"note,omitempty"`         // human-readable recommendation
+}
+
+// loadPatternViews loads procedures + practices as unified views and an index by
+// pattern id.
+func loadPatternViews(brainDir string) ([]patternView, map[string]patternView, error) {
+	procedures, err := loadBrainProcedures(brainDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	practices, err := loadBrainPractices(brainDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	views := make([]patternView, 0, len(procedures)+len(practices))
+	for _, p := range procedures {
+		views = append(views, procedureView(p))
+	}
+	for _, p := range practices {
+		views = append(views, practiceView(p))
+	}
+	idx := make(map[string]patternView, len(views))
+	for _, v := range views {
+		idx[v.ID] = v
+	}
+	return views, idx, nil
+}
+
+// mustLoadSkillMemory returns skill-memory records, treating a read/parse error
+// as empty — the listing should degrade to "no recommendations", not fail.
+func mustLoadSkillMemory(brainDir string) []skillMemoryRecord {
+	records, err := loadBrainSkillMemory(brainDir)
+	if err != nil {
+		return nil
+	}
+	return records
 }
 
 func procedureView(p procedureRecord) patternView {
@@ -158,6 +195,9 @@ func renderPatternView(out io.Writer, v patternView) {
 		fmt.Fprintf(out, "    e.g. %s:%d   id %s\n", v.Example.Path, v.Example.Line, v.ID)
 	} else {
 		fmt.Fprintf(out, "    id %s\n", v.ID)
+	}
+	if v.Note != "" {
+		fmt.Fprintf(out, "    ! %s\n", v.Note)
 	}
 }
 
@@ -239,14 +279,16 @@ func runPatternsRefresh(ctx context.Context, cmd *cobra.Command, opts Options, t
 
 // patternsStatusReport is the JSON contract for `patterns status`.
 type patternsStatusReport struct {
-	Present       bool                 `json:"present"`
-	Freshness     string               `json:"freshness"` // current | stale | missing
-	Episodes      int                  `json:"episodes"`
-	Reinforcement *reinforcementCounts `json:"reinforcement,omitempty"`
-	Procedures    int                  `json:"procedures"`
-	Practices     int                  `json:"practices"`
-	Patterns      int                  `json:"patterns"`
-	SkillMemory   int                  `json:"skill_memory"`
+	Present          bool                 `json:"present"`
+	Freshness        string               `json:"freshness"` // current | stale | missing
+	Episodes         int                  `json:"episodes"`
+	Reinforcement    *reinforcementCounts `json:"reinforcement,omitempty"`
+	Procedures       int                  `json:"procedures"`
+	Practices        int                  `json:"practices"`
+	Patterns         int                  `json:"patterns"`
+	AcceptedSkills   int                  `json:"accepted_skills"`
+	DeclinedPatterns int                  `json:"declined_patterns"`
+	UpdatesAvailable int                  `json:"updates_available"`
 }
 
 func runPatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, target string, asJSON bool) error {
@@ -270,12 +312,16 @@ func runPatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	}
 	fmt.Fprintf(out, "procedures: %d\n", report.Procedures)
 	fmt.Fprintf(out, "practices: %d\n", report.Practices)
+	fmt.Fprintf(out, "accepted skills: %d\n", report.AcceptedSkills)
+	fmt.Fprintf(out, "declined patterns: %d\n", report.DeclinedPatterns)
+	fmt.Fprintf(out, "updates available: %d\n", report.UpdatesAvailable)
 	return nil
 }
 
 // buildPatternsStatusReport reads the patterns source from the manifest and
 // derives freshness from the sessions fingerprint, the same input-derived signal
-// the history source uses — no re-extraction required.
+// the history source uses — no re-extraction required. Skill-memory counts are
+// computed by evaluating each user decision against the current pattern set.
 func buildPatternsStatusReport(brainDir string) patternsStatusReport {
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil || manifest.Sources == nil || manifest.Sources.Patterns == nil {
@@ -287,7 +333,7 @@ func buildPatternsStatusReport(brainDir string) patternsStatusReport {
 		freshness = "stale"
 	}
 	rc := src.Reinforcement
-	return patternsStatusReport{
+	report := patternsStatusReport{
 		Present:       true,
 		Freshness:     freshness,
 		Episodes:      src.Episodes,
@@ -295,6 +341,23 @@ func buildPatternsStatusReport(brainDir string) patternsStatusReport {
 		Procedures:    src.Procedures,
 		Practices:     src.Practices,
 		Patterns:      src.Patterns,
-		SkillMemory:   src.SkillMemory,
 	}
+
+	_, byID, _ := loadPatternViews(brainDir)
+	for _, rec := range mustLoadSkillMemory(brainDir) {
+		var cur *patternView
+		if v, ok := byID[rec.PatternID]; ok {
+			cur = &v
+		}
+		eval := evaluateSkillMemory(rec, cur)
+		if eval.Status == skillStatusDeclined {
+			report.DeclinedPatterns++
+		} else {
+			report.AcceptedSkills++
+		}
+		if eval.needsAttention() {
+			report.UpdatesAvailable++
+		}
+	}
+	return report
 }
