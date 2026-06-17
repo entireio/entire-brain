@@ -515,7 +515,11 @@ func commandOutputIsTTY(cmd *cobra.Command) bool {
 // brain files, so a "../"-laden value must never resolve to an open target
 // outside the brain (the `o` key hands the result to the OS opener).
 func brainRelPath(brainDir, rel string) string {
-	if rel == "" || filepath.IsAbs(rel) {
+	// Reject absolute and rooted paths. filepath.IsAbs is OS-specific (on Windows
+	// a leading-slash path like "/etc/passwd" is NOT absolute), so also reject a
+	// leading "/" or "\" explicitly — a rooted path is never a valid
+	// brain-relative anchor on any platform.
+	if rel == "" || filepath.IsAbs(rel) || strings.HasPrefix(rel, "/") || strings.HasPrefix(rel, `\`) {
 		return ""
 	}
 	clean := filepath.Clean(filepath.FromSlash(rel))

@@ -85,15 +85,15 @@ type Snapshot struct {
 // SearchResult is one hit from an in-dashboard search across facts, history, and
 // docs (the same retrieval `entire brain search` runs).
 type SearchResult struct {
-	Source     string // fact | history | doc
-	ID         string
-	Path       string // brain-relative (display)
-	Heading    string
-	Line       int
-	Text       string
-	Score      float64
-	OpenPath   string // absolute source path to open ("" if none)
-	OpenLine   int
+	Source   string // fact | history | doc
+	ID       string
+	Path     string // brain-relative (display)
+	Heading  string
+	Line     int
+	Text     string
+	Score    float64
+	OpenPath string // absolute source path to open ("" if none)
+	OpenLine int
 }
 
 // HomeView is the brain status/coverage summary rendered on the Home tab.
