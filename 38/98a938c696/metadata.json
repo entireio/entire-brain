@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "3898a938c696",
+  "strategy": "manual-commit",
+  "branch": "claude/patterns-v2-corpus",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/38/98a938c696/0/metadata.json",
+      "transcript": "/38/98a938c696/0/full.jsonl",
+      "content_hash": "/38/98a938c696/0/content_hash.txt",
+      "prompt": "/38/98a938c696/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 135135,
+    "cache_creation_tokens": 3280093,
+    "cache_read_tokens": 467628504,
+    "output_tokens": 1052651,
+    "api_call_count": 1106
+  }
+}
