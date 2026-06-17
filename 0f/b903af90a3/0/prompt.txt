@@ -1,0 +1,100 @@
+So what patterns is the v2 identifying for this repo?
+
+---
+
+Ok, so show me the patterns for entire-cli?
+
+---
+
+No. Do this instead:
+
+The issue is not another small PR #44 bug. The current implementation is still producing poor skills because skill formation is using SQL pattern candidates plus shallow evidence, not verified deep dossiers.
+
+Fix the pipeline so skills are formed from verified evidence dossiers, not directly from corpus rows.
+
+Priority 1: Make deep dossiers skill-ready, not just verdict records
+
+Current problem:
+`patterns verify --deep` creates/verifies deep dossiers, but `patterns skills form` does not use them. `synthesizeSkill` still builds input from `buildSkillEvidence`, which uses sample intents, normalized commands, facts, and at most two transcript excerpts.
+
+Required change:
+- Extend the deep dossier shape so it contains the actual skill source material:
+  - trigger / “Use when”
+  - preconditions
+  - canonical steps
+  - observed variations
+  - verification moves
+  - failure modes and recoveries
+  - parameters / what varies
+  - evidence refs
+  - verifier verdict plus verifier-required edits/fixes
+- The deep verifier must not only say accepted/rejected; it must preserve concrete corrections/fixes.
+- `patterns skills form <id>` must use the accepted deep dossier as the primary synthesis input.
+- If no accepted deep dossier exists for that pattern, do not form the skill silently from shallow evidence. Either:
+  - show a clear “needs deep verification first” message, or
+  - run the existing explicit deep verification path if that is already part of the user-invoked flow.
+- Do not add hidden commands.
+
+Validation:
+- Add a fixture where shallow evidence contains generic commands but the transcript spans contain a repo-specific gotcha. Assert the skill synthesis input includes the gotcha only after deep dossier creation.
+- Assert skill synthesis input contains `failure_modes`, `verification`, `parameters`, and evidence refs from the deep dossier.
+- Assert generic accepted-looking clusters without accepted deep dossiers cannot be formed.
+
+Priority 2: Stop listing raw SQL task rows as skill-ready
+
+Current problem:
+`patterns skills` lists corpus task candidates from `loadCorpusTaskCandidates`. These are still mostly `(intent_sig, gram)` rows. That is too early in the pipeline.
+
+Required change:
+- `patterns skills` should list skill proposals, not raw task patterns.
+- A skill proposal should be backed by:
+  - a promotable task/risk/theme pattern
+  - an accepted deep dossier
+  - no unresolved verifier verdict (`needs_split`, `low_confidence`, rejected)
+  - no current/declined skill-memory suppression
+- Keep diagnostic patterns visible in `patterns`, but do not make them look formable.
+
+Validation:
+- A raw promotable task with no deep dossier appears in `patterns`, but not as a formable skill proposal.
+- An accepted deep-dossier task appears in `patterns skills`.
+- `needs_split`, `low_confidence`, and rejected deep dossiers are absent.
+- Existing skill-memory suppression still works.
+
+Priority 3: Make the skill writer generate from the dossier, not rediscover from snippets
+
+Current problem:
+The synthesis prompt asks the agent to infer a skill from shallow evidence. That invites generic SKILL.md output.
+
+Required change:
+- Replace or branch `buildSkillEvidence` so the default input for `patterns skills form` is the accepted deep dossier.
+- The prompt should say: “Convert this verified dossier into SKILL.md. Do not invent new procedure. Preserve trigger, workflow, verification, and failure modes.”
+- The prompt should reject if the dossier itself is not skill-worthy, but should not be asked to infer the whole procedure from scratch.
+
+Validation:
+- Golden test: accepted deep dossier with exact commands and failure mode produces a SKILL.md containing:
+  - a concrete `Use when...` trigger
+  - exact repo command(s)
+  - a verification section
+  - a failure/gotcha section
+- Golden test: generic git dossier returns `NOT_A_SKILL`.
+
+Priority 4: Rework themes as semantic proposals, not `intent_sig` buckets
+
+Current problem:
+Themes are grouped by `intent_sig`. Even with member evidence, the candidate itself is lexical. That will miss latent practices and create incoherent groups.
+
+Required change:
+- Add a theme proposal phase that samples read-only/conversational episodes by shape and asks an agent to propose coherent latent practices from evidence spans.
+- Store proposed theme member keys, evidence, rationale, and verifier result.
+- Then use deterministic expansion only after a seed theme exists.
+- The verifier must be able to remove members or mark `needs_split`.
+
+Validation:
+- Fixture with same `intent_sig` but unrelated topics must not produce one accepted theme.
+- Fixture with varied wording but same latent practice must produce one theme.
+- Theme-to-skill path uses the verified theme dossier, not raw intent labels.
+
+Priority 5: Workspace should merge meaning, not only exact keys
+
+Current problem:
+Workspace patterns aggregate exact `(type, intent_sig, gram, meta_id)` keys. Equivalent workflows across repos often differ in command spelling/order, while generic
