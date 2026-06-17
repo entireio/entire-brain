@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -304,13 +305,16 @@ func inPlaceholders(ids []string) (string, []any) {
 	return strings.Join(ph, ","), args
 }
 
-// deepFingerprint covers the COMPLETE evidence set (every episode_key + outcome)
-// plus facts and confidence bucket, so it differs from the shallow fingerprint
-// and invalidates the cached deep verdict whenever any backing episode moves.
+// deepFingerprint covers the full backing-set identity (every episode_key +
+// outcome) plus facts, verification, and the confidence (strength) bucket, so it
+// differs from the shallow fingerprint and invalidates the cached deep verdict
+// whenever any backing episode moves or the pattern re-tiers.
 func deepFingerprint(rec deepDossierRecord, episodes []deepEpisode, strength float64) string {
 	var b strings.Builder
 	b.WriteString("deep\x00")
 	b.WriteString(rec.PatternID)
+	b.WriteByte('\x00')
+	b.WriteString(strconv.Itoa(int(math.Round(strength * 100))))
 	b.WriteByte('\x00')
 	keys := make([]string, 0, len(episodes))
 	for _, e := range episodes {

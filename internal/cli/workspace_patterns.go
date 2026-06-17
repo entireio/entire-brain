@@ -376,7 +376,6 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 	procs := buildWorkspaceProcedures(members.procsByRepo, members.repoOrder, len(manifest.Repos), name)
 	pracs := buildWorkspacePractices(members.pracsByRepo, members.repoOrder, len(manifest.Repos), name)
 	tasks := buildWorkspaceTaskCandidates(members.tasksByRepo, members.repoOrder, len(manifest.Repos), name)
-	_ = wsDir
 	if err := writeBrainProceduresFile(wsDir, procs); err != nil {
 		return err
 	}

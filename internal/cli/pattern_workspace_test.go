@@ -170,6 +170,58 @@ func TestSplitWorkspaceIDPattern(t *testing.T) {
 	if _, _, err := splitWorkspaceID("pattern:abc"); err == nil {
 		t.Error("a repo-unqualified pattern id must error")
 	}
+	// Member-qualified theme: ids must also parse (drill into a member theme).
+	rk, tid, err := splitWorkspaceID("gh/acme/a/theme:xyz")
+	if err != nil || rk != "gh/acme/a" || tid != "theme:xyz" {
+		t.Errorf("theme split = (%q,%q,%v), want (gh/acme/a, theme:xyz, nil)", rk, tid, err)
+	}
+}
+
+// Copilot review: a workspace rebuild must clear the verifier-cache tables so a
+// stale verdict cannot join onto a newly-rebuilt pattern with the same stable id.
+func TestWorkspaceRebuildClearsStaleVerifierCache(t *testing.T) {
+	env := EntireEnv{PluginDataDir: t.TempDir()}
+	aDir, _ := brainDirForKey(env, "gh/acme/a")
+	bDir, _ := brainDirForKey(env, "gh/acme/b")
+	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
+	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
+	manifest := workspaceManifest{Name: "plat", Repos: []workspaceRepo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
+	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	wsDir, _ := workspaceDir(env, "plat")
+	db, err := openPatternCorpusDB(wsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Inject a stale 'rejected' dossier keyed to the (stable) workspace pattern id.
+	var pid string
+	db.QueryRow(`SELECT id FROM patterns WHERE scope='workspace' LIMIT 1`).Scan(&pid)
+	db.Exec(`INSERT INTO dossiers (pattern_id, cluster_key, fingerprint, json_redacted, verdict, status, created_at, updated_at) VALUES (?,?,?,?, 'rejected','current','t','t')`,
+		pid, "stale", "sha256:stale", "{}")
+	db.Close()
+
+	// Rebuild must drop the stale verdict (else loadCorpusPatternViews suppresses it).
+	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	db2, _ := openPatternCorpusDB(wsDir)
+	defer db2.Close()
+	var dossiers int
+	db2.QueryRow(`SELECT COUNT(*) FROM dossiers`).Scan(&dossiers)
+	if dossiers != 0 {
+		t.Errorf("workspace rebuild must clear stale dossiers, got %d", dossiers)
+	}
+	views, _, _ := loadCorpusPatternViews(wsDir)
+	found := false
+	for _, v := range views {
+		if v.ID == pid {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the rebuilt workspace pattern must not be suppressed by a stale verdict")
+	}
 }
 
 // DV5: the workspace build must materialize workspace_repo synapses and record a

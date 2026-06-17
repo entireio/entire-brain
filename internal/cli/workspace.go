@@ -756,7 +756,7 @@ func workspaceMemberBranch(brainDir, override string) (string, error) {
 // into the repo key and the brain-local id. Repo keys never contain ':', so the
 // first path segment starting a known source prefix is the boundary.
 func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
-	for _, prefix := range []string{"fact:", "history:", "doc:", "pattern:"} {
+	for _, prefix := range []string{"fact:", "history:", "doc:", "pattern:", "theme:"} {
 		if strings.HasPrefix(qualified, prefix) {
 			return "", "", fmt.Errorf("id %q is missing its repo key (expected <repo-key>/%s…)", qualified, prefix)
 		}
@@ -764,7 +764,7 @@ func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
 			return qualified[:i], qualified[i+1:], nil
 		}
 	}
-	return "", "", fmt.Errorf("unrecognized id %q (expected <repo-key>/fact:…, <repo-key>/history:…, <repo-key>/doc:…, or <repo-key>/pattern:…)", qualified)
+	return "", "", fmt.Errorf("unrecognized id %q (expected <repo-key>/fact:…, <repo-key>/history:…, <repo-key>/doc:…, <repo-key>/pattern:…, or <repo-key>/theme:…)", qualified)
 }
 
 // workspaceFullRefresh fans the free deterministic single-repo refresh over

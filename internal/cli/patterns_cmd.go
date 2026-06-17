@@ -60,8 +60,10 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, targ
 			return verr
 		}
 	} else {
-		// Themes (latent practices) join the corpus listing as their own type.
-		for _, th := range loadThemeViews(brainDir, false) {
+		// Themes are a verifier-gated channel: only verified-accepted themes
+		// surface (matching brief/overview and the stated contract). Unverified
+		// candidates are processed by `patterns verify --themes`, not listed here.
+		for _, th := range loadThemeViews(brainDir, true) {
 			views = append(views, themePatternView(th))
 		}
 	}

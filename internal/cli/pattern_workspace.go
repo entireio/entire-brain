@@ -35,12 +35,12 @@ type wsPatternKey struct {
 }
 
 type wsRepoStat struct {
-	repoKey                     string
-	support, succ, corr, neut   int
-	anchorPath                  string
-	anchorLine                  int
-	anchorSession, anchorOutome string
-	anchorEpisodeID             string
+	repoKey                      string
+	support, succ, corr, neut    int
+	anchorPath                   string
+	anchorLine                   int
+	anchorSession, anchorOutcome string
+	anchorEpisodeID              string
 }
 
 type wsAgg struct {
@@ -105,8 +105,11 @@ func buildWorkspacePatternCorpus(env EntireEnv, manifest workspaceManifest, now 
 	if err != nil {
 		return counts, err
 	}
-	// Rebuildable: clear all prior workspace corpus content.
-	for _, stmt := range []string{`DELETE FROM patterns`, `DELETE FROM episodes`, `DELETE FROM workspace_pattern_repos`} {
+	// Rebuildable: clear all prior workspace corpus content, including the
+	// verifier-cache tables — they have no FK cascade, so stale verdicts must not
+	// survive a rebuild and join onto a newly-rebuilt pattern row sharing the same
+	// stable id (which could even suppress it as 'rejected').
+	for _, stmt := range []string{`DELETE FROM patterns`, `DELETE FROM episodes`, `DELETE FROM workspace_pattern_repos`, `DELETE FROM dossiers`, `DELETE FROM deep_dossiers`} {
 		if _, err := tx.Exec(stmt); err != nil {
 			tx.Rollback()
 			return counts, err
@@ -169,7 +172,7 @@ func collectMemberPatterns(mdb *sql.DB, repoKey string, aggs map[wsPatternKey]*w
 		st := &wsRepoStat{repoKey: repoKey, support: support, succ: succ, corr: corr, neut: neut}
 		if an, ok := anchors[id]; ok {
 			st.anchorPath, st.anchorLine = an.path, an.line
-			st.anchorSession, st.anchorOutome, st.anchorEpisodeID = an.session, an.outcome, an.episodeID
+			st.anchorSession, st.anchorOutcome, st.anchorEpisodeID = an.session, an.outcome, an.episodeID
 		}
 		a.repos[repoKey] = st
 	}
@@ -244,12 +247,12 @@ func writeWorkspacePattern(tx *sql.Tx, workspace string, a *wsAgg, memberCount i
 			(id, episode_key, repo_key, workspace, session_id, turn_ord, branch, source_path, start_line, end_line, outcome, created_at)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 			wsEpID, wsEpID, rk, workspace, redactText(st.anchorSession), 0, "", redactText(st.anchorPath), st.anchorLine, st.anchorLine,
-			nonEmptyOr(st.anchorOutome, "neutral"), ts); err != nil {
+			nonEmptyOr(st.anchorOutcome, "neutral"), ts); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO pattern_evidence
 			(pattern_id, episode_id, rank, outcome, source_path, start_line, end_line) VALUES (?,?,?,?,?,?,?)`,
-			id, wsEpID, rank, nonEmptyOr(st.anchorOutome, "neutral"), redactText(st.anchorPath), st.anchorLine, st.anchorLine); err != nil {
+			id, wsEpID, rank, nonEmptyOr(st.anchorOutcome, "neutral"), redactText(st.anchorPath), st.anchorLine, st.anchorLine); err != nil {
 			return err
 		}
 		rank++
