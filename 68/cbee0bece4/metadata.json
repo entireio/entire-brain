@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "68cbee0bece4",
+  "strategy": "manual-commit",
+  "branch": "claude/brain-dash-tui",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/68/cbee0bece4/0/metadata.json",
+      "transcript": "/68/cbee0bece4/0/full.jsonl",
+      "content_hash": "/68/cbee0bece4/0/content_hash.txt",
+      "prompt": "/68/cbee0bece4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 546546,
+    "cache_creation_tokens": 30042677,
+    "cache_read_tokens": 1733440639,
+    "output_tokens": 4676023,
+    "api_call_count": 3386
+  }
+}

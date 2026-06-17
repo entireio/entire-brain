@@ -1,0 +1,151 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "68cbee0bece4",
+  "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-17T16:19:35.821576Z",
+  "branch": "claude/brain-dash-tui",
+  "checkpoints_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "748dfe802597",
+  "token_usage": {
+    "input_tokens": 546546,
+    "cache_creation_tokens": 30042677,
+    "cache_read_tokens": 1733440639,
+    "output_tokens": 4676023,
+    "api_call_count": 3386
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_011RsLPw3juQNPC9S6sy4Ngx",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "code-review"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "748dfe802597",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 16133,
+        "end": 16134,
+        "entry_ids": [
+          "6fbd2d36-b3b3-40f6-9141-c1211b29f042"
+        ],
+        "tool_use_id": "toolu_011RsLPw3juQNPC9S6sy4Ngx"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_011RsLPw3juQNPC9S6sy4Ngx"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: code-review",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01B5QojHkwgNynb2kfsBLrA2",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "regente"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "748dfe802597",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 20552,
+        "end": 20553,
+        "entry_ids": [
+          "6110765b-acc9-4996-8af5-9c0a212eb49d"
+        ],
+        "tool_use_id": "toolu_01B5QojHkwgNynb2kfsBLrA2"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01B5QojHkwgNynb2kfsBLrA2"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: regente",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01M5H3p1ojCC5phsn1UovmzF",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "brainstorming"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "748dfe802597",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 21296,
+        "end": 21297,
+        "entry_ids": [
+          "c373aa46-ba44-442f-8911-fa2038ffd8d9"
+        ],
+        "tool_use_id": "toolu_01M5H3p1ojCC5phsn1UovmzF"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01M5H3p1ojCC5phsn1UovmzF"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: brainstorming",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 134
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 9220,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 41,
+        ".claude/skills/regente/SKILL.md": 40,
+        ".codex/skills/regente/SKILL.md": 35,
+        ".cursor/mcp.json": 14,
+        ".cursor/rules/regente.mdc": 40,
+        ".gemini/regente.md": 35,
+        ".gemini/settings.json": 93,
+        ".mcp.json": 14,
+        ".regente/AGENT-ONBOARDING.md": 35,
+        ".regente/adapters.md": 35,
+        ".regente/claims.json": 92,
+        ".regente/config.json": 4,
+        ".regente/events.jsonl": 8333,
+        ".regente/github-app.json": 7,
+        ".regente/messages.jsonl": 7,
+        ".regente/metrics/latest.json": 30,
+        ".regente/recent-edits.json": 96,
+        ".regente/roles.json": 16,
+        ".regente/status.json": 244,
+        ".regente/tasks.jsonl": 1,
+        ".regente/team.json": 8
+      }
+    }
+  ]
+}
