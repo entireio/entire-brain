@@ -96,6 +96,74 @@ func TestSkillFormUnderCorpusIDAndLifecycle(t *testing.T) {
 	}
 }
 
+// DV3: skill candidates must exclude any pattern the verifier (shallow OR deep)
+// marked rejected, needs_split, or low_confidence. Unverified stays formable;
+// accepted stays formable.
+func TestSkillCandidatesExcludeUnresolvedVerdicts(t *testing.T) {
+	brainDir := promotableCorpusDir(t, time.Now())
+	db, err := openPatternCorpusDB(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var pid string
+	if err := db.QueryRow(`SELECT id FROM patterns WHERE type='task' AND intent_sig='deploy:release'`).Scan(&pid); err != nil {
+		t.Fatal(err)
+	}
+
+	present := func() bool {
+		cands, ok := loadCorpusTaskCandidates(brainDir)
+		if !ok {
+			t.Fatal("expected corpus-backed candidates")
+		}
+		for _, c := range cands {
+			if c.ID == pid {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Unverified → formable (pre-verification default).
+	if !present() {
+		t.Fatal("unverified promotable task should be a skill candidate")
+	}
+
+	// Shallow verdicts that must disqualify.
+	for _, v := range []string{"rejected", "needs_split", "low_confidence"} {
+		if _, err := db.Exec(`UPDATE dossiers SET verdict=? WHERE pattern_id=?`, v, pid); err != nil {
+			t.Fatal(err)
+		}
+		if present() {
+			t.Errorf("shallow verdict %q must exclude the task from skill candidates", v)
+		}
+	}
+	// Reset shallow → present again.
+	db.Exec(`UPDATE dossiers SET verdict=NULL WHERE pattern_id=?`, pid)
+	if !present() {
+		t.Fatal("clearing the shallow verdict should restore the candidate")
+	}
+
+	// Deep verdicts that must disqualify (shallow stays unverified).
+	for _, v := range []string{"needs_split", "low_confidence", "rejected"} {
+		db.Exec(`DELETE FROM deep_dossiers WHERE pattern_id=?`, pid)
+		if _, err := db.Exec(`INSERT INTO deep_dossiers (pattern_id, fingerprint, json_redacted, verdict, status, created_at, updated_at) VALUES (?,?,?,?, 'current','t','t')`,
+			pid, "sha256:x", "{}", v); err != nil {
+			t.Fatal(err)
+		}
+		if present() {
+			t.Errorf("deep verdict %q must exclude the task from skill candidates", v)
+		}
+	}
+
+	// Accepted control: shallow + deep accepted → formable.
+	db.Exec(`UPDATE dossiers SET verdict='accepted' WHERE pattern_id=?`, pid)
+	db.Exec(`UPDATE deep_dossiers SET verdict='accepted' WHERE pattern_id=?`, pid)
+	if !present() {
+		t.Error("an accepted task must remain a skill candidate")
+	}
+}
+
 func TestSkillFilterDeclinedAndReconsider(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
 	cands, _ := loadCorpusTaskCandidates(brainDir)

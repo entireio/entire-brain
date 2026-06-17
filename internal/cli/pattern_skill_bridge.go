@@ -28,7 +28,12 @@ func loadCorpusTaskCandidates(brainDir string) ([]taskCandidate, bool) {
 	defer db.Close()
 
 	// A task is skill-worthy when it is promotable (has a dossier) and no verifier
-	// — shallow or deep — has rejected it. The verifier is the final arbiter.
+	// — shallow or deep — has returned an unresolved/negative verdict. The verifier
+	// is the final arbiter: a rejected, needs_split, or low_confidence verdict
+	// (from either the shallow or the deep pass) disqualifies the task. An
+	// UNVERIFIED task (no verdict yet) remains formable — this is the explicit
+	// pre-verification default; running `patterns verify [--deep]` is what can
+	// then disqualify it.
 	rows, err := db.Query(`
 		SELECT p.id, p.repo_key, COALESCE(p.intent_sig,''), p.title, p.gram, p.strength, p.strength_label,
 		       p.support, p.outcome_success, p.outcome_corrected, p.outcome_neutral,
@@ -36,8 +41,8 @@ func loadCorpusTaskCandidates(brainDir string) ([]taskCandidate, bool) {
 		FROM patterns p JOIN dossiers d ON d.pattern_id = p.id
 		LEFT JOIN deep_dossiers dd ON dd.pattern_id = p.id
 		WHERE p.type='task' AND p.scope='repo'
-		  AND COALESCE(d.verdict,'') != 'rejected'
-		  AND COALESCE(dd.verdict,'') != 'rejected'
+		  AND COALESCE(d.verdict,'') NOT IN ('rejected','needs_split','low_confidence')
+		  AND COALESCE(dd.verdict,'') NOT IN ('rejected','needs_split','low_confidence')
 		ORDER BY p.strength DESC`)
 	if err != nil {
 		return nil, false

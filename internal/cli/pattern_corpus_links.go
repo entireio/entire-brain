@@ -18,11 +18,14 @@ const episodeSymbolCapPerEpisode = 25
 // episode is linked to the symbols defined in the files it touched. No-op when no
 // semantic index exists.
 func linkEpisodeSymbols(db *sql.DB, brainDir string, sem *semanticSourceManifest) error {
-	if sem == nil {
-		return nil
-	}
+	// Always clear first: if a semantic index was present before and has since
+	// disappeared (or become unreadable), the table must degrade to empty rather
+	// than keep stale links.
 	if _, err := db.Exec(`DELETE FROM episode_symbols`); err != nil {
 		return err
+	}
+	if sem == nil {
+		return nil
 	}
 	// Distinct touched files across all episodes.
 	fileRows, err := db.Query(`SELECT DISTINCT path FROM episode_files WHERE path != ''`)

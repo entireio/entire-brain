@@ -1,10 +1,14 @@
 package cli
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 // seedMemberCorpus builds a repo corpus at brainDir with `count` episodes of one
@@ -102,6 +106,59 @@ func TestWorkspaceCorpusAggregatesSharedTask(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGetAggregatePatternID(t *testing.T) {
+	env := EntireEnv{PluginDataDir: t.TempDir()}
+	aDir, _ := brainDirForKey(env, "gh/acme/a")
+	bDir, _ := brainDirForKey(env, "gh/acme/b")
+	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
+	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
+	manifest := workspaceManifest{Name: "plat", Repos: []workspaceRepo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	// The id `workspace patterns` prints (scope=workspace).
+	wsDir, _ := workspaceDir(env, "plat")
+	wdb, err := openPatternCorpusDB(wsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var aggID string
+	if err := wdb.QueryRow(`SELECT id FROM patterns WHERE scope='workspace' LIMIT 1`).Scan(&aggID); err != nil {
+		t.Fatal(err)
+	}
+	wdb.Close()
+
+	// That printed id must be fetchable via `workspace get <ws> <id>`.
+	opts := Options{Env: env, Now: time.Now}
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := runWorkspaceGet(cmd, opts, "plat", []string{aggID}, "", false); err != nil {
+		t.Fatalf("workspace get aggregate id: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, aggID) || !strings.Contains(got, "workspace_pattern") {
+		t.Errorf("aggregate workspace pattern not fetched:\n%s", got)
+	}
+	if !strings.Contains(got, "acme/a") || !strings.Contains(got, "acme/b") {
+		t.Errorf("workspace pattern should show its repo breakdown:\n%s", got)
+	}
+
+	// Member-qualified ids still route to the member repo (existing behavior).
+	out.Reset()
+	if err := runWorkspaceGet(cmd, opts, "plat", []string{"gh/acme/a/pattern:does-not-exist"}, "", false); err != nil {
+		t.Fatalf("member-qualified get should not error: %v", err)
+	}
+	if !strings.Contains(out.String(), "not found") {
+		t.Errorf("member-qualified unknown id should report not found:\n%s", out.String())
+	}
+}
+
 func TestSplitWorkspaceIDPattern(t *testing.T) {
 	repoKey, id, err := splitWorkspaceID("gh/acme/a/pattern:abc123")
 	if err != nil {
@@ -112,6 +169,34 @@ func TestSplitWorkspaceIDPattern(t *testing.T) {
 	}
 	if _, _, err := splitWorkspaceID("pattern:abc"); err == nil {
 		t.Error("a repo-unqualified pattern id must error")
+	}
+}
+
+// DV5: the workspace build must materialize workspace_repo synapses and record a
+// run, mirroring the repo corpus build.
+func TestWorkspaceCorpusSynapsesAndRun(t *testing.T) {
+	env := EntireEnv{PluginDataDir: t.TempDir()}
+	aDir, _ := brainDirForKey(env, "gh/acme/a")
+	bDir, _ := brainDirForKey(env, "gh/acme/b")
+	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
+	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
+	manifest := workspaceManifest{Name: "plat", Repos: []workspaceRepo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
+	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	wsDir, _ := workspaceDir(env, "plat")
+	db, err := openPatternCorpusDB(wsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var wsRepoEdges int
+	db.QueryRow(`SELECT COUNT(*) FROM synapses WHERE kind='workspace_repo'`).Scan(&wsRepoEdges)
+	if wsRepoEdges == 0 {
+		t.Error("expected workspace_repo synapses materialized from the per-repo breakdown")
+	}
+	if run, ok := lastPatternRun(wsDir); !ok || run.Patterns == 0 {
+		t.Errorf("expected a workspace run record with patterns, got ok=%v run=%+v", ok, run)
 	}
 }
 

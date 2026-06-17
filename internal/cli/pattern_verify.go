@@ -70,7 +70,7 @@ type dossierVerifyStats struct {
 // verifyDossiers runs the agent verifier over the promotable dossiers that need
 // it (no cached verdict for the current evidence fingerprint). Egress-gated and
 // cached; deterministic dossiers themselves are never mutated here.
-func verifyDossiers(ctx context.Context, db *sql.DB, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
+func verifyDossiers(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
 	var stats dossierVerifyStats
 	if err := rejectAgentForNoEgress(agent); err != nil {
 		return stats, err
@@ -125,7 +125,7 @@ func verifyDossiers(ctx context.Context, db *sql.DB, repoDir, agent, model, effo
 	return stats, nil
 }
 
-const deepVerifySystemPrompt = `You audit a DEEP CONSOLIDATION RECORD for one recurring pattern in a repository. Unlike a shallow dossier, this is built from the COMPLETE supporting-evidence set — every backing episode, with corrected/failed episodes first, plus concrete command parameters, verification steps, and failure modes with their recoveries.
+const deepVerifySystemPrompt = `You audit a DEEP CONSOLIDATION RECORD for one recurring pattern in a repository. Unlike a shallow dossier, this is built from a bounded but evidence-deep export of the pattern's backing episodes — corrected/failed episodes first, the top ones carrying redacted transcript excerpts, plus concrete command parameters, verification steps, and failure modes with their recoveries.
 
 You are given the deep dossier as JSON. Judge whether it is a sound, single, non-conflated, repo-specific pattern worth consolidating into durable guidance. Pay special attention to the corrected/failed episodes and their recoveries — a strong pattern's failure modes are instructive, not contradictory. Judge ONLY against the evidence present; do not invent claims.
 
@@ -142,11 +142,12 @@ Return EXACTLY one JSON object and nothing else (no prose, no code fences):
 
 Verdicts: "accepted" (one coherent, supported, repo-specific pattern), "needs_split" (conflates distinct patterns), "low_confidence" (coherent but thin), "rejected" (generic or unsupported).`
 
-// verifyDeepDossiers builds the full-span deep dossier for every promotable
-// pattern and runs the deep verifier over the ones whose deep fingerprint has no
+// verifyDeepDossiers builds the bounded evidence-deep dossier for every
+// promotable pattern and runs the deep verifier over the ones whose deep
+// fingerprint has no
 // cached verdict. Egress-gated; cached in deep_dossiers; never called from
 // refresh/watch/brief/query/MCP/workspace.
-func verifyDeepDossiers(ctx context.Context, db *sql.DB, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
+func verifyDeepDossiers(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
 	var stats dossierVerifyStats
 	if err := rejectAgentForNoEgress(agent); err != nil {
 		return stats, err
@@ -177,7 +178,7 @@ func verifyDeepDossiers(ctx context.Context, db *sql.DB, repoDir, agent, model, 
 	ts := now.UTC().Format(time.RFC3339)
 	for _, pid := range patternIDs {
 		stats.Considered++
-		deep, err := buildDeepDossier(db, pid)
+		deep, err := buildDeepDossier(db, brainDir, pid)
 		if err != nil {
 			stats.Failed++
 			continue

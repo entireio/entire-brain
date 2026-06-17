@@ -384,7 +384,7 @@ func rankTaskRelevantThemes(themes []themeView, terms []string, limit int) []the
 
 const themeVerifySystemPrompt = `You audit a THEME: a cluster of recurring read-only or conversational work episodes from a coding agent's history (investigations, "how does X work" diagnoses, design discussions) that the command/task channel does not capture.
 
-You are given the theme as JSON: title, description, shape, and member count. Decide whether it is a coherent, recurring, repo-meaningful latent practice worth surfacing — not an incidental grab-bag.
+You are given the theme as JSON: title, description, shape, member count, and member_evidence (per-episode intent + redacted transcript excerpts). Judge from the member evidence whether these episodes actually form ONE coherent, recurring, repo-meaningful latent practice — not an incidental grab-bag that merely shares an intent label. If the members are unrelated to each other, reject or needs_split.
 
 Return EXACTLY one JSON object and nothing else (no prose, no code fences):
 {
@@ -401,7 +401,7 @@ Accept only a coherent recurring practice; reject incidental or generic clusters
 
 // verifyThemes runs the theme verifier over candidate themes whose fingerprint
 // has no cached verdict. Egress-gated; cached; never from refresh.
-func verifyThemes(ctx context.Context, db *sql.DB, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
+func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
 	var stats dossierVerifyStats
 	if err := rejectAgentForNoEgress(agent); err != nil {
 		return stats, err
@@ -413,18 +413,18 @@ func verifyThemes(ctx context.Context, db *sql.DB, repoDir, agent, model, effort
 	args = injectAgentModel(args, agent, model)
 	args = injectAgentEffort(args, agent, effort)
 
-	rows, err := db.Query(`SELECT id, title, description, shape, support, fingerprint, COALESCE(verdict,'') FROM themes ORDER BY id`)
+	rows, err := db.Query(`SELECT id, title, description, shape, support, fingerprint, COALESCE(member_keys,''), COALESCE(verdict,'') FROM themes ORDER BY id`)
 	if err != nil {
 		return stats, err
 	}
 	type cand struct {
-		id, title, desc, shape, fp, verdict string
-		support                             int
+		id, title, desc, shape, fp, memberKeys, verdict string
+		support                                         int
 	}
 	var cands []cand
 	for rows.Next() {
 		var c cand
-		if err := rows.Scan(&c.id, &c.title, &c.desc, &c.shape, &c.support, &c.fp, &c.verdict); err != nil {
+		if err := rows.Scan(&c.id, &c.title, &c.desc, &c.shape, &c.support, &c.fp, &c.memberKeys, &c.verdict); err != nil {
 			rows.Close()
 			return stats, err
 		}
@@ -439,9 +439,14 @@ func verifyThemes(ctx context.Context, db *sql.DB, repoDir, agent, model, effort
 			stats.Cached++
 			continue
 		}
+		// Member evidence (keys + capped redacted excerpts/anchors) so the verifier
+		// can judge coherence, not just the label and count.
+		keys, evidence := themeMemberEvidence(db, brainDir, c.memberKeys)
 		payload, _ := json.Marshal(map[string]any{
 			"title": c.title, "description": c.desc, "shape": c.shape,
 			"members": c.support, "fingerprint": c.fp,
+			"member_keys":     keys,
+			"member_evidence": evidence,
 		})
 		verdict, raw, err := runThemeVerifier(ctx, repoDir, args, redactText(string(payload)), c.fp, run)
 		if err != nil {
@@ -456,6 +461,51 @@ func verifyThemes(ctx context.Context, db *sql.DB, repoDir, agent, model, effort
 		stats.Verified++
 	}
 	return stats, nil
+}
+
+const themeMemberEvidenceCap = 10
+const themeMemberExcerptLines = 24
+const themeMemberExcerptBytes = 700
+
+type themeMemberEv struct {
+	EpisodeKey string `json:"episode_key"`
+	Intent     string `json:"intent,omitempty"`
+	Excerpt    string `json:"excerpt,omitempty"`
+}
+
+// themeMemberEvidence resolves a theme's member episode_keys to capped, redacted
+// intent + transcript excerpts so the verifier can tell a coherent recurring
+// practice from a same-intent_sig grab-bag. Returns the keys and the evidence.
+func themeMemberEvidence(db *sql.DB, brainDir, memberKeysJSON string) ([]string, []themeMemberEv) {
+	var keys []string
+	if memberKeysJSON != "" {
+		_ = json.Unmarshal([]byte(memberKeysJSON), &keys)
+	}
+	if len(keys) == 0 {
+		return keys, nil
+	}
+	var ev []themeMemberEv
+	for _, k := range keys {
+		if len(ev) >= themeMemberEvidenceCap {
+			break
+		}
+		var sourcePath, intent string
+		var startLine, endLine int
+		if err := db.QueryRow(`SELECT source_path, start_line, end_line, COALESCE(intent_raw,'') FROM episodes WHERE episode_key=?`, k).
+			Scan(&sourcePath, &startLine, &endLine, &intent); err != nil {
+			continue
+		}
+		m := themeMemberEv{EpisodeKey: k, Intent: redactText(intent)}
+		lines := endLine - startLine + 1
+		if lines <= 0 || lines > themeMemberExcerptLines {
+			lines = themeMemberExcerptLines
+		}
+		if ex := transcriptExcerpt(brainDir, episodeAnchor{Path: sourcePath, Line: startLine}, lines, themeMemberExcerptBytes); ex != "" {
+			m.Excerpt = redactText(ex)
+		}
+		ev = append(ev, m)
+	}
+	return keys, ev
 }
 
 func runThemeVerifier(ctx context.Context, repoDir string, args []string, themeJSON, fingerprint string, run distillAgentRunner) (dossierVerdict, string, error) {

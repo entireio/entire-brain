@@ -9,19 +9,28 @@ import (
 
 // Deep dossiers (Pattern Consolidation v2, Priority 4).
 //
-// A deep dossier is built from the COMPLETE supporting-evidence set for a
-// pattern — every backing episode resolved by stable episode_key, not the
-// 3 sampled anchors a shallow dossier stores — stratified corrected/failed
-// first so the verifier reasons over failures and recoveries. It is assembled
-// deterministically and token-free; the optional deep verifier (pattern_verify.go)
-// is the only agent step and runs solely through the explicit `patterns verify
-// --deep`. The fingerprint covers the full evidence set, so it changes (and the
-// cached verdict goes stale) whenever any supporting episode moves.
+// A deep dossier is a BOUNDED but evidence-deep export of a pattern's backing
+// episodes — every backing episode resolved by stable episode_key (capped at
+// deepMaxEpisodes anchors), the top deepExcerptEpisodes carrying capped, redacted
+// transcript span excerpts, not the 3 sampled anchors a shallow dossier stores —
+// stratified corrected/failed first so the verifier reasons over failures and
+// recoveries. It is assembled deterministically and token-free; the optional deep
+// verifier (pattern_verify.go) is the only agent step and runs solely through the
+// explicit `patterns verify --deep`. The fingerprint covers the full backing-set
+// identity (every episode_key + outcome), so it changes (and the cached verdict
+// goes stale) whenever any supporting episode moves.
 
 const deepSchemaVersion = 1
 const deepMaxEpisodes = 40    // cap the full set handed onward
 const deepMaxParameters = 8   // representative concrete invocations
 const deepFailureModeCap = 12 // failure/recovery pairs
+// Bounded evidence export: the first deepExcerptEpisodes anchors (corrected/
+// failed first) carry a redacted transcript excerpt, each capped at
+// deepExcerptLines / deepExcerptBytes, so the verifier sees real span text
+// without an unbounded payload. This is a BOUNDED export, not the literal full text.
+const deepExcerptEpisodes = 12
+const deepExcerptLines = 60
+const deepExcerptBytes = 1800
 
 type deepFailureMode struct {
 	Episode  string `json:"episode"`
@@ -53,8 +62,10 @@ type deepEpisode struct {
 	startLine, endLine                           int
 }
 
-// buildDeepDossier assembles the full-span deep dossier for one pattern.
-func buildDeepDossier(db *sql.DB, patternID string) (deepDossierRecord, error) {
+// buildDeepDossier assembles the deep dossier for one pattern: the bounded but
+// evidence-deep export over its complete backing-episode set, including redacted
+// transcript excerpts for the top corrected/failed-first episodes.
+func buildDeepDossier(db *sql.DB, brainDir, patternID string) (deepDossierRecord, error) {
 	var (
 		typ, cluster, title, intentSig, gram, metaID string
 		strength                                     float64
@@ -88,14 +99,26 @@ func buildDeepDossier(db *sql.DB, patternID string) (deepDossierRecord, error) {
 	rec.EvidenceEpisodes = len(episodes)
 
 	// Anchors: the full set, capped (already stratified corrected/failed first).
+	// The first deepExcerptEpisodes carry a redacted transcript excerpt so the
+	// verifier reasons over real span text, not just derived metadata.
 	for i, e := range episodes {
 		if i >= deepMaxEpisodes {
 			break
 		}
-		rec.SourceAnchors = append(rec.SourceAnchors, dossierAnchor{
+		a := dossierAnchor{
 			SessionID: e.session, Transcript: redactText(e.sourcePath),
 			StartLine: e.startLine, EndLine: e.endLine, Outcome: e.outcome,
-		})
+		}
+		if i < deepExcerptEpisodes {
+			lines := e.endLine - e.startLine + 1
+			if lines <= 0 || lines > deepExcerptLines {
+				lines = deepExcerptLines
+			}
+			if ex := transcriptExcerpt(brainDir, episodeAnchor{Path: e.sourcePath, Line: e.startLine}, lines, deepExcerptBytes); ex != "" {
+				a.Excerpt = redactText(ex)
+			}
+		}
+		rec.SourceAnchors = append(rec.SourceAnchors, a)
 	}
 
 	epIDs := make([]string, 0, len(episodes))

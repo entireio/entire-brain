@@ -114,7 +114,7 @@ func newGetCommand(opts Options) *cobra.Command {
 	var branch string
 	cmd := &cobra.Command{
 		Use:   "get <id>",
-		Short: "Fetch one item in full by id (fact:… | history:… | doc:… | pattern:…)",
+		Short: "Fetch one item in full by id (fact:… | history:… | doc:… | pattern:… | theme:…)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wantJSON, err := outputWantsJSON(jsonOut, format)

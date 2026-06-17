@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -126,6 +127,12 @@ func buildWorkspacePatternCorpus(env EntireEnv, manifest workspaceManifest, now 
 	if err := tx.Commit(); err != nil {
 		return counts, err
 	}
+	// Materialize the explanation graph (workspace_repo edges from the per-repo
+	// breakdown) and record the run, mirroring the repo corpus build.
+	if err := buildSynapses(db, now); err != nil {
+		return counts, err
+	}
+	recordPatternRun(db, wsBrainDir, now)
 	return counts, nil
 }
 
@@ -269,6 +276,58 @@ func workspaceStrengthV2(typ string, repos, memberCount, support, succ, corr, ne
 		base = math.Max(base, 0.5) // recorded cross-repo failure is inherently notable
 	}
 	return clamp01(base)
+}
+
+// getWorkspaceCorpusRecord resolves a bare workspace-aggregate id (pattern: or
+// theme:) from the workspace corpus, so the ids `workspace patterns` prints are
+// directly fetchable via `workspace get <ws> <id>`. Graceful: false when absent.
+func getWorkspaceCorpusRecord(env EntireEnv, workspaceName, id string) (unifiedResult, bool) {
+	wsBrainDir, err := workspaceDir(env, workspaceName)
+	if err != nil {
+		return unifiedResult{}, false
+	}
+	switch {
+	case strings.HasPrefix(id, "pattern:"):
+		return getWorkspacePattern(wsBrainDir, id)
+	case strings.HasPrefix(id, "theme:"):
+		return getCorpusTheme(wsBrainDir, id)
+	default:
+		return unifiedResult{}, false
+	}
+}
+
+// getWorkspacePattern renders a workspace-scope aggregate pattern (with its
+// per-repo breakdown) as a unifiedResult.
+func getWorkspacePattern(wsBrainDir, patternID string) (unifiedResult, bool) {
+	db, err := openPatternCorpusDB(wsBrainDir)
+	if err != nil {
+		return unifiedResult{}, false
+	}
+	defer db.Close()
+	var typ, title, intentSig, gram, metaID string
+	var strength float64
+	var nRepos int
+	err = db.QueryRow(`SELECT type, title, COALESCE(intent_sig,''), COALESCE(gram,''), COALESCE(meta_id,''), strength, n_repos
+		FROM patterns WHERE id=? AND scope='workspace'`, patternID).Scan(&typ, &title, &intentSig, &gram, &metaID, &strength, &nRepos)
+	if err != nil {
+		return unifiedResult{}, false
+	}
+	var b strings.Builder
+	b.WriteString(redactText(title) + "\n")
+	b.WriteString("workspace " + typ + " across " + strconv.Itoa(nRepos) + " repo(s); strength " +
+		strconv.FormatFloat(strength, 'g', -1, 64) + "\n")
+	rows, err := db.Query(`SELECT repo_key, support FROM workspace_pattern_repos WHERE pattern_id=? ORDER BY repo_key`, patternID)
+	if err == nil {
+		for rows.Next() {
+			var rk string
+			var support int
+			if rows.Scan(&rk, &support) == nil {
+				b.WriteString("  " + redactText(rk) + " (" + strconv.Itoa(support) + ")\n")
+			}
+		}
+		rows.Close()
+	}
+	return unifiedResult{Source: "workspace_pattern", ID: patternID, Text: redactText(strings.TrimRight(b.String(), "\n"))}, true
 }
 
 // loadWorkspaceRepoBreakdown returns the per-repo breakdown for workspace

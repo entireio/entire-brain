@@ -33,6 +33,9 @@ type dossierAnchor struct {
 	StartLine    int    `json:"start_line"`
 	EndLine      int    `json:"end_line"`
 	Outcome      string `json:"outcome"`
+	// Excerpt is the redacted transcript span text for this episode. Populated
+	// only on deep dossiers (bounded export), empty on shallow dossiers.
+	Excerpt string `json:"excerpt,omitempty"`
 }
 
 type dossierRecord struct {

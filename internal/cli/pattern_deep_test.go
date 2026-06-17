@@ -55,7 +55,7 @@ func deepCorpus(t *testing.T, now time.Time) (*sql.DB, string) {
 
 func TestDeepDossierFullSpanAndFailureModes(t *testing.T) {
 	db, pid := deepCorpus(t, time.Now())
-	deep, err := buildDeepDossier(db, pid)
+	deep, err := buildDeepDossier(db, t.TempDir(), pid)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestDeepVerifyCachesAndInvalidates(t *testing.T) {
 		}
 		return `{"schema_version":1,"verdict":"accepted","reason":"sound"}`, nil
 	}
-	stats, err := verifyDeepDossiers(context.Background(), db, t.TempDir(), "codex", "", "", run, now)
+	stats, err := verifyDeepDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestDeepVerifyCachesAndInvalidates(t *testing.T) {
 	}
 
 	// Second run: unchanged evidence → all cached, agent not called again.
-	stats2, _ := verifyDeepDossiers(context.Background(), db, t.TempDir(), "codex", "", "", run, now)
+	stats2, _ := verifyDeepDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
 	if stats2.Cached != stats2.Considered || calls != firstCalls {
 		t.Errorf("expected full cache reuse (cached=%d considered=%d, no new calls), got %+v calls=%d (was %d)",
 			stats2.Cached, stats2.Considered, stats2, calls, firstCalls)
@@ -121,9 +121,75 @@ func TestDeepVerifyCachesAndInvalidates(t *testing.T) {
 	id := "episode:fix-new"
 	insertCorpusEpisode(t, db, id, "deploy:release", "corrected", 2, now)
 	insertCorpusShape(t, db, id, "mise build", "mise deploy")
-	stats3, _ := verifyDeepDossiers(context.Background(), db, t.TempDir(), "codex", "", "", run, now)
+	stats3, _ := verifyDeepDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
 	if stats3.Verified == 0 || calls <= firstCalls {
 		t.Errorf("changed evidence should re-verify, got %+v calls=%d (was %d)", stats3, calls, firstCalls)
+	}
+}
+
+// DV1: the deep dossier must carry redacted transcript span text, not only
+// derived metadata. A unique sentence that lives ONLY in the transcript span
+// must reach the verifier input; a secret in the span must be redacted.
+const deepSpanTranscript = `{"type":"event_msg","payload":{"type":"user_message","message":"deploy the release"}}
+{"type":"response_item","payload":{"type":"function_call","call_id":"a1","name":"exec_command","arguments":"{\"cmd\":\"mise deploy\"}"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"ZEBRAFISH_CALIBRATION_NOTE staging toggle first; token ghp_SECRETTOKEN0123456789abcdef path /Users/alice/secret"}]}}
+{"type":"response_item","payload":{"type":"function_call","call_id":"a2","name":"exec_command","arguments":"{\"cmd\":\"go test ./...\"}"}}
+{"type":"event_msg","payload":{"type":"user_message","message":"deploy the release"}}
+{"type":"response_item","payload":{"type":"function_call","call_id":"b1","name":"exec_command","arguments":"{\"cmd\":\"mise deploy\"}"}}
+{"type":"response_item","payload":{"type":"function_call","call_id":"b2","name":"exec_command","arguments":"{\"cmd\":\"go test ./...\"}"}}
+{"type":"event_msg","payload":{"type":"user_message","message":"deploy the release"}}
+{"type":"response_item","payload":{"type":"function_call","call_id":"c1","name":"exec_command","arguments":"{\"cmd\":\"mise deploy\"}"}}
+{"type":"response_item","payload":{"type":"function_call","call_id":"c2","name":"exec_command","arguments":"{\"cmd\":\"go test ./...\"}"}}
+{"type":"event_msg","payload":{"type":"user_message","message":"thanks"}}`
+
+func TestDeepDossierIncludesRedactedSpanExcerpts(t *testing.T) {
+	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	brainDir := writeEpisodeFixture(t, now, "gh/acme/cli", []sessionFixture{
+		{id: "s1", branch: "main", agent: "Codex", checkpoint: "cp1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: deepSpanTranscript},
+	})
+	if err := buildPatternCorpus(brainDir, now); err != nil {
+		t.Fatal(err)
+	}
+	db := openCorpus(t, brainDir)
+	var pid string
+	if err := db.QueryRow(`SELECT id FROM patterns WHERE type='task' AND intent_sig='deploy:release'`).Scan(&pid); err != nil {
+		t.Fatalf("no deploy task pattern: %v", err)
+	}
+	deep, err := buildDeepDossier(db, brainDir, pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// DV1 is about the deep export carrying span text, not promotion math: force a
+	// dossier row so verifyDeepDossiers processes this pattern regardless of score.
+	if _, err := db.Exec(`INSERT OR REPLACE INTO dossiers (pattern_id, cluster_key, fingerprint, json_redacted, status, created_at, updated_at) VALUES (?,?,?,?, 'current', ?, ?)`,
+		pid, "task:deploy", "sha256:stub", "{}", now.Format(time.RFC3339), now.Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	var excerpts string
+	for _, a := range deep.SourceAnchors {
+		excerpts += a.Excerpt + "\n"
+	}
+	if !strings.Contains(excerpts, "ZEBRAFISH_CALIBRATION_NOTE") {
+		t.Errorf("deep dossier anchors missing transcript span excerpt:\n%s", excerpts)
+	}
+	if strings.Contains(excerpts, "ghp_SECRETTOKEN0123456789abcdef") || strings.Contains(excerpts, "/Users/alice") {
+		t.Errorf("deep excerpt leaked a secret/home path:\n%s", excerpts)
+	}
+
+	// The span text reaches the verifier input, still redacted.
+	var gotInput string
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		gotInput += string(input) + "\n"
+		return `{"verdict":"accepted"}`, nil
+	}
+	if _, err := verifyDeepDossiers(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", run, now); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(gotInput, "ZEBRAFISH_CALIBRATION_NOTE") {
+		t.Error("verifier input missing the transcript span excerpt")
+	}
+	if strings.Contains(gotInput, "ghp_SECRETTOKEN0123456789abcdef") || strings.Contains(gotInput, "/Users/alice") {
+		t.Errorf("verifier input leaked a secret/home path:\n%s", gotInput)
 	}
 }
 
@@ -135,7 +201,7 @@ func TestDeepVerifyNoEgressRejected(t *testing.T) {
 		called = true
 		return "", nil
 	}
-	_, err := verifyDeepDossiers(context.Background(), db, t.TempDir(), "codex", "", "", run, time.Now())
+	_, err := verifyDeepDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, time.Now())
 	if err == nil || !strings.Contains(err.Error(), "no_egress") {
 		t.Fatalf("expected no_egress rejection, got %v", err)
 	}

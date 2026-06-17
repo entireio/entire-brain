@@ -80,6 +80,28 @@ func TestCorpusNewTablesAndSynapses(t *testing.T) {
 	}
 }
 
+// DV6: episode_symbols must be cleared when the semantic source is absent, so a
+// brain that had a semantic index and later lost it does not keep stale links.
+func TestEpisodeSymbolsClearedWhenSemanticAbsent(t *testing.T) {
+	db := freshCorpusDB(t)
+	now := time.Now()
+	insertCorpusEpisode(t, db, "episode:s", "deploy:release", "success", 1, now)
+	// Simulate links left by a prior build that had a semantic index.
+	if _, err := db.Exec(`INSERT INTO episode_symbols (episode_id, symbol_id, name, file_path) VALUES ('episode:s','sym:1','Foo','a.go')`); err != nil {
+		t.Fatal(err)
+	}
+	if n := corpusCount(t, db, "episode_symbols"); n != 1 {
+		t.Fatalf("setup: expected 1 stale symbol link, got %d", n)
+	}
+	// Rebuild with no semantic source → table must degrade to empty.
+	if err := linkEpisodeSymbols(db, t.TempDir(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if n := corpusCount(t, db, "episode_symbols"); n != 0 {
+		t.Errorf("stale symbol links must be cleared when semantic is absent, got %d", n)
+	}
+}
+
 func TestPatternRunRecorded(t *testing.T) {
 	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/cli", []sessionFixture{

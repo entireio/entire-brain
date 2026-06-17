@@ -30,7 +30,7 @@ func newPatternsCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&listOpts.asJSON, "json", false, "Emit patterns as JSON")
 	cmd.Flags().IntVar(&listOpts.limit, "limit", 20, "Maximum number of patterns to show")
-	cmd.Flags().StringVar(&listOpts.typ, "type", "", "Filter by type: task|procedure|risk|practice")
+	cmd.Flags().StringVar(&listOpts.typ, "type", "", "Filter by type: task|procedure|risk|practice|theme")
 	cmd.Flags().StringVar(&listOpts.scope, "scope", "", "Filter by scope: repo|workspace")
 	cmd.AddCommand(newPatternsRefreshCommand(opts))
 	cmd.AddCommand(newPatternsStatusCommand(opts))
@@ -398,7 +398,7 @@ func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, ta
 		verify = verifyDeepDossiers
 		mode = "deep dossier"
 	}
-	stats, err := verify(ctx, db, repoDir, agent, model, effort, run, opts.Now().UTC())
+	stats, err := verify(ctx, db, brainDir, repoDir, agent, model, effort, run, opts.Now().UTC())
 	if err != nil {
 		return err
 	}

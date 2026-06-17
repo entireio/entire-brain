@@ -42,7 +42,7 @@ func TestVerifyDossiersNoEgressRejected(t *testing.T) {
 		called = true
 		return "", nil
 	}
-	_, err := verifyDossiers(context.Background(), db, t.TempDir(), "codex", "", "", run, now)
+	_, err := verifyDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
 	if err == nil {
 		t.Fatal("expected no_egress rejection for --agent codex")
 	}
@@ -69,7 +69,7 @@ func TestVerifyDossiersWritesAndCachesVerdict(t *testing.T) {
 		}
 		return `{"schema_version":1,"verdict":"accepted","reason":"sound","evidence_fingerprint":"ignored"}`, nil
 	}
-	stats, err := verifyDossiers(context.Background(), db, t.TempDir(), "codex", "", "", run, now)
+	stats, err := verifyDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestVerifyDossiersWritesAndCachesVerdict(t *testing.T) {
 	}
 
 	// Second run: fingerprint unchanged → cached, agent NOT called again.
-	stats2, err := verifyDossiers(context.Background(), db, t.TempDir(), "codex", "", "", run, now)
+	stats2, err := verifyDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
 	if err != nil {
 		t.Fatal(err)
 	}

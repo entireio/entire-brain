@@ -642,11 +642,30 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 	for _, repo := range manifest.Repos {
 		members[repo.RepoKey] = true
 	}
-	// Group ids by repo key, preserving first-appearance order of repos and the
-	// input order of ids within each repo.
+	// Bare pattern:/theme: ids address the workspace-level aggregate corpus
+	// directly (the ids `workspace patterns` prints); repo-qualified ids drill
+	// into a member repo. Resolve the workspace-level ones first.
+	var wsResult *workspaceGetResult
+	var memberIDs []string
+	for _, qualified := range qualifiedIDs {
+		if strings.HasPrefix(qualified, "pattern:") || strings.HasPrefix(qualified, "theme:") {
+			if wsResult == nil {
+				wsResult = &workspaceGetResult{RepoKey: manifest.Name, Results: []unifiedResult{}, Missing: []string{}}
+			}
+			if r, ok := getWorkspaceCorpusRecord(opts.Env, manifest.Name, qualified); ok {
+				wsResult.Results = append(wsResult.Results, r)
+			} else {
+				wsResult.Missing = append(wsResult.Missing, qualified)
+			}
+			continue
+		}
+		memberIDs = append(memberIDs, qualified)
+	}
+	// Group member ids by repo key, preserving first-appearance order of repos and
+	// the input order of ids within each repo.
 	var repoOrder []string
 	idsByRepo := make(map[string][]string)
-	for _, qualified := range qualifiedIDs {
+	for _, qualified := range memberIDs {
 		repoKey, id, err := splitWorkspaceID(qualified)
 		if err != nil {
 			return err
@@ -660,6 +679,9 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 		idsByRepo[repoKey] = append(idsByRepo[repoKey], id)
 	}
 	var results []workspaceGetResult
+	if wsResult != nil {
+		results = append(results, *wsResult)
+	}
 	for _, repoKey := range repoOrder {
 		result := workspaceGetResult{RepoKey: repoKey, Results: []unifiedResult{}, Missing: []string{}}
 		brainDir, err := brainDirForKey(opts.Env, repoKey)

@@ -456,6 +456,12 @@ func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Op
 	fmt.Fprintf(out, "member repos: %d (%d with patterns)\n", len(manifest.Repos), covered)
 	fmt.Fprintf(out, "cross-repo procedures: %d\n", len(procs))
 	fmt.Fprintf(out, "cross-repo practices: %d\n", len(pracs))
+	if views, _, ok := loadCorpusPatternViews(wsDir); ok {
+		fmt.Fprintf(out, "cross-repo V2 patterns: %d\n", len(views))
+	}
+	if run, ok := lastPatternRun(wsDir); ok {
+		fmt.Fprintf(out, "last run: %s — %d pattern(s), %d synapse(s)\n", run.At, run.Patterns, run.Synapses)
+	}
 	for _, w := range members.warnings {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
 	}

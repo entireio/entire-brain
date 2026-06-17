@@ -85,7 +85,7 @@ func TestThemeVerifyPromotesAndSuppresses(t *testing.T) {
 		}
 		return `{"schema_version":1,"verdict":"accepted","reason":"coherent recurring investigation"}`, nil
 	}
-	stats, err := verifyThemes(context.Background(), db, t.TempDir(), "codex", "", "", run, now)
+	stats, err := verifyThemes(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestThemeVerifyPromotesAndSuppresses(t *testing.T) {
 		calls++
 		return `{"verdict":"accepted"}`, nil
 	}
-	stats2, _ := verifyThemes(context.Background(), db, t.TempDir(), "codex", "", "", run2, now)
+	stats2, _ := verifyThemes(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run2, now)
 	if stats2.Cached != 1 || calls != 0 {
 		t.Errorf("expected cached theme (no new agent call), got %+v calls=%d", stats2, calls)
 	}
@@ -139,6 +139,84 @@ func TestThemeGrowthRefingerprints(t *testing.T) {
 	}
 }
 
+// DV2: the theme verifier must receive member evidence (keys + redacted
+// excerpts), so a coherent theme is distinguishable from a same-intent_sig
+// grab-bag. A stub agent that accepts only when the members share a keyword
+// proves the input is rich enough to make that call.
+const coherentThemeTranscript = `{"type":"event_msg","payload":{"type":"user_message","message":"how does the worktree fingerprint work"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"WORKTREE fingerprint hashes git status; secret ghp_SECRETTOKEN0123456789abcdef at /Users/alice/x"}]}}
+{"type":"event_msg","payload":{"type":"user_message","message":"how does the worktree fingerprint work"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"the WORKTREE fingerprint also covers the binary diff"}]}}
+{"type":"event_msg","payload":{"type":"user_message","message":"how does the worktree fingerprint work"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"WORKTREE fingerprint is recomputed each refresh"}]}}
+{"type":"event_msg","payload":{"type":"user_message","message":"thanks"}}`
+
+const incoherentThemeTranscript = `{"type":"event_msg","payload":{"type":"user_message","message":"investigate the issue"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"This is about CSS color variables and theming."}]}}
+{"type":"event_msg","payload":{"type":"user_message","message":"investigate the issue"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"This concerns TCP networking socket timeouts."}]}}
+{"type":"event_msg","payload":{"type":"user_message","message":"investigate the issue"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"This is about JSON parsing edge cases."}]}}
+{"type":"event_msg","payload":{"type":"user_message","message":"done"}}`
+
+func TestThemeVerifierEvidenceBased(t *testing.T) {
+	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	brainDir := writeEpisodeFixture(t, now, "gh/acme/cli", []sessionFixture{
+		{id: "sa", branch: "main", agent: "Codex", checkpoint: "c1", relPath: "sessions/main/sa.jsonl", author: "Ada", transcript: coherentThemeTranscript},
+		{id: "sb", branch: "main", agent: "Codex", checkpoint: "c2", relPath: "sessions/main/sb.jsonl", author: "Ada", transcript: incoherentThemeTranscript},
+	})
+	if err := buildPatternCorpus(brainDir, now); err != nil {
+		t.Fatal(err)
+	}
+	db := openCorpus(t, brainDir)
+	if n := corpusCount(t, db, "themes"); n < 2 {
+		t.Fatalf("expected at least 2 theme candidates (coherent + incoherent), got %d", n)
+	}
+
+	var allInput string
+	// Stub agent: accept only when the members visibly share the WORKTREE keyword
+	// in their evidence; otherwise the members are an incoherent grab-bag.
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		in := string(input)
+		allInput += in + "\n"
+		if strings.Count(strings.ToLower(in), "worktree") >= 2 {
+			return `{"verdict":"accepted","reason":"coherent"}`, nil
+		}
+		return `{"verdict":"needs_split","reason":"members unrelated"}`, nil
+	}
+	if _, err := verifyThemes(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", run, now); err != nil {
+		t.Fatal(err)
+	}
+
+	// The verifier input carried member evidence, not just label/count.
+	if !strings.Contains(allInput, "member_evidence") || !strings.Contains(allInput, "episode_key") {
+		t.Errorf("theme verifier input missing member evidence:\n%s", allInput)
+	}
+	// Redaction held on the theme evidence input.
+	if strings.Contains(allInput, "ghp_SECRETTOKEN0123456789abcdef") || strings.Contains(allInput, "/Users/alice") {
+		t.Errorf("theme verifier input leaked a secret/home path:\n%s", allInput)
+	}
+	// Coherent worktree theme accepted; incoherent investigate theme not accepted.
+	var accepted, notAccepted int
+	rows, _ := db.Query(`SELECT description, verdict FROM themes`)
+	for rows.Next() {
+		var desc, verdict string
+		rows.Scan(&desc, &verdict)
+		if verdict == "accepted" {
+			accepted++
+			if !strings.Contains(strings.ToLower(desc), "worktree") {
+				t.Errorf("the accepted theme should be the coherent worktree one, got %q", desc)
+			}
+		} else if verdict == "needs_split" || verdict == "rejected" {
+			notAccepted++
+		}
+	}
+	rows.Close()
+	if accepted != 1 || notAccepted < 1 {
+		t.Errorf("expected 1 accepted (coherent) + >=1 not-accepted (incoherent), got accepted=%d notAccepted=%d", accepted, notAccepted)
+	}
+}
+
 func TestThemeVerifyNoEgressRejected(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
 	db := themeCorpus(t, time.Now(), "how:worktree-fingerprint", 4)
@@ -147,7 +225,7 @@ func TestThemeVerifyNoEgressRejected(t *testing.T) {
 		called = true
 		return "", nil
 	}
-	_, err := verifyThemes(context.Background(), db, t.TempDir(), "codex", "", "", run, time.Now())
+	_, err := verifyThemes(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, time.Now())
 	if err == nil || !strings.Contains(err.Error(), "no_egress") {
 		t.Fatalf("expected no_egress rejection, got %v", err)
 	}
