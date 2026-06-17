@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"math"
 	"sort"
 	"strconv"
@@ -83,108 +84,26 @@ func classifyEpisodeShapes(db *sql.DB, now time.Time) error {
 	return tx.Commit()
 }
 
-// buildThemes proposes theme candidates from recurring read-only/conversation
-// episodes grouped by intent signature. Rebuilt each refresh; a cached agent
-// verdict survives while the member set (fingerprint) is unchanged.
-func buildThemes(db *sql.DB, repoKey string, now time.Time) error {
-	rows, err := db.Query(`
-		SELECT e.intent_sig, e.episode_key, COALESCE(e.intent_raw,''), s.shape
-		FROM episodes e JOIN episode_shapes s ON s.episode_id=e.id
-		WHERE e.intent_sig != '' AND s.shape IN ('read_only','conversation')
-		ORDER BY e.intent_sig, e.created_at DESC`)
-	if err != nil {
-		return err
-	}
-	type group struct {
-		keys   []string
-		sample string
-		shapes map[string]int
-	}
-	groups := map[string]*group{}
-	for rows.Next() {
-		var intentSig, epKey, intentRaw, shape string
-		if err := rows.Scan(&intentSig, &epKey, &intentRaw, &shape); err != nil {
-			rows.Close()
-			return err
-		}
-		g := groups[intentSig]
-		if g == nil {
-			g = &group{shapes: map[string]int{}}
-			groups[intentSig] = g
-		}
-		if len(g.keys) < themeMemberCap {
-			g.keys = append(g.keys, epKey)
-		}
-		if g.sample == "" {
-			g.sample = intentRaw
-		}
-		g.shapes[shape]++
-	}
-	rows.Close()
-
-	ts := now.UTC().Format(time.RFC3339)
-	keep := map[string]bool{}
-	for intentSig, g := range groups {
-		members := uniqueStrings(g.keys)
-		if len(members) < themeMinMembers {
-			continue
-		}
-		id := "theme:" + hexSHA("theme\x00"+repoKey+"\x00"+intentSig)
-		keep[id] = true
-		dominant := dominantShape(g.shapes)
-		fingerprint := themeFingerprint(members)
-		support := 0
-		for _, n := range g.shapes {
-			support += n
-		}
-		title := redactText(truncateString(strings.TrimSpace(firstNonEmpty(g.sample, intentSig)), 120))
-		desc := redactText("Recurring " + dominant + " work: " + intentSig)
-		memberJSON, _ := json.Marshal(members)
-		strength := math.Round(supportScoreV2(support)*1000) / 1000
-
-		if err := upsertTheme(db, theme{
-			id: id, repoKey: repoKey, scope: "repo", title: title, description: desc,
-			shape: dominant, memberKeys: string(memberJSON), support: support,
-			fingerprint: fingerprint, strength: strength,
-		}, ts); err != nil {
-			return err
-		}
-	}
-	return pruneThemes(db, keep)
-}
-
 type theme struct {
 	id, repoKey, scope, title, description, shape, memberKeys string
 	support                                                   int
 	fingerprint                                               string
 	strength                                                  float64
+	verdict                                                   string
 }
 
-// upsertTheme inserts/updates a theme candidate, preserving a cached verdict
-// while the fingerprint is unchanged and resetting to 'candidate' when it moves.
-func upsertTheme(db *sql.DB, th theme, ts string) error {
-	var existFP, existVerdict string
-	err := db.QueryRow(`SELECT fingerprint, COALESCE(verdict,'') FROM themes WHERE id=?`, th.id).Scan(&existFP, &existVerdict)
-	switch err {
-	case sql.ErrNoRows:
-		_, e := db.Exec(`INSERT INTO themes
-			(id, repo_key, scope, title, description, shape, member_keys, support, fingerprint, strength, status, verdict, created_at, updated_at)
-			VALUES (?,?,?,?,?,?,?,?,?,?,'candidate',NULL,?,?)`,
-			th.id, th.repoKey, th.scope, th.title, th.description, th.shape, th.memberKeys, th.support, th.fingerprint, th.strength, ts, ts)
-		return e
-	case nil:
-		status := "candidate"
-		verdict := any(nil)
-		if existVerdict != "" && existFP == th.fingerprint {
-			status = themeStatusForVerdict(existVerdict) // keep promotion
-			verdict = existVerdict
-		}
-		_, e := db.Exec(`UPDATE themes SET title=?, description=?, shape=?, member_keys=?, support=?, fingerprint=?, strength=?, status=?, verdict=?, updated_at=? WHERE id=?`,
-			th.title, th.description, th.shape, th.memberKeys, th.support, th.fingerprint, th.strength, status, verdict, ts, th.id)
-		return e
-	default:
-		return err
+// storeTheme inserts one agent-proposed theme with its verdict-derived status.
+func storeTheme(db *sql.DB, th theme, ts string) error {
+	var verdict any
+	if th.verdict != "" {
+		verdict = th.verdict
 	}
+	_, e := db.Exec(`INSERT OR REPLACE INTO themes
+		(id, repo_key, scope, title, description, shape, member_keys, support, fingerprint, strength, status, verdict, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		th.id, th.repoKey, th.scope, th.title, th.description, th.shape, th.memberKeys, th.support,
+		th.fingerprint, th.strength, themeStatusForVerdict(th.verdict), verdict, ts, ts)
+	return e
 }
 
 func themeStatusForVerdict(verdict string) string {
@@ -380,143 +299,246 @@ func rankTaskRelevantThemes(themes []themeView, terms []string, limit int) []the
 	return out
 }
 
-// --- theme verifier (explicit, egress-gated, cached) ---
+// --- theme proposal (agent-only, explicit, egress-gated) ---
 
-const themeVerifySystemPrompt = `You audit a THEME: a cluster of recurring read-only or conversational work episodes from a coding agent's history (investigations, "how does X work" diagnoses, design discussions) that the command/task channel does not capture.
+const themeSampleCap = 50
 
-You are given the theme as JSON: title, description, shape, member count, and member_evidence (per-episode intent + redacted transcript excerpts). Judge from the member evidence whether these episodes actually form ONE coherent, recurring, repo-meaningful latent practice — not an incidental grab-bag that merely shares an intent label. If the members are unrelated to each other, reject or needs_split.
+const themeProposeSystemPrompt = `You are given a SAMPLE of read-only / conversational work episodes from a coding agent's session history — investigations, "how does X work" diagnoses, design discussions, planning. These are the latent practices the command/task channel misses.
+
+Group episodes that share ONE coherent, recurring latent practice — by MEANING, not by wording. Episodes phrased differently can belong to the same practice; episodes that merely share a phrase but concern different topics must NOT be grouped. Leave unrelated episodes ungrouped. Curate membership: include only the episodes that genuinely belong.
 
 Return EXACTLY one JSON object and nothing else (no prose, no code fences):
 {
-  "schema_version": 1,
-  "verdict": "accepted" | "rejected" | "needs_split" | "low_confidence",
-  "reason": "<one or two sentences>",
-  "unsupported_claims": [],
-  "conflated_subpatterns": [],
-  "required_edits": [],
-  "evidence_fingerprint": "<copy the theme fingerprint verbatim>"
+  "themes": [
+    {
+      "title": "<short title>",
+      "description": "<what the recurring practice is>",
+      "member_keys": ["<episode_key from the sample>", ...],
+      "rationale": "<why these cohere>",
+      "verdict": "accepted" | "needs_split" | "low_confidence"
+    }
+  ]
 }
 
-Accept only a coherent recurring practice; reject incidental or generic clusters.`
+Use "accepted" only for a genuinely coherent recurring practice with enough members; use "needs_split"/"low_confidence" for weaker groupings. Do not invent episode_keys that are not in the sample.`
 
-// verifyThemes runs the theme verifier over candidate themes whose fingerprint
-// has no cached verdict. Egress-gated; cached; never from refresh.
+type proposedTheme struct {
+	Title      string   `json:"title"`
+	Desc       string   `json:"description"`
+	MemberKeys []string `json:"member_keys"`
+	Rationale  string   `json:"rationale"`
+	Verdict    string   `json:"verdict"`
+}
+
+// verifyThemes is the agent-only theme proposal phase (reached via the explicit
+// `patterns verify --themes`): it samples shaped episodes, asks an agent to
+// propose coherent latent practices by MEANING (not intent_sig buckets), curates
+// membership to the agent's choice, expands each seed deterministically, and
+// stores the result. Egress-gated; cached by the sample fingerprint; never from
+// refresh.
 func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
 	var stats dossierVerifyStats
 	if err := rejectAgentForNoEgress(agent); err != nil {
 		return stats, err
 	}
-	args, err := distillAgentCommandArgs(agent, nil, themeVerifySystemPrompt)
+
+	// Sample shaped episodes (read-only/conversation), most recent first.
+	sample, sampleKeys := sampleShapedEpisodes(db, brainDir)
+	if len(sample) < themeMinMembers {
+		_, _ = db.Exec(`DELETE FROM themes`) // nothing to propose from
+		return stats, nil
+	}
+	sampleFP := "sha256:" + hexSHA(strings.Join(sortedCopy(sampleKeys), "|"))
+	if corpusMeta(db, "themes_sample_fingerprint") == sampleFP && corpusScalar(db, `SELECT COUNT(*) FROM themes`) > 0 {
+		stats.Cached = corpusScalar(db, `SELECT COUNT(*) FROM themes`)
+		stats.Considered = stats.Cached
+		return stats, nil // unchanged sample → reuse prior proposals
+	}
+
+	args, err := distillAgentCommandArgs(agent, nil, themeProposeSystemPrompt)
 	if err != nil {
 		return stats, err
 	}
 	args = injectAgentModel(args, agent, model)
 	args = injectAgentEffort(args, agent, effort)
 
-	rows, err := db.Query(`SELECT id, title, description, shape, support, fingerprint, COALESCE(member_keys,''), COALESCE(verdict,'') FROM themes ORDER BY id`)
+	payload, _ := json.Marshal(map[string]any{"episodes": sample})
+	out, err := run(ctx, repoDir, args, []byte(redactText(string(payload))), dossierVerifyTimeout)
+	if err != nil {
+		return stats, fmt.Errorf("theme proposal agent: %w", err)
+	}
+	proposed, err := parseProposedThemes(out)
 	if err != nil {
 		return stats, err
 	}
-	type cand struct {
-		id, title, desc, shape, fp, memberKeys, verdict string
-		support                                         int
-	}
-	var cands []cand
-	for rows.Next() {
-		var c cand
-		if err := rows.Scan(&c.id, &c.title, &c.desc, &c.shape, &c.support, &c.fp, &c.memberKeys, &c.verdict); err != nil {
-			rows.Close()
-			return stats, err
-		}
-		cands = append(cands, c)
-	}
-	rows.Close()
 
+	repoKey := corpusMeta(db, "repo_key")
 	ts := now.UTC().Format(time.RFC3339)
-	for _, c := range cands {
+	if _, err := db.Exec(`DELETE FROM themes`); err != nil { // agent re-proposes the full set
+		return stats, err
+	}
+	valid := map[string]bool{}
+	for _, k := range sampleKeys {
+		valid[k] = true
+	}
+	for _, pt := range proposed {
 		stats.Considered++
-		if c.verdict != "" {
-			stats.Cached++
-			continue
-		}
-		// Member evidence (keys + capped redacted excerpts/anchors) so the verifier
-		// can judge coherence, not just the label and count.
-		keys, evidence := themeMemberEvidence(db, brainDir, c.memberKeys)
-		payload, _ := json.Marshal(map[string]any{
-			"title": c.title, "description": c.desc, "shape": c.shape,
-			"members": c.support, "fingerprint": c.fp,
-			"member_keys":     keys,
-			"member_evidence": evidence,
-		})
-		verdict, raw, err := runThemeVerifier(ctx, repoDir, args, redactText(string(payload)), c.fp, run)
-		if err != nil {
+		members := uniqueStrings(filterValidKeys(pt.MemberKeys, valid))
+		if len(members) < themeMinMembers {
 			stats.Failed++
 			continue
 		}
-		if _, err := db.Exec(`UPDATE themes SET verdict=?, status=?, updated_at=? WHERE id=?`,
-			verdict.Verdict, themeStatusForVerdict(verdict.Verdict), ts, c.id); err != nil {
+		// Deterministic expansion AFTER the agent seed: pull in additional shaped
+		// episodes whose intent/excerpt overlaps the proposed description.
+		members = expandThemeMembers(db, members, pt.Title+" "+pt.Desc)
+		verdict := strings.ToLower(strings.TrimSpace(pt.Verdict))
+		if !allowedVerdicts[verdict] {
+			verdict = "accepted"
+		}
+		memberJSON, _ := json.Marshal(members)
+		shape := memberDominantShape(db, members)
+		strength := math.Round(supportScoreV2(len(members))*1000) / 1000
+		id := "theme:" + hexSHA("theme\x00"+repoKey+"\x00"+strings.Join(sortedCopy(members), "|"))
+		if err := storeTheme(db, theme{
+			id: id, repoKey: repoKey, scope: "repo",
+			title:       redactText(truncateString(strings.TrimSpace(firstNonEmpty(pt.Title, "theme")), 120)),
+			description: redactText(truncateString(strings.TrimSpace(firstNonEmpty(pt.Desc, pt.Rationale)), 280)),
+			shape:       shape, memberKeys: string(memberJSON), support: len(members),
+			fingerprint: themeFingerprint(members), strength: strength, verdict: verdict,
+		}, ts); err != nil {
 			return stats, err
 		}
-		_ = raw
 		stats.Verified++
 	}
+	_ = setCorpusMeta(db, map[string]string{"themes_sample_fingerprint": sampleFP})
 	return stats, nil
 }
 
-const themeMemberEvidenceCap = 10
-const themeMemberExcerptLines = 24
-const themeMemberExcerptBytes = 700
-
-type themeMemberEv struct {
-	EpisodeKey string `json:"episode_key"`
-	Intent     string `json:"intent,omitempty"`
-	Excerpt    string `json:"excerpt,omitempty"`
+func parseProposedThemes(out string) ([]proposedTheme, error) {
+	raw := strings.TrimSpace(out)
+	if i := strings.IndexByte(raw, '{'); i >= 0 {
+		if j := strings.LastIndexByte(raw, '}'); j >= i {
+			raw = raw[i : j+1]
+		}
+	}
+	var wrap struct {
+		Themes []proposedTheme `json:"themes"`
+	}
+	if err := json.Unmarshal([]byte(raw), &wrap); err != nil {
+		return nil, fmt.Errorf("parse theme proposal: %w", err)
+	}
+	return wrap.Themes, nil
 }
 
-// themeMemberEvidence resolves a theme's member episode_keys to capped, redacted
-// intent + transcript excerpts so the verifier can tell a coherent recurring
-// practice from a same-intent_sig grab-bag. Returns the keys and the evidence.
-func themeMemberEvidence(db *sql.DB, brainDir, memberKeysJSON string) ([]string, []themeMemberEv) {
+// sampleShapedEpisodes returns up to themeSampleCap recent read-only/conversation
+// episodes as {episode_key, shape, intent, excerpt} (redacted), plus their keys.
+func sampleShapedEpisodes(db *sql.DB, brainDir string) ([]map[string]string, []string) {
+	rows, err := db.Query(`
+		SELECT e.episode_key, s.shape, COALESCE(e.intent_raw,''), e.source_path, e.start_line, e.end_line
+		FROM episodes e JOIN episode_shapes s ON s.episode_id=e.id
+		WHERE s.shape IN ('read_only','conversation')
+		ORDER BY e.created_at DESC LIMIT ?`, themeSampleCap)
+	if err != nil {
+		return nil, nil
+	}
+	defer rows.Close()
+	var sample []map[string]string
 	var keys []string
-	if memberKeysJSON != "" {
-		_ = json.Unmarshal([]byte(memberKeysJSON), &keys)
-	}
-	if len(keys) == 0 {
-		return keys, nil
-	}
-	var ev []themeMemberEv
-	for _, k := range keys {
-		if len(ev) >= themeMemberEvidenceCap {
-			break
-		}
-		var sourcePath, intent string
-		var startLine, endLine int
-		if err := db.QueryRow(`SELECT source_path, start_line, end_line, COALESCE(intent_raw,'') FROM episodes WHERE episode_key=?`, k).
-			Scan(&sourcePath, &startLine, &endLine, &intent); err != nil {
+	for rows.Next() {
+		var key, shape, intent, path string
+		var start, end int
+		if rows.Scan(&key, &shape, &intent, &path, &start, &end) != nil {
 			continue
 		}
-		m := themeMemberEv{EpisodeKey: k, Intent: redactText(intent)}
-		lines := endLine - startLine + 1
+		ex := ""
+		lines := end - start + 1
 		if lines <= 0 || lines > themeMemberExcerptLines {
 			lines = themeMemberExcerptLines
 		}
-		if ex := transcriptExcerpt(brainDir, episodeAnchor{Path: sourcePath, Line: startLine}, lines, themeMemberExcerptBytes); ex != "" {
-			m.Excerpt = redactText(ex)
+		if t := transcriptExcerpt(brainDir, episodeAnchor{Path: path, Line: start}, lines, themeMemberExcerptBytes); t != "" {
+			ex = redactText(t)
 		}
-		ev = append(ev, m)
+		sample = append(sample, map[string]string{
+			"episode_key": key, "shape": shape,
+			"intent": redactText(truncateString(intent, 160)), "excerpt": ex,
+		})
+		keys = append(keys, key)
 	}
-	return keys, ev
+	return sample, keys
 }
 
-func runThemeVerifier(ctx context.Context, repoDir string, args []string, themeJSON, fingerprint string, run distillAgentRunner) (dossierVerdict, string, error) {
-	out, err := run(ctx, repoDir, args, []byte(redactText(themeJSON)), dossierVerifyTimeout)
-	if err != nil {
-		return dossierVerdict{}, "", err
+func filterValidKeys(keys []string, valid map[string]bool) []string {
+	var out []string
+	for _, k := range keys {
+		if valid[k] {
+			out = append(out, k)
+		}
 	}
-	v, raw, err := parseDossierVerdict(out)
-	if err != nil {
-		return dossierVerdict{}, "", err
-	}
-	v.EvidenceFingerprint = fingerprint
-	return v, raw, nil
+	return out
 }
+
+// expandThemeMembers adds shaped episodes whose intent overlaps the seed text,
+// beyond the agent's curated members (the deterministic expansion after a seed).
+func expandThemeMembers(db *sql.DB, members []string, seedText string) []string {
+	terms := map[string]bool{}
+	for _, w := range brainBriefTaskWordPattern.FindAllString(strings.ToLower(seedText), -1) {
+		if !brainBriefFileMatchTermStop(w) {
+			terms[w] = true
+		}
+	}
+	if len(terms) == 0 {
+		return members
+	}
+	have := map[string]bool{}
+	for _, m := range members {
+		have[m] = true
+	}
+	rows, err := db.Query(`
+		SELECT e.episode_key, COALESCE(e.intent_raw,'')
+		FROM episodes e JOIN episode_shapes s ON s.episode_id=e.id
+		WHERE s.shape IN ('read_only','conversation')`)
+	if err != nil {
+		return members
+	}
+	defer rows.Close()
+	for rows.Next() {
+		if len(members) >= themeMemberCap {
+			break
+		}
+		var key, intent string
+		if rows.Scan(&key, &intent) != nil || have[key] {
+			continue
+		}
+		overlap := 0
+		for _, w := range brainBriefTaskWordPattern.FindAllString(strings.ToLower(intent), -1) {
+			if terms[w] {
+				overlap++
+			}
+		}
+		if overlap >= 2 { // needs real shared vocabulary, not one stopword-ish hit
+			members = append(members, key)
+			have[key] = true
+		}
+	}
+	return members
+}
+
+func memberDominantShape(db *sql.DB, members []string) string {
+	shapes := map[string]int{}
+	for _, m := range members {
+		var shape string
+		if db.QueryRow(`SELECT s.shape FROM episode_shapes s JOIN episodes e ON e.id=s.episode_id WHERE e.episode_key=?`, m).Scan(&shape) == nil {
+			shapes[shape]++
+		}
+	}
+	return dominantShape(shapes)
+}
+
+func sortedCopy(in []string) []string {
+	out := append([]string(nil), in...)
+	sort.Strings(out)
+	return out
+}
+
+const themeMemberExcerptLines = 24
+const themeMemberExcerptBytes = 700

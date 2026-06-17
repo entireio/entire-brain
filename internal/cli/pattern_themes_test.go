@@ -2,8 +2,7 @@ package cli
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -15,10 +14,10 @@ func TestClassifyEpisodeShape(t *testing.T) {
 		hasWrite, hasRead bool
 		want              string
 	}{
-		{0, 0, true, false, "write"},      // wrote a file
-		{3, 0, false, false, "shell"},     // ran commands, no writes
-		{0, 2, false, false, "read_only"}, // used read tools
-		{0, 0, false, true, "read_only"},  // read a file
+		{0, 0, true, false, "write"},
+		{3, 0, false, false, "shell"},
+		{0, 2, false, false, "read_only"},
+		{0, 0, false, true, "read_only"},
 		{0, 0, false, false, "conversation"},
 	}
 	for _, c := range cases {
@@ -28,204 +27,169 @@ func TestClassifyEpisodeShape(t *testing.T) {
 	}
 }
 
-// themeCorpus seeds N conversation episodes under one intent so a theme forms.
-func themeCorpus(t *testing.T, now time.Time, intentSig string, n int) *sql.DB {
-	t.Helper()
-	db := freshCorpusDB(t)
-	for i := 0; i < n; i++ {
-		id := fmt.Sprintf("episode:c%d", i)
-		insertCorpusEpisode(t, db, id, intentSig, "neutral", 0, now) // 0 cmds, no files -> conversation
-	}
-	if err := classifyEpisodeShapes(db, now); err != nil {
-		t.Fatal(err)
-	}
-	if err := buildThemes(db, "gh/acme/cli", now); err != nil {
-		t.Fatal(err)
-	}
-	return db
-}
-
-func TestThemeCandidatesFromReadOnlyWork(t *testing.T) {
-	now := time.Now()
-	db := themeCorpus(t, now, "how:worktree-fingerprint", 4)
-
-	// Shapes classified.
-	var conv int
-	db.QueryRow(`SELECT COUNT(*) FROM episode_shapes WHERE shape='conversation'`).Scan(&conv)
-	if conv != 4 {
-		t.Errorf("expected 4 conversation episodes, got %d", conv)
-	}
-	// A candidate theme formed (unverified -> not in verified-only view).
-	cands := queryThemeViews(db, false)
-	if len(cands) != 1 {
-		t.Fatalf("expected 1 theme candidate, got %d", len(cands))
-	}
-	if cands[0].Status != "candidate" || cands[0].Verdict != "" {
-		t.Errorf("fresh theme should be an unverified candidate: %+v", cands[0])
-	}
-	if v := queryThemeViews(db, true); len(v) != 0 {
-		t.Errorf("no theme is verified yet, want 0 verified, got %d", len(v))
-	}
-
-	// Below-threshold clusters do not form themes.
-	db2 := themeCorpus(t, now, "how:rare-thing", 2)
-	if c := queryThemeViews(db2, false); len(c) != 0 {
-		t.Errorf("a 2-episode cluster must not form a theme, got %d", len(c))
-	}
-}
-
-func TestThemeVerifyPromotesAndSuppresses(t *testing.T) {
-	now := time.Now()
-	db := themeCorpus(t, now, "how:worktree-fingerprint", 4)
-
-	// Accept it.
-	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
-		if !strings.Contains(string(input), "worktree") {
-			t.Errorf("theme verifier input missing the theme: %s", string(input))
-		}
-		return `{"schema_version":1,"verdict":"accepted","reason":"coherent recurring investigation"}`, nil
-	}
-	stats, err := verifyThemes(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stats.Verified != 1 {
-		t.Fatalf("expected 1 theme verified, got %+v", stats)
-	}
-	verified := queryThemeViews(db, true)
-	if len(verified) != 1 || verified[0].Status != "active" {
-		t.Errorf("accepted theme should be active + verified-visible: %+v", verified)
-	}
-
-	// Re-run: cached (no second agent call needed since verdict present).
-	calls := 0
-	run2 := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
-		calls++
-		return `{"verdict":"accepted"}`, nil
-	}
-	stats2, _ := verifyThemes(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run2, now)
-	if stats2.Cached != 1 || calls != 0 {
-		t.Errorf("expected cached theme (no new agent call), got %+v calls=%d", stats2, calls)
-	}
-
-	// A rejected theme is suppressed from all surfaces.
-	db.Exec(`UPDATE themes SET verdict='rejected', status='candidate'`)
-	if v := queryThemeViews(db, false); len(v) != 0 {
-		t.Errorf("rejected theme must be suppressed, got %d", len(v))
-	}
-}
-
-func TestThemeGrowthRefingerprints(t *testing.T) {
-	now := time.Now()
-	db := themeCorpus(t, now, "how:worktree-fingerprint", 4)
-	var fp1 string
-	db.QueryRow(`SELECT fingerprint FROM themes LIMIT 1`).Scan(&fp1)
-	// Mark accepted, then grow the cluster → fingerprint changes → demoted to candidate.
-	db.Exec(`UPDATE themes SET verdict='accepted', status='active'`)
-	insertCorpusEpisode(t, db, "episode:grow", "how:worktree-fingerprint", "neutral", 0, now)
-	if err := classifyEpisodeShapes(db, now); err != nil {
-		t.Fatal(err)
-	}
-	if err := buildThemes(db, "gh/acme/cli", now); err != nil {
-		t.Fatal(err)
-	}
-	var fp2, status, verdict string
-	db.QueryRow(`SELECT fingerprint, status, COALESCE(verdict,'') FROM themes LIMIT 1`).Scan(&fp2, &status, &verdict)
-	if fp2 == fp1 {
-		t.Error("growing the member set should refingerprint the theme")
-	}
-	if status != "candidate" || verdict != "" {
-		t.Errorf("a grown theme must drop back to unverified candidate, got status=%q verdict=%q", status, verdict)
-	}
-}
-
-// DV2: the theme verifier must receive member evidence (keys + redacted
-// excerpts), so a coherent theme is distinguishable from a same-intent_sig
-// grab-bag. A stub agent that accepts only when the members share a keyword
-// proves the input is rich enough to make that call.
-const coherentThemeTranscript = `{"type":"event_msg","payload":{"type":"user_message","message":"how does the worktree fingerprint work"}}
-{"type":"assistant","message":{"content":[{"type":"text","text":"WORKTREE fingerprint hashes git status; secret ghp_SECRETTOKEN0123456789abcdef at /Users/alice/x"}]}}
-{"type":"event_msg","payload":{"type":"user_message","message":"how does the worktree fingerprint work"}}
-{"type":"assistant","message":{"content":[{"type":"text","text":"the WORKTREE fingerprint also covers the binary diff"}]}}
-{"type":"event_msg","payload":{"type":"user_message","message":"how does the worktree fingerprint work"}}
-{"type":"assistant","message":{"content":[{"type":"text","text":"WORKTREE fingerprint is recomputed each refresh"}]}}
-{"type":"event_msg","payload":{"type":"user_message","message":"thanks"}}`
-
-const incoherentThemeTranscript = `{"type":"event_msg","payload":{"type":"user_message","message":"investigate the issue"}}
+// SR4 fixture: 3 worktree episodes with VARIED wording (different intent_sigs)
+// that share one latent practice, and 3 "investigate the issue" episodes with
+// the SAME intent_sig but UNRELATED topics.
+const themeProposalTranscript = `{"type":"event_msg","payload":{"type":"user_message","message":"how does the worktree fingerprint work"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"The WORKTREE fingerprint hashes git status and the binary diff."}]}}
+{"type":"event_msg","payload":{"type":"user_message","message":"explain the worktree hash to me"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"The WORKTREE hash is recomputed on each refresh."}]}}
+{"type":"event_msg","payload":{"type":"user_message","message":"clarify what makes the worktree id change"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"The WORKTREE id changes when tracked files change."}]}}
+{"type":"event_msg","payload":{"type":"user_message","message":"investigate the issue"}}
 {"type":"assistant","message":{"content":[{"type":"text","text":"This is about CSS color variables and theming."}]}}
 {"type":"event_msg","payload":{"type":"user_message","message":"investigate the issue"}}
 {"type":"assistant","message":{"content":[{"type":"text","text":"This concerns TCP networking socket timeouts."}]}}
 {"type":"event_msg","payload":{"type":"user_message","message":"investigate the issue"}}
 {"type":"assistant","message":{"content":[{"type":"text","text":"This is about JSON parsing edge cases."}]}}
-{"type":"event_msg","payload":{"type":"user_message","message":"done"}}`
+{"type":"event_msg","payload":{"type":"user_message","message":"thanks"}}`
 
-func TestThemeVerifierEvidenceBased(t *testing.T) {
-	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+func themeProposalBrain(t *testing.T, now time.Time) string {
+	t.Helper()
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/cli", []sessionFixture{
-		{id: "sa", branch: "main", agent: "Codex", checkpoint: "c1", relPath: "sessions/main/sa.jsonl", author: "Ada", transcript: coherentThemeTranscript},
-		{id: "sb", branch: "main", agent: "Codex", checkpoint: "c2", relPath: "sessions/main/sb.jsonl", author: "Ada", transcript: incoherentThemeTranscript},
+		{id: "s1", branch: "main", agent: "Codex", checkpoint: "c1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: themeProposalTranscript},
 	})
 	if err := buildPatternCorpus(brainDir, now); err != nil {
 		t.Fatal(err)
 	}
+	return brainDir
+}
+
+// A stub agent that groups by MEANING from the evidence: any sampled episode
+// whose excerpt/intent mentions "worktree" forms one accepted theme; unrelated
+// episodes are left ungrouped.
+func worktreeGroupingAgent(t *testing.T) distillAgentRunner {
+	return func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		var payload struct {
+			Episodes []map[string]string `json:"episodes"`
+		}
+		if err := json.Unmarshal(input, &payload); err != nil {
+			t.Fatalf("proposal input not JSON: %v\n%s", err, input)
+		}
+		var members []string
+		for _, e := range payload.Episodes {
+			if strings.Contains(strings.ToLower(e["excerpt"]+" "+e["intent"]), "worktree") {
+				members = append(members, e["episode_key"])
+			}
+		}
+		resp := map[string]any{"themes": []map[string]any{{
+			"title":       "worktree fingerprint investigations",
+			"description": "recurring questions about how the worktree fingerprint is computed",
+			"member_keys": members,
+			"rationale":   "all ask how the worktree fingerprint/hash/id behaves",
+			"verdict":     "accepted",
+		}}}
+		b, _ := json.Marshal(resp)
+		return string(b), nil
+	}
+}
+
+func TestThemeProposalGroupsByMeaningNotIntentSig(t *testing.T) {
+	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	brainDir := themeProposalBrain(t, now)
 	db := openCorpus(t, brainDir)
-	if n := corpusCount(t, db, "themes"); n < 2 {
-		t.Fatalf("expected at least 2 theme candidates (coherent + incoherent), got %d", n)
+
+	// Refresh does NOT create themes (agent-only).
+	if n := corpusCount(t, db, "themes"); n != 0 {
+		t.Fatalf("refresh must not create themes (agent-only), got %d", n)
 	}
 
-	var allInput string
-	// Stub agent: accept only when the members visibly share the WORKTREE keyword
-	// in their evidence; otherwise the members are an incoherent grab-bag.
-	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
-		in := string(input)
-		allInput += in + "\n"
-		if strings.Count(strings.ToLower(in), "worktree") >= 2 {
-			return `{"verdict":"accepted","reason":"coherent"}`, nil
+	stats, err := verifyThemes(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", worktreeGroupingAgent(t), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Verified != 1 {
+		t.Fatalf("expected 1 proposed theme, got %+v", stats)
+	}
+
+	// One accepted theme; it spans the worktree episodes regardless of wording.
+	views := queryThemeViews(db, true)
+	if len(views) != 1 {
+		t.Fatalf("expected 1 accepted theme, got %d", len(views))
+	}
+	var memberKeys string
+	db.QueryRow(`SELECT member_keys FROM themes WHERE id=?`, views[0].ID).Scan(&memberKeys)
+	var members []string
+	json.Unmarshal([]byte(memberKeys), &members)
+	if len(members) != 3 {
+		t.Fatalf("expected 3 worktree members, got %d: %v", len(members), members)
+	}
+	// (2) Varied wording → the members carry DIFFERENT intent_sigs (grouped by
+	// meaning, not intent_sig bucket).
+	sigs := map[string]bool{}
+	for _, k := range members {
+		var sig string
+		db.QueryRow(`SELECT intent_sig FROM episodes WHERE episode_key=?`, k).Scan(&sig)
+		sigs[sig] = true
+	}
+	if len(sigs) < 2 {
+		t.Errorf("expected members to span >1 intent_sig (cross-wording), got %v", sigs)
+	}
+	// (1) Same-intent_sig-but-unrelated episodes are NOT grouped into the theme.
+	rows, _ := db.Query(`SELECT episode_key FROM episodes WHERE intent_sig='investigate:issue'`)
+	var investigate []string
+	for rows.Next() {
+		var k string
+		rows.Scan(&k)
+		investigate = append(investigate, k)
+	}
+	rows.Close()
+	if len(investigate) != 3 {
+		t.Fatalf("setup: expected 3 investigate episodes, got %d", len(investigate))
+	}
+	memberSet := map[string]bool{}
+	for _, m := range members {
+		memberSet[m] = true
+	}
+	for _, k := range investigate {
+		if memberSet[k] {
+			t.Errorf("an unrelated same-intent_sig episode must not be in the accepted theme: %s", k)
 		}
-		return `{"verdict":"needs_split","reason":"members unrelated"}`, nil
+	}
+
+	// (3) The theme record uses the agent's description, not an intent_sig label.
+	r, ok := getCorpusTheme(brainDir, views[0].ID)
+	if !ok {
+		t.Fatal("expected to fetch the theme")
+	}
+	if !strings.Contains(r.Text, "worktree fingerprint is computed") {
+		t.Errorf("theme should carry the agent description, got:\n%s", r.Text)
+	}
+	if strings.Contains(r.Text, "Recurring conversation work:") {
+		t.Errorf("theme must not use the old intent_sig bucket label:\n%s", r.Text)
+	}
+}
+
+func TestThemeProposalCachedBySample(t *testing.T) {
+	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	brainDir := themeProposalBrain(t, now)
+	db := openCorpus(t, brainDir)
+	calls := 0
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return worktreeGroupingAgent(t)(ctx, dir, args, input, timeout)
 	}
 	if _, err := verifyThemes(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", run, now); err != nil {
 		t.Fatal(err)
 	}
-
-	// The verifier input carried member evidence, not just label/count.
-	if !strings.Contains(allInput, "member_evidence") || !strings.Contains(allInput, "episode_key") {
-		t.Errorf("theme verifier input missing member evidence:\n%s", allInput)
-	}
-	// Redaction held on the theme evidence input.
-	if strings.Contains(allInput, "ghp_SECRETTOKEN0123456789abcdef") || strings.Contains(allInput, "/Users/alice") {
-		t.Errorf("theme verifier input leaked a secret/home path:\n%s", allInput)
-	}
-	// Coherent worktree theme accepted; incoherent investigate theme not accepted.
-	var accepted, notAccepted int
-	rows, _ := db.Query(`SELECT description, verdict FROM themes`)
-	for rows.Next() {
-		var desc, verdict string
-		rows.Scan(&desc, &verdict)
-		if verdict == "accepted" {
-			accepted++
-			if !strings.Contains(strings.ToLower(desc), "worktree") {
-				t.Errorf("the accepted theme should be the coherent worktree one, got %q", desc)
-			}
-		} else if verdict == "needs_split" || verdict == "rejected" {
-			notAccepted++
-		}
-	}
-	rows.Close()
-	if accepted != 1 || notAccepted < 1 {
-		t.Errorf("expected 1 accepted (coherent) + >=1 not-accepted (incoherent), got accepted=%d notAccepted=%d", accepted, notAccepted)
+	// Second run, unchanged sample → cached (agent not called again).
+	stats2, _ := verifyThemes(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", run, now)
+	if calls != 1 || stats2.Cached == 0 {
+		t.Errorf("expected cached re-run (1 agent call), got calls=%d stats=%+v", calls, stats2)
 	}
 }
 
-func TestThemeVerifyNoEgressRejected(t *testing.T) {
+func TestThemeProposalNoEgressRejected(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
-	db := themeCorpus(t, time.Now(), "how:worktree-fingerprint", 4)
+	now := time.Now()
+	brainDir := themeProposalBrain(t, now)
+	db := openCorpus(t, brainDir)
 	called := false
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		called = true
 		return "", nil
 	}
-	_, err := verifyThemes(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, time.Now())
+	_, err := verifyThemes(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", run, now)
 	if err == nil || !strings.Contains(err.Error(), "no_egress") {
 		t.Fatalf("expected no_egress rejection, got %v", err)
 	}

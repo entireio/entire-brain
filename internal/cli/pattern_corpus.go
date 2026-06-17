@@ -381,11 +381,10 @@ func buildPatternCorpus(brainDir string, now time.Time) error {
 	if err := buildPatternCandidates(db, repoKey, now); err != nil {
 		return err
 	}
-	// Episode shapes + theme candidates (deterministic, token-free).
+	// Episode shapes (deterministic, token-free). Themes are NOT built here:
+	// they are agent-proposed semantic clusters, created only by the explicit
+	// `patterns verify --themes` (egress-gated) — refresh stays token-free.
 	if err := classifyEpisodeShapes(db, now); err != nil {
-		return err
-	}
-	if err := buildThemes(db, repoKey, now); err != nil {
 		return err
 	}
 	if err := buildSynapses(db, now); err != nil {
