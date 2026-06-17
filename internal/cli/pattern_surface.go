@@ -260,6 +260,149 @@ func strongestConsolidations(brainDir string, limit int) []briefConsolidation {
 	return views
 }
 
+const patternPointerCap = 5
+
+type relatedPatternRef struct {
+	Type  string `json:"type"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// relatedPatternPointers returns capped pattern:/theme: pointers relevant to a
+// query by term overlap — discoverability only, never part of facts/history/docs
+// ranking. Rejected dossiers/themes are excluded; graceful (nil) when no corpus.
+func relatedPatternPointers(brainDir, query string, limit int) []relatedPatternRef {
+	terms := brainBriefFileMatchTerms(query)
+	if len(terms) == 0 || limit <= 0 {
+		return nil
+	}
+	views, _, ok := loadCorpusPatternViews(brainDir)
+	if !ok {
+		return nil
+	}
+	for _, th := range loadThemeViews(brainDir, true) { // verified themes only
+		views = append(views, themePatternView(th))
+	}
+	termSet := map[string]bool{}
+	for _, t := range terms {
+		termSet[t] = true
+	}
+	type scored struct {
+		ref     relatedPatternRef
+		overlap int
+		str     float64
+	}
+	var matched []scored
+	for _, v := range views {
+		if v.Verdict == "rejected" {
+			continue
+		}
+		hay := strings.ToLower(v.Title + " " + v.IntentSig + " " + v.Gram + " " + v.Kind)
+		seen := map[string]bool{}
+		overlap := 0
+		for _, w := range brainBriefTaskWordPattern.FindAllString(hay, -1) {
+			if termSet[w] && !seen[w] {
+				seen[w] = true
+				overlap++
+			}
+		}
+		if overlap == 0 {
+			continue
+		}
+		matched = append(matched, scored{relatedPatternRef{Type: v.Type, ID: v.ID, Title: v.Title}, overlap, v.Strength})
+	}
+	sort.SliceStable(matched, func(i, j int) bool {
+		if matched[i].overlap != matched[j].overlap {
+			return matched[i].overlap > matched[j].overlap
+		}
+		return matched[i].str > matched[j].str
+	})
+	out := make([]relatedPatternRef, 0, limit)
+	for _, m := range matched {
+		if len(out) >= limit {
+			break
+		}
+		out = append(out, m.ref)
+	}
+	return out
+}
+
+// loadReviewPatternContext returns V2 risk/practice/task patterns whose recorded
+// evidence touched any of the given files — diff-less regression context for
+// `review --patterns`. Capped; graceful (nil) when no corpus. Rejected dossiers
+// are excluded.
+func loadReviewPatternContext(brainDir string, files []string, limit int) []reviewPatternRef {
+	if len(files) == 0 || limit <= 0 {
+		return nil
+	}
+	db, err := openPatternCorpusDB(brainDir)
+	if err != nil {
+		return nil
+	}
+	defer db.Close()
+	ph := make([]string, len(files))
+	args := make([]any, 0, len(files)+1)
+	for i, f := range files {
+		ph[i] = "?"
+		args = append(args, f)
+	}
+	args = append(args, limit*4)
+	rows, err := db.Query(`
+		SELECT DISTINCT p.id, p.type, p.title, ef.path
+		FROM patterns p
+		JOIN pattern_evidence pe ON pe.pattern_id = p.id
+		JOIN episode_files ef ON ef.episode_id = pe.episode_id
+		LEFT JOIN dossiers d ON d.pattern_id = p.id
+		WHERE p.type IN ('risk','practice','task')
+		  AND COALESCE(d.verdict,'') != 'rejected'
+		  AND ef.path IN (`+strings.Join(ph, ",")+`)
+		ORDER BY p.strength DESC LIMIT ?`, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []reviewPatternRef
+	seen := map[string]bool{}
+	for rows.Next() {
+		var id, typ, title, path string
+		if rows.Scan(&id, &typ, &title, &path) != nil {
+			continue
+		}
+		key := id + "\x00" + path
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if len(out) >= limit {
+			break
+		}
+		out = append(out, reviewPatternRef{File: redactText(path), Type: typ, Title: redactText(title), ID: id})
+	}
+	return out
+}
+
+// handoffConsolidations returns the strongest dossiers for a handoff: current AND
+// stale (so staleness is visible on resume), excluding rejected, capped. Empty
+// when no corpus.
+func handoffConsolidations(brainDir string, limit int) []briefConsolidation {
+	if limit <= 0 {
+		return nil
+	}
+	dossiers := loadCorpusDossiers(brainDir)
+	views := make([]briefConsolidation, 0, len(dossiers))
+	for _, d := range dossiers {
+		if d.verdict == "rejected" {
+			continue
+		}
+		views = append(views, consolidationView(d))
+	}
+	sort.SliceStable(views, func(i, j int) bool { return views[i].Confidence > views[j].Confidence })
+	if len(views) > limit {
+		views = views[:limit]
+	}
+	return views
+}
+
 // getCorpusConsolidation addresses one dossier by its pattern id for `get`.
 // Returns the consolidation as a unifiedResult, or false if absent.
 func getCorpusConsolidation(brainDir, patternID string) (unifiedResult, bool) {

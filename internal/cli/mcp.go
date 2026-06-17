@@ -255,7 +255,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_get",
-			"description": "Fetch one item in full by its id (fact:… | history:… | doc:…), e.g. from a search result.",
+			"description": "Fetch one item in full by its id (fact:… | history:… | doc:… | pattern:… | theme:…), e.g. from a search result or pattern listing.",
 			"inputSchema": objectSchema([]string{"id"}, map[string]any{"id": stringArg("id", "Prefixed item id"), "branch": branchArg()}),
 		},
 		{
@@ -315,12 +315,12 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_patterns",
-			"description": "List repeated-work patterns (procedures = command workflows, practices = durable judgments) with strength, support, and reinforcement. Read-only; forming a skill is a write action done via the CLI `entire brain patterns skills form`.",
-			"inputSchema": objectSchema(nil, map[string]any{"type": stringArg("type", "Filter by type: procedure or practice (empty = both)"), "scope": stringArg("scope", "Filter by scope: repo or workspace (empty = both)"), "limit": integerArg("limit", "Maximum patterns to return")}),
+			"description": "List V2 corpus patterns (task = intent+method, procedure = command workflow, risk = corrected/failed work, practice = durable judgment, theme = latent read-only/conversational practice) with strength, support, dossier/verifier state, and a top anchor. Read-only; forming a skill is a write action done via the CLI `entire brain patterns skills form`.",
+			"inputSchema": objectSchema(nil, map[string]any{"type": stringArg("type", "Filter by type: task, procedure, risk, practice, or theme (empty = all)"), "scope": stringArg("scope", "Filter by scope: repo or workspace (empty = both)"), "limit": integerArg("limit", "Maximum patterns to return")}),
 		},
 		{
 			"name":        "brain_patterns_status",
-			"description": "Pattern layer freshness and counts: episodes, procedures, practices, and skill-memory (accepted/declined/updates-available).",
+			"description": "Pattern layer freshness and counts plus the last corpus build summary (episodes, patterns, dossiers, symbol links, commits, synapses) and skill-memory (accepted/declined/updates-available).",
 			"inputSchema": objectSchema(nil, map[string]any{}),
 		},
 	}
@@ -372,17 +372,17 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	case "brain_query":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runRetrieve(ctx, cmd, opts, query, modeHybrid, limit, branch, true)
+			err = runRetrieve(ctx, cmd, opts, query, modeHybrid, limit, branch, true, false)
 		}
 	case "brain_search":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runRetrieve(ctx, cmd, opts, query, modeLexical, limit, branch, true)
+			err = runRetrieve(ctx, cmd, opts, query, modeLexical, limit, branch, true, false)
 		}
 	case "brain_vsearch":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runRetrieve(ctx, cmd, opts, query, modeVector, limit, branch, true)
+			err = runRetrieve(ctx, cmd, opts, query, modeVector, limit, branch, true, false)
 		}
 	case "brain_get":
 		id, stringErr := mcpOptionalString(params.Arguments, "id")
