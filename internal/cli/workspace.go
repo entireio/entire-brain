@@ -437,6 +437,15 @@ func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, 
 		if err := workspaceFullRefresh(ctx, cmd.OutOrStdout(), opts, manifest, refreshRepo); err != nil {
 			return err
 		}
+		// Keep the cross-repo V2 corpus current as part of the full refresh, so
+		// users don't need a separate `workspace patterns refresh` build path.
+		// Deterministic and token-free (aggregates already-built member corpora).
+		if counts, werr := buildWorkspacePatternCorpus(opts.Env, manifest, opts.Now().UTC()); werr != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: workspace patterns: %v\n", werr)
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "workspace patterns: %d cross-repo pattern(s) from %d/%d member corpora\n",
+				counts.Patterns, counts.WithCorpus, counts.Members)
+		}
 	}
 	freshness, err := workspaceFreshness(ctx, opts, manifest)
 	if err != nil {
@@ -725,7 +734,7 @@ func workspaceMemberBranch(brainDir, override string) (string, error) {
 // into the repo key and the brain-local id. Repo keys never contain ':', so the
 // first path segment starting a known source prefix is the boundary.
 func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
-	for _, prefix := range []string{"fact:", "history:", "doc:"} {
+	for _, prefix := range []string{"fact:", "history:", "doc:", "pattern:"} {
 		if strings.HasPrefix(qualified, prefix) {
 			return "", "", fmt.Errorf("id %q is missing its repo key (expected <repo-key>/%s…)", qualified, prefix)
 		}
@@ -733,7 +742,7 @@ func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
 			return qualified[:i], qualified[i+1:], nil
 		}
 	}
-	return "", "", fmt.Errorf("unrecognized id %q (expected <repo-key>/fact:…, <repo-key>/history:…, or <repo-key>/doc:…)", qualified)
+	return "", "", fmt.Errorf("unrecognized id %q (expected <repo-key>/fact:…, <repo-key>/history:…, <repo-key>/doc:…, or <repo-key>/pattern:…)", qualified)
 }
 
 // workspaceFullRefresh fans the free deterministic single-repo refresh over

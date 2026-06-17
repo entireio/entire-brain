@@ -170,6 +170,19 @@ var patternCorpusSchema = []string{
 		created_at TEXT NOT NULL,
 		updated_at TEXT NOT NULL
 	)`,
+	// workspace_pattern_repos holds the per-member-repo breakdown for a
+	// workspace-scope pattern (which member repos share it and with what support).
+	// Only populated in a workspace corpus; empty in a repo corpus.
+	`CREATE TABLE IF NOT EXISTS workspace_pattern_repos (
+		pattern_id TEXT NOT NULL,
+		repo_key TEXT NOT NULL,
+		support INTEGER NOT NULL DEFAULT 0,
+		outcome_success INTEGER NOT NULL DEFAULT 0,
+		outcome_corrected INTEGER NOT NULL DEFAULT 0,
+		outcome_neutral INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (pattern_id, repo_key),
+		FOREIGN KEY (pattern_id) REFERENCES patterns(id) ON DELETE CASCADE
+	)`,
 	`CREATE INDEX IF NOT EXISTS idx_episodes_repo_branch ON episodes(repo_key, branch)`,
 	`CREATE INDEX IF NOT EXISTS idx_episodes_intent_sig ON episodes(intent_sig)`,
 	`CREATE INDEX IF NOT EXISTS idx_episodes_outcome ON episodes(outcome)`,

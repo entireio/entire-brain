@@ -42,7 +42,8 @@ func newWorkspacePatternsCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&list.asJSON, "json", false, "Emit patterns as JSON")
 	cmd.Flags().IntVar(&list.limit, "limit", 20, "Maximum number of patterns to show")
-	cmd.Flags().StringVar(&list.typ, "type", "", "Filter by type: procedure|practice")
+	cmd.Flags().StringVar(&list.typ, "type", "", "Filter by type: task|procedure|risk|practice")
+	cmd.Flags().StringVar(&list.scope, "scope", "", "Filter by scope: workspace")
 
 	refresh := &cobra.Command{
 		Use:   "refresh <workspace>",
@@ -365,9 +366,17 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 	if err != nil {
 		return err
 	}
+	// Primary V2 source: aggregate member corpora into the workspace corpus.
+	counts, err := buildWorkspacePatternCorpus(opts.Env, manifest, opts.Now().UTC())
+	if err != nil {
+		return err
+	}
+	// Legacy JSON views remain only so the workspace skills path (loadBrainTasks)
+	// keeps working; they are no longer the analytical source for the listing.
 	procs := buildWorkspaceProcedures(members.procsByRepo, members.repoOrder, len(manifest.Repos), name)
 	pracs := buildWorkspacePractices(members.pracsByRepo, members.repoOrder, len(manifest.Repos), name)
 	tasks := buildWorkspaceTaskCandidates(members.tasksByRepo, members.repoOrder, len(manifest.Repos), name)
+	_ = wsDir
 	if err := writeBrainProceduresFile(wsDir, procs); err != nil {
 		return err
 	}
@@ -377,9 +386,9 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 	if err := writeBrainTasksFile(wsDir, tasks); err != nil {
 		return err
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "workspace %s: %d cross-repo task candidate(s), %d procedure(s), %d practice(s) across %d member repo(s)\n",
-		name, len(tasks), len(procs), len(pracs), len(manifest.Repos))
-	for _, w := range members.warnings {
+	fmt.Fprintf(cmd.OutOrStdout(), "workspace %s: %d cross-repo V2 pattern(s) from %d/%d member corpora\n",
+		name, counts.Patterns, counts.WithCorpus, counts.Members)
+	for _, w := range append(counts.Warnings, members.warnings...) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
 	}
 	return nil
@@ -390,13 +399,18 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 	if err != nil {
 		return err
 	}
-	views, _, err := loadPatternViews(wsDir)
-	if err != nil {
-		return err
+	views, _, corpusBacked := loadCorpusPatternViews(wsDir)
+	if !corpusBacked {
+		out := cmd.OutOrStdout()
+		fmt.Fprintf(out, "workspace %s: no cross-repo corpus (run `entire brain workspace patterns refresh %s`)\n", name, name)
+		return nil
 	}
 	filtered := views[:0:0]
 	for _, v := range views {
 		if list.typ != "" && v.Type != list.typ {
+			continue
+		}
+		if list.scope != "" && v.Scope != list.scope {
 			continue
 		}
 		filtered = append(filtered, v)

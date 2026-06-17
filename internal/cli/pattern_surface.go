@@ -75,6 +75,13 @@ func loadCorpusPatternViews(brainDir string) ([]patternView, map[string]patternV
 	if rows.Err() != nil {
 		return nil, nil, false
 	}
+	// Attach the per-repo breakdown to workspace-scope patterns.
+	breakdown := loadWorkspaceRepoBreakdown(db)
+	for i := range views {
+		if views[i].Scope == "workspace" {
+			views[i].RepoBreakdown = breakdown[views[i].ID]
+		}
+	}
 	idx := make(map[string]patternView, len(views))
 	for _, v := range views {
 		idx[v.ID] = v
