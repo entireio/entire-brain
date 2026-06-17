@@ -59,6 +59,11 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, targ
 		if views, _, verr = loadPatternViews(brainDir); verr != nil {
 			return verr
 		}
+	} else {
+		// Themes (latent practices) join the corpus listing as their own type.
+		for _, th := range loadThemeViews(brainDir, false) {
+			views = append(views, themePatternView(th))
+		}
 	}
 	memIdx := skillMemoryByPatternID(mustLoadSkillMemory(brainDir))
 
@@ -341,6 +346,7 @@ func newPatternsVerifyCommand(opts Options) *cobra.Command {
 	var (
 		asJSON       bool
 		deep         bool
+		themes       bool
 		agent, model string
 		effort       string
 	)
@@ -352,21 +358,23 @@ func newPatternsVerifyCommand(opts Options) *cobra.Command {
 			"never do. Verdicts are cached by evidence fingerprint and re-used until the evidence " +
 			"changes. With --deep, each pattern is audited against its COMPLETE supporting-evidence " +
 			"set (every backing episode, corrected/failed first, with parameters and recoveries) " +
-			"instead of the sampled shallow dossier.",
+			"instead of the sampled shallow dossier. With --themes, candidate latent-practice themes " +
+			"(recurring read-only/conversational work) are verified before they surface.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPatternsVerify(cmd.Context(), cmd, opts, targetFromArgs(opts, args), agent, model, effort, asJSON, deep)
+			return runPatternsVerify(cmd.Context(), cmd, opts, targetFromArgs(opts, args), agent, model, effort, asJSON, deep, themes)
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit the verification summary as JSON")
 	cmd.Flags().BoolVar(&deep, "deep", false, "Audit each pattern against its full supporting-evidence set (deep dossier)")
+	cmd.Flags().BoolVar(&themes, "themes", false, "Verify candidate latent-practice themes before they surface")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Verifier agent: auto, codex, claude-code, ollama, or command")
 	cmd.Flags().StringVar(&model, "model", "", "Override the agent model, or select the local Ollama model")
 	cmd.Flags().StringVar(&effort, "effort", "", "Agent reasoning effort (codex/claude-code)")
 	return cmd
 }
 
-func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, target, agent, model, effort string, asJSON, deep bool) error {
+func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, target, agent, model, effort string, asJSON, deep, themes bool) error {
 	repoDir, brainDir, err := resolvePatternsRepoAndBrain(ctx, opts, target)
 	if err != nil {
 		return err
@@ -382,7 +390,11 @@ func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	run := defaultDistillAgentRunner(agent)
 	verify := verifyDossiers
 	mode := "dossier"
-	if deep {
+	switch {
+	case themes:
+		verify = verifyThemes
+		mode = "theme"
+	case deep:
 		verify = verifyDeepDossiers
 		mode = "deep dossier"
 	}

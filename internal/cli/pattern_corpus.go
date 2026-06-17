@@ -158,9 +158,16 @@ var patternCorpusSchema = []string{
 		id TEXT PRIMARY KEY, from_id TEXT NOT NULL, to_id TEXT NOT NULL, kind TEXT NOT NULL,
 		weight REAL NOT NULL DEFAULT 1.0, source_anchor TEXT, evidence_sha TEXT, created_at TEXT NOT NULL
 	)`,
+	// episode_shapes is the deterministic shape of each episode
+	// (conversation | read_only | shell | write), derived from its tools,
+	// commands, and file actions. Populated as a post-pass each build.
+	`CREATE TABLE IF NOT EXISTS episode_shapes (
+		episode_id TEXT PRIMARY KEY,
+		shape TEXT NOT NULL,
+		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
+	)`,
 	// themes are conversational/read-only/judgment-heavy clusters that the
-	// command/task channel misses. The table is first-class here; population +
-	// verification land with theme discovery (Priority 5).
+	// command/task channel misses.
 	`CREATE TABLE IF NOT EXISTS themes (
 		id TEXT PRIMARY KEY,
 		repo_key TEXT,
@@ -371,6 +378,13 @@ func buildPatternCorpus(brainDir string, now time.Time) error {
 		return err
 	}
 	if err := buildPatternCandidates(db, repoKey, now); err != nil {
+		return err
+	}
+	// Episode shapes + theme candidates (deterministic, token-free).
+	if err := classifyEpisodeShapes(db, now); err != nil {
+		return err
+	}
+	if err := buildThemes(db, repoKey, now); err != nil {
 		return err
 	}
 	if err := buildSynapses(db, now); err != nil {

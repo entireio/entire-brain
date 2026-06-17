@@ -157,8 +157,11 @@ type brainBriefReport struct {
 	// trigger + workflow + verification + failure modes, anchored. Task-gated
 	// and capped — an unrelated task carries none.
 	Consolidations []briefConsolidation `json:"consolidations,omitempty"`
-	Guidance       []string             `json:"guidance"`
-	Warnings       []string             `json:"warnings,omitempty"`
+	// Themes are verified latent practices (recurring read-only/conversational
+	// work) relevant to the task. Task-gated and capped; verifier-accepted only.
+	Themes   []themeView `json:"themes,omitempty"`
+	Guidance []string    `json:"guidance"`
+	Warnings []string    `json:"warnings,omitempty"`
 }
 
 type brainBriefSemantic struct {
@@ -236,7 +239,9 @@ type brainOverviewReport struct {
 	// StrongestConsolidations are the corpus's top current dossiers (v2),
 	// capped so the overview shows the repo's strongest patterns without flooding.
 	StrongestConsolidations []briefConsolidation `json:"strongest_consolidations,omitempty"`
-	Warnings                []string             `json:"warnings,omitempty"`
+	// StrongestThemes are the top verified latent-practice themes, capped.
+	StrongestThemes []themeView `json:"strongest_themes,omitempty"`
+	Warnings        []string    `json:"warnings,omitempty"`
 }
 
 type brainOverviewFresh struct {
@@ -335,6 +340,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 		}
 		report.StrongestPatterns = strongestPatterns(status.Brain.Path, 3)
 		report.StrongestConsolidations = strongestConsolidations(status.Brain.Path, 3)
+		report.StrongestThemes = strongestThemes(status.Brain.Path, 3)
 	}
 	if jsonOut {
 		return writeJSON(cmd, report)
@@ -440,6 +446,12 @@ func renderBrainOverviewText(cmd *cobra.Command, report brainOverviewReport) {
 		fmt.Fprintln(out, "strongest consolidations:")
 		for _, c := range report.StrongestConsolidations {
 			fmt.Fprintf(out, "  [%s] %s (confidence %.2f)\n", c.Type, c.Title, c.Confidence)
+		}
+	}
+	if len(report.StrongestThemes) > 0 {
+		fmt.Fprintln(out, "strongest themes:")
+		for _, th := range report.StrongestThemes {
+			fmt.Fprintf(out, "  [%s] %s (strength %.2f)\n", th.Shape, th.Title, th.Strength)
 		}
 	}
 }
@@ -995,6 +1007,8 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	// Corpus consolidations (v2): task-relevant dossiers, capped, no ambient
 	// noise. Graceful — absent corpus contributes nothing.
 	report.Consolidations = loadBriefConsolidations(status.Brain.Path, brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
+	// Verified latent-practice themes relevant to the task (no noise; accepted only).
+	report.Themes = rankTaskRelevantThemes(loadThemeViews(status.Brain.Path, true), brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
 	if briefOpts.json {
 		return writeJSON(cmd, report)
 	}
@@ -1054,6 +1068,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		if c.Anchor != nil {
 			fmt.Fprintf(cmd.OutOrStdout(), "  e.g. %s:%d   id %s\n", c.Anchor.Transcript, c.Anchor.StartLine, c.PatternID)
 		}
+	}
+	for _, th := range report.Themes {
+		fmt.Fprintf(cmd.OutOrStdout(), "theme [%s %.2f] %s   id %s\n", th.Shape, th.Strength, th.Title, th.ID)
 	}
 	for _, warning := range append(report.Status.Warnings, report.Warnings...) {
 		fmt.Fprintf(cmd.OutOrStdout(), "warning: %s\n", warning)

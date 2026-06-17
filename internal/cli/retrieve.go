@@ -411,6 +411,11 @@ func getUnifiedBatch(brainDir, branch string, ids []string) (found []unifiedResu
 				found = append(found, r)
 				continue
 			}
+		case strings.HasPrefix(id, "theme:"):
+			if r, ok := getCorpusTheme(brainDir, id); ok {
+				found = append(found, r)
+				continue
+			}
 		}
 		missing = append(missing, id)
 	}
