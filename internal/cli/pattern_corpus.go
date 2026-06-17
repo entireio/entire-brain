@@ -38,7 +38,7 @@ const (
 	// Bump when the parser/extractor output changes in a way that requires
 	// re-indexing already-indexed sessions. v2: Phase 2 enrichment (exit codes,
 	// files, meta-hits, fact links).
-	patternIndexerVersion = 3
+	patternIndexerVersion = 5
 )
 
 // patternCorpusSchema is the full target schema (additive). Tables not yet

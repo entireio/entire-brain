@@ -17,8 +17,23 @@ var (
 	reBearer     = regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._~+/=-]{10,}`)
 	// Secret-looking env assignment: NAME containing TOKEN/SECRET/KEY/PASSWORD = value.
 	reSecretEnv = regexp.MustCompile(`(?i)\b([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY)[A-Za-z0-9_]*)\s*[=:]\s*["']?[^\s"']{6,}`)
-	// Absolute home paths: keep the path shape, drop the username.
-	reUserHome = regexp.MustCompile(`/Users/[^/\s"']+`)
+	// Absolute home paths: keep the path shape, drop the username. Two cases.
+	//
+	// Canonical home roots are unambiguous home directories wherever they appear —
+	// inside file:// URLs, gitbash /c/Users paths, Windows C:\Users, sed
+	// replacements — so they are stripped regardless of surrounding context:
+	//   - macOS "/Users/<name>" or "\Users\<name>" (capital U is the OS-created dir)
+	//   - Linux "/home/<name>"
+	// Group 1 is the prefix incl. its trailing separator (preserved); the username
+	// is dropped. Over-redacting a rare capital-Users source path is acceptable;
+	// leaking a contributor's home username is not.
+	reHomeCanonical = regexp.MustCompile(`((?:[/\\])Users[/\\]|/home/)[^/\\\s"']+`)
+	// Lowercase "/users/" is overwhelmingly an API/repo path (api.github.com/users/<login>,
+	// .../platform/users/components, users/me), so it is treated as a home dir only
+	// when it starts a path token — start of string or after whitespace " ' = : ( , | —
+	// which catches a lowercase-typed macOS home ("ls /users/<name>") while sparing
+	// embedded API paths. Group 1 is the boundary, group 2 the "/users/" prefix.
+	reHomeLowerUsers = regexp.MustCompile(`(^|[\s"'=:(,|])(/users/)[^/\s"']+`)
 )
 
 // redactText removes credential-shaped substrings and home-dir usernames.
@@ -37,7 +52,8 @@ func redactText(s string) string {
 		}
 		return "[REDACTED]"
 	})
-	s = reUserHome.ReplaceAllString(s, "/Users/[redacted]")
+	s = reHomeCanonical.ReplaceAllString(s, "${1}[redacted]")      // preserve prefix (e.g. /Users/), drop username
+	s = reHomeLowerUsers.ReplaceAllString(s, "${1}${2}[redacted]") // preserve boundary + /users/, drop username
 	return s
 }
 

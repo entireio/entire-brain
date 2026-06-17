@@ -56,11 +56,30 @@ func TestRedactText(t *testing.T) {
 		{"token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcDEF123_-x", "eyJhbGciOiJIUzI1NiJ9", "[REDACTED JWT]"},
 		{"API_KEY=supersecretvalue123", "supersecretvalue123", "[REDACTED]"},
 		{"ran in /Users/alice/Projects/secret/app", "/Users/alice", "/Users/[redacted]"},
+		// macOS is case-insensitive by default (and may be case-sensitive); a
+		// lowercase /users/ home path is the same dir and must redact too.
+		{"ls /users/peytonmontei/Documents/entire", "peytonmontei", "/users/[redacted]"},
+		// Linux home layout.
+		{"cat /home/bob/.ssh/config", "/home/bob", "/home/[redacted]"},
+		// Quoted home path keeps the surrounding quote (and the subpath shape).
+		{`"/Users/carol"`, "carol", `"/Users/[redacted]"`},
+		// Path shape is preserved (only the username segment goes).
+		{"/Users/dave/go/src", "dave", "/Users/[redacted]/go/src"},
+		// Real cases from a live brain: canonical /Users (capital) is a home dir
+		// wherever it appears — inside file:// URLs, gitbash /c/Users, sed args.
+		{"git clone file:///Users/dvydra/src/cli x", "dvydra", "file:///Users/[redacted]"},
+		{"grep go-git /c/Users/Victor/cli/go.mod", "Victor", "/c/Users/[redacted]"},
+		{`sed 's|x|/Users/peytonmontei/Documents/cli|'`, "peytonmontei", "/Users/[redacted]"},
+		{`C:\Users\Victor\cli`, "Victor", `C:\Users\[redacted]`},
+		// API/repo paths use lowercase /users/ embedded after a segment -> kept.
+		{"gh api users/octocat --jq .name", "", "octocat"},
+		{"gh api repos/x/contents/platform/users/components/Grid.tsx", "", "platform/users/components"},
+		{"rg users/me/checkpoints api/src", "", "users/me/checkpoints"},
 		{"-----BEGIN RSA PRIVATE KEY-----\nMIIabc\n-----END RSA PRIVATE KEY-----", "MIIabc", "[REDACTED PRIVATE KEY]"},
 	}
 	for _, c := range cases {
 		got := redactText(c.in)
-		if strings.Contains(got, c.mustNotContain) {
+		if c.mustNotContain != "" && strings.Contains(got, c.mustNotContain) {
 			t.Errorf("redactText(%q) still contains secret %q -> %q", c.in, c.mustNotContain, got)
 		}
 		if !strings.Contains(got, c.mustContain) {
