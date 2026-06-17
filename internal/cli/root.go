@@ -84,6 +84,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 
 	// Create the brain — locate it, build/refresh it, manage workspaces.
 	addGrouped("create", newPathCommand(opts))
+	addGrouped("create", newAddCommand(opts))
 	addGrouped("create", newRefreshCommand(opts))
 	addGrouped("create", newWatchCommand(opts))
 	addGrouped("create", newDistillCommand(opts))
@@ -107,6 +108,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addGrouped("explore", newGetCommand(opts))
 	addGrouped("explore", newMultiGetCommand(opts))
 	addGrouped("explore", newBrainShowCommand(opts))
+	addGrouped("explore", newDashCommand(opts))
 
 	// Maintain & share — freshness, cleanup, portability, version.
 	// (Build stages live under `refresh`: sessions, index, seed.)
