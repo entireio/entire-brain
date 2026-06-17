@@ -82,10 +82,15 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 	if err != nil {
 		return err
 	}
-	tasks, err := loadBrainTasks(brainDir)
-	if err != nil {
-		return err
+	// V2 corpus is the primary source; legacy task JSON is the fallback.
+	tasks, corpusBacked := loadCorpusTaskCandidates(brainDir)
+	if !corpusBacked {
+		if tasks, err = loadBrainTasks(brainDir); err != nil {
+			return err
+		}
 	}
+	// Suppress already-formed-and-current / declined-unchanged candidates.
+	tasks = filterSkillCandidatesByMemory(brainDir, tasks)
 	if limit > 0 && len(tasks) > limit {
 		tasks = tasks[:limit]
 	}
@@ -125,15 +130,19 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 	}
 	brainDir := storage.BrainDir
 
-	tasks, err := loadBrainTasks(brainDir)
-	if err != nil {
-		return err
-	}
 	var cand *taskCandidate
-	for i := range tasks {
-		if tasks[i].ID == s.taskID {
-			cand = &tasks[i]
-			break
+	if c, corpusBacked := corpusTaskCandidateByID(brainDir, s.taskID); corpusBacked {
+		cand = c
+	} else {
+		tasks, err := loadBrainTasks(brainDir)
+		if err != nil {
+			return err
+		}
+		for i := range tasks {
+			if tasks[i].ID == s.taskID {
+				cand = &tasks[i]
+				break
+			}
 		}
 	}
 	if cand == nil {
