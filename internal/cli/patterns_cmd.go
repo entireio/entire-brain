@@ -356,9 +356,10 @@ func newPatternsVerifyCommand(opts Options) *cobra.Command {
 		Long: "Run the optional consolidation verifier over promotable dossiers. This is the " +
 			"only surface that may invoke an agent for patterns; refresh/watch/brief/query/MCP " +
 			"never do. Verdicts are cached by evidence fingerprint and re-used until the evidence " +
-			"changes. With --deep, each pattern is audited against its COMPLETE supporting-evidence " +
-			"set (every backing episode, corrected/failed first, with parameters and recoveries) " +
-			"instead of the sampled shallow dossier. With --themes, candidate latent-practice themes " +
+			"changes. With --deep, each pattern is audited against a bounded evidence-deep export " +
+			"of its backing episodes (corrected/failed first; up to 40 anchors, the top 12 carrying " +
+			"redacted transcript excerpts, with parameters and recoveries) instead of the sampled " +
+			"shallow dossier. With --themes, candidate latent-practice themes " +
 			"(recurring read-only/conversational work) are verified before they surface.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -366,7 +367,7 @@ func newPatternsVerifyCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit the verification summary as JSON")
-	cmd.Flags().BoolVar(&deep, "deep", false, "Audit each pattern against its full supporting-evidence set (deep dossier)")
+	cmd.Flags().BoolVar(&deep, "deep", false, "Audit each pattern against a bounded evidence-deep export of its backing episodes (deep dossier)")
 	cmd.Flags().BoolVar(&themes, "themes", false, "Verify candidate latent-practice themes before they surface")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Verifier agent: auto, codex, claude-code, ollama, or command")
 	cmd.Flags().StringVar(&model, "model", "", "Override the agent model, or select the local Ollama model")

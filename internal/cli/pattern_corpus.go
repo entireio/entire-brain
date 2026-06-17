@@ -218,9 +218,10 @@ var patternCorpusSchema = []string{
 		created_at TEXT NOT NULL,
 		updated_at TEXT NOT NULL
 	)`,
-	// deep_dossiers cache the full-span consolidation + deep verifier result for a
+	// deep_dossiers cache the bounded evidence-deep consolidation (capped anchors,
+	// top ones with redacted transcript excerpts) + deep verifier result for a
 	// pattern. Built on demand by the explicit `patterns verify --deep`, never by
-	// refresh. Keyed by pattern id; cached by the full-evidence fingerprint.
+	// refresh. Keyed by pattern id; cached by the backing-set fingerprint.
 	`CREATE TABLE IF NOT EXISTS deep_dossiers (
 		pattern_id TEXT PRIMARY KEY,
 		fingerprint TEXT NOT NULL,
