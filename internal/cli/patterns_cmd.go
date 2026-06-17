@@ -340,6 +340,7 @@ func newPatternsStatusCommand(opts Options) *cobra.Command {
 func newPatternsVerifyCommand(opts Options) *cobra.Command {
 	var (
 		asJSON       bool
+		deep         bool
 		agent, model string
 		effort       string
 	)
@@ -348,20 +349,24 @@ func newPatternsVerifyCommand(opts Options) *cobra.Command {
 		Short: "Agent-audit promotable consolidation dossiers (explicit, egress-gated, cached)",
 		Long: "Run the optional consolidation verifier over promotable dossiers. This is the " +
 			"only surface that may invoke an agent for patterns; refresh/watch/brief/query/MCP " +
-			"never do. Verdicts are cached by evidence fingerprint and re-used until the evidence changes.",
+			"never do. Verdicts are cached by evidence fingerprint and re-used until the evidence " +
+			"changes. With --deep, each pattern is audited against its COMPLETE supporting-evidence " +
+			"set (every backing episode, corrected/failed first, with parameters and recoveries) " +
+			"instead of the sampled shallow dossier.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPatternsVerify(cmd.Context(), cmd, opts, targetFromArgs(opts, args), agent, model, effort, asJSON)
+			return runPatternsVerify(cmd.Context(), cmd, opts, targetFromArgs(opts, args), agent, model, effort, asJSON, deep)
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit the verification summary as JSON")
+	cmd.Flags().BoolVar(&deep, "deep", false, "Audit each pattern against its full supporting-evidence set (deep dossier)")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Verifier agent: auto, codex, claude-code, ollama, or command")
 	cmd.Flags().StringVar(&model, "model", "", "Override the agent model, or select the local Ollama model")
 	cmd.Flags().StringVar(&effort, "effort", "", "Agent reasoning effort (codex/claude-code)")
 	return cmd
 }
 
-func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, target, agent, model, effort string, asJSON bool) error {
+func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, target, agent, model, effort string, asJSON, deep bool) error {
 	repoDir, brainDir, err := resolvePatternsRepoAndBrain(ctx, opts, target)
 	if err != nil {
 		return err
@@ -375,15 +380,21 @@ func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	}
 	defer db.Close()
 	run := defaultDistillAgentRunner(agent)
-	stats, err := verifyDossiers(ctx, db, repoDir, agent, model, effort, run, opts.Now().UTC())
+	verify := verifyDossiers
+	mode := "dossier"
+	if deep {
+		verify = verifyDeepDossiers
+		mode = "deep dossier"
+	}
+	stats, err := verify(ctx, db, repoDir, agent, model, effort, run, opts.Now().UTC())
 	if err != nil {
 		return err
 	}
 	if asJSON {
 		return writeJSON(cmd, stats)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "patterns verify: %d dossier(s) — %d verified, %d cached, %d failed\n",
-		stats.Considered, stats.Verified, stats.Cached, stats.Failed)
+	fmt.Fprintf(cmd.OutOrStdout(), "patterns verify: %d %s(s) — %d verified, %d cached, %d failed\n",
+		stats.Considered, mode, stats.Verified, stats.Cached, stats.Failed)
 	return nil
 }
 

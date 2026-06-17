@@ -211,6 +211,19 @@ var patternCorpusSchema = []string{
 		created_at TEXT NOT NULL,
 		updated_at TEXT NOT NULL
 	)`,
+	// deep_dossiers cache the full-span consolidation + deep verifier result for a
+	// pattern. Built on demand by the explicit `patterns verify --deep`, never by
+	// refresh. Keyed by pattern id; cached by the full-evidence fingerprint.
+	`CREATE TABLE IF NOT EXISTS deep_dossiers (
+		pattern_id TEXT PRIMARY KEY,
+		fingerprint TEXT NOT NULL,
+		json_redacted TEXT NOT NULL,
+		verifier_json_redacted TEXT,
+		verdict TEXT,
+		status TEXT NOT NULL DEFAULT 'current',
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`,
 	// workspace_pattern_repos holds the per-member-repo breakdown for a
 	// workspace-scope pattern (which member repos share it and with what support).
 	// Only populated in a workspace corpus; empty in a repo corpus.
@@ -254,6 +267,16 @@ func openPatternCorpusDB(brainDir string) (*sql.DB, error) {
 	}
 	for _, p := range []string{"PRAGMA busy_timeout=5000", "PRAGMA foreign_keys=ON"} {
 		if _, err := db.Exec(p); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	// Apply the schema idempotently so additive tables (e.g. deep_dossiers) exist
+	// even when the on-disk corpus predates them — the build path owns population,
+	// but a reader/verifier must not fail with "no such table" before the next
+	// refresh. CREATE IF NOT EXISTS never touches existing data.
+	for _, stmt := range patternCorpusSchema {
+		if _, err := db.Exec(stmt); err != nil {
 			db.Close()
 			return nil, err
 		}
