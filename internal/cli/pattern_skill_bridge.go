@@ -17,33 +17,46 @@ import (
 // the same view the listing computes, so drift detection agrees across surfaces.
 
 // loadCorpusTaskCandidates returns the corpus's promotable task patterns as
-// skill candidates (id = corpus pattern id), strongest first. A dossier-backed,
-// non-rejected task is "skill-worthy"; rejected dossiers are excluded. Returns
+// skill candidates (id = corpus pattern id), strongest first. Returns
 // (nil, false) when no corpus exists so callers fall back to the legacy source.
+//
+// loadCorpusTaskCandidates is the FORM RESOLVER: it returns every promotable task
+// (one that has a shallow dossier) regardless of verifier verdict, so
+// `patterns skills form <id>` can resolve any promotable pattern and then apply
+// the accepted-deep-dossier gate with a precise message. The `patterns skills`
+// LISTING uses loadSkillProposals instead, which additionally requires an
+// accepted deep dossier.
 func loadCorpusTaskCandidates(brainDir string) ([]taskCandidate, bool) {
+	return queryTaskCandidates(brainDir, false)
+}
+
+// loadSkillProposals returns the formable skill proposals: a promotable task
+// backed by an ACCEPTED deep dossier (which by construction excludes rejected/
+// needs_split/low_confidence). Skill-memory suppression is applied by the caller.
+func loadSkillProposals(brainDir string) ([]taskCandidate, bool) {
+	return queryTaskCandidates(brainDir, true)
+}
+
+func queryTaskCandidates(brainDir string, requireAcceptedDeep bool) ([]taskCandidate, bool) {
 	db, err := openPatternCorpusDB(brainDir)
 	if err != nil {
 		return nil, false
 	}
 	defer db.Close()
 
-	// A task is skill-worthy when it is promotable (has a dossier) and no verifier
-	// — shallow or deep — has returned an unresolved/negative verdict. The verifier
-	// is the final arbiter: a rejected, needs_split, or low_confidence verdict
-	// (from either the shallow or the deep pass) disqualifies the task. An
-	// UNVERIFIED task (no verdict yet) remains formable — this is the explicit
-	// pre-verification default; running `patterns verify [--deep]` is what can
-	// then disqualify it.
-	rows, err := db.Query(`
+	q := `
 		SELECT p.id, p.repo_key, COALESCE(p.intent_sig,''), p.title, p.gram, p.strength, p.strength_label,
-		       p.support, p.outcome_success, p.outcome_corrected, p.outcome_neutral,
-		       COALESCE(d.verdict,'')
+		       p.support, p.outcome_success, p.outcome_corrected, p.outcome_neutral
 		FROM patterns p JOIN dossiers d ON d.pattern_id = p.id
 		LEFT JOIN deep_dossiers dd ON dd.pattern_id = p.id
-		WHERE p.type='task' AND p.scope='repo'
-		  AND COALESCE(d.verdict,'') NOT IN ('rejected','needs_split','low_confidence')
-		  AND COALESCE(dd.verdict,'') NOT IN ('rejected','needs_split','low_confidence')
-		ORDER BY p.strength DESC`)
+		WHERE p.type='task' AND p.scope='repo'`
+	if requireAcceptedDeep {
+		// A proposal must be backed by an accepted deep dossier — the verified,
+		// evidence-deep record skills are synthesized from.
+		q += ` AND COALESCE(dd.verdict,'') = 'accepted'`
+	}
+	q += ` ORDER BY p.strength DESC`
+	rows, err := db.Query(q)
 	if err != nil {
 		return nil, false
 	}
@@ -51,12 +64,12 @@ func loadCorpusTaskCandidates(brainDir string) ([]taskCandidate, bool) {
 	var cands []taskCandidate
 	for rows.Next() {
 		var (
-			id, repoKey, intentSig, title, gram, strengthLabel, verdict string
-			strength                                                    float64
-			support, succ, corr, neut                                   int
+			id, repoKey, intentSig, title, gram, strengthLabel string
+			strength                                           float64
+			support, succ, corr, neut                          int
 		)
 		if err := rows.Scan(&id, &repoKey, &intentSig, &title, &gram, &strength, &strengthLabel,
-			&support, &succ, &corr, &neut, &verdict); err != nil {
+			&support, &succ, &corr, &neut); err != nil {
 			return nil, false
 		}
 		c := taskCandidate{

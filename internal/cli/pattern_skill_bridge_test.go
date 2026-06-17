@@ -52,7 +52,7 @@ func TestSkillFormUnderCorpusIDAndLifecycle(t *testing.T) {
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	s := skillFormOptions{taskID: cand.ID, target: "claude-code", scope: "repo", yes: true, name: "deploy-release"}
-	if err := synthesizeAndForm(context.Background(), cmd, *cand, brainDir, repoDir, "codex", run, s, time.Now()); err != nil {
+	if err := synthesizeAndForm(context.Background(), cmd, *cand, nil, brainDir, repoDir, "codex", run, s, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,7 +82,7 @@ func TestSkillFormUnderCorpusIDAndLifecycle(t *testing.T) {
 	}
 
 	// Dedupe: re-forming without --force refuses to overwrite the existing file.
-	if err := synthesizeAndForm(context.Background(), cmd, *cand, brainDir, repoDir, "codex", run, s, time.Now()); err == nil {
+	if err := synthesizeAndForm(context.Background(), cmd, *cand, nil, brainDir, repoDir, "codex", run, s, time.Now()); err == nil {
 		t.Error("expected refusal to overwrite existing skill file without --force")
 	}
 
@@ -96,10 +96,10 @@ func TestSkillFormUnderCorpusIDAndLifecycle(t *testing.T) {
 	}
 }
 
-// DV3: skill candidates must exclude any pattern the verifier (shallow OR deep)
-// marked rejected, needs_split, or low_confidence. Unverified stays formable;
-// accepted stays formable.
-func TestSkillCandidatesExcludeUnresolvedVerdicts(t *testing.T) {
+// SR2: `patterns skills` proposals require an ACCEPTED deep dossier. A promotable
+// task with no deep dossier (or a rejected/needs_split/low_confidence one) is NOT
+// a proposal; only an accepted deep dossier makes it formable.
+func TestSkillProposalsRequireAcceptedDeepDossier(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
 	db, err := openPatternCorpusDB(brainDir)
 	if err != nil {
@@ -111,10 +111,10 @@ func TestSkillCandidatesExcludeUnresolvedVerdicts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	present := func() bool {
-		cands, ok := loadCorpusTaskCandidates(brainDir)
+	isProposal := func() bool {
+		cands, ok := loadSkillProposals(brainDir)
 		if !ok {
-			t.Fatal("expected corpus-backed candidates")
+			t.Fatal("expected corpus-backed proposals query")
 		}
 		for _, c := range cands {
 			if c.ID == pid {
@@ -123,44 +123,36 @@ func TestSkillCandidatesExcludeUnresolvedVerdicts(t *testing.T) {
 		}
 		return false
 	}
-
-	// Unverified → formable (pre-verification default).
-	if !present() {
-		t.Fatal("unverified promotable task should be a skill candidate")
-	}
-
-	// Shallow verdicts that must disqualify.
-	for _, v := range []string{"rejected", "needs_split", "low_confidence"} {
-		if _, err := db.Exec(`UPDATE dossiers SET verdict=? WHERE pattern_id=?`, v, pid); err != nil {
-			t.Fatal(err)
-		}
-		if present() {
-			t.Errorf("shallow verdict %q must exclude the task from skill candidates", v)
-		}
-	}
-	// Reset shallow → present again.
-	db.Exec(`UPDATE dossiers SET verdict=NULL WHERE pattern_id=?`, pid)
-	if !present() {
-		t.Fatal("clearing the shallow verdict should restore the candidate")
-	}
-
-	// Deep verdicts that must disqualify (shallow stays unverified).
-	for _, v := range []string{"needs_split", "low_confidence", "rejected"} {
+	setDeep := func(v string) {
 		db.Exec(`DELETE FROM deep_dossiers WHERE pattern_id=?`, pid)
-		if _, err := db.Exec(`INSERT INTO deep_dossiers (pattern_id, fingerprint, json_redacted, verdict, status, created_at, updated_at) VALUES (?,?,?,?, 'current','t','t')`,
-			pid, "sha256:x", "{}", v); err != nil {
-			t.Fatal(err)
-		}
-		if present() {
-			t.Errorf("deep verdict %q must exclude the task from skill candidates", v)
+		if v != "" {
+			if _, err := db.Exec(`INSERT INTO deep_dossiers (pattern_id, fingerprint, json_redacted, verdict, status, created_at, updated_at) VALUES (?,?,?,?, 'current','t','t')`,
+				pid, "sha256:x", "{}", v); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 
-	// Accepted control: shallow + deep accepted → formable.
-	db.Exec(`UPDATE dossiers SET verdict='accepted' WHERE pattern_id=?`, pid)
-	db.Exec(`UPDATE deep_dossiers SET verdict='accepted' WHERE pattern_id=?`, pid)
-	if !present() {
-		t.Error("an accepted task must remain a skill candidate")
+	// Promotable but no deep dossier → NOT a proposal (must verify --deep first).
+	if isProposal() {
+		t.Error("a promotable task with no accepted deep dossier must not be a skill proposal")
+	}
+	// But it IS still resolvable by the form (for the 'needs deep verification' message).
+	if c, _ := corpusTaskCandidateByID(brainDir, pid); c == nil {
+		t.Error("form resolver must still find the promotable task")
+	}
+
+	// Unresolved/negative deep verdicts → not a proposal.
+	for _, v := range []string{"rejected", "needs_split", "low_confidence"} {
+		setDeep(v)
+		if isProposal() {
+			t.Errorf("deep verdict %q must not be a skill proposal", v)
+		}
+	}
+	// Accepted deep dossier → proposal.
+	setDeep("accepted")
+	if !isProposal() {
+		t.Error("an accepted deep dossier must make the task a skill proposal")
 	}
 }
 

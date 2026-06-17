@@ -615,5 +615,5 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 	if agent == "none" {
 		return fmt.Errorf("skill synthesis requires an agent (codex or claude-code); none found on PATH")
 	}
-	return synthesizeAndForm(ctx, cmd, *cand, wsDir, ".", agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
+	return synthesizeAndForm(ctx, cmd, *cand, nil, wsDir, ".", agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
 }

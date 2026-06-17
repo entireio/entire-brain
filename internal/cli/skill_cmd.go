@@ -82,8 +82,10 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 	if err != nil {
 		return err
 	}
-	// V2 corpus is the primary source; legacy task JSON is the fallback.
-	tasks, corpusBacked := loadCorpusTaskCandidates(brainDir)
+	// V2 corpus is the primary source; a proposal is a promotable task backed by
+	// an ACCEPTED deep dossier (the verified record skills are synthesized from).
+	// Legacy task JSON is the fallback only when no corpus exists.
+	tasks, corpusBacked := loadSkillProposals(brainDir)
 	if !corpusBacked {
 		if tasks, err = loadBrainTasks(brainDir); err != nil {
 			return err
@@ -103,7 +105,11 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 	}
 	out := cmd.OutOrStdout()
 	if len(tasks) == 0 {
-		fmt.Fprintln(out, "no task candidates (run `entire brain patterns refresh`)")
+		if corpusBacked {
+			fmt.Fprintln(out, "no skill proposals: promotable tasks need an accepted deep dossier.\nRun `entire brain patterns verify --deep` (explicit, egress-gated), then re-check.")
+		} else {
+			fmt.Fprintln(out, "no task candidates (run `entire brain patterns refresh`)")
+		}
 		return nil
 	}
 	for _, t := range tasks {
@@ -131,9 +137,19 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 	brainDir := storage.BrainDir
 
 	var cand *taskCandidate
+	var deep *deepSkillInput
 	if c, corpusBacked := corpusTaskCandidateByID(brainDir, s.taskID); corpusBacked {
 		cand = c
+		// Corpus-backed skills MUST come from a verified deep dossier — never
+		// silently from shallow corpus rows.
+		if in, ok := loadAcceptedDeepDossier(brainDir, s.taskID); ok {
+			deep = &in
+		} else {
+			return fmt.Errorf("needs deep verification first: %s has no accepted deep dossier.\n"+
+				"Run `entire brain patterns verify --deep` (explicit, egress-gated), then re-run this form.", s.taskID)
+		}
 	} else {
+		// Legacy fallback for repos without a V2 corpus.
 		tasks, err := loadBrainTasks(brainDir)
 		if err != nil {
 			return err
@@ -156,16 +172,27 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 	if agent == "none" {
 		return fmt.Errorf("skill synthesis requires an agent (codex or claude-code); none found on PATH")
 	}
-	return synthesizeAndForm(ctx, cmd, *cand, brainDir, repoDir, agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
+	return synthesizeAndForm(ctx, cmd, *cand, deep, brainDir, repoDir, agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
 }
 
 // synthesizeAndForm is the single skill-creation path (repo and workspace):
 // synthesize via the agent, reject NOT_A_SKILL, then show evidence + draft and
 // stop unless --yes. All evidence/draft egress is redacted. storeDir is where the
 // skill-memory decision is recorded. run is injected so tests can stub the agent.
-func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandidate, storeDir, repoDir, agent string, run distillAgentRunner, s skillFormOptions, now time.Time) error {
-	fmt.Fprintf(cmd.ErrOrStderr(), "synthesizing skill from %d sessions via %s…\n", cand.Support, agent)
-	res, err := synthesizeSkill(ctx, repoDir, storeDir, cand, agent, s.model, s.effort, run)
+func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandidate, deep *deepSkillInput, storeDir, repoDir, agent string, run distillAgentRunner, s skillFormOptions, now time.Time) error {
+	var (
+		res skillSynthesisResult
+		err error
+	)
+	if deep != nil {
+		// Primary path: convert the verified deep dossier into a skill.
+		fmt.Fprintf(cmd.ErrOrStderr(), "synthesizing skill from the verified deep dossier via %s…\n", agent)
+		res, err = synthesizeSkillFromDossier(ctx, repoDir, *deep, agent, s.model, s.effort, run)
+	} else {
+		// Legacy fallback (no V2 corpus): shallow evidence.
+		fmt.Fprintf(cmd.ErrOrStderr(), "synthesizing skill from %d sessions via %s…\n", cand.Support, agent)
+		res, err = synthesizeSkill(ctx, repoDir, storeDir, cand, agent, s.model, s.effort, run)
+	}
 	if err != nil {
 		return err
 	}
