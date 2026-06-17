@@ -61,10 +61,58 @@ func newWorkspacePatternsCommand(opts Options) *cobra.Command {
 			return runWorkspacePatternsStatus(cmd.Context(), cmd, opts, args[0])
 		},
 	}
+	var v struct {
+		agent, model, effort string
+		asJSON               bool
+	}
+	verify := &cobra.Command{
+		Use:   "verify <workspace>",
+		Short: "Agent-judge cross-repo families: merge equivalent workflows across repos by meaning (explicit, egress-gated, cached)",
+		Long: "Add the workspace judgment layer on top of exact aggregation: group member-repo task " +
+			"candidates into cross-repo families by semantic trigger + procedure purpose (equivalent workflows " +
+			"with different command names/order merge; generic git workflows are rejected). An accepted family " +
+			"dossier is required before `workspace patterns skills form`. The only agent path for workspaces; " +
+			"egress-gated and cached by the member-candidate fingerprint.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkspacePatternsVerify(cmd.Context(), cmd, opts, args[0], v.agent, v.model, v.effort, v.asJSON)
+		},
+	}
+	verify.Flags().StringVar(&v.agent, "agent", "auto", "Judgment agent: auto, codex, claude-code, ollama, or command")
+	verify.Flags().StringVar(&v.model, "model", "", "Override the agent model")
+	verify.Flags().StringVar(&v.effort, "effort", "", "Agent reasoning effort")
+	verify.Flags().BoolVar(&v.asJSON, "json", false, "Emit the verification summary as JSON")
 	skills := newWorkspaceSkillsCommand(opts)
 
-	cmd.AddCommand(refresh, status, skills)
+	cmd.AddCommand(refresh, status, verify, skills)
 	return cmd
+}
+
+func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, name, agent, model, effort string, asJSON bool) error {
+	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	if err != nil {
+		return err
+	}
+	if err := rejectAgentForNoEgress(agent); err != nil {
+		return err
+	}
+	resolved := agent
+	if resolved == "" || resolved == "auto" {
+		resolved = defaultRefreshAgent(ctx, opts.Runner, ".")
+	}
+	if resolved == "none" {
+		return fmt.Errorf("workspace family judgment requires an agent (codex or claude-code); none found on PATH")
+	}
+	stats, err := proposeWorkspaceFamilies(ctx, opts.Env, manifest, ".", resolved, model, effort, defaultDistillAgentRunner(resolved), opts.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return writeJSON(cmd, stats)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "workspace %s verify: %d family proposal(s) — %d accepted, %d cached, %d dropped\n",
+		name, stats.Considered, stats.Verified, stats.Cached, stats.Failed)
+	return nil
 }
 
 // newWorkspaceSkillsCommand mirrors `patterns skills`: list cross-repo task
@@ -552,38 +600,34 @@ func buildWorkspaceTaskCandidates(byRepo map[string][]taskCandidate, repoOrder [
 	return out
 }
 
+// runWorkspaceSkillsList lists accepted cross-repo FAMILY proposals (SR5): the
+// verified semantic groupings, not the raw exact-aggregated rows. Run
+// `workspace patterns verify` to produce them.
 func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, asJSON bool, limit int) error {
 	wsDir, err := workspaceDir(opts.Env, name)
 	if err != nil {
 		return err
 	}
-	tasks, err := loadBrainTasks(wsDir)
-	if err != nil {
-		return err
-	}
-	if limit > 0 && len(tasks) > limit {
-		tasks = tasks[:limit]
+	families := loadAcceptedWorkspaceFamilies(wsDir)
+	if limit > 0 && len(families) > limit {
+		families = families[:limit]
 	}
 	if asJSON {
-		redacted := make([]taskCandidate, len(tasks))
-		for i, t := range tasks {
-			redacted[i] = redactCandidate(t)
-		}
-		return writeJSON(cmd, redacted)
+		return writeJSON(cmd, families)
 	}
 	out := cmd.OutOrStdout()
-	if len(tasks) == 0 {
-		fmt.Fprintf(out, "workspace %s: no cross-repo task candidates (run `entire brain workspace patterns refresh %s`)\n", name, name)
+	if len(families) == 0 {
+		fmt.Fprintf(out, "workspace %s: no accepted cross-repo families (run `entire brain workspace patterns verify %s`)\n", name, name)
 		return nil
 	}
-	for _, t := range tasks {
-		repos := make([]string, 0, len(t.RepoBreakdown))
-		for _, b := range t.RepoBreakdown {
-			repos = append(repos, fmt.Sprintf("%s(%d)", b.RepoKey, b.Support))
+	for _, f := range families {
+		repos := make([]string, 0, len(f.PerRepo))
+		for _, v := range f.PerRepo {
+			repos = append(repos, v.RepoKey)
 		}
-		fmt.Fprintf(out, "[%s] %s  (strength %.2f)\n", t.StrengthLabel, redactText(t.Label), t.Strength)
-		fmt.Fprintf(out, "    %d session(s) across %d repo(s): %s\n", t.Support, t.Repos, strings.Join(repos, ", "))
-		fmt.Fprintf(out, "    id %s\n", t.ID)
+		fmt.Fprintf(out, "[family] %s  (%d repos: %s)\n", redactText(f.Title), f.repoCount(), strings.Join(repos, ", "))
+		fmt.Fprintf(out, "    trigger: %s\n", redactText(f.Trigger))
+		fmt.Fprintf(out, "    id %s\n", f.ID)
 	}
 	return nil
 }
@@ -593,21 +637,22 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 	if err != nil {
 		return err
 	}
-	tasks, err := loadBrainTasks(wsDir)
-	if err != nil {
-		return err
+	// Workspace skills MUST come from an accepted cross-repo family dossier.
+	fam, ok := getAcceptedWorkspaceFamily(wsDir, s.taskID)
+	if !ok {
+		return fmt.Errorf("no accepted workspace family %q: run `entire brain workspace patterns verify %s` (explicit, egress-gated), then `entire brain workspace patterns skills %s`", s.taskID, name, name)
 	}
-	var cand *taskCandidate
-	for i := range tasks {
-		if tasks[i].ID == s.taskID {
-			cand = &tasks[i]
-			break
-		}
+	// A synthetic candidate carries id/name/scope + per-repo breakdown for the
+	// skill-memory record; synthesis itself runs from the family.
+	breakdown := make([]patternRepoStat, 0, len(fam.PerRepo))
+	for _, v := range fam.PerRepo {
+		breakdown = append(breakdown, patternRepoStat{RepoKey: v.RepoKey, Support: 1})
 	}
-	if cand == nil {
-		return fmt.Errorf("workspace task candidate not found: %s (run `entire brain workspace patterns skills %s`)", s.taskID, name)
+	cand := taskCandidate{
+		ID: fam.ID, Label: fam.Title, Workspace: name, Repos: fam.repoCount(),
+		RepoBreakdown: breakdown, Commands: fam.CommonWorkflow, Support: fam.repoCount(),
+		Strength: 0.7, StrengthLabel: "high",
 	}
-	// Agent availability is checked against the cwd; synthesis runs read-only.
 	agent := s.agent
 	if agent == "" || agent == "auto" {
 		agent = defaultRefreshAgent(ctx, opts.Runner, ".")
@@ -615,5 +660,5 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 	if agent == "none" {
 		return fmt.Errorf("skill synthesis requires an agent (codex or claude-code); none found on PATH")
 	}
-	return synthesizeAndForm(ctx, cmd, *cand, nil, wsDir, ".", agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
+	return synthesizeAndForm(ctx, cmd, cand, nil, &fam, wsDir, ".", agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
 }

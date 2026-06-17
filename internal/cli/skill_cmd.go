@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -138,6 +139,24 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 
 	var cand *taskCandidate
 	var deep *deepSkillInput
+	// A theme skill is synthesized from the verified latent practice (its agent
+	// description), not a raw intent_sig.
+	if strings.HasPrefix(s.taskID, "theme:") {
+		in, ok := loadAcceptedThemeAsDeep(brainDir, s.taskID)
+		if !ok {
+			return fmt.Errorf("no accepted theme %q: run `entire brain patterns verify --themes` first", s.taskID)
+		}
+		deep = &in
+		cand = &taskCandidate{ID: s.taskID, Label: in.rec.Title}
+		agent := s.agent
+		if agent == "" || agent == "auto" {
+			agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
+		}
+		if agent == "none" {
+			return fmt.Errorf("skill synthesis requires an agent (codex or claude-code); none found on PATH")
+		}
+		return synthesizeAndForm(ctx, cmd, *cand, deep, nil, brainDir, repoDir, agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
+	}
 	if c, corpusBacked := corpusTaskCandidateByID(brainDir, s.taskID); corpusBacked {
 		cand = c
 		// Corpus-backed skills MUST come from a verified deep dossier — never
@@ -172,23 +191,30 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 	if agent == "none" {
 		return fmt.Errorf("skill synthesis requires an agent (codex or claude-code); none found on PATH")
 	}
-	return synthesizeAndForm(ctx, cmd, *cand, deep, brainDir, repoDir, agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
+	return synthesizeAndForm(ctx, cmd, *cand, deep, nil, brainDir, repoDir, agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
 }
 
 // synthesizeAndForm is the single skill-creation path (repo and workspace):
 // synthesize via the agent, reject NOT_A_SKILL, then show evidence + draft and
 // stop unless --yes. All evidence/draft egress is redacted. storeDir is where the
 // skill-memory decision is recorded. run is injected so tests can stub the agent.
-func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandidate, deep *deepSkillInput, storeDir, repoDir, agent string, run distillAgentRunner, s skillFormOptions, now time.Time) error {
+// Exactly one synthesis source is used: an accepted workspace family (fam), then
+// an accepted deep dossier (deep), else the legacy shallow path.
+func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandidate, deep *deepSkillInput, fam *workspaceFamily, storeDir, repoDir, agent string, run distillAgentRunner, s skillFormOptions, now time.Time) error {
 	var (
 		res skillSynthesisResult
 		err error
 	)
-	if deep != nil {
+	switch {
+	case fam != nil:
+		// Workspace skill: convert the verified cross-repo family (common + per-repo).
+		fmt.Fprintf(cmd.ErrOrStderr(), "synthesizing workspace skill from the verified cross-repo family via %s…\n", agent)
+		res, err = synthesizeWorkspaceSkill(ctx, repoDir, *fam, agent, s.model, s.effort, run)
+	case deep != nil:
 		// Primary path: convert the verified deep dossier into a skill.
 		fmt.Fprintf(cmd.ErrOrStderr(), "synthesizing skill from the verified deep dossier via %s…\n", agent)
 		res, err = synthesizeSkillFromDossier(ctx, repoDir, *deep, agent, s.model, s.effort, run)
-	} else {
+	default:
 		// Legacy fallback (no V2 corpus): shallow evidence.
 		fmt.Fprintf(cmd.ErrOrStderr(), "synthesizing skill from %d sessions via %s…\n", cand.Support, agent)
 		res, err = synthesizeSkill(ctx, repoDir, storeDir, cand, agent, s.model, s.effort, run)

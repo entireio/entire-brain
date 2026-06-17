@@ -147,7 +147,7 @@ func TestFormPreviewWritesNothing(t *testing.T) {
 	repo := t.TempDir()
 	cmd, out := formCmd()
 	s := skillFormOptions{target: "standard", scope: "repo"} // no --yes
-	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), nil, store, repo, "codex", stubRunner(stubSkillText), s, time.Now()); err != nil {
+	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), nil, nil, store, repo, "codex", stubRunner(stubSkillText), s, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	// Preview shows evidence + draft + would-write, but writes nothing.
@@ -165,7 +165,7 @@ func TestFormPreviewWritesNothing(t *testing.T) {
 func TestFormDraftOnlyPrintsOnlyDraft(t *testing.T) {
 	cmd, out := formCmd()
 	s := skillFormOptions{target: "standard", scope: "repo", draftOnly: true}
-	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), nil, t.TempDir(), t.TempDir(), "codex", stubRunner(stubSkillText), s, time.Now()); err != nil {
+	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), nil, nil, t.TempDir(), t.TempDir(), "codex", stubRunner(stubSkillText), s, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	got := strings.TrimSpace(out.String())
@@ -180,7 +180,7 @@ func TestFormYesWritesAndRecords(t *testing.T) {
 	cmd, _ := formCmd()
 	s := skillFormOptions{target: "standard", scope: "repo", yes: true}
 	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
-	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), nil, store, repo, "codex", stubRunner(stubSkillText), s, now); err != nil {
+	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), nil, nil, store, repo, "codex", stubRunner(stubSkillText), s, now); err != nil {
 		t.Fatal(err)
 	}
 	skillPath := filepath.Join(repo, ".agents", "skills", "ship-it", "SKILL.md")
@@ -193,12 +193,12 @@ func TestFormYesWritesAndRecords(t *testing.T) {
 	}
 	// Existing file requires --force.
 	cmd2, _ := formCmd()
-	if err := synthesizeAndForm(context.Background(), cmd2, sampleCand(), nil, store, repo, "codex", stubRunner(stubSkillText), s, now); err == nil {
+	if err := synthesizeAndForm(context.Background(), cmd2, sampleCand(), nil, nil, store, repo, "codex", stubRunner(stubSkillText), s, now); err == nil {
 		t.Error("re-form without --force should refuse to overwrite")
 	}
 	cmd3, _ := formCmd()
 	s.force = true
-	if err := synthesizeAndForm(context.Background(), cmd3, sampleCand(), nil, store, repo, "codex", stubRunner(stubSkillText), s, now); err != nil {
+	if err := synthesizeAndForm(context.Background(), cmd3, sampleCand(), nil, nil, store, repo, "codex", stubRunner(stubSkillText), s, now); err != nil {
 		t.Errorf("--force should overwrite: %v", err)
 	}
 }
@@ -208,7 +208,7 @@ func TestFormRejectsNotASkill(t *testing.T) {
 	repo := t.TempDir()
 	cmd, out := formCmd()
 	s := skillFormOptions{target: "standard", scope: "repo", yes: true}
-	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), nil, store, repo, "codex", stubRunner("NOT_A_SKILL: generic git usage"), s, time.Now()); err != nil {
+	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), nil, nil, store, repo, "codex", stubRunner("NOT_A_SKILL: generic git usage"), s, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "not a skill") {
@@ -224,7 +224,7 @@ func TestFormPreviewRedactsEvidence(t *testing.T) {
 	cand.MatchingFacts = []string{"deploy with TOKEN=ghp_SECRETTOKEN0123456789abcdef"}
 	cmd, out := formCmd()
 	s := skillFormOptions{target: "standard", scope: "repo"}
-	if err := synthesizeAndForm(context.Background(), cmd, cand, nil, t.TempDir(), t.TempDir(), "codex", stubRunner(stubSkillText), s, time.Now()); err != nil {
+	if err := synthesizeAndForm(context.Background(), cmd, cand, nil, nil, t.TempDir(), t.TempDir(), "codex", stubRunner(stubSkillText), s, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(out.String(), "ghp_SECRETTOKEN0123456789abcdef") {

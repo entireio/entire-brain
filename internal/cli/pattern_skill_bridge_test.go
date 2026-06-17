@@ -52,7 +52,7 @@ func TestSkillFormUnderCorpusIDAndLifecycle(t *testing.T) {
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	s := skillFormOptions{taskID: cand.ID, target: "claude-code", scope: "repo", yes: true, name: "deploy-release"}
-	if err := synthesizeAndForm(context.Background(), cmd, *cand, nil, brainDir, repoDir, "codex", run, s, time.Now()); err != nil {
+	if err := synthesizeAndForm(context.Background(), cmd, *cand, nil, nil, brainDir, repoDir, "codex", run, s, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,7 +82,7 @@ func TestSkillFormUnderCorpusIDAndLifecycle(t *testing.T) {
 	}
 
 	// Dedupe: re-forming without --force refuses to overwrite the existing file.
-	if err := synthesizeAndForm(context.Background(), cmd, *cand, nil, brainDir, repoDir, "codex", run, s, time.Now()); err == nil {
+	if err := synthesizeAndForm(context.Background(), cmd, *cand, nil, nil, brainDir, repoDir, "codex", run, s, time.Now()); err == nil {
 		t.Error("expected refusal to overwrite existing skill file without --force")
 	}
 

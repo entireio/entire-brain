@@ -229,6 +229,32 @@ func strongestThemes(brainDir string, limit int) []themeView {
 	return themes
 }
 
+// loadAcceptedThemeAsDeep maps an accepted theme into the deep-skill input so a
+// theme skill is synthesized from the VERIFIED latent practice (its agent
+// description), never a raw intent_sig.
+func loadAcceptedThemeAsDeep(brainDir, themeID string) (deepSkillInput, bool) {
+	db, err := openPatternCorpusDB(brainDir)
+	if err != nil {
+		return deepSkillInput{}, false
+	}
+	defer db.Close()
+	var title, desc, shape, verdict string
+	err = db.QueryRow(`SELECT title, COALESCE(description,''), COALESCE(shape,''), COALESCE(verdict,'')
+		FROM themes WHERE id=?`, themeID).Scan(&title, &desc, &shape, &verdict)
+	if err != nil || verdict != "accepted" {
+		return deepSkillInput{}, false
+	}
+	return deepSkillInput{
+		rec: deepDossierRecord{
+			SchemaVersion: deepSchemaVersion,
+			PatternID:     themeID,
+			Title:         title,
+			Trigger:       "latent practice (" + shape + "): " + desc,
+		},
+		verdict: dossierVerdict{Verdict: "accepted"},
+	}, true
+}
+
 // getCorpusTheme resolves one theme by id for `get`.
 func getCorpusTheme(brainDir, themeID string) (unifiedResult, bool) {
 	db, err := openPatternCorpusDB(brainDir)
