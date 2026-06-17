@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"database/sql"
 	"encoding/json"
 	"sort"
 	"strconv"
@@ -15,6 +16,89 @@ import (
 // rest, and a verifier `rejected` verdict suppresses a consolidation entirely —
 // the agent verifier is the authority that can remove, the deterministic gate the
 // authority that promotes.
+
+// loadCorpusPatternViews lists the V2 corpus `patterns` rows as unified
+// patternViews — the primary analytical source for the public `patterns`
+// surface (replacing the legacy procedure/practice JSON views). Each view
+// carries its dossier state (current/stale + verifier verdict) and top anchor.
+// Rejected dossiers are suppressed. Graceful: nil when no corpus exists.
+func loadCorpusPatternViews(brainDir string) ([]patternView, map[string]patternView, bool) {
+	db, err := openPatternCorpusDB(brainDir)
+	if err != nil {
+		return nil, nil, false
+	}
+	defer db.Close()
+
+	anchors := topAnchorByPattern(db)
+	rows, err := db.Query(`
+		SELECT p.id, p.type, p.scope, COALESCE(p.repo_key,''), COALESCE(p.workspace,''),
+		       COALESCE(p.intent_sig,''), COALESCE(p.gram,''), COALESCE(p.meta_id,''),
+		       p.title, p.strength, p.strength_label, p.support, p.n_repos,
+		       p.outcome_success, p.outcome_corrected, p.outcome_neutral,
+		       COALESCE(d.status,''), COALESCE(d.verdict,'')
+		FROM patterns p
+		LEFT JOIN dossiers d ON d.pattern_id = p.id
+		ORDER BY p.strength DESC`)
+	if err != nil {
+		return nil, nil, false
+	}
+	defer rows.Close()
+	var views []patternView
+	for rows.Next() {
+		var (
+			v                          patternView
+			repoKey, workspace, metaID string
+			succ, corr, neutral        int
+			dossierStatus, verdict     string
+		)
+		if err := rows.Scan(&v.ID, &v.Type, &v.Scope, &repoKey, &workspace,
+			&v.IntentSig, &v.Gram, &metaID, &v.Title, &v.Strength, &v.StrengthLabel, &v.Support, &v.Repos,
+			&succ, &corr, &neutral, &dossierStatus, &verdict); err != nil {
+			return nil, nil, false
+		}
+		if verdict == "rejected" { // the agent verifier is the authority that removes
+			continue
+		}
+		v.Kind = metaID
+		v.Workspace = workspace
+		v.Title = redactText(v.Title)
+		v.DossierStatus = dossierStatus
+		v.Verdict = verdict
+		rc := reinforcementCounts{Success: succ, Corrected: corr, Neutral: neutral}
+		v.Reinforcement = &rc
+		if a, ok := anchors[v.ID]; ok {
+			ca := a
+			v.Example = &ca
+		}
+		views = append(views, v)
+	}
+	if rows.Err() != nil {
+		return nil, nil, false
+	}
+	idx := make(map[string]patternView, len(views))
+	for _, v := range views {
+		idx[v.ID] = v
+	}
+	return views, idx, true
+}
+
+// topAnchorByPattern returns each pattern's rank-0 evidence anchor (redacted).
+func topAnchorByPattern(db *sql.DB) map[string]episodeAnchor {
+	out := map[string]episodeAnchor{}
+	rows, err := db.Query(`SELECT pattern_id, source_path, start_line FROM pattern_evidence WHERE rank=0`)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, path string
+		var line int
+		if rows.Scan(&id, &path, &line) == nil {
+			out[id] = episodeAnchor{Path: redactText(path), Line: line}
+		}
+	}
+	return out
+}
 
 // briefConsolidation is the compact, task-relevant projection of a dossier the
 // brief carries: enough to act (trigger, workflow, verification, failure modes)

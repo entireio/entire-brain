@@ -30,7 +30,7 @@ func newPatternsCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&listOpts.asJSON, "json", false, "Emit patterns as JSON")
 	cmd.Flags().IntVar(&listOpts.limit, "limit", 20, "Maximum number of patterns to show")
-	cmd.Flags().StringVar(&listOpts.typ, "type", "", "Filter by type: procedure|practice")
+	cmd.Flags().StringVar(&listOpts.typ, "type", "", "Filter by type: task|procedure|risk|practice")
 	cmd.Flags().StringVar(&listOpts.scope, "scope", "", "Filter by scope: repo|workspace")
 	cmd.AddCommand(newPatternsRefreshCommand(opts))
 	cmd.AddCommand(newPatternsStatusCommand(opts))
@@ -51,9 +51,14 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, targ
 	if err != nil {
 		return err
 	}
-	views, _, err := loadPatternViews(brainDir)
-	if err != nil {
-		return err
+	// Primary analytical source is the V2 corpus; the legacy procedure/practice
+	// JSON views remain only as a fallback when no corpus has been built yet.
+	views, _, corpusBacked := loadCorpusPatternViews(brainDir)
+	if !corpusBacked {
+		var verr error
+		if views, _, verr = loadPatternViews(brainDir); verr != nil {
+			return verr
+		}
 	}
 	memIdx := skillMemoryByPatternID(mustLoadSkillMemory(brainDir))
 
@@ -117,6 +122,12 @@ type patternView struct {
 	Example       *episodeAnchor       `json:"example,omitempty"`
 	SkillStatus   string               `json:"skill_status,omitempty"` // e.g. "active/update", "declined/reconsider"
 	Note          string               `json:"note,omitempty"`         // human-readable recommendation
+	// V2 corpus-backed fields (empty for legacy views).
+	IntentSig     string `json:"intent_sig,omitempty"`
+	Gram          string `json:"gram,omitempty"`
+	DossierStatus string `json:"dossier_status,omitempty"` // current | stale (promotable patterns only)
+	Verdict       string `json:"verdict,omitempty"`        // accepted | needs_split | low_confidence (rejected are suppressed)
+	Workspace     string `json:"workspace,omitempty"`
 }
 
 // loadPatternViews loads procedures + practices as unified views and an index by
@@ -257,14 +268,31 @@ func renderPatternView(out io.Writer, v patternView) {
 	if v.Kind != "" {
 		label += "/" + v.Kind
 	}
-	fmt.Fprintf(out, "[%s] %s  (%s, strength %.2f)\n", strings.ToUpper(v.StrengthLabel), redactText(v.Title), label, v.Strength)
+	scope := v.Scope
+	if v.Scope == "workspace" && v.Workspace != "" {
+		scope = "workspace:" + v.Workspace
+	}
+	state := v.DossierStatus
+	if v.Verdict != "" {
+		state = strings.TrimLeft(state+"/"+v.Verdict, "/")
+	}
+	header := fmt.Sprintf("[%s] %s  (%s", strings.ToUpper(v.StrengthLabel), redactText(v.Title), label)
+	if scope != "" {
+		header += ", " + scope
+	}
+	header += fmt.Sprintf(", strength %.2f", v.Strength)
+	if state != "" {
+		header += ", " + state
+	}
+	header += ")"
+	fmt.Fprintln(out, header)
 	if v.Reinforcement != nil {
 		r := v.Reinforcement
 		fmt.Fprintf(out, "    seen in %d episode(s); reinforcement %d↑ %d↓ %d·\n", v.Support, r.Success, r.Corrected, r.Neutral)
 	} else {
 		fmt.Fprintf(out, "    seen in %d session(s)\n", v.Support)
 	}
-	if v.Repos > 0 {
+	if v.Scope == "workspace" && v.Repos > 0 {
 		repos := make([]string, 0, len(v.RepoBreakdown))
 		for _, b := range v.RepoBreakdown {
 			repos = append(repos, fmt.Sprintf("%s(%d)", b.RepoKey, b.Support))
