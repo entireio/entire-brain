@@ -1,0 +1,57 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "2d709eaf0f57",
+  "session_id": "7fc2ec8e-fd41-4e80-ac5e-d7b4a87b7c35",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-17T21:46:37.711854Z",
+  "branch": "claude/patterns-v2-corpus",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/pattern_workspace_semantic.go",
+    "internal/cli/skill_cmd.go",
+    "internal/cli/workspace_patterns.go",
+    "internal/cli/pattern_workspace_semantic_test.go",
+    "internal/cli/pattern_themes.go",
+    "internal/cli/pattern_skill_quality_test.go",
+    "docs/pattern_v2.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "ba8aed947bcb",
+  "checkpoint_transcript_start": 6495,
+  "transcript_lines_at_start": 6495,
+  "token_usage": {
+    "input_tokens": 4703,
+    "cache_creation_tokens": 48085,
+    "cache_read_tokens": 24919703,
+    "output_tokens": 39389,
+    "api_call_count": 27
+  },
+  "session_metrics": {
+    "turn_count": 44
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-17T21:46:37.429644Z",
+    "agent_lines": 739,
+    "agent_removed": 39,
+    "human_added": 9,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 748,
+    "total_lines_changed": 796,
+    "agent_percentage": 97.73869346733667,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 80,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 80
+      }
+    }
+  ]
+}

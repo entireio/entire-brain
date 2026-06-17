@@ -1,0 +1,63 @@
+Cut off text: 
+
+Priority 5: Workspace should merge meaning, not only exact keys
+
+Current problem:
+
+Workspace patterns aggregate exact `(type, intent_sig, gram, meta_id)` keys. Equivalent workflows across repos often differ in command spelling/order, while generic exact matches can survive.
+
+Required change:
+
+- Keep exact aggregation as a cheap signal, but add a workspace proposal/judgment layer:
+
+  - group candidate families by semantic trigger + procedure purpose
+
+  - show per-repo evidence and differences
+
+  - require accepted workspace dossier before workspace skill formation
+
+- Workspace skills should describe what is common and what varies per repo.
+
+Validation:
+
+- Two repos with equivalent release workflows but different command names should produce one workspace proposal after dossier/judgment.
+
+- Two repos with generic git commit/push should not produce a workspace skill.
+
+- Generated workspace skill includes per-repo variations.
+
+Priority 6: Add quality tests that inspect generated skill content, not just plumbing
+
+Current tests prove tables, redaction, verdict filtering, and command routing. They do not prove skill quality.
+
+Add tests that fail if generated skills are generic:
+
+- accepted release/check workflow must include exact command and verification
+
+- corrected episode must become a failure mode/gotcha
+
+- generic git workflow must return `NOT_A_SKILL`
+
+- shallow-only candidate must not be formable
+
+- theme skill must cite a verified latent practice, not an `intent_sig`
+
+- workspace skill must include repo variation when evidence differs
+
+Final validation:
+
+- `go test ./...`
+
+- `go vet ./...`
+
+- `gofmt -l -s .`
+
+- Demonstrate one real run where:
+
+  - raw `patterns` has many diagnostic rows
+
+  - `patterns skills` has fewer, accepted dossier-backed proposals
+
+  - `patterns skills form` input is the deep dossier
+
+  - resulting SKILL.md contains trigger, exact workflow, verification, and failure modes
