@@ -32,7 +32,40 @@ type corpusFileRef struct {
 var (
 	reExitCode  = regexp.MustCompile(`(?i)(?:exited with code|exit code:?)\s*(\d+)`)
 	rePatchFile = regexp.MustCompile(`(?m)^\*\*\* (Add|Update|Delete) File: (.+)$`)
+	// git commit confirmation: "[branch hash] subject" — local evidence only.
+	reCommitConfirm = regexp.MustCompile(`\[([A-Za-z0-9._/+-]+) ([0-9a-f]{7,40})\] (.+)`)
 )
+
+type corpusCommit struct {
+	hash, branch, subject string
+	line                  int
+}
+
+// corpusCommits extracts git commits an episode landed from the local
+// `[branch hash] subject` confirmation lines in its work text. No network; the
+// subject is redacted and truncated.
+func corpusCommits(workText string) []corpusCommit {
+	seen := map[string]bool{}
+	var out []corpusCommit
+	for i, line := range strings.Split(workText, "\n") {
+		m := reCommitConfirm.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		hash := m[2]
+		if seen[hash] {
+			continue
+		}
+		seen[hash] = true
+		out = append(out, corpusCommit{
+			hash:    hash,
+			branch:  m[1],
+			subject: redactText(truncateString(strings.TrimSpace(m[3]), 160)),
+			line:    i + 1,
+		})
+	}
+	return out
+}
 
 // claudeFileTools maps Claude/pi file tool names to a file action.
 var claudeFileTools = map[string]string{

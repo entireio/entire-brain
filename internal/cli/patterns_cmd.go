@@ -458,6 +458,7 @@ type patternsStatusReport struct {
 	AcceptedSkills   int                  `json:"accepted_skills"`
 	DeclinedPatterns int                  `json:"declined_patterns"`
 	UpdatesAvailable int                  `json:"updates_available"`
+	LastRun          *patternRun          `json:"last_run,omitempty"` // what the last corpus build produced
 }
 
 func runPatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, target string, asJSON bool) error {
@@ -484,6 +485,10 @@ func runPatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	fmt.Fprintf(out, "accepted skills: %d\n", report.AcceptedSkills)
 	fmt.Fprintf(out, "declined patterns: %d\n", report.DeclinedPatterns)
 	fmt.Fprintf(out, "updates available: %d\n", report.UpdatesAvailable)
+	if lr := report.LastRun; lr != nil {
+		fmt.Fprintf(out, "last run: %s — %d episode(s), %d pattern(s), %d dossier(s), %d symbol link(s), %d commit(s), %d synapse(s)\n",
+			lr.At, lr.Episodes, lr.Patterns, lr.Dossiers, lr.SymbolLinks, lr.Commits, lr.Synapses)
+	}
 	return nil
 }
 
@@ -510,6 +515,9 @@ func buildPatternsStatusReport(brainDir string) patternsStatusReport {
 		Procedures:    src.Procedures,
 		Practices:     src.Practices,
 		Patterns:      src.Patterns,
+	}
+	if run, ok := lastPatternRun(brainDir); ok {
+		report.LastRun = &run
 	}
 
 	_, byID, _ := loadPatternViews(brainDir)

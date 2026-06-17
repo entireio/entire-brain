@@ -38,7 +38,7 @@ const (
 	// Bump when the parser/extractor output changes in a way that requires
 	// re-indexing already-indexed sessions. v2: Phase 2 enrichment (exit codes,
 	// files, meta-hits, fact links).
-	patternIndexerVersion = 5
+	patternIndexerVersion = 6
 )
 
 // patternCorpusSchema is the full target schema (additive). Tables not yet
@@ -127,6 +127,28 @@ var patternCorpusSchema = []string{
 		PRIMARY KEY (episode_id, path, action, line),
 		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
 	)`,
+	// episode_symbols links an episode to the semantic symbol ids defined in the
+	// files it touched (populated only when a semantic index is present).
+	`CREATE TABLE IF NOT EXISTS episode_symbols (
+		episode_id TEXT NOT NULL,
+		symbol_id TEXT NOT NULL,
+		name TEXT,
+		file_path TEXT,
+		PRIMARY KEY (episode_id, symbol_id),
+		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
+	)`,
+	// episode_commits records git commits an episode landed, parsed from the
+	// transcript's local `[branch hash] subject` confirmation — local evidence
+	// only, never the network.
+	`CREATE TABLE IF NOT EXISTS episode_commits (
+		episode_id TEXT NOT NULL,
+		commit_hash TEXT NOT NULL,
+		branch TEXT,
+		subject TEXT,
+		line INTEGER,
+		PRIMARY KEY (episode_id, commit_hash),
+		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
+	)`,
 	`CREATE TABLE IF NOT EXISTS episode_facts (
 		episode_id TEXT NOT NULL, fact_id TEXT NOT NULL, branch TEXT, kind TEXT, paths TEXT, weight REAL NOT NULL DEFAULT 1.0,
 		PRIMARY KEY (episode_id, fact_id),
@@ -135,6 +157,25 @@ var patternCorpusSchema = []string{
 	`CREATE TABLE IF NOT EXISTS synapses (
 		id TEXT PRIMARY KEY, from_id TEXT NOT NULL, to_id TEXT NOT NULL, kind TEXT NOT NULL,
 		weight REAL NOT NULL DEFAULT 1.0, source_anchor TEXT, evidence_sha TEXT, created_at TEXT NOT NULL
+	)`,
+	// themes are conversational/read-only/judgment-heavy clusters that the
+	// command/task channel misses. The table is first-class here; population +
+	// verification land with theme discovery (Priority 5).
+	`CREATE TABLE IF NOT EXISTS themes (
+		id TEXT PRIMARY KEY,
+		repo_key TEXT,
+		scope TEXT NOT NULL DEFAULT 'repo',
+		title TEXT NOT NULL,
+		description TEXT,
+		shape TEXT,
+		member_keys TEXT,
+		support INTEGER NOT NULL DEFAULT 0,
+		fingerprint TEXT NOT NULL,
+		strength REAL NOT NULL DEFAULT 0,
+		status TEXT NOT NULL DEFAULT 'active',
+		verdict TEXT,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
 	)`,
 	`CREATE TABLE IF NOT EXISTS patterns (
 		id TEXT PRIMARY KEY, type TEXT NOT NULL, scope TEXT NOT NULL, repo_key TEXT, workspace TEXT,
@@ -297,10 +338,22 @@ func buildPatternCorpus(brainDir string, now time.Time) error {
 		return err
 	}
 
-	// Rebuild candidate patterns from the fresh corpus.
+	// Link episodes to semantic symbols (if a semantic index exists), then
+	// rebuild candidate patterns, then materialize the synapse explanation graph.
+	var sem *semanticSourceManifest
+	if manifest.Sources != nil {
+		sem = manifest.Sources.Semantic
+	}
+	if err := linkEpisodeSymbols(db, brainDir, sem); err != nil {
+		return err
+	}
 	if err := buildPatternCandidates(db, repoKey, now); err != nil {
 		return err
 	}
+	if err := buildSynapses(db, now); err != nil {
+		return err
+	}
+	recordPatternRun(db, brainDir, now)
 
 	return setCorpusMeta(db, map[string]string{
 		"schema_version":          strconv.Itoa(patternCorpusSchemaVersion),
@@ -433,6 +486,12 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 		for _, fl := range linkEpisodeFacts(factsByBranch[s.Branch], seg.Request.Text, files) {
 			if _, err := tx.Exec(`INSERT OR IGNORE INTO episode_facts (episode_id, fact_id, branch, kind, paths, weight) VALUES (?,?,?,?,?,?)`,
 				epID, fl.factID, fl.branch, fl.kind, fl.paths, fl.weight); err != nil {
+				return err
+			}
+		}
+		for _, c := range corpusCommits(seg.WorkText) {
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO episode_commits (episode_id, commit_hash, branch, subject, line) VALUES (?,?,?,?,?)`,
+				epID, c.hash, c.branch, c.subject, c.line); err != nil {
 				return err
 			}
 		}
