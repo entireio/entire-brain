@@ -1,0 +1,442 @@
+Run again; then move to Phase 2
+<system-reminder>Message sent at Tue 2026-06-16 12:10:31 UTC.</system-reminder>
+
+---
+
+Start phase 3
+<system-reminder>Message sent at Tue 2026-06-16 12:30:00 UTC.</system-reminder>
+
+---
+
+Hm, we should refresh the distillation if kind is empty.
+<system-reminder>Message sent at Tue 2026-06-16 12:42:45 UTC.</system-reminder>
+
+---
+
+Yes
+<system-reminder>Message sent at Tue 2026-06-16 13:28:07 UTC.</system-reminder>
+
+---
+
+I want it now
+<system-reminder>Message sent at Tue 2026-06-16 15:24:07 UTC.</system-reminder>
+
+---
+
+Just keep going through all phases
+<system-reminder>Message sent at Tue 2026-06-16 15:34:16 UTC.</system-reminder>
+
+---
+
+Update it
+<system-reminder>Message sent at Tue 2026-06-16 16:08:48 UTC.</system-reminder>
+
+---
+
+If you run the new feature on this repo’s brain, which skills do you get?
+<system-reminder>Message sent at Tue 2026-06-16 16:13:42 UTC.</system-reminder>
+
+---
+
+I consider this a total fail
+<system-reminder>Message sent at Tue 2026-06-16 16:18:41 UTC.</system-reminder>
+
+---
+
+Don’t quote the plan to me. Assume your implementation for the phases was poor work as you clearly didn’t spend enough time for testing. To which phase do we go back to fix this?
+<system-reminder>Message sent at Tue 2026-06-16 16:23:40 UTC.</system-reminder>
+
+---
+
+Before we do that, research and understand what an agent skill actually does. In fact, what would a skill look like for an agent to use entire-brain itself?
+<system-reminder>Message sent at Tue 2026-06-16 16:26:01 UTC.</system-reminder>
+
+---
+
+And I am sure you can find lots of real skills for Claude Code as references
+<system-reminder>Message sent at Tue 2026-06-16 16:46:52 UTC.</system-reminder>
+
+---
+
+Write it, then go build it. Don’t come back without results.
+<system-reminder>Message sent at Tue 2026-06-16 17:12:55 UTC.</system-reminder>
+
+---
+
+Find the brain for entire-cli and refresh/distill it
+<system-reminder>Message sent at Tue 2026-06-16 19:35:16 UTC.</system-reminder>
+
+---
+
+Full distill
+
+---
+
+In the meantime, here's feedback from Code on your PR:
+
+---
+
+Good progress. The code now addresses the important architectural issues: normal refresh builds patterns, `patterns form` is removed, skill creation goes through task candidates, previews are evidence-first, redaction exists, and workspace task candidates exist.
+
+Before merge, please fix these remaining issues:
+
+1. Update the PR description.
+   It still says:
+   - `patterns form <id>`
+   - workspace `form`
+   - skill formation from selected patterns
+   - old verification notes about `form` writing a skill
+
+   Replace with the current surface:
+   - `entire brain patterns`
+   - `entire brain patterns refresh`
+   - `entire brain patterns status`
+   - `entire brain patterns skills`
+   - `entire brain patterns skills form <task-id>`
+   - `entire brain workspace patterns <workspace>`
+   - `entire brain workspace patterns refresh <workspace>`
+   - `entire brain workspace patterns status <workspace>`
+   - `entire brain workspace patterns skills <workspace>`
+   - `entire brain workspace patterns skills form <workspace> <task-id>`
+
+2. Clean up `docs/pattern_consolidation_plan.md`.
+   It still contains old `patterns form` references at least around:
+   - Public commands
+   - Skill Formation
+   - Phase 4/5/6 notes
+   - MCP note saying skill creation is `patterns form`
+
+   The bottom “Code review response” section says `patterns form` is removed, but earlier sections contradict it. Please rewrite the earlier sections so the whole doc says one thing.
+
+3. Redact workspace skills JSON output.
+   `runWorkspaceSkillsList(... --json)` currently returns raw `tasks`, unlike repo `patterns skills --json`, which redacts candidates first. Make workspace JSON use `redactCandidate` too.
+
+4. Re-check CI after all jobs finish.
+   When I checked, three checks were still in progress:
+   - `test (macos-latest)`
+   - `test (windows-latest)`
+   - `phase1-semantic (windows-latest)`
+
+Validation before handing back:
+- `rg "patterns form|workspace patterns .*form|patterns form\\)" docs internal/cli`
+  should only find tests/comments explicitly asserting the old command is removed, not user-facing docs.
+- `go test ./...`
+- `go vet ./...`
+- `gofmt -l -s .` empty
+- all GitHub PR checks green
+
+---
+
+<task-notification>
+<task-id>barmu0dqv</task-id>
+<tool-use-id>toolu_01QiP5QQEg2tQmTz5EGzAzer</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/7fc2ec8e-fd41-4e80-ac5e-d7b4a87b7c35/tasks/barmu0dqv.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch PR CI until all checks complete" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Check the main branch, I add a new docs/pattern_v2.md plan. Review the plan and start the work on a branch stacked on the current claude/patterns-phase0-reinforcement branch.
+
+---
+
+Open PR, then keep going through all phases, but only proceed to next phase when you have the evidence
+
+---
+
+<task-notification>
+<task-id>b7cp23ywf</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/7fc2ec8e-fd41-4e80-ac5e-d7b4a87b7c35/tasks/b7cp23ywf.output</output-file>
+<status>completed</status>
+<summary>Background command "Distill the entire-cli brain (full, token-heavy)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>brsjq3rvy</task-id>
+<tool-use-id>toolu_018UQSjWV6Aejicctxju57FK</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/7fc2ec8e-fd41-4e80-ac5e-d7b4a87b7c35/tasks/brsjq3rvy.output</output-file>
+<status>completed</status>
+<summary>Background command "Check find output" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b1xk05iol</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/7fc2ec8e-fd41-4e80-ac5e-d7b4a87b7c35/tasks/b1xk05iol.output</output-file>
+<status>completed</status>
+<summary>Background command "Locate corpus.sqlite" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Ok, so did you apply the new patteern extractor to entire-cli brain as well?
+
+---
+
+Fix it, but be smarter about. MacOS doesn't allow case-sensitive file systems. You either figure that out, or are able to strip the paths no matter what.
+
+---
+
+Continue PR #44 to completion. Do not defer the remaining V2 work unless you hit a concrete blocker and can show why it cannot be implemented in this PR. This is not just a skill-generation feature; it must improve the whole brain: refresh, patterns, brief, overview, query/get, review, handoff, MCP, and workspaces.
+
+Constraints:
+- Keep refresh/watch deterministic and token-free.
+- No hidden commands. Any command you add must be public, documented, tested, and necessary for a user job.
+- Do not add a second build path users must discover. `entire brain refresh` and `entire brain patterns refresh` must keep the derived layers current.
+- Preserve existing workspace behavior and existing skill-memory behavior.
+- Keep user decisions outside rebuildable `patterns/corpus.sqlite`.
+- Keep redaction active at every CLI/JSON/MCP/agent/cache egress.
+- `ENTIRE_BRAIN_NO_EGRESS` / local-only mode must block every optional agent path.
+- Prefer tests/fixtures first. Every completed slice needs validation evidence.
+
+Priorities, easiest to hardest:
+
+1. Make `entire brain patterns` use the V2 corpus
+The current default patterns listing still reads the old procedure/practice JSON views via `loadPatternViews`. Replace or augment it so the public `patterns` surface lists rows from `patterns/corpus.sqlite` / `patterns` / `pattern_evidence` / `dossiers`.
+
+Acceptance:
+- `entire brain patterns --json` returns V2 corpus-backed task/procedure/risk/practice records.
+- Text output shows type, scope, strength, support, current/stale/verifier state, top anchor, and id.
+- Existing old pattern files may remain compatibility artifacts, but they must not be the main analytical source.
+- Filters work for `--type task|procedure|risk|practice` and `--scope repo|workspace`.
+- Tests prove the list comes from the corpus, suppresses rejected dossiers, and degrades clearly when the corpus is absent.
+
+2. Bring workspace support into the V2 corpus
+Workspaces are first-class in Entire. Implement workspace-scope V2 candidates, not only old workspace pattern files.
+
+Acceptance:
+- Workspace refresh aggregates member repo corpora without copying generated repo data into repo stores.
+- Workspace candidates use `scope='workspace'`, `workspace=<name>`, `n_repos >= 2`, repo breakdown, member anchors, and stable ids.
+- Workspace patterns are built from raw repo corpus evidence, not only merged JSON files.
+- `entire brain workspace patterns <name> --json` returns V2 workspace task/procedure/risk/practice candidates.
+- `workspace get <name> <repo-key/pattern:id>` and/or a documented equivalent can fetch workspace pattern/dossier records.
+- Tests cover two repos sharing a task, one repo-only pattern not promoted to workspace, stale/missing member repo behavior, redaction, and repo-key-qualified ids.
+
+3. Add the missing corpus tables or update the spec honestly
+`docs/pattern_v2.md` currently describes more than the implementation has. Either implement the missing pieces or mark them explicitly as future work with a reason. Prefer implementation.
+
+Implement:
+- `episode_symbols`: link episodes to semantic symbol ids where existing semantic graph data is available.
+- `episode_commits`: populate from local git/session evidence only; no network.
+- `themes`: first-class table for conversational/read-only/judgment-heavy clusters.
+- `synapses`: internal explanation edges connecting episode -> fact/file/symbol/commit, pattern -> evidence, workspace pattern -> repo variants, theme -> member episodes.
+- A visible status/history surface for pattern runs. Use the existing storage style if `patterns/runs.ndjson` is not the right fit, but the user must be able to answer “what did the brain update last time?”
+
+Acceptance:
+- Schema and docs match exactly.
+- Empty future tables are not described as done.
+- Tests prove schema creation, idempotent rebuild, and no user-state loss.
+
+4. Deepen dossiers beyond deterministic summaries
+Current dossiers summarize top corpus rows. Add a full-span evidence export and deep verifier workflow so dossiers are based on the complete supporting evidence, especially corrected/failed episodes.
+
+Acceptance:
+- Add a documented command or option only if necessary, for example `entire brain patterns verify --deep` or another clearer public command. Do not hide it.
+- Full-span export resolves all member episode spans by stable `episode_key`, stratifies corrected/failed first, caps safely, redacts before egress, and fingerprints the full evidence set, not just sampled rows.
+- A deep dossier includes trigger, preconditions, workflow, variations, verification, failure modes with recoveries, parameters, facts, anchors, confidence, and verifier result.
+- Agent calls are explicit only, egress-gated, cached by evidence fingerprint, and never run from refresh/watch/brief/query/MCP/workspace.
+- Tests cover cache reuse, stale invalidation, corrected/failed evidence inclusion, redaction, and no-egress rejection.
+
+5. Implement theme / latent-practice support
+The command/task channel misses conversational and read-only practices. Add a deterministic foundation plus optional explicit verification.
+
+Acceptance:
+- Deterministically classify episode shape: conversation, read-only, shell, write.
+- Add a theme proposal/list/get/render/grow path only if it is public and documented.
+- Themes store member `episode_key` values, fingerprint, title, description, evidence, status/verdict.
+- Theme candidates must require enough member episodes and must be verifier-checked before promotion.
+- Themes can produce dossiers and can appear in `brief`, `overview`, `patterns`, and `get`.
+- Tests cover read-only/conversation themes, rejected themes, growth/refingerprint, and no ambient noise in unrelated briefs.
+
+6. Wire V2 corpus into the whole brain, with measured gates
+Do not leave the corpus isolated to `brief`, `overview`, and `get`.
+
+Acceptance:
+- `review` can use risk/practice/dossier context without changing its public schema unexpectedly.
+- `handoff` includes relevant recent episodes and current/stale consolidations.
+- MCP exposes read-only pattern list/get/status surfaces matching public CLI jobs.
+- `query/search` integration is allowed only after a test proves ranking quality does not regress. If not integrating ranking, add explicit discoverability: query results can point to `pattern:<id>` when directly relevant without drowning facts/history/docs.
+- Tests cover JSON stability, redaction, missing corpus behavior, and relevance/noise.
+
+7. Complete skill lifecycle integration without making this only about skills
+Keep skill formation as a downstream consumer.
+
+Acceptance:
+- After skill creation, ask/record the user decision as already planned.
+- Existing skill-memory current/update/declined/reconsider behavior still works with V2 corpus ids.
+- Add installed-skill inventory/dedupe/drift checks if not already complete: detect existing skills, avoid duplicates, propose updates when evidence materially changes, respect declined unchanged candidates.
+- Tests cover duplicate prevention, hand-edited skill detection if implemented, declined unchanged suppression, and materially changed re-prompt.
+
+8. Update docs and PR description to as-built reality
+No vague “later slices” for anything required above unless genuinely blocked.
+
+Acceptance:
+- `docs/pattern_v2.md` has an implementation status table: implemented, validated, not implemented with blocker.
+- PR description matches the code.
+- Remove claims that tables/features exist if they do not.
+- Include exact validation commands and evidence counts from a real run.
+
+Final validation:
+- `gofmt -l -s .` is empty.
+- `go test ./...` passes.
+- `go vet ./...` passes.
+- Existing release evidence/audit passes.
+- Add targeted tests for every item above.
+- Run on a real multi-repo workspace and report counts: indexed sessions, episodes, commands, facts/symbol links, repo patterns, workspace patterns, dossiers, themes, rejected/noise examples, and redaction leak count.
+- Show at least one end-to-end path:
+  1. refresh
+  2. patterns list
+  3. get pattern id
+  4. brief includes relevant context
+  5. workspace patterns show a cross-repo candidate
+  6. verifier/deep path is blocked under no-egress and cached when enabled
+
+When reporting back, group by the eight priorities above and include what changed, where, tests run, and any remaining blocker. Do not describe deferred work as complete.
+
+---
+
+Continue PR #44 to completion. Do not stop at CI green; fix the remaining implementation gaps and prove each one with targeted tests plus `go test ./...`.
+
+Priority 1: Make deep verification actually evidence-deep
+
+Current issue:
+`pattern_deep.go` claims “full-span deep dossier”, but the verifier input only contains derived data: source path/line anchors, command heads, facts, parameters, and failure summaries. It does not include redacted transcript span text from the backing episodes.
+
+Required change:
+- Resolve every backing episode to its transcript span.
+- Include capped, redacted evidence excerpts in the deep dossier JSON sent to the verifier.
+- Keep corrected/failed episodes first.
+- Preserve redaction at the verifier boundary.
+- If a cap remains, document it honestly as a bounded evidence export, not “complete full-span” verifier input.
+
+Validation:
+- Add a test fixture where a unique sentence appears only in the transcript span.
+- Assert that the unique sentence appears in the deep verifier input.
+- Add a secret/home-path/token inside the span and assert it is redacted.
+- Existing deep verifier cache/fingerprint tests must still pass.
+
+Priority 2: Make theme verification evidence-based
+
+Current issue:
+`verifyThemes` sends only title, description, shape, member count, and fingerprint. The verifier cannot judge whether member episodes actually form a coherent recurring practice.
+
+Required change:
+- Include member episode keys and capped redacted evidence excerpts/anchors in the theme verifier payload.
+- Ensure theme verification can distinguish coherent themes from same-intent but incoherent grouped episodes.
+- Keep themes read-only unless verified accepted.
+
+Validation:
+- Add a coherent theme fixture that gets accepted.
+- Add an incoherent same-`intent_sig` fixture that must be rejected or `needs_split`.
+- Assert verifier input contains member evidence, not just label/count.
+- Assert redaction on theme evidence input.
+
+Priority 3: Do not form skills from unresolved verifier verdicts
+
+Current issue:
+`loadCorpusTaskCandidates` excludes only `rejected`. It still allows `needs_split` and `low_confidence` task patterns to become skill candidates.
+
+Required change:
+- For skill formation, suppress `rejected`, `needs_split`, and `low_confidence` when shallow or deep verifier verdicts exist.
+- Accepted remains formable.
+- Unverified behavior should be explicit and tested. If unverified remains formable, document that it is pre-verification; if not, require accepted.
+
+Validation:
+- Add tests for shallow `needs_split`, shallow `low_confidence`, deep `needs_split`, and deep `low_confidence`.
+- Each must be absent from `patterns skills`.
+- Add an accepted control case that remains visible.
+
+Priority 4: Make workspace pattern ids drillable
+
+Current issue:
+`workspace patterns` prints aggregate workspace `pattern:` ids, but `workspace get` only parses repo-qualified ids like `<repo-key>/pattern:<id>`. The printed aggregate ids are not directly fetchable.
+
+Required change:
+Choose one coherent behavior:
+- Preferred: support `entire brain workspace get <workspace> pattern:<id>` by reading the workspace corpus.
+- Also keep member-qualified ids working for member repo drill-in.
+- If aggregate workspace ids are printed, they must be pasteable into a get command.
+
+Validation:
+- Add a CLI test that runs workspace pattern refresh/list, captures a printed aggregate `pattern:` id, then fetches it with `workspace get`.
+- Add a member-qualified pattern id test to prove existing behavior still works.
+
+Priority 5: Materialize workspace synapses and run history
+
+Current issue:
+Repo corpus builds call `buildSynapses` and `recordPatternRun`. Workspace corpus builds write patterns/evidence/repo breakdowns, but do not materialize workspace synapses or record a workspace run.
+
+Required change:
+- After workspace corpus rebuild, call the same internal graph/run steps where applicable.
+- Ensure `workspace_repo` synapses are populated from `workspace_pattern_repos`.
+- Ensure workspace pattern status can report the last run if the status surface promises it.
+
+Validation:
+- Add workspace corpus test asserting nonzero `synapses` with kind `workspace_repo`.
+- Add workspace run-history test asserting a run record is written after workspace refresh.
+
+Priority 6: Clear stale symbol links when semantic data disappears
+
+Current issue:
+`linkEpisodeSymbols` returns before deleting `episode_symbols` when `sem == nil`, so stale symbol links survive if a semantic index was present before and later disappears.
+
+Required change:
+- Clear `episode_symbols` before checking `sem == nil`.
+- If semantic data is absent or unreadable, the symbol link table should degrade to empty.
+
+Validation:
+- Add a rebuild test:
+  1. Build with semantic symbols present and assert links exist.
+  2. Rebuild with no semantic manifest/source.
+  3. Assert `episode_symbols` is zero.
+
+Priority 7: Clean command/docs drift
+
+Current issues:
+- `patterns --type` help omits `theme`.
+- `workspace patterns --type` help omits `theme` if themes are supported there, or should clearly not mention it if unsupported.
+- `get` help omits `theme:`.
+- Docs claim “full-span” verification before implementation actually includes spans.
+
+Required change:
+- Align help text with real accepted ids/types.
+- Remove or rewrite stale “full-span” claims unless Priority 1 truly implements span excerpts.
+- Remove stale “deferred/next slice” language that is now superseded, or move it into historical notes clearly marked as obsolete.
+
+Final validation checklist:
+- `go test ./...`
+- `go vet ./...`
+- `gofmt -l -s .` returns empty
+- Targeted tests for each priority above
+- Manual smoke evidence:
+  - `patterns verify --deep` verifier input contains redacted evidence excerpts
+  - `patterns verify --themes` verifier input contains member evidence
+  - `patterns skills` excludes `needs_split` and `low_confidence`
+  - `workspace patterns` printed id can be fetched with `workspace get`
+  - workspace corpus has `workspace_repo` synapses
+  - symbol links clear when semantic source is absent
+
+Do not report “complete” until the tests prove the behavior, not just that the commands run.
+
+---
+
+One final cleanup remains on PR #44.
+
+Fix stale wording around deep verification. The implementation is now intentionally bounded: ≤40 anchors, top 12 anchors with redacted transcript excerpts. But user-facing help still says `patterns verify --deep` audits the “COMPLETE supporting-evidence set” / “every backing episode”.
+
+Required changes:
+- Update `internal/cli/patterns_cmd.go` help text for `patterns verify --deep` to describe a bounded evidence-deep export, not complete/full-span evidence.
+- Update the stale internal comment in `internal/cli/pattern_corpus.go` that still calls `deep_dossiers` “full-span”.
+- Keep docs consistent with the newer `docs/pattern_v2.md` wording.
+
+Validation:
+- `go test ./...`
+- `go vet ./...`
+- `gofmt -l -s .` returns empty
+- Optional: add/update a small help-text test only if this repo already has command help tests nearby; otherwise the code/doc diff is enough.
