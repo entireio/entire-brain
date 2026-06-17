@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "c75dae662abe",
+  "strategy": "manual-commit",
+  "branch": "claude/brain-dash-tui",
+  "checkpoints_count": 90,
+  "files_touched": [
+    "go.mod",
+    "go.sum",
+    "internal/cli/add.go",
+    "internal/cli/add_test.go",
+    "internal/cli/dash.go",
+    "internal/cli/dash_test.go",
+    "internal/cli/root.go",
+    "internal/tui/detail.go",
+    "internal/tui/keys.go",
+    "internal/tui/styles.go",
+    "internal/tui/table.go",
+    "internal/tui/tui.go",
+    "internal/tui/tui_test.go",
+    "internal/tui/viewmodels.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c7/5dae662abe/0/metadata.json",
+      "transcript": "/c7/5dae662abe/0/full.jsonl",
+      "content_hash": "/c7/5dae662abe/0/content_hash.txt",
+      "prompt": "/c7/5dae662abe/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 534181,
+    "cache_creation_tokens": 29982431,
+    "cache_read_tokens": 1713776087,
+    "output_tokens": 4642901,
+    "api_call_count": 3346
+  }
+}

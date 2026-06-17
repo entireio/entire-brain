@@ -1,0 +1,1817 @@
+{
+  "cli_version": "0.7.3",
+  "checkpoint_id": "c75dae662abe",
+  "session_id": "af861ed9-9e1d-41a7-8400-b53c2995aed8",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-17T14:18:17.102529Z",
+  "branch": "claude/brain-dash-tui",
+  "checkpoints_count": 90,
+  "files_touched": [
+    "go.mod",
+    "go.sum",
+    "internal/cli/add.go",
+    "internal/cli/add_test.go",
+    "internal/cli/dash.go",
+    "internal/cli/dash_test.go",
+    "internal/cli/root.go",
+    "internal/tui/detail.go",
+    "internal/tui/keys.go",
+    "internal/tui/styles.go",
+    "internal/tui/table.go",
+    "internal/tui/tui.go",
+    "internal/tui/tui_test.go",
+    "internal/tui/viewmodels.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "b14184897593",
+  "token_usage": {
+    "input_tokens": 534181,
+    "cache_creation_tokens": 29982431,
+    "cache_read_tokens": 1713776087,
+    "output_tokens": 4642901,
+    "api_call_count": 3346
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_011RsLPw3juQNPC9S6sy4Ngx",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "code-review"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b14184897593",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 16133,
+        "end": 16134,
+        "entry_ids": [
+          "6fbd2d36-b3b3-40f6-9141-c1211b29f042"
+        ],
+        "tool_use_id": "toolu_011RsLPw3juQNPC9S6sy4Ngx"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_011RsLPw3juQNPC9S6sy4Ngx"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: code-review",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01B5QojHkwgNynb2kfsBLrA2",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "regente"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b14184897593",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 20552,
+        "end": 20553,
+        "entry_ids": [
+          "6110765b-acc9-4996-8af5-9c0a212eb49d"
+        ],
+        "tool_use_id": "toolu_01B5QojHkwgNynb2kfsBLrA2"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01B5QojHkwgNynb2kfsBLrA2"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: regente",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01M5H3p1ojCC5phsn1UovmzF",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "brainstorming"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "b14184897593",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 21296,
+        "end": 21297,
+        "entry_ids": [
+          "c373aa46-ba44-442f-8911-fa2038ffd8d9"
+        ],
+        "tool_use_id": "toolu_01M5H3p1ojCC5phsn1UovmzF"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01M5H3p1ojCC5phsn1UovmzF"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: brainstorming",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 129
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-17T14:18:16.208064Z",
+    "agent_lines": 2894,
+    "agent_removed": 3,
+    "human_added": 132,
+    "human_modified": 17,
+    "human_removed": 0,
+    "total_committed": 3043,
+    "total_lines_changed": 3046,
+    "agent_percentage": 95.10833880499015,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 2172,
+      "user_lines_removed": 74608,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.json": 60,
+        ".claude/settings.local.json": 34,
+        ".claude/skills/regente/SKILL.md": 40,
+        ".codex/config.toml": 6,
+        ".codex/hooks.json": 40,
+        ".codex/skills/regente/SKILL.md": 35,
+        ".cursor/mcp.json": 14,
+        ".cursor/rules/regente.mdc": 40,
+        ".gemini/regente.md": 35,
+        ".gemini/settings.json": 93,
+        ".mcp.json": 14,
+        ".regente/AGENT-ONBOARDING.md": 35,
+        ".regente/adapters.md": 35,
+        ".regente/claims.json": 92,
+        ".regente/config.json": 4,
+        ".regente/events.jsonl": 1394,
+        ".regente/github-app.json": 7,
+        ".regente/messages.jsonl": 4,
+        ".regente/metrics/latest.json": 30,
+        ".regente/recent-edits.json": 5,
+        ".regente/roles.json": 16,
+        ".regente/status.json": 130,
+        ".regente/tasks.jsonl": 1,
+        ".regente/team.json": 8
+      },
+      "user_removed_per_file": {
+        "benchmarks/agent-brain/.gitignore": 3,
+        "benchmarks/agent-brain/README.md": 301,
+        "benchmarks/agent-brain/audit_codex.py": 1685,
+        "benchmarks/agent-brain/audit_distill_perf.py": 561,
+        "benchmarks/agent-brain/audit_facts_eval.py": 955,
+        "benchmarks/agent-brain/audit_radar_evidence.py": 647,
+        "benchmarks/agent-brain/audit_radar_tool_evidence.py": 371,
+        "benchmarks/agent-brain/audit_release_matrix.py": 407,
+        "benchmarks/agent-brain/audit_workspace_radar_evidence.py": 247,
+        "benchmarks/agent-brain/discovery/phase2-layer-b-20260610/pricing.json": 45,
+        "benchmarks/agent-brain/discovery/phase2-layer-b-20260610/report.md": 88,
+        "benchmarks/agent-brain/discovery/phase2-layer-b-20260610/scenarios.json": 1581,
+        "benchmarks/agent-brain/discovery/phase2-layer-b-20260610/summary.json": 14,
+        "benchmarks/agent-brain/evidence/distill-perf/README.md": 59,
+        "benchmarks/agent-brain/evidence/distill-perf/distill-perf-audit-report.json": 98,
+        "benchmarks/agent-brain/evidence/distill-perf/distill-perf-audit-report.md": 16,
+        "benchmarks/agent-brain/evidence/distill-perf/dry-run.json": 207,
+        "benchmarks/agent-brain/evidence/distill-perf/go-test-internal-cli-ollama-distill.jsonl": 40,
+        "benchmarks/agent-brain/evidence/distill-perf/jobs-1.json": 44,
+        "benchmarks/agent-brain/evidence/distill-perf/jobs-4.json": 44,
+        "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py": 64,
+        "benchmarks/agent-brain/evidence/distill-perf/manifest.json": 127,
+        "benchmarks/agent-brain/evidence/facts-eval-proof-fixture/README.md": 22,
+        "benchmarks/agent-brain/evidence/facts-eval-proof-fixture/facts-eval-audit-report.json": 54,
+        "benchmarks/agent-brain/evidence/facts-eval-proof-fixture/facts-eval-audit-report.md": 25,
+        "benchmarks/agent-brain/evidence/facts-eval-proof-fixture/facts.json": 191,
+        "benchmarks/agent-brain/evidence/facts-eval-proof-fixture/history.json": 191,
+        "benchmarks/agent-brain/evidence/facts-eval-proof-fixture/manifest.json": 34,
+        "benchmarks/agent-brain/evidence/facts-eval-proof-fixture/query.json": 191,
+        "benchmarks/agent-brain/evidence/facts-eval-proof-fixture/raw-sessions.json": 191,
+        "benchmarks/agent-brain/evidence/facts-eval-proof-fixture/raw-vs-facts.compare.json": 36,
+        "benchmarks/agent-brain/evidence/facts-eval/README.md": 109,
+        "benchmarks/agent-brain/evidence/facts-eval/facts-eval-audit-report.json": 43,
+        "benchmarks/agent-brain/evidence/facts-eval/facts-eval-audit-report.md": 19,
+        "benchmarks/agent-brain/evidence/facts-eval/facts-status.json": 26,
+        "benchmarks/agent-brain/evidence/facts-eval/manifest.json": 13,
+        "benchmarks/agent-brain/evidence/radar-tool/README.md": 19,
+        "benchmarks/agent-brain/evidence/radar-tool/go-test-internal-cli-radar.jsonl": 284,
+        "benchmarks/agent-brain/evidence/radar-tool/manifest.json": 100,
+        "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.json": 129,
+        "benchmarks/agent-brain/evidence/radar-tool/radar-tool-audit-report.md": 13,
+        "benchmarks/agent-brain/evidence/release-matrix/README.md": 18,
+        "benchmarks/agent-brain/evidence/release-matrix/manifest.json": 44,
+        "benchmarks/agent-brain/evidence/release-matrix/release-matrix-report.json": 99,
+        "benchmarks/agent-brain/evidence/release-matrix/release-matrix-report.md": 26,
+        "benchmarks/agent-brain/evidence/release/README.md": 72,
+        "benchmarks/agent-brain/evidence/release/codex-audit-report.json": 1643,
+        "benchmarks/agent-brain/evidence/release/codex-audit-report.md": 31,
+        "benchmarks/agent-brain/evidence/release/manifest.json": 25,
+        "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1/mcp-server.log": 15,
+        "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r1/record.json": 587,
+        "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r2/mcp-server.log": 15,
+        "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r2/record.json": 545,
+        "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r3/mcp-server.log": 15,
+        "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r3/record.json": 20692,
+        "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4/mcp-server.log": 15,
+        "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__mcp_history__r4/record.json": 545,
+        "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r1/record.json": 317,
+        "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r2/record.json": 317,
+        "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r3/record.json": 317,
+        "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/entireio-cli-radar-manual-attribution-deletions__codex-gpt-5.4-mini-low__no_brain__r4/record.json": 317,
+        "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/records.ndjson": 8,
+        "benchmarks/agent-brain/evidence/release/release-candidate-cli-radar-mcp-del-clean-20260611T0412Z/summary.json": 344,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r1/record.json": 415,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r2/record.json": 389,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r3/record.json": 389,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__full_brain__r4/record.json": 389,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r1/record.json": 343,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r2/record.json": 342,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r3/record.json": 342,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/entire-brain-history-codex-schema-contract__codex-gpt-5.5-high__no_brain__r4/record.json": 342,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/records.ndjson": 8,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-brain-schema-contract-clean-20260611T0412Z/summary.json": 342,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r1/mcp-server.log": 14,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r1/record.json": 527,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r2/mcp-server.log": 14,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r2/record.json": 527,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r3/mcp-server.log": 14,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r3/record.json": 19162,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r4/mcp-server.log": 14,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__mcp_history__r4/record.json": 527,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r1/record.json": 317,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r2/record.json": 317,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r3/record.json": 317,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/entireio-cli-manual-commit-attribution-base__codex-gpt-5.4-mini-medium__no_brain__r4/record.json": 318,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/records.ndjson": 8,
+        "benchmarks/agent-brain/evidence/release/release-candidate-entire-cli-mcp-manual-attribution-clean-20260611T0412Z/summary.json": 342,
+        "benchmarks/agent-brain/evidence/workspace-radar/README.md": 23,
+        "benchmarks/agent-brain/evidence/workspace-radar/manifest.json": 12,
+        "benchmarks/agent-brain/evidence/workspace-radar/release-candidate-cli-workspace-radar-transcript-haiku-xhigh-20260610T154230Z/no_brain_r1/record.json": 318,
+        "benchmarks/agent-brain/evidence/workspace-radar/release-candidate-cli-workspace-radar-transcript-haiku-xhigh-20260610T154230Z/records.ndjson": 1,
+        "benchmarks/agent-brain/evidence/workspace-radar/release-candidate-cli-workspace-radar-transcript-haiku-xhigh-20260610T154230Z/summary.json": 73,
+        "benchmarks/agent-brain/evidence/workspace-radar/workspace-radar-audit-report.json": 73,
+        "benchmarks/agent-brain/evidence/workspace-radar/workspace-radar-audit-report.md": 18,
+        "benchmarks/agent-brain/fixtures/validation/entireio-cli/manual_attribution_no_trailer_realign_test.go.fixture": 86,
+        "benchmarks/agent-brain/full_report.py": 472,
+        "benchmarks/agent-brain/generate_radar_graphs.py": 188,
+        "benchmarks/agent-brain/make_report.py": 343,
+        "benchmarks/agent-brain/opus_report.py": 128,
+        "benchmarks/agent-brain/panels/full.json": 28,
+        "benchmarks/agent-brain/panels/release-entire-brain-history.json": 16,
+        "benchmarks/agent-brain/panels/release-entire-brain-schema-contract.json": 15,
+        "benchmarks/agent-brain/panels/release-entire-brain-semantic-audit-gate.json": 15,
+        "benchmarks/agent-brain/panels/release-entire-brain-semantic-tokenized-idf.json": 15,
+        "benchmarks/agent-brain/panels/release-entire-cli-mcp-manual-attribution.json": 15,
+        "benchmarks/agent-brain/panels/release-entire-cli-radar-mcp-attribution-realign.json": 18,
+        "benchmarks/agent-brain/panels/release-entire-cli-radar-mcp-manual-attribution-deletions.json": 18,
+        "benchmarks/agent-brain/panels/release-entire-cli-radar-mcp-manual-attribution.json": 18,
+        "benchmarks/agent-brain/panels/release-entire-cli-radar-mcp-review-base-scope.json": 18,
+        "benchmarks/agent-brain/panels/release-entire-cli-radar-mcp-review-file-count.json": 18,
+        "benchmarks/agent-brain/panels/release-entire-cli-semantic-xdg.json": 15,
+        "benchmarks/agent-brain/panels/release-entire-cli-workspace-radar-mcp-transcript-reresolve-haiku-xhigh.json": 15,
+        "benchmarks/agent-brain/panels/release-entire-cli-workspace-radar-mcp-transcript-reresolve.json": 15,
+        "benchmarks/agent-brain/pricing.json": 11,
+        "benchmarks/agent-brain/progress.sh": 27,
+        "benchmarks/agent-brain/record_radar_tool_evidence.py": 94,
+        "benchmarks/agent-brain/regression_eval.py": 115,
+        "benchmarks/agent-brain/run.py": 4621,
+        "benchmarks/agent-brain/run_cli_matrix.sh": 63,
+        "benchmarks/agent-brain/run_cli_parallel.sh": 76,
+        "benchmarks/agent-brain/run_opus_matrix.sh": 30,
+        "benchmarks/agent-brain/run_test.py": 4950,
+        "benchmarks/agent-brain/tasks/entire-brain-history-bundle-sha256.json": 29,
+        "benchmarks/agent-brain/tasks/entire-brain-history-claude-bare-auth.json": 32,
+        "benchmarks/agent-brain/tasks/entire-brain-history-claude-seed-agent.json": 53,
+        "benchmarks/agent-brain/tasks/entire-brain-history-codex-schema-contract.json": 34,
+        "benchmarks/agent-brain/tasks/entire-brain-history-github-visibility.json": 30,
+        "benchmarks/agent-brain/tasks/entire-brain-mcp-tool-name.json": 22,
+        "benchmarks/agent-brain/tasks/entire-brain-query-default-limit.json": 28,
+        "benchmarks/agent-brain/tasks/entire-brain-semantic-audit-gate-report.json": 25,
+        "benchmarks/agent-brain/tasks/entire-brain-semantic-completeness-tolerance.json": 24,
+        "benchmarks/agent-brain/tasks/entire-brain-semantic-tokenized-idf-ranking.json": 26,
+        "benchmarks/agent-brain/tasks/entire-brain-stale-query-default-limit.json": 27,
+        "benchmarks/agent-brain/tasks/entire-cli-external-command-env-filter.json": 23,
+        "benchmarks/agent-brain/tasks/entire-cli-manual-commit-attribution-base.json": 28,
+        "benchmarks/agent-brain/tasks/entire-cli-plugin-env-xdg-prefix.json": 26,
+        "benchmarks/agent-brain/tasks/entire-cli-review-base-flag-scope.json": 23,
+        "benchmarks/agent-brain/tasks/entire-cli-review-prompt-uncommitted-scope.json": 23,
+        "benchmarks/agent-brain/tasks/entire-cli-review-provenance-strip.json": 25,
+        "benchmarks/agent-brain/tasks/entire-cli-transcript-reresolve-updates-state.json": 23,
+        "benchmarks/agent-brain/tasks/entireio-cli-manual-commit-attribution-base.json": 51,
+        "benchmarks/agent-brain/tasks/entireio-cli-radar-attribution-realign-state.json": 40,
+        "benchmarks/agent-brain/tasks/entireio-cli-radar-manual-attribution-deletions.json": 50,
+        "benchmarks/agent-brain/tasks/entireio-cli-radar-review-base-file-count.json": 39,
+        "benchmarks/agent-brain/tasks/entireio-cli-review-base-flag-scope.json": 40,
+        "benchmarks/agent-brain/tasks/entireio-cli-transcript-reresolve.json": 43,
+        "benchmarks/agent-brain/tasks/github-cli-auth-env-token.json": 27,
+        "benchmarks/agent-brain/tasks/github-cli-display-url-scheme.json": 27,
+        "benchmarks/agent-brain/tasks/github-cli-format-web-conflict.json": 27,
+        "benchmarks/agent-brain/tasks/github-cli-ghrepo-url-git-suffix.json": 27,
+        "benchmarks/agent-brain/tasks/github-cli-http-scopes-suggestion.json": 27,
+        "benchmarks/agent-brain/tasks/github-cli-json-web-conflict.json": 27,
+        "benchmarks/agent-brain/tasks/github-cli-pr-checks-summary.json": 27,
+        "benchmarks/agent-brain/tasks/github-cli-repo-name-trims-dotgit.json": 27,
+        "benchmarks/agent-brain/tasks/github-cli-search-quote-multiword.json": 27,
+        "benchmarks/agent-brain/tasks/github-cli-tenant-name-dot.json": 27,
+        "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-bundle-sha256.json": 31,
+        "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-claude-bare-auth.json": 47,
+        "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-claude-seed-agent.json": 65,
+        "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-codex-schema-contract.json": 33,
+        "benchmarks/agent-brain/tasks/swe-style-entire-brain-history-github-visibility.json": 29,
+        "benchmarks/agent-brain/tasks/swe-style-entire-brain-stale-query-default-limit.json": 29,
+        "benchmarks/agent-brain/tasks/swe-style-entire-cli-manual-commit-attribution-base.json": 29,
+        "benchmarks/agent-brain/tasks/swe-style-entire-cli-review-uncommitted-scope.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-entire-cli-transcript-reresolve.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-github-cli-auth-env-token.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-github-cli-format-web-conflict.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-github-cli-http-scopes-suggestion.json": 24,
+        "benchmarks/agent-brain/tasks/swe-style-github-cli-repo-name-trims-dotgit.json": 36,
+        "benchmarks/agent-brain/tasks/ultron-history-agentic-self-contained-turns.json": 55,
+        "benchmarks/agent-brain/tasks/ultron-history-openai-metadata-step-string.json": 42,
+        "benchmarks/agent-brain/tasks/ultron-history-storage-limit-normalization.json": 32,
+        "benchmarks/agent-brain/tasks/ultron-history-youtube-media-verification.json": 45
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 41,
+      "user_lines_removed": 6,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 34,
+        ".regente/events.jsonl": 1,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 44,
+      "user_lines_removed": 6,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 34,
+        ".regente/events.jsonl": 4,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 46,
+      "user_lines_removed": 6,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 34,
+        ".regente/events.jsonl": 6,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 51,
+      "user_lines_removed": 6,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 34,
+        ".regente/events.jsonl": 11,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 219,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 36,
+        ".regente/events.jsonl": 163,
+        ".regente/recent-edits.json": 14,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 234,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 36,
+        ".regente/events.jsonl": 184,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 241,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 36,
+        ".regente/events.jsonl": 191,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 260,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 36,
+        ".regente/events.jsonl": 204,
+        ".regente/recent-edits.json": 14,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 544,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 36,
+        ".regente/events.jsonl": 488,
+        ".regente/recent-edits.json": 14,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 11,
+      "user_lines_added": 761,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 36,
+        ".regente/events.jsonl": 699,
+        ".regente/recent-edits.json": 20,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 12,
+      "user_lines_added": 916,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 36,
+        ".regente/events.jsonl": 848,
+        ".regente/recent-edits.json": 26,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 13,
+      "user_lines_added": 1072,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 36,
+        ".regente/events.jsonl": 992,
+        ".regente/recent-edits.json": 38,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 14,
+      "user_lines_added": 1238,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 36,
+        ".regente/events.jsonl": 1158,
+        ".regente/recent-edits.json": 38,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 15,
+      "user_lines_added": 1431,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 36,
+        ".regente/events.jsonl": 1351,
+        ".regente/recent-edits.json": 38,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 16,
+      "user_lines_added": 1781,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 36,
+        ".regente/events.jsonl": 1695,
+        ".regente/recent-edits.json": 44,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 17,
+      "user_lines_added": 2202,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 36,
+        ".regente/events.jsonl": 2116,
+        ".regente/recent-edits.json": 44,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 18,
+      "user_lines_added": 2308,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 36,
+        ".regente/events.jsonl": 2222,
+        ".regente/recent-edits.json": 44,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 19,
+      "user_lines_added": 2311,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 36,
+        ".regente/events.jsonl": 2237,
+        ".regente/recent-edits.json": 32,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 20,
+      "user_lines_added": 2351,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 37,
+        ".regente/events.jsonl": 2288,
+        ".regente/recent-edits.json": 20,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 21,
+      "user_lines_added": 2370,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 37,
+        ".regente/events.jsonl": 2307,
+        ".regente/recent-edits.json": 20,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 22,
+      "user_lines_added": 2714,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 37,
+        ".regente/events.jsonl": 2651,
+        ".regente/recent-edits.json": 20,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 23,
+      "user_lines_added": 3142,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 37,
+        ".regente/events.jsonl": 3079,
+        ".regente/recent-edits.json": 20,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 24,
+      "user_lines_added": 3146,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 37,
+        ".regente/events.jsonl": 3083,
+        ".regente/recent-edits.json": 20,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 25,
+      "user_lines_added": 3153,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 37,
+        ".regente/events.jsonl": 3090,
+        ".regente/recent-edits.json": 20,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 26,
+      "user_lines_added": 3156,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 37,
+        ".regente/events.jsonl": 3093,
+        ".regente/recent-edits.json": 20,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 27,
+      "user_lines_added": 3168,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 37,
+        ".regente/events.jsonl": 3105,
+        ".regente/recent-edits.json": 20,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 28,
+      "user_lines_added": 3725,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 37,
+        ".regente/events.jsonl": 3662,
+        ".regente/recent-edits.json": 20,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 29,
+      "user_lines_added": 5489,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 37,
+        ".regente/events.jsonl": 5426,
+        ".regente/recent-edits.json": 20,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 30,
+      "user_lines_added": 5497,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 38,
+        ".regente/events.jsonl": 5433,
+        ".regente/recent-edits.json": 20,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 31,
+      "user_lines_added": 5509,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 39,
+        ".regente/events.jsonl": 5444,
+        ".regente/recent-edits.json": 20,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 32,
+      "user_lines_added": 5512,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 39,
+        ".regente/events.jsonl": 5447,
+        ".regente/recent-edits.json": 20,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 33,
+      "user_lines_added": 5525,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 39,
+        ".regente/events.jsonl": 5460,
+        ".regente/recent-edits.json": 20,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 34,
+      "user_lines_added": 5541,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5475,
+        ".regente/recent-edits.json": 20,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 35,
+      "user_lines_added": 5548,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5494,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 36,
+      "user_lines_added": 5550,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5496,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 37,
+      "user_lines_added": 5553,
+      "user_lines_removed": 7,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5499,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 38,
+      "user_lines_added": 5625,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5510,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 67
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 39,
+      "user_lines_added": 5629,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5514,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 67
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 40,
+      "user_lines_added": 5860,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5745,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 67
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 41,
+      "user_lines_added": 5867,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5752,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 67
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 42,
+      "user_lines_added": 5872,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5757,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 67
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 43,
+      "user_lines_added": 5874,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5759,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 67
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 44,
+      "user_lines_added": 5876,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5761,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 67
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 45,
+      "user_lines_added": 5884,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5769,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 67
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 46,
+      "user_lines_added": 5908,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5793,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 67
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 47,
+      "user_lines_added": 5916,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5801,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 67
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 48,
+      "user_lines_added": 5919,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5804,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 67
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 49,
+      "user_lines_added": 5963,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5812,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 103
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 50,
+      "user_lines_added": 5966,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5815,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 103
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 51,
+      "user_lines_added": 5968,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5817,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 103
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 52,
+      "user_lines_added": 5970,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5819,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 103
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 53,
+      "user_lines_added": 5972,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 5821,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 103
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 54,
+      "user_lines_added": 6272,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 6121,
+        ".regente/recent-edits.json": 8,
+        ".regente/status.json": 103
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 55,
+      "user_lines_added": 6473,
+      "user_lines_removed": 14,
+      "agent_lines_added": 2140,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 6238,
+        ".regente/recent-edits.json": 92,
+        ".regente/status.json": 103
+      },
+      "user_removed_per_file": {
+        ".regente/recent-edits.json": 1,
+        ".regente/status.json": 13
+      }
+    },
+    {
+      "checkpoint_number": 56,
+      "user_lines_added": 47,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 1,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 57,
+      "user_lines_added": 53,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 7,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 58,
+      "user_lines_added": 57,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 11,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 59,
+      "user_lines_added": 84,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 38,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 60,
+      "user_lines_added": 115,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 69,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 61,
+      "user_lines_added": 135,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 89,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 62,
+      "user_lines_added": 139,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 93,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 63,
+      "user_lines_added": 142,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 96,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 64,
+      "user_lines_added": 146,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 100,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 65,
+      "user_lines_added": 198,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 152,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 66,
+      "user_lines_added": 209,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 163,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 67,
+      "user_lines_added": 228,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 182,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 68,
+      "user_lines_added": 230,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 184,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 69,
+      "user_lines_added": 232,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 186,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 70,
+      "user_lines_added": 234,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 188,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 71,
+      "user_lines_added": 236,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 190,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 72,
+      "user_lines_added": 238,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 192,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 73,
+      "user_lines_added": 240,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 194,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 74,
+      "user_lines_added": 242,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 196,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 75,
+      "user_lines_added": 245,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 199,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 76,
+      "user_lines_added": 256,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 210,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 77,
+      "user_lines_added": 259,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 213,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 78,
+      "user_lines_added": 262,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 216,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 79,
+      "user_lines_added": 266,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 220,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 80,
+      "user_lines_added": 269,
+      "user_lines_removed": 6,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 40,
+        ".regente/events.jsonl": 223,
+        ".regente/status.json": 6
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 6
+      }
+    },
+    {
+      "checkpoint_number": 81,
+      "user_lines_added": 660,
+      "user_lines_removed": 11,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 41,
+        ".regente/events.jsonl": 583,
+        ".regente/messages.jsonl": 1,
+        ".regente/status.json": 35
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 11
+      }
+    },
+    {
+      "checkpoint_number": 82,
+      "user_lines_added": 697,
+      "user_lines_removed": 8,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 41,
+        ".regente/events.jsonl": 622,
+        ".regente/messages.jsonl": 2,
+        ".regente/status.json": 32
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 8
+      }
+    },
+    {
+      "checkpoint_number": 83,
+      "user_lines_added": 716,
+      "user_lines_removed": 8,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 41,
+        ".regente/events.jsonl": 641,
+        ".regente/messages.jsonl": 2,
+        ".regente/status.json": 32
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 8
+      }
+    },
+    {
+      "checkpoint_number": 84,
+      "user_lines_added": 724,
+      "user_lines_removed": 8,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 41,
+        ".regente/events.jsonl": 648,
+        ".regente/messages.jsonl": 3,
+        ".regente/status.json": 32
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 8
+      }
+    },
+    {
+      "checkpoint_number": 85,
+      "user_lines_added": 732,
+      "user_lines_removed": 8,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 41,
+        ".regente/events.jsonl": 656,
+        ".regente/messages.jsonl": 3,
+        ".regente/status.json": 32
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 8
+      }
+    },
+    {
+      "checkpoint_number": 86,
+      "user_lines_added": 737,
+      "user_lines_removed": 8,
+      "agent_lines_added": 8591,
+      "agent_lines_removed": 74608,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 41,
+        ".regente/events.jsonl": 661,
+        ".regente/messages.jsonl": 3,
+        ".regente/status.json": 32
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 8
+      }
+    },
+    {
+      "checkpoint_number": 87,
+      "user_lines_added": 743,
+      "user_lines_removed": 8,
+      "agent_lines_added": 8485,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 41,
+        ".regente/events.jsonl": 667,
+        ".regente/messages.jsonl": 3,
+        ".regente/status.json": 32
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 8
+      }
+    },
+    {
+      "checkpoint_number": 88,
+      "user_lines_added": 743,
+      "user_lines_removed": 8,
+      "agent_lines_added": 10824,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 41,
+        ".regente/events.jsonl": 667,
+        ".regente/messages.jsonl": 3,
+        ".regente/status.json": 32
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 8
+      }
+    },
+    {
+      "checkpoint_number": 89,
+      "user_lines_added": 743,
+      "user_lines_removed": 8,
+      "agent_lines_added": 10824,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 41,
+        ".regente/events.jsonl": 667,
+        ".regente/messages.jsonl": 3,
+        ".regente/status.json": 32
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 8
+      }
+    },
+    {
+      "checkpoint_number": 90,
+      "user_lines_added": 743,
+      "user_lines_removed": 8,
+      "agent_lines_added": 10926,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 41,
+        ".regente/events.jsonl": 667,
+        ".regente/messages.jsonl": 3,
+        ".regente/status.json": 32
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 8
+      }
+    },
+    {
+      "checkpoint_number": 91,
+      "user_lines_added": 743,
+      "user_lines_removed": 8,
+      "agent_lines_added": 11396,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 41,
+        ".regente/events.jsonl": 667,
+        ".regente/messages.jsonl": 3,
+        ".regente/status.json": 32
+      },
+      "user_removed_per_file": {
+        ".regente/status.json": 8
+      }
+    }
+  ]
+}
