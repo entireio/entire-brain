@@ -3244,3 +3244,7 @@ Ok, let's add entire judge add <repo_url> as well
 So that way, don't have to clone manually ;::: AND verify u did all of this proerply;Thomas — 4:30 PM
 Ok. Other idea: Build a TUI for entire-brain, so I can explore what is stored (sem, facts, etc) in the terminal.
 And given we have "entire brain search", could also trigger that from the TUI.; escapclly teh search etc and everything else
+
+---
+
+push to the current branch not main
