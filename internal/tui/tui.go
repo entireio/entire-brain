@@ -51,11 +51,12 @@ type Model struct {
 	filter textinput.Model
 	search textinput.Model
 
-	tab         Tab
-	visible     []int // indices into the active tab's source slice
-	focusDetail bool
-	filtering   bool
-	searching   bool
+	tab          Tab
+	visible      []int // indices into the active tab's source slice
+	focusDetail  bool
+	filtering    bool
+	searching    bool
+	pendingQuery string // the in-flight search query; stale results are dropped
 
 	width, height int
 	leftTotal     int
@@ -123,6 +124,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		return m.updateMouse(msg)
 	case searchResultMsg:
+		// Drop a stale result superseded by a newer search.
+		if msg.query != m.pendingQuery {
+			return m, nil
+		}
 		m.searching = false
 		m.search.Blur()
 		m.snap.SearchQuery = msg.query
@@ -283,11 +288,15 @@ func (m Model) updateSearching(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		query := strings.TrimSpace(m.search.Value())
+		// Exit search mode immediately on submit so repeated Enter can't enqueue
+		// overlapping searches; record the in-flight query so a stale (out-of-order)
+		// result is dropped when it arrives.
+		m.searching = false
+		m.search.Blur()
 		if query == "" {
-			m.searching = false
-			m.search.Blur()
 			return m, nil
 		}
+		m.pendingQuery = query
 		return m, m.runSearchCmd(query)
 	}
 	var cmd tea.Cmd

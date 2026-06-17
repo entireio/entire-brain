@@ -52,7 +52,7 @@ loaded snapshot.`,
 		},
 	}
 	cmd.Flags().StringVar(&flags.theme, "theme", "", "Color theme: "+strings.Join(tui.ThemeNames(), ", ")+" (or set ENTIRE_BRAIN_THEME)")
-	cmd.Flags().StringVar(&flags.tab, "tab", "", "Tab to open on: home, facts, sessions, history, semantic")
+	cmd.Flags().StringVar(&flags.tab, "tab", "", "Tab to open on: home, facts, sessions, history, semantic, search")
 	cmd.Flags().StringVar(&flags.branch, "branch", "", "Branch whose facts to load (default: current branch)")
 	cmd.Flags().IntVar(&flags.limit, "limit", dashDefaultLimit, "Max entries loaded per tab (0 = no cap)")
 	cmd.Flags().BoolVar(&flags.json, "json", false, "Emit the loaded snapshot as JSON instead of opening the dashboard")
@@ -63,7 +63,7 @@ loaded snapshot.`,
 func runDash(ctx context.Context, cmd *cobra.Command, opts Options, flags dashFlags, target string) error {
 	startTab, ok := tui.ParseTab(flags.tab)
 	if !ok && flags.tab != "" {
-		return fmt.Errorf("unknown_tab: %q (want home, facts, sessions, history, or semantic)", flags.tab)
+		return fmt.Errorf("unknown_tab: %q (want home, facts, sessions, history, semantic, or search)", flags.tab)
 	}
 
 	repoDir, brainDir, branch, err := resolveFactsTarget(ctx, opts, target, flags.branch)
@@ -118,7 +118,7 @@ func searchResultFromUnified(r unifiedResult, brainDir string) tui.SearchResult 
 		Score:   r.Score,
 	}
 	if r.Path != "" && (r.Source == "history" || r.Source == "doc") {
-		sr.OpenPath = brainRelPath(brainDir, r.Path)
+		sr.OpenPath = containedPath(brainDir, r.Path)
 		sr.OpenLine = r.Line
 	}
 	return sr
@@ -311,7 +311,7 @@ func dashFactViews(facts []factRecord, brainDir string, limit int) []tui.FactVie
 			})
 		}
 		if len(f.Provenance) > 0 && f.Provenance[0].Transcript != "" {
-			view.Source = brainRelPath(brainDir, f.Provenance[0].Transcript)
+			view.Source = containedPath(brainDir, f.Provenance[0].Transcript)
 			view.SourceLine = f.Provenance[0].Line
 		}
 		out = append(out, view)
@@ -346,7 +346,7 @@ func dashSessionViews(sessions []exportSession, brainDir string, limit int) []tu
 			view.Outcome = s.Summary.Outcome
 		}
 		if s.TranscriptPath != "" {
-			view.Source = brainRelPath(brainDir, s.TranscriptPath)
+			view.Source = containedPath(brainDir, s.TranscriptPath)
 		}
 		out = append(out, view)
 	}
@@ -368,7 +368,7 @@ func dashHistoryViews(records []historyRecord, brainDir string, limit int) []tui
 			Line:    r.Line,
 		}
 		if r.Path != "" {
-			view.Source = brainRelPath(brainDir, r.Path)
+			view.Source = containedPath(brainDir, r.Path)
 			view.SourceLine = r.Line
 		}
 		out = append(out, view)
@@ -389,9 +389,13 @@ func dashSemanticViews(syms []semanticRecord, repoDir string) []tui.SemanticView
 			Signature:     s.Signature,
 			Language:      s.Language,
 		}
-		if s.FilePath != "" && repoDir != "" {
-			view.Source = filepath.Join(repoDir, filepath.FromSlash(s.FilePath))
-			view.SourceLine = s.StartLine
+		// Contain the snapshot-provided path: a tampered snapshot must not make
+		// `o` open a file outside the repo (absolute / traversal paths rejected).
+		if repoDir != "" {
+			if src := containedPath(repoDir, s.FilePath); src != "" {
+				view.Source = src
+				view.SourceLine = s.StartLine
+			}
 		}
 		out = append(out, view)
 	}
@@ -510,15 +514,15 @@ func commandOutputIsTTY(cmd *cobra.Command) bool {
 
 // --- small helpers ---------------------------------------------------------
 
-// brainRelPath joins a brain-relative path to the brain dir, returning "" for an
-// absolute, empty, or escaping path. Anchor paths come straight out of on-disk
-// brain files, so a "../"-laden value must never resolve to an open target
-// outside the brain (the `o` key hands the result to the OS opener).
-func brainRelPath(brainDir, rel string) string {
+// containedPath joins a relative path to a base dir, returning "" for an empty,
+// absolute, rooted, or escaping path. Path values come straight out of on-disk
+// brain/snapshot files, so a "../"-laden or rooted value must never resolve to an
+// open target outside the base (the `o` key hands the result to the OS opener).
+func containedPath(base, rel string) string {
 	// Reject absolute and rooted paths. filepath.IsAbs is OS-specific (on Windows
 	// a leading-slash path like "/etc/passwd" is NOT absolute), so also reject a
-	// leading "/" or "\" explicitly — a rooted path is never a valid
-	// brain-relative anchor on any platform.
+	// leading "/" or "\" explicitly — a rooted path is never a valid relative
+	// anchor on any platform.
 	if rel == "" || filepath.IsAbs(rel) || strings.HasPrefix(rel, "/") || strings.HasPrefix(rel, `\`) {
 		return ""
 	}
@@ -526,8 +530,8 @@ func brainRelPath(brainDir, rel string) string {
 	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return ""
 	}
-	full := filepath.Join(brainDir, clean)
-	if r, err := filepath.Rel(brainDir, full); err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+	full := filepath.Join(base, clean)
+	if r, err := filepath.Rel(base, full); err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
 		return ""
 	}
 	return full

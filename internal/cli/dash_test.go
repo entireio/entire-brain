@@ -168,10 +168,10 @@ func TestAppendCapNote(t *testing.T) {
 }
 
 func TestBrainRelPathRejectsAbsolute(t *testing.T) {
-	if got := brainRelPath("/brain", "/etc/passwd"); got != "" {
+	if got := containedPath("/brain", "/etc/passwd"); got != "" {
 		t.Errorf("absolute path should not become an open target, got %q", got)
 	}
-	if got := brainRelPath("/brain", "sessions/x.jsonl"); got != filepath.Join("/brain", "sessions/x.jsonl") {
+	if got := containedPath("/brain", "sessions/x.jsonl"); got != filepath.Join("/brain", "sessions/x.jsonl") {
 		t.Errorf("rel path join = %q", got)
 	}
 }
@@ -180,12 +180,12 @@ func TestBrainRelPathRejectsTraversal(t *testing.T) {
 	// A "../"-laden anchor read from a brain file must never resolve to an open
 	// target outside the brain (the `o` key hands the result to the OS opener).
 	for _, rel := range []string{"../../etc/passwd", "..", "sessions/../../secret", "a/../../b"} {
-		if got := brainRelPath("/brain", rel); got != "" {
-			t.Errorf("brainRelPath(/brain, %q) = %q, want \"\" (escapes the brain)", rel, got)
+		if got := containedPath("/brain", rel); got != "" {
+			t.Errorf("containedPath(/brain, %q) = %q, want \"\" (escapes the brain)", rel, got)
 		}
 	}
 	// A legitimate nested path that stays inside the brain is still allowed.
-	if got := brainRelPath("/brain", "sessions/sub/x.jsonl"); got != filepath.Join("/brain", "sessions/sub/x.jsonl") {
+	if got := containedPath("/brain", "sessions/sub/x.jsonl"); got != filepath.Join("/brain", "sessions/sub/x.jsonl") {
 		t.Errorf("in-brain nested path rejected: %q", got)
 	}
 }

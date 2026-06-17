@@ -323,6 +323,39 @@ func TestSearchClearsStaleFilter(t *testing.T) {
 	}
 }
 
+func TestSearchExitsModeOnSubmitAndDropsStale(t *testing.T) {
+	th, _ := ThemeByName("default")
+	m := NewModel(sampleSnapshot(), th)
+	m.searchFn = func(q string) ([]SearchResult, error) {
+		return []SearchResult{{Source: "history", ID: "h", Text: "hit"}}, nil
+	}
+	u, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = u.(Model)
+	u, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m = u.(Model)
+	for _, r := range "current" {
+		u, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = u.(Model)
+	}
+	u, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = u.(Model)
+	if m.searching {
+		t.Error("search mode should exit immediately on submit (so repeated Enter can't enqueue searches)")
+	}
+	// A result for a superseded/older query must be dropped.
+	u, _ = m.Update(searchResultMsg{query: "stale-other", results: []SearchResult{{Source: "doc", ID: "x", Text: "stale"}}})
+	m = u.(Model)
+	if len(m.snap.Search) != 0 {
+		t.Errorf("stale result should be dropped, got %d results", len(m.snap.Search))
+	}
+	// The in-flight result applies.
+	u, _ = m.Update(cmd())
+	m = u.(Model)
+	if len(m.snap.Search) != 1 || m.tab != TabSearch {
+		t.Errorf("in-flight result should apply; search=%d tab=%v", len(m.snap.Search), m.tab)
+	}
+}
+
 func TestSearchDisabledWhenNoFunc(t *testing.T) {
 	th, _ := ThemeByName("default")
 	m := NewModel(sampleSnapshot(), th) // no searchFn

@@ -76,8 +76,10 @@ func runBrainAdd(cmd *cobra.Command, opts Options, flags addFlags, repoURL strin
 		return nil
 	}
 	if err := buildClonedBrain(ctx, cmd, flags, absDest); err != nil {
-		fmt.Fprintf(errOut, "warning: brain build failed (%v)\nbuild it manually:\n  ENTIRE_REPO_ROOT=%s entire brain refresh\n", err, absDest)
-		return nil
+		// The clone is kept on disk; surface a non-zero exit so scripts/CI don't
+		// treat a failed build as success, with manual-build guidance.
+		fmt.Fprintf(errOut, "cloned to %s, but the brain build failed; build it manually:\n  ENTIRE_REPO_ROOT=%s entire brain refresh\n", dest, absDest)
+		return fmt.Errorf("brain_build_failed: %w", err)
 	}
 	fmt.Fprintf(out, "added %s at %s — brain built. Explore it with `entire brain dash` (or `status`) from %s.\n", name, dest, dest)
 	return nil
