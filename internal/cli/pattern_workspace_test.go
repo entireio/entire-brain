@@ -177,6 +177,60 @@ func TestSplitWorkspaceIDPattern(t *testing.T) {
 	}
 }
 
+// Copilot review: a member pattern a verifier rejected must not re-surface by
+// contributing to a cross-repo aggregate.
+func TestWorkspaceAggregationExcludesRejectedMemberPatterns(t *testing.T) {
+	env := EntireEnv{PluginDataDir: t.TempDir()}
+	aDir, _ := brainDirForKey(env, "gh/acme/a")
+	bDir, _ := brainDirForKey(env, "gh/acme/b")
+	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
+	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
+	manifest := workspaceManifest{Name: "plat", Repos: []workspaceRepo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
+
+	// Control: without rejection, the shared task aggregates to the workspace.
+	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	wsDir, _ := workspaceDir(env, "plat")
+	if !workspaceHasDeploy(t, wsDir) {
+		t.Fatal("control: shared deploy:release should aggregate to the workspace")
+	}
+
+	// Reject the dossier in member A → only B contributes → below the 2-repo floor.
+	adb, err := openPatternCorpusDB(aDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var apid string
+	if err := adb.QueryRow(`SELECT id FROM patterns WHERE type='task' AND intent_sig='deploy:release'`).Scan(&apid); err != nil {
+		t.Fatal(err)
+	}
+	adb.Exec(`INSERT INTO dossiers (pattern_id, cluster_key, fingerprint, json_redacted, verdict, status, created_at, updated_at) VALUES (?,?,?,?, 'rejected','current','t','t')`,
+		apid, "k", "sha256:x", "{}")
+	adb.Close()
+
+	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if workspaceHasDeploy(t, wsDir) {
+		t.Error("a verifier-rejected member pattern must not contribute to the workspace aggregate")
+	}
+}
+
+func workspaceHasDeploy(t *testing.T, wsDir string) bool {
+	t.Helper()
+	views, _, ok := loadCorpusPatternViews(wsDir)
+	if !ok {
+		return false
+	}
+	for _, v := range views {
+		if v.IntentSig == "deploy:release" {
+			return true
+		}
+	}
+	return false
+}
+
 // Copilot review: a workspace rebuild must clear the verifier-cache tables so a
 // stale verdict cannot join onto a newly-rebuilt pattern with the same stable id.
 func TestWorkspaceRebuildClearsStaleVerifierCache(t *testing.T) {
@@ -199,6 +253,8 @@ func TestWorkspaceRebuildClearsStaleVerifierCache(t *testing.T) {
 	db.QueryRow(`SELECT id FROM patterns WHERE scope='workspace' LIMIT 1`).Scan(&pid)
 	db.Exec(`INSERT INTO dossiers (pattern_id, cluster_key, fingerprint, json_redacted, verdict, status, created_at, updated_at) VALUES (?,?,?,?, 'rejected','current','t','t')`,
 		pid, "stale", "sha256:stale", "{}")
+	// And a stray theme row (no FK to episodes, never populated at workspace scope).
+	db.Exec(`INSERT INTO themes (id, scope, title, fingerprint, status, created_at, updated_at) VALUES ('theme:stale','repo','stale','sha256:t','candidate','t','t')`)
 	db.Close()
 
 	// Rebuild must drop the stale verdict (else loadCorpusPatternViews suppresses it).
@@ -207,10 +263,14 @@ func TestWorkspaceRebuildClearsStaleVerifierCache(t *testing.T) {
 	}
 	db2, _ := openPatternCorpusDB(wsDir)
 	defer db2.Close()
-	var dossiers int
+	var dossiers, themes int
 	db2.QueryRow(`SELECT COUNT(*) FROM dossiers`).Scan(&dossiers)
 	if dossiers != 0 {
 		t.Errorf("workspace rebuild must clear stale dossiers, got %d", dossiers)
+	}
+	db2.QueryRow(`SELECT COUNT(*) FROM themes`).Scan(&themes)
+	if themes != 0 {
+		t.Errorf("workspace rebuild must clear stray themes, got %d", themes)
 	}
 	views, _, _ := loadCorpusPatternViews(wsDir)
 	found := false

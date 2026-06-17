@@ -109,7 +109,10 @@ func buildWorkspacePatternCorpus(env EntireEnv, manifest workspaceManifest, now 
 	// verifier-cache tables — they have no FK cascade, so stale verdicts must not
 	// survive a rebuild and join onto a newly-rebuilt pattern row sharing the same
 	// stable id (which could even suppress it as 'rejected').
-	for _, stmt := range []string{`DELETE FROM patterns`, `DELETE FROM episodes`, `DELETE FROM workspace_pattern_repos`, `DELETE FROM dossiers`, `DELETE FROM deep_dossiers`} {
+	// themes has no FK to episodes (not cascaded) and is never populated at
+	// workspace scope, so clear it too — a stray theme row must not persist
+	// across rebuilds, be fetchable via `workspace get theme:…`, or skew run counts.
+	for _, stmt := range []string{`DELETE FROM patterns`, `DELETE FROM episodes`, `DELETE FROM workspace_pattern_repos`, `DELETE FROM dossiers`, `DELETE FROM deep_dossiers`, `DELETE FROM themes`} {
 		if _, err := tx.Exec(stmt); err != nil {
 			tx.Rollback()
 			return counts, err
@@ -143,10 +146,18 @@ func buildWorkspacePatternCorpus(env EntireEnv, manifest workspaceManifest, now 
 // them into the cross-repo aggregates.
 func collectMemberPatterns(mdb *sql.DB, repoKey string, aggs map[wsPatternKey]*wsAgg) error {
 	anchors := memberTopAnchors(mdb)
+	// Skip member patterns a verifier (shallow or deep) explicitly rejected — a
+	// rejected pattern must not re-surface by contributing to a cross-repo
+	// aggregate. (needs_split/low_confidence remain eligible; they are softer.)
 	rows, err := mdb.Query(`
-		SELECT id, type, COALESCE(intent_sig,''), COALESCE(gram,''), COALESCE(meta_id,''),
-		       title, support, outcome_success, outcome_corrected, outcome_neutral
-		FROM patterns WHERE scope='repo'`)
+		SELECT p.id, p.type, COALESCE(p.intent_sig,''), COALESCE(p.gram,''), COALESCE(p.meta_id,''),
+		       p.title, p.support, p.outcome_success, p.outcome_corrected, p.outcome_neutral
+		FROM patterns p
+		LEFT JOIN dossiers d ON d.pattern_id = p.id
+		LEFT JOIN deep_dossiers dd ON dd.pattern_id = p.id
+		WHERE p.scope='repo'
+		  AND COALESCE(d.verdict,'') != 'rejected'
+		  AND COALESCE(dd.verdict,'') != 'rejected'`)
 	if err != nil {
 		return err
 	}
