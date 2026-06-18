@@ -118,6 +118,70 @@ func TestProposeSkillLessonsRoundTrip(t *testing.T) {
 	}
 }
 
+// Item #4: a lesson dossier retains the selected episodes' source anchors, so
+// buildDeepSkillEvidence carries real provenance — not only the proposal summary.
+func TestLessonDossierCarriesSourceAnchors(t *testing.T) {
+	now := time.Now()
+	brainDir := t.TempDir()
+	seedCorrectedEpisodes(t, brainDir, "radar:evidence", "mise run release-evidence", 2, now)
+	db, _ := openPatternCorpusDB(brainDir)
+	_, err := proposeSkillLessons(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", stubRunner(lessonProposalJSON), now)
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	props := loadKnowledgeSkillProposals(brainDir)
+	if len(props) != 1 {
+		t.Fatalf("expected 1 lesson proposal, got %d", len(props))
+	}
+	in, ok := loadAcceptedDeepDossier(brainDir, props[0].ID)
+	if !ok {
+		t.Fatal("lesson dossier should load")
+	}
+	if len(in.rec.SourceAnchors) != 2 {
+		t.Fatalf("lesson dossier must retain source anchors for its members, got %d", len(in.rec.SourceAnchors))
+	}
+	ev := buildDeepSkillEvidence(in)
+	if !strings.Contains(ev, "Source anchors (provenance)") || !strings.Contains(ev, "sessions/main/x.jsonl") {
+		t.Errorf("lesson evidence must carry real source provenance:\n%s", ev)
+	}
+}
+
+// Item #2: editing episode CONTENT (failing command) while keeping the same
+// episode keys invalidates the cached lesson proposal (the agent re-runs).
+func TestProposeSkillLessonsCacheInvalidatesOnContentChange(t *testing.T) {
+	now := time.Now()
+	brainDir := t.TempDir()
+	seedCorrectedEpisodes(t, brainDir, "radar:evidence", "mise run release-evidence", 2, now)
+	db, _ := openPatternCorpusDB(brainDir)
+	defer db.Close()
+	calls := 0
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return lessonProposalJSON, nil
+	}
+	if _, err := proposeSkillLessons(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", run, now); err != nil {
+		t.Fatal(err)
+	}
+	// Unchanged evidence → cache hit, no second agent call.
+	if _, err := proposeSkillLessons(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", run, now); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("unchanged evidence must reuse cache, calls=%d", calls)
+	}
+	// Mutate content of a member episode WITHOUT changing its key.
+	if _, err := db.Exec(`UPDATE episode_commands SET head='different failing cmd', raw_redacted='different failing cmd' WHERE episode_id=?`, "episode:radar:evidence0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := proposeSkillLessons(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", run, now); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("changed evidence content must invalidate the cache, calls=%d", calls)
+	}
+}
+
 // A lesson the agent rejects (a generic mistake) is not stored as a proposal.
 func TestProposeSkillLessonsRejectsGeneric(t *testing.T) {
 	now := time.Now()

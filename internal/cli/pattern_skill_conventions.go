@@ -78,7 +78,11 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 		_, _ = db.Exec(`DELETE FROM deep_dossiers WHERE pattern_id LIKE 'convention:%'`)
 		return stats, nil
 	}
-	sampleFP := "sha256:" + hexSHA(strings.Join(sortedCopy(sampleIDs), "|"))
+	// Fingerprint the actual evidence payload (fact id + kind + text + locus +
+	// corroboration count), so editing a fact's text or its episode corroboration
+	// invalidates the cache even when the set of fact ids is unchanged.
+	payload, _ := json.Marshal(map[string]any{"facts": sample})
+	sampleFP := proposalSampleFingerprint(payload)
 	if corpusMeta(db, "conventions_sample_fingerprint") == sampleFP && count() > 0 {
 		stats.Cached = count()
 		stats.Considered = stats.Cached
@@ -92,7 +96,6 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 	args = injectAgentModel(args, agent, model)
 	args = injectAgentEffort(args, agent, effort)
 
-	payload, _ := json.Marshal(map[string]any{"facts": sample})
 	out, err := run(ctx, repoDir, args, []byte(redactText(string(payload))), dossierVerifyTimeout)
 	if err != nil {
 		return stats, fmt.Errorf("convention proposal agent: %w", err)
@@ -123,6 +126,9 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 			continue
 		}
 		rec := conventionRecord(pc, members, factText, repoKey)
+		// Retain episode corroboration anchors (where available): the episodes that
+		// referenced these facts, so the dossier carries real source provenance.
+		rec.SourceAnchors = conventionSourceAnchors(db, brainDir, members)
 		blob, _ := json.Marshal(rec)
 		if _, err := db.Exec(`INSERT OR REPLACE INTO deep_dossiers
 			(pattern_id, fingerprint, json_redacted, verdict, status, created_at, updated_at)
@@ -166,6 +172,41 @@ func conventionRecord(pc proposedConvention, members []string, factText map[stri
 		Facts:            facts,
 		EvidenceEpisodes: len(members),
 	}
+}
+
+// conventionSourceAnchors resolves the episodes that referenced the member facts
+// (via episode_facts) into source anchors with redacted excerpts where available
+// — the episode corroboration provenance for the convention.
+func conventionSourceAnchors(db *sql.DB, brainDir string, factIDs []string) []dossierAnchor {
+	if len(factIDs) == 0 {
+		return nil
+	}
+	ph, args := inPlaceholders(factIDs)
+	rows, err := db.Query(`SELECT DISTINCT e.session_id, e.source_path, e.start_line, e.end_line, e.outcome
+		FROM episode_facts ef JOIN episodes e ON e.id = ef.episode_id
+		WHERE ef.fact_id IN (`+ph+`) ORDER BY e.session_id LIMIT 12`, args...)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var anchors []dossierAnchor
+	for rows.Next() {
+		var session, path, outcome string
+		var start, end int
+		if rows.Scan(&session, &path, &start, &end, &outcome) != nil {
+			continue
+		}
+		a := dossierAnchor{SessionID: session, Transcript: redactText(path), StartLine: start, EndLine: end, Outcome: outcome}
+		lines := end - start + 1
+		if lines <= 0 || lines > themeMemberExcerptLines {
+			lines = themeMemberExcerptLines
+		}
+		if t := transcriptExcerpt(brainDir, episodeAnchor{Path: path, Line: start}, lines, themeMemberExcerptBytes); t != "" {
+			a.Excerpt = redactText(t)
+		}
+		anchors = append(anchors, a)
+	}
+	return anchors
 }
 
 func parseProposedConventions(out string) ([]proposedConvention, error) {
@@ -237,7 +278,12 @@ func sampleCapabilityFacts(db *sql.DB, brainDir string) ([]map[string]string, ma
 		if len(sample) >= conventionSampleCap {
 			break
 		}
-		factText[e.f.ID] = redactText(e.f.Text)
+		// Retain fact provenance: the rule text plus its code locus.
+		prov := redactText(e.f.Text)
+		if locus := strings.Join(e.f.Locus, ", "); strings.TrimSpace(locus) != "" {
+			prov += " @ " + redactText(locus)
+		}
+		factText[e.f.ID] = prov
 		sample = append(sample, map[string]string{
 			"fact_id":  e.f.ID,
 			"kind":     e.f.Kind,

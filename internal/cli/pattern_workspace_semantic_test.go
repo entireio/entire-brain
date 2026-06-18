@@ -152,6 +152,128 @@ func TestWorkspaceFamilyRejectsGeneric(t *testing.T) {
 	}
 }
 
+// verdictFamilyAgent groups release tasks into one family and returns the given verdict.
+func verdictFamilyAgent(verdict string) distillAgentRunner {
+	return func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		var payload struct {
+			Repos map[string][]map[string]any `json:"repos"`
+		}
+		_ = json.Unmarshal(input, &payload)
+		var perRepo []map[string]any
+		for repo, tasks := range payload.Repos {
+			for _, tk := range tasks {
+				if strings.Contains(fmt.Sprint(tk["intent"]), "release") {
+					perRepo = append(perRepo, map[string]any{"repo_key": repo, "commands": tk["commands"]})
+				}
+			}
+		}
+		resp := map[string]any{"families": []map[string]any{{
+			"title": "release the build", "trigger": "shipping a release", "purpose": "build then publish",
+			"common_workflow": []string{"build", "publish"}, "per_repo": perRepo, "verdict": verdict,
+		}}}
+		b, _ := json.Marshal(resp)
+		return string(b), nil
+	}
+}
+
+// Item #1: a verified workspace family survives a deterministic workspace refresh
+// (unchanged member corpora) and is still listed without re-invoking the agent.
+func TestWorkspaceFamilyPreservedAcrossRefresh(t *testing.T) {
+	env, manifest := twoRepoWorkspace(t,
+		"gh/acme/a", "release:build", []string{"mise build", "mise deploy"},
+		"gh/acme/b", "release:ship", []string{"make build", "make release"})
+	if _, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	wsDir, _ := workspaceDir(env, "plat")
+	if len(loadAcceptedWorkspaceFamilies(wsDir)) != 1 {
+		t.Fatal("setup: expected 1 accepted family before refresh")
+	}
+	// Rebuild the workspace corpus with unchanged member corpora.
+	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(loadAcceptedWorkspaceFamilies(wsDir)); got != 1 {
+		t.Fatalf("workspace refresh must preserve accepted families, got %d", got)
+	}
+	// `workspace patterns skills` still lists it.
+	fams := loadAcceptedWorkspaceFamilies(wsDir)
+	if len(fams) != 1 || fams[0].repoCount() != 2 {
+		t.Fatalf("family must still span 2 repos after refresh, got %+v", fams)
+	}
+	// And re-verifying with unchanged evidence reuses the cache (agent NOT re-run).
+	failIfCalled := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		t.Fatal("agent must not re-run when member evidence is unchanged after refresh")
+		return "", nil
+	}
+	stats, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", failIfCalled, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Cached != 1 {
+		t.Errorf("expected the family served from cache after refresh, got %+v", stats)
+	}
+}
+
+// Item #2: editing member task CONTENT (title) while keeping repos/intents stable
+// invalidates the cached family proposal (the agent re-runs).
+func TestWorkspaceFamilyCacheInvalidatesOnContentChange(t *testing.T) {
+	env, manifest := twoRepoWorkspace(t,
+		"gh/acme/a", "release:build", []string{"mise build", "mise deploy"},
+		"gh/acme/b", "release:ship", []string{"make build", "make release"})
+	calls := 0
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return releaseGroupingAgent(t)(ctx, dir, args, input, timeout)
+	}
+	if _, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", run, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", run, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("unchanged member evidence must reuse cache, calls=%d", calls)
+	}
+	// Mutate member A's task title (content), same repo + intent.
+	aDir, _ := brainDirForKey(env, "gh/acme/a")
+	mdb, err := openPatternCorpusDB(aDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mdb.Exec(`UPDATE patterns SET title='a brand new release title' WHERE intent_sig='release:build'`); err != nil {
+		t.Fatal(err)
+	}
+	mdb.Close()
+	if _, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", run, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("changed member content must invalidate the cache, calls=%d", calls)
+	}
+}
+
+// Item #3: a missing/unknown/non-accepting verdict must never surface a family or
+// count as Verified.
+func TestWorkspaceFamilyUnknownVerdictNotAccepted(t *testing.T) {
+	for _, v := range []string{"", "bogus", "needs_split", "low_confidence"} {
+		env, manifest := twoRepoWorkspace(t,
+			"gh/acme/a", "release:build", []string{"mise build", "mise deploy"},
+			"gh/acme/b", "release:ship", []string{"make build", "make release"})
+		stats, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", verdictFamilyAgent(v), time.Now())
+		if err != nil {
+			t.Fatalf("verdict %q: %v", v, err)
+		}
+		if stats.Verified != 0 {
+			t.Errorf("verdict %q must not count as Verified, got %+v", v, stats)
+		}
+		wsDir, _ := workspaceDir(env, "plat")
+		if n := len(loadAcceptedWorkspaceFamilies(wsDir)); n != 0 {
+			t.Errorf("verdict %q must not surface as an accepted family, got %d", v, n)
+		}
+	}
+}
+
 func TestWorkspaceFamilyNoEgressRejected(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
 	env, manifest := twoRepoWorkspace(t,

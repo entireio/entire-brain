@@ -150,6 +150,22 @@ func buildDeepSkillEvidence(in deepSkillInput) string {
 			fmt.Fprintf(&b, "  - %s\n", e)
 		}
 	}
+	// Provenance: list the source anchors (transcript:line, outcome) even when a
+	// transcript excerpt is unavailable, so the dossier always carries where the
+	// evidence came from — not just the agent's proposal summary.
+	if len(rec.SourceAnchors) > 0 {
+		fmt.Fprintf(&b, "Source anchors (provenance):\n")
+		for i, a := range rec.SourceAnchors {
+			if i >= 12 {
+				break
+			}
+			loc := a.Transcript
+			if loc == "" {
+				loc = a.SessionID
+			}
+			fmt.Fprintf(&b, "  - %s:%d (%s)\n", loc, a.StartLine, a.Outcome)
+		}
+	}
 	excerpts := 0
 	for _, a := range rec.SourceAnchors {
 		if a.Excerpt == "" || excerpts >= 3 {

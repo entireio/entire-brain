@@ -179,6 +179,89 @@ func TestThemeProposalCachedBySample(t *testing.T) {
 	}
 }
 
+// verdictThemeAgent groups worktree episodes and returns the given verdict.
+func verdictThemeAgent(t *testing.T, verdict string) distillAgentRunner {
+	return func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		var payload struct {
+			Episodes []map[string]string `json:"episodes"`
+		}
+		if err := json.Unmarshal(input, &payload); err != nil {
+			t.Fatalf("proposal input not JSON: %v", err)
+		}
+		var members []string
+		for _, e := range payload.Episodes {
+			if strings.Contains(strings.ToLower(e["excerpt"]+" "+e["intent"]), "worktree") {
+				members = append(members, e["episode_key"])
+			}
+		}
+		resp := map[string]any{"themes": []map[string]any{{
+			"title": "worktree investigations", "description": "how the worktree fingerprint is computed",
+			"member_keys": members, "verdict": verdict,
+		}}}
+		b, _ := json.Marshal(resp)
+		return string(b), nil
+	}
+}
+
+// Item #3: a missing/unknown/non-accepting verdict must never surface a theme or
+// count as Verified.
+func TestThemeProposalUnknownVerdictNotAccepted(t *testing.T) {
+	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	for _, v := range []string{"", "bogus", "needs_split", "low_confidence"} {
+		brainDir := themeProposalBrain(t, now)
+		db := openCorpus(t, brainDir)
+		stats, err := verifyThemes(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", verdictThemeAgent(t, v), now)
+		if err != nil {
+			t.Fatalf("verdict %q: %v", v, err)
+		}
+		if stats.Verified != 0 {
+			t.Errorf("verdict %q must not count as Verified, got %+v", v, stats)
+		}
+		if n := len(queryThemeViews(db, true)); n != 0 {
+			t.Errorf("verdict %q must not surface as an accepted theme, got %d", v, n)
+		}
+		var stored string
+		db.QueryRow(`SELECT COALESCE(verdict,'') FROM themes LIMIT 1`).Scan(&stored)
+		if stored == "accepted" {
+			t.Errorf("verdict %q must not be stored as accepted", v)
+		}
+	}
+}
+
+// Item #2: editing episode CONTENT (intent) while keeping the same episode keys
+// invalidates the cached theme proposal (the agent re-runs).
+func TestThemeProposalCacheInvalidatesOnContentChange(t *testing.T) {
+	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	brainDir := themeProposalBrain(t, now)
+	db := openCorpus(t, brainDir)
+	calls := 0
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return worktreeGroupingAgent(t)(ctx, dir, args, input, timeout)
+	}
+	if _, err := verifyThemes(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", run, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifyThemes(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", run, now); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("unchanged sample must reuse cache, calls=%d", calls)
+	}
+	// Mutate a sampled episode's content WITHOUT changing its key.
+	if _, err := db.Exec(`UPDATE episodes SET intent_raw='totally different content xyzzy'
+		WHERE id IN (SELECT e.id FROM episodes e JOIN episode_shapes s ON s.episode_id=e.id
+		             WHERE s.shape IN ('read_only','conversation') LIMIT 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifyThemes(context.Background(), db, brainDir, t.TempDir(), "codex", "", "", run, now); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("changed episode content must invalidate the cache, calls=%d", calls)
+	}
+}
+
 func TestThemeProposalNoEgressRejected(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
 	now := time.Now()

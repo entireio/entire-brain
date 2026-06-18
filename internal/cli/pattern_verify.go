@@ -67,6 +67,16 @@ type dossierVerifyStats struct {
 	Failed     int
 }
 
+// proposalSampleFingerprint hashes the exact evidence payload an agent proposal
+// phase sends to the agent, so the cache invalidates whenever the evidence
+// CONTENT changes — not only when ids change. The payload already carries each
+// item's content fields (excerpts, outcomes, commands, fact text, corroboration),
+// so hashing it captures all of them. Marshaled maps have deterministic
+// (key-sorted) output, so the fingerprint is stable for unchanged evidence.
+func proposalSampleFingerprint(payload []byte) string {
+	return "sha256:" + hexSHA(string(payload))
+}
+
 // verifyDossiers runs the agent verifier over the promotable dossiers that need
 // it (no cached verdict for the current evidence fingerprint). Egress-gated and
 // cached; deterministic dossiers themselves are never mutated here.

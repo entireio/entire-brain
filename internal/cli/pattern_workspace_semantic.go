@@ -108,8 +108,10 @@ func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest works
 			if i >= workspaceFamilyMaxPerRepo {
 				break
 			}
+			r := c.Reinforcement
 			list = append(list, map[string]any{
 				"intent": c.IntentSignature, "title": redactText(c.Label), "commands": redactStrings(c.Commands),
+				"support": c.Support, "reinforcement": []int{r.Success, r.Corrected, r.Neutral},
 			})
 		}
 		if len(list) > 0 {
@@ -121,7 +123,11 @@ func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest works
 		return stats, nil // nothing can be cross-repo
 	}
 
-	fp := workspaceFamilyFingerprint(perRepo)
+	// Fingerprint the actual evidence payload (per-repo intent + title + commands +
+	// support + reinforcement), so changed member evidence invalidates the cached
+	// families even when the set of repos/intents is unchanged.
+	payload, _ := json.Marshal(map[string]any{"workspace": manifest.Name, "repos": perRepo})
+	fp := proposalSampleFingerprint(payload)
 	if corpusMeta(db, "workspace_families_fingerprint") == fp &&
 		corpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'family:%'`) > 0 {
 		stats.Cached = corpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'family:%'`)
@@ -135,7 +141,6 @@ func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest works
 	}
 	args = injectAgentModel(args, agent, model)
 	args = injectAgentEffort(args, agent, effort)
-	payload, _ := json.Marshal(map[string]any{"workspace": manifest.Name, "repos": perRepo})
 	out, err := run(ctx, repoDir, args, []byte(redactText(string(payload))), dossierVerifyTimeout)
 	if err != nil {
 		return stats, fmt.Errorf("workspace family proposal agent: %w", err)
@@ -169,7 +174,9 @@ func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest works
 		}
 		f.Verdict = strings.ToLower(strings.TrimSpace(f.Verdict))
 		if !allowedVerdicts[f.Verdict] {
-			f.Verdict = "accepted"
+			// A missing/unknown verdict must never be treated as accepted — it would
+			// surface an unverified family. Default to the softest non-accepting verdict.
+			f.Verdict = "low_confidence"
 		}
 		f.ID = "family:" + hexSHA(manifest.Name+"\x00"+f.Title+"\x00"+familyRepoKeysJoined(f))
 		f.Title = redactText(f.Title)
@@ -179,7 +186,9 @@ func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest works
 			VALUES (?,?,?,?, 'current', ?, ?)`, f.ID, fp, redactText(string(blob)), f.Verdict, ts, ts); err != nil {
 			return stats, err
 		}
-		stats.Verified++
+		if f.Verdict == "accepted" {
+			stats.Verified++
+		}
 	}
 	_ = setCorpusMeta(db, map[string]string{"workspace_families_fingerprint": fp})
 	return stats, nil
@@ -208,17 +217,6 @@ func familyRepoKeysJoined(f workspaceFamily) string {
 	}
 	sort.Strings(keys)
 	return strings.Join(keys, ",")
-}
-
-func workspaceFamilyFingerprint(perRepo map[string][]map[string]any) string {
-	var parts []string
-	for repo, list := range perRepo {
-		for _, c := range list {
-			parts = append(parts, repo+":"+fmt.Sprint(c["intent"]))
-		}
-	}
-	sort.Strings(parts)
-	return "sha256:" + hexSHA(strings.Join(parts, "|"))
 }
 
 // loadAcceptedWorkspaceFamilies returns the accepted cross-repo families.

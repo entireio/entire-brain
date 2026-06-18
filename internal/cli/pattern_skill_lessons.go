@@ -70,7 +70,11 @@ func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, age
 		_, _ = db.Exec(`DELETE FROM deep_dossiers WHERE pattern_id LIKE 'lesson:%'`)
 		return stats, nil
 	}
-	sampleFP := "sha256:" + hexSHA(strings.Join(sortedCopy(sampleKeys), "|"))
+	// Fingerprint the actual evidence payload (episode key + outcome + failing
+	// command + intent + excerpt), so editing the recovery/excerpt of an episode
+	// invalidates the cache even when the set of episode keys is unchanged.
+	payload, _ := json.Marshal(map[string]any{"episodes": sample})
+	sampleFP := proposalSampleFingerprint(payload)
 	countLessons := func() int {
 		return corpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'lesson:%'`)
 	}
@@ -87,7 +91,6 @@ func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, age
 	args = injectAgentModel(args, agent, model)
 	args = injectAgentEffort(args, agent, effort)
 
-	payload, _ := json.Marshal(map[string]any{"episodes": sample})
 	out, err := run(ctx, repoDir, args, []byte(redactText(string(payload))), dossierVerifyTimeout)
 	if err != nil {
 		return stats, fmt.Errorf("lesson proposal agent: %w", err)
@@ -118,6 +121,9 @@ func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, age
 			continue
 		}
 		rec := lessonRecord(pl, members, repoKey)
+		// Retain provenance: the selected episodes' source anchors + redacted
+		// excerpts, so the dossier carries real evidence, not just the summary.
+		rec.SourceAnchors = lessonSourceAnchors(db, brainDir, members)
 		blob, _ := json.Marshal(rec)
 		if _, err := db.Exec(`INSERT OR REPLACE INTO deep_dossiers
 			(pattern_id, fingerprint, json_redacted, verdict, status, created_at, updated_at)
@@ -154,6 +160,30 @@ func lessonRecord(pl proposedLesson, members []string, repoKey string) deepDossi
 		FailureModes:     []deepFailureMode{{Failure: truncateString(strings.TrimSpace(pl.Failure), 280), Recovery: truncateString(strings.TrimSpace(pl.Recovery), 280)}},
 		EvidenceEpisodes: len(members),
 	}
+}
+
+// lessonSourceAnchors resolves the selected episodes (by episode_key) to source
+// anchors with redacted transcript excerpts where the transcript is available.
+func lessonSourceAnchors(db *sql.DB, brainDir string, members []string) []dossierAnchor {
+	var anchors []dossierAnchor
+	for _, key := range members {
+		var session, path, outcome string
+		var start, end int
+		if db.QueryRow(`SELECT session_id, source_path, start_line, end_line, outcome FROM episodes WHERE episode_key=?`, key).
+			Scan(&session, &path, &start, &end, &outcome) != nil {
+			continue
+		}
+		a := dossierAnchor{SessionID: session, Transcript: redactText(path), StartLine: start, EndLine: end, Outcome: outcome}
+		lines := end - start + 1
+		if lines <= 0 || lines > themeMemberExcerptLines {
+			lines = themeMemberExcerptLines
+		}
+		if t := transcriptExcerpt(brainDir, episodeAnchor{Path: path, Line: start}, lines, themeMemberExcerptBytes); t != "" {
+			a.Excerpt = redactText(t)
+		}
+		anchors = append(anchors, a)
+	}
+	return anchors
 }
 
 func parseProposedLessons(out string) ([]proposedLesson, error) {

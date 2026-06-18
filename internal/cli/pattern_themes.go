@@ -374,7 +374,11 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 		_, _ = db.Exec(`DELETE FROM themes`) // nothing to propose from
 		return stats, nil
 	}
-	sampleFP := "sha256:" + hexSHA(strings.Join(sortedCopy(sampleKeys), "|"))
+	// Fingerprint the actual evidence payload (episode key + shape + intent +
+	// excerpt), so the cache invalidates when episode CONTENT changes, not only
+	// when the set of keys changes.
+	payload, _ := json.Marshal(map[string]any{"episodes": sample})
+	sampleFP := proposalSampleFingerprint(payload)
 	if corpusMeta(db, "themes_sample_fingerprint") == sampleFP && corpusScalar(db, `SELECT COUNT(*) FROM themes`) > 0 {
 		stats.Cached = corpusScalar(db, `SELECT COUNT(*) FROM themes`)
 		stats.Considered = stats.Cached
@@ -388,7 +392,6 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 	args = injectAgentModel(args, agent, model)
 	args = injectAgentEffort(args, agent, effort)
 
-	payload, _ := json.Marshal(map[string]any{"episodes": sample})
 	out, err := run(ctx, repoDir, args, []byte(redactText(string(payload))), dossierVerifyTimeout)
 	if err != nil {
 		return stats, fmt.Errorf("theme proposal agent: %w", err)
@@ -419,7 +422,9 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 		members = expandThemeMembers(db, members, pt.Title+" "+pt.Desc)
 		verdict := strings.ToLower(strings.TrimSpace(pt.Verdict))
 		if !allowedVerdicts[verdict] {
-			verdict = "accepted"
+			// A missing/unknown verdict must never be treated as accepted — it would
+			// surface an unverified theme. Default to the softest non-accepting verdict.
+			verdict = "low_confidence"
 		}
 		memberJSON, _ := json.Marshal(members)
 		shape := memberDominantShape(db, members)
@@ -434,7 +439,9 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 		}, ts); err != nil {
 			return stats, err
 		}
-		stats.Verified++
+		if verdict == "accepted" {
+			stats.Verified++
+		}
 	}
 	_ = setCorpusMeta(db, map[string]string{"themes_sample_fingerprint": sampleFP})
 	return stats, nil

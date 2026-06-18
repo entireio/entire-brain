@@ -112,7 +112,13 @@ func buildWorkspacePatternCorpus(env EntireEnv, manifest workspaceManifest, now 
 	// themes has no FK to episodes (not cascaded) and is never populated at
 	// workspace scope, so clear it too — a stray theme row must not persist
 	// across rebuilds, be fetchable via `workspace get theme:…`, or skew run counts.
-	for _, stmt := range []string{`DELETE FROM patterns`, `DELETE FROM episodes`, `DELETE FROM workspace_pattern_repos`, `DELETE FROM dossiers`, `DELETE FROM deep_dossiers`, `DELETE FROM themes`} {
+	// EXCEPTION: agent-verified workspace families (`family:%` deep_dossiers) are
+	// NOT pattern rows (loadAcceptedWorkspaceFamilies reads them directly, never via
+	// a pattern-id join), so the stale-join hazard above does not apply. They are an
+	// expensive agent result keyed by their own member-evidence fingerprint, so a
+	// deterministic rebuild preserves them; `workspace patterns verify` invalidates
+	// and re-proposes them when that content fingerprint changes.
+	for _, stmt := range []string{`DELETE FROM patterns`, `DELETE FROM episodes`, `DELETE FROM workspace_pattern_repos`, `DELETE FROM dossiers`, `DELETE FROM deep_dossiers WHERE pattern_id NOT LIKE 'family:%'`, `DELETE FROM themes`} {
 		if _, err := tx.Exec(stmt); err != nil {
 			tx.Rollback()
 			return counts, err
