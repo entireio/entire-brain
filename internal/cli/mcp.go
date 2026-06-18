@@ -255,7 +255,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_get",
-			"description": "Fetch one item in full by its id (fact:… | history:… | doc:…), e.g. from a search result.",
+			"description": "Fetch one item in full by its id (fact:… | history:… | doc:… | pattern:… | theme:…), e.g. from a search result or pattern listing.",
 			"inputSchema": objectSchema([]string{"id"}, map[string]any{"id": stringArg("id", "Prefixed item id"), "branch": branchArg()}),
 		},
 		{
@@ -313,6 +313,16 @@ func mcpToolDefinitions() []map[string]any {
 			"description": "Cross-repo diff-less review: review each repo's current tree in a local workspace against its brain's memory and return severity-ranked suspected-regression findings per repo. The multi-brain extension of the same versioned contract; consumers are cross-repo (entireio/cli) and not yet landed. See docs/diffless_review_seam.md.",
 			"inputSchema": objectSchema([]string{"workspace", "query"}, map[string]any{"workspace": stringArg("workspace", "Workspace name"), "query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings per repo"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}),
 		},
+		{
+			"name":        "brain_patterns",
+			"description": "List V2 corpus patterns (task = intent+method, procedure = command workflow, risk = corrected/failed work, practice = durable judgment, theme = latent read-only/conversational practice) with strength, support, dossier/verifier state, and a top anchor. Read-only; forming a skill is a write action done via the CLI `entire brain patterns skills form`.",
+			"inputSchema": objectSchema(nil, map[string]any{"type": stringArg("type", "Filter by type: task, procedure, risk, practice, or theme (empty = all)"), "scope": stringArg("scope", "Filter by scope: repo or workspace (empty = both)"), "limit": integerArg("limit", "Maximum patterns to return")}),
+		},
+		{
+			"name":        "brain_patterns_status",
+			"description": "Pattern layer freshness and counts plus the last corpus build summary (episodes, patterns, dossiers, symbol links, commits, synapses) and skill-memory (accepted/declined/updates-available).",
+			"inputSchema": objectSchema(nil, map[string]any{}),
+		},
 	}
 }
 
@@ -362,17 +372,17 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 	case "brain_query":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runRetrieve(ctx, cmd, opts, query, modeHybrid, limit, branch, true)
+			err = runRetrieve(ctx, cmd, opts, query, modeHybrid, limit, branch, true, false)
 		}
 	case "brain_search":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runRetrieve(ctx, cmd, opts, query, modeLexical, limit, branch, true)
+			err = runRetrieve(ctx, cmd, opts, query, modeLexical, limit, branch, true, false)
 		}
 	case "brain_vsearch":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runRetrieve(ctx, cmd, opts, query, modeVector, limit, branch, true)
+			err = runRetrieve(ctx, cmd, opts, query, modeVector, limit, branch, true, false)
 		}
 	case "brain_get":
 		id, stringErr := mcpOptionalString(params.Arguments, "id")
@@ -498,6 +508,28 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			}
 			err = runWorkspaceReview(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, workspace, query)
 		}
+	case "brain_patterns":
+		typ, typeErr := mcpOptionalString(params.Arguments, "type")
+		if typeErr != nil {
+			err = typeErr
+			break
+		}
+		scope, scopeErr := mcpOptionalString(params.Arguments, "scope")
+		if scopeErr != nil {
+			err = scopeErr
+			break
+		}
+		target := "."
+		if opts.Env.RepoRoot != "" {
+			target = opts.Env.RepoRoot
+		}
+		err = runPatternsList(ctx, cmd, opts, target, patternsListOptions{asJSON: true, limit: limit, typ: strings.TrimSpace(typ), scope: strings.TrimSpace(scope)})
+	case "brain_patterns_status":
+		target := "."
+		if opts.Env.RepoRoot != "" {
+			target = opts.Env.RepoRoot
+		}
+		err = runPatternsStatus(ctx, cmd, opts, target, true)
 	default:
 		err = fmt.Errorf("unknown tool: %s", params.Name)
 	}
@@ -544,6 +576,10 @@ func validateMCPToolArguments(tool string, args map[string]any) error {
 		add("query", "limit", "include_deletions", "location_only")
 	case "brain_workspace_regressions", "brain_workspace_review":
 		add("workspace", "query", "limit", "include_deletions", "location_only")
+	case "brain_patterns":
+		add("type", "scope", "limit")
+	case "brain_patterns_status":
+		// no arguments
 	default:
 		return nil
 	}

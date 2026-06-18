@@ -153,6 +153,7 @@ func newWorkspaceCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newWorkspaceQueryCommand(opts))
 	cmd.AddCommand(newWorkspaceGetCommand(opts))
 	cmd.AddCommand(newWorkspaceReviewCommand(opts))
+	cmd.AddCommand(newWorkspacePatternsCommand(opts))
 	return cmd
 }
 
@@ -436,6 +437,15 @@ func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, 
 		if err := workspaceFullRefresh(ctx, cmd.OutOrStdout(), opts, manifest, refreshRepo); err != nil {
 			return err
 		}
+		// Keep the cross-repo V2 corpus current as part of the full refresh, so
+		// users don't need a separate `workspace patterns refresh` build path.
+		// Deterministic and token-free (aggregates already-built member corpora).
+		if counts, werr := buildWorkspacePatternCorpus(opts.Env, manifest, opts.Now().UTC()); werr != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: workspace patterns: %v\n", werr)
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "workspace patterns: %d cross-repo pattern(s) from %d/%d member corpora\n",
+				counts.Patterns, counts.WithCorpus, counts.Members)
+		}
 	}
 	freshness, err := workspaceFreshness(ctx, opts, manifest)
 	if err != nil {
@@ -632,11 +642,30 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 	for _, repo := range manifest.Repos {
 		members[repo.RepoKey] = true
 	}
-	// Group ids by repo key, preserving first-appearance order of repos and the
-	// input order of ids within each repo.
+	// Bare pattern:/theme: ids address the workspace-level aggregate corpus
+	// directly (the ids `workspace patterns` prints); repo-qualified ids drill
+	// into a member repo. Resolve the workspace-level ones first.
+	var wsResult *workspaceGetResult
+	var memberIDs []string
+	for _, qualified := range qualifiedIDs {
+		if strings.HasPrefix(qualified, "pattern:") || strings.HasPrefix(qualified, "theme:") {
+			if wsResult == nil {
+				wsResult = &workspaceGetResult{RepoKey: manifest.Name, Results: []unifiedResult{}, Missing: []string{}}
+			}
+			if r, ok := getWorkspaceCorpusRecord(opts.Env, manifest.Name, qualified); ok {
+				wsResult.Results = append(wsResult.Results, r)
+			} else {
+				wsResult.Missing = append(wsResult.Missing, qualified)
+			}
+			continue
+		}
+		memberIDs = append(memberIDs, qualified)
+	}
+	// Group member ids by repo key, preserving first-appearance order of repos and
+	// the input order of ids within each repo.
 	var repoOrder []string
 	idsByRepo := make(map[string][]string)
-	for _, qualified := range qualifiedIDs {
+	for _, qualified := range memberIDs {
 		repoKey, id, err := splitWorkspaceID(qualified)
 		if err != nil {
 			return err
@@ -650,6 +679,9 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 		idsByRepo[repoKey] = append(idsByRepo[repoKey], id)
 	}
 	var results []workspaceGetResult
+	if wsResult != nil {
+		results = append(results, *wsResult)
+	}
 	for _, repoKey := range repoOrder {
 		result := workspaceGetResult{RepoKey: repoKey, Results: []unifiedResult{}, Missing: []string{}}
 		brainDir, err := brainDirForKey(opts.Env, repoKey)
@@ -724,7 +756,7 @@ func workspaceMemberBranch(brainDir, override string) (string, error) {
 // into the repo key and the brain-local id. Repo keys never contain ':', so the
 // first path segment starting a known source prefix is the boundary.
 func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
-	for _, prefix := range []string{"fact:", "history:", "doc:"} {
+	for _, prefix := range []string{"fact:", "history:", "doc:", "pattern:", "theme:"} {
 		if strings.HasPrefix(qualified, prefix) {
 			return "", "", fmt.Errorf("id %q is missing its repo key (expected <repo-key>/%s…)", qualified, prefix)
 		}
@@ -732,7 +764,7 @@ func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
 			return qualified[:i], qualified[i+1:], nil
 		}
 	}
-	return "", "", fmt.Errorf("unrecognized id %q (expected <repo-key>/fact:…, <repo-key>/history:…, or <repo-key>/doc:…)", qualified)
+	return "", "", fmt.Errorf("unrecognized id %q (expected <repo-key>/fact:…, <repo-key>/history:…, <repo-key>/doc:…, <repo-key>/pattern:…, or <repo-key>/theme:…)", qualified)
 }
 
 // workspaceFullRefresh fans the free deterministic single-repo refresh over

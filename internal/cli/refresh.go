@@ -331,6 +331,36 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		}
 		finishBranches(nil)
 	}
+	// Backfill deterministic fact kinds/locus when a fact store exists, so a kind
+	// distilled before kind-storage (or otherwise left empty) is repaired here
+	// rather than needing a manual `facts reclassify`. No agent, no tokens.
+	manifest, _ = loadBrainManifest(brainDir)
+	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
+		finishReclass := progress.Step("reclassify facts")
+		if _, err := reclassifyAllFactBranches(brainDir, opts.Now().UTC()); err != nil {
+			finishReclass(err)
+			return err
+		}
+		finishReclass(nil)
+	}
+	// Pattern layer (episodes -> tasks/procedures/practices). Deterministic and
+	// token-free, so it is part of the normal refresh — the user never has to
+	// discover a second build command. Rebuilt when sessions changed or --force.
+	manifest, _ = loadBrainManifest(brainDir)
+	if manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
+		finishPatterns := progress.Step("pattern layer")
+		if _, err := refreshPatternLayer(brainDir, refreshOpts.force, opts.Now().UTC()); err != nil {
+			finishPatterns(err)
+			return err
+		}
+		// The internal pattern corpus is a rebuildable cache; a corpus failure must
+		// not break the rest of the brain, so it is a warning here (the explicit
+		// `patterns refresh` is the stricter surface that fails on corpus errors).
+		if cerr := buildPatternCorpus(brainDir, opts.Now().UTC()); cerr != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: pattern corpus: %v\n", cerr)
+		}
+		finishPatterns(nil)
+	}
 	fmt.Fprintf(cmd.OutOrStdout(), "refreshed brain: %s\n", brainDir)
 	if refreshOpts.statusAfter && !outputExplicit {
 		statusCmd := &cobra.Command{Use: "status"}

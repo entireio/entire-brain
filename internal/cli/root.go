@@ -89,6 +89,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addGrouped("create", newWatchCommand(opts))
 	addGrouped("create", newDistillCommand(opts))
 	addGrouped("create", newRememberCommand(opts))
+	addGrouped("create", newPatternsCommand(opts))
 	addGrouped("create", newAgentStatusCommand(opts))
 	addGrouped("create", newWorkspaceCommand(opts))
 

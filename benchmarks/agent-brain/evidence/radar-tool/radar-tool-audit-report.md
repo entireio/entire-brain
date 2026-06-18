@@ -4,7 +4,7 @@
 - Claim scope: **mcp_radar_tool_contract**
 - Required tests: **52**
 - Artifact: `go-test-internal-cli-radar.jsonl`
-- Artifact hash: `sha256:5f5a516de8eb0f940b6acfe7324071117229b716a75636ddc3205bb03bb1b347`
+- Artifact hash: `sha256:bd98f91c28fb891530c3fa2f96713ad99a709bb54439f1c90b688cc8d83f6804`
 - Package pass event: **True**
 
 ## Limitations
