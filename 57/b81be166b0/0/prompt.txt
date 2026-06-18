@@ -55,3 +55,13 @@ Make unknown/missing verifier verdicts non-accepted. In themes and workspace fam
 Carry source evidence into lesson/convention dossiers. Lessons should retain member keys plus source anchors/excerpts for the selected episodes. Conventions should retain fact provenance and, where available, episode corroboration anchors. Add tests that buildDeepSkillEvidence for lesson: and convention: includes real source evidence, not only the proposal summary.
 
 Run and report: go test ./..., go vet ./..., gofmt -l -s ., and the PR check rollup.
+
+---
+
+<task-notification>
+<task-id>bs9699jpv</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/7fc2ec8e-fd41-4e80-ac5e-d7b4a87b7c35/tasks/bs9699jpv.output</output-file>
+<status>completed</status>
+<summary>Background command "go test ./... 2&gt;&amp;1 | tail -30" completed (exit code 0)</summary>
+</task-notification>
