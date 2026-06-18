@@ -152,6 +152,7 @@ type brainBriefReport struct {
 	LikelyEditFiles []string            `json:"likely_edit_files,omitempty"`
 	LikelyTestFiles []string            `json:"likely_test_files,omitempty"`
 	LikelyFiles     []string            `json:"likely_files,omitempty"`
+	Patterns        []patternView       `json:"patterns,omitempty"`
 	Guidance        []string            `json:"guidance"`
 	Warnings        []string            `json:"warnings,omitempty"`
 }
@@ -215,19 +216,20 @@ func newAgentStatusCommand(opts Options) *cobra.Command {
 }
 
 type brainOverviewReport struct {
-	GeneratedAt     time.Time             `json:"generated_at"`
-	Repo            brainStatusRepo       `json:"repo"`
-	Brain           brainStatusBrain      `json:"brain"`
-	Freshness       brainOverviewFresh    `json:"freshness"`
-	Sources         brainStatusSources    `json:"sources"`
-	Live            brainLiveState        `json:"live"`
-	Semantic        brainOverviewSemantic `json:"semantic"`
-	Boundaries      map[string]int        `json:"boundaries,omitempty"`
-	Entrypoints     []string              `json:"entrypoints,omitempty"`
-	Commands        []seedCommand         `json:"commands,omitempty"`
-	Documents       []string              `json:"key_documents,omitempty"`
-	RecentDecisions []brainTextMatch      `json:"recent_decisions,omitempty"`
-	Warnings        []string              `json:"warnings,omitempty"`
+	GeneratedAt       time.Time             `json:"generated_at"`
+	Repo              brainStatusRepo       `json:"repo"`
+	Brain             brainStatusBrain      `json:"brain"`
+	Freshness         brainOverviewFresh    `json:"freshness"`
+	Sources           brainStatusSources    `json:"sources"`
+	Live              brainLiveState        `json:"live"`
+	Semantic          brainOverviewSemantic `json:"semantic"`
+	Boundaries        map[string]int        `json:"boundaries,omitempty"`
+	Entrypoints       []string              `json:"entrypoints,omitempty"`
+	Commands          []seedCommand         `json:"commands,omitempty"`
+	Documents         []string              `json:"key_documents,omitempty"`
+	RecentDecisions   []brainTextMatch      `json:"recent_decisions,omitempty"`
+	StrongestPatterns []patternView         `json:"strongest_patterns,omitempty"`
+	Warnings          []string              `json:"warnings,omitempty"`
 }
 
 type brainOverviewFresh struct {
@@ -324,6 +326,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 		if status.Manifest.Sources.History != nil {
 			report.RecentDecisions = recentDecisionMatches(status.Brain.Path, status.Manifest.Sources.History, decisions)
 		}
+		report.StrongestPatterns = strongestPatterns(status.Brain.Path, 3)
 	}
 	if jsonOut {
 		return writeJSON(cmd, report)
@@ -417,6 +420,12 @@ func renderBrainOverviewText(cmd *cobra.Command, report brainOverviewReport) {
 				when = when[:10]
 			}
 			fmt.Fprintf(out, "  [%s] %s\n", when, d.Excerpt)
+		}
+	}
+	if len(report.StrongestPatterns) > 0 {
+		fmt.Fprintln(out, "strongest patterns:")
+		for _, p := range report.StrongestPatterns {
+			fmt.Fprintf(out, "  [%s] %s (strength %.2f, support %d)\n", p.Type, p.Title, p.Strength, p.Support)
 		}
 	}
 }
@@ -965,6 +974,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		report.LikelyTestFiles = brainBriefAddSiblingTestFiles(status.Repo.Root, report.LikelyEditFiles, report.LikelyTestFiles)
 		report.LikelyFiles = brainBriefMergeLikelyFiles(report.LikelyEditFiles, report.LikelyTestFiles)
 		report.Guidance = append(report.Guidance, "Treat action_checklist as the first-pass current-code inventory; edit listed files first, and broaden only when the checklist is missing, ambiguous, or validation fails.")
+	}
+	if views, _, perr := loadPatternViews(status.Brain.Path); perr == nil {
+		report.Patterns = rankTaskRelevantPatterns(views, brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
 	}
 	if briefOpts.json {
 		return writeJSON(cmd, report)

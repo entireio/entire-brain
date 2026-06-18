@@ -313,6 +313,16 @@ func mcpToolDefinitions() []map[string]any {
 			"description": "Cross-repo diff-less review: review each repo's current tree in a local workspace against its brain's memory and return severity-ranked suspected-regression findings per repo. The multi-brain extension of the same versioned contract; consumers are cross-repo (entireio/cli) and not yet landed. See docs/diffless_review_seam.md.",
 			"inputSchema": objectSchema([]string{"workspace", "query"}, map[string]any{"workspace": stringArg("workspace", "Workspace name"), "query": stringArg("query", "What to review plus the relevant symbols/identifiers"), "limit": integerArg("limit", "Maximum findings per repo"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (lower confidence, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}),
 		},
+		{
+			"name":        "brain_patterns",
+			"description": "List repeated-work patterns (procedures = command workflows, practices = durable judgments) with strength, support, and reinforcement. Read-only; forming a skill is a write action done via the CLI `entire brain patterns skills form`.",
+			"inputSchema": objectSchema(nil, map[string]any{"type": stringArg("type", "Filter by type: procedure or practice (empty = both)"), "scope": stringArg("scope", "Filter by scope: repo or workspace (empty = both)"), "limit": integerArg("limit", "Maximum patterns to return")}),
+		},
+		{
+			"name":        "brain_patterns_status",
+			"description": "Pattern layer freshness and counts: episodes, procedures, practices, and skill-memory (accepted/declined/updates-available).",
+			"inputSchema": objectSchema(nil, map[string]any{}),
+		},
 	}
 }
 
@@ -498,6 +508,28 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			}
 			err = runWorkspaceReview(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, workspace, query)
 		}
+	case "brain_patterns":
+		typ, typeErr := mcpOptionalString(params.Arguments, "type")
+		if typeErr != nil {
+			err = typeErr
+			break
+		}
+		scope, scopeErr := mcpOptionalString(params.Arguments, "scope")
+		if scopeErr != nil {
+			err = scopeErr
+			break
+		}
+		target := "."
+		if opts.Env.RepoRoot != "" {
+			target = opts.Env.RepoRoot
+		}
+		err = runPatternsList(ctx, cmd, opts, target, patternsListOptions{asJSON: true, limit: limit, typ: strings.TrimSpace(typ), scope: strings.TrimSpace(scope)})
+	case "brain_patterns_status":
+		target := "."
+		if opts.Env.RepoRoot != "" {
+			target = opts.Env.RepoRoot
+		}
+		err = runPatternsStatus(ctx, cmd, opts, target, true)
 	default:
 		err = fmt.Errorf("unknown tool: %s", params.Name)
 	}
@@ -544,6 +576,10 @@ func validateMCPToolArguments(tool string, args map[string]any) error {
 		add("query", "limit", "include_deletions", "location_only")
 	case "brain_workspace_regressions", "brain_workspace_review":
 		add("workspace", "query", "limit", "include_deletions", "location_only")
+	case "brain_patterns":
+		add("type", "scope", "limit")
+	case "brain_patterns_status":
+		// no arguments
 	default:
 		return nil
 	}

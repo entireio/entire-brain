@@ -153,6 +153,7 @@ func newWorkspaceCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newWorkspaceQueryCommand(opts))
 	cmd.AddCommand(newWorkspaceGetCommand(opts))
 	cmd.AddCommand(newWorkspaceReviewCommand(opts))
+	cmd.AddCommand(newWorkspacePatternsCommand(opts))
 	return cmd
 }
 
