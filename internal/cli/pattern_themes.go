@@ -150,13 +150,6 @@ func dominantShape(shapes map[string]int) string {
 	return best
 }
 
-func firstNonEmpty(a, b string) string {
-	if strings.TrimSpace(a) != "" {
-		return a
-	}
-	return b
-}
-
 // --- theme views (surfaces) ---
 
 type themeView struct {
