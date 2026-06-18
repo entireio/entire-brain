@@ -30,10 +30,11 @@ func newPatternsCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&listOpts.asJSON, "json", false, "Emit patterns as JSON")
 	cmd.Flags().IntVar(&listOpts.limit, "limit", 20, "Maximum number of patterns to show")
-	cmd.Flags().StringVar(&listOpts.typ, "type", "", "Filter by type: procedure|practice")
+	cmd.Flags().StringVar(&listOpts.typ, "type", "", "Filter by type: task|procedure|risk|practice|theme")
 	cmd.Flags().StringVar(&listOpts.scope, "scope", "", "Filter by scope: repo|workspace")
 	cmd.AddCommand(newPatternsRefreshCommand(opts))
 	cmd.AddCommand(newPatternsStatusCommand(opts))
+	cmd.AddCommand(newPatternsVerifyCommand(opts))
 	cmd.AddCommand(newPatternsSkillsCommand(opts))
 	return cmd
 }
@@ -50,9 +51,21 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, targ
 	if err != nil {
 		return err
 	}
-	views, _, err := loadPatternViews(brainDir)
-	if err != nil {
-		return err
+	// Primary analytical source is the V2 corpus; the legacy procedure/practice
+	// JSON views remain only as a fallback when no corpus has been built yet.
+	views, _, corpusBacked := loadCorpusPatternViews(brainDir)
+	if !corpusBacked {
+		var verr error
+		if views, _, verr = loadPatternViews(brainDir); verr != nil {
+			return verr
+		}
+	} else {
+		// Themes are a verifier-gated channel: only verified-accepted themes
+		// surface (matching brief/overview and the stated contract). Unverified
+		// candidates are processed by `patterns verify --themes`, not listed here.
+		for _, th := range loadThemeViews(brainDir, true) {
+			views = append(views, themePatternView(th))
+		}
 	}
 	memIdx := skillMemoryByPatternID(mustLoadSkillMemory(brainDir))
 
@@ -116,6 +129,12 @@ type patternView struct {
 	Example       *episodeAnchor       `json:"example,omitempty"`
 	SkillStatus   string               `json:"skill_status,omitempty"` // e.g. "active/update", "declined/reconsider"
 	Note          string               `json:"note,omitempty"`         // human-readable recommendation
+	// V2 corpus-backed fields (empty for legacy views).
+	IntentSig     string `json:"intent_sig,omitempty"`
+	Gram          string `json:"gram,omitempty"`
+	DossierStatus string `json:"dossier_status,omitempty"` // current | stale (promotable patterns only)
+	Verdict       string `json:"verdict,omitempty"`        // accepted | needs_split | low_confidence (rejected are suppressed)
+	Workspace     string `json:"workspace,omitempty"`
 }
 
 // loadPatternViews loads procedures + practices as unified views and an index by
@@ -256,14 +275,31 @@ func renderPatternView(out io.Writer, v patternView) {
 	if v.Kind != "" {
 		label += "/" + v.Kind
 	}
-	fmt.Fprintf(out, "[%s] %s  (%s, strength %.2f)\n", strings.ToUpper(v.StrengthLabel), redactText(v.Title), label, v.Strength)
+	scope := v.Scope
+	if v.Scope == "workspace" && v.Workspace != "" {
+		scope = "workspace:" + v.Workspace
+	}
+	state := v.DossierStatus
+	if v.Verdict != "" {
+		state = strings.TrimLeft(state+"/"+v.Verdict, "/")
+	}
+	header := fmt.Sprintf("[%s] %s  (%s", strings.ToUpper(v.StrengthLabel), redactText(v.Title), label)
+	if scope != "" {
+		header += ", " + scope
+	}
+	header += fmt.Sprintf(", strength %.2f", v.Strength)
+	if state != "" {
+		header += ", " + state
+	}
+	header += ")"
+	fmt.Fprintln(out, header)
 	if v.Reinforcement != nil {
 		r := v.Reinforcement
 		fmt.Fprintf(out, "    seen in %d episode(s); reinforcement %d↑ %d↓ %d·\n", v.Support, r.Success, r.Corrected, r.Neutral)
 	} else {
 		fmt.Fprintf(out, "    seen in %d session(s)\n", v.Support)
 	}
-	if v.Repos > 0 {
+	if v.Scope == "workspace" && v.Repos > 0 {
 		repos := make([]string, 0, len(v.RepoBreakdown))
 		for _, b := range v.RepoBreakdown {
 			repos = append(repos, fmt.Sprintf("%s(%d)", b.RepoKey, b.Support))
@@ -308,6 +344,88 @@ func newPatternsStatusCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
+func newPatternsVerifyCommand(opts Options) *cobra.Command {
+	var (
+		asJSON       bool
+		deep         bool
+		themes       bool
+		lessons      bool
+		conventions  bool
+		agent, model string
+		effort       string
+	)
+	cmd := &cobra.Command{
+		Use:   "verify [path]",
+		Short: "Agent-audit promotable consolidation dossiers (explicit, egress-gated, cached)",
+		Long: "Run the optional consolidation verifier over promotable dossiers. This is the " +
+			"only surface that may invoke an agent for patterns; refresh/watch/brief/query/MCP " +
+			"never do. Verdicts are cached by evidence fingerprint and re-used until the evidence " +
+			"changes. With --deep, each pattern is audited against a bounded evidence-deep export " +
+			"of its backing episodes (corrected/failed first; up to 40 anchors, the top 12 carrying " +
+			"redacted transcript excerpts, with parameters and recoveries) instead of the sampled " +
+			"shallow dossier. With --themes, candidate latent-practice themes " +
+			"(recurring read-only/conversational work) are verified before they surface. " +
+			"With --lessons, corrected/failed episodes are grouped into non-obvious " +
+			"failure→recovery procedure skills. With --conventions, durable gotcha/" +
+			"convention/invariant facts are grouped into capability skills.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPatternsVerify(cmd.Context(), cmd, opts, targetFromArgs(opts, args), agent, model, effort, asJSON, deep, themes, lessons, conventions)
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit the verification summary as JSON")
+	cmd.Flags().BoolVar(&deep, "deep", false, "Audit each pattern against a bounded evidence-deep export of its backing episodes (deep dossier)")
+	cmd.Flags().BoolVar(&themes, "themes", false, "Verify candidate latent-practice themes before they surface")
+	cmd.Flags().BoolVar(&lessons, "lessons", false, "Group corrected/failed episodes into non-obvious failure→recovery procedure skills")
+	cmd.Flags().BoolVar(&conventions, "conventions", false, "Group durable gotcha/convention/invariant facts into capability skills")
+	cmd.Flags().StringVar(&agent, "agent", "auto", "Verifier agent: auto, codex, claude-code, ollama, or command")
+	cmd.Flags().StringVar(&model, "model", "", "Override the agent model, or select the local Ollama model")
+	cmd.Flags().StringVar(&effort, "effort", "", "Agent reasoning effort (codex/claude-code)")
+	return cmd
+}
+
+func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, target, agent, model, effort string, asJSON, deep, themes, lessons, conventions bool) error {
+	repoDir, brainDir, err := resolvePatternsRepoAndBrain(ctx, opts, target)
+	if err != nil {
+		return err
+	}
+	if err := rejectAgentForNoEgress(agent); err != nil {
+		return err
+	}
+	db, err := openPatternCorpusDB(brainDir)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	run := defaultDistillAgentRunner(agent)
+	verify := verifyDossiers
+	mode := "dossier"
+	switch {
+	case themes:
+		verify = verifyThemes
+		mode = "theme"
+	case lessons:
+		verify = proposeSkillLessons
+		mode = "lesson"
+	case conventions:
+		verify = proposeSkillConventions
+		mode = "convention"
+	case deep:
+		verify = verifyDeepDossiers
+		mode = "deep dossier"
+	}
+	stats, err := verify(ctx, db, brainDir, repoDir, agent, model, effort, run, opts.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return writeJSON(cmd, stats)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "patterns verify: %d %s(s) — %d verified, %d cached, %d failed\n",
+		stats.Considered, mode, stats.Verified, stats.Cached, stats.Failed)
+	return nil
+}
+
 // targetFromArgs resolves the repo path argument, defaulting to the env repo root
 // then the working directory — the same precedence the other brain commands use.
 func targetFromArgs(opts Options, args []string) string {
@@ -321,18 +439,25 @@ func targetFromArgs(opts Options, args []string) string {
 }
 
 func resolvePatternsBrainDir(ctx context.Context, opts Options, target string) (string, error) {
+	_, brainDir, err := resolvePatternsRepoAndBrain(ctx, opts, target)
+	return brainDir, err
+}
+
+// resolvePatternsRepoAndBrain resolves both the local repo directory (needed as
+// the agent runner's working dir) and the brain storage dir for that repo.
+func resolvePatternsRepoAndBrain(ctx context.Context, opts Options, target string) (repoDir, brainDir string, err error) {
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if !local {
-		return "", fmt.Errorf("patterns require a local repository path: %s", target)
+		return "", "", fmt.Errorf("patterns require a local repository path: %s", target)
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return storage.BrainDir, nil
+	return repoDir, storage.BrainDir, nil
 }
 
 func runPatternsRefresh(ctx context.Context, cmd *cobra.Command, opts Options, target string, asJSON bool) error {
@@ -343,6 +468,10 @@ func runPatternsRefresh(ctx context.Context, cmd *cobra.Command, opts Options, t
 	source, err := writeBrainEpisodesAndSource(brainDir, opts.Now().UTC())
 	if err != nil {
 		return err
+	}
+	// Explicit refresh is the stricter surface: a corpus failure is fatal here.
+	if err := buildPatternCorpus(brainDir, opts.Now().UTC()); err != nil {
+		return fmt.Errorf("pattern corpus: %w", err)
 	}
 	if asJSON {
 		return writeJSON(cmd, source)
@@ -368,6 +497,7 @@ type patternsStatusReport struct {
 	AcceptedSkills   int                  `json:"accepted_skills"`
 	DeclinedPatterns int                  `json:"declined_patterns"`
 	UpdatesAvailable int                  `json:"updates_available"`
+	LastRun          *patternRun          `json:"last_run,omitempty"` // what the last corpus build produced
 }
 
 func runPatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, target string, asJSON bool) error {
@@ -394,6 +524,10 @@ func runPatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	fmt.Fprintf(out, "accepted skills: %d\n", report.AcceptedSkills)
 	fmt.Fprintf(out, "declined patterns: %d\n", report.DeclinedPatterns)
 	fmt.Fprintf(out, "updates available: %d\n", report.UpdatesAvailable)
+	if lr := report.LastRun; lr != nil {
+		fmt.Fprintf(out, "last run: %s — %d episode(s), %d pattern(s), %d dossier(s), %d symbol link(s), %d commit(s), %d synapse(s)\n",
+			lr.At, lr.Episodes, lr.Patterns, lr.Dossiers, lr.SymbolLinks, lr.Commits, lr.Synapses)
+	}
 	return nil
 }
 
@@ -420,6 +554,9 @@ func buildPatternsStatusReport(brainDir string) patternsStatusReport {
 		Procedures:    src.Procedures,
 		Practices:     src.Practices,
 		Patterns:      src.Patterns,
+	}
+	if run, ok := lastPatternRun(brainDir); ok {
+		report.LastRun = &run
 	}
 
 	_, byID, _ := loadPatternViews(brainDir)

@@ -69,6 +69,7 @@ type regressionDetectorOptions struct {
 	json             bool
 	includeDeletions bool // deletions are higher-recall but noisier (no recency data); opt-in
 	locationOnly     bool // emit file:line only, NOT expected/current — so a fair A/B can't paste the answer
+	patterns         bool // opt-in: attach V2 risk/practice/task corpus context for the finding files
 }
 
 type changeSignal struct {
@@ -1226,6 +1227,18 @@ type reviewReport struct {
 	Summary       string          `json:"summary"`
 	Findings      []reviewFinding `json:"findings"`
 	Warnings      []string        `json:"warnings,omitempty"`
+	// PatternContext is OPT-IN (only with --patterns): V2 corpus risk/practice/
+	// task patterns whose recorded evidence touched the finding files — diff-less
+	// regression context. omitempty keeps the default review output byte-identical
+	// for the versioned schema's existing consumers.
+	PatternContext []reviewPatternRef `json:"pattern_context,omitempty"`
+}
+
+type reviewPatternRef struct {
+	File  string `json:"file"`
+	Type  string `json:"type"`
+	Title string `json:"title"`
+	ID    string `json:"id"`
 }
 
 // regressionSeverity maps detector confidence to a review severity. Every finding the current
@@ -1302,6 +1315,13 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 		Findings:      findings,
 		Warnings:      warnings,
 	}
+	if ro.patterns {
+		files := make([]string, 0, len(findings))
+		for _, f := range findings {
+			files = append(files, f.File)
+		}
+		report.PatternContext = loadReviewPatternContext(status.Brain.Path, files, ro.limit)
+	}
 	if ro.json {
 		return writeJSON(cmd, report)
 	}
@@ -1310,6 +1330,9 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 	for _, f := range findings {
 		fmt.Fprintf(out, "\n  [%s] %s\n    %s:%d\n    %s\n    evidence: %s\n",
 			strings.ToUpper(f.Severity), f.Title, f.File, f.Line, f.Detail, f.Evidence)
+	}
+	for _, pc := range report.PatternContext {
+		fmt.Fprintf(out, "  pattern context [%s] %s — %s   id %s\n", pc.Type, pc.File, pc.Title, pc.ID)
 	}
 	for _, w := range warnings {
 		fmt.Fprintf(out, "  note: %s\n", w)
@@ -1329,6 +1352,7 @@ func newBrainReviewCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().IntVar(&ro.limit, "limit", 20, "Maximum findings")
 	cmd.Flags().BoolVar(&ro.json, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&ro.patterns, "patterns", false, "Attach V2 corpus risk/practice/task context for the finding files (additive)")
 	cmd.Flags().BoolVar(&ro.includeDeletions, "include-deletions", false, "Also flag deleted assignments (lower confidence, noisier)")
 	cmd.Flags().BoolVar(&ro.locationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
 	return cmd

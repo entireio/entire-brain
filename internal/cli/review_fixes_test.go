@@ -56,11 +56,30 @@ func TestRedactText(t *testing.T) {
 		{"token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcDEF123_-x", "eyJhbGciOiJIUzI1NiJ9", "[REDACTED JWT]"},
 		{"API_KEY=supersecretvalue123", "supersecretvalue123", "[REDACTED]"},
 		{"ran in /Users/alice/Projects/secret/app", "/Users/alice", "/Users/[redacted]"},
+		// macOS is case-insensitive by default (and may be case-sensitive); a
+		// lowercase /users/ home path is the same dir and must redact too.
+		{"ls /users/peytonmontei/Documents/entire", "peytonmontei", "/users/[redacted]"},
+		// Linux home layout.
+		{"cat /home/bob/.ssh/config", "/home/bob", "/home/[redacted]"},
+		// Quoted home path keeps the surrounding quote (and the subpath shape).
+		{`"/Users/carol"`, "carol", `"/Users/[redacted]"`},
+		// Path shape is preserved (only the username segment goes).
+		{"/Users/dave/go/src", "dave", "/Users/[redacted]/go/src"},
+		// Real cases from a live brain: canonical /Users (capital) is a home dir
+		// wherever it appears — inside file:// URLs, gitbash /c/Users, sed args.
+		{"git clone file:///Users/dvydra/src/cli x", "dvydra", "file:///Users/[redacted]"},
+		{"grep go-git /c/Users/Victor/cli/go.mod", "Victor", "/c/Users/[redacted]"},
+		{`sed 's|x|/Users/peytonmontei/Documents/cli|'`, "peytonmontei", "/Users/[redacted]"},
+		{`C:\Users\Victor\cli`, "Victor", `C:\Users\[redacted]`},
+		// API/repo paths use lowercase /users/ embedded after a segment -> kept.
+		{"gh api users/octocat --jq .name", "", "octocat"},
+		{"gh api repos/x/contents/platform/users/components/Grid.tsx", "", "platform/users/components"},
+		{"rg users/me/checkpoints api/src", "", "users/me/checkpoints"},
 		{"-----BEGIN RSA PRIVATE KEY-----\nMIIabc\n-----END RSA PRIVATE KEY-----", "MIIabc", "[REDACTED PRIVATE KEY]"},
 	}
 	for _, c := range cases {
 		got := redactText(c.in)
-		if strings.Contains(got, c.mustNotContain) {
+		if c.mustNotContain != "" && strings.Contains(got, c.mustNotContain) {
 			t.Errorf("redactText(%q) still contains secret %q -> %q", c.in, c.mustNotContain, got)
 		}
 		if !strings.Contains(got, c.mustContain) {
@@ -128,7 +147,7 @@ func TestFormPreviewWritesNothing(t *testing.T) {
 	repo := t.TempDir()
 	cmd, out := formCmd()
 	s := skillFormOptions{target: "standard", scope: "repo"} // no --yes
-	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), store, repo, "codex", stubRunner(stubSkillText), s, time.Now()); err != nil {
+	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), nil, nil, store, repo, "codex", stubRunner(stubSkillText), s, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	// Preview shows evidence + draft + would-write, but writes nothing.
@@ -146,7 +165,7 @@ func TestFormPreviewWritesNothing(t *testing.T) {
 func TestFormDraftOnlyPrintsOnlyDraft(t *testing.T) {
 	cmd, out := formCmd()
 	s := skillFormOptions{target: "standard", scope: "repo", draftOnly: true}
-	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), t.TempDir(), t.TempDir(), "codex", stubRunner(stubSkillText), s, time.Now()); err != nil {
+	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), nil, nil, t.TempDir(), t.TempDir(), "codex", stubRunner(stubSkillText), s, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	got := strings.TrimSpace(out.String())
@@ -161,7 +180,7 @@ func TestFormYesWritesAndRecords(t *testing.T) {
 	cmd, _ := formCmd()
 	s := skillFormOptions{target: "standard", scope: "repo", yes: true}
 	now := time.Date(2026, 6, 16, 12, 0, 0, 0, time.UTC)
-	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), store, repo, "codex", stubRunner(stubSkillText), s, now); err != nil {
+	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), nil, nil, store, repo, "codex", stubRunner(stubSkillText), s, now); err != nil {
 		t.Fatal(err)
 	}
 	skillPath := filepath.Join(repo, ".agents", "skills", "ship-it", "SKILL.md")
@@ -174,12 +193,12 @@ func TestFormYesWritesAndRecords(t *testing.T) {
 	}
 	// Existing file requires --force.
 	cmd2, _ := formCmd()
-	if err := synthesizeAndForm(context.Background(), cmd2, sampleCand(), store, repo, "codex", stubRunner(stubSkillText), s, now); err == nil {
+	if err := synthesizeAndForm(context.Background(), cmd2, sampleCand(), nil, nil, store, repo, "codex", stubRunner(stubSkillText), s, now); err == nil {
 		t.Error("re-form without --force should refuse to overwrite")
 	}
 	cmd3, _ := formCmd()
 	s.force = true
-	if err := synthesizeAndForm(context.Background(), cmd3, sampleCand(), store, repo, "codex", stubRunner(stubSkillText), s, now); err != nil {
+	if err := synthesizeAndForm(context.Background(), cmd3, sampleCand(), nil, nil, store, repo, "codex", stubRunner(stubSkillText), s, now); err != nil {
 		t.Errorf("--force should overwrite: %v", err)
 	}
 }
@@ -189,7 +208,7 @@ func TestFormRejectsNotASkill(t *testing.T) {
 	repo := t.TempDir()
 	cmd, out := formCmd()
 	s := skillFormOptions{target: "standard", scope: "repo", yes: true}
-	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), store, repo, "codex", stubRunner("NOT_A_SKILL: generic git usage"), s, time.Now()); err != nil {
+	if err := synthesizeAndForm(context.Background(), cmd, sampleCand(), nil, nil, store, repo, "codex", stubRunner("NOT_A_SKILL: generic git usage"), s, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "not a skill") {
@@ -205,7 +224,7 @@ func TestFormPreviewRedactsEvidence(t *testing.T) {
 	cand.MatchingFacts = []string{"deploy with TOKEN=ghp_SECRETTOKEN0123456789abcdef"}
 	cmd, out := formCmd()
 	s := skillFormOptions{target: "standard", scope: "repo"}
-	if err := synthesizeAndForm(context.Background(), cmd, cand, t.TempDir(), t.TempDir(), "codex", stubRunner(stubSkillText), s, time.Now()); err != nil {
+	if err := synthesizeAndForm(context.Background(), cmd, cand, nil, nil, t.TempDir(), t.TempDir(), "codex", stubRunner(stubSkillText), s, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(out.String(), "ghp_SECRETTOKEN0123456789abcdef") {

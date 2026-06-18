@@ -31,6 +31,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	var format string
 	var limit int
 	var branch string
+	var patterns bool
 	cmd := &cobra.Command{
 		Use:   use + " <query>",
 		Short: short,
@@ -40,7 +41,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 			if err != nil {
 				return err
 			}
-			return runRetrieve(cmd.Context(), cmd, opts, args[0], mode, limit, branch, wantJSON)
+			return runRetrieve(cmd.Context(), cmd, opts, args[0], mode, limit, branch, wantJSON, patterns)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
@@ -48,10 +49,11 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	cmd.Flags().IntVarP(&limit, "number", "n", 10, "Maximum results (QMD-style alias for --limit)")
 	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
+	cmd.Flags().BoolVar(&patterns, "patterns", false, "Also surface relevant pattern:/theme: pointers (does not change facts/history/docs ranking)")
 	return cmd
 }
 
-func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query string, mode retrievalMode, limit int, branch string, jsonOut bool) error {
+func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query string, mode retrievalMode, limit int, branch string, jsonOut, patterns bool) error {
 	// Reject --limit <= 0 rather than silently defaulting, so a typo like
 	// `--limit 0` is an explicit error (matching the rest of the CLI surface). The
 	// MCP path passes a validated positive limit, so it's unaffected.
@@ -66,8 +68,18 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	if err != nil {
 		return err
 	}
+	// Discoverability only: pattern/theme pointers never enter the facts/history/
+	// docs ranking — they are a separate, capped, opt-in section so default
+	// retrieval quality is unchanged by construction.
+	var related []relatedPatternRef
+	if patterns {
+		related = relatedPatternPointers(brainDir, query, patternPointerCap)
+	}
 	if jsonOut {
 		out := map[string]any{"query": query, "branch": resolvedBranch, "results": results}
+		if len(related) > 0 {
+			out["related_patterns"] = related
+		}
 		if len(results) == 0 {
 			if note := emptyResultBlindSpot(brainDir); note != "" {
 				out["blind_spot"] = note
@@ -80,7 +92,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		if note := emptyResultBlindSpot(brainDir); note != "" {
 			fmt.Fprintln(cmd.OutOrStdout(), note)
 		}
-		return nil
+		// still show related pattern pointers if any
 	}
 	for _, r := range results {
 		ex := truncateString(strings.Join(strings.Fields(r.Text), " "), 200)
@@ -89,6 +101,9 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 			loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s  %s\n    %s\n", r.Source, r.ID, loc, ex)
+	}
+	for _, p := range related {
+		fmt.Fprintf(cmd.OutOrStdout(), "related [%s] %s  %s\n", p.Type, p.ID, p.Title)
 	}
 	return nil
 }
@@ -99,7 +114,7 @@ func newGetCommand(opts Options) *cobra.Command {
 	var branch string
 	cmd := &cobra.Command{
 		Use:   "get <id>",
-		Short: "Fetch one item in full by id (fact:… | history:… | doc:…)",
+		Short: "Fetch one item in full by id (fact:… | history:… | doc:… | pattern:… | theme:…)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wantJSON, err := outputWantsJSON(jsonOut, format)

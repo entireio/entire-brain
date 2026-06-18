@@ -45,8 +45,11 @@ type handoffPacket struct {
 	LastDistilledAt time.Time        `json:"last_distilled_at,omitzero"`
 	// SessionsSinceDistill is the blind-spot signal: sessions captured after
 	// the last distill whose insights are not yet in the fact store.
-	SessionsSinceDistill int      `json:"sessions_since_distill"`
-	Warnings             []string `json:"warnings,omitempty"`
+	SessionsSinceDistill int `json:"sessions_since_distill"`
+	// Consolidations are the repo's strongest current/stale dossiers (v2) — the
+	// patterns to keep in mind when resuming, with staleness visible.
+	Consolidations []briefConsolidation `json:"consolidations,omitempty"`
+	Warnings       []string             `json:"warnings,omitempty"`
 }
 
 // buildHandoffPacket synthesizes the packet deterministically — no agent, no
@@ -195,6 +198,7 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 		facts = nil
 	}
 	packet := buildHandoffPacket(manifest, index, facts, branch, sessionCount, opts.Now().UTC())
+	packet.Consolidations = handoffConsolidations(brainDir, 5)
 	if jsonOut {
 		return writeJSON(cmd, packet)
 	}
@@ -241,6 +245,16 @@ func renderHandoff(cmd *cobra.Command, p handoffPacket) {
 		fmt.Fprintf(w, "\n## Recently updated facts\n")
 		for _, f := range p.RecentFacts {
 			fmt.Fprintf(w, "- [%s] %s\n", factKindOrInferred(f), truncateString(f.Text, 200))
+		}
+	}
+	if len(p.Consolidations) > 0 {
+		fmt.Fprintf(w, "\n## Consolidated patterns\n")
+		for _, c := range p.Consolidations {
+			state := c.Status
+			if c.Verdict != "" {
+				state += "/" + c.Verdict
+			}
+			fmt.Fprintf(w, "- [%s %s] %s   id %s\n", c.Type, state, truncateString(c.Title, 120), c.PatternID)
 		}
 	}
 }

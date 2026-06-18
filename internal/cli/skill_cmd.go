@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -82,10 +83,17 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 	if err != nil {
 		return err
 	}
-	tasks, err := loadBrainTasks(brainDir)
-	if err != nil {
-		return err
+	// V2 corpus is the primary source; a proposal is a promotable task backed by
+	// an ACCEPTED deep dossier (the verified record skills are synthesized from).
+	// Legacy task JSON is the fallback only when no corpus exists.
+	tasks, corpusBacked := loadSkillProposals(brainDir)
+	if !corpusBacked {
+		if tasks, err = loadBrainTasks(brainDir); err != nil {
+			return err
+		}
 	}
+	// Suppress already-formed-and-current / declined-unchanged candidates.
+	tasks = filterSkillCandidatesByMemory(brainDir, tasks)
 	if limit > 0 && len(tasks) > limit {
 		tasks = tasks[:limit]
 	}
@@ -98,7 +106,11 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 	}
 	out := cmd.OutOrStdout()
 	if len(tasks) == 0 {
-		fmt.Fprintln(out, "no task candidates (run `entire brain patterns refresh`)")
+		if corpusBacked {
+			fmt.Fprintln(out, "no skill proposals: promotable tasks need an accepted deep dossier.\nRun `entire brain patterns verify --deep` (explicit, egress-gated), then re-check.")
+		} else {
+			fmt.Fprintln(out, "no task candidates (run `entire brain patterns refresh`)")
+		}
 		return nil
 	}
 	for _, t := range tasks {
@@ -125,15 +137,70 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 	}
 	brainDir := storage.BrainDir
 
-	tasks, err := loadBrainTasks(brainDir)
-	if err != nil {
-		return err
-	}
 	var cand *taskCandidate
-	for i := range tasks {
-		if tasks[i].ID == s.taskID {
-			cand = &tasks[i]
-			break
+	var deep *deepSkillInput
+	// A theme skill is synthesized from the verified latent practice (its agent
+	// description), not a raw intent_sig.
+	if strings.HasPrefix(s.taskID, "theme:") {
+		in, ok := loadAcceptedThemeAsDeep(brainDir, s.taskID)
+		if !ok {
+			return fmt.Errorf("no accepted theme %q: run `entire brain patterns verify --themes` first", s.taskID)
+		}
+		deep = &in
+		cand = &taskCandidate{ID: s.taskID, Label: in.rec.Title}
+		agent := s.agent
+		if agent == "" || agent == "auto" {
+			agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
+		}
+		if agent == "none" {
+			return fmt.Errorf("skill synthesis requires an agent (codex or claude-code); none found on PATH")
+		}
+		return synthesizeAndForm(ctx, cmd, *cand, deep, nil, brainDir, repoDir, agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
+	}
+	// Knowledge-sourced skills (procedure lessons / capability conventions) are
+	// stored as accepted deep dossiers under their own ids — synthesize by
+	// converting the verified record.
+	if strings.HasPrefix(s.taskID, "lesson:") || strings.HasPrefix(s.taskID, "convention:") {
+		in, ok := loadAcceptedDeepDossier(brainDir, s.taskID)
+		if !ok {
+			channel := "--lessons"
+			if strings.HasPrefix(s.taskID, "convention:") {
+				channel = "--conventions"
+			}
+			return fmt.Errorf("no accepted proposal %q: run `entire brain patterns verify %s` first", s.taskID, channel)
+		}
+		deep = &in
+		cand = &taskCandidate{ID: s.taskID, Label: in.rec.Title, Support: in.rec.EvidenceEpisodes}
+		agent := s.agent
+		if agent == "" || agent == "auto" {
+			agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
+		}
+		if agent == "none" {
+			return fmt.Errorf("skill synthesis requires an agent (codex or claude-code); none found on PATH")
+		}
+		return synthesizeAndForm(ctx, cmd, *cand, deep, nil, brainDir, repoDir, agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
+	}
+	if c, corpusBacked := corpusTaskCandidateByID(brainDir, s.taskID); corpusBacked {
+		cand = c
+		// Corpus-backed skills MUST come from a verified deep dossier — never
+		// silently from shallow corpus rows.
+		if in, ok := loadAcceptedDeepDossier(brainDir, s.taskID); ok {
+			deep = &in
+		} else {
+			return fmt.Errorf("needs deep verification first: %s has no accepted deep dossier.\n"+
+				"Run `entire brain patterns verify --deep` (explicit, egress-gated), then re-run this form.", s.taskID)
+		}
+	} else {
+		// Legacy fallback for repos without a V2 corpus.
+		tasks, err := loadBrainTasks(brainDir)
+		if err != nil {
+			return err
+		}
+		for i := range tasks {
+			if tasks[i].ID == s.taskID {
+				cand = &tasks[i]
+				break
+			}
 		}
 	}
 	if cand == nil {
@@ -147,16 +214,34 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 	if agent == "none" {
 		return fmt.Errorf("skill synthesis requires an agent (codex or claude-code); none found on PATH")
 	}
-	return synthesizeAndForm(ctx, cmd, *cand, brainDir, repoDir, agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
+	return synthesizeAndForm(ctx, cmd, *cand, deep, nil, brainDir, repoDir, agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
 }
 
 // synthesizeAndForm is the single skill-creation path (repo and workspace):
 // synthesize via the agent, reject NOT_A_SKILL, then show evidence + draft and
 // stop unless --yes. All evidence/draft egress is redacted. storeDir is where the
 // skill-memory decision is recorded. run is injected so tests can stub the agent.
-func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandidate, storeDir, repoDir, agent string, run distillAgentRunner, s skillFormOptions, now time.Time) error {
-	fmt.Fprintf(cmd.ErrOrStderr(), "synthesizing skill from %d sessions via %s…\n", cand.Support, agent)
-	res, err := synthesizeSkill(ctx, repoDir, storeDir, cand, agent, s.model, s.effort, run)
+// Exactly one synthesis source is used: an accepted workspace family (fam), then
+// an accepted deep dossier (deep), else the legacy shallow path.
+func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandidate, deep *deepSkillInput, fam *workspaceFamily, storeDir, repoDir, agent string, run distillAgentRunner, s skillFormOptions, now time.Time) error {
+	var (
+		res skillSynthesisResult
+		err error
+	)
+	switch {
+	case fam != nil:
+		// Workspace skill: convert the verified cross-repo family (common + per-repo).
+		fmt.Fprintf(cmd.ErrOrStderr(), "synthesizing workspace skill from the verified cross-repo family via %s…\n", agent)
+		res, err = synthesizeWorkspaceSkill(ctx, repoDir, *fam, agent, s.model, s.effort, run)
+	case deep != nil:
+		// Primary path: convert the verified deep dossier into a skill.
+		fmt.Fprintf(cmd.ErrOrStderr(), "synthesizing skill from the verified deep dossier via %s…\n", agent)
+		res, err = synthesizeSkillFromDossier(ctx, repoDir, *deep, agent, s.model, s.effort, run)
+	default:
+		// Legacy fallback (no V2 corpus): shallow evidence.
+		fmt.Fprintf(cmd.ErrOrStderr(), "synthesizing skill from %d sessions via %s…\n", cand.Support, agent)
+		res, err = synthesizeSkill(ctx, repoDir, storeDir, cand, agent, s.model, s.effort, run)
+	}
 	if err != nil {
 		return err
 	}
