@@ -1,0 +1,1122 @@
+Work only in `entire-brain`.
+
+Goal:
+Make Brain’s semantic snapshot ingestion compatible with the new `entire-sem` streaming contract, so the end-to-end semantic indexing path is memory-bounded and preserves final summary metadata.
+
+Context:
+- `entire-sem` now streams NDJSON.
+- The first `header` record is intentionally lean.
+- File/symbol/relation/external records stream after the header.
+- A final `summary` record carries authoritative aggregate metadata:
+  - languages
+  - stats
+  - warnings
+  - partial failures
+  - completeness
+  - profile
+  - relation set
+  - skipped relation families
+  - profile limits
+- Brain must not buffer the full provider output in memory.
+
+Tasks:
+
+1. Audit current semantic ingestion
+- Find the code path that invokes `entire-sem`.
+- Identify any use of full stdout capture, `[]byte`, `string`, `bytes.Buffer`, or `CombinedOutput`-style behavior for the full snapshot.
+- Identify where Brain builds semantic manifest/audit metadata from the provider header.
+
+2. Stream provider stdout
+- Replace full-output capture with record-by-record NDJSON scanning from stdout.
+- Process each line as it arrives.
+- Preserve cancellation through context.
+- Capture stderr separately without blocking.
+- Avoid holding the full snapshot in memory.
+
+3. Preserve filtered snapshot output incrementally
+- If Brain writes a filtered semantic snapshot artifact, continue doing so.
+- Write accepted records incrementally to a temp file or output writer.
+- Avoid building the full filtered output in memory.
+- Preserve existing filtering/sanitization behavior.
+
+4. Handle lean header plus final summary
+- Parse and store the initial header.
+- Do not treat the lean header as final aggregate metadata.
+- Parse the final `summary` record.
+- Merge summary data into Brain’s final manifest/audit result.
+- Summary fields should override lean header fields for aggregate metadata.
+- Preserve schema/profile/relation-set information.
+
+5. Count records while streaming
+- Maintain streaming counters for:
+  - files
+  - symbols
+  - relations
+  - externals
+  - warnings
+  - partial failures
+  - unknown record types
+- Make sure final persisted counts match streamed records and/or provider summary semantics.
+
+6. Unknown record handling
+- Unknown future provider record types must not crash ingestion.
+- Either preserve unknown records in the filtered artifact or ignore them with a machine-readable warning, following existing Brain conventions.
+- Add tests for this.
+
+7. Failure behavior
+- If the provider exits non-zero after emitting partial records:
+  - preserve useful partial metadata where appropriate
+  - record provider failure clearly
+  - do not produce a misleading “complete” semantic snapshot
+- If NDJSON contains a malformed line:
+  - report the line/record error
+  - avoid panics
+  - follow existing Brain behavior for failed semantic indexing.
+
+8. Timeout/progress behavior
+- Remove or replace any fixed short timeout that would fail large repos.
+- Prefer configurable timeout, inactivity timeout, or context-driven cancellation.
+- If Brain has progress logging, add periodic progress based on streamed counts.
+- Do not wait until provider EOF to show useful progress if existing logging supports it.
+
+9. Tests
+Add focused tests using a fake provider/helper that emits NDJSON gradually:
+- lean header first
+- file records
+- symbol records
+- relation records
+- external records
+- unknown future record
+- final summary
+
+Test cases:
+- Brain processes records incrementally without full buffering.
+- Final metadata uses the summary, not just the lean header.
+- Unknown record type is tolerated.
+- Filtered artifact is written incrementally and remains valid NDJSON.
+- Provider failure after partial output is reported correctly.
+- Malformed NDJSON line is reported correctly.
+- Large synthetic stream does not allocate proportional memory in one giant buffer.
+
+10. Contract compatibility
+- Ensure Brain still works with older `entire-sem` output that has a fuller header and no final summary, if that compatibility is currently expected.
+- If compatibility is dropped, document the minimum required provider version explicitly.
+
+11. Docs
+Update Brain docs or plan notes to state:
+- Brain consumes streamed `entire-sem` NDJSON.
+- The final summary record is authoritative for aggregate metadata.
+- Brain does not buffer the full semantic snapshot in memory.
+- Supported provider version/profile assumptions.
+- Known remaining limits, if any.
+
+12. Verification
+- Run `go test ./...` in `entire-brain`.
+- If there is an existing semantic indexing command, run it against a small local repo.
+- Confirm memory behavior by inspection or a small smoke run:
+  - no full provider stdout buffer
+  - output artifact written incrementally
+  - final manifest has profile/relation/completeness metadata.
+
+Do not do in this task:
+- Do not modify `entire-sem`.
+- Do not implement new semantic relation types.
+- Do not change provider schema beyond what Brain must consume.
+- Do not start large TensorFlow-scale benchmarks until small streaming ingestion is verified.
+
+Acceptance criteria:
+- `go test ./...` passes.
+- Brain consumes `entire-sem` output record-by-record from stdout.
+- Brain no longer buffers the full semantic snapshot output in memory.
+- Brain correctly merges the final summary into semantic metadata.
+- Unknown future provider records are safe.
+- Partial provider failure is reported honestly.
+- Existing filtered artifact behavior is preserved without full buffering.
+
+---
+
+Before you start, create a new branch
+
+---
+
+Ok. Just to make sure, here is the plan again - I expect you to go through it end-to-end:
+
+---
+
+Work only in `entire-brain`.
+
+Goal:
+Make Brain’s semantic snapshot ingestion compatible with the new `entire-sem` streaming contract, so the end-to-end semantic indexing path is memory-bounded and preserves final summary metadata.
+
+Context:
+- `entire-sem` now streams NDJSON.
+- The first `header` record is intentionally lean.
+- File/symbol/relation/external records stream after the header.
+- A final `summary` record carries authoritative aggregate metadata:
+  - languages
+  - stats
+  - warnings
+  - partial failures
+  - completeness
+  - profile
+  - relation set
+  - skipped relation families
+  - profile limits
+- Brain must not buffer the full provider output in memory.
+
+Tasks:
+
+1. Audit current semantic ingestion
+- Find the code path that invokes `entire-sem`.
+- Identify any use of full stdout capture, `[]byte`, `string`, `bytes.Buffer`, or `CombinedOutput`-style behavior for the full snapshot.
+- Identify where Brain builds semantic manifest/audit metadata from the provider header.
+
+2. Stream provider stdout
+- Replace full-output capture with record-by-record NDJSON scanning from stdout.
+- Process each line as it arrives.
+- Preserve cancellation through context.
+- Capture stderr separately without blocking.
+- Avoid holding the full snapshot in memory.
+
+3. Preserve filtered snapshot output incrementally
+- If Brain writes a filtered semantic snapshot artifact, continue doing so.
+- Write accepted records incrementally to a temp file or output writer.
+- Avoid building the full filtered output in memory.
+- Preserve existing filtering/sanitization behavior.
+
+4. Handle lean header plus final summary
+- Parse and store the initial header.
+- Do not treat the lean header as final aggregate metadata.
+- Parse the final `summary` record.
+- Merge summary data into Brain’s final manifest/audit result.
+- Summary fields should override lean header fields for aggregate metadata.
+- Preserve schema/profile/relation-set information.
+
+5. Count records while streaming
+- Maintain streaming counters for:
+  - files
+  - symbols
+  - relations
+  - externals
+  - warnings
+  - partial failures
+  - unknown record types
+- Make sure final persisted counts match streamed records and/or provider summary semantics.
+
+6. Unknown record handling
+- Unknown future provider record types must not crash ingestion.
+- Either preserve unknown records in the filtered artifact or ignore them with a machine-readable warning, following existing Brain conventions.
+- Add tests for this.
+
+7. Failure behavior
+- If the provider exits non-zero after emitting partial records:
+  - preserve useful partial metadata where appropriate
+  - record provider failure clearly
+  - do not produce a misleading “complete” semantic snapshot
+- If NDJSON contains a malformed line:
+  - report the line/record error
+  - avoid panics
+  - follow existing Brain behavior for failed semantic indexing.
+
+8. Timeout/progress behavior
+- Remove or replace any fixed short timeout that would fail large repos.
+- Prefer configurable timeout, inactivity timeout, or context-driven cancellation.
+- If Brain has progress logging, add periodic progress based on streamed counts.
+- Do not wait until provider EOF to show useful progress if existing logging supports it.
+
+9. Tests
+Add focused tests using a fake provider/helper that emits NDJSON gradually:
+- lean header first
+- file records
+- symbol records
+- relation records
+- external records
+- unknown future record
+- final summary
+
+Test cases:
+- Brain processes records incrementally without full buffering.
+- Final metadata uses the summary, not just the lean header.
+- Unknown record type is tolerated.
+- Filtered artifact is written incrementally and remains valid NDJSON.
+- Provider failure after partial output is reported correctly.
+- Malformed NDJSON line is reported correctly.
+- Large synthetic stream does not allocate proportional memory in one giant buffer.
+
+10. Contract compatibility
+- Ensure Brain still works with older `entire-sem` output that has a fuller header and no final summary, if that compatibility is currently expected.
+- If compatibility is dropped, document the minimum required provider version explicitly.
+
+11. Docs
+Update Brain docs or plan notes to state:
+- Brain consumes streamed `entire-sem` NDJSON.
+- The final summary record is authoritative for aggregate metadata.
+- Brain does not buffer the full semantic snapshot in memory.
+- Supported provider version/profile assumptions.
+- Known remaining limits, if any.
+
+12. Verification
+- Run `go test ./...` in `entire-brain`.
+- If there is an existing semantic indexing command, run it against a small local repo.
+- Confirm memory behavior by inspection or a small smoke run:
+  - no full provider stdout buffer
+  - output artifact written incrementally
+  - final manifest has profile/relation/completeness metadata.
+
+Do not do in this task:
+- Do not modify `entire-sem`.
+- Do not implement new semantic relation types.
+- Do not change provider schema beyond what Brain must consume.
+- Do not start large TensorFlow-scale benchmarks until small streaming ingestion is verified.
+
+Acceptance criteria:
+- `go test ./...` passes.
+- Brain consumes `entire-sem` output record-by-record from stdout.
+- Brain no longer buffers the full semantic snapshot output in memory.
+- Brain correctly merges the final summary into semantic metadata.
+- Unknown future provider records are safe.
+- Partial provider failure is reported honestly.
+- Existing filtered artifact behavior is preserved without full buffering.
+
+---
+
+<task-notification>
+<task-id>aac4db555ec6fea1a</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/562a80a2-826e-4b3b-ab5f-b53b00b516c8/tasks/aac4db555ec6fea1a.output</output-file>
+<status>completed</status>
+<summary>Agent "Find entire-sem ingestion code" came to rest</summary>
+<note>A task-notification fires each time this agent comes to rest with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Perfect! Now I have all the information I need. Let me compile the comprehensive map:
+
+## Thorough Map: Brain's `entire-sem` Provider Invocation and NDJSON Ingestion
+
+### 1. PROVIDER INVOCATION &amp; STDOUT CAPTURE
+
+**File: `/Users/thomi/Projects/entire-brain/internal/cli/runner.go`** (Lines 1-38)
+
+The `CommandRunner` interface defines the execution contract:
+```go
+type CommandRunner interface {
+    Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error)
+}
+
+type ExecRunner struct{}
+
+func (ExecRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+    cmd := exec.CommandContext(ctx, name, args...)
+    if dir != "" {
+        cmd.Dir = dir
+    }
+
+    var stdout bytes.Buffer
+    var stderr bytes.Buffer
+    cmd.Stdout = &amp;stdout
+    cmd.Stderr = &amp;stderr
+
+    err := cmd.Run()
+    if err != nil {
+        if stderr.Len() &gt; 0 {
+            return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("%s %v: %w: %s", name, args, err, stderr.String())
+        }
+        return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("%s %v: %w", name, args, err)
+    }
+    return stdout.Bytes(), stderr.Bytes(), nil
+}
+```
+
+**Key Features:**
+- Uses `exec.CommandContext` for timeout support
+- **Full stdout capture**: `bytes.Buffer` attached to `cmd.Stdout`, entire output returned as `[]byte` via `stdout.Bytes()`
+- **Full stderr capture**: Same pattern for stderr
+- No streaming—complete output buffered in memory
+
+---
+
+### 2. PROVIDER INVOCATION: SNAPSHOT AND DOCTOR COMMANDS
+
+**File: `/Users/thomi/Projects/entire-brain/internal/cli/semantic.go`** (Lines 732-802)
+
+#### `runSemanticDoctor` (Lines 732-756)
+Verifies semantic provider no-egress status with a timeout:
+
+```go
+func runSemanticDoctor(ctx context.Context, runner CommandRunner, repoDir, semBinary string) (bool, []semanticWarning) {
+    if ctx == nil {
+        ctx = context.Background()
+    }
+    runCtx, cancel := context.WithTimeout(ctx, semanticDoctorTimeout)
+    defer cancel()
+    stdout, _, err := runner.Run(runCtx, repoDir, semBinary, "sem", "doctor", "--json")
+    if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+        return false, []semanticWarning{{Code: "provider_doctor_timeout", Severity: "warning", ...}}
+    }
+    if err != nil {
+        return false, []semanticWarning{{Code: "provider_doctor_failed", Severity: "warning", ...}}
+    }
+    var data map[string]any
+    if err := json.Unmarshal(stdout, &amp;data); err != nil {
+        return false, []semanticWarning{{Code: "provider_doctor_malformed", Severity: "warning", ...}}
+    }
+    if boolValue(data, "no_egress") || ... {
+        return true, nil
+    }
+    return false, []semanticWarning{{Code: "provider_no_egress_unknown", ...}}
+}
+```
+
+**Timeout:** `semanticDoctorTimeout = 30 * time.Second` (line 47)
+
+#### `runSemanticSnapshot` (Lines 767-802)
+Executes the main semantic snapshot with NDJSON format output:
+
+```go
+func runSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, semBinary string, worktree bool, ignoreFiles []string) ([]byte, error) {
+    if ctx == nil {
+        ctx = context.Background()
+    }
+    args := []string{"sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"}
+    for _, path := range ignoreFiles {
+        path = strings.TrimSpace(path)
+        if path == "" {
+            continue
+        }
+        args = append(args, "--ignore-file", path)
+    }
+    if worktree {
+        args = append(args, "--worktree")
+    }
+    runCtx, cancel := context.WithTimeout(ctx, semanticSnapshotTimeout)
+    defer cancel()
+    stdout, stderr, err := runner.Run(runCtx, repoDir, semBinary, args...)
+    if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+        return nil, fmt.Errorf("semantic provider snapshot timed out after %s", semanticSnapshotTimeout)
+    }
+    if err != nil {
+        detail := strings.TrimSpace(string(stderr))
+        if detail == "" {
+            detail = strings.TrimSpace(string(stdout))
+        }
+        if detail != "" {
+            return nil, fmt.Errorf("semantic provider snapshot failed: %w: %s", err, truncateAgentWarning(detail))
+        }
+        return nil, fmt.Errorf("semantic provider snapshot failed: %w", err)
+    }
+    if len(bytes.TrimSpace(stdout)) == 0 {
+        return nil, errors.New("semantic provider snapshot produced no output")
+    }
+    return stdout, nil
+}
+```
+
+**Timeout:** `semanticSnapshotTimeout = 2 * time.Minute` (line 48)  
+**Binary:** Determined by flag `--sem-binary` (default: `"entire"`)  
+**Invocation:** `entire sem snapshot --repo &lt;repoDir&gt; --format ndjson --no-network [--ignore-file ...] [--worktree]`
+
+---
+
+### 3. STDOUT CAPTURE &amp; FULL MEMORY BUFFERING
+
+**File: `/Users/thomi/Projects/entire-brain/internal/cli/semantic.go`** (Lines 352-366)
+
+The raw NDJSON output from the provider is captured as a complete `[]byte`:
+
+```go
+// Line 352
+raw, err = runSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts.semBinary, indexOpts.worktree, providerIgnoreFiles)
+if err != nil &amp;&amp; len(providerIgnoreFiles) &gt; 0 &amp;&amp; semanticSnapshotRejectsIgnoreFile(err) {
+    warnings = append(warnings, semanticWarning{...})
+    raw, err = runSemanticSnapshot(ctx, opts.Runner, repoDir, indexOpts.semBinary, indexOpts.worktree, nil)
+}
+if err != nil {
+    return err
+}
+```
+
+The `raw []byte` is **never streamed**—it is held entirely in memory before filtering.
+
+---
+
+### 4. NDJSON PARSING &amp; RECORD TYPES
+
+**File: `/Users/thomi/Projects/entire-brain/internal/cli/semantic.go`** (Lines 133-154)
+
+The `semanticRecord` struct represents all record types (header, symbol, relation, file):
+
+```go
+type semanticRecord struct {
+    RecordType      string   `json:"record_type"`
+    ID              string   `json:"id"`
+    Kind            string   `json:"kind"`
+    Name            string   `json:"name"`
+    QualifiedName   string   `json:"qualified_name"`
+    FilePath        string   `json:"file_path"`
+    StartLine       int      `json:"start_line"`
+    EndLine         int      `json:"end_line"`
+    Path            string   `json:"path"`
+    Signature       string   `json:"signature"`
+    Language        string   `json:"language"`
+    FromID          string   `json:"from_id"`
+    ToID            string   `json:"to_id"`
+    Type            string   `json:"type"`
+    WarningCodes    []string `json:"warning_codes"`
+    Confidence      float64  `json:"confidence"`
+    Reason          string   `json:"reason"`
+    StableIDVersion string   `json:"stable_id_version"`
+    Blob            string   `json:"blob"`
+    Score           int      `json:"score,omitempty"`
+}
+```
+
+**Header Record Type** (Lines 119-131):
+```go
+type semanticHeader struct {
+    SchemaVersion   string            `json:"schema_version"`
+    Provider        string            `json:"provider"`
+    ProviderVersion string            `json:"provider_version"`
+    RepoRoot        string            `json:"repo_root,omitempty"`
+    RepoKey         string            `json:"repo_key"`
+    Commit          string            `json:"commit"`
+    Tree            string            `json:"tree"`
+    Languages       []string          `json:"languages"`
+    Capabilities    []string          `json:"capabilities"`
+    Warnings        []semanticWarning `json:"warnings"`
+    PartialFailures []semanticWarning `json:"partial_failures"`
+}
+```
+
+**Record Types in Snapshot:**
+- `"header"` (first line) → unpacked into `semanticHeader`
+- `"symbol"` → `RecordType="symbol"`, with `ID`, `Kind`, `Name`, `QualifiedName`, `FilePath`, `StartLine`, `EndLine`, `Signature`, `Language`, `StableIDVersion`
+- `"relation"` → `RecordType="relation"`, with `FromID`, `ToID`, `Type`, `Confidence`, `Reason`, `WarningCodes`
+- `"file"` → `RecordType="file"`, with path metadata and optional `Blob` (git blob hash)
+- `"external"` (used in relation `ToID`) → pseudo-record for external endpoint identifiers
+
+**Warning Record Type** (Lines 86-117):
+```go
+type semanticWarning struct {
+    Code     string `json:"code"`
+    Severity string `json:"severity"`
+    Path     string `json:"path,omitempty"`
+    Effect   string `json:"effect,omitempty"`
+    Detail   string `json:"detail,omitempty"`
+}
+
+// UnmarshalJSON handles both canonical keys (path, effect) and wire keys (file_path, effect_on_semantic_completeness)
+func (w *semanticWarning) UnmarshalJSON(data []byte) error {
+    type alias semanticWarning
+    var raw struct {
+        alias
+        ProviderPath   string `json:"file_path"`
+        ProviderEffect string `json:"effect_on_semantic_completeness"`
+    }
+    if err := json.Unmarshal(data, &amp;raw); err != nil {
+        return err
+    }
+    *w = semanticWarning(raw.alias)
+    if w.Path == "" {
+        w.Path = raw.ProviderPath
+    }
+    if w.Effect == "" {
+        w.Effect = raw.ProviderEffect
+    }
+    return nil
+}
+```
+
+---
+
+### 5. SNAPSHOT FILTERING &amp; MANIFEST BUILDING
+
+**File: `/Users/thomi/Projects/entire-brain/internal/cli/semantic.go`** (Lines 838-946)
+
+#### `filterSemanticSnapshot` (Lines 838-946)
+Filters the raw NDJSON, builds manifest metadata, and sanitizes warnings:
+
+```go
+func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (semanticHeader, semanticCounts, []byte, error) {
+    scanner := newSemanticScanner(bytes.NewReader(raw))
+    if !scanner.Scan() {
+        if err := scanner.Err(); err != nil {
+            return semanticHeader{}, semanticCounts{}, nil, err
+        }
+        return semanticHeader{}, semanticCounts{}, nil, errors.New("semantic snapshot missing header")
+    }
+    var header semanticHeader
+    if err := json.Unmarshal(scanner.Bytes(), &amp;header); err != nil {
+        return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot header: %w", err)
+    }
+    // FILTERING: Remove repo_root and apply ignore filters to warnings
+    header.RepoRoot = ""
+    header.Warnings = ignore.FilterWarnings(header.Warnings)
+    header.PartialFailures = ignore.FilterWarnings(header.PartialFailures)
+    header.Warnings = sanitizeSemanticWarnings(header.Warnings, repoDir)
+    header.PartialFailures = sanitizeSemanticWarnings(header.PartialFailures, repoDir)
+    
+    // Build filtered JSON header line
+    headerLine, marshalErr := json.Marshal(header)
+    if marshalErr != nil {
+        return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("encode filtered semantic snapshot header: %w", marshalErr)
+    }
+    
+    // PASS 1: Build ignored symbol ID map
+    ignoredIDs := make(map[string]struct{})
+    line := 1
+    for scanner.Scan() {
+        line++
+        text := bytes.TrimSpace(scanner.Bytes())
+        if len(text) == 0 {
+            continue
+        }
+        var record semanticRecord
+        if err := json.Unmarshal(text, &amp;record); err != nil {
+            return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
+        }
+        if err := validateSemanticRecordPath(&amp;record); err != nil {
+            return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
+        }
+        if ignore.Ignored(record.semanticPath()) &amp;&amp; record.ID != "" {
+            ignoredIDs[record.ID] = struct{}{}
+        }
+    }
+    if err := scanner.Err(); err != nil {
+        return semanticHeader{}, semanticCounts{}, nil, err
+    }
+    
+    // PASS 2: Filter records and count symbols/relations
+    var filtered bytes.Buffer
+    filtered.Write(headerLine)
+    filtered.WriteByte('\n')
+    var counts semanticCounts
+    scanner = newSemanticScanner(bytes.NewReader(raw))
+    if !scanner.Scan() {
+        return semanticHeader{}, semanticCounts{}, nil, errors.New("semantic snapshot missing header")
+    }
+    line = 1
+    files := make(map[string]struct{})
+    for scanner.Scan() {
+        line++
+        text := bytes.TrimSpace(scanner.Bytes())
+        if len(text) == 0 {
+            continue
+        }
+        var record semanticRecord
+        if err := json.Unmarshal(text, &amp;record); err != nil {
+            return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
+        }
+        if err := validateSemanticRecordPath(&amp;record); err != nil {
+            return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
+        }
+        // Skip ignored file/symbol records
+        if ignore.Ignored(record.semanticPath()) {
+            continue
+        }
+        // Skip relations when endpoints are ignored
+        if record.RecordType == "relation" {
+            if p := semanticEndpointPath(record.FromID); p != "" &amp;&amp; ignore.Ignored(p) {
+                continue
+            }
+            if p := semanticEndpointPath(record.ToID); p != "" &amp;&amp; ignore.Ignored(p) {
+                continue
+            }
+            if _, ok := ignoredIDs[record.FromID]; ok {
+                continue
+            }
+            if _, ok := ignoredIDs[record.ToID]; ok {
+                continue
+            }
+        }
+        // Count and track files
+        switch record.RecordType {
+        case "file":
+            if path := record.semanticPath(); path != "" {
+                files[path] = struct{}{}
+            }
+        case "symbol":
+            if path := record.semanticPath(); path != "" {
+                files[path] = struct{}{}
+            }
+            counts.Symbols++
+        case "relation":
+            counts.Relations++
+        }
+        // Write filtered record
+        filteredRecord, marshalErr := json.Marshal(record)
+        if marshalErr != nil {
+            return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("encode semantic snapshot line %d: %w", line, marshalErr)
+        }
+        filtered.Write(filteredRecord)
+        filtered.WriteByte('\n')
+    }
+    if err := scanner.Err(); err != nil {
+        return semanticHeader{}, semanticCounts{}, nil, err
+    }
+    counts.Files = len(files)
+    return header, counts, filtered.Bytes(), nil
+}
+```
+
+#### `newSemanticScanner` (Lines 948-952)
+NDJSON line scanner with large record buffer:
+
+```go
+func newSemanticScanner(r io.Reader) *bufio.Scanner {
+    scanner := bufio.NewScanner(r)
+    scanner.Buffer(make([]byte, 0, 64*1024), semanticMaxRecordBytes)
+    return scanner
+}
+```
+
+**Buffer Config:**
+- Initial buffer: 64 KB
+- Max record size: `semanticMaxRecordBytes = 64 * 1024 * 1024` (64 MB per record)
+
+#### Sanitization (Lines 1592-1644)
+Redacts absolute paths from warnings:
+
+```go
+func sanitizeSemanticWarnings(warnings []semanticWarning, repoDir string) []semanticWarning {
+    if len(warnings) == 0 {
+        return nil
+    }
+    sanitized := make([]semanticWarning, 0, len(warnings))
+    for _, warning := range warnings {
+        warning.Path = sanitizeSemanticWarningPath(warning.Path)
+        warning.Effect = sanitizeSemanticWarningText(warning.Effect, repoDir)
+        warning.Detail = sanitizeSemanticWarningText(warning.Detail, repoDir)
+        sanitized = append(sanitized, warning)
+    }
+    return sanitized
+}
+```
+
+---
+
+### 6. MANIFEST &amp; AUDIT METADATA BUILDING
+
+**File: `/Users/thomi/Projects/entire-brain/internal/cli/semantic.go`** (Lines 59-84, 245-467)
+
+#### Source Manifest Structure (Lines 59-84):
+```go
+type semanticSourceManifest struct {
+    GeneratedAt      time.Time         `json:"generated_at"`
+    Commit           string            `json:"commit,omitempty"`
+    Tree             string            `json:"tree,omitempty"`
+    Branch           string            `json:"branch,omitempty"`
+    DefaultBranch    string            `json:"default_branch,omitempty"`
+    DirtyWorktree    bool              `json:"dirty_worktree"`
+    Provider         string            `json:"provider,omitempty"`
+    ProviderVersion  string            `json:"provider_version,omitempty"`
+    SchemaVersion    string            `json:"schema_version,omitempty"`
+    SnapshotPath     string            `json:"snapshot_path,omitempty"`
+    StorePath        string            `json:"store_path,omitempty"`
+    GenerationPath   string            `json:"generation_path,omitempty"`
+    MetricsPath      string            `json:"metrics_path,omitempty"`
+    ParseCachePath   string            `json:"parse_cache_path,omitempty"`
+    OverlayPath      string            `json:"overlay_path,omitempty"`
+    Symbols          int               `json:"symbols"`
+    Relations        int               `json:"relations"`
+    Files            int               `json:"files,omitempty"`
+    Warnings         []semanticWarning `json:"warnings,omitempty"`
+    PartialFailures  []semanticWarning `json:"partial_failures,omitempty"`
+    Capabilities     []string          `json:"capabilities,omitempty"`
+    NoEgressVerified bool              `json:"no_egress_verified"`
+    WorktreeMode     string            `json:"worktree_mode,omitempty"`
+    WorktreeHash     string            `json:"worktree_hash,omitempty"`
+}
+```
+
+#### Manifest Building in `runSemanticIndex` (Lines 382-451):
+```go
+// Line 383-391: Fill defaults from provider or snapshot
+if header.Commit == "" {
+    header.Commit = head
+}
+if header.Tree == "" {
+    header.Tree = tree
+}
+if header.Provider == "" {
+    header.Provider = "entire-sem"
+}
+if header.RepoKey == "" {
+    header.RepoKey = storage.Key
+}
+
+// Line 426-451: Build manifest
+source := &amp;semanticSourceManifest{
+    GeneratedAt:      opts.Now().UTC(),
+    Commit:           header.Commit,
+    Tree:             header.Tree,
+    Branch:           branch,
+    DefaultBranch:    defaultBranch,
+    DirtyWorktree:    dirty,
+    Provider:         header.Provider,
+    ProviderVersion:  header.ProviderVersion,
+    SchemaVersion:    header.SchemaVersion,
+    SnapshotPath:     snapshotRel,
+    StorePath:        filepath.ToSlash(filepath.Join(generation, semanticSQLiteName)),
+    GenerationPath:   generation,
+    MetricsPath:      filepath.ToSlash(filepath.Join(generation, semanticMetricsName)),
+    ParseCachePath:   filepath.ToSlash(filepath.Join(generation, "parse-cache")),
+    OverlayPath:      overlayPath,
+    Symbols:          counts.Symbols,
+    Relations:        counts.Relations,
+    Files:            counts.Files,
+    Warnings:         sanitizeSemanticWarnings(warnings, repoDir),
+    PartialFailures:  sanitizeSemanticWarnings(header.PartialFailures, repoDir),
+    Capabilities:     header.Capabilities,
+    NoEgressVerified: noEgress || indexOpts.skipSem,
+    WorktreeMode:     worktreeMode,
+    WorktreeHash:     worktreeHash,
+}
+```
+
+---
+
+### 7. SNAPSHOT ARTIFACT WRITING
+
+**File: `/Users/thomi/Projects/entire-brain/internal/cli/semantic.go`** (Lines 409-416)
+
+The filtered snapshot is written to disk as NDJSON:
+
+```go
+snapshotID := header.Commit
+worktreeMode := "head"
+worktreeHash := ""
+sum := sha256.Sum256(raw)
+if indexOpts.worktree &amp;&amp; dirty {
+    snapshotID = "worktree-" + hex.EncodeToString(sum[:8])
+    worktreeMode = "worktree"
+    worktreeHash = worktreeHashBefore
+} else if snapshotID == "" {
+    snapshotID = "unknown"
+} else {
+    snapshotID = snapshotID + "-" + hex.EncodeToString(sum[:8])
+}
+snapshotRel := filepath.ToSlash(filepath.Join(semanticDirName, semanticSnapshotsDir, snapshotID, semanticSnapshotName))
+snapshotPath := filepath.Join(storage.BrainDir, filepath.FromSlash(snapshotRel))
+if err := rejectExistingSymlinkPathComponents(storage.BrainDir, filepath.FromSlash(snapshotRel)); err != nil {
+    return err
+}
+if err := writeFileAtomic(snapshotPath, raw, 0o600); err != nil {
+    return fmt.Errorf("write semantic snapshot: %w", err)
+}
+```
+
+**Path:** `.entire/semantic/snapshots/&lt;commit&gt;-&lt;sha256[:8]&gt;/snapshot.ndjson` (NDJSON format, not compressed)
+
+---
+
+### 8. BUILD SEMANTIC GENERATION (SQLite Ingestion)
+
+**File: `/Users/thomi/Projects/entire-brain/internal/cli/semantic.go`** (Lines 1042-1290)
+
+#### `buildSemanticGeneration` (Lines 1042-1108)
+Ingests filtered snapshot into SQLite:
+
+```go
+func buildSemanticGeneration(brainDir, repoDir, generationID string, raw []byte, header semanticHeader, counts semanticCounts, now time.Time) (string, semanticBuildMetrics, error) {
+    // ... setup ...
+    dbPath := filepath.Join(tmpDir, semanticSQLiteName)
+    db, err := sql.Open(sqliteDriverName, dbPath)
+    if err != nil {
+        return "", semanticBuildMetrics{}, err
+    }
+    if err := initializeSemanticSQLite(db); err != nil {
+        _ = db.Close()
+        return "", semanticBuildMetrics{}, err
+    }
+    metrics, err := populateSemanticSQLite(db, repoDir, finalID, raw, header, counts, now, tmpDir)
+    // ... finalize ...
+}
+```
+
+#### `initializeSemanticSQLite` (Lines 1133-1158)
+Schema:
+
+```go
+func initializeSemanticSQLite(db *sql.DB) error {
+    statements := []string{
+        `PRAGMA journal_mode=WAL`,
+        `CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+        `CREATE TABLE files (path TEXT PRIMARY KEY, blob TEXT, content_hash TEXT, language TEXT)`,
+        `CREATE TABLE symbols (id TEXT PRIMARY KEY, kind TEXT, name TEXT, qualified_name TEXT, file_path TEXT, start_line INTEGER, end_line INTEGER, signature TEXT, language TEXT, stable_id_version TEXT)`,
+        `CREATE TABLE relations (id INTEGER PRIMARY KEY AUTOINCREMENT, from_id TEXT NOT NULL, to_id TEXT NOT NULL, type TEXT NOT NULL, confidence REAL, reason TEXT, warning_codes TEXT)`,
+        `CREATE TABLE reverse_relations (to_id TEXT NOT NULL, from_id TEXT NOT NULL, type TEXT NOT NULL)`,
+        `CREATE INDEX idx_symbols_name ON symbols(name)`,
+        `CREATE INDEX idx_symbols_qualified_name ON symbols(qualified_name)`,
+        `CREATE INDEX idx_symbols_file_path ON symbols(file_path)`,
+        `CREATE INDEX idx_relations_from ON relations(from_id)`,
+        `CREATE INDEX idx_relations_to ON relations(to_id)`,
+        `CREATE INDEX idx_reverse_to ON reverse_relations(to_id)`,
+        `CREATE TABLE symbol_fts (id TEXT PRIMARY KEY, text TEXT NOT NULL)`,
+        `CREATE TABLE parse_cache (path TEXT PRIMARY KEY, blob TEXT, content_hash TEXT, artifact_path TEXT NOT NULL)`,
+        `CREATE TABLE warnings (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT, severity TEXT, path TEXT, effect TEXT, detail TEXT, source TEXT)`,
+        `CREATE TABLE metrics (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+    }
+    // ... exec all ...
+}
+```
+
+#### `populateSemanticSQLite` (Lines 1160-1290)
+Parses NDJSON again (line-by-line scanner) and populates SQLite:
+
+```go
+func populateSemanticSQLite(db *sql.DB, repoDir, generationID string, raw []byte, header semanticHeader, counts semanticCounts, now time.Time, generationDir string) (semanticBuildMetrics, error) {
+    tx, err := db.Begin()
+    if err != nil {
+        return semanticBuildMetrics{}, err
+    }
+    // ... commit/error handlers ...
+    
+    // Insert metadata
+    if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES (?, ?), (?, ?), (?, ?), (?, ?)`,
+        "schema_version", header.SchemaVersion,
+        "provider", header.Provider,
+        "provider_version", header.ProviderVersion,
+        "generation_id", generationID,
+    ); err != nil {
+        return commit(err)
+    }
+    
+    // Insert warnings and partial failures
+    for _, warning := range header.Warnings {
+        if err := insertSemanticWarning(tx, warning, "warning"); err != nil {
+            return commit(err)
+        }
+    }
+    for _, failure := range header.PartialFailures {
+        if err := insertSemanticWarning(tx, failure, "partial_failure"); err != nil {
+            return commit(err)
+        }
+    }
+    
+    // Parse NDJSON records and ingest
+    files := make(map[string]semanticRecord)
+    scanner := newSemanticScanner(bytes.NewReader(raw))
+    if !scanner.Scan() {
+        return commit(errors.New("semantic snapshot missing header"))
+    }
+    for scanner.Scan() {
+        text := bytes.TrimSpace(scanner.Bytes())
+        if len(text) == 0 {
+            continue
+        }
+        var record semanticRecord
+        if err := json.Unmarshal(text, &amp;record); err != nil {
+            return commit(err)
+        }
+        switch record.RecordType {
+        case "file":
+            path := record.semanticPath()
+            if path != "" {
+                path, err = validateSemanticProviderPath(path)
+                if err != nil {
+                    return commit(err)
+                }
+                record.setSemanticPath(path)
+                files[path] = record
+            }
+        case "symbol":
+            path := record.semanticPath()
+            if path != "" {
+                path, err = validateSemanticProviderPath(path)
+                if err != nil {
+                    return commit(err)
+                }
+                record.setSemanticPath(path)
+                if existing, ok := files[path]; ok {
+                    if strings.TrimSpace(existing.Language) == "" &amp;&amp; strings.TrimSpace(record.Language) != "" {
+                        existing.Language = record.Language
+                        files[path] = existing
+                    }
+                } else {
+                    files[path] = semanticRecord{RecordType: "file", FilePath: path}
+                }
+            }
+            if err := insertSemanticSymbol(tx, record); err != nil {
+                return commit(err)
+            }
+        case "relation":
+            if err := insertSemanticRelation(tx, record); err != nil {
+                return commit(err)
+            }
+        }
+    }
+    // ... build parse cache ...
+    // ... metrics ...
+}
+```
+
+**Inserts:**
+- Line 1237-1239: `insertSemanticSymbol` (symbols table + FTS)
+- Line 1241-1243: `insertSemanticRelation` (relations + reverse_relations tables)
+- Lines 1251-1267: Parse cache artifacts (one JSON per unique content hash)
+
+---
+
+### 9. FIXED TIMEOUTS
+
+**File: `/Users/thomi/Projects/entire-brain/internal/cli/semantic.go`** (Lines 47-49)
+
+```go
+const (
+    // ...
+    semanticDoctorTimeout               = 30 * time.Second
+    semanticSnapshotTimeout             = 2 * time.Minute
+    semanticIndexLockTimeout            = 10 * time.Second
+)
+```
+
+**Applied at:**
+- Line 736: `runCtx, cancel := context.WithTimeout(ctx, semanticDoctorTimeout)` → 30 seconds for `sem doctor --json`
+- Line 782: `runCtx, cancel := context.WithTimeout(ctx, semanticSnapshotTimeout)` → 2 minutes for `sem snapshot --repo ... --format ndjson --no-network`
+
+---
+
+### 10. TESTS &amp; FAKE PROVIDER
+
+**File: `/Users/thomi/Projects/entire-brain/internal/cli/export_test.go`** (Lines 14-80)
+
+Fake command runner for tests (mocks the entire provider):
+
+```go
+type fakeCommandRunner struct {
+    responses           map[string]fakeCommandResponse
+    sequences           map[string][]fakeCommandResponse
+    semanticSnapshotAny *fakeCommandResponse
+    calls               []fakeCommandCall
+}
+
+type fakeCommandResponse struct {
+    stdout string
+    stderr string
+    err    error
+}
+
+type fakeCommandCall struct {
+    dir         string
+    name        string
+    args        []string
+    hasDeadline bool
+}
+
+func (r *fakeCommandRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+    key := fakeCommandKey(name, args...)
+    var hasDeadline bool
+    if ctx != nil {
+        _, hasDeadline = ctx.Deadline()
+    }
+    r.calls = append(r.calls, fakeCommandCall{
+        dir:         dir,
+        name:        name,
+        args:        append([]string(nil), args...),
+        hasDeadline: hasDeadline,
+    })
+    // ... lookup and return mocked response ...
+}
+```
+
+**Fixture Setup** (Lines 4084-4099 in semantic_test.go):
+```go
+func semanticFixtureRunner(repoDir, snapshot string) *fakeCommandRunner {
+    brainignorePath := filepath.Join(repoDir, ".brainignore")
+    return &amp;fakeCommandRunner{responses: map[string]fakeCommandResponse{
+        fakeCommandKey("git", "rev-parse", "--show-toplevel"):                                                                                                                {stdout: repoDir + "\n"},
+        fakeCommandKey("git", "remote", "get-url", "origin"):                                                                                                                 {stdout: "git@github.com:example/repo.git\n"},
+        fakeCommandKey("git", "rev-parse", "HEAD"):                                                                                                                           {stdout: "aaa111\n"},
+        fakeCommandKey("git", "rev-parse", "HEAD^{tree}"):                                                                                                                    {stdout: "tree111\n"},
+        fakeCommandKey("git", "branch", "--show-current"):                                                                                                                    {stdout: "feature\n"},
+        fakeCommandKey("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):                                                                              {stdout: "origin/main\n"},
+        fakeCommandKey("git", "status", "--porcelain"):                                                                                                                       {stdout: ""},
+        fakeCommandKey("entire", "sem", "doctor", "--json"):                                                                                                                  {stdout: `{"no_egress":true}`},
+        fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"):                                                                 {stdout: snapshot},
+        fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--ignore-file", brainignorePath):                               {stdout: snapshot},
+        fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--ignore-file", brainignorePath, "--worktree"): {stdout: snapshot},
+    }}
+}
+```
+
+**Test Snapshot Fixture** (Lines 4132-4137 in semantic_test.go):
+```go
+func semanticFixtureSnapshot(schema string) string {
+    return `{"schema_version":"` + schema + `","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}`+ "\n" +
+    `{"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}` + "\n" +
+    `{"record_type":"relation","from_id":"caller","to_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","type":"CALLS","confidence":1}` + "\n"
+}
+```
+
+---
+
+### 11. DOCUMENTATION &amp; PLAN
+
+**File: `/Users/thomi/Projects/entire-brain/docs/semantic_brain_plan.md`**
+
+Key contract statement (lines 8-10):
+```
+The core constraint is that Entire Brain should remain the orchestration,
+durable memory, and agent contract layer. Tree-sitter parsing and semantic
+extraction should live behind a provider boundary, with `entire-sem` as the
+expected provider.
+```
+
+**Provider responsibilities** (lines 92-101):
+```
+`entire-sem` should own:
+- Tree-sitter parsing.
+- Entity extraction.
+- Language-specific symbol models.
+- Semantic diffs.
+- Import, call, inheritance, field access, route, and tool relation extraction.
+- Parser capability reporting.
+- Partial failure reporting.
+
+Entire Brain should shell out to the provider or consume provider artifacts
+through a stable JSON contract. It should not import provider internals.
+```
+
+**Agent benchmark plan** (docs/agent_benchmark_plan.md):
+References `entire-sem snapshot --repo &lt;entire-cli-checkout&gt; --format ndjson` for CLI contract.
+
+---
+
+## Summary: Invocation Chain
+
+1. **Provider invocation** → `entire sem snapshot --repo &lt;repo&gt; --format ndjson --no-network [--ignore-file ...] [--worktree]`
+   - Binary: configurable via `--sem-binary` flag (default: `"entire"`)
+   - Timeout: 2 minutes (`context.WithTimeout`)
+   - Output: NDJSON to stdout, fully buffered in `[]byte`
+
+2. **Output capture** → `exec.CommandContext` with `bytes.Buffer` on stdout/stderr
+   - No streaming; entire snapshot held in memory
+
+3. **Filtering** → `filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string)` (two-pass scan)
+   - Pass 1: Build ignored symbol ID map
+   - Pass 2: Filter records, count symbols/relations/files, sanitize warnings
+   - Uses `bufio.Scanner` with 64 MB max record size
+
+4. **Manifest building** → Extract header metadata, fill provider/commit/tree defaults, record symbol/relation counts, warnings, capabilities, no-egress verification status
+
+5. **Snapshot write** → NDJSON artifact to `.entire/semantic/snapshots/&lt;commit&gt;-&lt;sha256[:8]&gt;/snapshot.ndjson`
+
+6. **SQLite ingestion** → `populateSemanticSQLite` (third pass through raw NDJSON):
+   - Header → meta table
+   - Warnings/partial_failures → warnings table (with source tracking)
+   - Symbols → symbols table + symbol_fts FTS index
+   - Relations → relations + reverse_relations tables
+   - Files → files table (from symbols + symbol records)
+   - Parse cache → JSON artifacts per unique content hash
+
+---
+
+## Key Files Summary
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `/Users/thomi/Projects/entire-brain/internal/cli/runner.go` | 1-38 | `CommandRunner` interface, `ExecRunner` implementation with full stdout/stderr buffering via `bytes.Buffer` |
+| `/Users/thomi/Projects/entire-brain/internal/cli/semantic.go` | 29-1900+ | Core invocation, filtering, manifest building, SQLite ingestion; constants: timeouts (47-49), struct definitions (59-154), `runSemanticIndex` (245-467), `runSemanticDoctor` (732-756), `runSemanticSnapshot` (767-802), `filterSemanticSnapshot` (838-946), `buildSemanticGeneration` (1042-1108), `initializeSemanticSQLite` (1133-1158), `populateSemanticSQLite` (1160-1290) |
+| `/Users/thomi/Projects/entire-brain/internal/cli/export_test.go` | 14-80 | Fake command runner for testing (mocks provider stdout) |
+| `/Users/thomi/Projects/entire-brain/internal/cli/semantic_test.go` | 4084-4204 | Test fixtures: `semanticFixtureRunner`, `semanticFixtureSnapshot`, snapshot variants with warnings/failures |
+| `/Users/thomi/Projects/entire-brain/docs/semantic_brain_plan.md` | 1-150+ | Design contract: provider boundaries, NDJSON format, manifest structure |</result>
+<usage><subagent_tokens>57850</subagent_tokens><tool_uses>25</tool_uses><duration_ms>184557</duration_ms></usage>
+</task-notification>

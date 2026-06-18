@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "3b4d9c990bef",
+  "strategy": "manual-commit",
+  "branch": "sem-streaming-ingestion",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/semantic_brain_plan.md",
+    "internal/cli/export_test.go",
+    "internal/cli/runner.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_stream.go",
+    "internal/cli/semantic_stream_test.go",
+    "internal/cli/semantic_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/3b/4d9c990bef/0/metadata.json",
+      "transcript": "/3b/4d9c990bef/0/full.jsonl",
+      "content_hash": "/3b/4d9c990bef/0/content_hash.txt",
+      "prompt": "/3b/4d9c990bef/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 9590,
+    "cache_creation_tokens": 446728,
+    "cache_read_tokens": 15964422,
+    "output_tokens": 130607,
+    "api_call_count": 98
+  }
+}
