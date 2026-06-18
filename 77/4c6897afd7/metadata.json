@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "774c6897afd7",
+  "strategy": "manual-commit",
+  "branch": "pr-45",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/tui/tui.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/77/4c6897afd7/0/metadata.json",
+      "transcript": "/77/4c6897afd7/0/full.jsonl",
+      "content_hash": "/77/4c6897afd7/0/content_hash.txt",
+      "prompt": "/77/4c6897afd7/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8171,
+    "cache_creation_tokens": 129530,
+    "cache_read_tokens": 6209357,
+    "output_tokens": 44408,
+    "api_call_count": 57
+  }
+}

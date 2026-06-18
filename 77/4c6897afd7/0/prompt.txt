@@ -1,0 +1,21 @@
+Loop with Copilot until it can't find anything anymore.
+
+---
+
+<task-notification>
+<task-id>bmzki08vw</task-id>
+<tool-use-id>toolu_015FXUvts593MRfmhrtnjFjy</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/30855fe9-afed-4c76-83f0-ed6efadedcc3/tasks/bmzki08vw.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll for a new Copilot review (background)" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b1294rwey</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/30855fe9-afed-4c76-83f0-ed6efadedcc3/tasks/b1294rwey.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll for round-3 Copilot review" completed (exit code 0)</summary>
+</task-notification>
