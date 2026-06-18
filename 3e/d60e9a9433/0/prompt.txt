@@ -1,0 +1,5 @@
+Review https://github.com/ashtom/entire-brain/pull/45
+
+---
+
+Address all findings. Also address and resolve the Copilot stuff.
