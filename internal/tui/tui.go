@@ -494,11 +494,12 @@ func (m Model) renderTabs() string {
 }
 
 // truncate shortens value to at most max display columns, on rune boundaries,
-// appending an ellipsis when it cuts. It is display-width aware (multi-byte runes
-// and wide glyphs are measured correctly), so it never splits a UTF-8 rune.
+// appending a single-column ellipsis when it cuts. It is display-width aware
+// (multi-byte runes and wide glyphs are measured correctly, and runewidth
+// reserves room for the ellipsis itself), so it never splits a UTF-8 rune.
 func truncate(value string, max int) string {
 	if max <= 0 {
 		return ""
 	}
-	return runewidth.Truncate(value, max, "...")
+	return runewidth.Truncate(value, max, "…")
 }

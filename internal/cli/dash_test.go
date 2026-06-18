@@ -158,6 +158,27 @@ func TestLoadSemanticSymbolsReadsSnapshot(t *testing.T) {
 	}
 }
 
+func TestResolveDashTheme(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_THEME", "") // isolate from the host env
+	// A known theme resolves without error.
+	if th, err := resolveDashTheme("gruvbox"); err != nil || th.Name != "gruvbox" {
+		t.Errorf("gruvbox -> %q (err %v)", th.Name, err)
+	}
+	// Empty falls back to default without error.
+	if th, err := resolveDashTheme(""); err != nil || th.Name != "default" {
+		t.Errorf("empty -> %q (err %v), want default/nil", th.Name, err)
+	}
+	// An unknown non-empty name is an error (a typo is surfaced, not swallowed).
+	if _, err := resolveDashTheme("grubox"); err == nil {
+		t.Errorf("unknown theme should error")
+	}
+	// The flag is empty but the env names a theme: the env is honored.
+	t.Setenv("ENTIRE_BRAIN_THEME", "catppuccin")
+	if th, err := resolveDashTheme(""); err != nil || th.Name != "catppuccin" {
+		t.Errorf("env theme -> %q (err %v), want catppuccin/nil", th.Name, err)
+	}
+}
+
 func TestAppendCapNote(t *testing.T) {
 	if n := appendCapNote(nil, "facts", 1234, 500); len(n) != 1 || n[0] != "facts: showing 500 of 1234" {
 		t.Errorf("cap note = %v", n)

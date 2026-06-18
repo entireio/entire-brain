@@ -74,6 +74,27 @@ func TestThemeByName(t *testing.T) {
 	}
 }
 
+func TestThemeNames(t *testing.T) {
+	names := ThemeNames()
+	if len(names) != len(themes) {
+		t.Fatalf("ThemeNames() has %d entries but themes map has %d (they drifted)", len(names), len(themes))
+	}
+	if names[0] != "default" {
+		t.Errorf("default should be listed first, got %q", names[0])
+	}
+	for _, n := range names {
+		if _, ok := themes[n]; !ok {
+			t.Errorf("ThemeNames() returned %q which is not in the themes map", n)
+		}
+	}
+	// The trailing names (after default) are sorted.
+	for i := 2; i < len(names); i++ {
+		if names[i-1] > names[i] {
+			t.Errorf("theme names after default should be sorted: %q before %q", names[i-1], names[i])
+		}
+	}
+}
+
 func TestParseTab(t *testing.T) {
 	cases := map[string]Tab{"": TabHome, "home": TabHome, "facts": TabFacts, "Sessions": TabSessions, "HISTORY": TabHistory, "semantic": TabSemantic}
 	for in, want := range cases {

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -88,9 +89,18 @@ func ThemeByName(name string) (Theme, bool) {
 	return themes["default"], name == "" || normalizeThemeName(name) == "default"
 }
 
-// ThemeNames lists the available theme names (for help text / flag docs).
+// ThemeNames lists the available theme names (for help text / flag docs),
+// derived from the themes map so it can never drift out of sync with it. The
+// default scheme is listed first (it is the fallback); the rest are sorted.
 func ThemeNames() []string {
-	return []string{"default", "catppuccin", "gruvbox", "tokyonight"}
+	rest := make([]string, 0, len(themes))
+	for name := range themes {
+		if name != "default" {
+			rest = append(rest, name)
+		}
+	}
+	sort.Strings(rest)
+	return append([]string{"default"}, rest...)
 }
 
 func normalizeThemeName(name string) string {

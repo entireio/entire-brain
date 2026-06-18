@@ -66,6 +66,13 @@ func runDash(ctx context.Context, cmd *cobra.Command, opts Options, flags dashFl
 		return fmt.Errorf("unknown_tab: %q (want home, facts, sessions, history, semantic, or search)", flags.tab)
 	}
 
+	// Validate the theme up front (like the tab) so a typo fails fast with the
+	// valid names, in any output mode, rather than silently falling back.
+	theme, err := resolveDashTheme(flags.theme)
+	if err != nil {
+		return err
+	}
+
 	repoDir, brainDir, branch, err := resolveFactsTarget(ctx, opts, target, flags.branch)
 	if err != nil {
 		return err
@@ -83,7 +90,7 @@ func runDash(ctx context.Context, cmd *cobra.Command, opts Options, flags dashFl
 		printDashPlain(cmd, snap)
 		return nil
 	}
-	return tui.Run(snap, resolveDashTheme(flags.theme), brainSearchFunc(brainDir, branch), startTab, cmd.OutOrStdout())
+	return tui.Run(snap, theme, brainSearchFunc(brainDir, branch), startTab, cmd.OutOrStdout())
 }
 
 // brainSearchFunc adapts the lexical retrieval (`entire brain search`) into the
@@ -494,14 +501,19 @@ func printDashPlain(cmd *cobra.Command, snap tui.Snapshot) {
 }
 
 // resolveDashTheme picks the theme from the --theme flag, falling back to
-// ENTIRE_BRAIN_THEME, then the default scheme.
-func resolveDashTheme(flagValue string) tui.Theme {
+// ENTIRE_BRAIN_THEME, then the default scheme. A non-empty name that matches no
+// known theme is an error (so a typo is surfaced, not silently ignored); an
+// empty name resolves to the default without error.
+func resolveDashTheme(flagValue string) (tui.Theme, error) {
 	name := flagValue
 	if name == "" {
 		name = os.Getenv("ENTIRE_BRAIN_THEME")
 	}
-	theme, _ := tui.ThemeByName(name)
-	return theme
+	theme, ok := tui.ThemeByName(name)
+	if !ok && name != "" {
+		return theme, fmt.Errorf("unknown_theme: %q (want %s)", name, strings.Join(tui.ThemeNames(), ", "))
+	}
+	return theme, nil
 }
 
 // commandOutputIsTTY reports whether the command's stdout is a terminal.
