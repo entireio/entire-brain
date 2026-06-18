@@ -3470,3 +3470,7 @@ progress?
 ... (truncated 26255 chars, full result in /private/tmp/claude-501/-Users-suhaan-Documents-Coding-entire-brain/4e09703c-666f-441f-9b82-52efaa7da599/tasks/wl34w6020.output)</result>
 <usage><agent_count>9</agent_count><subagent_tokens>579599</subagent_tokens><tool_uses>255</tool_uses><duration_ms>721899</duration_ms></usage>
 </task-notification>
+
+---
+
+Finish rest and then loop audit full
