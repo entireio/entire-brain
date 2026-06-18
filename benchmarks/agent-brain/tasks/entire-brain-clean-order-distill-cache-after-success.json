@@ -1,0 +1,60 @@
+{
+  "id": "entire-brain-clean-order-distill-cache-after-success",
+  "repo": "entire-brain",
+  "repo_path": "entire-brain",
+  "base_commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "copy_checkpoint_ref_from_source": true,
+  "prepare_semantic": false,
+  "prompt": "Incremental distill is silently dropping work: when a session's agent chunk calls error out, that session still gets written into the on-disk distill cache as if it were finished, so the very next run treats it as up-to-date and never re-attempts it. A failed session must instead remain uncached so a later run retries it. Restore the intended ordering/behavior documented in the project history. Run the focused distill test before finishing.",
+  "setup_replacements": [
+    {
+      "path": "internal/cli/distill_cmd.go",
+      "old": "\t\tsessionFailed := false\n\t\tfor chunkIdx, chunk := range ps.chunks {",
+      "new": "\t\tfor chunkIdx, chunk := range ps.chunks {"
+    },
+    {
+      "path": "internal/cli/distill_cmd.go",
+      "old": "\t\t\t\twarnings = append(warnings, fmt.Sprintf(\"agent failed on %s:%d: %v\", session.SessionID, chunk.StartLine, runErr))\n\t\t\t\tsessionFailed = true\n\t\t\t\tfailedChunks++",
+      "new": "\t\t\t\twarnings = append(warnings, fmt.Sprintf(\"agent failed on %s:%d: %v\", session.SessionID, chunk.StartLine, runErr))\n\t\t\t\tfailedChunks++"
+    },
+    {
+      "path": "internal/cli/distill_cmd.go",
+      "old": "\t\t// Only cache a session as distilled when every chunk succeeded, so a\n\t\t// session whose agent calls failed is retried on the next run rather\n\t\t// than being silently treated as done.\n\t\tif !sessionFailed {\n\t\t\tnewCache.Sessions[distillSessionCacheKey(branch, session.SessionID)] = ps.fingerprint\n\t\t}\n\t\treportProgress()",
+      "new": "\t\t// Record the session's fingerprint so the next run skips re-distilling\n\t\t// transcript content that has not changed.\n\t\tnewCache.Sessions[distillSessionCacheKey(branch, session.SessionID)] = ps.fingerprint\n\t\treportProgress()"
+    }
+  ],
+  "setup_commands": [
+    "perl -0pi -e 's{\\t// Second run \\(no --force\\): failed sessions must be retried, not skipped as\\n\\t// cached\\. This time the agent succeeds\\.}{\\t// Second run (no --force). This time the agent succeeds.}' internal/cli/distill_cmd_test.go"
+  ],
+  "validation": [
+    "test $(rg -n 'if !sessionFailed \\{' internal/cli/distill_cmd.go | wc -l | tr -d ' ') -eq 1",
+    "test $(rg -n 'sessionFailed := false' internal/cli/distill_cmd.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./internal/cli -run 'TestRunDistillForBrainRetriesFailedSessions'"
+  ],
+  "expected_files": [
+    "internal/cli/distill_cmd.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "leak_markers": [
+    "go test ./internal/cli -run 'TestRunDistillForBrainRetriesFailedSessions'"
+  ],
+  "agent_hidden_paths": [
+    "benchmarks/agent-brain"
+  ],
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "brain_queries": [
+    "cache poisoned by failed agent run",
+    "distill caches failed sessions",
+    "session marked done after chunk failure",
+    "rerun does not reprocess broken session",
+    "next run should retry incomplete distill"
+  ]
+}

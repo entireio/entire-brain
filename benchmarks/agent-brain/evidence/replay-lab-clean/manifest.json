@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "claim_policy": "proof_required",
+  "release_citable_suite_globs": [
+    "panel-p01-clean-proof-claude-*"
+  ],
+  "minimums": {
+    "suites": 1,
+    "records": 16,
+    "proof_ready_comparisons": 1,
+    "mcp_verified_records": 0,
+    "mcp_named_tool_verified_records": 0,
+    "hard_flags": 0
+  },
+  "min_repetitions_per_side": 4,
+  "forbidden_suite_globs": [
+    "release-local-*"
+  ],
+  "require_panel_provenance": true,
+  "require_proof_ready_per_suite": false,
+  "required_proof_scopes": [
+    "history"
+  ],
+  "required_named_tool_proof_scopes": [],
+  "allowed_no_claim_flag_kinds": [],
+  "quarantine_note": "Scope is the history channel only: a clean correctness-axis task (durable-facts merge-confidence default) where the decided value lives only in retained session history. no_brain (claude:sonnet:high) cannot recover it (0/4); full_brain recovers it from history and passes (4/4), giving a stable brain_positive_stable proof_ready comparison. This lane does NOT claim mcp, radar, semantic, or codex-runner agent lift; those remain no_release_claim in evidence/release. The co-located contract-checkpoint comparison saturated (both arms 4/4) and is retained as a non-proof-ready datapoint."
+}

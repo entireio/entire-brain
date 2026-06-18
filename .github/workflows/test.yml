@@ -101,6 +101,11 @@ jobs:
             --release-manifest benchmarks/agent-brain/evidence/release/manifest.json \
             --out-dir "$tmp" \
             --fail-on-flags
+          python3 benchmarks/agent-brain/audit_codex.py \
+            --results benchmarks/agent-brain/evidence/replay-lab-clean \
+            --release-manifest benchmarks/agent-brain/evidence/replay-lab-clean/manifest.json \
+            --out-dir "$tmp/clean-proof" \
+            --fail-on-flags
           python3 benchmarks/agent-brain/audit_radar_evidence.py \
             --results benchmarks/agent-brain/evidence/release \
             --suite-glob 'release-candidate-*' \
@@ -120,6 +125,10 @@ jobs:
             --manifest benchmarks/agent-brain/evidence/distill-perf/manifest.json \
             --out-dir "$tmp" \
             --fail-on-flags
+          python3 benchmarks/agent-brain/audit_distill_perf.py \
+            --manifest benchmarks/agent-brain/evidence/distill-perf-large/manifest.json \
+            --out-dir "$tmp/distill-large" \
+            --fail-on-flags
           python3 benchmarks/agent-brain/audit_facts_eval.py \
             --manifest benchmarks/agent-brain/evidence/facts-eval/manifest.json \
             --out-dir "$tmp" \
@@ -133,6 +142,15 @@ jobs:
             generated="$tmp/$report"
             if ! cmp -s "$committed" "$generated"; then
               echo "retained release evidence report is stale: $report" >&2
+              diff -u "$committed" "$generated" >&2 || true
+              exit 1
+            fi
+          done
+          for report in codex-audit-report.json codex-audit-report.md; do
+            committed="benchmarks/agent-brain/evidence/replay-lab-clean/$report"
+            generated="$tmp/clean-proof/$report"
+            if ! cmp -s "$committed" "$generated"; then
+              echo "retained clean replay-lab proof report is stale: $report" >&2
               diff -u "$committed" "$generated" >&2 || true
               exit 1
             fi
@@ -160,6 +178,15 @@ jobs:
             generated="$tmp/$report"
             if ! cmp -s "$committed" "$generated"; then
               echo "retained distill performance evidence report is stale: $report" >&2
+              diff -u "$committed" "$generated" >&2 || true
+              exit 1
+            fi
+          done
+          for report in distill-perf-audit-report.json distill-perf-audit-report.md; do
+            committed="benchmarks/agent-brain/evidence/distill-perf-large/$report"
+            generated="$tmp/distill-large/$report"
+            if ! cmp -s "$committed" "$generated"; then
+              echo "retained large-repo distill performance evidence report is stale: $report" >&2
               diff -u "$committed" "$generated" >&2 || true
               exit 1
             fi

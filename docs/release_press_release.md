@@ -37,32 +37,55 @@ The retained replay-lab history, MCP-history, and location-only Radar
 agent-lift candidate suites were rerun after the B1 query-hint confound was
 removed. The retained release lane is now audit-clean with zero hard integrity
 flags, but all three clean comparisons remain `proof_ready=false`: one was
-noisy/brain-negative, and two were saturated/brain-negative. The release
-evidence lane therefore stays in `no_release_claim` mode. See
+noisy/brain-negative, and two were saturated/brain-negative. That codex
+release evidence lane therefore stays in `no_release_claim` mode. See
 `docs/release-blockers.md` (B1) for the clean suite names and outcomes.
+
+A separate, narrower lane has since cleared the proof-ready gate. A harder,
+clean correctness-axis task (`entire-brain-clean-default-fact-merge-confidence`:
+a deliberately decided default whose value lives only in retained session
+history) produced a **stable `proof_ready` comparison on the history channel**:
+no_brain `claude:sonnet:high` scores 0/4, full_brain scores 4/4
+(`brain_positive_stable`), audited by `audit_codex.py` with zero hard integrity
+flags. This is retained under `benchmarks/agent-brain/evidence/replay-lab-clean/`
+and gated by `mise run clean-proof:evidence`. Its claim is deliberately scoped:
+**history-channel correctness brain-lift with `claude:sonnet:high` only.** It
+does not establish MCP, Radar, semantic, codex-runner, or efficiency agent lift,
+all of which remain `no_release_claim`. (The codex `gpt-5.5` workspace ran out
+of credits during the proof attempt, so the n=4 confirmation used the Claude
+runner after the limit reset.)
 
 ## What Must Be Proven Before Public Claims
 
-- Distill performance on a large session repo, using `distill --dry-run --json`
-  plus paired timed `--jobs 1` and `--jobs N` JSON runs with matching
-  cache/timing fields.
+- Frontend/hosted-model distill latency and fact quality on a large session
+  repo, using a real hosted agent (not the deterministic command-agent) for the
+  paired timed `--jobs 1`/`--jobs N` runs. The large-repo extraction-scheduler
+  speedup itself is now retained: `distill --dry-run --json` plus paired timed
+  command-agent runs on entireio/cli (822 sessions, 838 chunks) are committed
+  under `benchmarks/agent-brain/evidence/distill-perf-large/` with matching
+  cache/timing fields and a ~2.2x `--jobs 4` speedup.
 - Facts-vs-session retrieval quality, using paired `facts eval --retriever`
   comparisons over shared proof labels; proxy-comparison opt-in remains
   smoke/calibration only and must be labeled as such.
 - Semantic usefulness, using the `status` semantic-audit output plus benchmark tasks where
   semantic context changes file/test localization or agent efficiency.
-- Replay-lab agent-lift evidence from harder clean retained tasks that survive
-  the proof-ready gate. The deterministic Radar/MCP tool-contract evidence
-  remains separate; focused location-only Radar, broader Radar, and workspace
-  Radar agent-lift claims all still need repeated benchmark scenarios, stable
-  verdicts, and committed release/Radar audit reports.
+- Replay-lab agent-lift beyond the one proven scope. A history-channel
+  correctness brain-lift now survives the proof-ready gate (see "Known
+  Replay-Lab Outcome" and `evidence/replay-lab-clean/`), but it is scoped to
+  `claude:sonnet:high` on the history channel. MCP, focused location-only Radar,
+  broader Radar, workspace Radar, codex-runner, and efficiency agent-lift claims
+  all still need their own harder clean tasks, repeated benchmark scenarios,
+  stable verdicts, and committed release/Radar audit reports. The deterministic
+  Radar/MCP tool-contract evidence remains separate.
 
 ## Blocked Or Access-Dependent
 
 - Backend-specific audits wait for backend access.
 - Slack/onboarding-dependent release workflow details wait for workspace access.
-- Large-repo distill timing, paired facts evals, semantic usefulness, and broader
-  multi-task replay evidence are still pending. Semantic audit coverage has
+- Frontend/hosted-model distill latency, paired facts evals, semantic usefulness, and broader
+  multi-task replay evidence are still pending. The large-repo command-agent
+  extraction-scheduler speedup is retained (`distill-perf-large`); the
+  hosted-model latency and fact-quality claim is not. Semantic audit coverage has
   historical local clean evidence after refresh, and the final release checkout
   must pass `mise run semantic:evidence` before citing current semantic health.
 - Full turn-level cryptographic fact verification still depends on CLI-side turn
@@ -87,16 +110,23 @@ evidence lane therefore stays in `no_release_claim` mode. See
   checkpoints, pending a fresh `mise run semantic:evidence` pass on the final
   clean release checkout,
   distill dry-run sizing, current-repo local command-agent distill scheduler
-  speedup evidence, facts-eval baseline plumbing and no-claim evidence guard,
+  speedup evidence, large-repo (entireio/cli) command-agent distill
+  extraction-scheduler speedup evidence (822 sessions, 838 chunks, ~2.2x at
+  `--jobs 4`), facts-eval baseline plumbing and no-claim evidence guard,
   local QMD-inspired retrieval contract tests, the B1 clean replay-lab no-claim
   evidence guard that prevents non-proof-ready retained suites from becoming
   release claims,
+  a clean history-channel correctness-axis replay-lab agent-lift proof
+  (`claude:sonnet:high`, no_brain 0/4 vs full_brain 4/4, `brain_positive_stable`,
+  audit-clean — `evidence/replay-lab-clean/`),
   plus retained deterministic MCP/Radar tool-contract proof for QMD-inspired MCP
   retrieval, branch-scoped facts, location-only Radar, deletion opt-in,
   workspace Radar, strict MCP schemas, and safe tool-result logging.
-- Pending proof: target large-repo/frontend distill timing, paired facts evals
+- Pending proof: frontend/hosted-model distill latency and fact quality, paired facts evals
   with active durable facts and proof labels,
-  proof-ready clean replay-lab agent-lift tasks, workspace Radar outcome proof,
+  proof-ready replay-lab agent-lift on the MCP, focused/broad Radar, workspace
+  Radar, codex-runner, and efficiency scopes (the history-channel correctness
+  scope is now proven), workspace Radar outcome proof,
   answer-assisted/broad Radar claims, semantic usefulness, and broader retained
   replay-lab benchmark evidence.
 - Blocked: target large-repo evidence, backend/Slack access, turn signing,
