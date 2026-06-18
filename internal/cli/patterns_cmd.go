@@ -349,6 +349,8 @@ func newPatternsVerifyCommand(opts Options) *cobra.Command {
 		asJSON       bool
 		deep         bool
 		themes       bool
+		lessons      bool
+		conventions  bool
 		agent, model string
 		effort       string
 	)
@@ -362,22 +364,27 @@ func newPatternsVerifyCommand(opts Options) *cobra.Command {
 			"of its backing episodes (corrected/failed first; up to 40 anchors, the top 12 carrying " +
 			"redacted transcript excerpts, with parameters and recoveries) instead of the sampled " +
 			"shallow dossier. With --themes, candidate latent-practice themes " +
-			"(recurring read-only/conversational work) are verified before they surface.",
+			"(recurring read-only/conversational work) are verified before they surface. " +
+			"With --lessons, corrected/failed episodes are grouped into non-obvious " +
+			"failure→recovery procedure skills. With --conventions, durable gotcha/" +
+			"convention/invariant facts are grouped into capability skills.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPatternsVerify(cmd.Context(), cmd, opts, targetFromArgs(opts, args), agent, model, effort, asJSON, deep, themes)
+			return runPatternsVerify(cmd.Context(), cmd, opts, targetFromArgs(opts, args), agent, model, effort, asJSON, deep, themes, lessons, conventions)
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit the verification summary as JSON")
 	cmd.Flags().BoolVar(&deep, "deep", false, "Audit each pattern against a bounded evidence-deep export of its backing episodes (deep dossier)")
 	cmd.Flags().BoolVar(&themes, "themes", false, "Verify candidate latent-practice themes before they surface")
+	cmd.Flags().BoolVar(&lessons, "lessons", false, "Group corrected/failed episodes into non-obvious failure→recovery procedure skills")
+	cmd.Flags().BoolVar(&conventions, "conventions", false, "Group durable gotcha/convention/invariant facts into capability skills")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Verifier agent: auto, codex, claude-code, ollama, or command")
 	cmd.Flags().StringVar(&model, "model", "", "Override the agent model, or select the local Ollama model")
 	cmd.Flags().StringVar(&effort, "effort", "", "Agent reasoning effort (codex/claude-code)")
 	return cmd
 }
 
-func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, target, agent, model, effort string, asJSON, deep, themes bool) error {
+func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, target, agent, model, effort string, asJSON, deep, themes, lessons, conventions bool) error {
 	repoDir, brainDir, err := resolvePatternsRepoAndBrain(ctx, opts, target)
 	if err != nil {
 		return err
@@ -397,6 +404,12 @@ func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	case themes:
 		verify = verifyThemes
 		mode = "theme"
+	case lessons:
+		verify = proposeSkillLessons
+		mode = "lesson"
+	case conventions:
+		verify = proposeSkillConventions
+		mode = "convention"
 	case deep:
 		verify = verifyDeepDossiers
 		mode = "deep dossier"

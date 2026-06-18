@@ -32,9 +32,55 @@ func loadCorpusTaskCandidates(brainDir string) ([]taskCandidate, bool) {
 
 // loadSkillProposals returns the formable skill proposals: a promotable task
 // backed by an ACCEPTED deep dossier (which by construction excludes rejected/
-// needs_split/low_confidence). Skill-memory suppression is applied by the caller.
+// needs_split/low_confidence), PLUS the knowledge-sourced proposals (accepted
+// `lesson:`/`convention:` dossiers — non-obvious recoveries and conventions, the
+// archetypes that actually earn being a skill). Skill-memory suppression is
+// applied by the caller.
 func loadSkillProposals(brainDir string) ([]taskCandidate, bool) {
-	return queryTaskCandidates(brainDir, true)
+	cands, ok := queryTaskCandidates(brainDir, true)
+	if !ok {
+		return nil, false
+	}
+	return append(cands, loadKnowledgeSkillProposals(brainDir)...), true
+}
+
+// loadKnowledgeSkillProposals returns proposals sourced from non-obvious
+// knowledge rather than command sequences: accepted procedure (`lesson:`) and
+// capability (`convention:`) deep dossiers. These carry their own archetype and
+// are synthesized by converting the verified record, not by re-inferring from
+// raw rows.
+func loadKnowledgeSkillProposals(brainDir string) []taskCandidate {
+	db, err := openPatternCorpusDB(brainDir)
+	if err != nil {
+		return nil
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT pattern_id, json_redacted FROM deep_dossiers
+		WHERE verdict='accepted' AND (pattern_id LIKE 'lesson:%' OR pattern_id LIKE 'convention:%')
+		ORDER BY pattern_id`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []taskCandidate
+	for rows.Next() {
+		var id, blob string
+		if rows.Scan(&id, &blob) != nil {
+			continue
+		}
+		var rec deepDossierRecord
+		if json.Unmarshal([]byte(blob), &rec) != nil {
+			continue
+		}
+		support := rec.EvidenceEpisodes
+		strength := supportScoreV2(support)
+		out = append(out, taskCandidate{
+			ID: id, Label: rec.Title, Support: support, WithCommands: 0,
+			Strength: strength, StrengthLabel: strengthLabelV2(strength),
+			SampleIntents: []string{rec.Trigger},
+		})
+	}
+	return out
 }
 
 func queryTaskCandidates(brainDir string, requireAcceptedDeep bool) ([]taskCandidate, bool) {

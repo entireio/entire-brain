@@ -45,17 +45,19 @@ func loadAcceptedDeepDossier(brainDir, patternID string) (deepSkillInput, bool) 
 	return in, true
 }
 
-const deepSkillSynthesisSystemPrompt = `You convert a VERIFIED skill dossier into a SKILL.md for THIS repository. The dossier was assembled from real session evidence and already PASSED an adversarial verifier (verdict: accepted). Your job is to render it faithfully — NOT to invent or infer a new procedure.
+const deepSkillSynthesisSystemPrompt = `You convert a VERIFIED skill dossier into a SKILL.md for THIS repository. The dossier was assembled from real session evidence and already PASSED an adversarial verifier (verdict: accepted). Your job is to render it faithfully — NOT to invent or infer new content.
 
-Rules:
-- Preserve the dossier's trigger, canonical workflow (the ACTUAL commands), verification steps, and failure modes/recoveries. Do not add commands or claims the dossier does not contain.
-- Apply the verifier's required edits/fixes if present.
-- If, despite the accepted verdict, the dossier is plainly generic (nothing repo-specific or non-obvious — e.g. "git add then git push"), output EXACTLY one line: NOT_A_SKILL: <one-line reason>.
+A real skill encodes NON-OBVIOUS, repo-specific knowledge a capable agent would not already know: a hard-won recovery from a mistake, a local convention or gotcha, a constraint that is not derivable from reading the code. A skill is NOT a list of generic commands the agent already knows (e.g. "git add then git push", "go test then commit"). If, despite the accepted verdict, the dossier reduces to generic commands plus discipline with no encoded knowledge, output EXACTLY one line: NOT_A_SKILL: <one-line reason>.
+
+The dossier has an "archetype" field that selects the shape:
+- "procedure": a recurring failure→recovery lesson. Lead with the gotcha and the recovery; the commands are secondary context.
+- "capability": a non-obvious convention / domain knowledge. Lead with the knowledge and when it applies.
+- "" (legacy): a command workflow; treat the command sequence as SUPPORTING EVIDENCE, and only emit a skill if there is genuine non-obvious knowledge around it — otherwise NOT_A_SKILL.
 
 Otherwise output ONLY a complete SKILL.md (no surrounding prose, no code fences):
-- YAML frontmatter with name (lowercase-hyphenated) and description. The description MUST state what it does and "Use when ..." with concrete trigger conditions from the dossier.
-- Body in third-person imperative: Prerequisites (only if the dossier lists preconditions), a numbered Workflow using the dossier's exact commands, a Verification section from the dossier's verification moves, and a Gotchas/Failure modes section from the dossier's failure_modes (with recoveries).
-- Be concise. Include only what the dossier supports.`
+- YAML frontmatter with name (lowercase-hyphenated) and a description that MUST contain BOTH a "Use when ..." clause (concrete trigger conditions from the dossier) AND a "Do NOT use when ..." clause (the negative trigger from the dossier's not_when, or a sensible scope limit). Claude under-triggers skills, so the description must be specific and pushy.
+- Body in third-person imperative, drawn ONLY from the dossier: the non-obvious knowledge / lesson first; then any concrete commands as a Quick reference (not the spine); a Verification section if the dossier has verification moves; and a "Gotchas / Red flags" section from the dossier's failure_modes (with recoveries) and knowledge. Apply the verifier's required edits if present.
+- Be concise. Include only what the dossier supports. Do not pad with generic advice.`
 
 // synthesizeSkillFromDossier converts an accepted deep dossier into a SKILL.md
 // via the agent. The agent renders the verified dossier; it does not re-discover.
@@ -81,8 +83,20 @@ func buildDeepSkillEvidence(in deepSkillInput) string {
 	rec := in.rec
 	var b strings.Builder
 	fmt.Fprintf(&b, "VERIFIED SKILL DOSSIER (verifier verdict: %s)\n", nonEmptyOr(in.verdict.Verdict, "accepted"))
+	if rec.Archetype != "" {
+		fmt.Fprintf(&b, "Archetype: %s\n", rec.Archetype)
+	}
 	fmt.Fprintf(&b, "Title: %s\n", rec.Title)
 	fmt.Fprintf(&b, "Trigger / Use when: %s\n", rec.Trigger)
+	if rec.NotWhen != "" {
+		fmt.Fprintf(&b, "Do NOT use when: %s\n", rec.NotWhen)
+	}
+	if len(rec.Knowledge) > 0 {
+		fmt.Fprintf(&b, "Non-obvious knowledge (the spine of this skill):\n")
+		for _, k := range rec.Knowledge {
+			fmt.Fprintf(&b, "  - %s\n", k)
+		}
+	}
 	if len(rec.Preconditions) > 0 {
 		fmt.Fprintf(&b, "Preconditions:\n")
 		for _, p := range rec.Preconditions {
@@ -90,7 +104,14 @@ func buildDeepSkillEvidence(in deepSkillInput) string {
 		}
 	}
 	if len(rec.Workflow) > 0 {
-		fmt.Fprintf(&b, "Canonical workflow (exact commands):\n")
+		// Command sequences are SUPPORTING EVIDENCE, not the skill's spine — a
+		// recurring sequence of commands the agent already knows is not, by
+		// itself, a skill (see archetype guidance in the synthesis prompt).
+		label := "Observed commands (supporting evidence / quick reference — NOT the skill by themselves)"
+		if rec.Archetype == "" {
+			label = "Observed command workflow (supporting evidence; emit a skill only if non-obvious knowledge surrounds it)"
+		}
+		fmt.Fprintf(&b, "%s:\n", label)
 		for i, w := range rec.Workflow {
 			fmt.Fprintf(&b, "  %d. %s\n", i+1, w)
 		}

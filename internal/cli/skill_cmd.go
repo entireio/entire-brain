@@ -157,6 +157,29 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 		}
 		return synthesizeAndForm(ctx, cmd, *cand, deep, nil, brainDir, repoDir, agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
 	}
+	// Knowledge-sourced skills (procedure lessons / capability conventions) are
+	// stored as accepted deep dossiers under their own ids — synthesize by
+	// converting the verified record.
+	if strings.HasPrefix(s.taskID, "lesson:") || strings.HasPrefix(s.taskID, "convention:") {
+		in, ok := loadAcceptedDeepDossier(brainDir, s.taskID)
+		if !ok {
+			channel := "--lessons"
+			if strings.HasPrefix(s.taskID, "convention:") {
+				channel = "--conventions"
+			}
+			return fmt.Errorf("no accepted proposal %q: run `entire brain patterns verify %s` first", s.taskID, channel)
+		}
+		deep = &in
+		cand = &taskCandidate{ID: s.taskID, Label: in.rec.Title, Support: in.rec.EvidenceEpisodes}
+		agent := s.agent
+		if agent == "" || agent == "auto" {
+			agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
+		}
+		if agent == "none" {
+			return fmt.Errorf("skill synthesis requires an agent (codex or claude-code); none found on PATH")
+		}
+		return synthesizeAndForm(ctx, cmd, *cand, deep, nil, brainDir, repoDir, agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())
+	}
 	if c, corpusBacked := corpusTaskCandidateByID(brainDir, s.taskID); corpusBacked {
 		cand = c
 		// Corpus-backed skills MUST come from a verified deep dossier — never

@@ -40,12 +40,19 @@ type deepFailureMode struct {
 }
 
 type deepDossierRecord struct {
-	SchemaVersion    int               `json:"schema_version"`
-	PatternID        string            `json:"pattern_id"`
-	ClusterKey       string            `json:"cluster_key"`
-	Fingerprint      string            `json:"fingerprint"`
+	SchemaVersion int    `json:"schema_version"`
+	PatternID     string `json:"pattern_id"`
+	ClusterKey    string `json:"cluster_key"`
+	Fingerprint   string `json:"fingerprint"`
+	// Archetype selects how the dossier renders into a SKILL.md: "procedure"
+	// (a failure→recovery lesson from corrected episodes), "capability" (a
+	// non-obvious convention/gotcha from durable facts), or "" for the legacy
+	// command-sequence task dossier (now demoted to supporting evidence).
+	Archetype        string            `json:"archetype,omitempty"`
 	Title            string            `json:"title"`
 	Trigger          string            `json:"trigger"`
+	NotWhen          string            `json:"not_when,omitempty"`
+	Knowledge        []string          `json:"knowledge,omitempty"`
 	Preconditions    []string          `json:"preconditions"`
 	Workflow         []string          `json:"workflow"`
 	Variations       []string          `json:"variations"`
