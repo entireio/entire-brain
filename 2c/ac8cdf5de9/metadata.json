@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.7.7-nightly.202606170803.4287f89a",
+  "checkpoint_id": "2cac8cdf5de9",
+  "strategy": "manual-commit",
+  "branch": "claude/brain-dash-tui",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/pattern_themes.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2c/ac8cdf5de9/0/metadata.json",
+      "transcript": "/2c/ac8cdf5de9/0/full.jsonl",
+      "content_hash": "/2c/ac8cdf5de9/0/content_hash.txt",
+      "prompt": "/2c/ac8cdf5de9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8173,
+    "cache_creation_tokens": 20884,
+    "cache_read_tokens": 367708,
+    "output_tokens": 5093,
+    "api_call_count": 12
+  }
+}
