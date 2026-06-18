@@ -20,10 +20,12 @@ var allTabs = []Tab{TabHome, TabFacts, TabSessions, TabHistory, TabSemantic, Tab
 
 // ParseTab resolves a tab name (case-insensitive), defaulting to Home for an
 // empty or unknown name. The bool reports whether the name matched a known tab.
+// A whitespace-only name is trimmed to empty and treated as the default Home
+// selection (ok=true), so a blank --tab is not rejected as unknown.
 func ParseTab(name string) (Tab, bool) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "", "home":
-		return TabHome, name == "" || strings.EqualFold(strings.TrimSpace(name), "home")
+		return TabHome, true
 	case "facts":
 		return TabFacts, true
 	case "sessions":

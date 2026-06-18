@@ -169,13 +169,22 @@ func osc8(url, label string) string {
 }
 
 // fileURL turns an absolute filesystem path into a file:// URL for an OSC 8
-// link, or "" for an empty path. Spaces are percent-encoded so the URL stays
-// well-formed; other characters are left as-is (paths are local and trusted).
+// link, or "" for an empty path. A POSIX path ("/work/a") already starts with a
+// slash and yields the RFC 8089 form file:///work/a (empty host). Windows paths
+// are normalized: backslashes become forward slashes and a drive-letter path
+// ("C:\a") gains the leading slash so it becomes file:///C:/a. Spaces are
+// percent-encoded so the URL stays well-formed; other characters are left as-is
+// (paths are local and trusted). Backslashes are replaced explicitly rather than
+// via filepath.ToSlash so the result is correct regardless of the running OS.
 func fileURL(p string) string {
 	if p == "" {
 		return ""
 	}
-	return "file://" + strings.ReplaceAll(p, " ", "%20")
+	u := strings.ReplaceAll(p, `\`, "/")
+	if !strings.HasPrefix(u, "/") {
+		u = "/" + u
+	}
+	return "file://" + strings.ReplaceAll(u, " ", "%20")
 }
 
 // paneStyle is a rounded-border pane in the theme's border color (accent when

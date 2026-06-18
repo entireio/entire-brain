@@ -105,6 +105,28 @@ func TestParseTab(t *testing.T) {
 	if _, ok := ParseTab("bogus"); ok {
 		t.Errorf("ParseTab(bogus) should report ok=false")
 	}
+	// A whitespace-only name trims to empty and must be the default Home with
+	// ok=true (not rejected as unknown by callers that validate ok).
+	if tab, ok := ParseTab("   "); tab != TabHome || !ok {
+		t.Errorf("ParseTab(\"   \") = (%v, %v), want (Home, true)", tab, ok)
+	}
+	if tab, ok := ParseTab("  facts  "); tab != TabFacts || !ok {
+		t.Errorf("ParseTab(\"  facts  \") = (%v, %v), want (Facts, true)", tab, ok)
+	}
+}
+
+func TestFileURL(t *testing.T) {
+	cases := map[string]string{
+		"":                 "",
+		"/work/a":          "file:///work/a",            // POSIX absolute: RFC 8089 empty-host form
+		"/work/my file.go": "file:///work/my%20file.go", // spaces percent-encoded
+		`C:\work\a.go`:     "file:///C:/work/a.go",      // Windows: backslashes + drive-letter leading slash
+	}
+	for in, want := range cases {
+		if got := fileURL(in); got != want {
+			t.Errorf("fileURL(%q) = %q, want %q", in, got, want)
+		}
+	}
 }
 
 func TestRowsForPerTab(t *testing.T) {
