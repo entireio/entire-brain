@@ -68,7 +68,13 @@ func runBrainAdd(cmd *cobra.Command, opts Options, flags addFlags, repoURL strin
 		fmt.Fprintf(errOut, "note: no Entire history fetched (%v): %s\n", err, strings.TrimSpace(string(stderr)))
 	}
 
-	absDest, _ := filepath.Abs(dest)
+	// An absolute path is needed for the build env (ENTIRE_REPO_ROOT) and the
+	// manual-build guidance; a failure here (e.g. os.Getwd failing) would
+	// otherwise silently produce an empty "ENTIRE_REPO_ROOT=" suggestion.
+	absDest, err := filepath.Abs(dest)
+	if err != nil {
+		return fmt.Errorf("resolve_clone_path: %q: %w", dest, err)
+	}
 
 	// 3. Build the brain.
 	if !flags.build {

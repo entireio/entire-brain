@@ -89,11 +89,20 @@ func columnsFor(tab Tab, inner int) []table.Column {
 	}
 }
 
+// maxCellPreview bounds a table cell's length before it is handed to the table.
+// It is a performance guard against a pathologically long value (e.g. a
+// multi-kilobyte fact text), not a layout limit: it is far wider than any
+// terminal column, and the table truncates every cell to its exact column width
+// on render (runewidth.Truncate in bubbles/table). So the visible width always
+// tracks the live layout — never a fixed guess — while the table never has to
+// process a huge string.
+const maxCellPreview = 512
+
 // rowsFor builds the table rows for a tab, restricted to the given source
-// indices (the filtered view). Cells are truncated to roughly their column
-// width; the table re-truncates to the exact width when it renders.
+// indices (the filtered view). Each cell is collapsed to one line and bounded to
+// maxCellPreview; the table re-truncates to the exact column width when it
+// renders.
 func rowsFor(s Snapshot, tab Tab, indices []int) []table.Row {
-	cols := columnsFor(tab, 80)
 	rows := make([]table.Row, 0, len(indices))
 	for _, i := range indices {
 		switch tab {
@@ -103,42 +112,34 @@ func rowsFor(s Snapshot, tab Tab, indices []int) []table.Row {
 			if h.Present {
 				dot = "●"
 			}
-			rows = append(rows, table.Row{dot, truncate(h.Name, cols[1].Width), truncate(h.Detail, cols[2].Width)})
+			rows = append(rows, table.Row{dot, cell(h.Name), cell(h.Detail)})
 		case TabFacts:
 			f := s.Facts[i]
-			rows = append(rows, table.Row{
-				truncate(orDash(f.Kind), cols[0].Width),
-				truncate(oneLine(f.Text), cols[1].Width),
-				truncate(orDash(f.Status), cols[2].Width),
-			})
+			rows = append(rows, table.Row{cell(orDash(f.Kind)), cell(f.Text), cell(orDash(f.Status))})
 		case TabSessions:
 			v := s.Sessions[i]
 			rows = append(rows, table.Row{
-				truncate(v.Created, cols[0].Width),
-				truncate(orDash(v.Agent), cols[1].Width),
+				cell(v.Created),
+				cell(orDash(v.Agent)),
 				fmt.Sprintf("%d", len(v.Files)),
-				truncate(shortID(v.ID), cols[3].Width),
+				cell(shortID(v.ID)),
 			})
 		case TabHistory:
 			h := s.History[i]
-			rows = append(rows, table.Row{
-				truncate(orDash(h.Kind), cols[0].Width),
-				truncate(oneLine(h.Summary), cols[1].Width),
-			})
+			rows = append(rows, table.Row{cell(orDash(h.Kind)), cell(h.Summary)})
 		case TabSemantic:
 			v := s.Semantic[i]
-			rows = append(rows, table.Row{
-				truncate(orDash(v.Kind), cols[0].Width),
-				truncate(orDash(v.Name), cols[1].Width),
-				truncate(baseName(v.FilePath), cols[2].Width),
-			})
+			rows = append(rows, table.Row{cell(orDash(v.Kind)), cell(orDash(v.Name)), cell(baseName(v.FilePath))})
 		case TabSearch:
 			r := s.Search[i]
-			rows = append(rows, table.Row{
-				truncate(orDash(r.Source), cols[0].Width),
-				truncate(oneLine(r.Text), cols[1].Width),
-			})
+			rows = append(rows, table.Row{cell(orDash(r.Source)), cell(r.Text)})
 		}
 	}
 	return rows
+}
+
+// cell collapses a value to a single line and bounds it to maxCellPreview for
+// the table; the table does the exact per-column truncation on render.
+func cell(value string) string {
+	return truncate(oneLine(value), maxCellPreview)
 }
