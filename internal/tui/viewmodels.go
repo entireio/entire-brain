@@ -79,6 +79,10 @@ type Snapshot struct {
 	Search      []SearchResult
 	SearchQuery string
 	SearchErr   string
+	// SearchEnabled reports whether in-dashboard search is wired (a non-nil
+	// SearchFunc). It only affects the Search tab's empty-state prompt, so the
+	// prompt doesn't tell the user to press `s` when `s` is a no-op.
+	SearchEnabled bool
 	// Notes records non-fatal context, e.g. capped lists ("facts: showing 500
 	// of 1234"), so truncation is never silent.
 	Notes []string

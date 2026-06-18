@@ -409,10 +409,20 @@ func TestSearchDisabledWhenNoFunc(t *testing.T) {
 	if m.searching {
 		t.Errorf("`s` must be a no-op when no search function is wired")
 	}
-	// The empty Search tab shows a prompt rather than a crash.
+	// With search disabled, the empty Search tab says so rather than telling the
+	// user to press `s` (which is a no-op here).
 	empty := renderDetail(th, m.snap, TabSearch, -1, 80)
-	if !strings.Contains(empty, "search") {
-		t.Errorf("empty Search tab should prompt to search:\n%s", empty)
+	if !strings.Contains(empty, "unavailable") {
+		t.Errorf("disabled Search tab should say search is unavailable:\n%s", empty)
+	}
+	if strings.Contains(empty, "Press") {
+		t.Errorf("disabled Search tab must not prompt to press s:\n%s", empty)
+	}
+	// With search enabled, the prompt invites pressing `s`.
+	enabled := sampleSnapshot()
+	enabled.SearchEnabled = true
+	if out := renderDetail(th, enabled, TabSearch, -1, 80); !strings.Contains(out, "Press") {
+		t.Errorf("enabled Search tab should prompt to press s:\n%s", out)
 	}
 }
 

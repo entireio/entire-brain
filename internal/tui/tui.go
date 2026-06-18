@@ -101,6 +101,7 @@ func NewModel(snap Snapshot, theme Theme) Model {
 func Run(snap Snapshot, theme Theme, search SearchFunc, startTab Tab, out io.Writer) error {
 	m := NewModel(snap, theme)
 	m.searchFn = search
+	m.snap.SearchEnabled = search != nil
 	if startTab != TabHome {
 		m.tab = startTab
 		m.rebuildVisible()

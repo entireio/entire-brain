@@ -54,8 +54,12 @@ func renderSearchEmpty(th Theme, s Snapshot) string {
 	} else if s.SearchQuery != "" {
 		b.WriteString("  " + th.dimStyle().Render(fmt.Sprintf("no results for %q", s.SearchQuery)) + "\n\n")
 	}
-	b.WriteString(th.textStyle().Render("  Press ") + th.titleStyle().Render("s") +
-		th.textStyle().Render(" to search facts, history, and docs."))
+	if s.SearchEnabled {
+		b.WriteString(th.textStyle().Render("  Press ") + th.titleStyle().Render("s") +
+			th.textStyle().Render(" to search facts, history, and docs."))
+	} else {
+		b.WriteString(th.dimStyle().Render("  In-dashboard search is unavailable in this view."))
+	}
 	b.WriteString("\n")
 	return b.String()
 }
