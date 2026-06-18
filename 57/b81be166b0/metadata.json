@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "57b81be166b0",
+  "strategy": "manual-commit",
+  "branch": "claude/patterns-v2-corpus",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/pattern_skill_conventions.go",
+    "internal/cli/pattern_skill_conventions_test.go",
+    "internal/cli/pattern_skill_deep.go",
+    "internal/cli/pattern_skill_lessons.go",
+    "internal/cli/pattern_skill_lessons_test.go",
+    "internal/cli/pattern_themes.go",
+    "internal/cli/pattern_themes_test.go",
+    "internal/cli/pattern_verify.go",
+    "internal/cli/pattern_workspace.go",
+    "internal/cli/pattern_workspace_semantic.go",
+    "internal/cli/pattern_workspace_semantic_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/57/b81be166b0/0/metadata.json",
+      "transcript": "/57/b81be166b0/0/full.jsonl",
+      "content_hash": "/57/b81be166b0/0/content_hash.txt",
+      "prompt": "/57/b81be166b0/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 184454,
+    "cache_creation_tokens": 7105902,
+    "cache_read_tokens": 654941699,
+    "output_tokens": 1395232,
+    "api_call_count": 1473
+  }
+}

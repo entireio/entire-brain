@@ -1,0 +1,69 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "57b81be166b0",
+  "session_id": "7fc2ec8e-fd41-4e80-ac5e-d7b4a87b7c35",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-18T06:59:32.030379Z",
+  "branch": "claude/patterns-v2-corpus",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/pattern_skill_conventions.go",
+    "internal/cli/pattern_skill_conventions_test.go",
+    "internal/cli/pattern_skill_deep.go",
+    "internal/cli/pattern_skill_lessons.go",
+    "internal/cli/pattern_skill_lessons_test.go",
+    "internal/cli/pattern_themes.go",
+    "internal/cli/pattern_themes_test.go",
+    "internal/cli/pattern_verify.go",
+    "internal/cli/pattern_workspace.go",
+    "internal/cli/pattern_workspace_semantic.go",
+    "internal/cli/pattern_workspace_semantic_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "8cb1c6a66ff5",
+  "token_usage": {
+    "input_tokens": 184454,
+    "cache_creation_tokens": 7105902,
+    "cache_read_tokens": 654941699,
+    "output_tokens": 1395232,
+    "api_call_count": 1473
+  },
+  "session_metrics": {
+    "turn_count": 52
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-18T06:59:31.695954Z",
+    "agent_lines": 500,
+    "agent_removed": 25,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 500,
+    "total_lines_changed": 525,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 80,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 80
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 80,
+      "user_lines_removed": 0,
+      "agent_lines_added": 500,
+      "agent_lines_removed": 25,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 80
+      }
+    }
+  ]
+}
