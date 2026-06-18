@@ -9,3 +9,7 @@ Yes, but before you do that, refresh your knowledge what a skill actually is and
 <status>completed</status>
 <summary>Background command "/tmp/entire-brain patterns verify --conventions . --agent codex --json 2&gt;&amp;1 | tail -20" completed (exit code 0)</summary>
 </task-notification>
+
+---
+
+Commit/push first, then run on entire-cli b
