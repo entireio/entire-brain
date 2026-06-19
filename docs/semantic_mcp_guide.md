@@ -6,11 +6,15 @@ network listener, fetch remote data, or call hosted models.
 Available tools:
 
 - `brain_status`
+- `brain_index_status` (alias for `brain_status`)
 - `brain_brief`
 - Unified retrieval (qmd-inspired): `brain_query` (hybrid lexical+vector, RRF),
   `brain_search` (lexical), `brain_vsearch` (vector), `brain_get`, `brain_multi_get`
-- Symbol graph: `brain_code`, `brain_context`, `brain_impact`, `brain_changes`,
-  `brain_tests`, `brain_boundaries`
+- Symbol graph: `brain_code`, `brain_search_code`, `brain_context`,
+  `brain_impact`, `brain_changes`, `brain_detect_changes`, `brain_tests`,
+  `brain_boundaries`, `brain_search_graph`, `brain_query_graph`,
+  `brain_get_graph_schema`, `brain_get_architecture`, `brain_get_code_snippet`,
+  `brain_trace_path`, `brain_dead_code`, `brain_ingest_traces`
 - Diff-less review: `brain_regressions`, `brain_review`
 - Cross-repo (workspace): `brain_workspace_regressions`, `brain_workspace_review`
 
@@ -27,3 +31,10 @@ Workspace symbol traversal and unified retrieval currently live in the CLI
 (`entire brain workspace inspect context|impact|regressions` and
 `entire brain workspace search|vsearch|query|get`). MCP exposes
 the single-repo tools plus workspace review/regression helpers.
+
+The graph tools read the local semantic SQLite store built by `refresh index`
+or rebuilt by `repair`. `brain_query_graph` accepts simple filters such as
+`type:CALLS`, `relation:HANDLES_ROUTE`, `from:<symbol>`, and `to:<symbol>`;
+`brain_trace_path` walks directed relation paths; `brain_ingest_traces` imports
+local JSON/NDJSON runtime edges and reports which ones already match static
+relations.

@@ -325,7 +325,10 @@ entire brain path [repo]
 ```
 
 Specialist/debug commands live under `inspect`, for example
-`inspect code`, `inspect context`, `inspect impact`, `inspect changes`,
+`inspect code`, `inspect search-graph`, `inspect query-graph`,
+`inspect graph-schema`, `inspect snippet`, `inspect trace-path`,
+`inspect dead-code`, `inspect ingest-traces`, `inspect context`,
+`inspect impact`, `inspect changes`,
 `inspect tests`, `inspect boundaries`, `inspect regressions`, and
 `inspect blame`. Workspace use has its own front door:
 

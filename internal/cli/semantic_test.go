@@ -1763,6 +1763,72 @@ func TestSemanticImpactTraversesRelations(t *testing.T) {
 	}
 }
 
+func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoDir, "internal/auth"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lines := make([]string, 25)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("// line %02d", i+1)
+	}
+	lines[9] = "func ValidateToken(token string) error {"
+	lines[10] = "    return nil"
+	lines[19] = "}"
+	if err := os.WriteFile(filepath.Join(repoDir, "internal/auth/token.go"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshotWithQualifiedCallerSymbol())
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	for name, run := range map[string]func(*cobra.Command) error{
+		"schema": func(c *cobra.Command) error {
+			return runSemanticGraphSchema(c, opts, semanticGraphSchemaOptions{json: true})
+		},
+		"query": func(c *cobra.Command) error {
+			return runSemanticQueryGraph(c, opts, semanticGraphQueryOptions{limit: 10, json: true}, "type:CALLS")
+		},
+		"trace": func(c *cobra.Command) error {
+			return runSemanticTracePath(c, opts, semanticTracePathOptions{depth: 2, json: true}, "CallValidateToken", "ValidateToken")
+		},
+		"snippet": func(c *cobra.Command) error {
+			return runSemanticSnippet(c, opts, semanticSnippetOptions{contextLines: 0, json: true}, "ValidateToken")
+		},
+		"dead": func(c *cobra.Command) error {
+			return runSemanticDeadCode(c, opts, semanticDeadCodeOptions{limit: 10, json: true})
+		},
+	} {
+		var out bytes.Buffer
+		readCmd := &cobra.Command{Use: name}
+		readCmd.SetOut(&out)
+		if err := run(readCmd); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !strings.Contains(out.String(), "ValidateToken") && name != "schema" {
+			t.Fatalf("%s output missing fixture symbol:\n%s", name, out.String())
+		}
+	}
+
+	tracePath := filepath.Join(repoDir, "trace.ndjson")
+	if err := os.WriteFile(tracePath, []byte(`{"from":"CallValidateToken","to":"ValidateToken","type":"CALLS"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	ingestCmd := &cobra.Command{Use: "ingest"}
+	ingestCmd.SetOut(&out)
+	if err := runSemanticIngestTraces(ingestCmd, opts, semanticTraceIngestOptions{json: true}, tracePath); err != nil {
+		t.Fatalf("ingest traces: %v", err)
+	}
+	if !strings.Contains(out.String(), `"matched_static_edges": 1`) {
+		t.Fatalf("trace ingest did not validate static edge:\n%s", out.String())
+	}
+}
+
 func TestSemanticImpactReturnsRelationsWhenRootsFillLimit(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

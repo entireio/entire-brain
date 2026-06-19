@@ -130,11 +130,16 @@ single `--budget` shared across all members so a workspace tick can't multiply t
 entire brain mcp
 ```
 
-The MCP adapter is stdio-only and exposes local tools `brain_status`,
-`brain_brief`, the unified retrieval verbs `brain_query` (hybrid lexical+vector
-over facts/history/docs), `brain_search`, `brain_vsearch`, `brain_get`, and
-`brain_multi_get`, the symbol-graph tools `brain_code`/`brain_context`/`brain_impact`/`brain_changes`/`brain_tests`/`brain_boundaries`,
-the diff-less reviewer `brain_regressions`/`brain_review`, and the cross-repo
+The MCP adapter is stdio-only and exposes local tools `brain_status`
+(`brain_index_status` alias), `brain_brief`, the unified retrieval verbs
+`brain_query` (hybrid lexical+vector over facts/history/docs), `brain_search`,
+`brain_vsearch`, `brain_get`, and `brain_multi_get`, the code and graph tools
+`brain_code`/`brain_search_code`, `brain_context`, `brain_impact`,
+`brain_changes`/`brain_detect_changes`, `brain_tests`, `brain_boundaries`,
+`brain_search_graph`, `brain_query_graph`, `brain_get_graph_schema`,
+`brain_get_architecture`, `brain_get_code_snippet`, `brain_trace_path`,
+`brain_dead_code`, and `brain_ingest_traces`, the diff-less reviewer
+`brain_regressions`/`brain_review`, and the cross-repo
 `brain_workspace_regressions`/`brain_workspace_review`.
 See `docs/semantic_mcp_guide.md`.
 
@@ -233,6 +238,13 @@ don't cover — use the `inspect` specialists:
 ```sh
 entire brain guide
 entire brain inspect code "ValidateToken" --json         # find a symbol in the graph
+entire brain inspect search-graph "ValidateToken" --json # search symbols and relations
+entire brain inspect query-graph "type:CALLS Validate" --json
+entire brain inspect graph-schema --json                 # relation/schema inventory
+entire brain inspect snippet "ValidateToken" --json      # source for one symbol
+entire brain inspect trace-path "caller" "callee" --json # directed relation path
+entire brain inspect dead-code --json                    # heuristic unused callable candidates
+entire brain inspect ingest-traces traces.ndjson --json  # compare runtime traces to static graph
 entire brain inspect context "main" --json               # relation-aware context for a symbol
 entire brain inspect impact "main" --json                # impact set via typed relations
 entire brain inspect changes --json                      # map the working-tree diff to symbols
