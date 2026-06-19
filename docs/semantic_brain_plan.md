@@ -260,10 +260,15 @@ The streaming contract is:
   string; the overall level string (`ok`/`degraded`/`unsafe`) lives at
   `stats.completeness_level`.
 
+Lean header (identity + snapshot configuration):
+
 ```json
-// lean header (identity + snapshot configuration)
 {"schema_version":"1.1","provider":"entire-sem","provider_version":"dev","repo_key":"local/bank","commit":"…","tree":"…","profile":"full","relation_set":["CALLS","IMPORTS"],"skipped_relation_families":[],"profile_limits":{"evidence":"full","call_resolution":"full"},"completeness":{"languages":null,"relations":null}}
-// final summary (authoritative aggregate metadata)
+```
+
+Final summary (authoritative aggregate metadata):
+
+```json
 {"record_type":"summary","languages":["Go"],"warnings":[],"partial_failures":[],"stats":{"files":10,"parsed_files":10,"symbols":120,"relations":80,"partial_failures":0,"completeness_level":"ok"},"completeness":{"languages":{"Go":{"files":10,"symbols":120}},"relations":{"CALLS":40,"IMPORTS":12}}}
 ```
 
