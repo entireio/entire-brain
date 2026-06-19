@@ -5649,6 +5649,19 @@ func readSemanticSnapshotSummary(path, repoKey string) (semanticHeader, semantic
 			counts.Symbols++
 		case "relation":
 			counts.Relations++
+		case "summary":
+			// The trailing summary is authoritative for aggregate metadata. Merge
+			// it so rebuild/validation paths see the same summary-merged header the
+			// initial index produced. Warnings on disk are already sanitized; the
+			// idempotent re-sanitize (empty repoDir still redacts absolute paths)
+			// guards against a hand-authored or stale snapshot.
+			var summary semanticSummary
+			if err := json.Unmarshal(text, &summary); err != nil {
+				return semanticHeader{}, semanticCounts{}, fmt.Errorf("parse semantic snapshot summary (line %d): %w", line, err)
+			}
+			summary.Warnings = sanitizeSemanticWarnings(summary.Warnings, "")
+			summary.PartialFailures = sanitizeSemanticWarnings(summary.PartialFailures, "")
+			mergeSemanticSummary(&header, &summary)
 		}
 	}
 	if err := scanner.Err(); err != nil {

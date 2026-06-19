@@ -348,28 +348,13 @@ func streamSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir s
 		},
 	}
 
+	// Semantic indexing requires a streaming runner so the production path is
+	// always memory-bounded: stdout is consumed record-by-record and never
+	// buffered in full. The production ExecRunner and the test fake both
+	// implement CommandStreamer; a runner without it is a programming error.
 	streamer, ok := runner.(CommandStreamer)
 	if !ok {
-		// Fallback for runners without streaming support: buffer via Run, then
-		// process the bytes through the same record-by-record scanner. The
-		// inactivity watchdog is intentionally skipped here because record-level
-		// activity is not observable while Run buffers; only the overall deadline
-		// applies.
-		stdout, stderr, err := runner.Run(runCtx, repoDir, indexOpts.semBinary, args...)
-		if cerr := semanticStreamContextError(runCtx, ctx, overall, inactivity, &inactivityFired); cerr != nil {
-			return semanticStreamResult{}, cerr
-		}
-		if err != nil {
-			return semanticStreamResult{}, providerSnapshotWaitError(err, stderr, stdout)
-		}
-		res, scanErr := scanSemanticStream(bytes.NewReader(stdout), out, cfg)
-		if scanErr != nil {
-			return res, scanErr
-		}
-		if !res.haveHeader {
-			return res, errors.New("semantic provider snapshot produced no output")
-		}
-		return res, nil
+		return semanticStreamResult{}, errors.New("semantic provider snapshot requires a streaming command runner (CommandStreamer)")
 	}
 
 	if inactivity > 0 {

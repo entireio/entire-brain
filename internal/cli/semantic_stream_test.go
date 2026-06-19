@@ -332,6 +332,131 @@ func TestSemanticIndexPersistsSummaryRecordInSnapshot(t *testing.T) {
 	}
 }
 
+// TestSemanticRepairMergesSummaryMetadata indexes a streamed snapshot whose
+// lean header has no warnings and whose trailing summary carries one, then
+// repairs (rebuilding the SQLite store from the snapshot). The rebuilt store,
+// its metrics, and the manifest must all reflect the summary's warning — proving
+// readSemanticSnapshotSummary merges the trailing summary on the rebuild path.
+func TestSemanticRepairMergesSummaryMetadata(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticStreamSummaryFixture())
+	cmd := NewRootCommand(Options{Version: "test", Env: env, Runner: runner, Now: time.Now})
+	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	// Remove the indexed store so repair rebuilds it from the snapshot alone.
+	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.Semantic.StorePath))); err != nil {
+		t.Fatalf("remove store: %v", err)
+	}
+	if _, err := execute(t, cmd, "repair"); err != nil {
+		t.Fatalf("repair: %v", err)
+	}
+
+	repaired, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("load repaired manifest: %v", err)
+	}
+	src := repaired.Sources.Semantic
+	// Manifest reflects the summary warning.
+	if !semanticWarningsContainCode(src.Warnings, "summary_warning") {
+		t.Fatalf("repaired manifest missing summary warning: %+v", src.Warnings)
+	}
+	// The rebuilt store's warnings table has the merged summary warning.
+	storePath := filepath.Join(brainDir, filepath.FromSlash(src.StorePath))
+	if got := semanticTestSQLCount(t, storePath, "warnings"); got != 1 {
+		t.Fatalf("rebuilt store warnings = %d, want 1 (summary warning merged)", got)
+	}
+	// Rebuilt metrics reflect the summary warning count.
+	metricsRaw, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(src.MetricsPath)))
+	if err != nil {
+		t.Fatalf("read metrics: %v", err)
+	}
+	var metrics struct {
+		Warnings int `json:"warnings"`
+	}
+	if err := json.Unmarshal(metricsRaw, &metrics); err != nil {
+		t.Fatalf("parse metrics: %v", err)
+	}
+	if metrics.Warnings != 1 {
+		t.Fatalf("rebuilt metrics warnings = %d, want 1", metrics.Warnings)
+	}
+}
+
+// TestSemanticStaleValidatesStreamedSnapshotWithSummary confirms stale
+// validation accepts a streamed snapshot that contains external, unknown, and
+// trailing summary records.
+func TestSemanticStaleValidatesStreamedSnapshotWithSummary(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticStreamSummaryFixture())
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	cmd := &cobra.Command{Use: "index"}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	report, err := semanticStaleReport(cmd.Context(), opts, repoDir)
+	if err != nil {
+		t.Fatalf("stale: %v", err)
+	}
+	if axis := report.Axes["snapshot"]; axis.State != "ok" {
+		t.Fatalf("snapshot axis = %+v, want ok", axis)
+	}
+}
+
+// TestBundleRoundTripToleratesStreamedSnapshotRecords exercises bundle
+// export/import on a streamed snapshot containing external, unknown, and summary
+// records, and confirms the round-tripped store stays queryable.
+func TestBundleRoundTripToleratesStreamedSnapshotRecords(t *testing.T) {
+	repoDir := t.TempDir()
+	exportEnv := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticStreamSummaryFixture())
+	cmd := &cobra.Command{Use: "index"}
+	exportOpts := Options{Env: exportEnv, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, exportOpts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	output := filepath.Join(t.TempDir(), "brain.tar")
+	if err := runSemanticBundleExport(cmd.Context(), cmd, exportOpts, output); err != nil {
+		t.Fatalf("export: %v", err)
+	}
+
+	importEnv := semanticTestEnv(t, repoDir)
+	importOpts := Options{Env: importEnv, Runner: runner, Now: time.Now}
+	if err := runSemanticBundleImport(cmd.Context(), cmd, importOpts, output, bundleSHA256(t, output)); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	report, err := semanticStaleReport(cmd.Context(), importOpts, repoDir)
+	if err != nil {
+		t.Fatalf("stale: %v", err)
+	}
+	if report.Severity != "ok" {
+		t.Fatalf("round-trip stale report = %+v", report)
+	}
+}
+
+// TestStreamSemanticSnapshotRequiresStreamingRunner confirms semantic indexing
+// fails fast (rather than buffering) when given a runner that does not implement
+// CommandStreamer.
+func TestStreamSemanticSnapshotRequiresStreamingRunner(t *testing.T) {
+	_, err := streamSemanticSnapshot(context.Background(), nonStreamingRunner{}, t.TempDir(), semanticIndexOptions{semBinary: "entire"}, nil, brainIgnore{}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "streaming command runner") {
+		t.Fatalf("expected streaming-required error, got %v", err)
+	}
+}
+
+// nonStreamingRunner implements CommandRunner but not CommandStreamer.
+type nonStreamingRunner struct{}
+
+func (nonStreamingRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	return nil, nil, nil
+}
+
 // TestScanSemanticStreamRealProviderOutput ingests a real entire-sem snapshot
 // (schema 1.1, streaming). It fails before Fix 1 because completeness is an
 // object, not a string, and the lean header cannot be parsed.

@@ -243,22 +243,27 @@ memory-bounded regardless of repository size.
 
 The streaming contract is:
 
-- The first record is a **lean header**. It carries identity fields
-  (`schema_version`, `provider`, `provider_version`, `repo_key`, `commit`,
-  `tree`) but is *not* expected to carry final aggregate metadata.
+- The first record is a **lean header**. It carries identity and configuration
+  fields — `schema_version`, `provider`, `provider_version`, `repo_key`,
+  `commit`, `tree`, and the snapshot's **`profile`**, **`relation_set`**,
+  **`skipped_relation_families`**, and **`profile_limits`** — but is *not*
+  expected to carry final aggregate counts/warnings. On the lean header
+  `completeness` is `{"languages":null,"relations":null}` (the breakdown is not
+  yet populated).
 - `file`, `symbol`, `relation`, and `external` records stream after the header.
   `symbol`/`file` records that a `relation` references are emitted before that
   relation, so Brain can filter relations against ignored endpoints in a single
   pass.
 - A final **`summary`** record carries the authoritative aggregate metadata:
-  `languages`, `stats`, `warnings`, `partial_failures`, `completeness`,
-  `profile`, `relation_set`, `skipped_relation_families`, and `profile_limits`.
+  `languages`, `warnings`, `partial_failures`, `stats`, and `completeness`.
   `completeness` is an **object** (a per-language / per-relation breakdown), not a
   string; the overall level string (`ok`/`degraded`/`unsafe`) lives at
-  `stats.completeness_level`. On the lean header `completeness` is
-  `{"languages":null,"relations":null}`.
+  `stats.completeness_level`.
 
 ```json
+// lean header (identity + snapshot configuration)
+{"schema_version":"1.1","provider":"entire-sem","provider_version":"dev","repo_key":"local/bank","commit":"…","tree":"…","profile":"full","relation_set":["CALLS","IMPORTS"],"skipped_relation_families":[],"profile_limits":{"evidence":"full","call_resolution":"full"},"completeness":{"languages":null,"relations":null}}
+// final summary (authoritative aggregate metadata)
 {"record_type":"summary","languages":["Go"],"warnings":[],"partial_failures":[],"stats":{"files":10,"parsed_files":10,"symbols":120,"relations":80,"partial_failures":0,"completeness_level":"ok"},"completeness":{"languages":{"Go":{"files":10,"symbols":120}},"relations":{"CALLS":40,"IMPORTS":12}}}
 ```
 
@@ -268,12 +273,21 @@ How Brain handles this:
   bounded scanner; accepted records are written incrementally to a temp snapshot
   file while a rolling SHA-256 names the snapshot. stderr is captured separately
   into a bounded buffer so reading stdout never blocks. The SQLite generation is
-  built by re-reading that on-disk snapshot, again record by record.
-- **Summary is authoritative.** The lean header is stored, but the final
-  `summary` is merged over it; summary fields override the header for aggregate
-  metadata. Schema/profile/relation-set information is preserved in the brain
-  manifest (`languages`, `profile`, `relation_set`, `skipped_relation_families`,
-  `completeness`, `profile_limits`, `stats`, `externals`, `summary_present`).
+  built by re-reading that on-disk snapshot, again record by record. Semantic
+  indexing **requires** a streaming command runner (`CommandStreamer`); the
+  production `ExecRunner` implements it, and the index fails fast with a clear
+  error rather than silently buffering if a runner without it is supplied. No
+  full-stdout buffering remains on the production path.
+- **Header + summary are merged.** The lean header supplies identity and
+  snapshot configuration (`profile`, `relation_set`, `skipped_relation_families`,
+  `profile_limits`); the final `summary` supplies authoritative aggregate
+  metadata (`languages`, `warnings`, `partial_failures`, `stats`,
+  `completeness`) and overrides the header for those aggregate fields. The brain
+  manifest preserves both sets (`languages`, `profile`, `relation_set`,
+  `skipped_relation_families`, `completeness`, `profile_limits`, `stats`,
+  `externals`, `summary_present`). The same merge runs on rebuild paths
+  (`repair`, stale validation, bundle import) so they agree with the initial
+  index.
 - **Counts.** Persisted counts (`symbols`, `relations`, `files`, `externals`)
   reflect the records Brain accepted after local filtering, which may differ from
   the provider's pre-filter `stats`.
