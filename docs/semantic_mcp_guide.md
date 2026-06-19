@@ -7,6 +7,8 @@ Available tools:
 
 - `brain_status`
 - `brain_index_status` (alias for `brain_status`)
+- Project/index management: `brain_index_repository`, `brain_list_projects`,
+  `brain_delete_project`
 - `brain_brief`
 - Unified retrieval (qmd-inspired): `brain_query` (hybrid lexical+vector, RRF),
   `brain_search` (lexical), `brain_vsearch` (vector), `brain_get`, `brain_multi_get`
@@ -28,7 +30,7 @@ pass to `brain_get`/`brain_multi_get`. (The earlier `brain_history` tool was
 removed — history is now one source within the unified lexical/hybrid verbs.)
 
 Workspace symbol traversal and unified retrieval currently live in the CLI
-(`entire brain workspace inspect context|impact|regressions` and
+(`entire brain workspace inspect context|impact|graph|regressions` and
 `entire brain workspace search|vsearch|query|get`). MCP exposes
 the single-repo tools plus workspace review/regression helpers.
 
@@ -38,3 +40,7 @@ or rebuilt by `repair`. `brain_query_graph` accepts simple filters such as
 `brain_trace_path` walks directed relation paths; `brain_ingest_traces` imports
 local JSON/NDJSON runtime edges and reports which ones already match static
 relations.
+
+`brain_index_repository` is a local write tool for building the semantic index;
+it does not publish artifacts. `brain_delete_project` removes local generated
+brain data for the selected repo key.

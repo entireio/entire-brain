@@ -50,6 +50,11 @@ type semanticTraceIngestOptions struct {
 	json bool
 }
 
+type semanticGraphUIOptions struct {
+	limit int
+	json  bool
+}
+
 type semanticGraphSchemaReport struct {
 	Provider      string         `json:"provider,omitempty"`
 	SchemaVersion string         `json:"schema_version,omitempty"`
@@ -59,6 +64,20 @@ type semanticGraphSchemaReport struct {
 	Counts        map[string]int `json:"counts"`
 	SymbolKinds   []string       `json:"symbol_kinds"`
 	RelationTypes []string       `json:"relation_types"`
+	Metrics       graphMetrics   `json:"metrics"`
+}
+
+type graphMetrics struct {
+	Hotspots    []graphRank `json:"hotspots"`
+	EntryPoints []graphRank `json:"entry_points"`
+	Packages    []graphRank `json:"packages"`
+	Layers      []graphRank `json:"layers"`
+	Clusters    []graphRank `json:"clusters"`
+}
+
+type graphRank struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
 }
 
 type semanticGraphQueryResult struct {
@@ -93,6 +112,13 @@ type semanticTraceIngestReport struct {
 	Total      int       `json:"total"`
 	Matched    int       `json:"matched_static_edges"`
 	Unmatched  int       `json:"unmatched_static_edges"`
+}
+
+type semanticGraphUIReport struct {
+	Path      string `json:"path"`
+	Provider  string `json:"provider,omitempty"`
+	Profile   string `json:"profile,omitempty"`
+	Relations int    `json:"relations"`
 }
 
 type semanticEnv struct {
@@ -157,13 +183,151 @@ func runSemanticGraphSchema(cmd *cobra.Command, opts Options, graphOpts semantic
 	if err != nil {
 		return err
 	}
+	report.Metrics, err = semanticGraphMetrics(db)
+	if err != nil {
+		return err
+	}
 	if graphOpts.json {
 		return writeJSON(cmd, report)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "provider: %s schema %s profile %s\n", report.Provider, report.SchemaVersion, report.Profile)
 	fmt.Fprintf(cmd.OutOrStdout(), "files: %d\nsymbols: %d\nrelations: %d\n", report.Counts["files"], report.Counts["symbols"], report.Counts["relations"])
 	fmt.Fprintf(cmd.OutOrStdout(), "relation_types: %s\n", strings.Join(report.RelationTypes, ", "))
+	fmt.Fprintf(cmd.OutOrStdout(), "hotspots: %s\n", graphRanksText(report.Metrics.Hotspots))
+	fmt.Fprintf(cmd.OutOrStdout(), "entry_points: %s\n", graphRanksText(report.Metrics.EntryPoints))
 	return nil
+}
+
+func semanticGraphMetrics(db *sql.DB) (graphMetrics, error) {
+	hotspots, err := graphRankRows(db, `
+SELECT COALESCE(NULLIF(s.qualified_name,''), s.name, r.to_id) AS name, COUNT(*) AS c
+FROM relations r
+JOIN symbols s ON s.id = r.to_id
+WHERE r.type NOT IN ('DEFINES','CONTAINS','USES_TYPE','PARAM_TYPE','RETURNS_TYPE')
+GROUP BY s.id
+ORDER BY c DESC, name
+LIMIT 10`)
+	if err != nil {
+		return graphMetrics{}, err
+	}
+	entryPoints, err := graphRankRows(db, `
+SELECT COALESCE(NULLIF(s.qualified_name,''), s.name, r.from_id) AS name, COUNT(*) AS c
+FROM relations r
+JOIN symbols s ON s.id = r.from_id
+WHERE r.type LIKE 'HANDLES_%' OR r.type IN ('CONFIGURES')
+GROUP BY s.id
+ORDER BY c DESC, name
+LIMIT 10`)
+	if err != nil {
+		return graphMetrics{}, err
+	}
+	clusters, err := graphRankRows(db, `
+SELECT type AS name, COUNT(*) AS c
+FROM relations
+GROUP BY type
+ORDER BY c DESC, name
+LIMIT 20`)
+	if err != nil {
+		return graphMetrics{}, err
+	}
+	packages, layers, err := graphPathMetrics(db)
+	if err != nil {
+		return graphMetrics{}, err
+	}
+	return graphMetrics{
+		Hotspots:    hotspots,
+		EntryPoints: entryPoints,
+		Packages:    packages,
+		Layers:      layers,
+		Clusters:    clusters,
+	}, nil
+}
+
+func graphRankRows(db *sql.DB, query string, args ...any) ([]graphRank, error) {
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ranks []graphRank
+	for rows.Next() {
+		var rank graphRank
+		if err := rows.Scan(&rank.Name, &rank.Count); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(rank.Name) != "" {
+			ranks = append(ranks, rank)
+		}
+	}
+	if ranks == nil {
+		ranks = []graphRank{}
+	}
+	return ranks, rows.Err()
+}
+
+func graphPathMetrics(db *sql.DB) ([]graphRank, []graphRank, error) {
+	rows, err := db.Query(`SELECT file_path FROM symbols WHERE trim(file_path) <> ''`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	packages := map[string]int{}
+	layers := map[string]int{}
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, nil, err
+		}
+		path = filepath.ToSlash(strings.TrimSpace(path))
+		if path == "" {
+			continue
+		}
+		dir := filepath.ToSlash(filepath.Dir(path))
+		if dir == "." {
+			dir = "<root>"
+		}
+		packages[dir]++
+		layer := strings.Split(dir, "/")[0]
+		if layer == "." || layer == "" {
+			layer = "<root>"
+		}
+		layers[layer]++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return graphRankMap(packages, 20), graphRankMap(layers, 20), nil
+}
+
+func graphRankMap(counts map[string]int, limit int) []graphRank {
+	ranks := make([]graphRank, 0, len(counts))
+	for name, count := range counts {
+		ranks = append(ranks, graphRank{Name: name, Count: count})
+	}
+	sort.Slice(ranks, func(i, j int) bool {
+		if ranks[i].Count == ranks[j].Count {
+			return ranks[i].Name < ranks[j].Name
+		}
+		return ranks[i].Count > ranks[j].Count
+	})
+	if len(ranks) > limit {
+		ranks = ranks[:limit]
+	}
+	if ranks == nil {
+		return []graphRank{}
+	}
+	return ranks
+}
+
+func graphRanksText(ranks []graphRank) string {
+	if len(ranks) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(ranks))
+	for _, rank := range ranks {
+		parts = append(parts, fmt.Sprintf("%s:%d", rank.Name, rank.Count))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func graphDistinctStrings(db *sql.DB, query string) ([]string, error) {
@@ -518,6 +682,137 @@ func runSemanticIngestTraces(cmd *cobra.Command, opts Options, ingestOpts semant
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "ingested runtime traces: %d\nmatched_static_edges: %d\nartifact: %s\n", report.Total, report.Matched, report.Path)
 	return nil
+}
+
+func runSemanticGraphUI(cmd *cobra.Command, opts Options, uiOpts semanticGraphUIOptions, outputPath string) error {
+	if uiOpts.limit <= 0 {
+		return errors.New("--limit must be greater than zero")
+	}
+	env, err := loadSemanticEnv(cmd, opts)
+	if err != nil {
+		return err
+	}
+	storePath, err := semanticStorePath(env)
+	if err != nil {
+		return err
+	}
+	db, err := sql.Open(sqliteDriverName, storePath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	relations, err := graphUIRelations(db, uiOpts.limit)
+	if err != nil {
+		return err
+	}
+	metrics, err := semanticGraphMetrics(db)
+	if err != nil {
+		return err
+	}
+	data := struct {
+		Provider string           `json:"provider"`
+		Profile  string           `json:"profile"`
+		Counts   map[string]int   `json:"counts"`
+		Metrics  graphMetrics     `json:"metrics"`
+		Edges    []semanticRecord `json:"edges"`
+	}{
+		Provider: env.Source.Provider,
+		Profile:  env.Source.Profile,
+		Counts:   map[string]int{"files": env.Source.Files, "symbols": env.Source.Symbols, "relations": env.Source.Relations, "externals": env.Source.Externals},
+		Metrics:  metrics,
+		Edges:    relations,
+	}
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(outputPath) == "" {
+		outputPath = "semantic-graph.html"
+	}
+	abs, err := filepath.Abs(outputPath)
+	if err != nil {
+		return err
+	}
+	if err := writeFileAtomic(abs, []byte(renderSemanticGraphHTML(payload)), 0o600); err != nil {
+		return err
+	}
+	report := semanticGraphUIReport{Path: abs, Provider: env.Source.Provider, Profile: env.Source.Profile, Relations: len(relations)}
+	if uiOpts.json {
+		return writeJSON(cmd, report)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "wrote graph UI: %s\n", abs)
+	return nil
+}
+
+func graphUIRelations(db *sql.DB, limit int) ([]semanticRecord, error) {
+	rows, err := db.Query(`SELECT from_id, to_id, type, confidence, reason, warning_codes FROM relations ORDER BY type, from_id, to_id LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanGraphRelations(rows)
+}
+
+func renderSemanticGraphHTML(payload []byte) string {
+	escaped := strings.ReplaceAll(string(payload), "</", "<\\/")
+	return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Semantic Graph</title>
+<style>
+:root{color-scheme:light dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body{margin:0;background:#f7f7f4;color:#1d2228}
+main{max-width:1180px;margin:0 auto;padding:28px}
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;border-bottom:1px solid #d7d8d2;padding-bottom:16px}
+h1{font-size:26px;line-height:1.2;margin:0;font-weight:700}
+h2{font-size:15px;margin:0 0 10px;color:#38414a}
+.meta{font-size:13px;color:#53606b}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}
+.stat,.panel{background:#fff;border:1px solid #dfe1dc;border-radius:8px;padding:14px}
+.stat strong{display:block;font-size:24px}
+.panels{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.bar{display:grid;grid-template-columns:minmax(120px,1fr) minmax(100px,2fr) 44px;align-items:center;gap:8px;font-size:13px;margin:7px 0}
+.fill{height:9px;background:#477a7b;border-radius:999px}
+table{width:100%;border-collapse:collapse;font-size:13px;background:#fff;border:1px solid #dfe1dc;border-radius:8px;overflow:hidden}
+th,td{text-align:left;border-bottom:1px solid #ecede8;padding:8px;vertical-align:top}
+th{background:#eceee8;font-size:12px;text-transform:uppercase;color:#4c5963}
+.edges{margin-top:14px}
+input{width:100%;box-sizing:border-box;border:1px solid #cfd3ca;border-radius:6px;padding:9px 10px;font:inherit;margin-bottom:10px}
+@media(max-width:760px){main{padding:18px}.grid,.panels{grid-template-columns:1fr}header{display:block}.bar{grid-template-columns:1fr}}
+@media(prefers-color-scheme:dark){body{background:#171b1e;color:#eef1ed}.stat,.panel,table{background:#20262a;border-color:#384147}header,th,td{border-color:#384147}th{background:#252d31;color:#c7d0d6}.meta{color:#aeb9bf}.fill{background:#74a8a2}input{background:#171b1e;color:#eef1ed;border-color:#455057}}
+</style>
+</head>
+<body>
+<main>
+<header><div><h1>Semantic Graph</h1><div class="meta" id="meta"></div></div></header>
+<section class="grid" id="stats"></section>
+<section class="panels">
+<div class="panel"><h2>Hotspots</h2><div id="hotspots"></div></div>
+<div class="panel"><h2>Entry Points</h2><div id="entrypoints"></div></div>
+<div class="panel"><h2>Packages</h2><div id="packages"></div></div>
+<div class="panel"><h2>Relation Clusters</h2><div id="clusters"></div></div>
+</section>
+<section class="edges">
+<input id="filter" placeholder="Filter edges by symbol, relation, or reason">
+<table><thead><tr><th>Type</th><th>From</th><th>To</th><th>Confidence</th><th>Reason</th></tr></thead><tbody id="edges"></tbody></table>
+</section>
+</main>
+<script type="application/json" id="graph-data">` + escaped + `</script>
+<script>
+const data=JSON.parse(document.getElementById('graph-data').textContent);
+document.getElementById('meta').textContent=[data.provider,data.profile].filter(Boolean).join(' / ');
+const stats=document.getElementById('stats');
+for (const [k,v] of Object.entries(data.counts||{})){const d=document.createElement('div');d.className='stat';d.innerHTML='<span>'+k+'</span><strong>'+v+'</strong>';stats.appendChild(d);}
+function bars(id, rows){const el=document.getElementById(id);const max=Math.max(1,...(rows||[]).map(r=>r.count));for(const r of rows||[]){const b=document.createElement('div');b.className='bar';b.innerHTML='<span>'+r.name+'</span><span class="fill" style="width:'+Math.max(4,Math.round(r.count/max*100))+'%"></span><span>'+r.count+'</span>';el.appendChild(b);}}
+bars('hotspots',data.metrics.hotspots);bars('entrypoints',data.metrics.entry_points);bars('packages',data.metrics.packages);bars('clusters',data.metrics.clusters);
+const tbody=document.getElementById('edges');function renderEdges(q=''){tbody.textContent='';q=q.toLowerCase();for(const e of data.edges||[]){const text=[e.type,e.from_id,e.to_id,e.reason].join(' ').toLowerCase();if(q&&!text.includes(q))continue;const tr=document.createElement('tr');tr.innerHTML='<td>'+e.type+'</td><td>'+e.from_id+'</td><td>'+e.to_id+'</td><td>'+Number(e.confidence||0).toFixed(2)+'</td><td>'+(e.reason||'')+'</td>';tbody.appendChild(tr);}}
+renderEdges();document.getElementById('filter').addEventListener('input',e=>renderEdges(e.target.value));
+</script>
+</body>
+</html>
+`
 }
 
 func readRuntimeTraces(path string) ([]semanticRuntimeTrace, error) {

@@ -12,6 +12,8 @@ Recommended intake flow:
 3. Use `entire brain inspect query-graph "type:CALLS <query>" --json` when the
    question needs a specific relation family, and `entire brain inspect
    graph-schema --json` when you need the available relation/types inventory.
+   Use `entire brain inspect graph-ui semantic-graph.html` when a local visual
+   graph explorer is useful.
 4. Use `entire brain inspect context <symbol> --json --include-content=false` for
    relation-aware context.
 5. Use `entire brain inspect snippet <symbol-or-id> --json` before editing a
@@ -25,6 +27,8 @@ Recommended intake flow:
 8. Use `entire brain inspect tests <symbol> --json` before choosing validation
    commands for a changed symbol.
 9. Use `entire brain workspace inspect context <workspace> <query> --json` (symbols) or
+   `entire brain workspace inspect graph <workspace> --json` (per-repo graph
+   metrics and shared external contracts) or
    `entire brain workspace search|vsearch|query <workspace> <query> --json`
    (facts/history/docs, grouped per repo; ids are repo-qualified for
    `workspace get`) only for local workspaces that already list local repo

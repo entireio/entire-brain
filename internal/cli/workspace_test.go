@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 func TestWorkspaceWatchFansOverMembersWithSharedBudget(t *testing.T) {
@@ -473,6 +475,74 @@ func TestBrainDirForKeyReservesWorkspacesSegment(t *testing.T) {
 	if _, err := brainDirForKey(env, "gh/acme/api"); err != nil {
 		t.Fatalf("ordinary key must resolve: %v", err)
 	}
+}
+
+func TestWorkspaceGraphReportsSharedExternalContracts(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC) }}
+	cmd := &cobra.Command{Use: "index"}
+
+	repoA := t.TempDir()
+	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	indexWorkspaceGraphRepo(t, cmd, opts, runner, repoA, keyA, "HandleSharedA")
+	repoB := t.TempDir()
+	keyB := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	indexWorkspaceGraphRepo(t, cmd, opts, runner, repoB, keyB, "HandleSharedB")
+
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "graph",
+		Repos: []workspaceRepo{
+			{RepoKey: keyA, LocalPathHint: repoA},
+			{RepoKey: keyB, LocalPathHint: repoB},
+		},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	var out bytes.Buffer
+	graphCmd := &cobra.Command{Use: "graph"}
+	graphCmd.SetOut(&out)
+	if err := runWorkspaceGraph(graphCmd, opts, workspaceGraphOptions{limit: 10, json: true}, "graph"); err != nil {
+		t.Fatalf("workspace graph: %v", err)
+	}
+	if !strings.Contains(out.String(), `"contracts"`) || !strings.Contains(out.String(), `external:route:/shared`) {
+		t.Fatalf("workspace graph missing shared external contract:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), `"metrics"`) || !strings.Contains(out.String(), `"relation_types"`) {
+		t.Fatalf("workspace graph missing per-repo graph metadata:\n%s", out.String())
+	}
+}
+
+func indexWorkspaceGraphRepo(t *testing.T, cmd *cobra.Command, opts Options, runner *fakeCommandRunner, repoDir, repoKey, symbolName string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(repoDir, "service.go"), []byte("package service\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner.responses = map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"):                                                {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "rev-parse", "HEAD"):                                                           {stdout: "aaa111\n"},
+		fakeCommandKey("git", "rev-parse", "HEAD^{tree}"):                                                    {stdout: "tree111\n"},
+		fakeCommandKey("git", "branch", "--show-current"):                                                    {stdout: "main\n"},
+		fakeCommandKey("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):              {stdout: "origin/main\n"},
+		fakeCommandKey("git", "status", "--porcelain"):                                                       {stdout: ""},
+		fakeCommandKey("entire", "sem", "doctor", "--json"):                                                  {stdout: `{"no_egress":true}`},
+		fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"): {stdout: workspaceGraphSnapshot(repoKey, symbolName)},
+	}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index %s: %v", repoKey, err)
+	}
+}
+
+func workspaceGraphSnapshot(repoKey, symbolName string) string {
+	symbolID := repoKey + ":go:service.go:function:" + symbolName
+	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES","HANDLES_ROUTE"],"warnings":[],"partial_failures":[]}
+{"record_type":"file","id":"` + repoKey + `:file:service.go","path":"service.go","blob":"abc","language":"Go","bytes":16}
+{"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"service.` + symbolName + `","file_path":"service.go","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
+{"record_type":"relation","from_id":"` + symbolID + `","to_id":"external:route:/shared","type":"HANDLES_ROUTE","confidence":0.95}
+`
 }
 
 // writeWorkspaceBrainRepo builds a sessions-only brain at brainDirForKey(env, key) plus a working

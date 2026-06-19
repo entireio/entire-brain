@@ -10,8 +10,11 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -210,6 +213,9 @@ func mcpToolDefinitions() []map[string]any {
 	integerArg := func(name, description string) map[string]any {
 		return map[string]any{"type": "integer", "description": description, "title": name, "minimum": 1}
 	}
+	boolArg := func(name, description string) map[string]any {
+		return map[string]any{"type": "boolean", "description": description, "title": name}
+	}
 	branchArg := func() map[string]any {
 		return stringArg("branch", "Branch for facts (default: current)")
 	}
@@ -287,6 +293,21 @@ func mcpToolDefinitions() []map[string]any {
 			"name":        "brain_index_status",
 			"description": "Alias for brain_status focused on semantic index freshness, coverage, and counts.",
 			"inputSchema": objectSchema(nil, map[string]any{}),
+		},
+		{
+			"name":        "brain_index_repository",
+			"description": "Build or refresh the local semantic index for a repository path. Local-only; does not publish artifacts.",
+			"inputSchema": objectSchema(nil, map[string]any{"path": stringArg("path", "Local repository path (default: current repo)"), "profile": stringArg("profile", "Provider profile: full, fast, or syntax-only"), "sem_binary": stringArg("sem_binary", "Entire CLI binary exposing `sem` (default: entire)"), "worktree": boolArg("worktree", "Index dirty worktree content"), "force": boolArg("force", "Replace the current semantic snapshot")}),
+		},
+		{
+			"name":        "brain_list_projects",
+			"description": "List locally indexed brain projects and semantic index counts.",
+			"inputSchema": objectSchema(nil, map[string]any{}),
+		},
+		{
+			"name":        "brain_delete_project",
+			"description": "Delete a local brain project by repo_key, or the current repo project when repo_key is omitted. This removes local generated brain data only.",
+			"inputSchema": objectSchema(nil, map[string]any{"repo_key": stringArg("repo_key", "Repository key to delete (default: current repo)")}),
 		},
 		{
 			"name":        "brain_search_code",
@@ -413,6 +434,51 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			target = opts.Env.RepoRoot
 		}
 		err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, failOn: semanticAuditFailOnNone}, target)
+	case "brain_index_repository":
+		path, stringErr := mcpOptionalString(params.Arguments, "path")
+		if stringErr != nil {
+			err = stringErr
+			break
+		}
+		if strings.TrimSpace(path) == "" {
+			path = "."
+			if opts.Env.RepoRoot != "" {
+				path = opts.Env.RepoRoot
+			}
+		}
+		profile, profileErr := mcpOptionalString(params.Arguments, "profile")
+		if profileErr != nil {
+			err = profileErr
+			break
+		}
+		semBinary, semErr := mcpOptionalString(params.Arguments, "sem_binary")
+		if semErr != nil {
+			err = semErr
+			break
+		}
+		if strings.TrimSpace(semBinary) == "" {
+			semBinary = "entire"
+		}
+		worktree, boolErr := mcpBool(params.Arguments, "worktree")
+		if boolErr != nil {
+			err = boolErr
+			break
+		}
+		force, boolErr := mcpBool(params.Arguments, "force")
+		if boolErr != nil {
+			err = boolErr
+			break
+		}
+		err = runSemanticIndex(ctx, cmd, opts, semanticIndexOptions{semBinary: semBinary, profile: strings.TrimSpace(profile), worktree: worktree, force: force}, path)
+	case "brain_list_projects":
+		err = runMCPListProjects(cmd, opts)
+	case "brain_delete_project":
+		repoKey, stringErr := mcpOptionalString(params.Arguments, "repo_key")
+		if stringErr != nil {
+			err = stringErr
+			break
+		}
+		err = runMCPDeleteProject(ctx, cmd, opts, strings.TrimSpace(repoKey))
 	case "brain_brief":
 		task, stringErr := mcpOptionalString(params.Arguments, "task")
 		if stringErr != nil {
@@ -668,6 +734,104 @@ func requireMCPQuery(query string) error {
 	return nil
 }
 
+type mcpProjectSummary struct {
+	RepoKey     string   `json:"repo_key"`
+	BrainDir    string   `json:"brain_dir"`
+	GeneratedAt string   `json:"generated_at,omitempty"`
+	Semantic    bool     `json:"semantic"`
+	Files       int      `json:"files,omitempty"`
+	Symbols     int      `json:"symbols,omitempty"`
+	Relations   int      `json:"relations,omitempty"`
+	Languages   []string `json:"languages,omitempty"`
+	Profile     string   `json:"profile,omitempty"`
+}
+
+func runMCPListProjects(cmd *cobra.Command, opts Options) error {
+	dirs, err := resolvePluginDirs(opts.Env)
+	if err != nil {
+		return err
+	}
+	root := filepath.Join(dirs.Data, repoStoreDirName)
+	var projects []mcpProjectSummary
+	if err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if d.Name() != exportManifestFileName {
+			return nil
+		}
+		brainDir := filepath.Dir(path)
+		manifest, err := loadBrainManifest(brainDir)
+		if err != nil {
+			return nil
+		}
+		summary := mcpProjectSummary{
+			RepoKey:     manifest.RepoKey,
+			BrainDir:    brainDir,
+			GeneratedAt: manifest.GeneratedAt.Format(time.RFC3339),
+		}
+		if manifest.Sources != nil && manifest.Sources.Semantic != nil {
+			semantic := manifest.Sources.Semantic
+			summary.Semantic = true
+			summary.Files = semantic.Files
+			summary.Symbols = semantic.Symbols
+			summary.Relations = semantic.Relations
+			summary.Languages = nonNilStrings(semantic.Languages)
+			summary.Profile = semantic.Profile
+		}
+		projects = append(projects, summary)
+		return nil
+	}); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	sort.Slice(projects, func(i, j int) bool { return projects[i].RepoKey < projects[j].RepoKey })
+	return writeJSON(cmd, struct {
+		Projects []mcpProjectSummary `json:"projects"`
+	}{Projects: projects})
+}
+
+func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, repoKey string) error {
+	var brainDir string
+	var err error
+	if repoKey == "" {
+		target := "."
+		if opts.Env.RepoRoot != "" {
+			target = opts.Env.RepoRoot
+		}
+		repoDir, local, resolveErr := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		if !local {
+			return fmt.Errorf("brain_delete_project requires a local repository path: %s", target)
+		}
+		storage, storageErr := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+		if storageErr != nil {
+			return storageErr
+		}
+		repoKey = storage.Key
+		brainDir = storage.BrainDir
+	} else {
+		brainDir, err = brainDirForKey(opts.Env, repoKey)
+		if err != nil {
+			return err
+		}
+	}
+	if err := rejectSymlinkedBrainRoot(brainDir); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.RemoveAll(brainDir); err != nil {
+		return fmt.Errorf("delete project %s: %w", repoKey, err)
+	}
+	return writeJSON(cmd, struct {
+		DeletedRepoKey string `json:"deleted_repo_key"`
+		BrainDir       string `json:"brain_dir"`
+	}{DeletedRepoKey: repoKey, BrainDir: brainDir})
+}
+
 func validateMCPToolArguments(tool string, args map[string]any) error {
 	allowed := map[string]bool{}
 	add := func(keys ...string) {
@@ -676,8 +840,12 @@ func validateMCPToolArguments(tool string, args map[string]any) error {
 		}
 	}
 	switch tool {
-	case "brain_status", "brain_index_status", "brain_get_graph_schema", "brain_get_architecture":
+	case "brain_status", "brain_index_status", "brain_list_projects", "brain_get_graph_schema", "brain_get_architecture":
 		// no arguments
+	case "brain_index_repository":
+		add("path", "profile", "sem_binary", "worktree", "force")
+	case "brain_delete_project":
+		add("repo_key")
 	case "brain_brief":
 		add("task", "limit")
 	case "brain_query", "brain_search", "brain_vsearch":

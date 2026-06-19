@@ -573,6 +573,7 @@ Specialist tools (symbol graph + regression analysis — what the verbs can't do
   entire brain inspect search-graph "<query>" --json
   entire brain inspect query-graph "type:CALLS <query>" --json
   entire brain inspect graph-schema --json
+  entire brain inspect graph-ui semantic-graph.html
   entire brain inspect snippet <symbol-or-id> --json
   entire brain inspect trace-path <from-symbol> <to-symbol> --json
   entire brain inspect dead-code --json
@@ -613,6 +614,7 @@ func newBrainInspectCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newInspectSearchGraphCommand(opts))
 	cmd.AddCommand(newInspectQueryGraphCommand(opts))
 	cmd.AddCommand(newInspectGraphSchemaCommand(opts))
+	cmd.AddCommand(newInspectGraphUICommand(opts))
 	cmd.AddCommand(newInspectSnippetCommand(opts))
 	cmd.AddCommand(newInspectTracePathCommand(opts))
 	cmd.AddCommand(newInspectDeadCodeCommand(opts))
@@ -667,6 +669,25 @@ func newInspectGraphSchemaCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&graphOpts.json, "json", false, "Emit machine-readable JSON")
+	return cmd
+}
+
+func newInspectGraphUICommand(opts Options) *cobra.Command {
+	uiOpts := semanticGraphUIOptions{limit: 500}
+	cmd := &cobra.Command{
+		Use:   "graph-ui [output.html]",
+		Short: "Write a local static HTML semantic graph explorer",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			output := "semantic-graph.html"
+			if len(args) == 1 {
+				output = args[0]
+			}
+			return runSemanticGraphUI(cmd, opts, uiOpts, output)
+		},
+	}
+	cmd.Flags().IntVar(&uiOpts.limit, "limit", 500, "Maximum relation edges to embed")
+	cmd.Flags().BoolVar(&uiOpts.json, "json", false, "Emit machine-readable JSON")
 	return cmd
 }
 

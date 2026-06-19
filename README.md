@@ -134,6 +134,7 @@ The MCP adapter is stdio-only and exposes local tools `brain_status`
 (`brain_index_status` alias), `brain_brief`, the unified retrieval verbs
 `brain_query` (hybrid lexical+vector over facts/history/docs), `brain_search`,
 `brain_vsearch`, `brain_get`, and `brain_multi_get`, the code and graph tools
+`brain_index_repository`, `brain_list_projects`, `brain_delete_project`,
 `brain_code`/`brain_search_code`, `brain_context`, `brain_impact`,
 `brain_changes`/`brain_detect_changes`, `brain_tests`, `brain_boundaries`,
 `brain_search_graph`, `brain_query_graph`, `brain_get_graph_schema`,
@@ -241,6 +242,7 @@ entire brain inspect code "ValidateToken" --json         # find a symbol in the 
 entire brain inspect search-graph "ValidateToken" --json # search symbols and relations
 entire brain inspect query-graph "type:CALLS Validate" --json
 entire brain inspect graph-schema --json                 # relation/schema inventory
+entire brain inspect graph-ui semantic-graph.html        # local static graph explorer
 entire brain inspect snippet "ValidateToken" --json      # source for one symbol
 entire brain inspect trace-path "caller" "callee" --json # directed relation path
 entire brain inspect dead-code --json                    # heuristic unused callable candidates
@@ -250,6 +252,7 @@ entire brain inspect impact "main" --json                # impact set via typed 
 entire brain inspect changes --json                      # map the working-tree diff to symbols
 entire brain inspect tests "main" --json                 # test suggestions for a symbol
 entire brain inspect boundaries --kind tool --json       # route / tool / workflow boundaries
+entire brain workspace inspect graph platform --json     # per-repo graph + shared contracts
 entire brain inspect regressions "<task>" --json         # suspected regressions vs session memory
 entire brain inspect blame <fact-id> --json              # the source anchors a fact was derived from
 ```

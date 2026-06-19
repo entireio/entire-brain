@@ -1790,6 +1790,9 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 		"schema": func(c *cobra.Command) error {
 			return runSemanticGraphSchema(c, opts, semanticGraphSchemaOptions{json: true})
 		},
+		"ui": func(c *cobra.Command) error {
+			return runSemanticGraphUI(c, opts, semanticGraphUIOptions{limit: 10, json: true}, filepath.Join(repoDir, "graph.html"))
+		},
 		"query": func(c *cobra.Command) error {
 			return runSemanticQueryGraph(c, opts, semanticGraphQueryOptions{limit: 10, json: true}, "type:CALLS")
 		},
@@ -1809,7 +1812,20 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 		if err := run(readCmd); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if !strings.Contains(out.String(), "ValidateToken") && name != "schema" {
+		if name == "schema" && (!strings.Contains(out.String(), `"metrics"`) || !strings.Contains(out.String(), `"hotspots"`)) {
+			t.Fatalf("schema output missing graph metrics:\n%s", out.String())
+		}
+		if name == "ui" {
+			htmlPath := filepath.Join(repoDir, "graph.html")
+			data, err := os.ReadFile(htmlPath)
+			if err != nil {
+				t.Fatalf("read graph ui: %v", err)
+			}
+			if !strings.Contains(string(data), "Semantic Graph") || !strings.Contains(string(data), "CallValidateToken") {
+				t.Fatalf("graph ui missing expected embedded graph data:\n%s", data)
+			}
+		}
+		if !strings.Contains(out.String(), "ValidateToken") && name != "schema" && name != "ui" {
 			t.Fatalf("%s output missing fixture symbol:\n%s", name, out.String())
 		}
 	}

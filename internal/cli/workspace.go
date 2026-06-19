@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,6 +76,11 @@ type workspaceImpactOptions struct {
 	json  bool
 }
 
+type workspaceGraphOptions struct {
+	limit int
+	json  bool
+}
+
 type workspaceContextResult struct {
 	RepoKey   string                 `json:"repo_key"`
 	Name      string                 `json:"name,omitempty"`
@@ -108,6 +114,24 @@ type workspaceImpactResult struct {
 	Symbols   []semanticRecord       `json:"symbols"`
 	Relations []semanticRecord       `json:"relations"`
 	Error     string                 `json:"error,omitempty"`
+}
+
+type workspaceGraphResult struct {
+	RepoKey       string                 `json:"repo_key"`
+	Name          string                 `json:"name,omitempty"`
+	Freshness     workspaceRepoFreshness `json:"freshness"`
+	Counts        map[string]int         `json:"counts,omitempty"`
+	Languages     []string               `json:"languages,omitempty"`
+	RelationTypes []string               `json:"relation_types,omitempty"`
+	Metrics       graphMetrics           `json:"metrics,omitempty"`
+	Error         string                 `json:"error,omitempty"`
+}
+
+type workspaceGraphContract struct {
+	Endpoint string   `json:"endpoint"`
+	Type     string   `json:"type"`
+	Repos    []string `json:"repos"`
+	Count    int      `json:"count"`
 }
 
 type workspaceSummary struct {
@@ -167,6 +191,7 @@ func newWorkspaceInspectCommand(opts Options) *cobra.Command {
 	}
 	cmd.AddCommand(newWorkspaceContextCommand(opts))
 	cmd.AddCommand(newWorkspaceImpactCommand(opts))
+	cmd.AddCommand(newWorkspaceGraphCommand(opts))
 	cmd.AddCommand(newWorkspaceRegressionsCommand(opts))
 	return cmd
 }
@@ -336,6 +361,21 @@ func newWorkspaceImpactCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&impactOpts.limit, "limit", 20, "Maximum symbols per repo")
 	cmd.Flags().IntVar(&impactOpts.depth, "depth", 1, "Relation traversal depth")
 	cmd.Flags().BoolVar(&impactOpts.json, "json", false, "Emit machine-readable JSON")
+	return cmd
+}
+
+func newWorkspaceGraphCommand(opts Options) *cobra.Command {
+	graphOpts := workspaceGraphOptions{limit: 50}
+	cmd := &cobra.Command{
+		Use:   "graph <workspace>",
+		Short: "Summarize semantic graph schemas and cross-repo contracts in a workspace",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorkspaceGraph(cmd, opts, graphOpts, args[0])
+		},
+	}
+	cmd.Flags().IntVar(&graphOpts.limit, "limit", 50, "Maximum cross-repo contracts to return")
+	cmd.Flags().BoolVar(&graphOpts.json, "json", false, "Emit machine-readable JSON")
 	return cmd
 }
 
@@ -575,6 +615,152 @@ func runWorkspaceImpact(cmd *cobra.Command, opts Options, impactOpts workspaceIm
 		}
 	}
 	return nil
+}
+
+func runWorkspaceGraph(cmd *cobra.Command, opts Options, graphOpts workspaceGraphOptions, workspaceName string) error {
+	if graphOpts.limit <= 0 {
+		return errors.New("--limit must be greater than zero")
+	}
+	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	if err != nil {
+		return err
+	}
+	var results []workspaceGraphResult
+	contractIndex := map[string]map[string]int{}
+	for _, repo := range manifest.Repos {
+		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
+		result := workspaceGraphResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
+		brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
+		if err != nil {
+			return err
+		}
+		unlock, err := acquireSemanticIndexLock(brainDir)
+		if err != nil {
+			result.Error = err.Error()
+			results = append(results, result)
+			continue
+		}
+		source, err := workspaceSemanticSource(brainDir)
+		if err != nil {
+			unlock()
+			result.Error = err.Error()
+			results = append(results, result)
+			continue
+		}
+		storePath, err := validateSemanticDeclaredStore(brainDir, source)
+		if err != nil {
+			unlock()
+			result.Error = err.Error()
+			results = append(results, result)
+			continue
+		}
+		db, err := sql.Open(sqliteDriverName, storePath)
+		if err != nil {
+			unlock()
+			result.Error = err.Error()
+			results = append(results, result)
+			continue
+		}
+		result.Counts = map[string]int{"files": source.Files, "symbols": source.Symbols, "relations": source.Relations, "externals": source.Externals}
+		result.Languages = nonNilStrings(source.Languages)
+		result.RelationTypes, err = graphDistinctStrings(db, `SELECT type FROM relations WHERE trim(type) <> '' GROUP BY type ORDER BY type`)
+		if err == nil {
+			result.Metrics, err = semanticGraphMetrics(db)
+		}
+		if err == nil {
+			err = collectWorkspaceExternalContracts(db, repo.RepoKey, contractIndex)
+		}
+		if closeErr := db.Close(); err == nil {
+			err = closeErr
+		}
+		unlock()
+		if err != nil {
+			result.Error = err.Error()
+		}
+		results = append(results, result)
+	}
+	contracts := workspaceGraphContracts(contractIndex, graphOpts.limit)
+	if graphOpts.json {
+		return writeJSON(cmd, struct {
+			Workspace string                   `json:"workspace"`
+			Results   []workspaceGraphResult   `json:"results"`
+			Contracts []workspaceGraphContract `json:"contracts"`
+		}{Workspace: manifest.Name, Results: results, Contracts: contracts})
+	}
+	for _, result := range results {
+		if result.Error != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s error %s\n", result.RepoKey, result.Error)
+			continue
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s files:%d symbols:%d relations:%d\n", result.RepoKey, result.Counts["files"], result.Counts["symbols"], result.Counts["relations"])
+	}
+	for _, contract := range contracts {
+		fmt.Fprintf(cmd.OutOrStdout(), "contract %s %s repos:%s count:%d\n", contract.Type, contract.Endpoint, strings.Join(contract.Repos, ","), contract.Count)
+	}
+	return nil
+}
+
+func collectWorkspaceExternalContracts(db *sql.DB, repoKey string, out map[string]map[string]int) error {
+	rows, err := db.Query(`
+SELECT CASE
+  WHEN from_id LIKE 'external:%' THEN from_id
+  ELSE to_id
+END AS endpoint, type, COUNT(*) AS c
+FROM relations
+WHERE from_id LIKE 'external:%' OR to_id LIKE 'external:%'
+GROUP BY endpoint, type
+ORDER BY endpoint, type`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var endpoint, typ string
+		var count int
+		if err := rows.Scan(&endpoint, &typ, &count); err != nil {
+			return err
+		}
+		key := typ + "\x00" + endpoint
+		if out[key] == nil {
+			out[key] = map[string]int{}
+		}
+		out[key][repoKey] += count
+	}
+	return rows.Err()
+}
+
+func workspaceGraphContracts(index map[string]map[string]int, limit int) []workspaceGraphContract {
+	var contracts []workspaceGraphContract
+	for key, repoCounts := range index {
+		if len(repoCounts) < 2 {
+			continue
+		}
+		typ, endpoint, _ := strings.Cut(key, "\x00")
+		repos := make([]string, 0, len(repoCounts))
+		count := 0
+		for repo, n := range repoCounts {
+			repos = append(repos, repo)
+			count += n
+		}
+		sort.Strings(repos)
+		contracts = append(contracts, workspaceGraphContract{Endpoint: endpoint, Type: typ, Repos: repos, Count: count})
+	}
+	sort.Slice(contracts, func(i, j int) bool {
+		if contracts[i].Count == contracts[j].Count {
+			if contracts[i].Type == contracts[j].Type {
+				return contracts[i].Endpoint < contracts[j].Endpoint
+			}
+			return contracts[i].Type < contracts[j].Type
+		}
+		return contracts[i].Count > contracts[j].Count
+	})
+	if len(contracts) > limit {
+		contracts = contracts[:limit]
+	}
+	if contracts == nil {
+		return []workspaceGraphContract{}
+	}
+	return contracts
 }
 
 func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspaceRetrieveOptions, mode retrievalMode, workspaceName, query string) error {
