@@ -36,6 +36,21 @@ entire plugin install ./entire-brain
 entire brain
 ```
 
+For a one-command local source install, run:
+
+```sh
+scripts/install-local.sh
+```
+
+For local release archives with `SHA256SUMS`, run:
+
+```sh
+scripts/release.sh
+```
+
+See [docs/operations.md](docs/operations.md) for target, cgo, and shared
+baseline details.
+
 ## Common Workflows
 
 ### Create Or Refresh A Brain
