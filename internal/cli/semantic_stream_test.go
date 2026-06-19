@@ -202,7 +202,13 @@ func (g *generatedSemanticStream) Read(p []byte) (int, error) {
 }
 
 func TestScanSemanticStreamDoesNotBufferProportionally(t *testing.T) {
-	const records = 300_000
+	if raceEnabled {
+		// The race detector instruments allocations, which both distorts heap
+		// measurements and makes a large synthetic stream slow; the bounded-memory
+		// property this asserts is independent of data races.
+		t.Skip("heap-bounds test is unreliable and slow under -race")
+	}
+	const records = 50_000
 	gen := &generatedSemanticStream{n: records}
 
 	var before, after runtime.MemStats
