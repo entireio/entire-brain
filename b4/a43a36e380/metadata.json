@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "b4a43a36e380",
+  "strategy": "manual-commit",
+  "branch": "sem-streaming-ingestion",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "internal/cli/semantic_stream_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b4/a43a36e380/0/metadata.json",
+      "transcript": "/b4/a43a36e380/0/full.jsonl",
+      "content_hash": "/b4/a43a36e380/0/content_hash.txt",
+      "prompt": "/b4/a43a36e380/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 284,
+    "cache_creation_tokens": 17149,
+    "cache_read_tokens": 4627323,
+    "output_tokens": 11521,
+    "api_call_count": 13
+  }
+}
