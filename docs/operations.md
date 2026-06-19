@@ -47,8 +47,13 @@ ENTIRE_RELEASE_TARGETS="linux/amd64" scripts/release.sh
 The default release build uses the pure-Go fallback stack with `CGO_ENABLED=0`,
 which is the portable distribution path. To build cgo artifacts, set
 `BUILD_TAGS="brain_cgo sqlite_fts5"` and provide the matching platform compiler.
-The script records checksums for artifacts it successfully builds; it does not
-sign artifacts or publish them.
+The script records checksums for artifacts it successfully builds; it also signs
+archives when a local signing key is explicitly configured:
+
+- `COSIGN_KEY=<key-ref>` with `cosign` on `PATH` writes `<archive>.sig`.
+- `GPG_SIGNING_KEY=<key-id>` with `gpg` on `PATH` writes `<archive>.asc`.
+
+The script does not publish artifacts.
 
 ## Shared Baselines
 
