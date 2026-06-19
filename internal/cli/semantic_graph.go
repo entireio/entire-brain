@@ -909,7 +909,21 @@ func loadGraphSymbols(db *sql.DB, ids []string) ([]semanticRecord, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanGraphSymbols(rows)
+	symbols, err := scanGraphSymbols(rows)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]semanticRecord, len(symbols))
+	for _, symbol := range symbols {
+		byID[symbol.ID] = symbol
+	}
+	ordered := make([]semanticRecord, 0, len(ids))
+	for _, id := range ids {
+		if symbol, ok := byID[id]; ok {
+			ordered = append(ordered, symbol)
+		}
+	}
+	return nonNilRecords(ordered), nil
 }
 
 func scanGraphSymbols(rows *sql.Rows) ([]semanticRecord, error) {

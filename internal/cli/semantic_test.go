@@ -1825,6 +1825,18 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 				t.Fatalf("graph ui missing expected embedded graph data:\n%s", data)
 			}
 		}
+		if name == "trace" {
+			var result semanticTracePathResult
+			if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+				t.Fatalf("trace JSON invalid: %v\n%s", err, out.String())
+			}
+			if !result.Found || len(result.Path) != 2 {
+				t.Fatalf("trace path length = %+v", result)
+			}
+			if result.Path[0].Name != "CallValidateToken" || result.Path[1].Name != "ValidateToken" {
+				t.Fatalf("trace path order = %+v", result.Path)
+			}
+		}
 		if !strings.Contains(out.String(), "ValidateToken") && name != "schema" && name != "ui" {
 			t.Fatalf("%s output missing fixture symbol:\n%s", name, out.String())
 		}
