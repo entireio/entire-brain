@@ -71,6 +71,12 @@ dirty worktree represented. Bundle export rejects worktree-backed semantic index
 without touching seed or session sources. `reset --force` removes the generated
 brain directory for the repo.
 
+`bench semantic <repo> --profile syntax-only --sem-binary <entire>` measures the
+end-to-end semantic Brain path in an isolated temporary plugin store. It reports
+wall time, peak RSS, provider/schema metadata, and file/symbol/relation counts
+without overwriting the normal local brain for that repository. Add `--json` for
+machine-readable output and `--progress` for phase updates.
+
 ### Keep The Brain Fresh Automatically
 
 ```sh
