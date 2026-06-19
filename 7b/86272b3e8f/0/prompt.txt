@@ -1,0 +1,1 @@
+Only tiny polish: [semantic_brain_plan.md (line 255)](/Users/thomi/Projects/entire-brain/docs/semantic_brain_plan.md:255) uses a json fenced block with // comments inside it. That is invalid JSON. I would either change the fence to jsonc or split the comments outside the block. Not a blocker.

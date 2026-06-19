@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.6.3-nightly.202605190723.fd212937",
+  "checkpoint_id": "7b86272b3e8f",
+  "session_id": "562a80a2-826e-4b3b-ab5f-b53b00b516c8",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-19T12:42:02.661078Z",
+  "branch": "sem-streaming-ingestion",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/semantic_brain_plan.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "802df0bb152d",
+  "checkpoint_transcript_start": 824,
+  "transcript_lines_at_start": 824,
+  "token_usage": {
+    "input_tokens": 6,
+    "cache_creation_tokens": 2359,
+    "cache_read_tokens": 1028944,
+    "output_tokens": 1433,
+    "api_call_count": 3
+  },
+  "session_metrics": {
+    "turn_count": 10
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-19T12:42:02.611818Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 0,
+    "total_lines_changed": 0,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 80,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".claude/settings.local.json": 80
+      }
+    }
+  ]
+}
