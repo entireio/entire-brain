@@ -1,0 +1,64 @@
+Work only in `entire-brain`.
+
+Context:
+PR #46 implements streamed `entire-sem` ingestion and mostly satisfies the Brain-side streaming plan. Review found one real follow-up plus two contract/doc cleanups.
+
+Goal:
+Close the remaining Brain-side streaming ingestion gaps so initial index, repair, stale validation, bundle/import paths, and docs all handle the streamed `entire-sem` contract consistently.
+
+Tasks:
+
+1. Fix repair/rebuild summary handling
+- Inspect `readSemanticSnapshotSummary`.
+- It currently reads the first header and counts symbol/relation records, but does not merge the trailing `summary`.
+- Update it so when a `record_type:"summary"` line is present:
+  - parse it as `semanticSummary`
+  - sanitize warnings/partial failures as appropriate
+  - call `mergeSemanticSummary(&header, &summary)`
+  - preserve existing behavior when no summary exists
+- Ensure `runSemanticRepair` rebuilds SQLite using summary-merged warning/partial-failure metadata.
+- Add a test where the lean header has no warnings, the summary has a warning, `repair` runs, and the rebuilt store/metrics/manifest still reflect summary metadata.
+
+2. Re-check stale validation and bundle/import paths
+- Find every caller of `readSemanticSnapshotSummary`.
+- Confirm each caller behaves correctly with streamed snapshots containing:
+  - lean header
+  - file/symbol/relation records
+  - external records
+  - unknown future records
+  - final summary
+- Add or adjust tests where needed:
+  - `semantic stale` should validate a streamed snapshot with summary.
+  - bundle import/export validation should tolerate summary/external/unknown records.
+  - fallback counts should still work for older snapshots with no summary.
+
+3. Fix Brain docs to match the real `entire-sem` contract
+- Current docs say the final summary carries `profile`, `relation_set`, `skipped_relation_families`, and `profile_limits`.
+- Current `entire-sem` actually emits those on the lean header, while summary carries aggregate metadata like languages, warnings, partial failures, stats, and completeness.
+- Update docs accordingly:
+  - lean header: identity, schema/provider, profile, relation set, skipped families, profile limits
+  - final summary: authoritative aggregate languages/warnings/partial failures/stats/completeness
+  - Brain merges both, with summary overriding aggregate fields.
+
+4. Resolve or document the non-streaming runner fallback
+- `streamSemanticSnapshot` currently falls back to `runner.Run(...)` when the runner does not implement `CommandStreamer`, which buffers stdout.
+- Production `ExecRunner` streams, but the docs say Brain never buffers full provider output.
+- Pick one:
+  - Preferred: make semantic indexing require `CommandStreamer` and return a clear error if unavailable.
+  - Alternative: keep the fallback but explicitly document that only the production `ExecRunner` path is memory-bounded, while legacy/custom test runners may buffer.
+- If making streaming required, update tests/fakes to implement `Stream`.
+
+5. Verification
+- Run `go test ./...`.
+- Run `git diff --check origin/main...HEAD`.
+- Include in PR comment:
+  - summary of repair fix
+  - affected callers of `readSemanticSnapshotSummary`
+  - test results
+
+Acceptance:
+- Initial index still streams provider output and passes existing tests.
+- Repair/rebuild paths merge final summary metadata.
+- Stale/bundle/import validation tolerate streamed snapshots.
+- Docs accurately describe header-vs-summary fields.
+- No full stdout buffering remains in the production semantic index path.
