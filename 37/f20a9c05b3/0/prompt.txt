@@ -1,0 +1,239 @@
+45 is already merged to main. Do a pull of all remote branches.
+
+---
+
+word
+
+---
+
+Fix entire-sem streaming-ingestion contract bugs (branch sem-streaming-ingestion)
+  
+  Work only in entire-brain. Reviewing internal/cli/semantic_stream.go + semantic.go against real entire-sem schema-1.1
+  streaming output surfaced one blocker and one data-loss issue. Verified: a real header currently fails to parse with
+  json: cannot unmarshal object into Go struct field semanticHeader.completeness of type string, so streaming ingestion
+  aborts on every real snapshot. Brain's tests pass only because their fixtures hand-write "completeness":"partial" (a
+  string the provider never emits).
+                                                                                                            
+  Ground truth (real provider shapes)
+
+  - completeness is an object {"languages":{...},"relations":{...}} on both the header and the summary. On the lean
+  header it is {"languages":null,"relations":null}.
+  - The completeness level string (ok/degraded/unsafe) lives at stats.completeness_level, not at completeness.
+  - Symbols carry container_id and body_hash. Relations carry relation_scope, resolution, target_kind, evidence. Files
+  carry bytes.
+
+  Fix 1 (BLOCKER): model completeness as an object
+
+  1. internal/cli/semantic.go: change semanticHeader.Completeness from string to json.RawMessage (keep
+  json:"completeness,omitempty").
+  2. internal/cli/semantic_stream.go: change semanticSummary.Completeness from string to json.RawMessage.
+  3. In mergeSemanticSummary, change if s.Completeness != "" to if len(s.Completeness) > 0.
+  4. Wherever the completeness level is needed, read stats.completeness_level by parsing the Stats RawMessage:
+  var st struct{ CompletenessLevel string `json:"completeness_level"` }
+  _ = json.Unmarshal(summary.Stats, &st) // st.CompletenessLevel: "ok"|"degraded"|"unsafe"
+  4. (semanticCompletenessAxis already derives state from PartialFailures, so the axis needs no change.)
+  5. Update existing assertions/fixtures that treat completeness as a string:
+    - semantic_stream_test.go:~60 (res.summary.Completeness != "partial") and :~286 (source.Completeness) — compare
+  against the RawMessage/object now.
+    - semantic_stream_test.go semanticStreamSummaryFixture() and docs/semantic_brain_plan.md (~line 254/258): replace
+  "completeness":"partial" with the object shape and move the level into stats.completeness_level.
+
+  Fix 2 (silent data loss): semanticRecord re-marshal drops new fields
+
+  file/symbol/relation are decoded into semanticRecord and re-marshaled, but the struct omits: symbol container_id +
+  body_hash; relation relation_scope + resolution + target_kind + evidence; file bytes. (Externals/unknown are passed
+  verbatim — fine.) Pick one:
+  - Preferred: add those fields to semanticRecord so the contract round-trips (Evidence []struct{Kind,FilePath string; 
+  StartLine,EndLine int; Detail string}; ContainerID, BodyHash, RelationScope, Resolution, TargetKind string; Bytes 
+  int).
+  - Or: pass file/symbol/relation through verbatim (like externals) after ignore-filtering.
+  - If you deliberately keep a minimal projection, document which fields are dropped and why.
+
+  Fix 3 (optional): expose the profile
+
+  streamSemanticSnapshot hardcodes full (args := []string{"sem","snapshot",...}). Now that the header carries
+  profile/relation_set/skipped_relation_families, consider plumbing --profile fast|syntax-only.
+
+  Fixture — save verbatim as internal/cli/testdata/sem_snapshot_stream.ndjson
+
+  Real entire-sem output (full profile, --worktree), only repo_root blanked. Exercises the object completeness, field
+  symbols with container_id, relations with resolution/evidence, an external, and the authoritative summary.
+
+  {"schema_version":"1.1","provider":"entire-sem","provider_version":"dev","repo_root":"","repo_key":"local/bank","commi
+  t":"","tree":"","languages":[],"capabilities":["ndjson","stable-symbol-id-v1","local-only","partial-failures"],"schema
+  _features":["boundary_source_locations","completeness_breakdown","language_versions","relation_evidence","relation_res
+  olution","relation_scope","relation_target_kind"],"language_versions":{"go-tree-sitter":"github.com/smacker/go-tree-si
+  tter"},"profile":"full","profile_limits":{"evidence":"full","call_resolution":"full"},"relation_set":["ACCESSES","CALL
+  S","CONTAINS","DEFINES","EMITS","EXTENDS","HANDLES_ROUTE","HANDLES_TOOL","HTTP_CALLS","IMPLEMENTS","IMPORTS","LISTENS_
+  ON","OVERRIDES","READS_FIELD","RESOURCE_DEPENDS_ON","SIMILAR_TO","TESTS","USES_TYPE","WRITES_FIELD"],"skipped_relation
+  _families":[],"warnings":[],"partial_failures":[],"stats":{"files":0,"parsed_files":0,"symbols":0,"relations":0,"parti
+  al_failures":0,"completeness_level":""},"completeness":{"languages":null,"relations":null}}
+  {"record_type":"file","id":"local/bank:file:account.go","path":"account.go","blob":"4f99ea763fdbbf88d1bb0ca2002f74a753
+  971295c30c6f653a067b02c25ec7d3","language":"Go","bytes":261}
+  {"record_type":"symbol","id":"local/bank:Go:account.go:type:Account","stable_id_version":"compound-v1","kind":"type","
+  name":"Account","qualified_name":"Account","file_path":"account.go","start_line":5,"end_line":8,"signature":"Account
+  struct","body_hash":"89bb9bc17c46f80c","language":"Go"}
+  {"record_type":"symbol","id":"local/bank:Go:account.go:field:Account.Owner","stable_id_version":"compound-v1","kind":"
+  field","name":"Owner","qualified_name":"Account.Owner","file_path":"account.go","start_line":6,"end_line":6,"signature
+  ":"Owner                                                                                                  
+  string","body_hash":"473287f8298dba71","language":"Go","container_id":"local/bank:Go:account.go:type:Account"}
+  {"record_type":"symbol","id":"local/bank:Go:account.go:field:Account.Balance","stable_id_version":"compound-v1","kind"
+  :"field","name":"Balance","qualified_name":"Account.Balance","file_path":"account.go","start_line":7,"end_line":7,"sig
+  nature":"Balance
+  int","body_hash":"6da88c34ba124c41","language":"Go","container_id":"local/bank:Go:account.go:type:Account"}
+  {"record_type":"symbol","id":"local/bank:Go:account.go:method:Account.Deposit","stable_id_version":"compound-v1","kind
+  ":"method","name":"Deposit","qualified_name":"Account.Deposit","file_path":"account.go","start_line":10,"end_line":12,
+  "signature":"func (a *Account) Deposit(amount
+  int)","body_hash":"f7464d636b5c4399","language":"Go","container_id":"local/bank:Go:account.go:type:Account"}
+  {"record_type":"symbol","id":"local/bank:Go:account.go:function:New","stable_id_version":"compound-v1","kind":"functio
+  n","name":"New","qualified_name":"New","file_path":"account.go","start_line":14,"end_line":17,"signature":"func
+  New(owner string) *Account","body_hash":"9ac4d239adeecf96","language":"Go"}
+  {"record_type":"relation","from_id":"local/bank:file:account.go","to_id":"local/bank:Go:account.go:type:Account","type
+  ":"DEFINES","confidence":1,"reason":"symbol parsed from
+  file","relation_scope":"file","resolution":"exact","target_kind":"symbol","warning_codes":[]}             
+  {"record_type":"relation","from_id":"local/bank:file:account.go","to_id":"local/bank:Go:account.go:field:Account.Owner
+  ","type":"DEFINES","confidence":1,"reason":"symbol parsed from
+  file","relation_scope":"file","resolution":"exact","target_kind":"symbol","warning_codes":[]}             
+  {"record_type":"relation","from_id":"local/bank:Go:account.go:type:Account","to_id":"local/bank:Go:account.go:field:Ac
+  count.Owner","type":"CONTAINS","confidence":1,"reason":"symbol qualified name is nested in
+  container","relation_scope":"file","resolution":"exact","target_kind":"symbol","warning_codes":[]}        
+  {"record_type":"relation","from_id":"local/bank:file:account.go","to_id":"local/bank:Go:account.go:field:Account.Balan
+  ce","type":"DEFINES","confidence":1,"reason":"symbol parsed from
+  file","relation_scope":"file","resolution":"exact","target_kind":"symbol","warning_codes":[]}             
+  {"record_type":"relation","from_id":"local/bank:Go:account.go:type:Account","to_id":"local/bank:Go:account.go:field:Ac
+  count.Balance","type":"CONTAINS","confidence":1,"reason":"symbol qualified name is nested in
+  container","relation_scope":"file","resolution":"exact","target_kind":"symbol","warning_codes":[]}        
+  {"record_type":"relation","from_id":"local/bank:file:account.go","to_id":"local/bank:Go:account.go:method:Account.Depo
+  sit","type":"DEFINES","confidence":1,"reason":"symbol parsed from
+  file","relation_scope":"file","resolution":"exact","target_kind":"symbol","warning_codes":[]}             
+  {"record_type":"relation","from_id":"local/bank:Go:account.go:type:Account","to_id":"local/bank:Go:account.go:method:A
+  ccount.Deposit","type":"CONTAINS","confidence":1,"reason":"symbol qualified name is nested in
+  container","relation_scope":"file","resolution":"exact","target_kind":"symbol","warning_codes":[]}        
+  {"record_type":"relation","from_id":"local/bank:file:account.go","to_id":"local/bank:Go:account.go:function:New","type
+  ":"DEFINES","confidence":1,"reason":"symbol parsed from
+  file","relation_scope":"file","resolution":"exact","target_kind":"symbol","warning_codes":[]}             
+  {"record_type":"relation","from_id":"local/bank:file:account.go","to_id":"external:import:strings","type":"IMPORTS","c
+  onfidence":0.8,"reason":"import declaration matched by language-specific
+  scanner","relation_scope":"external","resolution":"name_only","target_kind":"external","evidence":[{"kind":"import_sta
+  tement","file_path":"account.go","detail":"strings"}],"warning_codes":[]}
+  {"record_type":"relation","from_id":"local/bank:Go:account.go:method:Account.Deposit","to_id":"local/bank:Go:account.g
+  o:field:Account.Balance","type":"WRITES_FIELD","confidence":0.9,"reason":"field access resolved via inferred receiver
+  type","relation_scope":"file","resolution":"type_inferred","target_kind":"symbol","evidence":[{"kind":"field_access","
+  file_path":"account.go","start_line":10,"end_line":12,"detail":"a.Balance"}],"warning_codes":[]}
+  {"record_type":"relation","from_id":"local/bank:Go:account.go:method:Account.Deposit","to_id":"local/bank:Go:account.g
+  o:field:Account.Balance","type":"READS_FIELD","confidence":0.9,"reason":"field access resolved via inferred receiver
+  type","relation_scope":"file","resolution":"type_inferred","target_kind":"symbol","evidence":[{"kind":"field_access","
+  file_path":"account.go","start_line":10,"end_line":12,"detail":"a.Balance"}],"warning_codes":[]}
+  {"record_type":"relation","from_id":"local/bank:Go:account.go:method:Account.Deposit","to_id":"local/bank:Go:account.g
+  o:type:Account","type":"USES_TYPE","confidence":0.85,"reason":"type referenced in
+  signature","relation_scope":"file","resolution":"exact","target_kind":"symbol","evidence":[{"kind":"signature","file_p
+  ath":"account.go","start_line":10,"end_line":12,"detail":"Account"}],"warning_codes":[]}
+  {"record_type":"relation","from_id":"local/bank:Go:account.go:function:New","to_id":"local/bank:Go:account.go:type:Acc
+  ount","type":"USES_TYPE","confidence":0.85,"reason":"type referenced in
+  signature","relation_scope":"file","resolution":"exact","target_kind":"symbol","evidence":[{"kind":"signature","file_p
+  ath":"account.go","start_line":14,"end_line":17,"detail":"Account"}],"warning_codes":[]}
+  {"record_type":"external","id":"external:import:strings","kind":"import","value":"strings","external":true}
+  {"record_type":"summary","languages":["Go"],"warnings":[{"code":"W_WORKTREE_SNAPSHOT","severity":"warning","effect_on_
+  semantic_completeness":"snapshot records are read from the working tree because --worktree was
+  requested"}],"partial_failures":[],"stats":{"files":1,"parsed_files":1,"symbols":5,"relations":13,"partial_failures":0
+  ,"completeness_level":"ok"},"completeness":{"languages":{"Go":{"files":1,"symbols":5}},"relations":{"CONTAINS":3,"DEFI
+  NES":5,"IMPORTS":1,"READS_FIELD":1,"USES_TYPE":2,"WRITES_FIELD":1}}}                                
+                                                                                                            
+  Tests — add to internal/cli/semantic_stream_test.go
+
+  (Needs imports bytes, encoding/json, os, strings, testing.) The first test fails today on the header-parse and passes
+  once Fix 1 lands; the second enforces Fix 2.
+
+  // TestScanSemanticStreamRealProviderOutput ingests a real entire-sem snapshot                      
+  // (schema 1.1, streaming). It fails before Fix 1 because completeness is an                              
+  // object, not a string, and the lean header cannot be parsed.
+  func TestScanSemanticStreamRealProviderOutput(t *testing.T) {
+        data, err := os.ReadFile("testdata/sem_snapshot_stream.ndjson")
+        if err != nil {
+                t.Fatal(err)
+        }
+  
+        out := &bytes.Buffer{}                                                                              
+        res, err := scanSemanticStream(bytes.NewReader(data), out, semanticStreamScanConfig{})
+        if err != nil {
+                t.Fatalf("scan real provider stream: %v", err)
+        }
+        if !res.haveHeader || res.summary == nil {
+                t.Fatalf("expected header and summary (haveHeader=%v summary=%v)", res.haveHeader, res.summary != nil)
+        }
+
+        // completeness is a JSON object on the summary (the breakdown), not a level.
+        if !bytes.HasPrefix(bytes.TrimSpace(res.summary.Completeness), []byte("{")) {
+                t.Fatalf("summary completeness should be a JSON object, got %s", res.summary.Completeness)
+        }
+        var comp struct {
+                Relations map[string]int `json:"relations"`
+        }
+        if err := json.Unmarshal(res.summary.Completeness, &comp); err != nil {                             
+                t.Fatalf("parse completeness object: %v", err)
+        }
+        if comp.Relations["DEFINES"] != 5 {
+                t.Fatalf("completeness.relations DEFINES = %d, want 5", comp.Relations["DEFINES"])
+        }
+
+        // The level string lives in stats.completeness_level.
+        var stats struct {
+                Symbols           int    `json:"symbols"`
+                CompletenessLevel string `json:"completeness_level"`
+        }                                                                                                   
+        if err := json.Unmarshal(res.summary.Stats, &stats); err != nil {
+                t.Fatalf("parse summary stats: %v", err)
+        }
+        if stats.CompletenessLevel != "ok" || stats.Symbols != 5 {
+                t.Fatalf("summary stats = %+v, want completeness_level=ok symbols=5", stats)
+        }                                                                                                   
+
+        // The summary is authoritative: merging it fills the lean header.
+        header := res.header                                                                                
+        mergeSemanticSummary(&header, res.summary)
+        if len(header.Languages) != 1 || header.Languages[0] != "Go" {
+                t.Fatalf("merged languages = %v, want [Go]", header.Languages)
+        }
+        found := false
+        for _, w := range header.Warnings {
+                if w.Code == "W_WORKTREE_SNAPSHOT" {
+                        found = true
+                }
+        }
+        if !found {                                                                                         
+                t.Fatalf("merged header missing summary warning: %+v", header.Warnings)
+        }
+  }
+
+  // TestScanSemanticStreamPreservesSchema11Fields enforces Fix 2: the filtered                       
+  // stream must not drop the schema-1.1 symbol/relation fields. (If you choose to                          
+  // document a deliberately minimal projection instead, drop this test.)
+  func TestScanSemanticStreamPreservesSchema11Fields(t *testing.T) {
+        data, err := os.ReadFile("testdata/sem_snapshot_stream.ndjson")
+        if err != nil {
+                t.Fatal(err)
+        }
+        out := &bytes.Buffer{}
+        if _, err := scanSemanticStream(bytes.NewReader(data), out, semanticStreamScanConfig{}); err != nil {
+                t.Fatalf("scan: %v", err)
+        }
+        got := out.String()
+        for _, want := range []string{
+                `"container_id":"local/bank:Go:account.go:type:Account"`,                             
+                `"resolution":"type_inferred"`,                                                             
+                `"relation_scope":"file"`,
+                `"target_kind":"symbol"`,
+                `"evidence":[`,
+        } {
+                if !strings.Contains(got, want) {                                                           
+                        t.Fatalf("filtered stream dropped %s", want)
+                }
+        }
+  }
+                                                                                                            
+  Acceptance
+
+  - go test ./... green in entire-brain.
+  - New fixture is real provider output (refresh via entire-sem snapshot --repo <repo> --format ndjson --worktree, then
+  blank repo_root) — not hand-written — so contract drift is caught.
+  - No changes outside entire-brain.
