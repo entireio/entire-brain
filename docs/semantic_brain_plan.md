@@ -234,6 +234,90 @@ Schema compatibility policy:
 - Provider-specific extension relation types must use an extension namespace,
   such as `X-provider-name:RELATION`.
 
+### Streaming consumption contract (Brain)
+
+Entire Brain consumes the `entire sem snapshot --format ndjson` output as a
+**stream**, record by record, and never buffers the full provider output in
+memory. The end-to-end indexing path (`entire brain index`) is therefore
+memory-bounded regardless of repository size.
+
+The streaming contract is:
+
+- The first record is a **lean header**. It carries identity and configuration
+  fields — `schema_version`, `provider`, `provider_version`, `repo_key`,
+  `commit`, `tree`, and the snapshot's **`profile`**, **`relation_set`**,
+  **`skipped_relation_families`**, and **`profile_limits`** — but is *not*
+  expected to carry final aggregate counts/warnings. On the lean header
+  `completeness` is `{"languages":null,"relations":null}` (the breakdown is not
+  yet populated).
+- `file`, `symbol`, `relation`, and `external` records stream after the header.
+  `symbol`/`file` records that a `relation` references are emitted before that
+  relation, so Brain can filter relations against ignored endpoints in a single
+  pass.
+- A final **`summary`** record carries the authoritative aggregate metadata:
+  `languages`, `warnings`, `partial_failures`, `stats`, and `completeness`.
+  `completeness` is an **object** (a per-language / per-relation breakdown), not a
+  string; the overall level string (`ok`/`degraded`/`unsafe`) lives at
+  `stats.completeness_level`.
+
+Lean header (identity + snapshot configuration):
+
+```json
+{"schema_version":"1.1","provider":"entire-sem","provider_version":"dev","repo_key":"local/bank","commit":"…","tree":"…","profile":"full","relation_set":["CALLS","IMPORTS"],"skipped_relation_families":[],"profile_limits":{"evidence":"full","call_resolution":"full"},"completeness":{"languages":null,"relations":null}}
+```
+
+Final summary (authoritative aggregate metadata):
+
+```json
+{"record_type":"summary","languages":["Go"],"warnings":[],"partial_failures":[],"stats":{"files":10,"parsed_files":10,"symbols":120,"relations":80,"partial_failures":0,"completeness_level":"ok"},"completeness":{"languages":{"Go":{"files":10,"symbols":120}},"relations":{"CALLS":40,"IMPORTS":12}}}
+```
+
+How Brain handles this:
+
+- **Streaming, not buffering.** Provider stdout is read line by line through a
+  bounded scanner; accepted records are written incrementally to a temp snapshot
+  file while a rolling SHA-256 names the snapshot. stderr is captured separately
+  into a bounded buffer so reading stdout never blocks. The SQLite generation is
+  built by re-reading that on-disk snapshot, again record by record. Semantic
+  indexing **requires** a streaming command runner (`CommandStreamer`); the
+  production `ExecRunner` implements it, and the index fails fast with a clear
+  error rather than silently buffering if a runner without it is supplied. No
+  full-stdout buffering remains on the production path.
+- **Header + summary are merged.** The lean header supplies identity and
+  snapshot configuration (`profile`, `relation_set`, `skipped_relation_families`,
+  `profile_limits`); the final `summary` supplies authoritative aggregate
+  metadata (`languages`, `warnings`, `partial_failures`, `stats`,
+  `completeness`) and overrides the header for those aggregate fields. The brain
+  manifest preserves both sets (`languages`, `profile`, `relation_set`,
+  `skipped_relation_families`, `completeness`, `profile_limits`, `stats`,
+  `externals`, `summary_present`). The same merge runs on rebuild paths
+  (`repair`, stale validation, bundle import) so they agree with the initial
+  index.
+- **Counts.** Persisted counts (`symbols`, `relations`, `files`, `externals`)
+  reflect the records Brain accepted after local filtering, which may differ from
+  the provider's pre-filter `stats`.
+- **Unknown records are safe.** Unknown future `record_type`s are preserved
+  verbatim in the snapshot and recorded with a machine-readable
+  `provider_unknown_record_type` warning, so Brain tolerates newer providers
+  without losing data.
+- **Honest failure reporting.** If the provider exits non-zero after emitting
+  partial records, Brain reports the failure (including provider stderr) and does
+  not persist a misleading "complete" snapshot. A malformed NDJSON line is
+  reported with its line number and never panics.
+- **Timeouts.** There is no fixed short timeout. The snapshot runs under a
+  generous, configurable overall deadline (`--sem-timeout`, default 30m) plus a
+  configurable inactivity timeout (`--sem-inactivity-timeout`, default 5m) and
+  honors context cancellation, so large repositories are not killed while a hung
+  provider still aborts.
+
+**Provider version / compatibility.** Older `entire-sem` output that uses a
+fuller header and emits no trailing `summary` record remains supported: Brain
+falls back to the header for aggregate metadata and records
+`summary_present: false`. The required minimum provider behavior is the
+`major == 1` NDJSON snapshot schema (`entire sem snapshot --format ndjson`); the
+lean-header + `summary` split is consumed when present and is the recommended
+provider profile going forward.
+
 Symbols should include:
 
 - `id`

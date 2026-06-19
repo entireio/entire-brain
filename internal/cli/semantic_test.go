@@ -112,7 +112,7 @@ func TestBuildSemanticGenerationLeavesIncompleteTargetInPlace(t *testing.T) {
 		t.Fatalf("write sentinel: %v", err)
 	}
 
-	generation, _, err := buildSemanticGeneration(brainDir, repoDir, "aaa111", filtered, header, counts, time.Now().UTC())
+	generation, _, err := buildSemanticGeneration(brainDir, repoDir, "aaa111", bytes.NewReader(filtered), semanticGenerationContentSuffix(filtered), header, counts, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("build generation: %v", err)
 	}

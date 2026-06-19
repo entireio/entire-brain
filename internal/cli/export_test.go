@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,6 +64,55 @@ func (r *fakeCommandRunner) Run(ctx context.Context, dir, name string, args ...s
 	}
 	return []byte(response.stdout), []byte(response.stderr), response.err
 }
+
+// Stream mirrors Run for tests, exposing the configured stdout as a streaming
+// reader so the streaming semantic indexer exercises the same fixtures. The
+// deadline is recorded identically to Run so timeout assertions still hold.
+func (r *fakeCommandRunner) Stream(ctx context.Context, dir, name string, args ...string) (CommandStream, error) {
+	key := fakeCommandKey(name, args...)
+	var hasDeadline bool
+	if ctx != nil {
+		_, hasDeadline = ctx.Deadline()
+	}
+	r.calls = append(r.calls, fakeCommandCall{
+		dir:         dir,
+		name:        name,
+		args:        append([]string(nil), args...),
+		hasDeadline: hasDeadline,
+	})
+
+	response := r.lookupResponse(key, name, args)
+	return &fakeCommandStream{
+		stdout: strings.NewReader(response.stdout),
+		stderr: []byte(response.stderr),
+		err:    response.err,
+	}, nil
+}
+
+func (r *fakeCommandRunner) lookupResponse(key, name string, args []string) fakeCommandResponse {
+	if sequence, ok := r.sequences[key]; ok && len(sequence) > 0 {
+		response := sequence[0]
+		r.sequences[key] = sequence[1:]
+		return response
+	}
+	if response, ok := r.responses[key]; ok {
+		return response
+	}
+	if r.semanticSnapshotAny != nil && fakeCommandIsSemanticSnapshotAnyRepo(name, args) {
+		return *r.semanticSnapshotAny
+	}
+	return fakeCommandResponse{err: errors.New("unexpected command: " + key)}
+}
+
+type fakeCommandStream struct {
+	stdout *strings.Reader
+	stderr []byte
+	err    error
+}
+
+func (s *fakeCommandStream) Stdout() io.Reader     { return s.stdout }
+func (s *fakeCommandStream) Wait() ([]byte, error) { return s.stderr, s.err }
+func (s *fakeCommandStream) Close() error          { return nil }
 
 func fakeCommandKey(name string, args ...string) string {
 	return name + "\x00" + strings.Join(args, "\x00")
