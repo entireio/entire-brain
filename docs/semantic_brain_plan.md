@@ -253,9 +253,13 @@ The streaming contract is:
 - A final **`summary`** record carries the authoritative aggregate metadata:
   `languages`, `stats`, `warnings`, `partial_failures`, `completeness`,
   `profile`, `relation_set`, `skipped_relation_families`, and `profile_limits`.
+  `completeness` is an **object** (a per-language / per-relation breakdown), not a
+  string; the overall level string (`ok`/`degraded`/`unsafe`) lives at
+  `stats.completeness_level`. On the lean header `completeness` is
+  `{"languages":null,"relations":null}`.
 
 ```json
-{"record_type":"summary","languages":["Go"],"capabilities":["go"],"profile":"default","relation_set":["CALLS","IMPORTS"],"skipped_relation_families":["routes"],"completeness":"partial","profile_limits":{"max_files":50000},"stats":{"files":10,"symbols":120,"relations":80,"externals":5},"warnings":[],"partial_failures":[]}
+{"record_type":"summary","languages":["Go"],"warnings":[],"partial_failures":[],"stats":{"files":10,"parsed_files":10,"symbols":120,"relations":80,"partial_failures":0,"completeness_level":"ok"},"completeness":{"languages":{"Go":{"files":10,"symbols":120}},"relations":{"CALLS":40,"IMPORTS":12}}}
 ```
 
 How Brain handles this:

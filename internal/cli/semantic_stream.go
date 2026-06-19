@@ -31,7 +31,7 @@ type semanticSummary struct {
 	Profile                 string            `json:"profile,omitempty"`
 	RelationSet             []string          `json:"relation_set,omitempty"`
 	SkippedRelationFamilies []string          `json:"skipped_relation_families,omitempty"`
-	Completeness            string            `json:"completeness,omitempty"`
+	Completeness            json.RawMessage   `json:"completeness,omitempty"`
 	ProfileLimits           json.RawMessage   `json:"profile_limits,omitempty"`
 	Stats                   json.RawMessage   `json:"stats,omitempty"`
 	Warnings                []semanticWarning `json:"warnings,omitempty"`
@@ -317,6 +317,9 @@ func streamSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir s
 	if indexOpts.worktree {
 		args = append(args, "--worktree")
 	}
+	if profile := strings.TrimSpace(indexOpts.profile); profile != "" {
+		args = append(args, "--profile", profile)
+	}
 
 	overall := indexOpts.timeout
 	if overall <= 0 {
@@ -487,7 +490,7 @@ func mergeSemanticSummary(header *semanticHeader, s *semanticSummary) {
 	if len(s.SkippedRelationFamilies) > 0 {
 		header.SkippedRelationFamilies = s.SkippedRelationFamilies
 	}
-	if s.Completeness != "" {
+	if len(s.Completeness) > 0 {
 		header.Completeness = s.Completeness
 	}
 	if len(s.ProfileLimits) > 0 {

@@ -96,7 +96,7 @@ type semanticSourceManifest struct {
 	Profile                 string          `json:"profile,omitempty"`
 	RelationSet             []string        `json:"relation_set,omitempty"`
 	SkippedRelationFamilies []string        `json:"skipped_relation_families,omitempty"`
-	Completeness            string          `json:"completeness,omitempty"`
+	Completeness            json.RawMessage `json:"completeness,omitempty"`
 	ProfileLimits           json.RawMessage `json:"profile_limits,omitempty"`
 	Stats                   json.RawMessage `json:"stats,omitempty"`
 	SummaryPresent          bool            `json:"summary_present"`
@@ -155,7 +155,7 @@ type semanticHeader struct {
 	Profile                 string          `json:"profile,omitempty"`
 	RelationSet             []string        `json:"relation_set,omitempty"`
 	SkippedRelationFamilies []string        `json:"skipped_relation_families,omitempty"`
-	Completeness            string          `json:"completeness,omitempty"`
+	Completeness            json.RawMessage `json:"completeness,omitempty"`
 	ProfileLimits           json.RawMessage `json:"profile_limits,omitempty"`
 	Stats                   json.RawMessage `json:"stats,omitempty"`
 }
@@ -181,6 +181,26 @@ type semanticRecord struct {
 	StableIDVersion string   `json:"stable_id_version"`
 	Blob            string   `json:"blob"`
 	Score           int      `json:"score,omitempty"`
+
+	// Schema 1.1 fields. These are omitempty so older (1.0) snapshots round-trip
+	// unchanged, but they must be modeled so the streaming filter does not
+	// silently drop them when re-marshaling file/symbol/relation records.
+	Bytes         int                `json:"bytes,omitempty"`          // file record: source size
+	ContainerID   string             `json:"container_id,omitempty"`   // symbol record: enclosing symbol
+	BodyHash      string             `json:"body_hash,omitempty"`      // symbol record: content hash
+	RelationScope string             `json:"relation_scope,omitempty"` // relation record: file|external|...
+	Resolution    string             `json:"resolution,omitempty"`     // relation record: exact|type_inferred|name_only
+	TargetKind    string             `json:"target_kind,omitempty"`    // relation record: symbol|external
+	Evidence      []semanticEvidence `json:"evidence,omitempty"`       // relation record: supporting spans
+}
+
+// semanticEvidence is a single supporting span for a relation (schema 1.1).
+type semanticEvidence struct {
+	Kind      string `json:"kind,omitempty"`
+	FilePath  string `json:"file_path,omitempty"`
+	StartLine int    `json:"start_line,omitempty"`
+	EndLine   int    `json:"end_line,omitempty"`
+	Detail    string `json:"detail,omitempty"`
 }
 
 type semanticIndexOptions struct {
@@ -196,6 +216,10 @@ type semanticIndexOptions struct {
 	// semanticSnapshotInactivityTimeout.
 	timeout           time.Duration
 	inactivityTimeout time.Duration
+	// profile selects the provider snapshot profile (e.g. full|syntax-only). It
+	// is only passed to the provider when non-empty so the provider default
+	// applies otherwise.
+	profile string
 	// progress, when set, is called at each phase boundary of the index
 	// (verifying provider, snapshotting, building store, …) so long-running
 	// indexing reports something more useful than a static spinner.
@@ -236,6 +260,7 @@ func newSemanticIndexCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&indexOpts.worktree, "worktree", false, "Index the dirty worktree instead of committed HEAD")
 	cmd.Flags().DurationVar(&indexOpts.timeout, "sem-timeout", 0, "Overall deadline for the semantic provider snapshot (0 uses the default)")
 	cmd.Flags().DurationVar(&indexOpts.inactivityTimeout, "sem-inactivity-timeout", 0, "Abort the snapshot if the provider emits no records for this long (0 uses the default)")
+	cmd.Flags().StringVar(&indexOpts.profile, "profile", "", "Semantic provider snapshot profile (e.g. full, syntax-only); empty uses the provider default")
 	return cmd
 }
 

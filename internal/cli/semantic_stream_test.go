@@ -28,7 +28,7 @@ func semanticStreamSummaryFixture() string {
 		`{"record_type":"relation","from_id":"caller","to_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","type":"CALLS","confidence":1}`,
 		`{"record_type":"external","id":"external:package:fmt","kind":"package","name":"fmt"}`,
 		`{"record_type":"future_thing","id":"x","note":"forward compatible payload"}`,
-		`{"record_type":"summary","languages":["Go"],"capabilities":["go"],"profile":"default","relation_set":["CALLS"],"skipped_relation_families":["routes"],"completeness":"partial","profile_limits":{"max_files":1000},"stats":{"files":1,"symbols":1,"relations":1,"externals":1},"warnings":[{"code":"summary_warning","severity":"warning","detail":"from summary"}],"partial_failures":[]}`,
+		`{"record_type":"summary","languages":["Go"],"capabilities":["go"],"profile":"default","relation_set":["CALLS"],"skipped_relation_families":["routes"],"completeness":{"languages":{"Go":{"files":1,"symbols":1}},"relations":{"CALLS":1}},"profile_limits":{"max_files":1000},"stats":{"files":1,"symbols":1,"relations":1,"externals":1,"completeness_level":"ok"},"warnings":[{"code":"summary_warning","severity":"warning","detail":"from summary"}],"partial_failures":[]}`,
 	}
 	return strings.Join(lines, "\n") + "\n"
 }
@@ -57,8 +57,8 @@ func TestScanSemanticStreamCapturesSummaryAndCounts(t *testing.T) {
 	if len(res.extraWarnings) != 1 || res.extraWarnings[0].Code != "provider_unknown_record_type" {
 		t.Fatalf("expected unknown-record warning, got %+v", res.extraWarnings)
 	}
-	if got := res.summary.Completeness; got != "partial" {
-		t.Fatalf("summary completeness = %q, want partial", got)
+	if !bytes.HasPrefix(bytes.TrimSpace(res.summary.Completeness), []byte("{")) {
+		t.Fatalf("summary completeness should be a JSON object, got %s", res.summary.Completeness)
 	}
 }
 
@@ -282,8 +282,8 @@ func TestSemanticIndexUsesSummaryMetadataOverLeanHeader(t *testing.T) {
 	if len(source.Languages) != 1 || source.Languages[0] != "Go" {
 		t.Fatalf("languages from summary not applied: %+v", source.Languages)
 	}
-	if source.Completeness != "partial" {
-		t.Fatalf("completeness from summary not applied: %q", source.Completeness)
+	if !bytes.Contains(source.Completeness, []byte(`"relations"`)) {
+		t.Fatalf("completeness object from summary not applied: %s", source.Completeness)
 	}
 	if source.Profile != "default" {
 		t.Fatalf("profile from summary not applied: %q", source.Profile)
@@ -329,5 +329,91 @@ func TestSemanticIndexPersistsSummaryRecordInSnapshot(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"record_type":"summary"`) {
 		t.Fatalf("persisted snapshot missing summary record:\n%s", string(data))
+	}
+}
+
+// TestScanSemanticStreamRealProviderOutput ingests a real entire-sem snapshot
+// (schema 1.1, streaming). It fails before Fix 1 because completeness is an
+// object, not a string, and the lean header cannot be parsed.
+func TestScanSemanticStreamRealProviderOutput(t *testing.T) {
+	data, err := os.ReadFile("testdata/sem_snapshot_stream.ndjson")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := &bytes.Buffer{}
+	res, err := scanSemanticStream(bytes.NewReader(data), out, semanticStreamScanConfig{})
+	if err != nil {
+		t.Fatalf("scan real provider stream: %v", err)
+	}
+	if !res.haveHeader || res.summary == nil {
+		t.Fatalf("expected header and summary (haveHeader=%v summary=%v)", res.haveHeader, res.summary != nil)
+	}
+
+	// completeness is a JSON object on the summary (the breakdown), not a level.
+	if !bytes.HasPrefix(bytes.TrimSpace(res.summary.Completeness), []byte("{")) {
+		t.Fatalf("summary completeness should be a JSON object, got %s", res.summary.Completeness)
+	}
+	var comp struct {
+		Relations map[string]int `json:"relations"`
+	}
+	if err := json.Unmarshal(res.summary.Completeness, &comp); err != nil {
+		t.Fatalf("parse completeness object: %v", err)
+	}
+	if comp.Relations["DEFINES"] != 5 {
+		t.Fatalf("completeness.relations DEFINES = %d, want 5", comp.Relations["DEFINES"])
+	}
+
+	// The level string lives in stats.completeness_level.
+	var stats struct {
+		Symbols           int    `json:"symbols"`
+		CompletenessLevel string `json:"completeness_level"`
+	}
+	if err := json.Unmarshal(res.summary.Stats, &stats); err != nil {
+		t.Fatalf("parse summary stats: %v", err)
+	}
+	if stats.CompletenessLevel != "ok" || stats.Symbols != 5 {
+		t.Fatalf("summary stats = %+v, want completeness_level=ok symbols=5", stats)
+	}
+
+	// The summary is authoritative: merging it fills the lean header.
+	header := res.header
+	mergeSemanticSummary(&header, res.summary)
+	if len(header.Languages) != 1 || header.Languages[0] != "Go" {
+		t.Fatalf("merged languages = %v, want [Go]", header.Languages)
+	}
+	found := false
+	for _, w := range header.Warnings {
+		if w.Code == "W_WORKTREE_SNAPSHOT" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("merged header missing summary warning: %+v", header.Warnings)
+	}
+}
+
+// TestScanSemanticStreamPreservesSchema11Fields enforces Fix 2: the filtered
+// stream must not drop the schema-1.1 symbol/relation fields.
+func TestScanSemanticStreamPreservesSchema11Fields(t *testing.T) {
+	data, err := os.ReadFile("testdata/sem_snapshot_stream.ndjson")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := &bytes.Buffer{}
+	if _, err := scanSemanticStream(bytes.NewReader(data), out, semanticStreamScanConfig{}); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{
+		`"container_id":"local/bank:Go:account.go:type:Account"`,
+		`"resolution":"type_inferred"`,
+		`"relation_scope":"file"`,
+		`"target_kind":"symbol"`,
+		`"evidence":[`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("filtered stream dropped %s", want)
+		}
 	}
 }
