@@ -51,7 +51,8 @@ The graph tools read the local semantic SQLite store built by `refresh index`
 or rebuilt by `repair`. `brain_query_graph` accepts simple filters such as
 `type:CALLS`, `relation:HANDLES_ROUTE`, `from:<symbol>`, and `to:<symbol>`,
 plus a small Cypher-style subset such as
-`MATCH (a)-[r:CALLS]->(b) WHERE a.name = "caller" RETURN a,r,b LIMIT 10`.
+`MATCH (a)-[r:CALLS]->(b) WHERE a.name = "caller" RETURN a,r,b LIMIT 10`;
+aggregate counts are available with `RETURN count(r)` or `RETURN count(*)`.
 `brain_trace_path` walks directed relation paths; `brain_ingest_traces` imports
 local JSON/NDJSON runtime edges, reports which ones already match static
 relations, and persists them as queryable `RUNTIME_TRACE` graph facts that are

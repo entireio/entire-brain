@@ -1842,6 +1842,16 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 		}
 	}
 
+	var countOut bytes.Buffer
+	countCmd := &cobra.Command{Use: "query-count"}
+	countCmd.SetOut(&countOut)
+	if err := runSemanticQueryGraph(countCmd, opts, semanticGraphQueryOptions{limit: 10, json: true}, `MATCH (a)-[r:CALLS]->(b) WHERE a.name = "CallValidateToken" RETURN count(r)`); err != nil {
+		t.Fatalf("query count: %v", err)
+	}
+	if !strings.Contains(countOut.String(), `"count": 1`) {
+		t.Fatalf("query count JSON missing count:\n%s", countOut.String())
+	}
+
 	tracePath := filepath.Join(repoDir, "trace.ndjson")
 	if err := os.WriteFile(tracePath, []byte(`{"from":"CallValidateToken","to":"ValidateToken","type":"CALLS"}`+"\n"+`{"from":"ValidateToken","to":"CallValidateToken","type":"OBSERVED_CALL"}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
