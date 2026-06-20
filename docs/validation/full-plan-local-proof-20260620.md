@@ -50,6 +50,8 @@ go test ./...
   package-keyed `cargo/<crate>`, `gomod/<module-path>`,
   `maven/<group>/<artifact>`, `npm/<name>`, `pypi/<name>`, `nuget/<name>`,
   `gem/<name>`, and `composer/<vendor>/<package>` workspace repos, with
+  hyphen/underscore import aliases for Python packages, Rust crates, and Ruby
+  gems where ecosystem import names commonly differ from package names, with
   import-candidate targets preferring the matching terminal symbol when an
   import spec names a class/function such as `requests.auth.HTTPBasicAuth`,
   Kubernetes external config resource endpoints such as
@@ -88,7 +90,8 @@ go test ./...
   terminal-symbol preference, canonical route templates including frontend
   optional/catch-all bracket params and wildcard path params, and exact/repo-prefix/package-prefix
   external-symbol name matches including `::`-separated package symbols. Package-key matching covers
-  cargo/gomod/maven/npm/pypi/nuget/gem/composer keys, but this is still not
+  cargo/gomod/maven/npm/pypi/nuget/gem/composer keys and hyphen/underscore
+  aliases for Python packages, Rust crates, and Ruby gems, but this is still not
   full cross-repo compiler/type-aware symbol resolution.
 - Runtime trace facts are now visible in `brief` and review reports, and
   influence likely-file/review ranking. Proof-ready agent-value evals remain

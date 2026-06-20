@@ -1424,6 +1424,7 @@ func workspaceRepoImportPrefixes(repoKey string) []string {
 		case "cargo", "composer", "gem", "gomod", "npm", "nuget", "pypi":
 			pkg := strings.Join(parts[1:], "/")
 			prefixes = append(prefixes, pkg)
+			prefixes = append(prefixes, workspacePackageImportAliases(parts[0], pkg)...)
 		case "maven":
 			groupArtifact := strings.Join(parts[1:], "/")
 			prefixes = append(prefixes, groupArtifact, strings.ReplaceAll(groupArtifact, "/", "."))
@@ -1440,6 +1441,33 @@ func workspaceRepoImportPrefixes(repoKey string) []string {
 		prev = prefix
 	}
 	return deduped
+}
+
+func workspacePackageImportAliases(ecosystem, pkg string) []string {
+	pkg = strings.Trim(strings.TrimSpace(filepath.ToSlash(pkg)), "/")
+	if pkg == "" {
+		return nil
+	}
+	var aliases []string
+	addHyphenUnderscore := func(value string) {
+		if strings.Contains(value, "-") {
+			aliases = append(aliases, strings.ReplaceAll(value, "-", "_"))
+		}
+		if strings.Contains(value, "_") {
+			aliases = append(aliases, strings.ReplaceAll(value, "_", "-"))
+		}
+	}
+	switch ecosystem {
+	case "cargo", "pypi":
+		addHyphenUnderscore(pkg)
+	case "gem":
+		// RubyGems often use hyphenated package names and underscored require
+		// paths, while existing exact gem prefixes remain preferred.
+		if strings.Contains(pkg, "-") {
+			aliases = append(aliases, strings.ReplaceAll(pkg, "-", "_"))
+		}
+	}
+	return aliases
 }
 
 func workspaceKubernetesExternalResource(endpoint string) (string, string, bool) {

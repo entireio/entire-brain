@@ -799,6 +799,22 @@ func TestWorkspaceGraphMatchesAdditionalPackageImportCandidates(t *testing.T) {
 			qualifiedName: "src/Logger",
 			filePath:      "src/Logger.php",
 		},
+		{
+			name:          "pypi hyphen underscore alias",
+			spec:          "acme_client.transport",
+			repoKey:       "pypi/acme-client",
+			targetName:    "transport",
+			qualifiedName: "transport",
+			filePath:      "acme_client/transport.py",
+		},
+		{
+			name:          "cargo hyphen underscore alias",
+			spec:          "tokio_util::codec",
+			repoKey:       "cargo/tokio-util",
+			targetName:    "codec",
+			qualifiedName: "codec",
+			filePath:      "src/codec/framed.rs",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
@@ -1501,46 +1517,82 @@ func TestWorkspaceGraphMatchesMavenExternalSymbols(t *testing.T) {
 }
 
 func TestWorkspaceGraphMatchesAdditionalPackageExternalSymbols(t *testing.T) {
-	edges := workspaceGraphExternalSymbolCrossEdges([]workspaceRepoGraphIndex{
+	for _, tc := range []struct {
+		name          string
+		spec          string
+		repoKey       string
+		targetName    string
+		qualifiedName string
+		filePath      string
+	}{
 		{
-			RepoKey: "local/app",
-			ExternalSymbols: []workspaceGraphExternalSymbolRef{{
-				Spec: "Newtonsoft.Json.Linq.JToken",
-				Type: "CALLS",
-				Source: workspaceGraphSymbolRef{
-					RepoKey:       "local/app",
-					ID:            "app:sym",
-					Kind:          "function",
-					Name:          "Run",
-					QualifiedName: "service.Run",
-					FilePath:      "Program.cs",
+			name:          "nuget",
+			spec:          "Newtonsoft.Json.Linq.JToken",
+			repoKey:       "nuget/Newtonsoft.Json",
+			targetName:    "JToken",
+			qualifiedName: "Linq.JToken",
+			filePath:      "Src/Newtonsoft.Json/Linq/JToken.cs",
+		},
+		{
+			name:          "pypi hyphen underscore alias",
+			spec:          "acme_client.transport.Client",
+			repoKey:       "pypi/acme-client",
+			targetName:    "Client",
+			qualifiedName: "transport.Client",
+			filePath:      "acme_client/transport.py",
+		},
+		{
+			name:          "cargo hyphen underscore alias",
+			spec:          "tokio_util::codec::Framed",
+			repoKey:       "cargo/tokio-util",
+			targetName:    "Framed",
+			qualifiedName: "codec.Framed",
+			filePath:      "src/codec/framed.rs",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			edges := workspaceGraphExternalSymbolCrossEdges([]workspaceRepoGraphIndex{
+				{
+					RepoKey: "local/app",
+					ExternalSymbols: []workspaceGraphExternalSymbolRef{{
+						Spec: tc.spec,
+						Type: "CALLS",
+						Source: workspaceGraphSymbolRef{
+							RepoKey:       "local/app",
+							ID:            "app:sym",
+							Kind:          "function",
+							Name:          "Run",
+							QualifiedName: "service.Run",
+							FilePath:      "Program.cs",
+						},
+						Count: 1,
+					}},
 				},
-				Count: 1,
-			}},
-		},
-		{
-			RepoKey: "nuget/Newtonsoft.Json",
-			Candidates: []workspaceGraphSymbolRef{{
-				RepoKey:       "nuget/Newtonsoft.Json",
-				ID:            "pkg:sym",
-				Kind:          "class",
-				Name:          "JToken",
-				QualifiedName: "Linq.JToken",
-				FilePath:      "Src/Newtonsoft.Json/Linq/JToken.cs",
-			}},
-		},
-	}, 10)
-	if len(edges) != 1 {
-		t.Fatalf("nuget external symbol edges = %#v", edges)
-	}
-	edge := edges[0]
-	if edge.RelationKind != "cross_repo_external_symbol" ||
-		edge.Endpoint != "external:symbol:Newtonsoft.Json.Linq.JToken" ||
-		edge.FromRepo != "local/app" ||
-		edge.ToRepo != "nuget/Newtonsoft.Json" ||
-		edge.ToSymbol.QualifiedName != "Linq.JToken" ||
-		edge.ToSymbol.Direction != "external_symbol_target" {
-		t.Fatalf("unexpected nuget external symbol edge: %#v", edge)
+				{
+					RepoKey: tc.repoKey,
+					Candidates: []workspaceGraphSymbolRef{{
+						RepoKey:       tc.repoKey,
+						ID:            "pkg:sym",
+						Kind:          "class",
+						Name:          tc.targetName,
+						QualifiedName: tc.qualifiedName,
+						FilePath:      tc.filePath,
+					}},
+				},
+			}, 10)
+			if len(edges) != 1 {
+				t.Fatalf("%s external symbol edges = %#v", tc.name, edges)
+			}
+			edge := edges[0]
+			if edge.RelationKind != "cross_repo_external_symbol" ||
+				edge.Endpoint != "external:symbol:"+tc.spec ||
+				edge.FromRepo != "local/app" ||
+				edge.ToRepo != tc.repoKey ||
+				edge.ToSymbol.QualifiedName != tc.qualifiedName ||
+				edge.ToSymbol.Direction != "external_symbol_target" {
+				t.Fatalf("unexpected %s external symbol edge: %#v", tc.name, edge)
+			}
+		})
 	}
 }
 
@@ -1679,6 +1731,14 @@ func TestWorkspaceImportMatchesPackageRepoKeys(t *testing.T) {
 	subpath, ok = workspaceImportMatchesRepo("monolog/monolog/src/Logger", "composer/monolog/monolog")
 	if !ok || subpath != "src/Logger" {
 		t.Fatalf("composer import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("acme_client.transport", "pypi/acme-client")
+	if !ok || subpath != "transport" {
+		t.Fatalf("pypi hyphen/underscore import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("tokio_util::codec", "cargo/tokio-util")
+	if !ok || subpath != "codec" {
+		t.Fatalf("cargo hyphen/underscore import match = %q, %v", subpath, ok)
 	}
 	if _, ok := workspaceImportMatchesRepo("@acme/other/pkg", "npm/@acme/lib"); ok {
 		t.Fatalf("unrelated package import should not match")
