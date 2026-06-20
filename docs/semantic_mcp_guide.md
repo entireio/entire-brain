@@ -52,6 +52,7 @@ or rebuilt by `repair`. `brain_query_graph` accepts simple filters such as
 `type:CALLS`, `relation:HANDLES_ROUTE`, `from:<symbol>`, and `to:<symbol>`,
 plus a small Cypher-style subset such as
 `MATCH (a)-[r:CALLS]->(b) WHERE a.name = "caller" RETURN a,r,b LIMIT 10`;
+relation predicates such as `WHERE r.type = "CALLS"` are accepted, and
 aggregate counts are available with `RETURN count(r)` or `RETURN count(*)`.
 `brain_trace_path` walks directed relation paths; `brain_ingest_traces` imports
 local JSON/NDJSON runtime edges, reports which ones already match static

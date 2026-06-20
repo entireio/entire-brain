@@ -506,7 +506,7 @@ var (
 	cypherLimitRe       = regexp.MustCompile(`(?is)\bLIMIT\s+([0-9]+)\b`)
 	cypherReturnCountRe = regexp.MustCompile(`(?is)\bRETURN\s+count\s*\(\s*(?:\*|[A-Za-z_][A-Za-z0-9_]*)\s*\)`)
 	cypherWhereRe       = regexp.MustCompile(`(?is)\bWHERE\s+(.+?)(?:\bRETURN\b|\bLIMIT\b|$)`)
-	cypherPredRe        = regexp.MustCompile(`(?is)\b([ab])\.(name|qualified_name|kind|file_path|language)\s*(=|CONTAINS)\s*['"]([^'"]+)['"]`)
+	cypherPredRe        = regexp.MustCompile(`(?is)\b([abr])\.(name|qualified_name|kind|file_path|language|type|reason)\s*(=|CONTAINS)\s*['"]([^'"]+)['"]`)
 )
 
 func parseCypherGraphQuery(query string) (graphQueryFilters, bool) {
@@ -557,6 +557,14 @@ func applyCypherPredicate(filters *graphQueryFilters, alias, field, op, value st
 		filters.ToKind = value
 	case "b.name.CONTAINS", "b.qualified_name.CONTAINS", "b.file_path.CONTAINS", "b.language.CONTAINS":
 		filters.ToNameContains = value
+	case "r.type.=":
+		filters.Type = strings.ToUpper(value)
+	case "r.reason.CONTAINS":
+		if filters.Text == "" {
+			filters.Text = value
+		} else {
+			filters.Text += " " + value
+		}
 	}
 }
 

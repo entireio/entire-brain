@@ -31,7 +31,8 @@ go test ./...
 
 - Graph query accepts the existing filter syntax plus the Cypher-style
   `MATCH (a)-[r:TYPE]->(b) WHERE ... RETURN ... LIMIT n` subset, including
-  `RETURN count(r)` / `RETURN count(*)` aggregate counts.
+  `RETURN count(r)` / `RETURN count(*)` aggregate counts and relation
+  predicates such as `WHERE r.type = "CALLS"`.
 - Runtime trace ingestion persists queryable `RUNTIME_TRACE` graph facts and
   folds them into graph schema/metrics, trace-path traversal, and
   `brief --json` semantic context.
