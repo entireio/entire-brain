@@ -783,6 +783,7 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 	}
 	crossEdges := workspaceGraphCrossEdges(contractIndex, limit)
 	crossEdges = append(crossEdges, workspaceGraphRouteCallCrossEdges(contractIndex, limit)...)
+	crossEdges = append(crossEdges, workspaceGraphResourceCrossEdges(contractIndex, repoIndexes, limit)...)
 	crossEdges = append(crossEdges, workspaceGraphImportCrossEdges(repoIndexes, limit)...)
 	crossEdges = append(crossEdges, workspaceGraphExternalSymbolCrossEdges(repoIndexes, limit)...)
 	sortWorkspaceGraphCrossEdges(crossEdges)
@@ -1219,6 +1220,52 @@ func workspaceGraphRouteCallCrossEdges(index map[string]*workspaceExternalContra
 	return edges
 }
 
+func workspaceGraphResourceCrossEdges(index map[string]*workspaceExternalContractAggregate, indexes []workspaceRepoGraphIndex, limit int) []workspaceGraphCrossEdge {
+	candidatesByRepo := map[string][]workspaceGraphSymbolRef{}
+	for _, repoIndex := range indexes {
+		candidatesByRepo[repoIndex.RepoKey] = repoIndex.Candidates
+	}
+	var edges []workspaceGraphCrossEdge
+	for _, aggregate := range index {
+		if aggregate.Type != "RESOURCE_DEPENDS_ON" {
+			continue
+		}
+		kind, name, ok := workspaceKubernetesExternalResource(aggregate.Endpoint)
+		if !ok {
+			continue
+		}
+		for _, participant := range aggregate.Participants {
+			for repoKey, candidates := range candidatesByRepo {
+				if repoKey == participant.RepoKey {
+					continue
+				}
+				target, ok := workspaceResourceTargetCandidate(candidates, kind, name)
+				if !ok {
+					continue
+				}
+				edges = append(edges, workspaceGraphCrossEdge{
+					Endpoint:     aggregate.Endpoint,
+					Type:         aggregate.Type,
+					FromRepo:     participant.RepoKey,
+					ToRepo:       repoKey,
+					FromSymbol:   participant,
+					ToSymbol:     target,
+					SharedCount:  participant.Count,
+					RelationKind: "cross_repo_resource_candidate",
+				})
+			}
+		}
+	}
+	sortWorkspaceGraphCrossEdges(edges)
+	if len(edges) > limit {
+		edges = edges[:limit]
+	}
+	if edges == nil {
+		return []workspaceGraphCrossEdge{}
+	}
+	return edges
+}
+
 func workspaceGraphExternalSymbolCrossEdges(indexes []workspaceRepoGraphIndex, limit int) []workspaceGraphCrossEdge {
 	var edges []workspaceGraphCrossEdge
 	for _, fromRepo := range indexes {
@@ -1318,6 +1365,37 @@ func workspaceRepoImportPrefixes(repoKey string) []string {
 		prev = prefix
 	}
 	return deduped
+}
+
+func workspaceKubernetesExternalResource(endpoint string) (string, string, bool) {
+	const prefix = "external:config:kubernetes/"
+	endpoint = strings.TrimSpace(endpoint)
+	if !strings.HasPrefix(endpoint, prefix) {
+		return "", "", false
+	}
+	rest := strings.Trim(strings.TrimPrefix(endpoint, prefix), "/")
+	kind, name, ok := strings.Cut(rest, "/")
+	if !ok || kind == "" || name == "" {
+		return "", "", false
+	}
+	return kind, name, true
+}
+
+func workspaceResourceTargetCandidate(candidates []workspaceGraphSymbolRef, kind, name string) (workspaceGraphSymbolRef, bool) {
+	expected := strings.ToLower(strings.TrimSpace(kind)) + "." + strings.ToLower(strings.TrimSpace(name))
+	for _, candidate := range candidates {
+		if !strings.EqualFold(candidate.Kind, "resource") {
+			continue
+		}
+		for _, value := range []string{candidate.Name, candidate.QualifiedName} {
+			if strings.ToLower(strings.TrimSpace(value)) != expected {
+				continue
+			}
+			candidate.Direction = "external_resource_target"
+			return candidate, true
+		}
+	}
+	return workspaceGraphSymbolRef{}, false
 }
 
 func workspaceExternalSymbolTarget(candidates []workspaceGraphSymbolRef, spec string) (workspaceGraphSymbolRef, bool) {

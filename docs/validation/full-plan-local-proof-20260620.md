@@ -9,6 +9,7 @@ go test ./internal/cli -run 'TestSemanticGraphCommandsUseSQLiteStore|TestWorkspa
 go test ./internal/cli -run 'TestWorkspaceGraphReportsCrossRepoImportCandidates|TestWorkspaceGraphMatchesScopedPackageImportCandidates|TestWorkspaceImportMatchesGitHubRepoKeys'
 go test ./internal/cli -run 'TestWorkspaceGraphMatchesMavenImportCandidates|TestWorkspaceGraphMatchesMavenExternalSymbols|TestWorkspaceImportMatchesPackageRepoKeys'
 go test ./internal/cli -run 'TestWorkspaceGraphImportCandidatesPreferImportedSymbols|TestWorkspaceGraphMatchesMavenImportCandidates|TestWorkspaceImportMatchesPackageRepoKeys' -count=1
+go test ./internal/cli -run 'TestWorkspaceGraphMatchesKubernetesResourceCandidates|TestWorkspaceGraphReportsCrossRepoImportCandidates|TestWorkspaceGraphReportsSharedExternalContracts' -count=1
 go test ./internal/cli -run TestRefreshSkipsCurrentSemanticIndex
 go test ./internal/cli -run 'TestBrainReviewUsesRuntimeTraceForRankingAndContext|TestBrainReviewMapsAnomalyToFinding|TestMCPBrainReviewTool|TestBrainBriefJSONUsesSemanticContextAndLiveOverlay|TestRegressionChangedOperandReportsEachRegressedHintedFile'
 go test ./...
@@ -44,7 +45,9 @@ go test ./...
   `maven/<group>/<artifact>`, `npm/<name>`, and `pypi/<name>` workspace repos,
   with import-candidate targets preferring the matching terminal symbol when an
   import spec names a class/function such as `requests.auth.HTTPBasicAuth`,
-  plus exact
+  Kubernetes external config resource endpoints such as
+  `external:config:kubernetes/service/api` resolved to matching local
+  `Service.api` resource symbols in another workspace repo, plus exact
   `external:symbol:<qualified-name>` references, repo-prefix-qualified external
   symbol references, and package-prefix-qualified external symbols matched to
   symbols defined in another workspace repo.
@@ -58,10 +61,11 @@ go test ./...
 - The graph query language is a supported Cypher-style subset, not full Cypher.
 - Workspace cross-repo graph edges are explicit in `graph.json`, but they are
   still derived from shared external endpoint contracts, exact route endpoint
-  matches, repo-key/scoped-package/package-key-matched unresolved import
-  candidates with terminal-symbol preference, and exact/repo-prefix/
-  package-prefix external-symbol name matches, not full cross-repo compiler/
-  type-aware symbol resolution.
+  matches, Kubernetes external config resource candidates, repo-key/
+  scoped-package/package-key-matched unresolved import candidates with
+  terminal-symbol preference, and exact/repo-prefix/package-prefix
+  external-symbol name matches, not full cross-repo compiler/type-aware symbol
+  resolution.
 - Runtime trace facts are now visible in `brief` and review reports, and
   influence likely-file/review ranking. Proof-ready agent-value evals remain
   open before memory-aware lift can be claimed.

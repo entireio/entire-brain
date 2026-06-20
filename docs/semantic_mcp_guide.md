@@ -37,7 +37,7 @@ single-repo tools plus `brain_workspace_graph` for cross-repo graph contracts
 and `cross_edges` (shared external contracts plus repo-key-matched unresolved
 import candidates, package-keyed `cargo/<crate>`, `gomod/<module-path>`,
 `maven/<group>/<artifact>`, `npm/<name>`, and `pypi/<name>` workspace repos,
-and exact,
+Kubernetes external config resource candidates, and exact,
 repo-prefix-qualified, or package-prefix-qualified
 `external:symbol:<qualified-name>` matches),
 along with workspace review/regression helpers.

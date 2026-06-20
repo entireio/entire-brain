@@ -766,6 +766,54 @@ func TestWorkspaceGraphMatchesMavenImportCandidates(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesKubernetesResourceCandidates(t *testing.T) {
+	edges := workspaceGraphResourceCrossEdges(map[string]*workspaceExternalContractAggregate{
+		"RESOURCE_DEPENDS_ON\x00external:config:kubernetes/service/api": {
+			Endpoint:   "external:config:kubernetes/service/api",
+			Type:       "RESOURCE_DEPENDS_ON",
+			RepoCounts: map[string]int{"local/app": 1},
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/app",
+				ID:            "app:resource:Deployment.api",
+				Kind:          "resource",
+				Name:          "Deployment.api",
+				QualifiedName: "Deployment.api",
+				FilePath:      "k8s/deployment.yaml",
+				Direction:     "to_endpoint",
+				Count:         1,
+			}},
+		},
+	}, []workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+		},
+		{
+			RepoKey: "local/platform",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/platform",
+				ID:            "platform:resource:Service.api",
+				Kind:          "resource",
+				Name:          "Service.api",
+				QualifiedName: "Service.api",
+				FilePath:      "k8s/service.yaml",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("kubernetes resource candidate edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_resource_candidate" ||
+		edge.Endpoint != "external:config:kubernetes/service/api" ||
+		edge.Type != "RESOURCE_DEPENDS_ON" ||
+		edge.FromRepo != "local/app" ||
+		edge.ToRepo != "local/platform" ||
+		edge.ToSymbol.ID != "platform:resource:Service.api" ||
+		edge.ToSymbol.Direction != "external_resource_target" {
+		t.Fatalf("unexpected kubernetes resource candidate edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceGraphImportCandidatesPreferImportedSymbols(t *testing.T) {
 	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
 		{
