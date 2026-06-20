@@ -35,7 +35,8 @@ Recommended intake flow:
    route-call/import-candidate/scoped
    package/package-keyed `cargo`/`gomod`/`maven`/`npm`/`pypi`/`nuget`/`gem`/`composer`
    import/external symbol, including hyphen/underscore aliases for Python packages,
-   Rust crates, and Ruby gems, GraphQL operation-to-resolver/schema-field, plus
+   Rust crates, Ruby gems, and GitHub monorepo package dirs, GraphQL
+   operation-to-resolver/schema-field, plus
    Kubernetes resource and Docker Compose service resource-candidate `cross_edges`, and
    a persisted `graph.json` artifact) or
    `entire brain workspace search|vsearch|query <workspace> <query> --json`

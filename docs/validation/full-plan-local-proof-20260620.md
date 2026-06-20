@@ -102,7 +102,8 @@ go test ./...
   `::`-separated package symbols. Package-key matching covers
   cargo/gomod/maven/npm/pypi/nuget/gem/composer keys and hyphen/underscore
   aliases for Python packages, Rust crates, Ruby gems, and GitHub
-  `gh/<owner>/<repo>/packages/<name>` workspace package dirs, but this is still not
+  `gh/<owner>/<repo>/packages/<name>` workspace package dirs across import
+  candidates and external-symbol targets, but this is still not
   full cross-repo compiler/type-aware symbol resolution.
 - Runtime trace facts are now visible in `brief` and review reports, and
   influence likely-file/review ranking. Proof-ready agent-value evals remain

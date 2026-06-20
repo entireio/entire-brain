@@ -1427,6 +1427,9 @@ func workspaceRepoImportPrefixes(repoKey string) []string {
 		if len(parts) >= 5 && parts[3] == "packages" {
 			pkg := strings.Join(parts[4:], "/")
 			prefixes = append(prefixes, "github.com/"+ownerRepo+"/packages/"+pkg, ownerRepo+"/packages/"+pkg, "@"+parts[1]+"/"+pkg)
+			for _, alias := range workspacePackageImportAliases("gh", pkg) {
+				prefixes = append(prefixes, "github.com/"+ownerRepo+"/packages/"+alias, ownerRepo+"/packages/"+alias, "@"+parts[1]+"/"+alias)
+			}
 		}
 	}
 	if len(parts) >= 2 {
@@ -1473,7 +1476,7 @@ func workspacePackageImportAliases(ecosystem, pkg string) []string {
 		}
 	}
 	switch ecosystem {
-	case "cargo", "pypi":
+	case "cargo", "gh", "pypi":
 		addHyphenUnderscore(pkg)
 	case "gem":
 		// RubyGems often use hyphenated package names and underscored require
