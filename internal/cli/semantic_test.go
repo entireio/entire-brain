@@ -1912,6 +1912,39 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 	}
 }
 
+func TestSemanticGraphQueriesDataFlowRelations(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticDataFlowFixtureSnapshot())
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	var schemaOut bytes.Buffer
+	schemaCmd := &cobra.Command{Use: "schema"}
+	schemaCmd.SetOut(&schemaOut)
+	if err := runSemanticGraphSchema(schemaCmd, opts, semanticGraphSchemaOptions{json: true}); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	if !strings.Contains(schemaOut.String(), `"DATA_FLOWS"`) {
+		t.Fatalf("schema output missing DATA_FLOWS:\n%s", schemaOut.String())
+	}
+
+	var queryOut bytes.Buffer
+	queryCmd := &cobra.Command{Use: "query"}
+	queryCmd.SetOut(&queryOut)
+	if err := runSemanticQueryGraph(queryCmd, opts, semanticGraphQueryOptions{limit: 10, json: true}, `MATCH (a)-[r:DATA_FLOWS]->(b) WHERE a.name = "run" RETURN a,r,b LIMIT 5`); err != nil {
+		t.Fatalf("query data flow: %v", err)
+	}
+	if !strings.Contains(queryOut.String(), `"DATA_FLOWS"`) ||
+		!strings.Contains(queryOut.String(), `"run"`) ||
+		!strings.Contains(queryOut.String(), `"normalize"`) {
+		t.Fatalf("query output missing data-flow edge:\n%s", queryOut.String())
+	}
+}
+
 func TestSemanticImpactReturnsRelationsWhenRootsFillLimit(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -4282,6 +4315,14 @@ func semanticFixtureSnapshot(schema string) string {
 	return `{"schema_version":"` + schema + `","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"relation","from_id":"caller","to_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","type":"CALLS","confidence":1}
+`
+}
+
+func semanticDataFlowFixtureSnapshot() string {
+	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["ndjson"],"relation_set":["DEFINES","DATA_FLOWS"],"warnings":[],"partial_failures":[]}
+{"record_type":"symbol","id":"gh/example/repo:ts:flow.ts:function:run","kind":"function","name":"run","qualified_name":"flow.run","file_path":"flow.ts","start_line":1,"end_line":8,"signature":"function run(input: Input): string","language":"TypeScript","stable_id_version":"1"}
+{"record_type":"symbol","id":"gh/example/repo:ts:flow.ts:function:normalize","kind":"function","name":"normalize","qualified_name":"flow.normalize","file_path":"flow.ts","start_line":10,"end_line":12,"signature":"function normalize(value: string): string","language":"TypeScript","stable_id_version":"1"}
+{"record_type":"relation","from_id":"gh/example/repo:ts:flow.ts:function:run","to_id":"gh/example/repo:ts:flow.ts:function:normalize","type":"DATA_FLOWS","confidence":0.7,"reason":"caller parameter destructured alias forwarded into callee argument","relation_scope":"file","resolution":"exact","target_kind":"symbol","evidence":[{"kind":"destructured_alias_forward_flow","file_path":"flow.ts","start_line":1,"end_line":8,"detail":"input -> value -> normalize()"}],"warning_codes":[]}
 `
 }
 

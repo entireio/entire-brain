@@ -13,6 +13,7 @@ go test ./internal/cli -run 'TestWorkspaceGraphMatchesKubernetesResourceCandidat
 go test ./internal/cli -run 'TestWorkspaceGraphReportsCrossRepoGraphQLCalls|TestWorkspaceGraphReportsCrossRepoRouteCalls|TestWorkspaceGraphReportsSharedExternalContracts' -count=1
 go test ./internal/cli -run TestWorkspaceGraphReportsCrossRepoGraphQLCalls -count=1
 go test ./internal/cli -run 'TestWorkspaceGraphReportsCrossRepoGraphQLCalls|TestWorkspaceGraphReportsCrossRepoGraphQLSchemaResolverWithoutOperation' -count=1
+go test ./internal/cli -run TestSemanticGraphQueriesDataFlowRelations -count=1
 go test ./internal/cli -run TestRefreshSkipsCurrentSemanticIndex
 go test ./internal/cli -run 'TestBrainReviewUsesRuntimeTraceForRankingAndContext|TestBrainReviewMapsAnomalyToFinding|TestMCPBrainReviewTool|TestBrainBriefJSONUsesSemanticContextAndLiveOverlay|TestRegressionChangedOperandReportsEachRegressedHintedFile'
 go test ./...
@@ -29,6 +30,8 @@ go test ./internal/cli -run TestWorkspaceGraphReportsCrossRepoGraphQLCalls -coun
   operation-to-schema-field, and schema-field-to-resolver cross edges,
   including schema-field-to-resolver edges when no operation participant is
   present.
+- Semantic graph tests passed for persisted/queryable `DATA_FLOWS` relations
+  and graph-schema exposure of the relation type.
 - Warm-refresh semantic no-op proof passed: after an initial refresh, a second
   refresh with the same HEAD does not call `entire sem snapshot` again.
 - Full repository tests passed:
