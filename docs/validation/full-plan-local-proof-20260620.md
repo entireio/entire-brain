@@ -42,7 +42,8 @@ go test ./...
   symbols/resources in different repos through shared external endpoints and
   directed route-call edges from `HTTP_CALLS` clients to `HANDLES_ROUTE`
   handlers on the same route endpoint or equivalent canonical route template
-  such as `{id}`/`:id`/`<id>`/`[id]`/`[[id]]`/`[...slug]`/`*path`, directed
+  such as `{id}`/`:id`/`<id>`/`[id]`/`[[id]]`/`[...slug]`/`*path`, with
+  trailing-slash-insensitive route matching for non-root paths, directed
   GraphQL edges from operation participants to concrete `graphql_resolver` and
   `graphql_schema_field` symbols on the same `external:graphql:<operation>` endpoint,
   repo-key-matched unresolved import
@@ -88,7 +89,8 @@ go test ./...
   Kubernetes resource and Docker Compose service external config resource
   candidates, repo-key/scoped-package/package-key-matched unresolved import candidates with
   terminal-symbol preference, canonical route templates including frontend
-  optional/catch-all bracket params and wildcard path params, and exact/repo-prefix/package-prefix
+  optional/catch-all bracket params, wildcard path params, and trailing-slash
+  equivalence, and exact/repo-prefix/package-prefix
   external-symbol name matches including `::`-separated package symbols. Package-key matching covers
   cargo/gomod/maven/npm/pypi/nuget/gem/composer keys and hyphen/underscore
   aliases for Python packages, Rust crates, and Ruby gems, but this is still not

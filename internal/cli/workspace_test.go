@@ -1244,6 +1244,47 @@ func TestWorkspaceGraphMatchesCanonicalRouteTemplateCalls(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesTrailingSlashRouteCalls(t *testing.T) {
+	edges := workspaceGraphRouteCallCrossEdges(map[string]*workspaceExternalContractAggregate{
+		"HTTP_CALLS\x00external:route:/health": {
+			Endpoint: "external:route:/health",
+			Type:     "HTTP_CALLS",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/client",
+				ID:            "local/client:go:client.go:function:CheckHealth",
+				Kind:          "function",
+				Name:          "CheckHealth",
+				QualifiedName: "client.CheckHealth",
+				Count:         1,
+			}},
+		},
+		"HANDLES_ROUTE\x00external:route:/health/": {
+			Endpoint: "external:route:/health/",
+			Type:     "HANDLES_ROUTE",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/service",
+				ID:            "local/service:py:routes.py:function:health",
+				Kind:          "function",
+				Name:          "health",
+				QualifiedName: "routes.health",
+				Count:         1,
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("expected trailing-slash route edge, got %#v", edges)
+	}
+	edge := edges[0]
+	if edge.Endpoint != "external:route:/health" ||
+		edge.RelationKind != "cross_repo_route_call" ||
+		edge.FromRepo != "local/client" ||
+		edge.ToRepo != "local/service" ||
+		edge.FromSymbol.QualifiedName != "client.CheckHealth" ||
+		edge.ToSymbol.QualifiedName != "routes.health" {
+		t.Fatalf("unexpected trailing-slash route edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceGraphMatchesFrontendOptionalRouteTemplateCalls(t *testing.T) {
 	edges := workspaceGraphRouteCallCrossEdges(map[string]*workspaceExternalContractAggregate{
 		"HTTP_CALLS\x00external:route:/docs/{lang}": {
