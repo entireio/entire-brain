@@ -56,11 +56,13 @@ go test ./...
   `external:config:kubernetes/service/api`,
   `external:config:kubernetes/configmap/podinfo-values`, and
   `external:config:kubernetes/secret/podinfo-secret-values`, plus custom
-  resources such as `external:config:kubernetes/broker/default` and
-  `external:config:kubernetes/inmemorychannel/user-events`, resolved to
+  resources such as `external:config:kubernetes/broker/default`,
+  `external:config:kubernetes/inmemorychannel/user-events`, and
+  `external:config:kubernetes/revision/user-api-00001`, resolved to
   matching local `Service.api`, `ConfigMap.podinfo-values`,
   `Secret.podinfo-secret-values`, `Broker.default`, and
-  `InMemoryChannel.user-events` resource symbols in another workspace repo,
+  `InMemoryChannel.user-events` and `Revision.user-api-00001` resource
+  symbols in another workspace repo,
   Docker Compose
   service config endpoints such as `external:config:compose/service/db`
   resolved to matching `compose.service.db` resource symbols in another
