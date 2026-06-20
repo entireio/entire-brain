@@ -690,6 +690,44 @@ func TestWorkspaceGraphMatchesGoModuleImportCandidates(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesCargoImportCandidates(t *testing.T) {
+	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			Imports: []workspaceGraphImportRef{{
+				Spec: "tokio::sync",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "run",
+					QualifiedName: "app.run",
+					FilePath:      "src/main.rs",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "cargo/tokio",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "cargo/tokio",
+				ID:            "lib:sym",
+				Kind:          "function",
+				Name:          "channel",
+				QualifiedName: "sync.channel",
+				FilePath:      "sync/channel.rs",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("cargo import edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_import_candidate" || edge.Endpoint != "external:import:tokio::sync" || edge.FromRepo != "local/app" || edge.ToRepo != "cargo/tokio" || edge.ToSymbol.FilePath != "sync/channel.rs" {
+		t.Fatalf("unexpected cargo import edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceGraphReportsCrossRepoRouteCalls(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
@@ -921,6 +959,10 @@ func TestWorkspaceImportMatchesPackageRepoKeys(t *testing.T) {
 	subpath, ok = workspaceImportMatchesRepo("golang.org/x/sync/errgroup", "gomod/golang.org/x/sync")
 	if !ok || subpath != "errgroup" {
 		t.Fatalf("go module import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("tokio::sync", "cargo/tokio")
+	if !ok || subpath != "sync" {
+		t.Fatalf("cargo import match = %q, %v", subpath, ok)
 	}
 	if _, ok := workspaceImportMatchesRepo("@acme/other/pkg", "npm/@acme/lib"); ok {
 		t.Fatalf("unrelated package import should not match")

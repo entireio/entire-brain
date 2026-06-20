@@ -1274,6 +1274,7 @@ func sortWorkspaceGraphSymbolRefs(refs []workspaceGraphSymbolRef) {
 
 func workspaceImportMatchesRepo(spec, repoKey string) (string, bool) {
 	spec = strings.Trim(strings.TrimSpace(filepath.ToSlash(spec)), "/")
+	spec = strings.ReplaceAll(spec, "::", "/")
 	for _, prefix := range workspaceRepoImportPrefixes(repoKey) {
 		if spec == prefix {
 			return "", true
@@ -1295,7 +1296,7 @@ func workspaceRepoImportPrefixes(repoKey string) []string {
 	}
 	if len(parts) >= 2 {
 		switch parts[0] {
-		case "gomod", "npm", "pypi":
+		case "cargo", "gomod", "npm", "pypi":
 			pkg := strings.Join(parts[1:], "/")
 			prefixes = append(prefixes, pkg)
 		}
