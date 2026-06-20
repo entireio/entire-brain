@@ -439,7 +439,7 @@ func runSemanticQueryGraph(cmd *cobra.Command, opts Options, graphOpts semanticG
 		ids[relation.FromID] = struct{}{}
 		ids[relation.ToID] = struct{}{}
 	}
-	symbols, err := loadGraphSymbols(db, sortedIDSet(ids))
+	symbols, err := loadGraphNodes(db, sortedIDSet(ids))
 	if err != nil {
 		return err
 	}
@@ -648,12 +648,14 @@ func graphRelationWhereSQL(filters graphQueryFilters) (string, []any) {
 		args = append(args, filters.Type)
 	}
 	if filters.From != "" {
-		query += ` AND from_id IN (SELECT id FROM symbols WHERE id = ? OR name = ? OR qualified_name = ?)`
-		args = append(args, filters.From, filters.From, filters.From)
+		clause, clauseArgs := graphEndpointIDOrNameSQL("from_id", filters.From)
+		query += " AND " + clause
+		args = append(args, clauseArgs...)
 	}
 	if filters.To != "" {
-		query += ` AND to_id IN (SELECT id FROM symbols WHERE id = ? OR name = ? OR qualified_name = ?)`
-		args = append(args, filters.To, filters.To, filters.To)
+		clause, clauseArgs := graphEndpointIDOrNameSQL("to_id", filters.To)
+		query += " AND " + clause
+		args = append(args, clauseArgs...)
 	}
 	if filters.Text != "" {
 		query += ` AND (from_id LIKE ? OR to_id LIKE ? OR reason LIKE ?)`
@@ -661,32 +663,59 @@ func graphRelationWhereSQL(filters graphQueryFilters) (string, []any) {
 		args = append(args, like, like, like)
 	}
 	if filters.FromName != "" {
-		query += ` AND from_id IN (SELECT id FROM symbols WHERE name = ? OR qualified_name = ?)`
-		args = append(args, filters.FromName, filters.FromName)
+		clause, clauseArgs := graphEndpointNameSQL("from_id", filters.FromName)
+		query += " AND " + clause
+		args = append(args, clauseArgs...)
 	}
 	if filters.ToName != "" {
-		query += ` AND to_id IN (SELECT id FROM symbols WHERE name = ? OR qualified_name = ?)`
-		args = append(args, filters.ToName, filters.ToName)
+		clause, clauseArgs := graphEndpointNameSQL("to_id", filters.ToName)
+		query += " AND " + clause
+		args = append(args, clauseArgs...)
 	}
 	if filters.FromKind != "" {
-		query += ` AND from_id IN (SELECT id FROM symbols WHERE kind = ?)`
-		args = append(args, filters.FromKind)
+		clause, clauseArgs := graphEndpointKindSQL("from_id", filters.FromKind)
+		query += " AND " + clause
+		args = append(args, clauseArgs...)
 	}
 	if filters.ToKind != "" {
-		query += ` AND to_id IN (SELECT id FROM symbols WHERE kind = ?)`
-		args = append(args, filters.ToKind)
+		clause, clauseArgs := graphEndpointKindSQL("to_id", filters.ToKind)
+		query += " AND " + clause
+		args = append(args, clauseArgs...)
 	}
 	if filters.FromNameContains != "" {
-		query += ` AND from_id IN (SELECT id FROM symbols WHERE name LIKE ? OR qualified_name LIKE ? OR file_path LIKE ? OR language LIKE ?)`
-		like := "%" + filters.FromNameContains + "%"
-		args = append(args, like, like, like, like)
+		clause, clauseArgs := graphEndpointContainsSQL("from_id", filters.FromNameContains)
+		query += " AND " + clause
+		args = append(args, clauseArgs...)
 	}
 	if filters.ToNameContains != "" {
-		query += ` AND to_id IN (SELECT id FROM symbols WHERE name LIKE ? OR qualified_name LIKE ? OR file_path LIKE ? OR language LIKE ?)`
-		like := "%" + filters.ToNameContains + "%"
-		args = append(args, like, like, like, like)
+		clause, clauseArgs := graphEndpointContainsSQL("to_id", filters.ToNameContains)
+		query += " AND " + clause
+		args = append(args, clauseArgs...)
 	}
 	return query, args
+}
+
+func graphEndpointIDOrNameSQL(column, value string) (string, []any) {
+	return `(` + column + ` IN (SELECT id FROM symbols WHERE id = ? OR name = ? OR qualified_name = ?) OR EXISTS (SELECT 1 FROM files f WHERE ` + column + ` LIKE '%:file:' || f.path AND (f.path = ? OR f.path LIKE '%/' || ?)))`,
+		[]any{value, value, value, value, value}
+}
+
+func graphEndpointNameSQL(column, value string) (string, []any) {
+	return `(` + column + ` IN (SELECT id FROM symbols WHERE name = ? OR qualified_name = ?) OR EXISTS (SELECT 1 FROM files f WHERE ` + column + ` LIKE '%:file:' || f.path AND (f.path = ? OR f.path LIKE '%/' || ?)))`,
+		[]any{value, value, value, value}
+}
+
+func graphEndpointKindSQL(column, value string) (string, []any) {
+	if strings.EqualFold(value, "file") {
+		return `(EXISTS (SELECT 1 FROM files f WHERE ` + column + ` LIKE '%:file:' || f.path))`, nil
+	}
+	return `(` + column + ` IN (SELECT id FROM symbols WHERE kind = ?))`, []any{value}
+}
+
+func graphEndpointContainsSQL(column, value string) (string, []any) {
+	like := "%" + value + "%"
+	return `(` + column + ` IN (SELECT id FROM symbols WHERE name LIKE ? OR qualified_name LIKE ? OR file_path LIKE ? OR language LIKE ?) OR EXISTS (SELECT 1 FROM files f WHERE ` + column + ` LIKE '%:file:' || f.path AND (f.path LIKE ? OR f.language LIKE ?)))`,
+		[]any{like, like, like, like, like, like}
 }
 
 func runSemanticTracePath(cmd *cobra.Command, opts Options, traceOpts semanticTracePathOptions, from, to string) error {
@@ -1325,6 +1354,47 @@ func scanGraphRelations(rows *sql.Rows) ([]semanticRecord, error) {
 	return nonNilRecords(relations), rows.Err()
 }
 
+func loadGraphNodes(db *sql.DB, ids []string) ([]semanticRecord, error) {
+	if len(ids) == 0 {
+		return []semanticRecord{}, nil
+	}
+	symbols, err := loadGraphSymbols(db, ids)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(symbols))
+	for _, symbol := range symbols {
+		seen[symbol.ID] = struct{}{}
+	}
+	fileIDsByPath := map[string][]string{}
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		if path, ok := graphFilePathFromID(id); ok {
+			fileIDsByPath[path] = append(fileIDsByPath[path], id)
+		}
+	}
+	files, err := loadGraphFiles(db, fileIDsByPath)
+	if err != nil {
+		return nil, err
+	}
+	nodesByID := make(map[string]semanticRecord, len(symbols)+len(files))
+	for _, symbol := range symbols {
+		nodesByID[symbol.ID] = symbol
+	}
+	for _, file := range files {
+		nodesByID[file.ID] = file
+	}
+	ordered := make([]semanticRecord, 0, len(nodesByID))
+	for _, id := range ids {
+		if node, ok := nodesByID[id]; ok {
+			ordered = append(ordered, node)
+		}
+	}
+	return nonNilRecords(ordered), nil
+}
+
 func loadGraphSymbols(db *sql.DB, ids []string) ([]semanticRecord, error) {
 	if len(ids) == 0 {
 		return []semanticRecord{}, nil
@@ -1354,6 +1424,57 @@ func loadGraphSymbols(db *sql.DB, ids []string) ([]semanticRecord, error) {
 		}
 	}
 	return nonNilRecords(ordered), nil
+}
+
+func loadGraphFiles(db *sql.DB, idsByPath map[string][]string) ([]semanticRecord, error) {
+	if len(idsByPath) == 0 {
+		return []semanticRecord{}, nil
+	}
+	paths := make([]string, 0, len(idsByPath))
+	for path := range idsByPath {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(paths)), ",")
+	args := make([]any, len(paths))
+	for i, path := range paths {
+		args[i] = path
+	}
+	rows, err := db.Query(`SELECT path, blob, content_hash, language FROM files WHERE path IN (`+placeholders+`) ORDER BY path`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var files []semanticRecord
+	for rows.Next() {
+		var path, blob, contentHash, language string
+		if err := rows.Scan(&path, &blob, &contentHash, &language); err != nil {
+			return nil, err
+		}
+		for _, id := range idsByPath[path] {
+			files = append(files, semanticRecord{
+				RecordType:    "file",
+				ID:            id,
+				Kind:          "file",
+				Name:          filepath.Base(path),
+				QualifiedName: path,
+				FilePath:      path,
+				Path:          path,
+				Language:      language,
+				Blob:          blob,
+				Signature:     contentHash,
+			})
+		}
+	}
+	return nonNilRecords(files), rows.Err()
+}
+
+func graphFilePathFromID(id string) (string, bool) {
+	_, path, ok := strings.Cut(id, ":file:")
+	if !ok || strings.TrimSpace(path) == "" {
+		return "", false
+	}
+	return filepath.ToSlash(path), true
 }
 
 func scanGraphSymbols(rows *sql.Rows) ([]semanticRecord, error) {

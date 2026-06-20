@@ -14,6 +14,7 @@ go test ./internal/cli -run 'TestWorkspaceGraphReportsCrossRepoGraphQLCalls|Test
 go test ./internal/cli -run TestWorkspaceGraphReportsCrossRepoGraphQLCalls -count=1
 go test ./internal/cli -run 'TestWorkspaceGraphReportsCrossRepoGraphQLCalls|TestWorkspaceGraphReportsCrossRepoGraphQLSchemaResolverWithoutOperation' -count=1
 go test ./internal/cli -run TestSemanticGraphQueriesDataFlowRelations -count=1
+go test ./internal/cli -run 'TestSemanticGraphQueriesResolvedFileImports|TestSemanticGraphCommandsUseSQLiteStore|TestSemanticGraphQueriesDataFlowRelations' -count=1
 go test ./internal/cli -run TestRefreshSkipsCurrentSemanticIndex
 go test ./internal/cli -run 'TestBrainReviewUsesRuntimeTraceForRankingAndContext|TestBrainReviewMapsAnomalyToFinding|TestMCPBrainReviewTool|TestBrainBriefJSONUsesSemanticContextAndLiveOverlay|TestRegressionChangedOperandReportsEachRegressedHintedFile'
 go test ./...
@@ -32,6 +33,9 @@ go test ./internal/cli -run TestWorkspaceGraphReportsCrossRepoGraphQLCalls -coun
   present.
 - Semantic graph tests passed for persisted/queryable `DATA_FLOWS` relations
   and graph-schema exposure of the relation type.
+- Semantic graph tests passed for resolved file-to-file `IMPORTS` relations,
+  including Cypher-style endpoint predicates over file paths, file names, and
+  `kind = "file"` nodes.
 - Warm-refresh semantic no-op proof passed: after an initial refresh, a second
   refresh with the same HEAD does not call `entire sem snapshot` again.
 - Full repository tests passed:
@@ -44,7 +48,11 @@ go test ./internal/cli -run TestWorkspaceGraphReportsCrossRepoGraphQLCalls -coun
 - Graph query accepts the existing filter syntax plus the Cypher-style
   `MATCH (a)-[r:TYPE]->(b) WHERE ... RETURN ... LIMIT n` subset, including
   `RETURN count(r)` / `RETURN count(*)` aggregate counts and relation
-  predicates such as `WHERE r.type = "CALLS"`.
+  predicates such as `WHERE r.type = "CALLS"`. Relation endpoints are loaded
+  as symbol nodes when the endpoint ID is a symbol and as file nodes when the
+  endpoint ID references a persisted file record, so resolved module imports
+  emitted as file-to-file `IMPORTS` edges are queryable through the same graph
+  surface.
 - Runtime trace ingestion persists queryable `RUNTIME_TRACE` graph facts and
   folds them into graph schema/metrics, trace-path traversal, and
   `brief --json` semantic context.

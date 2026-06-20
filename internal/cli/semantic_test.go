@@ -1945,6 +1945,41 @@ func TestSemanticGraphQueriesDataFlowRelations(t *testing.T) {
 	}
 }
 
+func TestSemanticGraphQueriesResolvedFileImports(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticResolvedImportFixtureSnapshot())
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	var queryOut bytes.Buffer
+	queryCmd := &cobra.Command{Use: "query"}
+	queryCmd.SetOut(&queryOut)
+	query := `MATCH (a)-[r:IMPORTS]->(b) WHERE a.file_path CONTAINS "apps/web/src/app.ts" AND b.file_path CONTAINS "packages/utils/src/index.ts" RETURN a,r,b LIMIT 5`
+	if err := runSemanticQueryGraph(queryCmd, opts, semanticGraphQueryOptions{limit: 10, json: true}, query); err != nil {
+		t.Fatalf("query resolved imports: %v", err)
+	}
+	output := queryOut.String()
+	for _, want := range []string{`"IMPORTS"`, `"record_type": "file"`, `"apps/web/src/app.ts"`, `"packages/utils/src/index.ts"`} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("query output missing %s:\n%s", want, output)
+		}
+	}
+
+	var countOut bytes.Buffer
+	countCmd := &cobra.Command{Use: "query-count"}
+	countCmd.SetOut(&countOut)
+	if err := runSemanticQueryGraph(countCmd, opts, semanticGraphQueryOptions{limit: 10, json: true}, `MATCH (a)-[r:IMPORTS]->(b) WHERE a.kind = "file" AND b.name = "index.ts" RETURN count(r)`); err != nil {
+		t.Fatalf("query resolved import count: %v", err)
+	}
+	if !strings.Contains(countOut.String(), `"count": 1`) {
+		t.Fatalf("query count JSON missing resolved import count:\n%s", countOut.String())
+	}
+}
+
 func TestSemanticImpactReturnsRelationsWhenRootsFillLimit(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -4323,6 +4358,14 @@ func semanticDataFlowFixtureSnapshot() string {
 {"record_type":"symbol","id":"gh/example/repo:ts:flow.ts:function:run","kind":"function","name":"run","qualified_name":"flow.run","file_path":"flow.ts","start_line":1,"end_line":8,"signature":"function run(input: Input): string","language":"TypeScript","stable_id_version":"1"}
 {"record_type":"symbol","id":"gh/example/repo:ts:flow.ts:function:normalize","kind":"function","name":"normalize","qualified_name":"flow.normalize","file_path":"flow.ts","start_line":10,"end_line":12,"signature":"function normalize(value: string): string","language":"TypeScript","stable_id_version":"1"}
 {"record_type":"relation","from_id":"gh/example/repo:ts:flow.ts:function:run","to_id":"gh/example/repo:ts:flow.ts:function:normalize","type":"DATA_FLOWS","confidence":0.7,"reason":"caller parameter destructured alias forwarded into callee argument","relation_scope":"file","resolution":"exact","target_kind":"symbol","evidence":[{"kind":"destructured_alias_forward_flow","file_path":"flow.ts","start_line":1,"end_line":8,"detail":"input -> value -> normalize()"}],"warning_codes":[]}
+`
+}
+
+func semanticResolvedImportFixtureSnapshot() string {
+	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["ndjson"],"relation_set":["IMPORTS"],"warnings":[],"partial_failures":[]}
+{"record_type":"file","id":"gh/example/repo:file:apps/web/src/app.ts","path":"apps/web/src/app.ts","blob":"app","language":"TypeScript","bytes":96}
+{"record_type":"file","id":"gh/example/repo:file:packages/utils/src/index.ts","path":"packages/utils/src/index.ts","blob":"utils","language":"TypeScript","bytes":48}
+{"record_type":"relation","from_id":"gh/example/repo:file:apps/web/src/app.ts","to_id":"gh/example/repo:file:packages/utils/src/index.ts","type":"IMPORTS","confidence":0.91,"reason":"JS/TS workspace package export resolved through nested package.json","relation_scope":"module","resolution":"import_resolved","target_kind":"file","evidence":[{"kind":"package_workspace_exports_import","file_path":"apps/web/src/app.ts","start_line":1,"end_line":1,"detail":"@acme/utils"}],"warning_codes":[]}
 `
 }
 
