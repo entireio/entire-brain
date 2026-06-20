@@ -6,6 +6,7 @@ Branch: `codex/full-plan-implementation`
 
 ```sh
 go test ./internal/cli -run 'TestSemanticGraphCommandsUseSQLiteStore|TestWorkspaceGraphReportsSharedExternalContracts'
+go test ./internal/cli -run 'TestWorkspaceGraphReportsCrossRepoImportCandidates|TestWorkspaceGraphMatchesScopedPackageImportCandidates|TestWorkspaceImportMatchesGitHubRepoKeys'
 go test ./internal/cli -run TestRefreshSkipsCurrentSemanticIndex
 go test ./internal/cli -run 'TestBrainReviewUsesRuntimeTraceForRankingAndContext|TestBrainReviewMapsAnomalyToFinding|TestMCPBrainReviewTool|TestBrainBriefJSONUsesSemanticContextAndLiveOverlay|TestRegressionChangedOperandReportsEachRegressedHintedFile'
 go test ./...
@@ -36,7 +37,7 @@ go test ./...
   symbols/resources in different repos through shared external endpoints and
   directed route-call edges from `HTTP_CALLS` clients to `HANDLES_ROUTE`
   handlers on the same route endpoint, repo-key-matched unresolved import
-  candidates, plus exact
+  candidates including GitHub `@owner/repo` scoped package imports, plus exact
   `external:symbol:<qualified-name>` references and repo-prefix-qualified
   external symbol references matched to symbols defined in another workspace
   repo.
@@ -50,9 +51,9 @@ go test ./...
 - The graph query language is a supported Cypher-style subset, not full Cypher.
 - Workspace cross-repo graph edges are explicit in `graph.json`, but they are
   still derived from shared external endpoint contracts, exact route endpoint
-  matches, repo-key-matched unresolved import candidates, and exact
-  external-symbol name matches, not full cross-repo compiler/type-aware symbol
-  resolution.
+  matches, repo-key/scoped-package-matched unresolved import candidates, and
+  exact external-symbol name matches, not full cross-repo compiler/type-aware
+  symbol resolution.
 - Runtime trace facts are now visible in `brief` and review reports, and
   influence likely-file/review ranking. Proof-ready agent-value evals remain
   open before memory-aware lift can be claimed.

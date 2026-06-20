@@ -1291,7 +1291,7 @@ func workspaceRepoImportPrefixes(repoKey string) []string {
 	prefixes := []string{repoKey}
 	if len(parts) >= 3 && parts[0] == "gh" {
 		ownerRepo := strings.Join(parts[1:3], "/")
-		prefixes = append(prefixes, "github.com/"+ownerRepo, ownerRepo)
+		prefixes = append(prefixes, "github.com/"+ownerRepo, ownerRepo, "@"+ownerRepo)
 	}
 	sort.Strings(prefixes)
 	deduped := prefixes[:0]

@@ -576,6 +576,44 @@ func TestWorkspaceGraphReportsCrossRepoImportCandidates(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesScopedPackageImportCandidates(t *testing.T) {
+	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			Imports: []workspaceGraphImportRef{{
+				Spec: "@acme/lib/pkg",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "HandleAPI",
+					QualifiedName: "service.HandleAPI",
+					FilePath:      "service.go",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "gh/acme/lib",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "gh/acme/lib",
+				ID:            "lib:sym",
+				Kind:          "function",
+				Name:          "Service",
+				QualifiedName: "pkg.Service",
+				FilePath:      "pkg/service.go",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("scoped package import edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_import_candidate" || edge.Endpoint != "external:import:@acme/lib/pkg" || edge.FromRepo != "local/app" || edge.ToRepo != "gh/acme/lib" || edge.ToSymbol.FilePath != "pkg/service.go" {
+		t.Fatalf("unexpected scoped package import edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceGraphReportsCrossRepoRouteCalls(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
@@ -732,6 +770,10 @@ func TestWorkspaceImportMatchesGitHubRepoKeys(t *testing.T) {
 	subpath, ok = workspaceImportMatchesRepo("acme/lib/pkg", "gh/acme/lib")
 	if !ok || subpath != "pkg" {
 		t.Fatalf("owner/repo import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("@acme/lib/pkg", "gh/acme/lib")
+	if !ok || subpath != "pkg" {
+		t.Fatalf("scoped package import match = %q, %v", subpath, ok)
 	}
 	if _, ok := workspaceImportMatchesRepo("github.com/acme/other/pkg", "gh/acme/lib"); ok {
 		t.Fatalf("unrelated repo import should not match")
