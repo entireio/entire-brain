@@ -138,7 +138,7 @@ func mcpDebugToolCall(raw json.RawMessage) mcpDebugToolCallInfo {
 			safe[key] = value
 		}
 	}
-	if name == "brain_workspace_regressions" || name == "brain_workspace_review" {
+	if name == "brain_workspace_graph" || name == "brain_workspace_regressions" || name == "brain_workspace_review" {
 		if value, ok := params.Arguments["workspace"].(string); ok {
 			workspace := strings.TrimSpace(value)
 			if validateWorkspaceName(workspace) == nil {
@@ -383,6 +383,11 @@ func mcpToolDefinitions() []map[string]any {
 			"name":        "brain_workspace_regressions",
 			"description": "Flag suspected regressions across every repo in a local multi-repo workspace (each brain's memory vs that repo's current tree). Tolerates sessions-only brains; results are aggregated by repo_key.",
 			"inputSchema": objectSchema([]string{"workspace", "query"}, map[string]any{"workspace": stringArg("workspace", "Workspace name"), "query": stringArg("query", "Task description plus the failing symbols/identifiers"), "limit": integerArg("limit", "Maximum suspected regressions per repo"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (higher recall, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}),
+		},
+		{
+			"name":        "brain_workspace_graph",
+			"description": "Return per-repo graph metadata plus shared external contracts and cross_edges for a local multi-repo workspace.",
+			"inputSchema": objectSchema([]string{"workspace"}, map[string]any{"workspace": stringArg("workspace", "Workspace name"), "limit": integerArg("limit", "Maximum contracts/cross_edges")}),
 		},
 		{
 			"name":        "brain_workspace_review",
@@ -677,6 +682,18 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			}
 			err = runWorkspaceRegressions(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, workspace, query)
 		}
+	case "brain_workspace_graph":
+		workspace, stringErr := mcpOptionalString(params.Arguments, "workspace")
+		if stringErr != nil {
+			err = stringErr
+			break
+		}
+		workspace = strings.TrimSpace(workspace)
+		if workspace == "" {
+			err = errors.New("workspace is required")
+		} else {
+			err = runWorkspaceGraph(cmd, opts, workspaceGraphOptions{limit: limit, json: true}, workspace)
+		}
 	case "brain_workspace_review":
 		workspace, stringErr := mcpOptionalString(params.Arguments, "workspace")
 		if stringErr != nil {
@@ -878,6 +895,8 @@ func validateMCPToolArguments(tool string, args map[string]any) error {
 		add("kind", "limit")
 	case "brain_regressions", "brain_review":
 		add("query", "limit", "include_deletions", "location_only")
+	case "brain_workspace_graph":
+		add("workspace", "limit")
 	case "brain_workspace_regressions", "brain_workspace_review":
 		add("workspace", "query", "limit", "include_deletions", "location_only")
 	case "brain_patterns":

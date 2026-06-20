@@ -130,6 +130,45 @@ func TestMCPProjectManagementTools(t *testing.T) {
 	}
 }
 
+func TestMCPWorkspaceGraphReturnsCrossEdges(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC) }}
+	cmd := &cobra.Command{Use: "index"}
+
+	repoA := t.TempDir()
+	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	indexWorkspaceGraphRepo(t, cmd, opts, runner, repoA, keyA, "HandleMCPA")
+	repoB := t.TempDir()
+	keyB := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	indexWorkspaceGraphRepo(t, cmd, opts, runner, repoB, keyB, "HandleMCPB")
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "mcpgraph",
+		Repos: []workspaceRepo{
+			{RepoKey: keyA, LocalPathHint: repoA},
+			{RepoKey: keyB, LocalPathHint: repoB},
+		},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_workspace_graph","arguments":{"workspace":"mcpgraph","limit":10}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	payload := mcpTextJSONPayload(t, responses[0])
+	data, _ := json.Marshal(payload)
+	for _, want := range []string{`"workspace":"mcpgraph"`, `"contracts"`, `"cross_edges"`, `external:config:kubernetes/image/shared:latest`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("brain_workspace_graph payload missing %q: %s", want, data)
+		}
+	}
+}
+
 func TestMCPToolsListAdvertisesStaleBlindSpots(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`)
 	var out bytes.Buffer

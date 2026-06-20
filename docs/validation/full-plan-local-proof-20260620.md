@@ -29,6 +29,8 @@ go test ./...
 - Workspace graph inspection writes a persisted `workspaces/<name>/graph.json`
   artifact with aggregate contracts and explicit `cross_edges` connecting
   symbols/resources in different repos through shared external endpoints.
+- MCP exposes `brain_workspace_graph` for the same workspace graph contracts
+  and `cross_edges` JSON.
 - Current semantic indexes are reused on warm refresh instead of forcing an
   unchanged provider snapshot.
 

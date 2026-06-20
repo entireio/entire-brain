@@ -18,7 +18,8 @@ Available tools:
   `brain_get_graph_schema`, `brain_get_architecture`, `brain_get_code_snippet`,
   `brain_trace_path`, `brain_dead_code`, `brain_ingest_traces`
 - Diff-less review: `brain_regressions`, `brain_review`
-- Cross-repo (workspace): `brain_workspace_regressions`, `brain_workspace_review`
+- Cross-repo (workspace): `brain_workspace_graph`,
+  `brain_workspace_regressions`, `brain_workspace_review`
 
 The tool responses wrap the existing CLI `--json` output as text content. Treat
 the CLI JSON contracts as the source of truth for fields and freshness policy.
@@ -31,8 +32,9 @@ removed — history is now one source within the unified lexical/hybrid verbs.)
 
 Workspace symbol traversal and unified retrieval currently live in the CLI
 (`entire brain workspace inspect context|impact|graph|regressions` and
-`entire brain workspace search|vsearch|query|get`). MCP exposes
-the single-repo tools plus workspace review/regression helpers.
+`entire brain workspace search|vsearch|query|get`). MCP exposes the
+single-repo tools plus `brain_workspace_graph` for cross-repo graph contracts
+and `cross_edges`, along with workspace review/regression helpers.
 
 The graph tools read the local semantic SQLite store built by `refresh index`
 or rebuilt by `repair`. `brain_query_graph` accepts simple filters such as
