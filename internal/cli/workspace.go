@@ -1554,25 +1554,68 @@ func workspaceExternalSymbolTarget(candidates []workspaceGraphSymbolRef, spec st
 }
 
 func workspaceExternalSymbolMatchesCandidate(spec string, candidate workspaceGraphSymbolRef) bool {
+	aliases := workspaceExternalSymbolCandidateAliases(candidate)
 	for _, normalized := range workspaceExternalSymbolCandidateSpecs(spec, candidate.RepoKey) {
-		if candidate.QualifiedName == normalized || candidate.Name == normalized {
-			return true
+		for _, alias := range aliases {
+			if alias == normalized {
+				return true
+			}
 		}
 	}
 	return false
 }
 
 func workspaceExternalSymbolCandidateRank(spec string, candidate workspaceGraphSymbolRef) int {
+	normalized := map[string]bool{}
+	for _, value := range workspaceExternalSymbolCandidateSpecs(spec, candidate.RepoKey) {
+		normalized[value] = true
+	}
 	switch {
 	case candidate.QualifiedName == spec:
 		return 0
 	case candidate.Name == spec:
 		return 1
-	case workspaceExternalSymbolMatchesCandidate(spec, candidate):
+	case normalized[candidate.QualifiedName]:
 		return 2
-	default:
+	case normalized[candidate.Name]:
 		return 3
+	case workspaceExternalSymbolMatchesCandidate(spec, candidate):
+		return 4
+	default:
+		return 5
 	}
+}
+
+func workspaceExternalSymbolCandidateAliases(candidate workspaceGraphSymbolRef) []string {
+	seen := map[string]bool{}
+	add := func(value string) {
+		value = strings.Trim(strings.TrimSpace(filepath.ToSlash(value)), "/")
+		if value == "" {
+			return
+		}
+		seen[value] = true
+		seen[strings.ReplaceAll(value, "/", ".")] = true
+	}
+	add(candidate.QualifiedName)
+	add(candidate.Name)
+	if candidate.FilePath != "" && candidate.Name != "" {
+		path := strings.TrimSuffix(strings.Trim(filepath.ToSlash(candidate.FilePath), "/"), filepath.Ext(candidate.FilePath))
+		if path != "" {
+			add(path + "/" + candidate.Name)
+			add(path + "." + candidate.Name)
+			parts := strings.Split(path, "/")
+			for i := 1; i < len(parts); i++ {
+				add(strings.Join(parts[i:], "/") + "/" + candidate.Name)
+				add(strings.Join(parts[i:], ".") + "." + candidate.Name)
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for alias := range seen {
+		out = append(out, alias)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func workspaceExternalSymbolCandidateSpecs(spec, repoKey string) []string {

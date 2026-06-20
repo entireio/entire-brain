@@ -43,7 +43,8 @@ including hyphen/underscore aliases for Python packages, Rust crates, and Ruby
 gems,
 Kubernetes external config resource candidates, Docker Compose service resource candidates, and
 exact, repo-prefix-qualified, or package-prefix-qualified
-`external:symbol:<qualified-name>` matches),
+`external:symbol:<qualified-name>` matches, including file-path-qualified
+symbol aliases for shallow symbols in nested module files),
 along with workspace review/regression helpers.
 
 The graph tools read the local semantic SQLite store built by `refresh index`

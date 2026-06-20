@@ -1708,6 +1708,30 @@ func TestWorkspaceExternalSymbolTargetMatchesPackageRepoPrefixes(t *testing.T) {
 	}
 }
 
+func TestWorkspaceExternalSymbolTargetMatchesFileQualifiedSymbols(t *testing.T) {
+	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{
+		{
+			RepoKey:       "npm/@acme/lib",
+			ID:            "broad",
+			Kind:          "function",
+			Name:          "Handler",
+			QualifiedName: "other.Handler",
+			FilePath:      "src/other.ts",
+		},
+		{
+			RepoKey:       "npm/@acme/lib",
+			ID:            "target",
+			Kind:          "function",
+			Name:          "Handler",
+			QualifiedName: "Handler",
+			FilePath:      "src/api/routes.ts",
+		},
+	}, "@acme/lib/api/routes.Handler")
+	if !ok || target.ID != "target" || target.Direction != "external_symbol_target" {
+		t.Fatalf("file-qualified external symbol target = %#v, %v", target, ok)
+	}
+}
+
 func TestWorkspaceExternalSymbolTargetMatchesColonSeparatedPackagePrefixes(t *testing.T) {
 	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{{
 		RepoKey:       "cargo/tokio",

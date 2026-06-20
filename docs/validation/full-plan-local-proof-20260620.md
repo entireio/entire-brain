@@ -74,7 +74,10 @@ go test ./...
   `external:symbol:<qualified-name>` references, repo-prefix-qualified external
   symbol references, and package-prefix-qualified external symbols, including
   `::`-separated package symbols such as `tokio::sync::channel`, matched to
-  symbols defined in another workspace repo.
+  symbols defined in another workspace repo. External-symbol matching also
+  uses file-path-qualified symbol aliases such as
+  `@acme/lib/api/routes.Handler` to match shallow local symbols declared in
+  nested module files.
 - MCP exposes `brain_workspace_graph` for the same workspace graph contracts
   and `cross_edges` JSON.
 - Current semantic indexes are reused on warm refresh instead of forcing an
@@ -91,7 +94,8 @@ go test ./...
   terminal-symbol preference, canonical route templates including frontend
   optional/catch-all bracket params, wildcard path params, and trailing-slash
   equivalence, and exact/repo-prefix/package-prefix
-  external-symbol name matches including `::`-separated package symbols. Package-key matching covers
+  external-symbol name matches including file-path-qualified symbol aliases and
+  `::`-separated package symbols. Package-key matching covers
   cargo/gomod/maven/npm/pypi/nuget/gem/composer keys and hyphen/underscore
   aliases for Python packages, Rust crates, and Ruby gems, but this is still not
   full cross-repo compiler/type-aware symbol resolution.
