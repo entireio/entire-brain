@@ -45,7 +45,8 @@ plus a small Cypher-style subset such as
 `brain_trace_path` walks directed relation paths; `brain_ingest_traces` imports
 local JSON/NDJSON runtime edges, reports which ones already match static
 relations, and persists them as queryable `RUNTIME_TRACE` graph facts that are
-also visible to graph schema/metrics and trace-path traversal.
+also visible to graph schema/metrics, trace-path traversal, and `brain_brief`
+semantic context.
 
 `brain_index_repository` is a local write tool for building the semantic index;
 it does not publish artifacts. `brain_delete_project` removes local generated

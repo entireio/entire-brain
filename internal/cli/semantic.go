@@ -2956,6 +2956,121 @@ func semanticContextFacts(brainDir string, source *semanticSourceManifest, query
 	return symbols, relations, neighbors, nil
 }
 
+func semanticRuntimeTraceFacts(brainDir string, source *semanticSourceManifest, query string, limit int) ([]semanticRecord, error) {
+	if limit <= 0 {
+		return []semanticRecord{}, nil
+	}
+	if source.StorePath == "" {
+		return []semanticRecord{}, nil
+	}
+	storePath, err := validateSemanticDeclaredStore(brainDir, source)
+	if err != nil {
+		return nil, err
+	}
+	db, err := sql.Open(sqliteDriverName, storePath)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	if err := ensureSemanticRuntimeTraceTable(db); err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(`
+SELECT rt.from_id,
+       COALESCE(to_sym.id, rt.to_id) AS to_id,
+       rt.observed_type,
+       rt.matched_static_edge,
+       rt.source_path,
+       COALESCE(from_sym.file_path, '') AS from_file,
+       COALESCE(to_sym.file_path, '') AS to_file,
+       COALESCE(from_sym.name, '') AS from_name,
+       COALESCE(from_sym.qualified_name, '') AS from_qualified,
+       COALESCE(to_sym.name, '') AS to_name,
+       COALESCE(to_sym.qualified_name, '') AS to_qualified
+FROM runtime_traces rt
+LEFT JOIN symbols from_sym ON from_sym.id = rt.from_id OR from_sym.name = rt.from_id OR from_sym.qualified_name = rt.from_id
+LEFT JOIN symbols to_sym ON to_sym.id = rt.to_id OR to_sym.name = rt.to_id OR to_sym.qualified_name = rt.to_id
+ORDER BY rt.imported_at DESC, rt.id DESC
+LIMIT ?`, limit*8)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	terms := brainBriefFileMatchTerms(query)
+	var records []semanticRecord
+	for rows.Next() {
+		var record semanticRecord
+		var observedType, sourcePath, fromFile, toFile, fromName, fromQualified, toName, toQualified string
+		var matched int
+		if err := rows.Scan(&record.FromID, &record.ToID, &observedType, &matched, &sourcePath, &fromFile, &toFile, &fromName, &fromQualified, &toName, &toQualified); err != nil {
+			return nil, err
+		}
+		record.RecordType = "runtime_trace"
+		record.Type = "RUNTIME_TRACE"
+		record.Confidence = 1
+		record.FilePath = semanticFirstNonEmpty(fromFile, toFile)
+		record.Path = record.FilePath
+		record.Reason = strings.TrimSpace("runtime trace observed " + observedType)
+		if record.Reason == "runtime trace observed" {
+			record.Reason = "runtime trace observed edge"
+		}
+		if matched == 0 {
+			record.Confidence = 0.5
+			record.WarningCodes = []string{"UNMATCHED_STATIC_EDGE"}
+		} else {
+			record.WarningCodes = []string{}
+		}
+		record.Evidence = []semanticEvidence{{Kind: "runtime_trace_import", FilePath: sourcePath, Detail: observedType}}
+		record.Score = runtimeTraceTaskScore(record, terms, fromFile, toFile, fromName, fromQualified, toName, toQualified, observedType)
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].Score == records[j].Score {
+			if records[i].Confidence == records[j].Confidence {
+				if records[i].FilePath == records[j].FilePath {
+					if records[i].FromID == records[j].FromID {
+						return records[i].ToID < records[j].ToID
+					}
+					return records[i].FromID < records[j].FromID
+				}
+				return records[i].FilePath < records[j].FilePath
+			}
+			return records[i].Confidence > records[j].Confidence
+		}
+		return records[i].Score > records[j].Score
+	})
+	if len(records) > limit {
+		records = records[:limit]
+	}
+	return nonNilRecords(records), nil
+}
+
+func runtimeTraceTaskScore(record semanticRecord, terms []string, fields ...string) int {
+	haystack := strings.ToLower(strings.Join(append([]string{record.FromID, record.ToID, record.FilePath, record.Reason}, fields...), " "))
+	score := 0
+	for _, term := range terms {
+		if term != "" && strings.Contains(haystack, strings.ToLower(term)) {
+			score += 3
+		}
+	}
+	if record.Confidence >= 1 {
+		score++
+	}
+	return score
+}
+
+func semanticFirstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func semanticImpactFacts(brainDir string, source *semanticSourceManifest, query string, depth, limit int) ([]semanticRecord, []semanticRecord, []semanticRecord, error) {
 	if source.StorePath != "" {
 		storePath, err := validateSemanticDeclaredStore(brainDir, source)

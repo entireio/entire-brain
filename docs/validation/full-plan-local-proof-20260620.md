@@ -25,7 +25,8 @@ go test ./...
 - Graph query accepts the existing filter syntax plus the Cypher-style
   `MATCH (a)-[r:TYPE]->(b) WHERE ... RETURN ... LIMIT n` subset.
 - Runtime trace ingestion persists queryable `RUNTIME_TRACE` graph facts and
-  folds them into graph schema/metrics plus trace-path traversal.
+  folds them into graph schema/metrics, trace-path traversal, and
+  `brief --json` semantic context.
 - Workspace graph inspection writes a persisted `workspaces/<name>/graph.json`
   artifact with aggregate contracts and explicit `cross_edges` connecting
   symbols/resources in different repos through shared external endpoints and
@@ -42,5 +43,6 @@ go test ./...
   still derived from shared external endpoint contracts and repo-key-matched
   unresolved import candidates, not full cross-repo compiler/type-aware symbol
   resolution.
-- Runtime trace facts are not yet folded into broader history/review ranking
-  surfaces by default.
+- Runtime trace facts are now visible in `brief` and influence likely-file
+  ranking there. Review-specific ranking and proof-ready agent-value evals
+  remain open.

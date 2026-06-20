@@ -165,8 +165,9 @@ type brainBriefReport struct {
 }
 
 type brainBriefSemantic struct {
-	Context semanticContextResult `json:"context"`
-	Tests   semanticTestsResult   `json:"tests"`
+	Context       semanticContextResult `json:"context"`
+	RuntimeTraces []semanticRecord      `json:"runtime_traces,omitempty"`
+	Tests         semanticTestsResult   `json:"tests"`
 }
 
 type brainBriefHistory struct {
@@ -1068,6 +1069,12 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 				Neighbors: nonNilRecords(contextNeighbors),
 			}
 		}
+		runtimeTraces, runtimeErr := semanticRuntimeTraceFacts(status.Brain.Path, status.Manifest.Sources.Semantic, task, briefOpts.limit)
+		if runtimeErr != nil {
+			report.Warnings = append(report.Warnings, "runtime trace context unavailable: "+runtimeErr.Error())
+		} else {
+			report.Semantic.RuntimeTraces = runtimeTraces
+		}
 		tests, testsErr := semanticTestFacts(status.Brain.Path, status.Manifest.Sources.Semantic, task, briefOpts.limit)
 		if testsErr != nil {
 			report.Warnings = append(report.Warnings, "test suggestions unavailable: "+testsErr.Error())
@@ -1169,6 +1176,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	for _, symbol := range report.Semantic.Context.Symbols {
 		fmt.Fprintf(cmd.OutOrStdout(), "symbol %s %s:%d-%d\n", displaySymbolName(symbol), symbol.FilePath, symbol.StartLine, symbol.EndLine)
 	}
+	for _, trace := range report.Semantic.RuntimeTraces {
+		fmt.Fprintf(cmd.OutOrStdout(), "runtime_trace %s -> %s %s\n", trace.FromID, trace.ToID, trace.Reason)
+	}
 	for _, suggestion := range report.Semantic.Tests.Suggestions {
 		symbol := suggestion.Symbol
 		fmt.Fprintf(cmd.OutOrStdout(), "test %s %s:%d-%d %s\n", displaySymbolName(symbol), symbol.FilePath, symbol.StartLine, symbol.EndLine, suggestion.Reason)
@@ -1257,6 +1267,13 @@ func brainBriefLikelyFileGroups(repoRoot string, report brainBriefReport, task s
 	for _, relation := range report.Semantic.Context.Relations {
 		add(relation.FilePath, 4)
 		add(relation.Path, 2)
+	}
+	for _, trace := range report.Semantic.RuntimeTraces {
+		add(trace.FilePath, 7)
+		add(trace.Path, 3)
+		for _, evidence := range trace.Evidence {
+			add(evidence.FilePath, 2)
+		}
 	}
 	for _, root := range report.Semantic.Tests.Roots {
 		add(root.FilePath, 6)
