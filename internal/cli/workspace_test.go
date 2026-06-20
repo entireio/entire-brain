@@ -2814,6 +2814,79 @@ func TestWorkspaceSearchAndGetFanOutWithQualifiedIDs(t *testing.T) {
 	}
 }
 
+func TestWorkspaceSearchAndGetIncludesPersistedGraphEdges(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
+	cmd := NewRootCommand(opts)
+
+	_, keyA := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "client.ts", "export function fetchViewer() {}\n")
+	_, keyB := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "schema.graphql", "type Query { viewer: User }\n")
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos:         []workspaceRepo{{RepoKey: keyA, Name: "client"}, {RepoKey: keyB, Name: "api"}},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+	edge := workspaceGraphCrossEdge{
+		Endpoint:     "external:graphql:query viewer",
+		Type:         "graphql",
+		FromRepo:     keyA,
+		ToRepo:       keyB,
+		FromSymbol:   workspaceGraphSymbolRef{RepoKey: keyA, ID: "symbol:client.fetchViewer", Kind: "function", Name: "fetchViewer", QualifiedName: "client.fetchViewer", FilePath: "client.ts"},
+		ToSymbol:     workspaceGraphSymbolRef{RepoKey: keyB, ID: "symbol:Query.viewer", Kind: "field", Name: "viewer", QualifiedName: "Query.viewer", FilePath: "schema.graphql"},
+		SharedCount:  1,
+		RelationKind: "cross_repo_graphql_call",
+	}
+	if _, err := writeWorkspaceGraphPayload(env, workspaceGraphPayload{
+		Workspace:   manifest.Name,
+		GeneratedAt: time.Now(),
+		CrossEdges:  []workspaceGraphCrossEdge{edge},
+	}); err != nil {
+		t.Fatalf("write workspace graph: %v", err)
+	}
+
+	searchOut, err := execute(t, cmd, "workspace", "search", "related", "viewer graphql", "--json")
+	if err != nil {
+		t.Fatalf("workspace search: %v", err)
+	}
+	graphID := workspaceGraphCrossEdgeID(edge)
+	for _, want := range []string{`"source": "workspace_graph"`, `"id": "` + graphID + `"`, "cross_repo_graphql_call", "external:graphql:query viewer"} {
+		if !strings.Contains(searchOut, want) {
+			t.Fatalf("search output missing %q:\n%s", want, searchOut)
+		}
+	}
+
+	queryOut, err := execute(t, cmd, "workspace", "query", "related", "viewer graphql", "--json")
+	if err != nil {
+		t.Fatalf("workspace query: %v", err)
+	}
+	if !strings.Contains(queryOut, `"id": "`+graphID+`"`) {
+		t.Fatalf("query output missing workspace graph hit:\n%s", queryOut)
+	}
+
+	textCmd := NewRootCommand(opts)
+	textOut, err := execute(t, textCmd, "workspace", "search", "related", "viewer graphql")
+	if err != nil {
+		t.Fatalf("workspace search text: %v", err)
+	}
+	if !strings.Contains(textOut, "[workspace_graph] "+graphID) {
+		t.Fatalf("text output missing pasteable graph id %s:\n%s", graphID, textOut)
+	}
+
+	getOut, err := execute(t, cmd, "workspace", "get", "related", graphID, "--json")
+	if err != nil {
+		t.Fatalf("workspace get: %v", err)
+	}
+	for _, want := range []string{`"source": "workspace_graph"`, "client.fetchViewer", "Query.viewer", "schema.graphql"} {
+		if !strings.Contains(getOut, want) {
+			t.Fatalf("get output missing %q:\n%s", want, getOut)
+		}
+	}
+}
+
 func TestSplitWorkspaceID(t *testing.T) {
 	cases := []struct {
 		in      string

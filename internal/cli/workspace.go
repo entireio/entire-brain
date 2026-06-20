@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
 	"path/filepath"
@@ -1999,6 +2000,23 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 		}
 		results = append(results, result)
 	}
+	if mode != modeVector {
+		graphResults, err := retrieveWorkspaceGraphCrossEdges(opts.Env, manifest.Name, query, retrieveOpts.limit)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			results = append(results, workspaceRetrieveResult{
+				RepoKey: manifest.Name,
+				Name:    "workspace graph",
+				Error:   err.Error(),
+				Results: []unifiedResult{},
+			})
+		} else if len(graphResults) > 0 {
+			results = append(results, workspaceRetrieveResult{
+				RepoKey: manifest.Name,
+				Name:    "workspace graph",
+				Results: graphResults,
+			})
+		}
+	}
 	if retrieveOpts.json {
 		return writeJSON(cmd, struct {
 			Workspace string                    `json:"workspace"`
@@ -2014,8 +2032,12 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 				loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
 			}
 			ex := truncateString(strings.Join(strings.Fields(r.Text), " "), 200)
-			// The id is printed repo-qualified so it can be pasted into `workspace get`.
-			fmt.Fprintf(out, "[%s] %s/%s  %s\n    %s\n", r.Source, result.RepoKey, r.ID, loc, ex)
+			// Member ids are repo-qualified; workspace-level graph ids are already pasteable.
+			printedID := result.RepoKey + "/" + r.ID
+			if result.RepoKey == manifest.Name && strings.HasPrefix(r.ID, "graph:") {
+				printedID = r.ID
+			}
+			fmt.Fprintf(out, "[%s] %s  %s\n    %s\n", r.Source, printedID, loc, ex)
 		}
 		if result.Error != "" {
 			fmt.Fprintf(out, "%s error %s\n", result.RepoKey, result.Error)
@@ -2039,11 +2061,13 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 	var wsResult *workspaceGetResult
 	var memberIDs []string
 	for _, qualified := range qualifiedIDs {
-		if strings.HasPrefix(qualified, "pattern:") || strings.HasPrefix(qualified, "theme:") {
+		if strings.HasPrefix(qualified, "pattern:") || strings.HasPrefix(qualified, "theme:") || strings.HasPrefix(qualified, "graph:") {
 			if wsResult == nil {
 				wsResult = &workspaceGetResult{RepoKey: manifest.Name, Results: []unifiedResult{}, Missing: []string{}}
 			}
-			if r, ok := getWorkspaceCorpusRecord(opts.Env, manifest.Name, qualified); ok {
+			if r, ok, err := getWorkspaceLevelRecord(opts.Env, manifest.Name, qualified); err != nil {
+				return err
+			} else if ok {
 				wsResult.Results = append(wsResult.Results, r)
 			} else {
 				wsResult.Missing = append(wsResult.Missing, qualified)
@@ -2124,6 +2148,172 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 		}
 	}
 	return nil
+}
+
+func retrieveWorkspaceGraphCrossEdges(env EntireEnv, workspaceName, query string, limit int) ([]unifiedResult, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	payload, err := loadWorkspaceGraphPayload(env, workspaceName)
+	if err != nil {
+		return nil, err
+	}
+	type scored struct {
+		result unifiedResult
+		score  float64
+	}
+	scoredEdges := make([]scored, 0, len(payload.CrossEdges))
+	for _, edge := range payload.CrossEdges {
+		result := workspaceGraphCrossEdgeUnified(edge)
+		score := workspaceGraphSearchScore(result.Text, query)
+		if score <= 0 {
+			continue
+		}
+		result.Score = score
+		scoredEdges = append(scoredEdges, scored{result: result, score: score})
+	}
+	sort.Slice(scoredEdges, func(i, j int) bool {
+		if scoredEdges[i].score != scoredEdges[j].score {
+			return scoredEdges[i].score > scoredEdges[j].score
+		}
+		return scoredEdges[i].result.ID < scoredEdges[j].result.ID
+	})
+	if len(scoredEdges) > limit {
+		scoredEdges = scoredEdges[:limit]
+	}
+	results := make([]unifiedResult, 0, len(scoredEdges))
+	for _, scored := range scoredEdges {
+		results = append(results, scored.result)
+	}
+	return results, nil
+}
+
+func getWorkspaceLevelRecord(env EntireEnv, workspaceName, id string) (unifiedResult, bool, error) {
+	if strings.HasPrefix(id, "graph:") {
+		payload, err := loadWorkspaceGraphPayload(env, workspaceName)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return unifiedResult{}, false, nil
+			}
+			return unifiedResult{}, false, err
+		}
+		for _, edge := range payload.CrossEdges {
+			result := workspaceGraphCrossEdgeUnified(edge)
+			if result.ID == id {
+				return result, true, nil
+			}
+		}
+		return unifiedResult{}, false, nil
+	}
+	result, ok := getWorkspaceCorpusRecord(env, workspaceName, id)
+	return result, ok, nil
+}
+
+func loadWorkspaceGraphPayload(env EntireEnv, workspaceName string) (workspaceGraphPayload, error) {
+	dir, err := workspaceDir(env, workspaceName)
+	if err != nil {
+		return workspaceGraphPayload{}, err
+	}
+	data, err := os.ReadFile(filepath.Join(dir, workspaceGraphName))
+	if err != nil {
+		return workspaceGraphPayload{}, err
+	}
+	var payload workspaceGraphPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return workspaceGraphPayload{}, err
+	}
+	return payload, nil
+}
+
+func workspaceGraphCrossEdgeUnified(edge workspaceGraphCrossEdge) unifiedResult {
+	fromName := workspaceGraphSymbolDisplay(edge.FromSymbol)
+	toName := workspaceGraphSymbolDisplay(edge.ToSymbol)
+	text := strings.Join(strings.Fields(fmt.Sprintf(
+		"%s %s connects %s/%s to %s/%s through endpoint %s type %s shared_count %d from_path %s to_path %s",
+		edge.RelationKind,
+		edge.Type,
+		edge.FromRepo,
+		fromName,
+		edge.ToRepo,
+		toName,
+		edge.Endpoint,
+		edge.Type,
+		edge.SharedCount,
+		edge.FromSymbol.FilePath,
+		edge.ToSymbol.FilePath,
+	)), " ")
+	return unifiedResult{
+		Source:  "workspace_graph",
+		ID:      workspaceGraphCrossEdgeID(edge),
+		Path:    workspaceGraphCrossEdgePath(edge),
+		Heading: edge.RelationKind,
+		Text:    text,
+	}
+}
+
+func workspaceGraphCrossEdgeID(edge workspaceGraphCrossEdge) string {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(edge.RelationKind))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(edge.Type))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(edge.Endpoint))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(edge.FromRepo))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(edge.FromSymbol.ID))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(edge.ToRepo))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(edge.ToSymbol.ID))
+	return fmt.Sprintf("graph:%016x", h.Sum64())
+}
+
+func workspaceGraphCrossEdgePath(edge workspaceGraphCrossEdge) string {
+	from := strings.TrimSpace(edge.FromSymbol.FilePath)
+	to := strings.TrimSpace(edge.ToSymbol.FilePath)
+	switch {
+	case from != "" && to != "":
+		return edge.FromRepo + ":" + from + " -> " + edge.ToRepo + ":" + to
+	case from != "":
+		return edge.FromRepo + ":" + from
+	case to != "":
+		return edge.ToRepo + ":" + to
+	default:
+		return edge.FromRepo + " -> " + edge.ToRepo
+	}
+}
+
+func workspaceGraphSymbolDisplay(symbol workspaceGraphSymbolRef) string {
+	for _, value := range []string{symbol.QualifiedName, symbol.Name, symbol.ID} {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return "(unknown)"
+}
+
+func workspaceGraphSearchScore(text, query string) float64 {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return 0
+	}
+	text = strings.ToLower(text)
+	terms := strings.Fields(query)
+	if len(terms) == 0 {
+		return 0
+	}
+	var matched int
+	for _, term := range terms {
+		if strings.Contains(text, term) {
+			matched++
+		}
+	}
+	if matched == 0 {
+		return 0
+	}
+	return float64(matched) / float64(len(terms))
 }
 
 // workspaceMemberBranch picks the facts branch for a member brain. Workspace

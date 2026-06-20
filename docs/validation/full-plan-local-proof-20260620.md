@@ -21,6 +21,7 @@ go test ./...
 go test ./internal/cli -run 'TestWorkspaceImportMatchesGitHubRepoKeys|TestWorkspaceExternalSymbolTargetMatchesGitHubMonorepoPackageAliases|TestWorkspaceExternalSymbolTargetMatchesGitHubMonorepoPackagePrefixes|TestWorkspaceGraphMatchesScopedPackageImportCandidates' -count=1
 go test ./internal/cli -run TestWorkspaceGraphReportsCrossRepoGraphQLCalls -count=1
 go test ./internal/cli -run 'TestWorkspaceGraphReportsCrossRepoChannelFlows|TestWorkspaceGraphReportsSharedExternalContracts' -count=1
+go test ./internal/cli -run 'TestWorkspaceSearchAndGetIncludesPersistedGraphEdges|TestWorkspaceSearchAndGetFanOutWithQualifiedIDs|TestWorkspaceGraphReportsSharedExternalContracts' -count=1
 ```
 
 ## Results
@@ -35,6 +36,11 @@ go test ./internal/cli -run 'TestWorkspaceGraphReportsCrossRepoChannelFlows|Test
 - Event-channel workspace graph tests passed for directed producer-to-consumer
   cross edges from `EMITS` participants to `LISTENS_ON` participants sharing
   the same `external:channel:*` endpoint.
+- Workspace search/query/get tests passed for persisted workspace graph
+  cross-edges: `workspace search` and `workspace query` surface
+  `workspace_graph` results from `workspaces/<name>/graph.json`, text mode
+  prints pasteable bare `graph:*` IDs, and `workspace get` resolves those IDs
+  back to full cross-edge evidence.
 - Semantic graph tests passed for persisted/queryable `DATA_FLOWS` relations
   and graph-schema exposure of the relation type.
 - Semantic graph tests passed for resolved file-to-file `IMPORTS` relations,
@@ -43,7 +49,7 @@ go test ./internal/cli -run 'TestWorkspaceGraphReportsCrossRepoChannelFlows|Test
 - Warm-refresh semantic no-op proof passed: after an initial refresh, a second
   refresh with the same HEAD does not call `entire sem snapshot` again.
 - Full repository tests passed:
-  - `github.com/ashtom/entire-brain/internal/cli`: latest local run 92.437s
+  - `github.com/ashtom/entire-brain/internal/cli`: latest local run 91.310s
   - `github.com/ashtom/entire-brain/internal/config`: cached
   - `github.com/ashtom/entire-brain/internal/tui`: cached
 
@@ -113,14 +119,20 @@ go test ./internal/cli -run 'TestWorkspaceGraphReportsCrossRepoChannelFlows|Test
   nested module files.
 - MCP exposes `brain_workspace_graph` for the same workspace graph contracts
   and `cross_edges` JSON.
+- Agent-facing workspace retrieval now includes persisted workspace graph
+  cross-edges in lexical and hybrid workspace retrieval. The returned
+  `workspace_graph` records have stable `graph:*` IDs, include endpoint,
+  relation kind, source/target repo and symbol evidence, and are addressable
+  through `workspace get`.
 - Current semantic indexes are reused on warm refresh instead of forcing an
   unchanged provider snapshot.
 
 ## Remaining Honesty Notes
 
 - The graph query language is a supported Cypher-style subset, not full Cypher.
-- Workspace cross-repo graph edges are explicit in `graph.json`, but they are
-  still derived from shared external endpoint contracts, exact route endpoint
+- Workspace cross-repo graph edges are explicit in `graph.json` and are now
+  visible through workspace search/query/get, but they are still derived from
+  shared external endpoint contracts, exact route endpoint
   matches, GraphQL operation/resolver/schema-field and
   schema-field-to-resolver endpoint matches, event-channel endpoint matches,
   Kubernetes workload/resource and Docker Compose service external config resource
