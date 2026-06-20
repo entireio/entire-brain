@@ -50,7 +50,8 @@ go test ./internal/cli -run 'TestWorkspaceImportMatchesGitHubRepoKeys|TestWorksp
   such as `{id}`/`:id`/`<id>`/`[id]`/`[[id]]`/`[...slug]`/`*path`, with
   trailing-slash-insensitive route matching for non-root paths, directed
   GraphQL edges from operation participants to concrete `graphql_resolver` and
-  `graphql_schema_field` symbols on the same `external:graphql:<operation>` endpoint,
+  `graphql_schema_field` symbols, plus schema-field-to-resolver edges, on the
+  same `external:graphql:<operation>` endpoint,
   repo-key-matched unresolved import
   candidates including GitHub `@owner/repo` scoped package imports and
   package-keyed `cargo/<crate>`, `gomod/<module-path>`,
@@ -93,7 +94,8 @@ go test ./internal/cli -run 'TestWorkspaceImportMatchesGitHubRepoKeys|TestWorksp
 - The graph query language is a supported Cypher-style subset, not full Cypher.
 - Workspace cross-repo graph edges are explicit in `graph.json`, but they are
   still derived from shared external endpoint contracts, exact route endpoint
-  matches, GraphQL operation/resolver/schema-field endpoint matches,
+  matches, GraphQL operation/resolver/schema-field and
+  schema-field-to-resolver endpoint matches,
   Kubernetes workload/resource and Docker Compose service external config resource
   candidates, repo-key/scoped-package/GitHub monorepo package/package-key-matched unresolved import candidates with
   terminal-symbol preference, source-path/subpath target preference, and

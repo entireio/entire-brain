@@ -36,7 +36,7 @@ Recommended intake flow:
    package/package-keyed `cargo`/`gomod`/`maven`/`npm`/`pypi`/`nuget`/`gem`/`composer`
    import/external symbol, including hyphen/underscore aliases for Python packages,
    Rust crates, Ruby gems, and GitHub monorepo package dirs, GraphQL
-   operation-to-resolver/schema-field, plus
+   operation-to-resolver/schema-field and schema-field-to-resolver, plus
    Kubernetes workload/resource and Docker Compose service resource-candidate `cross_edges`, and
    a persisted `graph.json` artifact) or
    `entire brain workspace search|vsearch|query <workspace> <query> --json`

@@ -1257,18 +1257,24 @@ func workspaceGraphGraphQLCrossEdges(index map[string]*workspaceExternalContract
 		}
 		var targets []workspaceGraphSymbolRef
 		var operations []workspaceGraphSymbolRef
+		var schemaFields []workspaceGraphSymbolRef
+		var resolvers []workspaceGraphSymbolRef
 		for _, participant := range aggregate.Participants {
 			if participant.Kind == "graphql_resolver" || participant.Kind == "graphql_schema_field" {
 				targets = append(targets, participant)
+				if participant.Kind == "graphql_schema_field" {
+					schemaFields = append(schemaFields, participant)
+				} else {
+					resolvers = append(resolvers, participant)
+				}
 			} else {
 				operations = append(operations, participant)
 			}
 		}
-		if len(targets) == 0 || len(operations) == 0 {
-			continue
-		}
 		sortWorkspaceGraphSymbolRefs(operations)
 		sortWorkspaceGraphSymbolRefs(targets)
+		sortWorkspaceGraphSymbolRefs(schemaFields)
+		sortWorkspaceGraphSymbolRefs(resolvers)
 		for _, operation := range operations {
 			for _, target := range targets {
 				if operation.RepoKey == target.RepoKey {
@@ -1287,6 +1293,23 @@ func workspaceGraphGraphQLCrossEdges(index map[string]*workspaceExternalContract
 					ToSymbol:     target,
 					SharedCount:  operation.Count + target.Count,
 					RelationKind: relationKind,
+				})
+			}
+		}
+		for _, schemaField := range schemaFields {
+			for _, resolver := range resolvers {
+				if schemaField.RepoKey == resolver.RepoKey {
+					continue
+				}
+				edges = append(edges, workspaceGraphCrossEdge{
+					Endpoint:     aggregate.Endpoint,
+					Type:         "CALLS",
+					FromRepo:     schemaField.RepoKey,
+					ToRepo:       resolver.RepoKey,
+					FromSymbol:   schemaField,
+					ToSymbol:     resolver,
+					SharedCount:  schemaField.Count + resolver.Count,
+					RelationKind: "cross_repo_graphql_schema_resolver",
 				})
 			}
 		}

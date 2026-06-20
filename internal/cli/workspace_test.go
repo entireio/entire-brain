@@ -1127,13 +1127,13 @@ func TestWorkspaceGraphReportsCrossRepoGraphQLCalls(t *testing.T) {
 			},
 		},
 	}, 10)
-	if len(edges) != 2 {
+	if len(edges) != 3 {
 		t.Fatalf("graphql cross edges = %#v", edges)
 	}
 	seen := map[string]workspaceGraphCrossEdge{}
 	for _, edge := range edges {
 		seen[edge.RelationKind+"->"+edge.ToSymbol.Kind] = edge
-		if edge.FromSymbol.Kind == "graphql_schema_field" {
+		if edge.FromSymbol.Kind == "graphql_schema_field" && edge.RelationKind != "cross_repo_graphql_schema_resolver" {
 			t.Fatalf("schema field was used as GraphQL operation source: %#v", edge)
 		}
 	}
@@ -1150,6 +1150,13 @@ func TestWorkspaceGraphReportsCrossRepoGraphQLCalls(t *testing.T) {
 		schemaEdge.FromRepo != "local/web" ||
 		schemaEdge.ToRepo != "local/schema" {
 		t.Fatalf("unexpected GraphQL schema cross edge: %#v", schemaEdge)
+	}
+	schemaResolverEdge := seen["cross_repo_graphql_schema_resolver->graphql_resolver"]
+	if schemaResolverEdge.Endpoint != "external:graphql:query user" ||
+		schemaResolverEdge.Type != "CALLS" ||
+		schemaResolverEdge.FromRepo != "local/schema" ||
+		schemaResolverEdge.ToRepo != "local/api" {
+		t.Fatalf("unexpected GraphQL schema resolver cross edge: %#v", schemaResolverEdge)
 	}
 }
 
