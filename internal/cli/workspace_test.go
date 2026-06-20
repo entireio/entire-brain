@@ -1228,6 +1228,72 @@ func TestWorkspaceGraphMatchesCanonicalRouteTemplateCalls(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesFrontendOptionalRouteTemplateCalls(t *testing.T) {
+	edges := workspaceGraphRouteCallCrossEdges(map[string]*workspaceExternalContractAggregate{
+		"HTTP_CALLS\x00external:route:/docs/{lang}": {
+			Endpoint: "external:route:/docs/{lang}",
+			Type:     "HTTP_CALLS",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/client",
+				ID:            "local/client:ts:client.ts:function:loadDocs",
+				Kind:          "function",
+				Name:          "loadDocs",
+				QualifiedName: "client.loadDocs",
+				Count:         1,
+			}},
+		},
+		"HANDLES_ROUTE\x00external:route:/docs/[[lang]]": {
+			Endpoint: "external:route:/docs/[[lang]]",
+			Type:     "HANDLES_ROUTE",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/web",
+				ID:            "local/web:ts:src/routes/docs/[[lang]]/+server.ts:function:GET",
+				Kind:          "function",
+				Name:          "GET",
+				QualifiedName: "routes.docs.GET",
+				Count:         1,
+			}},
+		},
+		"HTTP_CALLS\x00external:route:/blog/{slug}": {
+			Endpoint: "external:route:/blog/{slug}",
+			Type:     "HTTP_CALLS",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/client",
+				ID:            "local/client:ts:client.ts:function:loadBlog",
+				Kind:          "function",
+				Name:          "loadBlog",
+				QualifiedName: "client.loadBlog",
+				Count:         1,
+			}},
+		},
+		"HANDLES_ROUTE\x00external:route:/blog/[...slug]": {
+			Endpoint: "external:route:/blog/[...slug]",
+			Type:     "HANDLES_ROUTE",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/web",
+				ID:            "local/web:ts:src/routes/blog/[...slug]/+server.ts:function:GET",
+				Kind:          "function",
+				Name:          "GET",
+				QualifiedName: "routes.blog.GET",
+				Count:         1,
+			}},
+		},
+	}, 10)
+	if len(edges) != 2 {
+		t.Fatalf("expected frontend route template edges, got %#v", edges)
+	}
+	seen := map[string]workspaceGraphCrossEdge{}
+	for _, edge := range edges {
+		seen[edge.Endpoint] = edge
+	}
+	if edge := seen["external:route:/docs/{param}"]; edge.RelationKind != "cross_repo_route_call" || edge.FromRepo != "local/client" || edge.ToRepo != "local/web" || edge.ToSymbol.QualifiedName != "routes.docs.GET" {
+		t.Fatalf("unexpected optional frontend route edge: %#v", edge)
+	}
+	if edge := seen["external:route:/blog/{param}"]; edge.RelationKind != "cross_repo_route_call" || edge.FromRepo != "local/client" || edge.ToRepo != "local/web" || edge.ToSymbol.QualifiedName != "routes.blog.GET" {
+		t.Fatalf("unexpected catch-all frontend route edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceGraphReportsExactExternalSymbolEdges(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}

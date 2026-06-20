@@ -42,9 +42,9 @@ go test ./...
   symbols/resources in different repos through shared external endpoints and
   directed route-call edges from `HTTP_CALLS` clients to `HANDLES_ROUTE`
   handlers on the same route endpoint or equivalent canonical route template
-  such as `{id}`/`:id`/`<id>`/`[id]`, directed GraphQL edges from operation
-  participants to concrete `graphql_resolver` and `graphql_schema_field`
-  symbols on the same `external:graphql:<operation>` endpoint,
+  such as `{id}`/`:id`/`<id>`/`[id]`/`[[id]]`/`[...slug]`, directed GraphQL
+  edges from operation participants to concrete `graphql_resolver` and
+  `graphql_schema_field` symbols on the same `external:graphql:<operation>` endpoint,
   repo-key-matched unresolved import
   candidates including GitHub `@owner/repo` scoped package imports and
   package-keyed `cargo/<crate>`, `gomod/<module-path>`,
@@ -84,7 +84,8 @@ go test ./...
   matches, GraphQL operation/resolver/schema-field endpoint matches,
   Kubernetes resource and Docker Compose service external config resource
   candidates, repo-key/scoped-package/package-key-matched unresolved import candidates with
-  terminal-symbol preference, and exact/repo-prefix/package-prefix
+  terminal-symbol preference, canonical route templates including frontend
+  optional/catch-all bracket params, and exact/repo-prefix/package-prefix
   external-symbol name matches. Package-key matching covers
   cargo/gomod/maven/npm/pypi/nuget/gem/composer keys, but this is still not
   full cross-repo compiler/type-aware symbol resolution.
