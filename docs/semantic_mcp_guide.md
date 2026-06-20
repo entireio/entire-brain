@@ -34,7 +34,8 @@ Workspace symbol traversal and unified retrieval currently live in the CLI
 (`entire brain workspace inspect context|impact|graph|regressions` and
 `entire brain workspace search|vsearch|query|get`). MCP exposes the
 single-repo tools plus `brain_workspace_graph` for cross-repo graph contracts
-and `cross_edges`, along with workspace review/regression helpers.
+and `cross_edges` (shared external contracts plus repo-key-matched unresolved
+import candidates), along with workspace review/regression helpers.
 
 The graph tools read the local semantic SQLite store built by `refresh index`
 or rebuilt by `repair`. `brain_query_graph` accepts simple filters such as

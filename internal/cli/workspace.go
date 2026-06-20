@@ -164,6 +164,18 @@ type workspaceExternalContractAggregate struct {
 	Participants []workspaceGraphSymbolRef
 }
 
+type workspaceRepoGraphIndex struct {
+	RepoKey    string
+	Imports    []workspaceGraphImportRef
+	Candidates []workspaceGraphSymbolRef
+}
+
+type workspaceGraphImportRef struct {
+	Spec   string
+	Source workspaceGraphSymbolRef
+	Count  int
+}
+
 type workspaceGraphPayload struct {
 	Workspace   string                    `json:"workspace"`
 	GeneratedAt time.Time                 `json:"generated_at"`
@@ -696,9 +708,11 @@ func runWorkspaceGraph(cmd *cobra.Command, opts Options, graphOpts workspaceGrap
 func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest workspaceManifest, limit int) (workspaceGraphPayload, error) {
 	var results []workspaceGraphResult
 	contractIndex := map[string]*workspaceExternalContractAggregate{}
+	var repoIndexes []workspaceRepoGraphIndex
 	for _, repo := range manifest.Repos {
 		freshness := workspaceRepoFreshnessForRepo(ctx, opts, repo)
 		result := workspaceGraphResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
+		repoIndex := workspaceRepoGraphIndex{RepoKey: repo.RepoKey}
 		brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
 		if err != nil {
 			return workspaceGraphPayload{}, err
@@ -739,21 +753,38 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 		if err == nil {
 			err = collectWorkspaceExternalContracts(db, repo.RepoKey, contractIndex)
 		}
+		if err == nil {
+			repoIndex.Imports, err = collectWorkspaceImportRefs(db, repo.RepoKey)
+		}
+		if err == nil {
+			repoIndex.Candidates, err = collectWorkspaceTargetCandidates(db, repo.RepoKey)
+		}
 		if closeErr := db.Close(); err == nil {
 			err = closeErr
 		}
 		unlock()
 		if err != nil {
 			result.Error = err.Error()
+		} else {
+			repoIndexes = append(repoIndexes, repoIndex)
 		}
 		results = append(results, result)
+	}
+	crossEdges := workspaceGraphCrossEdges(contractIndex, limit)
+	crossEdges = append(crossEdges, workspaceGraphImportCrossEdges(repoIndexes, limit)...)
+	sortWorkspaceGraphCrossEdges(crossEdges)
+	if len(crossEdges) > limit {
+		crossEdges = crossEdges[:limit]
+	}
+	if crossEdges == nil {
+		crossEdges = []workspaceGraphCrossEdge{}
 	}
 	return workspaceGraphPayload{
 		Workspace:   manifest.Name,
 		GeneratedAt: opts.Now().UTC(),
 		Results:     results,
 		Contracts:   workspaceGraphContracts(contractIndex, limit),
-		CrossEdges:  workspaceGraphCrossEdges(contractIndex, limit),
+		CrossEdges:  crossEdges,
 	}, nil
 }
 
@@ -844,6 +875,113 @@ ORDER BY endpoint, r.type, local_id`)
 	return rows.Err()
 }
 
+func collectWorkspaceImportRefs(db *sql.DB, repoKey string) ([]workspaceGraphImportRef, error) {
+	rows, err := db.Query(`
+SELECT CASE
+    WHEN r.from_id LIKE 'external:import:%' THEN r.from_id
+    ELSE r.to_id
+  END AS endpoint,
+  CASE
+    WHEN r.from_id LIKE 'external:import:%' THEN r.to_id
+    ELSE r.from_id
+  END AS local_id,
+  COALESCE(s.kind, '') AS kind,
+  COALESCE(s.name, '') AS name,
+  COALESCE(s.qualified_name, '') AS qualified_name,
+  COALESCE(s.file_path, '') AS file_path,
+  COUNT(*) AS c
+FROM relations r
+LEFT JOIN symbols s ON s.id = CASE
+  WHEN r.from_id LIKE 'external:import:%' THEN r.to_id
+  ELSE r.from_id
+END
+WHERE r.type = 'IMPORTS'
+  AND (r.from_id LIKE 'external:import:%' OR r.to_id LIKE 'external:import:%')
+GROUP BY endpoint, local_id, kind, name, qualified_name, file_path
+ORDER BY endpoint, local_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var refs []workspaceGraphImportRef
+	for rows.Next() {
+		var endpoint, localID, kind, name, qualifiedName, filePath string
+		var count int
+		if err := rows.Scan(&endpoint, &localID, &kind, &name, &qualifiedName, &filePath, &count); err != nil {
+			return nil, err
+		}
+		spec := strings.TrimPrefix(endpoint, "external:import:")
+		if spec == "" || strings.HasPrefix(localID, "external:") {
+			continue
+		}
+		refs = append(refs, workspaceGraphImportRef{
+			Spec: spec,
+			Source: workspaceGraphSymbolRef{
+				RepoKey:       repoKey,
+				ID:            localID,
+				Kind:          kind,
+				Name:          name,
+				QualifiedName: qualifiedName,
+				FilePath:      filePath,
+				Direction:     "imports_external",
+				Count:         count,
+			},
+			Count: count,
+		})
+	}
+	if refs == nil {
+		refs = []workspaceGraphImportRef{}
+	}
+	return refs, rows.Err()
+}
+
+func collectWorkspaceTargetCandidates(db *sql.DB, repoKey string) ([]workspaceGraphSymbolRef, error) {
+	rows, err := db.Query(`
+SELECT id, kind, name, qualified_name, file_path
+FROM symbols
+ORDER BY file_path, kind, qualified_name, name, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var candidates []workspaceGraphSymbolRef
+	for rows.Next() {
+		var candidate workspaceGraphSymbolRef
+		candidate.RepoKey = repoKey
+		if err := rows.Scan(&candidate.ID, &candidate.Kind, &candidate.Name, &candidate.QualifiedName, &candidate.FilePath); err != nil {
+			return nil, err
+		}
+		candidate.Direction = "import_target_candidate"
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	fileRows, err := db.Query(`SELECT path FROM files WHERE trim(path) <> '' ORDER BY path`)
+	if err != nil {
+		return nil, err
+	}
+	defer fileRows.Close()
+	for fileRows.Next() {
+		var path string
+		if err := fileRows.Scan(&path); err != nil {
+			return nil, err
+		}
+		candidates = append(candidates, workspaceGraphSymbolRef{
+			RepoKey:   repoKey,
+			ID:        repoKey + ":file:" + filepath.ToSlash(path),
+			Kind:      "file",
+			Name:      filepath.Base(path),
+			FilePath:  filepath.ToSlash(path),
+			Direction: "import_target_candidate",
+		})
+	}
+	if candidates == nil {
+		candidates = []workspaceGraphSymbolRef{}
+	}
+	return candidates, fileRows.Err()
+}
+
 func workspaceGraphContracts(index map[string]*workspaceExternalContractAggregate, limit int) []workspaceGraphContract {
 	var contracts []workspaceGraphContract
 	for _, aggregate := range index {
@@ -908,21 +1046,7 @@ func workspaceGraphCrossEdges(index map[string]*workspaceExternalContractAggrega
 			}
 		}
 	}
-	sort.Slice(edges, func(i, j int) bool {
-		if edges[i].SharedCount == edges[j].SharedCount {
-			if edges[i].Type == edges[j].Type {
-				if edges[i].Endpoint == edges[j].Endpoint {
-					if edges[i].FromRepo == edges[j].FromRepo {
-						return edges[i].ToRepo < edges[j].ToRepo
-					}
-					return edges[i].FromRepo < edges[j].FromRepo
-				}
-				return edges[i].Endpoint < edges[j].Endpoint
-			}
-			return edges[i].Type < edges[j].Type
-		}
-		return edges[i].SharedCount > edges[j].SharedCount
-	})
+	sortWorkspaceGraphCrossEdges(edges)
 	if len(edges) > limit {
 		edges = edges[:limit]
 	}
@@ -930,6 +1054,152 @@ func workspaceGraphCrossEdges(index map[string]*workspaceExternalContractAggrega
 		return []workspaceGraphCrossEdge{}
 	}
 	return edges
+}
+
+func workspaceGraphImportCrossEdges(indexes []workspaceRepoGraphIndex, limit int) []workspaceGraphCrossEdge {
+	var edges []workspaceGraphCrossEdge
+	for _, fromRepo := range indexes {
+		for _, imp := range fromRepo.Imports {
+			for _, toRepo := range indexes {
+				if fromRepo.RepoKey == toRepo.RepoKey {
+					continue
+				}
+				subpath, ok := workspaceImportMatchesRepo(imp.Spec, toRepo.RepoKey)
+				if !ok {
+					continue
+				}
+				target, ok := workspaceImportTargetCandidate(toRepo.Candidates, subpath)
+				if !ok {
+					continue
+				}
+				edges = append(edges, workspaceGraphCrossEdge{
+					Endpoint:     "external:import:" + imp.Spec,
+					Type:         "IMPORTS",
+					FromRepo:     fromRepo.RepoKey,
+					ToRepo:       toRepo.RepoKey,
+					FromSymbol:   imp.Source,
+					ToSymbol:     target,
+					SharedCount:  imp.Count,
+					RelationKind: "cross_repo_import_candidate",
+				})
+			}
+		}
+	}
+	sortWorkspaceGraphCrossEdges(edges)
+	if len(edges) > limit {
+		edges = edges[:limit]
+	}
+	if edges == nil {
+		return []workspaceGraphCrossEdge{}
+	}
+	return edges
+}
+
+func workspaceImportMatchesRepo(spec, repoKey string) (string, bool) {
+	spec = strings.Trim(strings.TrimSpace(filepath.ToSlash(spec)), "/")
+	for _, prefix := range workspaceRepoImportPrefixes(repoKey) {
+		if spec == prefix {
+			return "", true
+		}
+		if strings.HasPrefix(spec, prefix+"/") {
+			return strings.TrimPrefix(spec, prefix+"/"), true
+		}
+	}
+	return "", false
+}
+
+func workspaceRepoImportPrefixes(repoKey string) []string {
+	repoKey = strings.Trim(strings.TrimSpace(filepath.ToSlash(repoKey)), "/")
+	parts := strings.Split(repoKey, "/")
+	prefixes := []string{repoKey}
+	if len(parts) >= 3 && parts[0] == "gh" {
+		ownerRepo := strings.Join(parts[1:3], "/")
+		prefixes = append(prefixes, "github.com/"+ownerRepo, ownerRepo)
+	}
+	sort.Strings(prefixes)
+	deduped := prefixes[:0]
+	var prev string
+	for _, prefix := range prefixes {
+		if prefix == "" || prefix == prev {
+			continue
+		}
+		deduped = append(deduped, prefix)
+		prev = prefix
+	}
+	return deduped
+}
+
+func workspaceImportTargetCandidate(candidates []workspaceGraphSymbolRef, subpath string) (workspaceGraphSymbolRef, bool) {
+	subpath = strings.Trim(strings.TrimSpace(filepath.ToSlash(subpath)), "/")
+	matchesSubpath := func(path string) bool {
+		path = strings.Trim(filepath.ToSlash(path), "/")
+		if subpath == "" {
+			return true
+		}
+		return path == subpath || strings.HasPrefix(path, subpath+"/")
+	}
+	var filtered []workspaceGraphSymbolRef
+	for _, candidate := range candidates {
+		if matchesSubpath(candidate.FilePath) {
+			filtered = append(filtered, candidate)
+		}
+	}
+	if len(filtered) == 0 && subpath != "" {
+		filtered = append(filtered, candidates...)
+	}
+	if len(filtered) == 0 {
+		return workspaceGraphSymbolRef{}, false
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		leftRank := workspaceImportCandidateRank(filtered[i])
+		rightRank := workspaceImportCandidateRank(filtered[j])
+		if leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		if filtered[i].FilePath != filtered[j].FilePath {
+			return filtered[i].FilePath < filtered[j].FilePath
+		}
+		if filtered[i].QualifiedName != filtered[j].QualifiedName {
+			return filtered[i].QualifiedName < filtered[j].QualifiedName
+		}
+		if filtered[i].Name != filtered[j].Name {
+			return filtered[i].Name < filtered[j].Name
+		}
+		return filtered[i].ID < filtered[j].ID
+	})
+	return filtered[0], true
+}
+
+func workspaceImportCandidateRank(candidate workspaceGraphSymbolRef) int {
+	switch strings.ToLower(candidate.Kind) {
+	case "package", "module", "namespace", "project":
+		return 0
+	case "file":
+		return 2
+	default:
+		return 1
+	}
+}
+
+func sortWorkspaceGraphCrossEdges(edges []workspaceGraphCrossEdge) {
+	sort.Slice(edges, func(i, j int) bool {
+		if edges[i].SharedCount == edges[j].SharedCount {
+			if edges[i].RelationKind == edges[j].RelationKind {
+				if edges[i].Type == edges[j].Type {
+					if edges[i].Endpoint == edges[j].Endpoint {
+						if edges[i].FromRepo == edges[j].FromRepo {
+							return edges[i].ToRepo < edges[j].ToRepo
+						}
+						return edges[i].FromRepo < edges[j].FromRepo
+					}
+					return edges[i].Endpoint < edges[j].Endpoint
+				}
+				return edges[i].Type < edges[j].Type
+			}
+			return edges[i].RelationKind < edges[j].RelationKind
+		}
+		return edges[i].SharedCount > edges[j].SharedCount
+	})
 }
 
 func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspaceRetrieveOptions, mode retrievalMode, workspaceName, query string) error {

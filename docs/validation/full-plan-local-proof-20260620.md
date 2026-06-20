@@ -28,7 +28,8 @@ go test ./...
   folds them into graph schema/metrics plus trace-path traversal.
 - Workspace graph inspection writes a persisted `workspaces/<name>/graph.json`
   artifact with aggregate contracts and explicit `cross_edges` connecting
-  symbols/resources in different repos through shared external endpoints.
+  symbols/resources in different repos through shared external endpoints and
+  repo-key-matched unresolved import candidates.
 - MCP exposes `brain_workspace_graph` for the same workspace graph contracts
   and `cross_edges` JSON.
 - Current semantic indexes are reused on warm refresh instead of forcing an
@@ -38,7 +39,8 @@ go test ./...
 
 - The graph query language is a supported Cypher-style subset, not full Cypher.
 - Workspace cross-repo graph edges are explicit in `graph.json`, but they are
-  still derived from shared external endpoint contracts, not full cross-repo
-  compiler/type-aware symbol resolution.
+  still derived from shared external endpoint contracts and repo-key-matched
+  unresolved import candidates, not full cross-repo compiler/type-aware symbol
+  resolution.
 - Runtime trace facts are not yet folded into broader history/review ranking
   surfaces by default.
