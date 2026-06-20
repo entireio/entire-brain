@@ -41,7 +41,8 @@ go test ./...
   artifact with aggregate contracts and explicit `cross_edges` connecting
   symbols/resources in different repos through shared external endpoints and
   directed route-call edges from `HTTP_CALLS` clients to `HANDLES_ROUTE`
-  handlers on the same route endpoint, directed GraphQL edges from operation
+  handlers on the same route endpoint or equivalent canonical route template
+  such as `{id}`/`:id`/`<id>`/`[id]`, directed GraphQL edges from operation
   participants to concrete `graphql_resolver` and `graphql_schema_field`
   symbols on the same `external:graphql:<operation>` endpoint,
   repo-key-matched unresolved import

@@ -1178,14 +1178,16 @@ func workspaceGraphRouteCallCrossEdges(index map[string]*workspaceExternalContra
 		if !strings.HasPrefix(aggregate.Endpoint, "external:route:") {
 			continue
 		}
+		endpoint := workspaceCanonicalRouteEndpoint(aggregate.Endpoint)
 		switch aggregate.Type {
 		case "HANDLES_ROUTE":
-			handlersByEndpoint[aggregate.Endpoint] = append(handlersByEndpoint[aggregate.Endpoint], aggregate.Participants...)
+			handlersByEndpoint[endpoint] = append(handlersByEndpoint[endpoint], aggregate.Participants...)
 		case "HTTP_CALLS":
-			callersByEndpoint[aggregate.Endpoint] = append(callersByEndpoint[aggregate.Endpoint], aggregate.Participants...)
+			callersByEndpoint[endpoint] = append(callersByEndpoint[endpoint], aggregate.Participants...)
 		}
 	}
 	var edges []workspaceGraphCrossEdge
+	seen := map[string]bool{}
 	for endpoint, callers := range callersByEndpoint {
 		handlers := handlersByEndpoint[endpoint]
 		if len(callers) == 0 || len(handlers) == 0 {
@@ -1198,6 +1200,11 @@ func workspaceGraphRouteCallCrossEdges(index map[string]*workspaceExternalContra
 				if caller.RepoKey == handler.RepoKey {
 					continue
 				}
+				key := endpoint + "\x00" + caller.ID + "\x00" + handler.ID
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
 				edges = append(edges, workspaceGraphCrossEdge{
 					Endpoint:     endpoint,
 					Type:         "CALLS",
@@ -1219,6 +1226,19 @@ func workspaceGraphRouteCallCrossEdges(index map[string]*workspaceExternalContra
 		return []workspaceGraphCrossEdge{}
 	}
 	return edges
+}
+
+func workspaceCanonicalRouteEndpoint(endpoint string) string {
+	const prefix = "external:route:"
+	if !strings.HasPrefix(endpoint, prefix) {
+		return endpoint
+	}
+	route := strings.TrimPrefix(endpoint, prefix)
+	route = regexp.MustCompile(`\{[^}/]+\}`).ReplaceAllString(route, `{param}`)
+	route = regexp.MustCompile(`<(?:(?:[A-Za-z_][A-Za-z0-9_]*):)?[A-Za-z_][A-Za-z0-9_]*>`).ReplaceAllString(route, `{param}`)
+	route = regexp.MustCompile(`\[\.{0,3}[A-Za-z_][A-Za-z0-9_]*\]`).ReplaceAllString(route, `{param}`)
+	route = regexp.MustCompile(`:([A-Za-z_][A-Za-z0-9_]*)`).ReplaceAllString(route, `{param}`)
+	return prefix + route
 }
 
 func workspaceGraphGraphQLCrossEdges(index map[string]*workspaceExternalContractAggregate, limit int) []workspaceGraphCrossEdge {

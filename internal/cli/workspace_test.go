@@ -1066,6 +1066,59 @@ func TestWorkspaceGraphReportsCrossRepoRouteCalls(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesCanonicalRouteTemplateCalls(t *testing.T) {
+	edges := workspaceGraphRouteCallCrossEdges(map[string]*workspaceExternalContractAggregate{
+		"HTTP_CALLS\x00external:route:/api/users/{id}": {
+			Endpoint: "external:route:/api/users/{id}",
+			Type:     "HTTP_CALLS",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/client",
+				ID:            "local/client:go:client.go:function:CallUser",
+				Kind:          "function",
+				Name:          "CallUser",
+				QualifiedName: "client.CallUser",
+				Count:         1,
+			}},
+		},
+		"HANDLES_ROUTE\x00external:route:/api/users/:userID": {
+			Endpoint: "external:route:/api/users/:userID",
+			Type:     "HANDLES_ROUTE",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/service",
+				ID:            "local/service:ts:routes.ts:function:showUser",
+				Kind:          "function",
+				Name:          "showUser",
+				QualifiedName: "routes.showUser",
+				Count:         1,
+			}},
+		},
+		"HANDLES_ROUTE\x00external:route:/api/projects/<project_id>": {
+			Endpoint: "external:route:/api/projects/<project_id>",
+			Type:     "HANDLES_ROUTE",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/other",
+				ID:            "local/other:py:routes.py:function:show_project",
+				Kind:          "function",
+				Name:          "show_project",
+				QualifiedName: "routes.show_project",
+				Count:         1,
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("expected exactly one canonical route edge, got %#v", edges)
+	}
+	edge := edges[0]
+	if edge.Endpoint != "external:route:/api/users/{param}" ||
+		edge.RelationKind != "cross_repo_route_call" ||
+		edge.FromRepo != "local/client" ||
+		edge.ToRepo != "local/service" ||
+		edge.FromSymbol.QualifiedName != "client.CallUser" ||
+		edge.ToSymbol.QualifiedName != "routes.showUser" {
+		t.Fatalf("unexpected canonical route edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceGraphReportsExactExternalSymbolEdges(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}

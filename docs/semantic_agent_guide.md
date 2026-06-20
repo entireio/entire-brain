@@ -31,7 +31,8 @@ Recommended intake flow:
    commands for a changed symbol.
 9. Use `entire brain workspace inspect context <workspace> <query> --json` (symbols) or
    `entire brain workspace inspect graph <workspace> --json` (per-repo graph
-   metrics, shared external contracts, route-call/import-candidate/scoped
+   metrics, shared external contracts, canonical route-template
+   route-call/import-candidate/scoped
    package/package-keyed `cargo`/`gomod`/`maven`/`npm`/`pypi`/`nuget`/`gem`/`composer`
    import/external symbol, GraphQL operation-to-resolver/schema-field, plus
    Kubernetes resource-candidate `cross_edges`, and
