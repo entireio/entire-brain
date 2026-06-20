@@ -895,6 +895,13 @@ func TestWorkspaceGraphMatchesKubernetesResourceCandidates(t *testing.T) {
 			targetName: "Revision.user-api-00001",
 			filePath:   "k8s/knative-revision.yaml",
 		},
+		{
+			name:       "gateway",
+			endpoint:   "external:config:kubernetes/gateway/public",
+			targetID:   "platform:resource:Gateway.public",
+			targetName: "Gateway.public",
+			filePath:   "k8s/gateway.yaml",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
