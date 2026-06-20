@@ -36,7 +36,8 @@ Workspace symbol traversal and unified retrieval currently live in the CLI
 single-repo tools plus `brain_workspace_graph` for cross-repo graph contracts
 and `cross_edges` (shared external contracts plus repo-key-matched unresolved
 import candidates, package-keyed `cargo/<crate>`, `gomod/<module-path>`,
-`maven/<group>/<artifact>`, `npm/<name>`, and `pypi/<name>` workspace repos,
+`maven/<group>/<artifact>`, `npm/<name>`, `pypi/<name>`, `nuget/<name>`,
+`gem/<name>`, and `composer/<vendor>/<package>` workspace repos,
 Kubernetes external config resource candidates, and exact,
 repo-prefix-qualified, or package-prefix-qualified
 `external:symbol:<qualified-name>` matches),

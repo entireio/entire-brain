@@ -766,6 +766,85 @@ func TestWorkspaceGraphMatchesMavenImportCandidates(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesAdditionalPackageImportCandidates(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		spec          string
+		repoKey       string
+		targetName    string
+		qualifiedName string
+		filePath      string
+	}{
+		{
+			name:          "nuget",
+			spec:          "Newtonsoft.Json.Linq",
+			repoKey:       "nuget/Newtonsoft.Json",
+			targetName:    "Linq",
+			qualifiedName: "Linq",
+			filePath:      "Linq/JToken.cs",
+		},
+		{
+			name:          "gem",
+			spec:          "active_support/core_ext",
+			repoKey:       "gem/active_support",
+			targetName:    "core_ext",
+			qualifiedName: "core_ext",
+			filePath:      "lib/active_support/core_ext.rb",
+		},
+		{
+			name:          "composer",
+			spec:          "monolog/monolog/src/Logger",
+			repoKey:       "composer/monolog/monolog",
+			targetName:    "Logger",
+			qualifiedName: "src/Logger",
+			filePath:      "src/Logger.php",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+				{
+					RepoKey: "local/app",
+					Imports: []workspaceGraphImportRef{{
+						Spec: tc.spec,
+						Source: workspaceGraphSymbolRef{
+							RepoKey:       "local/app",
+							ID:            "app:sym",
+							Kind:          "function",
+							Name:          "run",
+							QualifiedName: "service.run",
+							FilePath:      "service.go",
+						},
+						Count: 1,
+					}},
+				},
+				{
+					RepoKey: tc.repoKey,
+					Candidates: []workspaceGraphSymbolRef{{
+						RepoKey:       tc.repoKey,
+						ID:            "pkg:sym",
+						Kind:          "class",
+						Name:          tc.targetName,
+						QualifiedName: tc.qualifiedName,
+						FilePath:      tc.filePath,
+					}},
+				},
+			}, 10)
+			if len(edges) != 1 {
+				t.Fatalf("%s package import edges = %#v", tc.name, edges)
+			}
+			edge := edges[0]
+			if edge.RelationKind != "cross_repo_import_candidate" ||
+				edge.Endpoint != "external:import:"+tc.spec ||
+				edge.FromRepo != "local/app" ||
+				edge.ToRepo != tc.repoKey ||
+				edge.ToSymbol.FilePath != tc.filePath ||
+				edge.ToSymbol.Direction != "import_symbol_target" {
+				t.Fatalf("unexpected %s package import edge: %#v", tc.name, edge)
+			}
+		})
+	}
+}
+
 func TestWorkspaceGraphMatchesKubernetesResourceCandidates(t *testing.T) {
 	edges := workspaceGraphResourceCrossEdges(map[string]*workspaceExternalContractAggregate{
 		"RESOURCE_DEPENDS_ON\x00external:config:kubernetes/service/api": {
@@ -1078,6 +1157,50 @@ func TestWorkspaceGraphMatchesMavenExternalSymbols(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesAdditionalPackageExternalSymbols(t *testing.T) {
+	edges := workspaceGraphExternalSymbolCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			ExternalSymbols: []workspaceGraphExternalSymbolRef{{
+				Spec: "Newtonsoft.Json.Linq.JToken",
+				Type: "CALLS",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "Run",
+					QualifiedName: "service.Run",
+					FilePath:      "Program.cs",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "nuget/Newtonsoft.Json",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "nuget/Newtonsoft.Json",
+				ID:            "pkg:sym",
+				Kind:          "class",
+				Name:          "JToken",
+				QualifiedName: "Linq.JToken",
+				FilePath:      "Src/Newtonsoft.Json/Linq/JToken.cs",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("nuget external symbol edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_external_symbol" ||
+		edge.Endpoint != "external:symbol:Newtonsoft.Json.Linq.JToken" ||
+		edge.FromRepo != "local/app" ||
+		edge.ToRepo != "nuget/Newtonsoft.Json" ||
+		edge.ToSymbol.QualifiedName != "Linq.JToken" ||
+		edge.ToSymbol.Direction != "external_symbol_target" {
+		t.Fatalf("unexpected nuget external symbol edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceExternalSymbolTargetMatchesGitHubRepoPrefixes(t *testing.T) {
 	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{{
 		RepoKey:       "gh/acme/lib",
@@ -1144,6 +1267,18 @@ func TestWorkspaceImportMatchesPackageRepoKeys(t *testing.T) {
 	subpath, ok = workspaceImportMatchesRepo("com.acme.lib.Service", "maven/com.acme/lib")
 	if !ok || subpath != "Service" {
 		t.Fatalf("maven import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("Newtonsoft.Json.Linq", "nuget/Newtonsoft.Json")
+	if !ok || subpath != "Linq" {
+		t.Fatalf("nuget import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("active_support/core_ext", "gem/active_support")
+	if !ok || subpath != "core_ext" {
+		t.Fatalf("gem import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("monolog/monolog/src/Logger", "composer/monolog/monolog")
+	if !ok || subpath != "src/Logger" {
+		t.Fatalf("composer import match = %q, %v", subpath, ok)
 	}
 	if _, ok := workspaceImportMatchesRepo("@acme/other/pkg", "npm/@acme/lib"); ok {
 		t.Fatalf("unrelated package import should not match")

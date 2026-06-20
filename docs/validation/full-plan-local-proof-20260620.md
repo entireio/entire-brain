@@ -42,8 +42,9 @@ go test ./...
   handlers on the same route endpoint, repo-key-matched unresolved import
   candidates including GitHub `@owner/repo` scoped package imports and
   package-keyed `cargo/<crate>`, `gomod/<module-path>`,
-  `maven/<group>/<artifact>`, `npm/<name>`, and `pypi/<name>` workspace repos,
-  with import-candidate targets preferring the matching terminal symbol when an
+  `maven/<group>/<artifact>`, `npm/<name>`, `pypi/<name>`, `nuget/<name>`,
+  `gem/<name>`, and `composer/<vendor>/<package>` workspace repos, with
+  import-candidate targets preferring the matching terminal symbol when an
   import spec names a class/function such as `requests.auth.HTTPBasicAuth`,
   Kubernetes external config resource endpoints such as
   `external:config:kubernetes/service/api` resolved to matching local
@@ -64,8 +65,9 @@ go test ./...
   matches, Kubernetes external config resource candidates, repo-key/
   scoped-package/package-key-matched unresolved import candidates with
   terminal-symbol preference, and exact/repo-prefix/package-prefix
-  external-symbol name matches, not full cross-repo compiler/type-aware symbol
-  resolution.
+  external-symbol name matches. Package-key matching covers
+  cargo/gomod/maven/npm/pypi/nuget/gem/composer keys, but this is still not
+  full cross-repo compiler/type-aware symbol resolution.
 - Runtime trace facts are now visible in `brief` and review reports, and
   influence likely-file/review ranking. Proof-ready agent-value evals remain
   open before memory-aware lift can be claimed.
