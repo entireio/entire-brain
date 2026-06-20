@@ -1247,7 +1247,7 @@ func workspaceExternalSymbolTarget(candidates []workspaceGraphSymbolRef, spec st
 		if candidate.ID == "" || strings.EqualFold(candidate.Kind, "file") {
 			continue
 		}
-		if candidate.QualifiedName == spec || candidate.Name == spec {
+		if workspaceExternalSymbolMatchesCandidate(spec, candidate) {
 			candidate.Direction = "external_symbol_target"
 			matches = append(matches, candidate)
 		}
@@ -1256,16 +1256,10 @@ func workspaceExternalSymbolTarget(candidates []workspaceGraphSymbolRef, spec st
 		return workspaceGraphSymbolRef{}, false
 	}
 	sort.Slice(matches, func(i, j int) bool {
-		leftExact := 0
-		if matches[i].QualifiedName == spec {
-			leftExact = -1
-		}
-		rightExact := 0
-		if matches[j].QualifiedName == spec {
-			rightExact = -1
-		}
-		if leftExact != rightExact {
-			return leftExact < rightExact
+		leftRank := workspaceExternalSymbolCandidateRank(spec, matches[i])
+		rightRank := workspaceExternalSymbolCandidateRank(spec, matches[j])
+		if leftRank != rightRank {
+			return leftRank < rightRank
 		}
 		if matches[i].FilePath != matches[j].FilePath {
 			return matches[i].FilePath < matches[j].FilePath
@@ -1279,6 +1273,57 @@ func workspaceExternalSymbolTarget(candidates []workspaceGraphSymbolRef, spec st
 		return matches[i].ID < matches[j].ID
 	})
 	return matches[0], true
+}
+
+func workspaceExternalSymbolMatchesCandidate(spec string, candidate workspaceGraphSymbolRef) bool {
+	for _, normalized := range workspaceExternalSymbolCandidateSpecs(spec, candidate.RepoKey) {
+		if candidate.QualifiedName == normalized || candidate.Name == normalized {
+			return true
+		}
+	}
+	return false
+}
+
+func workspaceExternalSymbolCandidateRank(spec string, candidate workspaceGraphSymbolRef) int {
+	switch {
+	case candidate.QualifiedName == spec:
+		return 0
+	case candidate.Name == spec:
+		return 1
+	case workspaceExternalSymbolMatchesCandidate(spec, candidate):
+		return 2
+	default:
+		return 3
+	}
+}
+
+func workspaceExternalSymbolCandidateSpecs(spec, repoKey string) []string {
+	spec = strings.Trim(strings.TrimSpace(filepath.ToSlash(spec)), "/")
+	seen := map[string]bool{}
+	add := func(value string) {
+		value = strings.Trim(strings.TrimSpace(filepath.ToSlash(value)), "/")
+		if value != "" {
+			seen[value] = true
+		}
+	}
+	add(spec)
+	for _, prefix := range workspaceRepoImportPrefixes(repoKey) {
+		prefix = strings.Trim(strings.TrimSpace(filepath.ToSlash(prefix)), "/")
+		if prefix == "" {
+			continue
+		}
+		for _, sep := range []string{"/", "."} {
+			if strings.HasPrefix(spec, prefix+sep) {
+				add(strings.TrimPrefix(spec, prefix+sep))
+			}
+		}
+	}
+	keys := make([]string, 0, len(seen))
+	for key := range seen {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func workspaceImportTargetCandidate(candidates []workspaceGraphSymbolRef, subpath string) (workspaceGraphSymbolRef, bool) {

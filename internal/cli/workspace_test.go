@@ -620,6 +620,64 @@ func TestWorkspaceGraphReportsExactExternalSymbolEdges(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesRepoPrefixedExternalSymbols(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 20, 14, 0, 0, 0, time.UTC) }}
+	cmd := &cobra.Command{Use: "index"}
+
+	repoA := t.TempDir()
+	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	repoB := t.TempDir()
+	keyB := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	externalSpec := keyB + "/pkg.Service"
+	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoA, keyA, workspaceGraphExternalSymbolSnapshot(keyA, "HandleAPI", externalSpec))
+	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoB, keyB, workspaceGraphQualifiedSymbolSnapshot(keyB, "pkg/service.go", "Service", "pkg.Service"))
+
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "prefixed-symbols",
+		Repos: []workspaceRepo{
+			{RepoKey: keyA, LocalPathHint: repoA},
+			{RepoKey: keyB, LocalPathHint: repoB},
+		},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	var out bytes.Buffer
+	graphCmd := &cobra.Command{Use: "graph"}
+	graphCmd.SetOut(&out)
+	if err := runWorkspaceGraph(graphCmd, opts, workspaceGraphOptions{limit: 10, json: true}, "prefixed-symbols"); err != nil {
+		t.Fatalf("workspace graph: %v", err)
+	}
+	for _, want := range []string{
+		`"relation_kind": "cross_repo_external_symbol"`,
+		`external:symbol:` + externalSpec,
+		`"to_repo": "` + keyB + `"`,
+		`"qualified_name": "pkg.Service"`,
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("workspace graph repo-prefixed external symbol edge missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestWorkspaceExternalSymbolTargetMatchesGitHubRepoPrefixes(t *testing.T) {
+	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{{
+		RepoKey:       "gh/acme/lib",
+		ID:            "sym",
+		Kind:          "function",
+		Name:          "Service",
+		QualifiedName: "pkg.Service",
+		FilePath:      "pkg/service.go",
+	}}, "github.com/acme/lib/pkg.Service")
+	if !ok || target.ID != "sym" || target.Direction != "external_symbol_target" {
+		t.Fatalf("github-prefixed external symbol target = %#v, %v", target, ok)
+	}
+}
+
 func TestWorkspaceImportMatchesGitHubRepoKeys(t *testing.T) {
 	subpath, ok := workspaceImportMatchesRepo("github.com/acme/lib/pkg/sub", "gh/acme/lib")
 	if !ok || subpath != "pkg/sub" {

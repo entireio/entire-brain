@@ -35,8 +35,9 @@ go test ./...
   artifact with aggregate contracts and explicit `cross_edges` connecting
   symbols/resources in different repos through shared external endpoints and
   repo-key-matched unresolved import candidates, plus exact
-  `external:symbol:<qualified-name>` references matched to symbols defined in
-  another workspace repo.
+  `external:symbol:<qualified-name>` references and repo-prefix-qualified
+  external symbol references matched to symbols defined in another workspace
+  repo.
 - MCP exposes `brain_workspace_graph` for the same workspace graph contracts
   and `cross_edges` JSON.
 - Current semantic indexes are reused on warm refresh instead of forcing an
