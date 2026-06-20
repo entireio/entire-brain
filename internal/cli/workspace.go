@@ -1418,6 +1418,33 @@ func workspaceImportTargetCandidate(candidates []workspaceGraphSymbolRef, subpat
 		}
 		return path == subpath || strings.HasPrefix(path, subpath+"/")
 	}
+	var symbolMatches []workspaceGraphSymbolRef
+	for _, candidate := range candidates {
+		if workspaceImportSymbolMatchesSubpath(candidate, subpath) {
+			candidate.Direction = "import_symbol_target"
+			symbolMatches = append(symbolMatches, candidate)
+		}
+	}
+	if len(symbolMatches) > 0 {
+		sort.Slice(symbolMatches, func(i, j int) bool {
+			leftRank := workspaceImportSymbolCandidateRank(symbolMatches[i], subpath)
+			rightRank := workspaceImportSymbolCandidateRank(symbolMatches[j], subpath)
+			if leftRank != rightRank {
+				return leftRank < rightRank
+			}
+			if symbolMatches[i].FilePath != symbolMatches[j].FilePath {
+				return symbolMatches[i].FilePath < symbolMatches[j].FilePath
+			}
+			if symbolMatches[i].QualifiedName != symbolMatches[j].QualifiedName {
+				return symbolMatches[i].QualifiedName < symbolMatches[j].QualifiedName
+			}
+			if symbolMatches[i].Name != symbolMatches[j].Name {
+				return symbolMatches[i].Name < symbolMatches[j].Name
+			}
+			return symbolMatches[i].ID < symbolMatches[j].ID
+		})
+		return symbolMatches[0], true
+	}
 	var filtered []workspaceGraphSymbolRef
 	for _, candidate := range candidates {
 		if matchesSubpath(candidate.FilePath) {
@@ -1448,6 +1475,72 @@ func workspaceImportTargetCandidate(candidates []workspaceGraphSymbolRef, subpat
 		return filtered[i].ID < filtered[j].ID
 	})
 	return filtered[0], true
+}
+
+func workspaceImportSymbolMatchesSubpath(candidate workspaceGraphSymbolRef, subpath string) bool {
+	if candidate.ID == "" || strings.EqualFold(candidate.Kind, "file") || subpath == "" {
+		return false
+	}
+	for _, name := range workspaceImportSymbolNames(subpath) {
+		if candidate.Name == name || candidate.QualifiedName == name {
+			return true
+		}
+		if strings.HasSuffix(candidate.QualifiedName, "."+name) || strings.HasSuffix(candidate.QualifiedName, "/"+name) {
+			return true
+		}
+	}
+	return false
+}
+
+func workspaceImportSymbolCandidateRank(candidate workspaceGraphSymbolRef, subpath string) int {
+	names := workspaceImportSymbolNames(subpath)
+	for _, name := range names {
+		if candidate.QualifiedName == name {
+			return 0
+		}
+	}
+	for _, name := range names {
+		if candidate.Name == name {
+			return 1
+		}
+	}
+	for _, name := range names {
+		if strings.HasSuffix(candidate.QualifiedName, "."+name) || strings.HasSuffix(candidate.QualifiedName, "/"+name) {
+			return 2
+		}
+	}
+	return 3
+}
+
+func workspaceImportSymbolNames(subpath string) []string {
+	subpath = strings.Trim(strings.TrimSpace(filepath.ToSlash(strings.ReplaceAll(subpath, "::", "/"))), "/")
+	if subpath == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	add := func(value string) {
+		value = strings.Trim(strings.TrimSpace(value), ". /")
+		if value != "" {
+			seen[value] = true
+		}
+	}
+	add(subpath)
+	add(strings.ReplaceAll(subpath, "/", "."))
+	parts := strings.FieldsFunc(subpath, func(r rune) bool { return r == '/' || r == '.' })
+	if len(parts) > 0 {
+		add(parts[len(parts)-1])
+	}
+	out := make([]string, 0, len(seen))
+	for value := range seen {
+		out = append(out, value)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if len(out[i]) != len(out[j]) {
+			return len(out[i]) > len(out[j])
+		}
+		return out[i] < out[j]
+	})
+	return out
 }
 
 func workspaceImportCandidateRank(candidate workspaceGraphSymbolRef) int {

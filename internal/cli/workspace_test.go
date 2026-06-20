@@ -766,6 +766,58 @@ func TestWorkspaceGraphMatchesMavenImportCandidates(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphImportCandidatesPreferImportedSymbols(t *testing.T) {
+	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			Imports: []workspaceGraphImportRef{{
+				Spec: "requests.auth.HTTPBasicAuth",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "run",
+					QualifiedName: "service.run",
+					FilePath:      "service.py",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "pypi/requests",
+			Candidates: []workspaceGraphSymbolRef{
+				{
+					RepoKey:       "pypi/requests",
+					ID:            "module:sym",
+					Kind:          "module",
+					Name:          "auth",
+					QualifiedName: "auth",
+					FilePath:      "requests/auth.py",
+				},
+				{
+					RepoKey:       "pypi/requests",
+					ID:            "class:sym",
+					Kind:          "class",
+					Name:          "HTTPBasicAuth",
+					QualifiedName: "auth.HTTPBasicAuth",
+					FilePath:      "requests/auth.py",
+				},
+			},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("python import symbol edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_import_candidate" ||
+		edge.Endpoint != "external:import:requests.auth.HTTPBasicAuth" ||
+		edge.ToRepo != "pypi/requests" ||
+		edge.ToSymbol.ID != "class:sym" ||
+		edge.ToSymbol.Direction != "import_symbol_target" {
+		t.Fatalf("unexpected python import symbol edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceGraphReportsCrossRepoRouteCalls(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
