@@ -1694,6 +1694,20 @@ func TestWorkspaceExternalSymbolTargetMatchesGitHubRepoPrefixes(t *testing.T) {
 	}
 }
 
+func TestWorkspaceExternalSymbolTargetMatchesGitHubMonorepoPackagePrefixes(t *testing.T) {
+	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{{
+		RepoKey:       "gh/acme/web/packages/ui",
+		ID:            "sym",
+		Kind:          "function",
+		Name:          "Button",
+		QualifiedName: "button.Button",
+		FilePath:      "src/button.ts",
+	}}, "@acme/ui/button.Button")
+	if !ok || target.ID != "sym" || target.Direction != "external_symbol_target" {
+		t.Fatalf("github monorepo package external symbol target = %#v, %v", target, ok)
+	}
+}
+
 func TestWorkspaceExternalSymbolTargetMatchesPackageRepoPrefixes(t *testing.T) {
 	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{{
 		RepoKey:       "npm/@acme/lib",
@@ -1761,6 +1775,14 @@ func TestWorkspaceImportMatchesGitHubRepoKeys(t *testing.T) {
 	}
 	if _, ok := workspaceImportMatchesRepo("github.com/acme/other/pkg", "gh/acme/lib"); ok {
 		t.Fatalf("unrelated repo import should not match")
+	}
+	subpath, ok = workspaceImportMatchesRepo("@acme/ui/button", "gh/acme/web/packages/ui")
+	if !ok || subpath != "button" {
+		t.Fatalf("github monorepo package import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("github.com/acme/web/packages/ui/button", "gh/acme/web/packages/ui")
+	if !ok || subpath != "button" {
+		t.Fatalf("github monorepo path import match = %q, %v", subpath, ok)
 	}
 }
 

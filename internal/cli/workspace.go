@@ -1424,6 +1424,10 @@ func workspaceRepoImportPrefixes(repoKey string) []string {
 	if len(parts) >= 3 && parts[0] == "gh" {
 		ownerRepo := strings.Join(parts[1:3], "/")
 		prefixes = append(prefixes, "github.com/"+ownerRepo, ownerRepo, "@"+ownerRepo)
+		if len(parts) >= 5 && parts[3] == "packages" {
+			pkg := strings.Join(parts[4:], "/")
+			prefixes = append(prefixes, "github.com/"+ownerRepo+"/packages/"+pkg, ownerRepo+"/packages/"+pkg, "@"+parts[1]+"/"+pkg)
+		}
 	}
 	if len(parts) >= 2 {
 		switch parts[0] {
@@ -1436,15 +1440,20 @@ func workspaceRepoImportPrefixes(repoKey string) []string {
 			prefixes = append(prefixes, groupArtifact, strings.ReplaceAll(groupArtifact, "/", "."))
 		}
 	}
-	sort.Strings(prefixes)
+	sort.Slice(prefixes, func(i, j int) bool {
+		if len(prefixes[i]) != len(prefixes[j]) {
+			return len(prefixes[i]) > len(prefixes[j])
+		}
+		return prefixes[i] < prefixes[j]
+	})
 	deduped := prefixes[:0]
-	var prev string
+	seen := map[string]bool{}
 	for _, prefix := range prefixes {
-		if prefix == "" || prefix == prev {
+		if prefix == "" || seen[prefix] {
 			continue
 		}
 		deduped = append(deduped, prefix)
-		prev = prefix
+		seen[prefix] = true
 	}
 	return deduped
 }

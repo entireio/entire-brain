@@ -92,14 +92,15 @@ go test ./...
   still derived from shared external endpoint contracts, exact route endpoint
   matches, GraphQL operation/resolver/schema-field endpoint matches,
   Kubernetes resource and Docker Compose service external config resource
-  candidates, repo-key/scoped-package/package-key-matched unresolved import candidates with
+  candidates, repo-key/scoped-package/GitHub monorepo package/package-key-matched unresolved import candidates with
   terminal-symbol preference, canonical route templates including frontend
   optional/catch-all bracket params, wildcard path params, and trailing-slash
   equivalence, and exact/repo-prefix/package-prefix
   external-symbol name matches including file-path-qualified symbol aliases and
   `::`-separated package symbols. Package-key matching covers
   cargo/gomod/maven/npm/pypi/nuget/gem/composer keys and hyphen/underscore
-  aliases for Python packages, Rust crates, and Ruby gems, but this is still not
+  aliases for Python packages, Rust crates, Ruby gems, and GitHub
+  `gh/<owner>/<repo>/packages/<name>` workspace package dirs, but this is still not
   full cross-repo compiler/type-aware symbol resolution.
 - Runtime trace facts are now visible in `brief` and review reports, and
   influence likely-file/review ranking. Proof-ready agent-value evals remain
