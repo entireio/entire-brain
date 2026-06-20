@@ -25,7 +25,8 @@ Recommended intake flow:
    candidates, and `entire brain inspect ingest-traces <json-or-ndjson> --json`
    to compare runtime trace edges to static graph edges. After ingest, use
    `entire brain inspect query-graph type:RUNTIME_TRACE --json` to retrieve
-   persisted dynamic trace facts.
+   persisted dynamic trace facts; `trace-path` and graph schema/metrics also
+   include the imported runtime trace edges.
 8. Use `entire brain inspect tests <symbol> --json` before choosing validation
    commands for a changed symbol.
 9. Use `entire brain workspace inspect context <workspace> <query> --json` (symbols) or

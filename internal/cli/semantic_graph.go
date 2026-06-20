@@ -185,6 +185,10 @@ func runSemanticGraphSchema(cmd *cobra.Command, opts Options, graphOpts semantic
 	if err != nil {
 		return err
 	}
+	report.RelationTypes, err = appendRuntimeTraceRelationType(db, report.RelationTypes)
+	if err != nil {
+		return err
+	}
 	report.Metrics, err = semanticGraphMetrics(db)
 	if err != nil {
 		return err
@@ -201,23 +205,40 @@ func runSemanticGraphSchema(cmd *cobra.Command, opts Options, graphOpts semantic
 }
 
 func semanticGraphMetrics(db *sql.DB) (graphMetrics, error) {
+	if err := ensureSemanticRuntimeTraceTable(db); err != nil {
+		return graphMetrics{}, err
+	}
 	hotspots, err := graphRankRows(db, `
-SELECT COALESCE(NULLIF(s.qualified_name,''), s.name, r.to_id) AS name, COUNT(*) AS c
-FROM relations r
-JOIN symbols s ON s.id = r.to_id
-WHERE r.type NOT IN ('DEFINES','CONTAINS','USES_TYPE','PARAM_TYPE','RETURNS_TYPE')
-GROUP BY s.id
+SELECT name, COUNT(*) AS c
+FROM (
+  SELECT s.id AS id, COALESCE(NULLIF(s.qualified_name,''), s.name, r.to_id) AS name
+  FROM relations r
+  JOIN symbols s ON s.id = r.to_id
+  WHERE r.type NOT IN ('DEFINES','CONTAINS','USES_TYPE','PARAM_TYPE','RETURNS_TYPE')
+  UNION ALL
+  SELECT s.id AS id, COALESCE(NULLIF(s.qualified_name,''), s.name, rt.to_id) AS name
+  FROM runtime_traces rt
+  JOIN symbols s ON s.id = rt.to_id OR s.name = rt.to_id OR s.qualified_name = rt.to_id
+)
+GROUP BY id, name
 ORDER BY c DESC, name
 LIMIT 10`)
 	if err != nil {
 		return graphMetrics{}, err
 	}
 	entryPoints, err := graphRankRows(db, `
-SELECT COALESCE(NULLIF(s.qualified_name,''), s.name, r.from_id) AS name, COUNT(*) AS c
-FROM relations r
-JOIN symbols s ON s.id = r.from_id
-WHERE r.type LIKE 'HANDLES_%' OR r.type IN ('CONFIGURES')
-GROUP BY s.id
+SELECT name, COUNT(*) AS c
+FROM (
+  SELECT s.id AS id, COALESCE(NULLIF(s.qualified_name,''), s.name, r.from_id) AS name
+  FROM relations r
+  JOIN symbols s ON s.id = r.from_id
+  WHERE r.type LIKE 'HANDLES_%' OR r.type IN ('CONFIGURES')
+  UNION ALL
+  SELECT s.id AS id, COALESCE(NULLIF(s.qualified_name,''), s.name, rt.from_id) AS name
+  FROM runtime_traces rt
+  JOIN symbols s ON s.id = rt.from_id OR s.name = rt.from_id OR s.qualified_name = rt.from_id
+)
+GROUP BY id, name
 ORDER BY c DESC, name
 LIMIT 10`)
 	if err != nil {
@@ -225,7 +246,11 @@ LIMIT 10`)
 	}
 	clusters, err := graphRankRows(db, `
 SELECT type AS name, COUNT(*) AS c
-FROM relations
+FROM (
+  SELECT type FROM relations
+  UNION ALL
+  SELECT 'RUNTIME_TRACE' AS type FROM runtime_traces
+)
 GROUP BY type
 ORDER BY c DESC, name
 LIMIT 20`)
@@ -347,6 +372,27 @@ func graphDistinctStrings(db *sql.DB, query string) ([]string, error) {
 		values = append(values, value)
 	}
 	return nonNilStrings(values), rows.Err()
+}
+
+func appendRuntimeTraceRelationType(db *sql.DB, relationTypes []string) ([]string, error) {
+	if err := ensureSemanticRuntimeTraceTable(db); err != nil {
+		return nil, err
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM runtime_traces`).Scan(&count); err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return relationTypes, nil
+	}
+	for _, typ := range relationTypes {
+		if typ == "RUNTIME_TRACE" {
+			return relationTypes, nil
+		}
+	}
+	relationTypes = append(relationTypes, "RUNTIME_TRACE")
+	sort.Strings(relationTypes)
+	return relationTypes, nil
 }
 
 func runSemanticSearchGraph(cmd *cobra.Command, opts Options, graphOpts semanticGraphSearchOptions, query string) error {
@@ -658,7 +704,64 @@ func relationsFrom(db *sql.DB, id string) ([]semanticRecord, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanGraphRelations(rows)
+	relations, err := scanGraphRelations(rows)
+	if err != nil {
+		return nil, err
+	}
+	traceRelations, err := runtimeTraceRelationsFrom(db, id)
+	if err != nil {
+		return nil, err
+	}
+	relations = append(relations, traceRelations...)
+	sort.Slice(relations, func(i, j int) bool {
+		if relations[i].Type == relations[j].Type {
+			return relations[i].ToID < relations[j].ToID
+		}
+		return relations[i].Type < relations[j].Type
+	})
+	return nonNilRecords(relations), nil
+}
+
+func runtimeTraceRelationsFrom(db *sql.DB, id string) ([]semanticRecord, error) {
+	if err := ensureSemanticRuntimeTraceTable(db); err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(`
+SELECT rt.from_id, COALESCE(to_sym.id, rt.to_id) AS to_id, rt.observed_type, rt.matched_static_edge, rt.source_path
+FROM runtime_traces rt
+LEFT JOIN symbols from_sym ON from_sym.id = rt.from_id OR from_sym.name = rt.from_id OR from_sym.qualified_name = rt.from_id
+LEFT JOIN symbols to_sym ON to_sym.id = rt.to_id OR to_sym.name = rt.to_id OR to_sym.qualified_name = rt.to_id
+WHERE rt.from_id = ? OR from_sym.id = ?
+ORDER BY rt.imported_at, rt.id`, id, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var records []semanticRecord
+	for rows.Next() {
+		var record semanticRecord
+		var observedType, sourcePath string
+		var matched int
+		if err := rows.Scan(&record.FromID, &record.ToID, &observedType, &matched, &sourcePath); err != nil {
+			return nil, err
+		}
+		record.RecordType = "runtime_trace"
+		record.FromID = id
+		record.Type = "RUNTIME_TRACE"
+		record.Confidence = 1
+		record.Reason = strings.TrimSpace("runtime trace observed " + observedType)
+		if record.Reason == "runtime trace observed" {
+			record.Reason = "runtime trace observed edge"
+		}
+		record.WarningCodes = []string{}
+		if matched == 0 {
+			record.Confidence = 0.5
+			record.WarningCodes = []string{"UNMATCHED_STATIC_EDGE"}
+		}
+		record.Evidence = []semanticEvidence{{Kind: "runtime_trace_import", FilePath: sourcePath, Detail: observedType}}
+		records = append(records, record)
+	}
+	return nonNilRecords(records), rows.Err()
 }
 
 func runSemanticSnippet(cmd *cobra.Command, opts Options, snippetOpts semanticSnippetOptions, idOrName string) error {

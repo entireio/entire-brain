@@ -1843,7 +1843,7 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 	}
 
 	tracePath := filepath.Join(repoDir, "trace.ndjson")
-	if err := os.WriteFile(tracePath, []byte(`{"from":"CallValidateToken","to":"ValidateToken","type":"CALLS"}`+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(tracePath, []byte(`{"from":"CallValidateToken","to":"ValidateToken","type":"CALLS"}`+"\n"+`{"from":"ValidateToken","to":"CallValidateToken","type":"OBSERVED_CALL"}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
@@ -1863,6 +1863,28 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"record_type": "runtime_trace"`) || !strings.Contains(out.String(), `"RUNTIME_TRACE"`) {
 		t.Fatalf("runtime trace facts were not queryable:\n%s", out.String())
+	}
+	out.Reset()
+	traceRuntimeCmd := &cobra.Command{Use: "trace-runtime"}
+	traceRuntimeCmd.SetOut(&out)
+	if err := runSemanticTracePath(traceRuntimeCmd, opts, semanticTracePathOptions{depth: 2, json: true}, "ValidateToken", "CallValidateToken"); err != nil {
+		t.Fatalf("runtime trace path: %v", err)
+	}
+	var runtimePath semanticTracePathResult
+	if err := json.Unmarshal(out.Bytes(), &runtimePath); err != nil {
+		t.Fatalf("runtime trace path JSON invalid: %v\n%s", err, out.String())
+	}
+	if !runtimePath.Found || len(runtimePath.Relations) != 1 || runtimePath.Relations[0].Type != "RUNTIME_TRACE" {
+		t.Fatalf("trace-path did not use runtime trace facts: %+v", runtimePath)
+	}
+	out.Reset()
+	schemaTraceCmd := &cobra.Command{Use: "schema-trace"}
+	schemaTraceCmd.SetOut(&out)
+	if err := runSemanticGraphSchema(schemaTraceCmd, opts, semanticGraphSchemaOptions{json: true}); err != nil {
+		t.Fatalf("schema after traces: %v", err)
+	}
+	if !strings.Contains(out.String(), `"RUNTIME_TRACE"`) {
+		t.Fatalf("schema metrics did not include runtime trace facts:\n%s", out.String())
 	}
 }
 
