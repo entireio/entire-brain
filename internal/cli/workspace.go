@@ -782,6 +782,7 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 		results = append(results, result)
 	}
 	crossEdges := workspaceGraphCrossEdges(contractIndex, limit)
+	crossEdges = append(crossEdges, workspaceGraphRouteCallCrossEdges(contractIndex, limit)...)
 	crossEdges = append(crossEdges, workspaceGraphImportCrossEdges(repoIndexes, limit)...)
 	crossEdges = append(crossEdges, workspaceGraphExternalSymbolCrossEdges(repoIndexes, limit)...)
 	sortWorkspaceGraphCrossEdges(crossEdges)
@@ -1168,6 +1169,56 @@ func workspaceGraphImportCrossEdges(indexes []workspaceRepoGraphIndex, limit int
 	return edges
 }
 
+func workspaceGraphRouteCallCrossEdges(index map[string]*workspaceExternalContractAggregate, limit int) []workspaceGraphCrossEdge {
+	handlersByEndpoint := map[string][]workspaceGraphSymbolRef{}
+	callersByEndpoint := map[string][]workspaceGraphSymbolRef{}
+	for _, aggregate := range index {
+		if !strings.HasPrefix(aggregate.Endpoint, "external:route:") {
+			continue
+		}
+		switch aggregate.Type {
+		case "HANDLES_ROUTE":
+			handlersByEndpoint[aggregate.Endpoint] = append(handlersByEndpoint[aggregate.Endpoint], aggregate.Participants...)
+		case "HTTP_CALLS":
+			callersByEndpoint[aggregate.Endpoint] = append(callersByEndpoint[aggregate.Endpoint], aggregate.Participants...)
+		}
+	}
+	var edges []workspaceGraphCrossEdge
+	for endpoint, callers := range callersByEndpoint {
+		handlers := handlersByEndpoint[endpoint]
+		if len(callers) == 0 || len(handlers) == 0 {
+			continue
+		}
+		sortWorkspaceGraphSymbolRefs(callers)
+		sortWorkspaceGraphSymbolRefs(handlers)
+		for _, caller := range callers {
+			for _, handler := range handlers {
+				if caller.RepoKey == handler.RepoKey {
+					continue
+				}
+				edges = append(edges, workspaceGraphCrossEdge{
+					Endpoint:     endpoint,
+					Type:         "CALLS",
+					FromRepo:     caller.RepoKey,
+					ToRepo:       handler.RepoKey,
+					FromSymbol:   caller,
+					ToSymbol:     handler,
+					SharedCount:  caller.Count + handler.Count,
+					RelationKind: "cross_repo_route_call",
+				})
+			}
+		}
+	}
+	sortWorkspaceGraphCrossEdges(edges)
+	if len(edges) > limit {
+		edges = edges[:limit]
+	}
+	if edges == nil {
+		return []workspaceGraphCrossEdge{}
+	}
+	return edges
+}
+
 func workspaceGraphExternalSymbolCrossEdges(indexes []workspaceRepoGraphIndex, limit int) []workspaceGraphCrossEdge {
 	var edges []workspaceGraphCrossEdge
 	for _, fromRepo := range indexes {
@@ -1201,6 +1252,24 @@ func workspaceGraphExternalSymbolCrossEdges(indexes []workspaceRepoGraphIndex, l
 		return []workspaceGraphCrossEdge{}
 	}
 	return edges
+}
+
+func sortWorkspaceGraphSymbolRefs(refs []workspaceGraphSymbolRef) {
+	sort.Slice(refs, func(i, j int) bool {
+		if refs[i].RepoKey != refs[j].RepoKey {
+			return refs[i].RepoKey < refs[j].RepoKey
+		}
+		if refs[i].FilePath != refs[j].FilePath {
+			return refs[i].FilePath < refs[j].FilePath
+		}
+		if refs[i].QualifiedName != refs[j].QualifiedName {
+			return refs[i].QualifiedName < refs[j].QualifiedName
+		}
+		if refs[i].Name != refs[j].Name {
+			return refs[i].Name < refs[j].Name
+		}
+		return refs[i].ID < refs[j].ID
+	})
 }
 
 func workspaceImportMatchesRepo(spec, repoKey string) (string, bool) {
