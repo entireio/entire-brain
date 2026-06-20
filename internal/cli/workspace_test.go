@@ -511,6 +511,11 @@ func TestWorkspaceGraphReportsSharedExternalContracts(t *testing.T) {
 	if !strings.Contains(out.String(), `"contracts"`) || !strings.Contains(out.String(), `external:route:/shared`) {
 		t.Fatalf("workspace graph missing shared external contract:\n%s", out.String())
 	}
+	if !strings.Contains(out.String(), `"cross_edges"`) ||
+		!strings.Contains(out.String(), `"relation_kind": "shared_external_contract"`) ||
+		!strings.Contains(out.String(), `external:config:kubernetes/image/shared:latest`) {
+		t.Fatalf("workspace graph missing cross-repo symbol/resource edges:\n%s", out.String())
+	}
 	if !strings.Contains(out.String(), `"metrics"`) || !strings.Contains(out.String(), `"relation_types"`) {
 		t.Fatalf("workspace graph missing per-repo graph metadata:\n%s", out.String())
 	}
@@ -521,6 +526,9 @@ func TestWorkspaceGraphReportsSharedExternalContracts(t *testing.T) {
 	}
 	if !strings.Contains(string(artifact), `"contracts"`) || !strings.Contains(string(artifact), `external:route:/shared`) {
 		t.Fatalf("workspace graph artifact missing contract:\n%s", artifact)
+	}
+	if !strings.Contains(string(artifact), `"cross_edges"`) || !strings.Contains(string(artifact), `external:config:kubernetes/image/shared:latest`) {
+		t.Fatalf("workspace graph artifact missing cross-repo edges:\n%s", artifact)
 	}
 }
 
@@ -546,9 +554,10 @@ func indexWorkspaceGraphRepo(t *testing.T, cmd *cobra.Command, opts Options, run
 
 func workspaceGraphSnapshot(repoKey, symbolName string) string {
 	symbolID := repoKey + ":go:service.go:function:" + symbolName
-	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES","HANDLES_ROUTE"],"warnings":[],"partial_failures":[]}
+	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES","CONFIGURES","HANDLES_ROUTE"],"warnings":[],"partial_failures":[]}
 {"record_type":"file","id":"` + repoKey + `:file:service.go","path":"service.go","blob":"abc","language":"Go","bytes":16}
 {"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"service.` + symbolName + `","file_path":"service.go","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
+{"record_type":"relation","from_id":"` + symbolID + `","to_id":"external:config:kubernetes/image/shared:latest","type":"CONFIGURES","confidence":0.82}
 {"record_type":"relation","from_id":"` + symbolID + `","to_id":"external:route:/shared","type":"HANDLES_ROUTE","confidence":0.95}
 `
 }

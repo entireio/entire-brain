@@ -135,11 +135,41 @@ type workspaceGraphContract struct {
 	Count    int      `json:"count"`
 }
 
+type workspaceGraphSymbolRef struct {
+	RepoKey       string `json:"repo_key"`
+	ID            string `json:"id"`
+	Kind          string `json:"kind,omitempty"`
+	Name          string `json:"name,omitempty"`
+	QualifiedName string `json:"qualified_name,omitempty"`
+	FilePath      string `json:"file_path,omitempty"`
+	Direction     string `json:"direction,omitempty"`
+	Count         int    `json:"count,omitempty"`
+}
+
+type workspaceGraphCrossEdge struct {
+	Endpoint     string                  `json:"endpoint"`
+	Type         string                  `json:"type"`
+	FromRepo     string                  `json:"from_repo"`
+	ToRepo       string                  `json:"to_repo"`
+	FromSymbol   workspaceGraphSymbolRef `json:"from_symbol"`
+	ToSymbol     workspaceGraphSymbolRef `json:"to_symbol"`
+	SharedCount  int                     `json:"shared_count"`
+	RelationKind string                  `json:"relation_kind"`
+}
+
+type workspaceExternalContractAggregate struct {
+	Endpoint     string
+	Type         string
+	RepoCounts   map[string]int
+	Participants []workspaceGraphSymbolRef
+}
+
 type workspaceGraphPayload struct {
-	Workspace   string                   `json:"workspace"`
-	GeneratedAt time.Time                `json:"generated_at"`
-	Results     []workspaceGraphResult   `json:"results"`
-	Contracts   []workspaceGraphContract `json:"contracts"`
+	Workspace   string                    `json:"workspace"`
+	GeneratedAt time.Time                 `json:"generated_at"`
+	Results     []workspaceGraphResult    `json:"results"`
+	Contracts   []workspaceGraphContract  `json:"contracts"`
+	CrossEdges  []workspaceGraphCrossEdge `json:"cross_edges"`
 }
 
 type workspaceSummary struct {
@@ -665,7 +695,7 @@ func runWorkspaceGraph(cmd *cobra.Command, opts Options, graphOpts workspaceGrap
 
 func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest workspaceManifest, limit int) (workspaceGraphPayload, error) {
 	var results []workspaceGraphResult
-	contractIndex := map[string]map[string]int{}
+	contractIndex := map[string]*workspaceExternalContractAggregate{}
 	for _, repo := range manifest.Repos {
 		freshness := workspaceRepoFreshnessForRepo(ctx, opts, repo)
 		result := workspaceGraphResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
@@ -723,6 +753,7 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 		GeneratedAt: opts.Now().UTC(),
 		Results:     results,
 		Contracts:   workspaceGraphContracts(contractIndex, limit),
+		CrossEdges:  workspaceGraphCrossEdges(contractIndex, limit),
 	}, nil
 }
 
@@ -751,50 +782,82 @@ func writeWorkspaceGraphPayload(env EntireEnv, payload workspaceGraphPayload) (s
 	return rel, nil
 }
 
-func collectWorkspaceExternalContracts(db *sql.DB, repoKey string, out map[string]map[string]int) error {
+func collectWorkspaceExternalContracts(db *sql.DB, repoKey string, out map[string]*workspaceExternalContractAggregate) error {
 	rows, err := db.Query(`
 SELECT CASE
-  WHEN from_id LIKE 'external:%' THEN from_id
-  ELSE to_id
-END AS endpoint, type, COUNT(*) AS c
-FROM relations
-WHERE from_id LIKE 'external:%' OR to_id LIKE 'external:%'
-GROUP BY endpoint, type
-ORDER BY endpoint, type`)
+    WHEN r.from_id LIKE 'external:%' THEN r.from_id
+    ELSE r.to_id
+  END AS endpoint,
+  r.type,
+  CASE
+    WHEN r.from_id LIKE 'external:%' THEN r.to_id
+    ELSE r.from_id
+  END AS local_id,
+  CASE
+    WHEN r.from_id LIKE 'external:%' THEN 'from_endpoint'
+    ELSE 'to_endpoint'
+  END AS direction,
+  COALESCE(s.kind, '') AS kind,
+  COALESCE(s.name, '') AS name,
+  COALESCE(s.qualified_name, '') AS qualified_name,
+  COALESCE(s.file_path, '') AS file_path,
+  COUNT(*) AS c
+FROM relations r
+LEFT JOIN symbols s ON s.id = CASE
+  WHEN r.from_id LIKE 'external:%' THEN r.to_id
+  ELSE r.from_id
+END
+WHERE r.from_id LIKE 'external:%' OR r.to_id LIKE 'external:%'
+GROUP BY endpoint, r.type, local_id, direction, kind, name, qualified_name, file_path
+ORDER BY endpoint, r.type, local_id`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var endpoint, typ string
+		var endpoint, typ, localID, direction, kind, name, qualifiedName, filePath string
 		var count int
-		if err := rows.Scan(&endpoint, &typ, &count); err != nil {
+		if err := rows.Scan(&endpoint, &typ, &localID, &direction, &kind, &name, &qualifiedName, &filePath, &count); err != nil {
 			return err
 		}
 		key := typ + "\x00" + endpoint
-		if out[key] == nil {
-			out[key] = map[string]int{}
+		aggregate := out[key]
+		if aggregate == nil {
+			aggregate = &workspaceExternalContractAggregate{Endpoint: endpoint, Type: typ, RepoCounts: map[string]int{}}
+			out[key] = aggregate
 		}
-		out[key][repoKey] += count
+		aggregate.RepoCounts[repoKey] += count
+		if strings.HasPrefix(localID, "external:") {
+			continue
+		}
+		aggregate.Participants = append(aggregate.Participants, workspaceGraphSymbolRef{
+			RepoKey:       repoKey,
+			ID:            localID,
+			Kind:          kind,
+			Name:          name,
+			QualifiedName: qualifiedName,
+			FilePath:      filePath,
+			Direction:     direction,
+			Count:         count,
+		})
 	}
 	return rows.Err()
 }
 
-func workspaceGraphContracts(index map[string]map[string]int, limit int) []workspaceGraphContract {
+func workspaceGraphContracts(index map[string]*workspaceExternalContractAggregate, limit int) []workspaceGraphContract {
 	var contracts []workspaceGraphContract
-	for key, repoCounts := range index {
-		if len(repoCounts) < 2 {
+	for _, aggregate := range index {
+		if len(aggregate.RepoCounts) < 2 {
 			continue
 		}
-		typ, endpoint, _ := strings.Cut(key, "\x00")
-		repos := make([]string, 0, len(repoCounts))
+		repos := make([]string, 0, len(aggregate.RepoCounts))
 		count := 0
-		for repo, n := range repoCounts {
+		for repo, n := range aggregate.RepoCounts {
 			repos = append(repos, repo)
 			count += n
 		}
 		sort.Strings(repos)
-		contracts = append(contracts, workspaceGraphContract{Endpoint: endpoint, Type: typ, Repos: repos, Count: count})
+		contracts = append(contracts, workspaceGraphContract{Endpoint: aggregate.Endpoint, Type: aggregate.Type, Repos: repos, Count: count})
 	}
 	sort.Slice(contracts, func(i, j int) bool {
 		if contracts[i].Count == contracts[j].Count {
@@ -812,6 +875,61 @@ func workspaceGraphContracts(index map[string]map[string]int, limit int) []works
 		return []workspaceGraphContract{}
 	}
 	return contracts
+}
+
+func workspaceGraphCrossEdges(index map[string]*workspaceExternalContractAggregate, limit int) []workspaceGraphCrossEdge {
+	var edges []workspaceGraphCrossEdge
+	for _, aggregate := range index {
+		if len(aggregate.RepoCounts) < 2 || len(aggregate.Participants) < 2 {
+			continue
+		}
+		participants := append([]workspaceGraphSymbolRef(nil), aggregate.Participants...)
+		sort.Slice(participants, func(i, j int) bool {
+			if participants[i].RepoKey == participants[j].RepoKey {
+				return participants[i].ID < participants[j].ID
+			}
+			return participants[i].RepoKey < participants[j].RepoKey
+		})
+		for i := 0; i < len(participants); i++ {
+			for j := i + 1; j < len(participants); j++ {
+				if participants[i].RepoKey == participants[j].RepoKey {
+					continue
+				}
+				edges = append(edges, workspaceGraphCrossEdge{
+					Endpoint:     aggregate.Endpoint,
+					Type:         aggregate.Type,
+					FromRepo:     participants[i].RepoKey,
+					ToRepo:       participants[j].RepoKey,
+					FromSymbol:   participants[i],
+					ToSymbol:     participants[j],
+					SharedCount:  participants[i].Count + participants[j].Count,
+					RelationKind: "shared_external_contract",
+				})
+			}
+		}
+	}
+	sort.Slice(edges, func(i, j int) bool {
+		if edges[i].SharedCount == edges[j].SharedCount {
+			if edges[i].Type == edges[j].Type {
+				if edges[i].Endpoint == edges[j].Endpoint {
+					if edges[i].FromRepo == edges[j].FromRepo {
+						return edges[i].ToRepo < edges[j].ToRepo
+					}
+					return edges[i].FromRepo < edges[j].FromRepo
+				}
+				return edges[i].Endpoint < edges[j].Endpoint
+			}
+			return edges[i].Type < edges[j].Type
+		}
+		return edges[i].SharedCount > edges[j].SharedCount
+	})
+	if len(edges) > limit {
+		edges = edges[:limit]
+	}
+	if edges == nil {
+		return []workspaceGraphCrossEdge{}
+	}
+	return edges
 }
 
 func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspaceRetrieveOptions, mode retrievalMode, workspaceName, query string) error {

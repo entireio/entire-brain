@@ -26,14 +26,16 @@ go test ./...
   `MATCH (a)-[r:TYPE]->(b) WHERE ... RETURN ... LIMIT n` subset.
 - Runtime trace ingestion persists queryable `RUNTIME_TRACE` graph facts.
 - Workspace graph inspection writes a persisted `workspaces/<name>/graph.json`
-  artifact.
+  artifact with aggregate contracts and explicit `cross_edges` connecting
+  symbols/resources in different repos through shared external endpoints.
 - Current semantic indexes are reused on warm refresh instead of forcing an
   unchanged provider snapshot.
 
 ## Remaining Honesty Notes
 
 - The graph query language is a supported Cypher-style subset, not full Cypher.
-- Workspace cross-repo graph edges are still based on shared external endpoint
-  contracts, not full cross-repo symbol resolution.
+- Workspace cross-repo graph edges are explicit in `graph.json`, but they are
+  still derived from shared external endpoint contracts, not full cross-repo
+  compiler/type-aware symbol resolution.
 - Runtime trace facts are queryable, but they are not yet folded into every
   graph metric/path traversal by default.
