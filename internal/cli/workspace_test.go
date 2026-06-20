@@ -1145,6 +1145,78 @@ func TestWorkspaceGraphImportCandidatesPreferImportedSymbols(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphImportCandidatesPreferSubpathFileTargets(t *testing.T) {
+	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			Imports: []workspaceGraphImportRef{{
+				Spec: "@acme/ui/button",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "render",
+					QualifiedName: "app.render",
+					FilePath:      "src/app.ts",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "gh/acme/web/packages/ui",
+			Candidates: []workspaceGraphSymbolRef{
+				{
+					RepoKey:       "gh/acme/web/packages/ui",
+					ID:            "alpha:file",
+					Kind:          "file",
+					Name:          "alpha",
+					QualifiedName: "alpha",
+					FilePath:      "src/alpha.ts",
+				},
+				{
+					RepoKey:       "gh/acme/web/packages/ui",
+					ID:            "button:file",
+					Kind:          "file",
+					Name:          "button",
+					QualifiedName: "button",
+					FilePath:      "src/button.ts",
+				},
+			},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("subpath import file edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_import_candidate" ||
+		edge.Endpoint != "external:import:@acme/ui/button" ||
+		edge.ToRepo != "gh/acme/web/packages/ui" ||
+		edge.ToSymbol.ID != "button:file" ||
+		edge.ToSymbol.Direction != "import_path_target" {
+		t.Fatalf("unexpected subpath import file edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceImportPathMatchesSubpath(t *testing.T) {
+	tests := []struct {
+		path    string
+		subpath string
+		want    bool
+	}{
+		{path: "src/button.ts", subpath: "button", want: true},
+		{path: "src/api/routes.ts", subpath: "api/routes", want: true},
+		{path: "src/api/routes.ts", subpath: "routes", want: true},
+		{path: "requests/auth.py", subpath: "auth", want: true},
+		{path: "tokio/sync/channel.rs", subpath: "sync::channel", want: true},
+		{path: "src/alpha.ts", subpath: "button", want: false},
+	}
+	for _, tt := range tests {
+		if got := workspaceImportPathMatchesSubpath(tt.path, tt.subpath); got != tt.want {
+			t.Fatalf("workspaceImportPathMatchesSubpath(%q, %q) = %v, want %v", tt.path, tt.subpath, got, tt.want)
+		}
+	}
+}
+
 func TestWorkspaceGraphReportsCrossRepoRouteCalls(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}

@@ -93,7 +93,8 @@ go test ./...
   matches, GraphQL operation/resolver/schema-field endpoint matches,
   Kubernetes resource and Docker Compose service external config resource
   candidates, repo-key/scoped-package/GitHub monorepo package/package-key-matched unresolved import candidates with
-  terminal-symbol preference, canonical route templates including frontend
+  terminal-symbol preference and source-path/subpath target preference,
+  canonical route templates including frontend
   optional/catch-all bracket params, wildcard path params, and trailing-slash
   equivalence, and exact/repo-prefix/package-prefix
   external-symbol name matches including file-path-qualified symbol aliases and

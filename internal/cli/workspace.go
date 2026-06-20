@@ -1664,11 +1664,7 @@ func workspaceExternalSymbolCandidateSpecs(spec, repoKey string) []string {
 func workspaceImportTargetCandidate(candidates []workspaceGraphSymbolRef, subpath string) (workspaceGraphSymbolRef, bool) {
 	subpath = strings.Trim(strings.TrimSpace(filepath.ToSlash(subpath)), "/")
 	matchesSubpath := func(path string) bool {
-		path = strings.Trim(filepath.ToSlash(path), "/")
-		if subpath == "" {
-			return true
-		}
-		return path == subpath || strings.HasPrefix(path, subpath+"/")
+		return workspaceImportPathMatchesSubpath(path, subpath)
 	}
 	var symbolMatches []workspaceGraphSymbolRef
 	for _, candidate := range candidates {
@@ -1700,6 +1696,7 @@ func workspaceImportTargetCandidate(candidates []workspaceGraphSymbolRef, subpat
 	var filtered []workspaceGraphSymbolRef
 	for _, candidate := range candidates {
 		if matchesSubpath(candidate.FilePath) {
+			candidate.Direction = "import_path_target"
 			filtered = append(filtered, candidate)
 		}
 	}
@@ -1727,6 +1724,26 @@ func workspaceImportTargetCandidate(candidates []workspaceGraphSymbolRef, subpat
 		return filtered[i].ID < filtered[j].ID
 	})
 	return filtered[0], true
+}
+
+func workspaceImportPathMatchesSubpath(path, subpath string) bool {
+	path = strings.Trim(filepath.ToSlash(path), "/")
+	subpath = strings.Trim(filepath.ToSlash(strings.ReplaceAll(subpath, "::", "/")), "/")
+	if subpath == "" {
+		return true
+	}
+	path = strings.TrimSuffix(path, filepath.Ext(path))
+	if path == subpath || strings.HasPrefix(path, subpath+"/") {
+		return true
+	}
+	parts := strings.Split(path, "/")
+	for i := 1; i < len(parts); i++ {
+		suffix := strings.Join(parts[i:], "/")
+		if suffix == subpath || strings.HasPrefix(suffix, subpath+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func workspaceImportSymbolMatchesSubpath(candidate workspaceGraphSymbolRef, subpath string) bool {
