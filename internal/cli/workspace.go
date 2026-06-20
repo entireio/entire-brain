@@ -165,13 +165,21 @@ type workspaceExternalContractAggregate struct {
 }
 
 type workspaceRepoGraphIndex struct {
-	RepoKey    string
-	Imports    []workspaceGraphImportRef
-	Candidates []workspaceGraphSymbolRef
+	RepoKey         string
+	Imports         []workspaceGraphImportRef
+	ExternalSymbols []workspaceGraphExternalSymbolRef
+	Candidates      []workspaceGraphSymbolRef
 }
 
 type workspaceGraphImportRef struct {
 	Spec   string
+	Source workspaceGraphSymbolRef
+	Count  int
+}
+
+type workspaceGraphExternalSymbolRef struct {
+	Spec   string
+	Type   string
 	Source workspaceGraphSymbolRef
 	Count  int
 }
@@ -757,6 +765,9 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 			repoIndex.Imports, err = collectWorkspaceImportRefs(db, repo.RepoKey)
 		}
 		if err == nil {
+			repoIndex.ExternalSymbols, err = collectWorkspaceExternalSymbolRefs(db, repo.RepoKey)
+		}
+		if err == nil {
 			repoIndex.Candidates, err = collectWorkspaceTargetCandidates(db, repo.RepoKey)
 		}
 		if closeErr := db.Close(); err == nil {
@@ -772,6 +783,7 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 	}
 	crossEdges := workspaceGraphCrossEdges(contractIndex, limit)
 	crossEdges = append(crossEdges, workspaceGraphImportCrossEdges(repoIndexes, limit)...)
+	crossEdges = append(crossEdges, workspaceGraphExternalSymbolCrossEdges(repoIndexes, limit)...)
 	sortWorkspaceGraphCrossEdges(crossEdges)
 	if len(crossEdges) > limit {
 		crossEdges = crossEdges[:limit]
@@ -931,6 +943,67 @@ ORDER BY endpoint, local_id`)
 	}
 	if refs == nil {
 		refs = []workspaceGraphImportRef{}
+	}
+	return refs, rows.Err()
+}
+
+func collectWorkspaceExternalSymbolRefs(db *sql.DB, repoKey string) ([]workspaceGraphExternalSymbolRef, error) {
+	rows, err := db.Query(`
+SELECT CASE
+    WHEN r.from_id LIKE 'external:symbol:%' THEN r.from_id
+    ELSE r.to_id
+  END AS endpoint,
+  r.type,
+  CASE
+    WHEN r.from_id LIKE 'external:symbol:%' THEN r.to_id
+    ELSE r.from_id
+  END AS local_id,
+  COALESCE(s.kind, '') AS kind,
+  COALESCE(s.name, '') AS name,
+  COALESCE(s.qualified_name, '') AS qualified_name,
+  COALESCE(s.file_path, '') AS file_path,
+  COUNT(*) AS c
+FROM relations r
+LEFT JOIN symbols s ON s.id = CASE
+  WHEN r.from_id LIKE 'external:symbol:%' THEN r.to_id
+  ELSE r.from_id
+END
+WHERE r.from_id LIKE 'external:symbol:%' OR r.to_id LIKE 'external:symbol:%'
+GROUP BY endpoint, r.type, local_id, kind, name, qualified_name, file_path
+ORDER BY endpoint, r.type, local_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var refs []workspaceGraphExternalSymbolRef
+	for rows.Next() {
+		var endpoint, typ, localID, kind, name, qualifiedName, filePath string
+		var count int
+		if err := rows.Scan(&endpoint, &typ, &localID, &kind, &name, &qualifiedName, &filePath, &count); err != nil {
+			return nil, err
+		}
+		spec := strings.TrimPrefix(endpoint, "external:symbol:")
+		if spec == "" || strings.HasPrefix(localID, "external:") {
+			continue
+		}
+		refs = append(refs, workspaceGraphExternalSymbolRef{
+			Spec: spec,
+			Type: typ,
+			Source: workspaceGraphSymbolRef{
+				RepoKey:       repoKey,
+				ID:            localID,
+				Kind:          kind,
+				Name:          name,
+				QualifiedName: qualifiedName,
+				FilePath:      filePath,
+				Direction:     "external_symbol_source",
+				Count:         count,
+			},
+			Count: count,
+		})
+	}
+	if refs == nil {
+		refs = []workspaceGraphExternalSymbolRef{}
 	}
 	return refs, rows.Err()
 }
@@ -1095,6 +1168,41 @@ func workspaceGraphImportCrossEdges(indexes []workspaceRepoGraphIndex, limit int
 	return edges
 }
 
+func workspaceGraphExternalSymbolCrossEdges(indexes []workspaceRepoGraphIndex, limit int) []workspaceGraphCrossEdge {
+	var edges []workspaceGraphCrossEdge
+	for _, fromRepo := range indexes {
+		for _, ref := range fromRepo.ExternalSymbols {
+			for _, toRepo := range indexes {
+				if fromRepo.RepoKey == toRepo.RepoKey {
+					continue
+				}
+				target, ok := workspaceExternalSymbolTarget(toRepo.Candidates, ref.Spec)
+				if !ok {
+					continue
+				}
+				edges = append(edges, workspaceGraphCrossEdge{
+					Endpoint:     "external:symbol:" + ref.Spec,
+					Type:         ref.Type,
+					FromRepo:     fromRepo.RepoKey,
+					ToRepo:       toRepo.RepoKey,
+					FromSymbol:   ref.Source,
+					ToSymbol:     target,
+					SharedCount:  ref.Count,
+					RelationKind: "cross_repo_external_symbol",
+				})
+			}
+		}
+	}
+	sortWorkspaceGraphCrossEdges(edges)
+	if len(edges) > limit {
+		edges = edges[:limit]
+	}
+	if edges == nil {
+		return []workspaceGraphCrossEdge{}
+	}
+	return edges
+}
+
 func workspaceImportMatchesRepo(spec, repoKey string) (string, bool) {
 	spec = strings.Trim(strings.TrimSpace(filepath.ToSlash(spec)), "/")
 	for _, prefix := range workspaceRepoImportPrefixes(repoKey) {
@@ -1127,6 +1235,50 @@ func workspaceRepoImportPrefixes(repoKey string) []string {
 		prev = prefix
 	}
 	return deduped
+}
+
+func workspaceExternalSymbolTarget(candidates []workspaceGraphSymbolRef, spec string) (workspaceGraphSymbolRef, bool) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return workspaceGraphSymbolRef{}, false
+	}
+	var matches []workspaceGraphSymbolRef
+	for _, candidate := range candidates {
+		if candidate.ID == "" || strings.EqualFold(candidate.Kind, "file") {
+			continue
+		}
+		if candidate.QualifiedName == spec || candidate.Name == spec {
+			candidate.Direction = "external_symbol_target"
+			matches = append(matches, candidate)
+		}
+	}
+	if len(matches) == 0 {
+		return workspaceGraphSymbolRef{}, false
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		leftExact := 0
+		if matches[i].QualifiedName == spec {
+			leftExact = -1
+		}
+		rightExact := 0
+		if matches[j].QualifiedName == spec {
+			rightExact = -1
+		}
+		if leftExact != rightExact {
+			return leftExact < rightExact
+		}
+		if matches[i].FilePath != matches[j].FilePath {
+			return matches[i].FilePath < matches[j].FilePath
+		}
+		if matches[i].QualifiedName != matches[j].QualifiedName {
+			return matches[i].QualifiedName < matches[j].QualifiedName
+		}
+		if matches[i].Name != matches[j].Name {
+			return matches[i].Name < matches[j].Name
+		}
+		return matches[i].ID < matches[j].ID
+	})
+	return matches[0], true
 }
 
 func workspaceImportTargetCandidate(candidates []workspaceGraphSymbolRef, subpath string) (workspaceGraphSymbolRef, bool) {

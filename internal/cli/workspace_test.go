@@ -576,6 +576,50 @@ func TestWorkspaceGraphReportsCrossRepoImportCandidates(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphReportsExactExternalSymbolEdges(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 20, 14, 0, 0, 0, time.UTC) }}
+	cmd := &cobra.Command{Use: "index"}
+
+	repoA := t.TempDir()
+	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	repoB := t.TempDir()
+	keyB := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoA, keyA, workspaceGraphExternalSymbolSnapshot(keyA, "HandleAPI", "lib.Service"))
+	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoB, keyB, workspaceGraphQualifiedSymbolSnapshot(keyB, "lib/service.go", "Service", "lib.Service"))
+
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "symbols",
+		Repos: []workspaceRepo{
+			{RepoKey: keyA, LocalPathHint: repoA},
+			{RepoKey: keyB, LocalPathHint: repoB},
+		},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	var out bytes.Buffer
+	graphCmd := &cobra.Command{Use: "graph"}
+	graphCmd.SetOut(&out)
+	if err := runWorkspaceGraph(graphCmd, opts, workspaceGraphOptions{limit: 10, json: true}, "symbols"); err != nil {
+		t.Fatalf("workspace graph: %v", err)
+	}
+	for _, want := range []string{
+		`"relation_kind": "cross_repo_external_symbol"`,
+		`external:symbol:lib.Service`,
+		`"from_repo": "` + keyA + `"`,
+		`"to_repo": "` + keyB + `"`,
+		`"qualified_name": "lib.Service"`,
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("workspace graph external symbol edge missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestWorkspaceImportMatchesGitHubRepoKeys(t *testing.T) {
 	subpath, ok := workspaceImportMatchesRepo("github.com/acme/lib/pkg/sub", "gh/acme/lib")
 	if !ok || subpath != "pkg/sub" {
@@ -639,6 +683,23 @@ func workspaceGraphLibrarySnapshot(repoKey, path, symbolName string) string {
 	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES"],"warnings":[],"partial_failures":[]}
 {"record_type":"file","id":"` + repoKey + `:file:` + path + `","path":"` + path + `","blob":"abc","language":"Go","bytes":16}
 {"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"pkg.` + symbolName + `","file_path":"` + path + `","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
+`
+}
+
+func workspaceGraphExternalSymbolSnapshot(repoKey, symbolName, externalQualifiedName string) string {
+	symbolID := repoKey + ":go:service.go:function:" + symbolName
+	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["CALLS"],"warnings":[],"partial_failures":[]}
+{"record_type":"file","id":"` + repoKey + `:file:service.go","path":"service.go","blob":"abc","language":"Go","bytes":16}
+{"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"service.` + symbolName + `","file_path":"service.go","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
+{"record_type":"relation","from_id":"` + symbolID + `","to_id":"external:symbol:` + externalQualifiedName + `","type":"CALLS","confidence":0.82}
+`
+}
+
+func workspaceGraphQualifiedSymbolSnapshot(repoKey, path, symbolName, qualifiedName string) string {
+	symbolID := repoKey + ":go:" + path + ":function:" + symbolName
+	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES"],"warnings":[],"partial_failures":[]}
+{"record_type":"file","id":"` + repoKey + `:file:` + path + `","path":"` + path + `","blob":"abc","language":"Go","bytes":16}
+{"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"` + qualifiedName + `","file_path":"` + path + `","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
 `
 }
 
