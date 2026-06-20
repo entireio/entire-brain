@@ -37,7 +37,7 @@ Recommended intake flow:
    import/external symbol, including hyphen/underscore aliases for Python packages,
    Rust crates, Ruby gems, and GitHub monorepo package dirs, GraphQL
    operation-to-resolver/schema-field, plus
-   Kubernetes resource and Docker Compose service resource-candidate `cross_edges`, and
+   Kubernetes workload/resource and Docker Compose service resource-candidate `cross_edges`, and
    a persisted `graph.json` artifact) or
    `entire brain workspace search|vsearch|query <workspace> <query> --json`
    (facts/history/docs, grouped per repo; ids are repo-qualified for

@@ -971,6 +971,13 @@ func TestWorkspaceGraphMatchesKubernetesResourceCandidates(t *testing.T) {
 			targetName: "Gateway.public",
 			filePath:   "k8s/gateway.yaml",
 		},
+		{
+			name:       "vpa-workload-target",
+			endpoint:   "external:config:kubernetes/deployment/api",
+			targetID:   "platform:resource:Deployment.api",
+			targetName: "Deployment.api",
+			filePath:   "k8s/deployment.yaml",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

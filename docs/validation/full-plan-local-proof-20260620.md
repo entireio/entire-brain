@@ -94,7 +94,7 @@ go test ./internal/cli -run 'TestWorkspaceImportMatchesGitHubRepoKeys|TestWorksp
 - Workspace cross-repo graph edges are explicit in `graph.json`, but they are
   still derived from shared external endpoint contracts, exact route endpoint
   matches, GraphQL operation/resolver/schema-field endpoint matches,
-  Kubernetes resource and Docker Compose service external config resource
+  Kubernetes workload/resource and Docker Compose service external config resource
   candidates, repo-key/scoped-package/GitHub monorepo package/package-key-matched unresolved import candidates with
   terminal-symbol preference, source-path/subpath target preference, and
   versioned Go module subpath normalization such as `v2/pkg` -> `pkg`,

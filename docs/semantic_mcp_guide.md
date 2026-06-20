@@ -41,7 +41,7 @@ package-keyed `cargo/<crate>`, `gomod/<module-path>`,
 `gem/<name>`, and `composer/<vendor>/<package>` workspace repos,
 including hyphen/underscore aliases for Python packages, Rust crates, Ruby
 gems, and GitHub monorepo package dirs,
-Kubernetes external config resource candidates, Docker Compose service resource candidates, and
+Kubernetes external config workload/resource candidates, Docker Compose service resource candidates, and
 exact, repo-prefix-qualified, or package-prefix-qualified
 `external:symbol:<qualified-name>` matches, including file-path-qualified
 symbol aliases for shallow symbols in nested module files),
