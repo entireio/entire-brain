@@ -15,11 +15,14 @@ go test ./internal/cli -run TestWorkspaceGraphReportsCrossRepoGraphQLCalls -coun
 go test ./internal/cli -run TestRefreshSkipsCurrentSemanticIndex
 go test ./internal/cli -run 'TestBrainReviewUsesRuntimeTraceForRankingAndContext|TestBrainReviewMapsAnomalyToFinding|TestMCPBrainReviewTool|TestBrainBriefJSONUsesSemanticContextAndLiveOverlay|TestRegressionChangedOperandReportsEachRegressedHintedFile'
 go test ./...
+go test ./internal/cli -run 'TestWorkspaceImportMatchesGitHubRepoKeys|TestWorkspaceExternalSymbolTargetMatchesGitHubMonorepoPackageAliases|TestWorkspaceExternalSymbolTargetMatchesGitHubMonorepoPackagePrefixes|TestWorkspaceGraphMatchesScopedPackageImportCandidates' -count=1
 ```
 
 ## Results
 
 - Focused semantic/workspace graph tests passed.
+- GitHub monorepo package-dir hyphen/underscore alias tests passed for both
+  import candidate matching and external-symbol target matching.
 - Warm-refresh semantic no-op proof passed: after an initial refresh, a second
   refresh with the same HEAD does not call `entire sem snapshot` again.
 - Full repository tests passed:
