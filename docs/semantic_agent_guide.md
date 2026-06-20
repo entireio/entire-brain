@@ -23,12 +23,14 @@ Recommended intake flow:
    `entire brain inspect boundaries --kind workflow --json` when the task is about project boundaries.
 7. Use `entire brain inspect dead-code --json` for local unused-callable
    candidates, and `entire brain inspect ingest-traces <json-or-ndjson> --json`
-   to compare runtime trace edges to static graph edges.
+   to compare runtime trace edges to static graph edges. After ingest, use
+   `entire brain inspect query-graph type:RUNTIME_TRACE --json` to retrieve
+   persisted dynamic trace facts.
 8. Use `entire brain inspect tests <symbol> --json` before choosing validation
    commands for a changed symbol.
 9. Use `entire brain workspace inspect context <workspace> <query> --json` (symbols) or
    `entire brain workspace inspect graph <workspace> --json` (per-repo graph
-   metrics and shared external contracts) or
+   metrics, shared external contracts, and a persisted `graph.json` artifact) or
    `entire brain workspace search|vsearch|query <workspace> <query> --json`
    (facts/history/docs, grouped per repo; ids are repo-qualified for
    `workspace get`) only for local workspaces that already list local repo

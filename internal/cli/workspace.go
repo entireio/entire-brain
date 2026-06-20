@@ -21,6 +21,7 @@ const (
 	workspaceDirName       = "workspaces"
 	workspaceManifestName  = "workspace.json"
 	workspaceReadmeName    = "README.md"
+	workspaceGraphName     = "graph.json"
 	workspaceSchemaVersion = 1
 )
 
@@ -132,6 +133,13 @@ type workspaceGraphContract struct {
 	Type     string   `json:"type"`
 	Repos    []string `json:"repos"`
 	Count    int      `json:"count"`
+}
+
+type workspaceGraphPayload struct {
+	Workspace   string                   `json:"workspace"`
+	GeneratedAt time.Time                `json:"generated_at"`
+	Results     []workspaceGraphResult   `json:"results"`
+	Contracts   []workspaceGraphContract `json:"contracts"`
 }
 
 type workspaceSummary struct {
@@ -496,6 +504,13 @@ func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
 		return err
 	}
+	if full {
+		if artifact, err := writeWorkspaceGraphSnapshot(ctx, opts, manifest, 50); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: workspace graph: %v\n", err)
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "workspace graph: %s\n", artifact)
+		}
+	}
 	for _, repo := range freshness {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", repo.RepoKey, repo.State)
 	}
@@ -625,14 +640,38 @@ func runWorkspaceGraph(cmd *cobra.Command, opts Options, graphOpts workspaceGrap
 	if err != nil {
 		return err
 	}
+	payload, err := buildWorkspaceGraphPayload(cmd.Context(), opts, manifest, graphOpts.limit)
+	if err != nil {
+		return err
+	}
+	if _, err := writeWorkspaceGraphPayload(opts.Env, payload); err != nil {
+		return err
+	}
+	if graphOpts.json {
+		return writeJSON(cmd, payload)
+	}
+	for _, result := range payload.Results {
+		if result.Error != "" {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s error %s\n", result.RepoKey, result.Error)
+			continue
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s files:%d symbols:%d relations:%d\n", result.RepoKey, result.Counts["files"], result.Counts["symbols"], result.Counts["relations"])
+	}
+	for _, contract := range payload.Contracts {
+		fmt.Fprintf(cmd.OutOrStdout(), "contract %s %s repos:%s count:%d\n", contract.Type, contract.Endpoint, strings.Join(contract.Repos, ","), contract.Count)
+	}
+	return nil
+}
+
+func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest workspaceManifest, limit int) (workspaceGraphPayload, error) {
 	var results []workspaceGraphResult
 	contractIndex := map[string]map[string]int{}
 	for _, repo := range manifest.Repos {
-		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
+		freshness := workspaceRepoFreshnessForRepo(ctx, opts, repo)
 		result := workspaceGraphResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
 		brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
 		if err != nil {
-			return err
+			return workspaceGraphPayload{}, err
 		}
 		unlock, err := acquireSemanticIndexLock(brainDir)
 		if err != nil {
@@ -679,25 +718,37 @@ func runWorkspaceGraph(cmd *cobra.Command, opts Options, graphOpts workspaceGrap
 		}
 		results = append(results, result)
 	}
-	contracts := workspaceGraphContracts(contractIndex, graphOpts.limit)
-	if graphOpts.json {
-		return writeJSON(cmd, struct {
-			Workspace string                   `json:"workspace"`
-			Results   []workspaceGraphResult   `json:"results"`
-			Contracts []workspaceGraphContract `json:"contracts"`
-		}{Workspace: manifest.Name, Results: results, Contracts: contracts})
+	return workspaceGraphPayload{
+		Workspace:   manifest.Name,
+		GeneratedAt: opts.Now().UTC(),
+		Results:     results,
+		Contracts:   workspaceGraphContracts(contractIndex, limit),
+	}, nil
+}
+
+func writeWorkspaceGraphSnapshot(ctx context.Context, opts Options, manifest workspaceManifest, limit int) (string, error) {
+	payload, err := buildWorkspaceGraphPayload(ctx, opts, manifest, limit)
+	if err != nil {
+		return "", err
 	}
-	for _, result := range results {
-		if result.Error != "" {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s error %s\n", result.RepoKey, result.Error)
-			continue
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s files:%d symbols:%d relations:%d\n", result.RepoKey, result.Counts["files"], result.Counts["symbols"], result.Counts["relations"])
+	return writeWorkspaceGraphPayload(opts.Env, payload)
+}
+
+func writeWorkspaceGraphPayload(env EntireEnv, payload workspaceGraphPayload) (string, error) {
+	dir, err := workspaceDir(env, payload.Workspace)
+	if err != nil {
+		return "", err
 	}
-	for _, contract := range contracts {
-		fmt.Fprintf(cmd.OutOrStdout(), "contract %s %s repos:%s count:%d\n", contract.Type, contract.Endpoint, strings.Join(contract.Repos, ","), contract.Count)
+	rel := filepath.ToSlash(filepath.Join(workspaceDirName, payload.Workspace, workspaceGraphName))
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return "", err
 	}
-	return nil
+	data = append(data, '\n')
+	if err := writeFileAtomic(filepath.Join(dir, workspaceGraphName), data, 0o600); err != nil {
+		return "", err
+	}
+	return rel, nil
 }
 
 func collectWorkspaceExternalContracts(db *sql.DB, repoKey string, out map[string]map[string]int) error {

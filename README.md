@@ -255,19 +255,19 @@ don't cover — use the `inspect` specialists:
 entire brain guide
 entire brain inspect code "ValidateToken" --json         # find a symbol in the graph
 entire brain inspect search-graph "ValidateToken" --json # search symbols and relations
-entire brain inspect query-graph "type:CALLS Validate" --json
+entire brain inspect query-graph 'MATCH (a)-[r:CALLS]->(b) WHERE a.name CONTAINS "Validate" RETURN a,r,b LIMIT 10' --json
 entire brain inspect graph-schema --json                 # relation/schema inventory
 entire brain inspect graph-ui semantic-graph.html        # local static graph explorer
 entire brain inspect snippet "ValidateToken" --json      # source for one symbol
 entire brain inspect trace-path "caller" "callee" --json # directed relation path
 entire brain inspect dead-code --json                    # heuristic unused callable candidates
-entire brain inspect ingest-traces traces.ndjson --json  # compare runtime traces to static graph
+entire brain inspect ingest-traces traces.ndjson --json  # compare and persist queryable runtime traces
 entire brain inspect context "main" --json               # relation-aware context for a symbol
 entire brain inspect impact "main" --json                # impact set via typed relations
 entire brain inspect changes --json                      # map the working-tree diff to symbols
 entire brain inspect tests "main" --json                 # test suggestions for a symbol
 entire brain inspect boundaries --kind tool --json       # route / tool / workflow boundaries
-entire brain workspace inspect graph platform --json     # per-repo graph + shared contracts
+entire brain workspace inspect graph platform --json     # per-repo graph + shared contracts; writes workspaces/platform/graph.json
 entire brain inspect regressions "<task>" --json         # suspected regressions vs session memory
 entire brain inspect blame <fact-id> --json              # the source anchors a fact was derived from
 ```

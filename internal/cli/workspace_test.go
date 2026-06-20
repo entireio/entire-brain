@@ -514,6 +514,14 @@ func TestWorkspaceGraphReportsSharedExternalContracts(t *testing.T) {
 	if !strings.Contains(out.String(), `"metrics"`) || !strings.Contains(out.String(), `"relation_types"`) {
 		t.Fatalf("workspace graph missing per-repo graph metadata:\n%s", out.String())
 	}
+	artifactPath := filepath.Join(env.PluginDataDir, workspaceDirName, "graph", workspaceGraphName)
+	artifact, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatalf("read workspace graph artifact: %v", err)
+	}
+	if !strings.Contains(string(artifact), `"contracts"`) || !strings.Contains(string(artifact), `external:route:/shared`) {
+		t.Fatalf("workspace graph artifact missing contract:\n%s", artifact)
+	}
 }
 
 func indexWorkspaceGraphRepo(t *testing.T, cmd *cobra.Command, opts Options, runner *fakeCommandRunner, repoDir, repoKey, symbolName string) {

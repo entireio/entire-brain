@@ -9,7 +9,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -393,13 +395,23 @@ func runSemanticQueryGraph(cmd *cobra.Command, opts Options, graphOpts semanticG
 }
 
 type graphQueryFilters struct {
-	Type string
-	From string
-	To   string
-	Text string
+	Type             string
+	From             string
+	To               string
+	Text             string
+	Limit            int
+	FromKind         string
+	ToKind           string
+	FromName         string
+	ToName           string
+	FromNameContains string
+	ToNameContains   string
 }
 
 func parseGraphQuery(query string) graphQueryFilters {
+	if filters, ok := parseCypherGraphQuery(query); ok {
+		return filters
+	}
 	var filters graphQueryFilters
 	for _, field := range strings.Fields(query) {
 		key, value, ok := strings.Cut(field, ":")
@@ -429,7 +441,67 @@ func parseGraphQuery(query string) graphQueryFilters {
 	return filters
 }
 
+var (
+	cypherRelationRe = regexp.MustCompile(`(?is)\bMATCH\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)\s*-\s*\[\s*[A-Za-z_][A-Za-z0-9_]*\s*(?::\s*([A-Za-z0-9_]+))?\s*\]\s*->\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)`)
+	cypherLimitRe    = regexp.MustCompile(`(?is)\bLIMIT\s+([0-9]+)\b`)
+	cypherWhereRe    = regexp.MustCompile(`(?is)\bWHERE\s+(.+?)(?:\bRETURN\b|\bLIMIT\b|$)`)
+	cypherPredRe     = regexp.MustCompile(`(?is)\b([ab])\.(name|qualified_name|kind|file_path|language)\s*(=|CONTAINS)\s*['"]([^'"]+)['"]`)
+)
+
+func parseCypherGraphQuery(query string) (graphQueryFilters, bool) {
+	if !strings.Contains(strings.ToUpper(query), "MATCH") {
+		return graphQueryFilters{}, false
+	}
+	match := cypherRelationRe.FindStringSubmatch(query)
+	if match == nil {
+		return graphQueryFilters{}, false
+	}
+	filters := graphQueryFilters{}
+	if len(match) > 1 && strings.TrimSpace(match[1]) != "" {
+		filters.Type = strings.ToUpper(strings.TrimSpace(match[1]))
+	}
+	if limit := cypherLimitRe.FindStringSubmatch(query); len(limit) == 2 {
+		if n, err := strconv.Atoi(limit[1]); err == nil && n > 0 {
+			filters.Limit = n
+		}
+	}
+	if where := cypherWhereRe.FindStringSubmatch(query); len(where) == 2 {
+		for _, pred := range cypherPredRe.FindAllStringSubmatch(where[1], -1) {
+			if len(pred) != 5 {
+				continue
+			}
+			alias, field, op, value := strings.ToLower(pred[1]), strings.ToLower(pred[2]), strings.ToUpper(pred[3]), strings.TrimSpace(pred[4])
+			applyCypherPredicate(&filters, alias, field, op, value)
+		}
+	}
+	return filters, true
+}
+
+func applyCypherPredicate(filters *graphQueryFilters, alias, field, op, value string) {
+	switch alias + "." + field + "." + op {
+	case "a.name.=":
+		filters.FromName = value
+	case "a.qualified_name.=":
+		filters.FromName = value
+	case "a.kind.=":
+		filters.FromKind = value
+	case "a.name.CONTAINS", "a.qualified_name.CONTAINS", "a.file_path.CONTAINS", "a.language.CONTAINS":
+		filters.FromNameContains = value
+	case "b.name.=":
+		filters.ToName = value
+	case "b.qualified_name.=":
+		filters.ToName = value
+	case "b.kind.=":
+		filters.ToKind = value
+	case "b.name.CONTAINS", "b.qualified_name.CONTAINS", "b.file_path.CONTAINS", "b.language.CONTAINS":
+		filters.ToNameContains = value
+	}
+}
+
 func queryGraphRelations(db *sql.DB, filters graphQueryFilters, limit int) ([]semanticRecord, error) {
+	if filters.Limit > 0 && filters.Limit < limit {
+		limit = filters.Limit
+	}
 	query := `SELECT from_id, to_id, type, confidence, reason, warning_codes FROM relations WHERE 1=1`
 	var args []any
 	if filters.Type != "" {
@@ -449,6 +521,32 @@ func queryGraphRelations(db *sql.DB, filters graphQueryFilters, limit int) ([]se
 		like := "%" + filters.Text + "%"
 		args = append(args, like, like, like)
 	}
+	if filters.FromName != "" {
+		query += ` AND from_id IN (SELECT id FROM symbols WHERE name = ? OR qualified_name = ?)`
+		args = append(args, filters.FromName, filters.FromName)
+	}
+	if filters.ToName != "" {
+		query += ` AND to_id IN (SELECT id FROM symbols WHERE name = ? OR qualified_name = ?)`
+		args = append(args, filters.ToName, filters.ToName)
+	}
+	if filters.FromKind != "" {
+		query += ` AND from_id IN (SELECT id FROM symbols WHERE kind = ?)`
+		args = append(args, filters.FromKind)
+	}
+	if filters.ToKind != "" {
+		query += ` AND to_id IN (SELECT id FROM symbols WHERE kind = ?)`
+		args = append(args, filters.ToKind)
+	}
+	if filters.FromNameContains != "" {
+		query += ` AND from_id IN (SELECT id FROM symbols WHERE name LIKE ? OR qualified_name LIKE ? OR file_path LIKE ? OR language LIKE ?)`
+		like := "%" + filters.FromNameContains + "%"
+		args = append(args, like, like, like, like)
+	}
+	if filters.ToNameContains != "" {
+		query += ` AND to_id IN (SELECT id FROM symbols WHERE name LIKE ? OR qualified_name LIKE ? OR file_path LIKE ? OR language LIKE ?)`
+		like := "%" + filters.ToNameContains + "%"
+		args = append(args, like, like, like, like)
+	}
 	query += ` ORDER BY type, from_id, to_id LIMIT ?`
 	args = append(args, limit)
 	rows, err := db.Query(query, args...)
@@ -456,7 +554,21 @@ func queryGraphRelations(db *sql.DB, filters graphQueryFilters, limit int) ([]se
 		return nil, err
 	}
 	defer rows.Close()
-	return scanGraphRelations(rows)
+	relations, err := scanGraphRelations(rows)
+	if err != nil {
+		return nil, err
+	}
+	if filters.Type == "" || filters.Type == "RUNTIME_TRACE" {
+		traces, err := queryRuntimeTraceRelations(db, filters, limit-len(relations))
+		if err != nil {
+			return nil, err
+		}
+		relations = append(relations, traces...)
+	}
+	if len(relations) > limit {
+		relations = relations[:limit]
+	}
+	return nonNilRecords(relations), nil
 }
 
 func runSemanticTracePath(cmd *cobra.Command, opts Options, traceOpts semanticTracePathOptions, from, to string) error {
@@ -655,8 +767,12 @@ func runSemanticIngestTraces(cmd *cobra.Command, opts Options, ingestOpts semant
 		return err
 	}
 	defer db.Close()
+	if err := ensureSemanticRuntimeTraceTable(db); err != nil {
+		return err
+	}
 	matched := 0
-	for _, trace := range traces {
+	traceMatches := make([]bool, len(traces))
+	for i, trace := range traces {
 		ok, err := runtimeTraceMatchesStaticEdge(db, trace)
 		if err != nil {
 			return err
@@ -664,6 +780,7 @@ func runSemanticIngestTraces(cmd *cobra.Command, opts Options, ingestOpts semant
 		if ok {
 			matched++
 		}
+		traceMatches[i] = ok
 	}
 	report := semanticTraceIngestReport{
 		ImportedAt: time.Now().UTC(),
@@ -677,6 +794,9 @@ func runSemanticIngestTraces(cmd *cobra.Command, opts Options, ingestOpts semant
 		return err
 	}
 	report.Path = rel
+	if err := insertRuntimeTraceFacts(db, report, traces, traceMatches); err != nil {
+		return err
+	}
 	if ingestOpts.json {
 		return writeJSON(cmd, report)
 	}
@@ -857,6 +977,97 @@ func runtimeTraceMatchesStaticEdge(db *sql.DB, trace semanticRuntimeTrace) (bool
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func ensureSemanticRuntimeTraceTable(db *sql.DB) error {
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS runtime_traces (id INTEGER PRIMARY KEY AUTOINCREMENT, imported_at TEXT NOT NULL, source_path TEXT NOT NULL, from_id TEXT NOT NULL, to_id TEXT NOT NULL, observed_type TEXT, matched_static_edge INTEGER NOT NULL)`,
+		`CREATE INDEX IF NOT EXISTS idx_runtime_traces_from ON runtime_traces(from_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_runtime_traces_to ON runtime_traces(to_id)`,
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func insertRuntimeTraceFacts(db *sql.DB, report semanticTraceIngestReport, traces []semanticRuntimeTrace, matched []bool) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	for i, trace := range traces {
+		isMatched := 0
+		if i < len(matched) && matched[i] {
+			isMatched = 1
+		}
+		if _, err := tx.Exec(`INSERT INTO runtime_traces(imported_at, source_path, from_id, to_id, observed_type, matched_static_edge) VALUES (?, ?, ?, ?, ?, ?)`,
+			report.ImportedAt.Format(time.RFC3339Nano), report.Path, trace.From, trace.To, strings.TrimSpace(trace.Type), isMatched); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func queryRuntimeTraceRelations(db *sql.DB, filters graphQueryFilters, limit int) ([]semanticRecord, error) {
+	if limit <= 0 {
+		return []semanticRecord{}, nil
+	}
+	if err := ensureSemanticRuntimeTraceTable(db); err != nil {
+		return nil, err
+	}
+	query := `SELECT from_id, to_id, observed_type, matched_static_edge, source_path FROM runtime_traces WHERE 1=1`
+	var args []any
+	if filters.From != "" {
+		query += ` AND from_id = ?`
+		args = append(args, filters.From)
+	}
+	if filters.To != "" {
+		query += ` AND to_id = ?`
+		args = append(args, filters.To)
+	}
+	if filters.Text != "" {
+		query += ` AND (from_id LIKE ? OR to_id LIKE ? OR observed_type LIKE ? OR source_path LIKE ?)`
+		like := "%" + filters.Text + "%"
+		args = append(args, like, like, like, like)
+	}
+	query += ` ORDER BY imported_at, id LIMIT ?`
+	args = append(args, limit)
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var records []semanticRecord
+	for rows.Next() {
+		var record semanticRecord
+		var observedType, sourcePath string
+		var matched int
+		if err := rows.Scan(&record.FromID, &record.ToID, &observedType, &matched, &sourcePath); err != nil {
+			return nil, err
+		}
+		record.RecordType = "runtime_trace"
+		record.Type = "RUNTIME_TRACE"
+		record.Confidence = 1
+		record.Reason = strings.TrimSpace("runtime trace observed " + observedType)
+		if record.Reason == "runtime trace observed" {
+			record.Reason = "runtime trace observed edge"
+		}
+		record.WarningCodes = []string{}
+		if matched == 0 {
+			record.Confidence = 0.5
+			record.WarningCodes = []string{"UNMATCHED_STATIC_EDGE"}
+		}
+		record.Evidence = []semanticEvidence{{Kind: "runtime_trace_import", FilePath: sourcePath, Detail: observedType}}
+		records = append(records, record)
+	}
+	return nonNilRecords(records), rows.Err()
 }
 
 func writeRuntimeTraceImport(brainDir string, report semanticTraceIngestReport, traces []semanticRuntimeTrace) (string, error) {

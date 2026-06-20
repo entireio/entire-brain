@@ -1794,7 +1794,7 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 			return runSemanticGraphUI(c, opts, semanticGraphUIOptions{limit: 10, json: true}, filepath.Join(repoDir, "graph.html"))
 		},
 		"query": func(c *cobra.Command) error {
-			return runSemanticQueryGraph(c, opts, semanticGraphQueryOptions{limit: 10, json: true}, "type:CALLS")
+			return runSemanticQueryGraph(c, opts, semanticGraphQueryOptions{limit: 10, json: true}, `MATCH (a)-[r:CALLS]->(b) WHERE a.name = "CallValidateToken" RETURN a,r,b LIMIT 5`)
 		},
 		"trace": func(c *cobra.Command) error {
 			return runSemanticTracePath(c, opts, semanticTracePathOptions{depth: 2, json: true}, "CallValidateToken", "ValidateToken")
@@ -1854,6 +1854,15 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"matched_static_edges": 1`) {
 		t.Fatalf("trace ingest did not validate static edge:\n%s", out.String())
+	}
+	out.Reset()
+	queryTraceCmd := &cobra.Command{Use: "query-trace"}
+	queryTraceCmd.SetOut(&out)
+	if err := runSemanticQueryGraph(queryTraceCmd, opts, semanticGraphQueryOptions{limit: 10, json: true}, "type:RUNTIME_TRACE"); err != nil {
+		t.Fatalf("query runtime traces: %v", err)
+	}
+	if !strings.Contains(out.String(), `"record_type": "runtime_trace"`) || !strings.Contains(out.String(), `"RUNTIME_TRACE"`) {
+		t.Fatalf("runtime trace facts were not queryable:\n%s", out.String())
 	}
 }
 

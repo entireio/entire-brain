@@ -36,10 +36,12 @@ the single-repo tools plus workspace review/regression helpers.
 
 The graph tools read the local semantic SQLite store built by `refresh index`
 or rebuilt by `repair`. `brain_query_graph` accepts simple filters such as
-`type:CALLS`, `relation:HANDLES_ROUTE`, `from:<symbol>`, and `to:<symbol>`;
+`type:CALLS`, `relation:HANDLES_ROUTE`, `from:<symbol>`, and `to:<symbol>`,
+plus a small Cypher-style subset such as
+`MATCH (a)-[r:CALLS]->(b) WHERE a.name = "caller" RETURN a,r,b LIMIT 10`.
 `brain_trace_path` walks directed relation paths; `brain_ingest_traces` imports
-local JSON/NDJSON runtime edges and reports which ones already match static
-relations.
+local JSON/NDJSON runtime edges, reports which ones already match static
+relations, and persists them as queryable `RUNTIME_TRACE` graph facts.
 
 `brain_index_repository` is a local write tool for building the semantic index;
 it does not publish artifacts. `brain_delete_project` removes local generated
