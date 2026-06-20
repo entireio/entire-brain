@@ -55,9 +55,11 @@ go test ./...
   Kubernetes external config resource endpoints such as
   `external:config:kubernetes/service/api`,
   `external:config:kubernetes/configmap/podinfo-values`, and
-  `external:config:kubernetes/secret/podinfo-secret-values` resolved to
-  matching local `Service.api`, `ConfigMap.podinfo-values`, and
-  `Secret.podinfo-secret-values` resource symbols in another workspace repo,
+  `external:config:kubernetes/secret/podinfo-secret-values`, plus custom
+  resources such as `external:config:kubernetes/broker/default`, resolved to
+  matching local `Service.api`, `ConfigMap.podinfo-values`,
+  `Secret.podinfo-secret-values`, and `Broker.default` resource symbols in
+  another workspace repo,
   Docker Compose
   service config endpoints such as `external:config:compose/service/db`
   resolved to matching `compose.service.db` resource symbols in another

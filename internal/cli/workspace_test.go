@@ -874,6 +874,13 @@ func TestWorkspaceGraphMatchesKubernetesResourceCandidates(t *testing.T) {
 			targetName: "Secret.podinfo-secret-values",
 			filePath:   "k8s/podinfo-secret-values.yaml",
 		},
+		{
+			name:       "custom-resource",
+			endpoint:   "external:config:kubernetes/broker/default",
+			targetID:   "platform:resource:Broker.default",
+			targetName: "Broker.default",
+			filePath:   "k8s/knative-broker.yaml",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
