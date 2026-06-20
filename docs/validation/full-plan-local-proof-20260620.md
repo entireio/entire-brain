@@ -38,7 +38,8 @@ go test ./...
   directed route-call edges from `HTTP_CALLS` clients to `HANDLES_ROUTE`
   handlers on the same route endpoint, repo-key-matched unresolved import
   candidates including GitHub `@owner/repo` scoped package imports and
-  package-keyed `npm/<name>` / `pypi/<name>` workspace repos, plus exact
+  package-keyed `gomod/<module-path>`, `npm/<name>`, and `pypi/<name>`
+  workspace repos, plus exact
   `external:symbol:<qualified-name>` references, repo-prefix-qualified external
   symbol references, and package-prefix-qualified external symbols matched to
   symbols defined in another workspace repo.

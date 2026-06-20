@@ -1295,7 +1295,7 @@ func workspaceRepoImportPrefixes(repoKey string) []string {
 	}
 	if len(parts) >= 2 {
 		switch parts[0] {
-		case "npm", "pypi":
+		case "gomod", "npm", "pypi":
 			pkg := strings.Join(parts[1:], "/")
 			prefixes = append(prefixes, pkg)
 		}

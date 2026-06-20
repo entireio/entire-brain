@@ -652,6 +652,44 @@ func TestWorkspaceGraphMatchesPackageRepoImportCandidates(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesGoModuleImportCandidates(t *testing.T) {
+	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			Imports: []workspaceGraphImportRef{{
+				Spec: "golang.org/x/sync/errgroup",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "Run",
+					QualifiedName: "service.Run",
+					FilePath:      "service.go",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "gomod/golang.org/x/sync",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "gomod/golang.org/x/sync",
+				ID:            "lib:sym",
+				Kind:          "function",
+				Name:          "WithContext",
+				QualifiedName: "errgroup.WithContext",
+				FilePath:      "errgroup/errgroup.go",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("go module import edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_import_candidate" || edge.Endpoint != "external:import:golang.org/x/sync/errgroup" || edge.FromRepo != "local/app" || edge.ToRepo != "gomod/golang.org/x/sync" || edge.ToSymbol.FilePath != "errgroup/errgroup.go" {
+		t.Fatalf("unexpected go module import edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceGraphReportsCrossRepoRouteCalls(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
@@ -879,6 +917,10 @@ func TestWorkspaceImportMatchesPackageRepoKeys(t *testing.T) {
 	subpath, ok = workspaceImportMatchesRepo("requests/auth", "pypi/requests")
 	if !ok || subpath != "auth" {
 		t.Fatalf("pypi import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("golang.org/x/sync/errgroup", "gomod/golang.org/x/sync")
+	if !ok || subpath != "errgroup" {
+		t.Fatalf("go module import match = %q, %v", subpath, ok)
 	}
 	if _, ok := workspaceImportMatchesRepo("@acme/other/pkg", "npm/@acme/lib"); ok {
 		t.Fatalf("unrelated package import should not match")
