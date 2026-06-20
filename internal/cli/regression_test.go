@@ -206,6 +206,74 @@ func TestBrainReviewMapsAnomalyToFinding(t *testing.T) {
 	}
 }
 
+func TestBrainReviewUsesRuntimeTraceForRankingAndContext(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	cmd := &cobra.Command{Use: "index"}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	tracePath := filepath.Join(repoDir, "runtime-trace.ndjson")
+	if err := os.WriteFile(tracePath, []byte(`{"from":"ValidateToken","to":"TestValidateToken","type":"OBSERVED_CALL"}`+"\n"), 0o600); err != nil {
+		t.Fatalf("write runtime trace: %v", err)
+	}
+	if err := runSemanticIngestTraces(&cobra.Command{Use: "ingest"}, opts, semanticTraceIngestOptions{json: true}, tracePath); err != nil {
+		t.Fatalf("ingest runtime trace: %v", err)
+	}
+	storage, err := repoStoragePaths(cmd.Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	sessionDir := filepath.Join(storage.BrainDir, exportSessionsDirectory, "main")
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		t.Fatalf("mkdir session dir: %v", err)
+	}
+	sessionLine := `{"type":"agent_message","message":"aaa/noise.go and internal/auth/token.go should keep ValidateToken+\"..HEAD\" for token validation"}` + "\n"
+	if err := os.WriteFile(filepath.Join(sessionDir, "session.jsonl"), []byte(sessionLine), 0o600); err != nil {
+		t.Fatalf("write session: %v", err)
+	}
+	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, now, nil); err != nil {
+		t.Fatalf("write history index: %v", err)
+	}
+	for rel, body := range map[string]string{
+		"aaa/noise.go":           "package aaa\nfunc Noise() string {\n\treturn \"master..HEAD\"\n}\n",
+		"internal/auth/token.go": "package auth\nfunc ValidateToken() string {\n\treturn \"master..HEAD\"\n}\n",
+	} {
+		full := filepath.Join(repoDir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	for _, k := range [][]string{{"git", "status", "--porcelain"}, {"git", "status", "--porcelain", "--untracked-files=all"}, {"git", "diff", "--shortstat", "HEAD"}, {"git", "diff", "--name-status", "-M", "-C", "HEAD"}} {
+		runner.responses[fakeCommandKey(k[0], k[1:]...)] = fakeCommandResponse{}
+	}
+	var out strings.Builder
+	reviewCmd := &cobra.Command{Use: "review"}
+	reviewCmd.SetOut(&out)
+	if err := runBrainReview(reviewCmd.Context(), reviewCmd, opts, regressionDetectorOptions{limit: 5, json: true}, "ValidateToken token regression"); err != nil {
+		t.Fatalf("review: %v\n%s", err, out.String())
+	}
+	var report reviewReport
+	if err := json.Unmarshal([]byte(out.String()), &report); err != nil {
+		t.Fatalf("parse review report: %v\n%s", err, out.String())
+	}
+	if len(report.Findings) < 2 {
+		t.Fatalf("expected both hinted regressions, got %+v", report.Findings)
+	}
+	if report.Findings[0].File != "internal/auth/token.go" {
+		t.Fatalf("runtime trace should rank token.go before alphabetic distractor, got %+v", report.Findings)
+	}
+	if len(report.RuntimeTraces) == 0 || report.RuntimeTraces[0].Type != "RUNTIME_TRACE" || report.RuntimeTraces[0].FilePath != "internal/auth/token.go" {
+		t.Fatalf("review missing runtime trace context: %+v", report.RuntimeTraces)
+	}
+}
+
 func TestInspectRegressionsCommandJSONAndLocationOnly(t *testing.T) {
 	// Exercises the `inspect regressions` CLI command end to end (runRegressionDetect via cobra),
 	// the regressionReport JSON envelope + its schema_version, and the --location-only flag wiring —

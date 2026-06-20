@@ -7,6 +7,7 @@ Branch: `codex/full-plan-implementation`
 ```sh
 go test ./internal/cli -run 'TestSemanticGraphCommandsUseSQLiteStore|TestWorkspaceGraphReportsSharedExternalContracts'
 go test ./internal/cli -run TestRefreshSkipsCurrentSemanticIndex
+go test ./internal/cli -run 'TestBrainReviewUsesRuntimeTraceForRankingAndContext|TestBrainReviewMapsAnomalyToFinding|TestMCPBrainReviewTool|TestBrainBriefJSONUsesSemanticContextAndLiveOverlay|TestRegressionChangedOperandReportsEachRegressedHintedFile'
 go test ./...
 ```
 
@@ -27,6 +28,9 @@ go test ./...
 - Runtime trace ingestion persists queryable `RUNTIME_TRACE` graph facts and
   folds them into graph schema/metrics, trace-path traversal, and
   `brief --json` semantic context.
+- Runtime trace facts influence diff-less review ranking and are included as
+  optional `runtime_traces` context in review reports when they match the review
+  query.
 - Workspace graph inspection writes a persisted `workspaces/<name>/graph.json`
   artifact with aggregate contracts and explicit `cross_edges` connecting
   symbols/resources in different repos through shared external endpoints and
@@ -43,6 +47,6 @@ go test ./...
   still derived from shared external endpoint contracts and repo-key-matched
   unresolved import candidates, not full cross-repo compiler/type-aware symbol
   resolution.
-- Runtime trace facts are now visible in `brief` and influence likely-file
-  ranking there. Review-specific ranking and proof-ready agent-value evals
-  remain open.
+- Runtime trace facts are now visible in `brief` and review reports, and
+  influence likely-file/review ranking. Proof-ready agent-value evals remain
+  open before memory-aware lift can be claimed.

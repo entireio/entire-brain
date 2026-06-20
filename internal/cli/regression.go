@@ -91,12 +91,14 @@ type deleteSignal struct {
 }
 
 type candFile struct {
-	clean    string
-	lines    []string
-	norm     []string
-	semantic bool // surfaced by the semantic index (a primary locus), not just named in a session
-	rank     int  // semantic rank (lower = stronger locus)
-	isTest   bool
+	clean        string
+	lines        []string
+	norm         []string
+	semantic     bool // surfaced by the semantic index (a primary locus), not just named in a session
+	rank         int  // semantic rank (lower = stronger locus)
+	runtimeTrace bool // surfaced by a query-matching runtime trace edge
+	traceRank    int  // runtime trace rank (lower = stronger locus)
+	isTest       bool
 }
 
 func regressionIsComment(line string) bool {
@@ -379,6 +381,26 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 
 	candidateFiles := map[string]struct{}{}
 	semanticRank := map[string]int{} // clean path -> best (lowest) semantic rank; lower = stronger locus
+	runtimeTraceRank := map[string]int{}
+	if semSource != nil {
+		traces, err := semanticRuntimeTraceFacts(brainDir, semSource, query, 32)
+		if err != nil {
+			warnings = append(warnings, "runtime trace facts unavailable for review ranking")
+		}
+		for rank, trace := range traces {
+			if trace.Score <= 1 {
+				continue
+			}
+			clean := regressionCleanRelPath(semanticFirstNonEmpty(trace.FilePath, trace.Path))
+			if clean == "" || clean == "." || strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
+				continue
+			}
+			candidateFiles[clean] = struct{}{}
+			if r, ok := runtimeTraceRank[clean]; !ok || rank < r {
+				runtimeTraceRank[clean] = rank
+			}
+		}
+	}
 	for _, rawID := range ids {
 		id := strings.ToLower(rawID)
 		if semSource != nil {
@@ -436,7 +458,11 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 		if !isSem {
 			rank = 1 << 30
 		}
-		files = append(files, candFile{clean: clean, lines: lines, norm: norm, semantic: isSem, rank: rank, isTest: regressionIsTestPath(clean)})
+		traceRank, hasTrace := runtimeTraceRank[clean]
+		if !hasTrace {
+			traceRank = 1 << 30
+		}
+		files = append(files, candFile{clean: clean, lines: lines, norm: norm, semantic: isSem, rank: rank, runtimeTrace: hasTrace, traceRank: traceRank, isTest: regressionIsTestPath(clean)})
 	}
 	if len(files) == 0 {
 		return []regressionAnomaly{}, 0, append(warnings, "no current files to verify against (semantic index missing?)")
@@ -447,6 +473,12 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 	sort.SliceStable(files, func(i, j int) bool {
 		if files[i].isTest != files[j].isTest {
 			return !files[i].isTest
+		}
+		if files[i].runtimeTrace != files[j].runtimeTrace {
+			return files[i].runtimeTrace
+		}
+		if files[i].traceRank != files[j].traceRank {
+			return files[i].traceRank < files[j].traceRank
 		}
 		if files[i].rank != files[j].rank {
 			return files[i].rank < files[j].rank
@@ -544,7 +576,8 @@ func detectRegressionAnomalies(brainDir, repoRoot string, semSource *semanticSou
 						File: f.clean, Line: i + 1, Kind: "changed",
 						Current: strings.TrimSpace(f.lines[i]), Expected: c.raw,
 						Identifier: c.id, Confidence: 0.8, Evidence: c.ev,
-						Reason: fmt.Sprintf("suspected regression: history asserts %q; this line keeps %q but dropped %q (could also be a rename — verify)", c.raw, c.operand, c.id),
+						Reason:    fmt.Sprintf("suspected regression: history asserts %q; this line keeps %q but dropped %q (could also be a rename — verify)", c.raw, c.operand, c.id),
+						rankBoost: regressionCandidateRankBoost(f),
 					})
 					found = true
 					break
@@ -1022,6 +1055,17 @@ func regressionDedupeRank(in []regressionAnomaly) []regressionAnomaly {
 	return out
 }
 
+func regressionCandidateRankBoost(f candFile) int {
+	boost := 0
+	if f.semantic {
+		boost++
+	}
+	if f.runtimeTrace {
+		boost += 4
+	}
+	return boost
+}
+
 // regressionFunctionPattern recognizes the common declaration heads across
 // the languages regressionCodeFilePattern admits: Go func (with optional
 // receiver), Python def, Rust fn, JS/TS function (incl. export/async), and
@@ -1218,15 +1262,16 @@ type reviewFinding struct {
 }
 
 type reviewReport struct {
-	SchemaVersion int             `json:"schema_version"`
-	GeneratedAt   time.Time       `json:"generated_at"`
-	Mode          string          `json:"mode"`
-	Query         string          `json:"query"`
-	RepoPath      string          `json:"repo_path"`
-	BrainPath     string          `json:"brain_path"`
-	Summary       string          `json:"summary"`
-	Findings      []reviewFinding `json:"findings"`
-	Warnings      []string        `json:"warnings,omitempty"`
+	SchemaVersion int              `json:"schema_version"`
+	GeneratedAt   time.Time        `json:"generated_at"`
+	Mode          string           `json:"mode"`
+	Query         string           `json:"query"`
+	RepoPath      string           `json:"repo_path"`
+	BrainPath     string           `json:"brain_path"`
+	Summary       string           `json:"summary"`
+	Findings      []reviewFinding  `json:"findings"`
+	Warnings      []string         `json:"warnings,omitempty"`
+	RuntimeTraces []semanticRecord `json:"runtime_traces,omitempty"`
 	// PatternContext is OPT-IN (only with --patterns): V2 corpus risk/practice/
 	// task patterns whose recorded evidence touched the finding files — diff-less
 	// regression context. omitempty keeps the default review output byte-identical
@@ -1287,6 +1332,19 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 		semSource = status.Manifest.Sources.Semantic
 	}
 	anomalies, _, warnings := detectRegressionAnomalies(status.Brain.Path, status.Repo.Root, semSource, query, ro.limit, ro.includeDeletions)
+	var runtimeTraces []semanticRecord
+	if semSource != nil {
+		traces, err := semanticRuntimeTraceFacts(status.Brain.Path, semSource, query, ro.limit)
+		if err != nil {
+			warnings = append(warnings, "runtime trace facts unavailable for review context")
+		} else {
+			for _, trace := range traces {
+				if trace.Score > 1 {
+					runtimeTraces = append(runtimeTraces, trace)
+				}
+			}
+		}
+	}
 	if ro.locationOnly {
 		// Parity with `inspect regressions --location-only`: hand the suspected site, not the fix,
 		// so a fair consumer/A-B measures detection rather than pasting a harness-computed value.
@@ -1314,6 +1372,7 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 		Summary:       summary,
 		Findings:      findings,
 		Warnings:      warnings,
+		RuntimeTraces: runtimeTraces,
 	}
 	if ro.patterns {
 		files := make([]string, 0, len(findings))
