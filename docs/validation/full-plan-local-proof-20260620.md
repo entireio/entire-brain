@@ -69,7 +69,8 @@ go test ./...
   resolved to matching `compose.service.db` resource symbols in another
   workspace repo, plus exact
   `external:symbol:<qualified-name>` references, repo-prefix-qualified external
-  symbol references, and package-prefix-qualified external symbols matched to
+  symbol references, and package-prefix-qualified external symbols, including
+  `::`-separated package symbols such as `tokio::sync::channel`, matched to
   symbols defined in another workspace repo.
 - MCP exposes `brain_workspace_graph` for the same workspace graph contracts
   and `cross_edges` JSON.
@@ -86,7 +87,7 @@ go test ./...
   candidates, repo-key/scoped-package/package-key-matched unresolved import candidates with
   terminal-symbol preference, canonical route templates including frontend
   optional/catch-all bracket params and wildcard path params, and exact/repo-prefix/package-prefix
-  external-symbol name matches. Package-key matching covers
+  external-symbol name matches including `::`-separated package symbols. Package-key matching covers
   cargo/gomod/maven/npm/pypi/nuget/gem/composer keys, but this is still not
   full cross-repo compiler/type-aware symbol resolution.
 - Runtime trace facts are now visible in `brief` and review reports, and

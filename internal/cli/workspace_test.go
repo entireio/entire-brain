@@ -1544,6 +1544,49 @@ func TestWorkspaceGraphMatchesAdditionalPackageExternalSymbols(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesColonSeparatedPackageExternalSymbols(t *testing.T) {
+	edges := workspaceGraphExternalSymbolCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			ExternalSymbols: []workspaceGraphExternalSymbolRef{{
+				Spec: "tokio::sync::channel",
+				Type: "CALLS",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "run",
+					QualifiedName: "app.run",
+					FilePath:      "src/main.rs",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "cargo/tokio",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "cargo/tokio",
+				ID:            "tokio:sym",
+				Kind:          "function",
+				Name:          "channel",
+				QualifiedName: "sync.channel",
+				FilePath:      "tokio/src/sync/channel.rs",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("colon-separated package external symbol edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_external_symbol" ||
+		edge.Endpoint != "external:symbol:tokio::sync::channel" ||
+		edge.FromRepo != "local/app" ||
+		edge.ToRepo != "cargo/tokio" ||
+		edge.ToSymbol.QualifiedName != "sync.channel" {
+		t.Fatalf("unexpected colon-separated package external symbol edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceExternalSymbolTargetMatchesGitHubRepoPrefixes(t *testing.T) {
 	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{{
 		RepoKey:       "gh/acme/lib",
@@ -1569,6 +1612,20 @@ func TestWorkspaceExternalSymbolTargetMatchesPackageRepoPrefixes(t *testing.T) {
 	}}, "@acme/lib/pkg.Service")
 	if !ok || target.ID != "sym" || target.Direction != "external_symbol_target" {
 		t.Fatalf("package-prefixed external symbol target = %#v, %v", target, ok)
+	}
+}
+
+func TestWorkspaceExternalSymbolTargetMatchesColonSeparatedPackagePrefixes(t *testing.T) {
+	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{{
+		RepoKey:       "cargo/tokio",
+		ID:            "sym",
+		Kind:          "function",
+		Name:          "channel",
+		QualifiedName: "sync.channel",
+		FilePath:      "src/sync/channel.rs",
+	}}, "tokio::sync::channel")
+	if !ok || target.ID != "sym" || target.Direction != "external_symbol_target" {
+		t.Fatalf("colon-separated package external symbol target = %#v, %v", target, ok)
 	}
 }
 

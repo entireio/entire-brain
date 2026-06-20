@@ -1543,22 +1543,27 @@ func workspaceExternalSymbolCandidateRank(spec string, candidate workspaceGraphS
 
 func workspaceExternalSymbolCandidateSpecs(spec, repoKey string) []string {
 	spec = strings.Trim(strings.TrimSpace(filepath.ToSlash(spec)), "/")
+	colonSpec := strings.ReplaceAll(spec, "::", "/")
 	seen := map[string]bool{}
 	add := func(value string) {
 		value = strings.Trim(strings.TrimSpace(filepath.ToSlash(value)), "/")
 		if value != "" {
 			seen[value] = true
+			seen[strings.ReplaceAll(value, "/", ".")] = true
 		}
 	}
 	add(spec)
+	add(colonSpec)
 	for _, prefix := range workspaceRepoImportPrefixes(repoKey) {
 		prefix = strings.Trim(strings.TrimSpace(filepath.ToSlash(prefix)), "/")
 		if prefix == "" {
 			continue
 		}
-		for _, sep := range []string{"/", "."} {
-			if strings.HasPrefix(spec, prefix+sep) {
-				add(strings.TrimPrefix(spec, prefix+sep))
+		for _, candidateSpec := range []string{spec, colonSpec} {
+			for _, sep := range []string{"/", "."} {
+				if strings.HasPrefix(candidateSpec, prefix+sep) {
+					add(strings.TrimPrefix(candidateSpec, prefix+sep))
+				}
 			}
 		}
 	}
