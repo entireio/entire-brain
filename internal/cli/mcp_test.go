@@ -102,9 +102,9 @@ func TestMCPProjectManagementTools(t *testing.T) {
 	}}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC) }}
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`) +
-		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_index_repository","arguments":{"path":"`+repoDir+`","sem_binary":"entire"}}}`) +
+		frameMCPJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "brain_index_repository", "arguments": map[string]any{"path": repoDir, "sem_binary": "entire"}}}) +
 		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_list_projects","arguments":{}}}`) +
-		frameMCP(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"brain_delete_project","arguments":{"repo_key":"`+repoKey+`"}}}`)
+		frameMCPJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "brain_delete_project", "arguments": map[string]any{"repo_key": repoKey}}})
 	var out bytes.Buffer
 	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
 		t.Fatalf("mcp: %v", err)
@@ -1184,6 +1184,15 @@ func TestMCPBrainStaleUsesEnvRepoRoot(t *testing.T) {
 
 func frameMCP(payload string) string {
 	return fmt.Sprintf("Content-Length: %d\r\n\r\n%s", len(payload), payload)
+}
+
+func frameMCPJSON(t *testing.T, payload map[string]any) string {
+	t.Helper()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal MCP payload: %v", err)
+	}
+	return frameMCP(string(data))
 }
 
 func readMCPResponses(t *testing.T, data string) []map[string]any {
