@@ -783,6 +783,7 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 	}
 	crossEdges := workspaceGraphCrossEdges(contractIndex, limit)
 	crossEdges = append(crossEdges, workspaceGraphRouteCallCrossEdges(contractIndex, limit)...)
+	crossEdges = append(crossEdges, workspaceGraphGraphQLCrossEdges(contractIndex, limit)...)
 	crossEdges = append(crossEdges, workspaceGraphResourceCrossEdges(contractIndex, repoIndexes, limit)...)
 	crossEdges = append(crossEdges, workspaceGraphImportCrossEdges(repoIndexes, limit)...)
 	crossEdges = append(crossEdges, workspaceGraphExternalSymbolCrossEdges(repoIndexes, limit)...)
@@ -1206,6 +1207,54 @@ func workspaceGraphRouteCallCrossEdges(index map[string]*workspaceExternalContra
 					ToSymbol:     handler,
 					SharedCount:  caller.Count + handler.Count,
 					RelationKind: "cross_repo_route_call",
+				})
+			}
+		}
+	}
+	sortWorkspaceGraphCrossEdges(edges)
+	if len(edges) > limit {
+		edges = edges[:limit]
+	}
+	if edges == nil {
+		return []workspaceGraphCrossEdge{}
+	}
+	return edges
+}
+
+func workspaceGraphGraphQLCrossEdges(index map[string]*workspaceExternalContractAggregate, limit int) []workspaceGraphCrossEdge {
+	var edges []workspaceGraphCrossEdge
+	for _, aggregate := range index {
+		if aggregate.Type != "HANDLES_GRAPHQL" || !strings.HasPrefix(aggregate.Endpoint, "external:graphql:") {
+			continue
+		}
+		var resolvers []workspaceGraphSymbolRef
+		var operations []workspaceGraphSymbolRef
+		for _, participant := range aggregate.Participants {
+			if participant.Kind == "graphql_resolver" {
+				resolvers = append(resolvers, participant)
+			} else {
+				operations = append(operations, participant)
+			}
+		}
+		if len(resolvers) == 0 || len(operations) == 0 {
+			continue
+		}
+		sortWorkspaceGraphSymbolRefs(operations)
+		sortWorkspaceGraphSymbolRefs(resolvers)
+		for _, operation := range operations {
+			for _, resolver := range resolvers {
+				if operation.RepoKey == resolver.RepoKey {
+					continue
+				}
+				edges = append(edges, workspaceGraphCrossEdge{
+					Endpoint:     aggregate.Endpoint,
+					Type:         "CALLS",
+					FromRepo:     operation.RepoKey,
+					ToRepo:       resolver.RepoKey,
+					FromSymbol:   operation,
+					ToSymbol:     resolver,
+					SharedCount:  operation.Count + resolver.Count,
+					RelationKind: "cross_repo_graphql_call",
 				})
 			}
 		}

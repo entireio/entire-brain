@@ -10,6 +10,7 @@ go test ./internal/cli -run 'TestWorkspaceGraphReportsCrossRepoImportCandidates|
 go test ./internal/cli -run 'TestWorkspaceGraphMatchesMavenImportCandidates|TestWorkspaceGraphMatchesMavenExternalSymbols|TestWorkspaceImportMatchesPackageRepoKeys'
 go test ./internal/cli -run 'TestWorkspaceGraphImportCandidatesPreferImportedSymbols|TestWorkspaceGraphMatchesMavenImportCandidates|TestWorkspaceImportMatchesPackageRepoKeys' -count=1
 go test ./internal/cli -run 'TestWorkspaceGraphMatchesKubernetesResourceCandidates|TestWorkspaceGraphReportsCrossRepoImportCandidates|TestWorkspaceGraphReportsSharedExternalContracts' -count=1
+go test ./internal/cli -run 'TestWorkspaceGraphReportsCrossRepoGraphQLCalls|TestWorkspaceGraphReportsCrossRepoRouteCalls|TestWorkspaceGraphReportsSharedExternalContracts' -count=1
 go test ./internal/cli -run TestRefreshSkipsCurrentSemanticIndex
 go test ./internal/cli -run 'TestBrainReviewUsesRuntimeTraceForRankingAndContext|TestBrainReviewMapsAnomalyToFinding|TestMCPBrainReviewTool|TestBrainBriefJSONUsesSemanticContextAndLiveOverlay|TestRegressionChangedOperandReportsEachRegressedHintedFile'
 go test ./...
@@ -21,7 +22,7 @@ go test ./...
 - Warm-refresh semantic no-op proof passed: after an initial refresh, a second
   refresh with the same HEAD does not call `entire sem snapshot` again.
 - Full repository tests passed:
-  - `github.com/ashtom/entire-brain/internal/cli`: 90.831s
+  - `github.com/ashtom/entire-brain/internal/cli`: latest local run 93.342s
   - `github.com/ashtom/entire-brain/internal/config`: cached
   - `github.com/ashtom/entire-brain/internal/tui`: cached
 
@@ -39,7 +40,9 @@ go test ./...
   artifact with aggregate contracts and explicit `cross_edges` connecting
   symbols/resources in different repos through shared external endpoints and
   directed route-call edges from `HTTP_CALLS` clients to `HANDLES_ROUTE`
-  handlers on the same route endpoint, repo-key-matched unresolved import
+  handlers on the same route endpoint, directed GraphQL edges from operation
+  participants to concrete `graphql_resolver` symbols on the same
+  `external:graphql:<operation>` endpoint, repo-key-matched unresolved import
   candidates including GitHub `@owner/repo` scoped package imports and
   package-keyed `cargo/<crate>`, `gomod/<module-path>`,
   `maven/<group>/<artifact>`, `npm/<name>`, `pypi/<name>`, `nuget/<name>`,
@@ -62,7 +65,8 @@ go test ./...
 - The graph query language is a supported Cypher-style subset, not full Cypher.
 - Workspace cross-repo graph edges are explicit in `graph.json`, but they are
   still derived from shared external endpoint contracts, exact route endpoint
-  matches, Kubernetes external config resource candidates, repo-key/
+  matches, GraphQL operation/resolver endpoint matches, Kubernetes external
+  config resource candidates, repo-key/
   scoped-package/package-key-matched unresolved import candidates with
   terminal-symbol preference, and exact/repo-prefix/package-prefix
   external-symbol name matches. Package-key matching covers
