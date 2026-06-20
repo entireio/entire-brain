@@ -690,6 +690,59 @@ func TestWorkspaceGraphMatchesGoModuleImportCandidates(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesVersionedGoModuleImportCandidates(t *testing.T) {
+	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			Imports: []workspaceGraphImportRef{{
+				Spec: "github.com/acme/lib/v2/pkg",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "Run",
+					QualifiedName: "service.Run",
+					FilePath:      "service.go",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "gh/acme/lib",
+			Candidates: []workspaceGraphSymbolRef{
+				{
+					RepoKey:       "gh/acme/lib",
+					ID:            "root:file",
+					Kind:          "file",
+					Name:          "root",
+					QualifiedName: "root",
+					FilePath:      "cmd/root.go",
+				},
+				{
+					RepoKey:       "gh/acme/lib",
+					ID:            "pkg:file",
+					Kind:          "file",
+					Name:          "service",
+					QualifiedName: "service",
+					FilePath:      "pkg/service.go",
+				},
+			},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("versioned go module import edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_import_candidate" ||
+		edge.Endpoint != "external:import:github.com/acme/lib/v2/pkg" ||
+		edge.FromRepo != "local/app" ||
+		edge.ToRepo != "gh/acme/lib" ||
+		edge.ToSymbol.ID != "pkg:file" ||
+		edge.ToSymbol.Direction != "import_path_target" {
+		t.Fatalf("unexpected versioned go module import edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceGraphMatchesCargoImportCandidates(t *testing.T) {
 	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
 		{
@@ -1208,6 +1261,7 @@ func TestWorkspaceImportPathMatchesSubpath(t *testing.T) {
 		{path: "src/api/routes.ts", subpath: "routes", want: true},
 		{path: "requests/auth.py", subpath: "auth", want: true},
 		{path: "tokio/sync/channel.rs", subpath: "sync::channel", want: true},
+		{path: "pkg/service.go", subpath: "v2/pkg", want: true},
 		{path: "src/alpha.ts", subpath: "button", want: false},
 	}
 	for _, tt := range tests {

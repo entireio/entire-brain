@@ -93,7 +93,8 @@ go test ./...
   matches, GraphQL operation/resolver/schema-field endpoint matches,
   Kubernetes resource and Docker Compose service external config resource
   candidates, repo-key/scoped-package/GitHub monorepo package/package-key-matched unresolved import candidates with
-  terminal-symbol preference and source-path/subpath target preference,
+  terminal-symbol preference, source-path/subpath target preference, and
+  versioned Go module subpath normalization such as `v2/pkg` -> `pkg`,
   canonical route templates including frontend
   optional/catch-all bracket params, wildcard path params, and trailing-slash
   equivalence, and exact/repo-prefix/package-prefix

@@ -1729,21 +1729,33 @@ func workspaceImportTargetCandidate(candidates []workspaceGraphSymbolRef, subpat
 func workspaceImportPathMatchesSubpath(path, subpath string) bool {
 	path = strings.Trim(filepath.ToSlash(path), "/")
 	subpath = strings.Trim(filepath.ToSlash(strings.ReplaceAll(subpath, "::", "/")), "/")
-	if subpath == "" {
-		return true
-	}
 	path = strings.TrimSuffix(path, filepath.Ext(path))
-	if path == subpath || strings.HasPrefix(path, subpath+"/") {
-		return true
-	}
-	parts := strings.Split(path, "/")
-	for i := 1; i < len(parts); i++ {
-		suffix := strings.Join(parts[i:], "/")
-		if suffix == subpath || strings.HasPrefix(suffix, subpath+"/") {
+	for _, variant := range workspaceImportSubpathVariants(subpath) {
+		if variant == "" {
 			return true
+		}
+		if path == variant || strings.HasPrefix(path, variant+"/") {
+			return true
+		}
+		parts := strings.Split(path, "/")
+		for i := 1; i < len(parts); i++ {
+			suffix := strings.Join(parts[i:], "/")
+			if suffix == variant || strings.HasPrefix(suffix, variant+"/") {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func workspaceImportSubpathVariants(subpath string) []string {
+	subpath = strings.Trim(filepath.ToSlash(strings.ReplaceAll(subpath, "::", "/")), "/")
+	variants := []string{subpath}
+	parts := strings.Split(subpath, "/")
+	if len(parts) > 0 && regexp.MustCompile(`^v[2-9][0-9]*$`).MatchString(parts[0]) {
+		variants = append(variants, strings.Join(parts[1:], "/"))
+	}
+	return variants
 }
 
 func workspaceImportSymbolMatchesSubpath(candidate workspaceGraphSymbolRef, subpath string) bool {
