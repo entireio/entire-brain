@@ -1581,9 +1581,21 @@ func workspaceKubernetesExternalResource(endpoint string) (string, string, bool)
 			continue
 		}
 		rest := strings.Trim(strings.TrimPrefix(endpoint, parser.prefix), "/")
-		kind, name, ok := strings.Cut(rest, "/")
-		if !ok || kind == "" || name == "" {
+		parts := strings.Split(rest, "/")
+		if len(parts) != 2 && len(parts) != 3 {
 			return "", "", false
+		}
+		kind := strings.TrimSpace(parts[0])
+		name := strings.TrimSpace(parts[len(parts)-1])
+		if kind == "" || name == "" {
+			return "", "", false
+		}
+		if len(parts) == 3 {
+			namespace := strings.TrimSpace(parts[1])
+			if namespace == "" {
+				return "", "", false
+			}
+			name = namespace + "/" + name
 		}
 		return parser.kindPrefix + kind, name, true
 	}
@@ -1591,13 +1603,13 @@ func workspaceKubernetesExternalResource(endpoint string) (string, string, bool)
 }
 
 func workspaceResourceTargetCandidate(candidates []workspaceGraphSymbolRef, kind, name string) (workspaceGraphSymbolRef, bool) {
-	expected := strings.ToLower(strings.TrimSpace(kind)) + "." + strings.ToLower(strings.TrimSpace(name))
+	expected := workspaceResourceTargetNames(kind, name)
 	for _, candidate := range candidates {
 		if !strings.EqualFold(candidate.Kind, "resource") {
 			continue
 		}
 		for _, value := range []string{candidate.Name, candidate.QualifiedName} {
-			if strings.ToLower(strings.TrimSpace(value)) != expected {
+			if !expected[strings.ToLower(strings.TrimSpace(value))] {
 				continue
 			}
 			candidate.Direction = "external_resource_target"
@@ -1605,6 +1617,23 @@ func workspaceResourceTargetCandidate(candidates []workspaceGraphSymbolRef, kind
 		}
 	}
 	return workspaceGraphSymbolRef{}, false
+}
+
+func workspaceResourceTargetNames(kind, name string) map[string]bool {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	name = strings.ToLower(strings.Trim(strings.TrimSpace(name), "/"))
+	out := map[string]bool{}
+	if kind == "" || name == "" {
+		return out
+	}
+	out[kind+"."+strings.ReplaceAll(name, "/", ".")] = true
+	if strings.Contains(name, "/") {
+		_, shortName, ok := strings.Cut(name, "/")
+		if ok && shortName != "" {
+			out[kind+"."+shortName] = true
+		}
+	}
+	return out
 }
 
 func workspaceExternalSymbolTarget(candidates []workspaceGraphSymbolRef, spec string) (workspaceGraphSymbolRef, bool) {

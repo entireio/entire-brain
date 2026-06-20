@@ -38,7 +38,9 @@ Recommended intake flow:
    Rust crates, Ruby gems, and GitHub monorepo package dirs, GraphQL
    operation-to-resolver/schema-field and schema-field-to-resolver, plus
    event-channel producer-to-consumer,
-   Kubernetes workload/resource and Docker Compose service resource-candidate `cross_edges`, and
+   Kubernetes workload/resource resource-candidate `cross_edges`, including
+   namespace-qualified resource endpoints with short-name fallback, Docker
+   Compose service resource-candidate `cross_edges`, and
    a persisted `graph.json` artifact) or
    `entire brain workspace search|vsearch|query <workspace> <query> --json`
    (facts/history/docs, grouped per repo; ids are repo-qualified for

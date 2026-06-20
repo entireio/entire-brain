@@ -87,8 +87,12 @@ go test ./internal/cli -run 'TestWorkspaceGraphReportsCrossRepoChannelFlows|Test
   Kubernetes external config resource endpoints such as
   `external:config:kubernetes/service/api`,
   `external:config:kubernetes/configmap/podinfo-values`, and
-  `external:config:kubernetes/secret/podinfo-secret-values`, plus custom
-  resources such as `external:config:kubernetes/broker/default`,
+  `external:config:kubernetes/secret/podinfo-secret-values`, namespace-qualified
+  resource endpoints such as
+  `external:config:kubernetes/secret/default/podinfo-secret-values` with
+  qualified `Secret.default.podinfo-secret-values` and short-name
+  `Secret.podinfo-secret-values` target fallback, plus custom resources such as
+  `external:config:kubernetes/broker/default`,
   `external:config:kubernetes/inmemorychannel/user-events`, and
   `external:config:kubernetes/revision/user-api-00001`, plus Gateway endpoints
   such as `external:config:kubernetes/gateway/public`, resolved to

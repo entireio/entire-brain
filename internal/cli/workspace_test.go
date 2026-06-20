@@ -944,6 +944,20 @@ func TestWorkspaceGraphMatchesKubernetesResourceCandidates(t *testing.T) {
 			filePath:   "k8s/podinfo-secret-values.yaml",
 		},
 		{
+			name:       "namespaced-secret-qualified",
+			endpoint:   "external:config:kubernetes/secret/default/podinfo-secret-values",
+			targetID:   "platform:resource:Secret.default.podinfo-secret-values",
+			targetName: "Secret.default.podinfo-secret-values",
+			filePath:   "k8s/default-podinfo-secret-values.yaml",
+		},
+		{
+			name:       "namespaced-secret-short-fallback",
+			endpoint:   "external:config:kubernetes/secret/default/podinfo-secret-values",
+			targetID:   "platform:resource:Secret.podinfo-secret-values",
+			targetName: "Secret.podinfo-secret-values",
+			filePath:   "k8s/podinfo-secret-values.yaml",
+		},
+		{
 			name:       "custom-resource",
 			endpoint:   "external:config:kubernetes/broker/default",
 			targetID:   "platform:resource:Broker.default",
