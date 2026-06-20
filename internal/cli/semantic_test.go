@@ -1858,6 +1858,13 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 	if !strings.Contains(countOut.String(), `"count": 1`) {
 		t.Fatalf("query count with relation predicate JSON missing count:\n%s", countOut.String())
 	}
+	countOut.Reset()
+	if err := runSemanticQueryGraph(countCmd, opts, semanticGraphQueryOptions{limit: 10, json: true}, `MATCH (a)<-[r:CALLS]-(b) WHERE a.name = "ValidateToken" RETURN count(r)`); err != nil {
+		t.Fatalf("reverse query count: %v", err)
+	}
+	if !strings.Contains(countOut.String(), `"count": 1`) {
+		t.Fatalf("reverse query count JSON missing count:\n%s", countOut.String())
+	}
 
 	tracePath := filepath.Join(repoDir, "trace.ndjson")
 	if err := os.WriteFile(tracePath, []byte(`{"from":"CallValidateToken","to":"ValidateToken","type":"CALLS"}`+"\n"+`{"from":"ValidateToken","to":"CallValidateToken","type":"OBSERVED_CALL"}`+"\n"), 0o600); err != nil {

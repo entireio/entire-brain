@@ -502,7 +502,7 @@ func parseGraphQuery(query string) graphQueryFilters {
 }
 
 var (
-	cypherRelationRe    = regexp.MustCompile(`(?is)\bMATCH\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)\s*-\s*\[\s*[A-Za-z_][A-Za-z0-9_]*\s*(?::\s*([A-Za-z0-9_]+))?\s*\]\s*->\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)`)
+	cypherRelationRe    = regexp.MustCompile(`(?is)\bMATCH\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)\s*(<-|-)\s*\[\s*[A-Za-z_][A-Za-z0-9_]*\s*(?::\s*([A-Za-z0-9_]+))?\s*\]\s*(->|-)\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)`)
 	cypherLimitRe       = regexp.MustCompile(`(?is)\bLIMIT\s+([0-9]+)\b`)
 	cypherReturnCountRe = regexp.MustCompile(`(?is)\bRETURN\s+count\s*\(\s*(?:\*|[A-Za-z_][A-Za-z0-9_]*)\s*\)`)
 	cypherWhereRe       = regexp.MustCompile(`(?is)\bWHERE\s+(.+?)(?:\bRETURN\b|\bLIMIT\b|$)`)
@@ -517,9 +517,13 @@ func parseCypherGraphQuery(query string) (graphQueryFilters, bool) {
 	if match == nil {
 		return graphQueryFilters{}, false
 	}
+	reverse, ok := cypherRelationDirection(match[1], match[3])
+	if !ok {
+		return graphQueryFilters{}, false
+	}
 	filters := graphQueryFilters{}
-	if len(match) > 1 && strings.TrimSpace(match[1]) != "" {
-		filters.Type = strings.ToUpper(strings.TrimSpace(match[1]))
+	if len(match) > 2 && strings.TrimSpace(match[2]) != "" {
+		filters.Type = strings.ToUpper(strings.TrimSpace(match[2]))
 	}
 	filters.Count = cypherReturnCountRe.MatchString(query)
 	if limit := cypherLimitRe.FindStringSubmatch(query); len(limit) == 2 {
@@ -536,7 +540,29 @@ func parseCypherGraphQuery(query string) (graphQueryFilters, bool) {
 			applyCypherPredicate(&filters, alias, field, op, value)
 		}
 	}
+	if reverse {
+		filters = reverseCypherEndpointFilters(filters)
+	}
 	return filters, true
+}
+
+func cypherRelationDirection(left, right string) (bool, bool) {
+	switch {
+	case left == "-" && right == "->":
+		return false, true
+	case left == "<-" && right == "-":
+		return true, true
+	default:
+		return false, false
+	}
+}
+
+func reverseCypherEndpointFilters(filters graphQueryFilters) graphQueryFilters {
+	filters.From, filters.To = filters.To, filters.From
+	filters.FromKind, filters.ToKind = filters.ToKind, filters.FromKind
+	filters.FromName, filters.ToName = filters.ToName, filters.FromName
+	filters.FromNameContains, filters.ToNameContains = filters.ToNameContains, filters.FromNameContains
+	return filters
 }
 
 func applyCypherPredicate(filters *graphQueryFilters, alias, field, op, value string) {
