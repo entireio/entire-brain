@@ -35,7 +35,8 @@ Workspace symbol traversal and unified retrieval currently live in the CLI
 `entire brain workspace search|vsearch|query|get`). MCP exposes the
 single-repo tools plus `brain_workspace_graph` for cross-repo graph contracts
 and `cross_edges` (shared external contracts plus repo-key-matched unresolved
-import candidates plus exact or repo-prefix-qualified
+import candidates, package-keyed `npm/<name>` / `pypi/<name>` workspace repos,
+and exact, repo-prefix-qualified, or package-prefix-qualified
 `external:symbol:<qualified-name>` matches),
 along with workspace review/regression helpers.
 

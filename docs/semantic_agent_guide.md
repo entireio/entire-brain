@@ -32,8 +32,8 @@ Recommended intake flow:
 9. Use `entire brain workspace inspect context <workspace> <query> --json` (symbols) or
    `entire brain workspace inspect graph <workspace> --json` (per-repo graph
    metrics, shared external contracts, route-call/import-candidate/scoped
-   package import/external symbol `cross_edges`, and a persisted `graph.json`
-   artifact) or
+   package/package-keyed import/external symbol `cross_edges`, and a persisted
+   `graph.json` artifact) or
    `entire brain workspace search|vsearch|query <workspace> <query> --json`
    (facts/history/docs, grouped per repo; ids are repo-qualified for
    `workspace get`) only for local workspaces that already list local repo

@@ -1293,6 +1293,13 @@ func workspaceRepoImportPrefixes(repoKey string) []string {
 		ownerRepo := strings.Join(parts[1:3], "/")
 		prefixes = append(prefixes, "github.com/"+ownerRepo, ownerRepo, "@"+ownerRepo)
 	}
+	if len(parts) >= 2 {
+		switch parts[0] {
+		case "npm", "pypi":
+			pkg := strings.Join(parts[1:], "/")
+			prefixes = append(prefixes, pkg)
+		}
+	}
 	sort.Strings(prefixes)
 	deduped := prefixes[:0]
 	var prev string

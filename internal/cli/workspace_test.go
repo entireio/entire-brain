@@ -614,6 +614,44 @@ func TestWorkspaceGraphMatchesScopedPackageImportCandidates(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesPackageRepoImportCandidates(t *testing.T) {
+	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			Imports: []workspaceGraphImportRef{{
+				Spec: "@acme/lib/pkg",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "HandleAPI",
+					QualifiedName: "service.HandleAPI",
+					FilePath:      "service.go",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "npm/@acme/lib",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "npm/@acme/lib",
+				ID:            "lib:sym",
+				Kind:          "function",
+				Name:          "Service",
+				QualifiedName: "pkg.Service",
+				FilePath:      "pkg/service.ts",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("package repo import edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_import_candidate" || edge.Endpoint != "external:import:@acme/lib/pkg" || edge.FromRepo != "local/app" || edge.ToRepo != "npm/@acme/lib" || edge.ToSymbol.FilePath != "pkg/service.ts" {
+		t.Fatalf("unexpected package repo import edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceGraphReportsCrossRepoRouteCalls(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
@@ -748,6 +786,45 @@ func TestWorkspaceGraphMatchesRepoPrefixedExternalSymbols(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesPackageRepoExternalSymbols(t *testing.T) {
+	edges := workspaceGraphExternalSymbolCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			ExternalSymbols: []workspaceGraphExternalSymbolRef{{
+				Spec: "@acme/lib/pkg.Service",
+				Type: "CALLS",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "HandleAPI",
+					QualifiedName: "service.HandleAPI",
+					FilePath:      "service.go",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "npm/@acme/lib",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "npm/@acme/lib",
+				ID:            "lib:sym",
+				Kind:          "function",
+				Name:          "Service",
+				QualifiedName: "pkg.Service",
+				FilePath:      "pkg/service.ts",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("package repo external symbol edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_external_symbol" || edge.Endpoint != "external:symbol:@acme/lib/pkg.Service" || edge.FromRepo != "local/app" || edge.ToRepo != "npm/@acme/lib" || edge.ToSymbol.QualifiedName != "pkg.Service" {
+		t.Fatalf("unexpected package repo external symbol edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceExternalSymbolTargetMatchesGitHubRepoPrefixes(t *testing.T) {
 	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{{
 		RepoKey:       "gh/acme/lib",
@@ -759,6 +836,20 @@ func TestWorkspaceExternalSymbolTargetMatchesGitHubRepoPrefixes(t *testing.T) {
 	}}, "github.com/acme/lib/pkg.Service")
 	if !ok || target.ID != "sym" || target.Direction != "external_symbol_target" {
 		t.Fatalf("github-prefixed external symbol target = %#v, %v", target, ok)
+	}
+}
+
+func TestWorkspaceExternalSymbolTargetMatchesPackageRepoPrefixes(t *testing.T) {
+	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{{
+		RepoKey:       "npm/@acme/lib",
+		ID:            "sym",
+		Kind:          "function",
+		Name:          "Service",
+		QualifiedName: "pkg.Service",
+		FilePath:      "pkg/service.ts",
+	}}, "@acme/lib/pkg.Service")
+	if !ok || target.ID != "sym" || target.Direction != "external_symbol_target" {
+		t.Fatalf("package-prefixed external symbol target = %#v, %v", target, ok)
 	}
 }
 
@@ -777,6 +868,20 @@ func TestWorkspaceImportMatchesGitHubRepoKeys(t *testing.T) {
 	}
 	if _, ok := workspaceImportMatchesRepo("github.com/acme/other/pkg", "gh/acme/lib"); ok {
 		t.Fatalf("unrelated repo import should not match")
+	}
+}
+
+func TestWorkspaceImportMatchesPackageRepoKeys(t *testing.T) {
+	subpath, ok := workspaceImportMatchesRepo("@acme/lib/pkg", "npm/@acme/lib")
+	if !ok || subpath != "pkg" {
+		t.Fatalf("npm scoped import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("requests/auth", "pypi/requests")
+	if !ok || subpath != "auth" {
+		t.Fatalf("pypi import match = %q, %v", subpath, ok)
+	}
+	if _, ok := workspaceImportMatchesRepo("@acme/other/pkg", "npm/@acme/lib"); ok {
+		t.Fatalf("unrelated package import should not match")
 	}
 }
 
