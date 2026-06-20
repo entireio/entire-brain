@@ -728,6 +728,44 @@ func TestWorkspaceGraphMatchesCargoImportCandidates(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesMavenImportCandidates(t *testing.T) {
+	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			Imports: []workspaceGraphImportRef{{
+				Spec: "com.acme.lib.Service",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "run",
+					QualifiedName: "service.run",
+					FilePath:      "src/main/java/com/acme/app/App.java",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "maven/com.acme/lib",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "maven/com.acme/lib",
+				ID:            "lib:sym",
+				Kind:          "class",
+				Name:          "Service",
+				QualifiedName: "Service",
+				FilePath:      "Service.java",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("maven import edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_import_candidate" || edge.Endpoint != "external:import:com.acme.lib.Service" || edge.FromRepo != "local/app" || edge.ToRepo != "maven/com.acme/lib" || edge.ToSymbol.FilePath != "Service.java" {
+		t.Fatalf("unexpected maven import edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceGraphReportsCrossRepoRouteCalls(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
@@ -901,6 +939,45 @@ func TestWorkspaceGraphMatchesPackageRepoExternalSymbols(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesMavenExternalSymbols(t *testing.T) {
+	edges := workspaceGraphExternalSymbolCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			ExternalSymbols: []workspaceGraphExternalSymbolRef{{
+				Spec: "com.acme.lib.Service",
+				Type: "CALLS",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "Run",
+					QualifiedName: "service.Run",
+					FilePath:      "App.java",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "maven/com.acme/lib",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "maven/com.acme/lib",
+				ID:            "lib:sym",
+				Kind:          "class",
+				Name:          "Service",
+				QualifiedName: "Service",
+				FilePath:      "Service.java",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("maven external symbol edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_external_symbol" || edge.Endpoint != "external:symbol:com.acme.lib.Service" || edge.FromRepo != "local/app" || edge.ToRepo != "maven/com.acme/lib" || edge.ToSymbol.QualifiedName != "Service" {
+		t.Fatalf("unexpected maven external symbol edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceExternalSymbolTargetMatchesGitHubRepoPrefixes(t *testing.T) {
 	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{{
 		RepoKey:       "gh/acme/lib",
@@ -963,6 +1040,10 @@ func TestWorkspaceImportMatchesPackageRepoKeys(t *testing.T) {
 	subpath, ok = workspaceImportMatchesRepo("tokio::sync", "cargo/tokio")
 	if !ok || subpath != "sync" {
 		t.Fatalf("cargo import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("com.acme.lib.Service", "maven/com.acme/lib")
+	if !ok || subpath != "Service" {
+		t.Fatalf("maven import match = %q, %v", subpath, ok)
 	}
 	if _, ok := workspaceImportMatchesRepo("@acme/other/pkg", "npm/@acme/lib"); ok {
 		t.Fatalf("unrelated package import should not match")

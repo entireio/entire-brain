@@ -1282,6 +1282,9 @@ func workspaceImportMatchesRepo(spec, repoKey string) (string, bool) {
 		if strings.HasPrefix(spec, prefix+"/") {
 			return strings.TrimPrefix(spec, prefix+"/"), true
 		}
+		if strings.HasPrefix(spec, prefix+".") {
+			return strings.ReplaceAll(strings.TrimPrefix(spec, prefix+"."), ".", "/"), true
+		}
 	}
 	return "", false
 }
@@ -1299,6 +1302,9 @@ func workspaceRepoImportPrefixes(repoKey string) []string {
 		case "cargo", "gomod", "npm", "pypi":
 			pkg := strings.Join(parts[1:], "/")
 			prefixes = append(prefixes, pkg)
+		case "maven":
+			groupArtifact := strings.Join(parts[1:], "/")
+			prefixes = append(prefixes, groupArtifact, strings.ReplaceAll(groupArtifact, "/", "."))
 		}
 	}
 	sort.Strings(prefixes)

@@ -7,6 +7,7 @@ Branch: `codex/full-plan-implementation`
 ```sh
 go test ./internal/cli -run 'TestSemanticGraphCommandsUseSQLiteStore|TestWorkspaceGraphReportsSharedExternalContracts'
 go test ./internal/cli -run 'TestWorkspaceGraphReportsCrossRepoImportCandidates|TestWorkspaceGraphMatchesScopedPackageImportCandidates|TestWorkspaceImportMatchesGitHubRepoKeys'
+go test ./internal/cli -run 'TestWorkspaceGraphMatchesMavenImportCandidates|TestWorkspaceGraphMatchesMavenExternalSymbols|TestWorkspaceImportMatchesPackageRepoKeys'
 go test ./internal/cli -run TestRefreshSkipsCurrentSemanticIndex
 go test ./internal/cli -run 'TestBrainReviewUsesRuntimeTraceForRankingAndContext|TestBrainReviewMapsAnomalyToFinding|TestMCPBrainReviewTool|TestBrainBriefJSONUsesSemanticContextAndLiveOverlay|TestRegressionChangedOperandReportsEachRegressedHintedFile'
 go test ./...
@@ -38,8 +39,9 @@ go test ./...
   directed route-call edges from `HTTP_CALLS` clients to `HANDLES_ROUTE`
   handlers on the same route endpoint, repo-key-matched unresolved import
   candidates including GitHub `@owner/repo` scoped package imports and
-  package-keyed `cargo/<crate>`, `gomod/<module-path>`, `npm/<name>`, and
-  `pypi/<name>` workspace repos, plus exact
+  package-keyed `cargo/<crate>`, `gomod/<module-path>`,
+  `maven/<group>/<artifact>`, `npm/<name>`, and `pypi/<name>` workspace repos,
+  plus exact
   `external:symbol:<qualified-name>` references, repo-prefix-qualified external
   symbol references, and package-prefix-qualified external symbols matched to
   symbols defined in another workspace repo.
