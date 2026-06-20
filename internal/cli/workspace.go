@@ -1227,34 +1227,38 @@ func workspaceGraphGraphQLCrossEdges(index map[string]*workspaceExternalContract
 		if aggregate.Type != "HANDLES_GRAPHQL" || !strings.HasPrefix(aggregate.Endpoint, "external:graphql:") {
 			continue
 		}
-		var resolvers []workspaceGraphSymbolRef
+		var targets []workspaceGraphSymbolRef
 		var operations []workspaceGraphSymbolRef
 		for _, participant := range aggregate.Participants {
-			if participant.Kind == "graphql_resolver" {
-				resolvers = append(resolvers, participant)
+			if participant.Kind == "graphql_resolver" || participant.Kind == "graphql_schema_field" {
+				targets = append(targets, participant)
 			} else {
 				operations = append(operations, participant)
 			}
 		}
-		if len(resolvers) == 0 || len(operations) == 0 {
+		if len(targets) == 0 || len(operations) == 0 {
 			continue
 		}
 		sortWorkspaceGraphSymbolRefs(operations)
-		sortWorkspaceGraphSymbolRefs(resolvers)
+		sortWorkspaceGraphSymbolRefs(targets)
 		for _, operation := range operations {
-			for _, resolver := range resolvers {
-				if operation.RepoKey == resolver.RepoKey {
+			for _, target := range targets {
+				if operation.RepoKey == target.RepoKey {
 					continue
+				}
+				relationKind := "cross_repo_graphql_call"
+				if target.Kind == "graphql_schema_field" {
+					relationKind = "cross_repo_graphql_schema"
 				}
 				edges = append(edges, workspaceGraphCrossEdge{
 					Endpoint:     aggregate.Endpoint,
 					Type:         "CALLS",
 					FromRepo:     operation.RepoKey,
-					ToRepo:       resolver.RepoKey,
+					ToRepo:       target.RepoKey,
 					FromSymbol:   operation,
-					ToSymbol:     resolver,
-					SharedCount:  operation.Count + resolver.Count,
-					RelationKind: "cross_repo_graphql_call",
+					ToSymbol:     target,
+					SharedCount:  operation.Count + target.Count,
+					RelationKind: relationKind,
 				})
 			}
 		}
