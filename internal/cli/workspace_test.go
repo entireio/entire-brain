@@ -1160,6 +1160,51 @@ func TestWorkspaceGraphReportsCrossRepoGraphQLCalls(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphReportsCrossRepoGraphQLSchemaResolverWithoutOperation(t *testing.T) {
+	edges := workspaceGraphGraphQLCrossEdges(map[string]*workspaceExternalContractAggregate{
+		"HANDLES_GRAPHQL\x00external:graphql:query user": {
+			Endpoint:   "external:graphql:query user",
+			Type:       "HANDLES_GRAPHQL",
+			RepoCounts: map[string]int{"local/schema": 1, "local/api": 1},
+			Participants: []workspaceGraphSymbolRef{
+				{
+					RepoKey:       "local/schema",
+					ID:            "schema:sym:Query.user",
+					Kind:          "graphql_schema_field",
+					Name:          "Query.user",
+					QualifiedName: "Query.user",
+					FilePath:      "schema.graphql",
+					Direction:     "to_endpoint",
+					Count:         1,
+				},
+				{
+					RepoKey:       "local/api",
+					ID:            "api:sym:Query.user",
+					Kind:          "graphql_resolver",
+					Name:          "Query.user",
+					QualifiedName: "Query.user",
+					FilePath:      "src/user.resolvers.ts",
+					Direction:     "to_endpoint",
+					Count:         1,
+				},
+			},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("graphql schema resolver-only cross edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.Endpoint != "external:graphql:query user" ||
+		edge.Type != "CALLS" ||
+		edge.RelationKind != "cross_repo_graphql_schema_resolver" ||
+		edge.FromRepo != "local/schema" ||
+		edge.ToRepo != "local/api" ||
+		edge.FromSymbol.Kind != "graphql_schema_field" ||
+		edge.ToSymbol.Kind != "graphql_resolver" {
+		t.Fatalf("unexpected GraphQL schema resolver-only cross edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceGraphImportCandidatesPreferImportedSymbols(t *testing.T) {
 	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
 		{

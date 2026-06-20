@@ -12,6 +12,7 @@ go test ./internal/cli -run 'TestWorkspaceGraphImportCandidatesPreferImportedSym
 go test ./internal/cli -run 'TestWorkspaceGraphMatchesKubernetesResourceCandidates|TestWorkspaceGraphReportsCrossRepoImportCandidates|TestWorkspaceGraphReportsSharedExternalContracts' -count=1
 go test ./internal/cli -run 'TestWorkspaceGraphReportsCrossRepoGraphQLCalls|TestWorkspaceGraphReportsCrossRepoRouteCalls|TestWorkspaceGraphReportsSharedExternalContracts' -count=1
 go test ./internal/cli -run TestWorkspaceGraphReportsCrossRepoGraphQLCalls -count=1
+go test ./internal/cli -run 'TestWorkspaceGraphReportsCrossRepoGraphQLCalls|TestWorkspaceGraphReportsCrossRepoGraphQLSchemaResolverWithoutOperation' -count=1
 go test ./internal/cli -run TestRefreshSkipsCurrentSemanticIndex
 go test ./internal/cli -run 'TestBrainReviewUsesRuntimeTraceForRankingAndContext|TestBrainReviewMapsAnomalyToFinding|TestMCPBrainReviewTool|TestBrainBriefJSONUsesSemanticContextAndLiveOverlay|TestRegressionChangedOperandReportsEachRegressedHintedFile'
 go test ./...
@@ -25,7 +26,9 @@ go test ./internal/cli -run TestWorkspaceGraphReportsCrossRepoGraphQLCalls -coun
 - GitHub monorepo package-dir hyphen/underscore alias tests passed for both
   import candidate matching and external-symbol target matching.
 - GraphQL workspace graph tests passed for operation-to-resolver,
-  operation-to-schema-field, and schema-field-to-resolver cross edges.
+  operation-to-schema-field, and schema-field-to-resolver cross edges,
+  including schema-field-to-resolver edges when no operation participant is
+  present.
 - Warm-refresh semantic no-op proof passed: after an initial refresh, a second
   refresh with the same HEAD does not call `entire sem snapshot` again.
 - Full repository tests passed:
