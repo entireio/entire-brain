@@ -1238,6 +1238,7 @@ func workspaceCanonicalRouteEndpoint(endpoint string) string {
 	route = regexp.MustCompile(`<(?:(?:[A-Za-z_][A-Za-z0-9_]*):)?[A-Za-z_][A-Za-z0-9_]*>`).ReplaceAllString(route, `{param}`)
 	route = regexp.MustCompile(`\[\[\.{0,3}[A-Za-z_][A-Za-z0-9_]*\]\]`).ReplaceAllString(route, `{param}`)
 	route = regexp.MustCompile(`\[\.{0,3}[A-Za-z_][A-Za-z0-9_]*\]`).ReplaceAllString(route, `{param}`)
+	route = regexp.MustCompile(`\*[A-Za-z_][A-Za-z0-9_]*`).ReplaceAllString(route, `{param}`)
 	route = regexp.MustCompile(`:([A-Za-z_][A-Za-z0-9_]*)`).ReplaceAllString(route, `{param}`)
 	return prefix + route
 }

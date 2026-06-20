@@ -1294,6 +1294,46 @@ func TestWorkspaceGraphMatchesFrontendOptionalRouteTemplateCalls(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesWildcardRouteTemplateCalls(t *testing.T) {
+	edges := workspaceGraphRouteCallCrossEdges(map[string]*workspaceExternalContractAggregate{
+		"HTTP_CALLS\x00external:route:/assets/{path}": {
+			Endpoint: "external:route:/assets/{path}",
+			Type:     "HTTP_CALLS",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/client",
+				ID:            "local/client:rb:client.rb:method:fetch_asset",
+				Kind:          "method",
+				Name:          "fetch_asset",
+				QualifiedName: "Client.fetch_asset",
+				Count:         1,
+			}},
+		},
+		"HANDLES_ROUTE\x00external:route:/assets/*path": {
+			Endpoint: "external:route:/assets/*path",
+			Type:     "HANDLES_ROUTE",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/web",
+				ID:            "local/web:rb:config/routes.rb:method:AssetsController.show",
+				Kind:          "method",
+				Name:          "show",
+				QualifiedName: "AssetsController.show",
+				Count:         1,
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("expected wildcard route edge, got %#v", edges)
+	}
+	edge := edges[0]
+	if edge.Endpoint != "external:route:/assets/{param}" ||
+		edge.RelationKind != "cross_repo_route_call" ||
+		edge.FromRepo != "local/client" ||
+		edge.ToRepo != "local/web" ||
+		edge.ToSymbol.QualifiedName != "AssetsController.show" {
+		t.Fatalf("unexpected wildcard route edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceGraphReportsExactExternalSymbolEdges(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
