@@ -37,6 +37,7 @@ single-repo tools plus `brain_workspace_graph` for cross-repo graph contracts
 and `cross_edges` (shared external contracts, canonical route-template
 HTTP client-to-handler edges, repo-key-matched unresolved import candidates,
 GraphQL operation-to-resolver/schema-field and schema-field-to-resolver edges,
+event-channel producer-to-consumer edges,
 package-keyed `cargo/<crate>`, `gomod/<module-path>`,
 `maven/<group>/<artifact>`, `npm/<name>`, `pypi/<name>`, `nuget/<name>`,
 `gem/<name>`, and `composer/<vendor>/<package>` workspace repos,

@@ -1078,6 +1078,66 @@ func TestWorkspaceGraphMatchesComposeServiceResourceCandidates(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphReportsCrossRepoChannelFlows(t *testing.T) {
+	edges := workspaceGraphChannelCrossEdges(map[string]*workspaceExternalContractAggregate{
+		"EMITS\x00external:channel:user.created": {
+			Endpoint:   "external:channel:user.created",
+			Type:       "EMITS",
+			RepoCounts: map[string]int{"local/api": 1},
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/api",
+				ID:            "api:sym:createUser",
+				Kind:          "function",
+				Name:          "createUser",
+				QualifiedName: "users.createUser",
+				FilePath:      "src/users.ts",
+				Direction:     "to_endpoint",
+				Count:         1,
+			}},
+		},
+		"LISTENS_ON\x00external:channel:user.created": {
+			Endpoint:   "external:channel:user.created",
+			Type:       "LISTENS_ON",
+			RepoCounts: map[string]int{"local/worker": 1, "local/api": 1},
+			Participants: []workspaceGraphSymbolRef{
+				{
+					RepoKey:       "local/worker",
+					ID:            "worker:sym:onUserCreated",
+					Kind:          "function",
+					Name:          "onUserCreated",
+					QualifiedName: "events.onUserCreated",
+					FilePath:      "src/events.ts",
+					Direction:     "to_endpoint",
+					Count:         1,
+				},
+				{
+					RepoKey:       "local/api",
+					ID:            "api:sym:localAudit",
+					Kind:          "function",
+					Name:          "localAudit",
+					QualifiedName: "users.localAudit",
+					FilePath:      "src/users.ts",
+					Direction:     "to_endpoint",
+					Count:         1,
+				},
+			},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("channel flow edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_channel_flow" ||
+		edge.Endpoint != "external:channel:user.created" ||
+		edge.Type != "EMITS" ||
+		edge.FromRepo != "local/api" ||
+		edge.ToRepo != "local/worker" ||
+		edge.FromSymbol.QualifiedName != "users.createUser" ||
+		edge.ToSymbol.QualifiedName != "events.onUserCreated" {
+		t.Fatalf("unexpected channel flow edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceGraphReportsCrossRepoGraphQLCalls(t *testing.T) {
 	edges := workspaceGraphGraphQLCrossEdges(map[string]*workspaceExternalContractAggregate{
 		"HANDLES_GRAPHQL\x00external:graphql:query user": {

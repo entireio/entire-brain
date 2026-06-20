@@ -784,6 +784,7 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 	crossEdges := workspaceGraphCrossEdges(contractIndex, limit)
 	crossEdges = append(crossEdges, workspaceGraphRouteCallCrossEdges(contractIndex, limit)...)
 	crossEdges = append(crossEdges, workspaceGraphGraphQLCrossEdges(contractIndex, limit)...)
+	crossEdges = append(crossEdges, workspaceGraphChannelCrossEdges(contractIndex, limit)...)
 	crossEdges = append(crossEdges, workspaceGraphResourceCrossEdges(contractIndex, repoIndexes, limit)...)
 	crossEdges = append(crossEdges, workspaceGraphImportCrossEdges(repoIndexes, limit)...)
 	crossEdges = append(crossEdges, workspaceGraphExternalSymbolCrossEdges(repoIndexes, limit)...)
@@ -1310,6 +1311,62 @@ func workspaceGraphGraphQLCrossEdges(index map[string]*workspaceExternalContract
 					ToSymbol:     resolver,
 					SharedCount:  schemaField.Count + resolver.Count,
 					RelationKind: "cross_repo_graphql_schema_resolver",
+				})
+			}
+		}
+	}
+	sortWorkspaceGraphCrossEdges(edges)
+	if len(edges) > limit {
+		edges = edges[:limit]
+	}
+	if edges == nil {
+		return []workspaceGraphCrossEdge{}
+	}
+	return edges
+}
+
+func workspaceGraphChannelCrossEdges(index map[string]*workspaceExternalContractAggregate, limit int) []workspaceGraphCrossEdge {
+	emittersByEndpoint := map[string][]workspaceGraphSymbolRef{}
+	listenersByEndpoint := map[string][]workspaceGraphSymbolRef{}
+	for _, aggregate := range index {
+		if !strings.HasPrefix(aggregate.Endpoint, "external:channel:") {
+			continue
+		}
+		switch aggregate.Type {
+		case "EMITS":
+			emittersByEndpoint[aggregate.Endpoint] = append(emittersByEndpoint[aggregate.Endpoint], aggregate.Participants...)
+		case "LISTENS_ON":
+			listenersByEndpoint[aggregate.Endpoint] = append(listenersByEndpoint[aggregate.Endpoint], aggregate.Participants...)
+		}
+	}
+	var edges []workspaceGraphCrossEdge
+	seen := map[string]bool{}
+	for endpoint, emitters := range emittersByEndpoint {
+		listeners := listenersByEndpoint[endpoint]
+		if len(emitters) == 0 || len(listeners) == 0 {
+			continue
+		}
+		sortWorkspaceGraphSymbolRefs(emitters)
+		sortWorkspaceGraphSymbolRefs(listeners)
+		for _, emitter := range emitters {
+			for _, listener := range listeners {
+				if emitter.RepoKey == listener.RepoKey {
+					continue
+				}
+				key := endpoint + "\x00" + emitter.ID + "\x00" + listener.ID
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				edges = append(edges, workspaceGraphCrossEdge{
+					Endpoint:     endpoint,
+					Type:         "EMITS",
+					FromRepo:     emitter.RepoKey,
+					ToRepo:       listener.RepoKey,
+					FromSymbol:   emitter,
+					ToSymbol:     listener,
+					SharedCount:  emitter.Count + listener.Count,
+					RelationKind: "cross_repo_channel_flow",
 				})
 			}
 		}
