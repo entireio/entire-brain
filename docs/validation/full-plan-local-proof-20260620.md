@@ -54,7 +54,10 @@ go test ./...
   import spec names a class/function such as `requests.auth.HTTPBasicAuth`,
   Kubernetes external config resource endpoints such as
   `external:config:kubernetes/service/api` resolved to matching local
-  `Service.api` resource symbols in another workspace repo, plus exact
+  `Service.api` resource symbols in another workspace repo, Docker Compose
+  service config endpoints such as `external:config:compose/service/db`
+  resolved to matching `compose.service.db` resource symbols in another
+  workspace repo, plus exact
   `external:symbol:<qualified-name>` references, repo-prefix-qualified external
   symbol references, and package-prefix-qualified external symbols matched to
   symbols defined in another workspace repo.
@@ -69,7 +72,7 @@ go test ./...
 - Workspace cross-repo graph edges are explicit in `graph.json`, but they are
   still derived from shared external endpoint contracts, exact route endpoint
   matches, GraphQL operation/resolver/schema-field endpoint matches,
-  Kubernetes external config resource candidates, repo-key/
+  Kubernetes and Docker Compose service external config resource candidates, repo-key/
   scoped-package/package-key-matched unresolved import candidates with
   terminal-symbol preference, and exact/repo-prefix/package-prefix
   external-symbol name matches. Package-key matching covers

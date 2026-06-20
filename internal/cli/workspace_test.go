@@ -893,6 +893,54 @@ func TestWorkspaceGraphMatchesKubernetesResourceCandidates(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphMatchesComposeServiceResourceCandidates(t *testing.T) {
+	edges := workspaceGraphResourceCrossEdges(map[string]*workspaceExternalContractAggregate{
+		"RESOURCE_DEPENDS_ON\x00external:config:compose/service/db": {
+			Endpoint:   "external:config:compose/service/db",
+			Type:       "RESOURCE_DEPENDS_ON",
+			RepoCounts: map[string]int{"local/app": 1},
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/app",
+				ID:            "app:resource:compose.service.api",
+				Kind:          "resource",
+				Name:          "compose.service.api",
+				QualifiedName: "compose.service.api",
+				FilePath:      "compose.yaml",
+				Direction:     "to_endpoint",
+				Count:         1,
+			}},
+		},
+	}, []workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+		},
+		{
+			RepoKey: "local/platform",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/platform",
+				ID:            "platform:resource:compose.service.db",
+				Kind:          "resource",
+				Name:          "compose.service.db",
+				QualifiedName: "compose.service.db",
+				FilePath:      "docker-compose.yml",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("compose resource candidate edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_resource_candidate" ||
+		edge.Endpoint != "external:config:compose/service/db" ||
+		edge.Type != "RESOURCE_DEPENDS_ON" ||
+		edge.FromRepo != "local/app" ||
+		edge.ToRepo != "local/platform" ||
+		edge.ToSymbol.ID != "platform:resource:compose.service.db" ||
+		edge.ToSymbol.Direction != "external_resource_target" {
+		t.Fatalf("unexpected compose resource candidate edge: %#v", edge)
+	}
+}
+
 func TestWorkspaceGraphReportsCrossRepoGraphQLCalls(t *testing.T) {
 	edges := workspaceGraphGraphQLCrossEdges(map[string]*workspaceExternalContractAggregate{
 		"HANDLES_GRAPHQL\x00external:graphql:query user": {

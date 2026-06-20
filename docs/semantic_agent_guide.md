@@ -35,7 +35,7 @@ Recommended intake flow:
    route-call/import-candidate/scoped
    package/package-keyed `cargo`/`gomod`/`maven`/`npm`/`pypi`/`nuget`/`gem`/`composer`
    import/external symbol, GraphQL operation-to-resolver/schema-field, plus
-   Kubernetes resource-candidate `cross_edges`, and
+   Kubernetes and Docker Compose service resource-candidate `cross_edges`, and
    a persisted `graph.json` artifact) or
    `entire brain workspace search|vsearch|query <workspace> <query> --json`
    (facts/history/docs, grouped per repo; ids are repo-qualified for

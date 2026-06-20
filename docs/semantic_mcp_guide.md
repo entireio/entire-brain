@@ -39,8 +39,8 @@ HTTP client-to-handler edges, repo-key-matched unresolved import candidates,
 package-keyed `cargo/<crate>`, `gomod/<module-path>`,
 `maven/<group>/<artifact>`, `npm/<name>`, `pypi/<name>`, `nuget/<name>`,
 `gem/<name>`, and `composer/<vendor>/<package>` workspace repos,
-Kubernetes external config resource candidates, and exact,
-repo-prefix-qualified, or package-prefix-qualified
+Kubernetes external config and Docker Compose service resource candidates, and
+exact, repo-prefix-qualified, or package-prefix-qualified
 `external:symbol:<qualified-name>` matches),
 along with workspace review/regression helpers.
 

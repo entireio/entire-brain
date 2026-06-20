@@ -1441,17 +1441,25 @@ func workspaceRepoImportPrefixes(repoKey string) []string {
 }
 
 func workspaceKubernetesExternalResource(endpoint string) (string, string, bool) {
-	const prefix = "external:config:kubernetes/"
 	endpoint = strings.TrimSpace(endpoint)
-	if !strings.HasPrefix(endpoint, prefix) {
-		return "", "", false
+	for _, parser := range []struct {
+		prefix     string
+		kindPrefix string
+	}{
+		{prefix: "external:config:kubernetes/"},
+		{prefix: "external:config:compose/", kindPrefix: "compose."},
+	} {
+		if !strings.HasPrefix(endpoint, parser.prefix) {
+			continue
+		}
+		rest := strings.Trim(strings.TrimPrefix(endpoint, parser.prefix), "/")
+		kind, name, ok := strings.Cut(rest, "/")
+		if !ok || kind == "" || name == "" {
+			return "", "", false
+		}
+		return parser.kindPrefix + kind, name, true
 	}
-	rest := strings.Trim(strings.TrimPrefix(endpoint, prefix), "/")
-	kind, name, ok := strings.Cut(rest, "/")
-	if !ok || kind == "" || name == "" {
-		return "", "", false
-	}
-	return kind, name, true
+	return "", "", false
 }
 
 func workspaceResourceTargetCandidate(candidates []workspaceGraphSymbolRef, kind, name string) (workspaceGraphSymbolRef, bool) {
