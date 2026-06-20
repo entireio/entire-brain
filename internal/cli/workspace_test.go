@@ -881,6 +881,13 @@ func TestWorkspaceGraphMatchesKubernetesResourceCandidates(t *testing.T) {
 			targetName: "Broker.default",
 			filePath:   "k8s/knative-broker.yaml",
 		},
+		{
+			name:       "custom-resource-channel",
+			endpoint:   "external:config:kubernetes/inmemorychannel/user-events",
+			targetID:   "platform:resource:InMemoryChannel.user-events",
+			targetName: "InMemoryChannel.user-events",
+			filePath:   "k8s/knative-channel.yaml",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
