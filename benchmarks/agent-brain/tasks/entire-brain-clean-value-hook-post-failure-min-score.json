@@ -1,0 +1,49 @@
+{
+  "id": "entire-brain-clean-value-hook-post-failure-min-score",
+  "repo": "entire-brain",
+  "repo_path": "entire-brain",
+  "base_commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "copy_checkpoint_ref_from_source": true,
+  "prepare_semantic": false,
+  "prompt": "Users report that the agent-harness post-failure hook regressed on precision: after a command fails, it now surfaces weakly-related gotcha/closed-negative facts that share only a single generic term with the failure text, instead of staying quiet unless the match is strong. The relevance bar that gates which facts qualify as a real dead end was loosened. Restore the intended relevance bar from project history so the post-failure hook is high-precision again. Do not change the scoring weights or the matching logic, only the gating bar. Run the focused hook tests before finishing.",
+  "setup_replacements": [
+    {
+      "path": "internal/cli/hook_cmd.go",
+      "old": "const hookPostFailureMinScore = 40",
+      "new": "const hookPostFailureMinScore = 10"
+    }
+  ],
+  "setup_commands": [
+    "perl -0pi -e 's{// hookPostFailureMinScore is the relevance bar for matching a failure against\\n// gotcha/closed-negative facts: 40 requires several strong term hits or a\\n// locus/substring-grade signal \\(term hit = 10, locus overlap = 60, whole-query\\n// substring = 200\\), keeping the post-failure hook high-precision\\.}{// hookPostFailureMinScore is the relevance bar for matching a failure against gotcha/closed-negative facts.}' internal/cli/hook_cmd.go"
+  ],
+  "validation": [
+    "test $(rg -n 'const hookPostFailureMinScore = 40' internal/cli/hook_cmd.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./internal/cli -run 'TestHookMatchFailureKindsAndThreshold|TestHookEmitSilentAndBudget'"
+  ],
+  "expected_files": [
+    "internal/cli/hook_cmd.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "leak_markers": [
+    "go test ./internal/cli -run 'TestHookMatchFailureKindsAndThreshold|TestHookEmitSilentAndBudget'",
+    "const hookPostFailureMinScore = 40"
+  ],
+  "agent_hidden_paths": [
+    "benchmarks/agent-brain"
+  ],
+  "brain_queries": [
+    "post-failure hook surfacing weak unrelated facts",
+    "failure matcher admitting matches that are too weak",
+    "failure moment precision dropped noisy facts",
+    "scoring threshold for gotcha matches on failures"
+  ]
+}

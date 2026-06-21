@@ -1,0 +1,958 @@
+{
+  "suites": {
+    "panel-p01-clean-proof-claude-20260618T195058Z": {
+      "records": [
+        {
+          "run_id": "entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r1",
+          "task_id": "entire-brain-clean-contract-checkpoint-branch-reachability",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
+          "repetition": 1,
+          "runner": "claude-sonnet-high",
+          "model": "sonnet",
+          "effort": "high",
+          "ok": true,
+          "valid": true,
+          "score": 86,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 0,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_base": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "task_config_sha256": "8b49e3b19cd8e1b11dac408d7a3cb9bda2e95cf05ed8cc0d5bb231f61391ba0e",
+            "run_config_fingerprint": "48af740185a965b069f9a59bf2913a8ce50b83241725535c66f279b7558638af",
+            "record_fingerprint": "a7c2be98d8874db4e490e34e6e7db98e18462db7ce6b93df44b7ab3305a32ae1"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+            "sha256": "8b49e3b19cd8e1b11dac408d7a3cb9bda2e95cf05ed8cc0d5bb231f61391ba0e"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r2",
+          "task_id": "entire-brain-clean-contract-checkpoint-branch-reachability",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
+          "repetition": 2,
+          "runner": "claude-sonnet-high",
+          "model": "sonnet",
+          "effort": "high",
+          "ok": true,
+          "valid": true,
+          "score": 85,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 0,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_base": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "task_config_sha256": "8b49e3b19cd8e1b11dac408d7a3cb9bda2e95cf05ed8cc0d5bb231f61391ba0e",
+            "run_config_fingerprint": "a694004bfea23a6feabd45a4c08ec789a415d631fbbd22e258075315617418f1",
+            "record_fingerprint": "6a8bf527d98fcc277af2524e3e26a5e1a468f75cc927951ea376b9bcb88bb2bd"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+            "sha256": "8b49e3b19cd8e1b11dac408d7a3cb9bda2e95cf05ed8cc0d5bb231f61391ba0e"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r3",
+          "task_id": "entire-brain-clean-contract-checkpoint-branch-reachability",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
+          "repetition": 3,
+          "runner": "claude-sonnet-high",
+          "model": "sonnet",
+          "effort": "high",
+          "ok": true,
+          "valid": true,
+          "score": 86,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 0,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_base": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "task_config_sha256": "8b49e3b19cd8e1b11dac408d7a3cb9bda2e95cf05ed8cc0d5bb231f61391ba0e",
+            "run_config_fingerprint": "8208b042a0849d5a1b5185822bb381ebb0633a63f63ea379e6e6702a6cdd0bb2",
+            "record_fingerprint": "cf5b692d2bb30ffa1384a70db0c2f226a583b317f3ca3b0c981f8af33259518a"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+            "sha256": "8b49e3b19cd8e1b11dac408d7a3cb9bda2e95cf05ed8cc0d5bb231f61391ba0e"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__no_brain__r4",
+          "task_id": "entire-brain-clean-contract-checkpoint-branch-reachability",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
+          "repetition": 4,
+          "runner": "claude-sonnet-high",
+          "model": "sonnet",
+          "effort": "high",
+          "ok": true,
+          "valid": true,
+          "score": 86,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 0,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_base": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "task_config_sha256": "8b49e3b19cd8e1b11dac408d7a3cb9bda2e95cf05ed8cc0d5bb231f61391ba0e",
+            "run_config_fingerprint": "136de5a400761b29f901a34c420547aae1e32a53ca77fecc5151af6bfeab5ba1",
+            "record_fingerprint": "a97f43c12ed044c412d3ea8f0585bd0aa1de7c43bab7452dda7be9c294ff9c4b"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+            "sha256": "8b49e3b19cd8e1b11dac408d7a3cb9bda2e95cf05ed8cc0d5bb231f61391ba0e"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__full_brain__r1",
+          "task_id": "entire-brain-clean-contract-checkpoint-branch-reachability",
+          "condition": "full_brain",
+          "delivery_scope": "full_brain",
+          "env_flags": {},
+          "repetition": 1,
+          "runner": "claude-sonnet-high",
+          "model": "sonnet",
+          "effort": "high",
+          "ok": true,
+          "valid": true,
+          "score": 82,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 0,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_base": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "task_config_sha256": "8b49e3b19cd8e1b11dac408d7a3cb9bda2e95cf05ed8cc0d5bb231f61391ba0e",
+            "run_config_fingerprint": "e6176731a9ebf0289cb9000f42c8b9f8c872b8ee66e2be6362eba6d60c35604c",
+            "record_fingerprint": "565a220873377c9b0ba93421416cb74bb24250a43e25777c4e4d4aee08f167f8"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+            "sha256": "8b49e3b19cd8e1b11dac408d7a3cb9bda2e95cf05ed8cc0d5bb231f61391ba0e"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__full_brain__r2",
+          "task_id": "entire-brain-clean-contract-checkpoint-branch-reachability",
+          "condition": "full_brain",
+          "delivery_scope": "full_brain",
+          "env_flags": {},
+          "repetition": 2,
+          "runner": "claude-sonnet-high",
+          "model": "sonnet",
+          "effort": "high",
+          "ok": true,
+          "valid": true,
+          "score": 83,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 0,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_base": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "task_config_sha256": "8b49e3b19cd8e1b11dac408d7a3cb9bda2e95cf05ed8cc0d5bb231f61391ba0e",
+            "run_config_fingerprint": "944284ac62d3b079ca967d5c9a955224b137d014939823b7771720889c69394b",
+            "record_fingerprint": "d2a5c0db2e25cd457cd73a0e77864acfea6dd243c78946a11d3c87290721bc01"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+            "sha256": "8b49e3b19cd8e1b11dac408d7a3cb9bda2e95cf05ed8cc0d5bb231f61391ba0e"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__full_brain__r3",
+          "task_id": "entire-brain-clean-contract-checkpoint-branch-reachability",
+          "condition": "full_brain",
+          "delivery_scope": "full_brain",
+          "env_flags": {},
+          "repetition": 3,
+          "runner": "claude-sonnet-high",
+          "model": "sonnet",
+          "effort": "high",
+          "ok": true,
+          "valid": true,
+          "score": 82,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 0,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_base": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "task_config_sha256": "8b49e3b19cd8e1b11dac408d7a3cb9bda2e95cf05ed8cc0d5bb231f61391ba0e",
+            "run_config_fingerprint": "3559daed32fda46ccbe25e810391a3bd48f30615c74b282292baecc5bae0d18d",
+            "record_fingerprint": "aca768d0556e5c745ca19c8a9914cf62deced078dff285adc2038b3b1e7663c6"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+            "sha256": "8b49e3b19cd8e1b11dac408d7a3cb9bda2e95cf05ed8cc0d5bb231f61391ba0e"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-clean-contract-checkpoint-branch-reachability__claude-sonnet-high__full_brain__r4",
+          "task_id": "entire-brain-clean-contract-checkpoint-branch-reachability",
+          "condition": "full_brain",
+          "delivery_scope": "full_brain",
+          "env_flags": {},
+          "repetition": 4,
+          "runner": "claude-sonnet-high",
+          "model": "sonnet",
+          "effort": "high",
+          "ok": true,
+          "valid": true,
+          "score": 83,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 0,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_base": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "task_config_sha256": "8b49e3b19cd8e1b11dac408d7a3cb9bda2e95cf05ed8cc0d5bb231f61391ba0e",
+            "run_config_fingerprint": "55f3d3711217c0f0850230c2b0190e9e32a1db08d1477404cc525bfbe7c68e61",
+            "record_fingerprint": "6a2a583d4ef5a173bcab750a5987b1e4ca5ad9a0754d7cbb4823a25d47f2cff4"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+            "sha256": "8b49e3b19cd8e1b11dac408d7a3cb9bda2e95cf05ed8cc0d5bb231f61391ba0e"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r1",
+          "task_id": "entire-brain-clean-default-fact-merge-confidence",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
+          "repetition": 1,
+          "runner": "claude-sonnet-high",
+          "model": "sonnet",
+          "effort": "high",
+          "ok": false,
+          "valid": false,
+          "score": 60,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 0,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_base": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "task_config_sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906",
+            "run_config_fingerprint": "48af740185a965b069f9a59bf2913a8ce50b83241725535c66f279b7558638af",
+            "record_fingerprint": "a7cd263c74e2f64b7ea9ecd0903b65976b643ae75e0b2c3f226a044964d9cfac"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-clean-default-fact-merge-confidence.json",
+            "sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r2",
+          "task_id": "entire-brain-clean-default-fact-merge-confidence",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
+          "repetition": 2,
+          "runner": "claude-sonnet-high",
+          "model": "sonnet",
+          "effort": "high",
+          "ok": false,
+          "valid": false,
+          "score": 58,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 0,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_base": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "task_config_sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906",
+            "run_config_fingerprint": "a694004bfea23a6feabd45a4c08ec789a415d631fbbd22e258075315617418f1",
+            "record_fingerprint": "5d5e7bdd6a448dacc12924fb541be2757dab695144aa8a9dc3acb240f37174eb"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-clean-default-fact-merge-confidence.json",
+            "sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r3",
+          "task_id": "entire-brain-clean-default-fact-merge-confidence",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
+          "repetition": 3,
+          "runner": "claude-sonnet-high",
+          "model": "sonnet",
+          "effort": "high",
+          "ok": false,
+          "valid": false,
+          "score": 58,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 0,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_base": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "task_config_sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906",
+            "run_config_fingerprint": "8208b042a0849d5a1b5185822bb381ebb0633a63f63ea379e6e6702a6cdd0bb2",
+            "record_fingerprint": "8869bb66cacb00fee20321b3522479721da2dee9cef380581e23725a69ef530a"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-clean-default-fact-merge-confidence.json",
+            "sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__no_brain__r4",
+          "task_id": "entire-brain-clean-default-fact-merge-confidence",
+          "condition": "no_brain",
+          "delivery_scope": "no_brain",
+          "env_flags": {},
+          "repetition": 4,
+          "runner": "claude-sonnet-high",
+          "model": "sonnet",
+          "effort": "high",
+          "ok": false,
+          "valid": false,
+          "score": 61,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 0,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_base": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "task_config_sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906",
+            "run_config_fingerprint": "136de5a400761b29f901a34c420547aae1e32a53ca77fecc5151af6bfeab5ba1",
+            "record_fingerprint": "27119e0062c0ee55d6c3e250169cb6bab67f397802845f289c3fd6df90da9a70"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-clean-default-fact-merge-confidence.json",
+            "sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__full_brain__r1",
+          "task_id": "entire-brain-clean-default-fact-merge-confidence",
+          "condition": "full_brain",
+          "delivery_scope": "full_brain",
+          "env_flags": {},
+          "repetition": 1,
+          "runner": "claude-sonnet-high",
+          "model": "sonnet",
+          "effort": "high",
+          "ok": true,
+          "valid": true,
+          "score": 82,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 0,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_base": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "task_config_sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906",
+            "run_config_fingerprint": "e6176731a9ebf0289cb9000f42c8b9f8c872b8ee66e2be6362eba6d60c35604c",
+            "record_fingerprint": "02395d10daf8deddf8128a46cb09a7b2aa85276a9a9ee84ef3b5043c7e6b5b11"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-clean-default-fact-merge-confidence.json",
+            "sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__full_brain__r2",
+          "task_id": "entire-brain-clean-default-fact-merge-confidence",
+          "condition": "full_brain",
+          "delivery_scope": "full_brain",
+          "env_flags": {},
+          "repetition": 2,
+          "runner": "claude-sonnet-high",
+          "model": "sonnet",
+          "effort": "high",
+          "ok": true,
+          "valid": true,
+          "score": 83,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 0,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_base": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "task_config_sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906",
+            "run_config_fingerprint": "944284ac62d3b079ca967d5c9a955224b137d014939823b7771720889c69394b",
+            "record_fingerprint": "1b253f6e5ebbaf6e5b5234bf795330d284197ee01aed4943fb2bcdb742aaaf1f"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-clean-default-fact-merge-confidence.json",
+            "sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__full_brain__r3",
+          "task_id": "entire-brain-clean-default-fact-merge-confidence",
+          "condition": "full_brain",
+          "delivery_scope": "full_brain",
+          "env_flags": {},
+          "repetition": 3,
+          "runner": "claude-sonnet-high",
+          "model": "sonnet",
+          "effort": "high",
+          "ok": true,
+          "valid": true,
+          "score": 83,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 0,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_base": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "task_config_sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906",
+            "run_config_fingerprint": "3559daed32fda46ccbe25e810391a3bd48f30615c74b282292baecc5bae0d18d",
+            "record_fingerprint": "4134faa9917b199074a8c0e00cd448cdf8b73ba3654772bf9ed4e859ea450890"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-clean-default-fact-merge-confidence.json",
+            "sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        },
+        {
+          "run_id": "entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__full_brain__r4",
+          "task_id": "entire-brain-clean-default-fact-merge-confidence",
+          "condition": "full_brain",
+          "delivery_scope": "full_brain",
+          "env_flags": {},
+          "repetition": 4,
+          "runner": "claude-sonnet-high",
+          "model": "sonnet",
+          "effort": "high",
+          "ok": true,
+          "valid": true,
+          "score": 84,
+          "mcp_calls": 0,
+          "server_toolcalls": null,
+          "server_toolcall_responses": null,
+          "search_calls": 0,
+          "parent_count": 0,
+          "mcp_verified": false,
+          "mcp_named_tool_verified": false,
+          "mcp_named_tool_completed": false,
+          "mcp_named_tool_result_verified": false,
+          "required_server_tool_names": [],
+          "provenance": {
+            "present": true,
+            "ok": true,
+            "harness_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_base": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "source_head": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+            "task_config_sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906",
+            "run_config_fingerprint": "55f3d3711217c0f0850230c2b0190e9e32a1db08d1477404cc525bfbe7c68e61",
+            "record_fingerprint": "b264e0d1e4da3518e7021f8b4ef9cf64ec97017c905c3657ffb3e4cbeaf8d022"
+          },
+          "flags": [],
+          "notes": [
+            "H:harness_dirty",
+            "H:source_dirty"
+          ],
+          "pass": true,
+          "task_hygiene": {
+            "loaded": true,
+            "path": "benchmarks/agent-brain/tasks/entire-brain-clean-default-fact-merge-confidence.json",
+            "sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906"
+          },
+          "release_hygiene": {
+            "host_path_clean": true,
+            "leak_paths": []
+          }
+        }
+      ],
+      "comparisons": [
+        {
+          "task": "entire-brain-clean-contract-checkpoint-branch-reachability",
+          "runner": "claude-sonnet-high",
+          "condition": "full_brain",
+          "delivery_scope": "full_brain",
+          "env_flags": {},
+          "verdict": "brain_negative",
+          "proof_ready": false,
+          "delta": -3.25,
+          "n_condition": 4,
+          "n_baseline": 4,
+          "reasons": [
+            "both_conditions_passed",
+            "score_drop_or_overhead_exceeds_gate"
+          ],
+          "flags": [],
+          "pass": true,
+          "proof_scope": "history",
+          "record_backing": {
+            "condition_records": 4,
+            "baseline_records": 4,
+            "condition_mcp_verified_records": 0,
+            "condition_mcp_named_tool_verified_records": 0,
+            "condition_mcp_named_tool_completed_records": 0,
+            "condition_unique_run_ids": 4,
+            "baseline_unique_run_ids": 4,
+            "condition_mcp_verified_unique_run_ids": 0,
+            "condition_mcp_named_tool_verified_unique_run_ids": 0,
+            "condition_mcp_named_tool_completed_unique_run_ids": 0,
+            "condition_unique_repetitions": 4,
+            "baseline_unique_repetitions": 4,
+            "condition_mcp_verified_unique_repetitions": 0,
+            "condition_mcp_named_tool_verified_unique_repetitions": 0,
+            "condition_mcp_named_tool_completed_unique_repetitions": 0,
+            "required_condition": 4,
+            "required_baseline": 4,
+            "required_delivery_scope": "full_brain",
+            "condition_requires_mcp_verified": false,
+            "condition_requires_mcp_named_tool_verified": false,
+            "condition_records_ok": true,
+            "baseline_records_ok": true,
+            "condition_mcp_verified_ok": true,
+            "condition_mcp_named_tool_verified_ok": false,
+            "condition_mcp_named_tool_completed_ok": false,
+            "condition_mcp_named_tool_required_ok": true,
+            "ok": true
+          }
+        },
+        {
+          "task": "entire-brain-clean-default-fact-merge-confidence",
+          "runner": "claude-sonnet-high",
+          "condition": "full_brain",
+          "delivery_scope": "full_brain",
+          "env_flags": {},
+          "verdict": "brain_positive",
+          "proof_ready": true,
+          "delta": 23.75,
+          "n_condition": 4,
+          "n_baseline": 4,
+          "reasons": [
+            "score_or_success_improved=+23.8",
+            "time_or_tokens_improved>=20%"
+          ],
+          "flags": [],
+          "pass": true,
+          "proof_scope": "history",
+          "record_backing": {
+            "condition_records": 4,
+            "baseline_records": 4,
+            "condition_mcp_verified_records": 0,
+            "condition_mcp_named_tool_verified_records": 0,
+            "condition_mcp_named_tool_completed_records": 0,
+            "condition_unique_run_ids": 4,
+            "baseline_unique_run_ids": 4,
+            "condition_mcp_verified_unique_run_ids": 0,
+            "condition_mcp_named_tool_verified_unique_run_ids": 0,
+            "condition_mcp_named_tool_completed_unique_run_ids": 0,
+            "condition_unique_repetitions": 4,
+            "baseline_unique_repetitions": 4,
+            "condition_mcp_verified_unique_repetitions": 0,
+            "condition_mcp_named_tool_verified_unique_repetitions": 0,
+            "condition_mcp_named_tool_completed_unique_repetitions": 0,
+            "required_condition": 4,
+            "required_baseline": 4,
+            "required_delivery_scope": "full_brain",
+            "condition_requires_mcp_verified": false,
+            "condition_requires_mcp_named_tool_verified": false,
+            "condition_records_ok": true,
+            "baseline_records_ok": true,
+            "condition_mcp_verified_ok": true,
+            "condition_mcp_named_tool_verified_ok": false,
+            "condition_mcp_named_tool_completed_ok": false,
+            "condition_mcp_named_tool_required_ok": true,
+            "ok": true
+          }
+        }
+      ],
+      "n_records": 16,
+      "n_flagged_records": 0,
+      "n_mcp_verified": 0,
+      "n_mcp_named_tool_verified": 0,
+      "n_mcp_named_tool_completed": 0,
+      "n_provenance_ok": 16,
+      "n_proof_ready_comparisons": 1,
+      "n_proof_ready_comparisons_by_scope": {
+        "history": 1
+      }
+    }
+  },
+  "totals": {
+    "suites": 1,
+    "records": 16,
+    "hard_flags": 0,
+    "mcp_verified_records": 0,
+    "mcp_named_tool_verified_records": 0,
+    "mcp_named_tool_completed_records": 0,
+    "provenance_ok_records": 16,
+    "proof_ready_comparisons": 1,
+    "proof_ready_comparisons_by_scope": {
+      "history": 1
+    },
+    "named_tool_proof_ready_comparisons_by_scope": {},
+    "flag_kinds": {},
+    "note_kinds": {
+      "H:harness_dirty": 16,
+      "H:source_dirty": 16
+    }
+  },
+  "release_manifest": {
+    "path": "benchmarks/agent-brain/evidence/replay-lab-clean/manifest.json",
+    "suite_globs": [
+      "panel-p01-clean-proof-claude-*"
+    ],
+    "forbidden_suite_globs": [
+      "release-local-*"
+    ],
+    "min_repetitions_per_side": 4,
+    "min_mcp_verified": 0,
+    "min_mcp_named_tool_verified": 0,
+    "require_panel_provenance": true,
+    "require_proof_ready_per_suite": false,
+    "required_proof_scopes": [
+      "history"
+    ],
+    "required_named_tool_proof_scopes": [],
+    "claim_policy": "proof_required",
+    "allowed_no_claim_flag_kinds": []
+  },
+  "gate_status": {
+    "status": "pass",
+    "release_evidence": true,
+    "claim_policy": "proof_required",
+    "requirements": {
+      "min_suites": 1,
+      "min_records": 16,
+      "min_proof_ready": 1,
+      "min_mcp_verified": 0,
+      "min_mcp_named_tool_verified": 0,
+      "hard_flags": 0,
+      "require_proof_ready_per_suite": false,
+      "required_proof_scopes": [
+        "history"
+      ],
+      "required_named_tool_proof_scopes": []
+    },
+    "failures": []
+  }
+}

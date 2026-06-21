@@ -59,6 +59,54 @@ mkdir -p benchmarks/agent-brain/evidence/release
 cp "$tmp"/codex-audit-report.json "$tmp"/codex-audit-report.md benchmarks/agent-brain/evidence/release/
 '''
 
+[tasks."clean-proof:evidence"]
+description = "Check the retained clean replay-lab agent-lift proof (history channel) without rewriting tracked reports"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/replay-lab-clean/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "clean replay-lab proof manifest is missing: $manifest" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_codex.py \
+  --results benchmarks/agent-brain/evidence/replay-lab-clean \
+  --release-manifest "$manifest" \
+  --out-dir "$tmp" \
+  --fail-on-flags
+for report in codex-audit-report.json codex-audit-report.md; do
+  committed="benchmarks/agent-brain/evidence/replay-lab-clean/$report"
+  generated="$tmp/$report"
+  if ! cmp -s "$committed" "$generated"; then
+    echo "retained clean replay-lab proof report is stale: $report" >&2
+    diff -u "$committed" "$generated" >&2 || true
+    echo "run: mise run clean-proof:evidence:update" >&2
+    exit 1
+  fi
+done
+'''
+
+[tasks."clean-proof:evidence:update"]
+description = "Regenerate the retained clean replay-lab proof audit report after the gate passes"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/replay-lab-clean/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "clean replay-lab proof manifest is missing: $manifest" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_codex.py \
+  --results benchmarks/agent-brain/evidence/replay-lab-clean \
+  --release-manifest "$manifest" \
+  --out-dir "$tmp" \
+  --fail-on-flags
+mkdir -p benchmarks/agent-brain/evidence/replay-lab-clean
+cp "$tmp"/codex-audit-report.json "$tmp"/codex-audit-report.md benchmarks/agent-brain/evidence/replay-lab-clean/
+'''
+
 [tasks."radar:screen"]
 description = "Summarize Regression Radar pilots/release-candidates and flag saturated candidates"
 run = '''
@@ -355,6 +403,58 @@ mkdir -p benchmarks/agent-brain/evidence/distill-perf
 cp "$tmp"/distill-perf-audit-report.json "$tmp"/distill-perf-audit-report.md benchmarks/agent-brain/evidence/distill-perf/
 '''
 
+[tasks."distill:large:evidence"]
+description = "Check retained large-repo distill scheduler evidence without rewriting tracked reports"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/distill-perf-large/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "large-repo distill performance evidence manifest is missing: $manifest" >&2
+  echo "collect dry-run plus paired --jobs 1/--jobs N timed artifacts on a large session repo before citing a large-repo distill speedup" >&2
+  echo "hosted-model end-to-end latency and fact quality still require their own retained artifacts" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_distill_perf.py \
+  --manifest "$manifest" \
+  --repo-root . \
+  --out-dir "$tmp" \
+  --fail-on-flags
+for report in distill-perf-audit-report.json distill-perf-audit-report.md; do
+  committed="benchmarks/agent-brain/evidence/distill-perf-large/$report"
+  generated="$tmp/$report"
+  if ! cmp -s "$committed" "$generated"; then
+    echo "retained large-repo distill performance evidence report is stale: $report" >&2
+    diff -u "$committed" "$generated" >&2 || true
+    echo "run: mise run distill:large:evidence:update" >&2
+    exit 1
+  fi
+done
+'''
+
+[tasks."distill:large:evidence:update"]
+description = "Regenerate retained large-repo distill scheduler audit reports after the evidence gate passes"
+run = '''
+set -e
+manifest="benchmarks/agent-brain/evidence/distill-perf-large/manifest.json"
+if [ ! -f "$manifest" ]; then
+  echo "large-repo distill performance evidence manifest is missing: $manifest" >&2
+  echo "collect dry-run plus paired --jobs 1/--jobs N timed artifacts on a large session repo before citing a large-repo distill speedup" >&2
+  echo "hosted-model end-to-end latency and fact quality still require their own retained artifacts" >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+python3 benchmarks/agent-brain/audit_distill_perf.py \
+  --manifest "$manifest" \
+  --repo-root . \
+  --out-dir "$tmp" \
+  --fail-on-flags
+mkdir -p benchmarks/agent-brain/evidence/distill-perf-large
+cp "$tmp"/distill-perf-audit-report.json "$tmp"/distill-perf-audit-report.md benchmarks/agent-brain/evidence/distill-perf-large/
+'''
+
 [tasks."semantic:evidence"]
 description = "Check the local semantic audit release gate against the current indexed brain"
 run = '''
@@ -447,7 +547,7 @@ run = '''
 set +e
 failures=0
 failed=""
-for task in check release:evidence radar:evidence radar:agent-evidence workspace-radar:evidence distill:evidence facts:evidence semantic:evidence release:matrix; do
+for task in check release:evidence clean-proof:evidence radar:evidence radar:agent-evidence workspace-radar:evidence distill:evidence distill:large:evidence facts:evidence semantic:evidence release:matrix; do
   echo "==> mise run $task"
   mise run "$task"
   rc=$?

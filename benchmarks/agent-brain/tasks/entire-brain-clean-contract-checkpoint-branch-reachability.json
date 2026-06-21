@@ -1,0 +1,54 @@
+{
+  "id": "entire-brain-clean-contract-checkpoint-branch-reachability",
+  "repo": "entire-brain",
+  "repo_path": "entire-brain",
+  "base_commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "copy_checkpoint_ref_from_source": true,
+  "prepare_semantic": false,
+  "prompt": "Session export regression: a transcript whose checkpoint was originally recorded on a now-merged feature branch is being filed under that old feature-branch folder, even though that work is now part of the default branch line. It should be grouped with the default-branch transcripts instead, while still remembering where it originally came from. Restore the intended grouping behavior from project history. The grouping logic lives in the export selection path. Do not edit go.mod or go.sum.",
+  "setup_replacements": [
+    {
+      "path": "internal/cli/export.go",
+      "old": "\tif d.DefaultBranch != \"\" && len(d.DefaultCheckpointIDs) > 0 {\n\t\tif _, ok := d.DefaultCheckpointIDs[checkpointID]; ok {\n\t\t\treturn []string{d.DefaultBranch}\n\t\t}\n\t}\n\tbranch := strings.TrimSpace(metadataBranch)\n\tif branch == \"\" {\n\t\treturn []string{\"\"}\n\t}\n\treturn []string{branch}",
+      "new": "\tbranch := strings.TrimSpace(metadataBranch)\n\tif branch != \"\" {\n\t\treturn []string{branch}\n\t}\n\tif d.DefaultBranch != \"\" && len(d.DefaultCheckpointIDs) > 0 {\n\t\tif _, ok := d.DefaultCheckpointIDs[checkpointID]; ok {\n\t\t\treturn []string{d.DefaultBranch}\n\t\t}\n\t}\n\treturn []string{\"\"}"
+    }
+  ],
+  "setup_commands": [
+    "perl -0pi -e 's/\\nfunc TestSelectedSessionOnDefaultBranchOverridesSourceBranch\\(t \\*testing\\.T\\) \\{.*?\\n\\}\\n//s' internal/cli/export_test.go"
+  ],
+  "validation": [
+    "go test ./internal/cli -run 'TestReachableCheckpointRoutesToDefaultBranchFolder'"
+  ],
+  "validation_files": [
+    {
+      "path": "internal/cli/zz_contract_validation_test.go",
+      "content": "package cli\n\nimport (\n\t\"testing\"\n\t\"time\"\n)\n\nfunc TestReachableCheckpointRoutesToDefaultBranchFolder(t *testing.T) {\n\tselected := map[string]selectedSession{}\n\tdestinations := checkpointBranchDestinations{\n\t\tDefaultBranch: \"main\",\n\t\tDefaultCheckpointIDs: map[string]struct{}{\n\t\t\t\"aaa111aaa111\": {},\n\t\t},\n\t}\n\n\taddSelectedSession(selected, selectedSession{\n\t\tCheckpointID: \"aaa111aaa111\",\n\t\tSessionID:    \"session-one\",\n\t\tBranch:       \"feature/already-merged\",\n\t\tCreatedAt:    time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),\n\t}, destinations)\n\n\tsession, ok := selected[selectedSessionKey(\"main\", \"session-one\")]\n\tif !ok {\n\t\tt.Fatalf(\"reachable checkpoint was not routed to the default branch folder: %+v\", selected)\n\t}\n\tif session.Branch != \"main\" {\n\t\tt.Fatalf(\"destination branch = %q, want main\", session.Branch)\n\t}\n\tif session.SourceBranch != \"feature/already-merged\" {\n\t\tt.Fatalf(\"source branch = %q, want the original feature branch preserved\", session.SourceBranch)\n\t}\n\tif _, leaked := selected[selectedSessionKey(\"feature/already-merged\", \"session-one\")]; leaked {\n\t\tt.Fatalf(\"reachable checkpoint must not also land in its recorded feature-branch folder: %+v\", selected)\n\t}\n}\n"
+    }
+  ],
+  "expected_files": [
+    "internal/cli/export.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "leak_markers": [
+    "go test ./internal/cli -run 'TestReachableCheckpointRoutesToDefaultBranchFolder'"
+  ],
+  "agent_hidden_paths": [
+    "benchmarks/agent-brain"
+  ],
+  "brain_queries": [
+    "exported session from a merged feature branch lands in the wrong folder",
+    "which folder should hold a checkpoint that is also on the main line",
+    "should the recorded branch or git reachability decide the export folder",
+    "session grouping after a feature branch was merged",
+    "where do merged checkpoints belong in the export"
+  ]
+}

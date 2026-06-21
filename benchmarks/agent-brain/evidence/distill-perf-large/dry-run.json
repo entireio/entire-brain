@@ -1,0 +1,1287 @@
+{
+  "agent": "command",
+  "brain_path": "redacted/repos/gh/entireio/cli",
+  "branches": [
+    {
+      "branch": "branch-0000",
+      "cached_sessions": 0,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 19291,
+      "sessions": 3,
+      "sessions_to_distill": 3
+    },
+    {
+      "branch": "branch-0001",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 269,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0002",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 43445,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0003",
+      "cached_sessions": 0,
+      "chunks": 42,
+      "chunks_if_uncached": 42,
+      "preprocessed_bytes": 2370511,
+      "sessions": 41,
+      "sessions_to_distill": 41
+    },
+    {
+      "branch": "branch-0004",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 44212,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0005",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 37242,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0006",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 41697,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0007",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 82275,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0008",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 29352,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0009",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 117812,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0010",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 104807,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0011",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 61184,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0012",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 17337,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0013",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 70112,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0014",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 90468,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0015",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 81252,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0016",
+      "cached_sessions": 0,
+      "chunks": 5,
+      "chunks_if_uncached": 5,
+      "preprocessed_bytes": 66296,
+      "sessions": 5,
+      "sessions_to_distill": 5
+    },
+    {
+      "branch": "branch-0017",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 9888,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0018",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 27389,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0019",
+      "cached_sessions": 0,
+      "chunks": 14,
+      "chunks_if_uncached": 14,
+      "preprocessed_bytes": 181005,
+      "sessions": 14,
+      "sessions_to_distill": 14
+    },
+    {
+      "branch": "branch-0020",
+      "cached_sessions": 0,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 25688,
+      "sessions": 3,
+      "sessions_to_distill": 3
+    },
+    {
+      "branch": "branch-0021",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 8128,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0022",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 1928,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0023",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 43876,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0024",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 33234,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0025",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 36602,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0026",
+      "cached_sessions": 0,
+      "chunks": 14,
+      "chunks_if_uncached": 14,
+      "preprocessed_bytes": 255270,
+      "sessions": 14,
+      "sessions_to_distill": 14
+    },
+    {
+      "branch": "branch-0027",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 6935,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0028",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 11321,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0029",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 22515,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0030",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 82521,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0031",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 40541,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0032",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 6812,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0033",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 253,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0034",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 5707,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0035",
+      "cached_sessions": 0,
+      "chunks": 7,
+      "chunks_if_uncached": 7,
+      "preprocessed_bytes": 201169,
+      "sessions": 7,
+      "sessions_to_distill": 7
+    },
+    {
+      "branch": "branch-0036",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 16698,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0037",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 34589,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0038",
+      "cached_sessions": 0,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 304222,
+      "sessions": 3,
+      "sessions_to_distill": 3
+    },
+    {
+      "branch": "branch-0039",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 100877,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0040",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 130492,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0041",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 23808,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0042",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 46991,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0043",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 128073,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0044",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 238815,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0045",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 97063,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0046",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 208331,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0047",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 156478,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0048",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 86312,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0049",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 62989,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0050",
+      "cached_sessions": 0,
+      "chunks": 19,
+      "chunks_if_uncached": 19,
+      "preprocessed_bytes": 2110857,
+      "sessions": 15,
+      "sessions_to_distill": 15
+    },
+    {
+      "branch": "branch-0051",
+      "cached_sessions": 0,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 705539,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0052",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 266974,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0053",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 238581,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0054",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 15322,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0055",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 12056,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0056",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 8629,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0057",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 8628,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0058",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 187428,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0059",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 96892,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0060",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 2452,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0061",
+      "cached_sessions": 0,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 352285,
+      "sessions": 3,
+      "sessions_to_distill": 3
+    },
+    {
+      "branch": "branch-0062",
+      "cached_sessions": 0,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 230370,
+      "sessions": 3,
+      "sessions_to_distill": 3
+    },
+    {
+      "branch": "branch-0063",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 32289,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0064",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 6502,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0065",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 29411,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0066",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 19094,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0067",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 20654,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0068",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 46790,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0069",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 14453,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0070",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 70381,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0071",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 12625,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0072",
+      "cached_sessions": 0,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 148208,
+      "sessions": 3,
+      "sessions_to_distill": 3
+    },
+    {
+      "branch": "branch-0073",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 10820,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0074",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 8216,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0075",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 62644,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0076",
+      "cached_sessions": 0,
+      "chunks": 559,
+      "chunks_if_uncached": 559,
+      "preprocessed_bytes": 26938957,
+      "sessions": 553,
+      "sessions_to_distill": 553
+    },
+    {
+      "branch": "branch-0077",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 2082,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0078",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 25372,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0079",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 55323,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0080",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 2447,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0081",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 30027,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0082",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 3104,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0083",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 10310,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0084",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 361096,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0085",
+      "cached_sessions": 0,
+      "chunks": 5,
+      "chunks_if_uncached": 5,
+      "preprocessed_bytes": 130536,
+      "sessions": 5,
+      "sessions_to_distill": 5
+    },
+    {
+      "branch": "branch-0086",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 15019,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0087",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 13872,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0088",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 53265,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0089",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 1131,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0090",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 149165,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0091",
+      "cached_sessions": 0,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 418488,
+      "sessions": 3,
+      "sessions_to_distill": 3
+    },
+    {
+      "branch": "branch-0092",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 12955,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0093",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 44182,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0094",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 112198,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0095",
+      "cached_sessions": 0,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 67759,
+      "sessions": 3,
+      "sessions_to_distill": 3
+    },
+    {
+      "branch": "branch-0096",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 9306,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0097",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 141778,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0098",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 36004,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0099",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 23371,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0100",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 22875,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0101",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 35612,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0102",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 123524,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0103",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 27335,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0104",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 5673,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0105",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 91320,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0106",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 45908,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0107",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 9459,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0108",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 2131,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0109",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 7424,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0110",
+      "cached_sessions": 0,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 214633,
+      "sessions": 3,
+      "sessions_to_distill": 3
+    },
+    {
+      "branch": "branch-0111",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 134240,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0112",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 25080,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0113",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 52914,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0114",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 207249,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0115",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 10519,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0116",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 20749,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0117",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 65702,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0118",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 11524,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0119",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 237536,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0120",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 71193,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0121",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 14724,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0122",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 21698,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0123",
+      "cached_sessions": 0,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 74778,
+      "sessions": 3,
+      "sessions_to_distill": 3
+    },
+    {
+      "branch": "branch-0124",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 3257,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0125",
+      "cached_sessions": 0,
+      "chunks": 1,
+      "chunks_if_uncached": 1,
+      "preprocessed_bytes": 567,
+      "sessions": 1,
+      "sessions_to_distill": 1
+    },
+    {
+      "branch": "branch-0126",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 116161,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0127",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 39878,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    },
+    {
+      "branch": "branch-0128",
+      "cached_sessions": 0,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 40129,
+      "sessions": 2,
+      "sessions_to_distill": 2
+    }
+  ],
+  "cached_sessions": 0,
+  "chunks": 838,
+  "chunks_if_uncached": 838,
+  "confidence_threshold": 0.75,
+  "estimated_agent_calls_upper_bound": 1676,
+  "extraction_agent_calls": 838,
+  "extraction_jobs_cap": 1,
+  "force": true,
+  "generated_at": "2026-06-18T17:24:01.245298Z",
+  "jobs": 1,
+  "largest_sessions": [
+    {
+      "branch": "branch-0076",
+      "cached": false,
+      "chunks": 4,
+      "chunks_if_uncached": 4,
+      "preprocessed_bytes": 823521,
+      "raw_bytes": 14476495,
+      "session_id": "session-0000",
+      "transcript": "redacted"
+    },
+    {
+      "branch": "branch-0076",
+      "cached": false,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 3983797,
+      "raw_bytes": 7305797,
+      "session_id": "session-0001",
+      "transcript": "redacted"
+    },
+    {
+      "branch": "branch-0050",
+      "cached": false,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 715321,
+      "raw_bytes": 20232364,
+      "session_id": "session-0002",
+      "transcript": "redacted"
+    },
+    {
+      "branch": "branch-0051",
+      "cached": false,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 660878,
+      "raw_bytes": 19614291,
+      "session_id": "session-0003",
+      "transcript": "redacted"
+    },
+    {
+      "branch": "branch-0050",
+      "cached": false,
+      "chunks": 3,
+      "chunks_if_uncached": 3,
+      "preprocessed_bytes": 570156,
+      "raw_bytes": 31415500,
+      "session_id": "session-0004",
+      "transcript": "redacted"
+    },
+    {
+      "branch": "branch-0076",
+      "cached": false,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 458143,
+      "raw_bytes": 8194737,
+      "session_id": "session-0005",
+      "transcript": "redacted"
+    },
+    {
+      "branch": "branch-0076",
+      "cached": false,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 435868,
+      "raw_bytes": 19889252,
+      "session_id": "session-0006",
+      "transcript": "redacted"
+    },
+    {
+      "branch": "branch-0084",
+      "cached": false,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 361096,
+      "raw_bytes": 4071832,
+      "session_id": "session-0007",
+      "transcript": "redacted"
+    },
+    {
+      "branch": "branch-0076",
+      "cached": false,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 354561,
+      "raw_bytes": 10542777,
+      "session_id": "session-0008",
+      "transcript": "redacted"
+    },
+    {
+      "branch": "branch-0003",
+      "cached": false,
+      "chunks": 2,
+      "chunks_if_uncached": 2,
+      "preprocessed_bytes": 316754,
+      "raw_bytes": 4210595,
+      "session_id": "session-0009",
+      "transcript": "redacted"
+    }
+  ],
+  "max_chunk_bytes": 262144,
+  "missing_transcripts": 0,
+  "preprocessed_bytes": 41023721,
+  "raw_bytes": 1694279136,
+  "reconcile_agent_calls_upper_bound": 838,
+  "schema_version": 1,
+  "sessions": 822,
+  "sessions_to_distill": 822
+}

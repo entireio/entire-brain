@@ -70,6 +70,21 @@ def task_run(mise: dict[str, Any], name: str) -> str:
     return value if isinstance(value, str) else ""
 
 
+def as_int(value: Any) -> int:
+    """Tolerant int coercion for externally-supplied report fields: a real int
+    (not bool) passes through, a numeric string is parsed, anything else (None,
+    list, dict, non-numeric string) becomes 0. Keeps a malformed/tampered report
+    from crashing the gate with a raw traceback instead of failing cleanly."""
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return 0
+
+
 def add_row(rows: list[dict[str, Any]], *, track: str, status: str, claimable: bool, evidence: str, detail: str, flags: list[str] | None = None) -> None:
     rows.append({
         "track": track,
@@ -116,6 +131,17 @@ def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
     workspace = load_json(manifest_path(repo_root, reports.get("workspace_radar"), "reports.workspace_radar"))
     distill = load_json(manifest_path(repo_root, reports.get("distill"), "reports.distill"))
     facts = load_json(manifest_path(repo_root, reports.get("facts"), "reports.facts"))
+    # Optional lanes: present in the real manifest, absent in minimal fixtures.
+    # When a report is not referenced the corresponding track falls back to its
+    # pre-registration (pending / not-added) form rather than failing the load.
+    distill_large = (
+        load_json(manifest_path(repo_root, reports.get("distill_large"), "reports.distill_large"))
+        if reports.get("distill_large") else None
+    )
+    replay_lab_clean = (
+        load_json(manifest_path(repo_root, reports.get("replay_lab_clean"), "reports.replay_lab_clean"))
+        if reports.get("replay_lab_clean") else None
+    )
     mise = load_toml(manifest_path(repo_root, manifest.get("mise"), "mise"))
     press_path = manifest_path(repo_root, docs.get("press_release"), "docs.press_release")
     press_text = press_path.read_text()
@@ -163,6 +189,36 @@ def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
         flags=release_flags,
     )
 
+    # Optional: only emit the clean-proof track when the lane is registered.
+    if replay_lab_clean is not None:
+        rlc_flags: list[str] = []
+        rlc_gate = replay_lab_clean.get("gate_status") if isinstance(replay_lab_clean.get("gate_status"), dict) else {}
+        rlc_totals = replay_lab_clean.get("totals") if isinstance(replay_lab_clean.get("totals"), dict) else {}
+        rlc_scopes = rlc_totals.get("proof_ready_comparisons_by_scope") if isinstance(rlc_totals.get("proof_ready_comparisons_by_scope"), dict) else {}
+        if rlc_gate.get("status") != "pass" or rlc_gate.get("release_evidence") is not True:
+            rlc_flags.append("clean replay-lab proof report is not passing release evidence")
+        if rlc_gate.get("claim_policy") != "proof_required":
+            rlc_flags.append("clean replay-lab proof must use proof_required claim policy")
+        if as_int(rlc_totals.get("proof_ready_comparisons")) < 1:
+            rlc_flags.append("clean replay-lab proof has no proof-ready comparison")
+        if as_int(rlc_scopes.get("history")) < 1:
+            rlc_flags.append("clean replay-lab proof missing history-scope proof-ready comparison")
+        # hard_flags is an integrity field: a malformed/non-int value must FAIL
+        # closed (flag), not coerce-to-0 and silently pass — so as_int's
+        # coerce-to-0 is deliberately NOT used here.
+        hard_flags = rlc_totals.get("hard_flags")
+        if not isinstance(hard_flags, int) or isinstance(hard_flags, bool) or hard_flags != 0:
+            rlc_flags.append("clean replay-lab proof has hard integrity flags")
+        add_row(
+            rows,
+            track="replay-lab clean correctness-axis agent lift (history channel)",
+            status="proven" if not rlc_flags else "invalid",
+            claimable=not rlc_flags,
+            evidence=display_path(manifest_path(repo_root, reports.get("replay_lab_clean"), "reports.replay_lab_clean")),
+            detail=f"history-channel correctness brain-lift: {as_int(rlc_scopes.get('history'))} proof-ready history comparison(s), brain_positive_stable (per-arm counts in the lane codex-audit-report); mcp/radar/codex scopes remain no_release_claim",
+            flags=rlc_flags,
+        )
+
     radar_flags: list[str] = []
     if radar_tool.get("ok") is not True:
         radar_flags.append("radar tool contract report is not ok")
@@ -198,14 +254,39 @@ def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
         detail=str(distill_target.get("claim_scope") or ""),
         flags=distill_flags,
     )
-    add_row(
-        rows,
-        track="target large-repo/frontend distill performance",
-        status="pending-target-evidence",
-        claimable=False,
-        evidence=display_path(manifest_path(repo_root, reports.get("distill"), "reports.distill")),
-        detail="current retained speedup is current-repo command-agent scheduler proof, not the frontend/large-repo claim",
-    )
+    if distill_large is not None:
+        distill_large_flags: list[str] = []
+        distill_large_target = distill_large.get("target") if isinstance(distill_large.get("target"), dict) else {}
+        if distill_large.get("status") != "pass" or distill_large.get("release_evidence") is not True:
+            distill_large_flags.append("large-repo distill evidence report is not passing release evidence")
+        if "large-repo" not in str(distill_large_target.get("claim_scope") or ""):
+            distill_large_flags.append("large-repo distill evidence is not scoped to a large-repo scheduler proof")
+        add_row(
+            rows,
+            track="large-repo distill extraction-scheduler speedup",
+            status="proven-local" if not distill_large_flags else "invalid",
+            claimable=not distill_large_flags,
+            evidence=display_path(manifest_path(repo_root, reports.get("distill_large"), "reports.distill_large")),
+            detail=str(distill_large_target.get("claim_scope") or ""),
+            flags=distill_large_flags,
+        )
+        add_row(
+            rows,
+            track="frontend/hosted-model distill latency and fact quality",
+            status="pending-target-evidence",
+            claimable=False,
+            evidence=display_path(manifest_path(repo_root, reports.get("distill_large"), "reports.distill_large")),
+            detail="retained large-repo speedup uses a deterministic command-agent for scheduler mechanics; hosted-model end-to-end latency and fact quality still need their own retained artifacts",
+        )
+    else:
+        add_row(
+            rows,
+            track="target large-repo/frontend distill performance",
+            status="pending-target-evidence",
+            claimable=False,
+            evidence=display_path(manifest_path(repo_root, reports.get("distill"), "reports.distill")),
+            detail="current retained speedup is current-repo command-agent scheduler proof, not the frontend/large-repo claim",
+        )
 
     facts_flags: list[str] = []
     facts_policy = facts.get("claim_policy")
@@ -338,7 +419,7 @@ def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
         "flags": flags,
         "notes": [
             "This is a claim-hygiene gate, not a declaration that every release blocker is closed.",
-            "release_fully_ready remains false while target large-repo distill, facts-vs-raw, semantic usefulness, workspace Radar, and broader replay proof are pending.",
+            "release_fully_ready remains false while frontend/hosted-model distill latency, facts-vs-raw, semantic usefulness, workspace Radar, and broader replay proof are pending.",
         ],
     }
 

@@ -335,6 +335,49 @@ def validate_source_hashes(manifest: dict[str, Any], repo_root: pathlib.Path, fl
     return {"repo_root": display_path(repo_root), "required_paths": DISTILL_PERF_SOURCE_PATHS, "matched_paths": matched}
 
 
+def validate_executed_agent(manifest: dict[str, Any], repo_root: pathlib.Path, flags: list[str]) -> dict[str, Any] | None:
+    """Validate the optional executed_agent block: the command-agent script that
+    actually produced the timed runs. It is optional for backward compatibility,
+    but when present its committed bytes are hash-pinned and must match, and every
+    recorded run command must invoke exactly that script so the timing provenance
+    is tamper-evident rather than merely documented."""
+    executed = manifest.get("executed_agent")
+    if executed is None:
+        return None
+    if not isinstance(executed, dict):
+        flags.append("executed_agent must be an object")
+        return None
+    path = executed.get("path")
+    expected = executed.get("sha256")
+    if not isinstance(path, str) or not path:
+        flags.append("executed_agent.path must be a non-empty repo-relative path")
+        return None
+    if not isinstance(expected, str) or not SHA256_VALUE_RE.fullmatch(expected):
+        flags.append("executed_agent.sha256 must be sha256:<64 hex>")
+        return None
+    rel = pathlib.Path(path)
+    if rel.is_absolute() or ".." in rel.parts:
+        flags.append("executed_agent.path must be a relative path under the repo root")
+        return None
+    resolved = repo_root / rel
+    if not resolved.exists():
+        flags.append(f"executed_agent script missing: {path}")
+        return None
+    actual = file_sha256(resolved)
+    if actual != expected:
+        flags.append(f"executed_agent.sha256 mismatch for {path}")
+    for key in ("dry_run", "serial_run", "parallel_run"):
+        tokens = get(manifest, "commands", key)
+        if isinstance(tokens, list):
+            # Bind to an actual --agent-command value (the agent is invoked as
+            # `--agent-command python3 --agent-command <path>`), not mere list
+            # membership, so the recorded command provably runs exactly this script.
+            agent_command_values = [tokens[i + 1] for i, tok in enumerate(tokens[:-1]) if tok == "--agent-command"]
+            if path not in agent_command_values:
+                flags.append(f"commands.{key} does not invoke executed_agent.path {path} via --agent-command")
+    return {"path": path, "sha256": actual}
+
+
 def validate_branch_sums(dry: dict[str, Any], flags: list[str]) -> None:
     branches = dry.get("branches")
     if not isinstance(branches, list) or not branches:
@@ -362,6 +405,7 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path, repo_root: pathlib.
     target = validate_target(manifest, flags)
     validate_artifact_hashes(manifest, paths, flags)
     source_hashes = validate_source_hashes(manifest, repo_root, flags)
+    executed_agent = validate_executed_agent(manifest, repo_root, flags)
     local_ollama_contract = validate_local_ollama_contract(manifest, root, flags)
     dry = load_json(paths["dry_run"])
     serial = load_json(paths["serial_run"])
@@ -442,7 +486,7 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path, repo_root: pathlib.
     if not isinstance(parallel.get("extraction_jobs_cap"), int) or parallel.get("extraction_jobs_cap") <= 1:
         flags.append("parallel_run: extraction_jobs_cap must be greater than 1")
 
-    comparable_fields = ("facts", "distilled", "authored", "superseded", "proposals", "chunks_scanned", "chunks_distilled", "preprocessed_bytes", "extraction_agent_calls")
+    comparable_fields = ("facts", "distilled", "authored", "superseded", "proposals", "chunks_scanned", "chunks_distilled", "preprocessed_bytes", "extraction_agent_calls", "reconcile_agent_calls", "total_agent_calls")
     for field in comparable_fields:
         if serial.get(field) != parallel.get(field):
             flags.append(f"serial/parallel mismatch: {field}")
@@ -466,6 +510,7 @@ def audit_distill_perf_manifest(manifest_path: pathlib.Path, repo_root: pathlib.
         "status": "fail" if flags else "pass",
         "release_evidence": not flags,
         "target": target,
+        "executed_agent": executed_agent,
         "min_speedup": min_speedup,
         "speedup": speedup,
         "dry_run": {

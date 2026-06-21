@@ -1,0 +1,48 @@
+{
+  "id": "entire-brain-clean-default-fact-merge-confidence",
+  "repo": "entire-brain",
+  "repo_path": "entire-brain",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "copy_checkpoint_ref_from_source": true,
+  "base_commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+  "prepare_semantic": false,
+  "prompt": "The durable-facts reconcile engine has the wrong default confidence gate for auto-applying a merge/supersede. As shipped, the gate sits at a plausible-looking round value, but it is not the value the project deliberately settled on, so uncertain machine judgments are being treated as auto-apply when they should fall just short. Restore the intended default confidence gate from project history. Do not state a guessed value \u2014 recover the one that was actually decided.",
+  "setup_replacements": [
+    {
+      "path": "internal/cli/facts_merge.go",
+      "old": "\tdefaultFactConfidenceThreshold = 0.75",
+      "new": "\tdefaultFactConfidenceThreshold = 0.7"
+    }
+  ],
+  "setup_commands": [
+    "perl -0pi -e 's/falls back to the default \\(0\\.75\\)/falls back to the default/g' docs/durable_facts_plan.md"
+  ],
+  "validation": [
+    "test $(rg -n 'defaultFactConfidenceThreshold = 0\\.75' internal/cli/facts_merge.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./internal/cli -run 'TestApplyFactActionsHighConfidenceMerge|TestApplyFactActionsLowConfidenceQueuesProposal|TestApplyFactActionsHighConfidenceSupersede'"
+  ],
+  "expected_files": [
+    "internal/cli/facts_merge.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "leak_markers": [
+    "go test ./internal/cli -run 'TestApplyFactActionsHighConfidenceMerge|TestApplyFactActionsLowConfidenceQueuesProposal|TestApplyFactActionsHighConfidenceSupersede'"
+  ],
+  "agent_hidden_paths": [
+    "benchmarks/agent-brain"
+  ],
+  "brain_queries": [
+    "uncertain fact merge applied automatically without review",
+    "confidence needed before auto applying a merge",
+    "gate that decides which fact updates apply automatically",
+    "low confidence merge should not silently overwrite a fact"
+  ]
+}

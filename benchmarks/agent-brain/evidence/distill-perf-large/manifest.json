@@ -1,20 +1,20 @@
 {
   "schema": 1,
   "target": {
-    "repo": "github.com/ashtom/entire-brain",
-    "repo_key": "gh/ashtom/entire-brain",
-    "source_head": "d7a5968883b5a30aea8f5a6fe71ffa7aa63e52dc",
-    "brain_manifest_sha256": "sha256:94db24afdb46051654fd19587159ca3ba5aea46dab49be784a2b1b0a307afe07",
-    "claim_scope": "current-repo local command-agent distill extraction scheduling speedup"
+    "repo": "github.com/entireio/cli",
+    "repo_key": "gh/entireio/cli",
+    "source_head": "cf9187c3b0a22f792a427ca6ad040777b8170299",
+    "brain_manifest_sha256": "sha256:b71b30d7795097eb6b4ec1a1f90d1c4117878aa8924680837b691fe008efeaa0",
+    "claim_scope": "large-repo (entireio/cli) local command-agent distill extraction scheduling speedup"
   },
   "cache_state": "force_recomputed_each_run",
   "dry_run": "dry-run.json",
   "serial_run": "jobs-1.json",
   "parallel_run": "jobs-4.json",
   "artifact_sha256": {
-    "dry_run": "sha256:e6f4c44b77731dc850d7f381869b0caaad3c67abb123a39894bcf0bf53324a96",
-    "serial_run": "sha256:4ac0d4b099f89e4c852b7c79137e27feb061567528b8910e8b07516174a75b18",
-    "parallel_run": "sha256:4ad6ce4e5b93abd470d4eb5a91b586a78df7931e8673158318e29d5882ea4294"
+    "dry_run": "sha256:8769eeb9e03a9fa9a69d52e941170b1492c26618eec0c9cfee0601678f56276b",
+    "serial_run": "sha256:0cdba3b99de8a4c510825eaff4bbd11d1328712c2dfa57586985cf5455046f46",
+    "parallel_run": "sha256:0027fc6e24ff79fe8469625d17ab97b6b8ce5a24f672782525888b2d04f49b63"
   },
   "source_sha256": {
     "internal/cli/distill.go": "sha256:3ed50065343ec866616b35f4c63aab0d30f9b511ffdc0060e829971381b5d91a",
@@ -35,7 +35,7 @@
       "--agent-command",
       "python3",
       "--agent-command",
-      "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py",
+      "benchmarks/agent-brain/evidence/distill-perf-large/large_command_agent.py",
       "--force",
       "--max-chunk-bytes",
       "262144",
@@ -53,7 +53,7 @@
       "--agent-command",
       "python3",
       "--agent-command",
-      "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py",
+      "benchmarks/agent-brain/evidence/distill-perf-large/large_command_agent.py",
       "--force",
       "--max-chunk-bytes",
       "262144",
@@ -71,7 +71,7 @@
       "--agent-command",
       "python3",
       "--agent-command",
-      "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py",
+      "benchmarks/agent-brain/evidence/distill-perf-large/large_command_agent.py",
       "--force",
       "--max-chunk-bytes",
       "262144",
@@ -113,15 +113,21 @@
     ],
     "claim_scope": "local loopback Ollama distill wiring and no-egress safety contract; not model quality"
   },
-  "min_speedup": 1.25,
+  "min_speedup": 1.5,
+  "executed_agent": {
+    "path": "benchmarks/agent-brain/evidence/distill-perf-large/large_command_agent.py",
+    "sha256": "sha256:79661f48d35b5b9272a251f99a4af4f983d42dded31ec3a3f2e01d0d99b3f354",
+    "note": "deterministic offline command-agent actually executed for the three runs; spreads facts across a few dozen valid 3-level taxonomy paths so a large corpus exercises reconcile without tripping the >50-per-path reconcile scaling notice."
+  },
   "notes": [
-    "Collected offline from a temporary copy of the current entire-brain local brain store.",
-    "Uses a deterministic local command agent to prove scheduler/extraction mechanics, not fact quality or hosted-model latency.",
-    "Retains a non-cached fake loopback Ollama go-test artifact for local-model wiring and no-egress safety without requiring a real external model.",
-    "Does not support a frontend/entire.io 24h backfill claim; that still needs target-repo retained artifacts."
+    "Collected offline from temporary fresh copies of the local entireio/cli brain store; facts were cleared before each run so the timing reflects a from-scratch large-repo backfill.",
+    "Uses a deterministic local command agent to prove extraction-scheduler and reconcile mechanics at large-repo scale, not fact quality or hosted-model latency.",
+    "Reuses the current-repo lane's retained fake loopback Ollama go-test artifact as the shared local-model wiring and no-egress safety contract.",
+    "Widens the retained distill-timing claim from current-repo to a large session repo (822 sessions, 838 chunks); it does NOT establish a hosted-model fact-quality or end-to-end latency claim, which remains pending."
   ],
   "redactions": {
     "dry_run.brain_path": "redacted isolated temp store path; repo_key remains in the path suffix",
-    "branch_labels": "old local branch labels with person names redacted from retained current-repo evidence artifacts"
+    "branch_labels": "third-party contributor branch labels replaced with content-free branch-NNNN identifiers across all artifacts",
+    "largest_sessions": "transcript paths and session ids replaced with placeholders; only size/chunk counts retained"
   }
 }

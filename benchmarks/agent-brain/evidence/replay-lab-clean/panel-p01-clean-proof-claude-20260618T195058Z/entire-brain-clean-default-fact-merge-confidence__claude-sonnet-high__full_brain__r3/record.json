@@ -1,0 +1,406 @@
+{
+  "agent": "claude",
+  "agent_baseline_history_reset": {
+    "parent_count": 0,
+    "root_commit": "277e70cdbe21728d5800fb5232e2ebc205720c28"
+  },
+  "agent_info": {
+    "activity": {
+      "activity_source": "protocol_json",
+      "brain_commands": [],
+      "checked_brief": false,
+      "checked_diff": false,
+      "checked_freshness": false,
+      "checked_stale": false,
+      "direct_brain_cli_calls": 0,
+      "mcp_tool_calls": 0,
+      "mcp_tool_details": [],
+      "mcp_tool_names": [],
+      "ran_tests": false,
+      "saw_index_locked": false,
+      "search_calls": 0,
+      "search_commands": [],
+      "structured_tool_event_count": 0,
+      "test_commands": [],
+      "used_brain": false,
+      "used_mcp": false
+    },
+    "agent": "claude",
+    "attempts": [
+      {
+        "attempt": 1,
+        "returncode": 0,
+        "seconds": 198.5736620426178,
+        "transient_failure_reason": null
+      }
+    ],
+    "cmd": [
+      "claude",
+      "..."
+    ],
+    "isolation": {
+      "auth": "host Claude Max/OAuth auth may still be used",
+      "mcp": "strict empty config",
+      "session": "no-session-persistence",
+      "settings": "default non-bare settings required for Max auth",
+      "slash_commands": "disabled"
+    },
+    "mcp": {
+      "condition": "full_brain",
+      "enabled": false,
+      "server": null
+    },
+    "resolved_model": "claude-sonnet-4-6",
+    "returncode": 0,
+    "runner": {
+      "agent": "claude",
+      "effort": "high",
+      "id": "claude-sonnet-high",
+      "model": "sonnet"
+    },
+    "seconds": 198.57508420944214,
+    "stderr_bytes": 0,
+    "stderr_tail": "",
+    "stdout_bytes": 1963,
+    "stdout_tail": "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"api_error_status\":null,\"duration_ms\":197763,\"duration_api_ms\":192299,\"ttft_ms\":3081,\"ttft_stream_ms\":2701,\"time_to_request_ms\":244,\"num_turns\":37,\"result\":\"All tests pass. \\n\\n**What changed:** `defaultFactConfidenceThreshold` in `internal/cli/facts_merge.go` was restored from `0.7` to `0.75`. The history record from the original `Write` operation that created `facts_merge.go` (session `claude-durable-facts-and-distill-680dc9e5`) shows the constant was deliberately set to `0.75`. The current `0.7` was a plausible-looking round value that allowed machine judgments at confidence \u22650.70 to auto-apply when they should have fallen just short of the intended 0.75 gate.\\n\\n**Validation passed:** `TestApplyFactActions*`, `TestRunDistillForBrainReconciles*`, `TestParseReconcile*`, `TestParseConfidence`, `TestIsNumericTokenRejectsNonFinite`, `TestActiveFactsAtPaths` \u2014 all pass.\",\"stop_reason\":\"end_turn\",\"session_id\":\"adfde13d-2c1f-4603-9e49-b9bb4d52e3b3\",\"total_cost_usd\":1.2494715,\"usage\":{\"input_tokens\":32,\"cache_creation_input_tokens\":89538,\"cache_read_input_tokens\":1937175,\"output_tokens\":8733,\"server_tool_use\":{\"web_search_requests\":0,\"web_fetch_requests\":0},\"service_tier\":\"standard\",\"cache_creation\":{\"ephemeral_1h_input_tokens\":89538,\"ephemeral_5m_input_tokens\":0},\"inference_geo\":\"not_available\",\"iterations\":[{\"input_tokens\":1,\"output_tokens\":222,\"cache_read_input_tokens\":105090,\"cache_creation_input_tokens\":1028,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":1028},\"type\":\"message\"}],\"speed\":\"standard\"},\"modelUsage\":{\"claude-sonnet-4-6\":{\"inputTokens\":32,\"outputTokens\":8733,\"cacheReadInputTokens\":1937175,\"cacheCreationInputTokens\":89538,\"webSearchRequests\":0,\"costUSD\":1.2494715,\"contextWindow\":200000,\"maxOutputTokens\":32000}},\"permission_denials\":[],\"terminal_reason\":\"completed\",\"fast_mode_state\":\"off\",\"uuid\":\"ab3a190c-287f-4363-8fb1-e6af29c85539\"}\n",
+    "transient_retries": 0,
+    "usage": {
+      "cache_creation_tokens": 89538,
+      "cache_read_tokens": 1937175,
+      "cost_source": "reported",
+      "cost_usd": 1.2494715,
+      "input_tokens": 32,
+      "output_tokens": 8733,
+      "total_tokens": 2035478,
+      "turns": 37
+    }
+  },
+  "agent_leak_audit": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_secret_preflight": {
+    "findings": [],
+    "ok": true
+  },
+  "agent_visible_entire_history_removed": true,
+  "agent_worktree_sanitization": {
+    "committed": true,
+    "removed_paths": [
+      "benchmarks/agent-brain"
+    ]
+  },
+  "brain_prep": {
+    "cache": {
+      "created_at": "2026-06-18T18:34:22.469346+00:00",
+      "enabled": true,
+      "hit": true,
+      "key": "fa5c3b712cda3d89d5f685d0",
+      "source_worktree": "/[redacted-home]/Documents/Coding/entire-brain/benchmarks/agent-brain/results/p01-clean-pilot/entire-brain-clean-default-fact-merge-confidence__codex-gpt-5.5-high__full_brain__r1/worktree"
+    },
+    "commands": [],
+    "condition": "full_brain",
+    "history_sanitization": {
+      "files_checked": 178,
+      "files_scrubbed": 0,
+      "items_redacted": 0,
+      "ok": true
+    }
+  },
+  "brain_state": {
+    "brain_dir": "/[redacted-home]/Documents/Coding/entire-brain/benchmarks/agent-brain/results/panel-p01-clean-proof-claude-20260618T195058Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__full_brain__r3/worktree/.benchmark/plugin/data/repos/gh/ashtom/entire-brain",
+    "manifest": {
+      "has_checkpoints": false,
+      "has_history": true,
+      "has_seed": true,
+      "has_semantic": false,
+      "has_sessions": true,
+      "history_records": 71142,
+      "repo_key": "gh/ashtom/entire-brain",
+      "repo_root": "[redacted benchmark scaffold]",
+      "schema_version": 3,
+      "session_count": 147
+    },
+    "path_command": {
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "/[redacted-home]/Documents/Coding/entire-brain/benchmarks/agent-brain/results/panel-p01-clean-proof-claude-20260618T195058Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__full_brain__r3/worktree/.benchmark/plugin/data/repos/gh/ashtom/entire-brain\n"
+    },
+    "stale_command": {
+      "returncode": 1,
+      "stderr_tail": "unknown command \"stale\" for \"entire-brain\"\n",
+      "stdout_tail": ""
+    }
+  },
+  "changed_files": [
+    "internal/cli/facts_merge.go"
+  ],
+  "condition": "full_brain",
+  "diff_stat": {
+    "bytes": 562,
+    "shortstat": "1 file changed, 1 insertion(+), 1 deletion(-)",
+    "untracked_files": []
+  },
+  "finished_at": "2026-06-18T21:13:30.475187+00:00",
+  "mcp_condition_audit": {
+    "findings": [],
+    "ok": true,
+    "required": false
+  },
+  "ok": true,
+  "post_brain_setup_applied": false,
+  "provenance": {
+    "captured_at": "2026-06-18T21:09:57.997937+00:00",
+    "fingerprint": "4134faa9917b199074a8c0e00cd448cdf8b73ba3654772bf9ed4e859ea450890",
+    "harness": {
+      "dirty": {
+        "available": true,
+        "dirty": true,
+        "status_count": 23,
+        "status_entries": [
+          " M .github/workflows/test.yml",
+          " M benchmarks/agent-brain/audit_distill_perf.py",
+          " M benchmarks/agent-brain/audit_release_matrix.py",
+          " M benchmarks/agent-brain/evidence/distill-perf/distill-perf-audit-report.json",
+          " M benchmarks/agent-brain/evidence/distill-perf/manifest.json",
+          " M benchmarks/agent-brain/evidence/release-matrix/manifest.json",
+          " M benchmarks/agent-brain/evidence/release-matrix/release-matrix-report.json",
+          " M benchmarks/agent-brain/evidence/release-matrix/release-matrix-report.md",
+          " M docs/release_press_release.md",
+          " M mise.toml",
+          "?? .claude/skills/",
+          "?? .codex/skills/",
+          "?? .cursor/",
+          "?? .gemini/",
+          "?? .mcp.json",
+          "?? .regente/",
+          "?? benchmarks/agent-brain/evidence/distill-perf-large/",
+          "?? benchmarks/agent-brain/panels/p01-clean-proof-claude.json",
+          "?? benchmarks/agent-brain/panels/p01-clean-proof.json",
+          "?? benchmarks/agent-brain/tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+          "?? benchmarks/agent-brain/tasks/entire-brain-clean-default-fact-merge-confidence.json",
+          "?? benchmarks/agent-brain/tasks/entire-brain-clean-order-distill-cache-after-success.json",
+          "?? benchmarks/agent-brain/tasks/entire-brain-clean-value-hook-post-failure-min-score.json"
+        ],
+        "status_sha256": "c46d4dc0f7de86c5a4ce5689e6cf8a454767c9bcb8d765b68c11203030460080",
+        "tracked_diff_sha256": "1f32cb08b3374562ac96b29539a87576d276212830c2fdf5d58b2163f6bf93af"
+      },
+      "head": {
+        "author_name": "[redacted-name] Dohmke",
+        "available": true,
+        "commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+        "committer_date": "2026-06-18T10:29:30+02:00",
+        "parent_count": 1,
+        "parents": [
+          "b219090c791f0ecdea069f449b9fcfdb9758ca27"
+        ],
+        "ref": "HEAD",
+        "subject": "Add v3 plan for pattern detection."
+      },
+      "repo_path": "/[redacted-home]/Documents/Coding/entire-brain"
+    },
+    "run_config": {
+      "brain_cache": {
+        "enabled": true,
+        "refresh": false
+      },
+      "checkpoint_limit": 200,
+      "claude_budget": 0.0,
+      "command": "run",
+      "condition": "full_brain",
+      "env_flags": {
+        "BENCH_RADAR_LOCATION_ONLY": null,
+        "BENCH_REGRESSION_RADAR": null,
+        "ENTIRE_BENCH_CAPTURE_BRIEF": null
+      },
+      "fingerprint": "3559daed32fda46ccbe25e810391a3bd48f30615c74b282292baecc5bae0d18d",
+      "panel": {
+        "config_sha256": "1c771cb732a26993741a8536adb3316d05eb1ea1f46459d14d64ba319bda9dfe",
+        "name": "p01-clean-proof-claude",
+        "path": "benchmarks/agent-brain/panels/p01-clean-proof-claude.json"
+      },
+      "pricing": {
+        "file": null,
+        "inline_sha256": null
+      },
+      "repetition": 3,
+      "requested": {
+        "agents": "",
+        "conditions": "no_brain,full_brain",
+        "repetitions": 4,
+        "runners": "claude:sonnet:high",
+        "tasks": [
+          "entire-brain-clean-default-fact-merge-confidence.json",
+          "entire-brain-clean-contract-checkpoint-branch-reachability.json"
+        ]
+      },
+      "runner": {
+        "agent": "claude",
+        "effort": "high",
+        "id": "claude-sonnet-high",
+        "model": "sonnet"
+      },
+      "stop_after_no_brain_score": null,
+      "suite": "panel-p01-clean-proof-claude-20260618T195058Z",
+      "timeout": 1800,
+      "workspace_name": null
+    },
+    "schema": 1,
+    "source": {
+      "base": {
+        "author_name": "[redacted-name] Dohmke",
+        "available": true,
+        "commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+        "committer_date": "2026-06-18T10:29:30+02:00",
+        "parent_count": 1,
+        "parents": [
+          "b219090c791f0ecdea069f449b9fcfdb9758ca27"
+        ],
+        "ref": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+        "subject": "Add v3 plan for pattern detection."
+      },
+      "base_ref": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+      "base_ref_source": "task.base_commit",
+      "dirty": {
+        "available": true,
+        "dirty": true,
+        "status_count": 23,
+        "status_entries": [
+          " M .github/workflows/test.yml",
+          " M benchmarks/agent-brain/audit_distill_perf.py",
+          " M benchmarks/agent-brain/audit_release_matrix.py",
+          " M benchmarks/agent-brain/evidence/distill-perf/distill-perf-audit-report.json",
+          " M benchmarks/agent-brain/evidence/distill-perf/manifest.json",
+          " M benchmarks/agent-brain/evidence/release-matrix/manifest.json",
+          " M benchmarks/agent-brain/evidence/release-matrix/release-matrix-report.json",
+          " M benchmarks/agent-brain/evidence/release-matrix/release-matrix-report.md",
+          " M docs/release_press_release.md",
+          " M mise.toml",
+          "?? .claude/skills/",
+          "?? .codex/skills/",
+          "?? .cursor/",
+          "?? .gemini/",
+          "?? .mcp.json",
+          "?? .regente/",
+          "?? benchmarks/agent-brain/evidence/distill-perf-large/",
+          "?? benchmarks/agent-brain/panels/p01-clean-proof-claude.json",
+          "?? benchmarks/agent-brain/panels/p01-clean-proof.json",
+          "?? benchmarks/agent-brain/tasks/entire-brain-clean-contract-checkpoint-branch-reachability.json",
+          "?? benchmarks/agent-brain/tasks/entire-brain-clean-default-fact-merge-confidence.json",
+          "?? benchmarks/agent-brain/tasks/entire-brain-clean-order-distill-cache-after-success.json",
+          "?? benchmarks/agent-brain/tasks/entire-brain-clean-value-hook-post-failure-min-score.json"
+        ],
+        "status_sha256": "c46d4dc0f7de86c5a4ce5689e6cf8a454767c9bcb8d765b68c11203030460080",
+        "tracked_diff_sha256": "1f32cb08b3374562ac96b29539a87576d276212830c2fdf5d58b2163f6bf93af"
+      },
+      "head": {
+        "author_name": "[redacted-name] Dohmke",
+        "available": true,
+        "commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+        "committer_date": "2026-06-18T10:29:30+02:00",
+        "parent_count": 1,
+        "parents": [
+          "b219090c791f0ecdea069f449b9fcfdb9758ca27"
+        ],
+        "ref": "HEAD",
+        "subject": "Add v3 plan for pattern detection."
+      },
+      "origin_url": "https://github.com/ashtom/entire-brain.git",
+      "repo": "entire-brain",
+      "repo_path_input": "entire-brain",
+      "repo_path_resolved": "/[redacted-home]/Documents/Coding/entire-brain"
+    },
+    "task": {
+      "base_commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+      "config_sha256": "55f480e9123b06ed1278b348ca8b9f560bf0fc9ef5290be398693348d599e906",
+      "id": "entire-brain-clean-default-fact-merge-confidence",
+      "path": "benchmarks/agent-brain/tasks/entire-brain-clean-default-fact-merge-confidence.json",
+      "radar_include_deletions": false
+    },
+    "tools": {
+      "bin": {
+        "exists": true,
+        "path": "/[redacted-home]/Documents/Coding/entire-brain/benchmarks/agent-brain/results/panel-p01-clean-proof-claude-20260618T195058Z/bin"
+      },
+      "brain": {
+        "exists": true,
+        "path": "/[redacted-home]/Documents/Coding/entire-brain/benchmarks/agent-brain/results/panel-p01-clean-proof-claude-20260618T195058Z/bin/entire-brain",
+        "sha256": "fd3565866ad15e80f9a4cd351f3d155de3b2c7b3ee206d10dc10a5425d4bd209"
+      },
+      "entire": {
+        "exists": true,
+        "path": "/[redacted-home]/Documents/Coding/entire-brain/benchmarks/agent-brain/results/panel-p01-clean-proof-claude-20260618T195058Z/bin/entire",
+        "sha256": "08c187db4bb04522dde2e8e4a3f869456a86057e6eb84d8f3ea67b481fcbc0e2"
+      },
+      "sem": {
+        "exists": true,
+        "path": "/[redacted-home]/Documents/Coding/entire-brain/benchmarks/agent-brain/results/panel-p01-clean-proof-claude-20260618T195058Z/bin/entire-sem",
+        "sha256": "e8ef3a2c2c1a04e76f6bf995dd1aa11ad9c4357279d45cc7a35716332af3b96d"
+      }
+    }
+  },
+  "repetition": 3,
+  "repo": "entire-brain",
+  "run_id": "entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__full_brain__r3",
+  "runner": {
+    "agent": "claude",
+    "effort": "high",
+    "id": "claude-sonnet-high",
+    "model": "sonnet"
+  },
+  "score": {
+    "brain_use": 3,
+    "details": {
+      "activity_source": "protocol_json",
+      "agent_seconds": 198.57508420944214,
+      "brain_commands": [],
+      "changed_file_count": 1,
+      "checked_diff": false,
+      "diff_bytes": 562,
+      "direct_brain_cli_calls": 0,
+      "expected_files_touched": [
+        "internal/cli/facts_merge.go"
+      ],
+      "forbidden_files_touched": [],
+      "mcp_tool_calls": 0,
+      "mcp_tool_details": [],
+      "mcp_tool_names": [],
+      "missing_expected_files": [],
+      "ran_tests": false,
+      "search_calls": 0,
+      "structured_tool_event_count": 0,
+      "total_tokens": 2035478,
+      "unexpected_files_touched": [],
+      "validation_count": 2,
+      "validation_passed": 2
+    },
+    "outcome": 45,
+    "patch_focus": 29,
+    "runtime_efficiency": 4,
+    "total": 83,
+    "validation_discipline": 2,
+    "version": 2
+  },
+  "started_at": "2026-06-18T21:09:57.987976+00:00",
+  "task_id": "entire-brain-clean-default-fact-merge-confidence",
+  "validation": {
+    "ok": true,
+    "results": [
+      {
+        "command": "test $(rg -n 'defaultFactConfidenceThreshold = 0\\.75' internal/cli/facts_merge.go | wc -l | tr -d ' ') -eq 1",
+        "returncode": 0,
+        "seconds": 0.009641170501708984,
+        "stderr_tail": "",
+        "stdout_tail": ""
+      },
+      {
+        "command": "go test ./internal/cli -run 'TestApplyFactActionsHighConfidenceMerge|TestApplyFactActionsLowConfidenceQueuesProposal|TestApplyFactActionsHighConfidenceSupersede'",
+        "returncode": 0,
+        "seconds": 0.8460400104522705,
+        "stderr_tail": "",
+        "stdout_tail": "ok  \tgithub.com/ashtom/entire-brain/internal/cli\t0.478s\n"
+      }
+    ]
+  },
+  "worktree": "/[redacted-home]/Documents/Coding/entire-brain/benchmarks/agent-brain/results/panel-p01-clean-proof-claude-20260618T195058Z/entire-brain-clean-default-fact-merge-confidence__claude-sonnet-high__full_brain__r3/worktree"
+}
