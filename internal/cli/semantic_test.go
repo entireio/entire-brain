@@ -4593,3 +4593,24 @@ func TestSemanticWarningProviderKeysRoundTripThroughHeader(t *testing.T) {
 		t.Fatalf("round-tripped partial failure path = %q, want db/x.sql", got)
 	}
 }
+
+func TestTrustForCompleteness(t *testing.T) {
+	cases := map[string]string{"ok": "trusted", "degraded": "partial", "unsafe": "low", "": "unknown", "weird": "unknown"}
+	for level, want := range cases {
+		if got := trustForCompleteness(level); got != want {
+			t.Errorf("trustForCompleteness(%q) = %q, want %q", level, got, want)
+		}
+	}
+}
+
+func TestCompletenessLevelFromStats(t *testing.T) {
+	if got := completenessLevelFromStats([]byte(`{"completeness_level":"degraded","symbols":5}`)); got != "degraded" {
+		t.Errorf("got %q, want degraded", got)
+	}
+	if got := completenessLevelFromStats(nil); got != "" {
+		t.Errorf("nil stats: got %q, want empty", got)
+	}
+	if got := completenessLevelFromStats([]byte(`not json`)); got != "" {
+		t.Errorf("bad json: got %q, want empty", got)
+	}
+}

@@ -100,6 +100,43 @@ type semanticSourceManifest struct {
 	ProfileLimits           json.RawMessage `json:"profile_limits,omitempty"`
 	Stats                   json.RawMessage `json:"stats,omitempty"`
 	SummaryPresent          bool            `json:"summary_present"`
+
+	// Retrieval-trust diagnostics derived from the provider's completeness so an
+	// agent reading this index knows how much to trust its semantic facts.
+	// CompletenessLevel is the provider's level (ok/degraded/unsafe); Trust is a
+	// coarse label (trusted/partial/low/unknown). See trustForCompleteness.
+	CompletenessLevel string `json:"completeness_level,omitempty"`
+	Trust             string `json:"trust,omitempty"`
+}
+
+// completenessLevelFromStats extracts completeness_level from the provider's
+// trailing summary stats blob (json.RawMessage), or "" if absent.
+func completenessLevelFromStats(stats json.RawMessage) string {
+	if len(stats) == 0 {
+		return ""
+	}
+	var s struct {
+		CompletenessLevel string `json:"completeness_level"`
+	}
+	if err := json.Unmarshal(stats, &s); err != nil {
+		return ""
+	}
+	return s.CompletenessLevel
+}
+
+// trustForCompleteness maps a provider completeness level to a coarse
+// retrieval-trust label agents can branch on.
+func trustForCompleteness(level string) string {
+	switch level {
+	case "ok":
+		return "trusted"
+	case "degraded":
+		return "partial"
+	case "unsafe":
+		return "low"
+	default:
+		return "unknown"
+	}
 }
 
 type semanticWarning struct {
@@ -574,6 +611,8 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		ProfileLimits:           header.ProfileLimits,
 		Stats:                   header.Stats,
 		SummaryPresent:          summary != nil,
+		CompletenessLevel:       completenessLevelFromStats(header.Stats),
+		Trust:                   trustForCompleteness(completenessLevelFromStats(header.Stats)),
 	}
 	if err := writeBrainSemanticSource(storage.BrainDir, storage.Key, source); err != nil {
 		return err
@@ -584,6 +623,9 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	fmt.Fprintf(cmd.OutOrStdout(), "indexed semantic brain: %s\n", storage.BrainDir)
 	fmt.Fprintf(cmd.OutOrStdout(), "snapshot: %s\n", snapshotRel)
 	fmt.Fprintf(cmd.OutOrStdout(), "symbols: %d\nrelations: %d\n", source.Symbols, source.Relations)
+	if source.CompletenessLevel != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "completeness: %s\ntrust: %s\n", source.CompletenessLevel, source.Trust)
+	}
 	if len(source.Warnings) > 0 || len(source.PartialFailures) > 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "warnings: %d\n", len(source.Warnings)+len(source.PartialFailures))
 	}
