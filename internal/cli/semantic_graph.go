@@ -50,6 +50,11 @@ type semanticDeadCodeOptions struct {
 
 type semanticTraceIngestOptions struct {
 	json bool
+	// restrictToRepoRoot constrains the ingested trace path to the repository
+	// root (rejecting absolute paths, "..", and symlink escapes). It is set on
+	// the agent-facing MCP surface; the CLI leaves it false to allow an explicit
+	// path argument.
+	restrictToRepoRoot bool
 }
 
 type semanticGraphUIOptions struct {
@@ -962,7 +967,15 @@ func runSemanticIngestTraces(cmd *cobra.Command, opts Options, ingestOpts semant
 	if err != nil {
 		return err
 	}
-	traces, err := readRuntimeTraces(path)
+	tracePath := path
+	if ingestOpts.restrictToRepoRoot {
+		resolved, resolveErr := resolveContainedTracePath(opts.Env.RepoRoot, path)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		tracePath = resolved
+	}
+	traces, err := readRuntimeTraces(tracePath)
 	if err != nil {
 		return err
 	}
@@ -1139,12 +1152,39 @@ renderEdges();document.getElementById('filter').addEventListener('input',e=>rend
 `
 }
 
+const maxRuntimeTraceFileBytes = 64 << 20 // 64 MiB cap on an ingested runtime-trace file
+
+// resolveContainedTracePath constrains an MCP-supplied trace path to repoRoot:
+// it rejects absolute paths, "."/".." escapes, and symlink traversal, then
+// returns the path joined under repoRoot. Used only on the agent-facing surface
+// so a confused-deputy tool call cannot read arbitrary files outside the repo.
+func resolveContainedTracePath(repoRoot, path string) (string, error) {
+	if filepath.IsAbs(path) {
+		return "", fmt.Errorf("trace path must be relative to the repository: %s", path)
+	}
+	clean := filepath.Clean(path)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("trace path escapes the repository: %s", path)
+	}
+	root := repoRoot
+	if root == "" {
+		root = "."
+	}
+	if err := rejectSymlinkPathComponents(root, clean); err != nil {
+		return "", err
+	}
+	return filepath.Join(root, clean), nil
+}
+
 func readRuntimeTraces(path string) ([]semanticRuntimeTrace, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
+	if info, statErr := f.Stat(); statErr == nil && info.Size() > maxRuntimeTraceFileBytes {
+		return nil, fmt.Errorf("runtime trace file too large: %d bytes exceeds %d", info.Size(), maxRuntimeTraceFileBytes)
+	}
 	var traces []semanticRuntimeTrace
 	dec := json.NewDecoder(f)
 	if err := dec.Decode(&traces); err == nil {
@@ -1200,6 +1240,13 @@ func ensureSemanticRuntimeTraceTable(db *sql.DB) error {
 func insertRuntimeTraceFacts(db *sql.DB, report semanticTraceIngestReport, traces []semanticRuntimeTrace, matched []bool) error {
 	tx, err := db.Begin()
 	if err != nil {
+		return err
+	}
+	// Idempotent re-ingest: drop any prior rows for this source before
+	// re-inserting, so re-running ingest on the same trace file does not
+	// double-count runtime-trace relations in counts/hotspots/entry-points.
+	if _, err := tx.Exec(`DELETE FROM runtime_traces WHERE source_path = ?`, report.Path); err != nil {
+		_ = tx.Rollback()
 		return err
 	}
 	for i, trace := range traces {
