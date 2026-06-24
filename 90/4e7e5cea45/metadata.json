@@ -1,0 +1,23 @@
+{
+  "cli_version": "0.7.8-nightly.202606200729.6f2a8c984",
+  "checkpoint_id": "904e7e5cea45",
+  "strategy": "manual-commit",
+  "branch": "ci/test-timeout",
+  "checkpoints_count": 4,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/90/4e7e5cea45/0/metadata.json",
+      "transcript": "/90/4e7e5cea45/0/full.jsonl",
+      "content_hash": "/90/4e7e5cea45/0/content_hash.txt",
+      "prompt": "/90/4e7e5cea45/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 23688,
+    "cache_creation_tokens": 1645476,
+    "cache_read_tokens": 25553632,
+    "output_tokens": 142076,
+    "api_call_count": 166
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "cli_version": "0.7.8-nightly.202606200729.6f2a8c984",
+  "checkpoint_id": "904e7e5cea45",
+  "session_id": "a4bde332-8cdb-425f-84fb-bf25d036998a",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-24T19:07:45.987706Z",
+  "branch": "ci/test-timeout",
+  "checkpoints_count": 4,
+  "save_step_count": 2,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "ebe5cc11df5e",
+  "token_usage": {
+    "input_tokens": 23688,
+    "cache_creation_tokens": 1645476,
+    "cache_read_tokens": 25553632,
+    "output_tokens": 142076,
+    "api_call_count": 166
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01EBxUtBJXdgDH8jAnb71voM",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "review"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "ebe5cc11df5e",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 18,
+        "end": 19,
+        "entry_ids": [
+          "977671d1-a15d-413a-ba25-70caec6d3f79"
+        ],
+        "tool_use_id": "toolu_01EBxUtBJXdgDH8jAnb71voM"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01EBxUtBJXdgDH8jAnb71voM"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: review",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01JMfLXEwKPKhEegSg61K1HC",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "review"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "ebe5cc11df5e",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 517,
+        "end": 518,
+        "entry_ids": [
+          "46253f3e-869a-44e7-8966-3e801ef1a564"
+        ],
+        "tool_use_id": "toolu_01JMfLXEwKPKhEegSg61K1HC"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01JMfLXEwKPKhEegSg61K1HC"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: review",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01HgtAVBGxRtH29sd7XjAg2x",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "review"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "ebe5cc11df5e",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 725,
+        "end": 726,
+        "entry_ids": [
+          "1b9b4552-4128-4de6-965a-4ad5c98e084c"
+        ],
+        "tool_use_id": "toolu_01HgtAVBGxRtH29sd7XjAg2x"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01HgtAVBGxRtH29sd7XjAg2x"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: review",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 16
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

@@ -1,0 +1,326 @@
+Review https://github.com/ashtom/entire-sem/pull/6
+
+---
+
+Ok, fix the finding and align the confidence number to 0.68.
+
+---
+
+Ok, now look at PR #5 next
+
+---
+
+Ok, so let's do the same thing again: Merge #5, then apply your fix
+
+---
+
+Ok, now review #49 in the entire-brain repo.
+
+---
+
+<task-notification>
+<task-id>a67ce1cd66347d224</task-id>
+<tool-use-id>toolu_014ZooZ4UganBuUJfvnf1ixs</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/a4bde332-8cdb-425f-84fb-bf25d036998a/tasks/a67ce1cd66347d224.output</output-file>
+<status>completed</status>
+<summary>Agent "Conventions (CLAUDE.md)" came to rest</summary>
+<note>A task-notification fires each time this agent comes to rest with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Based on my search, there are no CLAUDE.md or CLAUDE.local.md files in the repository root or in any of the directories containing changed files (internal/cli/, scripts/, docs/, .github/). 
+
+**No CLAUDE.md violations found.**
+
+The repository does not have any CLAUDE.md convention files that would govern the changed files in this diff. Therefore, there are no CLAUDE.md rules to check against.</result>
+<usage><subagent_tokens>13396</subagent_tokens><tool_uses>12</tool_uses><duration_ms>23887</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ad93778047842edb6</task-id>
+<tool-use-id>toolu_01PuUghUvWgzg4tpj9HmNmpb</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/a4bde332-8cdb-425f-84fb-bf25d036998a/tasks/ad93778047842edb6.output</output-file>
+<status>completed</status>
+<summary>Agent "Efficiency" came to rest</summary>
+<note>A task-notification fires each time this agent comes to rest with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Excellent! Now let me check one more critical pattern - the semantic record calls in the trace path function:
+
+Based on my comprehensive analysis of the diff, here are the top efficiency problems I found:
+
+## Efficiency Issues Found
+
+1. **`semantic_graph.go` line ~2564-2566: Sequential SQLite opens for graph path finding**
+   Summary: `findSemanticRecordByIDOrNameSQLite()` called twice per `runSemanticTracePath()` before main db connection, re-opening store
+   Failure scenario: For each trace-path query (e.g., tracing from Symbol A to B), database is opened and closed twice just to find the endpoints, then opened again for the path traversal. At scale (10+ path queries), this causes 30+ unnecessary sqlite opens.
+
+2. **`workspace.go` line ~3831-3860: `semanticGraphMetrics()` called per-repo in workspace graph build**
+   Summary: `semanticGraphMetrics(db)` executes 5 separate complex union queries (hotspots, entryPoints, clusters, packages, layers) for each repo in manifest
+   Failure scenario: 10-repo workspace re-runs all 5 metric queries once per repo. With large relation tables (100k+ rows), the UNION queries in hotspots/entryPoints scan the full relations and runtime_traces tables per repo. A workspace with 20 repos re-scans 20x.
+
+3. **`workspace.go` line ~4164-4200: `workspaceGraphImportCrossEdges()` O(n³) loop**
+   Summary: Triple nested loop: `for repo in indexes { for import in repo.Imports { for other_repo in indexes { ... } } }` generates candidate edges without early filtering
+   Failure scenario: With 10 repos, each having 100 imports targeting 10 other repos, this produces 10,000 candidate edge objects before limit. Each iteration calls `workspaceImportMatchesRepo()` and `workspaceImportTargetCandidate()`. At 100 repos with 500+ imports, becomes O(n³) = 50M inner iterations.
+
+4. **`workspace.go` line ~4238-4279: `workspaceGraphGraphQLCrossEdges()` repeated participant filtering and sorting**
+   Summary: For each aggregate, manually separates `aggregate.Participants` into targets/operations/schemaFields/resolvers with two separate sorts, then nested loops
+   Failure scenario: With 50 GraphQL aggregates each with 200 participants, this creates ~10k temporary slices and runs 2 sorts per aggregate. The nested loops (operations x targets x graphql_schema_fields x resolvers) are O(n^2) per aggregate on participant counts.
+
+5. **`workspace.go` line ~4762-4778: `workspaceExternalSymbolCandidateRank()` calls `workspaceExternalSymbolMatchesCandidate()` in ranking**
+   Summary: `workspaceExternalSymbolCandidateRank()` calls `workspaceExternalSymbolMatchesCandidate()` as fallback (case 4), which itself calls `workspaceExternalSymbolCandidateAliases()` and `workspaceExternalSymbolCandidateSpecs()` (each doing string manipulation loops)
+   Failure scenario: Sorting 1000 candidate symbols calls ranking per candidate, and at rank=4 fallback, hits double-nested string loops. With complex qualified_name paths (50+ separators), each candidate does O(n²) string work during sort comparisons on the candidates list.
+
+6. **`regression.go` line ~385-403: `semanticRuntimeTraceFacts()` called twice per review (ranking + context)**
+   Summary: In `runBrainReview()`, both `detectRegressionAnomalies()` (line 1510) and second call to `semanticRuntimeTraceFacts()` (line 1513) load the same runtime trace facts
+   Failure scenario: Large repos with 10k+ runtime traces: first call loads all traces for ranking (query + deserialization), second call re-loads identical traces for context. Each `semanticRuntimeTraceFacts()` reads JSON/NDJSON files and scans database. On a 5MB trace file, this is 10MB+ of I/O per review command.
+
+---
+
+**Summary**: Issues center on workspace graph computation with redundant metrics per-repo, O(n³) cross-edge generation, repeated ranking/filtering without caching, and duplicate runtime trace loading. Together these create quadratic-to-cubic scaling with repository/relation count.</result>
+<usage><subagent_tokens>57998</subagent_tokens><tool_uses>18</tool_uses><duration_ms>57726</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ab22bf317148f745a</task-id>
+<tool-use-id>toolu_01LPt8v8qyMANMYS5d3eXS1e</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/a4bde332-8cdb-425f-84fb-bf25d036998a/tasks/ab22bf317148f745a.output</output-file>
+<status>completed</status>
+<summary>Agent "Altitude" came to rest</summary>
+<note>A task-notification fires each time this agent comes to rest with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Perfect. Now I have good visibility. Let me analyze the altitude issues and create my report:
+
+## Altitude Analysis
+
+Based on my review of the diff, here are the main implementation altitude issues:
+
+1. **MCP.go - Tool Handler Case Bloat (lines 884-1018)**: Each new graph tool (brain_search_graph, brain_query_graph, brain_trace_path, brain_dead_code, brain_ingest_traces, etc.) requires manually adding a `case` statement with argument parsing boilerplate in `handleMCPToolCall`. This is per-tool boilerplate that scales with tool count.
+
+2. **Workspace.go - Repeated Cross-Edge Pattern (lines 4264-4551)**: Functions like `workspaceGraphRouteCallCrossEdges`, `workspaceGraphGraphQLCrossEdges`, `workspaceGraphChannelCrossEdges`, and `workspaceGraphResourceCrossEdges` follow nearly identical patterns: filter aggregates by type/endpoint prefix → partition participants → nested loops building cross-repo edges → dedup/limit/return. This pattern repeats 4+ times with only the classification logic varying.
+
+3. **Semantic_graph.go - Cypher Query Parsing (lines 2325-2416)**: The Cypher-like query syntax parsing uses ad-hoc regex matching and a giant switch statement in `applyCypherPredicate` that hardcodes every valid (alias, field, operator) combination. Adding new predicates requires modifying two places (regex + switch).
+
+4. **MCP.go - Tool Validation Switch (lines 1150-1191)**: Similar per-tool boilerplate in `validateMCPToolArguments` where each tool case lists its allowed arguments. This scales with tool count and duplicates tool knowledge.
+
+5. **Workspace.go - External Contract Pattern (lines 3921-4102)**: Five separate collection functions (`collectWorkspaceExternalContracts`, `collectWorkspaceImportRefs`, `collectWorkspaceExternalSymbolRefs`, `collectWorkspaceTargetCandidates`) each with hand-crafted SQL WHERE clauses and participant filtering logic based on string prefix matching (e.g., `strings.HasPrefix(localID, "external:")`).
+
+6. **Semantic_graph.go - Endpoint Canonicalization (lines 4321-4340)**: The `workspaceCanonicalRouteEndpoint` function hardcodes 6 separate regex rewrites for different routing frameworks (Go `{param}`, Flask `&lt;param&gt;`, Rails `[[param]]`, etc.). Adding a new framework's syntax requires a new regex line.
+
+---
+
+## Concise Findings
+
+1. **File**: internal/cli/mcp.go, **Lines**: 884-1018  
+   **Summary**: Per-tool case statement boilerplate in tool call handler duplicated for each new graph tool.  
+   **Failure scenario**: Adding 10 new tools requires 10 new case blocks with repetitive argument extraction—difficult to refactor and easy to copy-paste errors.  
+   **Deeper fix**: Tool registry table mapping tool name → (argument schema, handler function). Validate and extract args once, call handler.
+
+2. **File**: internal/cli/workspace.go, **Lines**: 4264-4551  
+   **Summary**: Five cross-edge builder functions repeat identical filter-partition-nested-loop-dedupe pattern, varying only the aggregate type/endpoint prefix check.  
+   **Failure scenario**: New cross-edge type requires copying entire function and tweaking 3-4 lines; increases maintenance burden and bug-coupling.  
+   **Deeper fix**: Single `buildCrossEdgesForContractType` function taking a config struct (type, prefix, endpoint-canonical fn, participant-filter fn, relation-kind fn); five callers instantiate with different configs.
+
+3. **File**: internal/cli/semantic_graph.go, **Lines**: 2330-2416  
+   **Summary**: Cypher predicate parsing uses ad-hoc regex + giant switch statement mapping (alias.field.op) to filter mutation; predicates hardcoded in two places.  
+   **Failure scenario**: Adding a new field (e.g., `r.score`) requires updating both the predicate regex AND the switch—silent failures if only one is updated.  
+   **Deeper fix**: Build predicate descriptor table at init with (regex, field name, field extractor closure). Single loop applies all predicates, no switch.
+
+4. **File**: internal/cli/mcp.go, **Lines**: 1150-1191  
+   **Summary**: Tool argument allowlist duplicated in validateMCPToolArguments switch; mirrors tool schema from mcpToolDefinitions.  
+   **Failure scenario**: Misalignment between tool definition and validator (e.g., adding arg to tool schema but forgetting validator case) silently permits invalid calls.  
+   **Deeper fix**: Derive validator from tool definitions at startup; single source of truth eliminates switch.
+
+5. **File**: internal/cli/workspace.go, **Lines**: 3921-4102  
+   **Summary**: Five collection functions hardcode external contract types as string prefixes; `collectWorkspaceImportRefs` has `external:import:`, others check `external:` prefix directly or absence thereof.  
+   **Failure scenario**: New external type (e.g., `external:webhook:`) requires new collection function; logic scattered across five places.  
+   **Deeper fix**: Single parameterized query builder; table of (external type, where clause fragment, participant-mapping closure) drives all five collection paths.
+
+6. **File**: internal/cli/workspace.go, **Lines**: 4321-4340  
+   **Summary**: Route endpoint canonicalization hardcodes 6 regex rewrites for different framework syntax variations (Go {param}, Flask &lt;&gt;, Rails [[]], etc.).  
+   **Failure scenario**: Supporting a new framework (e.g., Java Spring `#{param}`) requires adding another regex line; no extensibility mechanism.  
+   **Deeper fix**: Route canonicalization strategy table: (framework-name, regex pattern) pairs loaded from config or package init, applied in sequence.</result>
+<usage><subagent_tokens>69549</subagent_tokens><tool_uses>12</tool_uses><duration_ms>59897</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a69b90d525788ac11</task-id>
+<tool-use-id>toolu_013enReistoRUQdRHbxwAPnu</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/a4bde332-8cdb-425f-84fb-bf25d036998a/tasks/a69b90d525788ac11.output</output-file>
+<status>completed</status>
+<summary>Agent "Reuse + simplification" came to rest</summary>
+<note>A task-notification fires each time this agent comes to rest with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Excellent! Now I have all the information I need. Let me compile my findings on the cleanup opportunities.
+
+## Summary of Code Review Findings
+
+Based on my thorough analysis of the PR diff and the codebase, here are the most impactful cleanup opportunities:
+
+---
+
+**1. COMMAND FLAG INITIALIZATION BOILERPLATE**
+- **File:** `/Users/thomi/Projects/entire-brain/internal/cli/agent_surface.go`, lines 631-750
+- **Summary:** Eight `newInspect*Command` functions (search-graph, query-graph, graph-schema, graph-ui, snippet, trace-path, dead-code, ingest-traces) follow identical flag-setup patterns—local struct init, cmd.Flags().IntVar()/BoolVar() calls, return cmd. This is copy-paste across 120 lines.
+- **Failure scenario:** Maintaining 8 parallel flag-registration blocks increases risk of inconsistency (e.g., typo in flag description, wrong default, missing flag) and complicates future uniform changes (e.g., adding --verbose to all inspect commands).
+
+**2. REDUNDANT `nonNilStrings` HELPER DUPLICATION**
+- **File:** `/Users/thomi/Projects/entire-brain/internal/cli/semantic_graph.go`, line 1505
+- **Summary:** New file adds `func nonNilStrings(values []string) []string` at line 1505; `nonNilRecords` already exists at `/Users/thomi/Projects/entire-brain/internal/cli/semantic.go:2399` following identical pattern: `if nil return []type{}; else return values`. The semantic_graph.go should reuse the existing helper or extract a generic `nonNil[T]` utility.
+- **Failure scenario:** Two near-identical slice-nil-coalescing functions create maintenance debt; adding future type-specific helpers multiplies this pattern unnecessarily.
+
+**3. DATABASE INITIALIZATION AND CLOSURE PATTERN REPETITION**
+- **File:** `/Users/thomi/Projects/entire-brain/internal/cli/semantic_graph.go`, lines 168, 415, 741, 913, 969 (multiple occurrences)
+- **Summary:** Five `runSemantic*` functions each repeat: `env, err := loadSemanticEnv(...)`, `storePath, err := semanticStorePath(...)`, `db, err := sql.Open(sqliteDriverName, storePath)`, `defer db.Close()`. This is a boilerplate wrapper that could be extracted into a helper like `func withSemanticDB(cmd, opts) (*sql.DB, error)`.
+- **Failure scenario:** Changes to initialization logic (e.g., adding connection pooling, context-aware query timeout, transaction wrapping) must be replicated across 5+ places; bugs in one site may be missed in another.
+
+**4. WORKSPACE/SEMANTIC ENVIRONMENT LOADING DUPLICATION**
+- **File:** `/Users/thomi/Projects/entire-brain/internal/cli/semantic_graph.go`, lines 133-150 (loadSemanticEnv) vs `/Users/thomi/Projects/entire-brain/internal/cli/workspace.go` (workspaceSemanticSource, brainDirForKey usage)
+- **Summary:** `loadSemanticEnv` at line 133-150 and workspace.go's per-repo brain-loading logic both call `exportRepoDir`, `repoStoragePaths`, `loadBrainManifest`, and `validateSemanticDeclaredStore`—nearly identical setup. The workspace `buildWorkspaceGraphPayload` (workspace.go:720-800) repeats these steps per repo without a shared helper.
+- **Failure scenario:** If the semantic store validation contract changes (e.g., version check added), multiple callers must be updated; inconsistent error handling between the two sites.
+
+**5. REPEATED `graphMetrics` QUERY AND ASSEMBLY LOGIC**
+- **File:** `/Users/thomi/Projects/entire-brain/internal/cli/semantic_graph.go`, lines 208-272 (semanticGraphMetrics) vs `/Users/thomi/Projects/entire-brain/internal/cli/workspace.go`, lines 760+ (collectWorkspace*)
+- **Summary:** Both `semanticGraphMetrics()` (lines 208–272) and workspace graph collection (lines 760+) perform identical SQL queries for hotspots, entry points, layers, clusters. The `graphMetrics` struct is defined once but built via duplicated SQL/scanning logic in two places.
+- **Failure scenario:** When adding a new metric rank (e.g., `FileComplexity`), both sites must be updated; test coverage may be split, allowing bugs in one path.
+
+**6. JSON OUTPUT WRAPPER DUPLICATION IN MCP HANDLERS**
+- **File:** `/Users/thomi/Projects/entire-brain/internal/cli/mcp.go`, lines 558–624 (brain_search_graph through brain_ingest_traces cases)
+- **Summary:** Eight MCP case handlers (search-graph, query-graph, schema, snippet, trace-path, dead-code, ingest-traces, detect-changes) each wrap their underlying `runSemantic*` calls with identical parameter-parsing and json-flag-override boilerplate (`err = mcpOptionalString(...)`, `err = runSemantic*(cmd, opts, OptionsStruct{json: true}, ...))`). This mirrors the CLI command wrappers already in agent_surface.go.
+- **Failure scenario:** A bug in parameter-parsing (e.g., missing default value check) is replicated 8 times; adding a new optional parameter to all graph tools requires coordinating both MCP handlers and CLI commands.
+
+---
+
+**All 6 candidates target high-reuse potential:**
+- Candidates 1 &amp; 6 involve copy-paste command/MCP handler registration (120+ lines of near-identical boilerplate across 8 tools).
+- Candidates 3 &amp; 4 involve DB initialization and manifest-loading routines repeated 5+ times.
+- Candidates 2 &amp; 5 involve helper functions and metrics assembly that already exist elsewhere or are trivial to unify.</result>
+<usage><subagent_tokens>62369</subagent_tokens><tool_uses>53</tool_uses><duration_ms>90217</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a84b0d24a602b6bec</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/a4bde332-8cdb-425f-84fb-bf25d036998a/tasks/a84b0d24a602b6bec.output</output-file>
+<status>completed</status>
+<summary>Agent "Angle B: removed-behavior audit" came to rest</summary>
+<note>A task-notification fires each time this agent comes to rest with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Good! Now let me check if there's any removed validation or error-handling. Let me now search systematically for what got deleted by looking at the old functions:
+
+Based on my analysis of the PR diff, I can now identify the removed behavior patterns. Let me create my final report with the substantive findings:
+
+## Report: Removed Behavior and Dropped Guards (ANGLE B Analysis)
+
+Based on careful review of the PR diff focusing on deleted code that enforced invariants or guards, here are the substantive candidates:
+
+1. **File**: `.github/workflows/test.yml`, **Line**: 2-6 (push trigger configuration)  
+   **Summary**: Push trigger narrowed from all branches to `main` only (deleted implicit all-branches behavior).  
+   **Failure scenario**: Feature branches pushing to non-main branches no longer trigger CI test runs. Development PRs on feature branches won't run lint/build/test jobs automatically, requiring manual workflow_dispatch to verify code quality before merging.
+
+2. **File**: `.github/workflows/test.yml`, **Line**: 90-93 (release-evidence guard)  
+   **Summary**: Release-evidence job gained an `if:` guard restricting execution to workflow_dispatch, main, release/*, or tags (previously always ran on push).  
+   **Failure scenario**: When a developer pushes to a feature branch, the release-evidence audit (which validates proof-ready artifacts) no longer executes. A broken release check only gets caught if that branch is later pushed to main/tags or manually triggered.
+
+3. **File**: `internal/cli/workspace.go`, **Line**: 5111-5117  
+   **Summary**: Switched from `getWorkspaceCorpusRecord()` (2-return: value, bool) to `getWorkspaceLevelRecord()` (3-return: value, bool, error) without propagating the new error up at call site.  
+   **Failure scenario**: When `loadWorkspaceGraphPayload()` fails with an I/O error (disk read, corrupted JSON), the error is silently eaten and treated as "not found", causing workspace graph queries to appear empty rather than surfacing the actual storage failure to the user.
+
+4. **File**: `internal/cli/workspace.go`, **Line**: 5113-5114 (graph: prefix check removed from conditional)  
+   **Summary**: Deleted separate code path for handling `pattern:` and `theme:` prefixed IDs; now includes `graph:` prefix in same condition but with different handler function.  
+   **Failure scenario**: If `graph:` prefixed IDs previously had dedicated validation/formatting that was consolidated into the new generic handler, any invariant specific to graph IDs (e.g., format, encoding, escaping) is now lost if the new handler doesn't replicate all checks.
+
+5. **File**: `internal/cli/regression.go`, **Line**: 384 (deleted candFile struct field)  
+   **Summary**: Removed `isTest` field initialization on line 1385 (old code); new version adds `runtimeTrace` and `traceRank` fields but doesn't show explicit removal of the `isTest` field. However, the struct layout changed and old code path checking `isSem` rank is now augmented with trace ranking.  
+   **Failure scenario**: The regression anomaly ranking now prioritizes runtime-traced edges. If an old test assumed semantic-ranked findings came first, adding trace-ranking before semantic-ranking (line 481-484) may cause test candidates to reorder unexpectedly, producing different regression detection order.
+
+6. **File**: `internal/cli/semantic.go`, **Line**: 1247-1248  
+   **Summary**: Added new SQLite table `runtime_traces` with index creation. No deletion visible, but the initialization now depends on an ensemble of new tables that must all be created. If table creation partially fails, the database is left in inconsistent state.  
+   **Failure scenario**: If `CREATE INDEX idx_runtime_traces_to` fails but `CREATE TABLE runtime_traces` succeeded (e.g., disk full during index creation), subsequent queries to `runtime_traces` will fail with "index not found" errors, but the table exists, causing type errors or query plan failures in `semanticRuntimeTraceFacts()`.
+
+---
+
+**Most critical candidate**: #1 and #2 (workflow CI narrowing) — feature branches no longer run full CI by default, and release audits only run on main/tags, creating a gap where breaking changes could land before detection.</result>
+<usage><subagent_tokens>48516</subagent_tokens><tool_uses>31</tool_uses><duration_ms>114818</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a328aaeb6eef07e8e</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/a4bde332-8cdb-425f-84fb-bf25d036998a/tasks/a328aaeb6eef07e8e.output</output-file>
+<status>completed</status>
+<summary>Agent "Angle A: line-by-line scan" came to rest</summary>
+<note>A task-notification fires each time this agent comes to rest with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>These all look like multi-line queries, not concatenation. Let me check the most critical one - is there a proper return of empty slice vs nil?
+
+Let me look at the critical issue I found at line 774-776 in workspace.go more carefully. Actually, this is the pattern:
+
+```go
+if closeErr := db.Close(); err == nil {
+    err = closeErr
+}
+```
+
+What this does: if `db.Close()` returns an error AND there's no previous error, assign the close error. This is actually fine - it prefers to return the first error encountered, and only if there's no first error does it return the close error. This is actually a reasonable pattern.
+
+Let me look for off-by-one errors or wrong boundary conditions. Let me check a critical place - the limit handling in queries:
+
+Based on my thorough analysis of the diff, here are the findings:
+
+## Summary
+
+After examining the substantive Go and shell code in the PR (semantic_graph.go, workspace.go, mcp.go, semantic.go, regression.go, agent_surface.go, install-local.sh, install.sh, release.sh, test.yml, and mise.toml), I found **no high-confidence correctness bugs** that would cause crashes or wrong output in normal usage scenarios.
+
+The code demonstrates good practices:
+- Proper SQL parameterization (no injection risks)
+- Correct error handling with defer db.Close()
+- Proper transaction handling with rollback
+- Safe nil slice/map handling
+- Proper quoting in shell scripts
+- All critical functions check limit &gt; 0 before use
+
+The only minor oddities are:
+- Lines 774-776 in workspace.go use an unusual but valid error-coalescing pattern
+- Lines 290-291 in semantic_graph.go have defensive nil-to-empty-slice conversion that's redundant but not wrong
+- Lines 949-950 and 1010-1011 in workspace.go similarly do defensive conversions
+
+These are all defensive programming patterns, not bugs.
+
+**Conclusion: No candidate findings to report.** The PR code is well-written and careful with error handling and resource management.</result>
+<usage><subagent_tokens>79428</subagent_tokens><tool_uses>46</tool_uses><duration_ms>174024</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a9bcdb9ad9069d94b</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/a4bde332-8cdb-425f-84fb-bf25d036998a/tasks/a9bcdb9ad9069d94b.output</output-file>
+<status>completed</status>
+<summary>Agent "Scripts + workflow correctness" came to rest</summary>
+<note>A task-notification fires each time this agent comes to rest with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Perfect. Now let me compile my final list of issues:
+
+## Summary
+
+I've reviewed the PR diff focusing on shell scripts and CI configuration. Here are the real bugs and footguns I found:
+
+1. **scripts/release.sh, line 48** — Cross-platform hash tool mismatch. Uses `shasum -a 256` which is not guaranteed to exist on Linux systems (only `sha256sum` is standard). Failure scenario: CI on Linux without shasum installed fails with "command not found".
+
+2. **.github/workflows/test.yml, line 4-5 vs line 94** — Workflow trigger/job condition mismatch. Push only triggers on main (line 5), but release-evidence job condition allows release/* branches and tags (line 94). Since push doesn't trigger on release/* branches, the release-evidence job will never run for release branches via push. Failure scenario: Developer pushes release/v1.0, expects release-evidence validation, but workflow doesn't even trigger.
+
+3. **.github/workflows/test.yml, line 94** — Redundant/unreachable job condition. The `if:` clause includes `startsWith(github.ref, 'refs/tags/')` but the workflow doesn't have a tag push trigger, making that condition unreachable via the standard push/pull_request triggers. Failure scenario: Tags are pushed but release-evidence doesn't run unless workflow_dispatch is used manually.
+
+4. **scripts/install-local.sh, line 21 &amp; scripts/release.sh, line 49** — The signing logic and install logic don't explicitly document or validate that required files exist (entire-plugin.yml in release.sh, entire CLI in install-local.sh already checked at line 7). However, install-local.sh line 21 runs without documenting what happens if entire CLI registration fails silently.
+
+5. **scripts/release.sh, lines 35, 40** — Inconsistent CGO default logic. The script defaults CGO_ENABLED differently based on whether BUILD_TAGS is set. Documentation says "pure-Go fallback stack with CGO_ENABLED=0" but if BUILD_TAGS is provided without explicitly setting CGO_ENABLED, it defaults to 1. This creates implicit coupling between BUILD_TAGS and CGO settings.
+
+6. **scripts/install.sh, line 32** — Missing error context for subshell cd failure. The subshell `(cd "$brain_root" &amp;&amp; ...)` lacks the pre-flight check that line 24-29 provides for sem_root. If brain_root becomes unavailable between derivation (line 15) and use (line 32), error message will be generic "cd" error rather than helpful context.</result>
+<usage><subagent_tokens>41675</subagent_tokens><tool_uses>45</tool_uses><duration_ms>178679</duration_ms></usage>
+</task-notification>
+
+---
+
+Fix them all
