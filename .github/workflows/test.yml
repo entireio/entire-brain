@@ -47,7 +47,9 @@ jobs:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
         with: { go-version: "1.26.2" }
-      - run: go test -race ./...
+      # Windows + the race detector is much slower than the other runners, so
+      # give the suite headroom over the default 10m `go test` timeout.
+      - run: go test -race -timeout 20m ./...
 
   # Stage 1b cgo stack: mattn/go-sqlite3 + sqlite-vec (vec0) + FTS5. The
   # default jobs above stay pure-Go and prove the cgo-less fallback; this lane
@@ -64,7 +66,7 @@ jobs:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
         with: { go-version: "1.26.2" }
-      - run: go test -tags "brain_cgo sqlite_fts5" ./...
+      - run: go test -tags "brain_cgo sqlite_fts5" -timeout 20m ./...
 
   phase1-semantic:
     strategy:
@@ -85,7 +87,7 @@ jobs:
           GOSUMDB: "sum.golang.org"
         run: go mod download
       - name: Run deterministic Phase 1 semantic tests
-        run: go test -race ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'
+        run: go test -race -timeout 20m ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'
 
   release-evidence:
     # Release-evidence audits enforce proof-ready release artifacts. The plan
