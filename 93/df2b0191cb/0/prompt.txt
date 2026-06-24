@@ -1,0 +1,11 @@
+Merge, then resolve
+
+---
+
+<task-notification>
+<task-id>b23pbrq91</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/a4bde332-8cdb-425f-84fb-bf25d036998a/tasks/b23pbrq91.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll #50 CI until complete" completed (exit code 0)</summary>
+</task-notification>
