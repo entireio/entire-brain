@@ -77,6 +77,13 @@ func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
+	tracePath := filepath.Join(repoDir, "runtime-trace.ndjson")
+	if err := os.WriteFile(tracePath, []byte(`{"from":"ValidateToken","to":"TestValidateToken","type":"OBSERVED_CALL"}`+"\n"), 0o600); err != nil {
+		t.Fatalf("write runtime trace: %v", err)
+	}
+	if err := runSemanticIngestTraces(&cobra.Command{Use: "ingest"}, opts, semanticTraceIngestOptions{json: true}, tracePath); err != nil {
+		t.Fatalf("ingest runtime trace: %v", err)
+	}
 	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
 	if err != nil {
 		t.Fatalf("storage: %v", err)
@@ -124,6 +131,12 @@ func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	}
 	if len(report.Semantic.Context.Symbols) == 0 || report.Semantic.Context.Symbols[0].Name != "ValidateToken" {
 		t.Fatalf("brief missing semantic context: %+v", report.Semantic.Context.Symbols)
+	}
+	if len(report.Semantic.RuntimeTraces) == 0 || report.Semantic.RuntimeTraces[0].Type != "RUNTIME_TRACE" {
+		t.Fatalf("brief missing runtime trace context: %+v", report.Semantic.RuntimeTraces)
+	}
+	if report.Semantic.RuntimeTraces[0].FilePath != "internal/auth/token.go" {
+		t.Fatalf("runtime trace did not carry source symbol file: %+v", report.Semantic.RuntimeTraces[0])
 	}
 	if len(report.History.Matches) == 0 || !strings.Contains(report.History.Matches[0].Excerpt, "mainline") {
 		t.Fatalf("brief missing ranked history match: %+v", report.History.Matches)

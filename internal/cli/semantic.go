@@ -100,6 +100,43 @@ type semanticSourceManifest struct {
 	ProfileLimits           json.RawMessage `json:"profile_limits,omitempty"`
 	Stats                   json.RawMessage `json:"stats,omitempty"`
 	SummaryPresent          bool            `json:"summary_present"`
+
+	// Retrieval-trust diagnostics derived from the provider's completeness so an
+	// agent reading this index knows how much to trust its semantic facts.
+	// CompletenessLevel is the provider's level (ok/degraded/unsafe); Trust is a
+	// coarse label (trusted/partial/low/unknown). See trustForCompleteness.
+	CompletenessLevel string `json:"completeness_level,omitempty"`
+	Trust             string `json:"trust,omitempty"`
+}
+
+// completenessLevelFromStats extracts completeness_level from the provider's
+// trailing summary stats blob (json.RawMessage), or "" if absent.
+func completenessLevelFromStats(stats json.RawMessage) string {
+	if len(stats) == 0 {
+		return ""
+	}
+	var s struct {
+		CompletenessLevel string `json:"completeness_level"`
+	}
+	if err := json.Unmarshal(stats, &s); err != nil {
+		return ""
+	}
+	return s.CompletenessLevel
+}
+
+// trustForCompleteness maps a provider completeness level to a coarse
+// retrieval-trust label agents can branch on.
+func trustForCompleteness(level string) string {
+	switch level {
+	case "ok":
+		return "trusted"
+	case "degraded":
+		return "partial"
+	case "unsafe":
+		return "low"
+	default:
+		return "unknown"
+	}
 }
 
 type semanticWarning struct {
@@ -574,6 +611,8 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		ProfileLimits:           header.ProfileLimits,
 		Stats:                   header.Stats,
 		SummaryPresent:          summary != nil,
+		CompletenessLevel:       completenessLevelFromStats(header.Stats),
+		Trust:                   trustForCompleteness(completenessLevelFromStats(header.Stats)),
 	}
 	if err := writeBrainSemanticSource(storage.BrainDir, storage.Key, source); err != nil {
 		return err
@@ -584,6 +623,9 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	fmt.Fprintf(cmd.OutOrStdout(), "indexed semantic brain: %s\n", storage.BrainDir)
 	fmt.Fprintf(cmd.OutOrStdout(), "snapshot: %s\n", snapshotRel)
 	fmt.Fprintf(cmd.OutOrStdout(), "symbols: %d\nrelations: %d\n", source.Symbols, source.Relations)
+	if source.CompletenessLevel != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "completeness: %s\ntrust: %s\n", source.CompletenessLevel, source.Trust)
+	}
 	if len(source.Warnings) > 0 || len(source.PartialFailures) > 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "warnings: %d\n", len(source.Warnings)+len(source.PartialFailures))
 	}
@@ -1245,12 +1287,15 @@ func initializeSemanticSQLite(db *sql.DB) error {
 		`CREATE TABLE symbols (id TEXT PRIMARY KEY, kind TEXT, name TEXT, qualified_name TEXT, file_path TEXT, start_line INTEGER, end_line INTEGER, signature TEXT, language TEXT, stable_id_version TEXT)`,
 		`CREATE TABLE relations (id INTEGER PRIMARY KEY AUTOINCREMENT, from_id TEXT NOT NULL, to_id TEXT NOT NULL, type TEXT NOT NULL, confidence REAL, reason TEXT, warning_codes TEXT)`,
 		`CREATE TABLE reverse_relations (to_id TEXT NOT NULL, from_id TEXT NOT NULL, type TEXT NOT NULL)`,
+		`CREATE TABLE runtime_traces (id INTEGER PRIMARY KEY AUTOINCREMENT, imported_at TEXT NOT NULL, source_path TEXT NOT NULL, from_id TEXT NOT NULL, to_id TEXT NOT NULL, observed_type TEXT, matched_static_edge INTEGER NOT NULL)`,
 		`CREATE INDEX idx_symbols_name ON symbols(name)`,
 		`CREATE INDEX idx_symbols_qualified_name ON symbols(qualified_name)`,
 		`CREATE INDEX idx_symbols_file_path ON symbols(file_path)`,
 		`CREATE INDEX idx_relations_from ON relations(from_id)`,
 		`CREATE INDEX idx_relations_to ON relations(to_id)`,
 		`CREATE INDEX idx_reverse_to ON reverse_relations(to_id)`,
+		`CREATE INDEX idx_runtime_traces_from ON runtime_traces(from_id)`,
+		`CREATE INDEX idx_runtime_traces_to ON runtime_traces(to_id)`,
 		`CREATE TABLE symbol_fts (id TEXT PRIMARY KEY, text TEXT NOT NULL)`,
 		`CREATE TABLE parse_cache (path TEXT PRIMARY KEY, blob TEXT, content_hash TEXT, artifact_path TEXT NOT NULL)`,
 		`CREATE TABLE warnings (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT, severity TEXT, path TEXT, effect TEXT, detail TEXT, source TEXT)`,
@@ -2348,14 +2393,15 @@ type semanticContextResult struct {
 	Content   []semanticContent `json:"content,omitempty"`
 }
 
-// nonNilRecords guarantees a JSON array (`[]`) rather than `null` for an empty
-// result, so consumers can use one uniform shape across every brain command
-// instead of special-casing null per field.
-func nonNilRecords(records []semanticRecord) []semanticRecord {
-	if records == nil {
-		return []semanticRecord{}
+// nonNil guarantees a JSON array (`[]`) rather than `null` for an empty result,
+// so consumers can use one uniform shape across every brain command instead of
+// special-casing null per field: it returns values unchanged unless it is nil,
+// in which case it returns an empty (non-nil) slice.
+func nonNil[T any](values []T) []T {
+	if values == nil {
+		return []T{}
 	}
-	return records
+	return values
 }
 
 type semanticContent struct {
@@ -2487,7 +2533,7 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 			Freshness  staleReport      `json:"freshness"`
 			Pagination semanticPage     `json:"pagination"`
 			Results    []semanticRecord `json:"results"`
-		}{Freshness: freshness, Pagination: semanticPage{Limit: queryOpts.limit, Offset: queryOpts.offset, Count: len(results)}, Results: nonNilRecords(results)}, "", "  ")
+		}{Freshness: freshness, Pagination: semanticPage{Limit: queryOpts.limit, Offset: queryOpts.offset, Count: len(results)}, Results: nonNil(results)}, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -2536,7 +2582,7 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 	if err != nil {
 		return err
 	}
-	result := semanticContextResult{Symbols: nonNilRecords(symbols), Relations: nonNilRecords(relations), Neighbors: nonNilRecords(neighbors)}
+	result := semanticContextResult{Symbols: nonNil(symbols), Relations: nonNil(relations), Neighbors: nonNil(neighbors)}
 	if contextOpts.includeContent {
 		result.Content = semanticContextContent(repoDir, symbols)
 	}
@@ -2600,7 +2646,7 @@ func runSemanticImpact(ctx context.Context, cmd *cobra.Command, opts Options, im
 	if err != nil {
 		return err
 	}
-	result := semanticImpactResult{Roots: nonNilRecords(roots), Symbols: nonNilRecords(symbols), Relations: nonNilRecords(relations)}
+	result := semanticImpactResult{Roots: nonNil(roots), Symbols: nonNil(symbols), Relations: nonNil(relations)}
 	if impactOpts.json {
 		data, err := json.MarshalIndent(struct {
 			Freshness staleReport          `json:"freshness"`
@@ -2663,7 +2709,7 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 	if files == nil {
 		files = []string{}
 	}
-	report := semanticChangesReport{GeneratedAt: opts.Now().UTC(), Clean: len(files) == 0, Files: files, Symbols: nonNilRecords(symbols)}
+	report := semanticChangesReport{GeneratedAt: opts.Now().UTC(), Clean: len(files) == 0, Files: files, Symbols: nonNil(symbols)}
 	// Surface durable facts about the code being touched. Best-effort: a missing
 	// facts source or a branch lookup failure simply yields no facts, never an
 	// error on the changes command. Skipped on a clean tree — no changed files
@@ -2735,9 +2781,9 @@ func runSemanticBoundary(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if err != nil {
 		return err
 	}
-	result.Boundaries = nonNilRecords(result.Boundaries)
-	result.Handlers = nonNilRecords(result.Handlers)
-	result.Relations = nonNilRecords(result.Relations)
+	result.Boundaries = nonNil(result.Boundaries)
+	result.Handlers = nonNil(result.Handlers)
+	result.Relations = nonNil(result.Relations)
 	if boundaryOpts.json {
 		data, err := json.MarshalIndent(struct {
 			Freshness staleReport            `json:"freshness"`
@@ -2801,7 +2847,7 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 	if err != nil {
 		return err
 	}
-	result.Roots = nonNilRecords(result.Roots)
+	result.Roots = nonNil(result.Roots)
 	if result.Suggestions == nil {
 		result.Suggestions = []semanticTestSuggestion{}
 	}
@@ -2951,6 +2997,121 @@ func semanticContextFacts(brainDir string, source *semanticSourceManifest, query
 		neighbors = resolveContextNeighbors(symbols, relations, symbolsByID, limit)
 	}
 	return symbols, relations, neighbors, nil
+}
+
+func semanticRuntimeTraceFacts(brainDir string, source *semanticSourceManifest, query string, limit int) ([]semanticRecord, error) {
+	if limit <= 0 {
+		return []semanticRecord{}, nil
+	}
+	if source.StorePath == "" {
+		return []semanticRecord{}, nil
+	}
+	storePath, err := validateSemanticDeclaredStore(brainDir, source)
+	if err != nil {
+		return nil, err
+	}
+	db, err := sql.Open(sqliteDriverName, storePath)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	if err := ensureSemanticRuntimeTraceTable(db); err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(`
+SELECT rt.from_id,
+       COALESCE(to_sym.id, rt.to_id) AS to_id,
+       rt.observed_type,
+       rt.matched_static_edge,
+       rt.source_path,
+       COALESCE(from_sym.file_path, '') AS from_file,
+       COALESCE(to_sym.file_path, '') AS to_file,
+       COALESCE(from_sym.name, '') AS from_name,
+       COALESCE(from_sym.qualified_name, '') AS from_qualified,
+       COALESCE(to_sym.name, '') AS to_name,
+       COALESCE(to_sym.qualified_name, '') AS to_qualified
+FROM runtime_traces rt
+LEFT JOIN symbols from_sym ON from_sym.id = rt.from_id OR from_sym.name = rt.from_id OR from_sym.qualified_name = rt.from_id
+LEFT JOIN symbols to_sym ON to_sym.id = rt.to_id OR to_sym.name = rt.to_id OR to_sym.qualified_name = rt.to_id
+ORDER BY rt.imported_at DESC, rt.id DESC
+LIMIT ?`, limit*8)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	terms := brainBriefFileMatchTerms(query)
+	var records []semanticRecord
+	for rows.Next() {
+		var record semanticRecord
+		var observedType, sourcePath, fromFile, toFile, fromName, fromQualified, toName, toQualified string
+		var matched int
+		if err := rows.Scan(&record.FromID, &record.ToID, &observedType, &matched, &sourcePath, &fromFile, &toFile, &fromName, &fromQualified, &toName, &toQualified); err != nil {
+			return nil, err
+		}
+		record.RecordType = "runtime_trace"
+		record.Type = "RUNTIME_TRACE"
+		record.Confidence = 1
+		record.FilePath = semanticFirstNonEmpty(fromFile, toFile)
+		record.Path = record.FilePath
+		record.Reason = strings.TrimSpace("runtime trace observed " + observedType)
+		if record.Reason == "runtime trace observed" {
+			record.Reason = "runtime trace observed edge"
+		}
+		if matched == 0 {
+			record.Confidence = 0.5
+			record.WarningCodes = []string{"UNMATCHED_STATIC_EDGE"}
+		} else {
+			record.WarningCodes = []string{}
+		}
+		record.Evidence = []semanticEvidence{{Kind: "runtime_trace_import", FilePath: sourcePath, Detail: observedType}}
+		record.Score = runtimeTraceTaskScore(record, terms, fromFile, toFile, fromName, fromQualified, toName, toQualified, observedType)
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].Score == records[j].Score {
+			if records[i].Confidence == records[j].Confidence {
+				if records[i].FilePath == records[j].FilePath {
+					if records[i].FromID == records[j].FromID {
+						return records[i].ToID < records[j].ToID
+					}
+					return records[i].FromID < records[j].FromID
+				}
+				return records[i].FilePath < records[j].FilePath
+			}
+			return records[i].Confidence > records[j].Confidence
+		}
+		return records[i].Score > records[j].Score
+	})
+	if len(records) > limit {
+		records = records[:limit]
+	}
+	return nonNil(records), nil
+}
+
+func runtimeTraceTaskScore(record semanticRecord, terms []string, fields ...string) int {
+	haystack := strings.ToLower(strings.Join(append([]string{record.FromID, record.ToID, record.FilePath, record.Reason}, fields...), " "))
+	score := 0
+	for _, term := range terms {
+		if term != "" && strings.Contains(haystack, strings.ToLower(term)) {
+			score += 3
+		}
+	}
+	if record.Confidence >= 1 {
+		score++
+	}
+	return score
+}
+
+func semanticFirstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func semanticImpactFacts(brainDir string, source *semanticSourceManifest, query string, depth, limit int) ([]semanticRecord, []semanticRecord, []semanticRecord, error) {

@@ -152,6 +152,13 @@ Specialist/debug surfaces should move under `inspect`:
 
 ```sh
 entire brain inspect code "<query>" --json
+entire brain inspect search-graph "<query>" --json
+entire brain inspect query-graph "type:CALLS <query>" --json
+entire brain inspect graph-schema --json
+entire brain inspect snippet <symbol-or-id> --json
+entire brain inspect trace-path <from-symbol> <to-symbol> --json
+entire brain inspect dead-code --json
+entire brain inspect ingest-traces <json-or-ndjson-file> --json
 entire brain inspect context <symbol-or-id> --json
 entire brain inspect impact <symbol-or-file> --json
 entire brain inspect changes --base main --head HEAD --json

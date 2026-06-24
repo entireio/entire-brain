@@ -86,6 +86,89 @@ func TestMCPToolsListIncludesQMDRetrievalSurface(t *testing.T) {
 	}
 }
 
+func TestMCPProjectManagementTools(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	repoKey := filepath.ToSlash(filepath.Join("local", localRepoKey(repoDir)))
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"):                                                {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "rev-parse", "HEAD"):                                                           {stdout: "aaa111\n"},
+		fakeCommandKey("git", "rev-parse", "HEAD^{tree}"):                                                    {stdout: "tree111\n"},
+		fakeCommandKey("git", "branch", "--show-current"):                                                    {stdout: "main\n"},
+		fakeCommandKey("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):              {stdout: "origin/main\n"},
+		fakeCommandKey("git", "status", "--porcelain"):                                                       {stdout: ""},
+		fakeCommandKey("entire", "sem", "doctor", "--json"):                                                  {stdout: `{"no_egress":true}`},
+		fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"): {stdout: workspaceGraphSnapshot(repoKey, "HandleMCP")},
+	}}
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC) }}
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`) +
+		frameMCPJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "brain_index_repository", "arguments": map[string]any{"path": repoDir, "sem_binary": "entire"}}}) +
+		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_list_projects","arguments":{}}}`) +
+		frameMCPJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "brain_delete_project", "arguments": map[string]any{"repo_key": repoKey}}})
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	listData, _ := json.Marshal(responses[0]["result"])
+	for _, want := range []string{"brain_index_repository", "brain_list_projects", "brain_delete_project"} {
+		if !strings.Contains(string(listData), want) {
+			t.Fatalf("tools/list missing %q: %s", want, listData)
+		}
+	}
+	projectPayload := mcpTextJSONPayload(t, responses[2])
+	projectData, _ := json.Marshal(projectPayload)
+	if !strings.Contains(string(projectData), repoKey) || !strings.Contains(string(projectData), `"semantic":true`) {
+		t.Fatalf("brain_list_projects missing indexed project: %s", projectData)
+	}
+	brainDir, err := brainDirForKey(env, repoKey)
+	if err != nil {
+		t.Fatalf("brain dir: %v", err)
+	}
+	if _, err := os.Stat(brainDir); !os.IsNotExist(err) {
+		t.Fatalf("brain_delete_project did not remove %s: %v", brainDir, err)
+	}
+}
+
+func TestMCPWorkspaceGraphReturnsCrossEdges(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC) }}
+	cmd := &cobra.Command{Use: "index"}
+
+	repoA := t.TempDir()
+	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	indexWorkspaceGraphRepo(t, cmd, opts, runner, repoA, keyA, "HandleMCPA")
+	repoB := t.TempDir()
+	keyB := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	indexWorkspaceGraphRepo(t, cmd, opts, runner, repoB, keyB, "HandleMCPB")
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "mcpgraph",
+		Repos: []workspaceRepo{
+			{RepoKey: keyA, LocalPathHint: repoA},
+			{RepoKey: keyB, LocalPathHint: repoB},
+		},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_workspace_graph","arguments":{"workspace":"mcpgraph","limit":10}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	payload := mcpTextJSONPayload(t, responses[0])
+	data, _ := json.Marshal(payload)
+	for _, want := range []string{`"workspace":"mcpgraph"`, `"contracts"`, `"cross_edges"`, `external:config:kubernetes/image/shared:latest`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("brain_workspace_graph payload missing %q: %s", want, data)
+		}
+	}
+}
+
 func TestMCPToolsListAdvertisesStaleBlindSpots(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`)
 	var out bytes.Buffer
@@ -1101,6 +1184,15 @@ func TestMCPBrainStaleUsesEnvRepoRoot(t *testing.T) {
 
 func frameMCP(payload string) string {
 	return fmt.Sprintf("Content-Length: %d\r\n\r\n%s", len(payload), payload)
+}
+
+func frameMCPJSON(t *testing.T, payload map[string]any) string {
+	t.Helper()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal MCP payload: %v", err)
+	}
+	return frameMCP(string(data))
 }
 
 func readMCPResponses(t *testing.T, data string) []map[string]any {

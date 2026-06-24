@@ -10,8 +10,11 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -135,7 +138,7 @@ func mcpDebugToolCall(raw json.RawMessage) mcpDebugToolCallInfo {
 			safe[key] = value
 		}
 	}
-	if name == "brain_workspace_regressions" || name == "brain_workspace_review" {
+	if name == "brain_workspace_graph" || name == "brain_workspace_regressions" || name == "brain_workspace_review" {
 		if value, ok := params.Arguments["workspace"].(string); ok {
 			workspace := strings.TrimSpace(value)
 			if validateWorkspaceName(workspace) == nil {
@@ -209,6 +212,9 @@ func mcpToolDefinitions() []map[string]any {
 	}
 	integerArg := func(name, description string) map[string]any {
 		return map[string]any{"type": "integer", "description": description, "title": name, "minimum": 1}
+	}
+	boolArg := func(name, description string) map[string]any {
+		return map[string]any{"type": "boolean", "description": description, "title": name}
 	}
 	branchArg := func() map[string]any {
 		return stringArg("branch", "Branch for facts (default: current)")
@@ -284,6 +290,76 @@ func mcpToolDefinitions() []map[string]any {
 			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results")}),
 		},
 		{
+			"name":        "brain_index_status",
+			"description": "Alias for brain_status focused on semantic index freshness, coverage, and counts.",
+			"inputSchema": objectSchema(nil, map[string]any{}),
+		},
+		{
+			"name":        "brain_index_repository",
+			"description": "Build or refresh the local semantic index for a repository path. Local-only; does not publish artifacts.",
+			"inputSchema": objectSchema(nil, map[string]any{"path": stringArg("path", "Local repository path (default: current repo)"), "profile": stringArg("profile", "Provider profile: full, fast, or syntax-only"), "sem_binary": stringArg("sem_binary", "Entire CLI binary exposing `sem` (default: entire)"), "worktree": boolArg("worktree", "Index dirty worktree content"), "force": boolArg("force", "Replace the current semantic snapshot")}),
+		},
+		{
+			"name":        "brain_list_projects",
+			"description": "List locally indexed brain projects and semantic index counts.",
+			"inputSchema": objectSchema(nil, map[string]any{}),
+		},
+		{
+			"name":        "brain_delete_project",
+			"description": "Delete a local brain project by repo_key, or the current repo project when repo_key is omitted. This removes local generated brain data only.",
+			"inputSchema": objectSchema(nil, map[string]any{"repo_key": stringArg("repo_key", "Repository key to delete (default: current repo)")}),
+		},
+		{
+			"name":        "brain_search_code",
+			"description": "Search indexed source symbols/snippets by name or text.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results")}),
+		},
+		{
+			"name":        "brain_search_graph",
+			"description": "Search the semantic graph for matching symbols with stable pagination.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or graph text query"), "limit": integerArg("limit", "Maximum results"), "offset": integerArg("offset", "Results to skip")}),
+		},
+		{
+			"name":        "brain_query_graph",
+			"description": "Read-only semantic graph relation query using type:/from:/to: filters.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Graph query, e.g. type:CALLS from:Foo"), "limit": integerArg("limit", "Maximum relations")}),
+		},
+		{
+			"name":        "brain_get_graph_schema",
+			"description": "Return semantic graph schema metadata, counts, symbol kinds, and relation vocabulary.",
+			"inputSchema": objectSchema(nil, map[string]any{}),
+		},
+		{
+			"name":        "brain_get_code_snippet",
+			"description": "Return the exact bounded source snippet for a symbol id or name.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol id, name, or qualified name"), "context_lines": integerArg("context_lines", "Extra lines before and after")}),
+		},
+		{
+			"name":        "brain_trace_path",
+			"description": "Find a directed semantic relation path between two symbols.",
+			"inputSchema": objectSchema([]string{"from", "to"}, map[string]any{"from": stringArg("from", "Start symbol id, name, or qualified name"), "to": stringArg("to", "Target symbol id, name, or qualified name"), "depth": integerArg("depth", "Maximum relation depth")}),
+		},
+		{
+			"name":        "brain_dead_code",
+			"description": "List function/method symbols with no incoming non-structural graph edges and no handler boundary.",
+			"inputSchema": objectSchema(nil, map[string]any{"limit": integerArg("limit", "Maximum symbols")}),
+		},
+		{
+			"name":        "brain_detect_changes",
+			"description": "Alias for brain_changes: map local file changes to semantic symbols.",
+			"inputSchema": objectSchema(nil, map[string]any{"limit": integerArg("limit", "Maximum symbols")}),
+		},
+		{
+			"name":        "brain_get_architecture",
+			"description": "Return graph-derived architecture metadata: schema, relation types, languages, and boundary counts.",
+			"inputSchema": objectSchema(nil, map[string]any{}),
+		},
+		{
+			"name":        "brain_ingest_traces",
+			"description": "Import runtime trace JSON/NDJSON and validate dynamic edges against the static semantic graph.",
+			"inputSchema": objectSchema([]string{"path"}, map[string]any{"path": stringArg("path", "Local JSON or NDJSON trace file")}),
+		},
+		{
 			"name":        "brain_tests",
 			"description": "Suggest tests relevant to a symbol or query, derived from semantic relations.",
 			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum test suggestions")}),
@@ -307,6 +383,11 @@ func mcpToolDefinitions() []map[string]any {
 			"name":        "brain_workspace_regressions",
 			"description": "Flag suspected regressions across every repo in a local multi-repo workspace (each brain's memory vs that repo's current tree). Tolerates sessions-only brains; results are aggregated by repo_key.",
 			"inputSchema": objectSchema([]string{"workspace", "query"}, map[string]any{"workspace": stringArg("workspace", "Workspace name"), "query": stringArg("query", "Task description plus the failing symbols/identifiers"), "limit": integerArg("limit", "Maximum suspected regressions per repo"), "include_deletions": map[string]any{"type": "boolean", "description": "Also flag deleted assignments (higher recall, noisier)", "title": "include_deletions"}, "location_only": map[string]any{"type": "boolean", "description": "Return only the suspected file:line, not the expected/current values", "title": "location_only"}}),
+		},
+		{
+			"name":        "brain_workspace_graph",
+			"description": "Return per-repo graph metadata plus shared external contracts and cross_edges for a local multi-repo workspace.",
+			"inputSchema": objectSchema([]string{"workspace"}, map[string]any{"workspace": stringArg("workspace", "Workspace name"), "limit": integerArg("limit", "Maximum contracts/cross_edges")}),
 		},
 		{
 			"name":        "brain_workspace_review",
@@ -352,12 +433,57 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		return nil, err
 	}
 	switch params.Name {
-	case "brain_status":
+	case "brain_status", "brain_index_status":
 		target := "."
 		if opts.Env.RepoRoot != "" {
 			target = opts.Env.RepoRoot
 		}
 		err = runAgentStatus(ctx, cmd, opts, agentStatusOptions{json: true, failOn: semanticAuditFailOnNone}, target)
+	case "brain_index_repository":
+		path, stringErr := mcpOptionalString(params.Arguments, "path")
+		if stringErr != nil {
+			err = stringErr
+			break
+		}
+		if strings.TrimSpace(path) == "" {
+			path = "."
+			if opts.Env.RepoRoot != "" {
+				path = opts.Env.RepoRoot
+			}
+		}
+		profile, profileErr := mcpOptionalString(params.Arguments, "profile")
+		if profileErr != nil {
+			err = profileErr
+			break
+		}
+		semBinary, semErr := mcpOptionalString(params.Arguments, "sem_binary")
+		if semErr != nil {
+			err = semErr
+			break
+		}
+		if strings.TrimSpace(semBinary) == "" {
+			semBinary = "entire"
+		}
+		worktree, boolErr := mcpBool(params.Arguments, "worktree")
+		if boolErr != nil {
+			err = boolErr
+			break
+		}
+		force, boolErr := mcpBool(params.Arguments, "force")
+		if boolErr != nil {
+			err = boolErr
+			break
+		}
+		err = runSemanticIndex(ctx, cmd, opts, semanticIndexOptions{semBinary: semBinary, profile: strings.TrimSpace(profile), worktree: worktree, force: force}, path)
+	case "brain_list_projects":
+		err = runMCPListProjects(cmd, opts)
+	case "brain_delete_project":
+		repoKey, stringErr := mcpOptionalString(params.Arguments, "repo_key")
+		if stringErr != nil {
+			err = stringErr
+			break
+		}
+		err = runMCPDeleteProject(ctx, cmd, opts, strings.TrimSpace(repoKey))
 	case "brain_brief":
 		task, stringErr := mcpOptionalString(params.Arguments, "task")
 		if stringErr != nil {
@@ -422,12 +548,79 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 				err = runSemanticImpact(ctx, cmd, opts, semanticImpactOptions{limit: limit, depth: depth, json: true}, query)
 			}
 		}
-	case "brain_changes":
+	case "brain_changes", "brain_detect_changes":
 		err = runSemanticChanges(ctx, cmd, opts, semanticChangesOptions{limit: limit, json: true})
-	case "brain_code":
+	case "brain_code", "brain_search_code":
 		err = requireMCPQuery(query)
 		if err == nil {
 			err = runSemanticQuery(ctx, cmd, opts, semanticQueryOptions{limit: limit, json: true}, query)
+		}
+	case "brain_search_graph":
+		err = requireMCPQuery(query)
+		if err == nil {
+			offset := 0
+			if _, ok := params.Arguments["offset"]; ok {
+				offset, err = mcpNonNegativeInt(params.Arguments, "offset", 0)
+			}
+			if err == nil {
+				err = runSemanticSearchGraph(cmd, opts, semanticGraphSearchOptions{limit: limit, offset: offset, json: true}, query)
+			}
+		}
+	case "brain_query_graph":
+		err = requireMCPQuery(query)
+		if err == nil {
+			err = runSemanticQueryGraph(cmd, opts, semanticGraphQueryOptions{limit: limit, json: true}, query)
+		}
+	case "brain_get_graph_schema", "brain_get_architecture":
+		err = runSemanticGraphSchema(cmd, opts, semanticGraphSchemaOptions{json: true})
+	case "brain_get_code_snippet":
+		err = requireMCPQuery(query)
+		if err == nil {
+			contextLines := 0
+			if _, ok := params.Arguments["context_lines"]; ok {
+				contextLines, err = mcpNonNegativeInt(params.Arguments, "context_lines", 0)
+			}
+			if err == nil {
+				err = runSemanticSnippet(cmd, opts, semanticSnippetOptions{contextLines: contextLines, json: true}, query)
+			}
+		}
+	case "brain_trace_path":
+		from, stringErr := mcpOptionalString(params.Arguments, "from")
+		if stringErr != nil {
+			err = stringErr
+			break
+		}
+		to, stringErr := mcpOptionalString(params.Arguments, "to")
+		if stringErr != nil {
+			err = stringErr
+			break
+		}
+		if strings.TrimSpace(from) == "" {
+			err = errors.New("from is required")
+			break
+		}
+		if strings.TrimSpace(to) == "" {
+			err = errors.New("to is required")
+			break
+		}
+		depth, depthErr := mcpPositiveInt(params.Arguments, "depth", 4)
+		if depthErr != nil {
+			err = depthErr
+		} else {
+			err = runSemanticTracePath(cmd, opts, semanticTracePathOptions{depth: depth, json: true}, from, to)
+		}
+	case "brain_dead_code":
+		err = runSemanticDeadCode(cmd, opts, semanticDeadCodeOptions{limit: limit, json: true})
+	case "brain_ingest_traces":
+		path, stringErr := mcpOptionalString(params.Arguments, "path")
+		if stringErr != nil {
+			err = stringErr
+			break
+		}
+		if strings.TrimSpace(path) == "" {
+			err = errors.New("path is required")
+		} else {
+			err = runSemanticIngestTraces(cmd, opts, semanticTraceIngestOptions{json: true}, path)
 		}
 	case "brain_tests":
 		err = requireMCPQuery(query)
@@ -489,6 +682,18 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			}
 			err = runWorkspaceRegressions(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, workspace, query)
 		}
+	case "brain_workspace_graph":
+		workspace, stringErr := mcpOptionalString(params.Arguments, "workspace")
+		if stringErr != nil {
+			err = stringErr
+			break
+		}
+		workspace = strings.TrimSpace(workspace)
+		if workspace == "" {
+			err = errors.New("workspace is required")
+		} else {
+			err = runWorkspaceGraph(cmd, opts, workspaceGraphOptions{limit: limit, json: true}, workspace)
+		}
 	case "brain_workspace_review":
 		workspace, stringErr := mcpOptionalString(params.Arguments, "workspace")
 		if stringErr != nil {
@@ -546,41 +751,132 @@ func requireMCPQuery(query string) error {
 	return nil
 }
 
-func validateMCPToolArguments(tool string, args map[string]any) error {
-	allowed := map[string]bool{}
-	add := func(keys ...string) {
-		for _, key := range keys {
-			allowed[key] = true
+type mcpProjectSummary struct {
+	RepoKey     string   `json:"repo_key"`
+	BrainDir    string   `json:"brain_dir"`
+	GeneratedAt string   `json:"generated_at,omitempty"`
+	Semantic    bool     `json:"semantic"`
+	Files       int      `json:"files,omitempty"`
+	Symbols     int      `json:"symbols,omitempty"`
+	Relations   int      `json:"relations,omitempty"`
+	Languages   []string `json:"languages,omitempty"`
+	Profile     string   `json:"profile,omitempty"`
+}
+
+func runMCPListProjects(cmd *cobra.Command, opts Options) error {
+	dirs, err := resolvePluginDirs(opts.Env)
+	if err != nil {
+		return err
+	}
+	root := filepath.Join(dirs.Data, repoStoreDirName)
+	var projects []mcpProjectSummary
+	if err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if d.Name() != exportManifestFileName {
+			return nil
+		}
+		brainDir := filepath.Dir(path)
+		manifest, err := loadBrainManifest(brainDir)
+		if err != nil {
+			return nil
+		}
+		summary := mcpProjectSummary{
+			RepoKey:     manifest.RepoKey,
+			BrainDir:    brainDir,
+			GeneratedAt: manifest.GeneratedAt.Format(time.RFC3339),
+		}
+		if manifest.Sources != nil && manifest.Sources.Semantic != nil {
+			semantic := manifest.Sources.Semantic
+			summary.Semantic = true
+			summary.Files = semantic.Files
+			summary.Symbols = semantic.Symbols
+			summary.Relations = semantic.Relations
+			summary.Languages = nonNil(semantic.Languages)
+			summary.Profile = semantic.Profile
+		}
+		projects = append(projects, summary)
+		return nil
+	}); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	sort.Slice(projects, func(i, j int) bool { return projects[i].RepoKey < projects[j].RepoKey })
+	return writeJSON(cmd, struct {
+		Projects []mcpProjectSummary `json:"projects"`
+	}{Projects: projects})
+}
+
+func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, repoKey string) error {
+	var brainDir string
+	var err error
+	if repoKey == "" {
+		target := "."
+		if opts.Env.RepoRoot != "" {
+			target = opts.Env.RepoRoot
+		}
+		repoDir, local, resolveErr := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		if !local {
+			return fmt.Errorf("brain_delete_project requires a local repository path: %s", target)
+		}
+		storage, storageErr := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+		if storageErr != nil {
+			return storageErr
+		}
+		repoKey = storage.Key
+		brainDir = storage.BrainDir
+	} else {
+		brainDir, err = brainDirForKey(opts.Env, repoKey)
+		if err != nil {
+			return err
 		}
 	}
-	switch tool {
-	case "brain_status":
-		// no arguments
-	case "brain_brief":
-		add("task", "limit")
-	case "brain_query", "brain_search", "brain_vsearch":
-		add("query", "limit", "branch")
-	case "brain_context", "brain_code", "brain_tests":
-		add("query", "limit")
-	case "brain_get":
-		add("id", "branch")
-	case "brain_multi_get":
-		add("ids", "branch")
-	case "brain_impact":
-		add("query", "limit", "depth")
-	case "brain_changes":
-		add("limit")
-	case "brain_boundaries":
-		add("kind", "limit")
-	case "brain_regressions", "brain_review":
-		add("query", "limit", "include_deletions", "location_only")
-	case "brain_workspace_regressions", "brain_workspace_review":
-		add("workspace", "query", "limit", "include_deletions", "location_only")
-	case "brain_patterns":
-		add("type", "scope", "limit")
-	case "brain_patterns_status":
-		// no arguments
-	default:
+	if err := rejectSymlinkedBrainRoot(brainDir); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.RemoveAll(brainDir); err != nil {
+		return fmt.Errorf("delete project %s: %w", repoKey, err)
+	}
+	return writeJSON(cmd, struct {
+		DeletedRepoKey string `json:"deleted_repo_key"`
+		BrainDir       string `json:"brain_dir"`
+	}{DeletedRepoKey: repoKey, BrainDir: brainDir})
+}
+
+// mcpToolAllowedArgs derives, per tool, the set of accepted argument names from
+// the single source of truth — each tool's declared inputSchema in
+// mcpToolDefinitions. This keeps argument validation from drifting away from the
+// advertised tool schema.
+func mcpToolAllowedArgs() map[string]map[string]bool {
+	defs := mcpToolDefinitions()
+	out := make(map[string]map[string]bool, len(defs))
+	for _, def := range defs {
+		name, _ := def["name"].(string)
+		if name == "" {
+			continue
+		}
+		allowed := map[string]bool{}
+		if schema, ok := def["inputSchema"].(map[string]any); ok {
+			if props, ok := schema["properties"].(map[string]any); ok {
+				for key := range props {
+					allowed[key] = true
+				}
+			}
+		}
+		out[name] = allowed
+	}
+	return out
+}
+
+func validateMCPToolArguments(tool string, args map[string]any) error {
+	allowed, known := mcpToolAllowedArgs()[tool]
+	if !known {
 		return nil
 	}
 	for key := range args {
@@ -666,6 +962,24 @@ func mcpPositiveInt(args map[string]any, key string, fallback int) (int, error) 
 		}
 	}
 	return 0, fmt.Errorf("%s must be an integer greater than zero", key)
+}
+
+func mcpNonNegativeInt(args map[string]any, key string, fallback int) (int, error) {
+	value, ok := args[key]
+	if !ok {
+		return fallback, nil
+	}
+	switch typed := value.(type) {
+	case float64:
+		if typed >= 0 && typed <= float64(math.MaxInt) && math.Trunc(typed) == typed {
+			return int(typed), nil
+		}
+	case int:
+		if typed >= 0 {
+			return typed, nil
+		}
+	}
+	return 0, fmt.Errorf("%s must be a non-negative integer", key)
 }
 
 // errMCPRecoverable marks a single malformed/oversized frame that should be

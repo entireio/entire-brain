@@ -1763,6 +1763,223 @@ func TestSemanticImpactTraversesRelations(t *testing.T) {
 	}
 }
 
+func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoDir, "internal/auth"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lines := make([]string, 25)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("// line %02d", i+1)
+	}
+	lines[9] = "func ValidateToken(token string) error {"
+	lines[10] = "    return nil"
+	lines[19] = "}"
+	if err := os.WriteFile(filepath.Join(repoDir, "internal/auth/token.go"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshotWithQualifiedCallerSymbol())
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	for name, run := range map[string]func(*cobra.Command) error{
+		"schema": func(c *cobra.Command) error {
+			return runSemanticGraphSchema(c, opts, semanticGraphSchemaOptions{json: true})
+		},
+		"ui": func(c *cobra.Command) error {
+			return runSemanticGraphUI(c, opts, semanticGraphUIOptions{limit: 10, json: true}, filepath.Join(repoDir, "graph.html"))
+		},
+		"query": func(c *cobra.Command) error {
+			return runSemanticQueryGraph(c, opts, semanticGraphQueryOptions{limit: 10, json: true}, `MATCH (a)-[r:CALLS]->(b) WHERE a.name = "CallValidateToken" RETURN a,r,b LIMIT 5`)
+		},
+		"trace": func(c *cobra.Command) error {
+			return runSemanticTracePath(c, opts, semanticTracePathOptions{depth: 2, json: true}, "CallValidateToken", "ValidateToken")
+		},
+		"snippet": func(c *cobra.Command) error {
+			return runSemanticSnippet(c, opts, semanticSnippetOptions{contextLines: 0, json: true}, "ValidateToken")
+		},
+		"dead": func(c *cobra.Command) error {
+			return runSemanticDeadCode(c, opts, semanticDeadCodeOptions{limit: 10, json: true})
+		},
+	} {
+		var out bytes.Buffer
+		readCmd := &cobra.Command{Use: name}
+		readCmd.SetOut(&out)
+		if err := run(readCmd); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if name == "schema" && (!strings.Contains(out.String(), `"metrics"`) || !strings.Contains(out.String(), `"hotspots"`)) {
+			t.Fatalf("schema output missing graph metrics:\n%s", out.String())
+		}
+		if name == "ui" {
+			htmlPath := filepath.Join(repoDir, "graph.html")
+			data, err := os.ReadFile(htmlPath)
+			if err != nil {
+				t.Fatalf("read graph ui: %v", err)
+			}
+			if !strings.Contains(string(data), "Semantic Graph") || !strings.Contains(string(data), "CallValidateToken") {
+				t.Fatalf("graph ui missing expected embedded graph data:\n%s", data)
+			}
+		}
+		if name == "trace" {
+			var result semanticTracePathResult
+			if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+				t.Fatalf("trace JSON invalid: %v\n%s", err, out.String())
+			}
+			if !result.Found || len(result.Path) != 2 {
+				t.Fatalf("trace path length = %+v", result)
+			}
+			if result.Path[0].Name != "CallValidateToken" || result.Path[1].Name != "ValidateToken" {
+				t.Fatalf("trace path order = %+v", result.Path)
+			}
+		}
+		if !strings.Contains(out.String(), "ValidateToken") && name != "schema" && name != "ui" {
+			t.Fatalf("%s output missing fixture symbol:\n%s", name, out.String())
+		}
+	}
+
+	var countOut bytes.Buffer
+	countCmd := &cobra.Command{Use: "query-count"}
+	countCmd.SetOut(&countOut)
+	if err := runSemanticQueryGraph(countCmd, opts, semanticGraphQueryOptions{limit: 10, json: true}, `MATCH (a)-[r:CALLS]->(b) WHERE a.name = "CallValidateToken" RETURN count(r)`); err != nil {
+		t.Fatalf("query count: %v", err)
+	}
+	if !strings.Contains(countOut.String(), `"count": 1`) {
+		t.Fatalf("query count JSON missing count:\n%s", countOut.String())
+	}
+	countOut.Reset()
+	if err := runSemanticQueryGraph(countCmd, opts, semanticGraphQueryOptions{limit: 10, json: true}, `MATCH (a)-[r]->(b) WHERE a.name = "CallValidateToken" AND r.type = "CALLS" RETURN count(r)`); err != nil {
+		t.Fatalf("query count with relation predicate: %v", err)
+	}
+	if !strings.Contains(countOut.String(), `"count": 1`) {
+		t.Fatalf("query count with relation predicate JSON missing count:\n%s", countOut.String())
+	}
+	countOut.Reset()
+	if err := runSemanticQueryGraph(countCmd, opts, semanticGraphQueryOptions{limit: 10, json: true}, `MATCH (a)<-[r:CALLS]-(b) WHERE a.name = "ValidateToken" RETURN count(r)`); err != nil {
+		t.Fatalf("reverse query count: %v", err)
+	}
+	if !strings.Contains(countOut.String(), `"count": 1`) {
+		t.Fatalf("reverse query count JSON missing count:\n%s", countOut.String())
+	}
+
+	tracePath := filepath.Join(repoDir, "trace.ndjson")
+	if err := os.WriteFile(tracePath, []byte(`{"from":"CallValidateToken","to":"ValidateToken","type":"CALLS"}`+"\n"+`{"from":"ValidateToken","to":"CallValidateToken","type":"OBSERVED_CALL"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	ingestCmd := &cobra.Command{Use: "ingest"}
+	ingestCmd.SetOut(&out)
+	if err := runSemanticIngestTraces(ingestCmd, opts, semanticTraceIngestOptions{json: true}, tracePath); err != nil {
+		t.Fatalf("ingest traces: %v", err)
+	}
+	if !strings.Contains(out.String(), `"matched_static_edges": 1`) {
+		t.Fatalf("trace ingest did not validate static edge:\n%s", out.String())
+	}
+	out.Reset()
+	queryTraceCmd := &cobra.Command{Use: "query-trace"}
+	queryTraceCmd.SetOut(&out)
+	if err := runSemanticQueryGraph(queryTraceCmd, opts, semanticGraphQueryOptions{limit: 10, json: true}, "type:RUNTIME_TRACE"); err != nil {
+		t.Fatalf("query runtime traces: %v", err)
+	}
+	if !strings.Contains(out.String(), `"record_type": "runtime_trace"`) || !strings.Contains(out.String(), `"RUNTIME_TRACE"`) {
+		t.Fatalf("runtime trace facts were not queryable:\n%s", out.String())
+	}
+	out.Reset()
+	traceRuntimeCmd := &cobra.Command{Use: "trace-runtime"}
+	traceRuntimeCmd.SetOut(&out)
+	if err := runSemanticTracePath(traceRuntimeCmd, opts, semanticTracePathOptions{depth: 2, json: true}, "ValidateToken", "CallValidateToken"); err != nil {
+		t.Fatalf("runtime trace path: %v", err)
+	}
+	var runtimePath semanticTracePathResult
+	if err := json.Unmarshal(out.Bytes(), &runtimePath); err != nil {
+		t.Fatalf("runtime trace path JSON invalid: %v\n%s", err, out.String())
+	}
+	if !runtimePath.Found || len(runtimePath.Relations) != 1 || runtimePath.Relations[0].Type != "RUNTIME_TRACE" {
+		t.Fatalf("trace-path did not use runtime trace facts: %+v", runtimePath)
+	}
+	out.Reset()
+	schemaTraceCmd := &cobra.Command{Use: "schema-trace"}
+	schemaTraceCmd.SetOut(&out)
+	if err := runSemanticGraphSchema(schemaTraceCmd, opts, semanticGraphSchemaOptions{json: true}); err != nil {
+		t.Fatalf("schema after traces: %v", err)
+	}
+	if !strings.Contains(out.String(), `"RUNTIME_TRACE"`) {
+		t.Fatalf("schema metrics did not include runtime trace facts:\n%s", out.String())
+	}
+}
+
+func TestSemanticGraphQueriesDataFlowRelations(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticDataFlowFixtureSnapshot())
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	var schemaOut bytes.Buffer
+	schemaCmd := &cobra.Command{Use: "schema"}
+	schemaCmd.SetOut(&schemaOut)
+	if err := runSemanticGraphSchema(schemaCmd, opts, semanticGraphSchemaOptions{json: true}); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	if !strings.Contains(schemaOut.String(), `"DATA_FLOWS"`) {
+		t.Fatalf("schema output missing DATA_FLOWS:\n%s", schemaOut.String())
+	}
+
+	var queryOut bytes.Buffer
+	queryCmd := &cobra.Command{Use: "query"}
+	queryCmd.SetOut(&queryOut)
+	if err := runSemanticQueryGraph(queryCmd, opts, semanticGraphQueryOptions{limit: 10, json: true}, `MATCH (a)-[r:DATA_FLOWS]->(b) WHERE a.name = "run" RETURN a,r,b LIMIT 5`); err != nil {
+		t.Fatalf("query data flow: %v", err)
+	}
+	if !strings.Contains(queryOut.String(), `"DATA_FLOWS"`) ||
+		!strings.Contains(queryOut.String(), `"run"`) ||
+		!strings.Contains(queryOut.String(), `"normalize"`) {
+		t.Fatalf("query output missing data-flow edge:\n%s", queryOut.String())
+	}
+}
+
+func TestSemanticGraphQueriesResolvedFileImports(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticResolvedImportFixtureSnapshot())
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	var queryOut bytes.Buffer
+	queryCmd := &cobra.Command{Use: "query"}
+	queryCmd.SetOut(&queryOut)
+	query := `MATCH (a)-[r:IMPORTS]->(b) WHERE a.file_path CONTAINS "apps/web/src/app.ts" AND b.file_path CONTAINS "packages/utils/src/index.ts" RETURN a,r,b LIMIT 5`
+	if err := runSemanticQueryGraph(queryCmd, opts, semanticGraphQueryOptions{limit: 10, json: true}, query); err != nil {
+		t.Fatalf("query resolved imports: %v", err)
+	}
+	output := queryOut.String()
+	for _, want := range []string{`"IMPORTS"`, `"record_type": "file"`, `"apps/web/src/app.ts"`, `"packages/utils/src/index.ts"`} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("query output missing %s:\n%s", want, output)
+		}
+	}
+
+	var countOut bytes.Buffer
+	countCmd := &cobra.Command{Use: "query-count"}
+	countCmd.SetOut(&countOut)
+	if err := runSemanticQueryGraph(countCmd, opts, semanticGraphQueryOptions{limit: 10, json: true}, `MATCH (a)-[r:IMPORTS]->(b) WHERE a.kind = "file" AND b.name = "index.ts" RETURN count(r)`); err != nil {
+		t.Fatalf("query resolved import count: %v", err)
+	}
+	if !strings.Contains(countOut.String(), `"count": 1`) {
+		t.Fatalf("query count JSON missing resolved import count:\n%s", countOut.String())
+	}
+}
+
 func TestSemanticImpactReturnsRelationsWhenRootsFillLimit(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -4136,6 +4353,22 @@ func semanticFixtureSnapshot(schema string) string {
 `
 }
 
+func semanticDataFlowFixtureSnapshot() string {
+	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["ndjson"],"relation_set":["DEFINES","DATA_FLOWS"],"warnings":[],"partial_failures":[]}
+{"record_type":"symbol","id":"gh/example/repo:ts:flow.ts:function:run","kind":"function","name":"run","qualified_name":"flow.run","file_path":"flow.ts","start_line":1,"end_line":8,"signature":"function run(input: Input): string","language":"TypeScript","stable_id_version":"1"}
+{"record_type":"symbol","id":"gh/example/repo:ts:flow.ts:function:normalize","kind":"function","name":"normalize","qualified_name":"flow.normalize","file_path":"flow.ts","start_line":10,"end_line":12,"signature":"function normalize(value: string): string","language":"TypeScript","stable_id_version":"1"}
+{"record_type":"relation","from_id":"gh/example/repo:ts:flow.ts:function:run","to_id":"gh/example/repo:ts:flow.ts:function:normalize","type":"DATA_FLOWS","confidence":0.7,"reason":"caller parameter destructured alias forwarded into callee argument","relation_scope":"file","resolution":"exact","target_kind":"symbol","evidence":[{"kind":"destructured_alias_forward_flow","file_path":"flow.ts","start_line":1,"end_line":8,"detail":"input -> value -> normalize()"}],"warning_codes":[]}
+`
+}
+
+func semanticResolvedImportFixtureSnapshot() string {
+	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["ndjson"],"relation_set":["IMPORTS"],"warnings":[],"partial_failures":[]}
+{"record_type":"file","id":"gh/example/repo:file:apps/web/src/app.ts","path":"apps/web/src/app.ts","blob":"app","language":"TypeScript","bytes":96}
+{"record_type":"file","id":"gh/example/repo:file:packages/utils/src/index.ts","path":"packages/utils/src/index.ts","blob":"utils","language":"TypeScript","bytes":48}
+{"record_type":"relation","from_id":"gh/example/repo:file:apps/web/src/app.ts","to_id":"gh/example/repo:file:packages/utils/src/index.ts","type":"IMPORTS","confidence":0.91,"reason":"JS/TS workspace package export resolved through nested package.json","relation_scope":"module","resolution":"import_resolved","target_kind":"file","evidence":[{"kind":"package_workspace_exports_import","file_path":"apps/web/src/app.ts","start_line":1,"end_line":1,"detail":"@acme/utils"}],"warning_codes":[]}
+`
+}
+
 func semanticFixtureSnapshotWithQualifiedCallerSymbol() string {
 	return `{"schema_version":"1.0","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
@@ -4358,5 +4591,26 @@ func TestSemanticWarningProviderKeysRoundTripThroughHeader(t *testing.T) {
 	}
 	if got := h2.PartialFailures[0].Path; got != "db/x.sql" {
 		t.Fatalf("round-tripped partial failure path = %q, want db/x.sql", got)
+	}
+}
+
+func TestTrustForCompleteness(t *testing.T) {
+	cases := map[string]string{"ok": "trusted", "degraded": "partial", "unsafe": "low", "": "unknown", "weird": "unknown"}
+	for level, want := range cases {
+		if got := trustForCompleteness(level); got != want {
+			t.Errorf("trustForCompleteness(%q) = %q, want %q", level, got, want)
+		}
+	}
+}
+
+func TestCompletenessLevelFromStats(t *testing.T) {
+	if got := completenessLevelFromStats([]byte(`{"completeness_level":"degraded","symbols":5}`)); got != "degraded" {
+		t.Errorf("got %q, want degraded", got)
+	}
+	if got := completenessLevelFromStats(nil); got != "" {
+		t.Errorf("nil stats: got %q, want empty", got)
+	}
+	if got := completenessLevelFromStats([]byte(`not json`)); got != "" {
+		t.Errorf("bad json: got %q, want empty", got)
 	}
 }

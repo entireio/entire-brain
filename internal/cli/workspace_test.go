@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 func TestWorkspaceWatchFansOverMembersWithSharedBudget(t *testing.T) {
@@ -473,6 +475,1725 @@ func TestBrainDirForKeyReservesWorkspacesSegment(t *testing.T) {
 	if _, err := brainDirForKey(env, "gh/acme/api"); err != nil {
 		t.Fatalf("ordinary key must resolve: %v", err)
 	}
+}
+
+func TestWorkspaceGraphReportsSharedExternalContracts(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC) }}
+	cmd := &cobra.Command{Use: "index"}
+
+	repoA := t.TempDir()
+	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	indexWorkspaceGraphRepo(t, cmd, opts, runner, repoA, keyA, "HandleSharedA")
+	repoB := t.TempDir()
+	keyB := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	indexWorkspaceGraphRepo(t, cmd, opts, runner, repoB, keyB, "HandleSharedB")
+
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "graph",
+		Repos: []workspaceRepo{
+			{RepoKey: keyA, LocalPathHint: repoA},
+			{RepoKey: keyB, LocalPathHint: repoB},
+		},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	var out bytes.Buffer
+	graphCmd := &cobra.Command{Use: "graph"}
+	graphCmd.SetOut(&out)
+	if err := runWorkspaceGraph(graphCmd, opts, workspaceGraphOptions{limit: 10, json: true}, "graph"); err != nil {
+		t.Fatalf("workspace graph: %v", err)
+	}
+	if !strings.Contains(out.String(), `"contracts"`) || !strings.Contains(out.String(), `external:route:/shared`) {
+		t.Fatalf("workspace graph missing shared external contract:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), `"cross_edges"`) ||
+		!strings.Contains(out.String(), `"relation_kind": "shared_external_contract"`) ||
+		!strings.Contains(out.String(), `external:config:kubernetes/image/shared:latest`) {
+		t.Fatalf("workspace graph missing cross-repo symbol/resource edges:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), `"metrics"`) || !strings.Contains(out.String(), `"relation_types"`) {
+		t.Fatalf("workspace graph missing per-repo graph metadata:\n%s", out.String())
+	}
+	artifactPath := filepath.Join(env.PluginDataDir, workspaceDirName, "graph", workspaceGraphName)
+	artifact, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatalf("read workspace graph artifact: %v", err)
+	}
+	if !strings.Contains(string(artifact), `"contracts"`) || !strings.Contains(string(artifact), `external:route:/shared`) {
+		t.Fatalf("workspace graph artifact missing contract:\n%s", artifact)
+	}
+	if !strings.Contains(string(artifact), `"cross_edges"`) || !strings.Contains(string(artifact), `external:config:kubernetes/image/shared:latest`) {
+		t.Fatalf("workspace graph artifact missing cross-repo edges:\n%s", artifact)
+	}
+}
+
+func TestWorkspaceGraphReportsCrossRepoImportCandidates(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 20, 13, 0, 0, 0, time.UTC) }}
+	cmd := &cobra.Command{Use: "index"}
+
+	repoA := t.TempDir()
+	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	repoB := t.TempDir()
+	keyB := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoA, keyA, workspaceGraphImportingSnapshot(keyA, "HandleAPI", keyB+"/pkg"))
+	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoB, keyB, workspaceGraphLibrarySnapshot(keyB, "pkg/service.go", "Service"))
+
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "imports",
+		Repos: []workspaceRepo{
+			{RepoKey: keyA, LocalPathHint: repoA},
+			{RepoKey: keyB, LocalPathHint: repoB},
+		},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	var out bytes.Buffer
+	graphCmd := &cobra.Command{Use: "graph"}
+	graphCmd.SetOut(&out)
+	if err := runWorkspaceGraph(graphCmd, opts, workspaceGraphOptions{limit: 10, json: true}, "imports"); err != nil {
+		t.Fatalf("workspace graph: %v", err)
+	}
+	for _, want := range []string{
+		`"relation_kind": "cross_repo_import_candidate"`,
+		`external:import:` + keyB + `/pkg`,
+		`"from_repo": "` + keyA + `"`,
+		`"to_repo": "` + keyB + `"`,
+		`pkg/service.go`,
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("workspace graph import edge missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestWorkspaceGraphMatchesScopedPackageImportCandidates(t *testing.T) {
+	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			Imports: []workspaceGraphImportRef{{
+				Spec: "@acme/lib/pkg",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "HandleAPI",
+					QualifiedName: "service.HandleAPI",
+					FilePath:      "service.go",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "gh/acme/lib",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "gh/acme/lib",
+				ID:            "lib:sym",
+				Kind:          "function",
+				Name:          "Service",
+				QualifiedName: "pkg.Service",
+				FilePath:      "pkg/service.go",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("scoped package import edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_import_candidate" || edge.Endpoint != "external:import:@acme/lib/pkg" || edge.FromRepo != "local/app" || edge.ToRepo != "gh/acme/lib" || edge.ToSymbol.FilePath != "pkg/service.go" {
+		t.Fatalf("unexpected scoped package import edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceGraphMatchesPackageRepoImportCandidates(t *testing.T) {
+	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			Imports: []workspaceGraphImportRef{{
+				Spec: "@acme/lib/pkg",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "HandleAPI",
+					QualifiedName: "service.HandleAPI",
+					FilePath:      "service.go",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "npm/@acme/lib",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "npm/@acme/lib",
+				ID:            "lib:sym",
+				Kind:          "function",
+				Name:          "Service",
+				QualifiedName: "pkg.Service",
+				FilePath:      "pkg/service.ts",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("package repo import edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_import_candidate" || edge.Endpoint != "external:import:@acme/lib/pkg" || edge.FromRepo != "local/app" || edge.ToRepo != "npm/@acme/lib" || edge.ToSymbol.FilePath != "pkg/service.ts" {
+		t.Fatalf("unexpected package repo import edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceGraphMatchesGoModuleImportCandidates(t *testing.T) {
+	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			Imports: []workspaceGraphImportRef{{
+				Spec: "golang.org/x/sync/errgroup",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "Run",
+					QualifiedName: "service.Run",
+					FilePath:      "service.go",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "gomod/golang.org/x/sync",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "gomod/golang.org/x/sync",
+				ID:            "lib:sym",
+				Kind:          "function",
+				Name:          "WithContext",
+				QualifiedName: "errgroup.WithContext",
+				FilePath:      "errgroup/errgroup.go",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("go module import edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_import_candidate" || edge.Endpoint != "external:import:golang.org/x/sync/errgroup" || edge.FromRepo != "local/app" || edge.ToRepo != "gomod/golang.org/x/sync" || edge.ToSymbol.FilePath != "errgroup/errgroup.go" {
+		t.Fatalf("unexpected go module import edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceGraphMatchesVersionedGoModuleImportCandidates(t *testing.T) {
+	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			Imports: []workspaceGraphImportRef{{
+				Spec: "github.com/acme/lib/v2/pkg",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "Run",
+					QualifiedName: "service.Run",
+					FilePath:      "service.go",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "gh/acme/lib",
+			Candidates: []workspaceGraphSymbolRef{
+				{
+					RepoKey:       "gh/acme/lib",
+					ID:            "root:file",
+					Kind:          "file",
+					Name:          "root",
+					QualifiedName: "root",
+					FilePath:      "cmd/root.go",
+				},
+				{
+					RepoKey:       "gh/acme/lib",
+					ID:            "pkg:file",
+					Kind:          "file",
+					Name:          "service",
+					QualifiedName: "service",
+					FilePath:      "pkg/service.go",
+				},
+			},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("versioned go module import edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_import_candidate" ||
+		edge.Endpoint != "external:import:github.com/acme/lib/v2/pkg" ||
+		edge.FromRepo != "local/app" ||
+		edge.ToRepo != "gh/acme/lib" ||
+		edge.ToSymbol.ID != "pkg:file" ||
+		edge.ToSymbol.Direction != "import_path_target" {
+		t.Fatalf("unexpected versioned go module import edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceGraphMatchesCargoImportCandidates(t *testing.T) {
+	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			Imports: []workspaceGraphImportRef{{
+				Spec: "tokio::sync",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "run",
+					QualifiedName: "app.run",
+					FilePath:      "src/main.rs",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "cargo/tokio",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "cargo/tokio",
+				ID:            "lib:sym",
+				Kind:          "function",
+				Name:          "channel",
+				QualifiedName: "sync.channel",
+				FilePath:      "sync/channel.rs",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("cargo import edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_import_candidate" || edge.Endpoint != "external:import:tokio::sync" || edge.FromRepo != "local/app" || edge.ToRepo != "cargo/tokio" || edge.ToSymbol.FilePath != "sync/channel.rs" {
+		t.Fatalf("unexpected cargo import edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceGraphMatchesMavenImportCandidates(t *testing.T) {
+	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			Imports: []workspaceGraphImportRef{{
+				Spec: "com.acme.lib.Service",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "run",
+					QualifiedName: "service.run",
+					FilePath:      "src/main/java/com/acme/app/App.java",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "maven/com.acme/lib",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "maven/com.acme/lib",
+				ID:            "lib:sym",
+				Kind:          "class",
+				Name:          "Service",
+				QualifiedName: "Service",
+				FilePath:      "Service.java",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("maven import edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_import_candidate" || edge.Endpoint != "external:import:com.acme.lib.Service" || edge.FromRepo != "local/app" || edge.ToRepo != "maven/com.acme/lib" || edge.ToSymbol.FilePath != "Service.java" {
+		t.Fatalf("unexpected maven import edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceGraphMatchesAdditionalPackageImportCandidates(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		spec          string
+		repoKey       string
+		targetName    string
+		qualifiedName string
+		filePath      string
+	}{
+		{
+			name:          "nuget",
+			spec:          "Newtonsoft.Json.Linq",
+			repoKey:       "nuget/Newtonsoft.Json",
+			targetName:    "Linq",
+			qualifiedName: "Linq",
+			filePath:      "Linq/JToken.cs",
+		},
+		{
+			name:          "gem",
+			spec:          "active_support/core_ext",
+			repoKey:       "gem/active_support",
+			targetName:    "core_ext",
+			qualifiedName: "core_ext",
+			filePath:      "lib/active_support/core_ext.rb",
+		},
+		{
+			name:          "composer",
+			spec:          "monolog/monolog/src/Logger",
+			repoKey:       "composer/monolog/monolog",
+			targetName:    "Logger",
+			qualifiedName: "src/Logger",
+			filePath:      "src/Logger.php",
+		},
+		{
+			name:          "pypi hyphen underscore alias",
+			spec:          "acme_client.transport",
+			repoKey:       "pypi/acme-client",
+			targetName:    "transport",
+			qualifiedName: "transport",
+			filePath:      "acme_client/transport.py",
+		},
+		{
+			name:          "cargo hyphen underscore alias",
+			spec:          "tokio_util::codec",
+			repoKey:       "cargo/tokio-util",
+			targetName:    "codec",
+			qualifiedName: "codec",
+			filePath:      "src/codec/framed.rs",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+				{
+					RepoKey: "local/app",
+					Imports: []workspaceGraphImportRef{{
+						Spec: tc.spec,
+						Source: workspaceGraphSymbolRef{
+							RepoKey:       "local/app",
+							ID:            "app:sym",
+							Kind:          "function",
+							Name:          "run",
+							QualifiedName: "service.run",
+							FilePath:      "service.go",
+						},
+						Count: 1,
+					}},
+				},
+				{
+					RepoKey: tc.repoKey,
+					Candidates: []workspaceGraphSymbolRef{{
+						RepoKey:       tc.repoKey,
+						ID:            "pkg:sym",
+						Kind:          "class",
+						Name:          tc.targetName,
+						QualifiedName: tc.qualifiedName,
+						FilePath:      tc.filePath,
+					}},
+				},
+			}, 10)
+			if len(edges) != 1 {
+				t.Fatalf("%s package import edges = %#v", tc.name, edges)
+			}
+			edge := edges[0]
+			if edge.RelationKind != "cross_repo_import_candidate" ||
+				edge.Endpoint != "external:import:"+tc.spec ||
+				edge.FromRepo != "local/app" ||
+				edge.ToRepo != tc.repoKey ||
+				edge.ToSymbol.FilePath != tc.filePath ||
+				edge.ToSymbol.Direction != "import_symbol_target" {
+				t.Fatalf("unexpected %s package import edge: %#v", tc.name, edge)
+			}
+		})
+	}
+}
+
+func TestWorkspaceGraphMatchesKubernetesResourceCandidates(t *testing.T) {
+	tests := []struct {
+		name       string
+		endpoint   string
+		targetID   string
+		targetName string
+		filePath   string
+	}{
+		{
+			name:       "service",
+			endpoint:   "external:config:kubernetes/service/api",
+			targetID:   "platform:resource:Service.api",
+			targetName: "Service.api",
+			filePath:   "k8s/service.yaml",
+		},
+		{
+			name:       "configmap",
+			endpoint:   "external:config:kubernetes/configmap/podinfo-values",
+			targetID:   "platform:resource:ConfigMap.podinfo-values",
+			targetName: "ConfigMap.podinfo-values",
+			filePath:   "k8s/podinfo-values.yaml",
+		},
+		{
+			name:       "secret",
+			endpoint:   "external:config:kubernetes/secret/podinfo-secret-values",
+			targetID:   "platform:resource:Secret.podinfo-secret-values",
+			targetName: "Secret.podinfo-secret-values",
+			filePath:   "k8s/podinfo-secret-values.yaml",
+		},
+		{
+			name:       "namespaced-secret-qualified",
+			endpoint:   "external:config:kubernetes/secret/default/podinfo-secret-values",
+			targetID:   "platform:resource:Secret.default.podinfo-secret-values",
+			targetName: "Secret.default.podinfo-secret-values",
+			filePath:   "k8s/default-podinfo-secret-values.yaml",
+		},
+		{
+			name:       "namespaced-secret-short-fallback",
+			endpoint:   "external:config:kubernetes/secret/default/podinfo-secret-values",
+			targetID:   "platform:resource:Secret.podinfo-secret-values",
+			targetName: "Secret.podinfo-secret-values",
+			filePath:   "k8s/podinfo-secret-values.yaml",
+		},
+		{
+			name:       "custom-resource",
+			endpoint:   "external:config:kubernetes/broker/default",
+			targetID:   "platform:resource:Broker.default",
+			targetName: "Broker.default",
+			filePath:   "k8s/knative-broker.yaml",
+		},
+		{
+			name:       "custom-resource-channel",
+			endpoint:   "external:config:kubernetes/inmemorychannel/user-events",
+			targetID:   "platform:resource:InMemoryChannel.user-events",
+			targetName: "InMemoryChannel.user-events",
+			filePath:   "k8s/knative-channel.yaml",
+		},
+		{
+			name:       "custom-resource-revision",
+			endpoint:   "external:config:kubernetes/revision/user-api-00001",
+			targetID:   "platform:resource:Revision.user-api-00001",
+			targetName: "Revision.user-api-00001",
+			filePath:   "k8s/knative-revision.yaml",
+		},
+		{
+			name:       "gateway",
+			endpoint:   "external:config:kubernetes/gateway/public",
+			targetID:   "platform:resource:Gateway.public",
+			targetName: "Gateway.public",
+			filePath:   "k8s/gateway.yaml",
+		},
+		{
+			name:       "vpa-workload-target",
+			endpoint:   "external:config:kubernetes/deployment/api",
+			targetID:   "platform:resource:Deployment.api",
+			targetName: "Deployment.api",
+			filePath:   "k8s/deployment.yaml",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			edges := workspaceGraphResourceCrossEdges(map[string]*workspaceExternalContractAggregate{
+				"RESOURCE_DEPENDS_ON\x00" + tc.endpoint: {
+					Endpoint:   tc.endpoint,
+					Type:       "RESOURCE_DEPENDS_ON",
+					RepoCounts: map[string]int{"local/app": 1},
+					Participants: []workspaceGraphSymbolRef{{
+						RepoKey:       "local/app",
+						ID:            "app:resource:Deployment.api",
+						Kind:          "resource",
+						Name:          "Deployment.api",
+						QualifiedName: "Deployment.api",
+						FilePath:      "k8s/deployment.yaml",
+						Direction:     "to_endpoint",
+						Count:         1,
+					}},
+				},
+			}, []workspaceRepoGraphIndex{
+				{
+					RepoKey: "local/app",
+				},
+				{
+					RepoKey: "local/platform",
+					Candidates: []workspaceGraphSymbolRef{{
+						RepoKey:       "local/platform",
+						ID:            tc.targetID,
+						Kind:          "resource",
+						Name:          tc.targetName,
+						QualifiedName: tc.targetName,
+						FilePath:      tc.filePath,
+					}},
+				},
+			}, 10)
+			if len(edges) != 1 {
+				t.Fatalf("kubernetes resource candidate edges = %#v", edges)
+			}
+			edge := edges[0]
+			if edge.RelationKind != "cross_repo_resource_candidate" ||
+				edge.Endpoint != tc.endpoint ||
+				edge.Type != "RESOURCE_DEPENDS_ON" ||
+				edge.FromRepo != "local/app" ||
+				edge.ToRepo != "local/platform" ||
+				edge.ToSymbol.ID != tc.targetID ||
+				edge.ToSymbol.Direction != "external_resource_target" {
+				t.Fatalf("unexpected kubernetes resource candidate edge: %#v", edge)
+			}
+		})
+	}
+}
+
+func TestWorkspaceGraphMatchesComposeServiceResourceCandidates(t *testing.T) {
+	edges := workspaceGraphResourceCrossEdges(map[string]*workspaceExternalContractAggregate{
+		"RESOURCE_DEPENDS_ON\x00external:config:compose/service/db": {
+			Endpoint:   "external:config:compose/service/db",
+			Type:       "RESOURCE_DEPENDS_ON",
+			RepoCounts: map[string]int{"local/app": 1},
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/app",
+				ID:            "app:resource:compose.service.api",
+				Kind:          "resource",
+				Name:          "compose.service.api",
+				QualifiedName: "compose.service.api",
+				FilePath:      "compose.yaml",
+				Direction:     "to_endpoint",
+				Count:         1,
+			}},
+		},
+	}, []workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+		},
+		{
+			RepoKey: "local/platform",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/platform",
+				ID:            "platform:resource:compose.service.db",
+				Kind:          "resource",
+				Name:          "compose.service.db",
+				QualifiedName: "compose.service.db",
+				FilePath:      "docker-compose.yml",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("compose resource candidate edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_resource_candidate" ||
+		edge.Endpoint != "external:config:compose/service/db" ||
+		edge.Type != "RESOURCE_DEPENDS_ON" ||
+		edge.FromRepo != "local/app" ||
+		edge.ToRepo != "local/platform" ||
+		edge.ToSymbol.ID != "platform:resource:compose.service.db" ||
+		edge.ToSymbol.Direction != "external_resource_target" {
+		t.Fatalf("unexpected compose resource candidate edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceGraphReportsCrossRepoChannelFlows(t *testing.T) {
+	edges := workspaceGraphChannelCrossEdges(map[string]*workspaceExternalContractAggregate{
+		"EMITS\x00external:channel:user.created": {
+			Endpoint:   "external:channel:user.created",
+			Type:       "EMITS",
+			RepoCounts: map[string]int{"local/api": 1},
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/api",
+				ID:            "api:sym:createUser",
+				Kind:          "function",
+				Name:          "createUser",
+				QualifiedName: "users.createUser",
+				FilePath:      "src/users.ts",
+				Direction:     "to_endpoint",
+				Count:         1,
+			}},
+		},
+		"LISTENS_ON\x00external:channel:user.created": {
+			Endpoint:   "external:channel:user.created",
+			Type:       "LISTENS_ON",
+			RepoCounts: map[string]int{"local/worker": 1, "local/api": 1},
+			Participants: []workspaceGraphSymbolRef{
+				{
+					RepoKey:       "local/worker",
+					ID:            "worker:sym:onUserCreated",
+					Kind:          "function",
+					Name:          "onUserCreated",
+					QualifiedName: "events.onUserCreated",
+					FilePath:      "src/events.ts",
+					Direction:     "to_endpoint",
+					Count:         1,
+				},
+				{
+					RepoKey:       "local/api",
+					ID:            "api:sym:localAudit",
+					Kind:          "function",
+					Name:          "localAudit",
+					QualifiedName: "users.localAudit",
+					FilePath:      "src/users.ts",
+					Direction:     "to_endpoint",
+					Count:         1,
+				},
+			},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("channel flow edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_channel_flow" ||
+		edge.Endpoint != "external:channel:user.created" ||
+		edge.Type != "EMITS" ||
+		edge.FromRepo != "local/api" ||
+		edge.ToRepo != "local/worker" ||
+		edge.FromSymbol.QualifiedName != "users.createUser" ||
+		edge.ToSymbol.QualifiedName != "events.onUserCreated" {
+		t.Fatalf("unexpected channel flow edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceGraphReportsCrossRepoGraphQLCalls(t *testing.T) {
+	edges := workspaceGraphGraphQLCrossEdges(map[string]*workspaceExternalContractAggregate{
+		"HANDLES_GRAPHQL\x00external:graphql:query user": {
+			Endpoint:   "external:graphql:query user",
+			Type:       "HANDLES_GRAPHQL",
+			RepoCounts: map[string]int{"local/web": 1, "local/api": 1},
+			Participants: []workspaceGraphSymbolRef{
+				{
+					RepoKey:       "local/web",
+					ID:            "web:sym:fetchUser",
+					Kind:          "function",
+					Name:          "fetchUser",
+					QualifiedName: "client.fetchUser",
+					FilePath:      "src/client.ts",
+					Direction:     "to_endpoint",
+					Count:         1,
+				},
+				{
+					RepoKey:       "local/schema",
+					ID:            "schema:sym:Query.user",
+					Kind:          "graphql_schema_field",
+					Name:          "Query.user",
+					QualifiedName: "Query.user",
+					FilePath:      "schema.graphql",
+					Direction:     "to_endpoint",
+					Count:         1,
+				},
+				{
+					RepoKey:       "local/api",
+					ID:            "api:sym:Query.user",
+					Kind:          "graphql_resolver",
+					Name:          "Query.user",
+					QualifiedName: "Query.user",
+					FilePath:      "src/resolvers.ts",
+					Direction:     "to_endpoint",
+					Count:         1,
+				},
+			},
+		},
+		"HANDLES_GRAPHQL\x00external:graphql:query viewer": {
+			Endpoint:   "external:graphql:query viewer",
+			Type:       "HANDLES_GRAPHQL",
+			RepoCounts: map[string]int{"local/web": 1, "local/other": 1},
+			Participants: []workspaceGraphSymbolRef{
+				{RepoKey: "local/web", ID: "web:sym:fetchViewer", Kind: "function", Name: "fetchViewer", Count: 1},
+				{RepoKey: "local/other", ID: "other:sym:fetchViewer", Kind: "function", Name: "fetchViewer", Count: 1},
+			},
+		},
+	}, 10)
+	if len(edges) != 3 {
+		t.Fatalf("graphql cross edges = %#v", edges)
+	}
+	seen := map[string]workspaceGraphCrossEdge{}
+	for _, edge := range edges {
+		seen[edge.RelationKind+"->"+edge.ToSymbol.Kind] = edge
+		if edge.FromSymbol.Kind == "graphql_schema_field" && edge.RelationKind != "cross_repo_graphql_schema_resolver" {
+			t.Fatalf("schema field was used as GraphQL operation source: %#v", edge)
+		}
+	}
+	resolverEdge := seen["cross_repo_graphql_call->graphql_resolver"]
+	if resolverEdge.Endpoint != "external:graphql:query user" ||
+		resolverEdge.Type != "CALLS" ||
+		resolverEdge.FromRepo != "local/web" ||
+		resolverEdge.ToRepo != "local/api" {
+		t.Fatalf("unexpected GraphQL resolver cross edge: %#v", resolverEdge)
+	}
+	schemaEdge := seen["cross_repo_graphql_schema->graphql_schema_field"]
+	if schemaEdge.Endpoint != "external:graphql:query user" ||
+		schemaEdge.Type != "CALLS" ||
+		schemaEdge.FromRepo != "local/web" ||
+		schemaEdge.ToRepo != "local/schema" {
+		t.Fatalf("unexpected GraphQL schema cross edge: %#v", schemaEdge)
+	}
+	schemaResolverEdge := seen["cross_repo_graphql_schema_resolver->graphql_resolver"]
+	if schemaResolverEdge.Endpoint != "external:graphql:query user" ||
+		schemaResolverEdge.Type != "CALLS" ||
+		schemaResolverEdge.FromRepo != "local/schema" ||
+		schemaResolverEdge.ToRepo != "local/api" {
+		t.Fatalf("unexpected GraphQL schema resolver cross edge: %#v", schemaResolverEdge)
+	}
+}
+
+func TestWorkspaceGraphReportsCrossRepoGraphQLSchemaResolverWithoutOperation(t *testing.T) {
+	edges := workspaceGraphGraphQLCrossEdges(map[string]*workspaceExternalContractAggregate{
+		"HANDLES_GRAPHQL\x00external:graphql:query user": {
+			Endpoint:   "external:graphql:query user",
+			Type:       "HANDLES_GRAPHQL",
+			RepoCounts: map[string]int{"local/schema": 1, "local/api": 1},
+			Participants: []workspaceGraphSymbolRef{
+				{
+					RepoKey:       "local/schema",
+					ID:            "schema:sym:Query.user",
+					Kind:          "graphql_schema_field",
+					Name:          "Query.user",
+					QualifiedName: "Query.user",
+					FilePath:      "schema.graphql",
+					Direction:     "to_endpoint",
+					Count:         1,
+				},
+				{
+					RepoKey:       "local/api",
+					ID:            "api:sym:Query.user",
+					Kind:          "graphql_resolver",
+					Name:          "Query.user",
+					QualifiedName: "Query.user",
+					FilePath:      "src/user.resolvers.ts",
+					Direction:     "to_endpoint",
+					Count:         1,
+				},
+			},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("graphql schema resolver-only cross edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.Endpoint != "external:graphql:query user" ||
+		edge.Type != "CALLS" ||
+		edge.RelationKind != "cross_repo_graphql_schema_resolver" ||
+		edge.FromRepo != "local/schema" ||
+		edge.ToRepo != "local/api" ||
+		edge.FromSymbol.Kind != "graphql_schema_field" ||
+		edge.ToSymbol.Kind != "graphql_resolver" {
+		t.Fatalf("unexpected GraphQL schema resolver-only cross edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceGraphImportCandidatesPreferImportedSymbols(t *testing.T) {
+	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			Imports: []workspaceGraphImportRef{{
+				Spec: "requests.auth.HTTPBasicAuth",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "run",
+					QualifiedName: "service.run",
+					FilePath:      "service.py",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "pypi/requests",
+			Candidates: []workspaceGraphSymbolRef{
+				{
+					RepoKey:       "pypi/requests",
+					ID:            "module:sym",
+					Kind:          "module",
+					Name:          "auth",
+					QualifiedName: "auth",
+					FilePath:      "requests/auth.py",
+				},
+				{
+					RepoKey:       "pypi/requests",
+					ID:            "class:sym",
+					Kind:          "class",
+					Name:          "HTTPBasicAuth",
+					QualifiedName: "auth.HTTPBasicAuth",
+					FilePath:      "requests/auth.py",
+				},
+			},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("python import symbol edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_import_candidate" ||
+		edge.Endpoint != "external:import:requests.auth.HTTPBasicAuth" ||
+		edge.ToRepo != "pypi/requests" ||
+		edge.ToSymbol.ID != "class:sym" ||
+		edge.ToSymbol.Direction != "import_symbol_target" {
+		t.Fatalf("unexpected python import symbol edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceGraphImportCandidatesPreferSubpathFileTargets(t *testing.T) {
+	edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			Imports: []workspaceGraphImportRef{{
+				Spec: "@acme/ui/button",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "render",
+					QualifiedName: "app.render",
+					FilePath:      "src/app.ts",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "gh/acme/web/packages/ui",
+			Candidates: []workspaceGraphSymbolRef{
+				{
+					RepoKey:       "gh/acme/web/packages/ui",
+					ID:            "alpha:file",
+					Kind:          "file",
+					Name:          "alpha",
+					QualifiedName: "alpha",
+					FilePath:      "src/alpha.ts",
+				},
+				{
+					RepoKey:       "gh/acme/web/packages/ui",
+					ID:            "button:file",
+					Kind:          "file",
+					Name:          "button",
+					QualifiedName: "button",
+					FilePath:      "src/button.ts",
+				},
+			},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("subpath import file edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_import_candidate" ||
+		edge.Endpoint != "external:import:@acme/ui/button" ||
+		edge.ToRepo != "gh/acme/web/packages/ui" ||
+		edge.ToSymbol.ID != "button:file" ||
+		edge.ToSymbol.Direction != "import_path_target" {
+		t.Fatalf("unexpected subpath import file edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceImportPathMatchesSubpath(t *testing.T) {
+	tests := []struct {
+		path    string
+		subpath string
+		want    bool
+	}{
+		{path: "src/button.ts", subpath: "button", want: true},
+		{path: "src/api/routes.ts", subpath: "api/routes", want: true},
+		{path: "src/api/routes.ts", subpath: "routes", want: true},
+		{path: "requests/auth.py", subpath: "auth", want: true},
+		{path: "tokio/sync/channel.rs", subpath: "sync::channel", want: true},
+		{path: "pkg/service.go", subpath: "v2/pkg", want: true},
+		{path: "src/alpha.ts", subpath: "button", want: false},
+	}
+	for _, tt := range tests {
+		if got := workspaceImportPathMatchesSubpath(tt.path, tt.subpath); got != tt.want {
+			t.Fatalf("workspaceImportPathMatchesSubpath(%q, %q) = %v, want %v", tt.path, tt.subpath, got, tt.want)
+		}
+	}
+}
+
+func TestWorkspaceGraphReportsCrossRepoRouteCalls(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 20, 14, 30, 0, 0, time.UTC) }}
+	cmd := &cobra.Command{Use: "index"}
+
+	repoA := t.TempDir()
+	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	repoB := t.TempDir()
+	keyB := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoA, keyA, workspaceGraphRouteCallerSnapshot(keyA, "CallShared", "/shared"))
+	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoB, keyB, workspaceGraphRouteHandlerSnapshot(keyB, "HandleShared", "/shared"))
+
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "routes",
+		Repos: []workspaceRepo{
+			{RepoKey: keyA, LocalPathHint: repoA},
+			{RepoKey: keyB, LocalPathHint: repoB},
+		},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	var out bytes.Buffer
+	graphCmd := &cobra.Command{Use: "graph"}
+	graphCmd.SetOut(&out)
+	if err := runWorkspaceGraph(graphCmd, opts, workspaceGraphOptions{limit: 10, json: true}, "routes"); err != nil {
+		t.Fatalf("workspace graph: %v", err)
+	}
+	for _, want := range []string{
+		`"relation_kind": "cross_repo_route_call"`,
+		`external:route:/shared`,
+		`"type": "CALLS"`,
+		`"from_repo": "` + keyA + `"`,
+		`"to_repo": "` + keyB + `"`,
+		`"qualified_name": "service.CallShared"`,
+		`"qualified_name": "service.HandleShared"`,
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("workspace graph route call edge missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestWorkspaceGraphMatchesCanonicalRouteTemplateCalls(t *testing.T) {
+	edges := workspaceGraphRouteCallCrossEdges(map[string]*workspaceExternalContractAggregate{
+		"HTTP_CALLS\x00external:route:/api/users/{id}": {
+			Endpoint: "external:route:/api/users/{id}",
+			Type:     "HTTP_CALLS",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/client",
+				ID:            "local/client:go:client.go:function:CallUser",
+				Kind:          "function",
+				Name:          "CallUser",
+				QualifiedName: "client.CallUser",
+				Count:         1,
+			}},
+		},
+		"HANDLES_ROUTE\x00external:route:/api/users/:userID": {
+			Endpoint: "external:route:/api/users/:userID",
+			Type:     "HANDLES_ROUTE",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/service",
+				ID:            "local/service:ts:routes.ts:function:showUser",
+				Kind:          "function",
+				Name:          "showUser",
+				QualifiedName: "routes.showUser",
+				Count:         1,
+			}},
+		},
+		"HANDLES_ROUTE\x00external:route:/api/projects/<project_id>": {
+			Endpoint: "external:route:/api/projects/<project_id>",
+			Type:     "HANDLES_ROUTE",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/other",
+				ID:            "local/other:py:routes.py:function:show_project",
+				Kind:          "function",
+				Name:          "show_project",
+				QualifiedName: "routes.show_project",
+				Count:         1,
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("expected exactly one canonical route edge, got %#v", edges)
+	}
+	edge := edges[0]
+	if edge.Endpoint != "external:route:/api/users/{param}" ||
+		edge.RelationKind != "cross_repo_route_call" ||
+		edge.FromRepo != "local/client" ||
+		edge.ToRepo != "local/service" ||
+		edge.FromSymbol.QualifiedName != "client.CallUser" ||
+		edge.ToSymbol.QualifiedName != "routes.showUser" {
+		t.Fatalf("unexpected canonical route edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceGraphMatchesTrailingSlashRouteCalls(t *testing.T) {
+	edges := workspaceGraphRouteCallCrossEdges(map[string]*workspaceExternalContractAggregate{
+		"HTTP_CALLS\x00external:route:/health": {
+			Endpoint: "external:route:/health",
+			Type:     "HTTP_CALLS",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/client",
+				ID:            "local/client:go:client.go:function:CheckHealth",
+				Kind:          "function",
+				Name:          "CheckHealth",
+				QualifiedName: "client.CheckHealth",
+				Count:         1,
+			}},
+		},
+		"HANDLES_ROUTE\x00external:route:/health/": {
+			Endpoint: "external:route:/health/",
+			Type:     "HANDLES_ROUTE",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/service",
+				ID:            "local/service:py:routes.py:function:health",
+				Kind:          "function",
+				Name:          "health",
+				QualifiedName: "routes.health",
+				Count:         1,
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("expected trailing-slash route edge, got %#v", edges)
+	}
+	edge := edges[0]
+	if edge.Endpoint != "external:route:/health" ||
+		edge.RelationKind != "cross_repo_route_call" ||
+		edge.FromRepo != "local/client" ||
+		edge.ToRepo != "local/service" ||
+		edge.FromSymbol.QualifiedName != "client.CheckHealth" ||
+		edge.ToSymbol.QualifiedName != "routes.health" {
+		t.Fatalf("unexpected trailing-slash route edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceGraphMatchesFrontendOptionalRouteTemplateCalls(t *testing.T) {
+	edges := workspaceGraphRouteCallCrossEdges(map[string]*workspaceExternalContractAggregate{
+		"HTTP_CALLS\x00external:route:/docs/{lang}": {
+			Endpoint: "external:route:/docs/{lang}",
+			Type:     "HTTP_CALLS",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/client",
+				ID:            "local/client:ts:client.ts:function:loadDocs",
+				Kind:          "function",
+				Name:          "loadDocs",
+				QualifiedName: "client.loadDocs",
+				Count:         1,
+			}},
+		},
+		"HANDLES_ROUTE\x00external:route:/docs/[[lang]]": {
+			Endpoint: "external:route:/docs/[[lang]]",
+			Type:     "HANDLES_ROUTE",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/web",
+				ID:            "local/web:ts:src/routes/docs/[[lang]]/+server.ts:function:GET",
+				Kind:          "function",
+				Name:          "GET",
+				QualifiedName: "routes.docs.GET",
+				Count:         1,
+			}},
+		},
+		"HTTP_CALLS\x00external:route:/blog/{slug}": {
+			Endpoint: "external:route:/blog/{slug}",
+			Type:     "HTTP_CALLS",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/client",
+				ID:            "local/client:ts:client.ts:function:loadBlog",
+				Kind:          "function",
+				Name:          "loadBlog",
+				QualifiedName: "client.loadBlog",
+				Count:         1,
+			}},
+		},
+		"HANDLES_ROUTE\x00external:route:/blog/[...slug]": {
+			Endpoint: "external:route:/blog/[...slug]",
+			Type:     "HANDLES_ROUTE",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/web",
+				ID:            "local/web:ts:src/routes/blog/[...slug]/+server.ts:function:GET",
+				Kind:          "function",
+				Name:          "GET",
+				QualifiedName: "routes.blog.GET",
+				Count:         1,
+			}},
+		},
+	}, 10)
+	if len(edges) != 2 {
+		t.Fatalf("expected frontend route template edges, got %#v", edges)
+	}
+	seen := map[string]workspaceGraphCrossEdge{}
+	for _, edge := range edges {
+		seen[edge.Endpoint] = edge
+	}
+	if edge := seen["external:route:/docs/{param}"]; edge.RelationKind != "cross_repo_route_call" || edge.FromRepo != "local/client" || edge.ToRepo != "local/web" || edge.ToSymbol.QualifiedName != "routes.docs.GET" {
+		t.Fatalf("unexpected optional frontend route edge: %#v", edge)
+	}
+	if edge := seen["external:route:/blog/{param}"]; edge.RelationKind != "cross_repo_route_call" || edge.FromRepo != "local/client" || edge.ToRepo != "local/web" || edge.ToSymbol.QualifiedName != "routes.blog.GET" {
+		t.Fatalf("unexpected catch-all frontend route edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceGraphMatchesWildcardRouteTemplateCalls(t *testing.T) {
+	edges := workspaceGraphRouteCallCrossEdges(map[string]*workspaceExternalContractAggregate{
+		"HTTP_CALLS\x00external:route:/assets/{path}": {
+			Endpoint: "external:route:/assets/{path}",
+			Type:     "HTTP_CALLS",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/client",
+				ID:            "local/client:rb:client.rb:method:fetch_asset",
+				Kind:          "method",
+				Name:          "fetch_asset",
+				QualifiedName: "Client.fetch_asset",
+				Count:         1,
+			}},
+		},
+		"HANDLES_ROUTE\x00external:route:/assets/*path": {
+			Endpoint: "external:route:/assets/*path",
+			Type:     "HANDLES_ROUTE",
+			Participants: []workspaceGraphSymbolRef{{
+				RepoKey:       "local/web",
+				ID:            "local/web:rb:config/routes.rb:method:AssetsController.show",
+				Kind:          "method",
+				Name:          "show",
+				QualifiedName: "AssetsController.show",
+				Count:         1,
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("expected wildcard route edge, got %#v", edges)
+	}
+	edge := edges[0]
+	if edge.Endpoint != "external:route:/assets/{param}" ||
+		edge.RelationKind != "cross_repo_route_call" ||
+		edge.FromRepo != "local/client" ||
+		edge.ToRepo != "local/web" ||
+		edge.ToSymbol.QualifiedName != "AssetsController.show" {
+		t.Fatalf("unexpected wildcard route edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceGraphReportsExactExternalSymbolEdges(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 20, 14, 0, 0, 0, time.UTC) }}
+	cmd := &cobra.Command{Use: "index"}
+
+	repoA := t.TempDir()
+	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	repoB := t.TempDir()
+	keyB := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoA, keyA, workspaceGraphExternalSymbolSnapshot(keyA, "HandleAPI", "lib.Service"))
+	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoB, keyB, workspaceGraphQualifiedSymbolSnapshot(keyB, "lib/service.go", "Service", "lib.Service"))
+
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "symbols",
+		Repos: []workspaceRepo{
+			{RepoKey: keyA, LocalPathHint: repoA},
+			{RepoKey: keyB, LocalPathHint: repoB},
+		},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	var out bytes.Buffer
+	graphCmd := &cobra.Command{Use: "graph"}
+	graphCmd.SetOut(&out)
+	if err := runWorkspaceGraph(graphCmd, opts, workspaceGraphOptions{limit: 10, json: true}, "symbols"); err != nil {
+		t.Fatalf("workspace graph: %v", err)
+	}
+	for _, want := range []string{
+		`"relation_kind": "cross_repo_external_symbol"`,
+		`external:symbol:lib.Service`,
+		`"from_repo": "` + keyA + `"`,
+		`"to_repo": "` + keyB + `"`,
+		`"qualified_name": "lib.Service"`,
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("workspace graph external symbol edge missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestWorkspaceGraphMatchesRepoPrefixedExternalSymbols(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 20, 14, 0, 0, 0, time.UTC) }}
+	cmd := &cobra.Command{Use: "index"}
+
+	repoA := t.TempDir()
+	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	repoB := t.TempDir()
+	keyB := filepath.ToSlash(filepath.Join("local", localRepoKey(repoB)))
+	externalSpec := keyB + "/pkg.Service"
+	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoA, keyA, workspaceGraphExternalSymbolSnapshot(keyA, "HandleAPI", externalSpec))
+	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoB, keyB, workspaceGraphQualifiedSymbolSnapshot(keyB, "pkg/service.go", "Service", "pkg.Service"))
+
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "prefixed-symbols",
+		Repos: []workspaceRepo{
+			{RepoKey: keyA, LocalPathHint: repoA},
+			{RepoKey: keyB, LocalPathHint: repoB},
+		},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	var out bytes.Buffer
+	graphCmd := &cobra.Command{Use: "graph"}
+	graphCmd.SetOut(&out)
+	if err := runWorkspaceGraph(graphCmd, opts, workspaceGraphOptions{limit: 10, json: true}, "prefixed-symbols"); err != nil {
+		t.Fatalf("workspace graph: %v", err)
+	}
+	for _, want := range []string{
+		`"relation_kind": "cross_repo_external_symbol"`,
+		`external:symbol:` + externalSpec,
+		`"to_repo": "` + keyB + `"`,
+		`"qualified_name": "pkg.Service"`,
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("workspace graph repo-prefixed external symbol edge missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestWorkspaceGraphMatchesPackageRepoExternalSymbols(t *testing.T) {
+	edges := workspaceGraphExternalSymbolCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			ExternalSymbols: []workspaceGraphExternalSymbolRef{{
+				Spec: "@acme/lib/pkg.Service",
+				Type: "CALLS",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "HandleAPI",
+					QualifiedName: "service.HandleAPI",
+					FilePath:      "service.go",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "npm/@acme/lib",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "npm/@acme/lib",
+				ID:            "lib:sym",
+				Kind:          "function",
+				Name:          "Service",
+				QualifiedName: "pkg.Service",
+				FilePath:      "pkg/service.ts",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("package repo external symbol edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_external_symbol" || edge.Endpoint != "external:symbol:@acme/lib/pkg.Service" || edge.FromRepo != "local/app" || edge.ToRepo != "npm/@acme/lib" || edge.ToSymbol.QualifiedName != "pkg.Service" {
+		t.Fatalf("unexpected package repo external symbol edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceGraphMatchesMavenExternalSymbols(t *testing.T) {
+	edges := workspaceGraphExternalSymbolCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			ExternalSymbols: []workspaceGraphExternalSymbolRef{{
+				Spec: "com.acme.lib.Service",
+				Type: "CALLS",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "Run",
+					QualifiedName: "service.Run",
+					FilePath:      "App.java",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "maven/com.acme/lib",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "maven/com.acme/lib",
+				ID:            "lib:sym",
+				Kind:          "class",
+				Name:          "Service",
+				QualifiedName: "Service",
+				FilePath:      "Service.java",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("maven external symbol edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_external_symbol" || edge.Endpoint != "external:symbol:com.acme.lib.Service" || edge.FromRepo != "local/app" || edge.ToRepo != "maven/com.acme/lib" || edge.ToSymbol.QualifiedName != "Service" {
+		t.Fatalf("unexpected maven external symbol edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceGraphMatchesAdditionalPackageExternalSymbols(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		spec          string
+		repoKey       string
+		targetName    string
+		qualifiedName string
+		filePath      string
+	}{
+		{
+			name:          "nuget",
+			spec:          "Newtonsoft.Json.Linq.JToken",
+			repoKey:       "nuget/Newtonsoft.Json",
+			targetName:    "JToken",
+			qualifiedName: "Linq.JToken",
+			filePath:      "Src/Newtonsoft.Json/Linq/JToken.cs",
+		},
+		{
+			name:          "pypi hyphen underscore alias",
+			spec:          "acme_client.transport.Client",
+			repoKey:       "pypi/acme-client",
+			targetName:    "Client",
+			qualifiedName: "transport.Client",
+			filePath:      "acme_client/transport.py",
+		},
+		{
+			name:          "cargo hyphen underscore alias",
+			spec:          "tokio_util::codec::Framed",
+			repoKey:       "cargo/tokio-util",
+			targetName:    "Framed",
+			qualifiedName: "codec.Framed",
+			filePath:      "src/codec/framed.rs",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			edges := workspaceGraphExternalSymbolCrossEdges([]workspaceRepoGraphIndex{
+				{
+					RepoKey: "local/app",
+					ExternalSymbols: []workspaceGraphExternalSymbolRef{{
+						Spec: tc.spec,
+						Type: "CALLS",
+						Source: workspaceGraphSymbolRef{
+							RepoKey:       "local/app",
+							ID:            "app:sym",
+							Kind:          "function",
+							Name:          "Run",
+							QualifiedName: "service.Run",
+							FilePath:      "Program.cs",
+						},
+						Count: 1,
+					}},
+				},
+				{
+					RepoKey: tc.repoKey,
+					Candidates: []workspaceGraphSymbolRef{{
+						RepoKey:       tc.repoKey,
+						ID:            "pkg:sym",
+						Kind:          "class",
+						Name:          tc.targetName,
+						QualifiedName: tc.qualifiedName,
+						FilePath:      tc.filePath,
+					}},
+				},
+			}, 10)
+			if len(edges) != 1 {
+				t.Fatalf("%s external symbol edges = %#v", tc.name, edges)
+			}
+			edge := edges[0]
+			if edge.RelationKind != "cross_repo_external_symbol" ||
+				edge.Endpoint != "external:symbol:"+tc.spec ||
+				edge.FromRepo != "local/app" ||
+				edge.ToRepo != tc.repoKey ||
+				edge.ToSymbol.QualifiedName != tc.qualifiedName ||
+				edge.ToSymbol.Direction != "external_symbol_target" {
+				t.Fatalf("unexpected %s external symbol edge: %#v", tc.name, edge)
+			}
+		})
+	}
+}
+
+func TestWorkspaceGraphMatchesColonSeparatedPackageExternalSymbols(t *testing.T) {
+	edges := workspaceGraphExternalSymbolCrossEdges([]workspaceRepoGraphIndex{
+		{
+			RepoKey: "local/app",
+			ExternalSymbols: []workspaceGraphExternalSymbolRef{{
+				Spec: "tokio::sync::channel",
+				Type: "CALLS",
+				Source: workspaceGraphSymbolRef{
+					RepoKey:       "local/app",
+					ID:            "app:sym",
+					Kind:          "function",
+					Name:          "run",
+					QualifiedName: "app.run",
+					FilePath:      "src/main.rs",
+				},
+				Count: 1,
+			}},
+		},
+		{
+			RepoKey: "cargo/tokio",
+			Candidates: []workspaceGraphSymbolRef{{
+				RepoKey:       "cargo/tokio",
+				ID:            "tokio:sym",
+				Kind:          "function",
+				Name:          "channel",
+				QualifiedName: "sync.channel",
+				FilePath:      "tokio/src/sync/channel.rs",
+			}},
+		},
+	}, 10)
+	if len(edges) != 1 {
+		t.Fatalf("colon-separated package external symbol edges = %#v", edges)
+	}
+	edge := edges[0]
+	if edge.RelationKind != "cross_repo_external_symbol" ||
+		edge.Endpoint != "external:symbol:tokio::sync::channel" ||
+		edge.FromRepo != "local/app" ||
+		edge.ToRepo != "cargo/tokio" ||
+		edge.ToSymbol.QualifiedName != "sync.channel" {
+		t.Fatalf("unexpected colon-separated package external symbol edge: %#v", edge)
+	}
+}
+
+func TestWorkspaceExternalSymbolTargetMatchesGitHubRepoPrefixes(t *testing.T) {
+	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{{
+		RepoKey:       "gh/acme/lib",
+		ID:            "sym",
+		Kind:          "function",
+		Name:          "Service",
+		QualifiedName: "pkg.Service",
+		FilePath:      "pkg/service.go",
+	}}, "github.com/acme/lib/pkg.Service")
+	if !ok || target.ID != "sym" || target.Direction != "external_symbol_target" {
+		t.Fatalf("github-prefixed external symbol target = %#v, %v", target, ok)
+	}
+}
+
+func TestWorkspaceExternalSymbolTargetMatchesGitHubMonorepoPackagePrefixes(t *testing.T) {
+	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{{
+		RepoKey:       "gh/acme/web/packages/ui",
+		ID:            "sym",
+		Kind:          "function",
+		Name:          "Button",
+		QualifiedName: "button.Button",
+		FilePath:      "src/button.ts",
+	}}, "@acme/ui/button.Button")
+	if !ok || target.ID != "sym" || target.Direction != "external_symbol_target" {
+		t.Fatalf("github monorepo package external symbol target = %#v, %v", target, ok)
+	}
+}
+
+func TestWorkspaceExternalSymbolTargetMatchesGitHubMonorepoPackageAliases(t *testing.T) {
+	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{{
+		RepoKey:       "gh/acme/web/packages/my-lib",
+		ID:            "sym",
+		Kind:          "function",
+		Name:          "Button",
+		QualifiedName: "button.Button",
+		FilePath:      "src/button.ts",
+	}}, "@acme/my_lib/button.Button")
+	if !ok || target.ID != "sym" || target.Direction != "external_symbol_target" {
+		t.Fatalf("github monorepo package alias external symbol target = %#v, %v", target, ok)
+	}
+}
+
+func TestWorkspaceExternalSymbolTargetMatchesPackageRepoPrefixes(t *testing.T) {
+	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{{
+		RepoKey:       "npm/@acme/lib",
+		ID:            "sym",
+		Kind:          "function",
+		Name:          "Service",
+		QualifiedName: "pkg.Service",
+		FilePath:      "pkg/service.ts",
+	}}, "@acme/lib/pkg.Service")
+	if !ok || target.ID != "sym" || target.Direction != "external_symbol_target" {
+		t.Fatalf("package-prefixed external symbol target = %#v, %v", target, ok)
+	}
+}
+
+func TestWorkspaceExternalSymbolTargetMatchesFileQualifiedSymbols(t *testing.T) {
+	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{
+		{
+			RepoKey:       "npm/@acme/lib",
+			ID:            "broad",
+			Kind:          "function",
+			Name:          "Handler",
+			QualifiedName: "other.Handler",
+			FilePath:      "src/other.ts",
+		},
+		{
+			RepoKey:       "npm/@acme/lib",
+			ID:            "target",
+			Kind:          "function",
+			Name:          "Handler",
+			QualifiedName: "Handler",
+			FilePath:      "src/api/routes.ts",
+		},
+	}, "@acme/lib/api/routes.Handler")
+	if !ok || target.ID != "target" || target.Direction != "external_symbol_target" {
+		t.Fatalf("file-qualified external symbol target = %#v, %v", target, ok)
+	}
+}
+
+func TestWorkspaceExternalSymbolTargetMatchesColonSeparatedPackagePrefixes(t *testing.T) {
+	target, ok := workspaceExternalSymbolTarget([]workspaceGraphSymbolRef{{
+		RepoKey:       "cargo/tokio",
+		ID:            "sym",
+		Kind:          "function",
+		Name:          "channel",
+		QualifiedName: "sync.channel",
+		FilePath:      "src/sync/channel.rs",
+	}}, "tokio::sync::channel")
+	if !ok || target.ID != "sym" || target.Direction != "external_symbol_target" {
+		t.Fatalf("colon-separated package external symbol target = %#v, %v", target, ok)
+	}
+}
+
+func TestWorkspaceImportMatchesGitHubRepoKeys(t *testing.T) {
+	subpath, ok := workspaceImportMatchesRepo("github.com/acme/lib/pkg/sub", "gh/acme/lib")
+	if !ok || subpath != "pkg/sub" {
+		t.Fatalf("github import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("acme/lib/pkg", "gh/acme/lib")
+	if !ok || subpath != "pkg" {
+		t.Fatalf("owner/repo import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("@acme/lib/pkg", "gh/acme/lib")
+	if !ok || subpath != "pkg" {
+		t.Fatalf("scoped package import match = %q, %v", subpath, ok)
+	}
+	if _, ok := workspaceImportMatchesRepo("github.com/acme/other/pkg", "gh/acme/lib"); ok {
+		t.Fatalf("unrelated repo import should not match")
+	}
+	subpath, ok = workspaceImportMatchesRepo("@acme/ui/button", "gh/acme/web/packages/ui")
+	if !ok || subpath != "button" {
+		t.Fatalf("github monorepo package import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("github.com/acme/web/packages/ui/button", "gh/acme/web/packages/ui")
+	if !ok || subpath != "button" {
+		t.Fatalf("github monorepo path import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("@acme/my_lib/button", "gh/acme/web/packages/my-lib")
+	if !ok || subpath != "button" {
+		t.Fatalf("github monorepo package alias import match = %q, %v", subpath, ok)
+	}
+}
+
+func TestWorkspaceImportMatchesPackageRepoKeys(t *testing.T) {
+	subpath, ok := workspaceImportMatchesRepo("@acme/lib/pkg", "npm/@acme/lib")
+	if !ok || subpath != "pkg" {
+		t.Fatalf("npm scoped import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("requests/auth", "pypi/requests")
+	if !ok || subpath != "auth" {
+		t.Fatalf("pypi import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("golang.org/x/sync/errgroup", "gomod/golang.org/x/sync")
+	if !ok || subpath != "errgroup" {
+		t.Fatalf("go module import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("tokio::sync", "cargo/tokio")
+	if !ok || subpath != "sync" {
+		t.Fatalf("cargo import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("com.acme.lib.Service", "maven/com.acme/lib")
+	if !ok || subpath != "Service" {
+		t.Fatalf("maven import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("Newtonsoft.Json.Linq", "nuget/Newtonsoft.Json")
+	if !ok || subpath != "Linq" {
+		t.Fatalf("nuget import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("active_support/core_ext", "gem/active_support")
+	if !ok || subpath != "core_ext" {
+		t.Fatalf("gem import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("monolog/monolog/src/Logger", "composer/monolog/monolog")
+	if !ok || subpath != "src/Logger" {
+		t.Fatalf("composer import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("acme_client.transport", "pypi/acme-client")
+	if !ok || subpath != "transport" {
+		t.Fatalf("pypi hyphen/underscore import match = %q, %v", subpath, ok)
+	}
+	subpath, ok = workspaceImportMatchesRepo("tokio_util::codec", "cargo/tokio-util")
+	if !ok || subpath != "codec" {
+		t.Fatalf("cargo hyphen/underscore import match = %q, %v", subpath, ok)
+	}
+	if _, ok := workspaceImportMatchesRepo("@acme/other/pkg", "npm/@acme/lib"); ok {
+		t.Fatalf("unrelated package import should not match")
+	}
+}
+
+func indexWorkspaceGraphRepo(t *testing.T, cmd *cobra.Command, opts Options, runner *fakeCommandRunner, repoDir, repoKey, symbolName string) {
+	t.Helper()
+	indexWorkspaceGraphRepoWithSnapshot(t, cmd, opts, runner, repoDir, repoKey, workspaceGraphSnapshot(repoKey, symbolName))
+}
+
+func indexWorkspaceGraphRepoWithSnapshot(t *testing.T, cmd *cobra.Command, opts Options, runner *fakeCommandRunner, repoDir, repoKey, snapshot string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(repoDir, "service.go"), []byte("package service\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner.responses = map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"):                                                {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "rev-parse", "HEAD"):                                                           {stdout: "aaa111\n"},
+		fakeCommandKey("git", "rev-parse", "HEAD^{tree}"):                                                    {stdout: "tree111\n"},
+		fakeCommandKey("git", "branch", "--show-current"):                                                    {stdout: "main\n"},
+		fakeCommandKey("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):              {stdout: "origin/main\n"},
+		fakeCommandKey("git", "status", "--porcelain"):                                                       {stdout: ""},
+		fakeCommandKey("entire", "sem", "doctor", "--json"):                                                  {stdout: `{"no_egress":true}`},
+		fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"): {stdout: snapshot},
+	}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index %s: %v", repoKey, err)
+	}
+}
+
+func workspaceGraphSnapshot(repoKey, symbolName string) string {
+	symbolID := repoKey + ":go:service.go:function:" + symbolName
+	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES","CONFIGURES","HANDLES_ROUTE"],"warnings":[],"partial_failures":[]}
+{"record_type":"file","id":"` + repoKey + `:file:service.go","path":"service.go","blob":"abc","language":"Go","bytes":16}
+{"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"service.` + symbolName + `","file_path":"service.go","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
+{"record_type":"relation","from_id":"` + symbolID + `","to_id":"external:config:kubernetes/image/shared:latest","type":"CONFIGURES","confidence":0.82}
+{"record_type":"relation","from_id":"` + symbolID + `","to_id":"external:route:/shared","type":"HANDLES_ROUTE","confidence":0.95}
+`
+}
+
+func workspaceGraphImportingSnapshot(repoKey, symbolName, importSpec string) string {
+	symbolID := repoKey + ":go:service.go:function:" + symbolName
+	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES","IMPORTS"],"warnings":[],"partial_failures":[]}
+{"record_type":"file","id":"` + repoKey + `:file:service.go","path":"service.go","blob":"abc","language":"Go","bytes":16}
+{"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"service.` + symbolName + `","file_path":"service.go","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
+{"record_type":"relation","from_id":"` + symbolID + `","to_id":"external:import:` + importSpec + `","type":"IMPORTS","confidence":0.8}
+`
+}
+
+func workspaceGraphRouteCallerSnapshot(repoKey, symbolName, route string) string {
+	symbolID := repoKey + ":go:client.go:function:" + symbolName
+	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES","HTTP_CALLS"],"warnings":[],"partial_failures":[]}
+{"record_type":"file","id":"` + repoKey + `:file:client.go","path":"client.go","blob":"abc","language":"Go","bytes":16}
+{"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"service.` + symbolName + `","file_path":"client.go","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
+{"record_type":"relation","from_id":"` + symbolID + `","to_id":"external:route:` + route + `","type":"HTTP_CALLS","confidence":0.82}
+`
+}
+
+func workspaceGraphRouteHandlerSnapshot(repoKey, symbolName, route string) string {
+	symbolID := repoKey + ":go:server.go:function:" + symbolName
+	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES","HANDLES_ROUTE"],"warnings":[],"partial_failures":[]}
+{"record_type":"file","id":"` + repoKey + `:file:server.go","path":"server.go","blob":"abc","language":"Go","bytes":16}
+{"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"service.` + symbolName + `","file_path":"server.go","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
+{"record_type":"relation","from_id":"` + symbolID + `","to_id":"external:route:` + route + `","type":"HANDLES_ROUTE","confidence":0.95}
+`
+}
+
+func workspaceGraphLibrarySnapshot(repoKey, path, symbolName string) string {
+	symbolID := repoKey + ":go:" + path + ":function:" + symbolName
+	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES"],"warnings":[],"partial_failures":[]}
+{"record_type":"file","id":"` + repoKey + `:file:` + path + `","path":"` + path + `","blob":"abc","language":"Go","bytes":16}
+{"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"pkg.` + symbolName + `","file_path":"` + path + `","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
+`
+}
+
+func workspaceGraphExternalSymbolSnapshot(repoKey, symbolName, externalQualifiedName string) string {
+	symbolID := repoKey + ":go:service.go:function:" + symbolName
+	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["CALLS"],"warnings":[],"partial_failures":[]}
+{"record_type":"file","id":"` + repoKey + `:file:service.go","path":"service.go","blob":"abc","language":"Go","bytes":16}
+{"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"service.` + symbolName + `","file_path":"service.go","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
+{"record_type":"relation","from_id":"` + symbolID + `","to_id":"external:symbol:` + externalQualifiedName + `","type":"CALLS","confidence":0.82}
+`
+}
+
+func workspaceGraphQualifiedSymbolSnapshot(repoKey, path, symbolName, qualifiedName string) string {
+	symbolID := repoKey + ":go:" + path + ":function:" + symbolName
+	return `{"schema_version":"1.1","provider":"entire-sem","provider_version":"0.1.0","repo_key":"` + repoKey + `","commit":"aaa111","tree":"tree111","languages":["Go"],"capabilities":["ndjson"],"profile":"full","relation_set":["DEFINES"],"warnings":[],"partial_failures":[]}
+{"record_type":"file","id":"` + repoKey + `:file:` + path + `","path":"` + path + `","blob":"abc","language":"Go","bytes":16}
+{"record_type":"symbol","id":"` + symbolID + `","kind":"function","name":"` + symbolName + `","qualified_name":"` + qualifiedName + `","file_path":"` + path + `","start_line":1,"end_line":1,"signature":"func ` + symbolName + `()","language":"Go","stable_id_version":"1"}
+`
 }
 
 // writeWorkspaceBrainRepo builds a sessions-only brain at brainDirForKey(env, key) plus a working
@@ -1090,6 +2811,79 @@ func TestWorkspaceSearchAndGetFanOutWithQualifiedIDs(t *testing.T) {
 	}
 	if _, err := execute(t, cmd, "workspace", "get", "related", "doc:guide"); err == nil || !strings.Contains(err.Error(), "missing its repo key") {
 		t.Fatalf("expected unqualified-id error, got %v", err)
+	}
+}
+
+func TestWorkspaceSearchAndGetIncludesPersistedGraphEdges(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
+	cmd := NewRootCommand(opts)
+
+	_, keyA := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "client.ts", "export function fetchViewer() {}\n")
+	_, keyB := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "schema.graphql", "type Query { viewer: User }\n")
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "related",
+		Repos:         []workspaceRepo{{RepoKey: keyA, Name: "client"}, {RepoKey: keyB, Name: "api"}},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+	edge := workspaceGraphCrossEdge{
+		Endpoint:     "external:graphql:query viewer",
+		Type:         "graphql",
+		FromRepo:     keyA,
+		ToRepo:       keyB,
+		FromSymbol:   workspaceGraphSymbolRef{RepoKey: keyA, ID: "symbol:client.fetchViewer", Kind: "function", Name: "fetchViewer", QualifiedName: "client.fetchViewer", FilePath: "client.ts"},
+		ToSymbol:     workspaceGraphSymbolRef{RepoKey: keyB, ID: "symbol:Query.viewer", Kind: "field", Name: "viewer", QualifiedName: "Query.viewer", FilePath: "schema.graphql"},
+		SharedCount:  1,
+		RelationKind: "cross_repo_graphql_call",
+	}
+	if _, err := writeWorkspaceGraphPayload(env, workspaceGraphPayload{
+		Workspace:   manifest.Name,
+		GeneratedAt: time.Now(),
+		CrossEdges:  []workspaceGraphCrossEdge{edge},
+	}); err != nil {
+		t.Fatalf("write workspace graph: %v", err)
+	}
+
+	searchOut, err := execute(t, cmd, "workspace", "search", "related", "viewer graphql", "--json")
+	if err != nil {
+		t.Fatalf("workspace search: %v", err)
+	}
+	graphID := workspaceGraphCrossEdgeID(edge)
+	for _, want := range []string{`"source": "workspace_graph"`, `"id": "` + graphID + `"`, "cross_repo_graphql_call", "external:graphql:query viewer"} {
+		if !strings.Contains(searchOut, want) {
+			t.Fatalf("search output missing %q:\n%s", want, searchOut)
+		}
+	}
+
+	queryOut, err := execute(t, cmd, "workspace", "query", "related", "viewer graphql", "--json")
+	if err != nil {
+		t.Fatalf("workspace query: %v", err)
+	}
+	if !strings.Contains(queryOut, `"id": "`+graphID+`"`) {
+		t.Fatalf("query output missing workspace graph hit:\n%s", queryOut)
+	}
+
+	textCmd := NewRootCommand(opts)
+	textOut, err := execute(t, textCmd, "workspace", "search", "related", "viewer graphql")
+	if err != nil {
+		t.Fatalf("workspace search text: %v", err)
+	}
+	if !strings.Contains(textOut, "[workspace_graph] "+graphID) {
+		t.Fatalf("text output missing pasteable graph id %s:\n%s", graphID, textOut)
+	}
+
+	getOut, err := execute(t, cmd, "workspace", "get", "related", graphID, "--json")
+	if err != nil {
+		t.Fatalf("workspace get: %v", err)
+	}
+	for _, want := range []string{`"source": "workspace_graph"`, "client.fetchViewer", "Query.viewer", "schema.graphql"} {
+		if !strings.Contains(getOut, want) {
+			t.Fatalf("get output missing %q:\n%s", want, getOut)
+		}
 	}
 }
 

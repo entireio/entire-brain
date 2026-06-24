@@ -165,8 +165,9 @@ type brainBriefReport struct {
 }
 
 type brainBriefSemantic struct {
-	Context semanticContextResult `json:"context"`
-	Tests   semanticTestsResult   `json:"tests"`
+	Context       semanticContextResult `json:"context"`
+	RuntimeTraces []semanticRecord      `json:"runtime_traces,omitempty"`
+	Tests         semanticTestsResult   `json:"tests"`
 }
 
 type brainBriefHistory struct {
@@ -570,6 +571,14 @@ Durable facts (curated, provenance-anchored repo knowledge):
 
 Specialist tools (symbol graph + regression analysis — what the verbs can't do):
   entire brain inspect code "<query>" --json        # find a symbol in the graph
+  entire brain inspect search-graph "<query>" --json
+  entire brain inspect query-graph "type:CALLS <query>" --json
+  entire brain inspect graph-schema --json
+  entire brain inspect graph-ui semantic-graph.html
+  entire brain inspect snippet <symbol-or-id> --json
+  entire brain inspect trace-path <from-symbol> <to-symbol> --json
+  entire brain inspect dead-code --json
+  entire brain inspect ingest-traces <json-or-ndjson-file> --json
   entire brain inspect context <symbol-or-id> --json
   entire brain inspect impact <symbol-or-file> --json
   entire brain inspect changes --json
@@ -581,8 +590,9 @@ Search tips:
   - query first (fuses keyword + concept); fall back to search for exact
     identifiers, vsearch for paraphrased/conceptual queries.
   - Every result carries an id — pass it to get/multi-get for the full record.
-  - The inspect code/context/impact tools traverse the symbol graph (callers,
-    callees, impact set); reach for them when ranked text isn't enough.
+  - The inspect code/search-graph/query-graph/context/impact tools traverse the
+    symbol graph (symbols, relations, callers, callees, impact set); reach for
+    them when ranked text isn't enough.
 `))
 		},
 	}
@@ -602,11 +612,142 @@ func newBrainInspectCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newInspectCodeCommand(opts))
 	cmd.AddCommand(newInspectContextCommand(opts))
 	cmd.AddCommand(newInspectImpactCommand(opts))
+	cmd.AddCommand(newInspectSearchGraphCommand(opts))
+	cmd.AddCommand(newInspectQueryGraphCommand(opts))
+	cmd.AddCommand(newInspectGraphSchemaCommand(opts))
+	cmd.AddCommand(newInspectGraphUICommand(opts))
+	cmd.AddCommand(newInspectSnippetCommand(opts))
+	cmd.AddCommand(newInspectTracePathCommand(opts))
+	cmd.AddCommand(newInspectDeadCodeCommand(opts))
+	cmd.AddCommand(newInspectIngestTracesCommand(opts))
 	cmd.AddCommand(newInspectChangesCommand(opts))
 	cmd.AddCommand(newInspectTestsCommand(opts))
 	cmd.AddCommand(newInspectBoundariesCommand(opts))
 	cmd.AddCommand(newInspectRegressionsCommand(opts))
 	cmd.AddCommand(newInspectBlameCommand(opts))
+	return cmd
+}
+
+func newInspectSearchGraphCommand(opts Options) *cobra.Command {
+	graphOpts := semanticGraphSearchOptions{limit: 20}
+	cmd := &cobra.Command{
+		Use:   "search-graph <query>",
+		Short: "Search semantic graph symbols",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runSemanticSearchGraph(cmd, opts, graphOpts, args[0])
+		},
+	}
+	cmd.Flags().IntVar(&graphOpts.limit, "limit", 20, "Maximum results to return")
+	cmd.Flags().IntVar(&graphOpts.offset, "offset", 0, "Results to skip before returning a page")
+	cmd.Flags().BoolVar(&graphOpts.json, "json", false, "Emit machine-readable JSON")
+	return cmd
+}
+
+func newInspectQueryGraphCommand(opts Options) *cobra.Command {
+	graphOpts := semanticGraphQueryOptions{limit: 100}
+	cmd := &cobra.Command{
+		Use:   "query-graph <query>",
+		Short: "Query semantic graph relations with type:/from:/to: filters",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runSemanticQueryGraph(cmd, opts, graphOpts, args[0])
+		},
+	}
+	cmd.Flags().IntVar(&graphOpts.limit, "limit", 100, "Maximum relations to return")
+	cmd.Flags().BoolVar(&graphOpts.json, "json", false, "Emit machine-readable JSON")
+	return cmd
+}
+
+func newInspectGraphSchemaCommand(opts Options) *cobra.Command {
+	graphOpts := semanticGraphSchemaOptions{}
+	cmd := &cobra.Command{
+		Use:   "graph-schema",
+		Short: "Describe the indexed semantic graph schema and relation vocabulary",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runSemanticGraphSchema(cmd, opts, graphOpts)
+		},
+	}
+	cmd.Flags().BoolVar(&graphOpts.json, "json", false, "Emit machine-readable JSON")
+	return cmd
+}
+
+func newInspectGraphUICommand(opts Options) *cobra.Command {
+	uiOpts := semanticGraphUIOptions{limit: 500}
+	cmd := &cobra.Command{
+		Use:   "graph-ui [output.html]",
+		Short: "Write a local static HTML semantic graph explorer",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			output := "semantic-graph.html"
+			if len(args) == 1 {
+				output = args[0]
+			}
+			return runSemanticGraphUI(cmd, opts, uiOpts, output)
+		},
+	}
+	cmd.Flags().IntVar(&uiOpts.limit, "limit", 500, "Maximum relation edges to embed")
+	cmd.Flags().BoolVar(&uiOpts.json, "json", false, "Emit machine-readable JSON")
+	return cmd
+}
+
+func newInspectSnippetCommand(opts Options) *cobra.Command {
+	snippetOpts := semanticSnippetOptions{contextLines: 0}
+	cmd := &cobra.Command{
+		Use:   "snippet <symbol-or-id>",
+		Short: "Return the exact source snippet for an indexed symbol",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runSemanticSnippet(cmd, opts, snippetOpts, args[0])
+		},
+	}
+	cmd.Flags().IntVar(&snippetOpts.contextLines, "context-lines", 0, "Extra lines before and after the symbol")
+	cmd.Flags().BoolVar(&snippetOpts.json, "json", false, "Emit machine-readable JSON")
+	return cmd
+}
+
+func newInspectTracePathCommand(opts Options) *cobra.Command {
+	traceOpts := semanticTracePathOptions{depth: 4}
+	cmd := &cobra.Command{
+		Use:   "trace-path <from-symbol> <to-symbol>",
+		Short: "Find a directed semantic relation path between two symbols",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runSemanticTracePath(cmd, opts, traceOpts, args[0], args[1])
+		},
+	}
+	cmd.Flags().IntVar(&traceOpts.depth, "depth", 4, "Maximum relation depth")
+	cmd.Flags().BoolVar(&traceOpts.json, "json", false, "Emit machine-readable JSON")
+	return cmd
+}
+
+func newInspectDeadCodeCommand(opts Options) *cobra.Command {
+	deadOpts := semanticDeadCodeOptions{limit: 100}
+	cmd := &cobra.Command{
+		Use:   "dead-code",
+		Short: "List symbols with no incoming non-structural semantic edges",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runSemanticDeadCode(cmd, opts, deadOpts)
+		},
+	}
+	cmd.Flags().IntVar(&deadOpts.limit, "limit", 100, "Maximum symbols to return")
+	cmd.Flags().BoolVar(&deadOpts.json, "json", false, "Emit machine-readable JSON")
+	return cmd
+}
+
+func newInspectIngestTracesCommand(opts Options) *cobra.Command {
+	ingestOpts := semanticTraceIngestOptions{}
+	cmd := &cobra.Command{
+		Use:   "ingest-traces <json-or-ndjson-file>",
+		Short: "Import runtime traces and validate them against static semantic edges",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runSemanticIngestTraces(cmd, opts, ingestOpts, args[0])
+		},
+	}
+	cmd.Flags().BoolVar(&ingestOpts.json, "json", false, "Emit machine-readable JSON")
 	return cmd
 }
 
@@ -923,10 +1064,16 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			report.Warnings = append(report.Warnings, "semantic context unavailable: "+contextErr.Error())
 		} else {
 			report.Semantic.Context = semanticContextResult{
-				Symbols:   nonNilRecords(contextSymbols),
-				Relations: nonNilRecords(contextRelations),
-				Neighbors: nonNilRecords(contextNeighbors),
+				Symbols:   nonNil(contextSymbols),
+				Relations: nonNil(contextRelations),
+				Neighbors: nonNil(contextNeighbors),
 			}
+		}
+		runtimeTraces, runtimeErr := semanticRuntimeTraceFacts(status.Brain.Path, status.Manifest.Sources.Semantic, task, briefOpts.limit)
+		if runtimeErr != nil {
+			report.Warnings = append(report.Warnings, "runtime trace context unavailable: "+runtimeErr.Error())
+		} else {
+			report.Semantic.RuntimeTraces = runtimeTraces
 		}
 		tests, testsErr := semanticTestFacts(status.Brain.Path, status.Manifest.Sources.Semantic, task, briefOpts.limit)
 		if testsErr != nil {
@@ -1029,6 +1176,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	for _, symbol := range report.Semantic.Context.Symbols {
 		fmt.Fprintf(cmd.OutOrStdout(), "symbol %s %s:%d-%d\n", displaySymbolName(symbol), symbol.FilePath, symbol.StartLine, symbol.EndLine)
 	}
+	for _, trace := range report.Semantic.RuntimeTraces {
+		fmt.Fprintf(cmd.OutOrStdout(), "runtime_trace %s -> %s %s\n", trace.FromID, trace.ToID, trace.Reason)
+	}
 	for _, suggestion := range report.Semantic.Tests.Suggestions {
 		symbol := suggestion.Symbol
 		fmt.Fprintf(cmd.OutOrStdout(), "test %s %s:%d-%d %s\n", displaySymbolName(symbol), symbol.FilePath, symbol.StartLine, symbol.EndLine, suggestion.Reason)
@@ -1117,6 +1267,13 @@ func brainBriefLikelyFileGroups(repoRoot string, report brainBriefReport, task s
 	for _, relation := range report.Semantic.Context.Relations {
 		add(relation.FilePath, 4)
 		add(relation.Path, 2)
+	}
+	for _, trace := range report.Semantic.RuntimeTraces {
+		add(trace.FilePath, 7)
+		add(trace.Path, 3)
+		for _, evidence := range trace.Evidence {
+			add(evidence.FilePath, 2)
+		}
 	}
 	for _, root := range report.Semantic.Tests.Roots {
 		add(root.FilePath, 6)

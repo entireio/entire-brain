@@ -86,6 +86,42 @@ func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 	}
 }
 
+func TestRefreshSkipsCurrentSemanticIndex(t *testing.T) {
+	repoDir := seedFixtureRepo(t)
+	dataDir := filepath.Join(t.TempDir(), "data")
+	stateDir := filepath.Join(t.TempDir(), "state")
+	env := EntireEnv{
+		RepoRoot:        repoDir,
+		PluginConfigDir: filepath.Join(t.TempDir(), "config"),
+		PluginDataDir:   dataDir,
+		PluginStateDir:  stateDir,
+		PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
+	}
+	runner := seedFixtureRunner(repoDir)
+	addRefreshSemanticFixture(runner, repoDir)
+	opts := Options{
+		Version: "test-version",
+		Env:     env,
+		Runner:  runner,
+		Now: func() time.Time {
+			return time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)
+		},
+	}
+
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "--entire-binary", "entire-test"); err != nil {
+		t.Fatalf("initial refresh: %v\n%s", err, out)
+	}
+	runner.calls = nil
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "--entire-binary", "entire-test"); err != nil {
+		t.Fatalf("warm refresh: %v\n%s", err, out)
+	}
+	for _, call := range runner.calls {
+		if call.name == "entire" && len(call.args) >= 3 && call.args[0] == "sem" && call.args[1] == "snapshot" {
+			t.Fatalf("warm refresh reran semantic snapshot: %+v", runner.calls)
+		}
+	}
+}
+
 func TestRefreshHelpShowsSimplifiedFlags(t *testing.T) {
 	cmd := NewRootCommand(Options{Version: "test-version"})
 	out, err := execute(t, cmd, "refresh", "--help")

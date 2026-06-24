@@ -570,6 +570,14 @@ echo "release readiness passed"
 description = "Build the plugin binary (pure-Go fallback stack)"
 run = "go build -o entire-brain ./cmd/entire-brain"
 
+[tasks.install]
+description = "Build and install the plugin into the local Entire CLI"
+run = "scripts/install-local.sh"
+
+[tasks.release]
+description = "Build checksum-backed release archives under dist/"
+run = "scripts/release.sh"
+
 [tasks."build:cgo"]
 description = "Build the Stage 1b cgo stack (mattn + sqlite-vec vec0 + FTS5)"
 run = "CGO_ENABLED=1 go build -tags 'brain_cgo sqlite_fts5' -o entire-brain ./cmd/entire-brain"
