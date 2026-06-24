@@ -1,0 +1,15 @@
+Merge #51, then review #50.
+
+---
+
+<task-notification>
+<task-id>bvugd3gpq</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/a4bde332-8cdb-425f-84fb-bf25d036998a/tasks/bvugd3gpq.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll #51 CI until complete" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Ok, fix 1. Give me option on 2 and 3 - handling statErr as fatal error means what for the user?

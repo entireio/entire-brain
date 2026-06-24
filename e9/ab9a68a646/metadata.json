@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.7.8-nightly.202606200729.6f2a8c984",
+  "checkpoint_id": "e9ab9a68a646",
+  "strategy": "manual-commit",
+  "branch": "claude/pr49-review-fixes",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/semantic_graph.go",
+    "internal/cli/semantic_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e9/ab9a68a646/0/metadata.json",
+      "transcript": "/e9/ab9a68a646/0/full.jsonl",
+      "content_hash": "/e9/ab9a68a646/0/content_hash.txt",
+      "prompt": "/e9/ab9a68a646/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8464,
+    "cache_creation_tokens": 694470,
+    "cache_read_tokens": 11862077,
+    "output_tokens": 52851,
+    "api_call_count": 37
+  }
+}
