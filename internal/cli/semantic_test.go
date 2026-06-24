@@ -1912,6 +1912,73 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 	}
 }
 
+func TestSemanticIngestTracesIsIdempotent(t *testing.T) {
+	repoDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoDir, "internal/auth"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lines := make([]string, 25)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("// line %02d", i+1)
+	}
+	lines[9] = "func ValidateToken(token string) error {"
+	lines[10] = "    return nil"
+	lines[19] = "}"
+	if err := os.WriteFile(filepath.Join(repoDir, "internal/auth/token.go"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshotWithQualifiedCallerSymbol())
+	// Advance the clock on every read so the two ingests land in different
+	// import-<timestamp> artifacts. With the old (buggy) dedup key (report.Path,
+	// the timestamped artifact) the second ingest would not match the first and
+	// would double-count; dedup must instead key on the stable source path.
+	clock := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	opts := Options{Env: env, Runner: runner, Now: func() time.Time {
+		now := clock
+		clock = clock.Add(time.Hour)
+		return now
+	}}
+	if err := runSemanticIndex(t.Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	tracePath := filepath.Join(repoDir, "trace.ndjson")
+	if err := os.WriteFile(tracePath, []byte(`{"from":"CallValidateToken","to":"ValidateToken","type":"CALLS"}`+"\n"+`{"from":"ValidateToken","to":"CallValidateToken","type":"OBSERVED_CALL"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	countRuntimeTraces := func() int {
+		var out bytes.Buffer
+		cmd := &cobra.Command{Use: "query-trace"}
+		cmd.SetOut(&out)
+		if err := runSemanticQueryGraph(cmd, opts, semanticGraphQueryOptions{limit: 100, json: true}, "type:RUNTIME_TRACE"); err != nil {
+			t.Fatalf("query runtime traces: %v", err)
+		}
+		return strings.Count(out.String(), `"record_type": "runtime_trace"`)
+	}
+
+	ingest := func() {
+		var out bytes.Buffer
+		cmd := &cobra.Command{Use: "ingest"}
+		cmd.SetOut(&out)
+		if err := runSemanticIngestTraces(cmd, opts, semanticTraceIngestOptions{json: true}, tracePath); err != nil {
+			t.Fatalf("ingest traces: %v", err)
+		}
+	}
+
+	ingest()
+	first := countRuntimeTraces()
+	if first == 0 {
+		t.Fatalf("first ingest persisted no runtime traces")
+	}
+	ingest()
+	second := countRuntimeTraces()
+	if second != first {
+		t.Fatalf("re-ingesting the same trace file double-counted runtime traces: first=%d second=%d", first, second)
+	}
+}
+
 func TestSemanticGraphQueriesDataFlowRelations(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

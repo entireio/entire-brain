@@ -1000,7 +1000,7 @@ func runSemanticIngestTraces(cmd *cobra.Command, opts Options, ingestOpts semant
 		traceMatches[i] = ok
 	}
 	report := semanticTraceIngestReport{
-		ImportedAt: time.Now().UTC(),
+		ImportedAt: opts.Now().UTC(),
 		Path:       filepath.ToSlash(path),
 		Total:      len(traces),
 		Matched:    matched,
@@ -1011,7 +1011,10 @@ func runSemanticIngestTraces(cmd *cobra.Command, opts Options, ingestOpts semant
 		return err
 	}
 	report.Path = rel
-	if err := insertRuntimeTraceFacts(db, report, traces, traceMatches); err != nil {
+	// Dedup runtime-trace rows on the stable source file path (not report.Path,
+	// which is now the timestamped import artifact) so re-ingesting the same
+	// file is idempotent rather than additive.
+	if err := insertRuntimeTraceFacts(db, report, filepath.ToSlash(tracePath), traces, traceMatches); err != nil {
 		return err
 	}
 	if ingestOpts.json {
@@ -1237,15 +1240,17 @@ func ensureSemanticRuntimeTraceTable(db *sql.DB) error {
 	return nil
 }
 
-func insertRuntimeTraceFacts(db *sql.DB, report semanticTraceIngestReport, traces []semanticRuntimeTrace, matched []bool) error {
+func insertRuntimeTraceFacts(db *sql.DB, report semanticTraceIngestReport, sourceKey string, traces []semanticRuntimeTrace, matched []bool) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
-	// Idempotent re-ingest: drop any prior rows for this source before
+	// Idempotent re-ingest: drop any prior rows for this source file before
 	// re-inserting, so re-running ingest on the same trace file does not
-	// double-count runtime-trace relations in counts/hotspots/entry-points.
-	if _, err := tx.Exec(`DELETE FROM runtime_traces WHERE source_path = ?`, report.Path); err != nil {
+	// double-count runtime-trace relations in counts/hotspots/entry-points. The
+	// key must be the stable source path, not report.Path — that is the
+	// per-run, timestamped import artifact and would never match prior rows.
+	if _, err := tx.Exec(`DELETE FROM runtime_traces WHERE source_path = ?`, sourceKey); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -1255,7 +1260,7 @@ func insertRuntimeTraceFacts(db *sql.DB, report semanticTraceIngestReport, trace
 			isMatched = 1
 		}
 		if _, err := tx.Exec(`INSERT INTO runtime_traces(imported_at, source_path, from_id, to_id, observed_type, matched_static_edge) VALUES (?, ?, ?, ?, ?, ?)`,
-			report.ImportedAt.Format(time.RFC3339Nano), report.Path, trace.From, trace.To, strings.TrimSpace(trace.Type), isMatched); err != nil {
+			report.ImportedAt.Format(time.RFC3339Nano), sourceKey, trace.From, trace.To, strings.TrimSpace(trace.Type), isMatched); err != nil {
 			_ = tx.Rollback()
 			return err
 		}
