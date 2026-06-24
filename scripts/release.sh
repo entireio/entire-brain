@@ -12,6 +12,16 @@ build_tags=${BUILD_TAGS:-}
 mkdir -p "$out_dir"
 rm -f "$out_dir"/SHA256SUMS
 
+# sha256sum is standard on Linux; macOS ships shasum instead. Prefer whichever
+# is present so the script works on every release host.
+sha256_file() {
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum "$1"
+	else
+		shasum -a 256 "$1"
+	fi
+}
+
 build_target() {
 	goos=${1%/*}
 	goarch=${1#*/}
@@ -45,7 +55,7 @@ build_target() {
 	cp README.md LICENSE entire-plugin.yml "$work/"
 	tar -C "$out_dir" -czf "$archive" "entire-brain-$version-$goos-$goarch"
 	rm -rf "$work"
-	shasum -a 256 "$archive" >> "$out_dir/SHA256SUMS"
+	sha256_file "$archive" >> "$out_dir/SHA256SUMS"
 	sign_artifact "$archive"
 }
 

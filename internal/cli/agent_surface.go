@@ -1064,9 +1064,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			report.Warnings = append(report.Warnings, "semantic context unavailable: "+contextErr.Error())
 		} else {
 			report.Semantic.Context = semanticContextResult{
-				Symbols:   nonNilRecords(contextSymbols),
-				Relations: nonNilRecords(contextRelations),
-				Neighbors: nonNilRecords(contextNeighbors),
+				Symbols:   nonNil(contextSymbols),
+				Relations: nonNil(contextRelations),
+				Neighbors: nonNil(contextNeighbors),
 			}
 		}
 		runtimeTraces, runtimeErr := semanticRuntimeTraceFacts(status.Brain.Path, status.Manifest.Sources.Semantic, task, briefOpts.limit)

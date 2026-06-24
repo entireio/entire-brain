@@ -796,7 +796,7 @@ func runMCPListProjects(cmd *cobra.Command, opts Options) error {
 			summary.Files = semantic.Files
 			summary.Symbols = semantic.Symbols
 			summary.Relations = semantic.Relations
-			summary.Languages = nonNilStrings(semantic.Languages)
+			summary.Languages = nonNil(semantic.Languages)
 			summary.Profile = semantic.Profile
 		}
 		projects = append(projects, summary)
@@ -849,61 +849,34 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 	}{DeletedRepoKey: repoKey, BrainDir: brainDir})
 }
 
-func validateMCPToolArguments(tool string, args map[string]any) error {
-	allowed := map[string]bool{}
-	add := func(keys ...string) {
-		for _, key := range keys {
-			allowed[key] = true
+// mcpToolAllowedArgs derives, per tool, the set of accepted argument names from
+// the single source of truth — each tool's declared inputSchema in
+// mcpToolDefinitions. This keeps argument validation from drifting away from the
+// advertised tool schema.
+func mcpToolAllowedArgs() map[string]map[string]bool {
+	defs := mcpToolDefinitions()
+	out := make(map[string]map[string]bool, len(defs))
+	for _, def := range defs {
+		name, _ := def["name"].(string)
+		if name == "" {
+			continue
 		}
+		allowed := map[string]bool{}
+		if schema, ok := def["inputSchema"].(map[string]any); ok {
+			if props, ok := schema["properties"].(map[string]any); ok {
+				for key := range props {
+					allowed[key] = true
+				}
+			}
+		}
+		out[name] = allowed
 	}
-	switch tool {
-	case "brain_status", "brain_index_status", "brain_list_projects", "brain_get_graph_schema", "brain_get_architecture":
-		// no arguments
-	case "brain_index_repository":
-		add("path", "profile", "sem_binary", "worktree", "force")
-	case "brain_delete_project":
-		add("repo_key")
-	case "brain_brief":
-		add("task", "limit")
-	case "brain_query", "brain_search", "brain_vsearch":
-		add("query", "limit", "branch")
-	case "brain_context", "brain_code", "brain_search_code", "brain_tests":
-		add("query", "limit")
-	case "brain_search_graph":
-		add("query", "limit", "offset")
-	case "brain_query_graph":
-		add("query", "limit")
-	case "brain_get_code_snippet":
-		add("query", "context_lines")
-	case "brain_trace_path":
-		add("from", "to", "depth")
-	case "brain_dead_code":
-		add("limit")
-	case "brain_detect_changes":
-		add("limit")
-	case "brain_ingest_traces":
-		add("path")
-	case "brain_get":
-		add("id", "branch")
-	case "brain_multi_get":
-		add("ids", "branch")
-	case "brain_impact":
-		add("query", "limit", "depth")
-	case "brain_changes":
-		add("limit")
-	case "brain_boundaries":
-		add("kind", "limit")
-	case "brain_regressions", "brain_review":
-		add("query", "limit", "include_deletions", "location_only")
-	case "brain_workspace_graph":
-		add("workspace", "limit")
-	case "brain_workspace_regressions", "brain_workspace_review":
-		add("workspace", "query", "limit", "include_deletions", "location_only")
-	case "brain_patterns":
-		add("type", "scope", "limit")
-	case "brain_patterns_status":
-		// no arguments
-	default:
+	return out
+}
+
+func validateMCPToolArguments(tool string, args map[string]any) error {
+	allowed, known := mcpToolAllowedArgs()[tool]
+	if !known {
 		return nil
 	}
 	for key := range args {

@@ -2393,14 +2393,15 @@ type semanticContextResult struct {
 	Content   []semanticContent `json:"content,omitempty"`
 }
 
-// nonNilRecords guarantees a JSON array (`[]`) rather than `null` for an empty
-// result, so consumers can use one uniform shape across every brain command
-// instead of special-casing null per field.
-func nonNilRecords(records []semanticRecord) []semanticRecord {
-	if records == nil {
-		return []semanticRecord{}
+// nonNil guarantees a JSON array (`[]`) rather than `null` for an empty result,
+// so consumers can use one uniform shape across every brain command instead of
+// special-casing null per field: it returns values unchanged unless it is nil,
+// in which case it returns an empty (non-nil) slice.
+func nonNil[T any](values []T) []T {
+	if values == nil {
+		return []T{}
 	}
-	return records
+	return values
 }
 
 type semanticContent struct {
@@ -2532,7 +2533,7 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 			Freshness  staleReport      `json:"freshness"`
 			Pagination semanticPage     `json:"pagination"`
 			Results    []semanticRecord `json:"results"`
-		}{Freshness: freshness, Pagination: semanticPage{Limit: queryOpts.limit, Offset: queryOpts.offset, Count: len(results)}, Results: nonNilRecords(results)}, "", "  ")
+		}{Freshness: freshness, Pagination: semanticPage{Limit: queryOpts.limit, Offset: queryOpts.offset, Count: len(results)}, Results: nonNil(results)}, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -2581,7 +2582,7 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 	if err != nil {
 		return err
 	}
-	result := semanticContextResult{Symbols: nonNilRecords(symbols), Relations: nonNilRecords(relations), Neighbors: nonNilRecords(neighbors)}
+	result := semanticContextResult{Symbols: nonNil(symbols), Relations: nonNil(relations), Neighbors: nonNil(neighbors)}
 	if contextOpts.includeContent {
 		result.Content = semanticContextContent(repoDir, symbols)
 	}
@@ -2645,7 +2646,7 @@ func runSemanticImpact(ctx context.Context, cmd *cobra.Command, opts Options, im
 	if err != nil {
 		return err
 	}
-	result := semanticImpactResult{Roots: nonNilRecords(roots), Symbols: nonNilRecords(symbols), Relations: nonNilRecords(relations)}
+	result := semanticImpactResult{Roots: nonNil(roots), Symbols: nonNil(symbols), Relations: nonNil(relations)}
 	if impactOpts.json {
 		data, err := json.MarshalIndent(struct {
 			Freshness staleReport          `json:"freshness"`
@@ -2708,7 +2709,7 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 	if files == nil {
 		files = []string{}
 	}
-	report := semanticChangesReport{GeneratedAt: opts.Now().UTC(), Clean: len(files) == 0, Files: files, Symbols: nonNilRecords(symbols)}
+	report := semanticChangesReport{GeneratedAt: opts.Now().UTC(), Clean: len(files) == 0, Files: files, Symbols: nonNil(symbols)}
 	// Surface durable facts about the code being touched. Best-effort: a missing
 	// facts source or a branch lookup failure simply yields no facts, never an
 	// error on the changes command. Skipped on a clean tree — no changed files
@@ -2780,9 +2781,9 @@ func runSemanticBoundary(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if err != nil {
 		return err
 	}
-	result.Boundaries = nonNilRecords(result.Boundaries)
-	result.Handlers = nonNilRecords(result.Handlers)
-	result.Relations = nonNilRecords(result.Relations)
+	result.Boundaries = nonNil(result.Boundaries)
+	result.Handlers = nonNil(result.Handlers)
+	result.Relations = nonNil(result.Relations)
 	if boundaryOpts.json {
 		data, err := json.MarshalIndent(struct {
 			Freshness staleReport            `json:"freshness"`
@@ -2846,7 +2847,7 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 	if err != nil {
 		return err
 	}
-	result.Roots = nonNilRecords(result.Roots)
+	result.Roots = nonNil(result.Roots)
 	if result.Suggestions == nil {
 		result.Suggestions = []semanticTestSuggestion{}
 	}
@@ -3087,7 +3088,7 @@ LIMIT ?`, limit*8)
 	if len(records) > limit {
 		records = records[:limit]
 	}
-	return nonNilRecords(records), nil
+	return nonNil(records), nil
 }
 
 func runtimeTraceTaskScore(record semanticRecord, terms []string, fields ...string) int {

@@ -174,8 +174,8 @@ func runSemanticGraphSchema(cmd *cobra.Command, opts Options, graphOpts semantic
 		Provider:      env.Source.Provider,
 		SchemaVersion: env.Source.SchemaVersion,
 		Profile:       env.Source.Profile,
-		RelationSet:   nonNilStrings(env.Source.RelationSet),
-		Languages:     nonNilStrings(env.Source.Languages),
+		RelationSet:   nonNil(env.Source.RelationSet),
+		Languages:     nonNil(env.Source.Languages),
 		Counts:        map[string]int{"files": env.Source.Files, "symbols": env.Source.Symbols, "relations": env.Source.Relations, "externals": env.Source.Externals},
 	}
 	report.SymbolKinds, err = graphDistinctStrings(db, `SELECT kind FROM symbols WHERE trim(kind) <> '' GROUP BY kind ORDER BY kind`)
@@ -372,7 +372,7 @@ func graphDistinctStrings(db *sql.DB, query string) ([]string, error) {
 		}
 		values = append(values, value)
 	}
-	return nonNilStrings(values), rows.Err()
+	return nonNil(values), rows.Err()
 }
 
 func appendRuntimeTraceRelationType(db *sql.DB, relationTypes []string) ([]string, error) {
@@ -443,7 +443,7 @@ func runSemanticQueryGraph(cmd *cobra.Command, opts Options, graphOpts semanticG
 	if err != nil {
 		return err
 	}
-	result := semanticGraphQueryResult{Symbols: nonNilRecords(symbols), Relations: nonNilRecords(relations)}
+	result := semanticGraphQueryResult{Symbols: nonNil(symbols), Relations: nonNil(relations)}
 	if graphOpts.json {
 		return writeJSON(cmd, result)
 	}
@@ -621,7 +621,7 @@ func queryGraphRelations(db *sql.DB, filters graphQueryFilters, limit int) ([]se
 	if len(relations) > limit {
 		relations = relations[:limit]
 	}
-	return nonNilRecords(relations), nil
+	return nonNil(relations), nil
 }
 
 func countGraphRelations(db *sql.DB, filters graphQueryFilters) (int, error) {
@@ -820,7 +820,7 @@ func relationsFrom(db *sql.DB, id string) ([]semanticRecord, error) {
 		}
 		return relations[i].Type < relations[j].Type
 	})
-	return nonNilRecords(relations), nil
+	return nonNil(relations), nil
 }
 
 func runtimeTraceRelationsFrom(db *sql.DB, id string) ([]semanticRecord, error) {
@@ -862,7 +862,7 @@ ORDER BY rt.imported_at, rt.id`, id, id)
 		record.Evidence = []semanticEvidence{{Kind: "runtime_trace_import", FilePath: sourcePath, Detail: observedType}}
 		records = append(records, record)
 	}
-	return nonNilRecords(records), rows.Err()
+	return nonNil(records), rows.Err()
 }
 
 func runSemanticSnippet(cmd *cobra.Command, opts Options, snippetOpts semanticSnippetOptions, idOrName string) error {
@@ -919,7 +919,7 @@ func runSemanticDeadCode(cmd *cobra.Command, opts Options, deadOpts semanticDead
 	if err != nil {
 		return err
 	}
-	result := semanticDeadCodeResult{Symbols: nonNilRecords(symbols)}
+	result := semanticDeadCodeResult{Symbols: nonNil(symbols)}
 	if deadOpts.json {
 		return writeJSON(cmd, result)
 	}
@@ -1258,7 +1258,7 @@ func queryRuntimeTraceRelations(db *sql.DB, filters graphQueryFilters, limit int
 		record.Evidence = []semanticEvidence{{Kind: "runtime_trace_import", FilePath: sourcePath, Detail: observedType}}
 		records = append(records, record)
 	}
-	return nonNilRecords(records), rows.Err()
+	return nonNil(records), rows.Err()
 }
 
 func countRuntimeTraceRelations(db *sql.DB, filters graphQueryFilters) (int, error) {
@@ -1351,7 +1351,7 @@ func scanGraphRelations(rows *sql.Rows) ([]semanticRecord, error) {
 		_ = json.Unmarshal([]byte(warningCodes), &record.WarningCodes)
 		relations = append(relations, record)
 	}
-	return nonNilRecords(relations), rows.Err()
+	return nonNil(relations), rows.Err()
 }
 
 func loadGraphNodes(db *sql.DB, ids []string) ([]semanticRecord, error) {
@@ -1392,7 +1392,7 @@ func loadGraphNodes(db *sql.DB, ids []string) ([]semanticRecord, error) {
 			ordered = append(ordered, node)
 		}
 	}
-	return nonNilRecords(ordered), nil
+	return nonNil(ordered), nil
 }
 
 func loadGraphSymbols(db *sql.DB, ids []string) ([]semanticRecord, error) {
@@ -1423,7 +1423,7 @@ func loadGraphSymbols(db *sql.DB, ids []string) ([]semanticRecord, error) {
 			ordered = append(ordered, symbol)
 		}
 	}
-	return nonNilRecords(ordered), nil
+	return nonNil(ordered), nil
 }
 
 func loadGraphFiles(db *sql.DB, idsByPath map[string][]string) ([]semanticRecord, error) {
@@ -1466,7 +1466,7 @@ func loadGraphFiles(db *sql.DB, idsByPath map[string][]string) ([]semanticRecord
 			})
 		}
 	}
-	return nonNilRecords(files), rows.Err()
+	return nonNil(files), rows.Err()
 }
 
 func graphFilePathFromID(id string) (string, bool) {
@@ -1487,7 +1487,7 @@ func scanGraphSymbols(rows *sql.Rows) ([]semanticRecord, error) {
 		}
 		symbols = append(symbols, record)
 	}
-	return nonNilRecords(symbols), rows.Err()
+	return nonNil(symbols), rows.Err()
 }
 
 func sortedIDSet(ids map[string]struct{}) []string {
@@ -1500,11 +1500,4 @@ func sortedIDSet(ids map[string]struct{}) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-func nonNilStrings(values []string) []string {
-	if values == nil {
-		return []string{}
-	}
-	return values
 }

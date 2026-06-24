@@ -90,8 +90,12 @@ jobs:
   release-evidence:
     # Release-evidence audits enforce proof-ready release artifacts. The plan
     # keeps release readiness behind core feature work and benchmark/eval proof,
-    # so feature branches run implementation validation without this gate.
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/')
+    # so feature branches and PRs run implementation validation without this
+    # gate. This workflow only triggers on pushes to main and on pull requests
+    # (see `on:` above), so gating on main is sufficient; add the matching
+    # `on:` triggers before extending this to tags, release/* branches, or
+    # manual workflow_dispatch.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6.0.2

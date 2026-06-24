@@ -602,7 +602,7 @@ func runWorkspaceContext(cmd *cobra.Command, opts Options, contextOpts workspace
 		if err != nil {
 			result.Error = err.Error()
 		} else {
-			result.Symbols = nonNilRecords(symbols)
+			result.Symbols = nonNil(symbols)
 		}
 		results = append(results, result)
 	}
@@ -754,7 +754,7 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 			continue
 		}
 		result.Counts = map[string]int{"files": source.Files, "symbols": source.Symbols, "relations": source.Relations, "externals": source.Externals}
-		result.Languages = nonNilStrings(source.Languages)
+		result.Languages = nonNil(source.Languages)
 		result.RelationTypes, err = graphDistinctStrings(db, `SELECT type FROM relations WHERE trim(type) <> '' GROUP BY type ORDER BY type`)
 		if err == nil {
 			result.Metrics, err = semanticGraphMetrics(db)
@@ -1136,13 +1136,20 @@ func workspaceGraphCrossEdges(index map[string]*workspaceExternalContractAggrega
 
 func workspaceGraphImportCrossEdges(indexes []workspaceRepoGraphIndex, limit int) []workspaceGraphCrossEdge {
 	var edges []workspaceGraphCrossEdge
+	// Import prefixes depend only on a repo key, so compute them once per repo
+	// instead of re-deriving them for every (fromRepo, import) pair in the loop.
+	prefixesByRepo := make([][]string, len(indexes))
+	for i, repo := range indexes {
+		prefixesByRepo[i] = workspaceRepoImportPrefixes(repo.RepoKey)
+	}
 	for _, fromRepo := range indexes {
 		for _, imp := range fromRepo.Imports {
-			for _, toRepo := range indexes {
+			normalizedSpec := workspaceNormalizeImportSpec(imp.Spec)
+			for j, toRepo := range indexes {
 				if fromRepo.RepoKey == toRepo.RepoKey {
 					continue
 				}
-				subpath, ok := workspaceImportMatchesRepo(imp.Spec, toRepo.RepoKey)
+				subpath, ok := workspaceImportMatchesPrefixes(normalizedSpec, prefixesByRepo[j])
 				if !ok {
 					continue
 				}
@@ -1482,17 +1489,30 @@ func sortWorkspaceGraphSymbolRefs(refs []workspaceGraphSymbolRef) {
 }
 
 func workspaceImportMatchesRepo(spec, repoKey string) (string, bool) {
+	return workspaceImportMatchesPrefixes(workspaceNormalizeImportSpec(spec), workspaceRepoImportPrefixes(repoKey))
+}
+
+// workspaceNormalizeImportSpec canonicalizes an import spec (slash separators,
+// trimmed, `::` flattened to `/`) so it can be matched against repo prefixes.
+func workspaceNormalizeImportSpec(spec string) string {
 	spec = strings.Trim(strings.TrimSpace(filepath.ToSlash(spec)), "/")
-	spec = strings.ReplaceAll(spec, "::", "/")
-	for _, prefix := range workspaceRepoImportPrefixes(repoKey) {
-		if spec == prefix {
+	return strings.ReplaceAll(spec, "::", "/")
+}
+
+// workspaceImportMatchesPrefixes reports whether a normalized import spec
+// resolves under one of a repo's precomputed import prefixes, returning the
+// matched subpath. Keeping this separate from workspaceRepoImportPrefixes lets
+// callers hoist the per-repo prefix computation out of hot nested loops.
+func workspaceImportMatchesPrefixes(normalizedSpec string, prefixes []string) (string, bool) {
+	for _, prefix := range prefixes {
+		if normalizedSpec == prefix {
 			return "", true
 		}
-		if strings.HasPrefix(spec, prefix+"/") {
-			return strings.TrimPrefix(spec, prefix+"/"), true
+		if strings.HasPrefix(normalizedSpec, prefix+"/") {
+			return strings.TrimPrefix(normalizedSpec, prefix+"/"), true
 		}
-		if strings.HasPrefix(spec, prefix+".") {
-			return strings.ReplaceAll(strings.TrimPrefix(spec, prefix+"."), ".", "/"), true
+		if strings.HasPrefix(normalizedSpec, prefix+".") {
+			return strings.ReplaceAll(strings.TrimPrefix(normalizedSpec, prefix+"."), ".", "/"), true
 		}
 	}
 	return "", false
