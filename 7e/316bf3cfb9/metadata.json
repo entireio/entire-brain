@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.7.8-nightly.202606200729.6f2a8c984",
+  "checkpoint_id": "7e316bf3cfb9",
+  "strategy": "manual-commit",
+  "branch": "codex/full-plan-implementation",
+  "checkpoints_count": 12,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "internal/cli/mcp.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_graph.go",
+    "internal/cli/workspace.go",
+    "scripts/release.sh"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7e/316bf3cfb9/0/metadata.json",
+      "transcript": "/7e/316bf3cfb9/0/full.jsonl",
+      "content_hash": "/7e/316bf3cfb9/0/content_hash.txt",
+      "prompt": "/7e/316bf3cfb9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 19662,
+    "cache_creation_tokens": 1365541,
+    "cache_read_tokens": 19006211,
+    "output_tokens": 127381,
+    "api_call_count": 142
+  }
+}
