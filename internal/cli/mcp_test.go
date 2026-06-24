@@ -130,6 +130,40 @@ func TestMCPProjectManagementTools(t *testing.T) {
 	}
 }
 
+func TestBrainDirForKeyRejectsTraversalKeys(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	// A model-controlled repo_key must never resolve outside the repos root,
+	// or brain_delete_project would os.RemoveAll the whole plugin data dir.
+	for _, key := range []string{"..", "gh/../..", "../escape", "gh/../../etc", "."} {
+		if _, err := brainDirForKey(env, key); err == nil {
+			t.Fatalf("brainDirForKey accepted traversal key %q (must be rejected)", key)
+		}
+	}
+	if _, err := brainDirForKey(env, "gh/example/repo"); err != nil {
+		t.Fatalf("brainDirForKey rejected a valid key: %v", err)
+	}
+}
+
+func TestResolveContainedTracePathRejectsEscape(t *testing.T) {
+	root := t.TempDir()
+	// The agent-facing trace ingest must not read outside the repo root.
+	for _, p := range []string{"/etc/passwd", "..", "../x", "a/../../b"} {
+		if _, err := resolveContainedTracePath(root, p); err == nil {
+			t.Fatalf("resolveContainedTracePath accepted escape %q", p)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "traces.json"), []byte("[]"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveContainedTracePath(root, "traces.json")
+	if err != nil {
+		t.Fatalf("rejected a contained path: %v", err)
+	}
+	if got != filepath.Join(root, "traces.json") {
+		t.Fatalf("unexpected resolved path: %s", got)
+	}
+}
+
 func TestMCPWorkspaceGraphReturnsCrossEdges(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}

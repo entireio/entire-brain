@@ -4965,7 +4965,7 @@ func sanitizeSemanticRecordID(value, repoDir string, idMap map[string]string) st
 
 func rejectSymlinkPathComponents(root, rel string) error {
 	clean := filepath.Clean(rel)
-	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("path is outside root: %s", rel)
 	}
 	current := root
@@ -4995,7 +4995,7 @@ func rejectSymlinkPathComponents(root, rel string) error {
 
 func rejectExistingSymlinkPathComponents(root, rel string) error {
 	clean := filepath.Clean(rel)
-	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("path is outside root: %s", rel)
 	}
 	current := root

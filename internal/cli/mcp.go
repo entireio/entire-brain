@@ -620,7 +620,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if strings.TrimSpace(path) == "" {
 			err = errors.New("path is required")
 		} else {
-			err = runSemanticIngestTraces(cmd, opts, semanticTraceIngestOptions{json: true}, path)
+			err = runSemanticIngestTraces(cmd, opts, semanticTraceIngestOptions{json: true, restrictToRepoRoot: true}, path)
 		}
 	case "brain_tests":
 		err = requireMCPQuery(query)
