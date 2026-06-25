@@ -2530,10 +2530,12 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 	}
 	if queryOpts.json {
 		data, err := json.MarshalIndent(struct {
-			Freshness  staleReport      `json:"freshness"`
-			Pagination semanticPage     `json:"pagination"`
-			Results    []semanticRecord `json:"results"`
-		}{Freshness: freshness, Pagination: semanticPage{Limit: queryOpts.limit, Offset: queryOpts.offset, Count: len(results)}, Results: nonNil(results)}, "", "  ")
+			Freshness         staleReport      `json:"freshness"`
+			CompletenessLevel string           `json:"completeness_level,omitempty"`
+			Trust             string           `json:"trust,omitempty"`
+			Pagination        semanticPage     `json:"pagination"`
+			Results           []semanticRecord `json:"results"`
+		}{Freshness: freshness, CompletenessLevel: manifest.Sources.Semantic.CompletenessLevel, Trust: manifest.Sources.Semantic.Trust, Pagination: semanticPage{Limit: queryOpts.limit, Offset: queryOpts.offset, Count: len(results)}, Results: nonNil(results)}, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -2588,10 +2590,12 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 	}
 	if contextOpts.json {
 		data, err := json.MarshalIndent(struct {
-			Freshness  staleReport           `json:"freshness"`
-			Pagination semanticPage          `json:"pagination"`
-			Context    semanticContextResult `json:"context"`
-		}{Freshness: freshness, Pagination: semanticPage{Limit: contextOpts.limit, Offset: contextOpts.offset, Count: len(symbols)}, Context: result}, "", "  ")
+			Freshness         staleReport           `json:"freshness"`
+			CompletenessLevel string                `json:"completeness_level,omitempty"`
+			Trust             string                `json:"trust,omitempty"`
+			Pagination        semanticPage          `json:"pagination"`
+			Context           semanticContextResult `json:"context"`
+		}{Freshness: freshness, CompletenessLevel: manifest.Sources.Semantic.CompletenessLevel, Trust: manifest.Sources.Semantic.Trust, Pagination: semanticPage{Limit: contextOpts.limit, Offset: contextOpts.offset, Count: len(symbols)}, Context: result}, "", "  ")
 		if err != nil {
 			return err
 		}

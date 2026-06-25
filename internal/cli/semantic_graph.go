@@ -58,15 +58,19 @@ type semanticGraphUIOptions struct {
 }
 
 type semanticGraphSchemaReport struct {
-	Provider      string         `json:"provider,omitempty"`
-	SchemaVersion string         `json:"schema_version,omitempty"`
-	Profile       string         `json:"profile,omitempty"`
-	RelationSet   []string       `json:"relation_set,omitempty"`
-	Languages     []string       `json:"languages,omitempty"`
-	Counts        map[string]int `json:"counts"`
-	SymbolKinds   []string       `json:"symbol_kinds"`
-	RelationTypes []string       `json:"relation_types"`
-	Metrics       graphMetrics   `json:"metrics"`
+	Provider      string   `json:"provider,omitempty"`
+	SchemaVersion string   `json:"schema_version,omitempty"`
+	Profile       string   `json:"profile,omitempty"`
+	RelationSet   []string `json:"relation_set,omitempty"`
+	Languages     []string `json:"languages,omitempty"`
+	// Retrieval-trust diagnostics carried from the semantic source manifest so an
+	// agent reading the schema knows how much to trust this index's facts.
+	CompletenessLevel string         `json:"completeness_level,omitempty"`
+	Trust             string         `json:"trust,omitempty"`
+	Counts            map[string]int `json:"counts"`
+	SymbolKinds       []string       `json:"symbol_kinds"`
+	RelationTypes     []string       `json:"relation_types"`
+	Metrics           graphMetrics   `json:"metrics"`
 }
 
 type graphMetrics struct {
@@ -171,12 +175,14 @@ func runSemanticGraphSchema(cmd *cobra.Command, opts Options, graphOpts semantic
 	}
 	defer db.Close()
 	report := semanticGraphSchemaReport{
-		Provider:      env.Source.Provider,
-		SchemaVersion: env.Source.SchemaVersion,
-		Profile:       env.Source.Profile,
-		RelationSet:   nonNil(env.Source.RelationSet),
-		Languages:     nonNil(env.Source.Languages),
-		Counts:        map[string]int{"files": env.Source.Files, "symbols": env.Source.Symbols, "relations": env.Source.Relations, "externals": env.Source.Externals},
+		Provider:          env.Source.Provider,
+		SchemaVersion:     env.Source.SchemaVersion,
+		Profile:           env.Source.Profile,
+		RelationSet:       nonNil(env.Source.RelationSet),
+		Languages:         nonNil(env.Source.Languages),
+		CompletenessLevel: env.Source.CompletenessLevel,
+		Trust:             env.Source.Trust,
+		Counts:            map[string]int{"files": env.Source.Files, "symbols": env.Source.Symbols, "relations": env.Source.Relations, "externals": env.Source.Externals},
 	}
 	report.SymbolKinds, err = graphDistinctStrings(db, `SELECT kind FROM symbols WHERE trim(kind) <> '' GROUP BY kind ORDER BY kind`)
 	if err != nil {

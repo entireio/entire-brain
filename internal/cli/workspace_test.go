@@ -477,6 +477,49 @@ func TestBrainDirForKeyReservesWorkspacesSegment(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGraphReportsPerRepoTrust(t *testing.T) {
+	env := semanticTestEnv(t, t.TempDir())
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC) }}
+	cmd := &cobra.Command{Use: "index"}
+
+	repoA := t.TempDir()
+	keyA := filepath.ToSlash(filepath.Join("local", localRepoKey(repoA)))
+	indexWorkspaceGraphRepo(t, cmd, opts, runner, repoA, keyA, "HandleA")
+
+	// Pin a degraded completeness/trust on the repo's semantic manifest so the
+	// workspace graph result is asserted to carry per-repo trust diagnostics.
+	brainDirA := filepath.Join(env.PluginDataDir, repoStoreDirName, "local", localRepoKey(repoA))
+	manifestA, err := loadBrainManifest(brainDirA)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	manifestA.Sources.Semantic.CompletenessLevel = "degraded"
+	manifestA.Sources.Semantic.Trust = "partial"
+	if err := writeBrainManifestAndReadme(brainDirA, *manifestA); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "graph",
+		Repos:         []workspaceRepo{{RepoKey: keyA, LocalPathHint: repoA}},
+	}
+	if err := writeWorkspaceManifest(env, manifest); err != nil {
+		t.Fatalf("write workspace: %v", err)
+	}
+
+	var out bytes.Buffer
+	graphCmd := &cobra.Command{Use: "graph"}
+	graphCmd.SetOut(&out)
+	if err := runWorkspaceGraph(graphCmd, opts, workspaceGraphOptions{limit: 10, json: true}, "graph"); err != nil {
+		t.Fatalf("workspace graph: %v", err)
+	}
+	if !strings.Contains(out.String(), `"completeness_level": "degraded"`) || !strings.Contains(out.String(), `"trust": "partial"`) {
+		t.Fatalf("workspace graph missing per-repo trust diagnostics:\n%s", out.String())
+	}
+}
+
 func TestWorkspaceGraphReportsSharedExternalContracts(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
