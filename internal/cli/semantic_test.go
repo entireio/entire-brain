@@ -2464,6 +2464,7 @@ func TestSemanticResponsesIncludeTrust(t *testing.T) {
 	}
 	manifest.Sources.Semantic.CompletenessLevel = "degraded"
 	manifest.Sources.Semantic.Trust = "partial"
+	manifest.Sources.Semantic.LanguageTiers = map[string]string{"Go": "semantic"}
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
@@ -2472,6 +2473,9 @@ func TestSemanticResponsesIncludeTrust(t *testing.T) {
 		t.Helper()
 		if !strings.Contains(output, `"completeness_level": "degraded"`) || !strings.Contains(output, `"trust": "partial"`) {
 			t.Fatalf("%s JSON missing trust diagnostics:\n%s", label, output)
+		}
+		if !strings.Contains(output, `"language_tiers"`) || !strings.Contains(output, `"Go": "semantic"`) {
+			t.Fatalf("%s JSON missing language_tiers:\n%s", label, output)
 		}
 	}
 

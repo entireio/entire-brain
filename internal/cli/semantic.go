@@ -92,14 +92,18 @@ type semanticSourceManifest struct {
 	// record. SummaryPresent records whether a summary was received, so a
 	// downgraded (lean header, no summary) provider is distinguishable from one
 	// that reported no warnings.
-	Languages               []string        `json:"languages,omitempty"`
-	Profile                 string          `json:"profile,omitempty"`
-	RelationSet             []string        `json:"relation_set,omitempty"`
-	SkippedRelationFamilies []string        `json:"skipped_relation_families,omitempty"`
-	Completeness            json.RawMessage `json:"completeness,omitempty"`
-	ProfileLimits           json.RawMessage `json:"profile_limits,omitempty"`
-	Stats                   json.RawMessage `json:"stats,omitempty"`
-	SummaryPresent          bool            `json:"summary_present"`
+	Languages []string `json:"languages,omitempty"`
+	// LanguageTiers maps each language present in the repo to "semantic" or
+	// "inventory-only" (from the provider), so retrieval can be scoped per
+	// language, not just by the repo-wide completeness/trust above.
+	LanguageTiers           map[string]string `json:"language_tiers,omitempty"`
+	Profile                 string            `json:"profile,omitempty"`
+	RelationSet             []string          `json:"relation_set,omitempty"`
+	SkippedRelationFamilies []string          `json:"skipped_relation_families,omitempty"`
+	Completeness            json.RawMessage   `json:"completeness,omitempty"`
+	ProfileLimits           json.RawMessage   `json:"profile_limits,omitempty"`
+	Stats                   json.RawMessage   `json:"stats,omitempty"`
+	SummaryPresent          bool              `json:"summary_present"`
 
 	// Retrieval-trust diagnostics derived from the provider's completeness so an
 	// agent reading this index knows how much to trust its semantic facts.
@@ -181,6 +185,7 @@ type semanticHeader struct {
 	Commit          string            `json:"commit"`
 	Tree            string            `json:"tree"`
 	Languages       []string          `json:"languages"`
+	LanguageTiers   map[string]string `json:"language_tiers,omitempty"`
 	Capabilities    []string          `json:"capabilities"`
 	Warnings        []semanticWarning `json:"warnings"`
 	PartialFailures []semanticWarning `json:"partial_failures"`
@@ -604,6 +609,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		WorktreeHash:     worktreeHash,
 
 		Languages:               header.Languages,
+		LanguageTiers:           header.LanguageTiers,
 		Profile:                 header.Profile,
 		RelationSet:             header.RelationSet,
 		SkippedRelationFamilies: header.SkippedRelationFamilies,
@@ -2530,12 +2536,13 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 	}
 	if queryOpts.json {
 		data, err := json.MarshalIndent(struct {
-			Freshness         staleReport      `json:"freshness"`
-			CompletenessLevel string           `json:"completeness_level,omitempty"`
-			Trust             string           `json:"trust,omitempty"`
-			Pagination        semanticPage     `json:"pagination"`
-			Results           []semanticRecord `json:"results"`
-		}{Freshness: freshness, CompletenessLevel: manifest.Sources.Semantic.CompletenessLevel, Trust: manifest.Sources.Semantic.Trust, Pagination: semanticPage{Limit: queryOpts.limit, Offset: queryOpts.offset, Count: len(results)}, Results: nonNil(results)}, "", "  ")
+			Freshness         staleReport       `json:"freshness"`
+			CompletenessLevel string            `json:"completeness_level,omitempty"`
+			Trust             string            `json:"trust,omitempty"`
+			LanguageTiers     map[string]string `json:"language_tiers,omitempty"`
+			Pagination        semanticPage      `json:"pagination"`
+			Results           []semanticRecord  `json:"results"`
+		}{Freshness: freshness, CompletenessLevel: manifest.Sources.Semantic.CompletenessLevel, Trust: manifest.Sources.Semantic.Trust, LanguageTiers: manifest.Sources.Semantic.LanguageTiers, Pagination: semanticPage{Limit: queryOpts.limit, Offset: queryOpts.offset, Count: len(results)}, Results: nonNil(results)}, "", "  ")
 		if err != nil {
 			return err
 		}
@@ -2593,9 +2600,10 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 			Freshness         staleReport           `json:"freshness"`
 			CompletenessLevel string                `json:"completeness_level,omitempty"`
 			Trust             string                `json:"trust,omitempty"`
+			LanguageTiers     map[string]string     `json:"language_tiers,omitempty"`
 			Pagination        semanticPage          `json:"pagination"`
 			Context           semanticContextResult `json:"context"`
-		}{Freshness: freshness, CompletenessLevel: manifest.Sources.Semantic.CompletenessLevel, Trust: manifest.Sources.Semantic.Trust, Pagination: semanticPage{Limit: contextOpts.limit, Offset: contextOpts.offset, Count: len(symbols)}, Context: result}, "", "  ")
+		}{Freshness: freshness, CompletenessLevel: manifest.Sources.Semantic.CompletenessLevel, Trust: manifest.Sources.Semantic.Trust, LanguageTiers: manifest.Sources.Semantic.LanguageTiers, Pagination: semanticPage{Limit: contextOpts.limit, Offset: contextOpts.offset, Count: len(symbols)}, Context: result}, "", "  ")
 		if err != nil {
 			return err
 		}

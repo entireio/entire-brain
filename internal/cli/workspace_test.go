@@ -496,6 +496,7 @@ func TestWorkspaceGraphReportsPerRepoTrust(t *testing.T) {
 	}
 	manifestA.Sources.Semantic.CompletenessLevel = "degraded"
 	manifestA.Sources.Semantic.Trust = "partial"
+	manifestA.Sources.Semantic.LanguageTiers = map[string]string{"Go": "semantic"}
 	if err := writeBrainManifestAndReadme(brainDirA, *manifestA); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
@@ -517,6 +518,9 @@ func TestWorkspaceGraphReportsPerRepoTrust(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"completeness_level": "degraded"`) || !strings.Contains(out.String(), `"trust": "partial"`) {
 		t.Fatalf("workspace graph missing per-repo trust diagnostics:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), `"language_tiers"`) || !strings.Contains(out.String(), `"Go": "semantic"`) {
+		t.Fatalf("workspace graph missing per-repo language_tiers:\n%s", out.String())
 	}
 }
 

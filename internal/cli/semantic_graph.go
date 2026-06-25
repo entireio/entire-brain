@@ -65,12 +65,13 @@ type semanticGraphSchemaReport struct {
 	Languages     []string `json:"languages,omitempty"`
 	// Retrieval-trust diagnostics carried from the semantic source manifest so an
 	// agent reading the schema knows how much to trust this index's facts.
-	CompletenessLevel string         `json:"completeness_level,omitempty"`
-	Trust             string         `json:"trust,omitempty"`
-	Counts            map[string]int `json:"counts"`
-	SymbolKinds       []string       `json:"symbol_kinds"`
-	RelationTypes     []string       `json:"relation_types"`
-	Metrics           graphMetrics   `json:"metrics"`
+	CompletenessLevel string            `json:"completeness_level,omitempty"`
+	Trust             string            `json:"trust,omitempty"`
+	LanguageTiers     map[string]string `json:"language_tiers,omitempty"`
+	Counts            map[string]int    `json:"counts"`
+	SymbolKinds       []string          `json:"symbol_kinds"`
+	RelationTypes     []string          `json:"relation_types"`
+	Metrics           graphMetrics      `json:"metrics"`
 }
 
 type graphMetrics struct {
@@ -182,6 +183,7 @@ func runSemanticGraphSchema(cmd *cobra.Command, opts Options, graphOpts semantic
 		Languages:         nonNil(env.Source.Languages),
 		CompletenessLevel: env.Source.CompletenessLevel,
 		Trust:             env.Source.Trust,
+		LanguageTiers:     env.Source.LanguageTiers,
 		Counts:            map[string]int{"files": env.Source.Files, "symbols": env.Source.Symbols, "relations": env.Source.Relations, "externals": env.Source.Externals},
 	}
 	report.SymbolKinds, err = graphDistinctStrings(db, `SELECT kind FROM symbols WHERE trim(kind) <> '' GROUP BY kind ORDER BY kind`)

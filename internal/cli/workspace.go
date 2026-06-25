@@ -126,11 +126,12 @@ type workspaceGraphResult struct {
 	Languages []string               `json:"languages,omitempty"`
 	// Retrieval-trust diagnostics carried from each repo's semantic source
 	// manifest so an agent can tell a trusted index from a degraded one per repo.
-	CompletenessLevel string       `json:"completeness_level,omitempty"`
-	Trust             string       `json:"trust,omitempty"`
-	RelationTypes     []string     `json:"relation_types,omitempty"`
-	Metrics           graphMetrics `json:"metrics,omitempty"`
-	Error             string       `json:"error,omitempty"`
+	CompletenessLevel string            `json:"completeness_level,omitempty"`
+	Trust             string            `json:"trust,omitempty"`
+	LanguageTiers     map[string]string `json:"language_tiers,omitempty"`
+	RelationTypes     []string          `json:"relation_types,omitempty"`
+	Metrics           graphMetrics      `json:"metrics,omitempty"`
+	Error             string            `json:"error,omitempty"`
 }
 
 type workspaceGraphContract struct {
@@ -761,6 +762,7 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 		result.Languages = nonNil(source.Languages)
 		result.CompletenessLevel = source.CompletenessLevel
 		result.Trust = source.Trust
+		result.LanguageTiers = source.LanguageTiers
 		result.RelationTypes, err = graphDistinctStrings(db, `SELECT type FROM relations WHERE trim(type) <> '' GROUP BY type ORDER BY type`)
 		if err == nil {
 			result.Metrics, err = semanticGraphMetrics(db)
