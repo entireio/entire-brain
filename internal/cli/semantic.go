@@ -95,7 +95,7 @@ type semanticSourceManifest struct {
 	Languages []string `json:"languages,omitempty"`
 	// LanguageTiers maps each language present in the repo to "semantic" or
 	// "inventory-only" (from the provider), so retrieval can be scoped per
-	// language, not just by the repo-wide completeness/trust above.
+	// language, not just by the repo-wide completeness/trust fields below.
 	LanguageTiers           map[string]string `json:"language_tiers,omitempty"`
 	Profile                 string            `json:"profile,omitempty"`
 	RelationSet             []string          `json:"relation_set,omitempty"`
