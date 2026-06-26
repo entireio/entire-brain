@@ -463,6 +463,19 @@ func (nonStreamingRunner) Run(ctx context.Context, dir, name string, args ...str
 	return nil, nil, nil
 }
 
+// TestMergeSemanticSummaryCarriesLanguageTiers verifies the per-language tier
+// map from the authoritative summary fills the lean header (the same path
+// languages/completeness take), so it reaches the persisted manifest.
+func TestMergeSemanticSummaryCarriesLanguageTiers(t *testing.T) {
+	var header semanticHeader
+	mergeSemanticSummary(&header, &semanticSummary{
+		LanguageTiers: map[string]string{"Go": "semantic", "Dockerfile": "inventory-only"},
+	})
+	if header.LanguageTiers["Go"] != "semantic" || header.LanguageTiers["Dockerfile"] != "inventory-only" {
+		t.Fatalf("merged language tiers = %#v", header.LanguageTiers)
+	}
+}
+
 // TestScanSemanticStreamRealProviderOutput ingests a real entire-sem snapshot
 // (schema 1.1, streaming). It fails before Fix 1 because completeness is an
 // object, not a string, and the lean header cannot be parsed.

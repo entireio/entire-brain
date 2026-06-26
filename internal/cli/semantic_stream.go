@@ -27,6 +27,7 @@ type semanticSummary struct {
 	Provider                string            `json:"provider,omitempty"`
 	ProviderVersion         string            `json:"provider_version,omitempty"`
 	Languages               []string          `json:"languages,omitempty"`
+	LanguageTiers           map[string]string `json:"language_tiers,omitempty"`
 	Capabilities            []string          `json:"capabilities,omitempty"`
 	Profile                 string            `json:"profile,omitempty"`
 	RelationSet             []string          `json:"relation_set,omitempty"`
@@ -449,6 +450,9 @@ func mergeSemanticSummary(header *semanticHeader, s *semanticSummary) {
 	}
 	if len(s.Languages) > 0 {
 		header.Languages = s.Languages
+	}
+	if len(s.LanguageTiers) > 0 {
+		header.LanguageTiers = s.LanguageTiers
 	}
 	if len(s.Capabilities) > 0 {
 		header.Capabilities = s.Capabilities

@@ -119,14 +119,19 @@ type workspaceImpactResult struct {
 }
 
 type workspaceGraphResult struct {
-	RepoKey       string                 `json:"repo_key"`
-	Name          string                 `json:"name,omitempty"`
-	Freshness     workspaceRepoFreshness `json:"freshness"`
-	Counts        map[string]int         `json:"counts,omitempty"`
-	Languages     []string               `json:"languages,omitempty"`
-	RelationTypes []string               `json:"relation_types,omitempty"`
-	Metrics       graphMetrics           `json:"metrics,omitempty"`
-	Error         string                 `json:"error,omitempty"`
+	RepoKey   string                 `json:"repo_key"`
+	Name      string                 `json:"name,omitempty"`
+	Freshness workspaceRepoFreshness `json:"freshness"`
+	Counts    map[string]int         `json:"counts,omitempty"`
+	Languages []string               `json:"languages,omitempty"`
+	// Retrieval-trust diagnostics carried from each repo's semantic source
+	// manifest so an agent can tell a trusted index from a degraded one per repo.
+	CompletenessLevel string            `json:"completeness_level,omitempty"`
+	Trust             string            `json:"trust,omitempty"`
+	LanguageTiers     map[string]string `json:"language_tiers,omitempty"`
+	RelationTypes     []string          `json:"relation_types,omitempty"`
+	Metrics           graphMetrics      `json:"metrics,omitempty"`
+	Error             string            `json:"error,omitempty"`
 }
 
 type workspaceGraphContract struct {
@@ -739,6 +744,16 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 			results = append(results, result)
 			continue
 		}
+		// Source-derived diagnostics (counts, languages, completeness/trust,
+		// language tiers) come from the manifest, not the store — set them now so
+		// a repo whose store fails to validate/open below still surfaces them
+		// alongside its error, which is exactly the degraded/broken-index case
+		// where trust info matters most.
+		result.Counts = map[string]int{"files": source.Files, "symbols": source.Symbols, "relations": source.Relations, "externals": source.Externals}
+		result.Languages = nonNil(source.Languages)
+		result.CompletenessLevel = source.CompletenessLevel
+		result.Trust = source.Trust
+		result.LanguageTiers = source.LanguageTiers
 		storePath, err := validateSemanticDeclaredStore(brainDir, source)
 		if err != nil {
 			unlock()
@@ -753,8 +768,6 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 			results = append(results, result)
 			continue
 		}
-		result.Counts = map[string]int{"files": source.Files, "symbols": source.Symbols, "relations": source.Relations, "externals": source.Externals}
-		result.Languages = nonNil(source.Languages)
 		result.RelationTypes, err = graphDistinctStrings(db, `SELECT type FROM relations WHERE trim(type) <> '' GROUP BY type ORDER BY type`)
 		if err == nil {
 			result.Metrics, err = semanticGraphMetrics(db)

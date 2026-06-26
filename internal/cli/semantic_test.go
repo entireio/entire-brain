@@ -2444,6 +2444,66 @@ func TestSemanticQueryJSONIncludesFreshness(t *testing.T) {
 	}
 }
 
+func TestSemanticResponsesIncludeTrust(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	cmd := &cobra.Command{Use: "index"}
+	opts := Options{Env: env, Runner: runner, Now: time.Now}
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	// Phase 2 persists completeness/trust on the semantic source manifest at
+	// index time. Pin known values so this asserts the response plumbing rather
+	// than the fixture's completeness.
+	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	manifest.Sources.Semantic.CompletenessLevel = "degraded"
+	manifest.Sources.Semantic.Trust = "partial"
+	manifest.Sources.Semantic.LanguageTiers = map[string]string{"Go": "semantic"}
+	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	assertTrust := func(label, output string) {
+		t.Helper()
+		if !strings.Contains(output, `"completeness_level": "degraded"`) || !strings.Contains(output, `"trust": "partial"`) {
+			t.Fatalf("%s JSON missing trust diagnostics:\n%s", label, output)
+		}
+		if !strings.Contains(output, `"language_tiers"`) || !strings.Contains(output, `"Go": "semantic"`) {
+			t.Fatalf("%s JSON missing language_tiers:\n%s", label, output)
+		}
+	}
+
+	var queryOut bytes.Buffer
+	queryCmd := &cobra.Command{Use: "query"}
+	queryCmd.SetOut(&queryOut)
+	if err := runSemanticQuery(queryCmd.Context(), queryCmd, opts, semanticQueryOptions{limit: 10, json: true}, "ValidateToken"); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	assertTrust("query", queryOut.String())
+
+	var contextOut bytes.Buffer
+	contextCmd := &cobra.Command{Use: "context"}
+	contextCmd.SetOut(&contextOut)
+	if err := runSemanticContext(contextCmd.Context(), contextCmd, opts, semanticContextOptions{limit: 10, json: true}, "gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken"); err != nil {
+		t.Fatalf("context: %v", err)
+	}
+	assertTrust("context", contextOut.String())
+
+	var schemaOut bytes.Buffer
+	schemaCmd := &cobra.Command{Use: "schema"}
+	schemaCmd.SetOut(&schemaOut)
+	if err := runSemanticGraphSchema(schemaCmd, opts, semanticGraphSchemaOptions{json: true}); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	assertTrust("schema", schemaOut.String())
+}
+
 func TestSemanticQueryRejectsUnsafeManifestSnapshotPath(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
