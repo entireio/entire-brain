@@ -501,16 +501,18 @@ func TestSeedHistoryCoverageFindsLaterMissingSessionCommits(t *testing.T) {
 	if coverage.TotalCommits != 5 {
 		t.Fatalf("total commits = %d, want 5: %+v", coverage.TotalCommits, coverage)
 	}
-	if coverage.PreSessionCommits != 1 || coverage.CoveredCommits != 1 || coverage.CheckpointedUnexportedCommits != 1 || coverage.MissingSessionCommits != 2 {
+	// Both checkpointed commits count as covered (the intermediate-checkpoint one
+	// too); only the two without a checkpoint trailer are missing-session.
+	if coverage.PreSessionCommits != 1 || coverage.CoveredCommits != 2 || coverage.MissingSessionCommits != 2 {
 		t.Fatalf("unexpected coverage counts: %+v", coverage)
 	}
 	if coverage.MergeCommits != 1 {
 		t.Fatalf("merge commits = %d, want 1", coverage.MergeCommits)
 	}
-	if len(coverage.UncoveredCommits) != 3 {
-		t.Fatalf("uncovered len = %d, want 3: %+v", len(coverage.UncoveredCommits), coverage.UncoveredCommits)
+	if len(coverage.UncoveredCommits) != 2 {
+		t.Fatalf("uncovered len = %d, want 2: %+v", len(coverage.UncoveredCommits), coverage.UncoveredCommits)
 	}
-	if coverage.UncoveredCommits[0].Coverage != "checkpointed_unexported" || coverage.UncoveredCommits[1].Coverage != "missing_session" || coverage.UncoveredCommits[2].Coverage != "missing_session" {
+	if coverage.UncoveredCommits[0].Coverage != "missing_session" || coverage.UncoveredCommits[1].Coverage != "missing_session" {
 		t.Fatalf("unexpected uncovered classes: %+v", coverage.UncoveredCommits)
 	}
 }
