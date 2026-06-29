@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>bd2ygx4aq</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/c92514bf-9b78-4da0-92b2-ec15ab432d28/tasks/bd2ygx4aq.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll for round-2 Copilot reviews on both PRs" completed (exit code 0)</summary>
+</task-notification>

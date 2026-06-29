@@ -1,0 +1,48 @@
+{
+  "cli_version": "0.7.8-nightly.202606270713.37c158f81",
+  "checkpoint_id": "d723ac8b007f",
+  "session_id": "c92514bf-9b78-4da0-92b2-ec15ab432d28",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-29T09:32:11.488183Z",
+  "branch": "feat/surface-trust-in-responses",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "mise.toml"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "a621852850ef",
+  "checkpoint_transcript_start": 554,
+  "transcript_lines_at_start": 554,
+  "token_usage": {
+    "input_tokens": 4275,
+    "cache_creation_tokens": 8337,
+    "cache_read_tokens": 675270,
+    "output_tokens": 6299,
+    "api_call_count": 6
+  },
+  "session_metrics": {
+    "turn_count": 10
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-29T09:32:11.462207Z",
+    "agent_lines": 12,
+    "agent_removed": 2,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 12,
+    "total_lines_changed": 14,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
