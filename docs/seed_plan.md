@@ -492,9 +492,10 @@ missing.
 
 Seed must also report later commits that lack session coverage. The
 oldest-commit heuristic only covers the initial history gap. `seed --update`
-and `refresh` should scan `git log`, compare commit trailers to exported
-session checkpoints, and write `seed/history-gaps.md` plus
-`sources.seed.history_coverage`.
+and `refresh` should scan `git log`, classify each commit by its position
+relative to the oldest exported session and the presence of an
+`Entire-Checkpoint` trailer (not by matching a session's exported checkpoint
+ID), and write `seed/history-gaps.md` plus `sources.seed.history_coverage`.
 
 Coverage classes:
 

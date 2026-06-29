@@ -873,7 +873,7 @@ func renderSeedHistoryGaps(scan seedScanResult) string {
 	coverage := scan.Coverage
 	fmt.Fprintf(&b, "- Total commits: %d\n", coverage.TotalCommits)
 	fmt.Fprintf(&b, "- Pre-session commits: %d\n", coverage.PreSessionCommits)
-	fmt.Fprintf(&b, "- Covered (checkpoint trailer within the session window): %d\n", coverage.CoveredCommits)
+	fmt.Fprintf(&b, "- Covered (checkpoint trailer, at or after oldest session): %d\n", coverage.CoveredCommits)
 	fmt.Fprintf(&b, "- Missing session coverage after oldest session: %d\n", coverage.MissingSessionCommits)
 	fmt.Fprintf(&b, "- Commits with no session history available: %d\n", coverage.NoSessionHistoryCommits)
 	fmt.Fprintf(&b, "- Merge commits: %d\n", coverage.MergeCommits)
@@ -1033,12 +1033,14 @@ func parseSeedGitLog(data []byte) []seedCoveredCommit {
 // session history. Classification is ordered by precedence, not by the trailer
 // alone: a commit is no_session_history when no session was exported at all, and
 // pre_session when it predates the oldest exported session — both regardless of
-// any checkpoint trailer. Only commits inside the session window are judged by
-// their trailer, where a trailer marks them covered and its absence missing_session.
-// In other words a checkpoint trailer makes a commit "covered" only within the
-// session window; an older trailered commit is still pre_session.
+// any checkpoint trailer. Only commits at or after the oldest exported session are
+// judged by their trailer, where a trailer marks them covered and its absence
+// missing_session. In other words a checkpoint trailer makes a commit "covered"
+// only at or after the oldest session; an older trailered commit is still
+// pre_session. There is no upper bound — every commit from the oldest session
+// onward qualifies.
 //
-// Within that window we do NOT require the trailer to match the session's exported
+// For those commits we do NOT require the trailer to match the session's exported
 // latest_checkpoint_id: the manifest records only one checkpoint per session, not
 // every intermediate one, so matching on that set would mislabel genuine in-session
 // commits as uncovered (e.g. a repo with 47 checkpointed commits across 8 sessions
