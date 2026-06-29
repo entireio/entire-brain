@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.7.8-nightly.202606270713.37c158f81",
+  "checkpoint_version": "branch-v1",
+  "checkpoint_id": "bb8cf3655c9f",
+  "strategy": "manual-commit",
+  "branch": "feat/surface-trust-in-responses",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "mise.toml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/bb/8cf3655c9f/0/metadata.json",
+      "transcript": "/bb/8cf3655c9f/0/full.jsonl",
+      "compact_transcript": "/bb/8cf3655c9f/0/transcript.jsonl",
+      "content_hash": "/bb/8cf3655c9f/0/content_hash.txt",
+      "prompt": "/bb/8cf3655c9f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 717,
+    "cache_creation_tokens": 38256,
+    "cache_read_tokens": 2487745,
+    "output_tokens": 25792,
+    "api_call_count": 36
+  }
+}
