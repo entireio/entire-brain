@@ -498,11 +498,13 @@ session checkpoints, and write `seed/history-gaps.md` plus
 
 Coverage classes:
 
-- `pre_session`: commit is older than the oldest exported session.
-- `covered`: commit has an `Entire-Checkpoint` trailer matching an exported
-  session checkpoint.
-- `checkpointed_unexported`: commit has an `Entire-Checkpoint` trailer, but
-  none of those checkpoint IDs are the exported checkpoint for a session.
+- `pre_session`: commit is older than the oldest exported session (regardless of
+  any `Entire-Checkpoint` trailer).
+- `covered`: commit is at or after the oldest exported session and carries an
+  `Entire-Checkpoint` trailer. We do not require the trailer to match a session's
+  exported checkpoint ID: the manifest records only one checkpoint per session,
+  not every intermediate one, so matching that set would mislabel genuine
+  in-session commits as uncovered.
 - `missing_session`: commit is at or after the oldest exported session and has
   no `Entire-Checkpoint` trailer.
 - `no_session_history`: no session source exists, so git history is fallback

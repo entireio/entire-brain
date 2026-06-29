@@ -873,7 +873,7 @@ func renderSeedHistoryGaps(scan seedScanResult) string {
 	coverage := scan.Coverage
 	fmt.Fprintf(&b, "- Total commits: %d\n", coverage.TotalCommits)
 	fmt.Fprintf(&b, "- Pre-session commits: %d\n", coverage.PreSessionCommits)
-	fmt.Fprintf(&b, "- Covered (made under an Entire session): %d\n", coverage.CoveredCommits)
+	fmt.Fprintf(&b, "- Covered (checkpoint trailer within the session window): %d\n", coverage.CoveredCommits)
 	fmt.Fprintf(&b, "- Missing session coverage after oldest session: %d\n", coverage.MissingSessionCommits)
 	fmt.Fprintf(&b, "- Commits with no session history available: %d\n", coverage.NoSessionHistoryCommits)
 	fmt.Fprintf(&b, "- Merge commits: %d\n", coverage.MergeCommits)
