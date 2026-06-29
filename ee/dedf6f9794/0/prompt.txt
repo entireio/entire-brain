@@ -1,0 +1,7 @@
+<task-notification>
+<task-id>brykqsenv</task-id>
+<tool-use-id>toolu_01MM73f3ZEh8v6HLExEHsQom</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/c92514bf-9b78-4da0-92b2-ec15ab432d28/tasks/brykqsenv.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll for round-3 Copilot reviews" completed (exit code 0)</summary>
+</task-notification>

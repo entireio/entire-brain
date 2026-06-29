@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.7.8-nightly.202606270713.37c158f81",
+  "checkpoint_id": "eededf6f9794",
+  "session_id": "c92514bf-9b78-4da0-92b2-ec15ab432d28",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-29T09:40:37.133249Z",
+  "branch": "fix/seed-history-coverage-checkpointed",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/seed.go",
+    "docs/seed_plan.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "baec92430627",
+  "checkpoint_transcript_start": 715,
+  "transcript_lines_at_start": 715,
+  "token_usage": {
+    "input_tokens": 147,
+    "cache_creation_tokens": 8820,
+    "cache_read_tokens": 1268104,
+    "output_tokens": 6494,
+    "api_call_count": 9
+  },
+  "session_metrics": {
+    "turn_count": 11
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-29T09:40:37.103468Z",
+    "agent_lines": 12,
+    "agent_removed": 9,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 12,
+    "total_lines_changed": 21,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

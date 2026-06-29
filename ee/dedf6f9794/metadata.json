@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.7.8-nightly.202606270713.37c158f81",
+  "checkpoint_version": "branch-v1",
+  "checkpoint_id": "eededf6f9794",
+  "strategy": "manual-commit",
+  "branch": "fix/seed-history-coverage-checkpointed",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/seed_plan.md",
+    "internal/cli/seed.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ee/dedf6f9794/0/metadata.json",
+      "transcript": "/ee/dedf6f9794/0/full.jsonl",
+      "compact_transcript": "/ee/dedf6f9794/0/transcript.jsonl",
+      "content_hash": "/ee/dedf6f9794/0/content_hash.txt",
+      "prompt": "/ee/dedf6f9794/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 147,
+    "cache_creation_tokens": 8820,
+    "cache_read_tokens": 1268104,
+    "output_tokens": 6494,
+    "api_call_count": 9
+  }
+}
