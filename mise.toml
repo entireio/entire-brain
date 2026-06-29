@@ -578,13 +578,20 @@ run = "scripts/install-local.sh"
 description = "Build checksum-backed release archives under dist/"
 run = "scripts/release.sh"
 
+# CGO_CFLAGS silences the sqlite3_auto_extension / sqlite3_cancel_auto_extension
+# deprecation warnings emitted when compiling sqlite-vec-go-bindings/cgo on macOS.
+# Apple tags those symbols deprecated in the SDK's sqlite3.h (process-global auto
+# extensions are disabled in *their* system SQLite), but we link against mattn's
+# bundled SQLite amalgamation, where the calls are fully supported. The warning is
+# header-only noise; -Wno-deprecated-declarations drops just that category and is a
+# no-op on Linux where the symbols are not deprecated.
 [tasks."build:cgo"]
 description = "Build the Stage 1b cgo stack (mattn + sqlite-vec vec0 + FTS5)"
-run = "CGO_ENABLED=1 go build -tags 'brain_cgo sqlite_fts5' -o entire-brain ./cmd/entire-brain"
+run = "CGO_ENABLED=1 CGO_CFLAGS='-O2 -g -Wno-deprecated-declarations' go build -tags 'brain_cgo sqlite_fts5' -o entire-brain ./cmd/entire-brain"
 
 [tasks."test:cgo"]
 description = "Run the test suite against the Stage 1b cgo stack"
-run = "CGO_ENABLED=1 go test -race -tags 'brain_cgo sqlite_fts5' ./..."
+run = "CGO_ENABLED=1 CGO_CFLAGS='-O2 -g -Wno-deprecated-declarations' go test -race -tags 'brain_cgo sqlite_fts5' ./..."
 
 [tasks.build-all]
 description = "Cross-build common Entire CLI plugin targets"
