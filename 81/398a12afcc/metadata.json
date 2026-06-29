@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.7.8-nightly.202606270713.37c158f81",
+  "checkpoint_version": "branch-v1",
+  "checkpoint_id": "81398a12afcc",
+  "strategy": "manual-commit",
+  "branch": "fix/seed-history-coverage-checkpointed",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/seed_plan.md",
+    "internal/cli/seed.go",
+    "templates/entire-brain-intake-claude-agent.md",
+    "templates/entire-brain-intake-codex-skill.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/81/398a12afcc/0/metadata.json",
+      "transcript": "/81/398a12afcc/0/full.jsonl",
+      "compact_transcript": "/81/398a12afcc/0/transcript.jsonl",
+      "content_hash": "/81/398a12afcc/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 151,
+    "cache_creation_tokens": 11638,
+    "cache_read_tokens": 1385490,
+    "output_tokens": 4805,
+    "api_call_count": 11
+  }
+}
