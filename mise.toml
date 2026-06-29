@@ -584,14 +584,16 @@ run = "scripts/release.sh"
 # extensions are disabled in *their* system SQLite), but we link against mattn's
 # bundled SQLite amalgamation, where the calls are fully supported. The warning is
 # header-only noise; -Wno-deprecated-declarations drops just that category and is a
-# no-op on Linux where the symbols are not deprecated.
+# no-op on Linux where the symbols are not deprecated. We append to any inherited
+# CGO_CFLAGS (defaulting to Go's own -O2 -g) so a developer's custom include/library
+# flags survive instead of being clobbered.
 [tasks."build:cgo"]
 description = "Build the Stage 1b cgo stack (mattn + sqlite-vec vec0 + FTS5)"
-run = "CGO_ENABLED=1 CGO_CFLAGS='-O2 -g -Wno-deprecated-declarations' go build -tags 'brain_cgo sqlite_fts5' -o entire-brain ./cmd/entire-brain"
+run = "CGO_ENABLED=1 CGO_CFLAGS=\"${CGO_CFLAGS:--O2 -g} -Wno-deprecated-declarations\" go build -tags 'brain_cgo sqlite_fts5' -o entire-brain ./cmd/entire-brain"
 
 [tasks."test:cgo"]
 description = "Run the test suite against the Stage 1b cgo stack"
-run = "CGO_ENABLED=1 CGO_CFLAGS='-O2 -g -Wno-deprecated-declarations' go test -race -tags 'brain_cgo sqlite_fts5' ./..."
+run = "CGO_ENABLED=1 CGO_CFLAGS=\"${CGO_CFLAGS:--O2 -g} -Wno-deprecated-declarations\" go test -race -tags 'brain_cgo sqlite_fts5' ./..."
 
 [tasks.build-all]
 description = "Cross-build common Entire CLI plugin targets"
