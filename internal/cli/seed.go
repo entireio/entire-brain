@@ -1030,13 +1030,20 @@ func parseSeedGitLog(data []byte) []seedCoveredCommit {
 }
 
 // classifySeedCommitCoverage labels a commit by how it relates to the brain's
-// session history. A commit carrying an Entire checkpoint trailer was made under
-// an Entire session, so it is covered. We do NOT require the trailer to match the
-// session's exported latest_checkpoint_id: the manifest records only one
-// checkpoint per session, not every intermediate one, so matching on that set
-// would mislabel genuine in-session commits as uncovered (e.g. a repo with 47
-// checkpointed commits across 8 sessions showed only ~5 "covered" and the rest
-// "checkpointed_unexported", though all were scanned and exported into sessions).
+// session history. Classification is ordered by precedence, not by the trailer
+// alone: a commit is no_session_history when no session was exported at all, and
+// pre_session when it predates the oldest exported session — both regardless of
+// any checkpoint trailer. Only commits inside the session window are judged by
+// their trailer, where a trailer marks them covered and its absence missing_session.
+// In other words a checkpoint trailer makes a commit "covered" only within the
+// session window; an older trailered commit is still pre_session.
+//
+// Within that window we do NOT require the trailer to match the session's exported
+// latest_checkpoint_id: the manifest records only one checkpoint per session, not
+// every intermediate one, so matching on that set would mislabel genuine in-session
+// commits as uncovered (e.g. a repo with 47 checkpointed commits across 8 sessions
+// showed only ~5 "covered" and the rest "checkpointed_unexported", though all were
+// scanned and exported into sessions).
 func classifySeedCommitCoverage(commit *seedCoveredCommit, oldestSession *time.Time) {
 	if oldestSession == nil {
 		commit.Coverage = "no_session_history"
@@ -1137,7 +1144,7 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 			fmt.Fprintf(&b, "- Historical gap: %s (confidence: %s)\n", seed.HistoryBaseline.Reason, seed.HistoryBaseline.Confidence)
 		}
 		if seed.HistoryCoverage != nil {
-			fmt.Fprintf(&b, "- Commit coverage: %d total, %d covered, %d missing session coverage after oldest session (`%s`)\n", seed.HistoryCoverage.TotalCommits, seed.HistoryCoverage.CoveredCommits, seed.HistoryCoverage.MissingSessionCommits, seed.HistoryCoverage.Path)
+			fmt.Fprintf(&b, "- Commit coverage: %d total — %d pre-session, %d covered, %d missing session coverage after oldest session, %d with no session history (`%s`)\n", seed.HistoryCoverage.TotalCommits, seed.HistoryCoverage.PreSessionCommits, seed.HistoryCoverage.CoveredCommits, seed.HistoryCoverage.MissingSessionCommits, seed.HistoryCoverage.NoSessionHistoryCommits, seed.HistoryCoverage.Path)
 		}
 		if seed.Agent != nil {
 			fmt.Fprintf(&b, "- Agent quick status: %s\n", seed.Agent.Quick.Status)
