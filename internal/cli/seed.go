@@ -103,18 +103,17 @@ type seedHistoryBaseline struct {
 }
 
 type seedHistoryCoverage struct {
-	Path                          string              `json:"path"`
-	TotalCommits                  int                 `json:"total_commits"`
-	PreSessionCommits             int                 `json:"pre_session_commits"`
-	CoveredCommits                int                 `json:"covered_commits"`
-	CheckpointedUnexportedCommits int                 `json:"checkpointed_unexported_commits"`
-	MissingSessionCommits         int                 `json:"missing_session_commits"`
-	NoSessionHistoryCommits       int                 `json:"no_session_history_commits"`
-	MergeCommits                  int                 `json:"merge_commits"`
-	OldestSessionAt               *time.Time          `json:"oldest_session_at,omitempty"`
-	ExportedCheckpoints           int                 `json:"exported_checkpoints"`
-	UncoveredCommits              []seedCoveredCommit `json:"uncovered_commits,omitempty"`
-	GeneratedFrom                 string              `json:"generated_from"`
+	Path                    string              `json:"path"`
+	TotalCommits            int                 `json:"total_commits"`
+	PreSessionCommits       int                 `json:"pre_session_commits"`
+	CoveredCommits          int                 `json:"covered_commits"`
+	MissingSessionCommits   int                 `json:"missing_session_commits"`
+	NoSessionHistoryCommits int                 `json:"no_session_history_commits"`
+	MergeCommits            int                 `json:"merge_commits"`
+	OldestSessionAt         *time.Time          `json:"oldest_session_at,omitempty"`
+	ExportedCheckpoints     int                 `json:"exported_checkpoints"`
+	UncoveredCommits        []seedCoveredCommit `json:"uncovered_commits,omitempty"`
+	GeneratedFrom           string              `json:"generated_from"`
 }
 
 type seedCoveredCommit struct {
@@ -874,8 +873,7 @@ func renderSeedHistoryGaps(scan seedScanResult) string {
 	coverage := scan.Coverage
 	fmt.Fprintf(&b, "- Total commits: %d\n", coverage.TotalCommits)
 	fmt.Fprintf(&b, "- Pre-session commits: %d\n", coverage.PreSessionCommits)
-	fmt.Fprintf(&b, "- Covered by exported session checkpoint: %d\n", coverage.CoveredCommits)
-	fmt.Fprintf(&b, "- Checkpointed but not directly exported: %d\n", coverage.CheckpointedUnexportedCommits)
+	fmt.Fprintf(&b, "- Covered (checkpoint trailer, at or after oldest session): %d\n", coverage.CoveredCommits)
 	fmt.Fprintf(&b, "- Missing session coverage after oldest session: %d\n", coverage.MissingSessionCommits)
 	fmt.Fprintf(&b, "- Commits with no session history available: %d\n", coverage.NoSessionHistoryCommits)
 	fmt.Fprintf(&b, "- Merge commits: %d\n", coverage.MergeCommits)
@@ -978,7 +976,7 @@ func buildSeedHistoryCoverage(ctx context.Context, runner CommandRunner, repoDir
 	}
 	commits := parseSeedGitLog(runGitOutput(ctx, runner, repoDir, "log", "--reverse", "--format=%H%x00%P%x00%aI%x00%an%x00%ae%x00%B%x1e"))
 	for _, commit := range commits {
-		classifySeedCommitCoverage(&commit, oldestSession, exportedCheckpoints)
+		classifySeedCommitCoverage(&commit, oldestSession)
 		coverage.TotalCommits++
 		if commit.Merge {
 			coverage.MergeCommits++
@@ -988,9 +986,6 @@ func buildSeedHistoryCoverage(ctx context.Context, runner CommandRunner, repoDir
 			coverage.PreSessionCommits++
 		case "covered":
 			coverage.CoveredCommits++
-		case "checkpointed_unexported":
-			coverage.CheckpointedUnexportedCommits++
-			coverage.UncoveredCommits = append(coverage.UncoveredCommits, commit)
 		case "missing_session":
 			coverage.MissingSessionCommits++
 			coverage.UncoveredCommits = append(coverage.UncoveredCommits, commit)
@@ -1034,7 +1029,24 @@ func parseSeedGitLog(data []byte) []seedCoveredCommit {
 	return commits
 }
 
-func classifySeedCommitCoverage(commit *seedCoveredCommit, oldestSession *time.Time, exportedCheckpoints map[string]struct{}) {
+// classifySeedCommitCoverage labels a commit by how it relates to the brain's
+// session history. Classification is ordered by precedence, not by the trailer
+// alone: a commit is no_session_history when no session was exported at all, and
+// pre_session when it predates the oldest exported session — both regardless of
+// any checkpoint trailer. Only commits at or after the oldest exported session are
+// judged by their trailer, where a trailer marks them covered and its absence
+// missing_session. In other words a checkpoint trailer makes a commit "covered"
+// only at or after the oldest session; an older trailered commit is still
+// pre_session. There is no upper bound — every commit from the oldest session
+// onward qualifies.
+//
+// For those commits we do NOT require the trailer to match the session's exported
+// latest_checkpoint_id: the manifest records only one checkpoint per session, not
+// every intermediate one, so matching on that set would mislabel genuine in-session
+// commits as uncovered (e.g. a repo with 47 checkpointed commits across 8 sessions
+// showed only ~5 "covered" and the rest "checkpointed_unexported", though all were
+// scanned and exported into sessions).
+func classifySeedCommitCoverage(commit *seedCoveredCommit, oldestSession *time.Time) {
 	if oldestSession == nil {
 		commit.Coverage = "no_session_history"
 		return
@@ -1043,14 +1055,8 @@ func classifySeedCommitCoverage(commit *seedCoveredCommit, oldestSession *time.T
 		commit.Coverage = "pre_session"
 		return
 	}
-	for _, checkpoint := range commit.Checkpoints {
-		if _, ok := exportedCheckpoints[checkpoint]; ok {
-			commit.Coverage = "covered"
-			return
-		}
-	}
 	if len(commit.Checkpoints) > 0 {
-		commit.Coverage = "checkpointed_unexported"
+		commit.Coverage = "covered"
 		return
 	}
 	commit.Coverage = "missing_session"
@@ -1140,7 +1146,7 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 			fmt.Fprintf(&b, "- Historical gap: %s (confidence: %s)\n", seed.HistoryBaseline.Reason, seed.HistoryBaseline.Confidence)
 		}
 		if seed.HistoryCoverage != nil {
-			fmt.Fprintf(&b, "- Commit coverage: %d total, %d missing session coverage after oldest session, %d checkpointed but not directly exported (`%s`)\n", seed.HistoryCoverage.TotalCommits, seed.HistoryCoverage.MissingSessionCommits, seed.HistoryCoverage.CheckpointedUnexportedCommits, seed.HistoryCoverage.Path)
+			fmt.Fprintf(&b, "- Commit coverage: %d total — %d pre-session, %d covered, %d missing session coverage after oldest session, %d with no session history (`%s`)\n", seed.HistoryCoverage.TotalCommits, seed.HistoryCoverage.PreSessionCommits, seed.HistoryCoverage.CoveredCommits, seed.HistoryCoverage.MissingSessionCommits, seed.HistoryCoverage.NoSessionHistoryCommits, seed.HistoryCoverage.Path)
 		}
 		if seed.Agent != nil {
 			fmt.Fprintf(&b, "- Agent quick status: %s\n", seed.Agent.Quick.Status)

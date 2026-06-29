@@ -40,7 +40,8 @@ Use the brain as staged context. Do not read everything blindly.
 - Treat session transcripts as development rationale where available.
 - Treat `history-gaps.md` as uncertainty.
 - `missing_session` commits are not transcript-backed.
-- `checkpointed_unexported` commits have checkpoint IDs but no directly
-  exported transcript in the brain.
+- `covered` commits were made under an Entire session (they carry a checkpoint
+  trailer); the session is exported, though not every intermediate checkpoint has
+  its own transcript.
 - Do not invent rationale, CI status, release process, or historical decisions
   not present in seed docs, session exports, or commit-gap notes.
