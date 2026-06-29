@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.7.8-nightly.202606270713.37c158f81",
+  "checkpoint_version": "branch-v1",
+  "checkpoint_id": "3703ac354ac4",
+  "strategy": "manual-commit",
+  "branch": "feat/surface-trust-in-responses",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "mise.toml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/37/03ac354ac4/0/metadata.json",
+      "transcript": "/37/03ac354ac4/0/full.jsonl",
+      "compact_transcript": "/37/03ac354ac4/0/transcript.jsonl",
+      "content_hash": "/37/03ac354ac4/0/content_hash.txt",
+      "prompt": "/37/03ac354ac4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 12299,
+    "cache_creation_tokens": 35772,
+    "cache_read_tokens": 521235,
+    "output_tokens": 7941,
+    "api_call_count": 14
+  }
+}

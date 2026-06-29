@@ -1,0 +1,11 @@
+mise build:cgo
+[build:cgo] $ CGO_ENABLED=1 go build -tags 'brain_cgo sqlite_fts5' -o entire-brain ./cmd/entire-brain
+# github.com/asg017/sqlite-vec-go-bindings/cgo
+cgo-gcc-prolog:55:11: warning: 'sqlite3_auto_extension' is deprecated: first deprecated in macOS 10.10 - Process-global auto extensions are not supported on Apple platforms [-Wdeprecated-declarations]
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/sqlite3.h:7436:16: note: 'sqlite3_auto_extension' has been explicitly marked deprecated here
+cgo-gcc-prolog:74:11: warning: 'sqlite3_cancel_auto_extension' is deprecated: first deprecated in macOS 10.14 - Process-global auto extensions are not supported on Apple platforms [-Wdeprecated-declarations]
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/sqlite3.h:7449:16: note: 'sqlite3_cancel_auto_extension' has been explicitly marked deprecated here
+
+---
+
+Those warnings have been there since macOS 10.10. That's years ago. Fix it.
