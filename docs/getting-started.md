@@ -80,7 +80,7 @@ If `doctor` reports that the semantic provider is missing, check that
 above. See [Operations](operations.md) for `entire-brain` build details and
 `../entire-sem/docs/operations.md` for `entire-sem` release/cgo details.
 
-### 3. Build A Brain For A Repo
+### 3. Build The Deterministic Brain
 
 Run the first refresh in the Entire-enabled repository you want agents to work
 in:
@@ -102,6 +102,40 @@ hosted-model calls. Refresh exports captured sessions, builds the local
 history/doc indexes, asks `entire-sem` for a semantic snapshot, and stores the
 derived brain under Entire's local plugin data directory.
 
+At this point the brain can answer from captured history, docs, semantic code
+structure, runtime traces, patterns, and any existing durable facts. It has not
+yet extracted new durable facts from retained sessions.
+
+### 4. Distill Durable Facts
+
+Distillation is the egress-gated agent step that turns captured sessions into
+durable project knowledge: decisions, constraints, preferences, gotchas,
+conventions, and invariants. If your goal is a full brain with newly extracted
+durable facts, this is the next step after deterministic refresh:
+
+```sh
+entire brain distill --agent codex --model gpt-5.4-mini --effort low
+```
+
+To estimate cost before spending agent calls, run a dry run first:
+
+```sh
+entire brain distill --dry-run --json
+```
+
+To inspect the resulting facts:
+
+```sh
+entire brain facts status --json
+entire brain facts tree --depth 1
+```
+
+Distillation sends redacted transcript chunks to the selected agent unless you
+use a local loopback agent such as Ollama. It is incremental and cached:
+unchanged sessions are skipped, near-duplicate facts are reconciled against the
+branch's existing facts, and low-confidence merge/supersede decisions are
+queued for `entire brain facts review`.
+
 For active repos, keep the brain current with the watcher:
 
 ```sh
@@ -110,6 +144,23 @@ entire brain watch
 
 The default watcher performs deterministic refreshes only. Token-spending work,
 such as fact distillation or seed synthesis, is opt-in and separately gated.
+
+To keep the durable-facts layer fresh as new sessions land, enable distillation
+explicitly:
+
+```sh
+entire brain watch --distill --distill-every 24h --model gpt-5.4-mini --effort low --budget 1
+```
+
+If you also want generated seed summaries, run refresh with an agent instead of
+the deterministic seed path:
+
+```sh
+entire brain refresh --agent auto --seed-model gpt-5.4-mini --seed-effort low
+```
+
+Seed synthesis is separate from fact distillation: seed files orient an agent on
+the repository, while durable facts are branch-scoped retained knowledge.
 
 ## How Agents Use The Brain
 
@@ -235,8 +286,8 @@ repo-wide text search until the brain's targeted context has been used.
 hooks are not installed by the base Entire repository enablement flow; a harness
 must be configured to invoke them, for example from Claude Code
 `PreToolUse`/`PostToolUse` hooks or Entire CLI lifecycle hooks. Until then they
-have no effect. They are not
-intended as human-facing commands, although they can be hand-tested when
+have no effect. They are not intended as human-facing commands, although they
+can be hand-tested when
 debugging harness wiring. They are designed to surface a small, high-confidence
 fact exactly when it matters:
 
@@ -269,6 +320,14 @@ brief points to likely files, inspect those first. If freshness is degraded, the
 agent should say so and either refresh the brain or lower confidence in semantic
 answers.
 
+For repo-level orientation rather than task-specific orientation, use
+`overview`. It returns a compact project map: stack signals, entrypoints,
+commands, key documents, and recent decisions.
+
+```sh
+entire brain overview --json
+```
+
 ### Keep The Brain Fresh
 
 Freshness is part of every answer. A stale semantic index, missing provider,
@@ -288,6 +347,19 @@ entire brain refresh --agent none
 entire brain watch
 ```
 
+When semantic artifacts are out of sync or damaged, use the semantic
+maintenance paths instead of deleting the whole brain:
+
+```sh
+entire brain refresh index
+entire brain repair
+entire brain reset --semantic-only --force
+```
+
+Use `refresh index --worktree` only when you intentionally want uncommitted
+state in the semantic index. Exported bundles reject worktree-backed semantic
+indexes.
+
 ### Continue Or Explain Prior Work
 
 When the question is "why is this like this?", "what did the previous agent
@@ -298,6 +370,29 @@ followed by `brain_get` for specific ids.
 This is the main reason Entire capture matters: the original prompt, attempts,
 validation, correction, and rationale can survive the code diff and become
 available to the next agent.
+
+### Ask Across Facts, History, And Docs
+
+When the question is not tied to one symbol, use the unified retrieval layer.
+`query` is the normal hybrid path over durable facts, indexed history, and docs.
+Use `search` for exact keywords, `vsearch` for semantic matches, and
+`get`/`multi-get` when a result returns an id worth reading in full.
+
+```sh
+entire brain query "how does checkpointing work" --json
+entire brain search "checkpoint" --json
+entire brain vsearch "preventing data races" --json
+entire brain get fact:<id> --json
+```
+
+For durable facts specifically, use `recall`. `recall --expand` is an
+agent-assisted query expansion path, so it belongs behind the same egress
+judgment as other agent calls.
+
+```sh
+entire brain recall "account deletion" --k 5
+entire brain recall "MirrorCommittedMetadataRef" --expand
+```
 
 ### Navigate Code By Meaning
 
@@ -313,6 +408,20 @@ Semantic depth is language-dependent: parser-backed extraction covers the
 semantic language set, while many recognized filetypes are inventory-only. For
 inventory-only files, prefer text retrieval and lower confidence in
 impact/context answers.
+
+For deeper graph work, use the graph specialists: schema inventory, local graph
+UI, source snippets, directed trace paths, dead-code candidates, boundary
+enumeration, and working-tree change mapping.
+
+```sh
+entire brain inspect graph-schema --json
+entire brain inspect graph-ui semantic-graph.html
+entire brain inspect snippet "<symbol-or-id>" --json
+entire brain inspect trace-path "<caller>" "<callee>" --json
+entire brain inspect dead-code --json
+entire brain inspect boundaries --kind tool --json
+entire brain inspect changes --json
+```
 
 ### Review Risk Without A Clean Diff
 
@@ -353,6 +462,18 @@ entire brain workspace add platform ../web --name web
 entire brain workspace refresh platform --full
 ```
 
+After the workspace exists, use workspace context, graph, impact, retrieval,
+and review flows when the question crosses repos:
+
+```sh
+entire brain workspace inspect context platform "checkout" --json
+entire brain workspace inspect impact platform "checkout" --json
+entire brain workspace inspect graph platform --json
+entire brain workspace query platform "checkout" --json
+entire brain workspace review platform "checkout regression" --json
+entire brain workspace watch platform --once
+```
+
 ### Preserve Durable Project Knowledge
 
 Durable facts are short, provenance-anchored statements about decisions,
@@ -371,6 +492,18 @@ entire brain facts tree --depth 1
 Distillation is the token-spending path. It is incremental and cached, but it
 still sends redacted transcript chunks to the selected agent unless you choose a
 local loopback agent such as Ollama or use dry-run/no-egress mode.
+
+Durable facts also have a lifecycle. Review queued merge/supersede proposals,
+promote branch facts when they should carry forward, retract facts that are no
+longer true, and garbage-collect stale retractions.
+
+```sh
+entire brain facts review
+entire brain facts promote --from <branch> --strategy keep-both
+entire brain facts retract <fact-id>
+entire brain facts gc --force
+entire brain inspect blame <fact-id> --json
+```
 
 ### Extract Reusable Agent Skills
 
@@ -420,6 +553,54 @@ entire brain workspace patterns skills <workspace>
 entire brain workspace patterns skills form <workspace> <id>
 ```
 
+Pattern inspection is useful even when you are not forming skills. Use it to see
+recurring tasks, practices, risks, themes, verifier state, and whether accepted
+skills are stale.
+
+```sh
+entire brain patterns
+entire brain patterns status
+entire brain workspace patterns <workspace>
+entire brain workspace patterns status <workspace>
+```
+
+### Measure Brain Quality
+
+The brain includes evaluation harnesses for maintainers who need evidence that a
+retriever or fact layer is actually helping. These are not required for everyday
+use, but they are the right surface before claiming quality improvements.
+
+```sh
+entire brain facts eval-gen > facts-tasks.json
+entire brain facts eval --tasks facts-tasks.json --retriever facts --json > facts-eval.json
+entire brain facts eval-compare --a <before.json> --b <after.json>
+entire brain history-eval-gen > history-tasks.json
+entire brain history-eval --tasks history-tasks.json --json
+```
+
+For semantic performance and provider output, use the semantic benchmark and
+status audit instead of relying on anecdotes:
+
+```sh
+entire brain bench semantic .
+entire brain status --json
+```
+
+### Tune Retrieval
+
+The default vector arm uses the bundled local Model2Vec embedder. For higher
+semantic recall, opt into a local transformer embedder served by Ollama or a
+compatible loopback endpoint:
+
+```sh
+ollama pull embeddinggemma
+ENTIRE_BRAIN_EMBEDDER=ollama entire brain query "preventing data races" --json
+```
+
+Keep this distinction clear: changing the embedder changes retrieval behavior,
+not the underlying source of truth. Facts, history, docs, and semantic records
+still come from the local brain.
+
 ## Privacy And Egress
 
 The default brain artifacts are local and inspectable. Deterministic refresh,
@@ -458,3 +639,16 @@ blobs of the working tree. Gitignored files are filtered out only as a partial
 defense. Entire does not push shadow branches; do not push them manually, or
 unredacted source could reach the remote. Review the Entire CLI security and
 privacy guide before enabling Entire on sensitive or public repositories.
+
+## Storage And Configuration
+
+Entire CLI supplies the plugin directories that make the brain durable:
+
+- `ENTIRE_PLUGIN_CONFIG_DIR` for `brain.json`
+- `ENTIRE_PLUGIN_DATA_DIR` for generated repo brains and workspaces
+- `ENTIRE_PLUGIN_STATE_DIR` for regenerable cursors such as watcher state
+- `ENTIRE_PLUGIN_CACHE_DIR` for caches
+- `ENTIRE_REPO_ROOT` for the current checkout when invoked inside a repo
+
+Repo keys are derived from the repository origin. For example,
+`github.com/entireio/cli` becomes `gh/entireio/cli`.
