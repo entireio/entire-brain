@@ -1171,34 +1171,54 @@ func TestMCPIndexRepositoryRejectsSemBinaryArgument(t *testing.T) {
 	}
 }
 
-func TestMCPContainIndexPath(t *testing.T) {
+func TestMCPResolveIndexPath(t *testing.T) {
+	root := "/repo/root"
+	// No bound root: path passes through, no containment.
+	if p, cr := mcpResolveIndexPath(EntireEnv{}, "/somewhere"); p != "/somewhere" || cr != "" {
+		t.Fatalf("unbound root: got (%q,%q)", p, cr)
+	}
+	if p, cr := mcpResolveIndexPath(EntireEnv{}, ""); p != "." || cr != "" {
+		t.Fatalf("unbound empty: got (%q,%q)", p, cr)
+	}
+	// Bound root: empty and "." both resolve to the root, with containment on.
+	for _, in := range []string{"", ".", "  "} {
+		if p, cr := mcpResolveIndexPath(EntireEnv{RepoRoot: root}, in); p != root || cr != root {
+			t.Fatalf("input %q should resolve to root with containment: got (%q,%q)", in, p, cr)
+		}
+	}
+	// Relative path resolves inside the root (not CWD).
+	if p, cr := mcpResolveIndexPath(EntireEnv{RepoRoot: root}, "sub/pkg"); p != filepath.Join(root, "sub/pkg") || cr != root {
+		t.Fatalf("relative path: got (%q,%q)", p, cr)
+	}
+	// Absolute path is kept, but containment still applies.
+	if p, cr := mcpResolveIndexPath(EntireEnv{RepoRoot: root}, "/elsewhere"); p != "/elsewhere" || cr != root {
+		t.Fatalf("absolute path: got (%q,%q)", p, cr)
+	}
+	// Opt-out drops containment.
+	t.Setenv("ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH", "1")
+	if p, cr := mcpResolveIndexPath(EntireEnv{RepoRoot: root}, "/elsewhere"); p != "/elsewhere" || cr != "" {
+		t.Fatalf("opt-out: got (%q,%q)", p, cr)
+	}
+}
+
+func TestEnforceIndexContainment(t *testing.T) {
 	root := t.TempDir()
 	inside := filepath.Join(root, "sub")
 	if err := os.MkdirAll(inside, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	outside := t.TempDir()
-
-	// No bound root: path passes through unchanged.
-	if got, err := mcpContainIndexPath(EntireEnv{}, outside); err != nil || got != outside {
-		t.Fatalf("unbound root: got %q err %v", got, err)
+	if err := enforceIndexContainment("", outside); err != nil {
+		t.Fatalf("empty containRoot disables check: %v", err)
 	}
-	// Bound root, path inside: allowed.
-	if _, err := mcpContainIndexPath(EntireEnv{RepoRoot: root}, inside); err != nil {
-		t.Fatalf("inside root should be allowed: %v", err)
+	if err := enforceIndexContainment(root, inside); err != nil {
+		t.Fatalf("inside root should pass: %v", err)
 	}
-	// Bound root, empty path: defaults to the root.
-	if got, err := mcpContainIndexPath(EntireEnv{RepoRoot: root}, ""); err != nil || got == "" {
-		t.Fatalf("empty path should default to root: got %q err %v", got, err)
+	if err := enforceIndexContainment(root, root); err != nil {
+		t.Fatalf("root itself should pass: %v", err)
 	}
-	// Bound root, path outside: rejected.
-	if _, err := mcpContainIndexPath(EntireEnv{RepoRoot: root}, outside); err == nil {
+	if err := enforceIndexContainment(root, outside); err == nil {
 		t.Fatalf("outside root should be rejected")
-	}
-	// Opt-out env restores arbitrary paths.
-	t.Setenv("ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH", "1")
-	if got, err := mcpContainIndexPath(EntireEnv{RepoRoot: root}, outside); err != nil || got != outside {
-		t.Fatalf("opt-out should allow outside path: got %q err %v", got, err)
 	}
 }
 

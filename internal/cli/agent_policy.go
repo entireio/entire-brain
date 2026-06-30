@@ -4,7 +4,12 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 )
+
+// securityToggleWarned dedups the unrecognized-value warning so a garbage env
+// value cannot flood stderr (brainNoEgressMode runs on every agent/export check).
+var securityToggleWarned sync.Map
 
 func brainNoEgressMode() bool {
 	return securityToggleEnabled("ENTIRE_BRAIN_NO_EGRESS") || securityToggleEnabled("ENTIRE_BRAIN_LOCAL_ONLY")
@@ -32,7 +37,9 @@ func securityToggleEnabled(name string) bool {
 	case "1", "true", "yes", "on", "enable", "enabled":
 		return true
 	default:
-		fmt.Fprintf(os.Stderr, "warning: %s=%q is not a recognized boolean; treating as enabled (fail-closed)\n", name, raw)
+		if _, seen := securityToggleWarned.LoadOrStore(name+"="+raw, struct{}{}); !seen {
+			fmt.Fprintf(os.Stderr, "warning: %s=%q is not a recognized boolean; treating as enabled (fail-closed)\n", name, raw)
+		}
 		return true
 	}
 }

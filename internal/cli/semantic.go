@@ -280,6 +280,12 @@ type semanticIndexOptions struct {
 	// (verifying provider, snapshotting, building store, …) so long-running
 	// indexing reports something more useful than a static spinner.
 	progress func(phase string)
+	// containRoot, when set, requires the resolved repository directory to stay
+	// inside it. The MCP server sets this to the bound repo root so an untrusted
+	// client cannot index a directory outside it — checked against the *resolved*
+	// git toplevel, not just the requested path, so a path that resolves upward
+	// still cannot escape.
+	containRoot string
 }
 
 func (o semanticIndexOptions) reportPhase(phase string) {
@@ -368,6 +374,9 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	}
 	if !local {
 		return fmt.Errorf("semantic index requires a local repository path: %s", target)
+	}
+	if err := enforceIndexContainment(indexOpts.containRoot, repoDir); err != nil {
+		return err
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
@@ -5182,6 +5191,34 @@ func rejectBundleOutputSymlink(output string) error {
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("bundle output must not be a symlink: %s", output)
+	}
+	return nil
+}
+
+// enforceIndexContainment verifies that the resolved repository directory stays
+// inside containRoot. An empty containRoot disables the check (the CLI path,
+// where the operator is trusted). Both sides are symlink-resolved so neither a
+// symlinked target nor a git toplevel that walks above the root can escape.
+func enforceIndexContainment(containRoot, repoDir string) error {
+	if strings.TrimSpace(containRoot) == "" {
+		return nil
+	}
+	rootAbs, err := filepath.Abs(containRoot)
+	if err != nil {
+		return fmt.Errorf("resolve containment root: %w", err)
+	}
+	repoAbs, err := filepath.Abs(repoDir)
+	if err != nil {
+		return fmt.Errorf("resolve repository directory: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(rootAbs); err == nil {
+		rootAbs = resolved
+	}
+	if resolved, err := filepath.EvalSymlinks(repoAbs); err == nil {
+		repoAbs = resolved
+	}
+	if !pathInside(rootAbs, repoAbs) {
+		return fmt.Errorf("indexed repository %q is outside the bound repository root", repoDir)
 	}
 	return nil
 }

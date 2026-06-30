@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strconv"
 )
@@ -62,7 +63,14 @@ func safeReadAll(r io.Reader, max int64, source string) ([]byte, error) {
 	if max <= 0 {
 		max = defaultMaxReadBytes
 	}
-	data, err := io.ReadAll(io.LimitReader(r, max+1))
+	// Read one byte past the limit to detect overflow, guarding against max+1
+	// wrapping negative when max is near MaxInt64 (which would make LimitReader
+	// read nothing and silently return empty).
+	limit := max
+	if max < math.MaxInt64 {
+		limit = max + 1
+	}
+	data, err := io.ReadAll(io.LimitReader(r, limit))
 	if err != nil {
 		return nil, err
 	}

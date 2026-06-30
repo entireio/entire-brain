@@ -2,12 +2,11 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -1148,20 +1147,18 @@ renderEdges();document.getElementById('filter').addEventListener('input',e=>rend
 }
 
 func readRuntimeTraces(path string) ([]semanticRuntimeTrace, error) {
-	f, err := os.Open(path)
+	// The trace path is caller-supplied (including via the brain_ingest_traces MCP
+	// tool), so bound the whole-file read before decoding: a giant array would
+	// otherwise drive json.Decode to allocate an unbounded slice.
+	data, err := safeReadFile(path, semanticSnapshotMaxBytes())
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 	var traces []semanticRuntimeTrace
-	dec := json.NewDecoder(f)
-	if err := dec.Decode(&traces); err == nil {
+	if err := json.Unmarshal(data, &traces); err == nil {
 		return traces, nil
 	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return nil, err
-	}
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(bytes.NewReader(data))
 	// Cap the per-line buffer so an oversized line in an untrusted trace file fails
 	// loudly via scanner.Err() rather than relying on bufio's silent 64 KiB default.
 	scanner.Buffer(make([]byte, 0, 64*1024), semanticRecordMaxBytes())

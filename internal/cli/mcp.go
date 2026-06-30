@@ -194,7 +194,8 @@ func handleMCPMessage(ctx context.Context, opts Options, msg mcpMessage) (respon
 
 // dispatchMCPMessage performs the actual request routing. handleMCPMessage wraps
 // it with panic recovery; it is a package var so tests can inject a panicking
-// handler to verify that recovery keeps the server alive.
+// handler to verify that recovery keeps the server alive. Tests that reassign it
+// must not run with t.Parallel() — the server itself only ever reads it.
 var dispatchMCPMessage = func(ctx context.Context, opts Options, msg mcpMessage) mcpMessage {
 	response := mcpMessage{JSONRPC: "2.0", ID: msg.ID}
 	switch msg.Method {
@@ -470,12 +471,6 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = stringErr
 			break
 		}
-		if strings.TrimSpace(path) == "" {
-			path = "."
-			if opts.Env.RepoRoot != "" {
-				path = opts.Env.RepoRoot
-			}
-		}
 		profile, profileErr := mcpOptionalString(params.Arguments, "profile")
 		if profileErr != nil {
 			err = profileErr
@@ -484,14 +479,11 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		// The indexing binary is resolved from the trusted server environment,
 		// never from untrusted MCP client arguments: an arbitrary sem_binary would
 		// otherwise let a prompt-injected host (or a malicious client) run any
-		// executable. The repository path is likewise constrained to the bound repo
-		// root so the client cannot point the indexer/subprocess at arbitrary dirs.
+		// executable. The path is normalized to the bound repo root and
+		// runSemanticIndex re-checks the *resolved* repo dir against containRoot so
+		// the client cannot point the indexer/subprocess outside the bound root.
 		semBinary := mcpSemBinary()
-		path, pathErr := mcpContainIndexPath(opts.Env, path)
-		if pathErr != nil {
-			err = pathErr
-			break
-		}
+		path, containRoot := mcpResolveIndexPath(opts.Env, path)
 		worktree, boolErr := mcpBool(params.Arguments, "worktree")
 		if boolErr != nil {
 			err = boolErr
@@ -502,7 +494,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = boolErr
 			break
 		}
-		err = runSemanticIndex(ctx, cmd, opts, semanticIndexOptions{semBinary: semBinary, profile: strings.TrimSpace(profile), worktree: worktree, force: force}, path)
+		err = runSemanticIndex(ctx, cmd, opts, semanticIndexOptions{semBinary: semBinary, profile: strings.TrimSpace(profile), worktree: worktree, force: force, containRoot: containRoot}, path)
 	case "brain_list_projects":
 		err = runMCPListProjects(cmd, opts)
 	case "brain_delete_project":
@@ -890,39 +882,35 @@ func mcpSemBinary() string {
 	return "entire"
 }
 
-// mcpContainIndexPath constrains an MCP-supplied repository path to the server's
-// bound repository root (ENTIRE_REPO_ROOT). When a root is configured, the
-// requested path must resolve inside it — symlinks are resolved first so a
-// symlinked path cannot escape — unless an operator explicitly opts out with
-// ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH. This bounds the directory an untrusted client
-// can point indexing (and its subprocess working directory) at.
-func mcpContainIndexPath(env EntireEnv, path string) (string, error) {
+// mcpResolveIndexPath normalizes an MCP-supplied repository path against the
+// server's bound repository root (ENTIRE_REPO_ROOT) and returns the path to index
+// plus the containment root to enforce. When a root is configured: an empty or
+// "." path means the root itself, and a relative path resolves *inside* the root
+// (never the process CWD). The returned containRoot is the root unless the
+// operator opts out with ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH (or no root is set);
+// runSemanticIndex enforces it against the resolved git toplevel, which is the
+// authoritative check — a path that resolves upward still cannot escape.
+func mcpResolveIndexPath(env EntireEnv, path string) (resolved string, containRoot string) {
 	root := strings.TrimSpace(env.RepoRoot)
-	if root == "" || envBool("ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH") {
-		return path, nil
+	trimmed := strings.TrimSpace(path)
+	if root == "" {
+		if trimmed == "" {
+			return ".", ""
+		}
+		return trimmed, ""
 	}
-	rootAbs, err := filepath.Abs(root)
-	if err != nil {
-		return "", fmt.Errorf("resolve repository root: %w", err)
+	if !envBool("ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH") {
+		containRoot = root
 	}
-	target := strings.TrimSpace(path)
-	if target == "" {
-		return rootAbs, nil
+	switch {
+	case trimmed == "" || trimmed == ".":
+		return root, containRoot
+	case filepath.IsAbs(trimmed):
+		return trimmed, containRoot
+	default:
+		// Relative paths are resolved inside the bound root, not the CWD.
+		return filepath.Join(root, trimmed), containRoot
 	}
-	targetAbs, err := filepath.Abs(target)
-	if err != nil {
-		return "", fmt.Errorf("resolve index path: %w", err)
-	}
-	if resolved, err := filepath.EvalSymlinks(targetAbs); err == nil {
-		targetAbs = resolved
-	}
-	if resolved, err := filepath.EvalSymlinks(rootAbs); err == nil {
-		rootAbs = resolved
-	}
-	if !pathInside(rootAbs, targetAbs) {
-		return "", fmt.Errorf("index path %q is outside the bound repository root", path)
-	}
-	return targetAbs, nil
 }
 
 // mcpToolAllowedArgs derives, per tool, the set of accepted argument names from

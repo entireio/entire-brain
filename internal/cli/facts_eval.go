@@ -564,7 +564,7 @@ func (c *judgeCache) save() error {
 }
 
 func loadEvalTasks(path string) ([]evalTask, error) {
-	data, err := os.ReadFile(path)
+	data, err := safeReadFile(path, maxManifestBytes)
 	if err != nil {
 		return nil, err
 	}
