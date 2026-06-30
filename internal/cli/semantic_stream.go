@@ -50,6 +50,21 @@ type semanticStreamCounts struct {
 	Warnings        int
 	PartialFailures int
 	Unknown         int
+	Dropped         int // malformed records skipped under tolerant ingest
+}
+
+// maxDroppedSemanticRecords bounds how many malformed records a tolerant ingest
+// will skip before treating the stream as fundamentally broken and failing. A few
+// stray corrupt lines should not fail a whole index; a flood almost certainly
+// means the input is not a real snapshot.
+const maxDroppedSemanticRecords = 1000
+
+// semanticStrictIngest reports whether a single malformed record must abort the
+// whole ingest (the historical behavior). It is off by default — one bad record
+// from the untrusted entire-sem stream should not fail the entire index — and
+// re-enabled with ENTIRE_BRAIN_STRICT_INGEST for validation/debugging.
+func semanticStrictIngest() bool {
+	return envBool("ENTIRE_BRAIN_STRICT_INGEST")
 }
 
 type semanticStreamResult struct {
@@ -126,6 +141,25 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 	ignoredIDs := make(map[string]struct{})
 	files := make(map[string]struct{})
 	unknownTypes := make(map[string]struct{})
+	strict := semanticStrictIngest()
+	var firstDropErr error
+	// dropRecord centralizes the malformed-line policy. In strict mode it returns
+	// the error so the caller aborts; otherwise it counts the drop and signals the
+	// caller to skip the line — unless drops exceed the cap, at which point the
+	// stream is treated as broken and the error is returned.
+	dropRecord := func(err error) (skip bool, fatal error) {
+		if strict {
+			return false, err
+		}
+		res.stream.Dropped++
+		if firstDropErr == nil {
+			firstDropErr = err
+		}
+		if res.stream.Dropped > maxDroppedSemanticRecords {
+			return false, fmt.Errorf("semantic snapshot has too many malformed records (>%d); aborting: %w", maxDroppedSemanticRecords, err)
+		}
+		return true, nil
+	}
 	line := 1
 	for scanner.Scan() {
 		line++
@@ -139,15 +173,26 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 			RecordType string `json:"record_type"`
 		}
 		if err := json.Unmarshal(raw, &probe); err != nil {
-			return res, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
+			if skip, fatal := dropRecord(fmt.Errorf("parse semantic snapshot line %d: %w", line, err)); fatal != nil {
+				return res, fatal
+			} else if skip {
+				continue
+			}
 		}
 
 		switch probe.RecordType {
 		case "file", "symbol", "relation":
 			var record semanticRecord
 			if err := json.Unmarshal(raw, &record); err != nil {
-				return res, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
+				if skip, fatal := dropRecord(fmt.Errorf("parse semantic snapshot line %d: %w", line, err)); fatal != nil {
+					return res, fatal
+				} else if skip {
+					continue
+				}
 			}
+			// Path-safety validation is a security boundary, not a parse-tolerance
+			// concern: a record whose path escapes the repo is a hostile signal and
+			// must always abort the ingest, even in tolerant mode.
 			if err := validateSemanticRecordPath(&record); err != nil {
 				return res, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
 			}
@@ -186,7 +231,11 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 		case "summary":
 			var summary semanticSummary
 			if err := json.Unmarshal(raw, &summary); err != nil {
-				return res, fmt.Errorf("parse semantic snapshot summary (line %d): %w", line, err)
+				if skip, fatal := dropRecord(fmt.Errorf("parse semantic snapshot summary (line %d): %w", line, err)); fatal != nil {
+					return res, fatal
+				} else if skip {
+					continue
+				}
 			}
 			summary.Warnings = sanitizeSemanticWarnings(cfg.ignore.FilterWarnings(summary.Warnings), cfg.repoDir)
 			summary.PartialFailures = sanitizeSemanticWarnings(cfg.ignore.FilterWarnings(summary.PartialFailures), cfg.repoDir)
@@ -226,6 +275,18 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 
 	res.counts.Files = len(files)
 	res.extraWarnings = unknownRecordWarnings(unknownTypes)
+	if res.stream.Dropped > 0 {
+		detail := fmt.Sprintf("%d malformed record(s) skipped", res.stream.Dropped)
+		if firstDropErr != nil {
+			detail += "; first: " + firstDropErr.Error()
+		}
+		res.extraWarnings = append(res.extraWarnings, semanticWarning{
+			Code:     "provider_malformed_record_dropped",
+			Severity: "warning",
+			Effect:   "records skipped; index may be incomplete",
+			Detail:   detail,
+		})
+	}
 	if res.summary != nil {
 		res.stream.Warnings = len(res.summary.Warnings)
 		res.stream.PartialFailures = len(res.summary.PartialFailures)

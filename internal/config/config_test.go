@@ -9,6 +9,27 @@ import (
 	"testing"
 )
 
+func TestLoadQuarantinesCorruptConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "brain.json")
+	if err := os.WriteFile(path, []byte("{not valid json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("corrupt config should not be fatal: %v", err)
+	}
+	if cfg.Greeting != Default().Greeting {
+		t.Fatalf("expected defaults, got %+v", cfg)
+	}
+	if _, err := os.Stat(path + ".corrupt"); err != nil {
+		t.Fatalf("corrupt file should be quarantined to .corrupt: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("original corrupt file should have been moved aside, stat err = %v", err)
+	}
+}
+
 func TestLoadReturnsDefaultWhenMissing(t *testing.T) {
 	cfg, err := Load(t.TempDir())
 	if err != nil {

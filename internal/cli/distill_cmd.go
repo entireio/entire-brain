@@ -311,6 +311,14 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 					continue
 				}
 				go func(i int, chunks []transcriptChunk, results []chan agentCallResult) {
+					// A panic while processing one (untrusted) chunk must not crash the
+					// whole distill run and lose every other chunk's work; convert it to
+					// a per-chunk error so the slot is released and the run continues.
+					defer func() {
+						if r := recover(); r != nil {
+							results[i] <- agentCallResult{err: fmt.Errorf("distill worker panicked: %v", r), holdsSlot: true}
+						}
+					}()
 					out, err := distillOpts.run(ctx, repoDir, args, []byte(chunks[i].Text), distillOpts.timeout)
 					results[i] <- agentCallResult{out: out, err: err, holdsSlot: true}
 				}(i, ps.chunks, ps.results)

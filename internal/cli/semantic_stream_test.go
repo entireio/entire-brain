@@ -106,14 +106,44 @@ func TestScanSemanticStreamFilteredArtifactIsValidNDJSON(t *testing.T) {
 	}
 }
 
-func TestScanSemanticStreamReportsMalformedLine(t *testing.T) {
+func TestScanSemanticStreamReportsMalformedLineInStrictMode(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_STRICT_INGEST", "1")
 	input := semanticStreamLeanHeader + "\n" + `{"record_type":"symbol" BROKEN` + "\n"
 	_, err := scanSemanticStream(strings.NewReader(input), io.Discard, semanticStreamScanConfig{})
 	if err == nil {
-		t.Fatal("expected error for malformed line")
+		t.Fatal("expected error for malformed line in strict mode")
 	}
 	if !strings.Contains(err.Error(), "line 2") {
 		t.Fatalf("error should identify the malformed line: %v", err)
+	}
+}
+
+func TestScanSemanticStreamTolerantlySkipsMalformedLine(t *testing.T) {
+	// Default (tolerant) ingest skips a stray malformed record, counts it, and
+	// surfaces a warning rather than failing the whole index. The following valid
+	// records still make it through.
+	input := semanticStreamLeanHeader + "\n" +
+		`{"record_type":"symbol" BROKEN` + "\n" +
+		`{"record_type":"file","file_path":"a.go","language":"Go"}` + "\n" +
+		`{"record_type":"summary","languages":["Go"]}` + "\n"
+	res, err := scanSemanticStream(strings.NewReader(input), io.Discard, semanticStreamScanConfig{})
+	if err != nil {
+		t.Fatalf("tolerant ingest should not fail on a stray malformed line: %v", err)
+	}
+	if res.stream.Dropped != 1 {
+		t.Fatalf("expected 1 dropped record, got %d", res.stream.Dropped)
+	}
+	if res.stream.Files != 1 {
+		t.Fatalf("valid file record after the bad line should be processed, files=%d", res.stream.Files)
+	}
+	foundWarning := false
+	for _, w := range res.extraWarnings {
+		if w.Code == "provider_malformed_record_dropped" {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Fatalf("expected a provider_malformed_record_dropped warning, got %+v", res.extraWarnings)
 	}
 }
 

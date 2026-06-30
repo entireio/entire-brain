@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1042,10 +1043,34 @@ func (s entireSettingsFile) CheckpointRemoteFetchURL() (string, error) {
 
 	switch strings.ToLower(strings.TrimSpace(remote.Provider)) {
 	case checkpointRemoteProviderGitHub:
-		return "https://github.com/" + strings.Trim(strings.TrimSpace(remote.Repo), "/") + ".git", nil
+		repo := strings.Trim(strings.TrimSpace(remote.Repo), "/")
+		if err := validateGitHubRepoSlug(repo); err != nil {
+			return "", fmt.Errorf("invalid checkpoint_remote repo %q: %w", remote.Repo, err)
+		}
+		return "https://github.com/" + repo + ".git", nil
 	default:
 		return "", fmt.Errorf("unsupported checkpoint_remote provider %q", remote.Provider)
 	}
+}
+
+var githubRepoComponent = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// validateGitHubRepoSlug ensures a checkpoint_remote repo from .entire/settings.json
+// is a plain "owner/name" slug. The fetch host is already hardcoded to github.com,
+// but an unvalidated repo string could otherwise smuggle path traversal, extra
+// path segments, or query/fragment junk into the fetch URL; constraining it to two
+// clean components removes that ambiguity.
+func validateGitHubRepoSlug(repo string) error {
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 {
+		return errors.New("must be of the form owner/name")
+	}
+	for _, p := range parts {
+		if p == "" || p == "." || p == ".." || !githubRepoComponent.MatchString(p) {
+			return fmt.Errorf("invalid path component %q", p)
+		}
+	}
+	return nil
 }
 
 func (s entireSettingsFile) CheckpointsV2Enabled() bool {
@@ -1619,8 +1644,13 @@ func loadCheckpointMetadataCache(path string) *checkpointMetadataCache {
 		return newCheckpointMetadataCache(nil)
 	}
 	defer gz.Close()
+	// Bound the decompressed stream: a gzip decompression bomb (a few KB on disk
+	// expanding to terabytes) would otherwise drive the JSON decoder out of memory.
+	// Exceeding the cap makes Decode fail, which falls through to rebuilding the
+	// cache — the same graceful degradation as any other corrupt-cache case.
+	limited := io.LimitReader(gz, semanticSnapshotMaxBytes())
 	var file checkpointMetadataCacheFile
-	if err := json.NewDecoder(gz).Decode(&file); err != nil || file.Version != checkpointMetadataCacheVersion || file.Blobs == nil {
+	if err := json.NewDecoder(limited).Decode(&file); err != nil || file.Version != checkpointMetadataCacheVersion || file.Blobs == nil {
 		return newCheckpointMetadataCache(nil)
 	}
 	return newCheckpointMetadataCache(file.Blobs)

@@ -58,8 +58,22 @@ var (
 	semanticBundleMaxEntry int64 = 128 * 1024 * 1024
 	semanticBundleMaxTotal int64 = 512 * 1024 * 1024
 	semanticBundleMaxFiles       = 10000
-	semanticMaxRecordBytes       = 64 * 1024 * 1024
+	// semanticMaxRecordBytes bounds a single NDJSON record from the (untrusted)
+	// entire-sem stream. A per-symbol record is realistically kilobytes; the cap is
+	// kept generous but far below the previous 64 MiB so one crafted line cannot
+	// force a huge buffer allocation. Operators with unusually large records can
+	// raise it via ENTIRE_BRAIN_MAX_RECORD_BYTES.
+	semanticMaxRecordBytes = 16 * 1024 * 1024
 )
+
+func semanticRecordMaxBytes() int {
+	if v := os.Getenv("ENTIRE_BRAIN_MAX_RECORD_BYTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return semanticMaxRecordBytes
+}
 
 type semanticSourceManifest struct {
 	GeneratedAt      time.Time         `json:"generated_at"`
@@ -686,7 +700,7 @@ func runSemanticRepair(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	if info.IsDir() {
 		return fmt.Errorf("active semantic snapshot must be a file: %s", source.SnapshotPath)
 	}
-	raw, err := os.ReadFile(snapshotPath)
+	raw, err := safeReadFile(snapshotPath, semanticSnapshotMaxBytes())
 	if err != nil {
 		return fmt.Errorf("read active semantic snapshot: %w", err)
 	}
@@ -1099,7 +1113,7 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 
 func newSemanticScanner(r io.Reader) *bufio.Scanner {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), semanticMaxRecordBytes)
+	scanner.Buffer(make([]byte, 0, 64*1024), semanticRecordMaxBytes())
 	return scanner
 }
 
@@ -4811,7 +4825,7 @@ func addBundlePath(tw *tar.Writer, root, rel string) error {
 	if info.IsDir() {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := safeReadFile(path, semanticSnapshotMaxBytes())
 	if err != nil {
 		return err
 	}
@@ -5011,18 +5025,43 @@ func rejectExistingSymlinkPathComponents(root, rel string) error {
 		return fmt.Errorf("path is outside root: %s", rel)
 	}
 	current := root
+	deepestExisting := root
 	for _, part := range strings.Split(clean, string(filepath.Separator)) {
 		current = filepath.Join(current, part)
 		info, err := os.Lstat(current)
 		if err != nil {
 			if os.IsNotExist(err) {
-				return nil
+				break // tolerate not-yet-created leaves on the write path
 			}
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("path component must not be a symlink: %s", rel)
 		}
+		deepestExisting = current
+	}
+	// Parity with rejectSymlinkPathComponents (the read path): verify the existing
+	// prefix still resolves inside root once symlinks in root's own ancestry are
+	// normalized. The per-component checks alone miss an ancestor-symlink escape,
+	// which is exactly the gap the write path previously had. The root may not be
+	// created yet on a first write — there is nothing to escape through then, so a
+	// not-yet-existing prefix is treated as safe.
+	rootResolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	existingResolved, err := filepath.EvalSymlinks(deepestExisting)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if !pathInside(rootResolved, existingResolved) {
+		return fmt.Errorf("path escapes root through symlinks: %s", rel)
 	}
 	return nil
 }
@@ -5300,7 +5339,7 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 		if relSlash != importManifest.Sources.Semantic.SnapshotPath {
 			return nil
 		}
-		content, err := os.ReadFile(path)
+		content, err := safeReadFile(path, semanticSnapshotMaxBytes())
 		if err != nil {
 			return err
 		}
@@ -5408,7 +5447,7 @@ func rebuildImportedSemanticStore(brainDir, repoDir string, source *semanticSour
 	if err != nil {
 		return err
 	}
-	raw, err := os.ReadFile(filepath.Join(brainDir, snapshotRel))
+	raw, err := safeReadFile(filepath.Join(brainDir, snapshotRel), semanticSnapshotMaxBytes())
 	if err != nil {
 		return err
 	}
@@ -5471,7 +5510,7 @@ func copyImportedGenerationDir(sourceRoot, targetRoot string) error {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("bundle semantic generation entry must not be a symlink: %s", rel)
 		}
-		data, err := os.ReadFile(path)
+		data, err := safeReadFile(path, semanticSnapshotMaxBytes())
 		if err != nil {
 			return err
 		}

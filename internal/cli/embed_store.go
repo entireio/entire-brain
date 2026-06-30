@@ -59,6 +59,14 @@ func (s *embedStore) loadUnlocked() map[string][]float32 {
 	if r.err != nil || modelID != s.modelID || dim != s.dim || dim <= 0 {
 		return out // model/dim mismatch -> full rebuild
 	}
+	// Preflight the trusted length prefix: every entry needs at least its 2-byte id
+	// length plus dim float32s, so a count that cannot fit in the remaining bytes is
+	// corrupt or hostile. Reject it up front rather than trusting it — mirrors the
+	// bundled embedder loader's length validation.
+	minPerEntry := int64(2) + int64(dim)*4
+	if count < 0 || int64(count)*minPerEntry > int64(len(r.b)-r.off) {
+		return out
+	}
 	for i := 0; i < count; i++ {
 		id := string(r.take(int(r.u16())))
 		vec := make([]float32, dim)

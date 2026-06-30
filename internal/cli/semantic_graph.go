@@ -1162,6 +1162,9 @@ func readRuntimeTraces(path string) ([]semanticRuntimeTrace, error) {
 		return nil, err
 	}
 	scanner := bufio.NewScanner(f)
+	// Cap the per-line buffer so an oversized line in an untrusted trace file fails
+	// loudly via scanner.Err() rather than relying on bufio's silent 64 KiB default.
+	scanner.Buffer(make([]byte, 0, 64*1024), semanticRecordMaxBytes())
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {

@@ -75,7 +75,7 @@ func withBrainWriteLock(brainDir string, fn func() error) error {
 
 func loadBrainManifest(outputDir string) (*exportManifest, error) {
 	path := filepath.Join(outputDir, exportManifestFileName)
-	data, err := os.ReadFile(path)
+	data, err := safeReadFile(path, maxManifestBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &exportManifest{SchemaVersion: brainManifestSchemaVersion}, nil

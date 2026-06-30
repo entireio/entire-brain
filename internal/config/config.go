@@ -44,7 +44,18 @@ func loadPath(path string) (Config, error) {
 
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return Config{}, fmt.Errorf("parse config: %w", err)
+		// A corrupt config must not wedge every command that needs it — repo-key
+		// resolution loads it on the hot path, so a hard error there blocks
+		// otherwise-unrelated work. Quarantine the bad file (preserved at
+		// <path>.corrupt for inspection) and fall back to defaults; a later Save
+		// rewrites a clean config.
+		quarantinePath := path + ".corrupt"
+		if renameErr := os.Rename(path, quarantinePath); renameErr == nil {
+			fmt.Fprintf(os.Stderr, "warning: %s was not valid JSON (%v); moved aside to %s and using defaults\n", path, err, quarantinePath)
+		} else {
+			fmt.Fprintf(os.Stderr, "warning: %s was not valid JSON (%v); using defaults\n", path, err)
+		}
+		return Default(), nil
 	}
 	if cfg.Greeting == "" {
 		cfg.Greeting = Default().Greeting

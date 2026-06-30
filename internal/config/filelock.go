@@ -19,9 +19,16 @@ func acquireFileLock(path, code string, timeout time.Duration) (*fileLock, error
 	}
 	deadline := time.Now().Add(timeout)
 	for {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+		if err := rejectUnsafeExistingRegularFile(path, "lock file"); err != nil {
+			return nil, err
+		}
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|fileLockOpenFlags(), 0o600)
 		if err != nil {
 			return nil, fmt.Errorf("open lock file: %w", err)
+		}
+		if err := rejectOpenFileAlias(path, f, "lock file"); err != nil {
+			_ = f.Close()
+			return nil, err
 		}
 		err = tryLockFile(f)
 		if err == nil {
@@ -37,6 +44,55 @@ func acquireFileLock(path, code string, timeout time.Duration) (*fileLock, error
 		}
 		time.Sleep(fileLockRetryInterval)
 	}
+}
+
+// rejectUnsafeExistingRegularFile and rejectOpenFileAlias mirror the hardened
+// brain-store lock in internal/cli: they refuse to open a lock path that is a
+// symlink, a non-regular file, or one that is swapped/hardlinked between the
+// pre-open Lstat and the open. Combined with O_NOFOLLOW (fileLockOpenFlags) this
+// keeps a planted symlink in the config dir from redirecting the lock open to an
+// arbitrary file.
+func rejectUnsafeExistingRegularFile(path, label string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s must not be a symlink: %s", label, path)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s must be a regular file: %s", label, path)
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags(), 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return rejectOpenFileAlias(path, f, label)
+}
+
+func rejectOpenFileAlias(path string, f *os.File, label string) error {
+	pathInfo, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if pathInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s must not be a symlink: %s", label, path)
+	}
+	fileInfo, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(pathInfo, fileInfo) {
+		return fmt.Errorf("%s changed while opening: %s", label, path)
+	}
+	if !fileInfo.Mode().IsRegular() {
+		return fmt.Errorf("%s must be a regular file: %s", label, path)
+	}
+	return rejectOpenFileHardlink(path, f, fileInfo, label)
 }
 
 func writeLockMetadata(f *os.File) {

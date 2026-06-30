@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -170,7 +171,31 @@ func mcpDebugLogToolResult(path string, msg mcpMessage, response mcpMessage) {
 	mcpDebugLog(path, "tool_result: "+call.name+" "+status)
 }
 
-func handleMCPMessage(ctx context.Context, opts Options, msg mcpMessage) mcpMessage {
+// handleMCPMessage dispatches a single request. It recovers from any panic in a
+// handler so that one malformed input (e.g. a crafted transcript or snapshot that
+// trips an unhandled edge case deep in processing) returns a JSON-RPC internal
+// error rather than tearing down the long-lived stdio server and every other
+// in-flight request.
+func handleMCPMessage(ctx context.Context, opts Options, msg mcpMessage) (response mcpMessage) {
+	defer func() {
+		if r := recover(); r != nil {
+			response = mcpMessage{
+				JSONRPC: "2.0",
+				ID:      msg.ID,
+				Error:   &mcpError{Code: -32603, Message: fmt.Sprintf("internal error handling %q", msg.Method)},
+			}
+			if dbg := os.Getenv("ENTIRE_BRAIN_MCP_DEBUG_LOG"); dbg != "" {
+				mcpDebugLog(dbg, fmt.Sprintf("panic: %s: %v\n%s", msg.Method, r, debug.Stack()))
+			}
+		}
+	}()
+	return dispatchMCPMessage(ctx, opts, msg)
+}
+
+// dispatchMCPMessage performs the actual request routing. handleMCPMessage wraps
+// it with panic recovery; it is a package var so tests can inject a panicking
+// handler to verify that recovery keeps the server alive.
+var dispatchMCPMessage = func(ctx context.Context, opts Options, msg mcpMessage) mcpMessage {
 	response := mcpMessage{JSONRPC: "2.0", ID: msg.ID}
 	switch msg.Method {
 	case "initialize":
@@ -297,7 +322,7 @@ func mcpToolDefinitions() []map[string]any {
 		{
 			"name":        "brain_index_repository",
 			"description": "Build or refresh the local semantic index for a repository path. Local-only; does not publish artifacts.",
-			"inputSchema": objectSchema(nil, map[string]any{"path": stringArg("path", "Local repository path (default: current repo)"), "profile": stringArg("profile", "Provider profile: full, fast, or syntax-only"), "sem_binary": stringArg("sem_binary", "Entire CLI binary exposing `sem` (default: entire)"), "worktree": boolArg("worktree", "Index dirty worktree content"), "force": boolArg("force", "Replace the current semantic snapshot")}),
+			"inputSchema": objectSchema(nil, map[string]any{"path": stringArg("path", "Local repository path (default: current repo)"), "profile": stringArg("profile", "Provider profile: full, fast, or syntax-only"), "worktree": boolArg("worktree", "Index dirty worktree content"), "force": boolArg("force", "Replace the current semantic snapshot")}),
 		},
 		{
 			"name":        "brain_list_projects",
@@ -456,13 +481,16 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = profileErr
 			break
 		}
-		semBinary, semErr := mcpOptionalString(params.Arguments, "sem_binary")
-		if semErr != nil {
-			err = semErr
+		// The indexing binary is resolved from the trusted server environment,
+		// never from untrusted MCP client arguments: an arbitrary sem_binary would
+		// otherwise let a prompt-injected host (or a malicious client) run any
+		// executable. The repository path is likewise constrained to the bound repo
+		// root so the client cannot point the indexer/subprocess at arbitrary dirs.
+		semBinary := mcpSemBinary()
+		path, pathErr := mcpContainIndexPath(opts.Env, path)
+		if pathErr != nil {
+			err = pathErr
 			break
-		}
-		if strings.TrimSpace(semBinary) == "" {
-			semBinary = "entire"
 		}
 		worktree, boolErr := mcpBool(params.Arguments, "worktree")
 		if boolErr != nil {
@@ -847,6 +875,54 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 		DeletedRepoKey string `json:"deleted_repo_key"`
 		BrainDir       string `json:"brain_dir"`
 	}{DeletedRepoKey: repoKey, BrainDir: brainDir})
+}
+
+// mcpSemBinary resolves the Entire CLI binary that exposes `sem` provider
+// commands from the trusted server environment, never from untrusted MCP client
+// arguments. An operator can override it via ENTIRE_BRAIN_SEM_BINARY; otherwise
+// it defaults to "entire". Resolving this server-side closes the
+// arbitrary-executable vector that an untrusted (or prompt-injected) MCP client
+// would otherwise reach through a tool argument.
+func mcpSemBinary() string {
+	if v := strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_SEM_BINARY")); v != "" {
+		return v
+	}
+	return "entire"
+}
+
+// mcpContainIndexPath constrains an MCP-supplied repository path to the server's
+// bound repository root (ENTIRE_REPO_ROOT). When a root is configured, the
+// requested path must resolve inside it — symlinks are resolved first so a
+// symlinked path cannot escape — unless an operator explicitly opts out with
+// ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH. This bounds the directory an untrusted client
+// can point indexing (and its subprocess working directory) at.
+func mcpContainIndexPath(env EntireEnv, path string) (string, error) {
+	root := strings.TrimSpace(env.RepoRoot)
+	if root == "" || envBool("ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH") {
+		return path, nil
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve repository root: %w", err)
+	}
+	target := strings.TrimSpace(path)
+	if target == "" {
+		return rootAbs, nil
+	}
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return "", fmt.Errorf("resolve index path: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(targetAbs); err == nil {
+		targetAbs = resolved
+	}
+	if resolved, err := filepath.EvalSymlinks(rootAbs); err == nil {
+		rootAbs = resolved
+	}
+	if !pathInside(rootAbs, targetAbs) {
+		return "", fmt.Errorf("index path %q is outside the bound repository root", path)
+	}
+	return targetAbs, nil
 }
 
 // mcpToolAllowedArgs derives, per tool, the set of accepted argument names from

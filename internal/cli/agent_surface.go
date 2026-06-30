@@ -27,7 +27,9 @@ const (
 	brainInspectHistoryMaxFiles = 1000
 	brainInspectHistoryMaxBytes = 512 * 1024
 	brainInspectHistoryMaxHits  = 25
-	brainInspectHistoryMaxLine  = 16 * 1024 * 1024
+	// 4 MiB per line is far beyond any real history record while bounding the
+	// buffer a single crafted line can force (was 16 MiB).
+	brainInspectHistoryMaxLine = 4 * 1024 * 1024
 )
 
 type agentStatusOptions struct {

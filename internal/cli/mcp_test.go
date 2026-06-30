@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -102,7 +103,7 @@ func TestMCPProjectManagementTools(t *testing.T) {
 	}}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC) }}
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`) +
-		frameMCPJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "brain_index_repository", "arguments": map[string]any{"path": repoDir, "sem_binary": "entire"}}}) +
+		frameMCPJSON(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "brain_index_repository", "arguments": map[string]any{"path": repoDir}}}) +
 		frameMCP(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"brain_list_projects","arguments":{}}}`) +
 		frameMCPJSON(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "brain_delete_project", "arguments": map[string]any{"repo_key": repoKey}}})
 	var out bytes.Buffer
@@ -1148,6 +1149,73 @@ func TestMCPRejectsOversizedAndNegativeFrames(t *testing.T) {
 	}
 	if _, _, err := readMCPMessage(bufio.NewReader(strings.NewReader("Content-Length: -1\r\n\r\n"))); err == nil || !strings.Contains(err.Error(), "non-negative") {
 		t.Fatalf("negative frame err = %v", err)
+	}
+}
+
+func TestMCPIndexRepositoryRejectsSemBinaryArgument(t *testing.T) {
+	// sem_binary used to be an attacker-controllable executable name; it must no
+	// longer be an accepted argument so an untrusted/prompt-injected client cannot
+	// run an arbitrary binary through the indexer.
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_index_repository","arguments":{"sem_binary":"/bin/evil"}}}`)
+	var out bytes.Buffer
+	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
+		t.Fatalf("mcp: %v", err)
+	}
+	responses := readMCPResponses(t, out.String())
+	if len(responses) != 1 {
+		t.Fatalf("responses = %d", len(responses))
+	}
+	errObj, ok := responses[0]["error"].(map[string]any)
+	if !ok || !strings.Contains(fmt.Sprint(errObj["message"]), "unknown argument for brain_index_repository: sem_binary") {
+		t.Fatalf("expected unknown-argument rejection, got %+v", responses[0])
+	}
+}
+
+func TestMCPContainIndexPath(t *testing.T) {
+	root := t.TempDir()
+	inside := filepath.Join(root, "sub")
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+
+	// No bound root: path passes through unchanged.
+	if got, err := mcpContainIndexPath(EntireEnv{}, outside); err != nil || got != outside {
+		t.Fatalf("unbound root: got %q err %v", got, err)
+	}
+	// Bound root, path inside: allowed.
+	if _, err := mcpContainIndexPath(EntireEnv{RepoRoot: root}, inside); err != nil {
+		t.Fatalf("inside root should be allowed: %v", err)
+	}
+	// Bound root, empty path: defaults to the root.
+	if got, err := mcpContainIndexPath(EntireEnv{RepoRoot: root}, ""); err != nil || got == "" {
+		t.Fatalf("empty path should default to root: got %q err %v", got, err)
+	}
+	// Bound root, path outside: rejected.
+	if _, err := mcpContainIndexPath(EntireEnv{RepoRoot: root}, outside); err == nil {
+		t.Fatalf("outside root should be rejected")
+	}
+	// Opt-out env restores arbitrary paths.
+	t.Setenv("ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH", "1")
+	if got, err := mcpContainIndexPath(EntireEnv{RepoRoot: root}, outside); err != nil || got != outside {
+		t.Fatalf("opt-out should allow outside path: got %q err %v", got, err)
+	}
+}
+
+func TestMCPHandlerRecoversFromPanic(t *testing.T) {
+	// A panic in a handler must become a JSON-RPC internal error (-32603), not a
+	// crash of the long-lived stdio server.
+	orig := dispatchMCPMessage
+	t.Cleanup(func() { dispatchMCPMessage = orig })
+	dispatchMCPMessage = func(ctx context.Context, opts Options, msg mcpMessage) mcpMessage {
+		panic("boom")
+	}
+	resp := handleMCPMessage((&cobra.Command{}).Context(), Options{Version: "test-version"}, mcpMessage{JSONRPC: "2.0", ID: 7, Method: "tools/call"})
+	if resp.Error == nil || resp.Error.Code != -32603 {
+		t.Fatalf("expected -32603 internal error, got %+v", resp)
+	}
+	if resp.ID != 7 {
+		t.Fatalf("response id = %v, want 7", resp.ID)
 	}
 }
 

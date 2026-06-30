@@ -100,7 +100,7 @@ func loadDocRecordsFromSeed(brainDir string) (records []docRecord, files int, wa
 			warnings = append(warnings, fmt.Sprintf("skip %s: %v", rel, err))
 			return nil
 		}
-		data, rErr := os.ReadFile(path)
+		data, rErr := safeReadFile(path, maxSeedDocBytes)
 		if rErr != nil {
 			warnings = append(warnings, fmt.Sprintf("read %s: %v", rel, rErr))
 			return nil

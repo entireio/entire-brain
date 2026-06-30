@@ -61,6 +61,15 @@ func newOllamaEmbedder() *ollamaEmbedder {
 		tr = &http.Transport{}
 	}
 	tr.Proxy = nil
+	// Re-resolve and pin the dial target to loopback IPs at connection time, the
+	// same defense the distill ollama client uses. URL-string validation alone is
+	// not enough: a host like "localhost" (trusted by name above) or any name that
+	// resolves to a non-loopback address via a hostile /etc/hosts or DNS rebinding
+	// would otherwise send query/document text off-box. DialTLS variants are cleared
+	// so HTTPS dials also go through this guard.
+	tr.DialContext = loopbackOnlyDialContext
+	tr.DialTLS = nil
+	tr.DialTLSContext = nil
 	client := &http.Client{
 		Timeout:   60 * time.Second,
 		Transport: tr,

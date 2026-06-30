@@ -408,8 +408,11 @@ func loadHistoryScanCache(outputDir string) historyScanCache {
 		return empty
 	}
 	defer gz.Close()
+	// Bound the decompressed stream so a gzip bomb cannot exhaust memory; an
+	// over-cap or truncated stream simply rebuilds the cache from scratch.
+	limited := io.LimitReader(gz, semanticSnapshotMaxBytes())
 	var cache historyScanCache
-	if err := json.NewDecoder(gz).Decode(&cache); err != nil {
+	if err := json.NewDecoder(limited).Decode(&cache); err != nil {
 		return empty
 	}
 	if cache.Version != historyScanCacheVersion || cache.Files == nil {
@@ -616,7 +619,7 @@ func scanDocumentHistoryFile(f *os.File, rel string) (records []historyRecord, i
 	if !strings.HasPrefix(firstLine, "{") || json.Valid([]byte(firstLine)) {
 		return nil, false, nil // JSONL or non-JSON: the line scanner's job
 	}
-	data, err := io.ReadAll(io.MultiReader(bytes.NewReader(probe[:n]), f))
+	data, err := safeReadAll(io.MultiReader(bytes.NewReader(probe[:n]), f), maxDocumentTranscriptBytes, "document transcript "+rel)
 	if err != nil {
 		return nil, false, err
 	}
