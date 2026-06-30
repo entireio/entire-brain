@@ -36,10 +36,17 @@ entire plugin install ./entire-brain
 entire brain
 ```
 
-For a one-command local source install, run:
+For a one-command local source install of this plugin, run:
 
 ```sh
 scripts/install-local.sh
+```
+
+For an end-to-end local install that builds the sibling `entire-sem` checkout
+first and then installs `entire-brain`, run:
+
+```sh
+scripts/install.sh
 ```
 
 For local release archives with `SHA256SUMS`, run:
@@ -156,7 +163,8 @@ The MCP adapter is stdio-only and exposes local tools `brain_status`
 `brain_get_architecture`, `brain_get_code_snippet`, `brain_trace_path`,
 `brain_dead_code`, and `brain_ingest_traces`, the diff-less reviewer
 `brain_regressions`/`brain_review`, and the cross-repo
-`brain_workspace_regressions`/`brain_workspace_review`.
+`brain_workspace_graph`/`brain_workspace_regressions`/`brain_workspace_review`,
+plus read-only pattern inspection via `brain_patterns`/`brain_patterns_status`.
 See `docs/semantic_mcp_guide.md`.
 
 ### Diff-less review (suspected regressions: current tree vs session memory)

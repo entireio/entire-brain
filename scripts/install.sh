@@ -2,10 +2,9 @@
 # Single end-to-end installer for the Entire code-intelligence system.
 #
 # Builds and installs both plugins (the entire-sem semantic provider and the
-# entire-brain store/MCP/hook layer), writes the default plugin configuration
-# that registers the MCP server, agent hooks, and agent instructions, then
+# entire-brain store/MCP layer), writes the default plugin configuration, then
 # verifies the environment. This replaces running each repo's install-local.sh
-# by hand and wiring MCP/hooks separately.
+# by hand.
 #
 # Usage:
 #   scripts/install.sh
@@ -28,10 +27,10 @@ else
 	exit 1
 fi
 
-printf '==> Installing entire-brain (store, MCP tools, agent hooks)\n'
+printf '==> Installing entire-brain (store and MCP tools)\n'
 (cd "$brain_root" && sh scripts/install-local.sh)
 
-printf '==> Writing default plugin configuration (MCP + hooks + agent instructions)\n'
+printf '==> Writing default plugin configuration\n'
 if ! entire brain config init; then
 	printf 'note: `entire brain config init` returned nonzero (config may already exist); continuing\n' >&2
 fi
@@ -43,10 +42,10 @@ cat <<'DONE'
 
 Entire is installed end to end:
   - entire-sem provider and entire-brain plugin built and registered
-  - default plugin config written (MCP server, hooks, agent instructions)
+  - default entire-brain plugin config written
 
 Next:
-  - index a repo:   entire brain index --repo .
+  - build a brain:  entire brain refresh --agent none
   - MCP (stdio):    entire brain mcp
   - re-run checks:  entire brain doctor
 DONE

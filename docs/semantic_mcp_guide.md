@@ -20,6 +20,7 @@ Available tools:
 - Diff-less review: `brain_regressions`, `brain_review`
 - Cross-repo (workspace): `brain_workspace_graph`,
   `brain_workspace_regressions`, `brain_workspace_review`
+- Pattern corpus: `brain_patterns`, `brain_patterns_status`
 
 The tool responses wrap the existing CLI `--json` output as text content. Treat
 the CLI JSON contracts as the source of truth for fields and freshness policy.
@@ -66,3 +67,8 @@ semantic context.
 `brain_index_repository` is a local write tool for building the semantic index;
 it does not publish artifacts. `brain_delete_project` removes local generated
 brain data for the selected repo key.
+
+`brain_patterns` and `brain_patterns_status` are read-only pattern-corpus
+inspection tools. Skill formation is intentionally not exposed as an MCP write
+tool; use the explicit CLI flow `entire brain patterns skills form` when a human
+or authorized automation wants to synthesize a skill.
