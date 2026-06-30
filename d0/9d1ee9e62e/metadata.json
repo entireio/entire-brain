@@ -1,0 +1,52 @@
+{
+  "cli_version": "0.7.8-nightly.202606290756.c457486ca",
+  "checkpoint_version": "branch-v1",
+  "checkpoint_id": "d09d1ee9e62e",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "docs/limits.md",
+    "internal/cli/agent_policy.go",
+    "internal/cli/agent_policy_test.go",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain.go",
+    "internal/cli/checkpoint_remote_test.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/doc.go",
+    "internal/cli/embed_ollama.go",
+    "internal/cli/embed_store.go",
+    "internal/cli/export.go",
+    "internal/cli/fuzz_test.go",
+    "internal/cli/history.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/safe_read.go",
+    "internal/cli/safe_read_test.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_graph.go",
+    "internal/cli/semantic_stream.go",
+    "internal/cli/semantic_stream_test.go",
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "internal/config/filelock.go",
+    "internal/config/filelock_unix.go",
+    "internal/config/filelock_windows.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d0/9d1ee9e62e/0/metadata.json",
+      "transcript": "/d0/9d1ee9e62e/0/full.jsonl",
+      "compact_transcript": "/d0/9d1ee9e62e/0/transcript.jsonl",
+      "content_hash": "/d0/9d1ee9e62e/0/content_hash.txt",
+      "prompt": "/d0/9d1ee9e62e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 25845,
+    "cache_creation_tokens": 477004,
+    "cache_read_tokens": 28135498,
+    "output_tokens": 103619,
+    "api_call_count": 192
+  }
+}

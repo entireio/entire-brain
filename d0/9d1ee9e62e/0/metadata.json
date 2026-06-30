@@ -1,0 +1,79 @@
+{
+  "cli_version": "0.7.8-nightly.202606290756.c457486ca",
+  "checkpoint_id": "d09d1ee9e62e",
+  "session_id": "cb6e5f6e-f235-4d74-bb5d-37c9021e081c",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-30T19:50:33.384802Z",
+  "branch": "main",
+  "checkpoints_count": 4,
+  "save_step_count": 1,
+  "files_touched": [
+    "docs/limits.md",
+    "internal/cli/agent_policy.go",
+    "internal/cli/agent_policy_test.go",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain.go",
+    "internal/cli/checkpoint_remote_test.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/doc.go",
+    "internal/cli/embed_ollama.go",
+    "internal/cli/embed_store.go",
+    "internal/cli/export.go",
+    "internal/cli/fuzz_test.go",
+    "internal/cli/history.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/safe_read.go",
+    "internal/cli/safe_read_test.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_graph.go",
+    "internal/cli/semantic_stream.go",
+    "internal/cli/semantic_stream_test.go",
+    "internal/config/config.go",
+    "internal/config/config_test.go",
+    "internal/config/filelock.go",
+    "internal/config/filelock_unix.go",
+    "internal/config/filelock_windows.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-4-8[1m]",
+  "turn_id": "83898311f95c",
+  "token_usage": {
+    "input_tokens": 25845,
+    "cache_creation_tokens": 477004,
+    "cache_read_tokens": 28135498,
+    "output_tokens": 103619,
+    "api_call_count": 192
+  },
+  "session_metrics": {
+    "turn_count": 4
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-30T19:50:33.301428Z",
+    "agent_lines": 893,
+    "agent_removed": 36,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 893,
+    "total_lines_changed": 929,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 893,
+      "agent_lines_removed": 36
+    }
+  ]
+}

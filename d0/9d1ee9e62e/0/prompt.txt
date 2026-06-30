@@ -1,0 +1,191 @@
+Create a plan for improving the robustness and resilience of this code, particularly to untrusted inputs.
+
+---
+
+<task-notification>
+<task-id>ae19e95db4c37f696</task-id>
+<tool-use-id>toolu_01CEKYVcvVEavpYiNyEnFXgp</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/cb6e5f6e-f235-4d74-bb5d-37c9021e081c/tasks/ae19e95db4c37f696.output</output-file>
+<status>completed</status>
+<summary>Agent "Map external input parsing surfaces" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I have a comprehensive picture of the input parsing surfaces. Here is the structured map.
+
+# Input Parsing Surfaces — entire-brain
+
+## 1. Session transcripts / JSONL / JSON history
+
+**`internal/cli/history.go` — line-oriented transcript indexing**
+- `scanHistoryFile` (history.go:531): opens a session file, scanner at history.go:551-552 with `historyMaxLineBytes = 1024*1024` (1 MiB cap, defined history.go:31). Per-line `json.Unmarshal` into `map[string]any` at history.go:575; a decode failure is silently swallowed (`== nil` guard, no error) and the line falls through to raw-text only for `.md`/`.txt`. Robust: malformed lines skipped, `scanner.Err()` returned.
+- `scanDocumentHistoryFile` (history.go:609): probes first 4096 bytes (`make([]byte, 4096)` at history.go:610, fixed/bounded), then for a pretty-printed (non-JSONL) document does **`io.ReadAll(io.MultiReader(...))` at history.go:619 with NO size limit** — whole document slurped into memory. Trust: these are Entire/opencode export transcripts (untrusted). Unbounded read.
+
+**`internal/cli/distill_cmd.go` — transcript preprocessing for the distill agent**
+- `preprocessTranscriptForDistill` (distill_cmd.go:1260): `strings.Split(content,"\n")` then per-line `json.Unmarshal` (distill_cmd.go:1271); decode failure leaves line as-is (no error). Operates on already in-memory content.
+- `parseDocumentConversation` (distill_cmd.go:1339): streams with `json.NewDecoder` (distill_cmd.go:1352) over the full transcript string — input is the full file content held in memory. Decode errors return `ok=false` (graceful).
+- `distillCache` load (distill_cmd.go:1739-1744): `os.ReadFile` + `json.Unmarshal`; version/nil-map mismatch → treated as cache miss (graceful).
+
+**`internal/cli/agent_surface.go` — brain inspect**
+- `findSemanticRecordByIDOrNameSnapshot` (agent_surface.go:2345): `json.NewDecoder(f)` streaming Decode loop (agent_surface.go:2351-2359); decode error is returned (hard fail for that call).
+- `inspectBrainRawText` (agent_surface.go:2370): WalkDir with scanner at agent_surface.go:2411-2412 using `brainInspectHistoryMaxLine = 16 MiB` (defined agent_surface.go:30 — notably large per-line buffer). Bounded by `brainInspectHistoryMaxFiles`/`maxHits` (agent_surface.go:2391). The single-file read path at agent_surface.go:1352 guards on `brainInspectHistoryMaxBytes = 512KB`.
+
+**`internal/cli/episode_tools.go`** — per-line `json.Unmarshal` at episode_tools.go:52 and :138, errors swallowed (skip line).
+
+**`internal/cli/mcp.go` — MCP stdio framing (untrusted client)**
+- mcp.go:62 `bufio.NewReader`. Content-Length framing parsed mcp.go:1051-1067: negative length rejected (:1057), and **length validated against `maxMCPFrameBytes` before `make([]byte, length)` at mcp.go:1069** (good — length prefix is bounds-checked). NDJSON path capped by `readBoundedLine`. This is the best-guarded length-prefix site.
+- Tool param unmarshals at mcp.go:122, :203, :412 return errors (handled).
+
+**`internal/cli/hook_cmd.go`** — hook_cmd.go:220 `io.ReadAll(io.LimitReader(r, 1&lt;&lt;20))` — explicit 1 MiB cap (good).
+
+## 2. Embedding vectors / vector stores / index files (binary + JSON)
+
+**`internal/cli/embed.go` — bundled Model2Vec model (`EBM1`)**
+- `loadStaticEmbedder` (embed.go:57): magic checked (embed.go:59), version (embed.go:62), dtype (embed.go:68). **Strong preflight at embed.go:90**: validates `dim`/`vocabSize` against file length (`dim &gt; n/4 || vocabSize &gt; n/2 || vocabSize &gt; n/dim`) *before* allocating the vocab map / scales / `make([]int8, vocabSize*dim)` (embed.go:105) — explicitly defends against overflow + giant allocation. `unkID` range-checked (embed.go:80). `byteReader.take` (embed.go:342) is sticky-error and bounds-checked. This is trusted (embedded asset) but the best-hardened loader.
+
+**`internal/cli/embed_store.go` — fact vector cache (`EBV1`, binary)**
+- `loadUnlocked` (embed_store.go:46): `os.ReadFile` whole file (embed_store.go:48, no size cap), magic check (embed_store.go:53), reads `modelID`, `dim`, **`count := int(r.u32())` at embed_store.go:58 — a trusted length prefix**. Loop embed_store.go:62 does `make([]float32, dim)` per entry up to `count`. Mitigations: `dim` must equal local `s.dim` (embed_store.go:59), and each iteration consumes ≥ bytes from the file via sticky-error `take`, so iteration count is bounded by file length; truncation → returns empty map → rebuild (embed_store.go:69). No magic/length integrity beyond that. Trust: locally-generated derived artifact, but `count` and per-entry id length (`r.u16()` embed_store.go:63) are taken on faith (bounded only by file size). No overflow preflight like embed.go has.
+
+**`internal/cli/embed_vec_cgo.go` — sqlite-vec vector store**
+- `vecStore.load` (embed_vec_cgo.go:81): reads blobs from SQLite; **validates `len(blob) != 4*s.dim` at embed_vec_cgo.go:102** before decoding `dim` float32s — length checked against expected dim (good). Corrupt → rebuild.
+
+**JSON index / manifest files (version-gated cache, graceful):**
+- `internal/cli/doc.go:189-193` `loadDocIndex`: `os.ReadFile` + `json.Unmarshal`, **no version guard shown** (returns whatever unmarshals).
+- `internal/cli/brain.go:78-86` manifest: ReadFile + Unmarshal, error returned.
+- `internal/cli/export.go:1612-1627` `loadCheckpointMetadataCache`: **`gzip.NewReader` + `json.NewDecoder(gz).Decode` with NO decompressed-size limit (export.go:1617-1623)** — gzip decompression-bomb surface; version/nil-map checked but only after full decode. Same pattern at export.go:1623. Derived local artifact, but holds bytes originating from `git fetch`.
+- `internal/cli/export.go:2028-2033` cursor, `:528-543` manifest, `:1025-1031` `.entire/settings.json`: ReadFile + Unmarshal, errors handled.
+
+## 3. Markdown / seed docs / repo files (read + chunk)
+
+**`internal/cli/doc.go` — seed markdown chunking**
+- `loadDocRecordsFromSeed` (doc.go:71): WalkDir over `brain/seed` (doc.go:89), symlink component rejection (doc.go:99), **`os.ReadFile` whole file with no size cap (doc.go:103)**, then `chunkLines(..., maxDocChunkBytes=3000, ...)` (doc.go:109, const doc.go:26). Per-file read error → warning, not fatal (doc.go:104-106). Unbounded per-file read.
+
+**`internal/cli/seed.go` — repo file seeding**
+- `inspectSeedFile` (seed.go:471): this one IS size-guarded — `os.Stat` then `info.Size() &gt; opts.maxFileBytes` → truncate/exclude (seed.go:501-509); binary detection via NUL byte scan (seed.go:517) and `isLikelyBinaryPath` (seed.go:510); symlink rejection (seed.go:489). Then `os.ReadFile` (seed.go:515) for hashing. Path safety: rejects abs/`..` (seed.go:474). Well-guarded relative to doc.go.
+- Repo WalkDir at seed.go:433; reads at seed.go:611, :630, :754 (`os.ReadFile`, sizes governed by the inspect path / denylist).
+
+**`internal/cli/regression.go`** — regression corpus: scanner with `maxLineBytes = 4 MiB` (regression.go:283, :325) and `regressionMaxFileBytes = 1 MiB` (regression.go:37); `os.ReadFile` at :448.
+
+**`internal/cli/facts.go`** — facts.ndjson: scanner with `factsMaxLineBytes = 64 KiB` (facts.go:22, :226), per-line Unmarshal facts.go:236 (errors handled). Taxonomy ReadFile+Unmarshal facts.go:370-378.
+
+## 4. entire-sem semantic records
+
+**`internal/cli/semantic_stream.go` — streaming NDJSON from the entire-sem subprocess (primary untrusted ingest)**
+- `scanSemanticStream` (semantic_stream.go:89): uses `newSemanticScanner` → scanner buffer **`semanticMaxRecordBytes = 64 MiB` per line (semantic.go:61, :1102)** — very large per-record allocation cap; a single crafted line can force up to 64 MiB buffer growth.
+- Header Unmarshal semantic_stream.go:100 (hard error on failure). Per-record: a `record_type` probe Unmarshal (semantic_stream.go:141), then full `semanticRecord` Unmarshal (semantic_stream.go:148) — **every parse error is fatal to the whole stream** (returns error with line number). `validateSemanticRecordPath` (semantic_stream.go:151) enforces path safety. Each retained line is copied via `append([]byte(nil), text...)` (semantic_stream.go:137). Unknown record types preserved verbatim (forward-compat, semantic_stream.go:206).
+
+**`internal/cli/semantic.go` — snapshot validation / re-filtering (same 64 MiB scanner)**
+- `filterSemanticSnapshot` (semantic.go:975): two full passes over the raw snapshot, per-line `semanticRecord` Unmarshal at semantic.go:1005 and :1036, summary at :1074 — all parse errors fatal. Header validation semantic.go:984; repo_key/commit/tree match checks semantic.go:960-971.
+- Other snapshot Unmarshal sites: semantic.go:746, :920 (subprocess stdout), :984, :1005, :1036, :1074, :1364, :3646, :3942, :3981, :4173, :4228, :4269, :4909, :4943, :5793, :5814, :5832 — uniformly per-line NDJSON, errors generally returned.
+- Snapshot files loaded whole via `os.ReadFile` with **no size cap**: semantic.go:689, :4814, :4883, :5411, :5440, :5474, :5494. The snapshot originates from entire-sem (untrusted).
+- `.brainignore` read semantic.go:1626.
+- Manifest Unmarshal semantic.go:5499, :5713.
+
+## Cross-cutting notes / risk hotspots
+
+- **Largest per-record allocation cap:** `semanticMaxRecordBytes = 64 MiB` (semantic.go:61) on entire-sem NDJSON, and `brainInspectHistoryMaxLine = 16 MiB` (agent_surface.go:30). A single malicious line can force buffers that large.
+- **Unbounded whole-file `ReadAll`/`ReadFile` on untrusted inputs (no size cap):** history.go:619 (document transcript `io.ReadAll`), doc.go:103 (seed markdown), and all semantic-snapshot `os.ReadFile` sites (semantic.go:689/4814/4883/5411/5440/5474/5494). These trust the file/stream to be a sane size.
+- **Trusted length prefix without overflow preflight:** `embed_store.go:58` (`count` u32) and the per-entry id length `r.u16()` (embed_store.go:63). Bounded only because `take` is sticky-error against an already-fully-read buffer; contrast with embed.go:90 which does an explicit length preflight. The sqlite vec store (embed_vec_cgo.go:102) and embed.go are the two that DO validate lengths/dims; embed_store.go does not preflight `count`.
+- **Decompression with no output cap:** `gzip.NewReader` at export.go:1617 (checkpoint metadata cache) and the distill cache gzip path (export.go:1623) — decompression-bomb surface for files holding git-fetched blob bytes.
+- **Best-guarded surfaces:** MCP framing (mcp.go:1066-1069, length checked before alloc), embed.go EBM1 loader (embed.go:90 preflight), seed.go file inspection (size+binary+symlink guards), and hook_cmd.go (1 MiB LimitReader).
+- **Error-handling pattern:** vector/index/cache loaders uniformly degrade-to-rebuild (return empty, never fatal): embed_store.go:60/69, embed_vec_cgo.go:103/112, distill cache, doc index. The entire-sem NDJSON path is the opposite — strict, any malformed line aborts the whole ingest with a line-numbered error (semantic_stream.go:142/149, semantic.go:1006/1037).
+
+No files were modified.</result>
+<usage><subagent_tokens>59482</subagent_tokens><tool_uses>23</tool_uses><duration_ms>143098</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a19217a1654a2279c</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/cb6e5f6e-f235-4d74-bb5d-37c9021e081c/tasks/a19217a1654a2279c.output</output-file>
+<status>completed</status>
+<summary>Agent "Map filesystem/config/concurrency robustness" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I have a comprehensive picture. Here is my structured findings report.
+
+# Robustness / Resilience Map — entire-brain (config, cli, tui)
+
+## 1. File path handling &amp; path-traversal
+
+The codebase has a **strong, centralized defense layer** for brain-relative paths, but with notable asymmetries.
+
+**Defense helpers (good coverage):**
+- `internal/cli/brain.go:243` `cleanBrainRelativePath` — rejects absolute, `.`, `..`, `../` prefixes after `filepath.Clean`.
+- `internal/cli/semantic.go:4978` `rejectSymlinkPathComponents` — Lstat's every component for symlinks **and** does an `EvalSymlinks` + `pathInside` escape check (strongest variant).
+- `internal/cli/semantic.go:5008` `rejectExistingSymlinkPathComponents` — per-component symlink check, but **stops at first non-existent component** (returns nil) and, unlike the above, does **not** do a final `EvalSymlinks`/`pathInside` check. Used by the write path (`writeBrainRelativeFileAtomic`, `brain.go:251`) and lock acquisition.
+- `internal/cli/semantic.go:5044` `rejectBrainRootPathSymlinks` + `5030` `rejectSymlinkedBrainRoot` — guards the brain root itself.
+
+**Untrusted components flow into paths here:**
+- `internal/cli/env.go:157-158, 179, 187` — repo `key` (derived from git remote / local dir) is `filepath.FromSlash`-joined into the brain/state dirs. Mitigated by `repoStorageKey`/`localRepoKey` sanitization (`env.go:339 safeRepoPathComponent` strips everything outside `[a-zA-Z0-9._-]`, trims `-._`), `rejectBrainRootPathSymlinks` (`env.go:152, 176`), and a reserved-segment guard (`env.go:168`). Remote-derived components also passed through `normalizeRepoPath` (`env.go:277`). This path looks well-guarded.
+- `internal/cli/distill_cmd.go:1719` `readBrainRelativeFile` — reads transcript by `TranscriptPath` from manifest metadata; validated with the same `..`/abs check + `rejectSymlinkPathComponents` (strong variant). Good.
+- `internal/cli/doc.go:98-103` — reads a seed doc by `rel` with `filepath.Clean`+`rejectSymlinkPathComponents`. Good.
+- `internal/cli/add.go:53` — `dest := filepath.Join(flags.dir, name)` where `name` is derived from a repo URL via `repoDirName` (`add.go:118`). Guarded at `add.go:47` against `.`/`..`/`/`/`\` and leading `-` (`add.go:50`). Clone uses `--` (`add.go:61`). Reasonable.
+
+**Asymmetry / weaker spots:**
+- `internal/cli/semantic.go:1497, 2087, 4118, 4363` and similar — `filepath.Join(repoDir, filepath.FromSlash(clean))` reads source files from the repo working tree. These rely on `clean` having been validated upstream; the `repoDir`-relative reads do **not** all go through `rejectSymlinkPathComponents` (only brain-relative writes do consistently). Worth auditing each `clean` origin.
+- The **write** path uses the weaker `rejectExistingSymlinkPathComponents` (no final EvalSymlinks escape check), while the **read** path uses the stronger one. A pre-planted symlink at a not-yet-existing leaf directory created between the check and the `MkdirAll`/write is a residual TOCTOU window (see §2).
+
+## 2. Atomic writes &amp; file locking
+
+**Atomic write (two near-duplicate implementations):**
+- `internal/config/atomic.go:8` `writeConfigFileAtomic` and `internal/cli/brain.go:320` `writeFileAtomic` — both: temp file in same dir → Write → Chmod → Sync → Close → rename. Solid crash-safety for the file contents.
+- Unix replace `internal/config/atomic_replace_unix.go:10` does `os.Rename` then `dir.Sync()` (fsyncs the directory — good durability). The CLI variant is in `internal/cli/atomic_replace_unix.go` (parallel copy).
+- Windows `internal/config/atomic_replace_windows.go:7` uses `MoveFileEx(REPLACE_EXISTING|WRITE_THROUGH)` — atomic + durable. Good.
+- **Gap:** `writeConfigFileAtomic`/`writeFileAtomic` do **not** reject a symlinked target path or symlinked parent dir themselves — they trust the caller. `brain.go:251 writeBrainRelativeFileAtomic` wraps it with symlink rejection, but `internal/config/atomic.go` (used by `config.savePath`) has no such guard; a symlinked `brain.json` or config dir would be followed.
+
+**File locking — two divergent implementations:**
+- `internal/cli/filelock.go` (CLI) is **hardened**: `O_NOFOLLOW` (`filelock_unix.go:14`), pre-open `rejectUnsafeExistingRegularFile` (`filelock.go:50`), post-open `rejectOpenFileAlias` via `os.SameFile` (`filelock.go:72`), and hardlink rejection (`filelock_unix.go:18`, checks `Nlink &gt; 1`).
+- `internal/config/filelock.go` / `filelock_unix.go` (config) is the **un-hardened** version: `os.OpenFile(path, O_CREATE|O_RDWR, 0o600)` (`config/filelock.go:22`) with **no `O_NOFOLLOW`, no symlink/alias/hardlink rejection**. This is a clear asymmetry — the config lock at `&lt;configDir&gt;/locks/config.lock` follows symlinks. Lower severity (config dir is usually trusted) but inconsistent with the CLI hardening.
+- Both use `flock(LOCK_EX|LOCK_NB)` with a 10ms poll loop (`filelock.go:38` / `config/filelock.go:38`) and a 10s timeout (`config.go:112`, `brain.go:17`). `flock` is advisory and **does not work correctly across NFS / some network filesystems** — a real concern if the brain store lives on a network mount.
+
+**Concurrency guarding:**
+- Config writes serialize via `acquireConfigLock` in `Save`/`Update` (`config.go:60,73`). `Update` does load→mutate→save under the lock (`config.go:79-88`) — no TOCTOU on the config itself.
+- Brain writes serialize via `withBrainWriteLock` (`brain.go:67`) — used broadly (30+ call sites across export, distill, doc, episodes, facts, history, seed). Semantic index work uses a separate `acquireSemanticIndexLock` (`semantic.go:891`). Two distinct lock domains (`write.lock` vs semantic lock) — verify operations touching both acquire them in a consistent order to avoid deadlock (e.g. `semantic.go:778+804` acquires semantic lock then brain write lock).
+- **Residual TOCTOU:** symlink/alias checks (`rejectExistingSymlinkPathComponents`, `MkdirAll`, then `writeFileAtomic`) in `writeBrainRelativeFileAtomic` (`brain.go:261-272`) are not atomic with the final rename; a concurrent attacker with write access to the brain dir could swap a component between check and write. The flock only excludes other *brain* writers, not arbitrary FS actors.
+
+## 3. Config parsing &amp; env / no-egress enforcement
+
+**Config files:**
+- `internal/config/config.go:36 loadPath` — missing file → `Default()` (graceful); **malformed JSON → hard error** (`config.go:47`). Because `repoDomainSlug` (`env.go:291`) calls `config.Update`, a corrupt `brain.json` will **block repo-key resolution for any non-builtin git host** (the error propagates up through `repoKeyFromRemote`). No self-heal/quarantine of a corrupt config.
+- `Path` requires non-empty configDir (`config.go:22`); `acquireConfigLock` re-checks (`config.go:108`).
+
+**Env vars (`ENTIRE_BRAIN_*`):** all read ad hoc via `os.Getenv` (no central registry/validation):
+- `agent_policy.go:13 envBool` — only `1/true/yes/on` are true; anything else (incl. typos like `"flase"`, `"0 "`→trimmed) is false. So `ENTIRE_BRAIN_NO_EGRESS=disabled` silently means *off* — fine, but a typo'd "on" intent fails open to **egress allowed**. Worth surfacing.
+- `env.go:116 resolveXDGDir` validates plugin dirs are absolute (`env.go:118`) and ignores relative XDG (`env.go:127`). Good.
+
+**No-egress / local-only robustness:**
+- Enforced at **agent-selection** sites via `rejectAgentForNoEgress` (`agent_policy.go:22`) — ~13 call sites (distill, seed, all pattern_* commands). It blocks `codex/claude-code/command/auto` but **allows anything else by default** (`agent_policy.go:29`) — a new agent name added later would silently bypass no-egress (fail-open default).
+- `export.go:845,858,895,1114` and `refresh.go:555` gate behaviors on `brainNoEgressMode()`.
+- Loopback enforcement is **strong for distill ollama** (`distill_cmd.go:1860` URL check + `1886` `loopbackOnlyDialContext` re-resolves and rejects non-loopback IPs at dial time → DNS-rebinding resistant + `1892` redirect guard + `1885` proxy disabled).
+- **Weaker for the embedder** (`embed_ollama.go:48-73`): validates the literal URL via `isLoopbackHTTPURL` and disables proxy + redirect guard, but installs **no `loopbackOnlyDialContext`**. So `localhost` resolving to a non-loopback IP (hostile `/etc/hosts`/DNS) is **not** caught at dial time, unlike distill. Also `isLoopbackHTTPURL` (`distill_cmd.go:1934`) **permits `https` and trusts `localhost` by name** without resolving it.
+- Note: no-egress mode does **not** disable the ollama/embedder HTTP calls themselves — they're considered local loopback. Enforcement is purely "is it loopback," so the embedder's missing dial-time guard is the relevant gap.
+
+## 4. Resource exhaustion &amp; panics
+
+**No panic recovery anywhere:** `grep recover()` across `internal/` and `cmd/` returns **zero hits**. The MCP server loop `runMCP` (`mcp.go:61`) → `handleMCPMessage` (`mcp.go:173`) → `handleMCPToolCall` (`mcp.go:410`) has **no `defer recover()`**. A panic in any tool handler (or in transcript/JSON processing it calls) **crashes the entire long-lived MCP server process**, killing all in-flight requests. The loop carefully recovers from *frame parse* errors (`mcp.go:71`, replies -32700 and continues) but not from handler panics. This is the single highest-leverage resilience gap. Same applies to the `hook` command path (transcript processing) — no recovery wrapper.
+
+**Goroutines — bounded (good):** the distill fan-out (`distill_cmd.go:187, 217, 260, 313`) is bounded by `workSem` and `sem` semaphores (`distill_cmd.go:213, 308`); result channels are buffered so abandoned workers don't leak (`distill_cmd.go:202, 293`). `progress.go:150` and `semantic_stream.go:362` are single bounded goroutines. No obvious unbounded goroutine spawning.
+
+**Memory bounds (good in spots):** distill output capped via `newCappedDistillBuffer(distillMaxOutputBytes)` (`distill_cmd.go:1779`) and `io.LimitReader` (`distill_cmd.go:1907`, rejecting at cap+1). Embedder response capped (`embed_ollama.go:34 maxOllamaEmbedResponseBytes`). MCP frames bounded via `readBoundedLine` (`mcp.go:993`). However `os.ReadFile` is used liberally for manifests/transcripts (`brain.go:78`, `distill_cmd.go:1727,1739`, `doc.go:103,189`) with **no size cap** — a malicious/huge `manifest.json`, transcript, or doc-index gets fully loaded into memory.
+
+**Type assertions:** the scanned `value.(type)` switches (`mcp.go:954,972`; `history.go:781,1069`; `export.go:1065`; `episode_tools.go:119,133`; `distill_cmd.go:1482`; `facts_eval_gen.go:605`) are all the safe `switch x := v.(type)` form. `embed_ollama.go:58` and `distill_cmd.go:1880` deliberately use comma-ok on `http.DefaultTransport.(*http.Transport)` to avoid a panic (commented). `mcp.go:137,142` use comma-ok on `map[string]any` args. No bare panicking assertions found in the scanned hot paths.
+
+**Index/bounds:** `distill_cmd.go:1845` guards `len(args) &lt; 3` before `args[1]/args[2]`; `execDistillAgent` guards `len(args)==0` before `args[0]` (`distill_cmd.go:1771`). `add.go:138` checks `len(parts)` before indexing. `redaction.go:51` `sub[1]` relies on regex submatch arity (safe if the regex has the group). These look defensive.
+
+**Nil maps:** `loadDistillCache` (`distill_cmd.go:1737`) forces a non-nil `Sessions` map and rejects `cache.Sessions == nil` after unmarshal (`distill_cmd.go:1744`); `normalizeBrainManifest` (`brain.go:93`) nil-guards `Sources`; `env.go:298` nil-guards `DomainSlugs` before write. No obvious nil-map-write panic in scanned code.
+
+## Highest-priority items
+1. **No panic recovery in the MCP server loop** (`mcp.go:61/173/410`) — one bad-input panic in a handler takes down the whole server. Add a `defer recover()` per request.
+2. **Un-hardened config file lock** (`internal/config/filelock_unix.go:12`, no `O_NOFOLLOW`/alias/hardlink checks) vs the hardened CLI lock — inconsistent.
+3. **Embedder lacks dial-time loopback enforcement** (`embed_ollama.go:48-73`) that distill has (`distill_cmd.go:1886`) — DNS-rebinding gap in local-only mode.
+4. **Fail-open defaults:** `rejectAgentForNoEgress` allows unknown agents (`agent_policy.go:29`); `envBool` treats typos as false (`agent_policy.go:13`).
+5. **Unbounded `os.ReadFile`** on manifests/transcripts/docs (`brain.go:78`, `distill_cmd.go:1727`, `doc.go:103`).
+6. **Corrupt `brain.json` is fatal**, not self-healed, and blocks repo-key resolution (`config.go:47` via `env.go:297`).
+
+No files were modified.</result>
+<usage><subagent_tokens>75102</subagent_tokens><tool_uses>39</tool_uses><duration_ms>210806</duration_ms></usage>
+</task-notification>
+
+---
+
+Yes, all phases please
