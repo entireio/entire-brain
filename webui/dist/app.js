@@ -182,44 +182,76 @@ function setView(v) {
   $('topbar').classList.toggle('hidden', v === 'hub');
   if (v === 'hub') closeInspector();
 }
-function showHub() { stopReplay(); setView('hub'); currentFeature = null; $('legend').classList.add('hidden'); clearSearch(); }
+function showHub() { stopReplay(); setView('hub'); currentFeature = null; $('legend').classList.add('hidden'); $('node-ctl').classList.add('hidden'); clearSearch(); }
 $('home').addEventListener('click', showHub);
 $('back').addEventListener('click', showHub);
+
+const NODE_SLIDER_MAX = 3000; // matches the server's hard render cap
+let currentLimit = 0; // 0 = server default; set by the node-count slider
 
 async function openFeature(key, focusId) {
   const f = featureByKey[key];
   if (!f) return;
   stopReplay();
   currentFeature = key;
+  currentLimit = 0;
   setView('graph');
   $('crumb-title').textContent = f.label;
   $('crumb-count').textContent = '';
+  $('node-ctl').classList.add('hidden');
   $('legend').classList.toggle('hidden', key !== 'sem');
   $('insp-expand').style.display = key === 'sem' ? '' : 'none';
   ensureGraph();
+  await loadFeatureGraph(key, focusId, true);
+}
+
+// Fetch (or re-fetch, when the slider changes) the current feature graph.
+async function loadFeatureGraph(key, focusId, fit) {
+  const f = featureByKey[key];
   $('loading').classList.remove('hidden'); $('empty').classList.add('hidden');
   try {
-    const g = await api(key === 'sem' ? '/api/graph' : '/api/' + key);
+    const base = key === 'sem' ? '/api/graph' : '/api/' + key;
+    const g = await api(base + (currentLimit ? '?limit=' + currentLimit : ''));
+    if (currentFeature !== key) return;
     $('loading').classList.add('hidden');
     const nodes = g.nodes || [];
     gData = { byId: Object.fromEntries(nodes.map((n) => [n.id, n])), edges: g.edges || [] };
+    const total = g.total || nodes.length;
     if (!nodes.length) {
       $('empty').classList.remove('hidden');
       $('empty-title').textContent = 'Nothing here yet';
       $('empty-body').textContent = (g.warnings && g.warnings[0]) || `No ${f.label.toLowerCase()} yet.`;
+      setupSlider(nodes.length, total);
       return;
     }
     graph.setData(nodes, g.edges || []);
-    const shown = nodes.length, total = g.total || shown;
+    const shown = nodes.length;
     $('crumb-count').textContent = total > shown ? `${nf(shown)} of ${nf(total)}` : nf(total);
-    // Re-fit as the force sim settles — large graphs keep expanding past the first frame.
-    [280, 900, 1800].forEach((t) => setTimeout(() => { if (graph && currentFeature === key) graph.zoomToFit(false); }, t));
+    setupSlider(shown, total);
+    if (fit) [280, 900, 1800].forEach((t) => setTimeout(() => { if (graph && currentFeature === key) graph.zoomToFit(false); }, t));
     if (focusId) setTimeout(() => { if (currentFeature === key) openGraphNode(graph.getNode(focusId) || { id: focusId }); }, 650);
   } catch (e) {
     $('loading').classList.add('hidden'); $('empty').classList.remove('hidden');
     $('empty-title').textContent = 'Could not load'; $('empty-body').textContent = String(e.message || e);
   }
 }
+
+// Configure the node-count slider for the current feature: range 50..min(total,cap).
+function setupSlider(shown, total) {
+  const ctl = $('node-ctl'), sl = $('node-slider');
+  const max = Math.min(total, NODE_SLIDER_MAX);
+  if (total <= 60 || max <= 50) { ctl.classList.add('hidden'); return; }
+  sl.min = 50; sl.max = max; sl.step = max > 1000 ? 50 : 10;
+  sl.value = String(currentLimit || Math.min(shown, max));
+  $('node-slider-val').textContent = total > shown ? `${nf(shown)} / ${nf(total)}` : nf(shown);
+  ctl.classList.remove('hidden');
+}
+const onSliderChange = debounce((v) => { currentLimit = v; loadFeatureGraph(currentFeature, null, true); }, 260);
+$('node-slider').addEventListener('input', (e) => {
+  const v = parseInt(e.target.value, 10) || 50;
+  $('node-slider-val').textContent = nf(v);
+  onSliderChange(v);
+});
 
 function openGraphNode(n) {
   if (!n) return;
@@ -327,6 +359,7 @@ async function startReplay(sessionId) {
   setView('graph');
   currentFeature = 'replay';
   $('legend').classList.add('hidden');
+  $('node-ctl').classList.add('hidden');
   $('insp-expand').style.display = 'none';
   $('crumb-title').textContent = 'Replay';
   $('crumb-count').textContent = '';

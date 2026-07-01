@@ -28,6 +28,10 @@ import (
 // "truncated" flag tells the UI to surface it. 0 = no cap.
 const vizDefaultLimit = 4000
 
+// vizGraphMaxView is the hard ceiling on rendered semantic nodes (the node-count
+// slider can't exceed it) — past this the force sim stops being interactive.
+const vizGraphMaxView = 3000
+
 // vizGraphViewCap bounds how many symbols actually render in the semantic view.
 // We load a wider pool (vizDefaultLimit), compute degree, then keep the most-
 // connected symbols so the default graph is a legible, connected constellation
@@ -411,6 +415,22 @@ func vizEdgeKey(a, b string) string {
 // linkBySharedKey connects nodes that share a key (a touched file, a locus token,
 // a term). capPerKey bounds the fan-out so a widely-shared key can't explode the
 // edge count.
+// dedupEdges drops duplicate undirected edges (keeping the first), so combining
+// several link passes (e.g. shared-topic + same-file) never double-counts a pair.
+func dedupEdges(edges []vizGEdge) []vizGEdge {
+	seen := make(map[string]bool, len(edges))
+	out := edges[:0]
+	for _, e := range edges {
+		k := vizEdgeKey(e.From, e.To)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, e)
+	}
+	return out
+}
+
 func linkBySharedKey(keyToIDs map[string][]string, typ string, capPerKey int) []vizGEdge {
 	var edges []vizGEdge
 	seen := map[string]bool{}
@@ -733,9 +753,12 @@ func vizHistoryColor(kind string) string {
 
 func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 	// History can hold hundreds of thousands of records — far too many to render
-	// legibly — so it stays capped (the UI shows an honest "N of total"). Sessions
-	// and docs are small enough to show in full.
-	limit := vizQueryLimit(r, 800)
+	// legibly — so it stays capped (the UI shows an honest "N of total"), but the
+	// node-count slider lets you dial it up. Sessions/docs are shown in full.
+	limit := vizQueryLimit(r, 1200)
+	if limit > vizGraphMaxView {
+		limit = vizGraphMaxView
+	}
 	if s.manifest == nil || s.manifest.Sources == nil || s.manifest.Sources.History == nil {
 		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"no history yet — run `entire brain refresh`"}})
 		return
@@ -753,16 +776,28 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	nodes := make([]vizGNode, 0, len(recs))
 	termMap := map[string][]string{}
+	pathMap := map[string][]string{}
 	for _, h := range recs {
-		nodes = append(nodes, vizGNode{ID: h.ID, Name: vizShortLabel(h.Summary, 7), Kind: h.Kind, Group: "history", Color: vizHistoryColor(h.Kind), Text: h.Summary, Meta: vizJoinMeta(h.Kind, h.Branch)})
+		nodes = append(nodes, vizGNode{ID: h.ID, Name: vizShortLabel(h.Summary, 7), Kind: h.Kind, Group: "history", Color: vizHistoryColor(h.Kind), Text: h.Summary, Meta: vizJoinMeta(h.Kind, h.Branch, h.Path)})
 		for _, t := range h.Terms {
 			key := strings.ToLower(strings.TrimSpace(t))
 			if len(key) > 2 {
 				termMap[key] = append(termMap[key], h.ID)
 			}
 		}
+		if p := strings.TrimSpace(filepath.ToSlash(h.Path)); p != "" {
+			pathMap[p] = append(pathMap[p], h.ID)
+		}
 	}
-	edges := linkBySharedKey(termMap, "shared topic", 5)
+	// Link by shared topic AND co-located history (same file); records touching
+	// the same file are related, which fills in the otherwise-sparse graph.
+	edges := append(linkBySharedKey(termMap, "shared topic", 8), linkBySharedKey(pathMap, "same file", 8)...)
+	// Timeline spine: chain consecutive records so history reads as one connected
+	// stream over time rather than a scatter of isolated points.
+	for i := 1; i < len(recs); i++ {
+		edges = append(edges, vizGEdge{From: recs[i-1].ID, To: recs[i].ID, Type: "then"})
+	}
+	edges = dedupEdges(edges)
 	writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: nodes, Edges: edges, Total: total, Truncated: trunc})
 }
 
@@ -816,11 +851,17 @@ func (s *vizServer) semanticSource() *semanticSourceManifest {
 }
 
 func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
-	limit := s.limit
+	// `limit` is the number of symbols to RENDER (the node-count slider drives it).
+	// We load a wider pool, rank it by degree, and keep the top `limit` so the view
+	// is always the most-connected slice at any size the user picks.
+	view := vizGraphViewCap
 	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			limit = n
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			view = n
 		}
+	}
+	if view > vizGraphMaxView {
+		view = vizGraphMaxView
 	}
 	resp := vizGraphResp{Nodes: []vizNode{}, Edges: []vizEdge{}}
 	sem := s.semanticSource()
@@ -829,7 +870,11 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
-	syms, err := loadSemanticSymbols(s.brainDir, sem, limit)
+	pool := view * 3
+	if pool < 4000 {
+		pool = 4000
+	}
+	syms, err := loadSemanticSymbols(s.brainDir, sem, pool)
 	if err != nil {
 		resp.Warnings = append(resp.Warnings, "semantic symbols: "+err.Error())
 		writeJSONHTTP(w, http.StatusOK, resp)
@@ -842,19 +887,13 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	}
 	resp.Total = sem.Symbols
 
-	// Load relations across the symbol pool, then keep the most-connected
-	// symbols so the default view is a legible, connected graph rather than a
-	// hairball of thousands of arbitrary (often isolated) nodes. loadSemanticSymbols
-	// returns symbols in storage order, so an unranked cap would drop hubs and
-	// keep leaves; ranking by degree first fixes that.
+	// Rank the pool by degree so any `view` size keeps the most-connected symbols
+	// (loadSemanticSymbols returns storage order, so an unranked cap keeps leaves).
 	poolSet := make(map[string]bool, len(syms))
 	for i := range syms {
 		poolSet[syms[i].ID] = true
 	}
-	relLimit := limit * 4
-	if relLimit <= 0 {
-		relLimit = 0
-	}
+	relLimit := pool * 4
 	var rels []semanticRecord
 	if r, rerr := s.relationsForSymbols(sem, syms, relLimit); rerr != nil {
 		resp.Warnings = append(resp.Warnings, "relations: "+rerr.Error())
@@ -870,11 +909,11 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	kept := syms
-	if vizGraphViewCap > 0 && len(syms) > vizGraphViewCap {
+	if view > 0 && len(syms) > view {
 		ranked := make([]semanticRecord, len(syms))
 		copy(ranked, syms)
 		sort.SliceStable(ranked, func(i, j int) bool { return deg[ranked[i].ID] > deg[ranked[j].ID] })
-		kept = ranked[:vizGraphViewCap]
+		kept = ranked[:view]
 	}
 	keptSet := make(map[string]bool, len(kept))
 	for i := range kept {

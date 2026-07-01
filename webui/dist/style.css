@@ -69,6 +69,11 @@ button { font: inherit; color: inherit; }
 .crumb-sep { color: var(--text-disabled); }
 .crumb-title { font-weight: 600; }
 .crumb-count { color: var(--text-disabled); font-family: var(--font-mono); font-size: 12px; margin-left: 2px; }
+.node-ctl { display: flex; align-items: center; gap: 9px; margin-left: auto; margin-right: 104px; }
+.node-ctl.hidden { display: none; }
+.node-ctl-lead { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-disabled); }
+.node-ctl input[type="range"] { width: 150px; accent-color: var(--accent); cursor: pointer; }
+.node-ctl-val { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); min-width: 84px; text-align: right; }
 
 /* ---- left rail ---- */
 #rail {
