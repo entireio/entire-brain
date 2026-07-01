@@ -8,9 +8,12 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +27,13 @@ import (
 // many thousands of symbols; the cap keeps the force simulation smooth and a
 // "truncated" flag tells the UI to surface it. 0 = no cap.
 const vizDefaultLimit = 4000
+
+// vizGraphViewCap bounds how many symbols actually render in the semantic view.
+// We load a wider pool (vizDefaultLimit), compute degree, then keep the most-
+// connected symbols so the default graph is a legible, connected constellation
+// instead of a hairball of arbitrary, mostly-isolated nodes. Drilling in via the
+// inspector's "Expand neighbors" pulls in the rest on demand. 0 = render all.
+const vizGraphViewCap = 1400
 
 type vizFlags struct {
 	port   int
@@ -69,6 +79,11 @@ type vizServer struct {
 	branch   string
 	manifest *exportManifest
 	limit    int
+	// repo coordinates parsed from the brain key (provider/owner/repo), used to
+	// build real entire.io + source links. Empty provider = local repo (no links).
+	provider string
+	owner    string
+	repo     string
 }
 
 func runViz(ctx context.Context, cmd *cobra.Command, opts Options, flags vizFlags, target string) error {
@@ -85,6 +100,7 @@ func runViz(ctx context.Context, cmd *cobra.Command, opts Options, flags vizFlag
 	}
 
 	srv := &vizServer{opts: opts, target: target, repoDir: repoDir, brainDir: brainDir, branch: branch, manifest: manifest, limit: flags.limit}
+	srv.provider, srv.owner, srv.repo = parseRepoFromBrainDir(brainDir)
 
 	// Loopback only — never 0.0.0.0. The interface is a personal, read-only view
 	// of local data and must not be reachable off-host.
@@ -177,6 +193,8 @@ type vizNodeResp struct {
 	Neighbors []vizNode `json:"neighbors"`
 	Relations []vizEdge `json:"relations"`
 	Snippet   string    `json:"snippet,omitempty"`
+	Link      string    `json:"link,omitempty"`
+	LinkLabel string    `json:"link_label,omitempty"`
 	Warnings  []string  `json:"warnings,omitempty"`
 }
 
@@ -275,31 +293,151 @@ func vizQueryLimit(r *http.Request, def int) int {
 	return def
 }
 
-// ---- feature list endpoints (the drill-in views behind the hub) ----
+// ---- feature graph endpoints (each brain feature rendered as a graph) ----
 
-type vizFact struct {
-	ID         string   `json:"id"`
-	Kind       string   `json:"kind,omitempty"`
-	Text       string   `json:"text"`
-	Locus      []string `json:"locus,omitempty"`
-	Paths      []string `json:"paths,omitempty"`
-	Status     string   `json:"status,omitempty"`
-	Origin     string   `json:"origin,omitempty"`
-	Confidence string   `json:"confidence,omitempty"`
+// vizGNode is a node in a feature graph. Group drives its color/shape in the UI;
+// Link is a real, clickable URL (an entire.io session page, a source file, ...).
+type vizGNode struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind,omitempty"`
+	Group     string `json:"group"`
+	Color     string `json:"color,omitempty"`
+	Text      string `json:"text,omitempty"`
+	Meta      string `json:"meta,omitempty"`
+	Link      string `json:"link,omitempty"`
+	LinkLabel string `json:"link_label,omitempty"`
+	File      string `json:"file,omitempty"`
+	Line      int    `json:"line,omitempty"`
 }
 
-type vizListResp struct {
-	Items     any      `json:"items"`
-	Total     int      `json:"total"`
-	Truncated bool     `json:"truncated,omitempty"`
-	Warnings  []string `json:"warnings,omitempty"`
+type vizGEdge struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	Type string `json:"type,omitempty"`
+}
+
+type vizFeatureGraph struct {
+	Nodes     []vizGNode `json:"nodes"`
+	Edges     []vizGEdge `json:"edges"`
+	Total     int        `json:"total"`
+	Truncated bool       `json:"truncated,omitempty"`
+	Warnings  []string   `json:"warnings,omitempty"`
+}
+
+const (
+	colorFact    = "#fbbf24"
+	colorSession = "#818cf8"
+	colorHistory = "#f25333"
+	colorDoc     = "#34d399"
+)
+
+// linkProviders are the git forges whose brain keys map to real web URLs.
+var linkProviders = map[string]bool{"gh": true, "gl": true, "bb": true}
+
+// parseRepoFromBrainDir recovers provider/owner/repo from the brain key that is
+// the tail of brainDir (e.g. .../repos/gh/acme/app). Empty provider = a local
+// repo with no forge, hence no web links.
+func parseRepoFromBrainDir(brainDir string) (provider, owner, repo string) {
+	parts := strings.Split(strings.Trim(filepath.ToSlash(brainDir), "/"), "/")
+	if len(parts) < 3 {
+		return "", "", ""
+	}
+	p, o, r := parts[len(parts)-3], parts[len(parts)-2], parts[len(parts)-1]
+	if !linkProviders[p] || o == "" || r == "" {
+		return "", "", ""
+	}
+	return p, o, r
+}
+
+func vizWebBase() string {
+	if v := strings.TrimSpace(os.Getenv("ENTIRE_WEB_BASE_URL")); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	return "https://entire.io"
+}
+
+// sessionLink is the real entire.io page for a session.
+func (s *vizServer) sessionLink(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" || s.provider == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/%s/%s/%s/session/%s", vizWebBase(), s.provider, s.owner, s.repo, url.PathEscape(id))
+}
+
+// sourceLink is the forge page for a source file (GitHub blob for gh repos).
+func (s *vizServer) sourceLink(file string, line int) string {
+	file = strings.TrimSpace(file)
+	if file == "" || s.provider != "gh" {
+		return ""
+	}
+	branch := s.branch
+	if branch == "" {
+		branch = "HEAD"
+	}
+	u := fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s", s.owner, s.repo, branch, file)
+	if line > 0 {
+		u += fmt.Sprintf("#L%d", line)
+	}
+	return u
+}
+
+func vizShortLabel(text string, words int) string {
+	f := strings.Fields(strings.ReplaceAll(text, "\n", " "))
+	if len(f) > words {
+		return strings.Join(f[:words], " ") + "..."
+	}
+	return strings.Join(f, " ")
+}
+
+func vizJoinMeta(parts ...string) string {
+	out := parts[:0]
+	for _, p := range parts {
+		if strings.TrimSpace(p) != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, " · ")
+}
+
+func vizEdgeKey(a, b string) string {
+	if a > b {
+		return b + "|" + a
+	}
+	return a + "|" + b
+}
+
+// linkBySharedKey connects nodes that share a key (a touched file, a locus token,
+// a term). capPerKey bounds the fan-out so a widely-shared key can't explode the
+// edge count.
+func linkBySharedKey(keyToIDs map[string][]string, typ string, capPerKey int) []vizGEdge {
+	var edges []vizGEdge
+	seen := map[string]bool{}
+	for _, ids := range keyToIDs {
+		if len(ids) < 2 {
+			continue
+		}
+		if capPerKey > 0 && len(ids) > capPerKey {
+			ids = ids[:capPerKey]
+		}
+		for i := 0; i < len(ids); i++ {
+			for j := i + 1; j < len(ids); j++ {
+				k := vizEdgeKey(ids[i], ids[j])
+				if seen[k] {
+					continue
+				}
+				seen[k] = true
+				edges = append(edges, vizGEdge{From: ids[i], To: ids[j], Type: typ})
+			}
+		}
+	}
+	return edges
 }
 
 // factBranches lists the branches whose facts to show — the current branch first,
 // then every branch the manifest records. Facts are branch-scoped on disk, but
-// the hub's Facts view is a whole-brain view, so it aggregates across branches
-// (otherwise the count and the list disagree when the checkout is on a branch
-// that carries no facts).
+// the Facts view is a whole-brain view, so it aggregates across branches.
 func (s *vizServer) factBranches() []string {
 	out := []string{}
 	seen := map[string]bool{}
@@ -346,24 +484,49 @@ func (s *vizServer) handleFacts(w http.ResponseWriter, r *http.Request) {
 	if trunc {
 		all = all[:limit]
 	}
-	items := make([]vizFact, 0, len(all))
+	idset := map[string]bool{}
+	nodes := make([]vizGNode, 0, len(all))
+	locusMap := map[string][]string{}
 	for _, f := range all {
-		items = append(items, vizFact{ID: f.ID, Kind: f.Kind, Text: f.Text, Locus: f.Locus, Paths: f.Paths, Status: f.Status, Origin: f.Origin, Confidence: f.Confidence})
+		idset[f.ID] = true
+		link, label := "", ""
+		for _, a := range f.Provenance {
+			if a.SessionID != "" {
+				if l := s.sessionLink(a.SessionID); l != "" {
+					link, label = l, "Open source session in Entire"
+				}
+				break
+			}
+		}
+		conf := ""
+		if f.Confidence != "" {
+			conf = "conf " + f.Confidence
+		}
+		nodes = append(nodes, vizGNode{ID: f.ID, Name: vizShortLabel(f.Text, 6), Kind: f.Kind, Group: "fact", Color: colorFact, Text: f.Text, Meta: vizJoinMeta(f.Kind, f.Status, f.Origin, conf), Link: link, LinkLabel: label})
+		for _, l := range f.Locus {
+			key := strings.ToLower(strings.TrimSpace(l))
+			if key != "" {
+				locusMap[key] = append(locusMap[key], f.ID)
+			}
+		}
 	}
-	writeJSONHTTP(w, http.StatusOK, vizListResp{Items: items, Total: total, Truncated: trunc, Warnings: warnings})
-}
-
-type vizSession struct {
-	ID          string `json:"id"`
-	Branch      string `json:"branch,omitempty"`
-	Agent       string `json:"agent,omitempty"`
-	Model       string `json:"model,omitempty"`
-	Kind        string `json:"kind,omitempty"`
-	Created     string `json:"created,omitempty"`
-	Files       int    `json:"files"`
-	Checkpoints int    `json:"checkpoints"`
-	Intent      string `json:"intent,omitempty"`
-	Outcome     string `json:"outcome,omitempty"`
+	edges := []vizGEdge{}
+	relSeen := map[string]bool{}
+	for _, f := range all {
+		for _, rid := range f.RelatedIDs {
+			if !idset[rid] {
+				continue
+			}
+			k := vizEdgeKey(f.ID, rid)
+			if relSeen[k] {
+				continue
+			}
+			relSeen[k] = true
+			edges = append(edges, vizGEdge{From: f.ID, To: rid, Type: "related"})
+		}
+	}
+	edges = append(edges, linkBySharedKey(locusMap, "shared locus", 6)...)
+	writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: nodes, Edges: edges, Total: total, Truncated: trunc, Warnings: warnings})
 }
 
 func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
@@ -374,40 +537,65 @@ func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 	if trunc {
 		sessions = sessions[:limit]
 	}
-	items := make([]vizSession, 0, len(sessions))
+	nodes := make([]vizGNode, 0, len(sessions))
+	fileMap := map[string][]string{}
 	for _, se := range sessions {
-		item := vizSession{ID: se.SessionID, Branch: se.Branch, Agent: se.Agent, Model: se.Model, Kind: se.Kind, Files: len(se.FilesTouched), Checkpoints: se.CheckpointsCount}
+		created := ""
 		if !se.CreatedAt.IsZero() {
-			item.Created = se.CreatedAt.UTC().Format("2006-01-02 15:04Z")
+			created = se.CreatedAt.UTC().Format("2006-01-02 15:04Z")
 		}
+		files := ""
+		if n := len(se.FilesTouched); n > 0 {
+			files = fmt.Sprintf("%d files", n)
+		}
+		cps := ""
+		if se.CheckpointsCount > 0 {
+			cps = fmt.Sprintf("%d checkpoints", se.CheckpointsCount)
+		}
+		name := vizJoinMeta(se.Agent, se.Model)
+		if name == "" {
+			name = "session " + vizShortID(se.SessionID)
+		}
+		text := ""
 		if se.Summary != nil {
-			item.Intent = se.Summary.Intent
-			item.Outcome = se.Summary.Outcome
+			text = firstNonEmpty(se.Summary.Intent, se.Summary.Outcome)
 		}
-		items = append(items, item)
+		link := s.sessionLink(se.SessionID)
+		label := ""
+		if link != "" {
+			label = "Open in Entire"
+		}
+		nodes = append(nodes, vizGNode{ID: se.SessionID, Name: name, Kind: se.Kind, Group: "session", Color: colorSession, Text: text, Meta: vizJoinMeta(created, files, cps), Link: link, LinkLabel: label})
+		for _, fp := range se.FilesTouched {
+			if fp = strings.TrimSpace(fp); fp != "" {
+				fileMap[fp] = append(fileMap[fp], se.SessionID)
+			}
+		}
 	}
-	writeJSONHTTP(w, http.StatusOK, vizListResp{Items: items, Total: total, Truncated: trunc})
+	edges := linkBySharedKey(fileMap, "shared file", 8)
+	writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: nodes, Edges: edges, Total: total, Truncated: trunc})
 }
 
-type vizHistory struct {
-	ID      string `json:"id"`
-	Kind    string `json:"kind,omitempty"`
-	Branch  string `json:"branch,omitempty"`
-	Summary string `json:"summary"`
+func vizHistoryColor(kind string) string {
+	switch k := strings.ToLower(kind); {
+	case strings.Contains(k, "decision"):
+		return colorSession
+	case strings.Contains(k, "learning"):
+		return "#22d3ee"
+	default:
+		return colorHistory
+	}
 }
 
 func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 	limit := vizQueryLimit(r, 300)
-	resp := vizListResp{Items: []vizHistory{}}
 	if s.manifest == nil || s.manifest.Sources == nil || s.manifest.Sources.History == nil {
-		resp.Warnings = []string{"no history yet — run `entire brain refresh`"}
-		writeJSONHTTP(w, http.StatusOK, resp)
+		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"no history yet — run `entire brain refresh`"}})
 		return
 	}
 	idx, err := loadBrainHistoryIndex(s.brainDir, s.manifest.Sources.History)
 	if err != nil {
-		resp.Warnings = []string{"history unavailable: " + err.Error()}
-		writeJSONHTTP(w, http.StatusOK, resp)
+		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"history unavailable: " + err.Error()}})
 		return
 	}
 	recs := idx.Records
@@ -416,25 +604,26 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 	if trunc {
 		recs = recs[:limit]
 	}
-	items := make([]vizHistory, 0, len(recs))
+	nodes := make([]vizGNode, 0, len(recs))
+	termMap := map[string][]string{}
 	for _, h := range recs {
-		items = append(items, vizHistory{ID: h.ID, Kind: h.Kind, Branch: h.Branch, Summary: h.Summary})
+		nodes = append(nodes, vizGNode{ID: h.ID, Name: vizShortLabel(h.Summary, 7), Kind: h.Kind, Group: "history", Color: vizHistoryColor(h.Kind), Text: h.Summary, Meta: vizJoinMeta(h.Kind, h.Branch)})
+		for _, t := range h.Terms {
+			key := strings.ToLower(strings.TrimSpace(t))
+			if len(key) > 2 {
+				termMap[key] = append(termMap[key], h.ID)
+			}
+		}
 	}
-	writeJSONHTTP(w, http.StatusOK, vizListResp{Items: items, Total: total, Truncated: trunc})
-}
-
-type vizDoc struct {
-	ID      string `json:"id"`
-	Path    string `json:"path"`
-	Heading string `json:"heading,omitempty"`
-	Text    string `json:"text,omitempty"`
+	edges := linkBySharedKey(termMap, "shared topic", 5)
+	writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: nodes, Edges: edges, Total: total, Truncated: trunc})
 }
 
 func (s *vizServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 	limit := vizQueryLimit(r, 400)
 	idx, err := loadDocIndex(s.brainDir)
 	if err != nil {
-		writeJSONHTTP(w, http.StatusOK, vizListResp{Items: []vizDoc{}, Warnings: []string{"docs unavailable: " + err.Error()}})
+		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"docs unavailable: " + err.Error()}})
 		return
 	}
 	recs := idx.Records
@@ -443,15 +632,33 @@ func (s *vizServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 	if trunc {
 		recs = recs[:limit]
 	}
-	items := make([]vizDoc, 0, len(recs))
+	nodes := make([]vizGNode, 0, len(recs))
+	pathMap := map[string][]string{}
 	for _, d := range recs {
+		name := firstNonEmpty(d.Heading, filepath.Base(d.Path))
 		text := d.Text
-		if len(text) > 400 {
-			text = text[:400]
+		if len(text) > 500 {
+			text = text[:500]
 		}
-		items = append(items, vizDoc{ID: d.ID, Path: d.Path, Heading: d.Heading, Text: text})
+		link := s.sourceLink(d.Path, d.Line)
+		label := ""
+		if link != "" {
+			label = "View source"
+		}
+		nodes = append(nodes, vizGNode{ID: d.ID, Name: name, Group: "doc", Color: colorDoc, Text: text, Meta: d.Path, File: d.Path, Line: d.Line, Link: link, LinkLabel: label})
+		if d.Path != "" {
+			pathMap[d.Path] = append(pathMap[d.Path], d.ID)
+		}
 	}
-	writeJSONHTTP(w, http.StatusOK, vizListResp{Items: items, Total: total, Truncated: trunc})
+	edges := linkBySharedKey(pathMap, "same file", 8)
+	writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: nodes, Edges: edges, Total: total, Truncated: trunc})
+}
+
+func vizShortID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
 }
 
 func (s *vizServer) semanticSource() *semanticSourceManifest {
@@ -487,27 +694,53 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp.Total = sem.Symbols
-	resp.Truncated = sem.Symbols > len(syms)
 
-	idset := make(map[string]bool, len(syms))
+	// Load relations across the symbol pool, then keep the most-connected
+	// symbols so the default view is a legible, connected graph rather than a
+	// hairball of thousands of arbitrary (often isolated) nodes. loadSemanticSymbols
+	// returns symbols in storage order, so an unranked cap would drop hubs and
+	// keep leaves; ranking by degree first fixes that.
+	poolSet := make(map[string]bool, len(syms))
 	for i := range syms {
-		resp.Nodes = append(resp.Nodes, nodeJSON(syms[i]))
-		idset[syms[i].ID] = true
+		poolSet[syms[i].ID] = true
 	}
 	relLimit := limit * 4
 	if relLimit <= 0 {
 		relLimit = 0
 	}
-	if rels, rerr := s.relationsForSymbols(sem, syms, relLimit); rerr != nil {
+	var rels []semanticRecord
+	if r, rerr := s.relationsForSymbols(sem, syms, relLimit); rerr != nil {
 		resp.Warnings = append(resp.Warnings, "relations: "+rerr.Error())
 	} else {
-		for i := range rels {
-			e := rels[i]
-			if idset[e.FromID] && idset[e.ToID] {
-				resp.Edges = append(resp.Edges, edgeJSON(e))
-			}
+		rels = r
+	}
+	deg := make(map[string]int, len(syms))
+	for i := range rels {
+		e := rels[i]
+		if poolSet[e.FromID] && poolSet[e.ToID] {
+			deg[e.FromID]++
+			deg[e.ToID]++
 		}
 	}
+	kept := syms
+	if vizGraphViewCap > 0 && len(syms) > vizGraphViewCap {
+		ranked := make([]semanticRecord, len(syms))
+		copy(ranked, syms)
+		sort.SliceStable(ranked, func(i, j int) bool { return deg[ranked[i].ID] > deg[ranked[j].ID] })
+		kept = ranked[:vizGraphViewCap]
+	}
+	keptSet := make(map[string]bool, len(kept))
+	for i := range kept {
+		resp.Nodes = append(resp.Nodes, nodeJSON(kept[i]))
+		keptSet[kept[i].ID] = true
+	}
+	for i := range rels {
+		e := rels[i]
+		if keptSet[e.FromID] && keptSet[e.ToID] {
+			resp.Edges = append(resp.Edges, edgeJSON(e))
+		}
+	}
+	resp.Truncated = sem.Symbols > len(kept)
 	writeJSONHTTP(w, http.StatusOK, resp)
 }
 
@@ -536,6 +769,10 @@ func (s *vizServer) handleNode(w http.ResponseWriter, r *http.Request) {
 	}
 	resp.Symbol = nodeJSON(*node)
 	resp.Snippet = node.Blob
+	if l := s.sourceLink(node.FilePath, node.StartLine); l != "" {
+		resp.Link = l
+		resp.LinkLabel = "View source"
+	}
 	for i := range neighbors {
 		resp.Neighbors = append(resp.Neighbors, nodeJSON(neighbors[i]))
 	}

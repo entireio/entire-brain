@@ -16,6 +16,10 @@ export function colorForKind(kind) {
   return cssVar('--k-other');
 }
 
+// nodeColor prefers an explicit node.color (feature graphs set one per group);
+// otherwise it falls back to the code-kind palette (the semantic graph).
+export function nodeColor(n) { return (n && n.color) || colorForKind(n && n.kind); }
+
 export function createGraph(canvas, handlers = {}) {
   const ctx = canvas.getContext('2d');
   let nodes = [], edges = [], byId = new Map();
@@ -119,7 +123,10 @@ export function createGraph(canvas, handlers = {}) {
   function applyCharge() {
     const root = buildQuadtree();
     if (!root) return;
-    const theta2 = 0.81, strength = -34 * alpha;
+    // Repulsion must grow with the node count, or dense graphs (many edges pulling
+    // inward) collapse along one axis into a spindle instead of spreading in 2D.
+    const chargeScale = Math.min(1 + nodes.length / 500, 4.5);
+    const theta2 = 0.81, strength = -34 * chargeScale * alpha;
     for (const n of nodes) {
       const stack = [root];
       while (stack.length) {
@@ -142,11 +149,15 @@ export function createGraph(canvas, handlers = {}) {
   }
 
   function applyLinks() {
-    const dist = 46, k = 0.06 * alpha;
+    // Weaken each link by the lesser endpoint degree (d3's bias): without this,
+    // a hub with hundreds of edges gets pulled inward hundreds of times and
+    // collapses dense graphs into a cigar. Leaves (degree 1) stay firmly attached.
+    const dist = 46, stiff = 0.28 * alpha;
     for (const e of edges) {
       const s = e.source, t = e.target;
       let dx = t.x - s.x, dy = t.y - s.y;
       let d = Math.sqrt(dx * dx + dy * dy) || 1e-6;
+      const k = stiff / Math.min(s.degree || 1, t.degree || 1);
       const f = ((d - dist) / d) * k;
       dx *= f; dy *= f;
       if (!t.fixed) { t.vx -= dx; t.vy -= dy; }
@@ -155,7 +166,9 @@ export function createGraph(canvas, handlers = {}) {
   }
 
   function applyGravity() {
-    const g = 0.045 * alpha;
+    // Gentle centering keeps the graph on-screen; too strong and it fights the
+    // repulsion and helps the collapse, so keep it light for large graphs.
+    const g = (nodes.length > 700 ? 0.022 : 0.045) * alpha;
     for (const n of nodes) { n.vx -= n.x * g; n.vy -= n.y * g; }
   }
 
@@ -177,8 +190,18 @@ export function createGraph(canvas, handlers = {}) {
 
   function zoomToFit(animate = true) {
     if (!nodes.length) return;
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    for (const n of nodes) { x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); x1 = Math.max(x1, n.x); y1 = Math.max(y1, n.y); }
+    let x0, y0, x1, y1;
+    if (nodes.length >= 12) {
+      // Robust bounds: frame the 2nd–98th percentile so a handful of weakly-linked
+      // drifters can't blow up the bounding box and squash the core into a sliver.
+      const xs = nodes.map((n) => n.x).sort((a, b) => a - b);
+      const ys = nodes.map((n) => n.y).sort((a, b) => a - b);
+      const lo = Math.floor(nodes.length * 0.02), hi = Math.min(nodes.length - 1, Math.ceil(nodes.length * 0.98));
+      x0 = xs[lo]; x1 = xs[hi]; y0 = ys[lo]; y1 = ys[hi];
+    } else {
+      x0 = Infinity; y0 = Infinity; x1 = -Infinity; y1 = -Infinity;
+      for (const n of nodes) { x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); x1 = Math.max(x1, n.x); y1 = Math.max(y1, n.y); }
+    }
     const pad = 80, gw = Math.max(x1 - x0, 1), gh = Math.max(y1 - y0, 1);
     const s = Math.min((W - pad) / gw, (H - pad) / gh, 2.2);
     const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
@@ -228,7 +251,7 @@ export function createGraph(canvas, handlers = {}) {
       let a = 0.16;
       let col = '185,185,185';
       if (hi) {
-        if (incident.has(e)) { a = 0.85; col = hexToRgb(colorForKind(e.source.kind)); }
+        if (incident.has(e)) { a = 0.85; col = hexToRgb(nodeColor(e.source)); }
         else a = 0.04;
       } else if (focusSet && (focusSet.has(e.source.id) && focusSet.has(e.target.id))) {
         a = 0.5;
@@ -243,7 +266,7 @@ export function createGraph(canvas, handlers = {}) {
       const [x, y] = toScreen(n.x, n.y);
       if (x < -50 || y < -50 || x > W + 50 || y > H + 50) continue;
       const r = Math.max(radius(n) * cam.scale, 1.5);
-      const col = colorForKind(n.kind);
+      const col = nodeColor(n);
       const dim = hi && n !== hi && !(incident && [...incident].some((e) => e.source === n || e.target === n));
       const focusDim = !hi && focusSet && !focusSet.has(n.id);
       ctx.globalAlpha = (dim || focusDim) ? 0.28 : 1;

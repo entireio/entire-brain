@@ -51,19 +51,13 @@
         <div class="hub-stage" id="hub-stage"></div>
       </section>
 
-      <!-- Level 2a: semantic graph -->
+      <!-- Level 2: every feature renders as a graph -->
       <section id="graphview" class="view hidden">
-        <canvas id="graph" tabindex="0" aria-label="Brain semantic graph"></canvas>
+        <canvas id="graph" tabindex="0" aria-label="Brain feature graph"></canvas>
         <div class="stage-tools"><button class="tool" id="fit" title="Zoom to fit (0)">Fit</button></div>
         <div class="tooltip" id="tooltip"></div>
         <div class="overlay" id="loading"><div class="card"><div class="spinner"></div><p>Loading the graph&#8230;</p></div></div>
-        <div class="overlay hidden" id="empty"><div class="card"><h2 id="empty-title">No semantic graph yet</h2><p id="empty-body">Run <code>entire brain refresh</code>, then reopen.</p></div></div>
-      </section>
-
-      <!-- Level 2b: list features (facts / sessions / history / docs) -->
-      <section id="listview" class="view hidden">
-        <div class="list-status" id="list-status"></div>
-        <div class="list-items" id="list-items"></div>
+        <div class="overlay hidden" id="empty"><div class="card"><h2 id="empty-title">No graph yet</h2><p id="empty-body">Run <code>entire brain refresh</code>, then reopen.</p></div></div>
       </section>
     </main>
 

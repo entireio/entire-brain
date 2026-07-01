@@ -199,25 +199,10 @@ button { font: inherit; color: inherit; }
 /* entire logo, top-right */
 #brand-logo { position: absolute; top: 16px; right: 22px; height: 17px; width: auto; opacity: 0.82; z-index: 6; pointer-events: none; }
 
-/* ---- Level 2: list views ---- */
-#listview { padding: 0; }
-.list-status { padding: 14px 24px 6px; color: var(--text-disabled); font-size: 12px; letter-spacing: 0.02em; }
-.list-items { padding: 6px 24px 40px; display: flex; flex-direction: column; gap: 10px; max-width: 900px; }
-.card { background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--r-md); padding: 14px 16px; }
-.card.row { display: flex; align-items: center; gap: 12px; padding: 11px 16px; }
-.card-top { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.card-title { font-weight: 600; font-size: 13.5px; }
-.card-title.mono, .mono { font-family: var(--font-mono); font-size: 12.5px; }
-.card-sub { color: var(--text-muted); font-size: 12.5px; margin-bottom: 6px; }
-.card-text { font-size: 13.5px; line-height: 1.55; color: var(--text-default); white-space: pre-wrap; word-break: break-word; }
-.card-text.one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
-.card-text.muted { color: var(--text-muted); font-size: 12.5px; }
-.card-meta { color: var(--text-disabled); font-size: 11.5px; font-family: var(--font-mono); margin-left: auto; }
-.card.row .card-meta { margin-left: 0; }
-.chip { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.02em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; flex: none; color: var(--cc); background: color-mix(in srgb, var(--cc) 16%, transparent); }
-.tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.tag { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); background: var(--surface-sunken); border: 1px solid var(--border-subtle); border-radius: var(--r-sm); padding: 2px 7px; }
-[data-locus] { cursor: pointer; }
+/* ---- inspector: "open in Entire" link ---- */
+.insp-link { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 14px; padding: 7px 12px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--accent) 16%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent); font-size: 12.5px; font-weight: 600; text-decoration: none; }
+.insp-link:hover { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+.insp-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0ms !important; animation-duration: 0ms !important; }
