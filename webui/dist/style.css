@@ -54,7 +54,10 @@ button { font: inherit; color: inherit; }
 ::-webkit-scrollbar-thumb:hover { background: rgb(255 255 255 / 0.2); background-clip: content-box; }
 
 /* ---- app grid ---- */
-#app { display: grid; grid-template-columns: 280px 1fr; height: 100%; }
+/* The inspector is always the 3rd grid column; collapse it to 0 (and clip its
+   content via #inspector overflow:hidden) when closed, so it never spills into
+   an implicit bottom row. */
+#app { display: grid; grid-template-columns: 280px 1fr 0px; height: 100%; transition: grid-template-columns 180ms var(--ease); }
 #app.inspector-open { grid-template-columns: 280px 1fr 360px; }
 
 /* ---- left rail ---- */
@@ -122,8 +125,8 @@ button { font: inherit; color: inherit; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---- inspector ---- */
-#inspector { background: var(--surface-base); border-left: 1px solid var(--border-subtle); display: flex; flex-direction: column; min-height: 0; transform: translateX(100%); transition: transform 180ms var(--ease); }
-#app.inspector-open #inspector { transform: none; }
+#inspector { background: var(--surface-base); border-left: 1px solid var(--border-subtle); display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; position: relative; }
+#app:not(.inspector-open) #inspector { border-left: none; }
 .insp-head { padding: 16px 16px 12px; border-bottom: 1px solid var(--border-subtle); }
 .insp-kind { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
 .insp-kind .dot { width: 8px; height: 8px; border-radius: 50%; }
