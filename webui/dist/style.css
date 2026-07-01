@@ -204,6 +204,33 @@ button { font: inherit; color: inherit; }
 .insp-link:hover { background: color-mix(in srgb, var(--accent) 26%, transparent); }
 .insp-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
+/* ---- responsive layout ----
+   Placed last so these rules win specificity ties against the base layout
+   rules above (media queries add no specificity; source order breaks ties). */
+/* Medium: give the graph more room by trimming the rail + inspector. */
+@media (max-width: 980px) {
+  #app { grid-template-columns: 220px 1fr 0px; }
+  #app.inspector-open { grid-template-columns: 220px 1fr 320px; }
+}
+/* Narrow / portrait: stack the rail into a top bar so the hub uses full width,
+   and float the inspector in as an overlay. Fixes the "too much blank" a fixed
+   side rail causes when the window is narrow. */
+@media (max-width: 620px) {
+  #app, #app.inspector-open { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  #rail { position: relative; z-index: 20; border-right: none; border-bottom: 1px solid var(--border-subtle);
+          flex-direction: row; align-items: center; gap: 4px; }
+  .brand { width: auto; flex: none; padding: 10px 8px 10px 12px; }
+  .rail-search { flex: 1; padding: 8px 12px; }
+  #results-label, .legend, .counts { display: none; }
+  #results { position: absolute; top: 100%; left: 0; right: 0; max-height: 55vh; overflow-y: auto;
+             background: var(--surface-base); border-bottom: 1px solid var(--border-subtle);
+             box-shadow: var(--shadow-float); z-index: 30; }
+  #inspector { position: fixed; top: 0; right: 0; bottom: 0; width: min(360px, 90vw); z-index: 50;
+               border-left: 1px solid var(--border-default); transform: translateX(100%);
+               transition: transform 180ms var(--ease); }
+  #app.inspector-open #inspector { transform: translateX(0); box-shadow: var(--shadow-float); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0ms !important; animation-duration: 0ms !important; }
 }

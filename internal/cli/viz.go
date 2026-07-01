@@ -247,27 +247,26 @@ func edgeJSON(r semanticRecord) vizEdge {
 
 func (s *vizServer) handleSummary(w http.ResponseWriter, r *http.Request) {
 	resp := vizSummaryResp{Repo: s.repoDir, Branch: s.branch}
-	if status, err := buildBrainStatusReport(r.Context(), s.opts, s.target); err == nil {
-		if status.Repo.Root != "" {
-			resp.Repo = status.Repo.Root
+	// Counts come straight from the manifest captured at startup. Rebuilding the
+	// full status report here costs several seconds on large brains and would
+	// block the very first paint of the hub — so we don't. loadDocIndex is cheap.
+	if m := s.manifest; m != nil && m.Sources != nil {
+		if sem := m.Sources.Semantic; sem != nil {
+			resp.Counts.Symbols = sem.Symbols
+			resp.Counts.Relations = sem.Relations
+			resp.Counts.Files = sem.Files
+			if !sem.GeneratedAt.IsZero() {
+				resp.GeneratedAt = sem.GeneratedAt.UTC().Format(time.RFC3339)
+			}
 		}
-		resp.GeneratedAt = status.Brain.GeneratedAt
-		resp.Warnings = status.Warnings
-		if m := status.Manifest; m != nil && m.Sources != nil {
-			if sem := m.Sources.Semantic; sem != nil {
-				resp.Counts.Symbols = sem.Symbols
-				resp.Counts.Relations = sem.Relations
-				resp.Counts.Files = sem.Files
-			}
-			if h := m.Sources.History; h != nil {
-				resp.Counts.History = h.Records
-			}
-			if f := m.Sources.Facts; f != nil {
-				resp.Counts.Facts = f.Facts
-			}
-			if ss := m.Sources.Sessions; ss != nil {
-				resp.Counts.Sessions = len(ss.Sessions)
-			}
+		if h := m.Sources.History; h != nil {
+			resp.Counts.History = h.Records
+		}
+		if f := m.Sources.Facts; f != nil {
+			resp.Counts.Facts = f.Facts
+		}
+		if ss := m.Sources.Sessions; ss != nil {
+			resp.Counts.Sessions = len(ss.Sessions)
 		}
 	}
 	if docs, err := loadDocIndex(s.brainDir); err == nil {

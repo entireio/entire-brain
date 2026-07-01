@@ -57,14 +57,8 @@ const GLYPHS = {
   docs: '<path d="M6 4h12v16H6z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M9 8h6M9 11h6M9 14h4" stroke="currentColor" stroke-width="1.3"/>',
 };
 
-// ---------- boot ----------
-(async function boot() {
-  let summary;
-  try { summary = await api('/api/summary'); } catch (e) { summary = { counts: {} }; }
-  renderSummary(summary);
-  renderHub(summary.counts || {});
-  showHub();
-})();
+// boot() runs at the very end of this module — after every const/listener is
+// initialized — so it can safely call into the search/inspector helpers.
 
 function renderSummary(s) {
   brainMeta = { repo: s.repo || '', branch: s.branch || '' };
@@ -299,3 +293,15 @@ window.addEventListener('keydown', (e) => {
   if (e.key === '/') { e.preventDefault(); $('search').focus(); }
   else if (e.key === '0' && view === 'graph') { e.preventDefault(); graph && graph.zoomToFit(); }
 });
+
+// ---------- boot (runs last, after all consts + listeners are initialized) ----------
+(function boot() {
+  // Paint the hub shell immediately so the page is never blank — the summary
+  // fetch can take a few seconds on large brains. Counts + repo/branch fill in
+  // when it resolves.
+  renderHub({});
+  showHub();
+  api('/api/summary')
+    .then((summary) => { renderSummary(summary); renderHub(summary.counts || {}); })
+    .catch(() => { /* keep the countless hub */ });
+})();
