@@ -57,6 +57,33 @@ func TestVizHandleNode_UnbuiltBrain(t *testing.T) {
 	}
 }
 
+func TestVizHandleSessionReplay_MissingID(t *testing.T) {
+	t.Parallel()
+	srv := &vizServer{brainDir: t.TempDir(), branch: "main"}
+	rec := httptest.NewRecorder()
+	srv.handleSessionReplay(rec, httptest.NewRequest(http.MethodGet, "/api/session/replay", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 for missing id", rec.Code)
+	}
+}
+
+func TestVizHandleSessionReplay_UnknownSession(t *testing.T) {
+	t.Parallel()
+	srv := &vizServer{brainDir: t.TempDir(), branch: "main"}
+	rec := httptest.NewRecorder()
+	srv.handleSessionReplay(rec, httptest.NewRequest(http.MethodGet, "/api/session/replay?id=does-not-exist", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 for unknown session", rec.Code)
+	}
+	var resp vizReplayResp
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Warnings) == 0 {
+		t.Fatal("expected a warning for an unknown session")
+	}
+}
+
 // The CSP header is the machine-checkable no-egress proof; it must be present on
 // every response.
 func TestVizSecurityHeaders(t *testing.T) {

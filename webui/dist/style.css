@@ -78,7 +78,8 @@ button { font: inherit; color: inherit; }
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 16px 16px 12px; background: none; border: none; cursor: pointer; width: 100%; text-align: left; color: inherit; font: inherit; border-radius: var(--r-sm); }
 .brand:hover { background: var(--surface-hover); }
-.brand .mark { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); box-shadow: 0 0 16px var(--accent-soft); flex: none; }
+.brand .mark { width: 26px; height: 26px; flex: none; object-fit: contain; display: block; filter: drop-shadow(0 0 10px var(--accent-soft)); transition: transform 160ms var(--ease); }
+.brand:hover .mark { transform: scale(1.08) rotate(-3deg); }
 .brand-text { display: flex; flex-direction: column; min-width: 0; }
 .brand .title { font-weight: 600; letter-spacing: -0.01em; }
 .brand .sub { color: var(--text-disabled); font-size: 11px; font-family: var(--font-mono); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -203,6 +204,47 @@ button { font: inherit; color: inherit; }
 .insp-link { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 14px; padding: 7px 12px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--accent) 16%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent); font-size: 12.5px; font-weight: 600; text-decoration: none; }
 .insp-link:hover { background: color-mix(in srgb, var(--accent) 26%, transparent); }
 .insp-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* ---- inspector: replay button ---- */
+.insp-replay { display: inline-flex; align-items: center; gap: 7px; margin: 0 0 14px; padding: 8px 14px; width: 100%; justify-content: center;
+  border-radius: var(--r-sm); background: var(--surface-raised); border: 1px solid var(--border-default);
+  color: var(--text-default); font-size: 12.5px; font-weight: 600; cursor: pointer; transition: all 140ms var(--ease); }
+.insp-replay:hover { background: color-mix(in srgb, var(--accent) 18%, var(--surface-raised)); border-color: color-mix(in srgb, var(--accent) 40%, transparent); color: var(--accent); transform: translateY(-1px); }
+
+/* ---- session replay transport ---- */
+#replaybar { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 8;
+  display: flex; align-items: center; gap: 14px; max-width: min(760px, calc(100% - 32px));
+  padding: 9px 14px; border-radius: 999px; background: var(--surface-floating);
+  border: 1px solid var(--border-default); box-shadow: var(--shadow-float); }
+#replaybar.hidden { display: none; }
+.rp-meta { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.rp-lead { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.14em; color: var(--accent); font-weight: 700; }
+#rp-title { font-size: 12.5px; color: var(--text-default); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 190px; }
+.rp-transport { display: flex; align-items: center; gap: 5px; flex: none; }
+.rp-btn { background: var(--surface-raised); border: 1px solid var(--border-default); color: var(--text-muted);
+  width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 12px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center; transition: all 130ms var(--ease); }
+.rp-btn:hover { color: var(--text-default); background: var(--surface-active); transform: translateY(-1px); }
+.rp-play { background: var(--accent); border-color: transparent; color: #1a0d09; width: 34px; height: 34px; font-size: 13px; }
+.rp-play:hover { filter: brightness(1.12); }
+#rp-close { width: 26px; height: 26px; font-size: 15px; }
+#rp-scrub { flex: 1; min-width: 90px; accent-color: var(--accent); cursor: pointer; }
+.rp-status { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex: none; min-width: 0; }
+.rp-step { font-family: var(--font-mono); font-size: 11px; color: var(--text-default); }
+.rp-file { font-family: var(--font-mono); font-size: 10px; color: var(--text-disabled); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 230px; }
+
+/* ---- sound toggle ---- */
+#sound-toggle { position: fixed; left: 16px; bottom: 72px; z-index: 60; width: 32px; height: 32px; border-radius: 50%;
+  background: var(--surface-floating); border: 1px solid var(--border-default); color: var(--text-disabled);
+  cursor: pointer; font-size: 14px; display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow-float); transition: all 140ms var(--ease); }
+#sound-toggle:hover { color: var(--text-default); transform: translateY(-1px) scale(1.05); }
+#sound-toggle .snd-off { display: none; }
+#sound-toggle[aria-pressed="true"] { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); box-shadow: var(--shadow-float), 0 0 12px var(--accent-soft); }
+
+/* ---- extra hover polish ---- */
+.result, .neighbor { transition: background 120ms var(--ease), transform 120ms var(--ease); }
+.result:hover { transform: translateX(2px); }
 
 /* ---- responsive layout ----
    Placed last so these rules win specificity ties against the base layout

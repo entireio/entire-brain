@@ -28,6 +28,7 @@ export function createGraph(canvas, handlers = {}) {
   const alphaDecay = 1 - Math.pow(0.001, 1 / 300);
   const velocityDecay = 0.6;
   let hover = null, selected = null, focusSet = null;
+  let replayActive = null, replayVisited = null; // Sets of node ids during session replay
   let dirty = true, W = 0, H = 0, dpr = 1;
 
   // ---------- sizing ----------
@@ -234,11 +235,31 @@ export function createGraph(canvas, handlers = {}) {
   }
   function clearFocus() { selected = null; focusSet = null; dirty = true; }
 
+  // ---------- replay ----------
+  function setReplay(activeIds, visitedIds) {
+    replayActive = new Set(activeIds || []);
+    replayVisited = new Set(visitedIds || []);
+    dirty = true;
+  }
+  function clearReplay() { replayActive = null; replayVisited = null; dirty = true; }
+  function panToIds(ids, scale) {
+    const pts = (ids || []).map((id) => byId.get(id)).filter(Boolean);
+    if (!pts.length) return;
+    let cx = 0, cy = 0;
+    for (const n of pts) { cx += n.x; cy += n.y; }
+    cx /= pts.length; cy /= pts.length;
+    const sc = scale || Math.max(cam.scale, 1.0);
+    const target = { scale: sc, tx: W / 2 - cx * sc, ty: H / 2 - cy * sc };
+    REDUCED ? (cam = target, dirty = true) : tweenCam(target);
+  }
+
   // ---------- rendering ----------
   function draw() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
     const showLabels = cam.scale > 1.15;
+    const replaying = replayActive !== null;
+    const pulse = replaying ? (0.5 + 0.5 * Math.sin(performance.now() / 240)) : 0;
     const hi = hover || selected;
     const incident = hi ? new Set() : null;
     if (hi) for (const e of edges) { if (e.source === hi || e.target === hi) { incident.add(e); } }
@@ -250,7 +271,11 @@ export function createGraph(canvas, handlers = {}) {
       const [x2, y2] = toScreen(e.target.x, e.target.y);
       let a = 0.16;
       let col = '185,185,185';
-      if (hi) {
+      if (replaying) {
+        const both = replayVisited.has(e.source.id) && replayVisited.has(e.target.id);
+        a = both ? 0.55 : 0.03;
+        if (both) col = hexToRgb(nodeColor(e.source));
+      } else if (hi) {
         if (incident.has(e)) { a = 0.85; col = hexToRgb(nodeColor(e.source)); }
         else a = 0.04;
       } else if (focusSet && (focusSet.has(e.source.id) && focusSet.has(e.target.id))) {
@@ -267,22 +292,35 @@ export function createGraph(canvas, handlers = {}) {
       if (x < -50 || y < -50 || x > W + 50 || y > H + 50) continue;
       const r = Math.max(radius(n) * cam.scale, 1.5);
       const col = nodeColor(n);
-      const dim = hi && n !== hi && !(incident && [...incident].some((e) => e.source === n || e.target === n));
-      const focusDim = !hi && focusSet && !focusSet.has(n.id);
-      ctx.globalAlpha = (dim || focusDim) ? 0.28 : 1;
-      if (n === hi || n === selected) { ctx.shadowColor = col; ctx.shadowBlur = 16; }
-      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+      let alpha = 1, isActive = false;
+      if (replaying) {
+        isActive = replayActive.has(n.id);
+        alpha = isActive ? 1 : (replayVisited.has(n.id) ? 0.92 : 0.1);
+      } else {
+        const dim = hi && n !== hi && !(incident && [...incident].some((e) => e.source === n || e.target === n));
+        const focusDim = !hi && focusSet && !focusSet.has(n.id);
+        alpha = (dim || focusDim) ? 0.28 : 1;
+      }
+      if (isActive) { // expanding pulse ring on the currently-replaying symbols
+        ctx.globalAlpha = 0.55 * (1 - pulse * 0.7);
+        ctx.beginPath(); ctx.arc(x, y, r + 4 + pulse * 11, 0, Math.PI * 2);
+        ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
+      }
+      ctx.globalAlpha = alpha;
+      if (n === hi || n === selected || isActive) { ctx.shadowColor = col; ctx.shadowBlur = isActive ? 18 : 16; }
+      ctx.beginPath(); ctx.arc(x, y, isActive ? r + 1.5 : r, 0, Math.PI * 2);
       ctx.fillStyle = col; ctx.fill();
       ctx.shadowBlur = 0;
       if (n === selected) { ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke(); }
       else if (n.fixed) { ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.stroke(); }
-      if (n === hi || n === selected || (showLabels && n.degree >= 5)) {
-        ctx.globalAlpha = (dim || focusDim) ? 0.25 : 0.92;
+      const wantLabel = n === hi || n === selected || isActive || (showLabels && n.degree >= 5) || (replaying && replayVisited.has(n.id) && cam.scale > 0.75);
+      if (wantLabel) {
+        ctx.globalAlpha = alpha < 0.5 ? 0.2 : 0.92;
         ctx.fillStyle = '#f3f3f3';
         ctx.font = '11px ui-monospace, Menlo, monospace';
         ctx.textAlign = 'center';
         const label = n.name || n.id;
-        ctx.fillText(label.length > 28 ? label.slice(0, 27) + '...' : label, x, y - r - 5);
+        ctx.fillText(label.length > 28 ? label.slice(0, 27) + '...' : label, x, y - (isActive ? r + 2 : r) - 5);
       }
       ctx.globalAlpha = 1;
     }
@@ -311,6 +349,7 @@ export function createGraph(canvas, handlers = {}) {
   function frame() {
     if (camTween) camTween();
     if (alpha >= 0.001) tick();
+    if (replayActive && !REDUCED) dirty = true; // keep the pulse animating during replay
     if (dirty) { draw(); dirty = false; }
     requestAnimationFrame(frame);
   }
@@ -377,6 +416,7 @@ export function createGraph(canvas, handlers = {}) {
 
   return {
     setData, mergeData, focus, clearFocus, zoomToFit,
+    setReplay, clearReplay, panToIds,
     getNode: (id) => byId.get(id),
     reheat,
     get count() { return nodes.length; },

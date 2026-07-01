@@ -17,6 +17,66 @@ const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = se
 const esc = (s) => (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const nf = (n) => (n || 0).toLocaleString();
 
+// ---------- audio (synthesized via Web Audio — no external files, CSP-safe) ----------
+let audioCtx = null, soundOn = true, lastHoverAt = 0;
+function ensureAudio() {
+  if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audioCtx = null; } }
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+}
+const SFX = {
+  hover: { f: 920, to: 780, t: 0.028, g: 0.012, type: 'sine' },
+  click: { f: 480, to: 300, t: 0.07, g: 0.05, type: 'triangle' },
+  open: { f: 560, to: 760, t: 0.10, g: 0.045, type: 'sine' },
+  back: { f: 380, to: 240, t: 0.08, g: 0.04, type: 'sine' },
+  step: { f: 700, to: 900, t: 0.05, g: 0.035, type: 'sine' },
+};
+function sfx(name) {
+  if (!soundOn || !audioCtx) return;
+  const s = SFX[name] || SFX.click;
+  const t0 = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+  osc.type = s.type;
+  osc.frequency.setValueAtTime(s.f, t0);
+  osc.frequency.exponentialRampToValueAtTime(Math.max(1, s.to), t0 + s.t);
+  gain.gain.setValueAtTime(0.0001, t0);
+  gain.gain.exponentialRampToValueAtTime(s.g, t0 + 0.006);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + s.t);
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.start(t0); osc.stop(t0 + s.t + 0.03);
+}
+// Browsers need a user gesture before audio; wake the context on the first one.
+window.addEventListener('pointerdown', ensureAudio, { once: true });
+// Delegated hover + click ticks across all interactive chrome.
+const HOVER_SEL = '.feature-node, button, .result, .neighbor, .insp-link, .tool, .rp-btn, a';
+// .neighbor and .insp-replay trigger their own 'open'/replay sounds, so exclude
+// them here to avoid a double tick.
+const CLICK_SEL = '.feature-node, button, .result, .insp-link, .tool, .rp-btn';
+document.addEventListener('pointerover', (e) => {
+  if (!soundOn || !audioCtx) return;
+  if (!(e.target.closest && e.target.closest(HOVER_SEL))) return;
+  const now = audioCtx.currentTime;
+  if (now - lastHoverAt < 0.045) return;
+  lastHoverAt = now;
+  sfx('hover');
+});
+document.addEventListener('click', (e) => {
+  const el = e.target.closest && e.target.closest(CLICK_SEL);
+  if (!el || el.id === 'sound-toggle' || el.classList.contains('insp-replay')) return;
+  ensureAudio();
+  sfx(el.id === 'back' || el.id === 'rp-close' ? 'back' : 'click');
+});
+(function initSoundToggle() {
+  const btn = $('sound-toggle');
+  if (!btn) return;
+  btn.setAttribute('aria-pressed', soundOn ? 'true' : 'false');
+  btn.addEventListener('click', () => {
+    soundOn = !soundOn;
+    btn.setAttribute('aria-pressed', soundOn ? 'true' : 'false');
+    btn.title = soundOn ? 'Mute interface sounds' : 'Enable interface sounds';
+    if (soundOn) { ensureAudio(); sfx('open'); }
+  });
+})();
+
 const FEATURES = [
   { key: 'sem', label: 'Semantic', sub: 'functions · types · calls', hex: '#22d3ee', count: (c) => c.symbols, glyph: 'sem' },
   { key: 'facts', label: 'Facts', sub: 'decisions · gotchas · rules', hex: '#fbbf24', count: (c) => c.facts, glyph: 'facts' },
@@ -86,11 +146,14 @@ function renderHub(c) {
     g += `<circle class="hub-halo" cx="${hx.toFixed(1)}" cy="${hy.toFixed(1)}" r="30" fill="${f.hex}"/>`;
     g += `<circle class="hub-ring" cx="${hx.toFixed(1)}" cy="${hy.toFixed(1)}" r="22" fill="var(--surface-raised)" stroke="${f.hex}" stroke-width="2"/>`;
     g += `<svg x="${(hx - 11).toFixed(1)}" y="${(hy - 11).toFixed(1)}" width="22" height="22" viewBox="0 0 24 24" style="color:${f.hex}">${GLYPHS[f.glyph]}</svg>`;
-    const [lx, ly] = polar(R + 54, a);
-    const anchor = Math.abs(hx) < 40 ? 'middle' : hx < 0 ? 'end' : 'start';
-    if (n) g += `<text class="feat-count" x="${lx.toFixed(1)}" y="${(ly - 16).toFixed(1)}" text-anchor="${anchor}">${nf(n)}</text>`;
+    // Label block sits outward on the spoke, anchored by direction (top = centered,
+    // left = right-aligned, right = left-aligned). Title first, then the count
+    // underneath it, then the tagline — stacked away from the node.
+    const [lx, ly] = polar(R + 60, a);
+    const anchor = Math.abs(hx) < 60 ? 'middle' : hx < 0 ? 'end' : 'start';
     g += `<text class="feat-label" x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${anchor}" fill="${f.hex}">${esc(f.label.toUpperCase())}</text>`;
-    g += `<text class="feat-sub" x="${lx.toFixed(1)}" y="${(ly + 15).toFixed(1)}" text-anchor="${anchor}">${esc(f.sub)}</text>`;
+    if (n) g += `<text class="feat-count" x="${lx.toFixed(1)}" y="${(ly + 19).toFixed(1)}" text-anchor="${anchor}">${nf(n)}</text>`;
+    g += `<text class="feat-sub" x="${lx.toFixed(1)}" y="${(ly + (n ? 35 : 19)).toFixed(1)}" text-anchor="${anchor}">${esc(f.sub)}</text>`;
     groups += `<g class="feature-node" data-key="${f.key}" role="button" tabindex="0" aria-label="${esc(f.label)}">${g}</g>`;
   });
   const repo = (brainMeta.repo || '').split('/').pop();
@@ -119,13 +182,14 @@ function setView(v) {
   $('topbar').classList.toggle('hidden', v === 'hub');
   if (v === 'hub') closeInspector();
 }
-function showHub() { setView('hub'); currentFeature = null; $('legend').classList.add('hidden'); clearSearch(); }
+function showHub() { stopReplay(); setView('hub'); currentFeature = null; $('legend').classList.add('hidden'); clearSearch(); }
 $('home').addEventListener('click', showHub);
 $('back').addEventListener('click', showHub);
 
 async function openFeature(key, focusId) {
   const f = featureByKey[key];
   if (!f) return;
+  stopReplay();
   currentFeature = key;
   setView('graph');
   $('crumb-title').textContent = f.label;
@@ -159,14 +223,16 @@ async function openFeature(key, focusId) {
 
 function openGraphNode(n) {
   if (!n) return;
-  if (currentFeature === 'sem') { openNode(n.id); return; }
+  if (currentFeature === 'sem' || currentFeature === 'replay') { openNode(n.id); return; }
   openFeatureNode(n.id);
 }
 
 // ---------- tooltip ----------
 const tip = $('tooltip');
+let lastTipId = null;
 function showTooltip(n, clientX, clientY) {
-  if (!n) { tip.classList.remove('show'); return; }
+  if (!n) { tip.classList.remove('show'); lastTipId = null; return; }
+  if (n.id !== lastTipId) { lastTipId = n.id; sfx('hover'); }
   const sub = n.file ? `<br><span class="k">${esc(n.file)}${n.line ? ':' + n.line : ''}</span>` : (n.meta ? `<br><span class="k">${esc(n.meta)}</span>` : '');
   tip.innerHTML = `<span style="color:${nodeColor(n)}">${esc(n.name || n.id)}</span> <span class="k">${esc(n.group || n.kind || '')}</span>${sub}`;
   tip.style.left = clientX + 'px'; tip.style.top = clientY + 'px'; tip.classList.add('show');
@@ -188,6 +254,7 @@ function paintHead(n) {
 
 // Semantic symbol: rich detail via /api/node (signature, snippet, neighbors, link).
 async function openNode(id) {
+  sfx('open');
   currentSel = id; ensureGraph(); graph.focus(id); app.classList.add('inspector-open');
   paintHead(graph.getNode(id) || { id });
   $('insp-body').innerHTML = '<div class="empty-note">Loading…</div>';
@@ -215,6 +282,7 @@ async function openNode(id) {
 function openFeatureNode(id) {
   const n = gData.byId[id];
   if (!n) return;
+  sfx('open');
   currentSel = id; graph.focus(id); app.classList.add('inspector-open');
   paintHead(n);
   const nb = [];
@@ -224,11 +292,13 @@ function openFeatureNode(id) {
   }
   let html = '';
   html += linkButton(n);
+  if (currentFeature === 'sessions') html += `<button class="insp-replay" data-replay="${esc(id)}">&#9654;&#65038; Replay on graph</button>`;
   if (n.text) html += `<div class="insp-sig">${esc(n.text)}</div>`;
   html += `<div class="insp-h">Connected · ${nb.length}</div>`;
   if (!nb.length) html += `<div class="empty-note">No links.</div>`;
   else html += nb.slice(0, 80).map((x) => `<div class="neighbor" data-id="${esc(x.node.id)}"><span class="dot" style="background:${nodeColor(x.node)}"></span><span class="n" title="${esc(x.node.text || x.node.name)}">${esc(x.node.name || x.node.id)}</span><span class="rel">${esc((x.dir || '') + ' ' + (x.rel || ''))}</span></div>`).join('');
   const body = $('insp-body'); body.innerHTML = html;
+  body.querySelectorAll('.insp-replay').forEach((el) => el.addEventListener('click', () => startReplay(el.dataset.replay)));
   body.querySelectorAll('.neighbor').forEach((el) => el.addEventListener('click', () => openFeatureNode(el.dataset.id)));
 }
 
@@ -238,6 +308,91 @@ $('insp-close').addEventListener('click', closeInspector);
 $('insp-focus').addEventListener('click', () => currentSel && graph.focus(currentSel));
 $('insp-expand').addEventListener('click', () => { if (currentFeature === 'sem' && currentSel) { const n = graph.getNode(currentSel); if (n) expandNode(n); } });
 $('fit').addEventListener('click', () => graph && graph.zoomToFit());
+
+// ---------- session replay ----------
+// Fetch a session's touched-file symbols as a focused subgraph, then walk the
+// files one step at a time — lighting up each file's symbols with a growing trail.
+let replay = null;
+const RP_PLAY = '▶', RP_PAUSE = '⏸';
+
+function stopReplay() {
+  if (replay) { clearInterval(replay.timer); replay = null; }
+  graph && graph.clearReplay();
+  $('replaybar').classList.add('hidden');
+}
+
+async function startReplay(sessionId) {
+  ensureGraph();
+  stopReplay();
+  setView('graph');
+  currentFeature = 'replay';
+  $('legend').classList.add('hidden');
+  $('insp-expand').style.display = 'none';
+  $('crumb-title').textContent = 'Replay';
+  $('crumb-count').textContent = '';
+  closeInspector();
+  $('loading').classList.remove('hidden'); $('empty').classList.add('hidden');
+  sfx('open');
+  try {
+    const d = await api('/api/session/replay?id=' + encodeURIComponent(sessionId));
+    if (currentFeature !== 'replay') return;
+    $('loading').classList.add('hidden');
+    const nodes = d.nodes || [];
+    gData = { byId: Object.fromEntries(nodes.map((n) => [n.id, n])), edges: d.edges || [] };
+    if (!nodes.length) {
+      $('empty').classList.remove('hidden');
+      $('empty-title').textContent = 'Nothing to replay';
+      $('empty-body').textContent = (d.warnings && d.warnings[0]) || 'This session touched no indexed symbols.';
+      return;
+    }
+    graph.setData(nodes, d.edges || []);
+    graph.setReplay([], new Set());
+    replay = { steps: d.steps || [], idx: -1, playing: false, timer: null, name: (d.session && d.session.name) || 'session' };
+    $('rp-title').textContent = replay.name;
+    const scrub = $('rp-scrub'); scrub.min = 0; scrub.max = Math.max(0, replay.steps.length - 1); scrub.value = 0;
+    $('replaybar').classList.remove('hidden');
+    setTimeout(() => { if (currentFeature === 'replay' && replay) { graph.zoomToFit(false); replaySeek(0); replayPlay(); } }, 450);
+  } catch (e) {
+    $('loading').classList.add('hidden'); $('empty').classList.remove('hidden');
+    $('empty-title').textContent = 'Could not load replay'; $('empty-body').textContent = String(e.message || e);
+  }
+}
+
+function replayApply() {
+  if (!replay) return;
+  const step = replay.steps[replay.idx];
+  const active = (step && step.ids) || [];
+  const visited = new Set();
+  for (let i = 0; i <= replay.idx; i++) (replay.steps[i].ids || []).forEach((id) => visited.add(id));
+  graph.setReplay(active, visited);
+  if (active.length) graph.panToIds(active, 1.15);
+  $('rp-step').textContent = `${replay.idx + 1} / ${replay.steps.length}`;
+  $('rp-file').textContent = step ? `${step.file}  ·  ${step.ids.length ? step.ids.length + ' symbols' : 'no symbols'}` : '';
+  $('rp-scrub').value = String(replay.idx);
+  sfx('step');
+}
+function replaySeek(i) { if (!replay) return; replay.idx = Math.max(0, Math.min(i, replay.steps.length - 1)); replayApply(); }
+function replayPlay() {
+  if (!replay) return;
+  replay.playing = true; $('rp-play').textContent = RP_PAUSE;
+  clearInterval(replay.timer);
+  replay.timer = setInterval(() => {
+    if (!replay || replay.idx >= replay.steps.length - 1) { replayPause(); return; }
+    replaySeek(replay.idx + 1);
+  }, 1150);
+}
+function replayPause() { if (!replay) return; replay.playing = false; clearInterval(replay.timer); replay.timer = null; $('rp-play').textContent = RP_PLAY; }
+function replayToggle() {
+  if (!replay) return;
+  if (replay.playing) { replayPause(); return; }
+  if (replay.idx >= replay.steps.length - 1) replaySeek(0);
+  replayPlay();
+}
+$('rp-play').addEventListener('click', replayToggle);
+$('rp-prev').addEventListener('click', () => { replayPause(); replaySeek((replay ? replay.idx : 0) - 1); });
+$('rp-next').addEventListener('click', () => { replayPause(); replaySeek((replay ? replay.idx : 0) + 1); });
+$('rp-scrub').addEventListener('input', (e) => { replayPause(); replaySeek(parseInt(e.target.value, 10) || 0); });
+$('rp-close').addEventListener('click', () => { stopReplay(); openFeature('sessions'); });
 
 // ---------- search (global) ----------
 const results = $('results');

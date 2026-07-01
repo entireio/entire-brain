@@ -136,6 +136,7 @@ func (s *vizServer) mux() http.Handler {
 	m.HandleFunc("/api/search", s.handleSearch)
 	m.HandleFunc("/api/facts", s.handleFacts)
 	m.HandleFunc("/api/sessions", s.handleSessions)
+	m.HandleFunc("/api/session/replay", s.handleSessionReplay)
 	m.HandleFunc("/api/history", s.handleHistory)
 	m.HandleFunc("/api/docs", s.handleDocs)
 	if sub, err := fs.Sub(entirebrain.WebUI, "webui/dist"); err == nil {
@@ -460,7 +461,7 @@ func (s *vizServer) factBranches() []string {
 }
 
 func (s *vizServer) handleFacts(w http.ResponseWriter, r *http.Request) {
-	limit := vizQueryLimit(r, 500)
+	limit := vizQueryLimit(r, 3000)
 	seen := map[string]bool{}
 	all := []factRecord{}
 	var warnings []string
@@ -529,7 +530,7 @@ func (s *vizServer) handleFacts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
-	limit := vizQueryLimit(r, 500)
+	limit := vizQueryLimit(r, 3000)
 	sessions := s.sessionsFromManifest()
 	total := len(sessions)
 	trunc := limit > 0 && total > limit
@@ -575,6 +576,150 @@ func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 	writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: nodes, Edges: edges, Total: total, Truncated: trunc})
 }
 
+type vizReplayStep struct {
+	File string   `json:"file"`
+	IDs  []string `json:"ids"`
+}
+
+type vizReplayResp struct {
+	Session  *vizGNode       `json:"session,omitempty"`
+	Files    []string        `json:"files"`
+	Steps    []vizReplayStep `json:"steps"`
+	Nodes    []vizGNode      `json:"nodes"`
+	Edges    []vizGEdge      `json:"edges"`
+	Total    int             `json:"total"`
+	Warnings []string        `json:"warnings,omitempty"`
+}
+
+// vizReplayMaxNodes bounds a replay subgraph so a session that touched hundreds
+// of files can't drag the force sim to its knees.
+const vizReplayMaxNodes = 1500
+
+// handleSessionReplay returns a session's touched-file symbols as a focused
+// semantic subgraph plus an ordered, per-file step list. The UI "replays" the
+// session across the code graph: light up each file's symbols in turn, tracing
+// the path the agent took through the codebase.
+func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	resp := vizReplayResp{Files: []string{}, Steps: []vizReplayStep{}, Nodes: []vizGNode{}, Edges: []vizGEdge{}}
+	if id == "" {
+		writeJSONHTTP(w, http.StatusBadRequest, vizReplayResp{Warnings: []string{"missing id"}})
+		return
+	}
+	sessions := s.sessionsFromManifest()
+	var se *exportSession
+	for i := range sessions {
+		if sessions[i].SessionID == id {
+			se = &sessions[i]
+			break
+		}
+	}
+	if se == nil {
+		writeJSONHTTP(w, http.StatusNotFound, vizReplayResp{Warnings: []string{"session not found: " + id}})
+		return
+	}
+
+	created := ""
+	if !se.CreatedAt.IsZero() {
+		created = se.CreatedAt.UTC().Format("2006-01-02 15:04Z")
+	}
+	name := vizJoinMeta(se.Agent, se.Model)
+	if name == "" {
+		name = "session " + vizShortID(se.SessionID)
+	}
+	text := ""
+	if se.Summary != nil {
+		text = firstNonEmpty(se.Summary.Intent, se.Summary.Outcome)
+	}
+	link := s.sessionLink(se.SessionID)
+	sessLabel := ""
+	if link != "" {
+		sessLabel = "Open in Entire"
+	}
+	resp.Session = &vizGNode{
+		ID: se.SessionID, Name: name, Kind: se.Kind, Group: "session", Color: colorSession, Text: text,
+		Meta: vizJoinMeta(created, fmt.Sprintf("%d files", len(se.FilesTouched)), fmt.Sprintf("%d checkpoints", se.CheckpointsCount)),
+		Link: link, LinkLabel: sessLabel,
+	}
+
+	touched := map[string]bool{}
+	for _, fp := range se.FilesTouched {
+		fp = strings.TrimSpace(filepath.ToSlash(fp))
+		if fp != "" && !touched[fp] {
+			touched[fp] = true
+			resp.Files = append(resp.Files, fp)
+		}
+	}
+	if len(resp.Files) == 0 {
+		resp.Warnings = append(resp.Warnings, "this session records no touched files")
+		writeJSONHTTP(w, http.StatusOK, resp)
+		return
+	}
+
+	sem := s.semanticSource()
+	if sem == nil {
+		resp.Warnings = append(resp.Warnings, "no semantic graph — run `entire brain refresh`")
+		writeJSONHTTP(w, http.StatusOK, resp)
+		return
+	}
+	syms, err := loadSemanticSymbols(s.brainDir, sem, 0)
+	if err != nil {
+		resp.Warnings = append(resp.Warnings, "semantic symbols: "+err.Error())
+		writeJSONHTTP(w, http.StatusOK, resp)
+		return
+	}
+	byFile := map[string][]semanticRecord{}
+	for i := range syms {
+		f := filepath.ToSlash(syms[i].FilePath)
+		if touched[f] {
+			byFile[f] = append(byFile[f], syms[i])
+		}
+	}
+
+	idset := map[string]bool{}
+	kept := []semanticRecord{}
+	for _, fp := range resp.Files {
+		step := vizReplayStep{File: fp, IDs: []string{}}
+		for i := range byFile[fp] {
+			sy := byFile[fp][i]
+			if !idset[sy.ID] {
+				if len(kept) >= vizReplayMaxNodes {
+					continue
+				}
+				idset[sy.ID] = true
+				kept = append(kept, sy)
+				resp.Nodes = append(resp.Nodes, vizGNode{
+					ID: sy.ID, Name: sy.Name, Kind: sy.Kind, Group: sy.Kind,
+					File: filepath.ToSlash(sy.FilePath), Line: sy.StartLine,
+					Link: s.sourceLink(sy.FilePath, sy.StartLine), LinkLabel: vizSourceLabel(s.provider),
+				})
+			}
+			step.IDs = append(step.IDs, sy.ID)
+		}
+		resp.Steps = append(resp.Steps, step)
+	}
+	resp.Total = len(resp.Nodes)
+
+	if len(kept) > 0 {
+		if rels, rerr := s.relationsForSymbols(sem, kept, len(kept)*8); rerr == nil {
+			for i := range rels {
+				e := rels[i]
+				if idset[e.FromID] && idset[e.ToID] {
+					resp.Edges = append(resp.Edges, vizGEdge{From: e.FromID, To: e.ToID, Type: e.Type})
+				}
+			}
+		}
+	}
+	writeJSONHTTP(w, http.StatusOK, resp)
+}
+
+func vizSourceLabel(provider string) string {
+	if provider == "gh" {
+		return "View source"
+	}
+	return ""
+}
+
 func vizHistoryColor(kind string) string {
 	switch k := strings.ToLower(kind); {
 	case strings.Contains(k, "decision"):
@@ -587,7 +732,10 @@ func vizHistoryColor(kind string) string {
 }
 
 func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
-	limit := vizQueryLimit(r, 300)
+	// History can hold hundreds of thousands of records — far too many to render
+	// legibly — so it stays capped (the UI shows an honest "N of total"). Sessions
+	// and docs are small enough to show in full.
+	limit := vizQueryLimit(r, 800)
 	if s.manifest == nil || s.manifest.Sources == nil || s.manifest.Sources.History == nil {
 		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"no history yet — run `entire brain refresh`"}})
 		return
@@ -619,7 +767,7 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *vizServer) handleDocs(w http.ResponseWriter, r *http.Request) {
-	limit := vizQueryLimit(r, 400)
+	limit := vizQueryLimit(r, 2000)
 	idx, err := loadDocIndex(s.brainDir)
 	if err != nil {
 		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"docs unavailable: " + err.Error()}})

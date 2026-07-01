@@ -11,7 +11,7 @@
     <!-- left rail -->
     <aside id="rail">
       <button class="brand" id="home" title="Back to the brain overview">
-        <span class="mark" aria-hidden="true"></span>
+        <img class="mark" src="symbol.svg" alt="" aria-hidden="true" />
         <span class="brand-text">
           <span class="title">entire brain</span>
           <span class="sub" id="brand-sub">viz</span>
@@ -58,6 +58,19 @@
         <div class="tooltip" id="tooltip"></div>
         <div class="overlay" id="loading"><div class="card"><div class="spinner"></div><p>Loading the graph&#8230;</p></div></div>
         <div class="overlay hidden" id="empty"><div class="card"><h2 id="empty-title">No graph yet</h2><p id="empty-body">Run <code>entire brain refresh</code>, then reopen.</p></div></div>
+
+        <!-- session replay transport -->
+        <div id="replaybar" class="hidden" role="group" aria-label="Session replay">
+          <button class="rp-btn" id="rp-close" title="Exit replay" aria-label="Exit replay">&#215;</button>
+          <div class="rp-meta"><span class="rp-lead">REPLAY</span><span id="rp-title"></span></div>
+          <div class="rp-transport">
+            <button class="rp-btn" id="rp-prev" title="Previous step" aria-label="Previous step">&#9198;</button>
+            <button class="rp-btn rp-play" id="rp-play" title="Play / pause" aria-label="Play or pause">&#9654;</button>
+            <button class="rp-btn" id="rp-next" title="Next step" aria-label="Next step">&#9197;</button>
+          </div>
+          <input id="rp-scrub" type="range" min="0" max="0" value="0" step="1" aria-label="Replay position" />
+          <div class="rp-status"><span id="rp-step" class="rp-step"></span><span id="rp-file" class="rp-file"></span></div>
+        </div>
       </section>
     </main>
 
@@ -76,6 +89,12 @@
       </div>
       <div class="insp-scroll" id="insp-body"></div>
     </aside>
+
+    <!-- sound toggle (synthesized, no external audio; off by default until enabled) -->
+    <button id="sound-toggle" title="Toggle interface sounds" aria-label="Toggle interface sounds" aria-pressed="false">
+      <span class="snd-on" aria-hidden="true">&#9834;</span>
+      <span class="snd-off" aria-hidden="true">&#9834;</span>
+    </button>
   </div>
 
   <!-- command palette -->
