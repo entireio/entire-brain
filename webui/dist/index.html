@@ -3,31 +3,31 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-  <title>entire brain · viz</title>
+  <title>entire brain</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="app">
     <!-- left rail -->
     <aside id="rail">
-      <div class="brand">
-        <div class="mark" aria-hidden="true"></div>
-        <div>
-          <div class="title">entire brain</div>
-          <div class="sub" id="brand-sub">viz</div>
-        </div>
-      </div>
+      <button class="brand" id="home" title="Back to the brain overview">
+        <span class="mark" aria-hidden="true"></span>
+        <span class="brand-text">
+          <span class="title">entire brain</span>
+          <span class="sub" id="brand-sub">viz</span>
+        </span>
+      </button>
 
       <div class="rail-search">
-        <span class="icon" aria-hidden="true">⌕</span>
-        <input id="search" type="search" placeholder="Search the brain…" autocomplete="off" spellcheck="false" aria-label="Search the brain" />
-        <span class="hint">⌘K</span>
+        <span class="icon" aria-hidden="true">&#9906;</span>
+        <input id="search" type="search" placeholder="Search the brain&#8230;" autocomplete="off" spellcheck="false" aria-label="Search the brain" />
+        <span class="hint">&#8984;K</span>
       </div>
 
-      <div class="rail-section" id="results-label">Graph</div>
+      <div class="rail-section" id="results-label" hidden>Results</div>
       <div class="rail-scroll" id="results"></div>
 
-      <div class="legend" id="legend">
+      <div class="legend hidden" id="legend">
         <div class="row"><span class="dot" style="background:var(--k-function)"></span> function / method</div>
         <div class="row"><span class="dot" style="background:var(--k-type)"></span> type / class</div>
         <div class="row"><span class="dot" style="background:var(--k-value)"></span> const / var</div>
@@ -36,34 +36,41 @@
       <div class="counts" id="counts"></div>
     </aside>
 
-    <!-- stage -->
-    <main id="stage">
-      <canvas id="graph" tabindex="0" aria-label="Brain graph"></canvas>
-
-      <div class="stage-top">
-        <div class="crumb" id="crumb" hidden></div>
-        <div class="stage-tools">
-          <button class="tool" id="fit" title="Zoom to fit (0)">Fit</button>
-        </div>
+    <!-- main -->
+    <main id="main">
+      <img id="brand-logo" src="logo.svg" alt="entire" />
+      <div class="topbar hidden" id="topbar">
+        <button class="back" id="back">&#8592; Brain</button>
+        <span class="crumb-sep">/</span>
+        <span class="crumb-title" id="crumb-title"></span>
+        <span class="crumb-count" id="crumb-count"></span>
       </div>
 
-      <div class="tooltip" id="tooltip"></div>
+      <!-- Level 1: radial feature constellation -->
+      <section id="hub" class="view">
+        <div class="hub-stage" id="hub-stage"></div>
+      </section>
 
-      <div class="overlay" id="loading">
-        <div class="card"><div class="spinner"></div><p>Loading the brain…</p></div>
-      </div>
-      <div class="overlay hidden" id="empty">
-        <div class="card">
-          <h2 id="empty-title">No semantic graph yet</h2>
-          <p id="empty-body">Run <code>entire brain refresh</code> in this repo, then reopen viz.</p>
-        </div>
-      </div>
+      <!-- Level 2a: semantic graph -->
+      <section id="graphview" class="view hidden">
+        <canvas id="graph" tabindex="0" aria-label="Brain semantic graph"></canvas>
+        <div class="stage-tools"><button class="tool" id="fit" title="Zoom to fit (0)">Fit</button></div>
+        <div class="tooltip" id="tooltip"></div>
+        <div class="overlay" id="loading"><div class="card"><div class="spinner"></div><p>Loading the graph&#8230;</p></div></div>
+        <div class="overlay hidden" id="empty"><div class="card"><h2 id="empty-title">No semantic graph yet</h2><p id="empty-body">Run <code>entire brain refresh</code>, then reopen.</p></div></div>
+      </section>
+
+      <!-- Level 2b: list features (facts / sessions / history / docs) -->
+      <section id="listview" class="view hidden">
+        <div class="list-status" id="list-status"></div>
+        <div class="list-items" id="list-items"></div>
+      </section>
     </main>
 
-    <!-- inspector -->
+    <!-- inspector (semantic view) -->
     <aside id="inspector" aria-live="polite">
       <div class="insp-head">
-        <button class="insp-close" id="insp-close" aria-label="Close inspector">×</button>
+        <button class="insp-close" id="insp-close" aria-label="Close inspector">&#215;</button>
         <div class="insp-kind" id="insp-kind"><span class="dot"></span><span></span></div>
         <div class="insp-name" id="insp-name"></div>
         <div class="insp-qual" id="insp-qual"></div>
@@ -80,9 +87,9 @@
   <!-- command palette -->
   <div id="palette" class="hidden" role="dialog" aria-modal="true" aria-label="Command palette">
     <div class="box">
-      <input id="palette-input" type="text" placeholder="Jump to a symbol, fact, or memory…" autocomplete="off" spellcheck="false" />
+      <input id="palette-input" type="text" placeholder="Jump to a symbol, fact, or memory&#8230;" autocomplete="off" spellcheck="false" />
       <div class="list" id="palette-list"></div>
-      <div class="foot"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div>
+      <div class="foot"><span><kbd>&#8593;</kbd><kbd>&#8595;</kbd> navigate</span><span><kbd>&#8629;</kbd> open</span><span><kbd>esc</kbd> close</span></div>
     </div>
   </div>
 

@@ -60,16 +60,28 @@ button { font: inherit; color: inherit; }
 #app { display: grid; grid-template-columns: 280px 1fr 0px; height: 100%; transition: grid-template-columns 180ms var(--ease); }
 #app.inspector-open { grid-template-columns: 280px 1fr 360px; }
 
+#main { position: relative; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.view { flex: 1; min-height: 0; position: relative; overflow: auto; }
+.view.hidden { display: none; }
+.topbar { flex: none; display: flex; align-items: center; gap: 8px; padding: 13px 22px; border-bottom: 1px solid var(--border-subtle); font-size: 13px; }
+.topbar .back { background: var(--surface-raised); border: 1px solid var(--border-default); color: var(--text-default); border-radius: var(--r-sm); padding: 5px 11px; cursor: pointer; font-size: 12.5px; }
+.topbar .back:hover { background: var(--surface-active); }
+.crumb-sep { color: var(--text-disabled); }
+.crumb-title { font-weight: 600; }
+.crumb-count { color: var(--text-disabled); font-family: var(--font-mono); font-size: 12px; margin-left: 2px; }
+
 /* ---- left rail ---- */
 #rail {
   background: var(--surface-base);
   border-right: 1px solid var(--border-subtle);
   display: flex; flex-direction: column; min-height: 0;
 }
-.brand { display: flex; align-items: center; gap: 10px; padding: 16px 16px 12px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 16px 16px 12px; background: none; border: none; cursor: pointer; width: 100%; text-align: left; color: inherit; font: inherit; border-radius: var(--r-sm); }
+.brand:hover { background: var(--surface-hover); }
 .brand .mark { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); box-shadow: 0 0 16px var(--accent-soft); flex: none; }
+.brand-text { display: flex; flex-direction: column; min-width: 0; }
 .brand .title { font-weight: 600; letter-spacing: -0.01em; }
-.brand .sub { color: var(--text-disabled); font-size: 11px; font-family: var(--font-mono); margin-top: 1px; }
+.brand .sub { color: var(--text-disabled); font-size: 11px; font-family: var(--font-mono); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .rail-search { padding: 4px 12px 12px; position: relative; }
 .rail-search input {
@@ -97,15 +109,12 @@ button { font: inherit; color: inherit; }
 .counts { padding: 10px 16px; border-top: 1px solid var(--border-subtle); color: var(--text-muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .counts b { color: var(--text-default); font-variant-numeric: tabular-nums; font-weight: 600; }
 
-/* ---- stage ---- */
-#stage { position: relative; background:
-  radial-gradient(1200px 800px at 60% 40%, #191919 0%, var(--surface-sunken) 70%); overflow: hidden; }
+/* ---- graph view ---- */
+#graphview { background: radial-gradient(1200px 800px at 60% 40%, #191919 0%, var(--surface-sunken) 70%); overflow: hidden; }
 #graph { display: block; width: 100%; height: 100%; }
 #graph:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 
-.stage-top { position: absolute; top: 14px; left: 16px; right: 16px; display: flex; align-items: center; gap: 10px; pointer-events: none; }
-.crumb { pointer-events: auto; background: var(--surface-floating); border: 1px solid var(--border-default); border-radius: 999px; padding: 6px 12px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); box-shadow: var(--shadow-float); max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stage-tools { margin-left: auto; display: flex; gap: 8px; pointer-events: auto; }
+.stage-tools { position: absolute; bottom: 16px; right: 16px; display: flex; gap: 8px; z-index: 4; }
 .tool { background: var(--surface-floating); border: 1px solid var(--border-default); border-radius: var(--r-sm); color: var(--text-muted); padding: 6px 10px; font-size: 12px; cursor: pointer; box-shadow: var(--shadow-float); }
 .tool:hover { color: var(--text-default); background: var(--surface-raised); }
 
@@ -161,6 +170,54 @@ button { font: inherit; color: inherit; }
 #palette .item .src { margin-left: auto; color: var(--text-disabled); font-size: 11px; flex: none; }
 #palette .foot { padding: 8px 18px; border-top: 1px solid var(--border-subtle); color: var(--text-disabled); font-size: 11px; display: flex; gap: 14px; }
 #palette kbd { font-family: var(--font-mono); background: var(--surface-sunken); border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0 5px; font-size: 10.5px; }
+
+/* ---- Level 1: radial feature constellation ---- */
+#hub { overflow: hidden; background: radial-gradient(1100px 800px at 50% 46%, #191919 0%, var(--surface-sunken) 72%); }
+.hub-stage { position: absolute; inset: 0; }
+.hub-stage svg { width: 100%; height: 100%; display: block; }
+
+.spoke { stroke: rgb(255 255 255 / 0.055); stroke-width: 1; }
+.dendrite { fill: none; stroke-width: 1; opacity: 0.32; }
+.hub-halo { opacity: 0.12; transition: opacity 160ms var(--ease); }
+.hub-ring { transform-box: fill-box; transform-origin: center; transition: transform 160ms var(--ease); }
+
+.feature-node { cursor: pointer; }
+.feature-node:hover .hub-halo { opacity: 0.26; }
+.feature-node:hover .hub-ring { transform: scale(1.14); }
+.feature-node:hover .feat-label { filter: brightness(1.25); }
+.feature-node:focus-visible { outline: none; }
+.feature-node:focus-visible .hub-ring { stroke-width: 3.5; }
+
+.feat-label { font-family: var(--font-ui); font-size: 15px; font-weight: 600; letter-spacing: 0.13em; transition: filter 160ms var(--ease); }
+.feat-sub { font-family: var(--font-mono); font-size: 10px; fill: var(--text-disabled); letter-spacing: 0.03em; }
+.feat-count { font-family: var(--font-mono); font-size: 13px; font-weight: 600; fill: var(--text-muted); }
+.core-title { text-anchor: middle; font-family: var(--font-ui); font-size: 15px; font-weight: 600; fill: var(--text-default); letter-spacing: 0.02em; }
+.core-sub { text-anchor: middle; font-family: var(--font-mono); font-size: 11px; fill: var(--text-disabled); }
+/* dark halo so labels stay legible over the dendrite dots */
+.feat-label, .feat-count, .feat-sub, .core-title, .core-sub { paint-order: stroke; stroke: var(--surface-sunken); stroke-width: 2.5px; stroke-linejoin: round; }
+
+/* entire logo, top-right */
+#brand-logo { position: absolute; top: 16px; right: 22px; height: 17px; width: auto; opacity: 0.82; z-index: 6; pointer-events: none; }
+
+/* ---- Level 2: list views ---- */
+#listview { padding: 0; }
+.list-status { padding: 14px 24px 6px; color: var(--text-disabled); font-size: 12px; letter-spacing: 0.02em; }
+.list-items { padding: 6px 24px 40px; display: flex; flex-direction: column; gap: 10px; max-width: 900px; }
+.card { background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--r-md); padding: 14px 16px; }
+.card.row { display: flex; align-items: center; gap: 12px; padding: 11px 16px; }
+.card-top { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.card-title { font-weight: 600; font-size: 13.5px; }
+.card-title.mono, .mono { font-family: var(--font-mono); font-size: 12.5px; }
+.card-sub { color: var(--text-muted); font-size: 12.5px; margin-bottom: 6px; }
+.card-text { font-size: 13.5px; line-height: 1.55; color: var(--text-default); white-space: pre-wrap; word-break: break-word; }
+.card-text.one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.card-text.muted { color: var(--text-muted); font-size: 12.5px; }
+.card-meta { color: var(--text-disabled); font-size: 11.5px; font-family: var(--font-mono); margin-left: auto; }
+.card.row .card-meta { margin-left: 0; }
+.chip { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.02em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; flex: none; color: var(--cc); background: color-mix(in srgb, var(--cc) 16%, transparent); }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.tag { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); background: var(--surface-sunken); border: 1px solid var(--border-subtle); border-radius: var(--r-sm); padding: 2px 7px; }
+[data-locus] { cursor: pointer; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0ms !important; animation-duration: 0ms !important; }

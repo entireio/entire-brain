@@ -118,6 +118,10 @@ func (s *vizServer) mux() http.Handler {
 	m.HandleFunc("/api/graph", s.handleGraph)
 	m.HandleFunc("/api/node", s.handleNode)
 	m.HandleFunc("/api/search", s.handleSearch)
+	m.HandleFunc("/api/facts", s.handleFacts)
+	m.HandleFunc("/api/sessions", s.handleSessions)
+	m.HandleFunc("/api/history", s.handleHistory)
+	m.HandleFunc("/api/docs", s.handleDocs)
 	if sub, err := fs.Sub(entirebrain.WebUI, "webui/dist"); err == nil {
 		m.Handle("/", http.FileServer(http.FS(sub)))
 	}
@@ -183,6 +187,7 @@ type vizCounts struct {
 	History   int `json:"history"`
 	Facts     int `json:"facts"`
 	Sessions  int `json:"sessions"`
+	Docs      int `json:"docs"`
 }
 
 type vizSummaryResp struct {
@@ -247,7 +252,206 @@ func (s *vizServer) handleSummary(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if docs, err := loadDocIndex(s.brainDir); err == nil {
+		resp.Counts.Docs = len(docs.Records)
+	}
 	writeJSONHTTP(w, http.StatusOK, resp)
+}
+
+// sessionsFromManifest returns the export sessions captured in the manifest.
+func (s *vizServer) sessionsFromManifest() []exportSession {
+	if s.manifest == nil || s.manifest.Sources == nil || s.manifest.Sources.Sessions == nil {
+		return nil
+	}
+	return s.manifest.Sources.Sessions.Sessions
+}
+
+func vizQueryLimit(r *http.Request, def int) int {
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return def
+}
+
+// ---- feature list endpoints (the drill-in views behind the hub) ----
+
+type vizFact struct {
+	ID         string   `json:"id"`
+	Kind       string   `json:"kind,omitempty"`
+	Text       string   `json:"text"`
+	Locus      []string `json:"locus,omitempty"`
+	Paths      []string `json:"paths,omitempty"`
+	Status     string   `json:"status,omitempty"`
+	Origin     string   `json:"origin,omitempty"`
+	Confidence string   `json:"confidence,omitempty"`
+}
+
+type vizListResp struct {
+	Items     any      `json:"items"`
+	Total     int      `json:"total"`
+	Truncated bool     `json:"truncated,omitempty"`
+	Warnings  []string `json:"warnings,omitempty"`
+}
+
+// factBranches lists the branches whose facts to show — the current branch first,
+// then every branch the manifest records. Facts are branch-scoped on disk, but
+// the hub's Facts view is a whole-brain view, so it aggregates across branches
+// (otherwise the count and the list disagree when the checkout is on a branch
+// that carries no facts).
+func (s *vizServer) factBranches() []string {
+	out := []string{}
+	seen := map[string]bool{}
+	add := func(b string) {
+		b = strings.TrimSpace(b)
+		if b != "" && !seen[b] {
+			seen[b] = true
+			out = append(out, b)
+		}
+	}
+	add(s.branch)
+	if s.manifest != nil && s.manifest.Sources != nil && s.manifest.Sources.Facts != nil {
+		for _, b := range s.manifest.Sources.Facts.Branches {
+			add(b)
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, s.branch)
+	}
+	return out
+}
+
+func (s *vizServer) handleFacts(w http.ResponseWriter, r *http.Request) {
+	limit := vizQueryLimit(r, 500)
+	seen := map[string]bool{}
+	all := []factRecord{}
+	var warnings []string
+	for _, br := range s.factBranches() {
+		fs, err := loadFacts(s.brainDir, br)
+		if err != nil {
+			warnings = append(warnings, "facts["+br+"]: "+err.Error())
+			continue
+		}
+		for _, f := range fs {
+			if f.ID != "" && seen[f.ID] {
+				continue
+			}
+			seen[f.ID] = true
+			all = append(all, f)
+		}
+	}
+	total := len(all)
+	trunc := limit > 0 && total > limit
+	if trunc {
+		all = all[:limit]
+	}
+	items := make([]vizFact, 0, len(all))
+	for _, f := range all {
+		items = append(items, vizFact{ID: f.ID, Kind: f.Kind, Text: f.Text, Locus: f.Locus, Paths: f.Paths, Status: f.Status, Origin: f.Origin, Confidence: f.Confidence})
+	}
+	writeJSONHTTP(w, http.StatusOK, vizListResp{Items: items, Total: total, Truncated: trunc, Warnings: warnings})
+}
+
+type vizSession struct {
+	ID          string `json:"id"`
+	Branch      string `json:"branch,omitempty"`
+	Agent       string `json:"agent,omitempty"`
+	Model       string `json:"model,omitempty"`
+	Kind        string `json:"kind,omitempty"`
+	Created     string `json:"created,omitempty"`
+	Files       int    `json:"files"`
+	Checkpoints int    `json:"checkpoints"`
+	Intent      string `json:"intent,omitempty"`
+	Outcome     string `json:"outcome,omitempty"`
+}
+
+func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
+	limit := vizQueryLimit(r, 500)
+	sessions := s.sessionsFromManifest()
+	total := len(sessions)
+	trunc := limit > 0 && total > limit
+	if trunc {
+		sessions = sessions[:limit]
+	}
+	items := make([]vizSession, 0, len(sessions))
+	for _, se := range sessions {
+		item := vizSession{ID: se.SessionID, Branch: se.Branch, Agent: se.Agent, Model: se.Model, Kind: se.Kind, Files: len(se.FilesTouched), Checkpoints: se.CheckpointsCount}
+		if !se.CreatedAt.IsZero() {
+			item.Created = se.CreatedAt.UTC().Format("2006-01-02 15:04Z")
+		}
+		if se.Summary != nil {
+			item.Intent = se.Summary.Intent
+			item.Outcome = se.Summary.Outcome
+		}
+		items = append(items, item)
+	}
+	writeJSONHTTP(w, http.StatusOK, vizListResp{Items: items, Total: total, Truncated: trunc})
+}
+
+type vizHistory struct {
+	ID      string `json:"id"`
+	Kind    string `json:"kind,omitempty"`
+	Branch  string `json:"branch,omitempty"`
+	Summary string `json:"summary"`
+}
+
+func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
+	limit := vizQueryLimit(r, 300)
+	resp := vizListResp{Items: []vizHistory{}}
+	if s.manifest == nil || s.manifest.Sources == nil || s.manifest.Sources.History == nil {
+		resp.Warnings = []string{"no history yet — run `entire brain refresh`"}
+		writeJSONHTTP(w, http.StatusOK, resp)
+		return
+	}
+	idx, err := loadBrainHistoryIndex(s.brainDir, s.manifest.Sources.History)
+	if err != nil {
+		resp.Warnings = []string{"history unavailable: " + err.Error()}
+		writeJSONHTTP(w, http.StatusOK, resp)
+		return
+	}
+	recs := idx.Records
+	total := len(recs)
+	trunc := limit > 0 && total > limit
+	if trunc {
+		recs = recs[:limit]
+	}
+	items := make([]vizHistory, 0, len(recs))
+	for _, h := range recs {
+		items = append(items, vizHistory{ID: h.ID, Kind: h.Kind, Branch: h.Branch, Summary: h.Summary})
+	}
+	writeJSONHTTP(w, http.StatusOK, vizListResp{Items: items, Total: total, Truncated: trunc})
+}
+
+type vizDoc struct {
+	ID      string `json:"id"`
+	Path    string `json:"path"`
+	Heading string `json:"heading,omitempty"`
+	Text    string `json:"text,omitempty"`
+}
+
+func (s *vizServer) handleDocs(w http.ResponseWriter, r *http.Request) {
+	limit := vizQueryLimit(r, 400)
+	idx, err := loadDocIndex(s.brainDir)
+	if err != nil {
+		writeJSONHTTP(w, http.StatusOK, vizListResp{Items: []vizDoc{}, Warnings: []string{"docs unavailable: " + err.Error()}})
+		return
+	}
+	recs := idx.Records
+	total := len(recs)
+	trunc := limit > 0 && total > limit
+	if trunc {
+		recs = recs[:limit]
+	}
+	items := make([]vizDoc, 0, len(recs))
+	for _, d := range recs {
+		text := d.Text
+		if len(text) > 400 {
+			text = text[:400]
+		}
+		items = append(items, vizDoc{ID: d.ID, Path: d.Path, Heading: d.Heading, Text: text})
+	}
+	writeJSONHTTP(w, http.StatusOK, vizListResp{Items: items, Total: total, Truncated: trunc})
 }
 
 func (s *vizServer) semanticSource() *semanticSourceManifest {
