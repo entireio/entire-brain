@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>entire brain · viz</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- left rail -->
+    <aside id="rail">
+      <div class="brand">
+        <div class="mark" aria-hidden="true"></div>
+        <div>
+          <div class="title">entire brain</div>
+          <div class="sub" id="brand-sub">viz</div>
+        </div>
+      </div>
+
+      <div class="rail-search">
+        <span class="icon" aria-hidden="true">⌕</span>
+        <input id="search" type="search" placeholder="Search the brain…" autocomplete="off" spellcheck="false" aria-label="Search the brain" />
+        <span class="hint">⌘K</span>
+      </div>
+
+      <div class="rail-section" id="results-label">Graph</div>
+      <div class="rail-scroll" id="results"></div>
+
+      <div class="legend" id="legend">
+        <div class="row"><span class="dot" style="background:var(--k-function)"></span> function / method</div>
+        <div class="row"><span class="dot" style="background:var(--k-type)"></span> type / class</div>
+        <div class="row"><span class="dot" style="background:var(--k-value)"></span> const / var</div>
+        <div class="row"><span class="dot" style="background:var(--k-entry)"></span> entry-point</div>
+      </div>
+      <div class="counts" id="counts"></div>
+    </aside>
+
+    <!-- stage -->
+    <main id="stage">
+      <canvas id="graph" tabindex="0" aria-label="Brain graph"></canvas>
+
+      <div class="stage-top">
+        <div class="crumb" id="crumb" hidden></div>
+        <div class="stage-tools">
+          <button class="tool" id="fit" title="Zoom to fit (0)">Fit</button>
+        </div>
+      </div>
+
+      <div class="tooltip" id="tooltip"></div>
+
+      <div class="overlay" id="loading">
+        <div class="card"><div class="spinner"></div><p>Loading the brain…</p></div>
+      </div>
+      <div class="overlay hidden" id="empty">
+        <div class="card">
+          <h2 id="empty-title">No semantic graph yet</h2>
+          <p id="empty-body">Run <code>entire brain refresh</code> in this repo, then reopen viz.</p>
+        </div>
+      </div>
+    </main>
+
+    <!-- inspector -->
+    <aside id="inspector" aria-live="polite">
+      <div class="insp-head">
+        <button class="insp-close" id="insp-close" aria-label="Close inspector">×</button>
+        <div class="insp-kind" id="insp-kind"><span class="dot"></span><span></span></div>
+        <div class="insp-name" id="insp-name"></div>
+        <div class="insp-qual" id="insp-qual"></div>
+        <div class="insp-file" id="insp-file"></div>
+      </div>
+      <div class="insp-actions">
+        <button id="insp-expand">Expand neighbors</button>
+        <button id="insp-focus" class="primary">Focus</button>
+      </div>
+      <div class="insp-scroll" id="insp-body"></div>
+    </aside>
+  </div>
+
+  <!-- command palette -->
+  <div id="palette" class="hidden" role="dialog" aria-modal="true" aria-label="Command palette">
+    <div class="box">
+      <input id="palette-input" type="text" placeholder="Jump to a symbol, fact, or memory…" autocomplete="off" spellcheck="false" />
+      <div class="list" id="palette-list"></div>
+      <div class="foot"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
