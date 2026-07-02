@@ -171,7 +171,7 @@ func (s *vizServer) mux() http.Handler {
 // forbids any off-origin fetch (script/style/img/font/connect all 'self'), so
 // even a compromised asset can't call home. Structural, not just a comment.
 func vizSecurityHeaders(next http.Handler) http.Handler {
-	const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'"
+	const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; object-src 'none'"
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", csp)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -946,18 +946,10 @@ func (s *vizServer) semanticSource() *semanticSourceManifest {
 func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	// `limit` is the number of symbols to RENDER (the node-count slider drives it).
 	// We load a wider pool, rank it by degree, and keep the top `limit` so the view
-	// is always the most-connected slice at any size the user picks.
-	view := vizGraphViewCap
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			view = n
-		}
-	}
-	// Treat the 0 "render all" sentinel as the safety ceiling, mirroring
-	// handleHistory: "all" still can't exceed vizGraphMaxView.
-	if view <= 0 || view > vizGraphMaxView {
-		view = vizGraphMaxView
-	}
+	// is always the most-connected slice at any size the user picks. vizQueryLimit
+	// owns the shared policy: 0 ("render all") and oversized values clamp to the
+	// vizGraphMaxView safety ceiling.
+	view := vizQueryLimit(r, vizGraphViewCap)
 	// Scale the edge budget with the node count so a bigger view isn't artificially
 	// sparse. ~4 edges/node reads as a real constellation; floored so small views
 	// still show structure, ceilinged so a huge view can't blow up payload/draw.

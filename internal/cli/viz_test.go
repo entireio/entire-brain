@@ -99,7 +99,7 @@ func TestVizSecurityHeaders(t *testing.T) {
 	if csp == "" {
 		t.Fatal("missing Content-Security-Policy header")
 	}
-	for _, want := range []string{"default-src 'self'", "connect-src 'self'", "script-src 'self'"} {
+	for _, want := range []string{"default-src 'self'", "connect-src 'self'", "script-src 'self'", "form-action 'none'", "object-src 'none'"} {
 		if !strings.Contains(csp, want) {
 			t.Errorf("CSP missing %q; got %q", want, csp)
 		}
