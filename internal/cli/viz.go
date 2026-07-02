@@ -36,6 +36,10 @@ const vizGraphMaxView = 300000
 // case for payload + per-frame draw cost.
 const vizGraphMaxEdges = 90000
 
+// vizSearchMaxHits bounds ?limit on /api/search. Hits render in the rail and
+// command palette, so a few hundred per source is already past useful.
+const vizSearchMaxHits = 500
+
 // vizGraphViewCap bounds how many symbols actually render in the semantic view.
 // We load a wider pool (see handleGraph), compute degree, then keep the most-
 // connected symbols so the default graph is a legible, connected constellation
@@ -404,7 +408,12 @@ func parseRepoFromBrainDir(brainDir string) (provider, owner, repo string) {
 
 func vizWebBase() string {
 	if v := strings.TrimSpace(os.Getenv("ENTIRE_WEB_BASE_URL")); v != "" {
-		return strings.TrimRight(v, "/")
+		// Only an absolute http(s) base may override: the value flows into every
+		// generated link, so a javascript:/data: scheme here would be link
+		// injection into the UI.
+		if u, err := url.Parse(v); err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
+			return strings.TrimRight(v, "/")
+		}
 	}
 	return "https://entire.io"
 }
@@ -1127,6 +1136,12 @@ func (s *vizServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			limit = n
 		}
+	}
+	// Hits render in the rail / ⌘K palette, so anything beyond a few hundred
+	// per source is never useful — cap it so a crafted ?limit can't force an
+	// arbitrarily expensive retrieval.
+	if limit > vizSearchMaxHits {
+		limit = vizSearchMaxHits
 	}
 	resp := vizSearchResp{Hits: []vizHit{}}
 	if q == "" {
