@@ -3727,6 +3727,21 @@ func findSemanticRelationsForSymbolsInSQLite(storePath string, symbols []semanti
 	}
 	var merged []keyedRel
 	seen := make(map[int64]bool)
+	// trimMerged keeps peak memory O(limit) instead of O(chunks x limit): once
+	// merged holds well past `limit` rows, only the smallest `limit` rowids can
+	// still make the final cut, so the rest can be dropped early. A trimmed row
+	// re-arriving from a later batch is deduped away again by the final trim.
+	trimMerged := func() {
+		if limit <= 0 || len(merged) <= limit*2 {
+			return
+		}
+		sort.Slice(merged, func(i, j int) bool { return merged[i].id < merged[j].id })
+		merged = merged[:limit]
+		seen = make(map[int64]bool, limit)
+		for i := range merged {
+			seen[merged[i].id] = true
+		}
+	}
 	for start := 0; start < len(symbols); start += chunk {
 		end := start + chunk
 		if end > len(symbols) {
@@ -3771,6 +3786,7 @@ ORDER BY id LIMIT ?`, args...)
 		}(); err != nil {
 			return nil, err
 		}
+		trimMerged()
 	}
 	sort.Slice(merged, func(i, j int) bool { return merged[i].id < merged[j].id })
 	if limit > 0 && len(merged) > limit {

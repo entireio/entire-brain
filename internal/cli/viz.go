@@ -148,7 +148,18 @@ func runViz(ctx context.Context, cmd *cobra.Command, opts Options, flags vizFlag
 		openBrowser(url)
 	}
 
-	httpSrv := &http.Server{Handler: vizSecurityHeaders(handler), ReadHeaderTimeout: 5 * time.Second}
+	// Full timeout set, not just headers: even loopback-only, another local
+	// process could hold connections open and pin goroutines. WriteTimeout is
+	// generous because it spans handler time too, and a maxed node-count slider
+	// legitimately produces a large response.
+	httpSrv := &http.Server{
+		Handler:           vizSecurityHeaders(handler),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      5 * time.Minute,
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    1 << 20,
+	}
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
