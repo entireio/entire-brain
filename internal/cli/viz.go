@@ -28,15 +28,17 @@ import (
 // "truncated" flag tells the UI to surface it. 0 = no cap.
 const vizDefaultLimit = 4000
 
-// vizGraphMaxView is the hard ceiling on rendered semantic nodes (the node-count
-// slider can't exceed it). High enough to show a large repo's whole graph.
-const vizGraphMaxView = 12000
+// vizGraphMaxView is a safety ceiling on rendered nodes — NOT a feature cap. It's
+// set well above any real brain's largest feature (this repo's history is ~172k)
+// so the node-count slider reaches every feature's true total; it exists only to
+// stop a pathological ?limit=99999999 request from trying to allocate the world.
+const vizGraphMaxView = 300000
 
-// vizGraphMaxEdges caps rendered edges regardless of node count. A dense graph
-// can have tens of thousands of relations; drawing them all per frame kills the
-// canvas and the force sim. ~12k stays smooth (the known-good 1.4k view had ~10k)
-// while bounding the worst case (3k nodes otherwise pulls ~32k edges).
-const vizGraphMaxEdges = 12000
+// vizGraphMaxEdges is the absolute ceiling on rendered edges. The per-request cap
+// (see handleGraph) scales with the node count so a full graph shows its real
+// structure instead of an artificially sparse thread; this just bounds the worst
+// case for payload + per-frame draw cost.
+const vizGraphMaxEdges = 90000
 
 // vizGraphViewCap bounds how many symbols actually render in the semantic view.
 // We load a wider pool (vizDefaultLimit), compute degree, then keep the most-
@@ -869,6 +871,16 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	if view > vizGraphMaxView {
 		view = vizGraphMaxView
 	}
+	// Scale the edge budget with the node count so a bigger view isn't artificially
+	// sparse. ~4 edges/node reads as a real constellation; floored so small views
+	// still show structure, ceilinged so a huge view can't blow up payload/draw.
+	edgeCap := view * 4
+	if edgeCap < 12000 {
+		edgeCap = 12000
+	}
+	if edgeCap > vizGraphMaxEdges {
+		edgeCap = vizGraphMaxEdges
+	}
 	resp := vizGraphResp{Nodes: []vizNode{}, Edges: []vizEdge{}}
 	sem := s.semanticSource()
 	if sem == nil {
@@ -943,7 +955,7 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 		covered[e.ToID]++
 	}
 	for i := range rels {
-		if len(resp.Edges) >= vizGraphMaxEdges {
+		if len(resp.Edges) >= edgeCap {
 			break
 		}
 		e := rels[i]
@@ -952,7 +964,7 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for i := range rels {
-		if len(resp.Edges) >= vizGraphMaxEdges {
+		if len(resp.Edges) >= edgeCap {
 			break
 		}
 		e := rels[i]

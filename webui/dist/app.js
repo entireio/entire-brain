@@ -185,7 +185,7 @@ function showHub() { stopReplay(); setView('hub'); currentFeature = null; $('leg
 $('home').addEventListener('click', showHub);
 $('back').addEventListener('click', showHub);
 
-const NODE_SLIDER_MAX = 12000; // matches the server's hard render cap
+const NODE_SLIDER_MAX = 300000; // safety ceiling only; slider reaches each feature's true total
 let currentLimit = 0; // 0 = server default; set by the node-count slider
 
 async function openFeature(key, focusId) {
