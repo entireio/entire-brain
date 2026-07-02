@@ -3707,37 +3707,80 @@ func findSemanticRelationsForSymbolsInSQLite(storePath string, symbols []semanti
 	if len(symbols) == 0 {
 		return nil, nil
 	}
-	ids := make([]any, 0, len(symbols)*2)
-	placeholders := make([]string, 0, len(symbols))
-	for _, symbol := range symbols {
-		ids = append(ids, symbol.ID)
-		placeholders = append(placeholders, "?")
-	}
 	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
-	args := append(append([]any{}, ids...), ids...)
-	args = append(args, limit)
-	inClause := strings.Join(placeholders, ",")
-	rows, err := db.Query(`SELECT from_id, to_id, type, confidence, reason FROM relations
+	// Chunk the IN-clause. Each id is bound twice (from_id and to_id), so a single
+	// query over the whole set blows past SQLITE_MAX_VARIABLE_NUMBER (~32766) once
+	// the symbol set exceeds ~16k — which the viz graph reaches at scale. Query in
+	// batches and merge by the relation rowid so the global "ORDER BY id LIMIT"
+	// still holds: each batch returns its own first `limit` rows by id, and any row
+	// a batch drops has a larger id than `limit` rows it kept, so it can never
+	// belong in the global top-N. A set that fits one batch behaves exactly like
+	// the old single query. (loadSemanticSymbolsByIDsSQLite chunks the same way.)
+	const chunk = 900
+	type keyedRel struct {
+		id  int64
+		rec semanticRecord
+	}
+	var merged []keyedRel
+	seen := make(map[int64]bool)
+	for start := 0; start < len(symbols); start += chunk {
+		end := start + chunk
+		if end > len(symbols) {
+			end = len(symbols)
+		}
+		batch := symbols[start:end]
+		placeholders := make([]string, len(batch))
+		for i := range batch {
+			placeholders[i] = "?"
+		}
+		args := make([]any, 0, len(batch)*2+1)
+		for _, symbol := range batch {
+			args = append(args, symbol.ID)
+		}
+		for _, symbol := range batch {
+			args = append(args, symbol.ID)
+		}
+		args = append(args, limit)
+		inClause := strings.Join(placeholders, ",")
+		if err := func() error {
+			rows, err := db.Query(`SELECT id, from_id, to_id, type, confidence, reason FROM relations
 WHERE from_id IN (`+inClause+`) OR to_id IN (`+inClause+`)
 ORDER BY id LIMIT ?`, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var relations []semanticRecord
-	for rows.Next() {
-		var record semanticRecord
-		record.RecordType = "relation"
-		if err := rows.Scan(&record.FromID, &record.ToID, &record.Type, &record.Confidence, &record.Reason); err != nil {
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var id int64
+				var record semanticRecord
+				record.RecordType = "relation"
+				if err := rows.Scan(&id, &record.FromID, &record.ToID, &record.Type, &record.Confidence, &record.Reason); err != nil {
+					return err
+				}
+				if seen[id] {
+					continue
+				}
+				seen[id] = true
+				merged = append(merged, keyedRel{id: id, rec: record})
+			}
+			return rows.Err()
+		}(); err != nil {
 			return nil, err
 		}
-		relations = append(relations, record)
 	}
-	return relations, rows.Err()
+	sort.Slice(merged, func(i, j int) bool { return merged[i].id < merged[j].id })
+	if limit > 0 && len(merged) > limit {
+		merged = merged[:limit]
+	}
+	relations := make([]semanticRecord, len(merged))
+	for i := range merged {
+		relations[i] = merged[i].rec
+	}
+	return relations, nil
 }
 
 func findSemanticRelationsByTypesSQLite(storePath string, relationTypes []string) ([]semanticRecord, error) {

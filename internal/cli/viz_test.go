@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -107,12 +110,134 @@ func TestVizSecurityHeaders(t *testing.T) {
 
 func TestVizNodeEdgeJSON(t *testing.T) {
 	t.Parallel()
-	n := nodeJSON(semanticRecord{ID: "id1", Name: "Foo", QualifiedName: "pkg.Foo", Kind: "function", FilePath: "a/b.go", StartLine: 12, Language: "Go", Signature: "func Foo()"})
+	n := nodeJSON(semanticRecord{ID: "id1", Name: "Foo", QualifiedName: "pkg.Foo", Kind: "function", FilePath: "a/b.go", StartLine: 12, Language: "Go", Signature: "func Foo()", ContainerID: "cont1"})
 	if n.ID != "id1" || n.Name != "Foo" || n.Kind != "function" || n.File != "a/b.go" || n.Line != 12 {
 		t.Fatalf("nodeJSON mapping wrong: %+v", n)
+	}
+	if n.QualifiedName != "pkg.Foo" || n.Language != "Go" || n.Signature != "func Foo()" || n.ContainerID != "cont1" {
+		t.Fatalf("nodeJSON dropped a field: %+v", n)
 	}
 	e := edgeJSON(semanticRecord{FromID: "a", ToID: "b", Type: "CALLS", Confidence: 0.5, RelationScope: "file", Resolution: "exact"})
 	if e.From != "a" || e.To != "b" || e.Type != "CALLS" || e.Scope != "file" || e.Resolution != "exact" {
 		t.Fatalf("edgeJSON mapping wrong: %+v", e)
+	}
+	if e.Confidence != 0.5 {
+		t.Fatalf("edgeJSON dropped Confidence: %+v", e)
+	}
+}
+
+// The graph's relations query binds every symbol id TWICE (from_id + to_id). A
+// large view must NOT exceed SQLITE_MAX_VARIABLE_NUMBER (~32766) — the query is
+// chunked. With 20k symbols the old single query bound 40001 params and errored,
+// which silently produced a zero-edge graph that collapses to a dot.
+func TestFindSemanticRelationsForSymbols_ChunksLargeInClause(t *testing.T) {
+	t.Parallel()
+	dbPath := filepath.Join(t.TempDir(), "semantic.sqlite")
+	db, err := sql.Open(sqliteDriverName, dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE relations (id INTEGER PRIMARY KEY, from_id TEXT, to_id TEXT, type TEXT, confidence REAL, reason TEXT)`); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	// rowid 1: sym-1 -> sym-2 ; rowid 2: sym-3 -> sym-1 (both incident to the set)
+	if _, err := db.Exec(`INSERT INTO relations (from_id,to_id,type,confidence,reason) VALUES ('sym-1','sym-2','CALLS',1,''),('sym-3','sym-1','IMPORTS',1,'')`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	db.Close()
+
+	syms := make([]semanticRecord, 20000) // 40001 bound params unchunked -> would error
+	for i := range syms {
+		syms[i] = semanticRecord{ID: fmt.Sprintf("sym-%d", i+1)}
+	}
+	rels, err := findSemanticRelationsForSymbolsInSQLite(dbPath, syms, 1000)
+	if err != nil {
+		t.Fatalf("large symbol set errored (chunking regression): %v", err)
+	}
+	if len(rels) != 2 {
+		t.Fatalf("got %d relations, want 2", len(rels))
+	}
+	if rels[0].FromID != "sym-1" || rels[1].FromID != "sym-3" {
+		t.Fatalf("relations not merged in rowid order across chunks: %+v", rels)
+	}
+}
+
+// The bind address is loopback ONLY — the no-egress invariant depends on it.
+func TestVizListenAddrLoopback(t *testing.T) {
+	t.Parallel()
+	for _, port := range []int{0, 7788, 65535} {
+		addr := vizListenAddr(port)
+		if !strings.HasPrefix(addr, "127.0.0.1:") {
+			t.Fatalf("vizListenAddr(%d) = %q; must bind 127.0.0.1 only", port, addr)
+		}
+		if strings.HasPrefix(addr, "0.0.0.0") || strings.HasPrefix(addr, "[::") {
+			t.Fatalf("vizListenAddr(%d) = %q binds off-host", port, addr)
+		}
+	}
+}
+
+// The CSP/no-egress headers must be present on REAL /api responses, not just when
+// the middleware is exercised in isolation.
+func TestVizSecurityHeaders_AppliedToMux(t *testing.T) {
+	t.Parallel()
+	srv := &vizServer{brainDir: t.TempDir(), branch: "main"}
+	h := vizSecurityHeaders(srv.mux())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/summary", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if rec.Header().Get("Content-Security-Policy") == "" {
+		t.Fatal("CSP header not applied to /api/summary through the mux")
+	}
+	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatal("nosniff header not applied through the mux")
+	}
+}
+
+// A gigantic ?limit must be clamped by the safety ceiling, not panic or overflow.
+func TestVizHandleGraph_HugeLimitNoPanic(t *testing.T) {
+	t.Parallel()
+	srv := &vizServer{brainDir: t.TempDir(), branch: "main", limit: 100}
+	rec := httptest.NewRecorder()
+	srv.handleGraph(rec, httptest.NewRequest(http.MethodGet, "/api/graph?limit=999999999", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var resp vizGraphResp
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+}
+
+// Every feature endpoint must degrade to a valid 200 on an unbuilt brain, never 500.
+func TestVizFeatureHandlers_UnbuiltBrain(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		path    string
+		handler func(*vizServer) http.HandlerFunc
+	}{
+		{"summary", "/api/summary", func(s *vizServer) http.HandlerFunc { return s.handleSummary }},
+		{"search", "/api/search?q=foo", func(s *vizServer) http.HandlerFunc { return s.handleSearch }},
+		{"facts", "/api/facts", func(s *vizServer) http.HandlerFunc { return s.handleFacts }},
+		{"sessions", "/api/sessions", func(s *vizServer) http.HandlerFunc { return s.handleSessions }},
+		{"history", "/api/history?limit=0", func(s *vizServer) http.HandlerFunc { return s.handleHistory }},
+		{"docs", "/api/docs", func(s *vizServer) http.HandlerFunc { return s.handleDocs }},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv := &vizServer{brainDir: t.TempDir(), branch: "main"}
+			rec := httptest.NewRecorder()
+			tc.handler(srv)(rec, httptest.NewRequest(http.MethodGet, tc.path, nil))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("%s: status = %d, want 200", tc.name, rec.Code)
+			}
+			if !json.Valid(rec.Body.Bytes()) {
+				t.Fatalf("%s: response is not valid JSON", tc.name)
+			}
+		})
 	}
 }

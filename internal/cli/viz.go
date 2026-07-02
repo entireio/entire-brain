@@ -98,6 +98,10 @@ type vizServer struct {
 	repo     string
 }
 
+// vizListenAddr is the bind address — loopback ONLY, never 0.0.0.0 or ::. Factored
+// out so the no-egress invariant (unreachable off-host) is unit-testable.
+func vizListenAddr(port int) string { return "127.0.0.1:" + strconv.Itoa(port) }
+
 func runViz(ctx context.Context, cmd *cobra.Command, opts Options, flags vizFlags, target string) error {
 	repoDir, brainDir, branch, err := resolveFactsTarget(ctx, opts, target, flags.branch)
 	if err != nil {
@@ -116,7 +120,7 @@ func runViz(ctx context.Context, cmd *cobra.Command, opts Options, flags vizFlag
 
 	// Loopback only — never 0.0.0.0. The interface is a personal, read-only view
 	// of local data and must not be reachable off-host.
-	ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(flags.port))
+	ln, err := net.Listen("tcp", vizListenAddr(flags.port))
 	if err != nil {
 		return fmt.Errorf("bind viz server: %w", err)
 	}
@@ -764,7 +768,9 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 	// legibly — so it stays capped (the UI shows an honest "N of total"), but the
 	// node-count slider lets you dial it up. Sessions/docs are shown in full.
 	limit := vizQueryLimit(r, 1200)
-	if limit > vizGraphMaxView {
+	// Treat the 0 "no cap" sentinel as the ceiling too, so it can't slip past the
+	// safety bound and try to render every record on a very large brain.
+	if limit <= 0 || limit > vizGraphMaxView {
 		limit = vizGraphMaxView
 	}
 	if s.manifest == nil || s.manifest.Sources == nil || s.manifest.Sources.History == nil {

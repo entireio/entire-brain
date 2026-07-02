@@ -430,11 +430,13 @@ $('rp-close').addEventListener('click', () => { stopReplay(); openFeature('sessi
 const results = $('results');
 function clearSearch() { $('search').value = ''; results.innerHTML = ''; $('results-label').hidden = true; }
 function hitColor(h) { if (h.source === 'symbol') return colorForKind(h.kind); const k = SOURCE_TO_FEATURE[h.source]; return (featureByKey[k] && featureByKey[k].hex) || 'var(--text-disabled)'; }
+let searchSeq = 0;
 const runSearch = debounce(async (q) => {
+  const seq = ++searchSeq; // bump first so clearing also invalidates an in-flight fetch
   if (!q.trim()) { results.innerHTML = ''; $('results-label').hidden = true; return; }
   $('results-label').hidden = false;
-  try { const r = await api('/api/search?q=' + encodeURIComponent(q)); renderResults(r.hits || []); $('results-label').textContent = `${(r.hits || []).length} results`; }
-  catch (e) { results.innerHTML = `<div class="empty-note" style="padding:8px 16px">search failed</div>`; }
+  try { const r = await api('/api/search?q=' + encodeURIComponent(q)); if (seq !== searchSeq) return; renderResults(r.hits || []); $('results-label').textContent = `${(r.hits || []).length} results`; }
+  catch (e) { if (seq === searchSeq) results.innerHTML = `<div class="empty-note" style="padding:8px 16px">search failed</div>`; }
 }, 160);
 $('search').addEventListener('input', (e) => runSearch(e.target.value));
 
@@ -453,10 +455,12 @@ const pal = $('palette'), palInput = $('palette-input'), palList = $('palette-li
 let palHits = [], palActive = 0;
 function openPalette() { pal.classList.remove('hidden'); palInput.value = ''; palList.innerHTML = ''; palHits = []; palActive = 0; palInput.focus(); }
 function closePalette() { pal.classList.add('hidden'); }
+let palSeq = 0;
 const runPalette = debounce(async (q) => {
+  const seq = ++palSeq; // bump first so clearing also invalidates an in-flight fetch
   if (!q.trim()) { palList.innerHTML = ''; palHits = []; return; }
-  try { const r = await api('/api/search?q=' + encodeURIComponent(q)); palHits = r.hits || []; palActive = 0; renderPalette(); }
-  catch (e) { palList.innerHTML = `<div class="item"><span class="name">search failed</span></div>`; }
+  try { const r = await api('/api/search?q=' + encodeURIComponent(q)); if (seq !== palSeq) return; palHits = r.hits || []; palActive = 0; renderPalette(); }
+  catch (e) { if (seq === palSeq) palList.innerHTML = `<div class="item"><span class="name">search failed</span></div>`; }
 }, 140);
 function renderPalette() {
   palList.innerHTML = palHits.map((h, i) => `<div class="item ${i === palActive ? 'active' : ''}" data-i="${i}"><span class="dot" style="background:${hitColor(h)}"></span><span class="name">${esc(h.title || h.text || h.id)}</span><span class="src">${esc(h.source)}</span></div>`).join('');
