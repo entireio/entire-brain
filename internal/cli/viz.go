@@ -585,7 +585,10 @@ func (s *vizServer) handleFacts(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		for _, f := range fs {
-			if f.ID != "" && seen[f.ID] {
+			// Graph node IDs must be unique and non-empty; a record without one
+			// (corrupt or hand-edited store) would collide with its siblings in
+			// the frontend's byId map. loadFacts doesn't validate IDs — skip here.
+			if f.ID == "" || seen[f.ID] {
 				continue
 			}
 			seen[f.ID] = true
@@ -653,6 +656,10 @@ func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 	nodes := make([]vizGNode, 0, len(sessions))
 	fileMap := map[string][]string{}
 	for _, se := range sessions {
+		// Same defense as facts/docs: node IDs must be unique and non-empty.
+		if se.SessionID == "" {
+			continue
+		}
 		created := ""
 		if !se.CreatedAt.IsZero() {
 			created = se.CreatedAt.UTC().Format("2006-01-02 15:04Z")
@@ -863,7 +870,17 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"history unavailable: " + err.Error()}})
 		return
 	}
-	recs := idx.Records
+	// Same defense as facts/docs: node IDs must be unique and non-empty, and
+	// the timeline spine below chains recs by ID — filter before counting.
+	recs := make([]historyRecord, 0, len(idx.Records))
+	seen := make(map[string]bool, len(idx.Records))
+	for _, h := range idx.Records {
+		if h.ID == "" || seen[h.ID] {
+			continue
+		}
+		seen[h.ID] = true
+		recs = append(recs, h)
+	}
 	total := len(recs)
 	trunc := limit > 0 && total > limit
 	if trunc {
@@ -928,6 +945,11 @@ func (s *vizServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 	nodes := make([]vizGNode, 0, len(recs))
 	pathMap := map[string][]string{}
 	for _, d := range recs {
+		// Same defense as facts: an empty ID (corrupt/hand-edited index) would
+		// make every such record collide on the node ID "doc:".
+		if d.ID == "" {
+			continue
+		}
 		name := firstNonEmpty(d.Heading, filepath.Base(d.Path))
 		text := d.Text
 		if len(text) > 500 {
