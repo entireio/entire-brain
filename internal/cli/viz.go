@@ -418,6 +418,17 @@ func (s *vizServer) sessionLink(id string) string {
 	return fmt.Sprintf("%s/%s/%s/%s/session/%s", vizWebBase(), s.provider, s.owner, s.repo, url.PathEscape(id))
 }
 
+// vizEscapePath percent-encodes each segment of a slash-separated path so
+// branch names and file paths containing '#', '?', spaces, etc. survive URL
+// interpolation, while the segment-separating slashes stay literal.
+func vizEscapePath(p string) string {
+	segs := strings.Split(p, "/")
+	for i, s := range segs {
+		segs[i] = url.PathEscape(s)
+	}
+	return strings.Join(segs, "/")
+}
+
 // sourceLink is the forge page for a source file (GitHub blob for gh repos).
 func (s *vizServer) sourceLink(file string, line int) string {
 	file = strings.TrimSpace(file)
@@ -428,7 +439,7 @@ func (s *vizServer) sourceLink(file string, line int) string {
 	if branch == "" {
 		branch = "HEAD"
 	}
-	u := fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s", s.owner, s.repo, branch, file)
+	u := fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s", s.owner, s.repo, vizEscapePath(branch), vizEscapePath(file))
 	if line > 0 {
 		u += fmt.Sprintf("#L%d", line)
 	}
@@ -970,6 +981,14 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	pool := view * 3
 	if pool < 4000 {
 		pool = 4000
+	}
+	// The pool is ranking headroom, not render size — cap it at the same
+	// safety ceiling so a maxed slider can't triple the documented worst case.
+	// As view approaches the ceiling the headroom shrinks until view == pool,
+	// where ranking degenerates to keep-everything — which is exactly what
+	// "render all" means at that size.
+	if pool > vizGraphMaxView {
+		pool = vizGraphMaxView
 	}
 	syms, err := s.semanticSymbolPool(sem, pool)
 	if err != nil {
