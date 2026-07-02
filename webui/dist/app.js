@@ -377,13 +377,14 @@ async function startReplay(sessionId) {
       $('empty-body').textContent = (d.warnings && d.warnings[0]) || 'This session touched no indexed symbols.';
       return;
     }
-    graph.setData(nodes, d.edges || []);
-    graph.setReplay([], new Set());
+    graph.setData(nodes, d.edges || []); // autoFit frames the whole subgraph as it settles
     replay = { steps: d.steps || [], idx: -1, playing: false, timer: null, name: (d.session && d.session.name) || 'session' };
     $('rp-title').textContent = replay.name;
     const scrub = $('rp-scrub'); scrub.min = 0; scrub.max = Math.max(0, replay.steps.length - 1); scrub.value = 0;
     $('replaybar').classList.remove('hidden');
-    setTimeout(() => { if (currentFeature === 'replay' && replay) { graph.zoomToFit(false); replaySeek(0); replayPlay(); } }, 450);
+    // Let it settle + frame the whole graph first, then start stepping through it
+    // in place (no per-step camera jumps — that was the disorienting part).
+    setTimeout(() => { if (currentFeature === 'replay' && replay) { graph.zoomToFit(false); replaySeek(0); replayPlay(); } }, 1100);
   } catch (e) {
     $('loading').classList.add('hidden'); $('empty').classList.remove('hidden');
     $('empty-title').textContent = 'Could not load replay'; $('empty-body').textContent = String(e.message || e);
@@ -397,7 +398,6 @@ function replayApply() {
   const visited = new Set();
   for (let i = 0; i <= replay.idx; i++) (replay.steps[i].ids || []).forEach((id) => visited.add(id));
   graph.setReplay(active, visited);
-  if (active.length) graph.panToIds(active, 1.15);
   $('rp-step').textContent = `${replay.idx + 1} / ${replay.steps.length}`;
   $('rp-file').textContent = step ? `${step.file}  ·  ${step.ids.length ? step.ids.length + ' symbols' : 'no symbols'}` : '';
   $('rp-scrub').value = String(replay.idx);
@@ -411,7 +411,7 @@ function replayPlay() {
   replay.timer = setInterval(() => {
     if (!replay || replay.idx >= replay.steps.length - 1) { replayPause(); return; }
     replaySeek(replay.idx + 1);
-  }, 1150);
+  }, 1700);
 }
 function replayPause() { if (!replay) return; replay.playing = false; clearInterval(replay.timer); replay.timer = null; $('rp-play').textContent = RP_PLAY; }
 function replayToggle() {

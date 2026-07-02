@@ -32,6 +32,7 @@ export function createGraph(canvas, handlers = {}) {
   const velocityDecay = 0.6;
   let hover = null, selected = null, focusSet = null;
   let replayActive = null, replayVisited = null; // Sets of node ids during session replay
+  let replayLead = null; // top-degree active ids that get labels/rings (a file can touch 100s of symbols)
   let autoFit = false; // keep the view framed while the sim settles (any graph size)
   let dirty = true, W = 0, H = 0, dpr = 1;
 
@@ -257,9 +258,15 @@ export function createGraph(canvas, handlers = {}) {
     autoFit = false;
     replayActive = new Set(activeIds || []);
     replayVisited = new Set(visitedIds || []);
+    // A single step is one file, which can map to hundreds of symbols. Only the
+    // few highest-degree ones get a label + ring + glow; the rest just brighten,
+    // so the step reads as "this cluster lit up" instead of a wall of text.
+    const active = (activeIds || []).map((id) => byId.get(id)).filter(Boolean);
+    active.sort((a, b) => (b.degree || 0) - (a.degree || 0));
+    replayLead = new Set(active.slice(0, 5).map((n) => n.id));
     dirty = true;
   }
-  function clearReplay() { replayActive = null; replayVisited = null; dirty = true; }
+  function clearReplay() { replayActive = null; replayVisited = null; replayLead = null; dirty = true; }
   function panToIds(ids, scale) {
     autoFit = false;
     const pts = (ids || []).map((id) => byId.get(id)).filter(Boolean);
@@ -311,30 +318,35 @@ export function createGraph(canvas, handlers = {}) {
       if (x < -50 || y < -50 || x > W + 50 || y > H + 50) continue;
       const r = Math.max(radius(n) * cam.scale, 1.5);
       const col = nodeColor(n);
-      let alpha = 1, isActive = false;
+      let alpha = 1, isActive = false, isLead = false;
       if (replaying) {
         isActive = replayActive.has(n.id);
-        alpha = isActive ? 1 : (replayVisited.has(n.id) ? 0.92 : 0.1);
+        isLead = isActive && replayLead && replayLead.has(n.id);
+        alpha = isActive ? 1 : (replayVisited.has(n.id) ? 0.42 : 0.1);
       } else {
         const dim = hi && n !== hi && !(incident && [...incident].some((e) => e.source === n || e.target === n));
         const focusDim = !hi && focusSet && !focusSet.has(n.id);
-        alpha = (dim || focusDim) ? 0.28 : 1;
+        // Keep dimmed context clearly visible (0.5, not near-invisible) so moving
+        // the cursor over a sparse graph doesn't make everything flicker away.
+        alpha = (dim || focusDim) ? 0.5 : 1;
       }
-      if (isActive) { // expanding pulse ring on the currently-replaying symbols
+      if (isLead) { // expanding pulse ring on the few lead symbols only (not all 100s)
         ctx.globalAlpha = 0.55 * (1 - pulse * 0.7);
         ctx.beginPath(); ctx.arc(x, y, r + 4 + pulse * 11, 0, Math.PI * 2);
         ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
       }
       ctx.globalAlpha = alpha;
-      if (n === hi || n === selected || isActive) { ctx.shadowColor = col; ctx.shadowBlur = isActive ? 18 : 16; }
+      if (n === hi || n === selected || isLead) { ctx.shadowColor = col; ctx.shadowBlur = isLead ? 18 : 16; }
       ctx.beginPath(); ctx.arc(x, y, isActive ? r + 1.5 : r, 0, Math.PI * 2);
       ctx.fillStyle = col; ctx.fill();
       ctx.shadowBlur = 0;
       if (n === selected) { ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke(); }
       else if (n.fixed) { ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.stroke(); }
-      const wantLabel = n === hi || n === selected || isActive || (showLabels && n.degree >= 5) || (replaying && replayVisited.has(n.id) && cam.scale > 0.75);
+      // During replay label ONLY the few lead symbols of the active step — a file
+      // can touch hundreds of symbols and labeling all of them is an unreadable wall.
+      const wantLabel = n === hi || n === selected || isLead || (!replaying && showLabels && n.degree >= 5);
       if (wantLabel) {
-        ctx.globalAlpha = alpha < 0.5 ? 0.2 : 0.92;
+        ctx.globalAlpha = alpha < 0.5 ? 0.25 : 0.92;
         ctx.fillStyle = '#f3f3f3';
         ctx.font = '11px ui-monospace, Menlo, monospace';
         ctx.textAlign = 'center';
