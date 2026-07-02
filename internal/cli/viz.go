@@ -29,8 +29,14 @@ import (
 const vizDefaultLimit = 4000
 
 // vizGraphMaxView is the hard ceiling on rendered semantic nodes (the node-count
-// slider can't exceed it) — past this the force sim stops being interactive.
-const vizGraphMaxView = 3000
+// slider can't exceed it). High enough to show a large repo's whole graph.
+const vizGraphMaxView = 12000
+
+// vizGraphMaxEdges caps rendered edges regardless of node count. A dense graph
+// can have tens of thousands of relations; drawing them all per frame kills the
+// canvas and the force sim. Nodes are ranked by degree, so the retained edges are
+// the ones among the most-connected symbols.
+const vizGraphMaxEdges = 6000
 
 // vizGraphViewCap bounds how many symbols actually render in the semantic view.
 // We load a wider pool (vizDefaultLimit), compute degree, then keep the most-
@@ -921,6 +927,9 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 		keptSet[kept[i].ID] = true
 	}
 	for i := range rels {
+		if len(resp.Edges) >= vizGraphMaxEdges {
+			break
+		}
 		e := rels[i]
 		if keptSet[e.FromID] && keptSet[e.ToID] {
 			resp.Edges = append(resp.Edges, edgeJSON(e))

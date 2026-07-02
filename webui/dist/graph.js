@@ -25,7 +25,10 @@ export function createGraph(canvas, handlers = {}) {
   let nodes = [], edges = [], byId = new Map();
   let cam = { scale: 1, tx: 0, ty: 0 };
   let alpha = 0, alphaTarget = 0;
-  const alphaDecay = 1 - Math.pow(0.001, 1 / 300);
+  // alphaDecay controls how many ticks the sim runs before freezing. Big graphs
+  // rebuild a quadtree every tick, so we settle them in far fewer ticks (set in
+  // setData) to keep large views from janking for tens of seconds.
+  let alphaDecay = 1 - Math.pow(0.001, 1 / 300);
   const velocityDecay = 0.6;
   let hover = null, selected = null, focusSet = null;
   let replayActive = null, replayVisited = null; // Sets of node ids during session replay
@@ -62,6 +65,9 @@ export function createGraph(canvas, handlers = {}) {
       edges.push({ ...e, source: s, target: t });
     }
     selected = null; hover = null; focusSet = null;
+    // Fewer settling ticks for large graphs (each tick rebuilds the quadtree).
+    const iters = nodes.length > 5000 ? 70 : nodes.length > 2500 ? 110 : nodes.length > 1200 ? 180 : 300;
+    alphaDecay = 1 - Math.pow(0.001, 1 / iters);
     reheat(1);
     zoomToFit(false);
   }
@@ -127,7 +133,9 @@ export function createGraph(canvas, handlers = {}) {
     // Repulsion must grow with the node count, or dense graphs (many edges pulling
     // inward) collapse along one axis into a spindle instead of spreading in 2D.
     const chargeScale = Math.min(1 + nodes.length / 500, 4.5);
-    const theta2 = 0.81, strength = -34 * chargeScale * alpha;
+    // Coarser Barnes-Hut (larger theta) on big graphs = far fewer tree descents.
+    const theta2 = nodes.length > 5000 ? 2.0 : nodes.length > 2000 ? 1.3 : 0.81;
+    const strength = -34 * chargeScale * alpha;
     for (const n of nodes) {
       const stack = [root];
       while (stack.length) {

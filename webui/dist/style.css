@@ -120,7 +120,7 @@ button { font: inherit; color: inherit; }
 #graph { display: block; width: 100%; height: 100%; }
 #graph:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 
-.stage-tools { position: absolute; bottom: 16px; right: 16px; display: flex; gap: 8px; z-index: 4; }
+.stage-tools { position: absolute; bottom: 16px; right: 58px; display: flex; gap: 8px; z-index: 4; }
 .tool { background: var(--surface-floating); border: 1px solid var(--border-default); border-radius: var(--r-sm); color: var(--text-muted); padding: 6px 10px; font-size: 12px; cursor: pointer; box-shadow: var(--shadow-float); }
 .tool:hover { color: var(--text-default); background: var(--surface-raised); }
 
@@ -239,7 +239,7 @@ button { font: inherit; color: inherit; }
 .rp-file { font-family: var(--font-mono); font-size: 10px; color: var(--text-disabled); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 230px; }
 
 /* ---- sound toggle ---- */
-#sound-toggle { position: fixed; left: 16px; bottom: 72px; z-index: 60; width: 32px; height: 32px; border-radius: 50%;
+#sound-toggle { position: absolute; right: 16px; bottom: 16px; z-index: 7; width: 32px; height: 32px; border-radius: 50%;
   background: var(--surface-floating); border: 1px solid var(--border-default); color: var(--text-disabled);
   cursor: pointer; font-size: 14px; display: inline-flex; align-items: center; justify-content: center;
   box-shadow: var(--shadow-float); transition: all 140ms var(--ease); }

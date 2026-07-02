@@ -77,6 +77,12 @@
           <div class="rp-status"><span id="rp-step" class="rp-step"></span><span id="rp-file" class="rp-file"></span></div>
         </div>
       </section>
+
+      <!-- sound toggle (synthesized, no external audio; sits over the graph, bottom-right) -->
+      <button id="sound-toggle" title="Toggle interface sounds" aria-label="Toggle interface sounds" aria-pressed="false">
+        <span class="snd-on" aria-hidden="true">&#9834;</span>
+        <span class="snd-off" aria-hidden="true">&#9834;</span>
+      </button>
     </main>
 
     <!-- inspector (semantic view) -->
@@ -94,12 +100,6 @@
       </div>
       <div class="insp-scroll" id="insp-body"></div>
     </aside>
-
-    <!-- sound toggle (synthesized, no external audio; off by default until enabled) -->
-    <button id="sound-toggle" title="Toggle interface sounds" aria-label="Toggle interface sounds" aria-pressed="false">
-      <span class="snd-on" aria-hidden="true">&#9834;</span>
-      <span class="snd-off" aria-hidden="true">&#9834;</span>
-    </button>
   </div>
 
   <!-- command palette -->
