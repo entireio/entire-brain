@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.7.8-nightly.202606290756.c457486ca",
+  "checkpoint_version": "branch-v1",
+  "checkpoint_id": "b595ae1e408b",
+  "strategy": "manual-commit",
+  "branch": "claude/cc-debug",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/viz.go",
+    "internal/cli/viz_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b5/95ae1e408b/0/metadata.json",
+      "transcript": "/b5/95ae1e408b/0/full.jsonl",
+      "compact_transcript": "/b5/95ae1e408b/0/transcript.jsonl",
+      "content_hash": "/b5/95ae1e408b/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 725,
+    "cache_creation_tokens": 9770,
+    "cache_read_tokens": 2986741,
+    "output_tokens": 7189,
+    "api_call_count": 13
+  }
+}
