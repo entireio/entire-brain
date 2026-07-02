@@ -163,6 +163,31 @@ func TestFindSemanticRelationsForSymbols_ChunksLargeInClause(t *testing.T) {
 	}
 }
 
+// Every endpoint's ?limit goes through one policy: bad input keeps the
+// default, and both the 0 sentinel and huge values clamp to the safety
+// ceiling — no query parameter can request an unbounded graph.
+func TestVizQueryLimit_ClampsToSafetyCeiling(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		query string
+		def   int
+		want  int
+	}{
+		{"", 3000, 3000},
+		{"limit=25", 3000, 25},
+		{"limit=0", 3000, vizGraphMaxView},
+		{"limit=99999999", 3000, vizGraphMaxView},
+		{"limit=-5", 3000, 3000},
+		{"limit=abc", 3000, 3000},
+	}
+	for _, tc := range cases {
+		r := httptest.NewRequest(http.MethodGet, "/api/facts?"+tc.query, nil)
+		if got := vizQueryLimit(r, tc.def); got != tc.want {
+			t.Errorf("vizQueryLimit(%q, %d) = %d, want %d", tc.query, tc.def, got, tc.want)
+		}
+	}
+}
+
 // Repo links must work for every forge slug the store layer knows (et/tg/cs,
 // not just gh/gl/bb) and for nested owner groups via the manifest RepoKey.
 func TestParseRepoFromKey(t *testing.T) {

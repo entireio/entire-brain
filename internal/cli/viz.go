@@ -306,13 +306,20 @@ func (s *vizServer) sessionsFromManifest() []exportSession {
 	return s.manifest.Sources.Sessions.Sessions
 }
 
+// vizQueryLimit parses ?limit with the shared safety policy: invalid input
+// keeps the default, and both the 0 "no cap" sentinel and anything above the
+// ceiling clamp to vizGraphMaxView — no endpoint serves an unbounded graph.
 func vizQueryLimit(r *http.Request, def int) int {
+	limit := def
 	if v := r.URL.Query().Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			return n
+			limit = n
 		}
 	}
-	return def
+	if limit <= 0 || limit > vizGraphMaxView {
+		limit = vizGraphMaxView
+	}
+	return limit
 }
 
 // ---- feature graph endpoints (each brain feature rendered as a graph) ----
@@ -799,13 +806,9 @@ func vizHistoryColor(kind string) string {
 func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 	// History can hold hundreds of thousands of records — far too many to render
 	// legibly — so it stays capped (the UI shows an honest "N of total"), but the
-	// node-count slider lets you dial it up. Sessions/docs are shown in full.
+	// node-count slider lets you dial it up. The 0 sentinel and the vizGraphMaxView
+	// safety ceiling are enforced inside vizQueryLimit for every endpoint.
 	limit := vizQueryLimit(r, 1200)
-	// Treat the 0 "no cap" sentinel as the ceiling too, so it can't slip past the
-	// safety bound and try to render every record on a very large brain.
-	if limit <= 0 || limit > vizGraphMaxView {
-		limit = vizGraphMaxView
-	}
 	if s.manifest == nil || s.manifest.Sources == nil || s.manifest.Sources.History == nil {
 		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"no history yet — run `entire brain refresh`"}})
 		return
@@ -995,7 +998,15 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	for i := range syms {
 		poolSet[syms[i].ID] = true
 	}
+	// Relations feed degree ranking (which wants a wider sample than the render
+	// budget) and then edge selection (hard-capped at edgeCap). Past a few
+	// multiples of the max edge budget, extra relations barely move the ranking
+	// but cost real load/merge time — ceiling the fetch keeps a 300k-node
+	// request from pulling millions of rows it can never render.
 	relLimit := pool * 4
+	if relLimit > 4*vizGraphMaxEdges {
+		relLimit = 4 * vizGraphMaxEdges
+	}
 	var rels []semanticRecord
 	if r, rerr := s.relationsForSymbols(sem, syms, relLimit); rerr != nil {
 		resp.Warnings = append(resp.Warnings, "relations: "+rerr.Error())
