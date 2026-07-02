@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>entire brain</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- left rail -->
+    <aside id="rail">
+      <button class="brand" id="home" title="Back to the brain overview">
+        <img class="mark" src="symbol.svg" alt="" aria-hidden="true" />
+        <span class="brand-text">
+          <span class="title">entire brain</span>
+          <span class="sub" id="brand-sub">viz</span>
+        </span>
+      </button>
+
+      <div class="rail-search">
+        <span class="icon" aria-hidden="true">&#9906;</span>
+        <input id="search" type="search" placeholder="Search the brain&#8230;" autocomplete="off" spellcheck="false" aria-label="Search the brain" />
+        <span class="hint">&#8984;K</span>
+      </div>
+
+      <div class="rail-section" id="results-label" hidden>Results</div>
+      <div class="rail-scroll" id="results"></div>
+
+      <div class="legend hidden" id="legend">
+        <div class="row"><span class="dot" style="background:var(--k-function)"></span> function / method</div>
+        <div class="row"><span class="dot" style="background:var(--k-type)"></span> type / class</div>
+        <div class="row"><span class="dot" style="background:var(--k-value)"></span> const / var</div>
+        <div class="row"><span class="dot" style="background:var(--k-entry)"></span> entry-point</div>
+      </div>
+      <div class="counts" id="counts"></div>
+    </aside>
+
+    <!-- main -->
+    <main id="main">
+      <img id="brand-logo" src="logo.svg" alt="entire" />
+      <div class="topbar hidden" id="topbar">
+        <button class="back" id="back">&#8592; Brain</button>
+        <span class="crumb-sep">/</span>
+        <span class="crumb-title" id="crumb-title"></span>
+        <span class="crumb-count" id="crumb-count"></span>
+        <div class="node-ctl hidden" id="node-ctl">
+          <span class="node-ctl-lead">nodes</span>
+          <input id="node-slider" type="range" min="50" max="1400" value="1400" step="10" aria-label="Number of nodes shown" />
+          <span id="node-slider-val" class="node-ctl-val"></span>
+        </div>
+      </div>
+
+      <!-- Level 1: radial feature constellation -->
+      <section id="hub" class="view">
+        <div class="hub-stage" id="hub-stage"></div>
+      </section>
+
+      <!-- Level 2: every feature renders as a graph -->
+      <section id="graphview" class="view hidden">
+        <canvas id="graph" tabindex="0" aria-label="Brain feature graph"></canvas>
+        <div class="stage-tools"><button class="tool" id="fit" title="Zoom to fit (0)">Fit</button></div>
+        <div class="tooltip" id="tooltip"></div>
+        <div class="overlay" id="loading"><div class="card"><div class="spinner"></div><p>Loading the graph&#8230;</p></div></div>
+        <div class="overlay hidden" id="empty"><div class="card"><h2 id="empty-title">No graph yet</h2><p id="empty-body">Run <code>entire brain refresh</code>, then reopen.</p></div></div>
+
+        <!-- session replay transport -->
+        <div id="replaybar" class="hidden" role="group" aria-label="Session replay">
+          <button class="rp-btn" id="rp-close" title="Exit replay" aria-label="Exit replay">&#215;</button>
+          <div class="rp-meta"><span class="rp-lead">REPLAY</span><span id="rp-title"></span></div>
+          <div class="rp-transport">
+            <button class="rp-btn" id="rp-prev" title="Previous step" aria-label="Previous step">&#9198;</button>
+            <button class="rp-btn rp-play" id="rp-play" title="Play / pause" aria-label="Play or pause">&#9654;</button>
+            <button class="rp-btn" id="rp-next" title="Next step" aria-label="Next step">&#9197;</button>
+          </div>
+          <input id="rp-scrub" type="range" min="0" max="0" value="0" step="1" aria-label="Replay position" />
+          <div class="rp-status"><span id="rp-step" class="rp-step"></span><span id="rp-file" class="rp-file"></span></div>
+        </div>
+      </section>
+
+      <!-- sound toggle (synthesized, no external audio; sits over the graph, bottom-right) -->
+      <button id="sound-toggle" title="Toggle interface sounds" aria-label="Toggle interface sounds" aria-pressed="false">
+        <span class="snd-on" aria-hidden="true">&#9834;</span>
+        <span class="snd-off" aria-hidden="true">&#9834;</span>
+      </button>
+    </main>
+
+    <!-- inspector (semantic view) -->
+    <aside id="inspector" aria-live="polite">
+      <div class="insp-head">
+        <button class="insp-close" id="insp-close" aria-label="Close inspector">&#215;</button>
+        <div class="insp-kind" id="insp-kind"><span class="dot"></span><span></span></div>
+        <div class="insp-name" id="insp-name"></div>
+        <div class="insp-qual" id="insp-qual"></div>
+        <div class="insp-file" id="insp-file"></div>
+      </div>
+      <div class="insp-actions">
+        <button id="insp-expand">Expand neighbors</button>
+        <button id="insp-focus" class="primary">Focus</button>
+      </div>
+      <div class="insp-scroll" id="insp-body"></div>
+    </aside>
+  </div>
+
+  <!-- command palette -->
+  <div id="palette" class="hidden" role="dialog" aria-modal="true" aria-label="Command palette">
+    <div class="box">
+      <input id="palette-input" type="text" placeholder="Jump to a symbol, fact, or memory&#8230;" autocomplete="off" spellcheck="false" />
+      <div class="list" id="palette-list"></div>
+      <div class="foot"><span><kbd>&#8593;</kbd><kbd>&#8595;</kbd> navigate</span><span><kbd>&#8629;</kbd> open</span><span><kbd>esc</kbd> close</span></div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

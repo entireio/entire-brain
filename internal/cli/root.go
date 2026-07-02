@@ -110,6 +110,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addGrouped("explore", newMultiGetCommand(opts))
 	addGrouped("explore", newBrainShowCommand(opts))
 	addGrouped("explore", newDashCommand(opts))
+	addGrouped("explore", newVizCommand(opts))
 
 	// Maintain & share — freshness, cleanup, portability, version.
 	// (Build stages live under `refresh`: sessions, index, seed.)
