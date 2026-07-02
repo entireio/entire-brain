@@ -1233,8 +1233,10 @@ func (s *vizServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSONHTTP(w, http.StatusOK, resp)
 }
 
-// relationsForSymbols returns the relations among the given symbols, mirroring
-// the SQLite-vs-snapshot branch semanticContextFacts uses (semantic.go).
+// relationsForSymbols returns relations INCIDENT to the given symbols — either
+// endpoint may be outside the set (the queries match from_id OR to_id); callers
+// that need both endpoints inside filter the result themselves. Mirrors the
+// SQLite-vs-snapshot branch semanticContextFacts uses (semantic.go).
 func (s *vizServer) relationsForSymbols(sem *semanticSourceManifest, syms []semanticRecord, limit int) ([]semanticRecord, error) {
 	if sem.StorePath != "" {
 		storePath, err := validateSemanticDeclaredStore(s.brainDir, sem)
