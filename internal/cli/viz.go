@@ -647,7 +647,16 @@ func (s *vizServer) handleFacts(w http.ResponseWriter, r *http.Request) {
 
 func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 	limit := vizQueryLimit(r, 3000)
-	sessions := s.sessionsFromManifest()
+	// Same defense as facts/history: node IDs must be unique and non-empty.
+	// Filter before counting so Total and the slider's "N of total" stay
+	// consistent with the nodes actually served.
+	all := s.sessionsFromManifest()
+	sessions := make([]exportSession, 0, len(all))
+	for _, se := range all {
+		if se.SessionID != "" {
+			sessions = append(sessions, se)
+		}
+	}
 	total := len(sessions)
 	trunc := limit > 0 && total > limit
 	if trunc {
@@ -656,10 +665,6 @@ func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 	nodes := make([]vizGNode, 0, len(sessions))
 	fileMap := map[string][]string{}
 	for _, se := range sessions {
-		// Same defense as facts/docs: node IDs must be unique and non-empty.
-		if se.SessionID == "" {
-			continue
-		}
 		created := ""
 		if !se.CreatedAt.IsZero() {
 			created = se.CreatedAt.UTC().Format("2006-01-02 15:04Z")
@@ -936,7 +941,15 @@ func (s *vizServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"docs unavailable: " + err.Error()}})
 		return
 	}
-	recs := idx.Records
+	// Same defense as facts/history: an empty ID (corrupt/hand-edited index)
+	// would make every such record collide on the node ID "doc:". Filter
+	// before counting so Total and the slider's "N of total" stay consistent.
+	recs := make([]docRecord, 0, len(idx.Records))
+	for _, d := range idx.Records {
+		if d.ID != "" {
+			recs = append(recs, d)
+		}
+	}
 	total := len(recs)
 	trunc := limit > 0 && total > limit
 	if trunc {
@@ -945,11 +958,6 @@ func (s *vizServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 	nodes := make([]vizGNode, 0, len(recs))
 	pathMap := map[string][]string{}
 	for _, d := range recs {
-		// Same defense as facts: an empty ID (corrupt/hand-edited index) would
-		// make every such record collide on the node ID "doc:".
-		if d.ID == "" {
-			continue
-		}
 		name := firstNonEmpty(d.Heading, filepath.Base(d.Path))
 		text := d.Text
 		if len(text) > 500 {
