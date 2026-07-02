@@ -1,0 +1,688 @@
+Review this PR: https://github.com/ashtom/entire-brain/pull/55
+
+---
+
+<task-notification>
+<task-id>a3d2290beaf397658</task-id>
+<tool-use-id>toolu_01MJw15juP1fygevv7uTegWK</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/a3d2290beaf397658.output</output-file>
+<status>completed</status>
+<summary>Agent "Conventions angle" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>No CLAUDE.md files govern the changed code: there is no ~/.claude/CLAUDE.md, no repo-root CLAUDE.md, none in internal/, internal/cli/, or webui/ (either on main or in the PR head tree). The only CLAUDE.md files in the repo are benchmark seed fixtures under benchmarks/agent-brain/cache/, which are test data for a different repo and do not govern the changed files.
+
+[]</result>
+<usage><subagent_tokens>16777</subagent_tokens><tool_uses>3</tool_uses><duration_ms>36590</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ae6542e95deeabcec</task-id>
+<tool-use-id>toolu_01PPSJnh4ozNjPTKVXBzwJ67</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/ae6542e95deeabcec.output</output-file>
+<status>completed</status>
+<summary>Agent "Efficiency angle" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Line numbers verified. Final findings:
+
+[
+  {
+    "file": "internal/cli/viz.go",
+    "line": 697,
+    "summary": "handleSessionReplay calls loadSemanticSymbols(s.brainDir, sem, 0) — loading the ENTIRE symbol table (up to 300k records, all columns including blobs) on every replay request, only to keep the handful of symbols whose FilePath is in the session's touched set (capped at vizReplayMaxNodes=1500). Cheaper: query symbols by file path (SELECT ... WHERE file_path IN (...) for the SQLite store, mirroring loadSemanticSymbolsByIDsSQLite), or cache the full load once per server lifetime since the store is immutable after startup.",
+    "failure_scenario": "On a 300k-symbol brain, every click of 'Replay on graph' does a full-store scan + decode of 300k records (hundreds of MB of allocation, multiple seconds) to extract ~1500 nodes; scrubbing between sessions repeats it each time."
+  },
+  {
+    "file": "internal/cli/semantic.go",
+    "line": 3750,
+    "summary": "Each 900-id chunk runs `WHERE from_id IN (...) OR to_id IN (...) ORDER BY id LIMIT ?` with the FULL global limit bound per chunk. The OR of two IN-lists defeats index use, so each chunk is effectively a full scan of the relations table, and each chunk can return up to `limit` rows before the merge truncates. Cheaper: insert the ids into an indexed TEMP table and do one query joining relations against it (or two UNIONed indexed lookups), keeping one ORDER BY id LIMIT.",
+    "failure_scenario": "handleGraph at the 300k-node slider passes ~300k symbols and relLimit≈1.2M: ~334 chunks × a full relations-table scan each = hundreds of millions of row evaluations, plus up to 334×limit rows fetched into `merged` before truncation — one /api/graph request pins a core for tens of seconds and allocates far past the final result size."
+  },
+  {
+    "file": "internal/cli/viz.go",
+    "line": 901,
+    "summary": "handleGraph rebuilds everything from disk per request with zero caching, even though vizServer explicitly captures an immutable brain at startup: it reopens SQLite, loads pool=view*3 symbols, loads pool*4 relations, and re-runs degree ranking + coverage-capped edge selection. The node-count slider (debounced at 260ms in app.js) fires this repeatedly while dragging. Cheaper: memoize the loaded symbol/relation pool (or at least the degree-ranked pool) keyed by pool size — subsequent slider positions only need the in-memory rank/slice step.",
+    "failure_scenario": "Dragging the slider on a 300k-symbol brain issues a burst of requests, each re-reading and re-ranking up to 900k symbols and 1.2M relations from SQLite; combined with the chunked-scan cost above, the UI stalls for minutes doing work whose inputs never changed between requests."
+  },
+  {
+    "file": "webui/dist/graph.js",
+    "line": 384,
+    "summary": "While autoFit is on, frame() calls zoomToFit(false) EVERY animation frame until the sim settles, and zoomToFit allocates two n-length arrays and sorts both (O(n log n) ×2) to get 2nd/98th-percentile bounds. Cheaper: compute the percentile fit at most every ~10 ticks (positions barely move per tick), or track approximate bounds incrementally in tick(); exact percentiles are not needed per frame.",
+    "failure_scenario": "At the 300k-node slider setting, each settling frame does two 300k-element map+sort passes (~tens of millions of comparisons plus 600k temp allocations) on top of the quadtree rebuild — the 220-tick settle phase becomes a multi-second jank/GC storm purely from camera fitting."
+  },
+  {
+    "file": "webui/dist/graph.js",
+    "line": 327,
+    "summary": "In draw(), the per-node dim test spreads the `incident` Set into a fresh array and linearly scans it for every node, every frame while hovering/selecting: `[...incident].some((e) =&gt; e.source === n || e.target === n)`. That is O(nodes × incidentEdges) plus one array allocation per node per frame. Cheaper: when computing `incident` (once per frame, line 291), also build a Set of neighbor node objects/ids and test membership with O(1) `neighborSet.has(n)`.",
+    "failure_scenario": "Hovering a hub with ~500 incident edges in a 90k-edge, 300k-node view does 300k × 500 = 150M comparisons and 300k array allocations per frame — hover interaction drops well below 60fps and churns the GC exactly when the user is moving the mouse."
+  },
+  {
+    "file": "internal/cli/viz.go",
+    "line": 811,
+    "summary": "handleHistory has no edge cap: it emits shared-topic edges + same-file edges + an unconditional n-1 'then' timeline-spine edge per record, while the render/payload edge ceiling (vizGraphMaxEdges=90000) is enforced only in handleGraph. Cheaper: apply the same scaled edge budget used by handleGraph (or at minimum cap total edges at vizGraphMaxEdges) before serializing.",
+    "failure_scenario": "With history at the slider max (limit clamps to vizGraphMaxView=300000), the spine alone is ~300k edges plus the shared-key passes — a JSON payload and client edge array &gt;3x the PR's own 90k-edge worst-case budget, defeating the draw-cost ceiling graph.js was tuned for and wasting serialization/transfer on edges the sim can't legibly render."
+  }
+]</result>
+<usage><subagent_tokens>80836</subagent_tokens><tool_uses>4</tool_uses><duration_ms>129746</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a4388907ec83786fa</task-id>
+<tool-use-id>toolu_01KZC6eN1K9Y9K89tDdan5mc</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/a4388907ec83786fa.output</output-file>
+<status>completed</status>
+<summary>Agent "Simplification angle" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>[
+  {
+    "file": "internal/cli/viz.go",
+    "line": 79,
+    "summary": "The `--limit` flag, `vizDefaultLimit`, and the `vizServer.limit`, `opts`, and `target` fields are dead: `limit` is parsed and stored at construction (line 118) but nothing ever reads `s.limit` — handleGraph derives its size from `vizGraphViewCap` and the `?limit=` query param instead; `s.opts` and `s.target` are likewise never referenced after construction. Simpler form: delete the flag, the constant, and the three unused struct fields.",
+    "failure_scenario": "A user runs `entire brain viz --limit 500` and the graph ignores it silently, producing a bug report; meanwhile the next maintainer wires new behavior to `s.limit` assuming it already works, or wastes time tracing why the documented flag has no effect."
+  },
+  {
+    "file": "internal/cli/viz.go",
+    "line": 1072,
+    "summary": "nodeDetail duplicates its entire ~25-line body for the SQLite and snapshot branches — load-by-id, missing-node check, relations fetch with limit*4, resolveNeighbors — differing only in which two loader functions are called. The file already shows the simpler shape in relationsForSymbols: branch once to pick a `loadByIDs` and a `findRels` closure, then run one shared body.",
+    "failure_scenario": "Any change to node detail (e.g. bumping the relation limit, adding container lookup, changing the not-found contract) must be made twice; the branches will drift, and since most dev setups exercise only one storage backend, the stale copy ships unnoticed."
+  },
+  {
+    "file": "internal/cli/viz.go",
+    "line": 634,
+    "summary": "handleSessionReplay copy-pastes the session-node construction from handleSessions (lines 646–671 vs 574–600): the same created-timestamp formatting, `agent · model` name with `session &lt;shortID&gt;` fallback, Summary intent/outcome text, sessionLink, and 'Open in Entire' label. Extract one `sessionGNode(se exportSession) vizGNode` helper used by both.",
+    "failure_scenario": "When the session card gains a field or the name fallback changes, the sessions list and the replay header render differently — e.g. the replay bar shows a different title than the node the user clicked — and the fix has to be found and applied in two places."
+  },
+  {
+    "file": "webui/dist/graph.js",
+    "line": 270,
+    "summary": "panToIds is defined and exported (line 454) but has no caller — app.js never uses it; the comment in startReplay ('no per-step camera jumps — that was the disorienting part') shows it is a leftover from removed per-step panning. The `get count()` accessor (line 457) is also unused. Delete both.",
+    "failure_scenario": "Future readers assume panToIds is part of the replay flow and maintain it (it duplicates zoomToFit's camera math), or re-enable it without realizing it was deliberately removed for being disorienting."
+  },
+  {
+    "file": "internal/cli/viz.go",
+    "line": 316,
+    "summary": "Two parallel node view models: vizNode (semantic /api/graph, /api/node) and vizGNode (facts/sessions/history/docs and — inconsistently — replay, which renders the same semantic symbols /api/graph does but as vizGNode). The frontend papers over the split with fallback chains (`n.group || n.kind`, `n.color || colorForKind(n.kind)`, `n.meta || n.qualified_name`) in tooltip, inspector, and openGraphNode. One node shape (vizGNode is already a superset apart from qualified_name/signature/container_id) serves every endpoint.",
+    "failure_scenario": "Every new node attribute (e.g. a trust badge) must be added to two Go structs and threaded through both JS fallback paths; a field added to one shape but not the other yields nodes that render correctly in one view and blank in another, as the replay/graph inconsistency already hints."
+  },
+  {
+    "file": "internal/cli/viz.go",
+    "line": 872,
+    "summary": "handleGraph and handleSearch (line ~1025) each re-implement inline the `?limit=` parsing that the dedicated helper vizQueryLimit (line 303) already provides, with a subtly different accept condition (`n &gt; 0` vs the helper's `n &gt;= 0`). Use the helper in both (or a `n &gt; 0` variant) instead of three copies of strconv.Atoi-and-validate.",
+    "failure_scenario": "A future change to limit semantics (say, honoring `limit=0` as 'no cap' uniformly, or adding a global ceiling) gets applied to vizQueryLimit and silently misses the two inline copies, giving endpoints inconsistent limit behavior that only surfaces as confusing UI truncation."
+  }
+]</result>
+<usage><subagent_tokens>78683</subagent_tokens><tool_uses>9</tool_uses><duration_ms>152213</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a2fe78a94938b93dc</task-id>
+<tool-use-id>toolu_01Xry14W8SRuBcz7oFMMn6k7</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/a2fe78a94938b93dc.output</output-file>
+<status>completed</status>
+<summary>Agent "Angle B: removed-behavior audit" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I completed the removed-behavior audit of the only file with deletions (`internal/cli/semantic.go`, `findSemanticRelationsForSymbolsInSQLite`). Verified invariants that ARE preserved: global `ORDER BY id LIMIT` (per-batch top-N + rowid merge/sort/trim is provably equivalent on a static DB; rowids are unique so no ties), cross-batch duplicate rows (deduped by rowid, covering rows matched via from_id in one batch and to_id in another), `limit&lt;=0` (SQLite `LIMIT 0` → empty and negative → unlimited in both versions; the final trim is guarded by `limit &gt; 0`), arg binding order, `sort` import, per-batch parameter count (1801 &lt; 32766 for both bundled drivers), and error propagation (old returned partial rows alongside err, but all callers discard results on error).
+
+[{"file":"internal/cli/semantic.go","line":3730,"summary":"The old single-statement query gave statement-level snapshot consistency over the relations table; the chunked version issues one query per 900-symbol batch on the same connection with no transaction, so batches can observe different DB states.","failure_scenario":"While `entire brain viz` serves handleGraph (16k+ symbols → multiple batches), a concurrent `entire brain refresh` rewrites relations in semantic.sqlite in place between batch queries. Merged output then mixes pre- and post-refresh generations (dangling edges to deleted symbols), and because dedup keys on rowid, a reused rowid from the new generation is silently dropped as 'seen' from the old one — returning a relation set that never existed in any single DB state, which the old single query could not produce. Wrapping the batch loop in a read transaction (BEGIN/COMMIT or a single conn with deferred tx) restores the old invariant."}]</result>
+<usage><subagent_tokens>33792</subagent_tokens><tool_uses>10</tool_uses><duration_ms>174321</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a69b7917d49b3da23</task-id>
+<tool-use-id>toolu_01JKyXpy6cqcyzCtscWZzbUg</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/a69b7917d49b3da23.output</output-file>
+<status>completed</status>
+<summary>Agent "Altitude angle" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>[
+  {
+    "file": "internal/cli/semantic.go",
+    "line": 3723,
+    "summary": "The IN-clause chunking (const chunk = 900, batch loop, per-batch closure) is implemented inline in findSemanticRelationsForSymbolsInSQLite, duplicating the identical inline chunk loop already in loadSemanticSymbolsByIDsSQLite (line 3904). Meanwhile sibling IN-clause queries with the same latent SQLITE_MAX_VARIABLE_NUMBER bug remain unchunked: findSemanticSymbolsForFilesSQLite (semantic.go ~4021), loadGraphSymbols (semantic_graph.go:1406), and loadGraphFiles (semantic_graph.go:1437). The knowledge 'SQLite caps bound variables, so chunk at 900' belongs in one shared helper (e.g. forEachIDChunk / a chunked-query utility), not copy-pasted per call site.",
+    "failure_scenario": "The next caller that passes a large id set to loadGraphSymbols or findSemanticSymbolsForFilesSQLite hits 'too many SQL variables' at runtime on big brains — the exact bug this PR just fixed — and the fixer copy-pastes a third chunk loop. If the chunk size ever needs adjusting (e.g. for an older SQLite build with a 999 cap), it must be found and changed in N places."
+  },
+  {
+    "file": "internal/cli/viz.go",
+    "line": 357,
+    "summary": "parseRepoFromBrainDir re-derives provider/owner/repo by string-splitting the tail of the brainDir filesystem path, with its own hardcoded provider list linkProviders = {gh, gl, bb} (line 352). The repo-key layout and provider slugs are already owned by env.go (knownRepoDomainSlugs has gh/gl/bb plus et/tg/cs, and brainDirForKey/repoKeyFromRemote define the dir structure). This is a parallel, lossy reimplementation one layer too low: the key should be plumbed through (resolveFactsTarget already resolves the brain) or parsed by an env.go-level helper.",
+    "failure_scenario": "Adding a new forge slug in knownRepoDomainSlugs (as was already done for entire.io 'et' and tangled.org 'tg') gives viz users silently missing session/source links because linkProviders was never updated. Any change to the repo-store directory layout in env.go breaks link generation with no compile error and no test pointing at the coupling — links just quietly disappear."
+  },
+  {
+    "file": "internal/cli/viz.go",
+    "line": 697,
+    "summary": "handleSessionReplay loads the ENTIRE symbol set (loadSemanticSymbols(s.brainDir, sem, 0)) and filters by touched file in handler code, even though the store layer already has an indexed by-file lookup, findSemanticSymbolsForFilesSQLite (semantic.go). It also unconditionally parses the NDJSON snapshot even when a SQLite store exists, unlike the same file's relationsForSymbols/nodeDetail, which correctly branch SQLite-vs-snapshot. The by-file symbol fetch belongs behind a loader-layer helper mirroring relationsForSymbols.",
+    "failure_scenario": "On a large brain (the PR's own comments cite ~172k records), every click on 'replay session' re-parses the full snapshot from disk and scans all symbols in Go to keep a few files' worth — seconds of latency and memory per request, when a WHERE file_path IN (...) query returns the same rows instantly. Anyone later optimizing this will discover the fast path already existed."
+  },
+  {
+    "file": "internal/cli/viz.go",
+    "line": 872,
+    "summary": "handleGraph hand-parses ?limit inline (and handleSearch does its own third copy at line 1026) instead of using vizQueryLimit, and the vizGraphMaxView safety ceiling is applied only in handleGraph and handleHistory — each with its own clamp code and its own 0-sentinel policy (handleGraph ignores 0, handleHistory maps 0 to the ceiling, vizQueryLimit accepts 0 as no-cap). Limit parsing + clamping is one policy scattered across four hand-rolled variants; a single parse-and-clamp helper should own it.",
+    "failure_scenario": "A new endpoint copies whichever variant is nearest and gets the clamp semantics subtly wrong (e.g. accepts limit=0 as unbounded where a ceiling was intended, as handleFacts/handleDocs already do), or a future change to the ceiling policy updates two of the four sites. The divergent 0-handling is already inconsistent behavior a user can observe across endpoints."
+  },
+  {
+    "file": "internal/cli/viz.go",
+    "line": 654,
+    "summary": "handleSessionReplay rebuilds the session display node with ~15 lines (created timestamp format, agent/model name fallback to 'session '+vizShortID, Summary intent/outcome text, sessionLink + 'Open in Entire' label, meta join) copy-pasted from handleSessions (lines 575-600). Both should call one sessionGNode(se exportSession) helper.",
+    "failure_scenario": "Any change to how a session is presented — a new fallback name source, a changed timestamp format, a renamed link label — gets made in the sessions view but not the replay header (or vice versa), so the same session renders differently in the two views. Classic silent-drift duplication with a trivial extraction fix."
+  }
+]</result>
+<usage><subagent_tokens>58405</subagent_tokens><tool_uses>16</tool_uses><duration_ms>195380</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a8e691a669762f1bc</task-id>
+<tool-use-id>toolu_01TztccQAmaJyanJKiArgcNY</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/a8e691a669762f1bc.output</output-file>
+<status>completed</status>
+<summary>Agent "Reuse angle" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I have enough evidence. Compiling the findings.
+
+```json
+[
+  {
+    "file": "internal/cli/viz.go",
+    "line": 1072,
+    "summary": "nodeDetail (and relationsForSymbols at line 1055) copy the entire SQLite-vs-snapshot branch of semanticContextFacts (internal/cli/semantic.go:2986) nearly line-for-line: validateSemanticDeclaredStore / snapshotFullPath split, loadSemanticSymbolsByIDs{SQLite,Snapshot}, findSemanticRelationsForSymbols{InSQLite,}, neighborCandidateIDs + resolveContextNeighbors. Only the seed differs (exact id vs FTS query). Extract a shared helper in semantic.go parameterized by the symbol-fetch step, or add a semanticContextForIDs sibling next to semanticContextFacts, instead of duplicating the two-backend dispatch in viz.go.",
+    "failure_scenario": "~70 duplicated lines encode the storage-backend dispatch in a second place. When the semantic store gains a change (new backend, changed validation like the symlink hardening pass, or the chunking fix this very PR had to apply), semantic.go gets fixed and viz.go's copy silently keeps the old behavior — exactly the class of drift the SQLITE_MAX_VARIABLE_NUMBER bug already demonstrated."
+  },
+  {
+    "file": "internal/cli/viz.go",
+    "line": 495,
+    "summary": "handleFacts aggregates facts across branches by iterating factBranches() (current branch + manifest.Sources.Facts.Branches) and calling loadFacts per branch with manual ID dedup. The codebase already has loadAllFactBranches(brainDir) (internal/cli/facts_manifest.go:13), which enumerates every branch directory on disk and returns map[branch][]factRecord — used by distill_cmd.go and facts_status_cmd.go for the same whole-brain view.",
+    "failure_scenario": "The viz copy depends on the manifest's branch list, so facts written for a branch not (yet) recorded in the manifest are invisible in the Facts view even though `facts status --all-branches` shows them; two different definitions of 'all branches' drift as the fact store layout evolves."
+  },
+  {
+    "file": "internal/cli/viz.go",
+    "line": 352,
+    "summary": "linkProviders = {\"gh\",\"gl\",\"bb\"} plus parseRepoFromBrainDir re-derive provider/owner/repo by splitting the brainDir path tail. The canonical repo key already exists: repoStorageKey/repoStorage.Key (internal/cli/env.go) computes it and the manifest persists it as exportManifest.RepoKey (internal/cli/export.go:2605, viz already holds s.manifest). The provider slug set is likewise already defined in knownRepoDomainSlugs (internal/cli/env.go:45), which viz's hardcoded subset shadows.",
+    "failure_scenario": "Two sources of truth for the repo key: when a new forge slug is added to knownRepoDomainSlugs (env.go already has \"et\", \"tg\", \"cs\" that viz's map omits) or the store layout under repos/ changes, viz's path-splitting silently returns empty provider and all entire.io/source links disappear, with no compile-time or test signal tying the two maps together."
+  },
+  {
+    "file": "internal/cli/viz.go",
+    "line": 1155,
+    "summary": "openBrowser duplicates the GOOS switch (darwin open / windows rundll32 / xdg-open) already implemented in openCmd (internal/tui/tui.go:391). The tui version is wrapped in a tea.Cmd, but the platform-dispatch core is identical; extract the switch into a shared helper (e.g. in internal/tui or a small util) and have both call it.",
+    "failure_scenario": "Platform quirks (e.g. Windows URL-escaping issues with rundll32, or WSL needing wslview) must be fixed twice; a fix landing in tui.go leaves `entire brain viz --no-open=false` broken on that platform, and vice versa."
+  },
+  {
+    "file": "internal/cli/viz.go",
+    "line": 853,
+    "summary": "vizShortID re-implements shortSessionID (internal/cli/facts_eval_gen.go:536) — same truncate-the-id helper, differing only in cutoff (8 vs 12 chars). Call shortSessionID (or hoist one shared helper) rather than adding a third id-shortening convention.",
+    "failure_scenario": "Session ids now render with two different truncations across surfaces (viz nodes vs handoff/history-eval output), so the same session shows different short ids in different views, and any future collision-avoidance change to shortSessionID won't reach viz."
+  },
+  {
+    "file": "internal/cli/viz.go",
+    "line": 872,
+    "summary": "handleGraph (line 872) and handleSearch (line 1026) re-parse ?limit inline with strconv.Atoi instead of calling the vizQueryLimit helper defined at line 303 in the same file (the semantics differ only in n&gt;0 vs n&gt;=0, trivially parameterizable). This PR already shipped one bug from the divergence: /api/history's clamp had to be patched separately because each endpoint hand-rolls its own limit handling.",
+    "failure_scenario": "Five endpoints, three limit-parsing implementations: the next safety-clamp fix (like the vizGraphMaxView cap added in 63752a4d for /api/history) gets applied to vizQueryLimit but misses the inline copies, reintroducing the unclamped-?limit class of bug."
+  }
+]
+```</result>
+<usage><subagent_tokens>61710</subagent_tokens><tool_uses>20</tool_uses><duration_ms>224827</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>acc0d73084bfa2f2a</task-id>
+<tool-use-id>toolu_015gMmqBi3Y4k3mVPKdKp8k3</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/acc0d73084bfa2f2a.output</output-file>
+<status>completed</status>
+<summary>Agent "Angle C: cross-file tracer" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>[
+  {
+    "file": "internal/cli/viz.go",
+    "line": 844,
+    "summary": "Doc node IDs in /api/docs are unprefixed (raw docRecord.ID from loadDocIndex), but /api/search returns doc hits with a \"doc:\" prefix (retrieve.go docToUnified: `ID: \"doc:\" + r.ID`). app.js selectHit() passes the search hit's id as focusId into openFeature('docs', h.id), and openGraphNode → openFeatureNode looks it up in gData.byId — where every docs-graph node is keyed by the unprefixed ID, so the lookup always misses.",
+    "failure_scenario": "User searches in the rail or ⌘K palette and clicks a doc result: the Docs graph opens but the selected doc is never focused and the inspector never opens — the click silently does nothing beyond switching views. Facts (\"fact:\"-prefixed in both stores) and history (\"history:\"-prefixed in both) work, making docs the one inconsistent source. Fix is to emit `\"doc:\"+d.ID` in handleDocs nodes (matching search) or strip the prefix client-side."
+  }
+]</result>
+<usage><subagent_tokens>101374</subagent_tokens><tool_uses>29</tool_uses><duration_ms>396301</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ac6a23204aa21e51f</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/ac6a23204aa21e51f.output</output-file>
+<status>completed</status>
+<summary>Agent "Angle A: line-by-line scan" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>[
+  {
+    "file": "internal/cli/viz.go",
+    "line": 79,
+    "summary": "The `--limit` flag (\"Max symbols loaded into the graph\") is stored in vizServer.limit but never read anywhere — the flag is a complete no-op.",
+    "failure_scenario": "Run `entire brain viz --limit 100` on a large brain: handleGraph still loads a pool of max(view*3, 4000) symbols and renders up to vizGraphViewCap (1400) nodes, identical to running without the flag. Conversely `--limit 0` (documented \"no cap\") also changes nothing. The advertised CLI behavior never occurs."
+  },
+  {
+    "file": "webui/dist/app.js",
+    "line": 269,
+    "summary": "Tooltip is positioned with viewport coordinates (clientX/clientY) but #tooltip is position:absolute inside #graphview (position:relative), so it renders offset by the 280px left rail plus the topbar height.",
+    "failure_scenario": "Open any feature graph and hover a node near the middle of the canvas: onHover passes ev.clientX/ev.clientY (viewport coords), but left/top are resolved relative to #graphview's origin (~280px right, ~50px down of the viewport origin), so the tooltip appears ~280px to the right and ~50px below the cursor — detached from the hovered node, and clipped by #graphview's overflow:hidden near the right edge."
+  },
+  {
+    "file": "webui/dist/app.js",
+    "line": 450,
+    "summary": "Doc search hits carry a \"doc:\"-prefixed ID (retrieveUnified returns ID: \"doc:\"+r.ID, retrieve.go:289) but /api/docs graph nodes use the raw d.ID (viz.go:844), so selecting a doc search result can never focus/open its node.",
+    "failure_scenario": "Type a query matching a doc in the rail search or ⌘K palette and click the doc hit: selectHit calls openFeature('docs', 'doc:&lt;id&gt;'); after the graph loads, openGraphNode → openFeatureNode looks up gData.byId['doc:&lt;id&gt;'] which doesn't exist (nodes are keyed '&lt;id&gt;'), so it silently returns — no focus, no inspector, the click appears to do nothing. Fact/history/symbol hits work because their IDs match."
+  },
+  {
+    "file": "webui/dist/app.js",
+    "line": 248,
+    "summary": "The debounced slider handler calls loadFeatureGraph(currentFeature) 260ms later with no null/staleness guard, and loadFeatureGraph's catch block has no `currentFeature !== key` check, so a stale failed fetch clobbers the next view with an error overlay.",
+    "failure_scenario": "Drag the node slider, then within 260ms press Escape (back to hub) and click another feature: the debounce fires loadFeatureGraph(null) which fetches '/api/null' → 404 → the unguarded catch hides the loading spinner and shows 'Could not load /api/null: 404' on top of the legitimately loading new graph. Any two overlapping loadFeatureGraph calls where the earlier one rejects have the same overlay-clobbering race."
+  },
+  {
+    "file": "webui/dist/app.js",
+    "line": 156,
+    "summary": "handleFacts emits nodes for facts with empty IDs (Go dedups only non-empty IDs), producing multiple graph nodes with id \"\" that collide in the UI's byId map and Object.fromEntries keying.",
+    "failure_scenario": "A brain whose facts.jsonl contains two or more records with no `id` field: /api/facts returns several vizGNode entries with ID \"\"; in loadFeatureGraph, Object.fromEntries and graph.js's byId Map keep only the last one, edges referencing \"\" all attach to that one node, and clicking any of the empty-id dots opens the wrong fact's inspector (or picking behaves inconsistently since duplicate-id nodes were dropped from byId but still rendered)."
+  }
+]</result>
+<usage><subagent_tokens>119640</subagent_tokens><tool_uses>13</tool_uses><duration_ms>432325</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a59e9939101ff3dff</task-id>
+<tool-use-id>toolu_01Y1YEjfWmj4uEqpr6jkGGDm</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/a59e9939101ff3dff.output</output-file>
+<status>completed</status>
+<summary>Agent "Verify slider null race" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I have everything needed. Verified against `git show 63752a4d:webui/dist/app.js` (498 lines) and `index.html`.
+
+Key evidence:
+
+**(1) loadFeatureGraph(null) is reachable from the slider path — yes.**
+
+The debounced handler reads `currentFeature` at fire time, 260ms later:
+```js
+const onSliderChange = debounce((v) =&gt; { currentLimit = v; loadFeatureGraph(currentFeature, null, true); }, 260);
+```
+`showHub()` nulls `currentFeature` and never cancels the timer (the `debounce` helper exposes no cancel):
+```js
+function showHub() { stopReplay(); setView('hub'); currentFeature = null; $('legend').classList.add('hidden'); $('node-ctl').classList.add('hidden'); clearSearch(); }
+```
+Escape routes there: `if (view !== 'hub') return showHub();`. So slider drag → Escape within 260ms → `loadFeatureGraph(null)` → `const base = key === 'sem' ? '/api/graph' : '/api/' + key;` → `fetch('/api/null')` → `api()` throws `` new Error(`${path}: ${res.status}`) `` → "/api/null: 404".
+
+**(2) catch lacks the staleness guard the success path has — yes.**
+
+Success path: `if (currentFeature !== key) return;` immediately after `await api(...)`. Catch path has no such check:
+```js
+  } catch (e) {
+    $('loading').classList.add('hidden'); $('empty').classList.remove('hidden');
+    $('empty-title').textContent = 'Could not load'; $('empty-body').textContent = String(e.message || e);
+  }
+```
+(Contrast: search/palette do have seq guards — `if (seq === searchSeq)` even in their catch blocks — so this catch is the outlier.)
+
+**One nuance in the candidate's framing:** `#loading`/`#empty` live inside `&lt;section id="graphview"&gt;`, which `setView('hub')` hides — so while the user sits on the hub the error overlay is not visually on top of the hub. But the clobber is real when the user navigates onward: if they open feature B while the stale `/api/null` (or any earlier rejected) fetch is in flight, feature B's `loadFeatureGraph` hides `#empty` only at its start; the stale catch then hides B's loading spinner and shows "Could not load /api/null: 404", and B's success path never re-hides `#empty` — leaving the error overlay stuck on top of the successfully loaded graph.
+
+VERDICT: CONFIRMED
+
+Trigger: drag the node-count slider, then press Escape (or click Home/Brain) within the 260ms debounce window; `onSliderChange` fires `loadFeatureGraph(currentFeature)` with `currentFeature` already nulled by `showHub()`, producing `fetch('/api/null')` → thrown `"/api/null: 404"`. Wrong output: the catch block — `$('loading').classList.add('hidden'); $('empty').classList.remove('hidden'); $('empty-title').textContent = 'Could not load';` — has no `currentFeature !== key` staleness guard (the success path does: `if (currentFeature !== key) return;`), so the stale rejection hides the active view's loading spinner and pins the "Could not load /api/null: 404" overlay over whatever graph view loads next. Minor correction to the claim: the overlay elements are inside the hidden `#graphview`, so nothing visibly appears while still on the hub — the visible damage lands when overlapping with the next feature load, exactly the generalized clobber the finding describes.</result>
+<usage><subagent_tokens>32416</subagent_tokens><tool_uses>3</tool_uses><duration_ms>76586</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af1558bb1c7d2c034</task-id>
+<tool-use-id>toolu_017VB7pudkSMwkkh91jc3gQQ</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/af1558bb1c7d2c034.output</output-file>
+<status>completed</status>
+<summary>Agent "Verify replay full-table load" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All four verification points check out.
+
+**1) The call and filter loop (PR head 63752a4d, `internal/cli/viz.go` handleSessionReplay, ~line 697):**
+```go
+syms, err := loadSemanticSymbols(s.brainDir, sem, 0)
+...
+byFile := map[string][]semanticRecord{}
+for i := range syms {
+    f := filepath.ToSlash(syms[i].FilePath)
+    if touched[f] {
+        byFile[f] = append(byFile[f], syms[i])
+    }
+}
+```
+Limit `0` is the no-cap sentinel, and the loop discards everything not in the session's touched-file set (later capped at `vizReplayMaxNodes = 1500`).
+
+**2) `loadSemanticSymbols` is snapshot-only and uncapped at limit 0** (`/Users/thomi/Projects/entire-brain/internal/cli/dash.go:415`): it opens `source.SnapshotPath` NDJSON and does `json.Unmarshal` per line into `out []semanticRecord`, with `if limit &gt; 0 &amp;&amp; len(out) &gt;= limit { break }` — so limit 0 loads every symbol record. There is no SQLite branch anywhere in the function; it never consults `source.StorePath`. (Side effect: on a SQLite-only manifest with empty `SnapshotPath` it returns `nil, nil` and replay shows no symbols at all.)
+
+**3) The indexed by-file query exists** (`/Users/thomi/Projects/entire-brain/internal/cli/semantic.go:4021`): `findSemanticSymbolsForFilesSQLite` runs `SELECT ... FROM symbols WHERE file_path IN (...) ORDER BY file_path, start_line LIMIT ?`, backed by `CREATE INDEX idx_symbols_file_path ON symbols(file_path)` (semantic.go:1322). There is even a ready-made dispatcher `semanticSymbolsForFiles` (semantic.go:3181) that picks SQLite when `StorePath` is set and falls back to a snapshot by-file scan — a drop-in replacement for the pattern in the handler.
+
+**4) Per-request, no caching:** grep of PR viz.go shows no cache around `loadSemanticSymbols`/`semanticSource`; every replay request re-opens and re-parses the full snapshot. (`handleTopology` at line 901 has the same pattern, so this is a repeated cost per UI click.)
+
+VERDICT: CONFIRMED
+
+`handleSessionReplay` calls `loadSemanticSymbols(s.brainDir, sem, 0)` (viz.go ~697), which — per dash.go:415 — is snapshot-only and uncapped: it `json.Unmarshal`s every NDJSON line and never uses the SQLite store. At a realistic 100k-symbol brain (~30–50 MB snapshot) that is a full-file parse plus a ~100k-element slice allocation on every replay click, just to keep symbols from a handful of touched files (≤1500 nodes) — tens to hundreds of ms latency and tens of MB of garbage per request, with no caching. The existing `semanticSymbolsForFiles` dispatcher (semantic.go:3181) → `findSemanticSymbolsForFilesSQLite` (semantic.go:4021, backed by `idx_symbols_file_path`) returns the same rows in a single indexed query and would fix both the O(N) scan and the SQLite-vs-snapshot gap.</result>
+<usage><subagent_tokens>27128</subagent_tokens><tool_uses>8</tool_uses><duration_ms>73025</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aac48ba791227a46a</task-id>
+<tool-use-id>toolu_01RtHGJqMtsN7NBr2VFcNgNS</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/aac48ba791227a46a.output</output-file>
+<status>completed</status>
+<summary>Agent "Verify chunk snapshot consistency" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>VERDICT: REFUTED
+
+The mechanism claimed (no wrapping transaction) is textually accurate, but the concurrency premise is false: `semantic.sqlite` is never rewritten in place, so there is no writer for the chunked reads to interleave with.
+
+1. **Chunked code has no transaction — confirmed.** In `63752a4d:internal/cli/semantic.go` (`findSemanticRelationsForSymbolsInSQLite`, ~3706-3790), the function does `db, err := sql.Open(sqliteDriverName, storePath)` once, then per 900-id batch calls `rows, err := db.Query(\`SELECT id, from_id, to_id, type, confidence, reason FROM relations WHERE from_id IN (...) OR to_id IN (...) ORDER BY id LIMIT ?\`, args...)` with no `BEGIN`.
+
+2. **The store is generation-immutable; refresh cannot mutate the file being read.** The relations table is written exactly once, at build time, into a fresh DB in a temp dir, then the whole dir is renamed to a path guaranteed not to exist (`/Users/thomi/Projects/entire-brain/internal/cli/semantic.go` ~1230-1287):
+   - `tmpDir, err := os.MkdirTemp(generationsRoot, ".tmp-"+finalID+"-*")` → `initializeSemanticSQLite` / `populateSemanticSQLite` → `os.Rename(tmpDir, finalDir)`
+   - preceded by `if _, err := os.Lstat(finalDir); err == nil { return ..., fmt.Errorf("semantic generation target already exists: %s", finalDir) }`, with `semanticAvailableGenerationID` picking a never-used ID.
+   So `entire brain refresh` produces a *new* generation directory and repoints the manifest's `StorePath` (line 618: `filepath.Join(generation, semanticSQLiteName)`); the old file at the old path is untouched. Bundle import (line ~5451-5457) has the same write-once discipline ("semantic import target already exists" check before `os.Rename(staging, target)`).
+
+3. **No in-place writer to `relations` exists.** The only non-test `INSERT INTO relations` is semantic.go:1501 inside the build transaction on the temp DB. No `UPDATE relations`/`DELETE FROM relations` anywhere. The sole in-place mutation of an existing generation is trace ingest appending to `runtime_traces` (semantic_graph.go: `ensureSemanticRuntimeTraceTable`/`insertRuntimeTraceFacts`), which cannot change relations rows or their ids (`relations.id` is `INTEGER PRIMARY KEY AUTOINCREMENT` on a never-deleted-from table, so the rowid-reuse dedup concern is also moot).
+
+4. **Pool-connection subtlety doesn't rescue the finding.** Even though `database/sql` may open a *new* connection for a later chunk (so "one fd for the whole call" isn't guaranteed), any re-open hits the same immutable generation file at `storePath`. The only concurrent hazard is `pruneSemanticChildDirs` (`os.RemoveAll`, semantic.go:4515-4550), which skips the active generation and, if it raced a reader of an old generation, would make a later chunk's connection fail to open — a hard error, not silently mixed-generation output.
+
+What would change this verdict: introduction of any code path that UPDATEs/DELETEs `relations` in an existing generation file, or a refresh mode that reuses an existing generation path. Neither exists in this codebase.</result>
+<usage><subagent_tokens>32982</subagent_tokens><tool_uses>9</tool_uses><duration_ms>111332</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a8a47a70b674fb3ae</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/a8a47a70b674fb3ae.output</output-file>
+<status>completed</status>
+<summary>Agent "Verify per-request rebuild cost" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All four verification points check out against the PR head.
+
+**1. No caching — confirmed.** The `vizServer` struct (viz.go:86-99) holds only `opts, target, repoDir, brainDir, branch, manifest, limit, provider, owner, repo` — no cache fields of any kind. `handleGraph` (viz.go:867) calls `loadSemanticSymbols(s.brainDir, sem, pool)` on every request, which does `os.Open(full)` and scans the NDJSON snapshot line-by-line with `json.Unmarshal` per record. Relations go through `relationsForSymbols` → `findSemanticRelationsForSymbolsInSQLite` (semantic.go:3706), which does `sql.Open(sqliteDriverName, storePath)` / `defer db.Close()` per call — a fresh SQLite connection every request. Degree ranking (`sort.SliceStable` over a copy of the pool) and the two-pass coverage edge selection also run per request. The struct comment even confirms the store is fixed for the server's lifetime: "it captures a single brain (brainDir/branch/manifest) at startup; re-run `viz` to pick up a fresh `refresh`."
+
+**2. Pool math and caps — confirmed, exact quotes.**
+```go
+pool := view * 3
+if pool &lt; 4000 {
+    pool = 4000
+}
+...
+relLimit := pool * 4
+```
+and the caps: `const vizGraphMaxView = 300000`, `const vizGraphMaxEdges = 90000`, `const vizGraphViewCap = 1400` (default view), plus `edgeCap := view * 4` floored at 12000.
+
+**3. Slider — confirmed with one nuance.** app.js:248-253:
+```js
+const onSliderChange = debounce((v) =&gt; { currentLimit = v; loadFeatureGraph(currentFeature, null, true); }, 260);
+$('node-slider').addEventListener('input', (e) =&gt; { ... onSliderChange(v); });
+```
+Each debounced fire calls `loadFeatureGraph` → `api('/api/graph?limit=' + currentLimit)` — always a full server-side rebuild. Nuance: this is a trailing debounce (timer resets on every `input` event), so a continuous drag fires *once* 260ms after the user stops, not continuously mid-drag. It fires repeatedly only for pause-and-adjust interaction (which is exactly how one hunts for a good node count), so the "repeated identical/near-identical rebuilds" scenario is real but rate-limited to ~4/sec worst case.
+
+**4. Magnitude — real but moderate.** At the PR's 11k-node manual-test scale: pool = 33,000 symbols scanned from NDJSON, relLimit = 132,000; the SQLite path runs ~37 chunked queries (900 ids × 2 bindings each, `ORDER BY id LIMIT 132000` per batch) then merge-sorts — plausibly hundreds of ms per slider settle. At the 300k ceiling: pool = 900,000 symbols and relLimit = 3.6M relations per request — seconds and significant allocation per slider stop. Mitigating factors: loopback-only single-user tool, debounce caps request rate, and this is UX latency, not correctness. One correction to the proposed fix: a cache "keyed by pool size" alone would rarely hit, since every distinct slider position yields a distinct pool size — but because `loadSemanticSymbols` returns a storage-order prefix, caching the largest pool loaded so far (and slicing) would serve all smaller views correctly, so the memoization idea is sound with that adjustment.
+
+VERDICT: CONFIRMED — handleGraph provably rebuilds the full pool (symbols, fresh SQLite connection, relations, degree rank, edge selection) from disk on every request with no cache anywhere in vizServer, and every settled slider position triggers it; magnitude is a per-adjustment latency of hundreds of ms at the PR's own 11k test scale up to multi-second at the 300k ceiling, though the trailing 260ms debounce means one request per pause (not a flood mid-drag) and the impact is UX latency in a local single-user tool rather than correctness.</result>
+<usage><subagent_tokens>27273</subagent_tokens><tool_uses>10</tool_uses><duration_ms>93303</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a2e0bf667c6ce68f4</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/a2e0bf667c6ce68f4.output</output-file>
+<status>completed</status>
+<summary>Agent "Verify repo-key duplication" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>VERDICT: CONFIRMED
+
+**1. viz.go's linkProviders and parseRepoFromBrainDir (PR head 63752a4d, internal/cli/viz.go ~351-368):**
+
+```go
+// linkProviders are the git forges whose brain keys map to real web URLs.
+var linkProviders = map[string]bool{"gh": true, "gl": true, "bb": true}
+
+func parseRepoFromBrainDir(brainDir string) (provider, owner, repo string) {
+	parts := strings.Split(strings.Trim(filepath.ToSlash(brainDir), "/"), "/")
+	if len(parts) &lt; 3 {
+		return "", "", ""
+	}
+	p, o, r := parts[len(parts)-3], parts[len(parts)-2], parts[len(parts)-1]
+	if !linkProviders[p] || o == "" || r == "" {
+		return "", "", ""
+	}
+	return p, o, r
+}
+```
+
+**2. env.go's knownRepoDomainSlugs contains slugs viz omits** (/Users/thomi/Projects/entire-brain/internal/cli/env.go:45-52):
+
+```go
+var knownRepoDomainSlugs = map[string]string{
+	"github.com":    "gh",
+	"gitlab.com":    "gl",
+	"bitbucket.org": "bb",
+	"entire.io":     "et",
+	"tangled.org":   "tg",
+	"code.storage":  "cs",
+}
+```
+
+"et", "tg", "cs" exist exactly as alleged, and `repoDomainSlug` (env.go:291-313) additionally mints arbitrary user-config slugs (`cfg.DomainSlugs`) for any other host — none of which viz's hardcoded set knows about.
+
+**3. viz already holds a manifest carrying RepoKey.** vizServer (viz.go:86-98) has `manifest *exportManifest`, and construction at viz.go:113-119 does `srv := &amp;vizServer{... manifest: manifest ...}` then immediately re-derives via `srv.provider, srv.owner, srv.repo = parseRepoFromBrainDir(brainDir)`. The manifest struct has `RepoKey string \`json:"repo_key,omitempty"\`` (export.go:2605), populated at write time (`manifest.RepoKey = repoKey`, brain.go:200). So the canonical key ("et/owner/repo") is sitting on `s.manifest.RepoKey` while viz reparses the filesystem path instead. (Caveat: manifest can be nil when no export status exists, so a path fallback isn't entirely useless — but the hardcoded 3-slug subset is the real defect.)
+
+**4. Concrete consequence for an "et" repo:** brainDir tail is `et/&lt;owner&gt;/&lt;repo&gt;`; `linkProviders["et"]` is false, so parseRepoFromBrainDir returns `"", "", ""`. Then `sessionLink` (viz.go:377-382) hits `if id == "" || s.provider == "" { return "" }` and returns empty at all three call sites (527, 595, 666); vizGNode's `Link string \`json:"link,omitempty"\`` drops the field entirely — session links silently vanish, with no warning. Same for tg/cs/custom-slug forges. Bonus fragility confirmed: `normalizeRepoPath` allows keys with &gt;3 segments (e.g. GitLab nested groups `gl/group/sub/repo`), where tail-3 parsing reads "sub" as provider and kills links even for the supported "gl" slug; and any change to `brainDirForKey` layout (env.go:162-180) breaks derivation silently.
+
+The finding is accurate on all four points: duplicated provider knowledge that is a strict, silently-diverging subset of `knownRepoDomainSlugs`, while the canonical `RepoKey` is already loaded on the struct.</result>
+<usage><subagent_tokens>23621</subagent_tokens><tool_uses>9</tool_uses><duration_ms>79243</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aaca36c3d594e8a7d</task-id>
+<tool-use-id>toolu_01M8gqBjyzzxnMBw2PMzR9Rd</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/aaca36c3d594e8a7d.output</output-file>
+<status>completed</status>
+<summary>Agent "Verify chunk query cost" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I have everything needed. Test on a populated 500k-row table with the exact PR schema and indexes shows SQLite chooses `MULTI-INDEX OR` (two indexed searches), and a 900-id chunk completes in 27ms.
+
+VERDICT: REFUTED
+
+**Claim (a) — the core mechanism — is empirically false.** The relations table at PR head (`internal/cli/semantic.go:1317-1324`) has both `CREATE INDEX idx_relations_from ON relations(from_id)` and `CREATE INDEX idx_relations_to ON relations(to_id)`. Running `EXPLAIN QUERY PLAN` on the exact per-chunk query against a 500k-row table with this schema yields:
+
+```
+MULTI-INDEX OR
+  INDEX 1: SEARCH relations USING INDEX idx_relations_from (from_id=?)
+  INDEX 2: SEARCH relations USING INDEX idx_relations_to (to_id=?)
+  USE TEMP B-TREE FOR ORDER BY
+```
+
+SQLite's OR-optimization handles `OR` of two indexable IN-lists with two index searches — not a full table scan. Measured: 27ms per 900-id chunk against 500k rows (3081 matches). Even at 1000 chunks that is per-chunk work proportional to each chunk's matches, which any correct implementation (temp table join included) must also pay.
+
+**Factual sub-claims verified:**
+- Per-chunk query (semantic.go, PR head): `SELECT id, from_id, to_id, type, confidence, reason FROM relations WHERE from_id IN (`+inClause+`) OR to_id IN (`+inClause+`) ORDER BY id LIMIT ?`
+- Per-chunk LIMIT is indeed the full global limit: `args = append(args, limit)` — confirmed. But this is *required for merge correctness* (each chunk must return its own top-`limit` by id for the global top-N merge to be sound), and the code's own comment explains exactly this. Binding `limit/chunks` would be a bug.
+- Claim (b) is overstated: the `seen := make(map[int64]bool)` dedup means `merged` holds distinct matched relations, bounded by min(total matching rows, chunks×limit) — not a chunks×limit duplication blow-up. The memory ceiling is "all relations touching the symbol pool," which is what the caller asked for.
+- Claim (c) numbers, reconciled from `internal/cli/viz.go` (handleGraph): `view` caps at `vizGraphMaxView = 300000`, `pool := view * 3` (up to 900k symbols → up to ~1000 chunks, more than the claimed ~334), `relLimit := pool * 4` (up to 3.6M, not 1.2M). The 90k figure is `vizGraphMaxEdges`, a render cap applied *after* this function — it never reaches it. So the candidate even understated the parameters, yet the indexed plan makes the workload roughly linear in actual matching relations, not chunks×table-size.
+
+Residual truth: at the 300k slider the request does real work (potentially most of the relations table in memory), but that is inherent to requesting relations for a 900k-symbol pool with relLimit 3.6M — a handleGraph budgeting choice, not the "hundreds of full scans" defect alleged. The headline mechanism and severity do not hold.</result>
+<usage><subagent_tokens>25167</subagent_tokens><tool_uses>6</tool_uses><duration_ms>127018</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a70e7d82a0a146eaf</task-id>
+<tool-use-id>toolu_01UBzhBZKaqU2F2qZtwGGRtJ</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/a70e7d82a0a146eaf.output</output-file>
+<status>completed</status>
+<summary>Agent "Verify history edge cap gap" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All four verification points are now checked. Summary of evidence:
+
+**1. handleHistory has no edge cap — confirmed.** At `63752a4d:internal/cli/viz.go` (~lines 806-817):
+
+```go
+// Link by shared topic AND co-located history (same file); records touching
+// the same file are related, which fills in the otherwise-sparse graph.
+edges := append(linkBySharedKey(termMap, "shared topic", 8), linkBySharedKey(pathMap, "same file", 8)...)
+// Timeline spine: chain consecutive records so history reads as one connected
+// stream over time rather than a scatter of isolated points.
+for i := 1; i &lt; len(recs); i++ {
+    edges = append(edges, vizGEdge{From: recs[i-1].ID, To: recs[i].ID, Type: "then"})
+}
+edges = dedupEdges(edges)
+writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: nodes, Edges: edges, ...})
+```
+
+Neither `vizGraphMaxEdges` nor any other edge bound appears anywhere in `handleHistory`. `dedupEdges` only removes duplicate pairs; the spine is unconditionally n-1 edges. `linkBySharedKey(..., 8)` caps at 8 IDs per key = up to C(8,2)=28 edges *per term/path key*, with no global bound across keys.
+
+**2. No client-side cap — confirmed.** `webui/dist/graph.js` `setData` ingests every edge (`for (const e of rawEdges) { ... edges.push(...) }`), and `app.js` `loadFeatureGraph` passes `g.edges || []` straight through. Per-frame draw and the force sim iterate the full edge array.
+
+**3. Slider really reaches huge history counts — confirmed.** app.js: `const NODE_SLIDER_MAX = 300000; ... const max = Math.min(total, NODE_SLIDER_MAX)`, where `total` is the full history record count. Server side, `handleHistory` clamps only the *node* count: `if limit &lt;= 0 || limit &gt; vizGraphMaxView { limit = vizGraphMaxView }` (vizGraphMaxView = 300000). Critically, this PR itself raised the ceiling from 12,000 to 300,000 — the new comment even states the intended scale: `"set well above any real brain's largest feature (this repo's history is ~172k) so the node-count slider reaches every feature's true total"`. So on this very repo the slider legitimately reaches ~172k history nodes.
+
+**4. handleGraph contrast — confirmed.** This same PR added a careful edge budget to handleGraph only: `edgeCap := view * 4; if edgeCap &lt; 12000 {...}; if edgeCap &gt; vizGraphMaxEdges { edgeCap = vizGraphMaxEdges }` with two coverage-first fill passes checking `len(resp.Edges) &gt;= edgeCap`. The 90k ceiling the renderer was tuned for is enforced nowhere on the history path.
+
+**Magnitude, honestly assessed.** Before this PR the worst case for handleHistory was 12k nodes (old vizGraphMaxView), i.e. ~12k spine edges — within the old budget. The PR raised the node ceiling 25x without extending the edge budget. At the repo's own documented history size (~172k), the spine alone is ~172k edges (~2x the 90k ceiling), plus shared-topic/same-file edges on top; at the 300k ceiling it's 3.3x+, matching the candidate's "3x+" claim. The caveat: this triggers only when a user drags the slider far right (default limit is 1200), it's a local loopback-only tool, and the ~172k *nodes* themselves already strain the renderer by design — but the missing edge budget compounds it and is a clear internal inconsistency introduced by this PR (budget built for one endpoint, ceiling raised for both). Note the finding's "~line 811" and mechanics are all accurate; minor nit: it slightly understates that docs/sessions endpoints are also uncapped, but those are small by design.
+
+VERDICT: CONFIRMED — handleHistory emits an unconditional n-1 "then" spine plus shared-topic and same-file edges with no edge cap (server or client), while this PR simultaneously raised the reachable history node count from 12k to 300k (real repo: ~172k) and added the 90k-ceiling edge budget only to handleGraph; at slider max the history payload exceeds the renderer's tuned edge budget by roughly 2-3.3x from the spine alone. Real but bounded in severity: user-initiated (slider at max), local-only tool, performance/jank impact rather than correctness.</result>
+<usage><subagent_tokens>34284</subagent_tokens><tool_uses>12</tool_uses><duration_ms>119098</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a918869baa621014d</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/a918869baa621014d.output</output-file>
+<status>completed</status>
+<summary>Agent "Verify empty-ID fact collision" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>VERDICT: PLAUSIBLE
+
+**Mechanism is real on both sides (verified in the PR code):**
+
+1. Server — `git show 63752a4d:internal/cli/viz.go`, `handleFacts` dedup condition:
+```go
+if f.ID != "" &amp;&amp; seen[f.ID] {
+    continue
+}
+seen[f.ID] = true
+all = append(all, f)
+```
+Empty-ID facts bypass dedup entirely, so each one is appended and emitted as `vizGNode{ID: f.ID, ...}` with `ID: ""`. Also `idset[f.ID] = true` marks `""` valid, so `related` edges (`From: f.ID`) and shared-locus edges can reference `""`.
+
+2. Client — `git show 63752a4d:webui/dist/app.js` line 217: `gData = { byId: Object.fromEntries(nodes.map((n) =&gt; [n.id, n])), edges: g.edges || [] }`, and `graph.js` line 59 `byId.set(n.id, n)`. Duplicate `""` keys collapse to the **last** node while all `""` nodes remain in the rendered `nodes` array (graph.js `setData` maps every raw node without a dup check). The inspector lookup (`app.js` line 314 `const n = gData.byId[id]`) and edge resolution (`graph.js` line 64 `byId.get(e.from)`) therefore resolve every `""` reference to the last empty-ID fact — clicking any empty-ID node opens the wrong fact's inspector, and edges attach to the wrong node. Mechanism confirmed exactly as described.
+
+**Trigger is uncertain — the tool never writes empty IDs, but load does not enforce them:**
+
+- Every write path assigns an ID: `/Users/thomi/Projects/entire-brain/internal/cli/distill.go:241` and `/Users/thomi/Projects/entire-brain/internal/cli/facts_write_cmd.go:77` both use `ID: factRecordID(text, paths)`, and `factRecordID` (`facts.go:142-144`) always returns `"fact:" + hex.EncodeToString(sum[:12])` — never empty. All other writers (`facts_admin_cmd.go`, `facts_manifest.go`, `distill_cmd.go`) rewrite records previously loaded from disk.
+- But `parseFactsFile` (`facts.go:214-246`) validates only JSON well-formedness, not field presence — a line like `{"text":"x"}` parses fine with `ID == ""`. The recent hardening commits (46889501, fdfa6383) covered ingest/MCP/config and capped/parsed on-disk artifacts, but added **no** fact-ID presence check (contrast `semantic.go:1480`, which explicitly skips records with `record.ID == ""`). The brain dir is a local per-user XDG data dir (`env.go:157`), not synced via git refs, so an empty ID requires a hand-edited, corrupted, or third-party-written `facts.ndjson`.
+
+What would confirm: any real-world producer of `facts.ndjson` outside `factRecordID` (none found), or demonstrating a store with a missing `id` field reaching `handleFacts`. As written, this is a robustness gap (load-time invariant unenforced) rather than a reachable bug through the tool's own write paths.</result>
+<usage><subagent_tokens>37686</subagent_tokens><tool_uses>21</tool_uses><duration_ms>191358</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bywkjahm6</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/bywkjahm6.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for remaining verifiers" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a2097ecd64e71c965</task-id>
+<tool-use-id>toolu_01UXoPqt9zXqY5mZ1VmgoESd</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/a2097ecd64e71c965.output</output-file>
+<status>completed</status>
+<summary>Agent "Verify unchunked sibling queries" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>All evidence gathered. Here is my assessment.
+
+**Facts verified:**
+
+(1) **loadSemanticSymbolsByIDsSQLite chunks — and was already chunked in base.** On main (PR base), semantic.go:3861 has:
+```go
+const chunk = 900
+for start := 0; start &lt; len(ids); start += chunk {
+    end := start + chunk
+    ...
+    rows, err := db.Query(`SELECT id, kind, ... FROM symbols WHERE id IN (`+strings.Join(placeholders, ",")+`)`, args...)
+```
+The PR's entire semantic.go diff (`git diff main 63752a4d -- internal/cli/semantic.go`) touches only findSemanticRelationsForSymbolsInSQLite, so the chunking pattern pre-dates this PR and the PR adds a second inline copy, self-acknowledged in its own comment: `"(loadSemanticSymbolsByIDsSQLite chunks the same way.)"`. However, the two loops are **not identical**: the new one binds each id twice (`from_id IN (...) OR to_id IN (...)`), carries a per-batch `LIMIT ?`, and does a cross-batch merge (`seen` map, `sort.Slice(merged, ...)`, global `merged = merged[:limit]`). The pre-existing one is a plain unlimited map fill. The shared portion is only the ~8-line batching skeleton.
+
+(2) **Siblings are unchunked — confirmed.**
+- `internal/cli/semantic.go:4021` findSemanticSymbolsForFilesSQLite: `placeholders = append(placeholders, "?")` per file, single query `WHERE file_path IN (`+strings.Join(placeholders, ",")+`)`.
+- `internal/cli/semantic_graph.go:1406` loadGraphSymbols: `placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")`.
+- `internal/cli/semantic_graph.go:1437` loadGraphFiles: same `strings.Repeat("?,", len(paths))` pattern.
+
+(3) **Reachability of the sibling bugs is weak.**
+- findSemanticSymbolsForFilesSQLite callers: `changedSemanticFiles` output (git-changed files; &gt;32k changed files is pathological), agent_surface.go:2264 (same changed-files list, limit 20), and pattern_corpus_links.go:55 — which **already pre-chunks at 400 files** before calling it.
+- loadGraphSymbols callers: traceGraphPath (semantic_graph.go:796) passes a BFS path bounded by `maxDepth` — tiny; loadGraphNodes (semantic_graph.go:1369) passes endpoint ids of relations from `queryGraphRelations(db, filters, graphOpts.limit)`, so ids ≤ 2×limit. Defaults are 20/100 (CLI) and 20 (MCP); exceeding 32766 params requires an explicit limit &gt; ~16k (mcpPositiveInt has no upper cap, so it is possible but only via a deliberate extreme request). loadGraphFiles gets a subset of the same bounded ids. By contrast, the function the PR fixed is fed viz-scale full symbol sets, which is why only it needed the fix.
+
+VERDICT: PLAUSIBLE
+
+Justification: The duplication is real and even self-documented in the PR's comment, and all three siblings do build unbounded IN clauses — but the finding overstates both halves. The two chunk loops share only the batching skeleton; the new one's double-binding and per-batch-LIMIT-plus-global-merge logic (the genuinely subtle part) has no counterpart to share, so "one shared helper" would extract less than the finding implies. And the sibling latent bugs are essentially unreachable in practice: bounded by BFS depth, by 2×(default limit 20–100), by an existing 400-file pre-chunker, or by needing &gt;32k git-changed files. A modest "extract a forEachChunk helper" suggestion is defensible; the framing that identical logic is duplicated and siblings carry a live bug is not fully supported.</result>
+<usage><subagent_tokens>36305</subagent_tokens><tool_uses>21</tool_uses><duration_ms>170737</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bpinmdk75</task-id>
+<tool-use-id>toolu_01FMputkbyVNu2GHSjNGceV2</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/bpinmdk75.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for final verifiers" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>breovyhqm</task-id>
+<tool-use-id>toolu_01AjCBjSgQt2CKMpjEazfaZ9</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/breovyhqm.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for final verifier" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bi9750hc6</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-thomi-Projects-entire-brain/2f06bbaf-0d6b-41e1-b89a-3597ada77366/tasks/bi9750hc6.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for final verifier" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Did you fix the findings?
+
+---
+
+1 please

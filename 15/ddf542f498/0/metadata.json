@@ -1,0 +1,91 @@
+{
+  "cli_version": "0.7.8-nightly.202606290756.c457486ca",
+  "checkpoint_id": "15ddf542f498",
+  "session_id": "2f06bbaf-0d6b-41e1-b89a-3597ada77366",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-02T19:08:43.686795Z",
+  "branch": "claude/cc-debug",
+  "checkpoints_count": 24,
+  "save_step_count": 1,
+  "files_touched": [
+    "internal/cli/viz.go",
+    "internal/cli/viz_test.go",
+    "webui/dist/app.js",
+    "webui/dist/graph.js"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "bc89724423cf",
+  "token_usage": {
+    "input_tokens": 16374,
+    "cache_creation_tokens": 284799,
+    "cache_read_tokens": 10331185,
+    "output_tokens": 61111,
+    "api_call_count": 80
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01C8wWgEoaUyEaF3SMLy4XY7",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "review"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "bc89724423cf",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 17,
+        "end": 18,
+        "entry_ids": [
+          "969e4cc8-2256-44f2-b0c8-fec978e34f80"
+        ],
+        "tool_use_id": "toolu_01C8wWgEoaUyEaF3SMLy4XY7"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01C8wWgEoaUyEaF3SMLy4XY7"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: review",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 24
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-02T19:08:43.173797Z",
+    "agent_lines": 2518,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 2518,
+    "total_lines_changed": 2518,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 191,
+      "agent_lines_removed": 39
+    }
+  ]
+}
