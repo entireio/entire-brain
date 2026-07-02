@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1190,13 +1191,19 @@ func TestMCPResolveIndexPath(t *testing.T) {
 	if p, cr := mcpResolveIndexPath(EntireEnv{RepoRoot: root}, "sub/pkg"); p != filepath.Join(root, "sub/pkg") || cr != root {
 		t.Fatalf("relative path: got (%q,%q)", p, cr)
 	}
-	// Absolute path is kept, but containment still applies.
-	if p, cr := mcpResolveIndexPath(EntireEnv{RepoRoot: root}, "/elsewhere"); p != "/elsewhere" || cr != root {
+	// Absolute path is kept, but containment still applies. Use an
+	// OS-appropriate absolute path so filepath.IsAbs is true on Windows too
+	// (a Unix-style "/elsewhere" is not absolute without a drive letter).
+	absElsewhere := "/elsewhere"
+	if runtime.GOOS == "windows" {
+		absElsewhere = `C:\elsewhere`
+	}
+	if p, cr := mcpResolveIndexPath(EntireEnv{RepoRoot: root}, absElsewhere); p != absElsewhere || cr != root {
 		t.Fatalf("absolute path: got (%q,%q)", p, cr)
 	}
 	// Opt-out drops containment.
 	t.Setenv("ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH", "1")
-	if p, cr := mcpResolveIndexPath(EntireEnv{RepoRoot: root}, "/elsewhere"); p != "/elsewhere" || cr != "" {
+	if p, cr := mcpResolveIndexPath(EntireEnv{RepoRoot: root}, absElsewhere); p != absElsewhere || cr != "" {
 		t.Fatalf("opt-out: got (%q,%q)", p, cr)
 	}
 }
