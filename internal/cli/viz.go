@@ -34,9 +34,9 @@ const vizGraphMaxView = 12000
 
 // vizGraphMaxEdges caps rendered edges regardless of node count. A dense graph
 // can have tens of thousands of relations; drawing them all per frame kills the
-// canvas and the force sim. Nodes are ranked by degree, so the retained edges are
-// the ones among the most-connected symbols.
-const vizGraphMaxEdges = 6000
+// canvas and the force sim. ~12k stays smooth (the known-good 1.4k view had ~10k)
+// while bounding the worst case (3k nodes otherwise pulls ~32k edges).
+const vizGraphMaxEdges = 12000
 
 // vizGraphViewCap bounds how many symbols actually render in the semantic view.
 // We load a wider pool (vizDefaultLimit), compute degree, then keep the most-
@@ -926,13 +926,38 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 		resp.Nodes = append(resp.Nodes, nodeJSON(kept[i]))
 		keptSet[kept[i].ID] = true
 	}
+	// Cap edges for render/sim budget, but choose them for COVERAGE first: a naive
+	// first-N cap piles all edges onto a few hubs and leaves most nodes edgeless, so
+	// they fly apart under repulsion and the whole graph fits to a dot. Pass 1 keeps
+	// edges that connect a still-unconnected node; pass 2 fills the remaining budget.
+	seen := make(map[string]bool)
+	covered := make(map[string]int)
+	addEdge := func(e semanticRecord) {
+		k := vizEdgeKey(e.FromID, e.ToID)
+		if seen[k] {
+			return
+		}
+		seen[k] = true
+		resp.Edges = append(resp.Edges, edgeJSON(e))
+		covered[e.FromID]++
+		covered[e.ToID]++
+	}
+	for i := range rels {
+		if len(resp.Edges) >= vizGraphMaxEdges {
+			break
+		}
+		e := rels[i]
+		if keptSet[e.FromID] && keptSet[e.ToID] && (covered[e.FromID] == 0 || covered[e.ToID] == 0) {
+			addEdge(e)
+		}
+	}
 	for i := range rels {
 		if len(resp.Edges) >= vizGraphMaxEdges {
 			break
 		}
 		e := rels[i]
 		if keptSet[e.FromID] && keptSet[e.ToID] {
-			resp.Edges = append(resp.Edges, edgeJSON(e))
+			addEdge(e)
 		}
 	}
 	resp.Truncated = sem.Symbols > len(kept)

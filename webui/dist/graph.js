@@ -32,6 +32,7 @@ export function createGraph(canvas, handlers = {}) {
   const velocityDecay = 0.6;
   let hover = null, selected = null, focusSet = null;
   let replayActive = null, replayVisited = null; // Sets of node ids during session replay
+  let autoFit = false; // keep the view framed while the sim settles (any graph size)
   let dirty = true, W = 0, H = 0, dpr = 1;
 
   // ---------- sizing ----------
@@ -65,10 +66,12 @@ export function createGraph(canvas, handlers = {}) {
       edges.push({ ...e, source: s, target: t });
     }
     selected = null; hover = null; focusSet = null;
-    // Fewer settling ticks for large graphs (each tick rebuilds the quadtree).
-    const iters = nodes.length > 5000 ? 70 : nodes.length > 2500 ? 110 : nodes.length > 1200 ? 180 : 300;
+    // Fewer settling ticks for very large graphs (each tick rebuilds the quadtree);
+    // the coverage-capped edge set keeps the layout well-spread regardless.
+    const iters = nodes.length > 6000 ? 220 : 300;
     alphaDecay = 1 - Math.pow(0.001, 1 / iters);
     reheat(1);
+    autoFit = true; // track the graph as it expands, until it settles or the user grabs it
     zoomToFit(false);
   }
 
@@ -133,8 +136,7 @@ export function createGraph(canvas, handlers = {}) {
     // Repulsion must grow with the node count, or dense graphs (many edges pulling
     // inward) collapse along one axis into a spindle instead of spreading in 2D.
     const chargeScale = Math.min(1 + nodes.length / 500, 4.5);
-    // Coarser Barnes-Hut (larger theta) on big graphs = far fewer tree descents.
-    const theta2 = nodes.length > 5000 ? 2.0 : nodes.length > 2000 ? 1.3 : 0.81;
+    const theta2 = 0.81;
     const strength = -34 * chargeScale * alpha;
     for (const n of nodes) {
       const stack = [root];
@@ -161,12 +163,15 @@ export function createGraph(canvas, handlers = {}) {
     // Weaken each link by the lesser endpoint degree (d3's bias): without this,
     // a hub with hundreds of edges gets pulled inward hundreds of times and
     // collapses dense graphs into a cigar. Leaves (degree 1) stay firmly attached.
-    const dist = 46, stiff = 0.28 * alpha;
+    const dist = 46, stiff = 0.32 * alpha;
     for (const e of edges) {
       const s = e.source, t = e.target;
       let dx = t.x - s.x, dy = t.y - s.y;
       let d = Math.sqrt(dx * dx + dy * dy) || 1e-6;
-      const k = stiff / Math.min(s.degree || 1, t.degree || 1);
+      // Relax leaves (÷degree) but FLOOR the denominator so hub<->hub links never
+      // go to ~zero — otherwise mega-hubs decouple, fly apart on repulsion, and
+      // string the graph into a diagonal tail. Floor of 10 keeps hubs bound.
+      const k = stiff / Math.min(Math.min(s.degree || 1, t.degree || 1), 10);
       const f = ((d - dist) / d) * k;
       dx *= f; dy *= f;
       if (!t.fixed) { t.vx -= dx; t.vy -= dy; }
@@ -185,9 +190,12 @@ export function createGraph(canvas, handlers = {}) {
     if (alpha < 0.001) return;
     alpha += (alphaTarget - alpha) * alphaDecay;
     applyCharge(); applyLinks(); applyGravity();
+    const maxV = 60; // clamp per-tick velocity so strong forces can't fling nodes to infinity
     for (const n of nodes) {
       if (n.fixed) { n.vx = 0; n.vy = 0; continue; }
       n.vx *= velocityDecay; n.vy *= velocityDecay;
+      if (n.vx > maxV) n.vx = maxV; else if (n.vx < -maxV) n.vx = -maxV;
+      if (n.vy > maxV) n.vy = maxV; else if (n.vy < -maxV) n.vy = -maxV;
       n.x += n.vx; n.y += n.vy;
     }
     dirty = true;
@@ -234,6 +242,7 @@ export function createGraph(canvas, handlers = {}) {
 
   function focus(id) {
     const n = byId.get(id); if (!n) return;
+    autoFit = false;
     selected = n;
     focusSet = new Set([n.id]);
     for (const e of edges) { if (e.source === n) focusSet.add(e.target.id); if (e.target === n) focusSet.add(e.source.id); }
@@ -245,12 +254,14 @@ export function createGraph(canvas, handlers = {}) {
 
   // ---------- replay ----------
   function setReplay(activeIds, visitedIds) {
+    autoFit = false;
     replayActive = new Set(activeIds || []);
     replayVisited = new Set(visitedIds || []);
     dirty = true;
   }
   function clearReplay() { replayActive = null; replayVisited = null; dirty = true; }
   function panToIds(ids, scale) {
+    autoFit = false;
     const pts = (ids || []).map((id) => byId.get(id)).filter(Boolean);
     if (!pts.length) return;
     let cx = 0, cy = 0;
@@ -357,6 +368,8 @@ export function createGraph(canvas, handlers = {}) {
   function frame() {
     if (camTween) camTween();
     if (alpha >= 0.001) tick();
+    // Keep the graph framed as it expands during settling; stop once it's at rest.
+    if (autoFit && !camTween) { zoomToFit(false); if (alpha < 0.02) autoFit = false; }
     if (replayActive && !REDUCED) dirty = true; // keep the pulse animating during replay
     if (dirty) { draw(); dirty = false; }
     requestAnimationFrame(frame);
@@ -378,6 +391,7 @@ export function createGraph(canvas, handlers = {}) {
   let drag = null, panning = null, moved = false;
   canvas.addEventListener('pointerdown', (ev) => {
     canvas.setPointerCapture(ev.pointerId);
+    autoFit = false;
     moved = false;
     const rect = canvas.getBoundingClientRect();
     const sx = ev.clientX - rect.left, sy = ev.clientY - rect.top;
@@ -413,6 +427,7 @@ export function createGraph(canvas, handlers = {}) {
   });
   canvas.addEventListener('wheel', (ev) => {
     ev.preventDefault();
+    autoFit = false;
     const rect = canvas.getBoundingClientRect();
     const sx = ev.clientX - rect.left, sy = ev.clientY - rect.top;
     const [wx, wy] = toWorld(sx, sy);
