@@ -1,0 +1,74 @@
+{
+  "cli_version": "0.7.8-nightly.202606290756.c457486ca",
+  "checkpoint_id": "7feafb5f1bb7",
+  "session_id": "2f06bbaf-0d6b-41e1-b89a-3597ada77366",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-02T20:25:31.953311Z",
+  "branch": "claude/cc-debug",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/semantic.go",
+    "internal/cli/viz.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "f1cbfe797d20",
+  "checkpoint_transcript_start": 1576,
+  "transcript_lines_at_start": 1576,
+  "token_usage": {
+    "input_tokens": 431,
+    "cache_creation_tokens": 8095,
+    "cache_read_tokens": 2493627,
+    "output_tokens": 5250,
+    "api_call_count": 9
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01C8wWgEoaUyEaF3SMLy4XY7",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "review"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "f1cbfe797d20",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 17,
+        "end": 18,
+        "entry_ids": [
+          "969e4cc8-2256-44f2-b0c8-fec978e34f80"
+        ],
+        "tool_use_id": "toolu_01C8wWgEoaUyEaF3SMLy4XY7"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01C8wWgEoaUyEaF3SMLy4XY7"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: review",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 25
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-02T20:25:31.892295Z",
+    "agent_lines": 28,
+    "agent_removed": 1,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 28,
+    "total_lines_changed": 29,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
