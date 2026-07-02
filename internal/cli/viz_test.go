@@ -275,7 +275,11 @@ func TestVizListenAddrLoopback(t *testing.T) {
 func TestVizSecurityHeaders_AppliedToMux(t *testing.T) {
 	t.Parallel()
 	srv := &vizServer{brainDir: t.TempDir(), branch: "main"}
-	h := vizSecurityHeaders(srv.mux())
+	m, err := srv.mux()
+	if err != nil {
+		t.Fatalf("mux: %v", err)
+	}
+	h := vizSecurityHeaders(m)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/summary", nil))
 	if rec.Code != http.StatusOK {

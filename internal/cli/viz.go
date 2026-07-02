@@ -128,6 +128,13 @@ func runViz(ctx context.Context, cmd *cobra.Command, opts Options, flags vizFlag
 		srv.provider, srv.owner, srv.repo = parseRepoFromBrainDir(brainDir)
 	}
 
+	// Build the handler before binding so a broken embed fails the command
+	// outright instead of printing a URL that serves a blank UI.
+	handler, err := srv.mux()
+	if err != nil {
+		return err
+	}
+
 	// Loopback only — never 0.0.0.0. The interface is a personal, read-only view
 	// of local data and must not be reachable off-host.
 	ln, err := net.Listen("tcp", vizListenAddr(flags.port))
@@ -141,7 +148,7 @@ func runViz(ctx context.Context, cmd *cobra.Command, opts Options, flags vizFlag
 		openBrowser(url)
 	}
 
-	httpSrv := &http.Server{Handler: vizSecurityHeaders(srv.mux()), ReadHeaderTimeout: 5 * time.Second}
+	httpSrv := &http.Server{Handler: vizSecurityHeaders(handler), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -154,7 +161,7 @@ func runViz(ctx context.Context, cmd *cobra.Command, opts Options, flags vizFlag
 	return nil
 }
 
-func (s *vizServer) mux() http.Handler {
+func (s *vizServer) mux() (http.Handler, error) {
 	m := http.NewServeMux()
 	m.HandleFunc("/api/summary", s.handleSummary)
 	m.HandleFunc("/api/graph", s.handleGraph)
@@ -165,10 +172,14 @@ func (s *vizServer) mux() http.Handler {
 	m.HandleFunc("/api/session/replay", s.handleSessionReplay)
 	m.HandleFunc("/api/history", s.handleHistory)
 	m.HandleFunc("/api/docs", s.handleDocs)
-	if sub, err := fs.Sub(entirebrain.WebUI, "webui/dist"); err == nil {
-		m.Handle("/", http.FileServer(http.FS(sub)))
+	// A missing embed is a build error — fail the command loudly rather than
+	// serving an API with a blank, unexplained 404 UI at /.
+	sub, err := fs.Sub(entirebrain.WebUI, "webui/dist")
+	if err != nil {
+		return nil, fmt.Errorf("embedded web UI unavailable (build error): %w", err)
 	}
-	return m
+	m.Handle("/", http.FileServer(http.FS(sub)))
+	return m, nil
 }
 
 // vizSecurityHeaders makes the no-egress guarantee machine-checkable: the CSP
