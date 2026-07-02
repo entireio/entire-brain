@@ -422,8 +422,11 @@ export function createGraph(canvas, handlers = {}) {
     }
     if (panning) { moved = true; cam.tx = panning.tx + (sx - panning.sx); cam.ty = panning.ty + (sy - panning.sy); dirty = true; return; }
     const n = pick(sx, sy);
-    if (n !== hover) { hover = n; dirty = true; handlers.onHover && handlers.onHover(n, ev.clientX, ev.clientY); }
-    else if (n) handlers.onHover && handlers.onHover(n, ev.clientX, ev.clientY);
+    // onHover gets canvas-relative coords (sx/sy), matching the tooltip's
+    // position:absolute containing block — raw clientX/Y would offset it by
+    // the rail + topbar.
+    if (n !== hover) { hover = n; dirty = true; handlers.onHover && handlers.onHover(n, sx, sy); }
+    else if (n) handlers.onHover && handlers.onHover(n, sx, sy);
     canvas.style.cursor = n ? 'pointer' : 'grab';
   });
   canvas.addEventListener('pointerup', (ev) => {

@@ -230,6 +230,7 @@ async function loadFeatureGraph(key, focusId, fit) {
     if (fit) [280, 900, 1800].forEach((t) => setTimeout(() => { if (graph && currentFeature === key) graph.zoomToFit(false); }, t));
     if (focusId) setTimeout(() => { if (currentFeature === key) openGraphNode(graph.getNode(focusId) || { id: focusId }); }, 650);
   } catch (e) {
+    if (currentFeature !== key) return; // a stale failure must not clobber the active view
     $('loading').classList.add('hidden'); $('empty').classList.remove('hidden');
     $('empty-title').textContent = 'Could not load'; $('empty-body').textContent = String(e.message || e);
   }
@@ -245,7 +246,9 @@ function setupSlider(shown, total) {
   $('node-slider-val').textContent = total > shown ? `${nf(shown)} / ${nf(total)}` : nf(shown);
   ctl.classList.remove('hidden');
 }
-const onSliderChange = debounce((v) => { currentLimit = v; loadFeatureGraph(currentFeature, null, true); }, 260);
+// The debounce can fire after the user has already left the graph view (back
+// to hub, or into replay) — bail instead of fetching a bogus /api/null.
+const onSliderChange = debounce((v) => { if (!featureByKey[currentFeature]) return; currentLimit = v; loadFeatureGraph(currentFeature, null, true); }, 260);
 $('node-slider').addEventListener('input', (e) => {
   const v = parseInt(e.target.value, 10) || 50;
   $('node-slider-val').textContent = nf(v);
@@ -261,12 +264,14 @@ function openGraphNode(n) {
 // ---------- tooltip ----------
 const tip = $('tooltip');
 let lastTipId = null;
-function showTooltip(n, clientX, clientY) {
+function showTooltip(n, x, y) {
+  // x/y are canvas-relative (see graph.js onHover) — the tooltip is absolutely
+  // positioned inside #graphview, whose origin matches the canvas.
   if (!n) { tip.classList.remove('show'); lastTipId = null; return; }
   if (n.id !== lastTipId) { lastTipId = n.id; sfx('hover'); }
   const sub = n.file ? `<br><span class="k">${esc(n.file)}${n.line ? ':' + n.line : ''}</span>` : (n.meta ? `<br><span class="k">${esc(n.meta)}</span>` : '');
   tip.innerHTML = `<span style="color:${nodeColor(n)}">${esc(n.name || n.id)}</span> <span class="k">${esc(n.group || n.kind || '')}</span>${sub}`;
-  tip.style.left = clientX + 'px'; tip.style.top = clientY + 'px'; tip.classList.add('show');
+  tip.style.left = x + 'px'; tip.style.top = y + 'px'; tip.classList.add('show');
 }
 
 // ---------- inspector ----------

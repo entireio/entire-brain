@@ -16,17 +16,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	entirebrain "github.com/ashtom/entire-brain"
 )
-
-// vizDefaultLimit caps how many symbols load into the graph. Large brains hold
-// many thousands of symbols; the cap keeps the force simulation smooth and a
-// "truncated" flag tells the UI to surface it. 0 = no cap.
-const vizDefaultLimit = 4000
 
 // vizGraphMaxView is a safety ceiling on rendered nodes — NOT a feature cap. It's
 // set well above any real brain's largest feature (this repo's history is ~172k)
@@ -41,7 +37,7 @@ const vizGraphMaxView = 300000
 const vizGraphMaxEdges = 90000
 
 // vizGraphViewCap bounds how many symbols actually render in the semantic view.
-// We load a wider pool (vizDefaultLimit), compute degree, then keep the most-
+// We load a wider pool (see handleGraph), compute degree, then keep the most-
 // connected symbols so the default graph is a legible, connected constellation
 // instead of a hairball of arbitrary, mostly-isolated nodes. Drilling in via the
 // inspector's "Expand neighbors" pulls in the rest on demand. 0 = render all.
@@ -51,7 +47,6 @@ type vizFlags struct {
 	port   int
 	branch string
 	noOpen bool
-	limit  int
 }
 
 // newVizCommand builds `entire brain viz` — a local, no-egress web interface
@@ -76,7 +71,6 @@ reads the brain from disk read-only: no agent calls, no outbound network.`,
 	cmd.Flags().IntVar(&flags.port, "port", 0, "Port to bind on 127.0.0.1 (0 = auto-pick a free port)")
 	cmd.Flags().StringVar(&flags.branch, "branch", "", "Branch whose brain to load (default: current branch)")
 	cmd.Flags().BoolVar(&flags.noOpen, "no-open", false, "Do not open a browser automatically")
-	cmd.Flags().IntVar(&flags.limit, "limit", vizDefaultLimit, "Max symbols loaded into the graph (0 = no cap)")
 	return cmd
 }
 
@@ -84,18 +78,23 @@ reads the brain from disk read-only: no agent calls, no outbound network.`,
 // Like the dashboard, it captures a single brain (brainDir/branch/manifest) at
 // startup; re-run `viz` to pick up a fresh `refresh`.
 type vizServer struct {
-	opts     Options
-	target   string
 	repoDir  string
 	brainDir string
 	branch   string
 	manifest *exportManifest
-	limit    int
 	// repo coordinates parsed from the brain key (provider/owner/repo), used to
 	// build real entire.io + source links. Empty provider = local repo (no links).
 	provider string
 	owner    string
 	repo     string
+	// symPool caches the largest symbol prefix loaded so far. The brain is
+	// captured once at startup and never changes for the server's lifetime, and
+	// loadSemanticSymbols returns a stable storage-order prefix, so any smaller
+	// pool is a slice of a larger one — slider moves after the first load never
+	// re-parse the store. symPoolFull means the cache holds the entire store.
+	symMu       sync.Mutex
+	symPool     []semanticRecord
+	symPoolFull bool
 }
 
 // vizListenAddr is the bind address — loopback ONLY, never 0.0.0.0 or ::. Factored
@@ -115,8 +114,14 @@ func runViz(ctx context.Context, cmd *cobra.Command, opts Options, flags vizFlag
 		manifest = status.Manifest
 	}
 
-	srv := &vizServer{opts: opts, target: target, repoDir: repoDir, brainDir: brainDir, branch: branch, manifest: manifest, limit: flags.limit}
-	srv.provider, srv.owner, srv.repo = parseRepoFromBrainDir(brainDir)
+	srv := &vizServer{repoDir: repoDir, brainDir: brainDir, branch: branch, manifest: manifest}
+	// The manifest's RepoKey is the canonical key (it survives nested owner
+	// groups and any store-layout change); the brainDir tail is the fallback.
+	if manifest != nil && manifest.RepoKey != "" {
+		srv.provider, srv.owner, srv.repo = parseRepoFromKey(manifest.RepoKey)
+	} else {
+		srv.provider, srv.owner, srv.repo = parseRepoFromBrainDir(brainDir)
+	}
 
 	// Loopback only — never 0.0.0.0. The interface is a personal, read-only view
 	// of local data and must not be reachable off-host.
@@ -348,22 +353,45 @@ const (
 	colorDoc     = "#34d399"
 )
 
-// linkProviders are the git forges whose brain keys map to real web URLs.
-var linkProviders = map[string]bool{"gh": true, "gl": true, "bb": true}
+// vizLinkSlugs are the forge slugs whose brain keys map to real web URLs —
+// derived from the canonical slug table (knownRepoDomainSlugs, env.go) so a
+// newly supported forge gets links here automatically instead of silently
+// losing them to a stale hardcoded subset.
+func vizLinkSlugs() map[string]bool {
+	out := make(map[string]bool, len(knownRepoDomainSlugs))
+	for _, slug := range knownRepoDomainSlugs {
+		out[slug] = true
+	}
+	return out
+}
 
-// parseRepoFromBrainDir recovers provider/owner/repo from the brain key that is
-// the tail of brainDir (e.g. .../repos/gh/acme/app). Empty provider = a local
-// repo with no forge, hence no web links.
+// parseRepoFromKey recovers provider/owner/repo from a canonical repo key
+// (e.g. "gh/acme/app", or "gl/group/sub/app" for nested groups — everything
+// between the slug and the final segment is the owner path). Empty provider =
+// a local repo with no forge, hence no web links.
+func parseRepoFromKey(key string) (provider, owner, repo string) {
+	parts := strings.Split(strings.Trim(strings.TrimSpace(key), "/"), "/")
+	if len(parts) < 3 || !vizLinkSlugs()[parts[0]] {
+		return "", "", ""
+	}
+	o := strings.Join(parts[1:len(parts)-1], "/")
+	r := parts[len(parts)-1]
+	if o == "" || r == "" {
+		return "", "", ""
+	}
+	return parts[0], o, r
+}
+
+// parseRepoFromBrainDir is the fallback when no manifest records the repo key:
+// the key is the tail of brainDir (e.g. .../repos/gh/acme/app). Only the plain
+// slug/owner/repo shape is recoverable from a path tail; keys with nested
+// owner groups need the manifest's RepoKey.
 func parseRepoFromBrainDir(brainDir string) (provider, owner, repo string) {
 	parts := strings.Split(strings.Trim(filepath.ToSlash(brainDir), "/"), "/")
 	if len(parts) < 3 {
 		return "", "", ""
 	}
-	p, o, r := parts[len(parts)-3], parts[len(parts)-2], parts[len(parts)-1]
-	if !linkProviders[p] || o == "" || r == "" {
-		return "", "", ""
-	}
-	return p, o, r
+	return parseRepoFromKey(strings.Join(parts[len(parts)-3:], "/"))
 }
 
 func vizWebBase() string {
@@ -694,7 +722,11 @@ func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) 
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
-	syms, err := loadSemanticSymbols(s.brainDir, sem, 0)
+	// By-file fetch (indexed on SQLite, filtered scan on a snapshot) instead of
+	// loading the whole symbol table to keep a handful of files' worth. The cap
+	// sits well above vizReplayMaxNodes so truncation happens at the node
+	// budget below, not mid-file here.
+	syms, err := semanticSymbolsForFiles(s.brainDir, sem, resp.Files, vizReplayMaxNodes*4)
 	if err != nil {
 		resp.Warnings = append(resp.Warnings, "semantic symbols: "+err.Error())
 		writeJSONHTTP(w, http.StatusOK, resp)
@@ -803,15 +835,31 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 			pathMap[p] = append(pathMap[p], h.ID)
 		}
 	}
-	// Link by shared topic AND co-located history (same file); records touching
-	// the same file are related, which fills in the otherwise-sparse graph.
-	edges := append(linkBySharedKey(termMap, "shared topic", 8), linkBySharedKey(pathMap, "same file", 8)...)
-	// Timeline spine: chain consecutive records so history reads as one connected
-	// stream over time rather than a scatter of isolated points.
+	// Timeline spine first: chain consecutive records so history reads as one
+	// connected stream over time rather than a scatter of isolated points.
+	// Spine before shared-key edges so the edge budget below truncates the
+	// fill-in edges, never the connectivity.
+	edges := make([]vizGEdge, 0, len(recs))
 	for i := 1; i < len(recs); i++ {
 		edges = append(edges, vizGEdge{From: recs[i-1].ID, To: recs[i].ID, Type: "then"})
 	}
+	// Link by shared topic AND co-located history (same file); records touching
+	// the same file are related, which fills in the otherwise-sparse graph.
+	edges = append(edges, linkBySharedKey(termMap, "shared topic", 8)...)
+	edges = append(edges, linkBySharedKey(pathMap, "same file", 8)...)
 	edges = dedupEdges(edges)
+	// Same scaled edge budget as handleGraph — the renderer is tuned for at
+	// most vizGraphMaxEdges regardless of which feature produced the graph.
+	edgeCap := len(recs) * 4
+	if edgeCap < 12000 {
+		edgeCap = 12000
+	}
+	if edgeCap > vizGraphMaxEdges {
+		edgeCap = vizGraphMaxEdges
+	}
+	if len(edges) > edgeCap {
+		edges = edges[:edgeCap]
+	}
 	writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: nodes, Edges: edges, Total: total, Truncated: trunc})
 }
 
@@ -841,9 +889,12 @@ func (s *vizServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 		if link != "" {
 			label = "View source"
 		}
-		nodes = append(nodes, vizGNode{ID: d.ID, Name: name, Group: "doc", Color: colorDoc, Text: text, Meta: d.Path, File: d.Path, Line: d.Line, Link: link, LinkLabel: label})
+		// "doc:" prefix matches the unified retrieval convention (retrieve.go),
+		// so /api/search doc hits resolve to these nodes in the UI.
+		id := "doc:" + d.ID
+		nodes = append(nodes, vizGNode{ID: id, Name: name, Group: "doc", Color: colorDoc, Text: text, Meta: d.Path, File: d.Path, Line: d.Line, Link: link, LinkLabel: label})
 		if d.Path != "" {
-			pathMap[d.Path] = append(pathMap[d.Path], d.ID)
+			pathMap[d.Path] = append(pathMap[d.Path], id)
 		}
 	}
 	edges := linkBySharedKey(pathMap, "same file", 8)
@@ -855,6 +906,30 @@ func vizShortID(id string) string {
 		return id[:8]
 	}
 	return id
+}
+
+// semanticSymbolPool returns the first `pool` symbols, serving them from the
+// largest prefix already loaded when possible (see the symPool field docs).
+// Callers must not mutate the returned slice's records.
+func (s *vizServer) semanticSymbolPool(sem *semanticSourceManifest, pool int) ([]semanticRecord, error) {
+	if pool <= 0 {
+		return loadSemanticSymbols(s.brainDir, sem, pool)
+	}
+	s.symMu.Lock()
+	defer s.symMu.Unlock()
+	if s.symPoolFull || len(s.symPool) >= pool {
+		if len(s.symPool) > pool {
+			return s.symPool[:pool], nil
+		}
+		return s.symPool, nil
+	}
+	syms, err := loadSemanticSymbols(s.brainDir, sem, pool)
+	if err != nil {
+		return nil, err
+	}
+	s.symPool = syms
+	s.symPoolFull = len(syms) < pool
+	return syms, nil
 }
 
 func (s *vizServer) semanticSource() *semanticSourceManifest {
@@ -898,7 +973,7 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	if pool < 4000 {
 		pool = 4000
 	}
-	syms, err := loadSemanticSymbols(s.brainDir, sem, pool)
+	syms, err := s.semanticSymbolPool(sem, pool)
 	if err != nil {
 		resp.Warnings = append(resp.Warnings, "semantic symbols: "+err.Error())
 		writeJSONHTTP(w, http.StatusOK, resp)

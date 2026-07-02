@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,7 +16,7 @@ import (
 // warnings, never a 500 — the UI relies on this to render its empty state.
 func TestVizHandleGraph_UnbuiltBrain(t *testing.T) {
 	t.Parallel()
-	srv := &vizServer{brainDir: t.TempDir(), branch: "main", limit: 100}
+	srv := &vizServer{brainDir: t.TempDir(), branch: "main"}
 	rec := httptest.NewRecorder()
 	srv.handleGraph(rec, httptest.NewRequest(http.MethodGet, "/api/graph", nil))
 	if rec.Code != http.StatusOK {
@@ -162,6 +163,74 @@ func TestFindSemanticRelationsForSymbols_ChunksLargeInClause(t *testing.T) {
 	}
 }
 
+// Repo links must work for every forge slug the store layer knows (et/tg/cs,
+// not just gh/gl/bb) and for nested owner groups via the manifest RepoKey.
+func TestParseRepoFromKey(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		key                   string
+		provider, owner, repo string
+	}{
+		{"gh/acme/app", "gh", "acme", "app"},
+		{"et/acme/app", "et", "acme", "app"},
+		{"tg/acme/app", "tg", "acme", "app"},
+		{"gl/group/sub/app", "gl", "group/sub", "app"}, // nested GitLab group
+		{"local/hash123", "", "", ""},                  // no forge → no links
+		{"unknown/acme/app", "", "", ""},
+	}
+	for _, tc := range cases {
+		p, o, r := parseRepoFromKey(tc.key)
+		if p != tc.provider || o != tc.owner || r != tc.repo {
+			t.Errorf("parseRepoFromKey(%q) = %q/%q/%q, want %q/%q/%q", tc.key, p, o, r, tc.provider, tc.owner, tc.repo)
+		}
+	}
+	if p, _, _ := parseRepoFromBrainDir("/data/repos/gh/acme/app"); p != "gh" {
+		t.Errorf("parseRepoFromBrainDir fallback broken: provider = %q, want gh", p)
+	}
+}
+
+// /api/docs node IDs must carry the "doc:" prefix that /api/search doc hits use
+// (retrieve.go's unified convention) — otherwise clicking a doc search result
+// can never focus its node.
+func TestVizHandleDocs_PrefixedIDsMatchSearch(t *testing.T) {
+	t.Parallel()
+	brainDir := t.TempDir()
+	idx := docIndex{Records: []docRecord{
+		{ID: "abc123", Path: "docs/a.md", Heading: "A", Line: 1, Text: "alpha"},
+		{ID: "def456", Path: "docs/a.md", Heading: "B", Line: 9, Text: "beta"},
+	}}
+	data, err := json.Marshal(idx)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(brainDir, "docs"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(brainDir, "docs", "index.json"), data, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	srv := &vizServer{brainDir: brainDir, branch: "main"}
+	rec := httptest.NewRecorder()
+	srv.handleDocs(rec, httptest.NewRequest(http.MethodGet, "/api/docs", nil))
+	var resp vizFeatureGraph
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.Nodes) != 2 {
+		t.Fatalf("nodes = %d, want 2", len(resp.Nodes))
+	}
+	for _, n := range resp.Nodes {
+		if !strings.HasPrefix(n.ID, "doc:") {
+			t.Errorf("doc node ID %q lacks the doc: prefix search hits carry", n.ID)
+		}
+	}
+	for _, e := range resp.Edges {
+		if !strings.HasPrefix(e.From, "doc:") || !strings.HasPrefix(e.To, "doc:") {
+			t.Errorf("doc edge %q -> %q references unprefixed IDs", e.From, e.To)
+		}
+	}
+}
+
 // The bind address is loopback ONLY — the no-egress invariant depends on it.
 func TestVizListenAddrLoopback(t *testing.T) {
 	t.Parallel()
@@ -198,7 +267,7 @@ func TestVizSecurityHeaders_AppliedToMux(t *testing.T) {
 // A gigantic ?limit must be clamped by the safety ceiling, not panic or overflow.
 func TestVizHandleGraph_HugeLimitNoPanic(t *testing.T) {
 	t.Parallel()
-	srv := &vizServer{brainDir: t.TempDir(), branch: "main", limit: 100}
+	srv := &vizServer{brainDir: t.TempDir(), branch: "main"}
 	rec := httptest.NewRecorder()
 	srv.handleGraph(rec, httptest.NewRequest(http.MethodGet, "/api/graph?limit=999999999", nil))
 	if rec.Code != http.StatusOK {
