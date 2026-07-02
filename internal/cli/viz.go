@@ -40,7 +40,8 @@ const vizGraphMaxEdges = 90000
 // We load a wider pool (see handleGraph), compute degree, then keep the most-
 // connected symbols so the default graph is a legible, connected constellation
 // instead of a hairball of arbitrary, mostly-isolated nodes. Drilling in via the
-// inspector's "Expand neighbors" pulls in the rest on demand. 0 = render all.
+// inspector's "Expand neighbors" pulls in the rest on demand. 0 = render
+// everything up to the vizGraphMaxView safety ceiling.
 const vizGraphViewCap = 1400
 
 type vizFlags struct {
@@ -949,7 +950,9 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 			view = n
 		}
 	}
-	if view > vizGraphMaxView {
+	// Treat the 0 "render all" sentinel as the safety ceiling, mirroring
+	// handleHistory: "all" still can't exceed vizGraphMaxView.
+	if view <= 0 || view > vizGraphMaxView {
 		view = vizGraphMaxView
 	}
 	// Scale the edge budget with the node count so a bigger view isn't artificially
