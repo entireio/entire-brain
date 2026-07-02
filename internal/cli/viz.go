@@ -402,16 +402,16 @@ const (
 )
 
 // vizLinkSlugs are the forge slugs whose brain keys map to real web URLs —
-// derived from the canonical slug table (knownRepoDomainSlugs, env.go) so a
-// newly supported forge gets links here automatically instead of silently
-// losing them to a stale hardcoded subset.
-func vizLinkSlugs() map[string]bool {
+// derived once at init from the canonical slug table (knownRepoDomainSlugs,
+// env.go) so a newly supported forge gets links here automatically instead of
+// silently losing them to a stale hardcoded subset.
+var vizLinkSlugs = func() map[string]bool {
 	out := make(map[string]bool, len(knownRepoDomainSlugs))
 	for _, slug := range knownRepoDomainSlugs {
 		out[slug] = true
 	}
 	return out
-}
+}()
 
 // parseRepoFromKey recovers provider/owner/repo from a canonical repo key
 // (e.g. "gh/acme/app", or "gl/group/sub/app" for nested groups — everything
@@ -419,7 +419,7 @@ func vizLinkSlugs() map[string]bool {
 // a local repo with no forge, hence no web links.
 func parseRepoFromKey(key string) (provider, owner, repo string) {
 	parts := strings.Split(strings.Trim(strings.TrimSpace(key), "/"), "/")
-	if len(parts) < 3 || !vizLinkSlugs()[parts[0]] {
+	if len(parts) < 3 || !vizLinkSlugs[parts[0]] {
 		return "", "", ""
 	}
 	o := strings.Join(parts[1:len(parts)-1], "/")
@@ -476,7 +476,9 @@ func vizEscapePath(p string) string {
 
 // sourceLink is the forge page for a source file (GitHub blob for gh repos).
 func (s *vizServer) sourceLink(file string, line int) string {
-	file = strings.TrimSpace(file)
+	// Store paths are not normalized on write, so on Windows they can carry
+	// backslashes — which vizEscapePath would percent-encode into a broken URL.
+	file = strings.TrimSpace(filepath.ToSlash(file))
 	if file == "" || s.provider != "gh" {
 		return ""
 	}
