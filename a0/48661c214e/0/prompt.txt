@@ -1,0 +1,1 @@
+Ok, run a review loop with Copilot, address and resolve its findings, ask for review again, loop until it doesn't find anything.
