@@ -283,8 +283,22 @@ func edgeJSON(r semanticRecord) vizEdge {
 
 // ---- handlers ----
 
+// repoDisplayName is a stable, path-free repo identifier for the UI: the forge
+// coordinates when known, else the repo directory's basename. Never the
+// absolute local path — the frontend splits on '/' (wrong on Windows) and the
+// filesystem layout is nobody's business.
+func (s *vizServer) repoDisplayName() string {
+	if s.provider != "" {
+		return s.provider + "/" + s.owner + "/" + s.repo
+	}
+	if s.repoDir == "" {
+		return ""
+	}
+	return filepath.Base(strings.TrimRight(s.repoDir, `/\`))
+}
+
 func (s *vizServer) handleSummary(w http.ResponseWriter, r *http.Request) {
-	resp := vizSummaryResp{Repo: s.repoDir, Branch: s.branch}
+	resp := vizSummaryResp{Repo: s.repoDisplayName(), Branch: s.branch}
 	// Counts come straight from the manifest captured at startup. Rebuilding the
 	// full status report here costs several seconds on large brains and would
 	// block the very first paint of the hub — so we don't. loadDocIndex is cheap.
