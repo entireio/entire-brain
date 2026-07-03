@@ -40,7 +40,9 @@ function mdInline(s) {
   // Protect inline code and links from the emphasis pass (and, for links, keep
   // emphasis regexes from corrupting an href full of _ or * characters).
   s = s.replace(/`([^`]+)`/g, (_, c) => stash('<code>' + c + '</code>'));
-  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, url) => {
+  // URL capture allows a balanced (…) group so Wikipedia-style links
+  // (…/Foo_(bar)) aren't truncated at the first ')'; the final ')' delimits.
+  s = s.replace(/\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)/g, (m, text, url) => {
     const u = mdSafeUrl(url);
     return u ? stash(`<a href="${u}" target="_blank" rel="noopener noreferrer">${mdEmph(text)}</a>`) : m;
   });
