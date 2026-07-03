@@ -93,11 +93,19 @@ button { font: inherit; color: inherit; }
 .rail-search input {
   width: 100%; background: var(--surface-sunken); color: var(--text-default);
   border: 1px solid var(--border-default); border-radius: var(--r-sm);
-  padding: 8px 10px 8px 30px; font: inherit; outline: none;
+  padding: 8px 34px 8px 30px; font: inherit; outline: none;
 }
 .rail-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .rail-search .icon { position: absolute; left: 22px; top: 12px; color: var(--text-disabled); pointer-events: none; }
-.rail-search .hint { position: absolute; right: 20px; top: 11px; color: var(--text-disabled); font-family: var(--font-mono); font-size: 11px; }
+.rail-search .hint {
+  /* Center on the INPUT, not the container: .rail-search padding is asymmetric
+     (4px top / 12px bottom), so plain top:50% sits ~4px below the input's middle.
+     The 620px rule re-centers where padding is symmetric. */
+  position: absolute; right: 20px; top: calc(50% - 4px); transform: translateY(-50%);
+  color: var(--text-disabled); font-family: var(--font-mono); font-size: 11px; line-height: 1;
+  background: var(--surface-raised); border: 1px solid var(--border-subtle);
+  border-radius: 4px; padding: 1px 5px; pointer-events: none;
+}
 
 .rail-section { padding: 6px 16px; color: var(--text-disabled); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
 .rail-scroll { overflow-y: auto; flex: 1; min-height: 0; }
@@ -268,6 +276,7 @@ button { font: inherit; color: inherit; }
           flex-direction: row; align-items: center; gap: 4px; }
   .brand { width: auto; flex: none; padding: 10px 8px 10px 12px; }
   .rail-search { flex: 1; padding: 8px 12px; }
+  .rail-search .hint { top: 50%; } /* symmetric padding here — plain center is exact */
   #results-label, .legend, .counts { display: none; }
   #results { position: absolute; top: 100%; left: 0; right: 0; max-height: 55vh; overflow-y: auto;
              background: var(--surface-base); border-bottom: 1px solid var(--border-subtle);
