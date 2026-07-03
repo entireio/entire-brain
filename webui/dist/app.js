@@ -345,16 +345,39 @@ function openGraphNode(n) {
 }
 
 // ---------- tooltip ----------
+// A short REST delay (HOVER_REST_MS) gates the tooltip + hover sfx: sliding the
+// cursor across circles fires onHover on every pointermove, so revealing instantly
+// flickered the tooltip and spammed the tick. Now we only show (and play sfx once)
+// after the cursor has rested on the SAME node long enough; quick passes show nothing.
 const tip = $('tooltip');
-let lastTipId = null;
+const HOVER_REST_MS = 90;
+let tipTimer = null, tipShownId = null, tipPendingId = null, tipX = 0, tipY = 0;
+function paintTooltip(n) {
+  const sub = n.file ? `<br><span class="k">${esc(n.file)}${n.line ? ':' + n.line : ''}</span>` : (n.meta ? `<br><span class="k">${esc(n.meta)}</span>` : '');
+  tip.innerHTML = `<span style="color:${nodeColor(n)}">${esc(n.name || n.id)}</span> <span class="k">${esc(n.group || n.kind || '')}</span>${sub}`;
+  tip.style.left = tipX + 'px'; tip.style.top = tipY + 'px'; tip.classList.add('show');
+}
 function showTooltip(n, x, y) {
   // x/y are canvas-relative (see graph.js onHover) — the tooltip is absolutely
   // positioned inside #graphview, whose origin matches the canvas.
-  if (!n) { tip.classList.remove('show'); lastTipId = null; return; }
-  if (n.id !== lastTipId) { lastTipId = n.id; sfx('hover'); }
-  const sub = n.file ? `<br><span class="k">${esc(n.file)}${n.line ? ':' + n.line : ''}</span>` : (n.meta ? `<br><span class="k">${esc(n.meta)}</span>` : '');
-  tip.innerHTML = `<span style="color:${nodeColor(n)}">${esc(n.name || n.id)}</span> <span class="k">${esc(n.group || n.kind || '')}</span>${sub}`;
-  tip.style.left = x + 'px'; tip.style.top = y + 'px'; tip.classList.add('show');
+  tipX = x; tipY = y;
+  if (!n) { // left every node: cancel any pending reveal and hide
+    if (tipTimer) { clearTimeout(tipTimer); tipTimer = null; }
+    tipPendingId = tipShownId = null; tip.classList.remove('show');
+    return;
+  }
+  if (n.id === tipShownId) { tip.style.left = tipX + 'px'; tip.style.top = tipY + 'px'; return; } // already up: just follow the cursor
+  if (n.id === tipPendingId) return; // still resting on the same node — let the timer run (coords refreshed above)
+  // moved onto a different node: (re)start the rest timer, keep the tooltip hidden until it fires
+  if (tipTimer) clearTimeout(tipTimer);
+  tipPendingId = n.id; tipShownId = null; tip.classList.remove('show');
+  const node = n;
+  tipTimer = setTimeout(() => {
+    tipTimer = null;
+    if (tipPendingId !== node.id) return;
+    tipPendingId = null; tipShownId = node.id;
+    paintTooltip(node); sfx('hover');
+  }, HOVER_REST_MS);
 }
 
 // ---------- inspector ----------

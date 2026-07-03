@@ -451,6 +451,13 @@ export function createGraph(canvas, handlers = {}) {
     cam.tx = sx - wx * cam.scale; cam.ty = sy - wy * cam.scale;
     dirty = true;
   }, { passive: false });
+  // Leaving the canvas ends the hover: clear the highlight and tell the app so it
+  // cancels any pending (delayed) tooltip and hides a shown one — without this a
+  // rest-timer could paint a stale tooltip after the cursor left onto the chrome.
+  canvas.addEventListener('pointerleave', () => {
+    if (hover !== null) { hover = null; dirty = true; }
+    handlers.onHover && handlers.onHover(null);
+  });
 
   return {
     setData, mergeData, focus, clearFocus, zoomToFit,
