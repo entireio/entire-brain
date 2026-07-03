@@ -45,7 +45,7 @@ Choose a local directory where you keep source checkouts, then clone
 ```sh
 cd /path/to/your/source-directory
 
-git clone https://github.com/suhaanthayyil/entire-sem.git
+git clone https://github.com/entireio/entire-sem.git
 git clone https://github.com/ashtom/entire-brain.git
 ```
 

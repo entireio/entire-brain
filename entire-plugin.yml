@@ -2,4 +2,4 @@ name: brain
 description: Build a local, inspectable repository brain from Entire session history
 requires:
   - name: sem
-    repo_url: https://github.com/suhaanthayyil/entire-sem
+    repo_url: https://github.com/entireio/entire-sem
