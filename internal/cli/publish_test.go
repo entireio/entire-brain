@@ -434,8 +434,9 @@ func TestPublishServerErrorsSurfaced(t *testing.T) {
 
 // TestCanonicalWireRepoKey verifies the wire repo_key is rendered in the exact
 // "gh/owner/repo" form entire-api's brainSlugResolver emits — including the
-// server's normalization (lowercase, .github -> github) — for both github.com and
-// GitHub Enterprise remotes, and that a non-GitHub remote fails fast client-side.
+// server's normalization (lowercase, .github -> github) — for github.com, and that
+// any non-github.com remote (including GitHub Enterprise and look-alike "github.*"
+// hosts the github.com-sourced server cannot resolve) fails fast client-side.
 func TestCanonicalWireRepoKey(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -445,10 +446,12 @@ func TestCanonicalWireRepoKey(t *testing.T) {
 	}{
 		{name: "github.com", remote: "https://github.com/example/repo", want: "gh/example/repo"},
 		{name: "github.com normalizes .github", remote: "https://github.com/Acme/.github.git", want: "gh/acme/github"},
-		{name: "github enterprise scp", remote: "git@github.acme-corp.com:Team/Repo.git", want: "gh/team/repo"},
-		{name: "gitlab rejected", remote: "https://gitlab.com/example/repo", wantErr: "GitHub-hosted"},
-		{name: "self-hosted git rejected", remote: "git@git.example.com:team/repo.git", wantErr: "GitHub-hosted"},
-		{name: "no remote rejected", remote: "", wantErr: "GitHub-hosted origin remote"},
+		{name: "github.com scp", remote: "git@github.com:Example/Repo.git", want: "gh/example/repo"},
+		{name: "github enterprise rejected", remote: "git@github.acme-corp.com:Team/Repo.git", wantErr: "github.com-hosted"},
+		{name: "github lookalike rejected", remote: "https://github.evil.com/example/repo", wantErr: "github.com-hosted"},
+		{name: "gitlab rejected", remote: "https://gitlab.com/example/repo", wantErr: "github.com-hosted"},
+		{name: "self-hosted git rejected", remote: "git@git.example.com:team/repo.git", wantErr: "github.com-hosted"},
+		{name: "no remote rejected", remote: "", wantErr: "github.com origin remote"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -504,8 +507,8 @@ func TestPublishFailsFastForNonGitHubRemote(t *testing.T) {
 	if err == nil {
 		t.Fatal("publish succeeded for a non-GitHub remote; want a fast client error")
 	}
-	if !strings.Contains(err.Error(), "GitHub-hosted") {
-		t.Fatalf("want a GitHub-only client error; got: %v", err)
+	if !strings.Contains(err.Error(), "github.com-hosted") {
+		t.Fatalf("want a github.com-only client error; got: %v", err)
 	}
 }
 

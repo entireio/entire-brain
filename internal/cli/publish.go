@@ -290,46 +290,49 @@ func buildPublishBundle(ctx context.Context, opts Options, storage repoStorage, 
 	return body, repoKey, nil
 }
 
-// brainProviderPrefixGitHub is the wire-contract domain slug for GitHub-family
-// hosts (entire-brain's knownRepoDomainSlugs maps github.com -> "gh"). entire-api's
+// brainProviderPrefixGitHub is the wire-contract domain slug for github.com
+// (entire-brain's knownRepoDomainSlugs maps github.com -> "gh"). entire-api's
 // brain store is GitHub-sourced, so its server-side slug resolver ALWAYS renders a
-// repo as "gh/owner/repo" regardless of the client's git remote host — it never
-// sees the client's per-host DomainSlugs. Only a GitHub-family remote can therefore
-// produce a wire repo_key the server accepts.
+// repo as "gh/owner/repo" from the stored github.com full name — it never sees the
+// client's per-host DomainSlugs. Only a github.com remote can therefore produce a
+// wire repo_key the server accepts.
 const brainProviderPrefixGitHub = "gh"
 
 // canonicalWireRepoKey derives the wire manifest repo_key from the repo's origin
 // remote in the exact form entire-api's brainSlugResolver emits:
 // "gh/" + <normalized owner>/<normalized repo>. Owner/repo come from the same
-// parseRepoRemote the on-disk store key uses (each component already lowercased and
-// run through safeRepoPathComponent — byte-identical to the server's wireRepoPath),
-// so the wire repo_key matches the server-resolved slug for any GitHub-family host
-// (github.com and GitHub Enterprise alike). A non-GitHub remote can never resolve
-// to "gh/..." on the GitHub-sourced server, so it fails fast here rather than
-// sending a request guaranteed to 422.
+// parseRepoRemote the on-disk store key uses (each component lowercased and run
+// through safeRepoPathComponent — byte-identical to the server's wireRepoPath).
+//
+// Only a github.com origin is accepted: entire-api's brain store is sourced from
+// github_repo_meta (github.com repos) and its resolver UNCONDITIONALLY renders
+// "gh/owner/repo" from the stored full name — it has no notion of the client's git
+// host, so it can never reproduce a slug for a GitHub Enterprise or look-alike
+// "github.*" host. Admitting those would send a key the server 422s (or, on an
+// owner/repo collision with a user-supplied github.com repo_id, overwrite the wrong
+// repo's brain), so any non-github.com host fails fast here. github.com's own
+// naming rules forbid an owner or repo that is all punctuation, so every valid
+// github.com full name normalizes to two non-empty components and matches the
+// server's empty-preserving join exactly.
 func canonicalWireRepoKey(ctx context.Context, opts Options, repoDir string) (string, error) {
 	remote := strings.TrimSpace(string(runGitOutput(ctx, opts.Runner, repoDir, "remote", "get-url", "origin")))
 	host, components, ok := parseRepoRemote(remote)
 	if !ok {
-		return "", fmt.Errorf("could not resolve a git origin remote for this repo; hosted publish requires a GitHub-hosted origin remote")
+		return "", fmt.Errorf("could not resolve a git origin remote for this repo; hosted publish requires a github.com origin remote")
 	}
-	if !isGitHubFamilyHost(host) {
-		return "", fmt.Errorf("hosted publish currently supports GitHub-hosted repos only; origin remote host %q is not a GitHub host (the hosted brain store is GitHub-sourced)", host)
+	if !isGitHubDotComHost(host) {
+		return "", fmt.Errorf("hosted publish currently supports github.com-hosted repos only; origin remote host %q is not github.com (the hosted brain store is GitHub-sourced)", host)
 	}
 	return brainProviderPrefixGitHub + "/" + strings.Join(components, "/"), nil
 }
 
-// isGitHubFamilyHost reports whether host is github.com or a GitHub Enterprise
-// Server install — a host carrying a "github" label such as github.example.com.
-// These are exactly the hosts whose repos entire-api serves under the "gh" provider
-// prefix.
-func isGitHubFamilyHost(host string) bool {
-	for _, label := range strings.Split(normalizeRepoHost(host), ".") {
-		if label == "github" {
-			return true
-		}
-	}
-	return false
+// isGitHubDotComHost reports whether host is exactly github.com — the only host
+// whose repos entire-api's GitHub-sourced resolver serves under the "gh" provider
+// prefix. GitHub Enterprise / self-hosted / look-alike "github.*" hosts are NOT
+// accepted: the public github.com-sourced server cannot resolve them, so a wire key
+// for such a host would 422 (or collide with an unrelated github.com repo).
+func isGitHubDotComHost(host string) bool {
+	return normalizeRepoHost(host) == "github.com"
 }
 
 // ensurePublishBodyWithinLimit refuses a bundle whose projected request body would
