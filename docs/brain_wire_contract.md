@@ -101,9 +101,17 @@ key design decisions:
   has.
 
 Reference slices are stored in caller-controlled order and contain no maps, so
-re-marshaling a decoded `BrainArtifact` is byte-identical to the original — a
-property the round-trip test asserts and that transports depending on stable
-bytes (signing, content hashing the artifact itself) can rely on.
+re-marshaling a decoded `BrainArtifact` with this package's `encoding/json`
+round-trip is byte-stable (the round-trip test asserts `Marshal(Unmarshal(b)) ==
+b` for canonically-produced bytes). This is a Go-`encoding/json` guarantee, not a
+cross-implementation one: it relies on Go's HTML escaping, struct field order,
+`omitempty`, and RFC3339Nano time formatting, and it does not hold for bytes a
+non-Go producer emitted or for a non-canonical original (e.g. explicit
+`"size":0` or reordered fields). **Do not** sign or content-hash the received
+artifact bytes directly across implementations. Integrity/signing instead hashes
+each referenced blob by its `sha256:` digest (already content-addressed); if the
+manifest itself must be signed cross-implementation, M1.3/M1.4 define an explicit
+canonical encoding rather than relying on `encoding/json` defaults.
 
 ## Versioning rules
 
