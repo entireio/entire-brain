@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -61,7 +62,29 @@ const (
 
 	publishRequestTimeout   = 5 * time.Minute
 	maxPublishResponseBytes = 1 << 20 // 1 MiB is ample for the small JSON result.
+
+	// serverMaxBrainBodyBytes mirrors entire-api's maxBrainArtifactBytes: the
+	// publish endpoint caps the request body at 256 MiB and 413s anything larger (a
+	// brain bundle inlines all its blobs as base64 in one JSON body). The client
+	// preflights against this so an oversized bundle fails locally with a precise
+	// message before a multi-GB buffer is ever built.
+	serverMaxBrainBodyBytes = 256 << 20 // 256 MiB
+
+	// publishBodyHeadroom keeps the client ceiling below the server cap so the
+	// projection's rounding can never let through a body the server would 413.
+	publishBodyHeadroom = 8 << 20 // 8 MiB
+
+	// publishArtifactEnvelopeBytes over-estimates one artifact's JSON structural
+	// overhead ({"kind":..,"ref":..,"digest":..,"data":..}) so the projected body
+	// size stays an upper bound on the real marshaled body.
+	publishArtifactEnvelopeBytes = 64
 )
+
+// maxPublishBodyBytes is the client-side ceiling on the projected publish request
+// body: the server cap less headroom for the projection's rounding. It is a var
+// solely so tests can shrink it to exercise the preflight without a
+// hundreds-of-MiB fixture; production never reassigns it.
+var maxPublishBodyBytes int64 = serverMaxBrainBodyBytes - publishBodyHeadroom
 
 // publishArtifact is one artifact in the publish bundle. Its JSON tags mirror the
 // server's httpapi.BrainArtifactInput exactly: kind, ref, digest (omitempty), and
@@ -204,11 +227,15 @@ func buildPublishBundle(ctx context.Context, opts Options, storage repoStorage, 
 	if err != nil {
 		return publishRequestBody{}, "", fmt.Errorf("load brain manifest: %w", err)
 	}
-	repoKey := strings.TrimSpace(manifest.RepoKey)
-	if repoKey == "" {
-		// The deterministic store key is the wire slug; fall back to it so the
-		// manifest always self-declares a repo_key.
-		repoKey = storage.Key
+	// The wire manifest's repo_key MUST equal the slug entire-api resolves the
+	// target repo_id to server-side ("gh/owner/repo"), or the server 422s the whole
+	// bundle. Derive it from the origin remote in that canonical form rather than
+	// forwarding the on-disk store key (whose per-host DomainSlugs prefix the
+	// GitHub-sourced server can never reproduce). The on-disk RepoKey stays the
+	// local store's identity and is intentionally not sent as the wire key.
+	repoKey, err := canonicalWireRepoKey(ctx, opts, repoDir)
+	if err != nil {
+		return publishRequestBody{}, "", err
 	}
 
 	art := brainwire.NewBrainArtifact(repoKey, manifest.DefaultBranch, manifest.GeneratedAt)
@@ -253,7 +280,85 @@ func buildPublishBundle(ctx context.Context, opts Options, storage repoStorage, 
 	body := publishRequestBody{
 		Artifacts: append([]publishArtifact{manifestArtifact}, blobs...),
 	}
+	// Preflight the total bundle size against the server's 256 MiB body cap BEFORE
+	// json.Marshal base64-expands every blob into one buffer, so an oversized brain
+	// fails with a precise local message instead of building a multi-GB body only to
+	// be 413'd with an opaque error.
+	if err := ensurePublishBodyWithinLimit(body); err != nil {
+		return publishRequestBody{}, "", err
+	}
 	return body, repoKey, nil
+}
+
+// brainProviderPrefixGitHub is the wire-contract domain slug for GitHub-family
+// hosts (entire-brain's knownRepoDomainSlugs maps github.com -> "gh"). entire-api's
+// brain store is GitHub-sourced, so its server-side slug resolver ALWAYS renders a
+// repo as "gh/owner/repo" regardless of the client's git remote host — it never
+// sees the client's per-host DomainSlugs. Only a GitHub-family remote can therefore
+// produce a wire repo_key the server accepts.
+const brainProviderPrefixGitHub = "gh"
+
+// canonicalWireRepoKey derives the wire manifest repo_key from the repo's origin
+// remote in the exact form entire-api's brainSlugResolver emits:
+// "gh/" + <normalized owner>/<normalized repo>. Owner/repo come from the same
+// parseRepoRemote the on-disk store key uses (each component already lowercased and
+// run through safeRepoPathComponent — byte-identical to the server's wireRepoPath),
+// so the wire repo_key matches the server-resolved slug for any GitHub-family host
+// (github.com and GitHub Enterprise alike). A non-GitHub remote can never resolve
+// to "gh/..." on the GitHub-sourced server, so it fails fast here rather than
+// sending a request guaranteed to 422.
+func canonicalWireRepoKey(ctx context.Context, opts Options, repoDir string) (string, error) {
+	remote := strings.TrimSpace(string(runGitOutput(ctx, opts.Runner, repoDir, "remote", "get-url", "origin")))
+	host, components, ok := parseRepoRemote(remote)
+	if !ok {
+		return "", fmt.Errorf("could not resolve a git origin remote for this repo; hosted publish requires a GitHub-hosted origin remote")
+	}
+	if !isGitHubFamilyHost(host) {
+		return "", fmt.Errorf("hosted publish currently supports GitHub-hosted repos only; origin remote host %q is not a GitHub host (the hosted brain store is GitHub-sourced)", host)
+	}
+	return brainProviderPrefixGitHub + "/" + strings.Join(components, "/"), nil
+}
+
+// isGitHubFamilyHost reports whether host is github.com or a GitHub Enterprise
+// Server install — a host carrying a "github" label such as github.example.com.
+// These are exactly the hosts whose repos entire-api serves under the "gh" provider
+// prefix.
+func isGitHubFamilyHost(host string) bool {
+	for _, label := range strings.Split(normalizeRepoHost(host), ".") {
+		if label == "github" {
+			return true
+		}
+	}
+	return false
+}
+
+// ensurePublishBodyWithinLimit refuses a bundle whose projected request body would
+// exceed the hosted publish size ceiling, BEFORE json.Marshal builds the
+// base64-expanded body in memory. The error names the projected size and the limit
+// so the failure is actionable rather than an opaque server 413.
+func ensurePublishBodyWithinLimit(body publishRequestBody) error {
+	if projected := projectedPublishBodyBytes(body); projected > maxPublishBodyBytes {
+		return fmt.Errorf("publish_too_large: the brain bundle is ~%d bytes, over the %d-byte hosted publish limit; refresh a smaller brain or publish fewer artifacts", projected, maxPublishBodyBytes)
+	}
+	return nil
+}
+
+// projectedPublishBodyBytes upper-bounds the size of the marshaled JSON request
+// body without marshaling it: each artifact's Data becomes base64 (4/3 expansion,
+// rounded up) plus a generous fixed JSON envelope, summed with the array framing.
+// It never undershoots the real body, so a bundle that clears this check also
+// clears the server's body cap.
+func projectedPublishBodyBytes(body publishRequestBody) int64 {
+	total := int64(len(`{"artifacts":[]}`))
+	for i, a := range body.Artifacts {
+		if i > 0 {
+			total++ // comma between array elements
+		}
+		total += publishArtifactEnvelopeBytes
+		total += int64(len(a.Kind) + len(a.Ref) + len(a.Digest))
+		total += int64(base64.StdEncoding.EncodedLen(len(a.Data)))
+	}
+	return total
 }
 
 // collectSnapshotArtifacts reads semantic/snapshots/<commit>/snapshot.ndjson,
@@ -453,6 +558,8 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 		return publishResult{}, fmt.Errorf("publish_rejected: server rejected the brain artifacts (HTTP 422)%s", publishServerDetail(respBody))
 	case http.StatusServiceUnavailable:
 		return publishResult{}, fmt.Errorf("publish_unavailable: hosted brain publishing is not configured on the server (HTTP 503)")
+	case http.StatusRequestEntityTooLarge:
+		return publishResult{}, fmt.Errorf("publish_too_large: the server rejected the brain bundle as too large (HTTP 413); its request body exceeds the hosted publish size limit%s", publishServerDetail(respBody))
 	default:
 		return publishResult{}, fmt.Errorf("publish_failed: unexpected server response (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody))
 	}

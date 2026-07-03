@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -399,6 +400,7 @@ func TestPublishServerErrorsSurfaced(t *testing.T) {
 		{"forbidden", http.StatusForbidden, "publish_auth"},
 		{"validation", http.StatusUnprocessableEntity, "publish_rejected"},
 		{"not-configured", http.StatusServiceUnavailable, "publish_unavailable"},
+		{"too-large", http.StatusRequestEntityTooLarge, "publish_too_large"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -427,5 +429,135 @@ func TestPublishServerErrorsSurfaced(t *testing.T) {
 				t.Fatalf("status %d error = %v, want substring %q", tc.status, err, tc.wantSubstr)
 			}
 		})
+	}
+}
+
+// TestCanonicalWireRepoKey verifies the wire repo_key is rendered in the exact
+// "gh/owner/repo" form entire-api's brainSlugResolver emits — including the
+// server's normalization (lowercase, .github -> github) — for both github.com and
+// GitHub Enterprise remotes, and that a non-GitHub remote fails fast client-side.
+func TestCanonicalWireRepoKey(t *testing.T) {
+	cases := []struct {
+		name    string
+		remote  string
+		want    string
+		wantErr string
+	}{
+		{name: "github.com", remote: "https://github.com/example/repo", want: "gh/example/repo"},
+		{name: "github.com normalizes .github", remote: "https://github.com/Acme/.github.git", want: "gh/acme/github"},
+		{name: "github enterprise scp", remote: "git@github.acme-corp.com:Team/Repo.git", want: "gh/team/repo"},
+		{name: "gitlab rejected", remote: "https://gitlab.com/example/repo", wantErr: "GitHub-hosted"},
+		{name: "self-hosted git rejected", remote: "git@git.example.com:team/repo.git", wantErr: "GitHub-hosted"},
+		{name: "no remote rejected", remote: "", wantErr: "GitHub-hosted origin remote"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+				fakeCommandKey("git", "remote", "get-url", "origin"): {stdout: tc.remote + "\n"},
+			}}
+			got, err := canonicalWireRepoKey(context.Background(), Options{Runner: runner}, ".")
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("want error containing %q; got key=%q err=%v", tc.wantErr, got, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("wire repo_key = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPublishFailsFastForNonGitHubRemote verifies a non-GitHub origin remote is
+// refused with a clear client error and NO HTTP request — the server's brain store
+// is GitHub-sourced, so such a bundle would only 422.
+func TestPublishFailsFastForNonGitHubRemote(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("publish must not call the server for a non-GitHub remote; got %s %s", r.Method, r.URL.Path)
+	}))
+	defer server.Close()
+
+	repoDir := t.TempDir()
+	dataDir := t.TempDir()
+	// gitlab.com stores under the "gl" slug; lay the brain down there so the command
+	// reaches wire-repo_key derivation rather than failing at "no brain found".
+	brainDir := filepath.Join(dataDir, repoStoreDirName, "gl", "example", "repo")
+	writePublishBrainFixture(t, brainDir)
+
+	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
+	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
+	t.Setenv("ENTIRE_API_URL", server.URL)
+	t.Setenv("ENTIRE_API_TOKEN", testPublishToken)
+	t.Setenv("ENTIRE_REPO_ID", testPublishRepoID)
+
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "remote", "get-url", "origin"): {stdout: "https://gitlab.com/example/repo\n"},
+		fakeCommandKey("git", "rev-parse", "HEAD"):           {stdout: testPublishHead + "\n"},
+	}}
+	cmd := newPublishCmd(t, repoDir, dataDir, runner)
+	_, err := execute(t, cmd, "publish")
+	if err == nil {
+		t.Fatal("publish succeeded for a non-GitHub remote; want a fast client error")
+	}
+	if !strings.Contains(err.Error(), "GitHub-hosted") {
+		t.Fatalf("want a GitHub-only client error; got: %v", err)
+	}
+}
+
+// TestPublishFailsFastWhenBundleTooLarge verifies the total-size preflight refuses
+// an over-cap bundle before any HTTP send. The ceiling is shrunk so the small
+// fixture trips it without a hundreds-of-MiB brain.
+func TestPublishFailsFastWhenBundleTooLarge(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("publish must not send an over-limit bundle; got %s %s", r.Method, r.URL.Path)
+	}))
+	defer server.Close()
+
+	repoDir := t.TempDir()
+	dataDir := t.TempDir()
+	writePublishBrainFixture(t, publishBrainDir(dataDir))
+
+	orig := maxPublishBodyBytes
+	maxPublishBodyBytes = 16
+	defer func() { maxPublishBodyBytes = orig }()
+
+	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
+	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
+	t.Setenv("ENTIRE_API_URL", server.URL)
+	t.Setenv("ENTIRE_API_TOKEN", testPublishToken)
+	t.Setenv("ENTIRE_REPO_ID", testPublishRepoID)
+
+	cmd := newPublishCmd(t, repoDir, dataDir, newPublishFixtureRunner())
+	_, err := execute(t, cmd, "publish")
+	if err == nil {
+		t.Fatal("publish sent an over-limit bundle; want a preflight error")
+	}
+	if !strings.Contains(err.Error(), "publish_too_large") {
+		t.Fatalf("want a publish_too_large preflight error; got: %v", err)
+	}
+}
+
+// TestProjectedPublishBodyBytesUpperBounds verifies the projection never
+// undershoots the real marshaled body — the invariant that makes the preflight a
+// sound backstop against the server body cap.
+func TestProjectedPublishBodyBytesUpperBounds(t *testing.T) {
+	body := publishRequestBody{Artifacts: []publishArtifact{
+		{Kind: brainKindManifest, Ref: testPublishHead, Digest: "sha256:deadbeef", Data: []byte(`{"manifest":{}}`)},
+		{Kind: brainKindSnapshot, Ref: testPublishCommit, Digest: "sha256:cafe", Data: make([]byte, 5000)},
+		{Kind: brainKindFacts, Ref: "main", Data: []byte(`{"branch":"main"}`)},
+	}}
+	projected := projectedPublishBodyBytes(body)
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	if projected < int64(len(payload)) {
+		t.Fatalf("projection %d under-estimates real marshaled body %d", projected, len(payload))
 	}
 }
