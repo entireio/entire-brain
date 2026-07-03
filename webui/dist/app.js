@@ -17,6 +17,89 @@ const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = se
 const esc = (s) => (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const nf = (n) => (n || 0).toLocaleString();
 
+// ---------- markdown (PROSE only; dependency-free, CSP-safe) ----------
+// XSS-safety is the load-bearing property: we escape ALL html FIRST via esc(),
+// then apply a small, fixed markdown subset to the ESCAPED text — so every tag
+// and attribute in the output is one we emit here, never passed through from the
+// source. Links are scheme-allowlisted (http/https/mailto); there is no raw-html
+// passthrough and no javascript:/data: urls. Use for prose (fact/doc/history/
+// session summaries), NOT for source code (that stays escaped in .insp-sig).
+// Self-check: mdToHtml('<img src=x onerror=alert(1)>') -> "&lt;img ...&gt;" text;
+// mdToHtml('[x](javascript:alert(1))') -> the literal, un-linked, escaped text.
+const mdSafeUrl = (u) => { u = (u || '').trim(); return /^(https?:\/\/|mailto:)[^\s]+$/i.test(u) ? u : null; };
+function mdEmph(s) {
+  return s
+    .replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__([^_]+?)__/g, '<strong>$1</strong>')
+    .replace(/(^|[^\w*])\*([^*\n]+?)\*(?!\w)/g, '$1<em>$2</em>')
+    .replace(/(^|[^\w_])_([^_\n]+?)_(?!\w)/g, '$1<em>$2</em>');
+}
+function mdInline(s) {
+  const tokens = [];
+  const stash = (html) => { tokens.push(html); return '\uE000' + (tokens.length - 1) + '\uE000'; };
+  // Protect inline code and links from the emphasis pass (and, for links, keep
+  // emphasis regexes from corrupting an href full of _ or * characters).
+  s = s.replace(/`([^`]+)`/g, (_, c) => stash('<code>' + c + '</code>'));
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, url) => {
+    const u = mdSafeUrl(url);
+    return u ? stash(`<a href="${u}" target="_blank" rel="noopener noreferrer">${mdEmph(text)}</a>`) : m;
+  });
+  s = mdEmph(s);
+  // Unstash repeatedly: a link's text can itself contain a stashed code token, so
+  // a single pass would leave the inner sentinel as literal glyphs. Loop until no
+  // sentinel remains (guard-bounded — token content is safe, escaped HTML only).
+  for (let guard = 0; /\uE000\d+\uE000/.test(s) && guard < 6; guard++) {
+    s = s.replace(/\uE000(\d+)\uE000/g, (_, i) => (tokens[+i] != null ? tokens[+i] : ''));
+  }
+  return s;
+}
+function mdToHtml(src) {
+  // Strip the private-use sentinel from the source first, so crafted prose can't
+  // smuggle a placeholder into the stash/unstash machinery below.
+  const lines = esc(String(src == null ? '' : src).replace(/\uE000/g, '')).split('\n');
+  const out = [];
+  let para = [];
+  const flush = () => { if (para.length) { out.push('<p>' + para.map(mdInline).join('<br>') + '</p>'); para = []; } };
+  for (let i = 0; i < lines.length;) {
+    const line = lines[i];
+    if (/^\s*```/.test(line)) { // fenced code block
+      flush(); i++;
+      const buf = [];
+      while (i < lines.length && !/^\s*```/.test(lines[i])) { buf.push(lines[i]); i++; }
+      i++; // consume the closing fence
+      out.push('<pre><code>' + buf.join('\n') + '</code></pre>');
+      continue;
+    }
+    const h = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (h) { flush(); out.push(`<h${h[1].length}>${mdInline(h[2].trim())}</h${h[1].length}>`); i++; continue; }
+    if (/^\s*&gt;\s?/.test(line)) { // blockquote ('>' is '&gt;' after escaping)
+      flush();
+      const buf = [];
+      while (i < lines.length && /^\s*&gt;\s?/.test(lines[i])) { buf.push(lines[i].replace(/^\s*&gt;\s?/, '')); i++; }
+      out.push('<blockquote>' + buf.map(mdInline).join('<br>') + '</blockquote>');
+      continue;
+    }
+    if (/^\s*[-*]\s+/.test(line)) { // unordered list
+      flush();
+      const buf = [];
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) { buf.push(lines[i].replace(/^\s*[-*]\s+/, '')); i++; }
+      out.push('<ul>' + buf.map((t) => '<li>' + mdInline(t) + '</li>').join('') + '</ul>');
+      continue;
+    }
+    if (/^\s*\d+\.\s+/.test(line)) { // ordered list
+      flush();
+      const buf = [];
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) { buf.push(lines[i].replace(/^\s*\d+\.\s+/, '')); i++; }
+      out.push('<ol>' + buf.map((t) => '<li>' + mdInline(t) + '</li>').join('') + '</ol>');
+      continue;
+    }
+    if (line.trim() === '') { flush(); i++; continue; }
+    para.push(line); i++;
+  }
+  flush();
+  return out.join('');
+}
+
 // ---------- audio (synthesized via Web Audio — no external files, CSP-safe) ----------
 let audioCtx = null, soundOn = true, lastHoverAt = 0;
 function ensureAudio() {
@@ -326,12 +409,18 @@ function openFeatureNode(id) {
     if (e.from === id && gData.byId[e.to]) nb.push({ node: gData.byId[e.to], rel: e.type, dir: '→' });
     else if (e.to === id && gData.byId[e.from]) nb.push({ node: gData.byId[e.from], rel: e.type, dir: '←' });
   }
+  const isSession = currentFeature === 'sessions';
   let html = '';
   html += linkButton(n);
-  if (currentFeature === 'sessions') html += `<button class="insp-replay" data-replay="${esc(id)}">&#9654;&#65038; Replay on graph</button>`;
-  if (n.text) html += `<div class="insp-sig">${esc(n.text)}</div>`;
+  if (isSession) html += `<button class="insp-replay" data-replay="${esc(id)}">&#9654;&#65038; Replay on graph</button>`;
+  // Sessions: surface the date · files · checkpoints meta clearly in the body so
+  // the sidebar is never near-blank (it's otherwise only in the tiny qualifier).
+  if (isSession && n.meta) html += `<div class="insp-meta">${esc(n.meta)}</div>`;
+  // Prose summaries render as markdown; source code stays escaped in .insp-sig.
+  if (n.text) html += `<div class="insp-md">${mdToHtml(n.text)}</div>`;
+  else if (isSession) html += `<div class="empty-note">No summary recorded for this session.</div>`;
   html += `<div class="insp-h">Connected · ${nb.length}</div>`;
-  if (!nb.length) html += `<div class="empty-note">No links.</div>`;
+  if (!nb.length) html += `<div class="empty-note">${isSession ? 'This session recorded no linked symbols.' : 'No links.'}</div>`;
   else html += nb.slice(0, 80).map((x) => `<div class="neighbor" data-id="${esc(x.node.id)}"><span class="dot" style="background:${nodeColor(x.node)}"></span><span class="n" title="${esc(x.node.text || x.node.name)}">${esc(x.node.name || x.node.id)}</span><span class="rel">${esc((x.dir || '') + ' ' + (x.rel || ''))}</span></div>`).join('');
   const body = $('insp-body'); body.innerHTML = html;
   body.querySelectorAll('.insp-replay').forEach((el) => el.addEventListener('click', () => startReplay(el.dataset.replay)));
