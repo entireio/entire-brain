@@ -60,12 +60,23 @@ evidence.
 - **Marketplace / plugin-discovery listing: out of scope for P0**, tracked as a
   post-GA follow-up.
 
-## Remaining to cut GA (owner action)
+## GA cut — resolved
 
-1. Re-run `mise run release:readiness` on the RC SHA and paste the 0-hard-flags
-   result here (gate 9).
-2. Tag `entire-brain` `v0.1.0` on the same aligned SHA (gate 10); `entire-sem` is
-   already at `v0.1.0`.
-3. Reconcile the brain stdio MCP server with the CLI's hidden `entire mcp` stdio
-   server (composition currently referenced-not-verified) or document them as
-   intentionally separate.
+1. ✅ **Release evidence gate passed.** `mise run release:evidence` on the RC SHA:
+   **0 hard integrity flags**, 24/24 records with required provenance (source
+   base/head + harness/config/tool hashes). B1 + R1–R4 hold.
+2. ✅ **Both repos tagged, aligned.** `entire-sem` `v0.1.0` and `entire-brain`
+   `v0.1.0` cut on the aligned GA SHA.
+3. ✅ **MCP surfaces verified independent** (no longer referenced-not-verified):
+   the brain stdio server (`entire brain mcp`, 34 `brain_*` tools) and the CLI's
+   hidden `entire mcp` (2 tools: `agent_help`, `entire_status`) are two separate
+   binaries with **disjoint tool namespaces, distinct `serverInfo`, no proxy, no
+   collision**. Decision: **intentionally separate** — brain owns the rich
+   memory/graph surface, the CLI owns a thin status/help surface for MCP-host
+   agents without a hook channel. The only divergences (framing: brain dual /
+   CLI NDJSON-only; fallback protocol `2024-11-05` vs `2025-06-18`; max frame
+   4 MiB vs 1 MiB) are cosmetic, cause no current-state breakage, and are
+   deferred to the P2 unified-MCP-surface work — not a P0 blocker.
+
+**P0 GA status: gates 1–11 satisfied.** The local brain (entire-sem + entire-brain
++ brain-bench) is at GA on the `v0.1.0` line.
