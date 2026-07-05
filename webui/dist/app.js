@@ -271,6 +271,11 @@ $('home').addEventListener('click', showHub);
 $('back').addEventListener('click', showHub);
 
 const NODE_SLIDER_MAX = 300000; // safety ceiling only; slider reaches each feature's true total
+// A feature graph opens showing its most-connected core, not everything. A few
+// thousand nodes render as an unreadable hairball; the top ~300 by degree keep
+// the structure legible, and the node slider still reaches the full total for
+// anyone who wants the whole graph. Small features (< this) just show it all.
+const VIZ_DEFAULT_NODES = 300;
 let currentLimit = 0; // 0 = server default; set by the node-count slider
 
 async function openFeature(key, focusId) {
@@ -278,7 +283,7 @@ async function openFeature(key, focusId) {
   if (!f) return;
   stopReplay();
   currentFeature = key;
-  currentLimit = 0;
+  currentLimit = VIZ_DEFAULT_NODES;
   setView('graph');
   $('crumb-title').textContent = f.label;
   $('crumb-count').textContent = '';
