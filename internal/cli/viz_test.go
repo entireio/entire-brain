@@ -339,3 +339,33 @@ func TestVizFeatureHandlers_UnbuiltBrain(t *testing.T) {
 		})
 	}
 }
+
+func TestVizSessionFallbackText(t *testing.T) {
+	t.Parallel()
+	if got := vizSessionFallbackText(exportSession{}); got != "No summary recorded." {
+		t.Fatalf("no files: got %q, want the fallback note", got)
+	}
+	if got := vizSessionFallbackText(exportSession{FilesTouched: []string{"  ", ""}}); got != "No summary recorded." {
+		t.Fatalf("blank files: got %q, want the fallback note", got)
+	}
+	got := vizSessionFallbackText(exportSession{FilesTouched: []string{"a/b/foo.go", "x/bar.go"}})
+	for _, want := range []string{"**Files touched**", "- foo.go", "- bar.go"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("files: %q missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "more)") {
+		t.Fatalf("files: unexpected overflow note in %q", got)
+	}
+	many := make([]string, 0, 11)
+	for i := 0; i < 11; i++ {
+		many = append(many, fmt.Sprintf("dir/f%d.go", i))
+	}
+	over := vizSessionFallbackText(exportSession{FilesTouched: many})
+	if !strings.Contains(over, "_(+3 more)_") { // 11 touched, 8 shown -> 3 more
+		t.Fatalf("overflow: %q missing the +3 more note", over)
+	}
+	if n := strings.Count(over, "- f"); n != 8 { // exactly 8 file bullets are shown
+		t.Fatalf("overflow: got %d file bullets, want 8 in %q", n, over)
+	}
+}

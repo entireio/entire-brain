@@ -49,7 +49,9 @@ export function createGraph(canvas, handlers = {}) {
   resize();
 
   // ---------- data ----------
-  function radius(n) { return Math.min(3 + Math.sqrt(n.degree || 0) * 1.5, 16); }
+  // Steeper degree scale so hubs clearly outsize leaves (the eye lands on them
+  // first); floor keeps isolated nodes visible + clickable, cap bounds mega-hubs.
+  function radius(n) { return Math.min(3.5 + Math.sqrt(n.degree || 0) * 2, 22); }
 
   function setData(rawNodes, rawEdges) {
     byId = new Map();
@@ -326,9 +328,13 @@ export function createGraph(canvas, handlers = {}) {
       } else {
         const dim = hi && n !== hi && !(incident && [...incident].some((e) => e.source === n || e.target === n));
         const focusDim = !hi && focusSet && !focusSet.has(n.id);
+        // At overview zoom (labels hidden, nothing hovered/focused) gently fade the
+        // low-degree leaves so hubs/clusters pop and the eye lands on what matters.
+        // Dim, don't delete; and never fight the hover/focus/replay alpha above.
+        const overviewDim = !hi && !focusSet && !showLabels && (n.degree || 0) <= 1;
         // Keep dimmed context clearly visible (0.5, not near-invisible) so moving
         // the cursor over a sparse graph doesn't make everything flicker away.
-        alpha = (dim || focusDim) ? 0.5 : 1;
+        alpha = (dim || focusDim) ? 0.5 : (overviewDim ? 0.55 : 1);
       }
       if (isLead) { // expanding pulse ring on the few lead symbols only (not all 100s)
         ctx.globalAlpha = 0.55 * (1 - pulse * 0.7);
@@ -344,7 +350,10 @@ export function createGraph(canvas, handlers = {}) {
       else if (n.fixed) { ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.stroke(); }
       // During replay label ONLY the few lead symbols of the active step — a file
       // can touch hundreds of symbols and labeling all of them is an unreadable wall.
-      const wantLabel = n === hi || n === selected || isLead || (!replaying && showLabels && n.degree >= 5);
+      // Label hubs at zoom (degree >= 5); the biggest hubs (degree >= 8) get a
+      // label a little earlier — even at overview — to orient the eye without a
+      // wall of text.
+      const wantLabel = n === hi || n === selected || isLead || (!replaying && ((showLabels && n.degree >= 5) || n.degree >= 8));
       if (wantLabel) {
         ctx.globalAlpha = alpha < 0.5 ? 0.25 : 0.92;
         ctx.fillStyle = '#f3f3f3';
@@ -451,6 +460,13 @@ export function createGraph(canvas, handlers = {}) {
     cam.tx = sx - wx * cam.scale; cam.ty = sy - wy * cam.scale;
     dirty = true;
   }, { passive: false });
+  // Leaving the canvas ends the hover: clear the highlight and tell the app so it
+  // cancels any pending (delayed) tooltip and hides a shown one — without this a
+  // rest-timer could paint a stale tooltip after the cursor left onto the chrome.
+  canvas.addEventListener('pointerleave', () => {
+    if (hover !== null) { hover = null; dirty = true; }
+    handlers.onHover && handlers.onHover(null);
+  });
 
   return {
     setData, mergeData, focus, clearFocus, zoomToFit,
