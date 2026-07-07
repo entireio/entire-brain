@@ -70,6 +70,10 @@ func Sync(ctx context.Context, srv Server, repoID, branch, memberID string, loca
 		// cross-member proposal indistinguishable from a local one — routing lost. Reject.
 		return Result{}, errors.New("factsync: memberID is required (proposal routing)")
 	}
+	// Redact local-only provenance coordinates before these facts leave for the shared
+	// head — no member's local filesystem path leaks cross-member (opaque ids are kept,
+	// so provenance still unions). Copies; the caller's local facts are not mutated.
+	local = SanitizeForEgress(local)
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		ref, plaintext, found, err := srv.Current(ctx, repoID, branch)
 		if err != nil {
