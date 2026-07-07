@@ -44,13 +44,26 @@ func hostedMCPServer(t *testing.T, schemaVersion string) *httptest.Server {
 				} `json:"arguments"`
 			}
 			_ = json.Unmarshal(req.Params, &p)
-			if p.Name == "brain_search" && p.Arguments.Query != "" {
-				results := []SearchResult{{Fact: Fact{ID: "fact:a", Text: "the build uses bazel", Status: "active"}, Score: 2}}
-				blob, _ := json.Marshal(results)
-				reply(map[string]any{"content": []map[string]any{{"type": "text", "text": string(blob)}}})
-				return
+			text := func(v any) {
+				b, _ := json.Marshal(v)
+				reply(map[string]any{"content": []map[string]any{{"type": "text", "text": string(b)}}})
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "error": map[string]any{"code": -32000, "message": "query is required"}})
+			switch p.Name {
+			case "brain_search":
+				if p.Arguments.Query == "" {
+					_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "error": map[string]any{"code": -32000, "message": "query is required"}})
+					return
+				}
+				text([]SearchResult{{Fact: Fact{ID: "fact:a", Text: "the build uses bazel", Status: "active"}, Score: 2}})
+			case "brain_get":
+				text(GetResult{Found: true, Fact: Fact{ID: "fact:a", Text: "the build uses bazel", Status: "active"}})
+			case "brain_multi_get":
+				text(MultiGetResult{Facts: []Fact{{ID: "fact:a", Status: "active"}}, Missing: []string{"fact:x"}})
+			case "brain_status":
+				text(StatusResult{Branch: "main", Active: 2, Superseded: 1, Retracted: 0, Total: 3})
+			default:
+				_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "error": map[string]any{"code": -32000, "message": "unknown tool"}})
+			}
 		default:
 			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": 1, "error": map[string]any{"code": -32601, "message": "method not found"}})
 		}
@@ -116,6 +129,49 @@ func TestClientListToolsAndSearch(t *testing.T) {
 		if !errors.As(err, &je) || je.Code != -32000 {
 			t.Fatalf("error = %v; want *jsonrpcError code -32000", err)
 		}
+	}
+}
+
+func TestClientTypedWrappers(t *testing.T) {
+	ctx := context.Background()
+	ts := hostedMCPServer(t, brainwire.BrainSchemaVersion)
+	defer ts.Close()
+	c := &Client{BaseURL: ts.URL, Token: "tok"}
+
+	if g, err := c.Get(ctx, "repo1", "main", "fact:a"); err != nil || !g.Found || g.Fact.ID != "fact:a" {
+		t.Fatalf("Get = %+v, %v", g, err)
+	}
+	if mg, err := c.MultiGet(ctx, "repo1", "main", []string{"fact:a", "fact:x"}); err != nil || len(mg.Facts) != 1 || len(mg.Missing) != 1 {
+		t.Fatalf("MultiGet = %+v, %v", mg, err)
+	}
+	if s, err := c.Status(ctx, "repo1", "main"); err != nil || s.Active != 2 || s.Total != 3 {
+		t.Fatalf("Status = %+v, %v", s, err)
+	}
+}
+
+func TestClientTypedTransportErrors(t *testing.T) {
+	ctx := context.Background()
+	statusServer := func(code int) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(code)
+			_, _ = w.Write([]byte(`{"title":"denied"}`))
+		}))
+	}
+	for _, tc := range []struct {
+		code int
+		want error
+	}{
+		{http.StatusUnauthorized, ErrUnauthorized},
+		{http.StatusForbidden, ErrForbidden},
+		{http.StatusServiceUnavailable, ErrNotConfigured},
+	} {
+		ts := statusServer(tc.code)
+		c := &Client{BaseURL: ts.URL, Token: "tok"}
+		_, _, err := c.Initialize(ctx, "repo1")
+		if !errors.Is(err, tc.want) {
+			t.Fatalf("status %d → %v; want %v", tc.code, err, tc.want)
+		}
+		ts.Close()
 	}
 }
 

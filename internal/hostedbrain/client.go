@@ -33,6 +33,16 @@ const mcpProtocolVersion = "2024-11-05"
 // hosted brain must not be contacted from a local-only/no-egress workspace.
 var ErrNoEgress = errors.New("hostedbrain: remote brain access disabled by ENTIRE_BRAIN_NO_EGRESS/LOCAL_ONLY")
 
+// Typed transport errors so callers can react to the distinct HTTP outcomes without
+// string-matching: an unauthenticated token, a repo the caller cannot pull, and a
+// server with the hosted brain not configured. Each wraps the response body for
+// diagnostics; match with errors.Is.
+var (
+	ErrUnauthorized  = errors.New("hostedbrain: unauthorized (401)")
+	ErrForbidden     = errors.New("hostedbrain: forbidden — no pull access to this repo (403)")
+	ErrNotConfigured = errors.New("hostedbrain: hosted brain not configured (503)")
+)
+
 // Client talks to a repo's hosted brain MCP endpoint. BaseURL is the entire-api
 // origin; Token is the member's bearer token (same as factsync.HTTPServer).
 type Client struct {
@@ -117,8 +127,18 @@ func (c *Client) rpc(ctx context.Context, repoID, method string, params any) (js
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("hostedbrain: %s %s: unexpected status %s: %s", method, repoID, resp.Status, strings.TrimSpace(string(body)))
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		body := strings.TrimSpace(string(raw))
+		switch resp.StatusCode {
+		case http.StatusUnauthorized:
+			return nil, fmt.Errorf("%w: %s", ErrUnauthorized, body)
+		case http.StatusForbidden:
+			return nil, fmt.Errorf("%w: %s", ErrForbidden, body)
+		case http.StatusServiceUnavailable:
+			return nil, fmt.Errorf("%w: %s", ErrNotConfigured, body)
+		default:
+			return nil, fmt.Errorf("hostedbrain: %s %s: unexpected status %s: %s", method, repoID, resp.Status, body)
+		}
 	}
 	var out struct {
 		Result json.RawMessage `json:"result"`
@@ -223,6 +243,77 @@ func (c *Client) Search(ctx context.Context, repoID, branch, query string, limit
 		return nil, fmt.Errorf("hostedbrain: decode search results: %w", err)
 	}
 	return results, nil
+}
+
+// GetResult is the shape brain_get returns: Found + the fact on a hit, or Found=false +
+// the queried id on a miss (a miss is a normal outcome, not an error).
+type GetResult struct {
+	Found bool   `json:"found"`
+	Fact  Fact   `json:"fact"`
+	ID    string `json:"id"`
+}
+
+// Get fetches one active fact by id from the hosted fact-set.
+func (c *Client) Get(ctx context.Context, repoID, branch, id string) (GetResult, error) {
+	args := map[string]any{"id": id}
+	if branch != "" {
+		args["branch"] = branch
+	}
+	var out GetResult
+	return out, c.callInto(ctx, repoID, "brain_get", args, &out)
+}
+
+// MultiGetResult is the shape brain_multi_get returns: the found active facts and the
+// ids that were not found (unknown or non-active).
+type MultiGetResult struct {
+	Facts   []Fact   `json:"facts"`
+	Missing []string `json:"missing"`
+}
+
+// MultiGet batch-fetches active facts by id.
+func (c *Client) MultiGet(ctx context.Context, repoID, branch string, ids []string) (MultiGetResult, error) {
+	args := map[string]any{"ids": ids}
+	if branch != "" {
+		args["branch"] = branch
+	}
+	var out MultiGetResult
+	return out, c.callInto(ctx, repoID, "brain_multi_get", args, &out)
+}
+
+// StatusResult is the shape brain_status returns: per-status counts for a branch.
+type StatusResult struct {
+	Branch     string `json:"branch"`
+	Active     int    `json:"active"`
+	Superseded int    `json:"superseded"`
+	Retracted  int    `json:"retracted"`
+	Total      int    `json:"total"`
+}
+
+// Status summarizes the branch fact-set.
+func (c *Client) Status(ctx context.Context, repoID, branch string) (StatusResult, error) {
+	args := map[string]any{}
+	if branch != "" {
+		args["branch"] = branch
+	}
+	var out StatusResult
+	return out, c.callInto(ctx, repoID, "brain_status", args, &out)
+}
+
+// callInto calls a tool and decodes its text content block into dst. An empty content
+// block leaves dst at its zero value (no error) — the caller's zero value is a valid
+// "nothing" for these shapes.
+func (c *Client) callInto(ctx context.Context, repoID, name string, args map[string]any, dst any) error {
+	text, err := c.CallTool(ctx, repoID, name, args)
+	if err != nil {
+		return err
+	}
+	if text == "" {
+		return nil
+	}
+	if err := json.Unmarshal([]byte(text), dst); err != nil {
+		return fmt.Errorf("hostedbrain: decode %s result: %w", name, err)
+	}
+	return nil
 }
 
 // noEgress reports whether the egress gate is set, matching the CLI's fail-closed
