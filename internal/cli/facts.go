@@ -1,17 +1,19 @@
 package cli
 
 import (
-	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/ashtom/entire-brain/internal/factmerge"
 )
 
 const (
@@ -19,23 +21,11 @@ const (
 	factsTaxonomyFileName = "taxonomy.json"
 	factsTaxonomyPath     = factsDirName + "/" + factsTaxonomyFileName
 	factsFileName         = "facts.ndjson"
-	factsMaxLineBytes     = 64 * 1024
 	factsMaxPerChunk      = 6 // quality-gate output cap per source chunk
-	factsMaxPaths         = 2 // a fact may live under at most two taxonomy paths
 
 	factOriginDistilled = "distilled"
 	factOriginAuthored  = "authored"
-
-	factStatusActive     = "active"
-	factStatusSuperseded = "superseded"
-	factStatusRetracted  = "retracted"
 )
-
-// factPathPattern matches a three-level taxonomy path
-// (category.subcategory.type), each segment lowercase letters, digits, and
-// underscores, the first segment starting with a letter. e.g.
-// preferences.coding.style or architecture.boundaries.rationale.
-var factPathPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z0-9_]+){2}$`)
 
 // factSourceManifest is recorded under sources.facts in the brain manifest,
 // parallel to historySourceManifest and the semantic source metadata.
@@ -79,39 +69,9 @@ type factSourceManifest struct {
 	Warnings              []string `json:"warnings,omitempty"`
 }
 
-// factRecord is one durable, self-contained statement. The id is content
-// derived (sha256 of normalized text + sorted paths) so re-distilling a turn
-// is idempotent and dedupe is a map lookup.
-type factRecord struct {
-	ID           string       `json:"id"`
-	Paths        []string     `json:"paths"`           // 1-2 taxonomy paths (topic label)
-	Kind         string       `json:"kind,omitempty"`  // decision|invariant|gotcha|preference|convention|closed-negative
-	Locus        []string     `json:"locus,omitempty"` // code identifiers/paths the fact is about (WHERE)
-	Text         string       `json:"text"`            // third person about the user
-	Branch       string       `json:"branch"`
-	Origin       string       `json:"origin"` // "distilled" | "authored"
-	Status       string       `json:"status"` // "active" | "superseded" | "retracted"
-	Confidence   string       `json:"confidence,omitempty"`
-	Provenance   []factAnchor `json:"provenance"` // >=1; retained source/authored anchors
-	RelatedIDs   []string     `json:"related_ids,omitempty"`
-	SupersededBy string       `json:"superseded_by,omitempty"`
-	CreatedAt    time.Time    `json:"created_at"`
-	UpdatedAt    time.Time    `json:"updated_at"`
-}
-
-// factAnchor cites the source a fact was derived from or authored against.
-// TurnID is populated when the source provides turn-level anchors. Verified is
-// retained signed-source metadata; `verify` is read-only and reports local
-// verdicts without mutating this bit.
-type factAnchor struct {
-	SessionID    string `json:"session_id"`
-	Commit       string `json:"commit,omitempty"`
-	CheckpointID string `json:"checkpoint_id,omitempty"`
-	TurnID       string `json:"turn_id,omitempty"`    // Phase B
-	Transcript   string `json:"transcript,omitempty"` // brain-relative path
-	Line         int    `json:"line,omitempty"`       // turn offset in transcript
-	Verified     bool   `json:"verified,omitempty"`   // retained signed-source metadata
-}
+// factRecord (factmerge.Record) and factAnchor (factmerge.Anchor) are defined
+// as type aliases in facts_aliases.go; the durable-fact data model now lives in
+// internal/factmerge.
 
 // factTaxonomy is the active taxonomy snapshot. Paths are validated against
 // factPathPattern; classification may only invent a new three-level path under
@@ -128,51 +88,9 @@ type factPathDef struct {
 	Examples    []string `json:"examples,omitempty"`
 }
 
-// normalizeFactText collapses a fact statement to a stable form for content
-// hashing: lowercased, with internal whitespace runs reduced to single spaces.
-// Two statements that differ only in casing or spacing share an id.
-func normalizeFactText(text string) string {
-	return strings.Join(strings.Fields(strings.ToLower(text)), " ")
-}
-
-// factRecordID is sha256(normalize(text) + "\x00" + join(sortedPaths, ",")),
-// hex-truncated like the other brain ids. Paths must already be normalized
-// (see normalizeFactPaths) so the same statement under the same paths always
-// hashes identically regardless of the order the agent emitted them.
-func factRecordID(text string, sortedPaths []string) string {
-	sum := sha256.Sum256([]byte(normalizeFactText(text) + "\x00" + strings.Join(sortedPaths, ",")))
-	return "fact:" + hex.EncodeToString(sum[:12])
-}
-
-// validFactPath reports whether path is a syntactically valid three-level
-// taxonomy path. It does not check the path against the active taxonomy.
-func validFactPath(path string) bool {
-	return factPathPattern.MatchString(path)
-}
-
-// normalizeFactPaths trims, lowercases, drops syntactically invalid paths,
-// deduplicates, sorts, and caps the result at factsMaxPaths. The returned slice
-// is the canonical path set used both for the record id and on disk.
-func normalizeFactPaths(paths []string) []string {
-	seen := make(map[string]struct{}, len(paths))
-	cleaned := make([]string, 0, len(paths))
-	for _, path := range paths {
-		path = strings.ToLower(strings.TrimSpace(path))
-		if path == "" || !validFactPath(path) {
-			continue
-		}
-		if _, ok := seen[path]; ok {
-			continue
-		}
-		seen[path] = struct{}{}
-		cleaned = append(cleaned, path)
-	}
-	sort.Strings(cleaned)
-	if len(cleaned) > factsMaxPaths {
-		cleaned = cleaned[:factsMaxPaths]
-	}
-	return cleaned
-}
+// normalizeFactText, factRecordID, validFactPath, and normalizeFactPaths moved
+// to internal/factmerge (NormalizeText/RecordID/ValidPath/NormalizePaths); the
+// CLI names are forwarding wrappers in facts_aliases.go.
 
 // factTopLevel returns the top-level category of a taxonomy path (the segment
 // before the first dot), or "" if the path is empty.
@@ -212,7 +130,10 @@ func loadFacts(brainDir, branch string) ([]factRecord, error) {
 
 // parseFactsFile reads a facts.ndjson file at an absolute path. A missing file
 // yields an empty slice; a malformed line is a hard error so a corrupt store is
-// surfaced rather than silently dropping records.
+// surfaced rather than silently dropping records. The byte-level scan lives in
+// factmerge.ParseNDJSON; this keeps only the file/path handling and restores the
+// historical "parse <file> line N: ..." message the core cannot know the path
+// for.
 func parseFactsFile(path string) ([]factRecord, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -222,23 +143,12 @@ func parseFactsFile(path string) ([]factRecord, error) {
 		return nil, err
 	}
 	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 8*1024), factsMaxLineBytes)
-	var records []factRecord
-	line := 0
-	for scanner.Scan() {
-		line++
-		text := strings.TrimSpace(scanner.Text())
-		if text == "" {
-			continue
+	records, err := factmerge.ParseNDJSON(f)
+	if err != nil {
+		var perr *factmerge.ParseError
+		if errors.As(err, &perr) {
+			return nil, fmt.Errorf("parse %s line %d: %w", filepath.Base(path), perr.Line, perr.Err)
 		}
-		var record factRecord
-		if err := json.Unmarshal([]byte(text), &record); err != nil {
-			return nil, fmt.Errorf("parse %s line %d: %w", filepath.Base(path), line, err)
-		}
-		records = append(records, record)
-	}
-	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
 	return records, nil
@@ -246,90 +156,15 @@ func parseFactsFile(path string) ([]factRecord, error) {
 
 // writeFacts persists a branch's facts as newline-delimited JSON, one record
 // per line, sorted deterministically so the file is stable across rebuilds and
-// diffs cleanly. The branch directory is created if needed.
+// diffs cleanly. The branch directory is created if needed. The byte-level
+// sort+marshal lives in factmerge.WriteNDJSON; this keeps the atomic,
+// symlink-rejecting disk write in the CLI.
 func writeFacts(brainDir, branch string, records []factRecord) error {
-	sortFactRecords(records)
-	var buf strings.Builder
-	for _, record := range records {
-		data, err := json.Marshal(record)
-		if err != nil {
-			return err
-		}
-		buf.Write(data)
-		buf.WriteByte('\n')
+	var buf bytes.Buffer
+	if err := factmerge.WriteNDJSON(&buf, records); err != nil {
+		return err
 	}
-	return writeBrainRelativeFileAtomic(brainDir, factsFileRelPath(branch), []byte(buf.String()), 0o600)
-}
-
-// sortFactRecords orders records by path, then text, then id so the on-disk
-// ndjson is deterministic regardless of insertion order.
-func sortFactRecords(records []factRecord) {
-	sort.Slice(records, func(i, j int) bool {
-		li, lj := strings.Join(records[i].Paths, ","), strings.Join(records[j].Paths, ",")
-		if li != lj {
-			return li < lj
-		}
-		if records[i].Text != records[j].Text {
-			return records[i].Text < records[j].Text
-		}
-		return records[i].ID < records[j].ID
-	})
-}
-
-// upsertFact inserts incoming into the set keyed by id, or — when a fact with
-// the same id already exists — unions the new provenance anchors into the
-// existing fact and advances its UpdatedAt. Exact duplicates (same normalized
-// text and paths) therefore collapse for free, which is what makes re-distilling
-// a turn idempotent. It returns the updated set; the input slice may be reused.
-//
-// upsertFact deliberately does not implement merge/supersede across *different*
-// ids: that is the agent's judgment during distillation, handled separately.
-func upsertFact(records []factRecord, incoming factRecord) []factRecord {
-	for i := range records {
-		if records[i].ID != incoming.ID {
-			continue
-		}
-		records[i].Provenance = unionFactAnchors(records[i].Provenance, incoming.Provenance)
-		if incoming.UpdatedAt.After(records[i].UpdatedAt) {
-			records[i].UpdatedAt = incoming.UpdatedAt
-		}
-		// Fill Kind from a re-distill when the stored fact lacks a valid one, but
-		// don't overwrite an existing valid kind (avoids thrash between an
-		// agent-labeled and an inferred value across runs).
-		if !validFactKind(records[i].Kind) && validFactKind(incoming.Kind) {
-			records[i].Kind = incoming.Kind
-		}
-		return records
-	}
-	return append(records, incoming)
-}
-
-// unionFactAnchors appends anchors from b that are not already present in a,
-// preserving order. Anchors are compared on their identifying fields so the
-// same source turn is never recorded twice.
-func unionFactAnchors(a, b []factAnchor) []factAnchor {
-	seen := make(map[string]struct{}, len(a)+len(b))
-	key := func(anchor factAnchor) string {
-		return strings.Join([]string{anchor.SessionID, anchor.Commit, anchor.CheckpointID, anchor.TurnID, anchor.Transcript, fmt.Sprint(anchor.Line)}, "\x00")
-	}
-	out := make([]factAnchor, 0, len(a)+len(b))
-	for _, anchor := range a {
-		k := key(anchor)
-		if _, ok := seen[k]; ok {
-			continue
-		}
-		seen[k] = struct{}{}
-		out = append(out, anchor)
-	}
-	for _, anchor := range b {
-		k := key(anchor)
-		if _, ok := seen[k]; ok {
-			continue
-		}
-		seen[k] = struct{}{}
-		out = append(out, anchor)
-	}
-	return out
+	return writeBrainRelativeFileAtomic(brainDir, factsFileRelPath(branch), buf.Bytes(), 0o600)
 }
 
 // --- taxonomy -------------------------------------------------------------

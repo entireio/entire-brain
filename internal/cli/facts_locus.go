@@ -41,38 +41,11 @@ func factScope(paths []string) string {
 	return factScopeCrossCutting
 }
 
-// The fixed KIND set (Appendix D): the *what shape of claim* axis, orthogonal to
-// WHERE (locus) and the topic taxonomy. Kept small and closed so it is a usable
-// retrieval filter rather than another sprawling free-text dimension.
-const (
-	factKindDecision   = "decision"   // a resolved choice + its rationale
-	factKindInvariant  = "invariant"  // a must-hold rule/constraint
-	factKindGotcha     = "gotcha"     // a non-obvious trap/footgun
-	factKindPreference = "preference" // how the user likes work done
-	factKindConvention = "convention" // a standing process/style norm
-	// factKindClosedNegative is a question settled *negatively*: what was tried
-	// or considered, why it failed or was rejected (the evidence), and when to
-	// revisit. Agents are systematically bad at not re-exploring dead ends
-	// across sessions; these entries are the densest anti-waste knowledge the
-	// brain holds (Phase 2 item 1 — agent-utility plan).
-	factKindClosedNegative = "closed-negative"
-)
-
-// validFactKinds is the closed set; an agent-emitted kind outside it is rejected
-// and the deterministic inference is used instead.
-var validFactKinds = map[string]struct{}{
-	factKindDecision:       {},
-	factKindInvariant:      {},
-	factKindGotcha:         {},
-	factKindPreference:     {},
-	factKindConvention:     {},
-	factKindClosedNegative: {},
-}
-
-func validFactKind(kind string) bool {
-	_, ok := validFactKinds[strings.ToLower(strings.TrimSpace(kind))]
-	return ok
-}
+// The fixed KIND set (Appendix D) — factKind* consts, the validFactKinds set,
+// and validFactKind — moved to internal/factmerge (Kind* / ValidFactKind). The
+// CLI names are aliases/wrappers in facts_aliases.go, so the inference and
+// filtering below (which stay here because they depend on semanticRecord and
+// other CLI-only surfaces) reference them unchanged.
 
 // gotchaCues / invariantCues are high-precision phrases that override the
 // taxonomy prior in inferFactKind. They are deliberately narrow: a wrong

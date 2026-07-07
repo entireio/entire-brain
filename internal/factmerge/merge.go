@@ -1,4 +1,4 @@
-package cli
+package factmerge
 
 import (
 	"fmt"
@@ -6,18 +6,18 @@ import (
 )
 
 const (
-	factActionNew       = "new"
-	factActionMerge     = "merge"
-	factActionSupersede = "supersede"
+	ActionNew       = "new"
+	ActionMerge     = "merge"
+	ActionSupersede = "supersede"
 
-	// defaultFactConfidenceThreshold gates automatic merge/supersede. At or
+	// DefaultConfidenceThreshold gates automatic merge/supersede. At or
 	// above it, the action applies; below it both facts stay active and the
 	// action is queued as a proposal for `facts review`, so a low-confidence
 	// machine judgment never silently rewrites memory.
-	defaultFactConfidenceThreshold = 0.75
+	DefaultConfidenceThreshold = 0.75
 )
 
-// factAction is the agent's decision for one distilled candidate, evaluated
+// Action is the agent's decision for one distilled candidate, evaluated
 // against the active facts at the candidate's path(s):
 //
 //   - new: a statement not already represented.
@@ -25,25 +25,33 @@ const (
 //   - supersede <target>: contradicts/replaces an older fact.
 //
 // Confidence (0..1) gates whether merge/supersede apply automatically.
-type factAction struct {
+type Action struct {
 	Kind       string
 	TargetID   string
 	Confidence float64
-	Candidate  factRecord
+	Candidate  Record
 }
 
-// factProposal is a low-confidence merge/supersede the engine declined to apply
+// Proposal is a low-confidence merge/supersede the engine declined to apply
 // automatically. It is queued for `facts review`; until resolved, both facts
 // stay active and are cross-linked via RelatedIDs.
-type factProposal struct {
+//
+// ProposedBy carries cross-member ROUTING: the id of the member whose sync raised
+// the proposal (the "candidate" side of the conflict). The merge core never sets it
+// — it is stamped by the cross-member sync layer (internal/factsync), which knows
+// who is syncing — so a proposal a team member opens is attributable and routable.
+// It is omitempty and ignored by the single-user local review flow, keeping the
+// on-disk format backward compatible.
+type Proposal struct {
 	Action      string  `json:"action"` // "merge" | "supersede"
 	CandidateID string  `json:"candidate_id"`
 	TargetID    string  `json:"target_id"`
 	Confidence  float64 `json:"confidence"`
 	Branch      string  `json:"branch,omitempty"`
+	ProposedBy  string  `json:"proposed_by,omitempty"`
 }
 
-// applyFactActions folds a chronological sequence of agent actions into an
+// ApplyActions folds a chronological sequence of agent actions into an
 // active fact set, returning the updated set and any proposals that need human
 // review. Actions are applied in order so each one sees the set as it stood at
 // that point — a --force rebuild replays the same order and reconstructs the
@@ -55,18 +63,18 @@ type factProposal struct {
 // Below threshold, both facts stay active, are cross-linked, and a proposal is
 // queued. An action whose target is unknown or is the candidate itself degrades
 // to `new`.
-func applyFactActions(active []factRecord, actions []factAction, threshold float64, now time.Time) ([]factRecord, []factProposal) {
-	var proposals []factProposal
+func ApplyActions(active []Record, actions []Action, threshold float64, now time.Time) ([]Record, []Proposal) {
+	var proposals []Proposal
 	for _, action := range actions {
 		candidate := action.Candidate
 		if action.Confidence > 0 {
 			candidate.Confidence = renderConfidence(action.Confidence)
 		}
 		switch action.Kind {
-		case factActionMerge, factActionSupersede:
-			ti := indexOfFact(active, action.TargetID)
+		case ActionMerge, ActionSupersede:
+			ti := IndexOf(active, action.TargetID)
 			if ti < 0 || action.TargetID == candidate.ID {
-				active = upsertFact(active, candidate) // unknown/self target: keep as new
+				active = Upsert(active, candidate) // unknown/self target: keep as new
 				continue
 			}
 			if action.Confidence < threshold {
@@ -74,8 +82,8 @@ func applyFactActions(active []factRecord, actions []factAction, threshold float
 				// cross-link them, and queue the decision for review.
 				candidate.RelatedIDs = appendUniqueString(candidate.RelatedIDs, active[ti].ID)
 				active[ti].RelatedIDs = appendUniqueString(active[ti].RelatedIDs, candidate.ID)
-				active = upsertFact(active, candidate)
-				proposals = append(proposals, factProposal{
+				active = Upsert(active, candidate)
+				proposals = append(proposals, Proposal{
 					Action:      action.Kind,
 					CandidateID: candidate.ID,
 					TargetID:    action.TargetID,
@@ -84,10 +92,10 @@ func applyFactActions(active []factRecord, actions []factAction, threshold float
 				})
 				continue
 			}
-			if action.Kind == factActionMerge {
+			if action.Kind == ActionMerge {
 				// Same meaning: consolidate provenance into the target and drop
 				// the candidate. The target's text (the earlier phrasing) wins.
-				active[ti].Provenance = unionFactAnchors(active[ti].Provenance, candidate.Provenance)
+				active[ti].Provenance = UnionAnchors(active[ti].Provenance, candidate.Provenance)
 				if now.After(active[ti].UpdatedAt) {
 					active[ti].UpdatedAt = now
 				}
@@ -95,20 +103,20 @@ func applyFactActions(active []factRecord, actions []factAction, threshold float
 			}
 			// Supersede: retain the old fact, mark it superseded, and add the
 			// candidate as the active replacement.
-			active[ti].Status = factStatusSuperseded
+			active[ti].Status = StatusSuperseded
 			active[ti].SupersededBy = candidate.ID
 			active[ti].UpdatedAt = now
 			candidate.RelatedIDs = appendUniqueString(candidate.RelatedIDs, action.TargetID)
-			active = upsertFact(active, candidate)
+			active = Upsert(active, candidate)
 		default:
-			active = upsertFact(active, candidate)
+			active = Upsert(active, candidate)
 		}
 	}
 	return active, proposals
 }
 
-// indexOfFact returns the index of the fact with the given id, or -1.
-func indexOfFact(records []factRecord, id string) int {
+// IndexOf returns the index of the fact with the given id, or -1.
+func IndexOf(records []Record, id string) int {
 	for i := range records {
 		if records[i].ID == id {
 			return i
