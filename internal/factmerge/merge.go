@@ -35,12 +35,20 @@ type Action struct {
 // Proposal is a low-confidence merge/supersede the engine declined to apply
 // automatically. It is queued for `facts review`; until resolved, both facts
 // stay active and are cross-linked via RelatedIDs.
+//
+// ProposedBy carries cross-member ROUTING: the id of the member whose sync raised
+// the proposal (the "candidate" side of the conflict). The merge core never sets it
+// — it is stamped by the cross-member sync layer (internal/factsync), which knows
+// who is syncing — so a proposal a team member opens is attributable and routable.
+// It is omitempty and ignored by the single-user local review flow, keeping the
+// on-disk format backward compatible.
 type Proposal struct {
 	Action      string  `json:"action"` // "merge" | "supersede"
 	CandidateID string  `json:"candidate_id"`
 	TargetID    string  `json:"target_id"`
 	Confidence  float64 `json:"confidence"`
 	Branch      string  `json:"branch,omitempty"`
+	ProposedBy  string  `json:"proposed_by,omitempty"`
 }
 
 // ApplyActions folds a chronological sequence of agent actions into an

@@ -105,8 +105,8 @@ func TestSyncConvergesAndUnionsProvenance(t *testing.T) {
 	res := make([]Result, 2)
 	errs := make([]error, 2)
 	wg.Add(2)
-	go func() { defer wg.Done(); res[0], errs[0] = Sync(ctx, srv, "repo", "main", memberA, now) }()
-	go func() { defer wg.Done(); res[1], errs[1] = Sync(ctx, srv, "repo", "main", memberB, now) }()
+	go func() { defer wg.Done(); res[0], errs[0] = Sync(ctx, srv, "repo", "main", "member-A", memberA, now) }()
+	go func() { defer wg.Done(); res[1], errs[1] = Sync(ctx, srv, "repo", "main", "member-B", memberB, now) }()
 	wg.Wait()
 	for i := range errs {
 		if errs[i] != nil {
@@ -167,13 +167,13 @@ func TestSyncRetriesOnConflict(t *testing.T) {
 		now:       now,
 	}
 	// Prime the head to v1 via the competitor.
-	if _, err := Sync(ctx, srv.inner, "repo", "main", []factmerge.Record{srv.intercept}, now); err != nil {
+	if _, err := Sync(ctx, srv.inner, "repo", "main", "member-C", []factmerge.Record{srv.intercept}, now); err != nil {
 		t.Fatalf("prime head: %v", err)
 	}
 	srv.arm() // next Current will be followed by an interposed competing advance
 
 	member := []factmerge.Record{fact("member local fact", []string{"api/config"}, "session-M", now)}
-	res, err := Sync(ctx, srv, "repo", "main", member, now)
+	res, err := Sync(ctx, srv, "repo", "main", "member-M", member, now)
 	if err != nil {
 		t.Fatalf("member sync: %v", err)
 	}
@@ -215,7 +215,7 @@ func (s *conflictOnceServer) Current(ctx context.Context, repoID, branch string)
 		s.armed = false
 		// Interpose a competing writer that advances the head, staling the ref just read.
 		competitor := fact("interposed competitor fact", []string{"misc/interpose"}, "session-X", s.now)
-		if _, aerr := Sync(ctx, s.inner, repoID, branch, []factmerge.Record{competitor}, s.now); aerr != nil {
+		if _, aerr := Sync(ctx, s.inner, repoID, branch, "member-X", []factmerge.Record{competitor}, s.now); aerr != nil {
 			return "", nil, false, aerr
 		}
 	}

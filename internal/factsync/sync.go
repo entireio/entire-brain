@@ -59,10 +59,17 @@ type Result struct {
 
 // Sync runs the read-merge-CAS loop: pull the head, keep-both promote local into it via
 // factmerge, push under CAS, retry on ErrConflict. `now` is injected for determinism.
+// memberID identifies the syncing member; it is stamped onto every review Proposal the
+// merge raises (ProposedBy) so a cross-member conflict is attributable and routable.
 // A keep-both merge NEVER silently drops a member's fact (ADR-P1-G): identical facts
 // (same content id) union their provenance; genuine conflicts are kept and queued as
-// Proposals in the Result.
-func Sync(ctx context.Context, srv Server, repoID, branch string, local []factmerge.Record, now time.Time) (Result, error) {
+// routed Proposals in the Result (resolve them with Resolve).
+func Sync(ctx context.Context, srv Server, repoID, branch, memberID string, local []factmerge.Record, now time.Time) (Result, error) {
+	if memberID == "" {
+		// A blank memberID would stamp ProposedBy="" (dropped by omitempty), making a
+		// cross-member proposal indistinguishable from a local one — routing lost. Reject.
+		return Result{}, errors.New("factsync: memberID is required (proposal routing)")
+	}
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		ref, plaintext, found, err := srv.Current(ctx, repoID, branch)
 		if err != nil {
@@ -79,6 +86,10 @@ func Sync(ctx context.Context, srv Server, repoID, branch string, local []factme
 		// Cross-member merge is structurally cross-branch promote: the member's local
 		// facts are the "source" promoted (keep-both) into the current head "target".
 		merged, proposals, _ := factmerge.Promote(local, head, "keep-both", branch, now)
+		// Stamp routing: every conflict this member's sync raised is attributed to it.
+		for i := range proposals {
+			proposals[i].ProposedBy = memberID
+		}
 
 		var buf bytes.Buffer
 		if err := factmerge.WriteNDJSON(&buf, merged); err != nil {
