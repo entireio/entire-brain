@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -41,6 +42,12 @@ func (s *fakeServer) Current(_ context.Context, _, _ string) (string, []byte, bo
 }
 
 func (s *fakeServer) Advance(_ context.Context, _, _, oldRef string, plaintext []byte) (string, error) {
+	// Mirror entire-api's FactSetStore.Advance / the POST endpoint: empty plaintext is a
+	// hard reject (a head always points at content). If the fake accepted it, it would mask
+	// a real 400 the runner must never trigger — Sync's empty-merge guard prevents it.
+	if len(plaintext) == 0 {
+		return "", errors.New("factsync: empty plaintext (a fact-set head always points at content)")
+	}
 	newRef := contentRef(plaintext)
 	if newRef == oldRef {
 		return "", ErrNoChange

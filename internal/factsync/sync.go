@@ -99,6 +99,14 @@ func Sync(ctx context.Context, srv Server, repoID, branch, memberID string, loca
 		if err := factmerge.WriteNDJSON(&buf, merged); err != nil {
 			return Result{}, err
 		}
+		if buf.Len() == 0 {
+			// The merge produced an EMPTY fact-set (an empty head and no active local
+			// facts to promote). There is nothing to publish — a head always points at
+			// content, and Advance rejects empty plaintext — so report converged rather
+			// than push an empty blob. (A non-empty head can never merge to empty: promote
+			// only grows the target.)
+			return Result{Published: false, NewRef: ref, Attempts: attempt, Proposals: proposals}, nil
+		}
 
 		newRef, err := srv.Advance(ctx, repoID, branch, ref, buf.Bytes())
 		switch {

@@ -77,6 +77,33 @@ func TestSyncStripsLocalPathsButKeepsOpaqueProvenance(t *testing.T) {
 	}
 }
 
+// TestSyncEmptyMergeConverges proves the empty-merge guard: a member with NO active
+// local facts syncing into an EMPTY head produces an empty merged set, which must be
+// reported as converged (nothing to publish) rather than pushed as an empty blob — the
+// real server rejects empty plaintext (400), and the fake now mirrors that reject, so a
+// missing guard would surface as an error here.
+func TestSyncEmptyMergeConverges(t *testing.T) {
+	ctx := context.Background()
+	srv := &fakeServer{}
+	now := time.Date(2026, 7, 7, 0, 0, 0, 0, time.UTC)
+
+	// A retracted (non-active) local fact: Promote skips it, so the merged set is empty.
+	f := fact("stale retracted fact", []string{"x.y.z"}, "s", now)
+	f.Status = factmerge.StatusRetracted
+
+	res, err := Sync(ctx, srv, "repo", "main", "member-A", []factmerge.Record{f}, now)
+	if err != nil {
+		t.Fatalf("empty-merge sync errored (guard missing?): %v", err)
+	}
+	if res.Published {
+		t.Fatalf("empty merge reported Published=true; want converged/no publish")
+	}
+	// Head must remain empty — nothing was pushed.
+	if _, _, found, _ := srv.Current(ctx, "repo", "main"); found {
+		t.Fatal("empty merge pushed a blob to the head; want head untouched")
+	}
+}
+
 // TestSyncUnionsProvenanceAfterSanitize proves sanitization does not break provenance
 // union: two members learn the SAME fact (same text+paths → same id) with DIFFERENT
 // local transcripts and DIFFERENT sessions. After both sync, the shared fact carries the
