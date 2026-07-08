@@ -50,13 +50,14 @@ func contractServer(t *testing.T, fake *fakeServer) *httptest.Server {
 			switch {
 			case err == ErrNoChange:
 				cur, _, _, _ := fake.Current(ctx, "repo", body.Branch)
-				_ = json.NewEncoder(w).Encode(map[string]any{"newRef": cur, "version": 1, "unchanged": true})
+				// no-op: changed omitted (false), mirroring the real server.
+				_ = json.NewEncoder(w).Encode(map[string]any{"newRef": cur, "version": 1})
 			case err == ErrConflict:
 				w.WriteHeader(http.StatusPreconditionFailed)
 			case err != nil:
 				w.WriteHeader(http.StatusBadRequest)
 			default:
-				_ = json.NewEncoder(w).Encode(map[string]any{"newRef": newRef, "version": 1})
+				_ = json.NewEncoder(w).Encode(map[string]any{"newRef": newRef, "version": 1, "changed": true})
 			}
 
 		default:

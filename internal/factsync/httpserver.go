@@ -116,14 +116,16 @@ func (h *HTTPServer) Advance(ctx context.Context, repoID, branch, oldRef string,
 	switch resp.StatusCode {
 	case http.StatusOK:
 		var out struct {
-			NewRef    string `json:"newRef"`
-			Version   int64  `json:"version"`
-			Unchanged bool   `json:"unchanged"`
+			NewRef  string `json:"newRef"`
+			Version int64  `json:"version"`
+			Changed bool   `json:"changed"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 			return "", fmt.Errorf("factsync: decode advance %s/%s: %w", repoID, branch, err)
 		}
-		if out.Unchanged {
+		// changed is omitted (false) on a no-op advance — the merge produced the
+		// current head's content, so there is nothing new to publish.
+		if !out.Changed {
 			return "", ErrNoChange
 		}
 		return out.NewRef, nil
