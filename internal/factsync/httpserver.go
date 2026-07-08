@@ -21,8 +21,8 @@ import (
 //	GET  {BaseURL}/api/v1/repos/{repoID}/brain/facts?branch=… → 200
 //	     {found, ref, version, data(base64)}   (pull-gated)
 //	POST {BaseURL}/api/v1/repos/{repoID}/brain/facts/advance  → 200
-//	     {new_ref, version, unchanged}         (push-gated)
-//	     body {branch, old_ref, data(base64)}
+//	     {newRef, version, unchanged}         (push-gated)
+//	     body {branch, oldRef, data(base64)}
 //	     409 → the head advanced concurrently (→ ErrConflict, re-read + re-merge)
 //	     unchanged:true → the merge changed nothing (→ ErrNoChange, converged)
 //
@@ -95,7 +95,7 @@ func (h *HTTPServer) Current(ctx context.Context, repoID, branch string) (string
 func (h *HTTPServer) Advance(ctx context.Context, repoID, branch, oldRef string, plaintext []byte) (string, error) {
 	reqBody := struct {
 		Branch string `json:"branch"`
-		OldRef string `json:"old_ref"`
+		OldRef string `json:"oldRef"`
 		Data   []byte `json:"data"`
 	}{Branch: branch, OldRef: oldRef, Data: plaintext}
 	buf, err := json.Marshal(reqBody)
@@ -116,7 +116,7 @@ func (h *HTTPServer) Advance(ctx context.Context, repoID, branch, oldRef string,
 	switch resp.StatusCode {
 	case http.StatusOK:
 		var out struct {
-			NewRef    string `json:"new_ref"`
+			NewRef    string `json:"newRef"`
 			Version   int64  `json:"version"`
 			Unchanged bool   `json:"unchanged"`
 		}

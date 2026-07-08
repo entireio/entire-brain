@@ -35,7 +35,7 @@ func contractServer(t *testing.T, fake *fakeServer) *httptest.Server {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/brain/facts/advance"):
 			var body struct {
 				Branch string `json:"branch"`
-				OldRef string `json:"old_ref"`
+				OldRef string `json:"oldRef"`
 				Data   []byte `json:"data"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -50,13 +50,13 @@ func contractServer(t *testing.T, fake *fakeServer) *httptest.Server {
 			switch {
 			case err == ErrNoChange:
 				cur, _, _, _ := fake.Current(ctx, "repo", body.Branch)
-				_ = json.NewEncoder(w).Encode(map[string]any{"new_ref": cur, "version": 1, "unchanged": true})
+				_ = json.NewEncoder(w).Encode(map[string]any{"newRef": cur, "version": 1, "unchanged": true})
 			case err == ErrConflict:
 				w.WriteHeader(http.StatusConflict)
 			case err != nil:
 				w.WriteHeader(http.StatusBadRequest)
 			default:
-				_ = json.NewEncoder(w).Encode(map[string]any{"new_ref": newRef, "version": 1})
+				_ = json.NewEncoder(w).Encode(map[string]any{"newRef": newRef, "version": 1})
 			}
 
 		default:
@@ -92,7 +92,7 @@ func TestHTTPServerContract(t *testing.T) {
 	if _, err := h.Advance(ctx, "repo", "main", ref1, []byte("fact:a\n")); err != ErrNoChange {
 		t.Fatalf("Advance(no-op) = %v; want ErrNoChange", err)
 	}
-	// Stale old_ref → ErrConflict.
+	// Stale oldRef → ErrConflict.
 	if _, err := h.Advance(ctx, "repo", "main", "facts-stale", []byte("fact:a\nfact:b\n")); err != ErrConflict {
 		t.Fatalf("Advance(stale) = %v; want ErrConflict", err)
 	}
