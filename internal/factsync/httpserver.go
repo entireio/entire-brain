@@ -23,7 +23,7 @@ import (
 //	POST {BaseURL}/api/v1/repos/{repoID}/brain/facts/advance  → 200
 //	     {newRef, version, unchanged}         (push-gated)
 //	     body {branch, oldRef, data(base64)}
-//	     409 → the head advanced concurrently (→ ErrConflict, re-read + re-merge)
+//	     412 → the head advanced concurrently (→ ErrConflict, re-read + re-merge)
 //	     unchanged:true → the merge changed nothing (→ ErrNoChange, converged)
 //
 // Data crosses the wire base64-encoded: huma serializes a Go []byte as a base64 JSON
@@ -127,7 +127,7 @@ func (h *HTTPServer) Advance(ctx context.Context, repoID, branch, oldRef string,
 			return "", ErrNoChange
 		}
 		return out.NewRef, nil
-	case http.StatusConflict:
+	case http.StatusPreconditionFailed:
 		return "", ErrConflict
 	default:
 		return "", fmt.Errorf("factsync: POST advance %s/%s: unexpected status %s", repoID, branch, resp.Status)
