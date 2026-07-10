@@ -21,10 +21,10 @@ import (
 //	GET  {BaseURL}/api/v1/repos/{repoID}/brain/facts?branch=… → 200
 //	     {found, ref, version, data(base64)}   (pull-gated)
 //	POST {BaseURL}/api/v1/repos/{repoID}/brain/facts/advance  → 200
-//	     {newRef, version, unchanged}         (push-gated)
+//	     {newRef, version, changed}           (push-gated)
 //	     body {branch, oldRef, data(base64)}
 //	     412 → the head advanced concurrently (→ ErrConflict, re-read + re-merge)
-//	     unchanged:true → the merge changed nothing (→ ErrNoChange, converged)
+//	     changed omitted/false → the merge changed nothing (→ ErrNoChange, converged)
 //
 // Data crosses the wire base64-encoded: huma serializes a Go []byte as a base64 JSON
 // string, and encoding/json here does the same on both sides, so the []byte fields match
@@ -89,8 +89,8 @@ func (h *HTTPServer) Current(ctx context.Context, repoID, branch string) (string
 }
 
 // Advance compare-and-swaps the head onto plaintext, mapping the endpoint's outcomes to
-// the Server contract: 200 → the new ref; 200 with unchanged:true → ErrNoChange; 409 →
-// ErrConflict. Any other status is an error (a 400 empty-data, 404 unknown repo, 503
+// the Server contract: 200 with changed → the new ref; 200 with changed=false →
+// ErrNoChange; 412 → ErrConflict. Any other status is an error (a 400 empty-data, 404 unknown repo, 503
 // unconfigured, or 5xx — none of which the runner should paper over).
 func (h *HTTPServer) Advance(ctx context.Context, repoID, branch, oldRef string, plaintext []byte) (string, error) {
 	reqBody := struct {
