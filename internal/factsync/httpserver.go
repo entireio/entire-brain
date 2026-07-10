@@ -22,9 +22,9 @@ import (
 //	     {found, ref, version, data(base64)}   (pull-gated)
 //	POST {BaseURL}/api/v1/repos/{repoID}/brain/facts/advance  → 200
 //	     {newRef, version, changed}           (push-gated)
-//	     body {branch, oldRef, data(base64)}
-//	     412 → the head advanced concurrently (→ ErrConflict, re-read + re-merge)
-//	     changed omitted/false → the merge changed nothing (→ ErrNoChange, converged)
+//	     body {branch, oldRef, old_ref, data(base64)}
+//	     412/409 → the head advanced concurrently (→ ErrConflict, re-read + re-merge)
+//	     changed omitted/false or unchanged:true → the merge changed nothing (→ ErrNoChange, converged)
 //
 // Data crosses the wire base64-encoded: huma serializes a Go []byte as a base64 JSON
 // string, and encoding/json here does the same on both sides, so the []byte fields match
@@ -89,15 +89,18 @@ func (h *HTTPServer) Current(ctx context.Context, repoID, branch string) (string
 }
 
 // Advance compare-and-swaps the head onto plaintext, mapping the endpoint's outcomes to
-// the Server contract: 200 with changed → the new ref; 200 with changed=false →
-// ErrNoChange; 412 → ErrConflict. Any other status is an error (a 400 empty-data, 404 unknown repo, 503
-// unconfigured, or 5xx — none of which the runner should paper over).
+// the Server contract: 200 with changed → the new ref; 200 with changed=false
+// or unchanged:true → ErrNoChange; 412/409 → ErrConflict. Any other status is
+// an error (a 400 empty-data, 404 unknown repo, 503 unconfigured, or 5xx —
+// none of which the runner should paper over). The duplicated ref spellings
+// keep mixed-version entire-api / entire-brain rollouts compatible.
 func (h *HTTPServer) Advance(ctx context.Context, repoID, branch, oldRef string, plaintext []byte) (string, error) {
 	reqBody := struct {
-		Branch string `json:"branch"`
-		OldRef string `json:"oldRef"`
-		Data   []byte `json:"data"`
-	}{Branch: branch, OldRef: oldRef, Data: plaintext}
+		Branch       string `json:"branch"`
+		OldRef       string `json:"oldRef"`
+		OldRefLegacy string `json:"old_ref"`
+		Data         []byte `json:"data"`
+	}{Branch: branch, OldRef: oldRef, OldRefLegacy: oldRef, Data: plaintext}
 	buf, err := json.Marshal(reqBody)
 	if err != nil {
 		return "", err
@@ -116,20 +119,33 @@ func (h *HTTPServer) Advance(ctx context.Context, repoID, branch, oldRef string,
 	switch resp.StatusCode {
 	case http.StatusOK:
 		var out struct {
-			NewRef  string `json:"newRef"`
-			Version int64  `json:"version"`
-			Changed bool   `json:"changed"`
+			NewRef          string `json:"newRef"`
+			NewRefLegacy    string `json:"new_ref"`
+			Version         int64  `json:"version"`
+			Changed         *bool  `json:"changed"`
+			UnchangedLegacy *bool  `json:"unchanged"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 			return "", fmt.Errorf("factsync: decode advance %s/%s: %w", repoID, branch, err)
 		}
-		// changed is omitted (false) on a no-op advance — the merge produced the
-		// current head's content, so there is nothing new to publish.
-		if !out.Changed {
+		if out.Changed != nil && !*out.Changed {
 			return "", ErrNoChange
 		}
-		return out.NewRef, nil
-	case http.StatusPreconditionFailed:
+		if out.UnchangedLegacy != nil && *out.UnchangedLegacy {
+			return "", ErrNoChange
+		}
+		newRef := out.NewRef
+		if newRef == "" {
+			newRef = out.NewRefLegacy
+		}
+		if out.Changed == nil && out.UnchangedLegacy == nil && oldRef != "" && newRef == oldRef {
+			return "", ErrNoChange
+		}
+		if newRef == "" {
+			return "", fmt.Errorf("factsync: decode advance %s/%s: missing new ref", repoID, branch)
+		}
+		return newRef, nil
+	case http.StatusPreconditionFailed, http.StatusConflict:
 		return "", ErrConflict
 	default:
 		return "", fmt.Errorf("factsync: POST advance %s/%s: unexpected status %s", repoID, branch, resp.Status)

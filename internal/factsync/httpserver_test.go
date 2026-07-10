@@ -99,6 +99,52 @@ func TestHTTPServerContract(t *testing.T) {
 	}
 }
 
+func TestHTTPServerLegacyAdvanceWireCompatibility(t *testing.T) {
+	ctx := context.Background()
+	fake := &fakeServer{}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/brain/facts/advance") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		var body struct {
+			Branch string `json:"branch"`
+			OldRef string `json:"old_ref"`
+			Data   []byte `json:"data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		newRef, err := fake.Advance(ctx, "repo", body.Branch, body.OldRef, body.Data)
+		switch {
+		case err == ErrNoChange:
+			cur, _, _, _ := fake.Current(ctx, "repo", body.Branch)
+			_ = json.NewEncoder(w).Encode(map[string]any{"new_ref": cur, "version": 1, "unchanged": true})
+		case err == ErrConflict:
+			w.WriteHeader(http.StatusConflict)
+		case err != nil:
+			w.WriteHeader(http.StatusBadRequest)
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{"new_ref": newRef, "version": 1})
+		}
+	}))
+	defer ts.Close()
+
+	h := &HTTPServer{BaseURL: ts.URL, Token: "test-token"}
+	ref1, err := h.Advance(ctx, "repo", "main", "", []byte("fact:a\n"))
+	if err != nil || ref1 != contentRef([]byte("fact:a\n")) {
+		t.Fatalf("Advance(create legacy) = %q, %v", ref1, err)
+	}
+	if _, err := h.Advance(ctx, "repo", "main", ref1, []byte("fact:a\n")); err != ErrNoChange {
+		t.Fatalf("Advance(no-op legacy) = %v; want ErrNoChange", err)
+	}
+	if _, err := h.Advance(ctx, "repo", "main", "facts-stale", []byte("fact:a\nfact:b\n")); err != ErrConflict {
+		t.Fatalf("Advance(stale legacy) = %v; want ErrConflict", err)
+	}
+}
+
 // TestHTTPServerConvergenceOverWire runs the whole read-merge-CAS loop for TWO members
 // through the real HTTPServer adapter over HTTP — proving the runner (Sync + factmerge)
 // converges against the actual wire contract, not just the in-process fake.

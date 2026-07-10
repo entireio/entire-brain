@@ -330,8 +330,8 @@ func toggleOn(name string) bool {
 		// Fail closed AND say so, matching the CLI's securityToggleEnabled: a
 		// typo'd value silently enabling the gate is safe, but the operator must
 		// be told their config is not what they wrote.
-		if _, seen := toggleWarned.LoadOrStore(name+"="+raw, struct{}{}); !seen {
-			fmt.Fprintf(os.Stderr, "warning: %s=%q is not a recognized boolean; treating as enabled (fail-closed)\n", name, raw)
+		if _, seen := toggleWarned.LoadOrStore(name, struct{}{}); !seen {
+			fmt.Fprintf(os.Stderr, "warning: %s is not a recognized boolean; treating as enabled (fail-closed)\n", name)
 		}
 		return true
 	}
