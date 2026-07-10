@@ -19,9 +19,10 @@ var _ Server = (*HTTPServer)(nil)
 // contractServer stands up an httptest server that speaks entire-api's fact-set sync
 // wire contract (brain_facts.go) backed by an in-memory fakeServer. It lets the REAL
 // HTTPServer adapter be exercised over a real HTTP round-trip — JSON encoding, base64
-// data, query/body branch, and the 200/200-unchanged/412/400 status mapping — validating
-// the adapter against the documented contract. (End-to-end validation against the live
-// entire-api handler is the deploy-time step; the two Go modules can't share types.)
+// data, query/body branch, and the success/no-op/conflict/bad-request status
+// mapping — validating the adapter against the documented contract. (End-to-end
+// validation against the live entire-api handler is the deploy-time step; the two
+// Go modules can't share types.)
 func contractServer(t *testing.T, fake *fakeServer) *httptest.Server {
 	t.Helper()
 	ctx := context.Background()
@@ -67,8 +68,8 @@ func contractServer(t *testing.T, fake *fakeServer) *httptest.Server {
 }
 
 // TestHTTPServerContract exercises the adapter's every status→sentinel mapping over a real
-// HTTP round-trip: empty-head read, create, read-back, no-op (unchanged→ErrNoChange), and
-// stale-old-ref (412→ErrConflict).
+// HTTP round-trip: empty-head read, create, read-back, no-op (ErrNoChange), and
+// stale-old-ref (412/409→ErrConflict).
 func TestHTTPServerContract(t *testing.T) {
 	ctx := context.Background()
 	ts := contractServer(t, &fakeServer{})
