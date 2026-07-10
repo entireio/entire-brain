@@ -24,7 +24,8 @@ import (
 //	     {newRef, version, changed}           (push-gated)
 //	     body {branch, oldRef, old_ref, data(base64)}
 //	     412/409 → the head advanced concurrently (→ ErrConflict, re-read + re-merge)
-//	     changed omitted/false or unchanged:true → the merge changed nothing (→ ErrNoChange, converged)
+//	     changed=false or unchanged:true → the merge changed nothing (→ ErrNoChange, converged)
+//	     changed omitted with newRef==oldRef preserves legacy no-op compatibility
 //
 // Data crosses the wire base64-encoded: huma serializes a Go []byte as a base64 JSON
 // string, and encoding/json here does the same on both sides, so the []byte fields match
