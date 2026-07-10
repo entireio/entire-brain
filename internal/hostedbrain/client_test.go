@@ -226,11 +226,20 @@ func captureStderr(t *testing.T, fn func()) string {
 		t.Fatal(err)
 	}
 	defer r.Close()
+	writerClosed := false
+	closeWriter := func() error {
+		if writerClosed {
+			return nil
+		}
+		writerClosed = true
+		return w.Close()
+	}
+	defer func() { _ = closeWriter() }()
 	os.Stderr = w
 	defer func() { os.Stderr = old }()
 
 	fn()
-	if err := w.Close(); err != nil {
+	if err := closeWriter(); err != nil {
 		t.Fatal(err)
 	}
 	out, err := io.ReadAll(r)
