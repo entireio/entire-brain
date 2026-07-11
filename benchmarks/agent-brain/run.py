@@ -3721,6 +3721,41 @@ def diff_stat(worktree: pathlib.Path) -> dict[str, Any]:
     return {"shortstat": stat, "bytes": len(diff.encode()) + untracked_bytes, "untracked_files": sorted(untracked)}
 
 
+def capture_agent_patch(worktree: pathlib.Path) -> tuple[str, dict[str, Any]]:
+    tracked = [
+        rel
+        for rel in run_cmd(["git", "diff", "--name-only"], cwd=worktree).stdout.splitlines()
+        if rel.strip() and not benchmark_private_path(rel)
+    ]
+    untracked = [
+        rel
+        for rel in run_cmd(["git", "ls-files", "--others", "--exclude-standard"], cwd=worktree).stdout.splitlines()
+        if rel.strip() and not benchmark_private_path(rel)
+    ]
+    parts: list[str] = []
+    if tracked:
+        tracked_diff = run_cmd(
+            ["git", "diff", "--binary", "--no-ext-diff", "--", *tracked],
+            cwd=worktree,
+            check=True,
+        )
+        parts.append(tracked_diff.stdout)
+    for rel in untracked:
+        proc = run_cmd(["git", "diff", "--no-index", "--binary", "--", "/dev/null", rel], cwd=worktree)
+        if proc.returncode not in (0, 1):
+            raise RuntimeError(f"failed to capture untracked agent patch for {rel}: {proc.stderr.strip()}")
+        parts.append(proc.stdout)
+    patch = "".join(parts)
+    encoded = patch.encode()
+    return patch, {
+        "path": "agent.patch",
+        "bytes": len(encoded),
+        "sha256": hashlib.sha256(encoded).hexdigest(),
+        "tracked_files": sorted(tracked),
+        "untracked_files": sorted(untracked),
+    }
+
+
 def safe_child_path(root: pathlib.Path, rel: str, *, label: str) -> pathlib.Path:
     if not rel or pathlib.Path(rel).is_absolute():
         raise ValueError(f"{label} must be a relative path")
@@ -4040,6 +4075,16 @@ def run_one(
             "ok": True, "required": False, "findings": []
         }
         files = changed_files(worktree)
+        secret_postflight = agent_secret_preflight(worktree)
+        record["agent_secret_postflight"] = secret_postflight
+        if not secret_postflight["ok"]:
+            raise RuntimeError(f"post-agent benchmark secrets failed audit: {secret_postflight['findings'][:3]}")
+        patch, patch_artifact = capture_agent_patch(worktree)
+        patch_secret_hits = secret_pattern_hits(patch)
+        record["agent_patch_secret_audit"] = {"ok": not patch_secret_hits, "patterns": patch_secret_hits}
+        if patch_secret_hits:
+            raise RuntimeError(f"agent patch contains benchmark-private patterns: {patch_secret_hits}")
+        (run_dir / "agent.patch").write_text(patch)
         validation = validate(task, worktree, env)
         diff = diff_stat(worktree)
         scoring = score(task, condition, agent_info, validation, files, diff)
@@ -4056,6 +4101,7 @@ def run_one(
                 "temporal_memory_condition_audit": temporal_audit,
                 "agent_info": agent_info,
                 "changed_files": files,
+                "patch_artifact": patch_artifact,
                 "diff_stat": diff,
                 "validation": validation,
                 "score": scoring,

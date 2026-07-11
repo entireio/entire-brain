@@ -99,11 +99,54 @@ python3 benchmarks/agent-brain/temporal-memory/generate_sealed_report.py \
   --manifest benchmarks/agent-brain/temporal-memory/phase0a-sealed-smoke.json \
   --source-artifact-manifest benchmarks/agent-brain/temporal-memory/phase0a-source-artifact.json \
   --source-archive /path/to/temporal-source-1dd2312593bd40ce7e66f748.tar.gz \
+  --results-artifact-manifest benchmarks/agent-brain/temporal-memory/phase0a-results-artifact.json \
   --agent-suite benchmarks/agent-brain/results/temporal-memory-phase0a-sealed-codex-v1 \
   --agent-suite benchmarks/agent-brain/results/temporal-memory-phase0a-sealed-claude-v1 \
-  --out-dir benchmarks/agent-brain/temporal-memory/generated
+  --out-dir benchmarks/agent-brain/temporal-memory/generated \
+  --report-stem sealed-smoke-pilot-report
 ```
+
+Use a distinct `--report-stem` for a confirmation or repaired protocol. This
+prevents a later run from overwriting the frozen pilot report while keeping all
+reports reproducible through the same generator.
 
 The sealed gate is intentionally stricter than row success: it also requires
 no-Brain correctness headroom, clean run provenance, and a portable private
 source artifact before authorizing a scaled correctness study.
+
+## Protocol Repairs After the Frozen Smoke
+
+The clean confirmation is retained separately from the first sealed run. It
+showed that prompt-only tool adherence is unstable and that the frozen neutral
+task's source-pattern validator rejects implementation-equivalent fixes. The
+original task and records remain unchanged. The replacement
+`temporal-memory-protocol-repair-windows-drive-neutral-v2.json` is explicitly a
+non-sealed development task and validates lowercase drive behavior through Go
+tests instead of matching one source expression.
+
+New harness runs retain `agent.patch` plus its byte count and SHA-256 before
+worktree cleanup, after a post-agent secret audit. The sealed report treats
+missing patch artifacts and missing provider-reported distillation tokens as
+separate failed gates; complete task-agent token totals do not mask either
+evidence gap.
+
+Generated reports are split by evidence role:
+
+- `generated/sealed-smoke-pilot-report.*` records the first dirty-worktree
+  sealed run;
+- `generated/sealed-smoke-clean-confirmation-report.*` records the clean rerun
+  and every protocol/validator failure;
+- `generated/development-report.*` records adapter-development behavior.
+
+The public `phase0a-results-artifact.json` manifest verifies the private raw
+evidence pack. The pack is not committed because agent output can quote the
+authentic session-derived memory.
+
+Verify either private archive against its public manifest without extracting
+it:
+
+```sh
+python3 benchmarks/agent-brain/temporal-memory/verify_artifact.py \
+  --manifest benchmarks/agent-brain/temporal-memory/phase0a-results-artifact.json \
+  --archive /path/to/phase0a-evidence-ca40c070-v1.tar.gz
+```

@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import json
 import pathlib
+import re
 import sys
 from typing import Any
 
@@ -36,6 +37,32 @@ def sha256_file(path: pathlib.Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def suite_provenance(path: pathlib.Path) -> dict[str, Any]:
+    suite = path.resolve()
+    records = suite / "records.ndjson"
+    summary = suite / "summary.json"
+    if not records.is_file() or not summary.is_file():
+        raise RuntimeError(f"suite is missing records.ndjson or summary.json: {suite}")
+    record_docs = [json.loads(line) for line in records.read_text().splitlines() if line.strip()]
+    execution_harness_commits = sorted(
+        {
+            str((((record.get("provenance") or {}).get("harness") or {}).get("head") or {}).get("commit"))
+            for record in record_docs
+        }
+    )
+    return {
+        "suite": suite.name,
+        "records": len(record_docs),
+        "records_sha256": sha256_file(records),
+        "summary_sha256": sha256_file(summary),
+        "execution_harness_commits": execution_harness_commits,
+        "execution_harness_dirty": any(
+            bool(((((record.get("provenance") or {}).get("harness") or {}).get("dirty") or {}).get("dirty")))
+            for record in record_docs
+        ),
+    }
 
 
 def task_path(manifest_path: pathlib.Path, entry: dict[str, Any]) -> pathlib.Path:
@@ -115,6 +142,15 @@ def row_from_record(
     provenance = record.get("provenance") or {}
     harness_dirty = bool((((provenance.get("harness") or {}).get("dirty") or {}).get("dirty")))
     source_dirty = bool((((provenance.get("source") or {}).get("dirty") or {}).get("dirty")))
+    patch_artifact = record.get("patch_artifact") or {}
+    patch_path = record_file.with_name(str(patch_artifact.get("path") or "agent.patch"))
+    patch_artifact_ok = bool(
+        patch_artifact
+        and (record.get("agent_patch_secret_audit") or {}).get("ok") is True
+        and patch_path.is_file()
+        and patch_path.stat().st_size == patch_artifact.get("bytes")
+        and sha256_file(patch_path) == patch_artifact.get("sha256")
+    )
     return {
         "task_id": record["task_id"],
         "stratum": task_entry["stratum"],
@@ -139,6 +175,7 @@ def row_from_record(
         "changed_files": record.get("changed_files", []),
         "harness_dirty": harness_dirty,
         "source_dirty": source_dirty,
+        "patch_artifact_ok": patch_artifact_ok,
         "integrity_findings": findings,
         "integrity_ok": not findings,
     }
@@ -179,14 +216,19 @@ def gate(name: str, passed: bool, evidence: str) -> dict[str, Any]:
 
 
 def build_gates(
-    rows: list[dict[str, Any]], manifest: dict[str, Any], source_archive_verified: bool
+    rows: list[dict[str, Any]],
+    manifest: dict[str, Any],
+    source_artifact: dict[str, Any],
+    source_archive_verified: bool,
 ) -> list[dict[str, Any]]:
     expected_rows = len(manifest["tasks"]) * len(manifest["runners"]) * len(CONDITIONS)
     positive_rows = [row for row in rows if row["stratum"] == "fact_positive"]
     stale_rows = [row for row in rows if row["stratum"] == "stale_conflict"]
     neutral_rows = [row for row in rows if row["stratum"] == "neutral"]
+    positive_fact_rows = [row for row in positive_rows if row["condition"] == "facts_only"]
+    stale_memory_rows = [row for row in stale_rows if row["condition"] in MEMORY_CONDITIONS]
     headroom_pairs = []
-    for task_id, runner_id in sorted({(row["task_id"], row["runner_id"]) for row in rows}):
+    for task_id, runner_id in sorted({(row["task_id"], row["runner_id"]) for row in positive_rows}):
         cell = [row for row in rows if row["task_id"] == task_id and row["runner_id"] == runner_id]
         baseline = next(row for row in cell if row["condition"] == "no_brain")
         if baseline["validation_ok"] is False and any(
@@ -196,44 +238,71 @@ def build_gates(
     clean_rows = [row for row in rows if not row["harness_dirty"] and not row["source_dirty"]]
     expected_runners = sorted(HARNESS.parse_runner_spec(spec).id for spec in manifest["runners"])
     actual_runners = sorted({str(row["runner_id"]) for row in rows})
+    distillation = source_artifact.get("distillation") or {}
+    distillation_tokens_available = bool(
+        distillation.get("token_usage_available") and distillation.get("reported_token_usage")
+    )
     return [
         gate("complete_matrix", len(rows) == expected_rows, f"{len(rows)}/{expected_rows} rows"),
-        gate("runner_matrix", actual_runners == expected_runners, f"actual={actual_runners}; expected={expected_runners}"),
-        gate("row_integrity", all(row["integrity_ok"] for row in rows), f"{sum(row['integrity_ok'] for row in rows)}/{len(rows)} rows"),
+        gate(
+            "runner_matrix",
+            actual_runners == expected_runners,
+            f"actual={actual_runners}; expected={expected_runners}",
+        ),
+        gate(
+            "row_integrity",
+            all(row["integrity_ok"] for row in rows),
+            f"{sum(row['integrity_ok'] for row in rows)}/{len(rows)} rows",
+        ),
         gate(
             "fact_positive_channel",
-            bool(positive_rows) and all(
-                row["validation_ok"] and row["protocol_ok"]
-                for row in positive_rows
-                if row["condition"] == "facts_only"
-            ),
-            "facts_only passed for every backend on the sealed fact-positive task",
+            bool(positive_fact_rows)
+            and all(row["validation_ok"] and row["protocol_ok"] for row in positive_fact_rows),
+            f"{sum(row['validation_ok'] and row['protocol_ok'] for row in positive_fact_rows)}"
+            f"/{len(positive_fact_rows)} facts_only rows passed validation and protocol",
         ),
         gate(
             "stale_memory_rejected",
-            bool(stale_rows) and all(
-                row["validation_ok"] and row["protocol_ok"]
-                for row in stale_rows
-                if row["condition"] in MEMORY_CONDITIONS
-            ),
-            "all stale/conflict memory arms restored the shipped target-snapshot behavior",
+            bool(stale_memory_rows)
+            and all(row["validation_ok"] and row["protocol_ok"] for row in stale_memory_rows),
+            f"{sum(row['validation_ok'] and row['protocol_ok'] for row in stale_memory_rows)}"
+            f"/{len(stale_memory_rows)} stale/conflict memory rows restored shipped behavior",
         ),
         gate(
             "neutral_correctness",
             bool(neutral_rows) and all(row["validation_ok"] and row["protocol_ok"] for row in neutral_rows),
-            "all neutral rows passed without unrelated edits",
+            f"{sum(row['validation_ok'] and row['protocol_ok'] for row in neutral_rows)}"
+            f"/{len(neutral_rows)} neutral rows passed validation and protocol",
         ),
         gate(
             "positive_task_headroom",
             bool(headroom_pairs),
-            ", ".join(headroom_pairs) if headroom_pairs else "no sealed no_brain row failed while a memory row passed",
+            ", ".join(headroom_pairs)
+            if headroom_pairs
+            else "no fact-positive no_brain row failed while a protocol-valid memory row passed",
         ),
         gate(
-            "complete_token_accounting",
+            "task_agent_token_accounting",
             all(isinstance(row["total_tokens"], (int, float)) and row["total_tokens"] > 0 for row in rows),
             f"{sum(isinstance(row['total_tokens'], (int, float)) and row['total_tokens'] > 0 for row in rows)}/{len(rows)} rows",
         ),
-        gate("clean_run_provenance", len(clean_rows) == len(rows), f"{len(clean_rows)}/{len(rows)} rows have clean harness and source worktrees"),
+        gate(
+            "distillation_token_accounting",
+            distillation_tokens_available,
+            "reported distillation token usage retained"
+            if distillation_tokens_available
+            else "distillation retained call count and duration but not reported token usage",
+        ),
+        gate(
+            "patch_artifact_retention",
+            all(row["patch_artifact_ok"] for row in rows),
+            f"{sum(row['patch_artifact_ok'] for row in rows)}/{len(rows)} exact agent patches retained and checksum-verified",
+        ),
+        gate(
+            "clean_run_provenance",
+            len(clean_rows) == len(rows),
+            f"{len(clean_rows)}/{len(rows)} rows have clean harness and source worktrees",
+        ),
         gate(
             "portable_source_artifact",
             source_archive_verified,
@@ -243,6 +312,46 @@ def build_gates(
 
 
 def render_markdown(report: dict[str, Any]) -> str:
+    gate_status = {item["name"]: item["passed"] for item in report["gates"]}
+    gate_evidence = {item["name"]: item["evidence"] for item in report["gates"]}
+    remaining_requirements = []
+    if not gate_status.get("positive_task_headroom", False):
+        remaining_requirements.append("a harder sealed task sample with no-Brain headroom")
+    if not gate_status.get("portable_source_artifact", False):
+        remaining_requirements.append("a portable private-source artifact")
+    if not gate_status.get("clean_run_provenance", False):
+        remaining_requirements.append("clean committed-run provenance")
+    if not gate_status.get("distillation_token_accounting", False):
+        remaining_requirements.append("reported distillation token accounting")
+    if not gate_status.get("patch_artifact_retention", False):
+        remaining_requirements.append("checksum-verified agent patch retention")
+    remaining_requirements.append("repeated task-clustered runs")
+    if len(remaining_requirements) == 1:
+        remaining_text = remaining_requirements[0]
+    else:
+        remaining_text = ", ".join(remaining_requirements[:-1]) + f", and {remaining_requirements[-1]}"
+    integrity_rows = sum(row["integrity_ok"] for row in report["rows"])
+    baseline_rows = [row for row in report["rows"] if row["condition"] == "no_brain"]
+    baseline_validation_passes = sum(row["validation_ok"] is True for row in baseline_rows)
+    channel_observations = [
+        f"Fact-positive channel gate: {gate_evidence['fact_positive_channel']}.",
+        f"Stale-memory gate: {gate_evidence['stale_memory_rejected']}.",
+        f"Neutral-correctness gate: {gate_evidence['neutral_correctness']}.",
+    ]
+    if gate_status.get("row_integrity", False):
+        integrity_interpretation = "Every row passed the frozen integrity checks."
+    else:
+        integrity_interpretation = (
+            f"Only {integrity_rows}/{len(report['rows'])} rows passed the frozen integrity checks; "
+            "failed rows are retained below and preclude treatment-effect estimation."
+        )
+    if report["decision"] == "GO":
+        decision_interpretation = (
+            "The spike authorizes a scaled temporal-memory study under the preregistered gates."
+        )
+    else:
+        decision_interpretation = "The scaled temporal-memory study is a no-go under the preregistered gates."
+
     lines = [
         "# Temporal Memory Phase 0A Sealed Smoke",
         "",
@@ -294,11 +403,18 @@ def render_markdown(report: dict[str, Any]) -> str:
             "",
             "## Interpretation",
             "",
-            "The fact-positive task confirms that the durable-fact channel can preserve and deliver a decision that the development distillation omitted elsewhere. Both backends also rejected the deliberately stale pre-shipment history and all neutral rows remained correct.",
+            " ".join(channel_observations),
             "",
-            "The matrix is saturated: every no-Brain row passed. Memory cost is heterogeneous, ranging from useful search/token reductions on some cells to substantial overhead on others. With no correctness headroom and one repetition, this smoke cannot estimate a positive treatment effect.",
+            integrity_interpretation,
             "",
-            "The scaled temporal-memory correctness study is therefore a no-go under the preregistered gates. The protocol and safety mechanisms are feasible, but a harder sealed task sample, a portable private-source artifact, clean committed-run provenance, and repeated task-clustered runs are required before a paper claim is promoted.",
+            f"No-Brain hidden validation passed in {baseline_validation_passes}/{len(baseline_rows)} rows. "
+            f"Positive-task headroom gate: {gate_evidence['positive_task_headroom']}. Memory cost is heterogeneous, "
+            "ranging from useful search/token reductions on some cells to substantial overhead on others. With one "
+            "repetition, this smoke cannot estimate a population treatment effect.",
+            "",
+            decision_interpretation + " "
+            f"The channel-materialization mechanism ran end to end, but {remaining_text} are required before a "
+            "paper claim is promoted.",
         ]
     )
     findings = [
@@ -316,9 +432,13 @@ def main() -> int:
     parser.add_argument("--manifest", type=pathlib.Path, required=True)
     parser.add_argument("--source-artifact-manifest", type=pathlib.Path)
     parser.add_argument("--source-archive", type=pathlib.Path)
+    parser.add_argument("--results-artifact-manifest", type=pathlib.Path)
     parser.add_argument("--agent-suite", type=pathlib.Path, action="append", required=True)
     parser.add_argument("--out-dir", type=pathlib.Path, required=True)
+    parser.add_argument("--report-stem", default="sealed-smoke-report")
     args = parser.parse_args()
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", args.report_stem):
+        raise RuntimeError("--report-stem must be a filename stem without path separators")
 
     manifest_path = args.manifest.resolve()
     manifest = read_json(manifest_path)
@@ -353,7 +473,7 @@ def main() -> int:
             for condition in CONDITIONS:
                 rows.append(row_from_record(record_path(suite, task["id"], condition), entry, task, source_artifact))
     rows.sort(key=lambda row: (row["task_id"], row["runner_id"], CONDITIONS.index(row["condition"])))
-    gates = build_gates(rows, manifest, source_archive_verified)
+    gates = build_gates(rows, manifest, source_artifact, source_archive_verified)
     required_scale_gates = {
         "complete_matrix",
         "runner_matrix",
@@ -362,7 +482,9 @@ def main() -> int:
         "stale_memory_rejected",
         "neutral_correctness",
         "positive_task_headroom",
-        "complete_token_accounting",
+        "task_agent_token_accounting",
+        "distillation_token_accounting",
+        "patch_artifact_retention",
         "clean_run_provenance",
         "portable_source_artifact",
     }
@@ -370,16 +492,31 @@ def main() -> int:
     report = {
         "schema": 1,
         "decision": decision,
-        "manifest": str(manifest_path),
+        "analysis": {
+            "generator_sha256": sha256_file(pathlib.Path(__file__).resolve()),
+            "analysis_harness_sha256": sha256_file(HARNESS_PATH),
+            "agent_suites": [suite_provenance(path) for path in args.agent_suite],
+        },
+        "manifest": manifest_path.relative_to(BENCH).as_posix(),
         "manifest_sha256": sha256_file(manifest_path),
         "source_artifact": source_artifact,
         "gates": gates,
         "rows": rows,
         "comparisons": comparisons(rows),
     }
+    if args.results_artifact_manifest:
+        result_manifest_path = args.results_artifact_manifest.resolve()
+        result_artifact = read_json(result_manifest_path)
+        report["results_artifact"] = {
+            "archive_basename": result_artifact["archive_basename"],
+            "archive_bytes": result_artifact["archive_bytes"],
+            "archive_sha256": result_artifact["archive_sha256"],
+            "manifest": result_manifest_path.relative_to(BENCH).as_posix(),
+            "manifest_sha256": sha256_file(result_manifest_path),
+        }
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    (args.out_dir / "sealed-smoke-report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
-    (args.out_dir / "sealed-smoke-report.md").write_text(render_markdown(report))
+    (args.out_dir / f"{args.report_stem}.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    (args.out_dir / f"{args.report_stem}.md").write_text(render_markdown(report))
     return 0
 
 

@@ -67,6 +67,13 @@ assert AUDIT_RELEASE_MATRIX_SPEC.loader is not None
 sys.modules[AUDIT_RELEASE_MATRIX_SPEC.name] = audit_release_matrix
 AUDIT_RELEASE_MATRIX_SPEC.loader.exec_module(audit_release_matrix)
 
+TEMPORAL_REPORT_PATH = pathlib.Path(__file__).with_name("temporal-memory") / "generate_sealed_report.py"
+TEMPORAL_REPORT_SPEC = importlib.util.spec_from_file_location("agent_brain_temporal_report", TEMPORAL_REPORT_PATH)
+temporal_report = importlib.util.module_from_spec(TEMPORAL_REPORT_SPEC)
+assert TEMPORAL_REPORT_SPEC.loader is not None
+sys.modules[TEMPORAL_REPORT_SPEC.name] = temporal_report
+TEMPORAL_REPORT_SPEC.loader.exec_module(temporal_report)
+
 
 class RunnerAndConditionTests(unittest.TestCase):
     def test_retained_release_evidence_paths_fit_github_windows_checkout(self):
@@ -1023,6 +1030,62 @@ class RunnerAndConditionTests(unittest.TestCase):
             {"brain_used_in_no_brain_condition", "forbidden_memory_artifact_access"},
         )
 
+    def test_temporal_report_separates_task_and_distillation_tokens(self):
+        rows = []
+        for condition in temporal_report.CONDITIONS:
+            rows.append({
+                "task_id": "task",
+                "stratum": "fact_positive",
+                "runner_id": "codex-gpt-5.3-codex-spark-low",
+                "condition": condition,
+                "validation_ok": True,
+                "protocol_ok": True,
+                "total_tokens": 100,
+                "harness_dirty": False,
+                "source_dirty": False,
+                "patch_artifact_ok": True,
+                "integrity_ok": True,
+            })
+        manifest = {
+            "tasks": [{"id": "task"}],
+            "runners": ["codex:gpt-5.3-codex-spark:low"],
+        }
+        source = {
+            "distillation": {
+                "token_usage_available": False,
+                "reported_token_usage": None,
+            }
+        }
+        gates = {
+            item["name"]: item["passed"]
+            for item in temporal_report.build_gates(rows, manifest, source, True)
+        }
+        self.assertTrue(gates["task_agent_token_accounting"])
+        self.assertFalse(gates["distillation_token_accounting"])
+
+        neutral_rows = copy.deepcopy(rows)
+        for row in neutral_rows:
+            row["task_id"] = "neutral"
+            row["stratum"] = "neutral"
+            if row["condition"] == "no_brain":
+                row["validation_ok"] = False
+        manifest["tasks"].append({"id": "neutral"})
+        neutral_gates = {
+            item["name"]: item["passed"]
+            for item in temporal_report.build_gates(rows + neutral_rows, manifest, source, True)
+        }
+        self.assertFalse(neutral_gates["positive_task_headroom"])
+
+        source["distillation"] = {
+            "token_usage_available": True,
+            "reported_token_usage": {"total_tokens": 123},
+        }
+        gates = {
+            item["name"]: item["passed"]
+            for item in temporal_report.build_gates(rows, manifest, source, True)
+        }
+        self.assertTrue(gates["distillation_token_accounting"])
+
     def test_forbidden_memory_artifact_access_ignores_exclusions_not_reads(self):
         self.assertFalse(run.command_accesses_forbidden_memory_artifact(
             r'grep -rn confidence . | grep -v "\.benchmark/"'
@@ -1401,6 +1464,30 @@ class RunnerAndConditionTests(unittest.TestCase):
             (repo / ".codex" / "config.toml").write_text("")
             (repo / "src.ts").write_text("export const ok = true;\n")
             self.assertEqual(run.changed_files(repo), ["src.ts"])
+
+    def test_capture_agent_patch_retains_tracked_and_untracked_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = pathlib.Path(tmp)
+            run.run_cmd(["git", "init"], cwd=repo, check=True)
+            run.run_cmd(["git", "config", "user.name", "Benchmark Test"], cwd=repo, check=True)
+            run.run_cmd(["git", "config", "user.email", "benchmark@example.invalid"], cwd=repo, check=True)
+            (repo / "tracked.txt").write_text("before\n")
+            run.run_cmd(["git", "add", "tracked.txt"], cwd=repo, check=True)
+            run.run_cmd(["git", "commit", "-m", "base"], cwd=repo, check=True)
+
+            (repo / "tracked.txt").write_text("after\n")
+            (repo / "new.txt").write_text("new evidence\n")
+            (repo / ".benchmark").mkdir()
+            (repo / ".benchmark" / "private.txt").write_text("withheld\n")
+
+            patch, artifact = run.capture_agent_patch(repo)
+            self.assertIn("tracked.txt", patch)
+            self.assertIn("new.txt", patch)
+            self.assertNotIn("private.txt", patch)
+            self.assertEqual(artifact["bytes"], len(patch.encode()))
+            self.assertEqual(artifact["sha256"], hashlib.sha256(patch.encode()).hexdigest())
+            self.assertEqual(artifact["tracked_files"], ["tracked.txt"])
+            self.assertEqual(artifact["untracked_files"], ["new.txt"])
 
     def test_remove_agent_visible_entire_history_deletes_copied_source_history(self):
         with tempfile.TemporaryDirectory() as tmp:
