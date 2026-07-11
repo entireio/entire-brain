@@ -150,20 +150,23 @@ func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode re
 				}
 			}
 			if mode != modeLexical && historySem != nil {
-				// A second, independently-ranked history list: the global RRF
-				// merge below fuses it with the lexical list, which is exactly
-				// the capstone's fused-arm shape (RRF of BM25 + cosine ranks).
+				// Independently ranked history lists: the global RRF merge fuses
+				// BM25 and cosine, then gives calibrated term-disjoint evidence a
+				// second vote without triple-counting lexical hits.
 				scores := historySemanticScores(
 					brainDir, historySem, query, candidateLimit, mode == modeHybrid,
 				)
-				var sem []scoredHistoryRecord
+				var sem historyVectorRanks
 				if mode == modeVector {
-					sem = rankHistorySemantic(index, scores, candidateLimit)
+					sem.ranked = rankHistorySemantic(index, scores, candidateLimit)
 				} else {
-					sem = rankHistorySemanticHybrid(index, scores, candidateLimit, lexicalHistoryIDs)
+					sem = rankHistorySemanticHybridRanks(index, scores, candidateLimit, lexicalHistoryIDs)
 				}
-				if len(sem) > 0 {
-					lists = append(lists, historyToUnified(sem))
+				if len(sem.ranked) > 0 {
+					lists = append(lists, historyToUnified(sem.ranked))
+				}
+				if len(sem.calibratedSemanticOnly) > 0 {
+					lists = append(lists, historyToUnified(sem.calibratedSemanticOnly))
 				}
 			}
 		}
@@ -222,9 +225,11 @@ func factsVectorRanked(
 ) []factRecord {
 	// An empty query vector means the embedder is unavailable (e.g. Ollama down).
 	// Return no semantic results rather than an arbitrary top-N: every cosine
-	// would be 0 and the sort would just echo input order.
+	// would be 0 and the sort would just echo input order. A wrong-dimension
+	// query also fails closed before the cache is inspected: it must not make
+	// valid document vectors look corrupt and trigger a destructive rebuild.
 	qv := embedQueryWith(e, query)
-	if !vectorHasMagnitude(qv) {
+	if e.Dim() <= 0 || len(qv) != e.Dim() || !vectorHasMagnitude(qv) {
 		return nil
 	}
 	store := newVectorStore(brainDir, branch, factEmbeddingModelID(e.ID()), e.Dim())
@@ -239,6 +244,11 @@ func factsVectorRanked(
 	for _, f := range facts {
 		present[f.ID] = struct{}{}
 		v, ok := cache[f.ID]
+		if ok && (len(v) != len(qv) || !vectorHasMagnitude(v)) {
+			delete(cache, f.ID)
+			dirty = true
+			ok = false
+		}
 		if !ok {
 			v = e.Embed(factEmbeddingText(f))
 			if len(v) == len(qv) && vectorHasMagnitude(v) {
@@ -299,7 +309,7 @@ func docsVectorRanked(
 	// Same guard as factsVectorRanked: no query vector → no doc semantic hits,
 	// not arbitrary docs ranked by all-zero cosines.
 	qv := embedQueryWith(e, query)
-	if !vectorHasMagnitude(qv) {
+	if e.Dim() <= 0 || len(qv) != e.Dim() || !vectorHasMagnitude(qv) {
 		return documentVectorRanks{}
 	}
 	store := newDocEmbedStore(brainDir, e.ID(), e.Dim())
@@ -316,6 +326,11 @@ func docsVectorRanked(
 	for i, r := range index.Records {
 		present[r.ID] = struct{}{}
 		v, ok := cache[r.ID]
+		if ok && (len(v) != len(qv) || !vectorHasMagnitude(v)) {
+			delete(cache, r.ID)
+			dirty = true
+			ok = false
+		}
 		if !ok {
 			v = e.Embed(r.Text)
 			if len(v) == len(qv) && vectorHasMagnitude(v) {

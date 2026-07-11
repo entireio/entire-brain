@@ -249,6 +249,62 @@ func TestRankHistorySemanticHybridPreservesLexicalHitsButRejectsNoise(t *testing
 	}
 }
 
+func TestRankHistorySemanticHybridHasIndependentCalibrationArm(t *testing.T) {
+	index := historyIndex{Records: []historyRecord{
+		{ID: "lex-1", Kind: "decision", Summary: "lexical one"},
+		{ID: "lex-2", Kind: "decision", Summary: "lexical two"},
+		{ID: "lex-3", Kind: "decision", Summary: "lexical three"},
+		{ID: "semantic", Kind: "decision", Summary: "term disjoint evidence"},
+		{ID: "noise-1", Kind: "decision", Summary: "noise one"},
+		{ID: "noise-2", Kind: "decision", Summary: "noise two"},
+		{ID: "noise-3", Kind: "decision", Summary: "noise three"},
+		{ID: "noise-4", Kind: "decision", Summary: "noise four"},
+	}}
+	scores := map[string]float64{
+		"lex-1": 1, "lex-2": 0.999, "lex-3": 0.998, "semantic": 0.997,
+		"noise-1": 0, "noise-2": 0, "noise-3": 0, "noise-4": 0,
+	}
+	lexical := map[string]struct{}{"lex-1": {}, "lex-2": {}, "lex-3": {}}
+	ranks := rankHistorySemanticHybridRanks(index, scores, 3, lexical)
+	if len(ranks.ranked) != 3 {
+		t.Fatalf("primary history vector list length = %d, want 3", len(ranks.ranked))
+	}
+	if len(ranks.calibratedSemanticOnly) != 1 || ranks.calibratedSemanticOnly[0].Record.ID != "semantic" {
+		t.Fatalf("calibrated history arm was truncated by the primary limit: %+v", ranks.calibratedSemanticOnly)
+	}
+}
+
+func TestRankHistorySemanticHybridGivesSemanticOnlyEvidenceTwoRRFVotes(t *testing.T) {
+	index := historyIndex{Records: []historyRecord{
+		{ID: "lexical", Kind: "decision", Summary: "lexically reached evidence"},
+		{ID: "semantic", Kind: "decision", Summary: "term disjoint evidence"},
+		{ID: "noise-1", Kind: "decision", Summary: "noise one"},
+		{ID: "noise-2", Kind: "decision", Summary: "noise two"},
+		{ID: "noise-3", Kind: "decision", Summary: "noise three"},
+		{ID: "noise-4", Kind: "decision", Summary: "noise four"},
+	}}
+	scores := map[string]float64{
+		"lexical": 1, "semantic": 0.99,
+		"noise-1": 0, "noise-2": 0, "noise-3": 0, "noise-4": 0,
+	}
+	ranks := rankHistorySemanticHybridRanks(
+		index, scores, 10, map[string]struct{}{"lexical": {}},
+	)
+	merged := rrfMergeUnified([][]unifiedResult{
+		historyToUnified(ranks.ranked),
+		historyToUnified(ranks.calibratedSemanticOnly),
+	}, 10)
+	for _, result := range merged {
+		if result.ID == "semantic" {
+			if result.Score <= 1.0/(rrfK+1) {
+				t.Fatalf("semantic-only history evidence received only one RRF vote: %v", result.Score)
+			}
+			return
+		}
+	}
+	t.Fatalf("semantic-only history evidence was not admitted: %+v", merged)
+}
+
 func TestRankHistoryFusedGateClosedIsExactlyFTS(t *testing.T) {
 	brainDir := t.TempDir()
 	index := historyIndex{GeneratedAt: time.Now(), Records: []historyRecord{
