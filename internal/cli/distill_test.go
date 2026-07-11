@@ -326,9 +326,15 @@ func TestDistillAgentCommandArgs(t *testing.T) {
 	if err != nil || codex[0] != "codex" || codex[len(codex)-1] != "PROMPT" {
 		t.Fatalf("codex args wrong: %v err=%v", codex, err)
 	}
+	if !slices.Contains(codex, "--json") {
+		t.Fatalf("codex args must request provider usage JSONL: %v", codex)
+	}
 	claude, err := distillAgentCommandArgs("claude-code", nil, "PROMPT")
 	if err != nil || claude[0] != "claude" || claude[len(claude)-1] != "PROMPT" {
 		t.Fatalf("claude args wrong: %v err=%v", claude, err)
+	}
+	if !slices.Contains(claude, "--output-format") || !slices.Contains(claude, "json") {
+		t.Fatalf("claude args must request provider usage JSON: %v", claude)
 	}
 	// The empty MCP config must be {"mcpServers":{}} — bare {} is rejected by the
 	// current claude CLI ("mcpServers: expected record, received undefined").

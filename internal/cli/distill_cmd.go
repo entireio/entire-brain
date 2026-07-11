@@ -619,6 +619,7 @@ func distillProgressLabel(p distillProgress) string {
 // repoDir is the working directory the agent runs in (sandboxed read-only).
 func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOpts distillCommandOptions, now time.Time) (*factSourceManifest, error) {
 	runStarted := time.Now()
+	ctx, usageCollector := withDistillUsageCollector(ctx)
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
 		return nil, err
@@ -994,6 +995,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		source.ExtractionCalls = extractionAgentCalls
 		source.ReconcileCalls = reconcileAgentCalls
 		source.TotalAgentCalls = extractionAgentCalls + reconcileAgentCalls
+		source.TokenUsage = usageCollector.summary(source.TotalAgentCalls)
 		source.ExtractionWaitSeconds = extractionSeconds
 		source.ReconcileSeconds = reconcileSeconds
 		source.WriteSeconds = time.Since(writeStarted).Seconds()
@@ -1784,7 +1786,8 @@ func execDistillAgent(ctx context.Context, dir string, args []string, input []by
 	command := exec.CommandContext(runCtx, args[0], args[1:]...)
 	command.Dir = dir
 	command.Stdin = bytes.NewReader(input)
-	stdout := newCappedDistillBuffer(distillMaxOutputBytes)
+	stdoutLimit := distillStdoutLimit(args)
+	stdout := newCappedDistillBuffer(stdoutLimit)
 	stderr := newCappedDistillBuffer(distillMaxOutputBytes)
 	command.Stdout = &stdout
 	command.Stderr = &stderr
@@ -1792,25 +1795,41 @@ func execDistillAgent(ctx context.Context, dir string, args []string, input []by
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		return "", fmt.Errorf("agent timed out after %s", timeout)
 	}
+	rawOutput := stdout.String()
+	decodedOutput := rawOutput
+	var decodeErr error
+	if !stdout.Exceeded() {
+		var usage distillProviderUsage
+		decodedOutput, usage, decodeErr = decodeStructuredDistillOutput(args, rawOutput)
+		// Provider usage is the cost of the attempted call, even when the CLI
+		// reports a logical error that makes the extraction itself fail.
+		recordDistillProviderUsage(ctx, usage)
+	}
 	if err != nil {
 		// The agent's own error first: reporting a byte-cap instead of the
 		// real failure buries the actionable message. The captured (possibly
 		// truncated) stderr still rides along as context.
 		warning := strings.TrimSpace(stderr.String())
 		if warning == "" {
-			warning = strings.TrimSpace(stdout.String())
+			warning = strings.TrimSpace(rawOutput)
 		}
 		return "", fmt.Errorf("agent failed: %w: %s", err, truncateAgentWarning(warning))
 	}
 	if stdout.Exceeded() {
-		// Truncated STDOUT on success is still an error: the fact lines may
-		// have been cut mid-stream.
-		return "", fmt.Errorf("agent output exceeds %d bytes", distillMaxOutputBytes)
+		// Truncated STDOUT on success is still an error: the structured envelope
+		// may have lost either the final fact text or its usage event.
+		return "", fmt.Errorf("agent output exceeds %d bytes", stdoutLimit)
+	}
+	if decodeErr != nil {
+		return "", fmt.Errorf("distill: %w", decodeErr)
+	}
+	if len(decodedOutput) > distillMaxOutputBytes {
+		return "", fmt.Errorf("agent result exceeds %d bytes", distillMaxOutputBytes)
 	}
 	// Chatty stderr on a SUCCESSFUL run is diagnostics, not failure — the
 	// capped buffer already bounds memory; failing the call would turn a
 	// verbose-but-correct agent into a fake outage.
-	return stdout.String(), nil
+	return decodedOutput, nil
 }
 
 type cappedDistillBuffer struct {
@@ -1923,12 +1942,31 @@ func execOllamaDistillAgent(ctx context.Context, dir string, args []string, inpu
 		return "", fmt.Errorf("ollama returned HTTP %d: %s", resp.StatusCode, truncateAgentWarning(string(data)))
 	}
 	var parsed struct {
-		Response string `json:"response"`
-		Error    string `json:"error"`
+		Response        string `json:"response"`
+		Error           string `json:"error"`
+		PromptEvalCount *int64 `json:"prompt_eval_count"`
+		EvalCount       *int64 `json:"eval_count"`
 	}
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		return "", fmt.Errorf("parse ollama response: %w", err)
 	}
+	if (parsed.PromptEvalCount != nil && *parsed.PromptEvalCount < 0) || (parsed.EvalCount != nil && *parsed.EvalCount < 0) {
+		return "", errors.New("ollama returned negative token counts")
+	}
+	usage := distillProviderUsage{Source: distillUsageSourceOllama}
+	if parsed.PromptEvalCount != nil {
+		usage.Reported = true
+		usage.InputReported = true
+		usage.InputTokens = *parsed.PromptEvalCount
+	}
+	if parsed.EvalCount != nil {
+		usage.Reported = true
+		usage.OutputReported = true
+		usage.OutputTokens = *parsed.EvalCount
+	}
+	// Error responses may still consume model tokens; TotalAgentCalls also
+	// counts failed attempts, so retain provider-reported usage before failing.
+	recordDistillProviderUsage(ctx, usage)
 	if parsed.Error != "" {
 		return "", fmt.Errorf("ollama error: %s", parsed.Error)
 	}

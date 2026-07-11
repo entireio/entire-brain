@@ -30,34 +30,35 @@ const (
 // factSourceManifest is recorded under sources.facts in the brain manifest,
 // parallel to historySourceManifest and the semantic source metadata.
 type factSourceManifest struct {
-	GeneratedAt       time.Time      `json:"generated_at"`
-	TaxonomyPath      string         `json:"taxonomy_path"`
-	Branches          []string       `json:"branches,omitempty"`
-	Facts             int            `json:"facts"`
-	Distilled         int            `json:"distilled"`
-	Authored          int            `json:"authored"`
-	Superseded        int            `json:"superseded"`
-	Proposals         int            `json:"proposals"`
-	Verified          int            `json:"verified"`
-	Unsigned          int            `json:"unsigned"`
-	ByKind            map[string]int `json:"by_kind,omitempty"`
-	ChunksScanned     int            `json:"chunks_scanned"`
-	ChunksDistilled   int            `json:"chunks_distilled"`
-	CacheHits         int            `json:"cache_hits,omitempty"`
-	FailedChunks      int            `json:"failed_chunks,omitempty"`
-	PreprocessedBytes int64          `json:"preprocessed_bytes,omitempty"`
-	Agent             string         `json:"agent,omitempty"`
-	Model             string         `json:"model,omitempty"`
-	Effort            string         `json:"effort,omitempty"`
-	Branch            string         `json:"branch,omitempty"`
-	Force             bool           `json:"force,omitempty"`
-	Jobs              int            `json:"jobs,omitempty"`
-	ExtractionJobsCap int            `json:"extraction_jobs_cap,omitempty"`
-	MaxChunkBytes     int            `json:"max_chunk_bytes,omitempty"`
-	Confidence        float64        `json:"confidence_threshold,omitempty"`
-	ExtractionCalls   int            `json:"extraction_agent_calls,omitempty"`
-	ReconcileCalls    int            `json:"reconcile_agent_calls,omitempty"`
-	TotalAgentCalls   int            `json:"total_agent_calls,omitempty"`
+	GeneratedAt       time.Time                 `json:"generated_at"`
+	TaxonomyPath      string                    `json:"taxonomy_path"`
+	Branches          []string                  `json:"branches,omitempty"`
+	Facts             int                       `json:"facts"`
+	Distilled         int                       `json:"distilled"`
+	Authored          int                       `json:"authored"`
+	Superseded        int                       `json:"superseded"`
+	Proposals         int                       `json:"proposals"`
+	Verified          int                       `json:"verified"`
+	Unsigned          int                       `json:"unsigned"`
+	ByKind            map[string]int            `json:"by_kind,omitempty"`
+	ChunksScanned     int                       `json:"chunks_scanned"`
+	ChunksDistilled   int                       `json:"chunks_distilled"`
+	CacheHits         int                       `json:"cache_hits,omitempty"`
+	FailedChunks      int                       `json:"failed_chunks,omitempty"`
+	PreprocessedBytes int64                     `json:"preprocessed_bytes,omitempty"`
+	Agent             string                    `json:"agent,omitempty"`
+	Model             string                    `json:"model,omitempty"`
+	Effort            string                    `json:"effort,omitempty"`
+	Branch            string                    `json:"branch,omitempty"`
+	Force             bool                      `json:"force,omitempty"`
+	Jobs              int                       `json:"jobs,omitempty"`
+	ExtractionJobsCap int                       `json:"extraction_jobs_cap,omitempty"`
+	MaxChunkBytes     int                       `json:"max_chunk_bytes,omitempty"`
+	Confidence        float64                   `json:"confidence_threshold,omitempty"`
+	ExtractionCalls   int                       `json:"extraction_agent_calls,omitempty"`
+	ReconcileCalls    int                       `json:"reconcile_agent_calls,omitempty"`
+	TotalAgentCalls   int                       `json:"total_agent_calls,omitempty"`
+	TokenUsage        *distillTokenUsageSummary `json:"token_usage,omitempty"`
 	// ExtractionWaitSeconds is the consumer's WAIT on prefetched results, not
 	// agent compute: with concurrency > 1, calls completing in the background
 	// register ~0s here. Compare total_seconds across --jobs settings for
