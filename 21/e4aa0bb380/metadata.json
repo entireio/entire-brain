@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "21e4aa0bb380",
+  "strategy": "manual-commit",
+  "branch": "feat/temporal-memory-spike",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_cmd_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/21/e4aa0bb380/0/metadata.json",
+      "transcript": "/21/e4aa0bb380/0/full.jsonl",
+      "compact_transcript": "/21/e4aa0bb380/0/transcript.jsonl",
+      "content_hash": "/21/e4aa0bb380/0/content_hash.txt",
+      "prompt": "/21/e4aa0bb380/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 2,
+    "cache_creation_tokens": 14440,
+    "cache_read_tokens": 23201,
+    "output_tokens": 4,
+    "api_call_count": 1
+  }
+}

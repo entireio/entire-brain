@@ -1,0 +1,70 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "21e4aa0bb380",
+  "session_id": "06e17926-6df8-4a08-a182-91fc00bf404b",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-11T11:08:31.570511Z",
+  "branch": "feat/temporal-memory-spike",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_cmd_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "71c771e27dc1",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 2,
+    "cache_creation_tokens": 14440,
+    "cache_read_tokens": 23201,
+    "output_tokens": 4,
+    "api_call_count": 1
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-11T11:08:31.562616Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 1131,
+    "human_modified": 64,
+    "human_removed": 0,
+    "total_committed": 1131,
+    "total_lines_changed": 1195,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 1719,
+      "user_lines_removed": 41,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "benchmarks/agent-brain/README.md": 16,
+        "benchmarks/agent-brain/run.py": 543,
+        "benchmarks/agent-brain/run_test.py": 136,
+        "benchmarks/agent-brain/tasks/temporal-memory-default-fact-merge-confidence.json": 76,
+        "benchmarks/agent-brain/temporal-memory/README.md": 37,
+        "benchmarks/agent-brain/temporal-memory/generate_report.py": 232,
+        "benchmarks/agent-brain/temporal-memory/generated/development-report.json": 292,
+        "benchmarks/agent-brain/temporal-memory/generated/development-report.md": 32,
+        "benchmarks/agent-brain/temporal-memory/phase0a-development.json": 48,
+        "docs/memory_lifecycle_plan.md": 261,
+        "internal/cli/distill_cmd.go": 6,
+        "internal/cli/distill_cmd_test.go": 40
+      },
+      "user_removed_per_file": {
+        "benchmarks/agent-brain/run.py": 40,
+        "benchmarks/agent-brain/run_test.py": 1
+      }
+    }
+  ]
+}
