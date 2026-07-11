@@ -14,13 +14,16 @@ import (
 // scores don't fight.
 
 type unifiedResult struct {
-	Source  string  `json:"source"` // fact | history | doc
-	ID      string  `json:"id"`     // prefixed, addressable by get/multi-get
-	Path    string  `json:"path,omitempty"`
-	Heading string  `json:"heading,omitempty"`
-	Line    int     `json:"line,omitempty"`
-	Text    string  `json:"text"`
-	Score   float64 `json:"score,omitempty"` // omitted for unranked results (get/multi-get); RRF scores are always > 0
+	Source               string            `json:"source"` // fact | fact-review | history | doc
+	ID                   string            `json:"id"`     // prefixed, addressable by get/multi-get
+	Path                 string            `json:"path,omitempty"`
+	Heading              string            `json:"heading,omitempty"`
+	Line                 int               `json:"line,omitempty"`
+	Text                 string            `json:"text"`
+	Score                float64           `json:"score,omitempty"` // omitted for unranked results (get/multi-get); RRF scores are always > 0
+	VerificationRequired bool              `json:"verification_required,omitempty"`
+	Caveats              []retrievalCaveat `json:"caveats,omitempty"`
+	RelatedIDs           []string          `json:"related_ids,omitempty"`
 }
 
 type retrievalMode int
@@ -45,9 +48,17 @@ func embedQueryWith(e Embedder, q string) []float32 {
 // gate exists because Model2Vec on history is a measured closed negative and
 // embedding hundreds of thousands of records per query is hours of work that
 // belongs in refresh. Missing layers are skipped, not errors.
-func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMode) ([]unifiedResult, error) {
+func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode retrievalMode) ([]unifiedResult, error) {
 	if limit <= 0 {
 		limit = 10
+	}
+	// Preserve the existing 2x per-layer candidate budget. The facts arm ranks
+	// its full (typically small) active set and applies trust collapse before it
+	// is truncated to this budget, so unrelated history/doc RRF candidates never
+	// change merely because a proposal entered the review queue.
+	candidateLimit := limit * 2
+	if candidateLimit < limit { // integer overflow guard for unreasonable inputs
+		candidateLimit = limit
 	}
 	// loadFacts surfaces corrupt NDJSON as a hard error; propagate it rather than
 	// presenting a broken store as "no results".
@@ -61,6 +72,7 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 			active = append(active, f)
 		}
 	}
+	proposals, proposalsErr := loadFactProposals(brainDir, branch)
 	var e Embedder
 	if mode != modeLexical {
 		e = defaultEmbedder()
@@ -70,25 +82,36 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 
 	// Facts.
 	if len(active) > 0 {
+		factLimit := len(active)
+		var factResults []unifiedResult
 		switch mode {
 		case modeLexical:
-			lists = append(lists, factsToUnified(rankFacts(active, query, limit*2, false)))
+			factResults = factsToUnified(rankFacts(active, query, factLimit, false))
 		case modeVector:
 			if e != nil {
 				// Pass the full set: factsVectorRanked ranks active facts but caches
 				// (and prunes) every present fact, matching the reranker's shared store.
-				lists = append(lists, factsToUnified(factsVectorRanked(brainDir, branch, all, query, e, limit*2)))
+				factResults = factsToUnified(factsVectorRanked(brainDir, branch, all, query, e, factLimit))
 			}
 		case modeHybrid:
 			var rr *semanticReranker
 			if e != nil {
 				rr = newSemanticRerankerForBranch(e, brainDir, branch)
 			}
-			lists = append(lists, factsToUnified(rankFactsFused(active, query, limit*2, false, rr)))
+			factResults = factsToUnified(rankFactsFused(active, query, factLimit, false, rr))
 			if rr != nil {
 				rr.retain(all) // keep every present fact's vector; prune only departed facts (matches recall/brief)
 				_ = rr.flush()
 			}
+		}
+		if proposalsErr == nil {
+			factResults = guardUnifiedFactResults(repoDir, all, proposals, factResults, candidateLimit)
+		} else {
+			factResults = guardUnifiedFactResults(repoDir, all, nil, factResults, candidateLimit)
+			factResults = annotateProposalStateUnavailable(factResults)
+		}
+		if len(factResults) > 0 {
+			lists = append(lists, factResults)
 		}
 	}
 
@@ -111,9 +134,9 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 				return nil, fmt.Errorf("load history index: %w", err)
 			}
 			if mode != modeVector {
-				scored, ok := rankHistoryViaFTS(brainDir, index, "history", query, limit*2)
+				scored, ok := rankHistoryViaFTS(brainDir, index, "history", query, candidateLimit)
 				if !ok {
-					scored = rankHistoryRecordsScored(index, "history", query, limit*2, 0)
+					scored = rankHistoryRecordsScored(index, "history", query, candidateLimit, 0)
 				}
 				if len(scored) > 0 {
 					lists = append(lists, historyToUnified(scored))
@@ -123,7 +146,7 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 				// A second, independently-ranked history list: the global RRF
 				// merge below fuses it with the lexical list, which is exactly
 				// the capstone's fused-arm shape (RRF of BM25 + cosine ranks).
-				if sem := rankHistorySemantic(index, historySemanticScores(brainDir, historySem, query, limit*2), limit*2); len(sem) > 0 {
+				if sem := rankHistorySemantic(index, historySemanticScores(brainDir, historySem, query, candidateLimit), candidateLimit); len(sem) > 0 {
 					lists = append(lists, historyToUnified(sem))
 				}
 			}
@@ -139,16 +162,16 @@ func retrieveUnified(brainDir, branch, query string, limit int, mode retrievalMo
 		if mode != modeVector {
 			// FTS is an optimization, never load-bearing: fall back to the in-memory
 			// lexical scorer so docs don't vanish when the doc FTS index can't open.
-			scored, ok := rankDocsViaFTS(brainDir, docIdx, query, limit*2)
+			scored, ok := rankDocsViaFTS(brainDir, docIdx, query, candidateLimit)
 			if !ok {
-				scored = rankDocsLexical(docIdx, query, limit*2)
+				scored = rankDocsLexical(docIdx, query, candidateLimit)
 			}
 			if len(scored) > 0 {
 				lists = append(lists, docsToUnified(scored))
 			}
 		}
 		if mode != modeLexical && e != nil {
-			lists = append(lists, docsVectorRanked(brainDir, docIdx, query, e, limit*2))
+			lists = append(lists, docsVectorRanked(brainDir, docIdx, query, e, candidateLimit))
 		}
 	case derr != nil && !os.IsNotExist(derr):
 		return nil, fmt.Errorf("load doc index: %w", derr)
@@ -325,17 +348,19 @@ func rrfMergeUnified(lists [][]unifiedResult, limit int) []unifiedResult {
 	return out
 }
 
-// getUnifiedBatch resolves prefixed ids (fact:/history:/doc:) to full records,
+// getUnifiedBatch resolves prefixed ids (fact:/review:/history:/doc:) to full records,
 // loading each corpus at most once and indexing it by id. get/multi-get (and the
 // MCP brain_get/brain_multi_get) route through here so resolving N ids is O(corpus
 // + N), not O(N × corpus) — the latter rescans the full history per id and is
 // pathological on large brains. Results preserve input order.
-func getUnifiedBatch(brainDir, branch string, ids []string) (found []unifiedResult, missing []string, err error) {
-	var wantFact, wantHistory, wantDoc bool
+func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []unifiedResult, missing []string, err error) {
+	var wantFact, wantReview, wantHistory, wantDoc bool
 	for _, id := range ids {
 		switch {
 		case strings.HasPrefix(id, "fact:"):
 			wantFact = true
+		case strings.HasPrefix(id, "review:"):
+			wantReview = true
 		case strings.HasPrefix(id, "history:"):
 			wantHistory = true
 		case strings.HasPrefix(id, "doc:"):
@@ -343,7 +368,10 @@ func getUnifiedBatch(brainDir, branch string, ids []string) (found []unifiedResu
 		}
 	}
 	factByID := map[string]factRecord{}
-	if wantFact {
+	var reviewByID map[string]factReviewGroup
+	var reviewByFactID map[string]factReviewGroup
+	var proposalStateUnavailable bool
+	if wantFact || wantReview {
 		// Surface a corrupt facts store as an error, not a misleading "not found".
 		facts, ferr := loadFacts(brainDir, branch)
 		if ferr != nil {
@@ -351,6 +379,15 @@ func getUnifiedBatch(brainDir, branch string, ids []string) (found []unifiedResu
 		}
 		for _, f := range facts {
 			factByID[f.ID] = f
+		}
+		proposals, perr := loadFactProposals(brainDir, branch)
+		if perr != nil && wantReview {
+			return nil, nil, perr
+		}
+		if perr == nil {
+			reviewByID, reviewByFactID = indexFactReviewGroups(buildFactReviewGroups(facts, proposals))
+		} else {
+			proposalStateUnavailable = true
 		}
 	}
 	histByID := map[string]historyRecord{}
@@ -391,7 +428,22 @@ func getUnifiedBatch(brainDir, branch string, ids []string) (found []unifiedResu
 		switch {
 		case strings.HasPrefix(id, "fact:"):
 			if f, ok := factByID[id]; ok {
-				found = append(found, factsToUnified([]factRecord{f})[0])
+				r := factsToUnified([]factRecord{f})[0]
+				if group, pending := reviewByFactID[id]; pending {
+					r = annotateExplicitFactReview(r, group)
+				}
+				r = annotateFactLocusTrust(repoDir, f, r)
+				if proposalStateUnavailable {
+					r = annotateProposalStateUnavailable([]unifiedResult{r})[0]
+				}
+				found = append(found, r)
+				continue
+			}
+		case strings.HasPrefix(id, "review:"):
+			if group, ok := reviewByID[id]; ok {
+				r := factReviewToUnified(repoDir, group)
+				r.ID = id // preserve an addressable proposal alias if the group grew
+				found = append(found, r)
 				continue
 			}
 		case strings.HasPrefix(id, "history:"):

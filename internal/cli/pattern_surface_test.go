@@ -140,7 +140,7 @@ func TestGetConsolidationByPatternID(t *testing.T) {
 	}
 	db.Close()
 
-	found, missing, err := getUnifiedBatch(brainDir, "main", []string{pid, "pattern:does-not-exist"})
+	found, missing, err := getUnifiedBatch("", brainDir, "main", []string{pid, "pattern:does-not-exist"})
 	if err != nil {
 		t.Fatal(err)
 	}

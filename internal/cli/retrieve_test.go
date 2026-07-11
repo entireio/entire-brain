@@ -41,7 +41,7 @@ func TestGetUnifiedBatchPreservesOrderAndReportsMissing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(docIndexPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	found, missing, err := getUnifiedBatch(dir, "main", []string{"doc:bbb", "doc:nope", "doc:aaa"})
+	found, missing, err := getUnifiedBatch("", dir, "main", []string{"doc:bbb", "doc:nope", "doc:aaa"})
 	if err != nil {
 		t.Fatalf("getUnifiedBatch: %v", err)
 	}

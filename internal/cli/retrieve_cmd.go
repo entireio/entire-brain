@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -60,11 +61,11 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	if limit <= 0 {
 		return fmt.Errorf("--limit must be greater than 0")
 	}
-	_, brainDir, resolvedBranch, err := resolveFactsTarget(ctx, opts, agentSurfaceTarget(opts, nil), branch)
+	repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(ctx, opts, agentSurfaceTarget(opts, nil), branch)
 	if err != nil {
 		return err
 	}
-	results, err := retrieveUnified(brainDir, resolvedBranch, query, limit, mode)
+	results, err := retrieveUnified(repoDir, brainDir, resolvedBranch, query, limit, mode)
 	if err != nil {
 		return err
 	}
@@ -100,7 +101,12 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		if r.Line > 0 {
 			loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s  %s\n    %s\n", r.Source, r.ID, loc, ex)
+		label := r.Source
+		if r.VerificationRequired {
+			label += " verify"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s  %s\n    %s\n", label, r.ID, loc, ex)
+		printRetrievalCaveats(cmd.OutOrStdout(), r)
 	}
 	for _, p := range related {
 		fmt.Fprintf(cmd.OutOrStdout(), "related [%s] %s  %s\n", p.Type, p.ID, p.Title)
@@ -114,7 +120,7 @@ func newGetCommand(opts Options) *cobra.Command {
 	var branch string
 	cmd := &cobra.Command{
 		Use:   "get <id>",
-		Short: "Fetch one item in full by id (fact:… | history:… | doc:… | pattern:… | theme:…)",
+		Short: "Fetch one item in full by id (fact:… | review:… | history:… | doc:… | pattern:… | theme:…)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			wantJSON, err := outputWantsJSON(jsonOut, format)
@@ -166,11 +172,11 @@ func outputWantsJSON(jsonOut bool, format string) (bool, error) {
 }
 
 func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string, branch string, jsonOut bool) error {
-	_, brainDir, resolvedBranch, err := resolveFactsTarget(ctx, opts, agentSurfaceTarget(opts, nil), branch)
+	repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(ctx, opts, agentSurfaceTarget(opts, nil), branch)
 	if err != nil {
 		return err
 	}
-	found, missing, err := getUnifiedBatch(brainDir, resolvedBranch, ids)
+	found, missing, err := getUnifiedBatch(repoDir, brainDir, resolvedBranch, ids)
 	if err != nil {
 		return err
 	}
@@ -190,10 +196,22 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 		if r.Line > 0 {
 			loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s  %s\n%s\n\n", r.Source, r.ID, loc, r.Text)
+		label := r.Source
+		if r.VerificationRequired {
+			label += " verify"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s  %s\n%s\n", label, r.ID, loc, r.Text)
+		printRetrievalCaveats(cmd.OutOrStdout(), r)
+		fmt.Fprintln(cmd.OutOrStdout())
 	}
 	for _, id := range missing {
 		fmt.Fprintf(cmd.OutOrStdout(), "not found: %s\n", id)
 	}
 	return nil
+}
+
+func printRetrievalCaveats(out io.Writer, result unifiedResult) {
+	for _, caveat := range result.Caveats {
+		fmt.Fprintf(out, "    verify: %s\n", caveat.Message)
+	}
 }

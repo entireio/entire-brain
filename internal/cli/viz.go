@@ -1267,9 +1267,13 @@ func (s *vizServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Memory hits (facts / history / docs), same code path as `entire brain search`.
-	if u, err := retrieveUnified(s.brainDir, s.branch, q, limit, modeLexical); err == nil {
+	if u, err := retrieveUnified(s.repoDir, s.brainDir, s.branch, q, limit, modeLexical); err == nil {
 		for _, h := range u {
-			resp.Hits = append(resp.Hits, vizHit{Source: h.Source, ID: h.ID, Title: h.Heading, Text: h.Text, Path: h.Path, Line: h.Line, Score: h.Score})
+			text := h.Text
+			if h.VerificationRequired {
+				text = "VERIFY AGAINST CURRENT EVIDENCE: " + text
+			}
+			resp.Hits = append(resp.Hits, vizHit{Source: h.Source, ID: h.ID, Title: h.Heading, Text: text, Path: h.Path, Line: h.Line, Score: h.Score})
 		}
 	}
 	writeJSONHTTP(w, http.StatusOK, resp)
