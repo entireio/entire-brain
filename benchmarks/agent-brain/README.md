@@ -126,6 +126,22 @@ MCP-specific conditions are separate from CLI/context-file delivery:
   > `brain_query` retrieval. The old dedicated `brain_history` tool was removed;
   > history is now one source within the unified retrieval verbs.
 
+Temporal-memory ablation conditions are separate from the product-style
+full-brain conditions:
+
+- `raw_history`: indexed records derived directly from a pinned pre-cutoff
+  session bundle;
+- `facts_only`: durable facts distilled from that same bundle;
+- `history_facts`: the exact indexed history and exact fact artifact together.
+
+These conditions require a task-level `memory_bundle` with an exact checkpoint
+ref commit, cutoff, session variant, retrieval branch, and pinned distillation
+configuration. The harness builds one unisolated source cache and derives all
+three deliveries from copies of it, so stochastic distillation cannot differ by
+condition. Raw transcripts, checkpoint refs, semantic context, seed context,
+docs, and patterns are removed before the task agent starts. See
+`temporal-memory/README.md` for the Phase 0A development protocol.
+
 For a fast MCP session-history smoke on the local Ultron repo:
 
 ```sh

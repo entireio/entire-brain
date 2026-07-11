@@ -48,7 +48,7 @@ ISOLATION = {
         "mcp": "strict empty config",
         "slash_commands": "disabled",
         "auth": "host Claude Max/OAuth auth may still be used",
-        "settings": "default non-bare settings required for Max auth",
+        "settings": "safe mode for non-MCP runs; host settings retained only when an explicit MCP server is required",
     },
 }
 
@@ -262,6 +262,10 @@ class RunnerSpec:
 
 SEMANTIC_CONDITIONS = {"semantic_brain", "semantic_cli", "mcp_semantic"}
 FULL_HISTORY_CONDITIONS = {"full_brain", "full_cli_original", "full_cli_compact", "mcp_history", "mcp_workspace_radar"}
+TEMPORAL_MEMORY_CONDITIONS = {"raw_history", "facts_only", "history_facts"}
+TEMPORAL_HISTORY_CONDITIONS = {"raw_history", "history_facts"}
+TEMPORAL_FACT_CONDITIONS = {"facts_only", "history_facts"}
+SESSION_PREP_CONDITIONS = FULL_HISTORY_CONDITIONS | TEMPORAL_MEMORY_CONDITIONS
 # Conditions whose prompt_for policy directs the agent to run `entire brain brief` itself (when
 # prepare_semantic is true). test_cli_brief_conditions_match_prompt_for_emission enforces this set
 # equals prompt_for's brief-emitting branches for every REGISTERED condition. Because the gate is a
@@ -316,7 +320,7 @@ def condition_prep_kind(condition: str) -> str:
 
 
 def condition_prepares_history(condition: str) -> bool:
-    return condition in FULL_HISTORY_CONDITIONS
+    return condition in SESSION_PREP_CONDITIONS
 
 
 def condition_writes_history_excerpt(condition: str) -> bool:
@@ -325,6 +329,10 @@ def condition_writes_history_excerpt(condition: str) -> bool:
 
 def condition_copies_entire_history(condition: str) -> bool:
     return condition_prepares_history(condition)
+
+
+def is_temporal_memory_condition(condition: str) -> bool:
+    return condition in TEMPORAL_MEMORY_CONDITIONS
 
 
 def benchmark_workspace_name(task: dict[str, Any]) -> str:
@@ -371,6 +379,35 @@ def assert_brain_state_ready(task: dict[str, Any], condition: str, state: dict[s
     manifest = state.get("manifest") if isinstance(state, dict) else None
     if not isinstance(manifest, dict):
         raise RuntimeError(f"{condition} brain prep did not produce a readable manifest")
+
+    if is_temporal_memory_condition(condition):
+        expected_history = condition in TEMPORAL_HISTORY_CONDITIONS
+        expected_facts = condition in TEMPORAL_FACT_CONDITIONS
+        actual = {
+            "history": bool(manifest.get("has_history")),
+            "facts": bool(manifest.get("has_facts")),
+            "sessions": bool(manifest.get("has_sessions")),
+            "seed": bool(manifest.get("has_seed")),
+            "semantic": bool(manifest.get("has_semantic")),
+            "docs": bool(manifest.get("has_docs")),
+            "patterns": bool(manifest.get("has_patterns")),
+        }
+        expected = {
+            "history": expected_history,
+            "facts": expected_facts,
+            "sessions": False,
+            "seed": False,
+            "semantic": False,
+            "docs": False,
+            "patterns": False,
+        }
+        if actual != expected:
+            raise RuntimeError(f"{condition} source-isolation audit failed: got {actual}, want {expected}")
+        if expected_history and int(manifest.get("history_records") or 0) <= 0:
+            raise RuntimeError(f"{condition} brain prep produced no history index records")
+        if expected_facts and int(manifest.get("fact_count") or 0) <= 0:
+            raise RuntimeError(f"{condition} brain prep produced no durable facts")
+        return
 
     if task.get("prepare_semantic", True) and condition_prep_kind(condition) in {"semantic_brain", "full_brain"}:
         if not manifest.get("has_semantic"):
@@ -1441,6 +1478,42 @@ def mcp_condition_audit(
     }
 
 
+def temporal_memory_condition_audit(condition: str, agent_info: dict[str, Any]) -> dict[str, Any]:
+    required = condition in TEMPORAL_MEMORY_CONDITIONS or condition == "no_brain"
+    if not required:
+        return {"ok": True, "required": False, "findings": []}
+    activity = agent_info.get("activity") if isinstance(agent_info.get("activity"), dict) else {}
+    findings: list[dict[str, Any]] = []
+    direct_calls = int(activity.get("direct_brain_cli_calls") or 0)
+    mcp_calls = int(activity.get("mcp_tool_calls") or 0)
+    if activity.get("activity_source") != "protocol_json":
+        findings.append({"kind": "activity_not_protocol_json"})
+    if activity.get("forbidden_memory_artifact_access"):
+        findings.append({"kind": "forbidden_memory_artifact_access"})
+    if condition == "no_brain":
+        if direct_calls or mcp_calls:
+            findings.append({"kind": "brain_used_in_no_brain_condition"})
+    else:
+        if direct_calls != 1:
+            findings.append({"kind": "memory_search_call_count", "actual": direct_calls, "expected": 1})
+        if mcp_calls:
+            findings.append({"kind": "mcp_used_in_temporal_cli_condition"})
+        if not activity.get("first_tool_is_memory_search"):
+            findings.append({"kind": "memory_search_was_not_first_tool"})
+        if activity.get("brain_commands") != ["search"]:
+            findings.append({"kind": "unexpected_brain_command", "commands": activity.get("brain_commands", [])})
+    return {
+        "ok": not findings,
+        "required": True,
+        "direct_brain_cli_calls": direct_calls,
+        "mcp_tool_calls": mcp_calls,
+        "first_tool_name": activity.get("first_tool_name"),
+        "first_tool_is_memory_search": bool(activity.get("first_tool_is_memory_search")),
+        "forbidden_memory_artifact_access": bool(activity.get("forbidden_memory_artifact_access")),
+        "findings": findings,
+    }
+
+
 def remove_worktree(source: pathlib.Path, worktree: pathlib.Path) -> None:
     proc = run_cmd(["git", "worktree", "remove", "--force", str(worktree)], cwd=source)
     if proc.returncode != 0 and worktree.exists():
@@ -1450,6 +1523,86 @@ def remove_worktree(source: pathlib.Path, worktree: pathlib.Path) -> None:
 CHECKPOINT_REF = "refs/heads/entire/checkpoints/v1"
 
 
+def parse_iso_timestamp(value: str, label: str) -> dt.datetime:
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{label} must be an ISO-8601 timestamp: {value!r}") from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f"{label} must include a timezone: {value!r}")
+    return parsed.astimezone(dt.UTC)
+
+
+def memory_bundle_config(task: dict[str, Any]) -> dict[str, Any]:
+    raw = task.get("memory_bundle")
+    if not isinstance(raw, dict):
+        raise ValueError(f"task {task.get('id', '<unknown>')} requires a memory_bundle object")
+    role = raw.get("role")
+    if role not in {"development", "sealed"}:
+        raise ValueError("memory_bundle.role must be development or sealed")
+    checkpoint = str(raw.get("checkpoint_ref_commit") or "")
+    if not re.fullmatch(r"[0-9a-f]{40}", checkpoint):
+        raise ValueError("memory_bundle.checkpoint_ref_commit must be a full 40-character SHA")
+    parse_iso_timestamp(str(raw.get("cutoff_at") or ""), "memory_bundle.cutoff_at")
+    session_ids = raw.get("session_ids")
+    if not isinstance(session_ids, list) or not session_ids or any(not isinstance(item, str) or not item for item in session_ids):
+        raise ValueError("memory_bundle.session_ids must be a non-empty list of session IDs")
+    if len(set(session_ids)) != len(session_ids):
+        raise ValueError("memory_bundle.session_ids must not contain duplicates")
+    retrieval_branch = raw.get("retrieval_branch")
+    if not isinstance(retrieval_branch, str) or not retrieval_branch.strip():
+        raise ValueError("memory_bundle.retrieval_branch must pin the branch used for memory retrieval")
+    variants = raw.get("session_variants")
+    if variants is not None:
+        if not isinstance(variants, list) or not variants:
+            raise ValueError("memory_bundle.session_variants must be a non-empty list when present")
+        seen_variants: set[tuple[str, str, str]] = set()
+        for variant in variants:
+            if not isinstance(variant, dict):
+                raise ValueError("each memory_bundle.session_variants entry must be an object")
+            key = (
+                str(variant.get("session_id") or ""),
+                str(variant.get("branch") or ""),
+                str(variant.get("latest_checkpoint_id") or ""),
+            )
+            if not all(key):
+                raise ValueError("session variants require session_id, branch, and latest_checkpoint_id")
+            if key[0] not in session_ids:
+                raise ValueError("session variant session_id must also appear in memory_bundle.session_ids")
+            if key in seen_variants:
+                raise ValueError("memory_bundle.session_variants must not contain duplicates")
+            seen_variants.add(key)
+    source_artifact = raw.get("source_artifact")
+    if source_artifact is not None:
+        if not isinstance(source_artifact, dict):
+            raise ValueError("memory_bundle.source_artifact must be an object when present")
+        if not re.fullmatch(r"[0-9a-f]{24}", str(source_artifact.get("cache_key") or "")):
+            raise ValueError("memory_bundle.source_artifact.cache_key must be a 24-character lowercase hex key")
+        for field in ("transcript_sha256", "fact_artifact_sha256"):
+            values = source_artifact.get(field)
+            if not isinstance(values, list) or not values or any(
+                not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value) for value in values
+            ):
+                raise ValueError(f"memory_bundle.source_artifact.{field} must be a non-empty list of SHA-256 hashes")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(source_artifact.get("history_sha256") or "")):
+            raise ValueError("memory_bundle.source_artifact.history_sha256 must be a SHA-256 hash")
+    return raw
+
+
+def temporal_distill_binary(task: dict[str, Any]) -> pathlib.Path:
+    bundle = memory_bundle_config(task)
+    distill = bundle.get("distill")
+    if not isinstance(distill, dict):
+        raise ValueError("memory_bundle.distill is required")
+    raw = os.path.expanduser(os.path.expandvars(str(distill.get("binary") or "")))
+    if not raw or "$" in raw:
+        raise ValueError("memory_bundle.distill.binary must resolve to an explicit executable path")
+    path = pathlib.Path(raw)
+    if not path.is_absolute() or not path.is_file() or not os.access(path, os.X_OK):
+        raise ValueError(f"memory_bundle.distill.binary is not an executable file: {path}")
+    return path
+
+
 def prepare_condition_history(task: dict[str, Any], condition: str, worktree: pathlib.Path) -> None:
     if not condition_copies_entire_history(condition):
         return
@@ -1457,10 +1610,10 @@ def prepare_condition_history(task: dict[str, Any], condition: str, worktree: pa
     if task.get("copy_entire_history_from_source"):
         copy_entire_history(source, worktree)
     if task.get("copy_checkpoint_ref_from_source"):
-        copy_checkpoint_ref(source, worktree)
+        copy_checkpoint_ref(source, worktree, task)
 
 
-def copy_checkpoint_ref(source: pathlib.Path, worktree: pathlib.Path) -> None:
+def copy_checkpoint_ref(source: pathlib.Path, worktree: pathlib.Path, task: dict[str, Any]) -> None:
     """Bring the Entire checkpoint branch (real session history, synced from the
     checkpoint remote, e.g. entireio/cli-checkpoints) into the disposable worktree
     so `entire brain refresh sessions` materializes the same sessions the live repo sees.
@@ -1472,7 +1625,22 @@ def copy_checkpoint_ref(source: pathlib.Path, worktree: pathlib.Path) -> None:
             f"copy_checkpoint_ref_from_source requested but {source} has no {CHECKPOINT_REF}; "
             f"run `entire brain refresh` there first to pull sessions from the checkpoint remote"
         )
-    run_cmd(["git", "fetch", "--no-tags", str(source), f"+{CHECKPOINT_REF}:{CHECKPOINT_REF}"], cwd=worktree, check=True)
+    source_ref = CHECKPOINT_REF
+    if task.get("memory_bundle"):
+        bundle = memory_bundle_config(task)
+        source_ref = str(bundle["checkpoint_ref_commit"])
+        commit_probe = run_cmd(["git", "cat-file", "-e", f"{source_ref}^{{commit}}"], cwd=source)
+        if commit_probe.returncode != 0:
+            raise RuntimeError(f"memory bundle checkpoint commit is missing from source repository: {source_ref}")
+        ancestor = run_cmd(["git", "merge-base", "--is-ancestor", source_ref, CHECKPOINT_REF], cwd=source)
+        if ancestor.returncode != 0:
+            raise RuntimeError(f"memory bundle checkpoint commit {source_ref} is not an ancestor of {CHECKPOINT_REF}")
+        committed_at = run_cmd(["git", "show", "-s", "--format=%cI", source_ref], cwd=source, check=True).stdout.strip()
+        if parse_iso_timestamp(committed_at, "checkpoint commit time") > parse_iso_timestamp(str(bundle["cutoff_at"]), "memory_bundle.cutoff_at"):
+            raise RuntimeError(
+                f"memory bundle checkpoint commit {source_ref} at {committed_at} is after cutoff {bundle['cutoff_at']}"
+            )
+    run_cmd(["git", "fetch", "--no-tags", str(source), f"+{source_ref}:{CHECKPOINT_REF}"], cwd=worktree, check=True)
     src_settings = source / ".entire" / "settings.json"
     if src_settings.exists():
         (worktree / ".entire").mkdir(parents=True, exist_ok=True)
@@ -1527,6 +1695,8 @@ def apply_task_env(env: dict[str, str], task: dict[str, Any]) -> dict[str, str]:
     path_prefixes = [expand_prefix(item) for item in task.get("path_prefixes", []) if item]
     if task.get("path_prefix"):
         path_prefixes.insert(0, expand_prefix(task["path_prefix"]))
+    if task.get("memory_bundle"):
+        path_prefixes.insert(0, str(temporal_distill_binary(task).parent))
     path_prefixes = [p for p in path_prefixes if p]
     if path_prefixes:
         env = env.copy()
@@ -1539,6 +1709,8 @@ def checkpoint_ref_sha_for_task(task: dict[str, Any]) -> str:
     history invalidates the brain cache. The benchmark's thesis is that history
     helps, so a static-content cache key (base_commit + tool SHAs) would risk
     serving a stale brain if the checkpoint ref advanced between runs."""
+    if task.get("memory_bundle"):
+        return str(memory_bundle_config(task)["checkpoint_ref_commit"])
     source = resolve_repo_path(task["repo_path"])
     proc = run_cmd(["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=source)
     return proc.stdout.strip() if proc.returncode == 0 else ""
@@ -1553,10 +1725,13 @@ def brain_cache_payload(
 ) -> dict[str, Any]:
     prep_kind = condition_prep_kind(condition)
     return {
-        # schema 4: invalidates pre-rename caches so a plugin built by the old top-level `export`
+        # schema 6 adds the harness implementation hash. Prep semantics live in
+        # this Python file, so tool/task hashes alone cannot invalidate a cache
+        # after the adapter changes.
         # prep command (PR #40 moved it under `refresh sessions`) is never served — guarantees the
         # renamed prep command is actually exercised on the next build, not masked by a stale hit.
-        "schema": 4,
+        "schema": 6,
+        "harness_prep_sha256": file_sha256(pathlib.Path(__file__)),
         "repo": task.get("repo"),
         "repo_path": str(resolve_repo_path(task["repo_path"]).resolve()),
         "base_ref": task.get("_resolved_base_commit") or task.get("base_commit") or git_head(resolve_repo_path(task["repo_path"])),
@@ -1572,6 +1747,10 @@ def brain_cache_payload(
         "workspace_name": benchmark_workspace_name(task) if condition == "mcp_workspace_radar" else None,
         "copy_entire_history_from_source": bool(task.get("copy_entire_history_from_source"))
         and condition_copies_entire_history(condition),
+        "memory_bundle": task.get("memory_bundle") if is_temporal_memory_condition(condition) else None,
+        "distill_binary_sha256": file_sha256(temporal_distill_binary(task))
+        if is_temporal_memory_condition(condition)
+        else None,
         "setup_patch": task.get("setup_patch", ""),
         "setup_replacements": task.get("setup_replacements", []),
         "setup_commands": task.get("setup_commands", []),
@@ -1583,6 +1762,63 @@ def brain_cache_payload(
 def brain_cache_key(payload: dict[str, Any]) -> str:
     data = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(data).hexdigest()[:24]
+
+
+def temporal_source_cache_payload(
+    task: dict[str, Any], worktree: pathlib.Path, tools: dict[str, pathlib.Path], checkpoint_limit: int
+) -> dict[str, Any]:
+    payload = brain_cache_payload(task, "history_facts", worktree, tools, checkpoint_limit)
+    payload["condition"] = "temporal_memory_source"
+    payload["source_cache_schema"] = 1
+    return payload
+
+
+def temporal_source_artifact_config(task: dict[str, Any]) -> dict[str, Any] | None:
+    value = memory_bundle_config(task).get("source_artifact")
+    return value if isinstance(value, dict) else None
+
+
+def validate_temporal_source_artifact(
+    task: dict[str, Any], source_key: str, meta: dict[str, Any], memory_record: dict[str, Any]
+) -> None:
+    artifact = temporal_source_artifact_config(task)
+    if artifact is None:
+        return
+    bundle = memory_bundle_config(task)
+    actual_transcripts = sorted(
+        str(session.get("transcript_sha256") or "")
+        for session in memory_record.get("selected_sessions", [])
+        if isinstance(session, dict)
+    )
+    actual_facts = sorted(
+        str(item.get("sha256") or "")
+        for item in (memory_record.get("facts") or {}).get("artifacts", [])
+        if isinstance(item, dict)
+    )
+    actual_history = str((memory_record.get("history_index") or {}).get("sha256") or "")
+    checks = {
+        "source cache key": (source_key, str(artifact["cache_key"])),
+        "source cache metadata key": (str(meta.get("key") or ""), str(artifact["cache_key"])),
+        "checkpoint commit": (
+            str(memory_record.get("checkpoint_ref_commit") or ""),
+            str(bundle["checkpoint_ref_commit"]),
+        ),
+        "cutoff": (str(memory_record.get("cutoff_at") or ""), str(bundle["cutoff_at"])),
+        "selected session IDs": (
+            sorted(str(item.get("session_id") or "") for item in memory_record.get("selected_sessions", [])),
+            sorted(str(value) for value in bundle["session_ids"]),
+        ),
+        "transcript hashes": (actual_transcripts, sorted(str(value) for value in artifact["transcript_sha256"])),
+        "history hash": (actual_history, str(artifact["history_sha256"])),
+        "fact artifact hashes": (actual_facts, sorted(str(value) for value in artifact["fact_artifact_sha256"])),
+        "distill binary hash": (
+            str((memory_record.get("distill_binary") or {}).get("sha256") or ""),
+            file_sha256(temporal_distill_binary(task)),
+        ),
+    }
+    mismatches = [f"{label}: got {actual!r}, expected {expected!r}" for label, (actual, expected) in checks.items() if actual != expected]
+    if mismatches:
+        raise RuntimeError("pinned temporal source artifact failed validation: " + "; ".join(mismatches))
 
 
 def copy_cached_plugin(cache_plugin: pathlib.Path, run_plugin: pathlib.Path, old_worktree: str, new_worktree: str) -> None:
@@ -1606,7 +1842,289 @@ def copy_cached_plugin(cache_plugin: pathlib.Path, run_plugin: pathlib.Path, old
         path.write_bytes(data.replace(old, new))
 
 
+def store_plugin_cache(cache_entry: pathlib.Path, plugin: pathlib.Path, metadata: dict[str, Any]) -> None:
+    tmp_entry = cache_entry.with_name(cache_entry.name + f".tmp-{os.getpid()}")
+    if tmp_entry.exists():
+        shutil.rmtree(tmp_entry)
+    tmp_entry.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(plugin, tmp_entry / "plugin")
+    write_json(tmp_entry / "meta.json", metadata)
+    if cache_entry.exists():
+        shutil.rmtree(cache_entry)
+    tmp_entry.rename(cache_entry)
+
+
+def benchmark_brain_dir(worktree: pathlib.Path, env: dict[str, str], tools: dict[str, pathlib.Path]) -> pathlib.Path:
+    proc = run_cmd([str(tools["brain"]), "path", str(worktree)], cwd=worktree, env=env, timeout=120)
+    if proc.returncode != 0 or not proc.stdout.strip():
+        raise RuntimeError(f"could not resolve benchmark brain path: {proc.stderr}")
+    return pathlib.Path(proc.stdout.strip().splitlines()[-1])
+
+
+def safe_brain_artifact(brain_dir: pathlib.Path, relative: str) -> pathlib.Path:
+    path = (brain_dir / pathlib.PurePosixPath(relative)).resolve()
+    if not path.is_relative_to(brain_dir.resolve()):
+        raise RuntimeError(f"memory bundle contains an unsafe artifact path: {relative!r}")
+    return path
+
+
+def write_json(path: pathlib.Path, value: Any) -> None:
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+
+def remove_empty_directories(root: pathlib.Path) -> None:
+    if not root.exists():
+        return
+    for path in sorted((item for item in root.rglob("*") if item.is_dir()), key=lambda item: len(item.parts), reverse=True):
+        try:
+            path.rmdir()
+        except OSError:
+            pass
+
+
+def filter_memory_bundle_sessions(
+    task: dict[str, Any],
+    worktree: pathlib.Path,
+    env: dict[str, str],
+    tools: dict[str, pathlib.Path],
+) -> dict[str, Any]:
+    bundle = memory_bundle_config(task)
+    brain_dir = benchmark_brain_dir(worktree, env, tools)
+    manifest_path = brain_dir / "manifest.json"
+    manifest = read_json_file(manifest_path)
+    sources = manifest.get("sources") if isinstance(manifest, dict) else None
+    sessions_source = sources.get("sessions") if isinstance(sources, dict) else None
+    sessions = sessions_source.get("sessions") if isinstance(sessions_source, dict) else None
+    if not isinstance(sessions, list):
+        raise RuntimeError("memory bundle export produced no session manifest")
+
+    requested = set(bundle["session_ids"])
+    selected = [session for session in sessions if isinstance(session, dict) and session.get("session_id") in requested]
+    found = {str(session.get("session_id")) for session in selected}
+    missing = sorted(requested - found)
+    if missing:
+        raise RuntimeError(f"memory bundle sessions were not present at the frozen checkpoint ref: {missing}")
+    variants = bundle.get("session_variants")
+    if isinstance(variants, list):
+        requested_variants = {
+            (str(item["session_id"]), str(item["branch"]), str(item["latest_checkpoint_id"]))
+            for item in variants
+        }
+        selected = [
+            session
+            for session in selected
+            if (
+                str(session.get("session_id") or ""),
+                str(session.get("branch") or ""),
+                str(session.get("latest_checkpoint_id") or ""),
+            )
+            in requested_variants
+        ]
+        found_variants = {
+            (
+                str(session.get("session_id") or ""),
+                str(session.get("branch") or ""),
+                str(session.get("latest_checkpoint_id") or ""),
+            )
+            for session in selected
+        }
+        missing_variants = sorted(requested_variants - found_variants)
+        if missing_variants:
+            raise RuntimeError(f"memory bundle session variants were not present at the frozen checkpoint ref: {missing_variants}")
+
+    cutoff = parse_iso_timestamp(str(bundle["cutoff_at"]), "memory_bundle.cutoff_at")
+    selected_paths: set[str] = set()
+    selected_records: list[dict[str, Any]] = []
+    for session in selected:
+        created_raw = str(session.get("created_at") or "")
+        created = parse_iso_timestamp(created_raw, f"session {session.get('session_id')} created_at")
+        if created > cutoff:
+            raise RuntimeError(
+                f"session {session.get('session_id')} at {created_raw} is after memory cutoff {bundle['cutoff_at']}"
+            )
+        relative = str(session.get("transcript_path") or "")
+        artifact = safe_brain_artifact(brain_dir, relative)
+        if not artifact.is_file():
+            raise RuntimeError(f"memory bundle transcript is missing: {relative}")
+        selected_paths.add(relative)
+        selected_records.append(
+            {
+                "session_id": session.get("session_id"),
+                "session_index": session.get("session_index"),
+                "branch": session.get("branch", ""),
+                "created_at": created_raw,
+                "latest_checkpoint_id": session.get("latest_checkpoint_id"),
+                "transcript_path": relative,
+                "transcript_bytes": artifact.stat().st_size,
+                "transcript_sha256": file_sha256(artifact),
+            }
+        )
+
+    sessions_root = brain_dir / "sessions"
+    for artifact in sessions_root.rglob("*") if sessions_root.exists() else []:
+        if not artifact.is_file() or artifact.is_symlink():
+            continue
+        relative = artifact.relative_to(brain_dir).as_posix()
+        if relative not in selected_paths:
+            artifact.unlink()
+    remove_empty_directories(sessions_root)
+
+    sessions_source["sessions"] = selected
+    branch_counts: dict[str, int] = {}
+    for session in selected:
+        branch = str(session.get("branch") or "")
+        branch_counts[branch] = branch_counts.get(branch, 0) + 1
+    existing_branches = sessions_source.get("branches")
+    if isinstance(existing_branches, list):
+        sessions_source["branches"] = [
+            {**branch, "session_count": branch_counts[str(branch.get("branch") or "")]}
+            for branch in existing_branches
+            if isinstance(branch, dict) and branch_counts.get(str(branch.get("branch") or ""), 0) > 0
+        ]
+    sessions_source["oldest_session_at"] = min(record["created_at"] for record in selected_records)
+    latest = max(selected, key=lambda session: parse_iso_timestamp(str(session.get("created_at") or ""), "session created_at"))
+    sessions_source["latest_checkpoint_id"] = latest.get("latest_checkpoint_id")
+    if "sessions" in manifest:
+        manifest["sessions"] = selected
+    if isinstance(sources, dict):
+        sources.pop("history", None)
+    history_dir = brain_dir / "history"
+    if history_dir.exists():
+        shutil.rmtree(history_dir)
+    write_json(manifest_path, manifest)
+
+    return {
+        "schema": 1,
+        "role": bundle["role"],
+        "checkpoint_ref_commit": bundle["checkpoint_ref_commit"],
+        "checkpoint_commit": git_commit_metadata(resolve_repo_path(task["repo_path"]), str(bundle["checkpoint_ref_commit"])),
+        "cutoff_at": bundle["cutoff_at"],
+        "requested_session_ids": list(bundle["session_ids"]),
+        "requested_session_variants": bundle.get("session_variants", []),
+        "selected_sessions": sorted(selected_records, key=lambda record: (record["created_at"], record["session_id"])),
+    }
+
+
+def temporal_distill_command(
+    task: dict[str, Any], worktree: pathlib.Path, tools: dict[str, pathlib.Path], dry_run: bool = False
+) -> list[str]:
+    bundle = memory_bundle_config(task)
+    distill = bundle.get("distill")
+    if not isinstance(distill, dict):
+        raise ValueError("facts memory conditions require memory_bundle.distill")
+    agent = str(distill.get("agent") or "")
+    model = str(distill.get("model") or "")
+    effort = str(distill.get("effort") or "")
+    if agent not in {"codex", "claude-code", "ollama", "command"}:
+        raise ValueError("memory_bundle.distill.agent must be codex, claude-code, ollama, or command")
+    if not model:
+        raise ValueError("memory_bundle.distill.model must pin the distillation model")
+    if agent in {"codex", "claude-code"} and not effort:
+        raise ValueError("memory_bundle.distill.effort must pin reasoning effort")
+    command = [str(tools["brain"]), "distill", str(worktree), "--agent", agent, "--model", model]
+    if effort:
+        command.extend(["--effort", effort])
+    command.extend(["--concurrency", str(int(distill.get("concurrency", 1)))])
+    command.extend(["--max-chunk-bytes", str(int(distill.get("max_chunk_bytes", 196608)))])
+    if agent == "command":
+        argv = distill.get("agent_command")
+        if not isinstance(argv, list) or not argv or any(not isinstance(item, str) or not item for item in argv):
+            raise ValueError("memory_bundle.distill.agent_command must be a non-empty argv list for agent=command")
+        for item in argv:
+            command.extend(["--agent-command", item])
+    if dry_run:
+        command.extend(["--dry-run", "--json"])
+    return command
+
+
+def collect_memory_bundle_artifacts(
+    task: dict[str, Any],
+    condition: str,
+    worktree: pathlib.Path,
+    env: dict[str, str],
+    tools: dict[str, pathlib.Path],
+    bundle_record: dict[str, Any],
+) -> dict[str, Any]:
+    brain_dir = benchmark_brain_dir(worktree, env, tools)
+    manifest = read_json_file(brain_dir / "manifest.json")
+    sources = manifest.get("sources") if isinstance(manifest, dict) else {}
+    history_path = brain_dir / "history" / "index.json"
+    facts_files = sorted((brain_dir / "facts").rglob("*.ndjson")) if (brain_dir / "facts").exists() else []
+    result = dict(bundle_record)
+    result.update(
+        {
+            "condition": condition,
+            "source_manifest_sha256": file_sha256(brain_dir / "manifest.json"),
+            "history_index": {
+                "present": history_path.is_file(),
+                "bytes": history_path.stat().st_size if history_path.is_file() else 0,
+                "sha256": file_sha256(history_path) if history_path.is_file() else None,
+                "records": ((sources or {}).get("history") or {}).get("records", 0),
+            },
+            "facts": {
+                "present": bool(facts_files),
+                "count": ((sources or {}).get("facts") or {}).get("facts", 0),
+                "source": (sources or {}).get("facts"),
+                "artifacts": [
+                    {
+                        "path": path.relative_to(brain_dir).as_posix(),
+                        "bytes": path.stat().st_size,
+                        "sha256": file_sha256(path),
+                    }
+                    for path in facts_files
+                ],
+            },
+            "distill_binary": {
+                "path": str(temporal_distill_binary(task)),
+                "sha256": file_sha256(temporal_distill_binary(task)),
+            },
+        }
+    )
+    return result
+
+
+def isolate_temporal_memory_delivery(
+    condition: str, worktree: pathlib.Path, env: dict[str, str], tools: dict[str, pathlib.Path]
+) -> dict[str, Any]:
+    brain_dir = benchmark_brain_dir(worktree, env, tools)
+    manifest_path = brain_dir / "manifest.json"
+    manifest = read_json_file(manifest_path)
+    sources = manifest.setdefault("sources", {})
+    allowed = set()
+    if condition in TEMPORAL_HISTORY_CONDITIONS:
+        allowed.add("history")
+    if condition in TEMPORAL_FACT_CONDITIONS:
+        allowed.add("facts")
+
+    for source_name in list(sources):
+        if source_name not in allowed:
+            sources.pop(source_name, None)
+    for directory, source_name in (("sessions", "sessions"), ("history", "history"), ("facts", "facts"), ("semantic", "semantic"), ("docs", "docs"), ("patterns", "patterns")):
+        if source_name in allowed:
+            continue
+        path = brain_dir / directory
+        if path.exists():
+            shutil.rmtree(path)
+    write_json(manifest_path, manifest)
+    return {
+        "allowed_sources": sorted(allowed),
+        "manifest_sources": sorted(sources),
+        "manifest_sha256": file_sha256(manifest_path),
+        "raw_session_artifacts_removed": not (brain_dir / "sessions").exists(),
+    }
+
+
 def brain_prep_commands(task: dict[str, Any], condition: str, worktree: pathlib.Path, tools: dict[str, pathlib.Path], checkpoint_limit: int) -> list[list[str]]:
+    if is_temporal_memory_condition(condition):
+        memory_bundle_config(task)
+        commands = [
+            [str(tools["brain"]), "refresh", "sessions", "--checkpoint-limit", str(checkpoint_limit)],
+            [str(tools["brain"]), "refresh", "history", str(worktree)],
+            temporal_distill_command(task, worktree, tools, dry_run=True),
+            temporal_distill_command(task, worktree, tools),
+        ]
+        return commands
+
     commands = [[str(tools["brain"]), "refresh", "seed", str(worktree), "--agent", "none", "--force"]]
     if task.get("prepare_semantic", True):
         commands.append([str(tools["brain"]), "refresh", "index", str(worktree), "--sem-binary", str(tools["entire"]), "--force"])
@@ -1647,6 +2165,13 @@ def prepare_brain(
         meta = json.loads(cache_meta.read_text())
         copy_cached_plugin(cache_plugin, plugin, meta.get("source_worktree", ""), str(worktree))
         prep["history_sanitization"] = sanitize_brain_history(plugin)
+        if is_temporal_memory_condition(condition):
+            prep["memory_bundle"] = meta.get("memory_bundle")
+            if not isinstance(prep["memory_bundle"], dict):
+                raise RuntimeError("temporal-memory cache entry is missing frozen bundle provenance")
+            prep["source_cache"] = meta.get("source_cache")
+            if not isinstance(prep["source_cache"], dict):
+                raise RuntimeError("temporal-memory cache entry is missing source-cache provenance")
         prep["cache"].update(
             {
                 "hit": True,
@@ -1658,44 +2183,110 @@ def prepare_brain(
             write_history_excerpt(task, worktree)
         return env, prep
 
-    commands = brain_prep_commands(task, condition, worktree, tools, checkpoint_limit)
+    memory_record: dict[str, Any] | None = None
+    source_cache_entry: pathlib.Path | None = None
+    source_cache_meta: pathlib.Path | None = None
+    source_cache_hit = False
+    if is_temporal_memory_condition(condition):
+        source_payload = temporal_source_cache_payload(task, worktree, tools, checkpoint_limit)
+        source_artifact = temporal_source_artifact_config(task)
+        source_key = str(source_artifact["cache_key"]) if source_artifact else brain_cache_key(source_payload)
+        source_cache_entry = CACHE_DIR / f"temporal-source-{source_key}"
+        source_cache_meta = source_cache_entry / "meta.json"
+        source_cache_plugin = source_cache_entry / "plugin"
+        prep["source_cache"] = {"enabled": use_cache, "key": source_key, "hit": False}
+        if source_artifact and (not use_cache or refresh_cache):
+            raise RuntimeError("a pinned temporal source artifact requires the retained cache and forbids cache refresh")
+        if use_cache and source_cache_plugin.exists() and source_cache_meta.exists() and not refresh_cache:
+            meta = read_json_file(source_cache_meta)
+            copy_cached_plugin(source_cache_plugin, plugin, meta.get("source_worktree", ""), str(worktree))
+            memory_record = meta.get("memory_bundle")
+            if not isinstance(memory_record, dict):
+                raise RuntimeError("temporal source cache is missing frozen bundle provenance")
+            validate_temporal_source_artifact(task, source_key, meta, memory_record)
+            prep["source_cache"].update(
+                {
+                    "hit": True,
+                    "source_worktree": meta.get("source_worktree"),
+                    "created_at": meta.get("created_at"),
+                }
+            )
+            source_cache_hit = True
+        elif source_artifact:
+            raise RuntimeError(f"pinned temporal source artifact is unavailable: temporal-source-{source_key}")
 
-    for cmd in commands:
-        start = time.time()
-        proc = run_cmd(cmd, cwd=worktree, env=env, timeout=900)
-        entry = {
-            "cmd": cmd,
-            "returncode": proc.returncode,
-            "seconds": time.time() - start,
-            "stdout_tail": proc.stdout[-4000:],
-            "stderr_tail": proc.stderr[-4000:],
-        }
-        prep["commands"].append(entry)
-        if proc.returncode != 0:
-            raise RuntimeError(f"brain prep failed: {shlex.join(cmd)}\n{proc.stderr}")
+    if not source_cache_hit:
+        commands = brain_prep_commands(task, condition, worktree, tools, checkpoint_limit)
+        for cmd in commands:
+            start = time.time()
+            timeout = 900
+            if len(cmd) > 1 and cmd[1] == "distill":
+                timeout = int(memory_bundle_config(task).get("distill", {}).get("timeout_seconds", 3600))
+            proc = run_cmd(cmd, cwd=worktree, env=env, timeout=timeout)
+            entry = {
+                "cmd": cmd,
+                "returncode": proc.returncode,
+                "seconds": time.time() - start,
+                "stdout_tail": proc.stdout[-4000:],
+                "stderr_tail": proc.stderr[-4000:],
+            }
+            prep["commands"].append(entry)
+            if proc.returncode != 0:
+                raise RuntimeError(f"brain prep failed: {shlex.join(cmd)}\n{proc.stderr}")
+            if is_temporal_memory_condition(condition) and cmd[1:3] == ["refresh", "sessions"]:
+                memory_record = filter_memory_bundle_sessions(task, worktree, env, tools)
+
+        if is_temporal_memory_condition(condition):
+            if memory_record is None:
+                raise RuntimeError("temporal-memory prep did not materialize its frozen session bundle")
+            source_memory_bundle = collect_memory_bundle_artifacts(
+                task, "temporal_memory_source", worktree, env, tools, memory_record
+            )
+            facts = source_memory_bundle.get("facts") or {}
+            fact_source = facts.get("source") or {}
+            if int(fact_source.get("failed_chunks") or 0) > 0:
+                raise RuntimeError(
+                    f"temporal source distillation had {fact_source.get('failed_chunks')} failed chunk(s)"
+                )
+            if memory_bundle_config(task).get("require_facts") and int(facts.get("count") or 0) <= 0:
+                raise RuntimeError("temporal source distillation produced no durable facts")
+            if use_cache and source_cache_entry is not None:
+                store_plugin_cache(
+                    source_cache_entry,
+                    plugin,
+                    {
+                        "key": prep["source_cache"]["key"],
+                        "created_at": dt.datetime.now(dt.UTC).isoformat(),
+                        "source_worktree": str(worktree),
+                        "payload": temporal_source_cache_payload(task, worktree, tools, checkpoint_limit),
+                        "commands": prep["commands"],
+                        "memory_bundle": source_memory_bundle,
+                    },
+                )
+            memory_record = source_memory_bundle
+
+    if is_temporal_memory_condition(condition):
+        if memory_record is None:
+            raise RuntimeError("temporal-memory source materialization has no provenance record")
+        prep["memory_bundle"] = collect_memory_bundle_artifacts(
+            task, condition, worktree, env, tools, memory_record
+        )
+        prep["memory_bundle"]["delivery"] = isolate_temporal_memory_delivery(condition, worktree, env, tools)
     prep["history_sanitization"] = sanitize_brain_history(plugin)
     if use_cache:
-        tmp_entry = cache_entry.with_name(cache_entry.name + f".tmp-{os.getpid()}")
-        if tmp_entry.exists():
-            shutil.rmtree(tmp_entry)
-        tmp_entry.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(plugin, tmp_entry / "plugin")
-        (tmp_entry / "meta.json").write_text(
-            json.dumps(
-                {
-                    "key": key,
-                    "created_at": dt.datetime.now(dt.UTC).isoformat(),
-                    "source_worktree": str(worktree),
-                    "payload": payload,
-                    "commands": prep["commands"],
-                },
-                indent=2,
-                sort_keys=True,
-            )
+        store_plugin_cache(
+            cache_entry,
+            plugin,
+            {
+                "key": key,
+                "created_at": dt.datetime.now(dt.UTC).isoformat(),
+                "source_worktree": str(worktree),
+                "payload": payload,
+                "commands": prep["commands"],
+                "memory_bundle": prep.get("memory_bundle"),
+                "source_cache": prep.get("source_cache"),
+            },
         )
-        if cache_entry.exists():
-            shutil.rmtree(cache_entry)
-        tmp_entry.rename(cache_entry)
     if condition_writes_history_excerpt(condition) and task.get("history_excerpt", True):
         write_history_excerpt(task, worktree)
     return env, prep
@@ -1821,6 +2412,7 @@ def collect_brain_state(worktree: pathlib.Path, env: dict[str, str], tools: dict
     manifest = read_json_file(manifest_path)
     sources = manifest.get("sources") if isinstance(manifest, dict) else None
     semantic = sources.get("semantic") if isinstance(sources, dict) else None
+    facts = sources.get("facts") if isinstance(sources, dict) else None
     counts = manifest_source_counts(manifest)
     state["manifest"] = {
         "schema_version": manifest.get("schema_version"),
@@ -1833,6 +2425,10 @@ def collect_brain_state(worktree: pathlib.Path, env: dict[str, str], tools: dict
         "session_count": counts["sessions"],
         "has_history": counts["history_records"] > 0,
         "history_records": counts["history_records"],
+        "has_facts": bool(facts),
+        "fact_count": int(facts.get("facts") or 0) if isinstance(facts, dict) else 0,
+        "has_docs": bool(isinstance(sources, dict) and sources.get("docs")),
+        "has_patterns": bool(isinstance(sources, dict) and sources.get("patterns")),
     }
     if isinstance(semantic, dict):
         state["semantic"] = semantic
@@ -2353,6 +2949,14 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
     # a subprocess argv element (no shell) — so both channels deliver an identical query.
     brief_query_sh = shlex.quote(brief_query)
     brief_command = f'entire brain brief {brief_query_sh} --json{brief_limit}'
+    memory_branch = ""
+    if is_temporal_memory_condition(condition):
+        memory_branch = str(memory_bundle_config(task)["retrieval_branch"])
+    memory_search_command = (
+        f'entire brain search {brief_query_sh} --json --limit 6 --branch {shlex.quote(memory_branch)}'
+        if memory_branch
+        else f'entire brain search {brief_query_sh} --json --limit 6'
+    )
     # opus_brief_command is emitted ONLY in the full_cli_compact + is_opus branch below, so the
     # limit is correctly pinned to that condition's policy (the literal is intentional, not drift).
     opus_brief_command = f'entire brain brief {brief_query_sh} --json --limit {brain_brief_limit("full_cli_compact", is_opus=True)}'
@@ -2363,6 +2967,13 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
     semantic_available = task.get("prepare_semantic", True)
     if condition == "no_brain":
         policy = """Do not use Entire Brain for this run. Do not run `entire brain`, `entire-brain`, or any brain MCP tool. Do not inspect `.entire`, `.benchmark`, or Brain/session/checkpoint artifacts. Inspect the repository normally."""
+    elif condition in TEMPORAL_MEMORY_CONDITIONS:
+        source_description = {
+            "raw_history": "indexed records derived from pre-cutoff session history",
+            "facts_only": "durable facts distilled from the pre-cutoff sessions",
+            "history_facts": "both indexed pre-cutoff history and durable facts distilled from it",
+        }[condition]
+        policy = f"""Use the frozen temporal-memory channel before editing. Your first context command must be `{memory_search_command}` and you must run it exactly once. This condition contains {source_description}; semantic code context, seed context, docs, raw transcript files, and all other Brain sources are physically absent. Use only the returned `history` and/or `fact` records as hypotheses, verify them against the current code before editing, and prefer current code when memory conflicts. Do not run another Brain command and do not inspect `.entire`, `.benchmark`, checkpoint refs, or session files directly. Useful query terms: {queries}. {top_level_entire_guard}"""
     elif condition in {"semantic_brain", "semantic_cli"} and semantic_available:
         policy = f"""Use Entire Brain semantic context before editing. Your first context command must be `{brief_command}`. Then use likely_edit_files plus `search` or `inspect code`, `inspect context`, `inspect impact`, or `inspect tests` for the task. Use likely_test_files for validation context only. Useful query terms: {queries}. Do not inspect checkpoint transcripts or session history. {top_level_entire_guard}"""
     elif condition in {"semantic_brain", "semantic_cli"}:
@@ -2564,14 +3175,15 @@ def run_agent(
             "--permission-mode",
             "bypassPermissions",
             "--output-format",
-            "stream-json" if mcp_enabled else "json",
+            "stream-json",
+            "--verbose",
         ]
         if runner.model:
             cmd.extend(["--model", runner.model])
         if runner.effort:
             cmd.extend(["--effort", runner.effort])
-        if mcp_enabled:
-            cmd.append("--verbose")
+        if not mcp_enabled:
+            cmd.append("--safe-mode")
         if claude_budget > 0:
             cmd[1:1] = ["--max-budget-usd", str(claude_budget)]
         cmd.append(prompt)
@@ -2781,7 +3393,12 @@ def collect_json_tool_events(value: Any) -> list[dict[str, Any]]:
         if event_type == "command_execution":
             command = extract_tool_command(value)
             if command:
-                events.append({"name": "Bash", "command": command})
+                events.append({
+                    "name": "Bash",
+                    "command": command,
+                    "event_id": value.get("id"),
+                    "errored": tool_event_errored(value),
+                })
         if isinstance(name, str) and event_type in {"tool_use", "tool_call", "function_call", "mcp_tool_call"}:
             arg_candidates = [value.get("input"), value.get("arguments"), value.get("params")]
             raw_args = next((candidate for candidate in arg_candidates if candidate is not None), None)
@@ -2789,6 +3406,7 @@ def collect_json_tool_events(value: Any) -> list[dict[str, Any]]:
             events.append({
                 "name": name,
                 "command": command,
+                "event_id": value.get("id"),
                 "arguments": safe_tool_arguments(raw_args),
                 "errored": tool_event_errored(value),
             })
@@ -2802,6 +3420,7 @@ def collect_json_tool_events(value: Any) -> list[dict[str, Any]]:
 
 def structured_tool_events(stdout: str) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
+    event_indexes: dict[tuple[str, str], int] = {}
     for line in stdout.splitlines():
         line = line.strip()
         if not line.startswith("{"):
@@ -2810,7 +3429,17 @@ def structured_tool_events(stdout: str) -> list[dict[str, Any]]:
             payload = json.loads(line)
         except json.JSONDecodeError:
             continue
-        events.extend(collect_json_tool_events(payload))
+        for event in collect_json_tool_events(payload):
+            event_id = event.get("event_id")
+            name = event.get("name")
+            if isinstance(event_id, str) and event_id and isinstance(name, str):
+                key = (event_id, name)
+                previous = event_indexes.get(key)
+                if previous is not None:
+                    events[previous] = event
+                    continue
+                event_indexes[key] = len(events)
+            events.append(event)
     return events
 
 
@@ -2846,23 +3475,80 @@ def structured_tool_names(stdout: str) -> list[str]:
 
 
 def extract_resolved_model(stdout: str) -> str | None:
-    """The model the agent CLI reported in its JSON output, when it exposes one.
+    """Return the main model reported by the agent protocol, when available.
 
-    Claude exposes the resolved model via `modelUsage` keys (output-verifiable).
-    Codex `exec --json` does NOT echo the resolved model and does not client-side
-    validate `--model`, so for codex this is normally None and attribution rests
-    on the explicit pinned `--model` flag (disclosed, not output-confirmed)."""
-    text = stdout or ""
-    m = re.search(r'"modelUsage"\s*:\s*\{\s*"([^"]+)"', text)
-    if m:
-        return m.group(1)
-    found = re.findall(r'"model"\s*:\s*"([^"]+)"', text)
+    Claude's init event names the main model. Its final `modelUsage` can also
+    include cheap internal helper models, so selecting the first map key is not
+    valid; summary-only output falls back to the highest-cost usage entry.
+    Codex `exec --json` normally exposes no model and therefore returns None."""
+    payloads: list[dict[str, Any]] = []
+    for line in (stdout or "").splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            payloads.append(payload)
+    for payload in payloads:
+        if payload.get("type") == "system" and payload.get("subtype") == "init":
+            model = payload.get("model")
+            if isinstance(model, str) and model:
+                return model
+    usage_candidates: list[tuple[float, int, str]] = []
+    for payload in payloads:
+        model_usage = payload.get("modelUsage")
+        if not isinstance(model_usage, dict):
+            continue
+        for model, usage in model_usage.items():
+            if not isinstance(model, str) or not isinstance(usage, dict):
+                continue
+            cost = float(usage.get("costUSD") or 0.0)
+            tokens = sum(
+                int(usage.get(field) or 0)
+                for field in ("inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens")
+            )
+            usage_candidates.append((cost, tokens, model))
+    if usage_candidates:
+        return max(usage_candidates)[2]
+    found = [
+        str(payload["model"])
+        for payload in payloads
+        if isinstance(payload.get("model"), str) and payload.get("model")
+    ]
     if not found:
         return None
     counts: dict[str, int] = {}
     for value in found:
         counts[value] = counts.get(value, 0) + 1
-    return max(counts, key=lambda k: counts[k])
+    return max(counts, key=lambda value: counts[value])
+
+
+def command_accesses_forbidden_memory_artifact(command: str) -> bool:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.split()
+    for index, token in enumerate(tokens):
+        normalized = token.lower().replace(r"\.", ".")
+        if not re.search(r"(?:\.entire(?:/|\b|\*)|\.benchmark(?:/|\b|\*)|refs/heads/entire/checkpoints)", normalized):
+            continue
+        previous = tokens[index - 1].lower() if index else ""
+        following = tokens[index + 1].lower() if index + 1 < len(tokens) else ""
+        if previous == "-v":
+            continue
+        if previous in {"-path", "-wholename"} and following == "-prune":
+            continue
+        if previous in {"--exclude", "--exclude-dir"}:
+            continue
+        if normalized.startswith(("--exclude=", "--exclude-dir=")):
+            continue
+        if previous in {"--glob", "-g"} and normalized.lstrip("'").startswith("!"):
+            continue
+        return True
+    return False
 
 
 def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
@@ -2877,6 +3563,7 @@ def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
         tool_details = [
             {
                 "name": str(event["name"]),
+                "command": str(event.get("command") or ""),
                 "arguments": dict(event.get("arguments") or {}),
                 "errored": bool(event.get("errored")),
             }
@@ -2948,6 +3635,19 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
         if isinstance(detail, dict) and re.search(rf"(?:^|__){MCP_BRAIN_TOOL_RE}$", str(detail.get("name") or ""))
     ]
     direct_brain_cli_calls = len(re.findall(r"\b(?:entire\s+brain|entire-brain)\s+[a-z][a-z-]*", command_lower))
+    first_tool_name = activity_source["tool_names"][0] if activity_source["tool_names"] else None
+    first_event_command = ""
+    if activity_source.get("tool_details"):
+        first_event_command = str(activity_source["tool_details"][0].get("command") or "")
+    if not first_event_command and first_tool_name == "Bash" and activity_source["commands"]:
+        first_event_command = activity_source["commands"][0]
+    first_tool_is_memory_search = bool(
+        first_tool_name == "Bash"
+        and re.search(r"\b(?:entire\s+brain|entire-brain)\s+search\b", first_event_command.lower())
+    )
+    forbidden_memory_artifact_access = any(
+        command_accesses_forbidden_memory_artifact(command) for command in activity_source["commands"]
+    )
     search_tool_calls = [name for name in tool_names if name in {"Grep", "Glob"}]
     search_call_matches = re.findall(r"\b(?:git\s+grep|rg|grep|find)\b", command_lower)
     checked_brief = "brief" in brain_commands
@@ -2967,6 +3667,9 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
         "structured_tool_event_count": activity_source.get("event_count", 0),
         "brain_commands": brain_commands,
         "direct_brain_cli_calls": direct_brain_cli_calls,
+        "first_tool_name": first_tool_name,
+        "first_tool_is_memory_search": first_tool_is_memory_search,
+        "forbidden_memory_artifact_access": forbidden_memory_artifact_access,
         "mcp_tool_names": sorted(set(mcp_tool_names)),
         "mcp_tool_details": mcp_tool_details,
         "mcp_tool_calls": len(mcp_tool_names),
@@ -3333,13 +4036,16 @@ def run_one(
             (run_dir / "agent.stderr").read_text(encoding="utf-8", errors="ignore"),
         )
         mcp_audit = mcp_condition_audit(condition, agent_info, runner, task)
+        temporal_audit = temporal_memory_condition_audit(condition, agent_info) if task.get("memory_bundle") else {
+            "ok": True, "required": False, "findings": []
+        }
         files = changed_files(worktree)
         validation = validate(task, worktree, env)
         diff = diff_stat(worktree)
         scoring = score(task, condition, agent_info, validation, files, diff)
         record.update(
             {
-                "ok": validation["ok"] and agent_info["returncode"] == 0 and leak_audit["ok"] and mcp_audit["ok"],
+                "ok": validation["ok"] and agent_info["returncode"] == 0 and leak_audit["ok"] and mcp_audit["ok"] and temporal_audit["ok"],
                 "worktree": str(worktree),
                 "brain_prep": prep,
                 "brain_state": brain_state,
@@ -3347,6 +4053,7 @@ def run_one(
                 "agent_visible_entire_history_removed": agent_visible_entire_removed,
                 "agent_leak_audit": leak_audit,
                 "mcp_condition_audit": mcp_audit,
+                "temporal_memory_condition_audit": temporal_audit,
                 "agent_info": agent_info,
                 "changed_files": files,
                 "diff_stat": diff,

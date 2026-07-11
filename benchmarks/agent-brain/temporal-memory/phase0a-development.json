@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "status": "protocol_frozen_before_task_agent_run",
+  "role": "development",
+  "hypothesis": "At a fixed current-code snapshot, authentic pre-cutoff project memory improves recovery of a deliberately hidden project decision; indexed history and distilled facts may differ in accuracy and token cost.",
+  "null_hypothesis": "No temporal-memory condition improves hidden-validation success or efficiency over no_brain.",
+  "task": "tasks/temporal-memory-default-fact-merge-confidence.json",
+  "frozen_source": {
+    "repository": "https://github.com/entireio/entire-brain",
+    "task_base_commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+    "checkpoint_ref_commit": "ba97a6d5ffa2609668b2c1142329de92d19778e4",
+    "cutoff_at": "2026-06-18T01:29:27-07:00",
+    "retrieval_branch": "claude/durable-facts-and-distill",
+    "require_facts": true,
+    "session_ids": [
+      "d770cc65-b914-4759-91e4-31397a99ba57"
+    ],
+    "session_variants": [
+      {
+        "session_id": "d770cc65-b914-4759-91e4-31397a99ba57",
+        "branch": "claude/durable-facts-and-distill",
+        "latest_checkpoint_id": "4f652deb0475"
+      }
+    ]
+  },
+  "conditions": [
+    "no_brain",
+    "raw_history",
+    "facts_only",
+    "history_facts"
+  ],
+  "held_constant": [
+    "task base commit and regression patch",
+    "task prompt and hidden validation",
+    "task-agent model, effort, timeout, and retry policy",
+    "semantic, seed, docs, patterns, and raw transcript delivery disabled",
+    "one memory search command with the same query and result limit"
+  ],
+  "development_success_criteria": [
+    "all delivered brains pass the physical source-isolation audit",
+    "all memory artifacts derive from the pinned pre-cutoff session bundle",
+    "history returns a provenance-valid record containing the intended decision",
+    "distillation emits at least one durable fact and facts retrieval is non-empty",
+    "at least one memory condition passes hidden validation without leakage",
+    "all conditions record non-zero task-agent token usage"
+  ],
+  "claim_policy": "diagnostic_only_until_sealed_tasks_and_repetitions_are_complete"
+}

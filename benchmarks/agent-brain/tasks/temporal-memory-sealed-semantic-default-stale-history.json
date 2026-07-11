@@ -1,0 +1,83 @@
+{
+  "id": "temporal-memory-sealed-semantic-default-stale-history",
+  "repo": "entire-brain",
+  "repo_path": "entire-brain",
+  "temporal_stratum": "stale_conflict",
+  "conditions": [
+    "no_brain",
+    "raw_history",
+    "facts_only",
+    "history_facts"
+  ],
+  "base_commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+  "prepare_semantic": false,
+    "memory_bundle": {
+      "role": "sealed",
+      "checkpoint_ref_commit": "ba97a6d5ffa2609668b2c1142329de92d19778e4",
+      "cutoff_at": "2026-06-18T01:29:27-07:00",
+      "retrieval_branch": "claude/durable-facts-and-distill",
+      "require_facts": true,
+      "session_ids": [
+        "d770cc65-b914-4759-91e4-31397a99ba57"
+      ],
+      "session_variants": [
+        {
+          "session_id": "d770cc65-b914-4759-91e4-31397a99ba57",
+          "branch": "claude/durable-facts-and-distill",
+          "latest_checkpoint_id": "4f652deb0475"
+        }
+      ],
+      "source_artifact": {
+        "cache_key": "1dd2312593bd40ce7e66f748",
+        "transcript_sha256": [
+          "55b9a4a04a2cfa2402898b132f43bd215f5c948fb56367aa0ad25b4d80470192"
+        ],
+        "history_sha256": "06f3ac5c0520e396dccac3761a559be157b0120abc657b264837f107d37bcd35",
+        "fact_artifact_sha256": [
+          "20bf8d495f6d6d656ad2ee9391667081d3170afeffacedbb75bf346910bd3dd8"
+        ]
+      },
+      "distill": {
+        "agent": "codex",
+        "binary": "/Applications/Codex.app/Contents/Resources/codex",
+        "model": "gpt-5.3-codex-spark",
+        "effort": "low",
+        "concurrency": 1,
+        "max_chunk_bytes": 196608,
+        "timeout_seconds": 3600
+      }
+    },
+  "prompt": "Fact recall now enables the semantic reranker only when the user passes the opt-out flag, reversing the shipped behavior. Restore the current product contract. Project memory spans the design rollout and can contain pre-shipment statements, so verify retrieved memory against the current implementation before editing.",
+  "setup_replacements": [
+    {
+      "path": "internal/cli/facts_read_cmd.go",
+      "old": "\t\t\tif !noSemantic {",
+      "new": "\t\t\tif noSemantic {"
+    }
+  ],
+  "validation": [
+    "test $(rg -n '^\\s*if !noSemantic \\{' internal/cli/facts_read_cmd.go | wc -l | tr -d ' ') -eq 1",
+    "go test ./internal/cli -run 'TestFactsEvalRejectsSemanticForNonFactsRetrievers|TestRecallExpandOllamaUsesLoopbackRunner'"
+  ],
+  "expected_files": [
+    "internal/cli/facts_read_cmd.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "leak_markers": [
+    "test $(rg -n '^\\s*if !noSemantic \\{' internal/cli/facts_read_cmd.go | wc -l | tr -d ' ') -eq 1"
+  ],
+  "agent_hidden_paths": [
+    "benchmarks/agent-brain"
+  ],
+  "brain_queries": [
+    "semantic rerank default shipped embedding recall no semantic",
+    "whether embeddings are still a future phase or the default recall path",
+    "current contract for the no-semantic opt-out flag",
+    "verify stale pre-shipment memory about semantic fact retrieval"
+  ]
+}

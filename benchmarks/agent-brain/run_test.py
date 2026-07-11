@@ -102,6 +102,152 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertFalse(run.condition_copies_entire_history("no_brain"))
         self.assertTrue(run.condition_copies_entire_history("full_cli_compact"))
         self.assertTrue(run.condition_copies_entire_history("mcp_workspace_radar"))
+        self.assertTrue(run.condition_copies_entire_history("raw_history"))
+        self.assertTrue(run.condition_copies_entire_history("facts_only"))
+        self.assertFalse(run.condition_writes_history_excerpt("history_facts"))
+
+    def test_temporal_memory_commands_pin_channel_and_distillation(self):
+        task = {
+            "id": "temporal",
+            "repo": "entire-brain",
+            "repo_path": "entire-brain",
+            "memory_bundle": {
+                "role": "development",
+                "checkpoint_ref_commit": "a" * 40,
+                "cutoff_at": "2026-06-18T08:29:27Z",
+                "retrieval_branch": "main",
+                "session_ids": ["session-a"],
+                "distill": {
+                    "agent": "codex",
+                    "model": "gpt-test",
+                    "effort": "low",
+                    "concurrency": 1,
+                    "max_chunk_bytes": 131072,
+                },
+            },
+        }
+        tools = {"brain": pathlib.Path("/tmp/brain"), "entire": pathlib.Path("/tmp/entire")}
+        worktree = pathlib.Path("/tmp/worktree")
+        raw = run.brain_prep_commands(task, "raw_history", worktree, tools, 200)
+        self.assertEqual(raw[:2], [
+            ["/tmp/brain", "refresh", "sessions", "--checkpoint-limit", "200"],
+            ["/tmp/brain", "refresh", "history", "/tmp/worktree"],
+        ])
+        self.assertEqual(raw[2][-2:], ["--dry-run", "--json"])
+        self.assertEqual(raw[3], [
+            "/tmp/brain", "distill", "/tmp/worktree", "--agent", "codex", "--model", "gpt-test",
+            "--effort", "low", "--concurrency", "1", "--max-chunk-bytes", "131072",
+        ])
+        facts = run.brain_prep_commands(task, "facts_only", worktree, tools, 200)
+        self.assertEqual(facts[-1], [
+            "/tmp/brain", "distill", "/tmp/worktree", "--agent", "codex", "--model", "gpt-test",
+            "--effort", "low", "--concurrency", "1", "--max-chunk-bytes", "131072",
+        ])
+
+    def test_memory_bundle_validates_pinned_source_artifact_hashes(self):
+        bundle = {
+            "role": "development",
+            "checkpoint_ref_commit": "a" * 40,
+            "cutoff_at": "2026-06-18T08:29:27Z",
+            "retrieval_branch": "main",
+            "session_ids": ["session-a"],
+            "source_artifact": {
+                "cache_key": "b" * 24,
+                "transcript_sha256": ["c" * 64],
+                "history_sha256": "d" * 64,
+                "fact_artifact_sha256": ["e" * 64],
+            },
+        }
+        self.assertEqual(run.memory_bundle_config({"memory_bundle": bundle})["source_artifact"]["cache_key"], "b" * 24)
+        bundle["source_artifact"]["history_sha256"] = "bad"
+        with self.assertRaisesRegex(ValueError, "history_sha256"):
+            run.memory_bundle_config({"memory_bundle": bundle})
+
+    def test_temporal_memory_readiness_requires_physical_source_isolation(self):
+        task = {"prepare_semantic": False}
+        run.assert_brain_state_ready(task, "raw_history", {"manifest": {
+            "has_history": True, "history_records": 3, "has_facts": False, "fact_count": 0,
+            "has_sessions": False, "has_seed": False, "has_semantic": False,
+            "has_docs": False, "has_patterns": False,
+        }})
+        run.assert_brain_state_ready(task, "facts_only", {"manifest": {
+            "has_history": False, "history_records": 0, "has_facts": True, "fact_count": 2,
+            "has_sessions": False, "has_seed": False, "has_semantic": False,
+            "has_docs": False, "has_patterns": False,
+        }})
+        leaking = {"manifest": {
+            "has_history": False, "history_records": 0, "has_facts": True, "fact_count": 2,
+            "has_sessions": True, "has_seed": False, "has_semantic": False,
+            "has_docs": False, "has_patterns": False,
+        }}
+        with self.assertRaisesRegex(RuntimeError, "source-isolation audit failed"):
+            run.assert_brain_state_ready(task, "facts_only", leaking)
+
+    def test_filter_memory_bundle_sessions_enforces_cutoff_and_allowlist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            brain_dir = pathlib.Path(tmp)
+            keep = brain_dir / "sessions" / "main" / "keep.jsonl"
+            drop = brain_dir / "sessions" / "main" / "drop.jsonl"
+            keep.parent.mkdir(parents=True)
+            keep.write_text("kept\n")
+            drop.write_text("dropped\n")
+            manifest = {
+                "sources": {"sessions": {
+                    "branches": [{"branch": "main", "directory": "sessions/main", "session_count": 2}],
+                    "sessions": [
+                        {"session_id": "keep", "session_index": 0, "branch": "main", "created_at": "2026-01-01T00:00:00Z", "latest_checkpoint_id": "aaa", "transcript_path": "sessions/main/keep.jsonl"},
+                        {"session_id": "drop", "session_index": 0, "branch": "main", "created_at": "2026-01-02T00:00:00Z", "latest_checkpoint_id": "bbb", "transcript_path": "sessions/main/drop.jsonl"},
+                    ],
+                }, "history": {"records": 9}},
+            }
+            run.write_json(brain_dir / "manifest.json", manifest)
+            task = {
+                "id": "t", "repo_path": "unused",
+                "memory_bundle": {
+                    "role": "development", "checkpoint_ref_commit": "a" * 40, "retrieval_branch": "main",
+                    "cutoff_at": "2026-01-01T12:00:00Z", "session_ids": ["keep"],
+                },
+            }
+            old_brain_dir = run.benchmark_brain_dir
+            old_repo = run.resolve_repo_path
+            old_meta = run.git_commit_metadata
+            try:
+                run.benchmark_brain_dir = lambda *_: brain_dir
+                run.resolve_repo_path = lambda *_: pathlib.Path("/unused")
+                run.git_commit_metadata = lambda *_: {"commit": "a" * 40}
+                record = run.filter_memory_bundle_sessions(task, pathlib.Path("/worktree"), {}, {})
+            finally:
+                run.benchmark_brain_dir = old_brain_dir
+                run.resolve_repo_path = old_repo
+                run.git_commit_metadata = old_meta
+            self.assertTrue(keep.exists())
+            self.assertFalse(drop.exists())
+            self.assertEqual(record["selected_sessions"][0]["transcript_sha256"], run.file_sha256(keep))
+            filtered = json.loads((brain_dir / "manifest.json").read_text())
+            self.assertEqual([s["session_id"] for s in filtered["sources"]["sessions"]["sessions"]], ["keep"])
+            self.assertNotIn("history", filtered["sources"])
+
+    def test_isolate_temporal_memory_delivery_removes_withheld_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            brain_dir = pathlib.Path(tmp)
+            for directory in ("sessions", "history", "facts", "semantic", "docs"):
+                path = brain_dir / directory
+                path.mkdir()
+                (path / "artifact").write_text(directory)
+            run.write_json(brain_dir / "manifest.json", {"sources": {
+                "sessions": {}, "history": {"records": 3}, "facts": {"facts": 2},
+                "semantic": {}, "docs": {},
+            }})
+            old = run.benchmark_brain_dir
+            try:
+                run.benchmark_brain_dir = lambda *_: brain_dir
+                audit = run.isolate_temporal_memory_delivery("facts_only", pathlib.Path("/worktree"), {}, {})
+            finally:
+                run.benchmark_brain_dir = old
+            self.assertEqual(audit["manifest_sources"], ["facts"])
+            self.assertTrue((brain_dir / "facts").exists())
+            self.assertFalse((brain_dir / "sessions").exists())
+            self.assertFalse((brain_dir / "history").exists())
 
     def test_manifest_source_counts_extracts_sessions_and_history_records(self):
         counts = run.manifest_source_counts(
@@ -492,7 +638,7 @@ class RunnerAndConditionTests(unittest.TestCase):
         # prompt_for actually emits the CLI `entire brain brief '...'` command. A new brief-emitting
         # condition omitted from the set (or vice versa) fails here instead of silently going dark.
         all_conditions = sorted(
-            run.SEMANTIC_CONDITIONS | run.FULL_HISTORY_CONDITIONS | {"no_brain"}
+            run.SEMANTIC_CONDITIONS | run.FULL_HISTORY_CONDITIONS | run.TEMPORAL_MEMORY_CONDITIONS | {"no_brain"}
         )
         for cond in all_conditions:
             for sem in (True, False):
@@ -503,6 +649,14 @@ class RunnerAndConditionTests(unittest.TestCase):
                         "expected_files": ["a.go"], "validation": ["go test ./..."],
                         "prepare_semantic": sem,
                     }
+                    if cond in run.TEMPORAL_MEMORY_CONDITIONS:
+                        task["memory_bundle"] = {
+                            "role": "development",
+                            "checkpoint_ref_commit": "a" * 40,
+                            "cutoff_at": "2026-01-01T00:00:00Z",
+                            "retrieval_branch": "main",
+                            "session_ids": ["s1"],
+                        }
                     prompt = run.prompt_for(task, cond, runner)
                     # shlex.quote always single-quotes the (space-bearing) query, so this prefix is
                     # the reliable marker of an emitted CLI brief (mcp_* emit `brain_brief`, not this).
@@ -815,6 +969,71 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertEqual(activity["direct_brain_cli_calls"], 1)
         self.assertEqual(activity["search_calls"], 1)
         self.assertTrue(activity["ran_tests"])
+
+    def test_activity_deduplicates_codex_command_start_and_completion(self):
+        item = {
+            "id": "item_1",
+            "type": "command_execution",
+            "command": "entire brain search query --json && rg needle",
+        }
+        stdout = "\n".join([
+            json.dumps({"type": "item.started", "item": {**item, "status": "in_progress"}}),
+            json.dumps({"type": "item.completed", "item": {**item, "status": "completed", "exit_code": 0}}),
+        ])
+        activity = run.extract_agent_activity(stdout, "")
+        self.assertEqual(activity["structured_tool_event_count"], 1)
+        self.assertEqual(activity["direct_brain_cli_calls"], 1)
+        self.assertEqual(activity["search_calls"], 1)
+        self.assertTrue(activity["first_tool_is_memory_search"])
+
+    def test_temporal_memory_audit_enforces_first_single_search(self):
+        good = {
+            "activity": {
+                "activity_source": "protocol_json",
+                "brain_commands": ["search"],
+                "direct_brain_cli_calls": 1,
+                "mcp_tool_calls": 0,
+                "first_tool_name": "Bash",
+                "first_tool_is_memory_search": True,
+                "forbidden_memory_artifact_access": False,
+            }
+        }
+        self.assertTrue(run.temporal_memory_condition_audit("raw_history", good)["ok"])
+        bad = copy.deepcopy(good)
+        bad["activity"]["first_tool_is_memory_search"] = False
+        audit = run.temporal_memory_condition_audit("facts_only", bad)
+        self.assertFalse(audit["ok"])
+        self.assertIn("memory_search_was_not_first_tool", {finding["kind"] for finding in audit["findings"]})
+
+    def test_temporal_no_brain_audit_rejects_brain_and_memory_paths(self):
+        audit = run.temporal_memory_condition_audit("no_brain", {
+            "activity": {
+                "activity_source": "protocol_json",
+                "brain_commands": ["search"],
+                "direct_brain_cli_calls": 1,
+                "mcp_tool_calls": 0,
+                "first_tool_name": "Bash",
+                "first_tool_is_memory_search": True,
+                "forbidden_memory_artifact_access": True,
+            }
+        })
+        self.assertFalse(audit["ok"])
+        self.assertEqual(
+            {finding["kind"] for finding in audit["findings"]},
+            {"brain_used_in_no_brain_condition", "forbidden_memory_artifact_access"},
+        )
+
+    def test_forbidden_memory_artifact_access_ignores_exclusions_not_reads(self):
+        self.assertFalse(run.command_accesses_forbidden_memory_artifact(
+            r'grep -rn confidence . | grep -v "\.benchmark/"'
+        ))
+        self.assertFalse(run.command_accesses_forbidden_memory_artifact(
+            'find . -path "./.benchmark" -prune -o -path "./.entire" -prune -o -type f -print'
+        ))
+        self.assertTrue(run.command_accesses_forbidden_memory_artifact("cat .benchmark/plugin/data/brain/history/index.json"))
+        self.assertTrue(run.command_accesses_forbidden_memory_artifact(
+            'find . -maxdepth 1 -iname "*.entire*" -o -iname "*brain*"'
+        ))
 
     def test_mcp_condition_audit_requires_mcp_calls_and_blocks_cli(self):
         self.assertTrue(run.mcp_condition_audit("no_brain", {})["ok"])
@@ -1291,6 +1510,13 @@ class StatsAndAttributionTests(unittest.TestCase):
         # Claude exposes the resolved model via modelUsage keys.
         claude = '{"type":"result","modelUsage":{"claude-haiku-4-5":{"inputTokens":10}}}'
         self.assertEqual(run.extract_resolved_model(claude), "claude-haiku-4-5")
+        mixed = "\n".join([
+            '{"type":"system","subtype":"init","model":"claude-sonnet-5"}',
+            '{"type":"result","modelUsage":{"claude-haiku-4-5":{"costUSD":0.1},"claude-sonnet-5":{"costUSD":2.0}}}',
+        ])
+        self.assertEqual(run.extract_resolved_model(mixed), "claude-sonnet-5")
+        summary = '{"type":"result","modelUsage":{"claude-haiku-4-5":{"costUSD":0.1},"claude-sonnet-5":{"costUSD":2.0}}}'
+        self.assertEqual(run.extract_resolved_model(summary), "claude-sonnet-5")
         # Generic "model":"X" is picked up too.
         self.assertEqual(run.extract_resolved_model('{"model":"gpt-x"}'), "gpt-x")
         # Codex exec --json exposes no model field -> None (honest: not confirmed).
