@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -122,5 +123,30 @@ func TestRankHistoryFusedSemanticRescue(t *testing.T) {
 	}
 	if !got["lex"] {
 		t.Fatalf("fusion must keep the lexical hit; got %v", fused)
+	}
+}
+
+func TestHistorySemanticScoresUseStableCalibrationNeighborhood(t *testing.T) {
+	brainDir := t.TempDir()
+	e := &fakeFusionEmbedder{vecs: map[string][]float32{"calibration query": {1, 0}}}
+	store, ok := newHistoryVectorStore(brainDir, e.ID(), e.Dim())
+	if !ok {
+		t.Fatal("store unavailable")
+	}
+	const records = 100
+	vectors := make(map[string][]float32, records)
+	for i := 0; i < records; i++ {
+		vectors[fmt.Sprintf("r%03d", i)] = []float32{1, float32(i + 1)}
+	}
+	if err := store.upsert(vectors, nil); err != nil {
+		t.Fatal(err)
+	}
+	rawScores := historySemanticScores(brainDir, e, "calibration query", 1, false)
+	if len(rawScores) != 4 {
+		t.Fatalf("explicit display limit 1 produced %d scores, want the 4x raw-search budget", len(rawScores))
+	}
+	scores := historySemanticScores(brainDir, e, "calibration query", 1, true)
+	if len(scores) != records {
+		t.Fatalf("display limit 1 produced %d calibration scores, want all %d stored rows", len(scores), records)
 	}
 }

@@ -26,8 +26,8 @@ func TestVectorRankedReturnsNothingWhenEmbedderUnavailable(t *testing.T) {
 		t.Fatalf("facts: empty embedder must yield no semantic results, got %d (arbitrary top-N)", len(out))
 	}
 	idx := docIndex{Records: []docRecord{{ID: "d1", Text: "x"}, {ID: "d2", Text: "y"}}}
-	if out := docsVectorRanked(dir, idx, "q", emptyEmbedder{}, 10); len(out) != 0 {
-		t.Fatalf("docs: empty embedder must yield no semantic results, got %d", len(out))
+	if out := docsVectorRanked(dir, idx, "q", emptyEmbedder{}, 10, false, nil); len(out.ranked) != 0 {
+		t.Fatalf("docs: empty embedder must yield no semantic results, got %d", len(out.ranked))
 	}
 }
 
@@ -93,7 +93,7 @@ func TestFactsVectorRankedRanksActiveButCachesAll(t *testing.T) {
 	}
 	// But every present fact is cached on the shared store, matching the reranker's
 	// retain-all convention (so vsearch doesn't churn the recall/brief cache).
-	cache := newEmbedStore(dir, "main", e.ID(), e.Dim()).load()
+	cache := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim()).load()
 	if _, ok := cache["fact:act"]; !ok {
 		t.Fatal("active fact vector should be cached")
 	}

@@ -109,3 +109,43 @@ func TestRankFactsFusedNoResultsWhenLexicalMissAndEmbedderEmpty(t *testing.T) {
 		t.Fatalf("expected no results for a lexical miss with no embedder, got %v", got)
 	}
 }
+
+func TestRankFactsFusedKeepsSemanticReorderingForLexicalHits(t *testing.T) {
+	query := "checkpoint policy"
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	facts := []factRecord{
+		{ID: "both", Text: "checkpoint policy alpha", Status: factStatusActive, UpdatedAt: base.Add(time.Hour)},
+		{ID: "lexical", Text: "checkpoint policy beta", Status: factStatusActive, UpdatedAt: base.Add(2 * time.Hour)},
+		{ID: "middle", Text: "checkpoint policy gamma", Status: factStatusActive, UpdatedAt: base},
+		{ID: "semantic-only", Text: "save state rule", Status: factStatusActive, UpdatedAt: base},
+		{ID: "neutral-a", Text: "release artifact", Status: factStatusActive, UpdatedAt: base},
+		{ID: "neutral-b", Text: "payment webhook", Status: factStatusActive, UpdatedAt: base},
+	}
+	e := &fixedEmbedder{dim: 2, vecs: map[string][]float32{
+		query:                     {1, 0},
+		"checkpoint policy alpha": {1, 0},
+		"checkpoint policy beta":  {0, 1},
+		"checkpoint policy gamma": {0.98, 0.19899749},
+		"save state rule":         {0.95, 0.3122499},
+		"release artifact":        {0, 1},
+		"payment webhook":         {-1, 0},
+	}}
+	lexical := rankFacts(facts, query, 6, false)
+	if len(lexical) == 0 || lexical[0].ID != "lexical" {
+		t.Fatalf("test premise broken: lexical order = %+v", lexical)
+	}
+	fused := rankFactsFused(facts, query, 6, false, newSemanticReranker(e))
+	if len(fused) == 0 || fused[0].ID != "both" {
+		t.Fatalf("semantic arm did not reorder lexical hits: %+v", fused)
+	}
+	positions := map[string]int{}
+	for index, fact := range fused {
+		positions[fact.ID] = index
+	}
+	if _, ok := positions["semantic-only"]; !ok {
+		t.Fatalf("test premise broken: calibrated semantic-only fact was not admitted: %+v", fused)
+	}
+	if positions["both"] >= positions["lexical"] {
+		t.Fatalf("semantic-only admission removed lexical semantic votes: %+v", fused)
+	}
+}

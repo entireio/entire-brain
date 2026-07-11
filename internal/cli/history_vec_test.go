@@ -206,6 +206,49 @@ func TestRankHistorySemanticDedupsAndSkips(t *testing.T) {
 	}
 }
 
+func TestRankHistorySemanticRelevantRejectsNoiseButKeepsUpperTail(t *testing.T) {
+	index := historyIndex{Records: []historyRecord{
+		{ID: "target", Kind: "decision", Summary: "the relevant durable decision"},
+		{ID: "n1", Kind: "decision", Summary: "unrelated one"},
+		{ID: "n2", Kind: "decision", Summary: "unrelated two"},
+		{ID: "n3", Kind: "decision", Summary: "unrelated three"},
+		{ID: "n4", Kind: "decision", Summary: "unrelated four"},
+		{ID: "n5", Kind: "decision", Summary: "unrelated five"},
+	}}
+	strong := map[string]float64{
+		"target": 0.9, "n1": 0.1, "n2": 0.1, "n3": 0.1, "n4": 0.1, "n5": 0.1,
+	}
+	got := rankHistorySemanticRelevant(index, strong, 10)
+	if len(got) != 1 || got[0].Record.ID != "target" {
+		t.Fatalf("confident history upper tail was not isolated: %+v", got)
+	}
+	flat := map[string]float64{
+		"target": 0.101, "n1": 0.1, "n2": 0.1, "n3": 0.1, "n4": 0.1, "n5": 0.1,
+	}
+	if got := rankHistorySemanticRelevant(index, flat, 10); len(got) != 0 {
+		t.Fatalf("flat history neighborhood escaped automatic calibration: %+v", got)
+	}
+	if raw := rankHistorySemantic(index, flat, 10); len(raw) != len(index.Records) {
+		t.Fatalf("explicit semantic ranking should preserve raw neighbors: %+v", raw)
+	}
+}
+
+func TestRankHistorySemanticHybridPreservesLexicalHitsButRejectsNoise(t *testing.T) {
+	index := historyIndex{Records: []historyRecord{
+		{ID: "lex", Kind: "decision", Summary: "lexically reached evidence"},
+		{ID: "n1", Kind: "decision", Summary: "unrelated one"},
+		{ID: "n2", Kind: "decision", Summary: "unrelated two"},
+		{ID: "n3", Kind: "decision", Summary: "unrelated three"},
+	}}
+	flat := map[string]float64{"lex": 0.101, "n1": 0.1, "n2": 0.1, "n3": 0.1}
+	got := rankHistorySemanticHybrid(
+		index, flat, 10, map[string]struct{}{"lex": {}},
+	)
+	if len(got) != 1 || got[0].Record.ID != "lex" {
+		t.Fatalf("hybrid history must keep lexical evidence without admitting semantic noise: %+v", got)
+	}
+}
+
 func TestRankHistoryFusedGateClosedIsExactlyFTS(t *testing.T) {
 	brainDir := t.TempDir()
 	index := historyIndex{GeneratedAt: time.Now(), Records: []historyRecord{

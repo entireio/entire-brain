@@ -70,12 +70,17 @@ func historyVectorStoreFor(brainDir string, e Embedder) (historyVectorStore, boo
 }
 
 // historySemanticScores embeds the query and runs one KNN over the persisted
-// history vectors, returning the top-limit*4 neighborhood (the same ×4
-// over-fetch the FTS ranker uses, so summary dedup can still fill limit).
+// history vectors. Automatic retrieval requests a fixed, bounded calibration
+// neighborhood rather than tying its score distribution to the display limit:
+// calibrating only the nearest limit*4 rows becomes increasingly flat as a
+// history corpus grows and can suppress a real upper tail. Explicit vector
+// search does not calibrate and retains its smaller limit*4 budget. The vec0
+// store clamps either request to its row count and backend ceiling; downstream
+// rankers apply the user-facing limit.
 // nil means the semantic arm is unavailable for this query (gate closed
 // upstream, no store, model/dim mismatch, embedder down) — every caller falls
 // back to lexical-only, so a degraded arm never breaks ranking.
-func historySemanticScores(brainDir string, e Embedder, query string, limit int) map[string]float64 {
+func historySemanticScores(brainDir string, e Embedder, query string, limit int, calibrate bool) map[string]float64 {
 	if e == nil || limit <= 0 {
 		return nil
 	}
@@ -87,7 +92,14 @@ func historySemanticScores(brainDir string, e Embedder, query string, limit int)
 	if len(qvec) == 0 {
 		return nil
 	}
-	scores, ok := store.knnCos(qvec, limit*4)
+	scoreBudget := limit * 4
+	if scoreBudget < limit { // integer overflow guard for unreasonable inputs
+		scoreBudget = limit
+	}
+	if calibrate && scoreBudget < historySemanticCalibrationK {
+		scoreBudget = historySemanticCalibrationK
+	}
+	scores, ok := store.knnCos(qvec, scoreBudget)
 	if !ok {
 		return nil
 	}
@@ -100,6 +112,29 @@ func historySemanticScores(brainDir string, e Embedder, query string, limit int)
 // can never resurface what they deliberately hide. Records without a stored
 // vector (added since the last refresh) are skipped, not zero-scored.
 func rankHistorySemantic(index historyIndex, scores map[string]float64, limit int) []scoredHistoryRecord {
+	return rankHistorySemanticFiltered(index, scores, limit, false, nil)
+}
+
+// rankHistorySemanticRelevant is the automatic history arm. Unlike explicit
+// vector search, it admits only a corpus-relative upper cluster.
+func rankHistorySemanticRelevant(index historyIndex, scores map[string]float64, limit int) []scoredHistoryRecord {
+	return rankHistorySemanticFiltered(index, scores, limit, true, nil)
+}
+
+// rankHistorySemanticHybrid keeps every lexical hit in the semantic ranking so
+// cosine can still reorder evidence already reached by lexical search. Only
+// semantic-only candidates must clear corpus-relative calibration.
+func rankHistorySemanticHybrid(index historyIndex, scores map[string]float64, limit int, lexicalIDs map[string]struct{}) []scoredHistoryRecord {
+	return rankHistorySemanticFiltered(index, scores, limit, true, lexicalIDs)
+}
+
+func rankHistorySemanticFiltered(
+	index historyIndex,
+	scores map[string]float64,
+	limit int,
+	requireRelevance bool,
+	alwaysKeep map[string]struct{},
+) []scoredHistoryRecord {
 	if len(scores) == 0 || limit <= 0 {
 		return nil
 	}
@@ -115,7 +150,7 @@ func rankHistorySemantic(index historyIndex, scores map[string]float64, limit in
 			continue
 		}
 		cos, ok := scores[r.ID]
-		if !ok {
+		if !ok || !isFinite(cos) {
 			continue
 		}
 		key := normalizeHistorySearchText(r.Summary)
@@ -124,6 +159,23 @@ func rankHistorySemantic(index historyIndex, scores map[string]float64, limit in
 		}
 		seen[key] = struct{}{}
 		cands = append(cands, cand{rec: r, cos: cos, order: i})
+	}
+	if requireRelevance {
+		cosines := make([]float64, len(cands))
+		for i := range cands {
+			cosines[i] = cands[i].cos
+		}
+		mask := semanticResultMask(
+			cosines, true, semanticMedianBackgrounds(cosines),
+		)
+		filtered := cands[:0]
+		for i := range cands {
+			_, lexical := alwaysKeep[cands[i].rec.ID]
+			if mask[i] || lexical {
+				filtered = append(filtered, cands[i])
+			}
+		}
+		cands = filtered
 	}
 	sort.SliceStable(cands, func(a, b int) bool {
 		if cands[a].cos != cands[b].cos {
@@ -150,7 +202,7 @@ func rankHistorySemantic(index historyIndex, scores map[string]float64, limit in
 // rankHistoryViaFTS — same list, same ok contract — so call sites need no
 // fallback of their own beyond what they already have.
 func rankHistoryFused(brainDir string, index historyIndex, kind, query string, limit int, e Embedder) ([]scoredHistoryRecord, bool) {
-	scores := historySemanticScores(brainDir, historySemanticEmbedder(e), query, limit)
+	scores := historySemanticScores(brainDir, historySemanticEmbedder(e), query, limit, true)
 	if len(scores) == 0 {
 		return rankHistoryViaFTS(brainDir, index, kind, query, limit)
 	}
@@ -159,10 +211,14 @@ func rankHistoryFused(brainDir string, index historyIndex, kind, query string, l
 		// FTS down but vectors up: rank on the semantic arm alone rather than
 		// reporting the whole indexed path unavailable (which would drop the
 		// caller to the substring scorer the eval retired).
-		sem := rankHistorySemantic(index, scores, limit)
+		sem := rankHistorySemanticRelevant(index, scores, limit)
 		return sem, len(sem) > 0
 	}
-	sem := rankHistorySemantic(index, scores, limit*4)
+	lexicalIDs := make(map[string]struct{}, len(lex))
+	for _, scored := range lex {
+		lexicalIDs[scored.Record.ID] = struct{}{}
+	}
+	sem := rankHistorySemanticHybrid(index, scores, limit*4, lexicalIDs)
 	type fusedRec struct {
 		s     scoredHistoryRecord
 		score float64
