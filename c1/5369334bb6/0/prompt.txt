@@ -1,0 +1,305 @@
+Act as a senior retrieval-systems and Go concurrency reviewer. Review ONLY the uncommitted diff below. Do not use tools, do not edit files, and do not run commands. Look for correctness regressions, invalid assumptions, cross-build cache behavior, RRF/calibration asymmetry, missing tests, benchmark-specific coupling, and scientific-integrity concerns. Distinguish blockers from optional improvements. End with exactly one verdict line: VERDICT: BLOCK or VERDICT: CLEAR.\n\ndiff --git a/internal/cli/history_vec.go b/internal/cli/history_vec.go
+index 29eb39c4..42e363f0 100644
+--- a/internal/cli/history_vec.go
++++ b/internal/cli/history_vec.go
+@@ -112,20 +112,29 @@ func historySemanticScores(brainDir string, e Embedder, query string, limit int,
+ // can never resurface what they deliberately hide. Records without a stored
+ // vector (added since the last refresh) are skipped, not zero-scored.
+ func rankHistorySemantic(index historyIndex, scores map[string]float64, limit int) []scoredHistoryRecord {
+-	return rankHistorySemanticFiltered(index, scores, limit, false, nil)
++	return rankHistorySemanticFiltered(index, scores, limit, false, nil, false).ranked
+ }
+ 
+ // rankHistorySemanticRelevant is the automatic history arm. Unlike explicit
+ // vector search, it admits only a corpus-relative upper cluster.
+ func rankHistorySemanticRelevant(index historyIndex, scores map[string]float64, limit int) []scoredHistoryRecord {
+-	return rankHistorySemanticFiltered(index, scores, limit, true, nil)
++	return rankHistorySemanticFiltered(index, scores, limit, true, nil, false).ranked
+ }
+ 
+ // rankHistorySemanticHybrid keeps every lexical hit in the semantic ranking so
+ // cosine can still reorder evidence already reached by lexical search. Only
+ // semantic-only candidates must clear corpus-relative calibration.
+ func rankHistorySemanticHybrid(index historyIndex, scores map[string]float64, limit int, lexicalIDs map[string]struct{}) []scoredHistoryRecord {
+-	return rankHistorySemanticFiltered(index, scores, limit, true, lexicalIDs)
++	return rankHistorySemanticHybridRanks(index, scores, limit, lexicalIDs).ranked
++}
++
++type historyVectorRanks struct {
++	ranked                 []scoredHistoryRecord
++	calibratedSemanticOnly []scoredHistoryRecord
++}
++
++func rankHistorySemanticHybridRanks(index historyIndex, scores map[string]float64, limit int, lexicalIDs map[string]struct{}) historyVectorRanks {
++	return rankHistorySemanticFiltered(index, scores, limit, true, lexicalIDs, true)
+ }
+ 
+ func rankHistorySemanticFiltered(
+@@ -134,14 +143,17 @@ func rankHistorySemanticFiltered(
+ 	limit int,
+ 	requireRelevance bool,
+ 	alwaysKeep map[string]struct{},
+-) []scoredHistoryRecord {
++	collectCalibrationArm bool,
++) historyVectorRanks {
+ 	if len(scores) == 0 || limit <= 0 {
+-		return nil
++		return historyVectorRanks{}
+ 	}
+ 	type cand struct {
+-		rec   historyRecord
+-		cos   float64
+-		order int
++		rec     historyRecord
++		cos     float64
++		order   int
++		keep    bool
++		lexical bool
+ 	}
+ 	cands := make([]cand, 0, min(limit, len(scores)))
+ 	seen := map[string]struct{}{}
+@@ -168,14 +180,15 @@ func rankHistorySemanticFiltered(
+ 		mask := semanticResultMask(
+ 			cosines, true, semanticMedianBackgrounds(cosines),
+ 		)
+-		filtered := cands[:0]
+ 		for i := range cands {
+ 			_, lexical := alwaysKeep[cands[i].rec.ID]
+-			if mask[i] || lexical {
+-				filtered = append(filtered, cands[i])
+-			}
++			cands[i].keep = mask[i]
++			cands[i].lexical = lexical
++		}
++	} else {
++		for i := range cands {
++			cands[i].keep = true
+ 		}
+-		cands = filtered
+ 	}
+ 	sort.SliceStable(cands, func(a, b int) bool {
+ 		if cands[a].cos != cands[b].cos {
+@@ -183,14 +196,23 @@ func rankHistorySemanticFiltered(
+ 		}
+ 		return cands[a].rec.ID < cands[b].rec.ID
+ 	})
+-	if len(cands) > limit {
+-		cands = cands[:limit]
++	out := historyVectorRanks{
++		ranked:                 make([]scoredHistoryRecord, 0, min(limit, len(cands))),
++		calibratedSemanticOnly: make([]scoredHistoryRecord, 0),
+ 	}
+-	out := make([]scoredHistoryRecord, len(cands))
+-	for i, c := range cands {
++	for _, c := range cands {
+ 		// Same float→int display scaling as rankHistoryViaFTS; the list is
+ 		// already ordered, Score is informational.
+-		out[i] = scoredHistoryRecord{Record: c.rec, Score: int(c.cos*1000 + 0.5), Order: c.order}
++		record := scoredHistoryRecord{Record: c.rec, Score: int(c.cos*1000 + 0.5), Order: c.order}
++		if (c.keep || c.lexical) && len(out.ranked) < limit {
++			out.ranked = append(out.ranked, record)
++		}
++		if collectCalibrationArm && c.keep && !c.lexical && len(out.calibratedSemanticOnly) < limit {
++			out.calibratedSemanticOnly = append(out.calibratedSemanticOnly, record)
++		}
++		if len(out.ranked) >= limit && (!collectCalibrationArm || len(out.calibratedSemanticOnly) >= limit) {
++			break
++		}
+ 	}
+ 	return out
+ }
+@@ -218,13 +240,13 @@ func rankHistoryFused(brainDir string, index historyIndex, kind, query string, l
+ 	for _, scored := range lex {
+ 		lexicalIDs[scored.Record.ID] = struct{}{}
+ 	}
+-	sem := rankHistorySemanticHybrid(index, scores, limit*4, lexicalIDs)
++	sem := rankHistorySemanticHybridRanks(index, scores, limit*4, lexicalIDs)
+ 	type fusedRec struct {
+ 		s     scoredHistoryRecord
+ 		score float64
+ 	}
+ 	fused := map[string]*fusedRec{}
+-	for _, list := range [][]scoredHistoryRecord{lex, sem} {
++	for _, list := range [][]scoredHistoryRecord{lex, sem.ranked, sem.calibratedSemanticOnly} {
+ 		for rank, s := range list {
+ 			f, ok := fused[s.Record.ID]
+ 			if !ok {
+diff --git a/internal/cli/history_vec_test.go b/internal/cli/history_vec_test.go
+index a839d7a8..42cbe57b 100644
+--- a/internal/cli/history_vec_test.go
++++ b/internal/cli/history_vec_test.go
+@@ -249,6 +249,62 @@ func TestRankHistorySemanticHybridPreservesLexicalHitsButRejectsNoise(t *testing
+ 	}
+ }
+ 
++func TestRankHistorySemanticHybridHasIndependentCalibrationArm(t *testing.T) {
++	index := historyIndex{Records: []historyRecord{
++		{ID: "lex-1", Kind: "decision", Summary: "lexical one"},
++		{ID: "lex-2", Kind: "decision", Summary: "lexical two"},
++		{ID: "lex-3", Kind: "decision", Summary: "lexical three"},
++		{ID: "semantic", Kind: "decision", Summary: "term disjoint evidence"},
++		{ID: "noise-1", Kind: "decision", Summary: "noise one"},
++		{ID: "noise-2", Kind: "decision", Summary: "noise two"},
++		{ID: "noise-3", Kind: "decision", Summary: "noise three"},
++		{ID: "noise-4", Kind: "decision", Summary: "noise four"},
++	}}
++	scores := map[string]float64{
++		"lex-1": 1, "lex-2": 0.999, "lex-3": 0.998, "semantic": 0.997,
++		"noise-1": 0, "noise-2": 0, "noise-3": 0, "noise-4": 0,
++	}
++	lexical := map[string]struct{}{"lex-1": {}, "lex-2": {}, "lex-3": {}}
++	ranks := rankHistorySemanticHybridRanks(index, scores, 3, lexical)
++	if len(ranks.ranked) != 3 {
++		t.Fatalf("primary history vector list length = %d, want 3", len(ranks.ranked))
++	}
++	if len(ranks.calibratedSemanticOnly) != 1 || ranks.calibratedSemanticOnly[0].Record.ID != "semantic" {
++		t.Fatalf("calibrated history arm was truncated by the primary limit: %+v", ranks.calibratedSemanticOnly)
++	}
++}
++
++func TestRankHistorySemanticHybridGivesSemanticOnlyEvidenceTwoRRFVotes(t *testing.T) {
++	index := historyIndex{Records: []historyRecord{
++		{ID: "lexical", Kind: "decision", Summary: "lexically reached evidence"},
++		{ID: "semantic", Kind: "decision", Summary: "term disjoint evidence"},
++		{ID: "noise-1", Kind: "decision", Summary: "noise one"},
++		{ID: "noise-2", Kind: "decision", Summary: "noise two"},
++		{ID: "noise-3", Kind: "decision", Summary: "noise three"},
++		{ID: "noise-4", Kind: "decision", Summary: "noise four"},
++	}}
++	scores := map[string]float64{
++		"lexical": 1, "semantic": 0.99,
++		"noise-1": 0, "noise-2": 0, "noise-3": 0, "noise-4": 0,
++	}
++	ranks := rankHistorySemanticHybridRanks(
++		index, scores, 10, map[string]struct{}{"lexical": {}},
++	)
++	merged := rrfMergeUnified([][]unifiedResult{
++		historyToUnified(ranks.ranked),
++		historyToUnified(ranks.calibratedSemanticOnly),
++	}, 10)
++	for _, result := range merged {
++		if result.ID == "semantic" {
++			if result.Score <= 1.0/(rrfK+1) {
++				t.Fatalf("semantic-only history evidence received only one RRF vote: %v", result.Score)
++			}
++			return
++		}
++	}
++	t.Fatalf("semantic-only history evidence was not admitted: %+v", merged)
++}
++
+ func TestRankHistoryFusedGateClosedIsExactlyFTS(t *testing.T) {
+ 	brainDir := t.TempDir()
+ 	index := historyIndex{GeneratedAt: time.Now(), Records: []historyRecord{
+diff --git a/internal/cli/retrieve.go b/internal/cli/retrieve.go
+index 9ca9c013..07b0d013 100644
+--- a/internal/cli/retrieve.go
++++ b/internal/cli/retrieve.go
+@@ -156,14 +156,17 @@ func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode re
+ 				scores := historySemanticScores(
+ 					brainDir, historySem, query, candidateLimit, mode == modeHybrid,
+ 				)
+-				var sem []scoredHistoryRecord
++				var sem historyVectorRanks
+ 				if mode == modeVector {
+-					sem = rankHistorySemantic(index, scores, candidateLimit)
++					sem.ranked = rankHistorySemantic(index, scores, candidateLimit)
+ 				} else {
+-					sem = rankHistorySemanticHybrid(index, scores, candidateLimit, lexicalHistoryIDs)
++					sem = rankHistorySemanticHybridRanks(index, scores, candidateLimit, lexicalHistoryIDs)
+ 				}
+-				if len(sem) > 0 {
+-					lists = append(lists, historyToUnified(sem))
++				if len(sem.ranked) > 0 {
++					lists = append(lists, historyToUnified(sem.ranked))
++				}
++				if len(sem.calibratedSemanticOnly) > 0 {
++					lists = append(lists, historyToUnified(sem.calibratedSemanticOnly))
+ 				}
+ 			}
+ 		}
+@@ -239,6 +242,11 @@ func factsVectorRanked(
+ 	for _, f := range facts {
+ 		present[f.ID] = struct{}{}
+ 		v, ok := cache[f.ID]
++		if ok && (len(v) != len(qv) || !vectorHasMagnitude(v)) {
++			delete(cache, f.ID)
++			dirty = true
++			ok = false
++		}
+ 		if !ok {
+ 			v = e.Embed(factEmbeddingText(f))
+ 			if len(v) == len(qv) && vectorHasMagnitude(v) {
+@@ -316,6 +324,11 @@ func docsVectorRanked(
+ 	for i, r := range index.Records {
+ 		present[r.ID] = struct{}{}
+ 		v, ok := cache[r.ID]
++		if ok && (len(v) != len(qv) || !vectorHasMagnitude(v)) {
++			delete(cache, r.ID)
++			dirty = true
++			ok = false
++		}
+ 		if !ok {
+ 			v = e.Embed(r.Text)
+ 			if len(v) == len(qv) && vectorHasMagnitude(v) {
+diff --git a/internal/cli/retrieve_test.go b/internal/cli/retrieve_test.go
+index a5c675dc..c336db54 100644
+--- a/internal/cli/retrieve_test.go
++++ b/internal/cli/retrieve_test.go
+@@ -102,6 +102,56 @@ func TestFactsVectorRankedRanksActiveButCachesAll(t *testing.T) {
+ 	}
+ }
+ 
++func TestFactsVectorRankedRepairsInvalidCachedVector(t *testing.T) {
++	dir := t.TempDir()
++	fact := factRecord{ID: "fact:repair", Text: "durable checkpoint policy", Status: factStatusActive}
++	e := &fakeFusionEmbedder{vecs: map[string][]float32{
++		"repair query":          {1, 0},
++		factEmbeddingText(fact): {1, 0},
++	}}
++	store := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
++	present := map[string]struct{}{fact.ID: {}}
++	if err := store.savePresent(map[string][]float32{fact.ID: {0, 0}}, present); err != nil {
++		t.Fatal(err)
++	}
++
++	out := factsVectorRanked(dir, "main", []factRecord{fact}, "repair query", e, 1)
++	if len(out) != 1 || out[0].ID != fact.ID {
++		t.Fatalf("invalid cached fact vector was not repaired: %+v", out)
++	}
++	if got := store.load()[fact.ID]; !vectorHasMagnitude(got) {
++		t.Fatalf("repaired fact vector was not persisted: %v", got)
++	}
++	if len(e.embeds) != 2 || e.embeds[1] != factEmbeddingText(fact) {
++		t.Fatalf("expected query plus one fact re-embed, got %v", e.embeds)
++	}
++}
++
++func TestDocsVectorRankedRepairsInvalidCachedVector(t *testing.T) {
++	dir := t.TempDir()
++	doc := docRecord{ID: "repair", Text: "durable checkpoint policy"}
++	e := &fakeFusionEmbedder{vecs: map[string][]float32{
++		"repair query": {1, 0},
++		doc.Text:       {1, 0},
++	}}
++	store := newDocEmbedStore(dir, e.ID(), e.Dim())
++	present := map[string]struct{}{doc.ID: {}}
++	if err := store.savePresent(map[string][]float32{doc.ID: {0, 0}}, present); err != nil {
++		t.Fatal(err)
++	}
++
++	out := docsVectorRanked(dir, docIndex{Records: []docRecord{doc}}, "repair query", e, 1, false, nil)
++	if len(out.ranked) != 1 || out.ranked[0].ID != "doc:"+doc.ID {
++		t.Fatalf("invalid cached doc vector was not repaired: %+v", out.ranked)
++	}
++	if got := store.load()[doc.ID]; !vectorHasMagnitude(got) {
++		t.Fatalf("repaired doc vector was not persisted: %v", got)
++	}
++	if len(e.embeds) != 2 || e.embeds[1] != doc.Text {
++		t.Fatalf("expected query plus one doc re-embed, got %v", e.embeds)
++	}
++}
++
+ func TestPruneToPresentDropsDeparted(t *testing.T) {
+ 	cache := map[string][]float32{"a": {1}, "b": {2}, "gone": {3}}
+ 	present := map[string]struct{}{"a": {}, "b": {}}

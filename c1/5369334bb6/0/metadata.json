@@ -1,0 +1,61 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "c15369334bb6",
+  "session_id": "a7cb729e-15f2-4b6d-b8a3-b0f8a4be1eef",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-11T23:59:16.677027Z",
+  "branch": "feat/adaptive-project-memory-v2",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "internal/cli/history_vec.go",
+    "internal/cli/history_vec_test.go",
+    "internal/cli/retrieve.go",
+    "internal/cli/retrieve_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "",
+  "turn_id": "9b4193b07e20",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 2129,
+    "cache_creation_tokens": 10386,
+    "cache_read_tokens": 0,
+    "output_tokens": 12073,
+    "api_call_count": 1
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-11T23:59:16.662373Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 29,
+    "human_modified": 34,
+    "human_removed": 0,
+    "total_committed": 29,
+    "total_lines_changed": 63,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 166,
+      "user_lines_removed": 25,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "internal/cli/history_vec.go": 42,
+        "internal/cli/history_vec_test.go": 56,
+        "internal/cli/retrieve.go": 18,
+        "internal/cli/retrieve_test.go": 50
+      },
+      "user_removed_per_file": {
+        "internal/cli/history_vec.go": 20,
+        "internal/cli/retrieve.go": 5
+      }
+    }
+  ]
+}
