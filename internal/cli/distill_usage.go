@@ -189,6 +189,7 @@ func (raw distillUsageJSON) addTo(usage *distillProviderUsage) {
 func parseCodexDistillOutput(raw string) (string, distillProviderUsage, error) {
 	usage := distillProviderUsage{Source: distillUsageSourceCodex}
 	var finalText string
+	sawFinalMessage := false
 	var agentErrors []string
 	malformedEvent := false
 	for lineNumber, line := range strings.Split(raw, "\n") {
@@ -216,6 +217,7 @@ func parseCodexDistillOutput(raw string) (string, distillProviderUsage, error) {
 		case "item.completed":
 			switch event.Item.Type {
 			case "agent_message":
+				sawFinalMessage = true
 				finalText = event.Item.Text
 			case "error":
 				agentErrors = append(agentErrors, event.Item.Message)
@@ -235,7 +237,7 @@ func parseCodexDistillOutput(raw string) (string, distillProviderUsage, error) {
 		usage.InputReported = false
 		usage.OutputReported = false
 	}
-	if finalText == "" {
+	if !sawFinalMessage {
 		if len(agentErrors) > 0 {
 			return "", usage, fmt.Errorf("codex returned an error: %s", strings.Join(agentErrors, "; "))
 		}
@@ -250,7 +252,7 @@ func parseClaudeDistillOutput(raw string) (string, distillProviderUsage, error) 
 		Type    string           `json:"type"`
 		Subtype string           `json:"subtype"`
 		IsError bool             `json:"is_error"`
-		Result  string           `json:"result"`
+		Result  *string          `json:"result"`
 		Usage   distillUsageJSON `json:"usage"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &result); err != nil {
@@ -261,16 +263,19 @@ func parseClaudeDistillOutput(raw string) (string, distillProviderUsage, error) 
 	}
 	result.Usage.addTo(&usage)
 	if result.IsError {
-		message := strings.TrimSpace(result.Result)
+		message := ""
+		if result.Result != nil {
+			message = strings.TrimSpace(*result.Result)
+		}
 		if message == "" {
 			message = result.Subtype
 		}
 		return "", usage, fmt.Errorf("claude returned an error: %s", message)
 	}
-	if strings.TrimSpace(result.Result) == "" {
+	if result.Result == nil {
 		return "", usage, fmt.Errorf("claude JSON contained no result")
 	}
-	return result.Result, usage, nil
+	return *result.Result, usage, nil
 }
 
 func decodeStructuredDistillOutput(args []string, raw string) (string, distillProviderUsage, error) {

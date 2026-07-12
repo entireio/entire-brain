@@ -55,6 +55,32 @@ func TestParseClaudeDistillOutput(t *testing.T) {
 	}
 }
 
+func TestStructuredDistillOutputAcceptsEmptyFactResult(t *testing.T) {
+	codexRaw := strings.Join([]string{
+		`{"type":"item.completed","item":{"type":"agent_message","text":""}}`,
+		`{"type":"turn.completed","usage":{"input_tokens":8,"output_tokens":0}}`,
+	}, "\n")
+	text, usage, err := parseCodexDistillOutput(codexRaw)
+	if err != nil || text != "" || !usage.Reported || usage.InputTokens != 8 || usage.OutputTokens != 0 {
+		t.Fatalf("codex text=%q usage=%+v err=%v", text, usage, err)
+	}
+
+	claudeRaw := `{"type":"result","subtype":"success","is_error":false,"result":"","usage":{"input_tokens":8,"output_tokens":0}}`
+	text, usage, err = parseClaudeDistillOutput(claudeRaw)
+	if err != nil || text != "" || !usage.Reported || usage.InputTokens != 8 || usage.OutputTokens != 0 {
+		t.Fatalf("claude text=%q usage=%+v err=%v", text, usage, err)
+	}
+}
+
+func TestStructuredDistillOutputRejectsMissingFactResult(t *testing.T) {
+	if _, _, err := parseCodexDistillOutput(`{"type":"turn.completed","usage":{"input_tokens":8,"output_tokens":0}}`); err == nil {
+		t.Fatal("codex envelope without an agent message must fail")
+	}
+	if _, _, err := parseClaudeDistillOutput(`{"type":"result","subtype":"success","is_error":false,"usage":{"input_tokens":8,"output_tokens":0}}`); err == nil {
+		t.Fatal("claude envelope without a result field must fail")
+	}
+}
+
 func TestDistillUsageCollectorConcurrentSummary(t *testing.T) {
 	ctx, collector := withDistillUsageCollector(context.Background())
 	var wg sync.WaitGroup
