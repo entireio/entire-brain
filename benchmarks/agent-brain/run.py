@@ -796,12 +796,26 @@ def redact_record_host_paths(value: Any, paths: dict[pathlib.Path, str]) -> Any:
         raw = str(path)
         if not raw:
             continue
-        replacements[raw] = label
-        replacements[raw.replace("\\", "/")] = label
+        # Subprocesses report normalized or symlink-resolved forms of a registered
+        # root (e.g. `a/../b` -> `a/b`, `/var/...` -> `/private/var/...`), so each
+        # registered path also redacts under those variants.
+        variants = {raw}
+        normalized = os.path.normpath(raw)
+        if os.path.isabs(normalized) and pathlib.Path(normalized).parent != pathlib.Path(normalized):
+            variants.add(normalized)
         try:
-            replacements[path.as_uri()] = label
-        except ValueError:
-            pass
+            resolved = os.path.realpath(raw)
+        except OSError:
+            resolved = None
+        if resolved and os.path.isabs(resolved) and pathlib.Path(resolved).parent != pathlib.Path(resolved):
+            variants.add(resolved)
+        for variant in sorted(variants):
+            replacements[variant] = label
+            replacements[variant.replace("\\", "/")] = label
+            try:
+                replacements[pathlib.Path(variant).as_uri()] = label
+            except ValueError:
+                pass
 
     def redact(item: Any) -> Any:
         if isinstance(item, dict):
@@ -1963,7 +1977,7 @@ def plugin_env(run_dir: pathlib.Path, worktree: pathlib.Path, tools: dict[str, p
     return env
 
 
-def apply_task_env(env: dict[str, str], task: dict[str, Any]) -> dict[str, str]:
+def apply_task_env(env: dict[str, str], task: dict[str, Any], frozen_bin: pathlib.Path | None = None) -> dict[str, str]:
     # Expand ~ and $VARS so path_prefix is portable; "auto" / unset resolves the
     # directory of the host `node` so tsx-based validations work without a hard-coded path.
     def expand_prefix(raw: str) -> str:
@@ -1978,9 +1992,20 @@ def apply_task_env(env: dict[str, str], task: dict[str, Any]) -> dict[str, str]:
     if task.get("memory_bundle"):
         path_prefixes.insert(0, str(temporal_distill_binary(task).parent))
     path_prefixes = [p for p in path_prefixes if p]
-    if path_prefixes:
-        env = env.copy()
-        env["PATH"] = ":".join([*path_prefixes, env.get("PATH", "")])
+    if not path_prefixes and frozen_bin is None:
+        return env
+    env = env.copy()
+    entries = [entry for entry in env.get("PATH", "").split(":") if entry]
+    if frozen_bin is not None:
+        # The frozen tool directory always resolves first: task/bundle prefixes are
+        # host directories that may co-locate entire/entire-brain binaries and must
+        # never shadow the frozen wrappers in the agent-visible PATH.
+        frozen = str(frozen_bin)
+        entries = [entry for entry in entries if entry != frozen]
+        path_prefixes = [prefix for prefix in path_prefixes if prefix != frozen]
+        env["PATH"] = ":".join([frozen, *path_prefixes, *entries])
+    else:
+        env["PATH"] = ":".join([*path_prefixes, *entries])
     return env
 
 
@@ -2506,6 +2531,15 @@ def bound_memory_packet(stdout: str, max_bytes: int) -> tuple[str, dict[str, Any
                     low = mid
                 else:
                     high = mid - 1
+            if low == 0:
+                # A partial retaining none of the result text is not a delivered
+                # result; counting it would let truncation satisfy the
+                # preregistered min_results with zero retained content.
+                delivered_results.pop()
+                delivery_note["delivered_result_count"] = len(delivered_results)
+                delivery_note["omitted_result_count"] = len(results) - len(delivered_results)
+                delivery_note["partial_last_result"] = False
+                break
             partial["text"] = original_text[:low] + suffix
             partial_last_result = True
             break
@@ -2529,6 +2563,31 @@ def bound_memory_packet(stdout: str, max_bytes: int) -> tuple[str, dict[str, Any
         "partial_last_result": partial_last_result,
         "valid_json": True,
     }
+
+
+def packet_contains_reserved_delimiter(packet_text: str) -> bool:
+    """True when the serialized packet or any decoded JSON string contains the
+    reserved prompt delimiter. JSON encoders (e.g. Go's, which HTML-escapes angle
+    brackets to \\u003c/\\u003e) may hide the delimiter from a serialized-text
+    scan, so the decoded string content is checked as well; undecodable packet
+    text fails closed."""
+    if FROZEN_MEMORY_PACKET_END_TAG in packet_text.lower():
+        return True
+
+    def contains(item: Any) -> bool:
+        if isinstance(item, str):
+            return FROZEN_MEMORY_PACKET_END_TAG in item.lower()
+        if isinstance(item, dict):
+            return any(contains(key) or contains(child) for key, child in item.items())
+        if isinstance(item, list):
+            return any(contains(child) for child in item)
+        return False
+
+    try:
+        decoded = json.loads(packet_text)
+    except json.JSONDecodeError:
+        return True
+    return contains(decoded)
 
 
 class MemoryDeliveryError(RuntimeError):
@@ -2687,7 +2746,7 @@ def harness_memory_delivery(
             f"below the preregistered minimum of {min_results}",
             delivery,
         )
-    if FROZEN_MEMORY_PACKET_END_TAG in packet_text.lower():
+    if packet_contains_reserved_delimiter(packet_text):
         delivery["ok"] = False
         raise MemoryDeliveryError(
             "harness memory delivery contains the reserved packet delimiter", delivery
@@ -2744,8 +2803,9 @@ def remove_agent_visible_git_remotes(worktree: pathlib.Path) -> dict[str, Any]:
     second, network-backed source channel outside the frozen snapshot.
     """
     remotes = run_cmd(["git", "remote"], cwd=worktree, check=True).stdout.splitlines()
-    if any(remote != "origin" for remote in remotes):
-        raise RuntimeError(f"unexpected agent-visible git remote: {remotes[0]}")
+    unexpected = sorted(remote for remote in remotes if remote != "origin")
+    if unexpected:
+        raise RuntimeError(f"unexpected agent-visible git remotes: {', '.join(unexpected)}")
     if remotes:
         run_cmd(["git", "remote", "remove", "origin"], cwd=worktree, check=True)
     remaining = run_cmd(["git", "remote"], cwd=worktree, check=True).stdout.splitlines()
@@ -2858,6 +2918,16 @@ def temporal_agent_read_isolation(
         found = shutil.which(name, path=search_path)
         if found:
             executable_candidates.add(pathlib.Path(found))
+    # Deny shadow copies in EVERY directory on the provided PATH, not just the
+    # first resolution: an entire/entire-brain co-located later in the agent PATH
+    # (e.g. beside a pinned distillation binary) stays reachable by absolute path.
+    for entry in (search_path or "").split(os.pathsep):
+        if not entry:
+            continue
+        for name in ("entire", "entire-brain"):
+            candidate = pathlib.Path(entry) / name
+            if candidate.is_file():
+                executable_candidates.add(candidate)
     for candidate in executable_candidates:
         absolute = candidate.absolute()
         if outside_allowed(absolute):
@@ -2928,7 +2998,9 @@ def complete_harness_delivery_isolation(
         env, environment_isolation = sanitize_harness_agent_environment(env)
         delivery["environment_isolation"] = environment_isolation
         stage = "filesystem_read_isolation"
-        profile, read_isolation = temporal_agent_read_isolation(worktree, source, tools)
+        # The sanitized agent env (not the host env) is what the agent resolves
+        # binaries against, so the deny scan must cover its PATH.
+        profile, read_isolation = temporal_agent_read_isolation(worktree, source, tools, host_env=env)
         delivery["agent_read_isolation"] = read_isolation
         return env, profile, read_isolation
     except Exception as exc:
@@ -2977,7 +3049,7 @@ def prepare_brain(
     use_cache: bool = True,
     refresh_cache: bool = False,
 ) -> tuple[dict[str, str], dict[str, Any]]:
-    env = apply_task_env(plugin_env(run_dir, worktree, tools), task)
+    env = apply_task_env(plugin_env(run_dir, worktree, tools), task, frozen_bin=tools["bin"])
     prep: dict[str, Any] = {"condition": condition, "commands": []}
     if condition == "no_brain":
         return env, prep
@@ -4248,6 +4320,7 @@ def tool_arguments_access_forbidden_memory_artifact(tool_name: str, value: Any) 
     if not isinstance(value, dict):
         return False
     path_keys = {
+        "cwd",
         "dir",
         "dirs",
         "directory",
@@ -4261,24 +4334,34 @@ def tool_arguments_access_forbidden_memory_artifact(tool_name: str, value: Any) 
         "glob",
         "globs",
         "include",
+        "notebook_path",
         "path",
         "paths",
         "root",
         "roots",
         "target",
         "targets",
+        "workdir",
+        "working_directory",
     }
     if "glob" in tool_name.lower():
         path_keys.add("pattern")
 
     def references_private_path(item: Any) -> bool:
         if isinstance(item, str):
-            normalized = item.strip().lower().replace("\\", "/").replace(r"\.", ".")
-            if normalized.startswith("!"):
+            stripped = item.strip().lower()
+            if stripped.startswith("!"):
                 return False
-            return bool(
-                re.search(r"(?:^|/|\*\*/)(?:\.entire|\.benchmark)(?:/|$|\*)", normalized)
-                or "refs/heads/entire/checkpoints" in normalized
+            # A backslash may be a path separator or a regex/glob escape (\. -> .);
+            # either interpretation reaching a private artifact flags the argument.
+            candidates = (
+                stripped.replace("\\", "/"),
+                stripped.replace("\\.", ".").replace("\\", "/"),
+            )
+            return any(
+                re.search(r"(?:^|/|\*\*/)(?:\.entire|\.benchmark)(?:/|$|\*)", candidate)
+                or "refs/heads/entire/checkpoints" in candidate
+                for candidate in candidates
             )
         if isinstance(item, list):
             return any(references_private_path(child) for child in item)
