@@ -2196,12 +2196,93 @@ def deterministic_token_estimate(text: str) -> int:
     return (len(text.encode("utf-8")) + 3) // 4
 
 
+def _canonical_packet_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
 def bound_memory_packet(stdout: str, max_bytes: int) -> tuple[str, dict[str, Any]]:
-    """Deterministically bound the retrieval response to the packet budget: keep the head up to
-    max_bytes, cut on a UTF-8 boundary, and record enough metadata to reproduce the delivery."""
+    """Bound a search response without handing the agent malformed JSON.
+
+    Responses that already fit are delivered byte-for-byte. Oversized responses
+    retain ranked results in order: whole results first, then (when it fits) a
+    UTF-8-safe prefix of the next result's text. The compact packet records the
+    omitted/partial result counts in-band and in provenance.
+    """
     raw = stdout.encode("utf-8")
-    truncated = len(raw) > max_bytes
-    delivered = raw[:max_bytes].decode("utf-8", errors="ignore") if truncated else stdout
+    payload = json.loads(stdout)
+    if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+        raise ValueError("search response must be an object with a results array")
+    results = payload["results"]
+    if len(raw) <= max_bytes:
+        delivered = stdout
+        delivered_count = len(results)
+        partial_last_result = False
+        strategy = "none"
+    else:
+        delivery_note = {
+            "max_bytes": max_bytes,
+            "original_result_count": len(results),
+            "delivered_result_count": 0,
+            "omitted_result_count": len(results),
+            "partial_last_result": False,
+            "truncated": True,
+        }
+        packet_payload = {key: value for key, value in payload.items() if key != "results"}
+        packet_payload["results"] = []
+        packet_payload["_benchmark_delivery"] = delivery_note
+
+        def render() -> str:
+            return _canonical_packet_json(packet_payload)
+
+        if len(render().encode("utf-8")) > max_bytes:
+            raise ValueError("search response metadata exceeds the packet byte budget")
+
+        partial_last_result = False
+        for result in results:
+            delivered_results = packet_payload["results"]
+            delivered_results.append(result)
+            delivery_note["delivered_result_count"] = len(delivered_results)
+            delivery_note["omitted_result_count"] = len(results) - len(delivered_results)
+            if len(render().encode("utf-8")) <= max_bytes:
+                continue
+
+            delivered_results.pop()
+            delivery_note["delivered_result_count"] = len(delivered_results)
+            delivery_note["omitted_result_count"] = len(results) - len(delivered_results)
+            if not isinstance(result, dict) or not isinstance(result.get("text"), str):
+                break
+
+            original_text = result["text"]
+            suffix = "\n...[truncated to packet byte budget]..."
+            partial = dict(result)
+            partial["text"] = suffix
+            delivered_results.append(partial)
+            delivery_note["delivered_result_count"] = len(delivered_results)
+            delivery_note["omitted_result_count"] = len(results) - len(delivered_results)
+            delivery_note["partial_last_result"] = True
+            if len(render().encode("utf-8")) > max_bytes:
+                delivered_results.pop()
+                delivery_note["delivered_result_count"] = len(delivered_results)
+                delivery_note["omitted_result_count"] = len(results) - len(delivered_results)
+                delivery_note["partial_last_result"] = False
+                break
+
+            low, high = 0, len(original_text)
+            while low < high:
+                mid = (low + high + 1) // 2
+                partial["text"] = original_text[:mid] + suffix
+                if len(render().encode("utf-8")) <= max_bytes:
+                    low = mid
+                else:
+                    high = mid - 1
+            partial["text"] = original_text[:low] + suffix
+            partial_last_result = True
+            break
+
+        delivered = render()
+        delivered_count = len(packet_payload["results"])
+        strategy = "whole_ranked_results_then_text_prefix"
+
     delivered_raw = delivered.encode("utf-8")
     return delivered, {
         "bytes": len(delivered_raw),
@@ -2209,7 +2290,13 @@ def bound_memory_packet(stdout: str, max_bytes: int) -> tuple[str, dict[str, Any
         "token_estimate": deterministic_token_estimate(delivered),
         "token_estimator": "ceil_utf8_bytes_div_4",
         "max_bytes": max_bytes,
-        "truncated": truncated,
+        "truncated": len(raw) > max_bytes,
+        "truncation_strategy": strategy,
+        "original_result_count": len(results),
+        "delivered_result_count": delivered_count,
+        "omitted_result_count": len(results) - delivered_count,
+        "partial_last_result": partial_last_result,
+        "valid_json": True,
     }
 
 
@@ -2300,6 +2387,7 @@ def harness_memory_delivery(
     stdout = proc.stdout
     raw = stdout.encode("utf-8")
     response_valid_json = False
+    response_contract_valid = False
     result_count: int | None = None
     parse_error: str | None = None
     if proc.returncode == 0 and stdout.strip():
@@ -2309,14 +2397,9 @@ def harness_memory_delivery(
         except json.JSONDecodeError as exc:
             parse_error = str(exc)
         else:
-            if isinstance(payload, list):
-                result_count = len(payload)
-            elif isinstance(payload, dict):
-                for key in ("results", "records", "hits", "matches"):
-                    items = payload.get(key)
-                    if isinstance(items, list):
-                        result_count = len(items)
-                        break
+            response_contract_valid = isinstance(payload, dict) and isinstance(payload.get("results"), list)
+            if response_contract_valid:
+                result_count = len(payload["results"])
     delivery["retrieval"] = {
         "command": argv,
         "cli_equivalent": (
@@ -2333,18 +2416,21 @@ def harness_memory_delivery(
             "bytes": len(raw),
             "sha256": hashlib.sha256(raw).hexdigest(),
             "valid_json": response_valid_json,
+            "contract_valid": response_contract_valid,
             "result_count": result_count,
             "parse_error": parse_error,
         },
         "packet": None,
     }
-    if proc.returncode != 0 or not stdout.strip() or not response_valid_json:
+    if proc.returncode != 0 or not stdout.strip() or not response_valid_json or not response_contract_valid:
         if proc.returncode != 0:
             reason = f"retrieval command exited {proc.returncode}"
         elif not stdout.strip():
             reason = "retrieval produced an empty response"
-        else:
+        elif not response_valid_json:
             reason = f"retrieval response is not valid JSON: {parse_error}"
+        else:
+            reason = "retrieval response does not match the search JSON contract"
         delivery["ok"] = False
         write_json(run_dir / "memory-delivery.json", delivery)
         raise MemoryDeliveryError(f"harness memory delivery failed closed for {condition}: {reason}", delivery)

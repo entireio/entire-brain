@@ -47,10 +47,13 @@ A temporal task selects its lane with the task-level `memory_delivery` field:
   <query> --json --limit <N> --branch <branch>` the agent-tool lane mandates;
   both lanes share one query/limit/branch builder so they cannot drift) against
   the isolated per-condition store. The response is deterministically bounded
-  to `memory_bundle.packet.max_bytes` (default 65536; head-of-response, UTF-8
-  safe cut) and injected verbatim into the task prompt between
-  `<frozen-memory-packet>` tags. The `no_brain` arm runs through the same lane
-  with no packet, so all four arms share the same prompt shape and scoring.
+  to `memory_bundle.packet.max_bytes` (default 65536) while remaining valid
+  JSON: ranked whole results are retained first, followed when possible by a
+  UTF-8-safe text prefix of the next result, with explicit truncation counts.
+  The packet is injected between `<frozen-memory-packet>` tags. The `no_brain`
+  arm runs through the same execution and scoring lane with no packet; the
+  packet and its policy text are the treatment, so prompt byte lengths are not
+  claimed to be identical.
 
 After harness delivery, the worktree's `.benchmark` store (Brain plugin data,
 the local copy of the shared one-distillation source cache) is physically

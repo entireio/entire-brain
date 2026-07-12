@@ -5773,12 +5773,19 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
         self.assertEqual(retrieval["response"]["bytes"], len(stdout.encode()))
         self.assertEqual(retrieval["response"]["sha256"], hashlib.sha256(stdout.encode()).hexdigest())
         self.assertTrue(retrieval["response"]["valid_json"])
+        self.assertTrue(retrieval["response"]["contract_valid"])
         self.assertEqual(retrieval["response"]["result_count"], 1)
         pkt = retrieval["packet"]
         self.assertEqual(pkt["sha256"], hashlib.sha256(packet.encode()).hexdigest())
         self.assertEqual(pkt["bytes"], len(packet.encode()))
         self.assertEqual(pkt["token_estimate"], (len(packet.encode()) + 3) // 4)
         self.assertFalse(pkt["truncated"])
+        self.assertEqual(pkt["truncation_strategy"], "none")
+        self.assertEqual(pkt["original_result_count"], 1)
+        self.assertEqual(pkt["delivered_result_count"], 1)
+        self.assertEqual(pkt["omitted_result_count"], 0)
+        self.assertFalse(pkt["partial_last_result"])
+        self.assertTrue(pkt["valid_json"])
         self.assertEqual(delivery["sources"]["session_ids"], ["session-a"])
         self.assertEqual(delivery["sources"]["source_cache_key"], "s" * 24)
         self.assertEqual(delivery["sources"]["history_index_sha256"], "1" * 64)
@@ -5793,7 +5800,17 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
     def test_harness_memory_delivery_truncates_deterministically(self):
         task = _harness_task()
         task["memory_bundle"]["packet"] = {"max_bytes": 1024}
-        stdout = json.dumps({"results": [{"text": "x" * 4000}]})
+        stdout = json.dumps(
+            {
+                "query": "memory",
+                "branch": "main",
+                "results": [
+                    {"id": "history:1", "source": "history", "text": "short top result"},
+                    {"id": "history:2", "source": "history", "text": "x" * 4000},
+                    {"id": "history:3", "source": "history", "text": "must be omitted"},
+                ],
+            }
+        )
         packet_a, delivery_a, _, _ = self._delivery(task, "history_facts", stdout)
         packet_b, delivery_b, _, _ = self._delivery(task, "history_facts", stdout)
         self.assertEqual(packet_a, packet_b)
@@ -5802,9 +5819,23 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
         self.assertTrue(pkt["truncated"])
         self.assertEqual(pkt["max_bytes"], 1024)
         self.assertLessEqual(pkt["bytes"], 1024)
-        self.assertEqual(packet_a, stdout[: len(packet_a)])  # head-of-response, cut only at the tail
+        parsed = json.loads(packet_a)
+        self.assertEqual(parsed["results"][0]["id"], "history:1")
+        self.assertEqual(parsed["results"][0]["text"], "short top result")
+        self.assertEqual(parsed["results"][1]["id"], "history:2")
+        self.assertTrue(parsed["results"][1]["text"].endswith("...[truncated to packet byte budget]..."))
+        self.assertEqual(parsed["_benchmark_delivery"]["original_result_count"], 3)
+        self.assertEqual(parsed["_benchmark_delivery"]["delivered_result_count"], 2)
+        self.assertEqual(parsed["_benchmark_delivery"]["omitted_result_count"], 1)
+        self.assertTrue(parsed["_benchmark_delivery"]["partial_last_result"])
         self.assertEqual(pkt["sha256"], hashlib.sha256(packet_a.encode()).hexdigest())
         self.assertEqual(pkt["token_estimate"], (len(packet_a.encode()) + 3) // 4)
+        self.assertEqual(pkt["truncation_strategy"], "whole_ranked_results_then_text_prefix")
+        self.assertEqual(pkt["original_result_count"], 3)
+        self.assertEqual(pkt["delivered_result_count"], 2)
+        self.assertEqual(pkt["omitted_result_count"], 1)
+        self.assertTrue(pkt["partial_last_result"])
+        self.assertTrue(pkt["valid_json"])
         # The full response stays reproducible via its own hash even when truncated.
         self.assertEqual(delivery_a["retrieval"]["response"]["sha256"], hashlib.sha256(stdout.encode()).hexdigest())
 
@@ -5816,6 +5847,8 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
             self._delivery(task, "raw_history", "   \n")
         with self.assertRaisesRegex(run.MemoryDeliveryError, "not valid JSON"):
             self._delivery(task, "facts_only", "not-json{")
+        with self.assertRaisesRegex(run.MemoryDeliveryError, "search JSON contract"):
+            self._delivery(task, "facts_only", '{"records": []}')
         # The failure still persists reproducible provenance for the row.
         try:
             self._delivery(task, "raw_history", "not-json{", stderr="parse warning")
