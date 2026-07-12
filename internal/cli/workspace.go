@@ -2744,8 +2744,40 @@ func writeJSON(cmd *cobra.Command, value any) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), string(data))
-	return nil
+	n, err := fmt.Fprintln(cmd.OutOrStdout(), string(data))
+	if err == nil && n != len(data)+1 {
+		return io.ErrShortWrite
+	}
+	return err
+}
+
+func writeText(cmd *cobra.Command, render func(io.Writer)) error {
+	// Stream directly to stdout instead of buffering the whole rendered body:
+	// large multi-get/fact output must not be held in memory in full. The
+	// sticky writer short-circuits after the first failure and preserves the
+	// error, so callers still skip receipt recording when output fails.
+	out := &stickyErrorWriter{writer: cmd.OutOrStdout()}
+	render(out)
+	return out.err
+}
+
+type stickyErrorWriter struct {
+	writer io.Writer
+	err    error
+}
+
+func (w *stickyErrorWriter) Write(p []byte) (int, error) {
+	if w.err != nil {
+		return 0, w.err
+	}
+	n, err := w.writer.Write(p)
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		w.err = err
+	}
+	return n, err
 }
 
 // ---- workspace list / remove (ergonomics) ----

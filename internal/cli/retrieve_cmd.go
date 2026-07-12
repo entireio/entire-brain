@@ -42,7 +42,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 			if err != nil {
 				return err
 			}
-			return runRetrieve(cmd.Context(), cmd, opts, args[0], mode, limit, branch, wantJSON, patterns)
+			return runRetrieve(cmd.Context(), cmd, opts, args[0], mode, limit, branch, wantJSON, patterns, use)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
@@ -54,7 +54,9 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	return cmd
 }
 
-func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query string, mode retrievalMode, limit int, branch string, jsonOut, patterns bool) error {
+// surface names the read surface for serve receipts ("search"/"vsearch"/
+// "query" from the CLI, "mcp:brain_*" from the MCP server).
+func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query string, mode retrievalMode, limit int, branch string, jsonOut, patterns bool, surface string) error {
 	// Reject --limit <= 0 rather than silently defaulting, so a typo like
 	// `--limit 0` is an explicit error (matching the rest of the CLI surface). The
 	// MCP path passes a validated positive limit, so it's unaffected.
@@ -68,6 +70,11 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	results, err := retrieveUnified(repoDir, brainDir, resolvedBranch, query, limit, mode)
 	if err != nil {
 		return err
+	}
+	factIDs := unifiedFactIDs(results)
+	recordReceipt := func() {
+		recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), brainDir, resolvedBranch, surface,
+			vitalityHead(ctx, opts.Runner, repoDir), query, factIDs)
 	}
 	// Discoverability only: pattern/theme pointers never enter the facts/history/
 	// docs ranking — they are a separate, capped, opt-in section so default
@@ -86,30 +93,43 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 				out["blind_spot"] = note
 			}
 		}
-		return writeJSON(cmd, out)
-	}
-	if len(results) == 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "no results for %q\n", query)
-		if note := emptyResultBlindSpot(brainDir); note != "" {
-			fmt.Fprintln(cmd.OutOrStdout(), note)
+		if err := writeJSON(cmd, out); err != nil {
+			return err
 		}
-		// still show related pattern pointers if any
-	}
-	for _, r := range results {
-		ex := truncateString(strings.Join(strings.Fields(r.Text), " "), 200)
-		loc := r.Path
-		if r.Line > 0 {
-			loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
+		if len(factIDs) > 0 {
+			recordReceipt()
 		}
-		label := r.Source
-		if r.VerificationRequired {
-			label += " verify"
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s  %s\n    %s\n", label, r.ID, loc, ex)
-		printRetrievalCaveats(cmd.OutOrStdout(), r)
+		return nil
 	}
-	for _, p := range related {
-		fmt.Fprintf(cmd.OutOrStdout(), "related [%s] %s  %s\n", p.Type, p.ID, p.Title)
+	if err := writeText(cmd, func(out io.Writer) {
+		if len(results) == 0 {
+			fmt.Fprintf(out, "no results for %q\n", query)
+			if note := emptyResultBlindSpot(brainDir); note != "" {
+				fmt.Fprintln(out, note)
+			}
+			// still show related pattern pointers if any
+		}
+		for _, r := range results {
+			ex := truncateString(strings.Join(strings.Fields(r.Text), " "), 200)
+			loc := r.Path
+			if r.Line > 0 {
+				loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
+			}
+			label := r.Source
+			if r.VerificationRequired {
+				label += " verify"
+			}
+			fmt.Fprintf(out, "[%s] %s  %s\n    %s\n", label, r.ID, loc, ex)
+			printRetrievalCaveats(out, r)
+		}
+		for _, p := range related {
+			fmt.Fprintf(out, "related [%s] %s  %s\n", p.Type, p.ID, p.Title)
+		}
+	}); err != nil {
+		return err
+	}
+	if len(factIDs) > 0 {
+		recordReceipt()
 	}
 	return nil
 }
@@ -127,7 +147,7 @@ func newGetCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runGet(cmd.Context(), cmd, opts, []string{args[0]}, branch, wantJSON)
+			return runGet(cmd.Context(), cmd, opts, []string{args[0]}, branch, wantJSON, "get")
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
@@ -149,7 +169,7 @@ func newMultiGetCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runGet(cmd.Context(), cmd, opts, args, branch, wantJSON)
+			return runGet(cmd.Context(), cmd, opts, args, branch, wantJSON, "multi-get")
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
@@ -171,7 +191,7 @@ func outputWantsJSON(jsonOut bool, format string) (bool, error) {
 	}
 }
 
-func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string, branch string, jsonOut bool) error {
+func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string, branch string, jsonOut bool, surface string) error {
 	repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(ctx, opts, agentSurfaceTarget(opts, nil), branch)
 	if err != nil {
 		return err
@@ -179,6 +199,11 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	found, missing, err := getUnifiedBatch(repoDir, brainDir, resolvedBranch, ids)
 	if err != nil {
 		return err
+	}
+	factIDs := unifiedFactIDs(found)
+	recordReceipt := func() {
+		recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), brainDir, resolvedBranch, surface,
+			vitalityHead(ctx, opts.Runner, repoDir), "", factIDs)
 	}
 	// Normalize empty collections to [] so --json emits arrays, not null, matching
 	// the repo's JSON contract (see TestInspectCodeEmptyResultsEmitArrayNotNull).
@@ -189,23 +214,36 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 		missing = []string{}
 	}
 	if jsonOut {
-		return writeJSON(cmd, map[string]any{"branch": resolvedBranch, "results": found, "missing": missing})
-	}
-	for _, r := range found {
-		loc := r.Path
-		if r.Line > 0 {
-			loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
+		if err := writeJSON(cmd, map[string]any{"branch": resolvedBranch, "results": found, "missing": missing}); err != nil {
+			return err
 		}
-		label := r.Source
-		if r.VerificationRequired {
-			label += " verify"
+		if len(factIDs) > 0 {
+			recordReceipt()
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s  %s\n%s\n", label, r.ID, loc, r.Text)
-		printRetrievalCaveats(cmd.OutOrStdout(), r)
-		fmt.Fprintln(cmd.OutOrStdout())
+		return nil
 	}
-	for _, id := range missing {
-		fmt.Fprintf(cmd.OutOrStdout(), "not found: %s\n", id)
+	if err := writeText(cmd, func(out io.Writer) {
+		for _, r := range found {
+			loc := r.Path
+			if r.Line > 0 {
+				loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
+			}
+			label := r.Source
+			if r.VerificationRequired {
+				label += " verify"
+			}
+			fmt.Fprintf(out, "[%s] %s  %s\n%s\n", label, r.ID, loc, r.Text)
+			printRetrievalCaveats(out, r)
+			fmt.Fprintln(out)
+		}
+		for _, id := range missing {
+			fmt.Fprintf(out, "not found: %s\n", id)
+		}
+	}); err != nil {
+		return err
+	}
+	if len(factIDs) > 0 {
+		recordReceipt()
 	}
 	return nil
 }
