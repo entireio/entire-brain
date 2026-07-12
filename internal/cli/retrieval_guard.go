@@ -307,9 +307,10 @@ const factReviewQueueUnavailableWarning = "fact review queue unreadable; verify 
 
 // factsPendingReview maps each surfaced fact that participates in a pending
 // review component to its review notice. facts is the full branch set (group
-// membership must not depend on the caller's scope/kind/locus filters);
-// surfaced is the ranked page actually returned, so cost stays O(page), the
-// same bound factsLocusDrift keeps.
+// membership must not depend on the caller's scope/kind/locus filters), so
+// building the review groups is O(facts + proposals); only the final
+// annotation loop over surfaced is O(page). The early return keeps that full
+// scan off the hot path whenever nothing was surfaced or no proposals exist.
 func factsPendingReview(facts []factRecord, proposals []factProposal, surfaced []factRecord) map[string]factReviewNotice {
 	if len(surfaced) == 0 || len(proposals) == 0 {
 		return nil

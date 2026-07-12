@@ -1156,12 +1156,14 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			// Live trust state, mirroring the unified retrieval guard: flag
 			// surfaced facts with a pending merge/supersede proposal so the
 			// brief carries the same verify-before-trust signal as query/get.
-			if proposals, proposalsErr := loadFactProposals(status.Brain.Path, branch); proposalsErr != nil {
-				if len(report.Facts) > 0 {
+			// No surfaced facts means no annotation and no queue warning, so
+			// skip the proposal read on the empty-brief path.
+			if len(report.Facts) > 0 {
+				if proposals, proposalsErr := loadFactProposals(status.Brain.Path, branch); proposalsErr != nil {
 					report.Warnings = append(report.Warnings, factReviewQueueUnavailableWarning)
+				} else {
+					report.FactsPendingReview = factsPendingReview(facts, proposals, report.Facts)
 				}
-			} else {
-				report.FactsPendingReview = factsPendingReview(facts, proposals, report.Facts)
 			}
 		}
 	}

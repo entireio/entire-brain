@@ -115,10 +115,16 @@ func newRecallCommand(opts Options) *cobra.Command {
 			// shape), matching the guard the unified query/search/get path
 			// applies. Groups are built from the unfiltered branch set so
 			// scope/kind/locus filters cannot hide a pending relationship.
-			proposals, proposalsErr := loadFactProposals(brainDir, resolvedBranch)
+			// Nothing surfaced means no annotation and no queue warning, so skip
+			// the proposal read entirely on the empty-recall path.
+			var proposals []factProposal
+			var proposalsErr error
 			var pendingReviews map[string]factReviewNotice
-			if proposalsErr == nil {
-				pendingReviews = factsPendingReview(allFacts, proposals, matches)
+			if len(matches) > 0 {
+				proposals, proposalsErr = loadFactProposals(brainDir, resolvedBranch)
+				if proposalsErr == nil {
+					pendingReviews = factsPendingReview(allFacts, proposals, matches)
+				}
 			}
 			recordReceipt := func() {
 				recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), brainDir, resolvedBranch, "recall",
