@@ -90,15 +90,15 @@ func runDash(ctx context.Context, cmd *cobra.Command, opts Options, flags dashFl
 		printDashPlain(cmd, snap)
 		return nil
 	}
-	return tui.Run(snap, theme, brainSearchFunc(brainDir, branch), startTab, cmd.OutOrStdout())
+	return tui.Run(snap, theme, brainSearchFunc(repoDir, brainDir, branch), startTab, cmd.OutOrStdout())
 }
 
 // brainSearchFunc adapts the lexical retrieval (`entire brain search`) into the
 // callback the dashboard's `s` key invokes, so search runs the same code path as
 // the CLI verb while keeping the TUI free of file IO.
-func brainSearchFunc(brainDir, branch string) tui.SearchFunc {
+func brainSearchFunc(repoDir, brainDir, branch string) tui.SearchFunc {
 	return func(query string) ([]tui.SearchResult, error) {
-		results, err := retrieveUnified(brainDir, branch, query, dashSearchLimit, modeLexical)
+		results, err := retrieveUnified(repoDir, brainDir, branch, query, dashSearchLimit, modeLexical)
 		if err != nil {
 			return nil, err
 		}
@@ -115,13 +115,17 @@ func brainSearchFunc(brainDir, branch string) tui.SearchFunc {
 // brain-relative file path; a fact's Path is its taxonomy labels (not a file),
 // so a fact hit gets no open target rather than a bogus one.
 func searchResultFromUnified(r unifiedResult, brainDir string) tui.SearchResult {
+	text := r.Text
+	if r.VerificationRequired {
+		text = "VERIFY AGAINST CURRENT EVIDENCE: " + text
+	}
 	sr := tui.SearchResult{
 		Source:  r.Source,
 		ID:      r.ID,
 		Path:    r.Path,
 		Heading: r.Heading,
 		Line:    r.Line,
-		Text:    r.Text,
+		Text:    text,
 		Score:   r.Score,
 	}
 	if r.Path != "" && (r.Source == "history" || r.Source == "doc") {

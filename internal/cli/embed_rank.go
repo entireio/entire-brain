@@ -33,10 +33,11 @@ type knnVectorStore interface {
 	knnCos(qvec []float32) (map[string]float64, bool)
 }
 
-// semanticReranker holds the embedder and a cache of fact vectors. Fact ids are
-// content-derived, so a vector is valid for the life of the fact: the in-memory
-// cache makes an eval over many queries embed each fact at most once, and an
-// optional disk store (recall/brief) carries vectors across CLI invocations.
+// semanticReranker holds the embedder and a cache of fact vectors. Fact ids hash
+// normalized text plus sorted paths, so a vector is valid for the life of the
+// fact. The in-memory cache makes an eval over many queries embed each fact at
+// most once, and an optional disk store (recall/brief) carries vectors across
+// CLI invocations.
 type semanticReranker struct {
 	e       Embedder
 	cache   map[string][]float32
@@ -64,7 +65,7 @@ func newSemanticRerankerForBranch(e Embedder, brainDir, branch string) *semantic
 	if rr == nil {
 		return nil
 	}
-	rr.store = newVectorStore(brainDir, branch, e.ID(), e.Dim())
+	rr.store = newVectorStore(brainDir, branch, factEmbeddingModelID(e.ID()), e.Dim())
 	rr.cache = rr.store.load()
 	rr.touched = map[string]bool{}
 	return rr
@@ -84,15 +85,23 @@ func (s *semanticReranker) factVector(f factRecord) []float32 {
 		s.touched[f.ID] = true
 	}
 	if v, ok := s.cache[f.ID]; ok {
-		return v
+		if len(v) == s.e.Dim() && vectorHasMagnitude(v) {
+			return v
+		}
+		// Keep a tombstone until flush. savePresent merges with the latest disk
+		// state under the write lock, so deleting only from this stale in-memory
+		// snapshot could otherwise resurrect the invalid persisted vector.
+		s.cache[f.ID] = nil
+		s.dirty = true
 	}
-	v := s.e.Embed(f.Text)
-	// Cache only a full-dimension vector. A transient embed failure (nil/short)
+	v := s.e.Embed(factEmbeddingText(f))
+	// Cache only a finite, non-zero, full-dimension vector. A transient embed
+	// failure (nil, short, zero, or non-finite)
 	// must not be cached, or every later call this process would reuse the empty
 	// result and never retry; returning it uncached lets a later call re-embed.
 	// Require Dim()>0 too: a failed dimension probe can report 0, which a nil
 	// vector (len 0) would otherwise satisfy and get cached.
-	if d := s.e.Dim(); d > 0 && len(v) == d {
+	if d := s.e.Dim(); d > 0 && len(v) == d && vectorHasMagnitude(v) {
 		s.cache[f.ID] = v
 		s.dirty = true
 	}
@@ -110,10 +119,7 @@ type queryEmbedder interface {
 // has one, so a document/query asymmetry (EmbeddingGemma) is honored without
 // changing the symmetric Model2Vec path.
 func (s *semanticReranker) embedQuery(query string) []float32 {
-	if qe, ok := s.e.(queryEmbedder); ok {
-		return qe.EmbedQuery(query)
-	}
-	return s.e.Embed(query)
+	return embedQueryWith(s.e, query)
 }
 
 // retain marks ids as present this run for prune purposes, without forcing an
@@ -163,11 +169,10 @@ func (s *semanticReranker) flush() error {
 // semantic (cosine) list. When rr is nil it is exactly rankFacts (pure
 // lexical), so callers without an embedder are unaffected.
 //
-// The fusion is what attacks both measured failure modes at once:
-//   - Reachability (the 0.667 lexical ceiling): the semantic list ranks the
-//     *entire* active candidate set, so a relevant fact that shares no query
-//     term still gets a rank and can surface — something no lexical weighting
-//     can do.
+// The fusion addresses two general retrieval failure modes at once:
+//   - Reachability: a corpus-relative semantic
+//     upper-tail candidate can surface without shared query terms, which no
+//     lexical weighting can do.
 //   - Ranking within reach: a fact strong in both lists fuses above one strong
 //     in only one, reordering the lexically-reachable set by meaning.
 //
@@ -181,17 +186,20 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		limit = 10
 	}
 	type cand struct {
-		rec    factRecord
-		lex    float64
-		lexHit bool // retrieved by the lexical arm (distinguishes a 0-score BM25 hit from a miss)
-		cos    float64
+		rec           factRecord
+		lex           float64
+		lexHit        bool // retrieved by the lexical arm (distinguishes a 0-score BM25 hit from a miss)
+		cos           float64
+		semanticValid bool
+		semantic      bool
 	}
 	queryLocus := factLocus(query)
 	qvec := rr.embedQuery(query)
 	// No query embedding (e.g. the embedder is unavailable) → fall back cleanly to
 	// lexical-only ranking. Otherwise every cosine is 0 and the semantic arm would
 	// still add an RRF term, reordering results by the UpdatedAt tiebreaker.
-	haveSemantic := len(qvec) > 0
+	dim := rr.e.Dim()
+	haveSemantic := dim > 0 && len(qvec) == dim && vectorHasMagnitude(qvec)
 	candidates := make([]factRecord, 0, len(facts))
 	for _, f := range facts {
 		if !includeAll && f.Status != factStatusActive {
@@ -236,16 +244,47 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 			lex = float64(factLexicalScore(f, query, queryLocus))
 			lexHit = lex > 0
 		}
-		cos := 0.0
+		cos := math.NaN()
+		semanticValid := false
 		if haveSemantic {
-			if c, ok := storeCos[f.ID]; ok {
+			cached, cachedOK := rr.cache[f.ID]
+			if c, ok := storeCos[f.ID]; ok && isFinite(c) && cachedOK && len(cached) == dim && vectorHasMagnitude(cached) {
 				cos = c
+				semanticValid = true
 				rr.markTouched(f.ID)
 			} else {
-				cos = cosineFloat32(qvec, rr.factVector(f))
+				vector := rr.factVector(f)
+				if len(vector) == len(qvec) && vectorHasMagnitude(vector) {
+					cos = cosineFloat32(qvec, vector)
+					semanticValid = isFinite(cos)
+				}
 			}
 		}
-		cands = append(cands, cand{rec: f, lex: lex, lexHit: lexHit, cos: cos})
+		cands = append(cands, cand{
+			rec: f, lex: lex, lexHit: lexHit, cos: cos, semanticValid: semanticValid,
+		})
+	}
+	if haveSemantic {
+		cosines := make([]float64, len(cands))
+		needsCalibration := false
+		for index := range cands {
+			cosines[index] = cands[index].cos
+			needsCalibration = needsCalibration || (cands[index].semanticValid && !cands[index].lexHit)
+		}
+		var backgrounds []float64
+		if needsCalibration {
+			vectors := make([][]float32, len(cands))
+			for index := range cands {
+				if cands[index].semanticValid {
+					vectors[index] = rr.factVector(cands[index].rec)
+				}
+			}
+			backgrounds = semanticLeaveOneOutBackgrounds(qvec, vectors)
+		}
+		mask := semanticResultMask(cosines, needsCalibration, backgrounds)
+		for index := range cands {
+			cands[index].semantic = mask[index]
+		}
 	}
 
 	// Lexical ranks: only facts retrieved lexically (lexHit) contribute a lexical
@@ -272,19 +311,41 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		}
 	}
 
-	// Semantic ranks: the full candidate set is ranked by cosine, so a
-	// term-disjoint but semantically-near fact still earns a rank. Skipped entirely
-	// when there's no query embedding, leaving a clean lexical-only ranking.
+	// Semantic ranks: semantic-only candidates must clear the corpus-relative
+	// gate. Lexical hits always retain their semantic rank, so admitting one
+	// semantic-only candidate cannot discontinuously reshuffle unrelated lexical
+	// hits. A separate calibration arm gives high-confidence term-disjoint hits
+	// the same two-arm opportunity as lexical+semantic hits without deleting any
+	// other candidate's evidence.
 	if haveSemantic {
-		sort.SliceStable(order, func(a, b int) bool {
-			ia, ib := order[a], order[b]
+		semanticOrder := make([]int, 0, len(cands))
+		for index := range cands {
+			// An invalid vector is unavailable evidence, not a synthetic zero-score
+			// semantic hit. Its lexical vote remains intact.
+			if !cands[index].semanticValid {
+				continue
+			}
+			if cands[index].semantic || cands[index].lexHit {
+				semanticOrder = append(semanticOrder, index)
+			}
+		}
+		sort.SliceStable(semanticOrder, func(a, b int) bool {
+			ia, ib := semanticOrder[a], semanticOrder[b]
 			if cands[ia].cos != cands[ib].cos {
 				return cands[ia].cos > cands[ib].cos
 			}
 			return cands[ia].rec.UpdatedAt.After(cands[ib].rec.UpdatedAt)
 		})
-		for rank, idx := range order {
+		for rank, idx := range semanticOrder {
 			fused[idx] += 1.0 / (rrfK + float64(rank+1))
+		}
+		calibratedRank := 0
+		for _, idx := range semanticOrder {
+			if !cands[idx].semantic || cands[idx].lexHit {
+				continue
+			}
+			fused[idx] += 1.0 / (rrfK + float64(calibratedRank+1))
+			calibratedRank++
 		}
 	}
 
@@ -296,13 +357,20 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		if fused[ia] != fused[ib] {
 			return fused[ia] > fused[ib]
 		}
-		return cands[ia].rec.UpdatedAt.After(cands[ib].rec.UpdatedAt)
+		if !cands[ia].rec.UpdatedAt.Equal(cands[ib].rec.UpdatedAt) {
+			return cands[ia].rec.UpdatedAt.After(cands[ib].rec.UpdatedAt)
+		}
+		if cands[ia].semanticValid != cands[ib].semanticValid {
+			return cands[ia].semanticValid
+		}
+		if cands[ia].semanticValid && cands[ia].cos != cands[ib].cos {
+			return cands[ia].cos > cands[ib].cos
+		}
+		return cands[ia].rec.ID < cands[ib].rec.ID
 	})
-	// Only facts that earned a retrieval signal (fused > 0) are returned. With an
-	// embedder, every candidate gets a semantic RRF term so this keeps all of them;
-	// but when the embedder is unavailable (lexical-only) and nothing matched
-	// lexically, every fused score is 0 — return nothing rather than an arbitrary
-	// recency-ordered top-N (matches rankFacts's score>0 filter).
+	// Only facts that earned a lexical or calibrated semantic signal are returned.
+	// If nothing matched, return nothing rather than an arbitrary recency-ordered
+	// top-N (matches rankFacts's score>0 filter).
 	out := make([]factRecord, 0, min(limit, len(order)))
 	for _, idx := range order {
 		if fused[idx] <= 0 {

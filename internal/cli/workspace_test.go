@@ -2942,6 +2942,7 @@ func TestSplitWorkspaceID(t *testing.T) {
 		wantErr bool
 	}{
 		{in: "gh/owner/repo/fact:abc", repoKey: "gh/owner/repo", id: "fact:abc"},
+		{in: "gh/owner/repo/review:abc", repoKey: "gh/owner/repo", id: "review:abc"},
 		{in: "local/abc123/history:h1", repoKey: "local/abc123", id: "history:h1"},
 		{in: "gh/owner/repo/doc:guide", repoKey: "gh/owner/repo", id: "doc:guide"},
 		{in: "fact:abc", wantErr: true},      // unqualified

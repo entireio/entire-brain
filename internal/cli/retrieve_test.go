@@ -19,6 +19,18 @@ func (emptyEmbedder) Embed(string) []float32 { return nil }
 func (emptyEmbedder) Dim() int               { return 768 }
 func (emptyEmbedder) ID() string             { return "empty-embedder" }
 
+type wrongDimensionQueryEmbedder struct {
+	embeds []string
+}
+
+func (e *wrongDimensionQueryEmbedder) Embed(text string) []float32 {
+	e.embeds = append(e.embeds, text)
+	return []float32{1, 0}
+}
+func (*wrongDimensionQueryEmbedder) EmbedQuery(string) []float32 { return []float32{1} }
+func (*wrongDimensionQueryEmbedder) Dim() int                    { return 2 }
+func (*wrongDimensionQueryEmbedder) ID() string                  { return "wrong-query-dimension" }
+
 func TestVectorRankedReturnsNothingWhenEmbedderUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	facts := []factRecord{{ID: "fact:a", Text: "alpha"}, {ID: "fact:b", Text: "beta"}}
@@ -26,8 +38,41 @@ func TestVectorRankedReturnsNothingWhenEmbedderUnavailable(t *testing.T) {
 		t.Fatalf("facts: empty embedder must yield no semantic results, got %d (arbitrary top-N)", len(out))
 	}
 	idx := docIndex{Records: []docRecord{{ID: "d1", Text: "x"}, {ID: "d2", Text: "y"}}}
-	if out := docsVectorRanked(dir, idx, "q", emptyEmbedder{}, 10); len(out) != 0 {
-		t.Fatalf("docs: empty embedder must yield no semantic results, got %d", len(out))
+	if out := docsVectorRanked(dir, idx, "q", emptyEmbedder{}, 10, false, nil); len(out.ranked) != 0 {
+		t.Fatalf("docs: empty embedder must yield no semantic results, got %d", len(out.ranked))
+	}
+}
+
+func TestVectorRankedWrongDimensionQueryPreservesCaches(t *testing.T) {
+	dir := t.TempDir()
+	e := &wrongDimensionQueryEmbedder{}
+	fact := factRecord{ID: "fact:valid", Text: "valid fact", Status: factStatusActive}
+	factStore := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
+	factPresent := map[string]struct{}{fact.ID: {}}
+	if err := factStore.savePresent(map[string][]float32{fact.ID: {1, 0}}, factPresent); err != nil {
+		t.Fatal(err)
+	}
+	doc := docRecord{ID: "valid", Text: "valid doc"}
+	docStore := newDocEmbedStore(dir, e.ID(), e.Dim())
+	docPresent := map[string]struct{}{doc.ID: {}}
+	if err := docStore.savePresent(map[string][]float32{doc.ID: {1, 0}}, docPresent); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := factsVectorRanked(dir, "main", []factRecord{fact}, "bad query", e, 1); len(got) != 0 {
+		t.Fatalf("wrong-dimension fact query returned semantic results: %+v", got)
+	}
+	if got := docsVectorRanked(dir, docIndex{Records: []docRecord{doc}}, "bad query", e, 1, false, nil); len(got.ranked) != 0 {
+		t.Fatalf("wrong-dimension doc query returned semantic results: %+v", got.ranked)
+	}
+	if got := factStore.load()[fact.ID]; !vectorHasMagnitude(got) {
+		t.Fatalf("wrong-dimension query damaged the valid fact cache: %v", got)
+	}
+	if got := docStore.load()[doc.ID]; !vectorHasMagnitude(got) {
+		t.Fatalf("wrong-dimension query damaged the valid doc cache: %v", got)
+	}
+	if len(e.embeds) != 0 {
+		t.Fatalf("wrong-dimension query should fail before re-embedding documents: %v", e.embeds)
 	}
 }
 
@@ -41,7 +86,7 @@ func TestGetUnifiedBatchPreservesOrderAndReportsMissing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(docIndexPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	found, missing, err := getUnifiedBatch(dir, "main", []string{"doc:bbb", "doc:nope", "doc:aaa"})
+	found, missing, err := getUnifiedBatch("", dir, "main", []string{"doc:bbb", "doc:nope", "doc:aaa"})
 	if err != nil {
 		t.Fatalf("getUnifiedBatch: %v", err)
 	}
@@ -93,12 +138,104 @@ func TestFactsVectorRankedRanksActiveButCachesAll(t *testing.T) {
 	}
 	// But every present fact is cached on the shared store, matching the reranker's
 	// retain-all convention (so vsearch doesn't churn the recall/brief cache).
-	cache := newEmbedStore(dir, "main", e.ID(), e.Dim()).load()
+	cache := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim()).load()
 	if _, ok := cache["fact:act"]; !ok {
 		t.Fatal("active fact vector should be cached")
 	}
 	if _, ok := cache["fact:sup"]; !ok {
 		t.Fatal("superseded fact vector should still be cached, not evicted")
+	}
+}
+
+func TestFactsVectorRankedRepairsInvalidCachedVector(t *testing.T) {
+	dir := t.TempDir()
+	fact := factRecord{ID: "fact:repair", Text: "durable checkpoint policy", Status: factStatusActive}
+	e := &fakeFusionEmbedder{vecs: map[string][]float32{
+		"repair query":          {1, 0},
+		factEmbeddingText(fact): {1, 0},
+	}}
+	store := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
+	present := map[string]struct{}{fact.ID: {}}
+	if err := store.savePresent(map[string][]float32{fact.ID: {0, 0}}, present); err != nil {
+		t.Fatal(err)
+	}
+
+	out := factsVectorRanked(dir, "main", []factRecord{fact}, "repair query", e, 1)
+	if len(out) != 1 || out[0].ID != fact.ID {
+		t.Fatalf("invalid cached fact vector was not repaired: %+v", out)
+	}
+	if got := store.load()[fact.ID]; !vectorHasMagnitude(got) {
+		t.Fatalf("repaired fact vector was not persisted: %v", got)
+	}
+	if len(e.embeds) != 2 || e.embeds[1] != factEmbeddingText(fact) {
+		t.Fatalf("expected query plus one fact re-embed, got %v", e.embeds)
+	}
+}
+
+func TestFactsVectorRankedDropsInvalidCachedVectorWhenRepairFails(t *testing.T) {
+	dir := t.TempDir()
+	fact := factRecord{ID: "fact:invalid", Text: "durable checkpoint policy", Status: factStatusActive}
+	e := &fakeFusionEmbedder{
+		vecs: map[string][]float32{"repair query": {1, 0}},
+		fail: func(text string) bool { return text == factEmbeddingText(fact) },
+	}
+	store := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
+	present := map[string]struct{}{fact.ID: {}}
+	if err := store.savePresent(map[string][]float32{fact.ID: {0, 0}}, present); err != nil {
+		t.Fatal(err)
+	}
+
+	if out := factsVectorRanked(dir, "main", []factRecord{fact}, "repair query", e, 1); len(out) != 0 {
+		t.Fatalf("failed repair returned an invalid semantic hit: %+v", out)
+	}
+	if _, ok := store.load()[fact.ID]; ok {
+		t.Fatal("failed repair left the invalid fact vector on disk")
+	}
+}
+
+func TestDocsVectorRankedRepairsInvalidCachedVector(t *testing.T) {
+	dir := t.TempDir()
+	doc := docRecord{ID: "repair", Text: "durable checkpoint policy"}
+	e := &fakeFusionEmbedder{vecs: map[string][]float32{
+		"repair query": {1, 0},
+		doc.Text:       {1, 0},
+	}}
+	store := newDocEmbedStore(dir, e.ID(), e.Dim())
+	present := map[string]struct{}{doc.ID: {}}
+	if err := store.savePresent(map[string][]float32{doc.ID: {0, 0}}, present); err != nil {
+		t.Fatal(err)
+	}
+
+	out := docsVectorRanked(dir, docIndex{Records: []docRecord{doc}}, "repair query", e, 1, false, nil)
+	if len(out.ranked) != 1 || out.ranked[0].ID != "doc:"+doc.ID {
+		t.Fatalf("invalid cached doc vector was not repaired: %+v", out.ranked)
+	}
+	if got := store.load()[doc.ID]; !vectorHasMagnitude(got) {
+		t.Fatalf("repaired doc vector was not persisted: %v", got)
+	}
+	if len(e.embeds) != 2 || e.embeds[1] != doc.Text {
+		t.Fatalf("expected query plus one doc re-embed, got %v", e.embeds)
+	}
+}
+
+func TestDocsVectorRankedDropsInvalidCachedVectorWhenRepairFails(t *testing.T) {
+	dir := t.TempDir()
+	doc := docRecord{ID: "invalid", Text: "durable checkpoint policy"}
+	e := &fakeFusionEmbedder{
+		vecs: map[string][]float32{"repair query": {1, 0}},
+		fail: func(text string) bool { return text == doc.Text },
+	}
+	store := newDocEmbedStore(dir, e.ID(), e.Dim())
+	present := map[string]struct{}{doc.ID: {}}
+	if err := store.savePresent(map[string][]float32{doc.ID: {0, 0}}, present); err != nil {
+		t.Fatal(err)
+	}
+
+	if out := docsVectorRanked(dir, docIndex{Records: []docRecord{doc}}, "repair query", e, 1, false, nil); len(out.ranked) != 0 {
+		t.Fatalf("failed repair returned an invalid semantic hit: %+v", out.ranked)
+	}
+	if _, ok := store.load()[doc.ID]; ok {
+		t.Fatal("failed repair left the invalid doc vector on disk")
 	}
 }
 
@@ -394,6 +531,36 @@ func TestQMDTopLevelHelpListsRetrievalVerbs(t *testing.T) {
 	for _, want := range []string{"search", "vsearch", "query", "get", "multi-get"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("root help missing QMD verb %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestPrintRetrievalCaveatsIncludesStructuredContext(t *testing.T) {
+	var out strings.Builder
+	printRetrievalCaveats(&out, unifiedResult{Caveats: []retrievalCaveat{
+		{
+			Kind:    retrievalCaveatStaleLocus,
+			Message: "Current code no longer contains every recorded path.",
+			Paths:   []string{"internal/old.go", "pkg/removed.go"},
+		},
+		{
+			Kind:       retrievalCaveatUnresolvedReview,
+			Message:    "A pending supersede proposal requires review.",
+			ReviewID:   "review:abc",
+			Action:     factActionSupersede,
+			Confidence: 0.55,
+		},
+	}})
+	text := out.String()
+	for _, want := range []string{
+		"Current code no longer contains every recorded path.",
+		"paths=internal/old.go,pkg/removed.go",
+		"review=review:abc",
+		"action=supersede",
+		"confidence=0.55",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("caveat output missing %q:\n%s", want, text)
 		}
 	}
 }

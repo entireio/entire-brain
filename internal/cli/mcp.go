@@ -287,7 +287,7 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_get",
-			"description": "Fetch one item in full by its id (fact:… | history:… | doc:… | pattern:… | theme:…), e.g. from a search result or pattern listing.",
+			"description": "Fetch one item in full by its id (fact:… | review:… | history:… | doc:… | pattern:… | theme:…), e.g. from a search result or pattern listing.",
 			"inputSchema": objectSchema([]string{"id"}, map[string]any{"id": stringArg("id", "Prefixed item id"), "branch": branchArg()}),
 		},
 		{

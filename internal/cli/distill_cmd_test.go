@@ -81,6 +81,7 @@ func TestRunDistillForBrainWritesFactsAndManifest(t *testing.T) {
 	var calls int
 	fakeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		calls++
+		recordDistillProviderUsage(ctx, distillProviderUsage{Source: "test_provider", Reported: true, InputReported: true, OutputReported: true, InputTokens: 100, OutputTokens: 10})
 		// The agent must receive a line-numbered transcript chunk on stdin.
 		if !strings.Contains(string(input), "1\tturn one") {
 			t.Errorf("chunk not line-numbered: %q", input)
@@ -95,6 +96,9 @@ func TestRunDistillForBrainWritesFactsAndManifest(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Fatalf("expected one agent call per session (2), got %d", calls)
+	}
+	if source.TokenUsage == nil || !source.TokenUsage.Complete || source.TokenUsage.Calls != 2 || source.TokenUsage.CallsReported != 2 || source.TokenUsage.CallsMissing != 0 || source.TokenUsage.InputTokens != 200 || source.TokenUsage.OutputTokens != 20 || source.TokenUsage.TotalTokens != 220 {
+		t.Fatalf("provider token usage was not preserved: %+v", source.TokenUsage)
 	}
 	if source.Facts != 2 || source.Distilled != 2 {
 		t.Fatalf("expected 2 distilled facts, got %+v", source)

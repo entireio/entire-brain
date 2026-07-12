@@ -13,9 +13,10 @@ import (
 // invocation (each process otherwise starts with a cold in-memory cache). The
 // file is a regenerable derived artifact, like facts.ndjson itself.
 //
-// Keying is by content-derived fact id, and the header records the embedder's
-// model id + dim: a model swap (or any dim change) fails the load and triggers
-// a clean rebuild, so stale vectors from a different backend are never mixed in.
+// Keying is by content-derived fact id, and the single store header records the
+// embedder's model id + dim: a model or embedding-document version change fails
+// the load and rewrites this same file, so stale vectors are neither mixed nor
+// retained in sibling namespace files.
 type embedStore struct {
 	path     string // absolute path to vectors.bin
 	brainDir string
@@ -104,6 +105,9 @@ func (s *embedStore) savePresent(vecs map[string][]float32, present map[string]s
 						continue
 					}
 				}
+				// A wrong-dimension value (normally nil) is an explicit tombstone:
+				// it replaces a concurrently reloaded stale entry, and saveUnlocked
+				// omits it from the rewritten cache.
 				merged[id] = vec
 			}
 			return s.saveUnlocked(merged)
