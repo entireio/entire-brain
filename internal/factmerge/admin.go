@@ -40,6 +40,13 @@ func ApplyProposal(facts []Record, p Proposal, now time.Time) ([]Record, error) 
 		return removeFactByID(facts, p.CandidateID), nil
 	}
 	// supersede
+	// A queued proposal can represent an explicit reassertion of a fact whose
+	// same-ID historical record is no longer active. Human approval is the
+	// narrow signal to reactivate it; ordinary deduplication remains status-
+	// preserving.
+	facts[ci].Status = StatusActive
+	facts[ci].SupersededBy = ""
+	facts[ci].UpdatedAt = now
 	facts[ti].Status = StatusSuperseded
 	facts[ti].SupersededBy = facts[ci].ID
 	facts[ti].UpdatedAt = now

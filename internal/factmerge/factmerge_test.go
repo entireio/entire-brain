@@ -414,6 +414,49 @@ func TestApplyProposalSupersede(t *testing.T) {
 	}
 }
 
+func TestApplyProposalSupersedeReactivatesHistoricalCandidate(t *testing.T) {
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	for _, priorStatus := range []string{StatusSuperseded, StatusRetracted} {
+		t.Run(priorStatus, func(t *testing.T) {
+			candidate := factFor(t, "old truth reasserted", []string{"project.tooling.stack"}, now)
+			target := factFor(t, "current truth", []string{"project.tooling.stack"}, now.Add(time.Hour))
+			candidate.Status = priorStatus
+			candidate.SupersededBy = target.ID
+			candidate.RelatedIDs = []string{target.ID}
+			target.RelatedIDs = []string{candidate.ID}
+
+			out, err := ApplyProposal(
+				[]Record{candidate, target},
+				Proposal{Action: ActionSupersede, CandidateID: candidate.ID, TargetID: target.ID},
+				now.Add(2*time.Hour),
+			)
+			if err != nil {
+				t.Fatalf("ApplyProposal: %v", err)
+			}
+			ci := IndexOf(out, candidate.ID)
+			ti := IndexOf(out, target.ID)
+			if ci < 0 || out[ci].Status != StatusActive || out[ci].SupersededBy != "" {
+				t.Fatalf("approved candidate was not reactivated: %+v", out)
+			}
+			if ti < 0 || out[ti].Status != StatusSuperseded || out[ti].SupersededBy != candidate.ID {
+				t.Fatalf("target was not superseded by approved candidate: %+v", out)
+			}
+			activeCount := 0
+			for _, fact := range out {
+				if fact.Status == StatusActive {
+					activeCount++
+				}
+			}
+			if activeCount != 1 {
+				t.Fatalf("approved supersede left %d active facts: %+v", activeCount, out)
+			}
+			if len(out[ci].RelatedIDs) != 0 || len(out[ti].RelatedIDs) != 0 {
+				t.Fatalf("approved proposal left stale conflict links: %+v", out)
+			}
+		})
+	}
+}
+
 func TestApplyProposalStale(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	cand := factFor(t, "c", []string{"project.tooling.stack"}, now)

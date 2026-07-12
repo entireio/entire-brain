@@ -48,6 +48,31 @@ func TestApplyProposalSupersede(t *testing.T) {
 	}
 }
 
+func TestApplyProposalSupersedeReactivatesHistoricalCandidate(t *testing.T) {
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	candidate := factFor(t, "old truth reasserted", []string{"project.tooling.stack"}, now)
+	target := factFor(t, "current truth", []string{"project.tooling.stack"}, now.Add(time.Hour))
+	candidate.Status = factStatusRetracted
+	candidate.SupersededBy = target.ID
+
+	out, err := applyProposal(
+		[]factRecord{candidate, target},
+		factProposal{Action: factActionSupersede, CandidateID: candidate.ID, TargetID: target.ID},
+		now.Add(2*time.Hour),
+	)
+	if err != nil {
+		t.Fatalf("applyProposal: %v", err)
+	}
+	ci := indexOfFact(out, candidate.ID)
+	ti := indexOfFact(out, target.ID)
+	if ci < 0 || out[ci].Status != factStatusActive || out[ci].SupersededBy != "" {
+		t.Fatalf("review path did not reactivate the approved candidate: %+v", out)
+	}
+	if ti < 0 || out[ti].Status != factStatusSuperseded || out[ti].SupersededBy != candidate.ID {
+		t.Fatalf("review path did not supersede the target: %+v", out)
+	}
+}
+
 func TestApplyProposalStale(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	cand := factFor(t, "c", []string{"project.tooling.stack"}, now)
