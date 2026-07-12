@@ -254,6 +254,51 @@ func TestApplyActionsHighConfidenceSupersede(t *testing.T) {
 	}
 }
 
+func TestApplyActionsSupersedeReactivatesReassertedFact(t *testing.T) {
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	for _, priorStatus := range []string{StatusSuperseded, StatusRetracted} {
+		t.Run(priorStatus, func(t *testing.T) {
+			prior := factFor(t, "Use Supabase for the database.", []string{"project.tooling.stack"}, now)
+			current := factFor(t, "Use MySQL for the database, not Supabase.", []string{"project.tooling.stack"}, now.Add(time.Hour))
+			prior.Status = priorStatus
+			prior.SupersededBy = current.ID
+			prior.Provenance = []Anchor{{SessionID: "original"}}
+			current.Status = StatusActive
+
+			reasserted := factFor(t, prior.Text, prior.Paths, now.Add(2*time.Hour))
+			reasserted.Provenance = []Anchor{{SessionID: "reassertion"}}
+			out, proposals := ApplyActions([]Record{prior, current}, []Action{
+				{Kind: ActionSupersede, TargetID: current.ID, Confidence: 0.96, Candidate: reasserted},
+			}, DefaultConfidenceThreshold, now.Add(2*time.Hour))
+			if len(proposals) != 0 {
+				t.Fatalf("high-confidence reassertion should not queue a proposal: %+v", proposals)
+			}
+			var gotPrior, gotCurrent *Record
+			activeCount := 0
+			for i := range out {
+				if out[i].Status == StatusActive {
+					activeCount++
+				}
+				switch out[i].ID {
+				case prior.ID:
+					gotPrior = &out[i]
+				case current.ID:
+					gotCurrent = &out[i]
+				}
+			}
+			if activeCount != 1 || gotPrior == nil || gotPrior.Status != StatusActive || gotPrior.SupersededBy != "" {
+				t.Fatalf("reasserted fact was not the sole active fact: %+v", out)
+			}
+			if gotCurrent == nil || gotCurrent.Status != StatusSuperseded || gotCurrent.SupersededBy != prior.ID {
+				t.Fatalf("current fact was not superseded by the reassertion: %+v", gotCurrent)
+			}
+			if len(gotPrior.Provenance) != 2 || !contains(gotPrior.RelatedIDs, current.ID) || gotPrior.Confidence != "0.96" {
+				t.Fatalf("reactivated fact lost provenance, relationship, or confidence: %+v", gotPrior)
+			}
+		})
+	}
+}
+
 func TestApplyActionsLowConfidenceQueuesProposal(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	target := factFor(t, "Tests run with go test.", []string{"workflow.testing.rules"}, now)

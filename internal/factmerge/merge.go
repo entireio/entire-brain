@@ -107,6 +107,18 @@ func ApplyActions(active []Record, actions []Action, threshold float64, now time
 			active[ti].SupersededBy = candidate.ID
 			active[ti].UpdatedAt = now
 			candidate.RelatedIDs = appendUniqueString(candidate.RelatedIDs, action.TargetID)
+			// A later session can explicitly reassert the same content-derived fact
+			// after it was superseded or retracted. A high-confidence supersede
+			// decision is the narrow signal that makes reactivation intentional;
+			// ordinary Upsert deduplication continues to preserve non-active state.
+			if ci := IndexOf(active, candidate.ID); ci >= 0 {
+				active[ci].Status = StatusActive
+				active[ci].SupersededBy = ""
+				active[ci].RelatedIDs = appendUniqueString(active[ci].RelatedIDs, action.TargetID)
+				if candidate.Confidence != "" {
+					active[ci].Confidence = candidate.Confidence
+				}
+			}
 			active = Upsert(active, candidate)
 		default:
 			active = Upsert(active, candidate)
