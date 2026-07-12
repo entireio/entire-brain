@@ -2,7 +2,7 @@ package factsync
 
 import (
 	"errors"
-
+	"fmt"
 	"time"
 
 	"github.com/ashtom/entire-brain/internal/factmerge"
@@ -43,9 +43,10 @@ func Resolve(facts []factmerge.Record, p factmerge.Proposal, decision Decision, 
 	case Accept:
 		out, err := factmerge.ApplyProposal(facts, p, now)
 		if err != nil {
-			// factmerge reports a missing target/candidate as an error; treat it as the
-			// concurrent-resolution signal.
-			return nil, ErrProposalNotApplicable
+			if errors.Is(err, factmerge.ErrStaleProposal) {
+				return nil, ErrProposalNotApplicable
+			}
+			return nil, fmt.Errorf("factsync: apply proposal: %w", err)
 		}
 		return out, nil
 	case Reject:

@@ -480,8 +480,8 @@ func TestApplyProposalRejectsSelfTargetWithoutMutation(t *testing.T) {
 				Proposal{Action: action, CandidateID: fact.ID, TargetID: fact.ID},
 				now.Add(time.Hour),
 			)
-			if !errors.Is(err, errSelfTargetProposal) {
-				t.Fatalf("ApplyProposal error = %v, want %v", err, errSelfTargetProposal)
+			if !errors.Is(err, ErrInvalidProposal) {
+				t.Fatalf("ApplyProposal error = %v, want %v", err, ErrInvalidProposal)
 			}
 			if !reflect.DeepEqual(out, before) || !reflect.DeepEqual(facts, before) {
 				t.Fatalf("self-target proposal mutated facts: out=%+v input=%+v want=%+v", out, facts, before)

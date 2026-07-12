@@ -3,6 +3,7 @@ package factsync
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -176,5 +177,26 @@ func TestResolveStaleProposalSurfaced(t *testing.T) {
 	}
 	if _, err := Resolve(facts, stale, Reject, now); err != ErrProposalNotApplicable {
 		t.Fatalf("Resolve(stale, Reject) = %v; want ErrProposalNotApplicable", err)
+	}
+}
+
+func TestResolvePreservesInvalidProposalError(t *testing.T) {
+	now := time.Date(2026, 7, 7, 0, 0, 0, 0, time.UTC)
+	fact := fact("only fact", []string{"misc.scratch.note"}, "s", now)
+	p := factmerge.Proposal{
+		Action:      factmerge.ActionMerge,
+		CandidateID: fact.ID,
+		TargetID:    fact.ID,
+	}
+
+	out, err := Resolve([]factmerge.Record{fact}, p, Accept, now.Add(time.Hour))
+	if !errors.Is(err, factmerge.ErrInvalidProposal) {
+		t.Fatalf("Resolve(self-target) error = %v, want ErrInvalidProposal", err)
+	}
+	if errors.Is(err, ErrProposalNotApplicable) {
+		t.Fatalf("invalid proposal was misclassified as stale: %v", err)
+	}
+	if out != nil {
+		t.Fatalf("Resolve(self-target) returned facts: %+v", out)
 	}
 }

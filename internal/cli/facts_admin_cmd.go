@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/ashtom/entire-brain/internal/factmerge"
 	"github.com/spf13/cobra"
 )
 
@@ -167,9 +169,12 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 			case applyThis:
 				updated, applyErr := applyProposal(facts, p, now)
 				if applyErr != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "skip stale proposal %s: %v\n", p.CandidateID, applyErr)
-					resolved++ // drop the stale proposal
-					continue
+					if errors.Is(applyErr, factmerge.ErrStaleProposal) {
+						fmt.Fprintf(cmd.ErrOrStderr(), "skip stale proposal %s: %v\n", p.CandidateID, applyErr)
+						resolved++ // drop the stale proposal
+						continue
+					}
+					return fmt.Errorf("apply proposal %s: %w", p.CandidateID, applyErr)
 				}
 				facts = updated
 				resolved++

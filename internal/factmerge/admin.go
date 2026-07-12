@@ -5,13 +5,12 @@ import (
 	"time"
 )
 
-// errStaleProposal is returned when a proposal references a fact that no longer
+// ErrStaleProposal is returned when a proposal references a fact that no longer
 // exists (e.g. pruned or already resolved).
-var errStaleProposal = errors.New("proposal references a fact that no longer exists")
+var ErrStaleProposal = errors.New("proposal references a fact that no longer exists")
 
-// errSelfTargetProposal is returned when a malformed proposal names the same
-// fact as both candidate and target.
-var errSelfTargetProposal = errors.New("proposal candidate and target must differ")
+// ErrInvalidProposal is returned when a malformed proposal cannot be applied.
+var ErrInvalidProposal = errors.New("proposal candidate and target must differ")
 
 // removeFactByID returns facts with the record of the given id removed.
 func removeFactByID(facts []Record, id string) []Record {
@@ -31,12 +30,12 @@ func removeFactByID(facts []Record, id string) []Record {
 // stale proposal).
 func ApplyProposal(facts []Record, p Proposal, now time.Time) ([]Record, error) {
 	if p.CandidateID == p.TargetID {
-		return facts, errSelfTargetProposal
+		return facts, ErrInvalidProposal
 	}
 	ci := IndexOf(facts, p.CandidateID)
 	ti := IndexOf(facts, p.TargetID)
 	if ci < 0 || ti < 0 {
-		return facts, errStaleProposal
+		return facts, ErrStaleProposal
 	}
 	facts = clearConflictLink(facts, p.CandidateID, p.TargetID)
 	ci = IndexOf(facts, p.CandidateID)

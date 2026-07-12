@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"errors"
+	"reflect"
 	"testing"
 	"time"
+
+	"github.com/ashtom/entire-brain/internal/factmerge"
 )
 
 func TestApplyProposalMerge(t *testing.T) {
@@ -78,6 +82,44 @@ func TestApplyProposalStale(t *testing.T) {
 	cand := factFor(t, "c", []string{"project.tooling.stack"}, now)
 	if _, err := applyProposal([]factRecord{cand}, factProposal{Action: factActionMerge, CandidateID: cand.ID, TargetID: "fact:gone"}, now); err == nil {
 		t.Fatalf("expected stale-proposal error")
+	}
+}
+
+func TestFactsReviewInvalidSelfTargetPreservesState(t *testing.T) {
+	for _, action := range []string{factActionMerge, factActionSupersede} {
+		t.Run(action, func(t *testing.T) {
+			f := newVerifyFixture(t)
+			fact := factFor(t, "only fact", []string{"project.tooling.stack"}, f.now)
+			facts := []factRecord{fact}
+			proposals := []factProposal{{
+				Action:      action,
+				CandidateID: fact.ID,
+				TargetID:    fact.ID,
+				Branch:      "main",
+			}}
+			if err := writeFacts(f.brainDir, "main", facts); err != nil {
+				t.Fatalf("write facts: %v", err)
+			}
+			if err := writeFactProposals(f.brainDir, "main", proposals); err != nil {
+				t.Fatalf("write proposals: %v", err)
+			}
+
+			_, err := execute(t, NewRootCommand(f.opts), "facts", "review", "--apply", fact.ID)
+			if !errors.Is(err, factmerge.ErrInvalidProposal) {
+				t.Fatalf("facts review error = %v, want ErrInvalidProposal", err)
+			}
+			gotFacts, err := loadFacts(f.brainDir, "main")
+			if err != nil {
+				t.Fatalf("load facts: %v", err)
+			}
+			gotProposals, err := loadFactProposals(f.brainDir, "main")
+			if err != nil {
+				t.Fatalf("load proposals: %v", err)
+			}
+			if !reflect.DeepEqual(gotFacts, facts) || !reflect.DeepEqual(gotProposals, proposals) {
+				t.Fatalf("invalid review changed state: facts=%+v proposals=%+v", gotFacts, gotProposals)
+			}
+		})
 	}
 }
 
