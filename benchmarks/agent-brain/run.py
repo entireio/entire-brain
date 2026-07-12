@@ -2646,6 +2646,10 @@ def temporal_agent_read_isolation(
         f"(deny file-write* (subpath {json.dumps(str(path))}))" for path in denied_roots
     )
     lines.extend(
+        f"(deny file-read* (literal {json.dumps(str(path))}))"
+        for path in sorted(host_entire_executables, key=str)
+    )
+    lines.extend(
         f"(deny process-exec (literal {json.dumps(str(path))}))"
         for path in sorted(host_entire_executables, key=str)
     )

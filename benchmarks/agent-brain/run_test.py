@@ -6031,6 +6031,9 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
             host_exec_probe = run.run_cmd(
                 ["/usr/bin/sandbox-exec", "-p", profile, str(host_entire)]
             )
+            host_exec_read_probe = run.run_cmd(
+                ["/usr/bin/sandbox-exec", "-p", profile, "/bin/cat", str(host_entire)]
+            )
             frozen_exec_probe = run.run_cmd(
                 ["/usr/bin/sandbox-exec", "-p", profile, str(frozen_brain)]
             )
@@ -6047,6 +6050,7 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
             self.assertNotEqual(denied_probe.returncode, 0)
             self.assertNotEqual(host_data_probe.returncode, 0)
             self.assertNotEqual(host_exec_probe.returncode, 0)
+            self.assertNotEqual(host_exec_read_probe.returncode, 0)
             self.assertEqual(frozen_exec_probe.returncode, 0)
             self.assertEqual(frozen_exec_probe.stdout, "frozen")
             self.assertEqual(allowed_write_probe.returncode, 0)
