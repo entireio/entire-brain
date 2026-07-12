@@ -248,6 +248,12 @@ func appendVitalityEventsBoundedWithLockTimeout(brainDir, branch string, events 
 // (unwritable sidecar, lock timeout, corrupt store) degrades to at most one
 // diagnostic line on errW and leaves the read result untouched.
 func recordServedFacts(errW io.Writer, at time.Time, brainDir, branch, surface, head, taskText string, factIDs []string) {
+	recordServedFactsWithLockTimeout(
+		errW, at, brainDir, branch, surface, head, taskText, factIDs, factsVitalityLockTimeout,
+	)
+}
+
+func recordServedFactsWithLockTimeout(errW io.Writer, at time.Time, brainDir, branch, surface, head, taskText string, factIDs []string, lockTimeout time.Duration) {
 	if brainDir == "" || len(factIDs) == 0 {
 		return
 	}
@@ -267,7 +273,9 @@ func recordServedFacts(errW io.Writer, at time.Time, brainDir, branch, surface, 
 			Branch:  branch,
 		})
 	}
-	if err := appendVitalityEvents(brainDir, branch, events); err != nil && errW != nil {
+	if err := appendVitalityEventsBoundedWithLockTimeout(
+		brainDir, branch, events, factsVitalityLogMaxBytes, lockTimeout,
+	); err != nil && errW != nil {
 		// The error may be a failed append (receipts dropped) or a failed
 		// inline compaction after a successful append; either way it is one
 		// bounded line per invocation and never a read failure.

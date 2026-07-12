@@ -119,6 +119,33 @@ func TestVitalityRecallRecordsServeReceipts(t *testing.T) {
 	}
 }
 
+func TestVitalityRecallNoHitSkipsHeadLookupAndReceipt(t *testing.T) {
+	f := newVerifyFixture(t)
+	f.runner.calls = nil
+
+	out, err := execute(t, NewRootCommand(f.opts), "recall", "no matching durable fact", "--no-semantic", "--json")
+	if err != nil {
+		t.Fatalf("no-hit recall: %v\n%s", err, out)
+	}
+	var response struct {
+		Facts []factRecord `json:"facts"`
+	}
+	if err := json.Unmarshal([]byte(out), &response); err != nil {
+		t.Fatalf("parse no-hit recall: %v\n%s", err, out)
+	}
+	if len(response.Facts) != 0 {
+		t.Fatalf("no-hit recall returned facts: %+v", response.Facts)
+	}
+	for _, call := range f.runner.calls {
+		if call.name == "git" && len(call.args) == 2 && call.args[0] == "rev-parse" && call.args[1] == "HEAD" {
+			t.Fatalf("no-hit recall performed an unnecessary HEAD lookup: %+v", call)
+		}
+	}
+	if got := vitalitySidecarBytes(t, f.brainDir, "main"); len(got) != 0 {
+		t.Fatalf("no-hit recall wrote a vitality receipt: %s", got)
+	}
+}
+
 func TestVitalityRetrieveGetAndStatusSurfaces(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("Unified retrieval merges facts history docs with RRF.", "main", f.now)
@@ -353,9 +380,15 @@ func TestVitalityBusyLockDropsReceiptWithoutReadPathStall(t *testing.T) {
 	}
 	defer lock.Close()
 
+	if factsVitalityLockTimeout != 50*time.Millisecond {
+		t.Fatalf("product lock budget = %s, want 50ms", factsVitalityLockTimeout)
+	}
+	const testLockBudget = 5 * time.Millisecond
 	start := time.Now()
-	recordServedFacts(io.Discard, time.Now().UTC(), brainDir, "main", "search", "", "query", []string{"fact:a"})
-	if elapsed := time.Since(start); elapsed > 250*time.Millisecond {
+	recordServedFactsWithLockTimeout(
+		io.Discard, time.Now().UTC(), brainDir, "main", "search", "", "query", []string{"fact:a"}, testLockBudget,
+	)
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
 		t.Fatalf("busy vitality lock stalled read path for %s", elapsed)
 	}
 	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(factsVitalityLogRelPath("main")))); !os.IsNotExist(err) {
