@@ -24,6 +24,7 @@ import sys
 import tempfile
 import textwrap
 import time
+import urllib.parse
 from dataclasses import dataclass
 from typing import Any
 
@@ -712,6 +713,62 @@ def display_path(path: pathlib.Path) -> str:
         return f"<external-task>/{path.name}"
 
 
+def provenance_path_reference(
+    value: Any,
+    role: str,
+    *,
+    relative_is_path: bool = False,
+) -> Any:
+    """Replace local paths with reproducible, location-free provenance."""
+    if isinstance(value, (list, tuple)):
+        return [
+            provenance_path_reference(item, role, relative_is_path=relative_is_path)
+            for item in value
+        ]
+    if not isinstance(value, str) or not value:
+        return value
+
+    parsed = urllib.parse.urlparse(value)
+    windows_path = pathlib.PureWindowsPath(value)
+    is_file_url = parsed.scheme.lower() == "file"
+    is_explicit_path = (
+        pathlib.Path(value).is_absolute()
+        or windows_path.is_absolute()
+        or value.startswith(("~/", "./", "../"))
+    )
+    is_network_reference = bool(parsed.scheme and not is_file_url) or bool(
+        re.match(r"^[^/@\s]+@[^:\s]+:.+", value)
+    )
+    if not is_file_url and not is_explicit_path and (
+        not relative_is_path or is_network_reference
+    ):
+        return value
+
+    candidate: pathlib.Path | None = None
+    if is_file_url:
+        decoded_path = urllib.parse.unquote(parsed.path)
+        name = pathlib.PurePosixPath(decoded_path).name or "local-reference"
+        if parsed.netloc in ("", "localhost") and decoded_path:
+            candidate = pathlib.Path(decoded_path)
+    elif windows_path.is_absolute():
+        name = windows_path.name or "local-reference"
+    else:
+        expanded = pathlib.Path(value).expanduser()
+        name = expanded.name or "local-reference"
+        candidate = expanded
+
+    reference: dict[str, Any] = {
+        "role": role,
+        "name": name,
+        "sha256": stable_json_sha256({"role": role, "name": name}),
+        "sha256_kind": "redacted_reference",
+    }
+    if candidate is not None and candidate.is_file():
+        reference["sha256"] = file_sha256(candidate)
+        reference["sha256_kind"] = "file_content"
+    return reference
+
+
 def task_file_sha256(task: dict[str, Any]) -> str | None:
     raw = task.get("_path")
     if not raw:
@@ -787,7 +844,9 @@ def run_config_provenance(
             "refresh": bool(getattr(args, "refresh_brain_cache", False)),
         },
         "requested": {
-            "tasks": getattr(args, "tasks", None),
+            "tasks": provenance_path_reference(
+                getattr(args, "tasks", None), "requested_task"
+            ),
             "agents": getattr(args, "agents", None),
             "runners": getattr(args, "runners", None),
             "conditions": getattr(args, "conditions", None),
@@ -797,7 +856,9 @@ def run_config_provenance(
         "claude_budget": getattr(args, "claude_budget", None),
         "stop_after_no_brain_score": getattr(args, "stop_after_no_brain_score", None),
         "pricing": {
-            "file": getattr(args, "pricing_file", None),
+            "file": provenance_path_reference(
+                getattr(args, "pricing_file", None), "pricing_manifest"
+            ),
             "inline_sha256": text_sha256(pricing_json) if pricing_json else None,
         },
         "env_flags": {
@@ -815,7 +876,7 @@ def run_config_provenance(
     if panel_name or panel_path or panel_config_sha256:
         payload["panel"] = {
             "name": panel_name,
-            "path": panel_path,
+            "path": provenance_path_reference(panel_path, "panel_manifest"),
             "config_sha256": panel_config_sha256,
         }
     payload["fingerprint"] = stable_json_sha256(payload)
@@ -855,7 +916,9 @@ def build_record_provenance(
             "repo_path_input": repo_path_input,
             "repo_path_role": "task_source",
             "repo_path_name": source.resolve().name,
-            "origin_url": git_remote_url(source),
+            "origin_url": provenance_path_reference(
+                git_remote_url(source), "source_origin", relative_is_path=True
+            ),
             "base_ref": str(task_base or "HEAD"),
             "base_ref_source": "task.base_commit" if task_base else "source_head",
             "base": base,

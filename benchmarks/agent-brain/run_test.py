@@ -1688,6 +1688,12 @@ class StatsAndAttributionTests(unittest.TestCase):
                 env=run.benchmark_git_env(),
                 check=True,
             )
+            private_origin = root / "private-origin.git"
+            run.run_cmd(
+                ["git", "remote", "add", "origin", private_origin.as_uri()],
+                cwd=repo,
+                check=True,
+            )
             head = run.run_cmd(["git", "rev-parse", "HEAD"], cwd=repo, check=True).stdout.strip()
             tools_dir = root / "tools"
             tools_dir.mkdir()
@@ -1740,6 +1746,8 @@ class StatsAndAttributionTests(unittest.TestCase):
             self.assertEqual(prov["source"]["repo_path_input"], "<source-repo>")
             self.assertNotIn("repo_path_resolved", prov["source"])
             self.assertNotIn("repo_path", prov["harness"])
+            self.assertEqual(prov["source"]["origin_url"]["role"], "source_origin")
+            self.assertEqual(prov["source"]["origin_url"]["name"], "private-origin.git")
             self.assertNotIn(str(root), json.dumps(prov))
 
             summary = run.suite_provenance([{"provenance": prov}])
@@ -1904,8 +1912,12 @@ class PanelAndStabilityTests(unittest.TestCase):
                 "conditions": ["no_brain", "full_brain"],
                 "repetitions": 4,
             }))
+            task_path = root / "private-task.json"
+            task_path.write_text('{"id":"private-task"}\n')
+            pricing_path = root / "pricing.json"
+            pricing_path.write_text('{"model":{"input_per_million":1}}\n')
             args = argparse.Namespace(
-                tasks=["t"],
+                tasks=[str(task_path), "t"],
                 agents="",
                 runners="codex:gpt-test:low",
                 conditions="no_brain,full_brain",
@@ -1916,10 +1928,10 @@ class PanelAndStabilityTests(unittest.TestCase):
                 timeout=120,
                 claude_budget=None,
                 stop_after_no_brain_score=None,
-                pricing_file=None,
+                pricing_file=str(pricing_path),
                 pricing_json=None,
                 panel_name="release-panel",
-                panel_path=run.display_path(panel_path),
+                panel_path=str(panel_path),
                 panel_config_sha256=run.file_sha256(panel_path),
             )
             payload = run.run_config_provenance(
@@ -1931,8 +1943,16 @@ class PanelAndStabilityTests(unittest.TestCase):
                 args,
             )
             self.assertEqual(payload["panel"]["name"], "release-panel")
-            self.assertEqual(payload["panel"]["path"], run.display_path(panel_path))
+            self.assertEqual(payload["panel"]["path"]["role"], "panel_manifest")
+            self.assertEqual(payload["panel"]["path"]["name"], panel_path.name)
+            self.assertEqual(payload["panel"]["path"]["sha256"], run.file_sha256(panel_path))
             self.assertEqual(payload["panel"]["config_sha256"], run.file_sha256(panel_path))
+            self.assertEqual(payload["pricing"]["file"]["role"], "pricing_manifest")
+            self.assertEqual(payload["pricing"]["file"]["sha256"], run.file_sha256(pricing_path))
+            self.assertEqual(payload["requested"]["tasks"][0]["role"], "requested_task")
+            self.assertEqual(payload["requested"]["tasks"][0]["sha256"], run.file_sha256(task_path))
+            self.assertEqual(payload["requested"]["tasks"][1], "t")
+            self.assertNotIn(str(root), json.dumps(payload))
 
             args.panel_config_sha256 = "f" * 64
             changed = run.run_config_provenance(
