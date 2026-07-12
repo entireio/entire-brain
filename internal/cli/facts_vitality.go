@@ -160,7 +160,8 @@ func withVitalityLockTimeout(brainDir string, timeout time.Duration, fn func() e
 
 // appendBrainRelativeFile appends data to a brain-relative file with the same
 // symlink/hardlink discipline as writeBrainRelativeFileAtomic. Appends are not
-// fsynced — a torn tail line on power loss is tolerated by the log parser.
+// fsynced — a torn tail line on power loss is tolerated by the log parser. A
+// later append first terminates that torn line so it cannot consume a new event.
 func appendBrainRelativeFile(brainDir, rel string, data []byte) error {
 	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
@@ -184,13 +185,26 @@ func appendBrainRelativeFile(brainDir, rel string, data []byte) error {
 	if err := rejectUnsafeExistingRegularFile(abs, "vitality log"); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_APPEND|fileLockOpenFlags(), 0o600)
+	f, err := os.OpenFile(abs, os.O_RDWR|os.O_CREATE|os.O_APPEND|fileLockOpenFlags(), 0o600)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 	if err := rejectOpenFileAlias(abs, f, "vitality log"); err != nil {
 		return err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if info.Size() > 0 && len(data) > 0 && data[0] != '\n' {
+		var last [1]byte
+		if _, err := f.ReadAt(last[:], info.Size()-1); err != nil {
+			return err
+		}
+		if last[0] != '\n' {
+			data = append([]byte{'\n'}, data...)
+		}
 	}
 	_, err = f.Write(data)
 	return err

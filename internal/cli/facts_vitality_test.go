@@ -537,6 +537,46 @@ func TestVitalityCompactionIsIdempotentAndCrashSafe(t *testing.T) {
 	}
 }
 
+func TestVitalityAppendPreservesFirstEventAfterTornTail(t *testing.T) {
+	brainDir := t.TempDir()
+	branch := "main"
+	if err := appendBrainRelativeFile(
+		brainDir,
+		factsVitalityLogRelPath(branch),
+		[]byte(`{"type":"served","fact_id":"torn`),
+	); err != nil {
+		t.Fatalf("seed torn tail: %v", err)
+	}
+	event := vitalityEvent{
+		Type:    vitalityEventServed,
+		FactID:  "fact:survives",
+		At:      time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
+		Surface: "recall",
+		Branch:  branch,
+	}
+	if err := appendVitalityEvents(brainDir, branch, []vitalityEvent{event}); err != nil {
+		t.Fatalf("append after torn tail: %v", err)
+	}
+	data, err := readVitalityLog(brainDir, branch)
+	if err != nil {
+		t.Fatalf("read vitality log: %v", err)
+	}
+	events, malformed := parseVitalityEvents(data)
+	if malformed != 1 {
+		t.Fatalf("malformed lines = %d, want 1; log=%q", malformed, data)
+	}
+	if len(events) != 1 || events[0].FactID != event.FactID {
+		t.Fatalf("post-crash receipt lost: %+v; log=%q", events, data)
+	}
+	rollup, _, err := compactVitality(brainDir, branch)
+	if err != nil {
+		t.Fatalf("compact after torn tail: %v", err)
+	}
+	if got := rollup.Facts[event.FactID]; got == nil || got.Served != 1 {
+		t.Fatalf("post-crash receipt missing from rollup: %+v", got)
+	}
+}
+
 func TestVitalityCorruptLogAndRollupDegrade(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("The corrupt sidecar must not break recall.", "main", f.now)
