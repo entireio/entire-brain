@@ -490,6 +490,31 @@ func TestApplyProposalRejectsSelfTargetWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestApplyProposalRejectsUnknownActionWithoutMutation(t *testing.T) {
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	target := factFor(t, "target fact", []string{"project.tooling.stack"}, now)
+	candidate := factFor(t, "candidate fact", []string{"project.tooling.stack"}, now)
+	target.RelatedIDs = []string{candidate.ID}
+	candidate.RelatedIDs = []string{target.ID}
+	facts := []Record{target, candidate}
+	before := append([]Record(nil), facts...)
+	for index := range before {
+		before[index].RelatedIDs = append([]string(nil), facts[index].RelatedIDs...)
+	}
+
+	out, err := ApplyProposal(
+		facts,
+		Proposal{Action: "merg", CandidateID: candidate.ID, TargetID: target.ID},
+		now.Add(time.Hour),
+	)
+	if !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("ApplyProposal error = %v, want ErrInvalidProposal", err)
+	}
+	if !reflect.DeepEqual(out, before) || !reflect.DeepEqual(facts, before) {
+		t.Fatalf("unknown action mutated facts: out=%+v input=%+v want=%+v", out, facts, before)
+	}
+}
+
 func TestRejectProposalKeepsBothActive(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	a := factFor(t, "a", []string{"project.tooling.stack"}, now)

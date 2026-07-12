@@ -182,21 +182,32 @@ func TestResolveStaleProposalSurfaced(t *testing.T) {
 
 func TestResolvePreservesInvalidProposalError(t *testing.T) {
 	now := time.Date(2026, 7, 7, 0, 0, 0, 0, time.UTC)
-	fact := fact("only fact", []string{"misc.scratch.note"}, "s", now)
-	p := factmerge.Proposal{
-		Action:      factmerge.ActionMerge,
-		CandidateID: fact.ID,
-		TargetID:    fact.ID,
+	target := fact("target fact", []string{"misc.scratch.note"}, "s1", now)
+	candidate := fact("candidate fact", []string{"misc.scratch.note"}, "s2", now)
+	tests := map[string]factmerge.Proposal{
+		"self-target": {
+			Action:      factmerge.ActionMerge,
+			CandidateID: candidate.ID,
+			TargetID:    candidate.ID,
+		},
+		"unknown-action": {
+			Action:      "merg",
+			CandidateID: candidate.ID,
+			TargetID:    target.ID,
+		},
 	}
-
-	out, err := Resolve([]factmerge.Record{fact}, p, Accept, now.Add(time.Hour))
-	if !errors.Is(err, factmerge.ErrInvalidProposal) {
-		t.Fatalf("Resolve(self-target) error = %v, want ErrInvalidProposal", err)
-	}
-	if errors.Is(err, ErrProposalNotApplicable) {
-		t.Fatalf("invalid proposal was misclassified as stale: %v", err)
-	}
-	if out != nil {
-		t.Fatalf("Resolve(self-target) returned facts: %+v", out)
+	for name, proposal := range tests {
+		t.Run(name, func(t *testing.T) {
+			out, err := Resolve([]factmerge.Record{target, candidate}, proposal, Accept, now.Add(time.Hour))
+			if !errors.Is(err, factmerge.ErrInvalidProposal) {
+				t.Fatalf("Resolve error = %v, want ErrInvalidProposal", err)
+			}
+			if errors.Is(err, ErrProposalNotApplicable) {
+				t.Fatalf("invalid proposal was misclassified as stale: %v", err)
+			}
+			if out != nil {
+				t.Fatalf("Resolve returned facts: %+v", out)
+			}
+		})
 	}
 }

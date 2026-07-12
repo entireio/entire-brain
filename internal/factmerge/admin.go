@@ -2,6 +2,7 @@ package factmerge
 
 import (
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -10,7 +11,7 @@ import (
 var ErrStaleProposal = errors.New("proposal references a fact that no longer exists")
 
 // ErrInvalidProposal is returned when a malformed proposal cannot be applied.
-var ErrInvalidProposal = errors.New("proposal candidate and target must differ")
+var ErrInvalidProposal = errors.New("invalid proposal")
 
 // removeFactByID returns facts with the record of the given id removed.
 func removeFactByID(facts []Record, id string) []Record {
@@ -29,8 +30,11 @@ func removeFactByID(facts []Record, id string) []Record {
 // candidate, which stays active. Returns an error if either fact is gone (a
 // stale proposal).
 func ApplyProposal(facts []Record, p Proposal, now time.Time) ([]Record, error) {
+	if p.Action != ActionMerge && p.Action != ActionSupersede {
+		return facts, fmt.Errorf("%w: unsupported action %q", ErrInvalidProposal, p.Action)
+	}
 	if p.CandidateID == p.TargetID {
-		return facts, ErrInvalidProposal
+		return facts, fmt.Errorf("%w: candidate and target must differ", ErrInvalidProposal)
 	}
 	ci := IndexOf(facts, p.CandidateID)
 	ti := IndexOf(facts, p.TargetID)
