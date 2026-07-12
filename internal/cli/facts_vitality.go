@@ -290,10 +290,13 @@ func recordServedFactsWithLockTimeout(errW io.Writer, at time.Time, brainDir, br
 	}
 	if err := appendVitalityEventsBoundedWithLockTimeout(
 		brainDir, branch, events, factsVitalityLogMaxBytes, lockTimeout,
-	); err != nil && errW != nil {
-		// The error may be a failed append (receipts dropped) or a failed
-		// inline compaction after a successful append; either way it is one
-		// bounded line per invocation and never a read failure.
+	); err != nil && errW != nil && !errors.Is(err, errFileLockTimeout) {
+		// A lock-timeout drop is the designed best-effort path under contention
+		// (bounded budget) and would spam stderr during normal concurrency, so
+		// it stays silent. Any other error is a real failed append (receipts
+		// dropped) or a failed inline compaction after a successful append;
+		// either way it is one bounded line per invocation and never a read
+		// failure.
 		fmt.Fprintf(errW, "warning: facts vitality recording degraded: %v\n", err)
 	}
 }

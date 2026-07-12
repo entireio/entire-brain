@@ -478,15 +478,21 @@ func TestVitalityBusyLockDropsReceiptWithoutReadPathStall(t *testing.T) {
 		t.Fatalf("product lock budget = %s, want 50ms", factsVitalityLockTimeout)
 	}
 	const testLockBudget = 5 * time.Millisecond
+	var errBuf bytes.Buffer
 	start := time.Now()
 	recordServedFactsWithLockTimeout(
-		io.Discard, time.Now().UTC(), brainDir, "main", "search", "", "query", []string{"fact:a"}, testLockBudget,
+		&errBuf, time.Now().UTC(), brainDir, "main", "search", "", "query", []string{"fact:a"}, testLockBudget,
 	)
 	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
 		t.Fatalf("busy vitality lock stalled read path for %s", elapsed)
 	}
 	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(factsVitalityLogRelPath("main")))); !os.IsNotExist(err) {
 		t.Fatalf("busy-lock receipt should be dropped, stat err = %v", err)
+	}
+	// The designed lock-timeout drop is silent: it must not emit the degraded
+	// diagnostic that a real append failure would.
+	if errBuf.Len() != 0 {
+		t.Fatalf("lock-timeout drop warned on stderr: %q", errBuf.String())
 	}
 }
 
