@@ -152,8 +152,22 @@ func reconcileInput(candidates, existing []factRecord) []byte {
 // (with a warning) so a parser hiccup never drops a fact or misapplies a
 // merge/supersede.
 func parseReconcileActions(output string, candidates, existing []factRecord) ([]factAction, []string) {
+	return parseReconcileActionsWithOrdinals(output, candidates, existing, nil)
+}
+
+// parseReconcileActionsWithOrdinals preserves the candidates' original chunk
+// positions in diagnostics when a caller sends only a filtered subset to the
+// reconcile agent. Agent decisions still use the subset's contiguous 1-based
+// numbering.
+func parseReconcileActionsWithOrdinals(output string, candidates, existing []factRecord, originalOrdinals []int) ([]factAction, []string) {
 	decided := make(map[int]factAction, len(candidates))
 	var warnings []string
+	candidateOrdinal := func(index int) int {
+		if len(originalOrdinals) == len(candidates) {
+			return originalOrdinals[index]
+		}
+		return index + 1
+	}
 
 	for _, raw := range strings.Split(output, "\n") {
 		line := strings.TrimSpace(raw)
@@ -190,13 +204,13 @@ func parseReconcileActions(output string, candidates, existing []factRecord) ([]
 			decided[ci] = factAction{Kind: factActionNew, Confidence: confidence, Candidate: candidate}
 		case factActionMerge, factActionSupersede:
 			if len(fields) < 3 {
-				warnings = append(warnings, fmt.Sprintf("reconcile: %s missing existing number, treating candidate %d as new", kind, ci))
+				warnings = append(warnings, fmt.Sprintf("reconcile: %s missing existing number, treating candidate %d as new", kind, candidateOrdinal(ci-1)))
 				decided[ci] = factAction{Kind: factActionNew, Confidence: 1.0, Candidate: candidate}
 				continue
 			}
 			ei, eerr := strconv.Atoi(fields[2])
 			if eerr != nil || ei < 1 || ei > len(existing) {
-				warnings = append(warnings, fmt.Sprintf("reconcile: %s with bad existing number, treating candidate %d as new", kind, ci))
+				warnings = append(warnings, fmt.Sprintf("reconcile: %s with bad existing number, treating candidate %d as new", kind, candidateOrdinal(ci-1)))
 				decided[ci] = factAction{Kind: factActionNew, Confidence: 1.0, Candidate: candidate}
 				continue
 			}
@@ -218,7 +232,7 @@ func parseReconcileActions(output string, candidates, existing []factRecord) ([]
 			actions = append(actions, action)
 			continue
 		}
-		warnings = append(warnings, fmt.Sprintf("reconcile: no decision for candidate %d, treating as new", i+1))
+		warnings = append(warnings, fmt.Sprintf("reconcile: no decision for candidate %d, treating as new", candidateOrdinal(i)))
 		actions = append(actions, factAction{Kind: factActionNew, Confidence: 1.0, Candidate: candidate})
 	}
 	return actions, warnings
@@ -306,7 +320,7 @@ func candidatePathSet(candidates []factRecord) []string {
 // An agent error falls back to treating all candidates as `new` so facts are
 // never lost. It returns the actions to apply plus any warnings.
 //
-// A candidate whose content-derived id is already in the branch store is an
+// A candidate whose content-derived id is already active in the branch store is an
 // exact duplicate (same normalized text, same paths): the only sound outcome
 // is the provenance union Upsert performs for a `new` action, and its
 // relationships to other facts were decided when it was first stored — the
@@ -320,12 +334,17 @@ func candidatePathSet(candidates []factRecord) []string {
 func reconcileChunkCandidates(ctx context.Context, run distillAgentRunner, agentArgs []string, candidates, active []factRecord, repoDir string, timeout time.Duration) ([]factAction, []string) {
 	knownIDs := make(map[string]struct{}, len(active))
 	for i := range active {
+		if active[i].Status != factStatusActive {
+			continue
+		}
 		knownIDs[active[i].ID] = struct{}{}
 	}
 	fresh := candidates[:0:0]
-	for _, c := range candidates {
+	freshOrdinals := make([]int, 0, len(candidates))
+	for i, c := range candidates {
 		if _, ok := knownIDs[c.ID]; !ok {
 			fresh = append(fresh, c)
+			freshOrdinals = append(freshOrdinals, i+1)
 		}
 	}
 	allNew := func() []factAction {
@@ -351,7 +370,7 @@ func reconcileChunkCandidates(ctx context.Context, run distillAgentRunner, agent
 		warnings = append(warnings, fmt.Sprintf("reconcile agent failed, treating %d candidates as new: %v", len(fresh), err))
 		return allNew(), warnings
 	}
-	freshActions, parseWarnings := parseReconcileActions(out, fresh, existing)
+	freshActions, parseWarnings := parseReconcileActionsWithOrdinals(out, fresh, existing, freshOrdinals)
 	// Re-interleave in the original candidate order so the chronological apply
 	// order (and thus any supersession chain) is exactly what a pre-filter run
 	// would have produced.

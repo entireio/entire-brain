@@ -246,6 +246,57 @@ func TestReconcileChunkCandidatesSendsOnlyFreshCandidates(t *testing.T) {
 	}
 }
 
+func TestReconcileChunkCandidatesDoesNotSkipNonActiveKnownIDs(t *testing.T) {
+	now := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+	for _, status := range []string{factStatusSuperseded, factStatusRetracted} {
+		t.Run(status, func(t *testing.T) {
+			stored := factFor(t, "The stack is Go.", []string{"project.tooling.stack"}, now)
+			stored.Status = status
+			current := factFor(t, "The stack is Rust.", []string{"project.tooling.stack"}, now.Add(time.Minute))
+			candidate := factFor(t, "The stack is Go.", []string{"project.tooling.stack"}, now.Add(time.Hour))
+
+			called := false
+			run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+				called = true
+				if !strings.Contains(string(input), candidate.Text) {
+					t.Fatalf("reasserted candidate missing from reconcile input: %s", input)
+				}
+				return "1 new - 1.0\n", nil
+			}
+			actions, warnings := reconcileChunkCandidates(
+				context.Background(), run, nil, []factRecord{candidate}, []factRecord{stored, current}, "", time.Minute,
+			)
+			if !called {
+				t.Fatalf("candidate matching a %s fact incorrectly skipped reconciliation", status)
+			}
+			if len(warnings) != 0 || len(actions) != 1 || actions[0].Candidate.ID != candidate.ID {
+				t.Fatalf("unexpected reconciliation result: actions=%+v warnings=%v", actions, warnings)
+			}
+		})
+	}
+}
+
+func TestReconcileChunkCandidatesWarningsUseOriginalOrdinals(t *testing.T) {
+	now := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+	stored := factFor(t, "The stack is Go.", []string{"project.tooling.stack"}, now)
+	known := factFor(t, "The stack is Go.", []string{"project.tooling.stack"}, now.Add(time.Hour))
+	fresh := factFor(t, "The project pins Go 1.26.", []string{"project.tooling.stack"}, now.Add(time.Hour))
+
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return "1 merge 99 0.9\n", nil
+	}
+	actions, warnings := reconcileChunkCandidates(
+		context.Background(), run, nil, []factRecord{known, fresh}, []factRecord{stored}, "", time.Minute,
+	)
+	if len(actions) != 2 {
+		t.Fatalf("expected two actions, got %+v", actions)
+	}
+	joined := strings.Join(warnings, "\n")
+	if !strings.Contains(joined, "candidate 2 as new") || strings.Contains(joined, "candidate 1 as new") {
+		t.Fatalf("warning did not preserve the original candidate ordinal: %v", warnings)
+	}
+}
+
 // writeSameBranchFixture puts two sessions on the same branch so the reconcile
 // pass actually fires on the second session.
 func writeSameBranchFixture(t *testing.T, now time.Time) string {
