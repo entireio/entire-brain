@@ -2710,6 +2710,9 @@ def persist_memory_delivery(
         delivery,
         benchmark_record_private_paths(source, suite_dir, run_dir, tools, worktree),
     )
+    isolation_error = redacted.get("isolation_error")
+    if isinstance(isolation_error, dict) and isinstance(isolation_error.get("message"), str):
+        isolation_error["message"] = isolation_error["message"][:1000]
     record["memory_delivery"] = redacted
     write_json(run_dir / "memory-delivery.json", redacted)
     return redacted
@@ -2929,7 +2932,8 @@ def complete_harness_delivery_isolation(
         delivery["isolation_error"] = {
             "stage": stage,
             "type": type(exc).__name__,
-            "message": str(exc)[-1000:],
+            # Persistence redacts the complete message before applying its size bound.
+            "message": str(exc),
         }
         raise
 

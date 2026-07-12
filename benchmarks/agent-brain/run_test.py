@@ -6094,34 +6094,71 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
             self.assertNotIn(str(root), json.dumps(persisted))
 
     def test_harness_delivery_marks_failed_isolation_before_reraising(self):
-        delivery = {"ok": True}
-        old_remove_store = run.remove_agent_visible_brain_store
-        old_remove_remotes = run.remove_agent_visible_git_remotes
-        try:
-            run.remove_agent_visible_brain_store = lambda _: {
-                "benchmark_dir_removed": True,
-                "plugin_store_absent": True,
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            source = root / "private-source"
+            suite_dir = root / "private-suite"
+            run_dir = suite_dir / "run"
+            worktree = run_dir / ("private-worktree-" + "w" * 120)
+            run_dir.mkdir(parents=True)
+            tools = {
+                "bin": root / "private-tools",
+                "brain": root / "private-tools" / "entire-brain",
+                "sem": root / "private-tools" / "entire-sem",
+                "entire": root / "private-tools" / "entire",
             }
+            delivery = {"ok": True}
+            error_prefix = "private path "
+            host_path = str(worktree)
+            root_fragment_offset = len(str(root)) // 2
+            truncated_fragment = str(root)[root_fragment_offset:]
+            old_tail_start = len(error_prefix) + root_fragment_offset
+            suffix_length = 1000 - (len(error_prefix) + len(host_path) - old_tail_start)
+            self.assertGreater(suffix_length, 0)
+            old_remove_store = run.remove_agent_visible_brain_store
+            old_remove_remotes = run.remove_agent_visible_git_remotes
+            try:
+                run.remove_agent_visible_brain_store = lambda _: {
+                    "benchmark_dir_removed": True,
+                    "plugin_store_absent": True,
+                }
 
-            def fail_remote_isolation(_):
-                raise RuntimeError("private path " + "/x" * 800)
+                def fail_remote_isolation(_):
+                    raise RuntimeError(error_prefix + host_path + "x" * suffix_length)
 
-            run.remove_agent_visible_git_remotes = fail_remote_isolation
-            with self.assertRaisesRegex(RuntimeError, "private path"):
-                run.complete_harness_delivery_isolation(
-                    delivery,
-                    pathlib.Path("/worktree"),
-                    pathlib.Path("/source"),
-                    {},
-                    {},
-                )
-        finally:
-            run.remove_agent_visible_brain_store = old_remove_store
-            run.remove_agent_visible_git_remotes = old_remove_remotes
-        self.assertFalse(delivery["ok"])
-        self.assertEqual(delivery["isolation_error"]["stage"], "git_remote_isolation")
-        self.assertEqual(delivery["isolation_error"]["type"], "RuntimeError")
-        self.assertLessEqual(len(delivery["isolation_error"]["message"]), 1000)
+                run.remove_agent_visible_git_remotes = fail_remote_isolation
+                with self.assertRaisesRegex(RuntimeError, "private path"):
+                    run.complete_harness_delivery_isolation(
+                        delivery,
+                        worktree,
+                        source,
+                        {},
+                        tools,
+                    )
+            finally:
+                run.remove_agent_visible_brain_store = old_remove_store
+                run.remove_agent_visible_git_remotes = old_remove_remotes
+            self.assertFalse(delivery["ok"])
+            self.assertEqual(delivery["isolation_error"]["stage"], "git_remote_isolation")
+            self.assertEqual(delivery["isolation_error"]["type"], "RuntimeError")
+            self.assertGreater(len(delivery["isolation_error"]["message"]), 1000)
+
+            record = {}
+            persisted = run.persist_memory_delivery(
+                record,
+                delivery,
+                source=source,
+                suite_dir=suite_dir,
+                run_dir=run_dir,
+                tools=tools,
+                worktree=worktree,
+            )
+            side_artifact = json.loads((run_dir / "memory-delivery.json").read_text())
+            self.assertEqual(side_artifact, persisted)
+            self.assertEqual(record["memory_delivery"], persisted)
+            self.assertLessEqual(len(persisted["isolation_error"]["message"]), 1000)
+            self.assertNotIn(str(root), json.dumps(persisted))
+            self.assertNotIn(truncated_fragment, json.dumps(persisted))
 
     def test_remove_agent_visible_brain_store_deletes_source_store(self):
         with tempfile.TemporaryDirectory() as tmp:
