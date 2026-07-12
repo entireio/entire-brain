@@ -346,6 +346,13 @@ TEMPORAL_DELIVERY_MODES = {"agent_tool", "harness"}
 DEFAULT_MEMORY_PACKET_MAX_BYTES = 65536
 TEMPORAL_AGENT_SANDBOX_EXECUTABLE = pathlib.Path("/usr/bin/sandbox-exec")
 FROZEN_MEMORY_PACKET_END_TAG = "</frozen-memory-packet>"
+# Whitespace-tolerant matcher for the reserved end delimiter. Injected copies
+# may separate the structural tokens with whitespace -- either literal, or
+# decoded from JSON escapes such as \\u0009 / \\u000a / \\u000d -- to slip past a
+# fixed-string scan; \\s* around </...> collapses all of those once decoded.
+FROZEN_MEMORY_PACKET_END_TAG_PATTERN = re.compile(
+    r"<\s*/\s*frozen-memory-packet\s*>", re.IGNORECASE
+)
 
 
 def temporal_delivery_mode(task: dict[str, Any]) -> str:
@@ -2570,13 +2577,15 @@ def packet_contains_reserved_delimiter(packet_text: str) -> bool:
     reserved prompt delimiter. JSON encoders (e.g. Go's, which HTML-escapes angle
     brackets to \\u003c/\\u003e) may hide the delimiter from a serialized-text
     scan, so the decoded string content is checked as well; undecodable packet
-    text fails closed."""
-    if FROZEN_MEMORY_PACKET_END_TAG in packet_text.lower():
+    text fails closed. Matching is whitespace-tolerant so a delimiter whose
+    tokens are separated by literal whitespace or by escapes that decode to
+    whitespace (\\u0009/\\u000a/\\u000d) still fails closed."""
+    if FROZEN_MEMORY_PACKET_END_TAG_PATTERN.search(packet_text):
         return True
 
     def contains(item: Any) -> bool:
         if isinstance(item, str):
-            return FROZEN_MEMORY_PACKET_END_TAG in item.lower()
+            return bool(FROZEN_MEMORY_PACKET_END_TAG_PATTERN.search(item))
         if isinstance(item, dict):
             return any(contains(key) or contains(child) for key, child in item.items())
         if isinstance(item, list):
@@ -5244,9 +5253,30 @@ def run_one(
             tools=tools,
             worktree=worktree,
         )
-        record.update({"ok": False, "error": str(exc), "score": {"total": 0}})
+        record.update(
+            {
+                "ok": False,
+                "error": str(exc),
+                "score": {"total": 0},
+                # The harness-owned retrieval failed and the task agent never ran:
+                # an infrastructure non-outcome, not a condition outcome. Exclude it
+                # from arm means -- it can only occur in the harness-delivered
+                # treatment arm, so counting its synthetic 0 zero-pollutes that arm
+                # directionally. summarize() drops it and reports the count.
+                "analysis_excluded": {"reason": "harness_memory_delivery_failed"},
+            }
+        )
     except Exception as exc:
-        record.update({"ok": False, "error": str(exc), "score": {"total": 0}})
+        record.update(
+            {
+                "ok": False,
+                "error": str(exc),
+                "score": {"total": 0},
+                # A harness/isolation error (not an agent-produced outcome) yields a
+                # synthetic 0; exclude it from arm means and report the count.
+                "analysis_excluded": {"reason": "harness_infrastructure_error"},
+            }
+        )
     finally:
         record["finished_at"] = dt.datetime.now(dt.UTC).isoformat()
         redacted_record = redact_record_host_paths(
@@ -5553,11 +5583,19 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
     # the causal treatment estimate.
     groups: dict[tuple[str, str, str, str, str], list[float]] = {}
     metrics: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] = {}
+    # Infrastructure non-outcomes (harness delivery/isolation failed, agent never
+    # produced a real score) are tallied but kept OUT of groups/metrics so their
+    # synthetic zeros never enter arm means, deltas, or p-values. The per-cell
+    # count is surfaced on each comparison for transparency (F2).
+    excluded: dict[tuple[str, str, str, str, str], int] = {}
     for rec in records:
         runner_id = rec.get("runner", {}).get("id") if isinstance(rec.get("runner"), dict) else None
         runner_id = runner_id or rec["agent"]
         mode = rec.get("delivery_mode") or "agent_tool"
         key = (rec["task_id"], rec["agent"], runner_id, mode, rec["condition"])
+        if rec.get("analysis_excluded"):
+            excluded[key] = excluded.get(key, 0) + 1
+            continue
         groups.setdefault(key, []).append(float(rec.get("score", {}).get("total", 0)))
         metrics.setdefault(key, []).append(rec)
 
@@ -5651,6 +5689,12 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             "baseline": "no_brain",
             "n_condition": len(values),
             "n_baseline": len(base),
+            "n_infrastructure_excluded_condition": excluded.get(
+                (task_id, agent, runner_id, mode, condition), 0
+            ),
+            "n_infrastructure_excluded_baseline": excluded.get(
+                (task_id, agent, runner_id, mode, "no_brain"), 0
+            ),
             "mean_condition": sum(values) / len(values),
             "mean_baseline": sum(base) / len(base),
             "delta": sum(values) / len(values) - sum(base) / len(base),
