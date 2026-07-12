@@ -151,7 +151,9 @@ treatment delivery never depends on agent tool adherence. Summaries never pool
 the two lanes: comparisons are keyed by delivery mode, and a harness-lane arm
 only compares against a harness-lane `no_brain` baseline. See
 `temporal-memory/README.md` for the Phase 0A development protocol and the
-Phase 0B harness-owned causal delivery.
+Phase 0B harness-owned causal delivery. Harness tasks must preregister
+`memory_bundle.packet.min_results`: memory-positive strata use at least `1`,
+while a deliberately neutral zero-hit stratum may explicitly use `0`.
 
 Validation entries may be plain command strings (exact validators) or objects
 `{"command": ..., "kind": "exact" | "behavioral"}`. The `behavioral` kind labels

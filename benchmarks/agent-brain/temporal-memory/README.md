@@ -50,6 +50,10 @@ A temporal task selects its lane with the task-level `memory_delivery` field:
   to `memory_bundle.packet.max_bytes` (default 65536) while remaining valid
   JSON: ranked whole results are retained first, followed when possible by a
   UTF-8-safe text prefix of the next result, with explicit truncation counts.
+  The task must also preregister `memory_bundle.packet.min_results`. Both the
+  retrieved and delivered result counts must meet that floor; use `0` only for
+  a deliberately neutral/zero-hit stratum and at least `1` for memory-positive
+  strata.
   The packet is injected between `<frozen-memory-packet>` tags. The `no_brain`
   arm runs through the same execution and scoring lane with no packet; the
   packet and its policy text are the treatment, so prompt byte lengths are not
@@ -58,34 +62,36 @@ A temporal task selects its lane with the task-level `memory_delivery` field:
 After harness delivery, the worktree's `.benchmark` store (Brain plugin data,
 the local copy of the shared one-distillation source cache) is physically
 deleted before the agent starts. Raw transcripts, checkpoint refs, and withheld
-channels were already deleted during prep. The benchmark `entire` wrapper stays
-on `PATH`, so a disobedient `entire brain ...` call is intercepted against the
-emptied store — never a host installation — and is flagged by the temporal
-audit (`brain_used_in_harness_delivery`) as an isolation probe. The harness
-lane has no first-tool/search-count requirement: retrieval adherence is not
-part of the causal treatment.
+channels were already deleted during prep. The frozen benchmark `entire`
+wrapper stays on `PATH`, while host Entire state roots and host
+`entire`/`entire-brain` executables are sandbox-denied. Any disobedient `entire
+brain ...` call is also flagged by the temporal audit
+(`brain_used_in_harness_delivery`) as an isolation probe. The harness lane has
+no first-tool/search-count requirement: retrieval adherence is not part of the
+causal treatment.
 
 The causal lane also removes every Git remote, strips benchmark-control and
 shell-redirection variables from the task-agent environment, and launches the
 agent under a macOS `sandbox-exec` filesystem profile. The profile denies read
-and write access to the harness
-repository and original source checkout while re-allowing only the disposable
-worktree and frozen tool directory. A platform without that enforcement fails
-before agent launch; sealed causal rows never fall back to prompt-only
-isolation.
+and write access to the harness repository, original source checkout, host
+Entire data/config/state/cache roots, and host Entire executables while
+re-allowing only the disposable worktree and frozen tool directory. A platform
+without that enforcement fails before agent launch; sealed causal rows never
+fall back to prompt-only isolation.
 
-Delivery is fail-closed. A retrieval that exits non-zero, returns an empty
-response, or returns non-JSON raises before the task agent is launched, and
-the failed attempt's provenance is still persisted. Every harness-lane row
-writes `memory-delivery.json` (also embedded in `record.json` as
-`memory_delivery`) with: the exact argv and agent-lane-equivalent CLI command,
-query, limit, branch, condition, exit status, duration, full-response SHA-256
-and byte count, delivered-packet SHA-256, byte count, deterministic token
-estimate (`ceil(utf8_bytes / 4)`), truncation and budget metadata, source IDs
-(session IDs, transcript/history/fact hashes, prep and source cache keys), and
-product identity (brain binary SHA-256 plus harness head commit). The record
-holds hashes, sizes, commands, and configuration — never hidden answers; the
-delivered packet text itself appears only in `prompt.txt`.
+Delivery is fail-closed. A retrieval that exits non-zero, returns an empty or
+non-JSON response, or misses the preregistered result floor raises before the
+task agent is launched, and the failed attempt's provenance is still
+persisted. Every harness-lane row writes `memory-delivery.json` (also embedded
+in `record.json` as `memory_delivery`) with: a path-redacted frozen-tool argv,
+the agent-lane-equivalent CLI command, query, limit, branch, preregistered
+minimum, condition, exit status, duration, full-response SHA-256 and byte count,
+delivered-packet SHA-256, byte count, deterministic token estimate
+(`ceil(utf8_bytes / 4)`), truncation and budget metadata, source IDs (session
+IDs, transcript/history/fact hashes, prep and source cache keys), and product
+identity (binary role/name/SHA-256 plus harness head commit). The record holds
+hashes, sizes, commands, and configuration — never hidden answers or absolute
+host paths; the delivered packet text itself appears only in `prompt.txt`.
 
 The two lanes are never pooled. `summarize()` keys every comparison by
 delivery mode, so a harness-lane arm only compares against a harness-lane

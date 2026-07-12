@@ -1604,7 +1604,7 @@ def memory_bundle_config(task: dict[str, Any]) -> dict[str, Any]:
     if packet is not None:
         if not isinstance(packet, dict):
             raise ValueError("memory_bundle.packet must be an object when present")
-        unknown = sorted(set(packet) - {"max_bytes"})
+        unknown = sorted(set(packet) - {"max_bytes", "min_results"})
         if unknown:
             raise ValueError(f"memory_bundle.packet has unknown fields: {unknown}")
         max_bytes = packet.get("max_bytes")
@@ -1612,6 +1612,20 @@ def memory_bundle_config(task: dict[str, Any]) -> dict[str, Any]:
             not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 1024
         ):
             raise ValueError("memory_bundle.packet.max_bytes must be an integer >= 1024 when present")
+        min_results = packet.get("min_results")
+        if min_results is not None and (
+            not isinstance(min_results, int) or isinstance(min_results, bool) or min_results < 0
+        ):
+            raise ValueError("memory_bundle.packet.min_results must be a non-negative integer when present")
+        if min_results is not None and min_results > int(search_limit or 6):
+            raise ValueError("memory_bundle.packet.min_results cannot exceed the frozen search limit")
+    if task.get("memory_delivery") == "harness" and (
+        not isinstance(packet, dict) or "min_results" not in packet
+    ):
+        raise ValueError(
+            "harness delivery requires an explicit memory_bundle.packet.min_results "
+            "(use 0 only for a preregistered neutral/zero-hit stratum)"
+        )
     variants = raw.get("session_variants")
     if variants is not None:
         if not isinstance(variants, list) or not variants:
@@ -2192,6 +2206,13 @@ def memory_packet_max_bytes(task: dict[str, Any]) -> int:
     return int(packet.get("max_bytes", DEFAULT_MEMORY_PACKET_MAX_BYTES))
 
 
+def memory_packet_min_results(task: dict[str, Any]) -> int:
+    packet = memory_bundle_config(task).get("packet") or {}
+    if "min_results" not in packet:
+        raise ValueError("harness delivery requires memory_bundle.packet.min_results")
+    return int(packet["min_results"])
+
+
 def deterministic_token_estimate(text: str) -> int:
     """Deterministic packet-budget proxy: ceil(utf8_bytes / 4). Deliberately NOT a model tokenizer
     (those vary by provider/version); the requirement is reproducible budgeting metadata."""
@@ -2345,6 +2366,8 @@ def harness_memory_delivery(
     response persists its provenance to memory-delivery.json and raises MemoryDeliveryError — the
     agent is never run with a silently missing treatment. The delivery record intentionally holds
     only commands, configuration, hashes, sizes, and exit status (never hidden answers)."""
+    memory_bundle_config(task)
+    min_results = memory_packet_min_results(task)
     delivery: dict[str, Any] = {
         "schema": 1,
         "mode": "harness",
@@ -2352,7 +2375,8 @@ def harness_memory_delivery(
         "task_id": task.get("id"),
         "delivered_at": dt.datetime.now(dt.UTC).isoformat(),
         "product": {
-            "brain_binary_path": str(tools["brain"]),
+            "brain_binary_role": "frozen_run_tool",
+            "brain_binary_name": pathlib.Path(tools["brain"]).name,
             "brain_binary_sha256": file_sha256(tools["brain"]),
             "harness_head_commit": git_commit_metadata(ROOT, "HEAD").get("commit"),
         },
@@ -2403,7 +2427,8 @@ def harness_memory_delivery(
             if response_contract_valid:
                 result_count = len(payload["results"])
     delivery["retrieval"] = {
-        "command": argv,
+        "command": ["<frozen-entire-brain>", *argv[1:]],
+        "executable_role": "frozen_run_tool",
         "cli_equivalent": (
             f"entire brain search {shlex.quote(spec['query'])} --json"
             f" --limit {spec['limit']} --branch {shlex.quote(spec['branch'])}"
@@ -2411,6 +2436,7 @@ def harness_memory_delivery(
         "query": spec["query"],
         "limit": spec["limit"],
         "branch": spec["branch"],
+        "preregistered_min_results": min_results,
         "returncode": proc.returncode,
         "seconds": time.time() - start,
         "stderr_tail": proc.stderr[-2000:],
@@ -2424,13 +2450,24 @@ def harness_memory_delivery(
         },
         "packet": None,
     }
-    if proc.returncode != 0 or not stdout.strip() or not response_valid_json or not response_contract_valid:
+    if (
+        proc.returncode != 0
+        or not stdout.strip()
+        or not response_valid_json
+        or not response_contract_valid
+        or (result_count is not None and result_count < min_results)
+    ):
         if proc.returncode != 0:
             reason = f"retrieval command exited {proc.returncode}"
         elif not stdout.strip():
             reason = "retrieval produced an empty response"
         elif not response_valid_json:
             reason = f"retrieval response is not valid JSON: {parse_error}"
+        elif response_contract_valid and result_count is not None and result_count < min_results:
+            reason = (
+                f"retrieval returned {result_count} results, below the preregistered minimum "
+                f"of {min_results}"
+            )
         else:
             reason = "retrieval response does not match the search JSON contract"
         delivery["ok"] = False
@@ -2438,6 +2475,14 @@ def harness_memory_delivery(
         raise MemoryDeliveryError(f"harness memory delivery failed closed for {condition}: {reason}", delivery)
     packet_text, packet_meta = bound_memory_packet(stdout, max_bytes)
     delivery["retrieval"]["packet"] = packet_meta
+    if packet_meta["delivered_result_count"] < min_results:
+        delivery["ok"] = False
+        write_json(run_dir / "memory-delivery.json", delivery)
+        raise MemoryDeliveryError(
+            f"harness memory delivery retained {packet_meta['delivered_result_count']} results, "
+            f"below the preregistered minimum of {min_results}",
+            delivery,
+        )
     if FROZEN_MEMORY_PACKET_END_TAG in packet_text.lower():
         delivery["ok"] = False
         write_json(run_dir / "memory-delivery.json", delivery)
@@ -2519,6 +2564,7 @@ def temporal_agent_read_isolation(
     source: pathlib.Path,
     tools: dict[str, pathlib.Path],
     sandbox_executable: pathlib.Path = TEMPORAL_AGENT_SANDBOX_EXECUTABLE,
+    host_env: dict[str, str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Build a deny-first read profile for a harness-owned causal row.
 
@@ -2531,16 +2577,77 @@ def temporal_agent_read_isolation(
     sandbox_executable = sandbox_executable.resolve()
     if not sandbox_executable.is_file():
         raise RuntimeError("harness memory delivery requires /usr/bin/sandbox-exec read isolation")
-    denied_roots = sorted({ROOT.resolve(), pathlib.Path(source).resolve()}, key=str)
+    denied_roots = {ROOT.resolve(), pathlib.Path(source).resolve()}
     allowed_roots = sorted(
         {pathlib.Path(worktree).resolve(), pathlib.Path(tools["bin"]).resolve()}, key=str
     )
+
+    host_env = dict(os.environ) if host_env is None else dict(host_env)
+    host_home = pathlib.Path(host_env.get("HOME") or pathlib.Path.home()).resolve()
+    host_entire_roots = {
+        host_home / ".config" / "entire",
+        host_home / ".local" / "share" / "entire",
+        host_home / ".local" / "state" / "entire",
+        host_home / ".cache" / "entire",
+        host_home / ".entire",
+    }
+    for env_name, suffix in (
+        ("XDG_CONFIG_HOME", "entire"),
+        ("XDG_DATA_HOME", "entire"),
+        ("XDG_STATE_HOME", "entire"),
+        ("XDG_CACHE_HOME", "entire"),
+    ):
+        raw = host_env.get(env_name)
+        if raw and pathlib.Path(raw).is_absolute():
+            host_entire_roots.add(pathlib.Path(raw).resolve() / suffix)
+    for env_name in (
+        "ENTIRE_PLUGIN_CONFIG_DIR",
+        "ENTIRE_PLUGIN_DATA_DIR",
+        "ENTIRE_PLUGIN_STATE_DIR",
+        "ENTIRE_PLUGIN_CACHE_DIR",
+    ):
+        raw = host_env.get(env_name)
+        if raw and pathlib.Path(raw).is_absolute():
+            host_entire_roots.add(pathlib.Path(raw).resolve())
+
+    def outside_allowed(path: pathlib.Path) -> bool:
+        resolved = path.resolve()
+        return not any(resolved == allowed or resolved.is_relative_to(allowed) for allowed in allowed_roots)
+
+    host_entire_roots = {path.resolve() for path in host_entire_roots if outside_allowed(path)}
+    denied_roots.update(host_entire_roots)
+    denied_roots = sorted(denied_roots, key=str)
+
+    host_entire_executables: set[pathlib.Path] = set()
+    executable_candidates = {
+        host_home / ".local" / "bin" / "entire",
+        host_home / ".local" / "bin" / "entire-brain",
+        host_home / ".local" / "share" / "entire" / "plugins" / "bin" / "entire-brain",
+    }
+    search_path = host_env.get("PATH")
+    for name in ("entire", "entire-brain"):
+        found = shutil.which(name, path=search_path)
+        if found:
+            executable_candidates.add(pathlib.Path(found))
+    for candidate in executable_candidates:
+        absolute = candidate.absolute()
+        if outside_allowed(absolute):
+            host_entire_executables.add(absolute)
+        if candidate.exists():
+            resolved = candidate.resolve()
+            if outside_allowed(resolved):
+                host_entire_executables.add(resolved)
+
     lines = ["(version 1)", "(allow default)"]
     lines.extend(
         f"(deny file-read* (subpath {json.dumps(str(path))}))" for path in denied_roots
     )
     lines.extend(
         f"(deny file-write* (subpath {json.dumps(str(path))}))" for path in denied_roots
+    )
+    lines.extend(
+        f"(deny process-exec (literal {json.dumps(str(path))}))"
+        for path in sorted(host_entire_executables, key=str)
     )
     lines.extend(
         f"(allow file-read* (subpath {json.dumps(str(path))}))" for path in allowed_roots
@@ -2555,7 +2662,17 @@ def temporal_agent_read_isolation(
         "profile_sha256": hashlib.sha256(profile.encode()).hexdigest(),
         "denied_root_sha256": [hashlib.sha256(str(path).encode()).hexdigest() for path in denied_roots],
         "allowed_root_sha256": [hashlib.sha256(str(path).encode()).hexdigest() for path in allowed_roots],
+        "host_entire_root_sha256": [
+            hashlib.sha256(str(path).encode()).hexdigest()
+            for path in sorted(host_entire_roots, key=str)
+        ],
+        "host_entire_executable_sha256": [
+            hashlib.sha256(str(path).encode()).hexdigest()
+            for path in sorted(host_entire_executables, key=str)
+        ],
         "harness_and_source_read_write_denied": True,
+        "host_entire_state_read_write_denied": True,
+        "host_entire_executables_denied": True,
         "worktree_and_frozen_tools_allowed": True,
     }
     return profile, metadata

@@ -977,6 +977,22 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertEqual(activity["search_calls"], 1)
         self.assertTrue(activity["ran_tests"])
 
+    def test_activity_flags_absolute_host_brain_executable(self):
+        stdout = json.dumps(
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "command_execution",
+                    "command": "/Users/example/.local/bin/entire brain search task --json",
+                    "exit_code": 1,
+                    "status": "failed",
+                },
+            }
+        )
+        activity = run.extract_agent_activity(stdout, "")
+        self.assertEqual(activity["direct_brain_cli_calls"], 1)
+        self.assertEqual(activity["brain_commands"], ["search"])
+
     def test_activity_deduplicates_codex_command_start_and_completion(self):
         item = {
             "id": "item_1",
@@ -5631,6 +5647,7 @@ def _harness_task(**overrides):
             "cutoff_at": "2026-06-18T08:29:27Z",
             "retrieval_branch": "main",
             "session_ids": ["session-a"],
+            "packet": {"min_results": 1},
         },
     }
     task.update(overrides)
@@ -5703,22 +5720,35 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
     def test_memory_bundle_validates_packet_and_search_limit(self):
         task = _harness_task()
         task["memory_bundle"]["search_limit"] = 8
-        task["memory_bundle"]["packet"] = {"max_bytes": 4096}
+        task["memory_bundle"]["packet"] = {"max_bytes": 4096, "min_results": 1}
         self.assertEqual(run.temporal_memory_search_spec(task)["limit"], 8)
         self.assertEqual(run.memory_packet_max_bytes(task), 4096)
+        self.assertEqual(run.memory_packet_min_results(task), 1)
         self.assertEqual(run.memory_packet_max_bytes(_harness_task()), run.DEFAULT_MEMORY_PACKET_MAX_BYTES)
         bad_limit = _harness_task()
         bad_limit["memory_bundle"]["search_limit"] = 0
         with self.assertRaisesRegex(ValueError, "search_limit"):
             run.memory_bundle_config(bad_limit)
         bad_packet = _harness_task()
-        bad_packet["memory_bundle"]["packet"] = {"max_bytes": 10}
+        bad_packet["memory_bundle"]["packet"] = {"max_bytes": 10, "min_results": 1}
         with self.assertRaisesRegex(ValueError, "max_bytes"):
             run.memory_bundle_config(bad_packet)
         unknown_packet = _harness_task()
-        unknown_packet["memory_bundle"]["packet"] = {"max_tokens": 10}
+        unknown_packet["memory_bundle"]["packet"] = {"min_results": 1, "max_tokens": 10}
         with self.assertRaisesRegex(ValueError, "unknown fields"):
             run.memory_bundle_config(unknown_packet)
+        missing_minimum = _harness_task()
+        missing_minimum["memory_bundle"]["packet"] = {"max_bytes": 4096}
+        with self.assertRaisesRegex(ValueError, "explicit.*min_results"):
+            run.memory_bundle_config(missing_minimum)
+        negative_minimum = _harness_task()
+        negative_minimum["memory_bundle"]["packet"] = {"min_results": -1}
+        with self.assertRaisesRegex(ValueError, "non-negative"):
+            run.memory_bundle_config(negative_minimum)
+        impossible_minimum = _harness_task()
+        impossible_minimum["memory_bundle"]["packet"] = {"min_results": 7}
+        with self.assertRaisesRegex(ValueError, "cannot exceed"):
+            run.memory_bundle_config(impossible_minimum)
 
     def test_harness_prompt_injects_packet_and_forbids_brain(self):
         packet = json.dumps({"results": [{"kind": "history", "text": "the decided value"}]})
@@ -5762,7 +5792,9 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
         self.assertEqual(delivery["mode"], "harness")
         self.assertEqual(delivery["condition"], "raw_history")
         retrieval = delivery["retrieval"]
-        self.assertEqual(calls, [retrieval["command"]])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1:], retrieval["command"][1:])
+        self.assertEqual(retrieval["command"][0], "<frozen-entire-brain>")
         self.assertEqual(
             retrieval["command"][1:],
             ["search", run.brain_brief_query(task), "--json", "--limit", "6", "--branch", "main"],
@@ -5776,6 +5808,7 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
         self.assertTrue(retrieval["response"]["valid_json"])
         self.assertTrue(retrieval["response"]["contract_valid"])
         self.assertEqual(retrieval["response"]["result_count"], 1)
+        self.assertEqual(retrieval["preregistered_min_results"], 1)
         pkt = retrieval["packet"]
         self.assertEqual(pkt["sha256"], hashlib.sha256(packet.encode()).hexdigest())
         self.assertEqual(pkt["bytes"], len(packet.encode()))
@@ -5792,15 +5825,29 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
         self.assertEqual(delivery["sources"]["history_index_sha256"], "1" * 64)
         self.assertEqual(delivery["sources"]["fact_artifact_sha256"], ["2" * 64])
         self.assertTrue(delivery["product"]["brain_binary_sha256"])
+        self.assertEqual(delivery["product"]["brain_binary_role"], "frozen_run_tool")
+        self.assertEqual(delivery["product"]["brain_binary_name"], "entire-brain")
         self.assertTrue(delivery["product"]["harness_head_commit"])
         # No hidden answers in the persisted provenance.
         blob = json.dumps(delivery)
         self.assertNotIn("TestGateDefault", blob)
+        self.assertNotIn(str(pathlib.Path(calls[0][0]).parent), blob)
         self.assertIsNone(persisted)  # success path defers the file to run_one (post-isolation)
+
+    def test_harness_memory_delivery_enforces_preregistered_result_cardinality(self):
+        with self.assertRaisesRegex(run.MemoryDeliveryError, "below the preregistered minimum"):
+            self._delivery(_harness_task(), "raw_history", '{"results": []}')
+
+        neutral = _harness_task()
+        neutral["memory_bundle"]["packet"]["min_results"] = 0
+        packet, delivery, _, _ = self._delivery(neutral, "raw_history", '{"results": []}')
+        self.assertEqual(json.loads(packet)["results"], [])
+        self.assertTrue(delivery["ok"])
+        self.assertEqual(delivery["retrieval"]["preregistered_min_results"], 0)
 
     def test_harness_memory_delivery_truncates_deterministically(self):
         task = _harness_task()
-        task["memory_bundle"]["packet"] = {"max_bytes": 1024}
+        task["memory_bundle"]["packet"] = {"max_bytes": 1024, "min_results": 1}
         stdout = json.dumps(
             {
                 "query": "memory",
@@ -5949,18 +5996,43 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
             tools_bin = source / "results" / "bin"
             worktree.mkdir(parents=True)
             tools_bin.mkdir(parents=True)
+            frozen_brain = tools_bin / "entire-brain"
+            frozen_brain.write_text("#!/bin/sh\nprintf frozen")
+            frozen_brain.chmod(0o755)
+            host_home = root / "host-home"
+            host_data = host_home / ".local" / "share" / "entire" / "plugins" / "data" / "brain"
+            host_data.mkdir(parents=True)
+            host_secret = host_data / "secret.txt"
+            host_secret.write_text("host brain secret")
+            host_bin = host_home / ".local" / "bin"
+            host_bin.mkdir(parents=True)
+            host_entire = host_bin / "entire"
+            host_entire.write_text("#!/bin/sh\nprintf host")
+            host_entire.chmod(0o755)
             allowed = worktree / "allowed.txt"
             allowed.write_text("allowed")
             denied = source / "hidden.txt"
             denied.write_text("hidden")
             profile, metadata = run.temporal_agent_read_isolation(
-                worktree, source, {"bin": tools_bin}
+                worktree,
+                source,
+                {"bin": tools_bin},
+                host_env={"HOME": str(host_home), "PATH": str(host_bin)},
             )
             allowed_probe = run.run_cmd(
                 ["/usr/bin/sandbox-exec", "-p", profile, "/bin/cat", str(allowed)]
             )
             denied_probe = run.run_cmd(
                 ["/usr/bin/sandbox-exec", "-p", profile, "/bin/cat", str(denied)]
+            )
+            host_data_probe = run.run_cmd(
+                ["/usr/bin/sandbox-exec", "-p", profile, "/bin/cat", str(host_secret)]
+            )
+            host_exec_probe = run.run_cmd(
+                ["/usr/bin/sandbox-exec", "-p", profile, str(host_entire)]
+            )
+            frozen_exec_probe = run.run_cmd(
+                ["/usr/bin/sandbox-exec", "-p", profile, str(frozen_brain)]
             )
             allowed_write = worktree / "created.txt"
             allowed_write_probe = run.run_cmd(
@@ -5973,12 +6045,20 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
             self.assertEqual(allowed_probe.returncode, 0)
             self.assertEqual(allowed_probe.stdout, "allowed")
             self.assertNotEqual(denied_probe.returncode, 0)
+            self.assertNotEqual(host_data_probe.returncode, 0)
+            self.assertNotEqual(host_exec_probe.returncode, 0)
+            self.assertEqual(frozen_exec_probe.returncode, 0)
+            self.assertEqual(frozen_exec_probe.stdout, "frozen")
             self.assertEqual(allowed_write_probe.returncode, 0)
             self.assertTrue(allowed_write.is_file())
             self.assertNotEqual(denied_write_probe.returncode, 0)
             self.assertFalse(denied_write.exists())
             self.assertEqual(metadata["profile_sha256"], hashlib.sha256(profile.encode()).hexdigest())
             self.assertTrue(metadata["harness_and_source_read_write_denied"])
+            self.assertTrue(metadata["host_entire_state_read_write_denied"])
+            self.assertTrue(metadata["host_entire_executables_denied"])
+            self.assertGreaterEqual(len(metadata["host_entire_root_sha256"]), 5)
+            self.assertGreaterEqual(len(metadata["host_entire_executable_sha256"]), 1)
 
     def test_run_agent_wraps_causal_lane_in_bound_read_isolation(self):
         with tempfile.TemporaryDirectory() as tmp:
