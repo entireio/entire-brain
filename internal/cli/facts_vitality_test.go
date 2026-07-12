@@ -324,6 +324,44 @@ func TestVitalityFailedEmissionDoesNotRecordReceipt(t *testing.T) {
 	}
 }
 
+// chunkFailWriter records each Write separately and fails once the recorded
+// byte total reaches failAfter, so a test can prove writeText streams (rather
+// than buffering the whole body and writing it once).
+type chunkFailWriter struct {
+	writes    []string
+	total     int
+	failAfter int
+}
+
+func (w *chunkFailWriter) Write(p []byte) (int, error) {
+	if w.total >= w.failAfter {
+		return 0, errVitalityTestOutput
+	}
+	w.writes = append(w.writes, string(p))
+	w.total += len(p)
+	return len(p), nil
+}
+
+func TestWriteTextStreamsAndShortCircuitsOnFailure(t *testing.T) {
+	w := &chunkFailWriter{failAfter: 5}
+	cmd := &cobra.Command{}
+	cmd.SetOut(w)
+	err := writeText(cmd, func(out io.Writer) {
+		fmt.Fprint(out, "aaa") // 3 bytes, accepted
+		fmt.Fprint(out, "bbb") // total now 6 -> subsequent writes fail
+		fmt.Fprint(out, "ccc") // dropped by the sticky writer
+	})
+	if !errors.Is(err, errVitalityTestOutput) {
+		t.Fatalf("writeText err = %v, want %v", err, errVitalityTestOutput)
+	}
+	// Two distinct Writes landed before the failure and the third was dropped:
+	// a buffer-then-write implementation would issue a single Write of the whole
+	// body (and emit nothing at all once a later write fails).
+	if len(w.writes) != 2 || w.writes[0] != "aaa" || w.writes[1] != "bbb" {
+		t.Fatalf("writeText did not stream incrementally: %#v", w.writes)
+	}
+}
+
 func TestVitalityMCPSurfacesRecordReceipts(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

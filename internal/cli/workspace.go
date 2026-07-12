@@ -2752,14 +2752,13 @@ func writeJSON(cmd *cobra.Command, value any) error {
 }
 
 func writeText(cmd *cobra.Command, render func(io.Writer)) error {
-	var out strings.Builder
-	render(&out)
-	text := out.String()
-	n, err := io.WriteString(cmd.OutOrStdout(), text)
-	if err == nil && n != len(text) {
-		return io.ErrShortWrite
-	}
-	return err
+	// Stream directly to stdout instead of buffering the whole rendered body:
+	// large multi-get/fact output must not be held in memory in full. The
+	// sticky writer short-circuits after the first failure and preserves the
+	// error, so callers still skip receipt recording when output fails.
+	out := &stickyErrorWriter{writer: cmd.OutOrStdout()}
+	render(out)
+	return out.err
 }
 
 type stickyErrorWriter struct {
