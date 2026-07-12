@@ -88,8 +88,15 @@ func historySemanticScores(brainDir string, e Embedder, query string, limit int,
 	if !ok {
 		return nil
 	}
+	return historySemanticScoresWithStore(store, e, query, limit, calibrate)
+}
+
+func historySemanticScoresWithStore(store historyVectorStore, e Embedder, query string, limit int, calibrate bool) map[string]float64 {
+	if store == nil || e == nil || limit <= 0 {
+		return nil
+	}
 	qvec := embedQueryWith(e, query)
-	if len(qvec) == 0 {
+	if e.Dim() <= 0 || len(qvec) != e.Dim() || !vectorHasMagnitude(qvec) {
 		return nil
 	}
 	scoreBudget := limit * 4

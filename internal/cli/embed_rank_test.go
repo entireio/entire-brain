@@ -5,6 +5,20 @@ import (
 	"time"
 )
 
+type scriptedKNNVectorStore struct {
+	cache  map[string][]float32
+	scores map[string]float64
+}
+
+func (s *scriptedKNNVectorStore) load() map[string][]float32    { return s.cache }
+func (*scriptedKNNVectorStore) save(map[string][]float32) error { return nil }
+func (*scriptedKNNVectorStore) savePresent(map[string][]float32, map[string]struct{}) error {
+	return nil
+}
+func (s *scriptedKNNVectorStore) knnCos([]float32) (map[string]float64, bool) {
+	return s.scores, true
+}
+
 // TestRankFactsFusedReachesTermDisjoint is the core Phase D claim in miniature:
 // a relevant fact that shares NO term with the query is unreachable by the
 // lexical ranker (the 0.667-ceiling failure) but surfaces once semantic fusion
@@ -107,6 +121,30 @@ func TestRankFactsFusedNoResultsWhenLexicalMissAndEmbedderEmpty(t *testing.T) {
 	rr := newSemanticReranker(emptyEmbedder{}) // no query vector → lexical-only
 	if got := rankFactsFused(facts, "zzqqxxnomatch", 10, false, rr); len(got) != 0 {
 		t.Fatalf("expected no results for a lexical miss with no embedder, got %v", got)
+	}
+}
+
+func TestRankFactsFusedKNNRejectsInvalidStoredVector(t *testing.T) {
+	fact := factRecord{ID: "fact:repair", Text: "checkpoint policy", Status: factStatusActive}
+	e := &fakeFusionEmbedder{vecs: map[string][]float32{
+		"checkpoint":            {1, 0},
+		factEmbeddingText(fact): {1, 0},
+	}}
+	store := &scriptedKNNVectorStore{
+		cache:  map[string][]float32{fact.ID: {0, 0}},
+		scores: map[string]float64{fact.ID: 1},
+	}
+	rr := &semanticReranker{e: e, cache: store.cache, store: store}
+
+	got := rankFactsFused([]factRecord{fact}, "checkpoint", 1, false, rr)
+	if len(got) != 1 || got[0].ID != fact.ID {
+		t.Fatalf("valid lexical fact disappeared during KNN repair: %+v", got)
+	}
+	if len(e.embeds) != 2 || e.embeds[1] != factEmbeddingText(fact) {
+		t.Fatalf("invalid KNN cache entry was trusted instead of re-embedded: %v", e.embeds)
+	}
+	if repaired := rr.cache[fact.ID]; !vectorHasMagnitude(repaired) {
+		t.Fatalf("invalid KNN cache entry was not repaired: %v", repaired)
 	}
 }
 

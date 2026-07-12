@@ -148,6 +148,27 @@ func indexFactReviewGroups(groups []factReviewGroup) (map[string]factReviewGroup
 	return byID, byFactID
 }
 
+// guardedFactCandidateLimit reserves exactly enough ranked rows to backfill the
+// requested limit if every valid pending review component collapses. Ranking
+// more rows cannot improve the guarded top-N, and ranking the whole fact corpus
+// creates avoidable conversions and allocations when no review is pending.
+func guardedFactCandidateLimit(facts []factRecord, proposals []factProposal, limit int) int {
+	if limit <= 0 || len(facts) == 0 {
+		return 0
+	}
+	if limit >= len(facts) {
+		return len(facts)
+	}
+	reserve := 0
+	for _, group := range buildFactReviewGroups(facts, proposals) {
+		reserve += len(group.Facts) - 1
+		if reserve >= len(facts)-limit {
+			return len(facts)
+		}
+	}
+	return limit + reserve
+}
+
 // guardUnifiedFactResults collapses every pending proposal component into one
 // explicit review result and annotates current-code drift. It preserves the
 // first ranked position and best score of each component, then backfills from

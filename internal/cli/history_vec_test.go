@@ -34,8 +34,9 @@ func (f *fakeFusionEmbedder) historyFusionEligible() bool { return true }
 // memHistoryVecStore is an in-memory historyVectorStore so the sync logic is
 // testable on both builds (the real vec0 store exists only under brain_cgo).
 type memHistoryVecStore struct {
-	vecs    map[string][]float32
-	upserts int
+	vecs     map[string][]float32
+	upserts  int
+	knnCalls int
 }
 
 func newMemHistoryVecStore() *memHistoryVecStore {
@@ -62,6 +63,7 @@ func (m *memHistoryVecStore) upsert(add map[string][]float32, drop []string) err
 }
 
 func (m *memHistoryVecStore) knnCos(qvec []float32, k int) (map[string]float64, bool) {
+	m.knnCalls++
 	if len(m.vecs) == 0 || k <= 0 {
 		return nil, false
 	}
@@ -82,6 +84,22 @@ func (m *memHistoryVecStore) knnCos(qvec []float32, k int) (map[string]float64, 
 		out[s.id] = s.cos
 	}
 	return out, true
+}
+
+func TestHistorySemanticScoresRejectInvalidQueryBeforeKNN(t *testing.T) {
+	store := newMemHistoryVecStore()
+	store.vecs["record"] = []float32{1, 0}
+	wrongDimension := &wrongDimensionQueryEmbedder{}
+	if got := historySemanticScoresWithStore(store, wrongDimension, "query", 10, true); len(got) != 0 {
+		t.Fatalf("wrong-dimension history query produced scores: %v", got)
+	}
+	zero := &fixedEmbedder{dim: 2, vecs: map[string][]float32{"query": {0, 0}}}
+	if got := historySemanticScoresWithStore(store, zero, "query", 10, true); len(got) != 0 {
+		t.Fatalf("zero history query produced scores: %v", got)
+	}
+	if store.knnCalls != 0 {
+		t.Fatalf("invalid history queries reached KNN %d times", store.knnCalls)
+	}
 }
 
 func TestHistorySemanticEmbedderGate(t *testing.T) {

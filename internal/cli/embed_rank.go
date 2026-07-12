@@ -195,7 +195,8 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 	// No query embedding (e.g. the embedder is unavailable) → fall back cleanly to
 	// lexical-only ranking. Otherwise every cosine is 0 and the semantic arm would
 	// still add an RRF term, reordering results by the UpdatedAt tiebreaker.
-	haveSemantic := vectorHasMagnitude(qvec)
+	dim := rr.e.Dim()
+	haveSemantic := dim > 0 && len(qvec) == dim && vectorHasMagnitude(qvec)
 	candidates := make([]factRecord, 0, len(facts))
 	for _, f := range facts {
 		if !includeAll && f.Status != factStatusActive {
@@ -243,7 +244,8 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		cos := math.NaN()
 		semanticValid := false
 		if haveSemantic {
-			if c, ok := storeCos[f.ID]; ok && isFinite(c) {
+			cached, cachedOK := rr.cache[f.ID]
+			if c, ok := storeCos[f.ID]; ok && isFinite(c) && cachedOK && len(cached) == dim && vectorHasMagnitude(cached) {
 				cos = c
 				semanticValid = true
 				rr.markTouched(f.ID)

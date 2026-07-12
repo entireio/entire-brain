@@ -52,10 +52,10 @@ func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode re
 	if limit <= 0 {
 		limit = 10
 	}
-	// Preserve the existing 2x per-layer candidate budget. The facts arm ranks
-	// its full (typically small) active set and applies trust collapse before it
-	// is truncated to this budget, so unrelated history/doc RRF candidates never
-	// change merely because a proposal entered the review queue.
+	// Preserve the existing 2x per-layer candidate budget. The facts arm adds a
+	// bounded collapse reserve before applying trust state, so unrelated
+	// history/doc RRF candidates never change merely because a proposal entered
+	// the review queue without converting the entire fact corpus on every query.
 	candidateLimit := limit * 2
 	if candidateLimit < limit { // integer overflow guard for unreasonable inputs
 		candidateLimit = limit
@@ -82,7 +82,10 @@ func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode re
 
 	// Facts.
 	if len(active) > 0 {
-		factLimit := len(active)
+		factLimit := min(len(active), candidateLimit)
+		if proposalsErr == nil {
+			factLimit = guardedFactCandidateLimit(active, proposals, candidateLimit)
+		}
 		var factResults []unifiedResult
 		switch mode {
 		case modeLexical:

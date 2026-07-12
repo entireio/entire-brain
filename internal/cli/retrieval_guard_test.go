@@ -48,6 +48,36 @@ func TestGuardUnifiedFactResultsCollapsesReviewAndBackfills(t *testing.T) {
 	}
 }
 
+func TestGuardedFactCandidateLimitAddsOnlyCollapseReserve(t *testing.T) {
+	facts := []factRecord{
+		{ID: "fact:a", Status: factStatusActive},
+		{ID: "fact:b", Status: factStatusActive},
+		{ID: "fact:c", Status: factStatusActive},
+		{ID: "fact:d", Status: factStatusActive},
+		{ID: "fact:e", Status: factStatusActive},
+	}
+	if got := guardedFactCandidateLimit(facts, nil, 2); got != 2 {
+		t.Fatalf("no-review candidate limit = %d, want 2", got)
+	}
+	proposals := []factProposal{
+		{Action: factActionMerge, CandidateID: "fact:a", TargetID: "fact:b"},
+		{Action: factActionSupersede, CandidateID: "fact:c", TargetID: "fact:b"},
+		{Action: factActionMerge, CandidateID: "fact:d", TargetID: "fact:missing"},
+	}
+	if got := guardedFactCandidateLimit(facts, proposals, 2); got != 4 {
+		t.Fatalf("three-fact review candidate limit = %d, want 4", got)
+	}
+	if got := guardedFactCandidateLimit(facts, proposals, 10); got != len(facts) {
+		t.Fatalf("oversized requested limit = %d, want %d", got, len(facts))
+	}
+
+	ranked := factsToUnified(facts[:guardedFactCandidateLimit(facts, proposals, 2)])
+	guarded := guardUnifiedFactResults("", facts, proposals, ranked, 2)
+	if len(guarded) != 2 || guarded[0].Source != "fact-review" || guarded[1].ID != "fact:d" {
+		t.Fatalf("collapse reserve did not backfill the guarded top-2: %+v", guarded)
+	}
+}
+
 func TestFactReviewIDStableAcrossInputOrder(t *testing.T) {
 	facts := []factRecord{
 		{ID: "fact:a", Text: "A", Status: factStatusActive},
