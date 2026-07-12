@@ -143,7 +143,7 @@ func newHookPreEditCommand(opts Options) *cobra.Command {
 			if strings.TrimSpace(file) == "" {
 				return fmt.Errorf("--file is required")
 			}
-			facts, ok := hookLoadFacts(cmd, opts, branch)
+			facts, target, ok := hookLoadFacts(cmd, opts, branch)
 			if !ok {
 				return nil // no brain / no facts: silence, never an error
 			}
@@ -152,7 +152,9 @@ func newHookPreEditCommand(opts Options) *cobra.Command {
 			// The stem ("distill_cmd") matches facts that name the file without
 			// its extension or talk about its symbols' shared prefix.
 			hits := factsRelevantToChange([]string{rel, stem}, nil, facts, 8)
-			return hookEmit(cmd, hits, budget, jsonOut)
+			kept, err := hookEmit(cmd, hits, budget, jsonOut)
+			hookRecordServed(cmd, opts, target, "hook-pre-edit", rel, kept)
+			return err
 		},
 	}
 	cmd.Flags().StringVar(&file, "file", "", "Path of the file about to be edited (repo-relative or absolute)")
@@ -185,12 +187,14 @@ steps into one, not after re-deriving it. Pipe the failure output on stdin:
 			if query == "" {
 				return nil // nothing to match against: silence
 			}
-			facts, ok := hookLoadFacts(cmd, opts, branch)
+			facts, target, ok := hookLoadFacts(cmd, opts, branch)
 			if !ok {
 				return nil
 			}
 			hits := hookMatchFailure(facts, query)
-			return hookEmit(cmd, hits, budget, jsonOut)
+			kept, err := hookEmit(cmd, hits, budget, jsonOut)
+			hookRecordServed(cmd, opts, target, "hook-post-failure", query, kept)
+			return err
 		},
 	}
 	cmd.Flags().StringVar(&command, "command", "", "The command that failed (added to the match query)")
@@ -200,18 +204,38 @@ steps into one, not after re-deriving it. Pipe the failure output on stdin:
 	return cmd
 }
 
+// hookTarget carries the resolved brain location so an emission can leave a
+// serve receipt.
+type hookTarget struct {
+	repoDir  string
+	brainDir string
+	branch   string
+}
+
 // hookLoadFacts resolves the brain and loads the branch's facts, reporting
 // ok=false (silence) on any problem — the hook contract.
-func hookLoadFacts(cmd *cobra.Command, opts Options, branch string) ([]factRecord, bool) {
-	_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+func hookLoadFacts(cmd *cobra.Command, opts Options, branch string) ([]factRecord, hookTarget, bool) {
+	repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
 	if err != nil {
-		return nil, false
+		return nil, hookTarget{}, false
 	}
 	facts, err := loadFacts(brainDir, resolvedBranch)
 	if err != nil || len(facts) == 0 {
-		return nil, false
+		return nil, hookTarget{}, false
 	}
-	return facts, true
+	return facts, hookTarget{repoDir: repoDir, brainDir: brainDir, branch: resolvedBranch}, true
+}
+
+// hookRecordServed leaves serve receipts (vitality Phase 1) for the facts an
+// emission actually carried. Best-effort like everything else here: recording
+// problems go to stderr (bounded to one line), never to stdout, and never
+// fail the hook. Only a hash of the trigger text is persisted.
+func hookRecordServed(cmd *cobra.Command, opts Options, target hookTarget, surface, triggerText string, kept []factRecord) {
+	if len(kept) == 0 {
+		return
+	}
+	recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), target.brainDir, target.branch, surface,
+		vitalityHead(cmd.Context(), opts.Runner, target.repoDir), triggerText, factRecordIDs(kept))
 }
 
 // hookReadFailureTail reads at most the last hookFailureTailBytes of stdin —
@@ -268,10 +292,11 @@ func hookMatchFailure(facts []factRecord, query string) []factRecord {
 // empty (the silent default), else one compact line per fact (or a JSON
 // object with --json). At least one fact is emitted when any matched, even if
 // it alone exceeds the budget — an empty emission for a real match would be a
-// false negative, the worse failure mode.
-func hookEmit(cmd *cobra.Command, hits []factRecord, budget int, jsonOut bool) error {
+// false negative, the worse failure mode. It returns the facts actually
+// emitted so the caller can leave serve receipts for exactly those.
+func hookEmit(cmd *cobra.Command, hits []factRecord, budget int, jsonOut bool) ([]factRecord, error) {
 	if len(hits) == 0 {
-		return nil
+		return nil, nil
 	}
 	if budget <= 0 {
 		budget = hookDefaultBudgetTokens
@@ -299,11 +324,11 @@ func hookEmit(cmd *cobra.Command, hits []factRecord, budget int, jsonOut bool) e
 		for _, f := range kept {
 			out.Facts = append(out.Facts, hookFact{ID: f.ID, Kind: factKindOrInferred(f), Text: f.Text, Paths: f.Paths})
 		}
-		return writeJSON(cmd, out)
+		return kept, writeJSON(cmd, out)
 	}
 	w := cmd.OutOrStdout()
 	for _, f := range kept {
 		fmt.Fprintf(w, "[%s] %s\n", factKindOrInferred(f), f.Text)
 	}
-	return nil
+	return kept, nil
 }

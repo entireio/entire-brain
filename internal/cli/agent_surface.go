@@ -41,6 +41,9 @@ type brainBriefOptions struct {
 	json       bool
 	limit      int
 	noSemantic bool
+	// surface names the caller for serve receipts; empty means the CLI
+	// "brief" verb (the MCP server passes "mcp:brain_brief").
+	surface string
 }
 
 type brainShowOptions struct {
@@ -1137,6 +1140,14 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 				rr.retain(facts) // keep every present fact's vector; prune only departed facts
 				_ = rr.flush()   // best-effort cache persist
 			}
+			// Serve receipts (vitality Phase 1): best-effort, never affects
+			// the brief. Only a hash of the task text is persisted.
+			surface := briefOpts.surface
+			if surface == "" {
+				surface = "brief"
+			}
+			recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), status.Brain.Path, branch, surface,
+				status.Live.Head, task, factRecordIDs(report.Facts))
 		}
 	}
 	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, report.Facts)

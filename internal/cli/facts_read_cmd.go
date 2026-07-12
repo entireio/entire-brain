@@ -109,6 +109,10 @@ func newRecallCommand(opts Options) *cobra.Command {
 			// Locus drift (Phase 2 item 4): flag surfaced facts whose code
 			// locus left the worktree, so the agent knows which to re-verify.
 			drift := factsLocusDrift(repoDir, matches)
+			// Serve receipts (vitality Phase 1): best-effort, never affects
+			// the result. Only a hash of the query text is persisted.
+			recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), brainDir, resolvedBranch, "recall",
+				vitalityHead(cmd.Context(), opts.Runner, repoDir), query, factRecordIDs(matches))
 			if jsonOut {
 				out := map[string]any{"branch": resolvedBranch, "query": query, "facts": matches}
 				if len(drift) > 0 {

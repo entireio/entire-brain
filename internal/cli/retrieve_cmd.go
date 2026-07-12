@@ -42,7 +42,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 			if err != nil {
 				return err
 			}
-			return runRetrieve(cmd.Context(), cmd, opts, args[0], mode, limit, branch, wantJSON, patterns)
+			return runRetrieve(cmd.Context(), cmd, opts, args[0], mode, limit, branch, wantJSON, patterns, use)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
@@ -54,7 +54,9 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	return cmd
 }
 
-func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query string, mode retrievalMode, limit int, branch string, jsonOut, patterns bool) error {
+// surface names the read surface for serve receipts ("search"/"vsearch"/
+// "query" from the CLI, "mcp:brain_*" from the MCP server).
+func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query string, mode retrievalMode, limit int, branch string, jsonOut, patterns bool, surface string) error {
 	// Reject --limit <= 0 rather than silently defaulting, so a typo like
 	// `--limit 0` is an explicit error (matching the rest of the CLI surface). The
 	// MCP path passes a validated positive limit, so it's unaffected.
@@ -68,6 +70,12 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	results, err := retrieveUnified(repoDir, brainDir, resolvedBranch, query, limit, mode)
 	if err != nil {
 		return err
+	}
+	// Serve receipts (vitality Phase 1) for the fact-layer hits: best-effort,
+	// never affects the result. Only a hash of the query text is persisted.
+	if factIDs := unifiedFactIDs(results); len(factIDs) > 0 {
+		recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), brainDir, resolvedBranch, surface,
+			vitalityHead(ctx, opts.Runner, repoDir), query, factIDs)
 	}
 	// Discoverability only: pattern/theme pointers never enter the facts/history/
 	// docs ranking — they are a separate, capped, opt-in section so default
@@ -127,7 +135,7 @@ func newGetCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runGet(cmd.Context(), cmd, opts, []string{args[0]}, branch, wantJSON)
+			return runGet(cmd.Context(), cmd, opts, []string{args[0]}, branch, wantJSON, "get")
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
@@ -149,7 +157,7 @@ func newMultiGetCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runGet(cmd.Context(), cmd, opts, args, branch, wantJSON)
+			return runGet(cmd.Context(), cmd, opts, args, branch, wantJSON, "multi-get")
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
@@ -171,7 +179,7 @@ func outputWantsJSON(jsonOut bool, format string) (bool, error) {
 	}
 }
 
-func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string, branch string, jsonOut bool) error {
+func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string, branch string, jsonOut bool, surface string) error {
 	repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(ctx, opts, agentSurfaceTarget(opts, nil), branch)
 	if err != nil {
 		return err
@@ -179,6 +187,12 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	found, missing, err := getUnifiedBatch(repoDir, brainDir, resolvedBranch, ids)
 	if err != nil {
 		return err
+	}
+	// Serve receipts (vitality Phase 1) for resolved fact ids. Gets are
+	// id-addressed, so there is no task text to hash.
+	if factIDs := unifiedFactIDs(found); len(factIDs) > 0 {
+		recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), brainDir, resolvedBranch, surface,
+			vitalityHead(ctx, opts.Runner, repoDir), "", factIDs)
 	}
 	// Normalize empty collections to [] so --json emits arrays, not null, matching
 	// the repo's JSON contract (see TestInspectCodeEmptyResultsEmitArrayNotNull).

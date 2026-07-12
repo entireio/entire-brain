@@ -513,22 +513,22 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if strings.TrimSpace(task) == "" {
 			err = errors.New("task is required")
 		} else {
-			err = runBrainBrief(ctx, cmd, opts, brainBriefOptions{limit: limit, json: true}, task)
+			err = runBrainBrief(ctx, cmd, opts, brainBriefOptions{limit: limit, json: true, surface: "mcp:brain_brief"}, task)
 		}
 	case "brain_query":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runRetrieve(ctx, cmd, opts, query, modeHybrid, limit, branch, true, false)
+			err = runRetrieve(ctx, cmd, opts, query, modeHybrid, limit, branch, true, false, "mcp:brain_query")
 		}
 	case "brain_search":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runRetrieve(ctx, cmd, opts, query, modeLexical, limit, branch, true, false)
+			err = runRetrieve(ctx, cmd, opts, query, modeLexical, limit, branch, true, false, "mcp:brain_search")
 		}
 	case "brain_vsearch":
 		err = requireMCPQuery(query)
 		if err == nil {
-			err = runRetrieve(ctx, cmd, opts, query, modeVector, limit, branch, true, false)
+			err = runRetrieve(ctx, cmd, opts, query, modeVector, limit, branch, true, false, "mcp:brain_vsearch")
 		}
 	case "brain_get":
 		id, stringErr := mcpOptionalString(params.Arguments, "id")
@@ -540,7 +540,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if id == "" {
 			err = errors.New("id is required")
 		} else {
-			err = runGet(ctx, cmd, opts, []string{id}, branch, true)
+			err = runGet(ctx, cmd, opts, []string{id}, branch, true, "mcp:brain_get")
 		}
 	case "brain_multi_get":
 		ids, sliceErr := mcpStringSlice(params.Arguments, "ids")
@@ -551,7 +551,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 		if len(ids) == 0 {
 			err = errors.New("ids is required")
 		} else {
-			err = runGet(ctx, cmd, opts, ids, branch, true)
+			err = runGet(ctx, cmd, opts, ids, branch, true, "mcp:brain_multi_get")
 		}
 	case "brain_context":
 		err = requireMCPQuery(query)
