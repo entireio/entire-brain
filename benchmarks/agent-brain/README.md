@@ -139,8 +139,25 @@ ref commit, cutoff, session variant, retrieval branch, and pinned distillation
 configuration. The harness builds one unisolated source cache and derives all
 three deliveries from copies of it, so stochastic distillation cannot differ by
 condition. Raw transcripts, checkpoint refs, semantic context, seed context,
-docs, and patterns are removed before the task agent starts. See
-`temporal-memory/README.md` for the Phase 0A development protocol.
+docs, and patterns are removed before the task agent starts.
+
+Temporal tasks additionally choose a delivery lane with the task-level
+`memory_delivery` field. The default, `agent_tool`, is the product-adherence
+lane: the prompt mandates one frozen `entire brain search` and the temporal
+audit fails deviating rows. `harness` is the causal lane: the harness itself
+executes the single frozen retrieval before the task agent starts, injects the
+bounded packet into the prompt, and then physically deletes the Brain store, so
+treatment delivery never depends on agent tool adherence. Summaries never pool
+the two lanes: comparisons are keyed by delivery mode, and a harness-lane arm
+only compares against a harness-lane `no_brain` baseline. See
+`temporal-memory/README.md` for the Phase 0A development protocol and the
+Phase 0B harness-owned causal delivery.
+
+Validation entries may be plain command strings (exact validators) or objects
+`{"command": ..., "kind": "exact" | "behavioral"}`. The `behavioral` kind labels
+validators that assert behavior through tests instead of one exact source
+expression; every validator of either kind must still pass, so the label never
+weakens exact validation.
 
 For a fast MCP session-history smoke on the local Ultron repo:
 

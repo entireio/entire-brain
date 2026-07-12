@@ -5614,5 +5614,418 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             self.assertIn("missing retained release proof scope mcp_radar_location_only", report["flags"])
 
 
+def _harness_task(**overrides):
+    task = {
+        "id": "temporal-harness-task",
+        "repo": "entire-brain",
+        "repo_path": "entire-brain",
+        "prompt": "Restore the intended default gate.",
+        "brain_queries": ["decision gate default"],
+        "expected_files": ["internal/cli/x.go"],
+        "validation": ["go test ./internal/cli -run TestGateDefault"],
+        "prepare_semantic": False,
+        "memory_delivery": "harness",
+        "memory_bundle": {
+            "role": "development",
+            "checkpoint_ref_commit": "a" * 40,
+            "cutoff_at": "2026-06-18T08:29:27Z",
+            "retrieval_branch": "main",
+            "session_ids": ["session-a"],
+        },
+    }
+    task.update(overrides)
+    return task
+
+
+class _FakeProc:
+    def __init__(self, returncode=0, stdout="", stderr=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+class TemporalHarnessDeliveryTests(unittest.TestCase):
+    def _delivery(self, task, condition, stdout, returncode=0, stderr=""):
+        """Run harness_memory_delivery against a faked retrieval subprocess."""
+        calls = []
+        old_run_cmd = run.run_cmd
+
+        def fake_run_cmd(args, **kwargs):
+            if args and args[0] == "git":  # provenance lookups (harness head commit) stay real
+                return old_run_cmd(args, **kwargs)
+            calls.append(args)
+            return _FakeProc(returncode=returncode, stdout=stdout, stderr=stderr)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = pathlib.Path(tmp)
+            brain = tmp_path / "entire-brain"
+            brain.write_text("fake brain binary")
+            run_dir = tmp_path / "run"
+            run_dir.mkdir()
+            tools = {"brain": brain}
+            prep = {
+                "cache": {"key": "c" * 24},
+                "source_cache": {"key": "s" * 24},
+                "memory_bundle": {
+                    "checkpoint_ref_commit": "a" * 40,
+                    "cutoff_at": "2026-06-18T08:29:27Z",
+                    "selected_sessions": [
+                        {"session_id": "session-a", "transcript_sha256": "f" * 64}
+                    ],
+                    "history_index": {"sha256": "1" * 64},
+                    "facts": {"artifacts": [{"sha256": "2" * 64}]},
+                    "delivery": {"allowed_sources": ["history"]},
+                },
+            }
+            try:
+                run.run_cmd = fake_run_cmd
+                packet, delivery = run.harness_memory_delivery(
+                    task, condition, tmp_path / "worktree", {}, tools, prep, run_dir
+                )
+            finally:
+                run.run_cmd = old_run_cmd
+            persisted = None
+            delivery_path = run_dir / "memory-delivery.json"
+            if delivery_path.exists():
+                persisted = json.loads(delivery_path.read_text())
+            return packet, delivery, calls, persisted
+
+    def test_temporal_delivery_mode_defaults_and_validation(self):
+        self.assertEqual(run.temporal_delivery_mode({"id": "t"}), "agent_tool")
+        self.assertEqual(run.temporal_delivery_mode(_harness_task()), "harness")
+        self.assertFalse(run.temporal_harness_delivery({"id": "t"}))
+        self.assertTrue(run.temporal_harness_delivery(_harness_task()))
+        with self.assertRaisesRegex(ValueError, "memory_delivery must be one of"):
+            run.temporal_delivery_mode({"id": "t", "memory_delivery": "prompt"})
+        with self.assertRaisesRegex(ValueError, "without a memory_bundle"):
+            run.temporal_delivery_mode({"id": "t", "memory_delivery": "harness"})
+
+    def test_memory_bundle_validates_packet_and_search_limit(self):
+        task = _harness_task()
+        task["memory_bundle"]["search_limit"] = 8
+        task["memory_bundle"]["packet"] = {"max_bytes": 4096}
+        self.assertEqual(run.temporal_memory_search_spec(task)["limit"], 8)
+        self.assertEqual(run.memory_packet_max_bytes(task), 4096)
+        self.assertEqual(run.memory_packet_max_bytes(_harness_task()), run.DEFAULT_MEMORY_PACKET_MAX_BYTES)
+        bad_limit = _harness_task()
+        bad_limit["memory_bundle"]["search_limit"] = 0
+        with self.assertRaisesRegex(ValueError, "search_limit"):
+            run.memory_bundle_config(bad_limit)
+        bad_packet = _harness_task()
+        bad_packet["memory_bundle"]["packet"] = {"max_bytes": 10}
+        with self.assertRaisesRegex(ValueError, "max_bytes"):
+            run.memory_bundle_config(bad_packet)
+        unknown_packet = _harness_task()
+        unknown_packet["memory_bundle"]["packet"] = {"max_tokens": 10}
+        with self.assertRaisesRegex(ValueError, "unknown fields"):
+            run.memory_bundle_config(unknown_packet)
+
+    def test_harness_prompt_injects_packet_and_forbids_brain(self):
+        packet = json.dumps({"results": [{"kind": "history", "text": "the decided value"}]})
+        for condition in sorted(run.TEMPORAL_MEMORY_CONDITIONS):
+            prompt = run.prompt_for(_harness_task(), condition, memory_packet=packet)
+            self.assertIn("<frozen-memory-packet>\n" + packet + "\n</frozen-memory-packet>", prompt)
+            self.assertIn("Do not run `entire brain`, `entire-brain`, or any brain MCP tool", prompt)
+            self.assertIn("physically absent", prompt)
+            self.assertIn("Do not inspect `.entire`, `.benchmark`, checkpoint refs, or session files", prompt)
+            # The causal lane never asks the agent to retrieve anything itself.
+            self.assertNotIn("Your first context command", prompt)
+            self.assertNotIn("entire brain search", prompt)
+
+    def test_agent_tool_lane_prompt_is_preserved(self):
+        # The adherence lane keeps its original single-frozen-search contract.
+        task = _harness_task(memory_delivery="agent_tool")
+        prompt = run.prompt_for(task, "raw_history")
+        self.assertIn("Your first context command must be `entire brain search", prompt)
+        self.assertIn("--json --limit 6 --branch main", prompt)
+        self.assertNotIn("<frozen-memory-packet>", prompt)
+        default_task = _harness_task()
+        default_task.pop("memory_delivery")
+        self.assertEqual(prompt, run.prompt_for(default_task, "raw_history"))
+
+    def test_prompt_packet_fails_closed_on_wrong_lane_or_missing(self):
+        packet = '{"results": []}'
+        with self.assertRaisesRegex(RuntimeError, "only allowed for harness-delivered"):
+            run.prompt_for(_harness_task(), "no_brain", memory_packet=packet)
+        with self.assertRaisesRegex(RuntimeError, "only allowed for harness-delivered"):
+            run.prompt_for(_harness_task(memory_delivery="agent_tool"), "raw_history", memory_packet=packet)
+        with self.assertRaisesRegex(RuntimeError, "requires a retrieved memory packet"):
+            run.prompt_for(_harness_task(), "raw_history", memory_packet=None)
+
+    def test_harness_memory_delivery_records_reproducible_provenance(self):
+        stdout = json.dumps({"results": [{"kind": "history", "text": "hit"}]}) + "\n"
+        task = _harness_task()
+        packet, delivery, calls, persisted = self._delivery(task, "raw_history", stdout)
+        self.assertEqual(packet, stdout)
+        self.assertTrue(delivery["ok"])
+        self.assertEqual(delivery["mode"], "harness")
+        self.assertEqual(delivery["condition"], "raw_history")
+        retrieval = delivery["retrieval"]
+        self.assertEqual(calls, [retrieval["command"]])
+        self.assertEqual(
+            retrieval["command"][1:],
+            ["search", run.brain_brief_query(task), "--json", "--limit", "6", "--branch", "main"],
+        )
+        # The recorded CLI equivalent is byte-identical to the adherence lane's mandated command.
+        agent_prompt = run.prompt_for(_harness_task(memory_delivery="agent_tool"), "raw_history")
+        self.assertIn(retrieval["cli_equivalent"], agent_prompt)
+        self.assertEqual(retrieval["returncode"], 0)
+        self.assertEqual(retrieval["response"]["bytes"], len(stdout.encode()))
+        self.assertEqual(retrieval["response"]["sha256"], hashlib.sha256(stdout.encode()).hexdigest())
+        self.assertTrue(retrieval["response"]["valid_json"])
+        self.assertEqual(retrieval["response"]["result_count"], 1)
+        pkt = retrieval["packet"]
+        self.assertEqual(pkt["sha256"], hashlib.sha256(packet.encode()).hexdigest())
+        self.assertEqual(pkt["bytes"], len(packet.encode()))
+        self.assertEqual(pkt["token_estimate"], (len(packet.encode()) + 3) // 4)
+        self.assertFalse(pkt["truncated"])
+        self.assertEqual(delivery["sources"]["session_ids"], ["session-a"])
+        self.assertEqual(delivery["sources"]["source_cache_key"], "s" * 24)
+        self.assertEqual(delivery["sources"]["history_index_sha256"], "1" * 64)
+        self.assertEqual(delivery["sources"]["fact_artifact_sha256"], ["2" * 64])
+        self.assertTrue(delivery["product"]["brain_binary_sha256"])
+        self.assertTrue(delivery["product"]["harness_head_commit"])
+        # No hidden answers in the persisted provenance.
+        blob = json.dumps(delivery)
+        self.assertNotIn("TestGateDefault", blob)
+        self.assertIsNone(persisted)  # success path defers the file to run_one (post-isolation)
+
+    def test_harness_memory_delivery_truncates_deterministically(self):
+        task = _harness_task()
+        task["memory_bundle"]["packet"] = {"max_bytes": 1024}
+        stdout = json.dumps({"results": [{"text": "x" * 4000}]})
+        packet_a, delivery_a, _, _ = self._delivery(task, "history_facts", stdout)
+        packet_b, delivery_b, _, _ = self._delivery(task, "history_facts", stdout)
+        self.assertEqual(packet_a, packet_b)
+        self.assertEqual(delivery_a["retrieval"]["packet"], delivery_b["retrieval"]["packet"])
+        pkt = delivery_a["retrieval"]["packet"]
+        self.assertTrue(pkt["truncated"])
+        self.assertEqual(pkt["max_bytes"], 1024)
+        self.assertLessEqual(pkt["bytes"], 1024)
+        self.assertEqual(packet_a, stdout[: len(packet_a)])  # head-of-response, cut only at the tail
+        self.assertEqual(pkt["sha256"], hashlib.sha256(packet_a.encode()).hexdigest())
+        self.assertEqual(pkt["token_estimate"], (len(packet_a.encode()) + 3) // 4)
+        # The full response stays reproducible via its own hash even when truncated.
+        self.assertEqual(delivery_a["retrieval"]["response"]["sha256"], hashlib.sha256(stdout.encode()).hexdigest())
+
+    def test_harness_memory_delivery_fails_closed(self):
+        task = _harness_task()
+        with self.assertRaisesRegex(run.MemoryDeliveryError, "exited 3"):
+            self._delivery(task, "raw_history", "", returncode=3, stderr="boom")
+        with self.assertRaisesRegex(run.MemoryDeliveryError, "empty response"):
+            self._delivery(task, "raw_history", "   \n")
+        with self.assertRaisesRegex(run.MemoryDeliveryError, "not valid JSON"):
+            self._delivery(task, "facts_only", "not-json{")
+        # The failure still persists reproducible provenance for the row.
+        try:
+            self._delivery(task, "raw_history", "not-json{", stderr="parse warning")
+        except run.MemoryDeliveryError as exc:
+            delivery = exc.delivery
+        self.assertFalse(delivery["ok"])
+        self.assertIsNone(delivery["retrieval"]["packet"])
+        self.assertFalse(delivery["retrieval"]["response"]["valid_json"])
+        self.assertEqual(
+            delivery["retrieval"]["response"]["sha256"], hashlib.sha256(b"not-json{").hexdigest()
+        )
+        self.assertEqual(delivery["retrieval"]["returncode"], 0)
+
+    def test_harness_delivery_rejects_non_temporal_conditions(self):
+        with self.assertRaisesRegex(run.MemoryDeliveryError, "only the temporal ablation conditions"):
+            self._delivery(_harness_task(), "semantic_brain", '{"results": []}')
+
+    def test_harness_no_brain_arm_records_delivery_without_retrieval(self):
+        packet, delivery, calls, persisted = self._delivery(_harness_task(), "no_brain", "")
+        self.assertIsNone(packet)
+        self.assertEqual(calls, [])  # no retrieval subprocess for the baseline arm
+        self.assertTrue(delivery["ok"])
+        self.assertIsNone(delivery["retrieval"])
+        self.assertIsNone(delivery["sources"])
+        self.assertIsNotNone(persisted)
+        self.assertEqual(persisted["condition"], "no_brain")
+
+    def test_remove_agent_visible_brain_store_deletes_source_store(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worktree = pathlib.Path(tmp)
+            store = run.run_plugin_dir(worktree) / "data" / "brain" / "history"
+            store.mkdir(parents=True)
+            (store / "index.json").write_text("{}")
+            audit = run.remove_agent_visible_brain_store(worktree)
+            self.assertTrue(audit["benchmark_dir_removed"])
+            self.assertTrue(audit["plugin_store_absent"])
+            self.assertFalse((worktree / ".benchmark").exists())
+            # Idempotent on an already-clean worktree (the no_brain arm).
+            audit = run.remove_agent_visible_brain_store(worktree)
+            self.assertFalse(audit["benchmark_dir_removed"])
+
+    def test_temporal_audit_harness_lane_flags_probes_not_adherence(self):
+        clean = {
+            "activity": {
+                "activity_source": "protocol_json",
+                "brain_commands": [],
+                "direct_brain_cli_calls": 0,
+                "mcp_tool_calls": 0,
+                "first_tool_name": "Bash",
+                "first_tool_is_memory_search": False,
+                "forbidden_memory_artifact_access": False,
+            }
+        }
+        # Causal lane: no retrieval-adherence requirement — a clean non-Brain run passes in every arm.
+        for condition in sorted(run.TEMPORAL_MEMORY_CONDITIONS | {"no_brain"}):
+            audit = run.temporal_memory_condition_audit(condition, clean, "harness")
+            self.assertTrue(audit["ok"], (condition, audit))
+            self.assertEqual(audit["delivery_mode"], "harness")
+        # ...but the same clean activity FAILS the adherence lane's memory arms (no frozen search).
+        adherence = run.temporal_memory_condition_audit("raw_history", clean, "agent_tool")
+        self.assertFalse(adherence["ok"])
+        self.assertIn("memory_search_was_not_first_tool", {f["kind"] for f in adherence["findings"]})
+        # Any Brain probe in the causal lane is flagged, in memory arms too.
+        probing = copy.deepcopy(clean)
+        probing["activity"]["direct_brain_cli_calls"] = 1
+        probing["activity"]["brain_commands"] = ["search"]
+        probing["activity"]["first_tool_is_memory_search"] = True
+        audit = run.temporal_memory_condition_audit("raw_history", probing, "harness")
+        self.assertFalse(audit["ok"])
+        self.assertIn("brain_used_in_harness_delivery", {f["kind"] for f in audit["findings"]})
+        mcp_probe = copy.deepcopy(clean)
+        mcp_probe["activity"]["mcp_tool_calls"] = 2
+        audit = run.temporal_memory_condition_audit("facts_only", mcp_probe, "harness")
+        self.assertIn("mcp_used_in_harness_delivery", {f["kind"] for f in audit["findings"]})
+        forbidden = copy.deepcopy(clean)
+        forbidden["activity"]["forbidden_memory_artifact_access"] = True
+        audit = run.temporal_memory_condition_audit("no_brain", forbidden, "harness")
+        self.assertFalse(audit["ok"])
+        self.assertIn("forbidden_memory_artifact_access", {f["kind"] for f in audit["findings"]})
+
+    def test_summarize_never_pools_causal_and_adherence_lanes(self):
+        def lane_rec(tokens, condition, mode):
+            record = _rec(tokens)
+            record["condition"] = condition
+            record["delivery_mode"] = mode
+            return record
+
+        # Harness memory rows with only an agent_tool baseline: NO comparison may be built.
+        records = [lane_rec(t, "no_brain", "agent_tool") for t in (900, 950)]
+        records += [lane_rec(t, "raw_history", "harness") for t in (400, 420)]
+        with tempfile.TemporaryDirectory() as d:
+            summary = run.summarize(records, pathlib.Path(d))
+        self.assertEqual(summary["comparisons"], [])
+
+        # With per-lane baselines, each lane compares strictly within itself.
+        records += [lane_rec(t, "no_brain", "harness") for t in (800, 850)]
+        records += [lane_rec(t, "raw_history", "agent_tool") for t in (500, 520)]
+        with tempfile.TemporaryDirectory() as d:
+            summary = run.summarize(records, pathlib.Path(d))
+        by_mode = {comp["delivery_mode"]: comp for comp in summary["comparisons"]}
+        self.assertEqual(set(by_mode), {"harness", "agent_tool"})
+        self.assertEqual(by_mode["harness"]["n_baseline"], 2)
+        self.assertEqual(by_mode["harness"]["mean_total_tokens_baseline"], 825.0)
+        self.assertEqual(by_mode["agent_tool"]["n_baseline"], 2)
+        self.assertEqual(by_mode["agent_tool"]["mean_total_tokens_baseline"], 925.0)
+
+    def test_validation_commands_normalize_behavioral_and_reject_malformed(self):
+        task = {
+            "validation": [
+                "test $(rg -c pattern file.go) -eq 1",
+                {"command": "go test ./internal/cli -run TestBehavior", "kind": "behavioral"},
+                {"command": "go test ./internal/cli -run TestExact", "kind": "exact"},
+            ]
+        }
+        normalized = run.validation_commands(task)
+        self.assertEqual([entry["kind"] for entry in normalized], ["exact", "behavioral", "exact"])
+        self.assertEqual(normalized[1]["command"], "go test ./internal/cli -run TestBehavior")
+        with self.assertRaisesRegex(ValueError, "kind must be one of"):
+            run.validation_commands({"validation": [{"command": "x", "kind": "fuzzy"}]})
+        with self.assertRaisesRegex(ValueError, "non-empty command"):
+            run.validation_commands({"validation": [{"kind": "behavioral"}]})
+        with self.assertRaisesRegex(ValueError, "unknown fields"):
+            run.validation_commands({"validation": [{"command": "x", "kind": "exact", "weight": 2}]})
+        with self.assertRaisesRegex(ValueError, "strings or objects"):
+            run.validation_commands({"validation": [42]})
+
+    def test_validate_tags_kinds_and_behavioral_never_weakens_exact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worktree = pathlib.Path(tmp)
+            env = os.environ.copy()
+            passing = run.validate(
+                {"validation": ["exit 0", {"command": "exit 0", "kind": "behavioral"}]}, worktree, env
+            )
+            self.assertTrue(passing["ok"])
+            self.assertEqual(passing["kinds"], {
+                "behavioral": {"count": 1, "passed": 1},
+                "exact": {"count": 1, "passed": 1},
+            })
+            # A failing EXACT validator fails the row even when the behavioral one passes...
+            exact_fail = run.validate(
+                {"validation": ["exit 1", {"command": "exit 0", "kind": "behavioral"}]}, worktree, env
+            )
+            self.assertFalse(exact_fail["ok"])
+            # ...and a failing BEHAVIORAL validator fails it too (labeling, not weakening).
+            behavioral_fail = run.validate(
+                {"validation": ["exit 0", {"command": "exit 1", "kind": "behavioral"}]}, worktree, env
+            )
+            self.assertFalse(behavioral_fail["ok"])
+            self.assertEqual(behavioral_fail["kinds"]["behavioral"], {"count": 1, "passed": 0})
+            malformed = run.validate({"validation": [{"command": "x", "kind": "bad"}]}, worktree, env)
+            self.assertFalse(malformed["ok"])
+            self.assertIn("invalid validation config", malformed["error"])
+
+    def test_hidden_markers_and_query_leak_cover_behavioral_validators(self):
+        task = {
+            "hide_validation_from_agent": True,
+            "validation": [
+                {"command": "go test ./internal/cli -run TestSecretBehavioralInvariant", "kind": "behavioral"}
+            ],
+        }
+        markers = run.hidden_validation_markers(task)
+        self.assertIn("go test ./internal/cli -run TestSecretBehavioralInvariant", markers)
+        texts = run.brain_query_answer_texts(task)
+        self.assertIn(("hidden_test_name", "TestSecretBehavioralInvariant"), texts)
+        leak = run.brain_query_leak_audit(
+            {**task, "brain_queries": ["TestSecretBehavioralInvariant rationale"]}
+        )
+        self.assertFalse(leak["ok"])
+
+    def test_score_brain_use_symmetric_in_harness_mode(self):
+        validation = {"ok": True, "results": [{"returncode": 0}]}
+        diff = {"bytes": 100}
+
+        def score_for(task, condition, used_brain):
+            agent_info = {
+                "returncode": 0,
+                "seconds": 30,
+                "usage": {"total_tokens": 1000},
+                "activity": {"used_brain": used_brain, "ran_tests": True, "checked_diff": True},
+            }
+            return run.score(task, condition, agent_info, validation, ["internal/cli/x.go"], diff)
+
+        harness = _harness_task()
+        for condition in sorted(run.TEMPORAL_MEMORY_CONDITIONS | {"no_brain"}):
+            self.assertEqual(score_for(harness, condition, used_brain=False)["brain_use"], 5, condition)
+            self.assertEqual(score_for(harness, condition, used_brain=True)["brain_use"], 0, condition)
+        # The adherence lane keeps rewarding the mandated Brain use in memory arms.
+        adherence = _harness_task(memory_delivery="agent_tool")
+        self.assertGreater(score_for(adherence, "raw_history", used_brain=True)["brain_use"], 0)
+
+    def test_panel_preflight_rejects_malformed_validation_and_delivery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_path = pathlib.Path(tmp) / "bad-task.json"
+            task = _harness_task()
+            task.pop("memory_bundle")  # harness without a bundle is invalid
+            task["validation"] = [{"command": "x", "kind": "fuzzy"}]
+            task["conditions"] = ["no_brain", "raw_history"]
+            task_path.write_text(json.dumps(task))
+            errors = run.panel_preflight(
+                {
+                    "runners": ["claude:claude-sonnet-4-6:high"],
+                    "tasks": [str(task_path)],
+                    "conditions": ["no_brain", "raw_history"],
+                    "repetitions": 4,
+                }
+            )
+            joined = " | ".join(errors)
+            self.assertIn("invalid validation config", joined)
+            self.assertIn("invalid memory_delivery", joined)
+
+
 if __name__ == "__main__":
     unittest.main()

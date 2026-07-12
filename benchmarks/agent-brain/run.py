@@ -335,6 +335,34 @@ def is_temporal_memory_condition(condition: str) -> bool:
     return condition in TEMPORAL_MEMORY_CONDITIONS
 
 
+# Temporal-memory delivery lanes (Phase 0B). `agent_tool` is the original product-adherence lane:
+# the prompt instructs the task agent to run the single frozen `entire brain search` itself, and
+# the temporal audit fails rows that deviate. `harness` is the causal lane: the HARNESS performs
+# the one frozen retrieval before the agent starts and injects the bounded packet into the prompt,
+# so treatment delivery cannot depend on whether the agent chooses to call Brain. The two lanes are
+# never pooled in summaries (see summarize()).
+TEMPORAL_DELIVERY_MODES = {"agent_tool", "harness"}
+DEFAULT_MEMORY_PACKET_MAX_BYTES = 65536
+
+
+def temporal_delivery_mode(task: dict[str, Any]) -> str:
+    raw = task.get("memory_delivery", "agent_tool")
+    if raw not in TEMPORAL_DELIVERY_MODES:
+        raise ValueError(
+            f"task {task.get('id', '<unknown>')} memory_delivery must be one of "
+            f"{sorted(TEMPORAL_DELIVERY_MODES)}, got {raw!r}"
+        )
+    if raw == "harness" and not task.get("memory_bundle"):
+        raise ValueError(
+            f"task {task.get('id', '<unknown>')} sets memory_delivery=harness without a memory_bundle"
+        )
+    return raw
+
+
+def temporal_harness_delivery(task: dict[str, Any]) -> bool:
+    return bool(task.get("memory_bundle")) and temporal_delivery_mode(task) == "harness"
+
+
 def benchmark_workspace_name(task: dict[str, Any]) -> str:
     name = str(task.get("workspace_name") or "benchmark")
     if not re.fullmatch(r"[A-Za-z0-9._-]+", name) or name in {".", ".."} or not name.strip("."):
@@ -1164,7 +1192,7 @@ def hidden_validation_markers(task: dict[str, Any]) -> list[str]:
         elif explicit_markers:
             markers.append(str(explicit_markers))
         return [marker for marker in markers if len(marker.strip()) >= 12]
-    markers.extend(str(command) for command in task.get("validation", []) if command)
+    markers.extend(entry["command"] for entry in validation_commands(task))
     for entry in task.get("validation_files", []):
         if not isinstance(entry, dict):
             continue
@@ -1207,7 +1235,7 @@ def brain_query_answer_texts(task: dict[str, Any]) -> list[tuple[str, str]]:
         for expected in task.get("expected_files", []):
             texts.append(("hidden_expected_file", str(expected)))
     if task.get("hide_validation_from_agent"):
-        for command in task.get("validation", []):
+        for command in (entry["command"] for entry in validation_commands(task)):
             texts.append(("hidden_validation_command", str(command)))
             for match in re.finditer(r"-run\s+'([^']+)'|-run\s+(\S+)", str(command)):
                 texts.append(("hidden_test_name", match.group(1) or match.group(2)))
@@ -1478,10 +1506,12 @@ def mcp_condition_audit(
     }
 
 
-def temporal_memory_condition_audit(condition: str, agent_info: dict[str, Any]) -> dict[str, Any]:
+def temporal_memory_condition_audit(
+    condition: str, agent_info: dict[str, Any], delivery_mode: str = "agent_tool"
+) -> dict[str, Any]:
     required = condition in TEMPORAL_MEMORY_CONDITIONS or condition == "no_brain"
     if not required:
-        return {"ok": True, "required": False, "findings": []}
+        return {"ok": True, "required": False, "delivery_mode": delivery_mode, "findings": []}
     activity = agent_info.get("activity") if isinstance(agent_info.get("activity"), dict) else {}
     findings: list[dict[str, Any]] = []
     direct_calls = int(activity.get("direct_brain_cli_calls") or 0)
@@ -1490,7 +1520,17 @@ def temporal_memory_condition_audit(condition: str, agent_info: dict[str, Any]) 
         findings.append({"kind": "activity_not_protocol_json"})
     if activity.get("forbidden_memory_artifact_access"):
         findings.append({"kind": "forbidden_memory_artifact_access"})
-    if condition == "no_brain":
+    if delivery_mode == "harness":
+        # Causal lane: the harness already delivered the packet, so ANY agent Brain use is an
+        # isolation probe in every arm (including the memory arms) — the store is physically
+        # deleted, so nothing can leak, but a probing row is still flagged fail-closed. There is
+        # deliberately no first-tool/search-count requirement here: retrieval adherence is not
+        # part of the causal treatment.
+        if direct_calls:
+            findings.append({"kind": "brain_used_in_harness_delivery", "calls": direct_calls})
+        if mcp_calls:
+            findings.append({"kind": "mcp_used_in_harness_delivery", "calls": mcp_calls})
+    elif condition == "no_brain":
         if direct_calls or mcp_calls:
             findings.append({"kind": "brain_used_in_no_brain_condition"})
     else:
@@ -1505,6 +1545,7 @@ def temporal_memory_condition_audit(condition: str, agent_info: dict[str, Any]) 
     return {
         "ok": not findings,
         "required": True,
+        "delivery_mode": delivery_mode,
         "direct_brain_cli_calls": direct_calls,
         "mcp_tool_calls": mcp_calls,
         "first_tool_name": activity.get("first_tool_name"),
@@ -1552,6 +1593,23 @@ def memory_bundle_config(task: dict[str, Any]) -> dict[str, Any]:
     retrieval_branch = raw.get("retrieval_branch")
     if not isinstance(retrieval_branch, str) or not retrieval_branch.strip():
         raise ValueError("memory_bundle.retrieval_branch must pin the branch used for memory retrieval")
+    search_limit = raw.get("search_limit")
+    if search_limit is not None and (
+        not isinstance(search_limit, int) or isinstance(search_limit, bool) or search_limit < 1
+    ):
+        raise ValueError("memory_bundle.search_limit must be a positive integer when present")
+    packet = raw.get("packet")
+    if packet is not None:
+        if not isinstance(packet, dict):
+            raise ValueError("memory_bundle.packet must be an object when present")
+        unknown = sorted(set(packet) - {"max_bytes"})
+        if unknown:
+            raise ValueError(f"memory_bundle.packet has unknown fields: {unknown}")
+        max_bytes = packet.get("max_bytes")
+        if max_bytes is not None and (
+            not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 1024
+        ):
+            raise ValueError("memory_bundle.packet.max_bytes must be an integer >= 1024 when present")
     variants = raw.get("session_variants")
     if variants is not None:
         if not isinstance(variants, list) or not variants:
@@ -2112,6 +2170,203 @@ def isolate_temporal_memory_delivery(
         "manifest_sha256": file_sha256(manifest_path),
         "raw_session_artifacts_removed": not (brain_dir / "sessions").exists(),
     }
+
+
+def temporal_memory_search_spec(task: dict[str, Any]) -> dict[str, Any]:
+    """Single source of truth for the one frozen temporal-memory retrieval (query, limit, branch).
+    Shared by prompt_for (the agent-tool adherence lane's mandated command) and
+    harness_memory_delivery (the causal lane's harness-executed retrieval) so the two lanes issue
+    byte-identical queries and cannot drift."""
+    bundle = memory_bundle_config(task)
+    return {
+        "query": brain_brief_query(task),
+        "limit": int(bundle.get("search_limit", 6)),
+        "branch": str(bundle["retrieval_branch"]),
+    }
+
+
+def memory_packet_max_bytes(task: dict[str, Any]) -> int:
+    packet = memory_bundle_config(task).get("packet") or {}
+    return int(packet.get("max_bytes", DEFAULT_MEMORY_PACKET_MAX_BYTES))
+
+
+def deterministic_token_estimate(text: str) -> int:
+    """Deterministic packet-budget proxy: ceil(utf8_bytes / 4). Deliberately NOT a model tokenizer
+    (those vary by provider/version); the requirement is reproducible budgeting metadata."""
+    return (len(text.encode("utf-8")) + 3) // 4
+
+
+def bound_memory_packet(stdout: str, max_bytes: int) -> tuple[str, dict[str, Any]]:
+    """Deterministically bound the retrieval response to the packet budget: keep the head up to
+    max_bytes, cut on a UTF-8 boundary, and record enough metadata to reproduce the delivery."""
+    raw = stdout.encode("utf-8")
+    truncated = len(raw) > max_bytes
+    delivered = raw[:max_bytes].decode("utf-8", errors="ignore") if truncated else stdout
+    delivered_raw = delivered.encode("utf-8")
+    return delivered, {
+        "bytes": len(delivered_raw),
+        "sha256": hashlib.sha256(delivered_raw).hexdigest(),
+        "token_estimate": deterministic_token_estimate(delivered),
+        "token_estimator": "ceil_utf8_bytes_div_4",
+        "max_bytes": max_bytes,
+        "truncated": truncated,
+    }
+
+
+class MemoryDeliveryError(RuntimeError):
+    """A harness-owned memory retrieval failed closed; carries the persisted delivery provenance."""
+
+    def __init__(self, message: str, delivery: dict[str, Any]):
+        super().__init__(message)
+        self.delivery = delivery
+
+
+def memory_delivery_sources(prep: dict[str, Any]) -> dict[str, Any]:
+    bundle_record = prep.get("memory_bundle") if isinstance(prep.get("memory_bundle"), dict) else {}
+    sessions = [item for item in bundle_record.get("selected_sessions", []) if isinstance(item, dict)]
+    return {
+        "prep_cache_key": (prep.get("cache") or {}).get("key"),
+        "source_cache_key": (prep.get("source_cache") or {}).get("key"),
+        "checkpoint_ref_commit": bundle_record.get("checkpoint_ref_commit"),
+        "cutoff_at": bundle_record.get("cutoff_at"),
+        "session_ids": sorted(str(item.get("session_id")) for item in sessions),
+        "transcript_sha256": sorted(str(item.get("transcript_sha256")) for item in sessions),
+        "history_index_sha256": (bundle_record.get("history_index") or {}).get("sha256"),
+        "fact_artifact_sha256": sorted(
+            str(item.get("sha256"))
+            for item in (bundle_record.get("facts") or {}).get("artifacts", [])
+            if isinstance(item, dict)
+        ),
+        "delivery_isolation": bundle_record.get("delivery"),
+    }
+
+
+def harness_memory_delivery(
+    task: dict[str, Any],
+    condition: str,
+    worktree: pathlib.Path,
+    env: dict[str, str],
+    tools: dict[str, pathlib.Path],
+    prep: dict[str, Any],
+    run_dir: pathlib.Path,
+) -> tuple[str | None, dict[str, Any]]:
+    """Causal-lane delivery: the HARNESS executes the single frozen Brain retrieval before the task
+    agent starts and returns the bounded packet for prompt injection, so treatment delivery cannot
+    depend on agent tool adherence. Fail-closed: a failed process, empty response, or non-JSON
+    response persists its provenance to memory-delivery.json and raises MemoryDeliveryError — the
+    agent is never run with a silently missing treatment. The delivery record intentionally holds
+    only commands, configuration, hashes, sizes, and exit status (never hidden answers)."""
+    delivery: dict[str, Any] = {
+        "schema": 1,
+        "mode": "harness",
+        "condition": condition,
+        "task_id": task.get("id"),
+        "delivered_at": dt.datetime.now(dt.UTC).isoformat(),
+        "product": {
+            "brain_binary_path": str(tools["brain"]),
+            "brain_binary_sha256": file_sha256(tools["brain"]),
+            "harness_head_commit": git_commit_metadata(ROOT, "HEAD").get("commit"),
+        },
+        "retrieval": None,
+        "sources": None,
+        "ok": None,
+    }
+    if condition == "no_brain":
+        delivery["ok"] = True
+        write_json(run_dir / "memory-delivery.json", delivery)
+        return None, delivery
+    if condition not in TEMPORAL_MEMORY_CONDITIONS:
+        delivery["ok"] = False
+        write_json(run_dir / "memory-delivery.json", delivery)
+        raise MemoryDeliveryError(
+            f"harness memory delivery supports only the temporal ablation conditions, not {condition}", delivery
+        )
+
+    delivery["sources"] = memory_delivery_sources(prep)
+    spec = temporal_memory_search_spec(task)
+    max_bytes = memory_packet_max_bytes(task)
+    argv = [
+        str(tools["brain"]),
+        "search",
+        spec["query"],
+        "--json",
+        "--limit",
+        str(spec["limit"]),
+        "--branch",
+        spec["branch"],
+    ]
+    start = time.time()
+    proc = run_cmd(argv, cwd=worktree, env=env, timeout=300)
+    stdout = proc.stdout
+    raw = stdout.encode("utf-8")
+    response_valid_json = False
+    result_count: int | None = None
+    parse_error: str | None = None
+    if proc.returncode == 0 and stdout.strip():
+        try:
+            payload = json.loads(stdout)
+            response_valid_json = True
+        except json.JSONDecodeError as exc:
+            parse_error = str(exc)
+        else:
+            if isinstance(payload, list):
+                result_count = len(payload)
+            elif isinstance(payload, dict):
+                for key in ("results", "records", "hits", "matches"):
+                    items = payload.get(key)
+                    if isinstance(items, list):
+                        result_count = len(items)
+                        break
+    delivery["retrieval"] = {
+        "command": argv,
+        "cli_equivalent": (
+            f"entire brain search {shlex.quote(spec['query'])} --json"
+            f" --limit {spec['limit']} --branch {shlex.quote(spec['branch'])}"
+        ),
+        "query": spec["query"],
+        "limit": spec["limit"],
+        "branch": spec["branch"],
+        "returncode": proc.returncode,
+        "seconds": time.time() - start,
+        "stderr_tail": proc.stderr[-2000:],
+        "response": {
+            "bytes": len(raw),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "valid_json": response_valid_json,
+            "result_count": result_count,
+            "parse_error": parse_error,
+        },
+        "packet": None,
+    }
+    if proc.returncode != 0 or not stdout.strip() or not response_valid_json:
+        if proc.returncode != 0:
+            reason = f"retrieval command exited {proc.returncode}"
+        elif not stdout.strip():
+            reason = "retrieval produced an empty response"
+        else:
+            reason = f"retrieval response is not valid JSON: {parse_error}"
+        delivery["ok"] = False
+        write_json(run_dir / "memory-delivery.json", delivery)
+        raise MemoryDeliveryError(f"harness memory delivery failed closed for {condition}: {reason}", delivery)
+    packet_text, packet_meta = bound_memory_packet(stdout, max_bytes)
+    delivery["retrieval"]["packet"] = packet_meta
+    delivery["ok"] = True
+    return packet_text, delivery
+
+
+def remove_agent_visible_brain_store(worktree: pathlib.Path) -> dict[str, Any]:
+    """Physically delete the benchmark Brain store from the agent worktree after harness-owned
+    delivery: the causal-lane agent cannot reach Brain sources, the shared distillation cache
+    copy, or raw artifacts even if it ignores the prompt. The benchmark `entire` wrapper stays on
+    PATH so a disobedient `entire brain ...` call is intercepted against the emptied store (never
+    a host installation) and is still flagged by the temporal isolation audit."""
+    bench_dir = worktree / ".benchmark"
+    removed = bench_dir.exists()
+    if removed:
+        shutil.rmtree(bench_dir)
+    if run_plugin_dir(worktree).exists():
+        raise RuntimeError("harness delivery isolation failed: brain plugin store still present")
+    return {"benchmark_dir_removed": removed, "plugin_store_absent": True}
 
 
 def brain_prep_commands(task: dict[str, Any], condition: str, worktree: pathlib.Path, tools: dict[str, pathlib.Path], checkpoint_limit: int) -> list[list[str]]:
@@ -2926,9 +3181,23 @@ def wants_radar_location_only(runner: "RunnerSpec | None") -> bool:
     return os.environ.get("BENCH_RADAR_LOCATION_ONLY") == "1"
 
 
-def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None" = None) -> str:
+def prompt_for(
+    task: dict[str, Any],
+    condition: str,
+    runner: "RunnerSpec | None" = None,
+    memory_packet: str | None = None,
+) -> str:
+    harness_temporal = is_temporal_memory_condition(condition) and temporal_harness_delivery(task)
+    if memory_packet is not None and not harness_temporal:
+        # Fail closed against over-delivery: a packet must never reach no_brain, the agent-tool
+        # adherence lane, or any non-temporal condition.
+        raise RuntimeError(
+            f"memory packet injection is only allowed for harness-delivered temporal conditions, not {condition}"
+        )
+    if harness_temporal and memory_packet is None:
+        raise RuntimeError(f"harness delivery for {condition} requires a retrieved memory packet")
     base = task["prompt"].strip()
-    validation = "\n".join(f"- `{cmd}`" for cmd in task.get("validation", []))
+    validation = "\n".join(f"- `{entry['command']}`" for entry in validation_commands(task))
     expected = ", ".join(task.get("expected_files", []))
     queries = ", ".join(task.get("brain_queries", []))
     brief_query = brain_brief_query(task)
@@ -2949,14 +3218,15 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
     # a subprocess argv element (no shell) — so both channels deliver an identical query.
     brief_query_sh = shlex.quote(brief_query)
     brief_command = f'entire brain brief {brief_query_sh} --json{brief_limit}'
-    memory_branch = ""
+    memory_search_command = ""
     if is_temporal_memory_condition(condition):
-        memory_branch = str(memory_bundle_config(task)["retrieval_branch"])
-    memory_search_command = (
-        f'entire brain search {brief_query_sh} --json --limit 6 --branch {shlex.quote(memory_branch)}'
-        if memory_branch
-        else f'entire brain search {brief_query_sh} --json --limit 6'
-    )
+        # Shared with harness_memory_delivery via temporal_memory_search_spec so the adherence
+        # lane's mandated command and the causal lane's harness retrieval cannot drift.
+        spec = temporal_memory_search_spec(task)
+        memory_search_command = (
+            f"entire brain search {shlex.quote(spec['query'])} --json"
+            f" --limit {spec['limit']} --branch {shlex.quote(spec['branch'])}"
+        )
     # opus_brief_command is emitted ONLY in the full_cli_compact + is_opus branch below, so the
     # limit is correctly pinned to that condition's policy (the literal is intentional, not drift).
     opus_brief_command = f'entire brain brief {brief_query_sh} --json --limit {brain_brief_limit("full_cli_compact", is_opus=True)}'
@@ -2967,6 +3237,13 @@ def prompt_for(task: dict[str, Any], condition: str, runner: "RunnerSpec | None"
     semantic_available = task.get("prepare_semantic", True)
     if condition == "no_brain":
         policy = """Do not use Entire Brain for this run. Do not run `entire brain`, `entire-brain`, or any brain MCP tool. Do not inspect `.entire`, `.benchmark`, or Brain/session/checkpoint artifacts. Inspect the repository normally."""
+    elif harness_temporal:
+        source_description = {
+            "raw_history": "indexed records derived from pre-cutoff session history",
+            "facts_only": "durable facts distilled from the pre-cutoff sessions",
+            "history_facts": "both indexed pre-cutoff history and durable facts distilled from it",
+        }[condition]
+        policy = f"""A frozen temporal-memory packet is embedded at the end of this prompt between <frozen-memory-packet> and </frozen-memory-packet>. The benchmark harness already executed the single frozen retrieval for this condition ({source_description}); the packet is immutable, it is the only memory channel you receive, and it cannot be re-queried. Do not run `entire brain`, `entire-brain`, or any brain MCP tool; Brain sources, the source cache, raw session transcripts, and benchmark artifacts are physically absent from this workspace. Do not inspect `.entire`, `.benchmark`, checkpoint refs, or session files. Treat the packet's `history` and/or `fact` records as hypotheses about past project decisions: verify them against the current code before editing and prefer the current code when memory conflicts. {top_level_entire_guard}"""
     elif condition in TEMPORAL_MEMORY_CONDITIONS:
         source_description = {
             "raw_history": "indexed records derived from pre-cutoff session history",
@@ -3044,6 +3321,14 @@ Hard stop: call each MCP tool AT MOST ONCE, do NOT call `brain_query`/`brain_con
     else:
         parts.append("Run the focused tests you identify as relevant before finishing.")
     parts.append("Keep the fix minimal. Do not edit tests unless the task explicitly asks for test changes. Do not commit changes. Finish with a short summary of what changed and which validation commands passed.")
+    if memory_packet is not None:
+        # Injected verbatim so the recorded packet SHA-256 also covers what the agent saw.
+        # Tag delimiters (not markdown fences) because the packet itself may contain backticks.
+        parts.append(
+            "Frozen memory packet (harness-retrieved, immutable):\n<frozen-memory-packet>\n"
+            + memory_packet
+            + "\n</frozen-memory-packet>"
+        )
     return "\n\n".join(parts).strip()
 
 
@@ -3800,8 +4085,46 @@ def cleanup_validation_files(cleanups: list[tuple[pathlib.Path, bytes | None]]) 
             target.write_bytes(original)
 
 
+VALIDATION_KINDS = {"exact", "behavioral"}
+
+
+def validation_commands(task: dict[str, Any]) -> list[dict[str, str]]:
+    """Normalize task validation entries. A plain string is an exact validator (the legacy form:
+    source-pattern greps or pinned test commands). An object form {"command": ..., "kind":
+    "exact"|"behavioral"} lets a task label validators that assert behavior through tests instead
+    of one exact source expression (the Phase 0A neutral-task over-specification repair). Every
+    validator, exact or behavioral, must still pass for validation.ok — the kind is labeling for
+    reports, never a weakening of exact validators."""
+    out: list[dict[str, str]] = []
+    for entry in task.get("validation", []):
+        if isinstance(entry, str):
+            if not entry.strip():
+                raise ValueError("validation entries must not be empty")
+            out.append({"command": entry, "kind": "exact"})
+            continue
+        if isinstance(entry, dict):
+            unknown = sorted(set(entry) - {"command", "kind"})
+            if unknown:
+                raise ValueError(f"validation entry has unknown fields: {unknown}")
+            command = entry.get("command")
+            if not isinstance(command, str) or not command.strip():
+                raise ValueError("validation entry objects require a non-empty command string")
+            kind = entry.get("kind")
+            if kind not in VALIDATION_KINDS:
+                raise ValueError(
+                    f"validation entry kind must be one of {sorted(VALIDATION_KINDS)}, got {kind!r}"
+                )
+            out.append({"command": command, "kind": kind})
+            continue
+        raise ValueError(f"validation entries must be strings or objects, got {type(entry).__name__}")
+    return out
+
+
 def validate(task: dict[str, Any], worktree: pathlib.Path, env: dict[str, str]) -> dict[str, Any]:
-    commands = task.get("validation", [])
+    try:
+        commands = validation_commands(task)
+    except ValueError as exc:
+        return {"ok": False, "results": [], "error": f"invalid validation config: {exc}"}
     if not commands:
         return {"ok": False, "results": [], "error": "task has no validation commands"}
     results = []
@@ -3809,11 +4132,13 @@ def validate(task: dict[str, Any], worktree: pathlib.Path, env: dict[str, str]) 
     cleanups: list[tuple[pathlib.Path, bytes | None]] = []
     try:
         cleanups = materialize_validation_files(task, worktree)
-        for command in commands:
+        for entry in commands:
+            command = entry["command"]
             start = time.time()
             proc = shell_cmd(command, cwd=worktree, env=env, timeout=600)
             result = {
                 "command": command,
+                "kind": entry["kind"],
                 "returncode": proc.returncode,
                 "seconds": time.time() - start,
                 "stdout_tail": proc.stdout[-3000:],
@@ -3827,7 +4152,14 @@ def validate(task: dict[str, Any], worktree: pathlib.Path, env: dict[str, str]) 
         return {"ok": False, "results": results, "error": f"validation setup failed: {exc}"}
     finally:
         cleanup_validation_files(cleanups)
-    return {"ok": ok, "results": results}
+    kinds = {
+        kind: {
+            "count": sum(1 for result in results if result["kind"] == kind),
+            "passed": sum(1 for result in results if result["kind"] == kind and result["returncode"] == 0),
+        }
+        for kind in sorted({result["kind"] for result in results})
+    }
+    return {"ok": ok, "results": results, "kinds": kinds}
 
 
 def score(
@@ -3916,7 +4248,10 @@ def score(
         token_points = 0
     runtime_efficiency = time_points + token_points
 
-    if condition == "no_brain":
+    if condition == "no_brain" or temporal_harness_delivery(task):
+        # Harness-delivered (causal-lane) rows score brain_use exactly like no_brain in EVERY arm:
+        # memory arrives via the prompt packet, so agent-side Brain use is a violation, not a
+        # skill. This keeps the four causal arms symmetric on the soft score component.
         brain_use = 0 if activity.get("used_brain") else 5
     else:
         semantic_available = task.get("prepare_semantic", True)
@@ -4008,6 +4343,10 @@ def run_one(
         ),
     }
     try:
+        delivery_mode = (
+            temporal_delivery_mode(task) if (task.get("memory_bundle") or task.get("memory_delivery")) else None
+        )
+        record["delivery_mode"] = delivery_mode
         worktree = create_worktree(task, run_dir)
         worktree_sanitization = sanitize_agent_worktree(worktree, task)
         record["agent_worktree_sanitization"] = worktree_sanitization
@@ -4050,7 +4389,18 @@ def run_one(
         # defer it) and agent-history reset — so the packet's live-state overlay matches.
         if condition != "no_brain" and os.environ.get("ENTIRE_BENCH_CAPTURE_BRIEF") == "1":
             capture_brief_packet(task, condition, runner, worktree, env, tools, run_dir)
-        prompt = prompt_for(task, condition, runner)
+        memory_packet: str | None = None
+        if delivery_mode == "harness":
+            # Causal lane: the harness performs the one frozen retrieval (fail-closed), then
+            # physically deletes the Brain store so the agent cannot reach Brain, the source
+            # cache, raw transcripts, or benchmark artifacts regardless of its tool behavior.
+            memory_packet, memory_delivery = harness_memory_delivery(
+                task, condition, worktree, env, tools, prep, run_dir
+            )
+            memory_delivery["post_delivery_isolation"] = remove_agent_visible_brain_store(worktree)
+            write_json(run_dir / "memory-delivery.json", memory_delivery)
+            record["memory_delivery"] = memory_delivery
+        prompt = prompt_for(task, condition, runner, memory_packet=memory_packet)
         (run_dir / "prompt.txt").write_text(prompt)
         agent_info = run_agent(
             runner,
@@ -4071,9 +4421,11 @@ def run_one(
             (run_dir / "agent.stderr").read_text(encoding="utf-8", errors="ignore"),
         )
         mcp_audit = mcp_condition_audit(condition, agent_info, runner, task)
-        temporal_audit = temporal_memory_condition_audit(condition, agent_info) if task.get("memory_bundle") else {
-            "ok": True, "required": False, "findings": []
-        }
+        temporal_audit = (
+            temporal_memory_condition_audit(condition, agent_info, delivery_mode or "agent_tool")
+            if task.get("memory_bundle")
+            else {"ok": True, "required": False, "findings": []}
+        )
         files = changed_files(worktree)
         secret_postflight = agent_secret_preflight(worktree)
         record["agent_secret_postflight"] = secret_postflight
@@ -4107,6 +4459,10 @@ def run_one(
                 "score": scoring,
             }
         )
+    except MemoryDeliveryError as exc:
+        # Fail-closed: the failed retrieval's provenance is retained on the record and in
+        # memory-delivery.json; the task agent was never started.
+        record.update({"ok": False, "error": str(exc), "memory_delivery": exc.delivery, "score": {"total": 0}})
     except Exception as exc:
         record.update({"ok": False, "error": str(exc), "score": {"total": 0}})
     finally:
@@ -4403,23 +4759,28 @@ def comparison_stability(
 
 
 def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[str, Any]:
-    groups: dict[tuple[str, str, str, str], list[float]] = {}
-    metrics: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
+    # Delivery mode is part of the comparison key: causal-lane (harness-delivered) rows only ever
+    # compare against a harness-delivered no_brain baseline, and adherence-lane (agent_tool) rows
+    # only against an agent_tool baseline. Mixing lanes would fold tool-adherence failures into
+    # the causal treatment estimate.
+    groups: dict[tuple[str, str, str, str, str], list[float]] = {}
+    metrics: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] = {}
     for rec in records:
         runner_id = rec.get("runner", {}).get("id") if isinstance(rec.get("runner"), dict) else None
         runner_id = runner_id or rec["agent"]
-        key = (rec["task_id"], rec["agent"], runner_id, rec["condition"])
+        mode = rec.get("delivery_mode") or "agent_tool"
+        key = (rec["task_id"], rec["agent"], runner_id, mode, rec["condition"])
         groups.setdefault(key, []).append(float(rec.get("score", {}).get("total", 0)))
         metrics.setdefault(key, []).append(rec)
 
     comparisons = []
     stability_inputs: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]] = []
-    for (task_id, agent, runner_id, condition), values in groups.items():
+    for (task_id, agent, runner_id, mode, condition), values in groups.items():
         if condition == "no_brain":
             continue
-        base = groups.get((task_id, agent, runner_id, "no_brain"), [])
-        base_records = metrics.get((task_id, agent, runner_id, "no_brain"), [])
-        condition_records = metrics.get((task_id, agent, runner_id, condition), [])
+        base = groups.get((task_id, agent, runner_id, mode, "no_brain"), [])
+        base_records = metrics.get((task_id, agent, runner_id, mode, "no_brain"), [])
+        condition_records = metrics.get((task_id, agent, runner_id, mode, condition), [])
         if not base:
             continue
         def mean_field(recs: list[dict[str, Any]], path: list[str]) -> float | None:
@@ -4496,6 +4857,7 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             "agent": agent,
             "runner": runner_id,
             "condition": condition,
+            "delivery_mode": mode,
             "delivery_scope": delivery_scope(condition, env_flags),
             "env_flags": env_flags,
             "baseline": "no_brain",
@@ -4642,6 +5004,8 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             "multiple_comparison_correction": "holm-bonferroni across all suite p-values; see <field>_holm",
             "n_pvalues_in_family": len(family),
             "headline_metric": "validation pass-rate + measured tokens; composite score and p-values are secondary",
+            "delivery_mode_separation": "comparisons are keyed by delivery_mode; harness-delivered "
+            "(causal-lane) rows never share a baseline with agent_tool (adherence-lane) rows",
             "stability": "per comparison: coefficient_of_variation + tag (brain_positive_stable requires a "
             "token win significant at p<0.05 using max(raw Welch p, Holm-adjusted p), or a pass-rate lift, "
             "that survives dropping the single most-favourable rep; saturated = both arms pass 100%; noisy "
@@ -5126,6 +5490,14 @@ def panel_preflight(panel: dict[str, Any], check_local_artifacts: bool = False) 
         release_panel = str(panel.get("name") or "").startswith("release-")
         for task in tasks:
             task_conditions = panel_conditions & set(task.get("conditions", []))
+            try:
+                validation_commands(task)
+            except ValueError as exc:
+                errors.append(f"task {task.get('id', '<unknown>')} has invalid validation config: {exc}")
+            try:
+                temporal_delivery_mode(task)
+            except ValueError as exc:
+                errors.append(f"task {task.get('id', '<unknown>')} has invalid memory_delivery: {exc}")
             if release_panel:
                 if "benchmarks/agent-brain" not in agent_hidden_paths(task):
                     errors.append(
