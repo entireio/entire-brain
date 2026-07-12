@@ -326,13 +326,15 @@ func factsPendingReview(facts []factRecord, proposals []factProposal, surfaced [
 			continue
 		}
 		caveat := factReviewCaveat(group)
+		// group.Facts is already in ascending fact-ID order (buildFactReviewGroups
+		// sorts the component's ids before materializing facts), so filtering out
+		// the current fact leaves related sorted without an extra sort.
 		related := make([]string, 0, len(group.Facts)-1)
 		for _, other := range group.Facts {
 			if other.ID != fact.ID {
 				related = append(related, other.ID)
 			}
 		}
-		sort.Strings(related)
 		out[fact.ID] = factReviewNotice{
 			ReviewID:   group.ID,
 			Action:     caveat.Action,
