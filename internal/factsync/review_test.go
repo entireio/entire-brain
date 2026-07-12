@@ -200,6 +200,16 @@ func TestResolvePreservesInvalidProposalError(t *testing.T) {
 			Action:      factmerge.ActionMerge,
 			CandidateID: candidate.ID,
 		},
+		"padded-id": {
+			Action:      factmerge.ActionMerge,
+			CandidateID: candidate.ID + " ",
+			TargetID:    target.ID,
+		},
+		"control-id": {
+			Action:      factmerge.ActionMerge,
+			CandidateID: candidate.ID,
+			TargetID:    "fact:\ninvalid",
+		},
 	}
 	for name, proposal := range tests {
 		t.Run(name, func(t *testing.T) {

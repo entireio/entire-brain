@@ -490,28 +490,33 @@ func TestApplyProposalRejectsSelfTargetWithoutMutation(t *testing.T) {
 	}
 }
 
-func TestApplyProposalRejectsUnknownActionWithoutMutation(t *testing.T) {
+func TestApplyProposalRejectsMalformedWithoutMutation(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	target := factFor(t, "target fact", []string{"project.tooling.stack"}, now)
 	candidate := factFor(t, "candidate fact", []string{"project.tooling.stack"}, now)
 	target.RelatedIDs = []string{candidate.ID}
 	candidate.RelatedIDs = []string{target.ID}
-	facts := []Record{target, candidate}
-	before := append([]Record(nil), facts...)
-	for index := range before {
-		before[index].RelatedIDs = append([]string(nil), facts[index].RelatedIDs...)
+	tests := map[string]Proposal{
+		"unknown-action": {Action: "merg", CandidateID: candidate.ID, TargetID: target.ID},
+		"missing-id":     {Action: ActionMerge, CandidateID: candidate.ID},
+		"padded-id":      {Action: ActionMerge, CandidateID: candidate.ID + " ", TargetID: target.ID},
+		"control-id":     {Action: ActionMerge, CandidateID: candidate.ID, TargetID: "fact:\ninvalid"},
 	}
-
-	out, err := ApplyProposal(
-		facts,
-		Proposal{Action: "merg", CandidateID: candidate.ID, TargetID: target.ID},
-		now.Add(time.Hour),
-	)
-	if !errors.Is(err, ErrInvalidProposal) {
-		t.Fatalf("ApplyProposal error = %v, want ErrInvalidProposal", err)
-	}
-	if !reflect.DeepEqual(out, before) || !reflect.DeepEqual(facts, before) {
-		t.Fatalf("unknown action mutated facts: out=%+v input=%+v want=%+v", out, facts, before)
+	for name, proposal := range tests {
+		t.Run(name, func(t *testing.T) {
+			facts := []Record{target, candidate}
+			before := append([]Record(nil), facts...)
+			for index := range before {
+				before[index].RelatedIDs = append([]string(nil), facts[index].RelatedIDs...)
+			}
+			out, err := ApplyProposal(facts, proposal, now.Add(time.Hour))
+			if !errors.Is(err, ErrInvalidProposal) {
+				t.Fatalf("ApplyProposal error = %v, want ErrInvalidProposal", err)
+			}
+			if !reflect.DeepEqual(out, before) || !reflect.DeepEqual(facts, before) {
+				t.Fatalf("malformed proposal mutated facts: out=%+v input=%+v want=%+v", out, facts, before)
+			}
+		})
 	}
 }
 
@@ -548,6 +553,8 @@ func TestRejectProposalRejectsMalformedWithoutMutation(t *testing.T) {
 		"self-target":    {Action: ActionMerge, CandidateID: candidate.ID, TargetID: candidate.ID},
 		"unknown-action": {Action: "merg", CandidateID: candidate.ID, TargetID: target.ID},
 		"missing-id":     {Action: ActionMerge, CandidateID: candidate.ID},
+		"padded-id":      {Action: ActionMerge, CandidateID: candidate.ID + " ", TargetID: target.ID},
+		"control-id":     {Action: ActionMerge, CandidateID: candidate.ID, TargetID: "fact:\tinvalid"},
 	}
 	for name, proposal := range tests {
 		t.Run(name, func(t *testing.T) {

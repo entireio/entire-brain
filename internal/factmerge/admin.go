@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode"
 )
 
 // ErrStaleProposal is returned when a proposal references a fact that no longer
@@ -66,13 +67,25 @@ func ValidateProposal(p Proposal) error {
 	if p.Action != ActionMerge && p.Action != ActionSupersede {
 		return fmt.Errorf("%w: unsupported action %q", ErrInvalidProposal, p.Action)
 	}
-	if p.CandidateID == "" || p.TargetID == "" {
-		return fmt.Errorf("%w: candidate and target IDs are required", ErrInvalidProposal)
+	if invalidProposalID(p.CandidateID) || invalidProposalID(p.TargetID) {
+		return fmt.Errorf("%w: candidate and target IDs must be non-empty and whitespace-free", ErrInvalidProposal)
 	}
 	if p.CandidateID == p.TargetID {
 		return fmt.Errorf("%w: candidate and target must differ", ErrInvalidProposal)
 	}
 	return nil
+}
+
+func invalidProposalID(id string) bool {
+	if id == "" {
+		return true
+	}
+	for _, character := range id {
+		if unicode.IsSpace(character) || unicode.IsControl(character) {
+			return true
+		}
+	}
+	return false
 }
 
 // RejectProposal discards a proposal without changing fact status, removing the
