@@ -1508,8 +1508,48 @@ def mcp_condition_audit(
     }
 
 
+def temporal_memory_command_tokens(command: str) -> list[str] | None:
+    """Return one shell command as argv, unwrapping the protocol's common `sh -lc` envelope.
+
+    Shell operators or extra commands remain tokens and therefore fail exact
+    comparison; malformed quoting returns None and fails closed.
+    """
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+    while (
+        len(tokens) == 3
+        and pathlib.Path(tokens[0]).name in {"sh", "bash", "zsh"}
+        and tokens[1] in {"-c", "-lc"}
+    ):
+        try:
+            tokens = shlex.split(tokens[2])
+        except ValueError:
+            return None
+    return tokens
+
+
+def expected_temporal_memory_command(task: dict[str, Any]) -> list[str]:
+    spec = temporal_memory_search_spec(task)
+    return [
+        "entire",
+        "brain",
+        "search",
+        spec["query"],
+        "--json",
+        "--limit",
+        str(spec["limit"]),
+        "--branch",
+        spec["branch"],
+    ]
+
+
 def temporal_memory_condition_audit(
-    condition: str, agent_info: dict[str, Any], delivery_mode: str = "agent_tool"
+    condition: str,
+    agent_info: dict[str, Any],
+    delivery_mode: str = "agent_tool",
+    task: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     required = condition in TEMPORAL_MEMORY_CONDITIONS or condition == "no_brain"
     if not required:
@@ -1544,6 +1584,19 @@ def temporal_memory_condition_audit(
             findings.append({"kind": "memory_search_was_not_first_tool"})
         if activity.get("brain_commands") != ["search"]:
             findings.append({"kind": "unexpected_brain_command", "commands": activity.get("brain_commands", [])})
+        actual_command = activity.get("first_tool_command_tokens")
+        if not isinstance(task, dict):
+            findings.append({"kind": "memory_search_spec_unavailable"})
+        else:
+            expected_command = expected_temporal_memory_command(task)
+            if actual_command != expected_command:
+                findings.append(
+                    {
+                        "kind": "memory_search_command_mismatch",
+                        "expected": expected_command,
+                        "actual": actual_command,
+                    }
+                )
     return {
         "ok": not findings,
         "required": True,
@@ -1552,6 +1605,7 @@ def temporal_memory_condition_audit(
         "mcp_tool_calls": mcp_calls,
         "first_tool_name": activity.get("first_tool_name"),
         "first_tool_is_memory_search": bool(activity.get("first_tool_is_memory_search")),
+        "first_tool_command_tokens": activity.get("first_tool_command_tokens"),
         "forbidden_memory_artifact_access": bool(activity.get("forbidden_memory_artifact_access")),
         "findings": findings,
     }
@@ -3975,6 +4029,52 @@ def safe_tool_arguments(value: Any) -> dict[str, Any]:
     return safe
 
 
+def tool_arguments_access_forbidden_memory_artifact(tool_name: str, value: Any) -> bool:
+    """Inspect path-bearing tool arguments without retaining private path text."""
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return False
+        return tool_arguments_access_forbidden_memory_artifact(tool_name, parsed)
+    if not isinstance(value, dict):
+        return False
+    path_keys = {
+        "dir",
+        "directory",
+        "file",
+        "file_path",
+        "filepath",
+        "glob",
+        "include",
+        "path",
+        "root",
+        "target",
+    }
+    if "glob" in tool_name.lower():
+        path_keys.add("pattern")
+
+    def references_private_path(item: Any) -> bool:
+        if isinstance(item, str):
+            normalized = item.strip().lower().replace("\\", "/").replace(r"\.", ".")
+            if normalized.startswith("!"):
+                return False
+            return bool(
+                re.search(r"(?:^|/|\*\*/)(?:\.entire|\.benchmark)(?:/|$|\*)", normalized)
+                or "refs/heads/entire/checkpoints" in normalized
+            )
+        if isinstance(item, list):
+            return any(references_private_path(child) for child in item)
+        if isinstance(item, dict):
+            return any(references_private_path(child) for child in item.values())
+        return False
+
+    return any(
+        str(key).lower() in path_keys and references_private_path(item)
+        for key, item in value.items()
+    )
+
+
 def tool_event_errored(value: Any) -> bool:
     if not isinstance(value, dict):
         return False
@@ -4017,6 +4117,9 @@ def collect_json_tool_events(value: Any) -> list[dict[str, Any]]:
                 "command": command,
                 "event_id": value.get("id"),
                 "arguments": safe_tool_arguments(raw_args),
+                "forbidden_memory_artifact_argument_access": (
+                    tool_arguments_access_forbidden_memory_artifact(name, raw_args)
+                ),
                 "errored": tool_event_errored(value),
             })
         for item in value.values():
@@ -4174,6 +4277,9 @@ def structured_activity_source(stdout: str, stderr: str) -> dict[str, Any]:
                 "name": str(event["name"]),
                 "command": str(event.get("command") or ""),
                 "arguments": dict(event.get("arguments") or {}),
+                "forbidden_memory_artifact_argument_access": bool(
+                    event.get("forbidden_memory_artifact_argument_access")
+                ),
                 "errored": bool(event.get("errored")),
             }
             for event in events
@@ -4250,12 +4356,29 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
         first_event_command = str(activity_source["tool_details"][0].get("command") or "")
     if not first_event_command and first_tool_name == "Bash" and activity_source["commands"]:
         first_event_command = activity_source["commands"][0]
+    parsed_first_tool_tokens = temporal_memory_command_tokens(first_event_command) if first_event_command else None
+    first_tool_command_tokens = (
+        parsed_first_tool_tokens
+        if parsed_first_tool_tokens
+        and (
+            parsed_first_tool_tokens[:2] == ["entire", "brain"]
+            or parsed_first_tool_tokens[:1] == ["entire-brain"]
+        )
+        else None
+    )
     first_tool_is_memory_search = bool(
         first_tool_name == "Bash"
-        and re.search(r"\b(?:entire\s+brain|entire-brain)\s+search\b", first_event_command.lower())
+        and first_tool_command_tokens
+        and (
+            first_tool_command_tokens[:3] == ["entire", "brain", "search"]
+            or first_tool_command_tokens[:2] == ["entire-brain", "search"]
+        )
     )
     forbidden_memory_artifact_access = any(
         command_accesses_forbidden_memory_artifact(command) for command in activity_source["commands"]
+    ) or any(
+        bool(detail.get("forbidden_memory_artifact_argument_access"))
+        for detail in activity_source.get("tool_details", [])
     )
     search_tool_calls = [name for name in tool_names if name in {"Grep", "Glob"}]
     search_call_matches = re.findall(r"\b(?:git\s+grep|rg|grep|find)\b", command_lower)
@@ -4278,6 +4401,7 @@ def extract_agent_activity(stdout: str, stderr: str) -> dict[str, Any]:
         "direct_brain_cli_calls": direct_brain_cli_calls,
         "first_tool_name": first_tool_name,
         "first_tool_is_memory_search": first_tool_is_memory_search,
+        "first_tool_command_tokens": first_tool_command_tokens,
         "forbidden_memory_artifact_access": forbidden_memory_artifact_access,
         "mcp_tool_names": sorted(set(mcp_tool_names)),
         "mcp_tool_details": mcp_tool_details,
@@ -4760,7 +4884,7 @@ def run_one(
         )
         mcp_audit = mcp_condition_audit(condition, agent_info, runner, task)
         temporal_audit = (
-            temporal_memory_condition_audit(condition, agent_info, delivery_mode or "agent_tool")
+            temporal_memory_condition_audit(condition, agent_info, delivery_mode or "agent_tool", task)
             if task.get("memory_bundle")
             else {"ok": True, "required": False, "findings": []}
         )

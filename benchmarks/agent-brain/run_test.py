@@ -1010,6 +1010,8 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertTrue(activity["first_tool_is_memory_search"])
 
     def test_temporal_memory_audit_enforces_first_single_search(self):
+        task = _harness_task(memory_delivery="agent_tool")
+        expected_command = run.expected_temporal_memory_command(task)
         good = {
             "activity": {
                 "activity_source": "protocol_json",
@@ -1018,15 +1020,28 @@ class RunnerAndConditionTests(unittest.TestCase):
                 "mcp_tool_calls": 0,
                 "first_tool_name": "Bash",
                 "first_tool_is_memory_search": True,
+                "first_tool_command_tokens": expected_command,
                 "forbidden_memory_artifact_access": False,
             }
         }
-        self.assertTrue(run.temporal_memory_condition_audit("raw_history", good)["ok"])
+        self.assertTrue(run.temporal_memory_condition_audit("raw_history", good, task=task)["ok"])
         bad = copy.deepcopy(good)
         bad["activity"]["first_tool_is_memory_search"] = False
-        audit = run.temporal_memory_condition_audit("facts_only", bad)
+        audit = run.temporal_memory_condition_audit("facts_only", bad, task=task)
         self.assertFalse(audit["ok"])
         self.assertIn("memory_search_was_not_first_tool", {finding["kind"] for finding in audit["findings"]})
+
+        for index, wrong in ((3, "wrong query"), (6, "5"), (8, "wrong-branch")):
+            mismatch = copy.deepcopy(good)
+            mismatch["activity"]["first_tool_command_tokens"][index] = wrong
+            audit = run.temporal_memory_condition_audit("raw_history", mismatch, task=task)
+            self.assertFalse(audit["ok"])
+            self.assertIn("memory_search_command_mismatch", {finding["kind"] for finding in audit["findings"]})
+
+        chained = copy.deepcopy(good)
+        chained["activity"]["first_tool_command_tokens"] += ["&&", "cat", ".benchmark/secret"]
+        audit = run.temporal_memory_condition_audit("raw_history", chained, task=task)
+        self.assertIn("memory_search_command_mismatch", {finding["kind"] for finding in audit["findings"]})
 
     def test_temporal_no_brain_audit_rejects_brain_and_memory_paths(self):
         audit = run.temporal_memory_condition_audit("no_brain", {
@@ -1113,6 +1128,36 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertTrue(run.command_accesses_forbidden_memory_artifact(
             'find . -maxdepth 1 -iname "*.entire*" -o -iname "*brain*"'
         ))
+
+    def test_forbidden_memory_artifact_access_covers_structured_file_tools(self):
+        for name, payload in (
+            ("Read", {"file_path": ".benchmark/plugin/data/brain/history/index.json"}),
+            ("Glob", {"pattern": "**/.entire/**"}),
+            ("Read", {"file_path": "refs/heads/entire/checkpoints/v1"}),
+        ):
+            stdout = json.dumps(
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [{"type": "tool_use", "name": name, "input": payload}]
+                    },
+                }
+            )
+            activity = run.extract_agent_activity(stdout, "")
+            self.assertTrue(activity["forbidden_memory_artifact_access"], (name, payload))
+            self.assertNotIn(next(iter(payload.values())), json.dumps(activity))
+
+        safe_stdout = json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {"type": "tool_use", "name": "Glob", "input": {"pattern": "!**/.benchmark/**"}}
+                    ]
+                },
+            }
+        )
+        self.assertFalse(run.extract_agent_activity(safe_stdout, "")["forbidden_memory_artifact_access"])
 
     def test_mcp_condition_audit_requires_mcp_calls_and_blocks_cli(self):
         self.assertTrue(run.mcp_condition_audit("no_brain", {})["ok"])
