@@ -153,11 +153,16 @@ type brainBriefReport struct {
 	// in the worktree (fact id -> departed locus tokens) — the "re-verify
 	// before trusting" signal (Phase 2 item 4).
 	FactsLocusDrift map[string][]string `json:"facts_locus_drift,omitempty"`
-	ActionChecklist []brainBriefAction  `json:"action_checklist,omitempty"`
-	LikelyEditFiles []string            `json:"likely_edit_files,omitempty"`
-	LikelyTestFiles []string            `json:"likely_test_files,omitempty"`
-	LikelyFiles     []string            `json:"likely_files,omitempty"`
-	Patterns        []patternView       `json:"patterns,omitempty"`
+	// FactsPendingReview flags surfaced facts that participate in a pending
+	// merge/supersede proposal (fact id -> review notice), mirroring the trust
+	// guard the unified query/search/get path applies. Annotation only — the
+	// facts list keeps its shape.
+	FactsPendingReview map[string]factReviewNotice `json:"facts_pending_review,omitempty"`
+	ActionChecklist    []brainBriefAction          `json:"action_checklist,omitempty"`
+	LikelyEditFiles    []string                    `json:"likely_edit_files,omitempty"`
+	LikelyTestFiles    []string                    `json:"likely_test_files,omitempty"`
+	LikelyFiles        []string                    `json:"likely_files,omitempty"`
+	Patterns           []patternView               `json:"patterns,omitempty"`
 	// Consolidations are corpus-backed dossiers (v2) relevant to the task:
 	// trigger + workflow + verification + failure modes, anchored. Task-gated
 	// and capped — an unrelated task carries none.
@@ -1148,6 +1153,18 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 				receiptSurface = "brief"
 			}
 			receiptFactIDs = factRecordIDs(report.Facts)
+			// Live trust state, mirroring the unified retrieval guard: flag
+			// surfaced facts with a pending merge/supersede proposal so the
+			// brief carries the same verify-before-trust signal as query/get.
+			// No surfaced facts means no annotation and no queue warning, so
+			// skip the proposal read on the empty-brief path.
+			if len(report.Facts) > 0 {
+				if proposals, proposalsErr := loadFactProposals(status.Brain.Path, branch); proposalsErr != nil {
+					report.Warnings = append(report.Warnings, factReviewQueueUnavailableWarning)
+				} else {
+					report.FactsPendingReview = factsPendingReview(facts, proposals, report.Facts)
+				}
+			}
 		}
 	}
 	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, report.Facts)
@@ -1217,6 +1234,9 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		fmt.Fprintf(cmd.OutOrStdout(), "fact [%s] %s\n", strings.Join(fact.Paths, ","), fact.Text)
 		if gone := report.FactsLocusDrift[fact.ID]; len(gone) > 0 {
 			fmt.Fprintf(cmd.OutOrStdout(), "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
+		}
+		if notice, ok := report.FactsPendingReview[fact.ID]; ok {
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", factReviewNoticeLine(notice))
 		}
 	}
 	for _, item := range report.ActionChecklist {

@@ -309,6 +309,142 @@ func TestSearchCollapsesPendingFactsAndGetAddressesReview(t *testing.T) {
 	}
 }
 
+func TestFactsPendingReviewAnnotatesOnlySurfacedParticipants(t *testing.T) {
+	facts := []factRecord{
+		{ID: "fact:new", Text: "new contract", Status: factStatusActive},
+		{ID: "fact:old", Text: "old contract", Status: factStatusActive},
+		{ID: "fact:independent", Text: "unrelated", Status: factStatusActive},
+	}
+	proposals := []factProposal{{Action: factActionSupersede, CandidateID: "fact:new", TargetID: "fact:old", Confidence: 0.62}}
+
+	// Surface one participant and the independent fact; the filtered-out
+	// participant must still appear as a related id, not vanish from the group.
+	got := factsPendingReview(facts, proposals, []factRecord{facts[0], facts[2]})
+	if len(got) != 1 {
+		t.Fatalf("expected exactly the surfaced participant annotated, got %+v", got)
+	}
+	notice, ok := got["fact:new"]
+	if !ok {
+		t.Fatalf("surfaced participant missing from notices: %+v", got)
+	}
+	if !strings.HasPrefix(notice.ReviewID, "review:") || notice.Action != factActionSupersede || notice.Confidence != 0.62 {
+		t.Fatalf("notice lost proposal identity: %+v", notice)
+	}
+	if !reflect.DeepEqual(notice.RelatedIDs, []string{"fact:old"}) {
+		t.Fatalf("notice related ids = %v, want the other participant", notice.RelatedIDs)
+	}
+	if !strings.Contains(notice.Message, "supersede") && !strings.Contains(notice.Message, "contradiction") {
+		t.Fatalf("supersede notice should flag a potential contradiction: %q", notice.Message)
+	}
+	if line := factReviewNoticeLine(notice); !strings.Contains(line, notice.ReviewID) || !strings.Contains(line, "fact:old") {
+		t.Fatalf("human-readable notice line lost review id or related fact: %q", line)
+	}
+
+	if got := factsPendingReview(facts, nil, facts); got != nil {
+		t.Fatalf("no proposals must yield no notices, got %+v", got)
+	}
+	if got := factsPendingReview(facts, proposals, []factRecord{facts[2]}); got != nil {
+		t.Fatalf("independent surfaced fact must not be annotated, got %+v", got)
+	}
+}
+
+func TestRecallAnnotatesPendingFactReview(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	facts := []factRecord{
+		{ID: "fact:new", Text: "cache contract uses the new implementation", Paths: []string{"architecture.data.flow"}, Branch: "feature", Status: factStatusActive, UpdatedAt: now},
+		{ID: "fact:old", Text: "cache contract uses the old implementation", Paths: []string{"architecture.data.flow"}, Branch: "feature", Status: factStatusActive, UpdatedAt: now.Add(-time.Hour)},
+	}
+	proposal := factProposal{Action: factActionSupersede, CandidateID: "fact:new", TargetID: "fact:old", Confidence: 0.62, Branch: "feature"}
+	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFactProposals(storage.BrainDir, "feature", []factProposal{proposal}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := execute(t, NewRootCommand(opts), "recall", "cache contract", "--no-semantic", "--json")
+	if err != nil {
+		t.Fatalf("recall: %v\n%s", err, out)
+	}
+	var payload struct {
+		Facts          []factRecord                `json:"facts"`
+		PendingReviews map[string]factReviewNotice `json:"pending_reviews"`
+		Warnings       []string                    `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("decode recall: %v\n%s", err, out)
+	}
+	if len(payload.Facts) != 2 {
+		t.Fatalf("recall must keep its record shape (no collapse): %+v", payload.Facts)
+	}
+	if len(payload.Warnings) != 0 {
+		t.Fatalf("readable queue must not warn: %v", payload.Warnings)
+	}
+	for _, id := range []string{"fact:new", "fact:old"} {
+		notice, ok := payload.PendingReviews[id]
+		if !ok {
+			t.Fatalf("pending participant %s missing trust annotation: %+v", id, payload.PendingReviews)
+		}
+		if !strings.HasPrefix(notice.ReviewID, "review:") || notice.Action != factActionSupersede {
+			t.Fatalf("notice for %s lost proposal identity: %+v", id, notice)
+		}
+	}
+
+	textOut, err := execute(t, NewRootCommand(opts), "recall", "cache contract", "--no-semantic")
+	if err != nil {
+		t.Fatalf("recall text: %v\n%s", err, textOut)
+	}
+	if !strings.Contains(textOut, "pending fact review review:") {
+		t.Fatalf("text recall omitted the pending-review line:\n%s", textOut)
+	}
+}
+
+func TestRecallWarnsWhenProposalQueueUnreadable(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	fact := factRecord{ID: "fact:a", Text: "cache contract fact", Branch: "feature", Status: factStatusActive, UpdatedAt: now}
+	if err := writeFacts(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
+		t.Fatal(err)
+	}
+	proposalPath := filepath.Join(storage.BrainDir, filepath.FromSlash(factsProposalsRelPath("feature")))
+	if err := os.WriteFile(proposalPath, []byte("{not-json}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := execute(t, NewRootCommand(opts), "recall", "cache contract", "--no-semantic", "--json")
+	if err != nil {
+		t.Fatalf("recall must degrade with a warning, not fail: %v\n%s", err, out)
+	}
+	var payload struct {
+		Facts    []factRecord `json:"facts"`
+		Warnings []string     `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("decode recall: %v\n%s", err, out)
+	}
+	if len(payload.Facts) != 1 {
+		t.Fatalf("facts must still be returned: %+v", payload.Facts)
+	}
+	if len(payload.Warnings) != 1 || payload.Warnings[0] != factReviewQueueUnavailableWarning {
+		t.Fatalf("unreadable queue must surface the verify warning: %v", payload.Warnings)
+	}
+}
+
 func hasRetrievalCaveat(result unifiedResult, kind string) bool {
 	for _, caveat := range result.Caveats {
 		if caveat.Kind == kind {
