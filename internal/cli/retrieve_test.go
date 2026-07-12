@@ -172,6 +172,27 @@ func TestFactsVectorRankedRepairsInvalidCachedVector(t *testing.T) {
 	}
 }
 
+func TestFactsVectorRankedDropsInvalidCachedVectorWhenRepairFails(t *testing.T) {
+	dir := t.TempDir()
+	fact := factRecord{ID: "fact:invalid", Text: "durable checkpoint policy", Status: factStatusActive}
+	e := &fakeFusionEmbedder{
+		vecs: map[string][]float32{"repair query": {1, 0}},
+		fail: func(text string) bool { return text == factEmbeddingText(fact) },
+	}
+	store := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
+	present := map[string]struct{}{fact.ID: {}}
+	if err := store.savePresent(map[string][]float32{fact.ID: {0, 0}}, present); err != nil {
+		t.Fatal(err)
+	}
+
+	if out := factsVectorRanked(dir, "main", []factRecord{fact}, "repair query", e, 1); len(out) != 0 {
+		t.Fatalf("failed repair returned an invalid semantic hit: %+v", out)
+	}
+	if _, ok := store.load()[fact.ID]; ok {
+		t.Fatal("failed repair left the invalid fact vector on disk")
+	}
+}
+
 func TestDocsVectorRankedRepairsInvalidCachedVector(t *testing.T) {
 	dir := t.TempDir()
 	doc := docRecord{ID: "repair", Text: "durable checkpoint policy"}
@@ -194,6 +215,27 @@ func TestDocsVectorRankedRepairsInvalidCachedVector(t *testing.T) {
 	}
 	if len(e.embeds) != 2 || e.embeds[1] != doc.Text {
 		t.Fatalf("expected query plus one doc re-embed, got %v", e.embeds)
+	}
+}
+
+func TestDocsVectorRankedDropsInvalidCachedVectorWhenRepairFails(t *testing.T) {
+	dir := t.TempDir()
+	doc := docRecord{ID: "invalid", Text: "durable checkpoint policy"}
+	e := &fakeFusionEmbedder{
+		vecs: map[string][]float32{"repair query": {1, 0}},
+		fail: func(text string) bool { return text == doc.Text },
+	}
+	store := newDocEmbedStore(dir, e.ID(), e.Dim())
+	present := map[string]struct{}{doc.ID: {}}
+	if err := store.savePresent(map[string][]float32{doc.ID: {0, 0}}, present); err != nil {
+		t.Fatal(err)
+	}
+
+	if out := docsVectorRanked(dir, docIndex{Records: []docRecord{doc}}, "repair query", e, 1, false, nil); len(out.ranked) != 0 {
+		t.Fatalf("failed repair returned an invalid semantic hit: %+v", out.ranked)
+	}
+	if _, ok := store.load()[doc.ID]; ok {
+		t.Fatal("failed repair left the invalid doc vector on disk")
 	}
 }
 

@@ -105,6 +105,9 @@ func (s *embedStore) savePresent(vecs map[string][]float32, present map[string]s
 						continue
 					}
 				}
+				// A wrong-dimension value (normally nil) is an explicit tombstone:
+				// it replaces a concurrently reloaded stale entry, and saveUnlocked
+				// omits it from the rewritten cache.
 				merged[id] = vec
 			}
 			return s.saveUnlocked(merged)

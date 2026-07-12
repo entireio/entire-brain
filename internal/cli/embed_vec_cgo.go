@@ -140,6 +140,8 @@ func (s *vecStore) savePresentUnlocked(vecs map[string][]float32, present map[st
 		}
 		for id, vec := range vecs {
 			if _, ok := present[id]; ok {
+				// As in embedStore, a wrong-dimension value is a tombstone. It
+				// replaces the reloaded entry and is skipped during the rewrite.
 				merged[id] = vec
 			}
 		}

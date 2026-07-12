@@ -142,6 +142,28 @@ func TestRerankerDiskCacheReusesVectors(t *testing.T) {
 	}
 }
 
+func TestRerankerFlushDropsInvalidCachedVectorWhenRepairFails(t *testing.T) {
+	dir := t.TempDir()
+	fact := factRecord{ID: "fact:invalid", Text: "durable checkpoint policy", Status: factStatusActive}
+	e := &fakeFusionEmbedder{fail: func(text string) bool { return text == factEmbeddingText(fact) }}
+	store := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
+	present := map[string]struct{}{fact.ID: {}}
+	if err := store.savePresent(map[string][]float32{fact.ID: {0, 0}}, present); err != nil {
+		t.Fatal(err)
+	}
+
+	rr := newSemanticRerankerForBranch(e, dir, "main")
+	if vector := rr.factVector(fact); vector != nil {
+		t.Fatalf("failed repair returned a vector: %v", vector)
+	}
+	if err := rr.flush(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.load()[fact.ID]; ok {
+		t.Fatal("flush resurrected the invalid persisted vector")
+	}
+}
+
 // TestRerankerRetainPreservesOutOfScopeVectors guards the scope-flush fix: a
 // scoped run that ranks only a subset must not prune the cached vectors of the
 // facts it didn't rank, as long as those facts still exist in the branch.

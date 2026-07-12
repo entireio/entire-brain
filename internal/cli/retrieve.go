@@ -248,7 +248,10 @@ func factsVectorRanked(
 		present[f.ID] = struct{}{}
 		v, ok := cache[f.ID]
 		if ok && (len(v) != len(qv) || !vectorHasMagnitude(v)) {
-			delete(cache, f.ID)
+			// A nil value is a deletion tombstone for savePresent: it overrides
+			// any invalid entry reloaded under the write lock, then is omitted
+			// from the rewritten store if re-embedding fails.
+			cache[f.ID] = nil
 			dirty = true
 			ok = false
 		}
@@ -330,7 +333,7 @@ func docsVectorRanked(
 		present[r.ID] = struct{}{}
 		v, ok := cache[r.ID]
 		if ok && (len(v) != len(qv) || !vectorHasMagnitude(v)) {
-			delete(cache, r.ID)
+			cache[r.ID] = nil // persist deletion if repair fails
 			dirty = true
 			ok = false
 		}
@@ -552,7 +555,14 @@ func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []un
 		case strings.HasPrefix(id, "review:"):
 			if group, ok := reviewByID[id]; ok {
 				r := factReviewToUnified(repoDir, group)
-				r.ID = id // preserve an addressable proposal alias if the group grew
+				// Preserve an addressable proposal alias if the group grew, including
+				// the machine-readable caveat that tells clients what to review.
+				r.ID = id
+				for i := range r.Caveats {
+					if r.Caveats[i].Kind == retrievalCaveatUnresolvedReview {
+						r.Caveats[i].ReviewID = id
+					}
+				}
 				found = append(found, r)
 				continue
 			}

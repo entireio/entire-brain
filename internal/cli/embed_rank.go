@@ -88,7 +88,10 @@ func (s *semanticReranker) factVector(f factRecord) []float32 {
 		if len(v) == s.e.Dim() && vectorHasMagnitude(v) {
 			return v
 		}
-		delete(s.cache, f.ID)
+		// Keep a tombstone until flush. savePresent merges with the latest disk
+		// state under the write lock, so deleting only from this stale in-memory
+		// snapshot could otherwise resurrect the invalid persisted vector.
+		s.cache[f.ID] = nil
 		s.dirty = true
 	}
 	v := s.e.Embed(factEmbeddingText(f))

@@ -110,6 +110,30 @@ func TestFactReviewAliasSurvivesGroupGrowth(t *testing.T) {
 	if _, ok := byID[oldID]; !ok {
 		t.Fatalf("existing proposal id %s stopped resolving after its group grew", oldID)
 	}
+	brainDir := t.TempDir()
+	if err := writeFacts(brainDir, "main", facts); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFactProposals(brainDir, "main", []factProposal{p1, p2}); err != nil {
+		t.Fatal(err)
+	}
+	found, missing, err := getUnifiedBatch(t.TempDir(), brainDir, "main", []string{oldID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 0 || len(found) != 1 || found[0].ID != oldID {
+		t.Fatalf("review alias did not resolve consistently: found=%+v missing=%v", found, missing)
+	}
+	foundReviewCaveat := false
+	for _, caveat := range found[0].Caveats {
+		if caveat.Kind == retrievalCaveatUnresolvedReview && caveat.ReviewID != oldID {
+			t.Fatalf("review alias caveat points at %s, want %s", caveat.ReviewID, oldID)
+		}
+		foundReviewCaveat = foundReviewCaveat || caveat.Kind == retrievalCaveatUnresolvedReview
+	}
+	if !foundReviewCaveat {
+		t.Fatalf("review alias omitted its unresolved-review caveat: %+v", found[0])
+	}
 }
 
 func TestPendingMergeMessageDoesNotInventLowConfidence(t *testing.T) {
