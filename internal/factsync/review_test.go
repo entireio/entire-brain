@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -195,18 +196,29 @@ func TestResolvePreservesInvalidProposalError(t *testing.T) {
 			CandidateID: candidate.ID,
 			TargetID:    target.ID,
 		},
+		"missing-id": {
+			Action:      factmerge.ActionMerge,
+			CandidateID: candidate.ID,
+		},
 	}
 	for name, proposal := range tests {
 		t.Run(name, func(t *testing.T) {
-			out, err := Resolve([]factmerge.Record{target, candidate}, proposal, Accept, now.Add(time.Hour))
-			if !errors.Is(err, factmerge.ErrInvalidProposal) {
-				t.Fatalf("Resolve error = %v, want ErrInvalidProposal", err)
-			}
-			if errors.Is(err, ErrProposalNotApplicable) {
-				t.Fatalf("invalid proposal was misclassified as stale: %v", err)
-			}
-			if out != nil {
-				t.Fatalf("Resolve returned facts: %+v", out)
+			for _, decision := range []Decision{Accept, Reject} {
+				facts := []factmerge.Record{target, candidate}
+				before := append([]factmerge.Record(nil), facts...)
+				out, err := Resolve(facts, proposal, decision, now.Add(time.Hour))
+				if !errors.Is(err, factmerge.ErrInvalidProposal) {
+					t.Fatalf("Resolve(%v) error = %v, want ErrInvalidProposal", decision, err)
+				}
+				if errors.Is(err, ErrProposalNotApplicable) {
+					t.Fatalf("invalid proposal was misclassified as stale: %v", err)
+				}
+				if out != nil {
+					t.Fatalf("Resolve(%v) returned facts: %+v", decision, out)
+				}
+				if !reflect.DeepEqual(facts, before) {
+					t.Fatalf("Resolve(%v) mutated facts: got=%+v want=%+v", decision, facts, before)
+				}
 			}
 		})
 	}

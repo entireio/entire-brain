@@ -71,7 +71,7 @@ func applyProposal(facts []factRecord, p factProposal, now time.Time) ([]factRec
 	return factmerge.ApplyProposal(facts, p, now)
 }
 
-func rejectProposal(facts []factRecord, p factProposal) []factRecord {
+func rejectProposal(facts []factRecord, p factProposal) ([]factRecord, error) {
 	return factmerge.RejectProposal(facts, p)
 }
 

@@ -30,11 +30,8 @@ func removeFactByID(facts []Record, id string) []Record {
 // candidate, which stays active. Returns an error if either fact is gone (a
 // stale proposal).
 func ApplyProposal(facts []Record, p Proposal, now time.Time) ([]Record, error) {
-	if p.Action != ActionMerge && p.Action != ActionSupersede {
-		return facts, fmt.Errorf("%w: unsupported action %q", ErrInvalidProposal, p.Action)
-	}
-	if p.CandidateID == p.TargetID {
-		return facts, fmt.Errorf("%w: candidate and target must differ", ErrInvalidProposal)
+	if err := ValidateProposal(p); err != nil {
+		return facts, err
 	}
 	ci := IndexOf(facts, p.CandidateID)
 	ti := IndexOf(facts, p.TargetID)
@@ -63,10 +60,28 @@ func ApplyProposal(facts []Record, p Proposal, now time.Time) ([]Record, error) 
 	return facts, nil
 }
 
+// ValidateProposal rejects malformed persisted proposals before any fact state
+// is changed.
+func ValidateProposal(p Proposal) error {
+	if p.Action != ActionMerge && p.Action != ActionSupersede {
+		return fmt.Errorf("%w: unsupported action %q", ErrInvalidProposal, p.Action)
+	}
+	if p.CandidateID == "" || p.TargetID == "" {
+		return fmt.Errorf("%w: candidate and target IDs are required", ErrInvalidProposal)
+	}
+	if p.CandidateID == p.TargetID {
+		return fmt.Errorf("%w: candidate and target must differ", ErrInvalidProposal)
+	}
+	return nil
+}
+
 // RejectProposal discards a proposal without changing fact status, removing the
 // conflict cross-link so the pair is no longer flagged as conflicting.
-func RejectProposal(facts []Record, p Proposal) []Record {
-	return clearConflictLink(facts, p.CandidateID, p.TargetID)
+func RejectProposal(facts []Record, p Proposal) ([]Record, error) {
+	if err := ValidateProposal(p); err != nil {
+		return facts, err
+	}
+	return clearConflictLink(facts, p.CandidateID, p.TargetID), nil
 }
 
 // clearConflictLink removes the RelatedIDs cross-link between two facts.

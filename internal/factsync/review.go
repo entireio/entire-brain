@@ -50,12 +50,15 @@ func Resolve(facts []factmerge.Record, p factmerge.Proposal, decision Decision, 
 		}
 		return out, nil
 	case Reject:
+		if err := factmerge.ValidateProposal(p); err != nil {
+			return nil, fmt.Errorf("factsync: reject proposal: %w", err)
+		}
 		// RejectProposal is a no-op when the facts are absent; guard so a stale reject is
 		// surfaced too (both ids must still be present to have a link to clear).
 		if factmerge.IndexOf(facts, p.CandidateID) < 0 || factmerge.IndexOf(facts, p.TargetID) < 0 {
 			return nil, ErrProposalNotApplicable
 		}
-		return factmerge.RejectProposal(facts, p), nil
+		return factmerge.RejectProposal(facts, p)
 	default:
 		return nil, errors.New("factsync: unknown review decision")
 	}

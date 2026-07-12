@@ -104,20 +104,22 @@ func TestFactsReviewInvalidSelfTargetPreservesState(t *testing.T) {
 				t.Fatalf("write proposals: %v", err)
 			}
 
-			_, err := execute(t, NewRootCommand(f.opts), "facts", "review", "--apply", fact.ID)
-			if !errors.Is(err, factmerge.ErrInvalidProposal) {
-				t.Fatalf("facts review error = %v, want ErrInvalidProposal", err)
-			}
-			gotFacts, err := loadFacts(f.brainDir, "main")
-			if err != nil {
-				t.Fatalf("load facts: %v", err)
-			}
-			gotProposals, err := loadFactProposals(f.brainDir, "main")
-			if err != nil {
-				t.Fatalf("load proposals: %v", err)
-			}
-			if !reflect.DeepEqual(gotFacts, facts) || !reflect.DeepEqual(gotProposals, proposals) {
-				t.Fatalf("invalid review changed state: facts=%+v proposals=%+v", gotFacts, gotProposals)
+			for _, flag := range []string{"--apply", "--reject"} {
+				_, err := execute(t, NewRootCommand(f.opts), "facts", "review", flag, fact.ID)
+				if !errors.Is(err, factmerge.ErrInvalidProposal) {
+					t.Fatalf("facts review %s error = %v, want ErrInvalidProposal", flag, err)
+				}
+				gotFacts, err := loadFacts(f.brainDir, "main")
+				if err != nil {
+					t.Fatalf("load facts: %v", err)
+				}
+				gotProposals, err := loadFactProposals(f.brainDir, "main")
+				if err != nil {
+					t.Fatalf("load proposals: %v", err)
+				}
+				if !reflect.DeepEqual(gotFacts, facts) || !reflect.DeepEqual(gotProposals, proposals) {
+					t.Fatalf("invalid review %s changed state: facts=%+v proposals=%+v", flag, gotFacts, gotProposals)
+				}
 			}
 		})
 	}
@@ -143,20 +145,22 @@ func TestFactsReviewInvalidActionPreservesState(t *testing.T) {
 		t.Fatalf("write proposals: %v", err)
 	}
 
-	_, err := execute(t, NewRootCommand(f.opts), "facts", "review", "--apply", candidate.ID)
-	if !errors.Is(err, factmerge.ErrInvalidProposal) {
-		t.Fatalf("facts review error = %v, want ErrInvalidProposal", err)
-	}
-	gotFacts, err := loadFacts(f.brainDir, "main")
-	if err != nil {
-		t.Fatalf("load facts: %v", err)
-	}
-	gotProposals, err := loadFactProposals(f.brainDir, "main")
-	if err != nil {
-		t.Fatalf("load proposals: %v", err)
-	}
-	if !reflect.DeepEqual(gotFacts, facts) || !reflect.DeepEqual(gotProposals, proposals) {
-		t.Fatalf("invalid review changed state: facts=%+v proposals=%+v", gotFacts, gotProposals)
+	for _, flag := range []string{"--apply", "--reject"} {
+		_, err := execute(t, NewRootCommand(f.opts), "facts", "review", flag, candidate.ID)
+		if !errors.Is(err, factmerge.ErrInvalidProposal) {
+			t.Fatalf("facts review %s error = %v, want ErrInvalidProposal", flag, err)
+		}
+		gotFacts, err := loadFacts(f.brainDir, "main")
+		if err != nil {
+			t.Fatalf("load facts: %v", err)
+		}
+		gotProposals, err := loadFactProposals(f.brainDir, "main")
+		if err != nil {
+			t.Fatalf("load proposals: %v", err)
+		}
+		if !reflect.DeepEqual(gotFacts, facts) || !reflect.DeepEqual(gotProposals, proposals) {
+			t.Fatalf("invalid review %s changed state: facts=%+v proposals=%+v", flag, gotFacts, gotProposals)
+		}
 	}
 }
 
@@ -166,7 +170,10 @@ func TestRejectProposalKeepsBothActive(t *testing.T) {
 	b := factFor(t, "b", []string{"project.tooling.stack"}, now)
 	a.RelatedIDs = []string{b.ID}
 	b.RelatedIDs = []string{a.ID}
-	out := rejectProposal([]factRecord{a, b}, factProposal{Action: factActionSupersede, CandidateID: b.ID, TargetID: a.ID})
+	out, err := rejectProposal([]factRecord{a, b}, factProposal{Action: factActionSupersede, CandidateID: b.ID, TargetID: a.ID})
+	if err != nil {
+		t.Fatalf("rejectProposal: %v", err)
+	}
 	if len(out) != 2 {
 		t.Fatalf("reject keeps both, got %d", len(out))
 	}

@@ -179,7 +179,11 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 				facts = updated
 				resolved++
 			case rejectThis:
-				facts = rejectProposal(facts, p)
+				updated, rejectErr := rejectProposal(facts, p)
+				if rejectErr != nil {
+					return fmt.Errorf("reject proposal %s: %w", p.CandidateID, rejectErr)
+				}
+				facts = updated
 				resolved++
 			default:
 				keep = append(keep, p)

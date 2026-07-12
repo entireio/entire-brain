@@ -521,7 +521,10 @@ func TestRejectProposalKeepsBothActive(t *testing.T) {
 	b := factFor(t, "b", []string{"project.tooling.stack"}, now)
 	a.RelatedIDs = []string{b.ID}
 	b.RelatedIDs = []string{a.ID}
-	out := RejectProposal([]Record{a, b}, Proposal{Action: ActionSupersede, CandidateID: b.ID, TargetID: a.ID})
+	out, err := RejectProposal([]Record{a, b}, Proposal{Action: ActionSupersede, CandidateID: b.ID, TargetID: a.ID})
+	if err != nil {
+		t.Fatalf("RejectProposal: %v", err)
+	}
 	if len(out) != 2 {
 		t.Fatalf("reject keeps both, got %d", len(out))
 	}
@@ -532,6 +535,35 @@ func TestRejectProposalKeepsBothActive(t *testing.T) {
 		if len(f.RelatedIDs) != 0 {
 			t.Errorf("conflict link should be cleared: %+v", f.RelatedIDs)
 		}
+	}
+}
+
+func TestRejectProposalRejectsMalformedWithoutMutation(t *testing.T) {
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	target := factFor(t, "target fact", []string{"project.tooling.stack"}, now)
+	candidate := factFor(t, "candidate fact", []string{"project.tooling.stack"}, now)
+	target.RelatedIDs = []string{candidate.ID}
+	candidate.RelatedIDs = []string{target.ID}
+	tests := map[string]Proposal{
+		"self-target":    {Action: ActionMerge, CandidateID: candidate.ID, TargetID: candidate.ID},
+		"unknown-action": {Action: "merg", CandidateID: candidate.ID, TargetID: target.ID},
+		"missing-id":     {Action: ActionMerge, CandidateID: candidate.ID},
+	}
+	for name, proposal := range tests {
+		t.Run(name, func(t *testing.T) {
+			facts := []Record{target, candidate}
+			before := append([]Record(nil), facts...)
+			for index := range before {
+				before[index].RelatedIDs = append([]string(nil), facts[index].RelatedIDs...)
+			}
+			out, err := RejectProposal(facts, proposal)
+			if !errors.Is(err, ErrInvalidProposal) {
+				t.Fatalf("RejectProposal error = %v, want ErrInvalidProposal", err)
+			}
+			if !reflect.DeepEqual(out, before) || !reflect.DeepEqual(facts, before) {
+				t.Fatalf("malformed reject mutated facts: out=%+v input=%+v want=%+v", out, facts, before)
+			}
+		})
 	}
 }
 
