@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -344,6 +345,11 @@ func loadVitalityRollup(brainDir, branch string) (vitalityRollup, error) {
 	if rollup.Facts == nil {
 		rollup.Facts = map[string]*vitalityFactRollup{}
 	}
+	for id, entry := range rollup.Facts {
+		if entry == nil {
+			return newVitalityRollup(), fmt.Errorf("parse %s: fact entry %q is null", factsVitalityRollupFileName, id)
+		}
+	}
 	rollup.SchemaVersion = factsVitalitySchemaVersion
 	return rollup, nil
 }
@@ -572,7 +578,10 @@ func loadVitalityView(brainDir, branch string) (vitalityRollup, vitalityViewStat
 		ran = true
 		return read()
 	})
-	if !ran { // lock unavailable, not a read failure: degrade to lock-free
+	if !ran && errors.Is(err, errFileLockTimeout) {
+		// Contention is not a read failure: compaction replacements are atomic and
+		// the log parser tolerates a torn append tail. Path/symlink/setup failures
+		// are not contention and must never bypass the lock path's safety checks.
 		stats = vitalityViewStats{}
 		err = read()
 	}

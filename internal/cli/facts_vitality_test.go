@@ -556,6 +556,73 @@ func TestVitalityCorruptLogAndRollupDegrade(t *testing.T) {
 	}
 }
 
+func TestVitalityNullRollupEntryDegradesWithoutPanic(t *testing.T) {
+	f := newVerifyFixture(t)
+	data := []byte(`{"schema_version":1,"facts":{"fact:null":null}}`)
+	if err := writeBrainRelativeFileAtomic(f.brainDir, factsVitalityRollupRelPath("main"), data, 0o600); err != nil {
+		t.Fatalf("write null rollup: %v", err)
+	}
+
+	rollup, stats, err := loadVitalityView(f.brainDir, "main")
+	if err != nil {
+		t.Fatalf("null rollup should degrade to an empty view: %v", err)
+	}
+	if !stats.RollupCorrupt || len(rollup.Facts) != 0 {
+		t.Fatalf("null rollup was not classified as corrupt: stats=%+v rollup=%+v", stats, rollup)
+	}
+
+	out, err := execute(t, NewRootCommand(f.opts), "facts", "vitality", "--json")
+	if err != nil {
+		t.Fatalf("facts vitality with null rollup: %v\n%s", err, out)
+	}
+	var report factsVitalityReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("parse vitality report: %v\n%s", err, out)
+	}
+	if len(report.Facts) != 0 || !strings.Contains(strings.Join(report.Warnings, "\n"), "rollup is corrupt") {
+		t.Fatalf("unexpected degraded report: %+v", report)
+	}
+}
+
+func TestVitalityViewFallsBackOnlyForLockContention(t *testing.T) {
+	brainDir := t.TempDir()
+	branch := "main"
+	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	if err := appendVitalityEvents(brainDir, branch, []vitalityEvent{
+		{Type: vitalityEventServed, FactID: "fact:a", At: now, Surface: "recall", Branch: branch},
+	}); err != nil {
+		t.Fatalf("seed vitality event: %v", err)
+	}
+	lock, err := acquireFileLock(
+		filepath.Join(brainDir, brainLockDirName, factsVitalityLockName),
+		"test_vitality_locked",
+		time.Second,
+	)
+	if err != nil {
+		t.Fatalf("acquire held vitality lock: %v", err)
+	}
+	defer lock.Close()
+
+	rollup, _, err := loadVitalityView(brainDir, branch)
+	if err != nil {
+		t.Fatalf("contention fallback: %v", err)
+	}
+	if entry := rollup.Facts["fact:a"]; entry == nil || entry.Served != 1 {
+		t.Fatalf("contention fallback lost the receipt: %+v", entry)
+	}
+}
+
+func TestVitalityViewDoesNotBypassSymlinkedLockDirectory(t *testing.T) {
+	brainDir := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(brainDir, brainLockDirName)); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, _, err := loadVitalityView(brainDir, "main"); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("symlinked lock directory should fail closed, got %v", err)
+	}
+}
+
 func TestVitalityUnwritableSidecarPreservesReads(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("Reads survive an unwritable vitality sidecar.", "main", f.now)
