@@ -6093,6 +6093,36 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
             self.assertEqual(persisted["retrieval"]["response"]["sha256"], "a" * 64)
             self.assertNotIn(str(root), json.dumps(persisted))
 
+    def test_harness_delivery_marks_failed_isolation_before_reraising(self):
+        delivery = {"ok": True}
+        old_remove_store = run.remove_agent_visible_brain_store
+        old_remove_remotes = run.remove_agent_visible_git_remotes
+        try:
+            run.remove_agent_visible_brain_store = lambda _: {
+                "benchmark_dir_removed": True,
+                "plugin_store_absent": True,
+            }
+
+            def fail_remote_isolation(_):
+                raise RuntimeError("private path " + "/x" * 800)
+
+            run.remove_agent_visible_git_remotes = fail_remote_isolation
+            with self.assertRaisesRegex(RuntimeError, "private path"):
+                run.complete_harness_delivery_isolation(
+                    delivery,
+                    pathlib.Path("/worktree"),
+                    pathlib.Path("/source"),
+                    {},
+                    {},
+                )
+        finally:
+            run.remove_agent_visible_brain_store = old_remove_store
+            run.remove_agent_visible_git_remotes = old_remove_remotes
+        self.assertFalse(delivery["ok"])
+        self.assertEqual(delivery["isolation_error"]["stage"], "git_remote_isolation")
+        self.assertEqual(delivery["isolation_error"]["type"], "RuntimeError")
+        self.assertLessEqual(len(delivery["isolation_error"]["message"]), 1000)
+
     def test_remove_agent_visible_brain_store_deletes_source_store(self):
         with tempfile.TemporaryDirectory() as tmp:
             worktree = pathlib.Path(tmp)

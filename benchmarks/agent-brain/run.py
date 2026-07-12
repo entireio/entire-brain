@@ -2904,6 +2904,36 @@ def temporal_agent_read_isolation(
     return profile, metadata
 
 
+def complete_harness_delivery_isolation(
+    delivery: dict[str, Any],
+    worktree: pathlib.Path,
+    source: pathlib.Path,
+    env: dict[str, str],
+    tools: dict[str, pathlib.Path],
+) -> tuple[dict[str, str], str, dict[str, Any]]:
+    """Complete the causal lane's isolation or mark delivery unusable before failing."""
+    stage = "brain_store_removal"
+    try:
+        delivery["post_delivery_isolation"] = remove_agent_visible_brain_store(worktree)
+        stage = "git_remote_isolation"
+        delivery["git_remote_isolation"] = remove_agent_visible_git_remotes(worktree)
+        stage = "environment_isolation"
+        env, environment_isolation = sanitize_harness_agent_environment(env)
+        delivery["environment_isolation"] = environment_isolation
+        stage = "filesystem_read_isolation"
+        profile, read_isolation = temporal_agent_read_isolation(worktree, source, tools)
+        delivery["agent_read_isolation"] = read_isolation
+        return env, profile, read_isolation
+    except Exception as exc:
+        delivery["ok"] = False
+        delivery["isolation_error"] = {
+            "stage": stage,
+            "type": type(exc).__name__,
+            "message": str(exc)[-1000:],
+        }
+        raise
+
+
 def brain_prep_commands(task: dict[str, Any], condition: str, worktree: pathlib.Path, tools: dict[str, pathlib.Path], checkpoint_limit: int) -> list[list[str]]:
     if is_temporal_memory_condition(condition):
         memory_bundle_config(task)
@@ -5037,14 +5067,9 @@ def run_one(
                 task, condition, worktree, env, tools, prep
             )
             try:
-                memory_delivery["post_delivery_isolation"] = remove_agent_visible_brain_store(worktree)
-                memory_delivery["git_remote_isolation"] = remove_agent_visible_git_remotes(worktree)
-                env, environment_isolation = sanitize_harness_agent_environment(env)
-                memory_delivery["environment_isolation"] = environment_isolation
-                read_isolation_profile, read_isolation = temporal_agent_read_isolation(
-                    worktree, source, tools
+                env, read_isolation_profile, read_isolation = complete_harness_delivery_isolation(
+                    memory_delivery, worktree, source, env, tools
                 )
-                memory_delivery["agent_read_isolation"] = read_isolation
             finally:
                 memory_delivery = persist_memory_delivery(
                     record,
