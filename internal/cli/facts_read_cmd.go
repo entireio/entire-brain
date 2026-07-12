@@ -110,6 +110,16 @@ func newRecallCommand(opts Options) *cobra.Command {
 			// Locus drift (Phase 2 item 4): flag surfaced facts whose code
 			// locus left the worktree, so the agent knows which to re-verify.
 			drift := factsLocusDrift(repoDir, matches)
+			// Live trust state: a surfaced fact with a pending merge/supersede
+			// proposal is annotated (not collapsed — recall keeps its record
+			// shape), matching the guard the unified query/search/get path
+			// applies. Groups are built from the unfiltered branch set so
+			// scope/kind/locus filters cannot hide a pending relationship.
+			proposals, proposalsErr := loadFactProposals(brainDir, resolvedBranch)
+			var pendingReviews map[string]factReviewNotice
+			if proposalsErr == nil {
+				pendingReviews = factsPendingReview(allFacts, proposals, matches)
+			}
 			recordReceipt := func() {
 				recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), brainDir, resolvedBranch, "recall",
 					vitalityHead(cmd.Context(), opts.Runner, repoDir), query, factRecordIDs(matches))
@@ -118,6 +128,12 @@ func newRecallCommand(opts Options) *cobra.Command {
 				out := map[string]any{"branch": resolvedBranch, "query": query, "facts": matches}
 				if len(drift) > 0 {
 					out["locus_drift"] = drift
+				}
+				if len(pendingReviews) > 0 {
+					out["pending_reviews"] = pendingReviews
+				}
+				if proposalsErr != nil && len(matches) > 0 {
+					out["warnings"] = []string{factReviewQueueUnavailableWarning}
 				}
 				if len(matches) == 0 {
 					if note := emptyResultBlindSpot(brainDir); note != "" {
@@ -141,10 +157,16 @@ func newRecallCommand(opts Options) *cobra.Command {
 				})
 			}
 			if err := writeText(cmd, func(out io.Writer) {
+				if proposalsErr != nil {
+					fmt.Fprintf(out, "⚠ %s\n", factReviewQueueUnavailableWarning)
+				}
 				for _, f := range matches {
 					printFactLine(out, f)
 					if gone := drift[f.ID]; len(gone) > 0 {
 						fmt.Fprintf(out, "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
+					}
+					if notice, ok := pendingReviews[f.ID]; ok {
+						fmt.Fprintf(out, "  %s\n", factReviewNoticeLine(notice))
 					}
 				}
 			}); err != nil {
