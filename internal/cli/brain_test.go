@@ -287,6 +287,67 @@ func TestBrainBriefAnnotatesPendingFactReview(t *testing.T) {
 	}
 }
 
+func TestBrainBriefWarnsWhenProposalQueueUnreadable(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
+	now := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+
+	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	fact := factRecord{ID: "fact:a", Text: "ValidateToken review default scope is mainline by design.", Paths: normalizeFactPaths([]string{"architecture.boundaries.rationale"}), Branch: "feature", Origin: factOriginDistilled, Status: factStatusActive, CreatedAt: now, UpdatedAt: now}
+	if err := writeFacts(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
+		t.Fatalf("write facts: %v", err)
+	}
+	// A malformed proposal queue must degrade the brief with a verify warning,
+	// not fail it and not drop the facts — the same contract recall enforces in
+	// TestRecallWarnsWhenProposalQueueUnreadable.
+	proposalPath := filepath.Join(storage.BrainDir, filepath.FromSlash(factsProposalsRelPath("feature")))
+	if err := os.WriteFile(proposalPath, []byte("{not-json}\n"), 0o600); err != nil {
+		t.Fatalf("write malformed proposals: %v", err)
+	}
+	if err := updateFactSourceManifest(storage.BrainDir, now); err != nil {
+		t.Fatalf("update manifest: %v", err)
+	}
+	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
+
+	out, err := execute(t, NewRootCommand(opts), "brief", "ValidateToken", "--json")
+	if err != nil {
+		t.Fatalf("brief must degrade with a warning, not fail: %v\n%s", err, out)
+	}
+	var report brainBriefReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("parse brief json: %v\n%s", err, out)
+	}
+	if len(report.Facts) == 0 {
+		t.Fatalf("brief must still return facts when the queue is unreadable: %+v", report.Facts)
+	}
+	found := false
+	for _, w := range report.Warnings {
+		if w == factReviewQueueUnavailableWarning {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("unreadable queue must surface the verify warning: %v", report.Warnings)
+	}
+
+	textOut, err := execute(t, NewRootCommand(opts), "brief", "ValidateToken")
+	if err != nil {
+		t.Fatalf("brief text: %v\n%s", err, textOut)
+	}
+	if !strings.Contains(textOut, factReviewQueueUnavailableWarning) {
+		t.Fatalf("text brief omitted the queue-unreadable warning:\n%s", textOut)
+	}
+}
+
 func TestBrainInspectCodeAndShow(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

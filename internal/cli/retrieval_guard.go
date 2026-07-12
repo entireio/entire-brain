@@ -257,13 +257,16 @@ func factReviewToUnified(repoDir string, group factReviewGroup) unifiedResult {
 
 func annotateExplicitFactReview(result unifiedResult, group factReviewGroup) unifiedResult {
 	result.VerificationRequired = true
+	// group.Facts is already in ascending fact-ID order (buildFactReviewGroups
+	// sorts the component's ids first), so filtering out the current fact leaves
+	// related sorted without an extra sort — same invariant factsPendingReview
+	// relies on.
 	related := make([]string, 0, len(group.Facts)-1)
 	for _, fact := range group.Facts {
 		if fact.ID != result.ID {
 			related = append(related, fact.ID)
 		}
 	}
-	sort.Strings(related)
 	result.RelatedIDs = related
 	result.Caveats = append(result.Caveats, factReviewCaveat(group))
 	return result
