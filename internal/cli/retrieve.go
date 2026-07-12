@@ -14,7 +14,7 @@ import (
 // scores don't fight.
 
 type unifiedResult struct {
-	Source               string            `json:"source"` // fact | fact-review | history | doc
+	Source               string            `json:"source"` // fact | fact-review | history | doc | consolidation | theme | workspace_pattern | workspace_graph
 	ID                   string            `json:"id"`     // prefixed, addressable by get/multi-get
 	Path                 string            `json:"path,omitempty"`
 	Heading              string            `json:"heading,omitempty"`
@@ -458,7 +458,7 @@ func rrfMergeUnified(lists [][]unifiedResult, limit int) []unifiedResult {
 	return out
 }
 
-// getUnifiedBatch resolves prefixed ids (fact:/review:/history:/doc:) to full records,
+// getUnifiedBatch resolves prefixed ids (fact:/review:/history:/doc:/pattern:/theme:) to full records,
 // loading each corpus at most once and indexing it by id. get/multi-get (and the
 // MCP brain_get/brain_multi_get) route through here so resolving N ids is O(corpus
 // + N), not O(N × corpus) — the latter rescans the full history per id and is
