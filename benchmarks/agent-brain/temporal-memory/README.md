@@ -65,6 +65,15 @@ audit (`brain_used_in_harness_delivery`) as an isolation probe. The harness
 lane has no first-tool/search-count requirement: retrieval adherence is not
 part of the causal treatment.
 
+The causal lane also removes every Git remote, strips benchmark-control and
+shell-redirection variables from the task-agent environment, and launches the
+agent under a macOS `sandbox-exec` filesystem profile. The profile denies read
+and write access to the harness
+repository and original source checkout while re-allowing only the disposable
+worktree and frozen tool directory. A platform without that enforcement fails
+before agent launch; sealed causal rows never fall back to prompt-only
+isolation.
+
 Delivery is fail-closed. A retrieval that exits non-zero, returns an empty
 response, or returns non-JSON raises before the task agent is launched, and
 the failed attempt's provenance is still persisted. Every harness-lane row
