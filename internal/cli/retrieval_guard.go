@@ -289,6 +289,76 @@ func factReviewCaveat(group factReviewGroup) retrievalCaveat {
 	return caveat
 }
 
+// factReviewNotice is the per-fact trust annotation for surfaces whose results
+// are factRecords rather than unifiedResults (recall, brief). Those listings
+// keep their record shape — no collapse into a fact-review row — so the pending
+// state rides alongside, keyed by fact id like locus drift.
+type factReviewNotice struct {
+	ReviewID   string   `json:"review_id"`
+	Action     string   `json:"action,omitempty"`
+	Confidence float64  `json:"confidence,omitempty"`
+	Message    string   `json:"message"`
+	RelatedIDs []string `json:"related_ids,omitempty"`
+}
+
+// factReviewQueueUnavailableWarning mirrors the unified path's
+// proposal_state_unavailable caveat for the facts-shaped surfaces.
+const factReviewQueueUnavailableWarning = "fact review queue unreadable; verify fact consistency before relying on these facts"
+
+// factsPendingReview maps each surfaced fact that participates in a pending
+// review component to its review notice. facts is the full branch set (group
+// membership must not depend on the caller's scope/kind/locus filters);
+// surfaced is the ranked page actually returned, so cost stays O(page), the
+// same bound factsLocusDrift keeps.
+func factsPendingReview(facts []factRecord, proposals []factProposal, surfaced []factRecord) map[string]factReviewNotice {
+	if len(surfaced) == 0 || len(proposals) == 0 {
+		return nil
+	}
+	_, byFactID := indexFactReviewGroups(buildFactReviewGroups(facts, proposals))
+	if len(byFactID) == 0 {
+		return nil
+	}
+	out := map[string]factReviewNotice{}
+	for _, fact := range surfaced {
+		group, ok := byFactID[fact.ID]
+		if !ok {
+			continue
+		}
+		caveat := factReviewCaveat(group)
+		related := make([]string, 0, len(group.Facts)-1)
+		for _, other := range group.Facts {
+			if other.ID != fact.ID {
+				related = append(related, other.ID)
+			}
+		}
+		sort.Strings(related)
+		out[fact.ID] = factReviewNotice{
+			ReviewID:   group.ID,
+			Action:     caveat.Action,
+			Confidence: caveat.Confidence,
+			Message:    caveat.Message,
+			RelatedIDs: related,
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// factReviewNoticeLine renders a notice for the human-readable fact listings,
+// shared by recall and brief so the two surfaces stay in lockstep.
+func factReviewNoticeLine(notice factReviewNotice) string {
+	line := "⚠ pending fact review " + notice.ReviewID
+	if notice.Action != "" {
+		line += fmt.Sprintf(" (%s, confidence %.2f)", notice.Action, notice.Confidence)
+	}
+	if len(notice.RelatedIDs) > 0 {
+		line += ": verify against " + strings.Join(notice.RelatedIDs, ", ")
+	}
+	return line
+}
+
 func annotateProposalStateUnavailable(results []unifiedResult) []unifiedResult {
 	return annotateFactResultCaveat(results, retrievalCaveat{
 		Kind:    retrievalCaveatProposalStateUnavailable,

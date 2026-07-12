@@ -219,6 +219,74 @@ func TestBrainBriefIncludesMatchingFacts(t *testing.T) {
 	}
 }
 
+func TestBrainBriefAnnotatesPendingFactReview(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshot())
+	now := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+
+	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
+	if err != nil {
+		t.Fatalf("storage: %v", err)
+	}
+	// Two facts on the live branch ("feature") linked by a pending supersede
+	// proposal: the brief must carry the same verify-before-trust signal the
+	// unified query/search/get path applies.
+	facts := []factRecord{
+		{ID: "fact:new", Text: "ValidateToken review default scope is mainline by design.", Paths: normalizeFactPaths([]string{"architecture.boundaries.rationale"}), Branch: "feature", Origin: factOriginDistilled, Status: factStatusActive, CreatedAt: now, UpdatedAt: now},
+		{ID: "fact:old", Text: "ValidateToken review default scope is all branches.", Paths: normalizeFactPaths([]string{"architecture.boundaries.rationale"}), Branch: "feature", Origin: factOriginDistilled, Status: factStatusActive, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour)},
+	}
+	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
+		t.Fatalf("write facts: %v", err)
+	}
+	if err := writeFactProposals(storage.BrainDir, "feature", []factProposal{{Action: factActionSupersede, CandidateID: "fact:new", TargetID: "fact:old", Confidence: 0.62, Branch: "feature"}}); err != nil {
+		t.Fatalf("write proposals: %v", err)
+	}
+	if err := updateFactSourceManifest(storage.BrainDir, now); err != nil {
+		t.Fatalf("update manifest: %v", err)
+	}
+	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
+
+	out, err := execute(t, NewRootCommand(opts), "brief", "ValidateToken", "--json")
+	if err != nil {
+		t.Fatalf("brief: %v\n%s", err, out)
+	}
+	var report brainBriefReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("parse brief json: %v\n%s", err, out)
+	}
+	if len(report.Facts) == 0 {
+		t.Fatalf("brief should include the matching facts, got %+v", report.Facts)
+	}
+	annotated := 0
+	for _, fact := range report.Facts {
+		notice, ok := report.FactsPendingReview[fact.ID]
+		if !ok {
+			continue
+		}
+		annotated++
+		if !strings.HasPrefix(notice.ReviewID, "review:") || notice.Action != factActionSupersede {
+			t.Fatalf("notice for %s lost proposal identity: %+v", fact.ID, notice)
+		}
+	}
+	if annotated == 0 {
+		t.Fatalf("brief omitted the pending-review trust annotation: facts=%+v pending=%+v", report.Facts, report.FactsPendingReview)
+	}
+
+	textOut, err := execute(t, NewRootCommand(opts), "brief", "ValidateToken")
+	if err != nil {
+		t.Fatalf("brief text: %v\n%s", err, textOut)
+	}
+	if !strings.Contains(textOut, "pending fact review review:") {
+		t.Fatalf("text brief omitted the pending-review line:\n%s", textOut)
+	}
+}
+
 func TestBrainInspectCodeAndShow(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
