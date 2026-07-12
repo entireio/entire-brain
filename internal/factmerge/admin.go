@@ -9,6 +9,10 @@ import (
 // exists (e.g. pruned or already resolved).
 var errStaleProposal = errors.New("proposal references a fact that no longer exists")
 
+// errSelfTargetProposal is returned when a malformed proposal names the same
+// fact as both candidate and target.
+var errSelfTargetProposal = errors.New("proposal candidate and target must differ")
+
 // removeFactByID returns facts with the record of the given id removed.
 func removeFactByID(facts []Record, id string) []Record {
 	out := facts[:0:0]
@@ -26,6 +30,9 @@ func removeFactByID(facts []Record, id string) []Record {
 // candidate, which stays active. Returns an error if either fact is gone (a
 // stale proposal).
 func ApplyProposal(facts []Record, p Proposal, now time.Time) ([]Record, error) {
+	if p.CandidateID == p.TargetID {
+		return facts, errSelfTargetProposal
+	}
 	ci := IndexOf(facts, p.CandidateID)
 	ti := IndexOf(facts, p.TargetID)
 	if ci < 0 || ti < 0 {

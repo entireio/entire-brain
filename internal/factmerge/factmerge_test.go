@@ -465,6 +465,31 @@ func TestApplyProposalStale(t *testing.T) {
 	}
 }
 
+func TestApplyProposalRejectsSelfTargetWithoutMutation(t *testing.T) {
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	for _, action := range []string{ActionMerge, ActionSupersede} {
+		t.Run(action, func(t *testing.T) {
+			fact := factFor(t, "only fact", []string{"project.tooling.stack"}, now)
+			fact.RelatedIDs = []string{fact.ID, "fact:other"}
+			facts := []Record{fact}
+			before := append([]Record(nil), facts...)
+			before[0].RelatedIDs = append([]string(nil), facts[0].RelatedIDs...)
+
+			out, err := ApplyProposal(
+				facts,
+				Proposal{Action: action, CandidateID: fact.ID, TargetID: fact.ID},
+				now.Add(time.Hour),
+			)
+			if !errors.Is(err, errSelfTargetProposal) {
+				t.Fatalf("ApplyProposal error = %v, want %v", err, errSelfTargetProposal)
+			}
+			if !reflect.DeepEqual(out, before) || !reflect.DeepEqual(facts, before) {
+				t.Fatalf("self-target proposal mutated facts: out=%+v input=%+v want=%+v", out, facts, before)
+			}
+		})
+	}
+}
+
 func TestRejectProposalKeepsBothActive(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	a := factFor(t, "a", []string{"project.tooling.stack"}, now)
