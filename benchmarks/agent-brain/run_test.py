@@ -1134,6 +1134,8 @@ class RunnerAndConditionTests(unittest.TestCase):
             ("Read", {"file_path": ".benchmark/plugin/data/brain/history/index.json"}),
             ("Glob", {"pattern": "**/.entire/**"}),
             ("Read", {"file_path": "refs/heads/entire/checkpoints/v1"}),
+            ("Read", {"paths": ["safe.txt", ".benchmark/private.json"]}),
+            ("Read", {"options": {"file_paths": [".entire/session.json"]}}),
         ):
             stdout = json.dumps(
                 {
@@ -1145,7 +1147,8 @@ class RunnerAndConditionTests(unittest.TestCase):
             )
             activity = run.extract_agent_activity(stdout, "")
             self.assertTrue(activity["forbidden_memory_artifact_access"], (name, payload))
-            self.assertNotIn(next(iter(payload.values())), json.dumps(activity))
+            self.assertNotIn(".benchmark", json.dumps(activity))
+            self.assertNotIn(".entire", json.dumps(activity))
 
         safe_stdout = json.dumps(
             {
@@ -1733,6 +1736,11 @@ class StatsAndAttributionTests(unittest.TestCase):
             self.assertIs(prov["task"]["radar_include_deletions"], True)
             self.assertRegex(prov["run_config"]["fingerprint"], r"^[0-9a-f]{64}$")
             self.assertRegex(prov["tools"]["brain"]["sha256"], r"^[0-9a-f]{64}$")
+            self.assertEqual(prov["tools"]["brain"]["role"], "frozen_run_tool")
+            self.assertEqual(prov["source"]["repo_path_input"], "<source-repo>")
+            self.assertNotIn("repo_path_resolved", prov["source"])
+            self.assertNotIn("repo_path", prov["harness"])
+            self.assertNotIn(str(root), json.dumps(prov))
 
             summary = run.suite_provenance([{"provenance": prov}])
             self.assertEqual(summary["records_with_provenance"], 1)

@@ -709,7 +709,7 @@ def display_path(path: pathlib.Path) -> str:
     try:
         return str(path.resolve().relative_to(ROOT))
     except ValueError:
-        return str(path.resolve())
+        return f"<external-task>/{path.name}"
 
 
 def task_file_sha256(task: dict[str, Any]) -> str | None:
@@ -743,7 +743,11 @@ def bind_task_base_commit(task: dict[str, Any]) -> tuple[dict[str, Any], pathlib
 def tools_provenance(tools: dict[str, pathlib.Path]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for name, path in sorted(tools.items()):
-        entry: dict[str, Any] = {"path": str(path), "exists": path.exists()}
+        entry: dict[str, Any] = {
+            "role": "frozen_tool_directory" if name == "bin" else "frozen_run_tool",
+            "name": pathlib.Path(path).name,
+            "exists": path.exists(),
+        }
         if path.exists() and path.is_file():
             entry["sha256"] = file_sha256(path)
         out[name] = entry
@@ -834,18 +838,23 @@ def build_record_provenance(
     task_path = pathlib.Path(str(task["_path"])) if task.get("_path") else None
     source_head = git_commit_metadata(source, "HEAD")
     task_base = task.get("base_commit")
+    repo_path_input = task.get("repo_path")
+    if isinstance(repo_path_input, str) and pathlib.Path(repo_path_input).is_absolute():
+        repo_path_input = "<source-repo>"
     payload: dict[str, Any] = {
         "schema": 1,
         "captured_at": dt.datetime.now(dt.UTC).isoformat(),
         "harness": {
-            "repo_path": str(ROOT),
+            "repo_role": "benchmark_harness",
+            "repo_name": ROOT.name,
             "head": git_commit_metadata(ROOT, "HEAD"),
             "dirty": git_dirty_metadata(ROOT),
         },
         "source": {
             "repo": task.get("repo"),
-            "repo_path_input": task.get("repo_path"),
-            "repo_path_resolved": str(source.resolve()),
+            "repo_path_input": repo_path_input,
+            "repo_path_role": "task_source",
+            "repo_path_name": source.resolve().name,
             "origin_url": git_remote_url(source),
             "base_ref": str(task_base or "HEAD"),
             "base_ref_source": "task.base_commit" if task_base else "source_head",
@@ -2178,6 +2187,7 @@ def collect_memory_bundle_artifacts(
     sources = manifest.get("sources") if isinstance(manifest, dict) else {}
     history_path = brain_dir / "history" / "index.json"
     facts_files = sorted((brain_dir / "facts").rglob("*.ndjson")) if (brain_dir / "facts").exists() else []
+    distill_binary = temporal_distill_binary(task)
     result = dict(bundle_record)
     result.update(
         {
@@ -2203,8 +2213,9 @@ def collect_memory_bundle_artifacts(
                 ],
             },
             "distill_binary": {
-                "path": str(temporal_distill_binary(task)),
-                "sha256": file_sha256(temporal_distill_binary(task)),
+                "role": "pinned_distillation_tool",
+                "name": distill_binary.name,
+                "sha256": file_sha256(distill_binary),
             },
         }
     )
@@ -3133,7 +3144,8 @@ def suite_provenance(records: list[dict[str, Any]]) -> dict[str, Any]:
             {
                 "repo": source.get("repo"),
                 "repo_path_input": source.get("repo_path_input"),
-                "repo_path_resolved": source.get("repo_path_resolved"),
+                "repo_path_role": source.get("repo_path_role"),
+                "repo_path_name": source.get("repo_path_name"),
                 "base_ref": source.get("base_ref"),
                 "base_ref_source": source.get("base_ref_source"),
                 "base_commit": (source.get("base") or {}).get("commit") if isinstance(source.get("base"), dict) else None,
@@ -3143,7 +3155,8 @@ def suite_provenance(records: list[dict[str, Any]]) -> dict[str, Any]:
         )
         harnesses.append(
             {
-                "repo_path": harness.get("repo_path"),
+                "repo_role": harness.get("repo_role"),
+                "repo_name": harness.get("repo_name"),
                 "head_commit": (harness.get("head") or {}).get("commit") if isinstance(harness.get("head"), dict) else None,
                 "dirty": (harness.get("dirty") or {}).get("dirty") if isinstance(harness.get("dirty"), dict) else None,
             }
@@ -4041,15 +4054,24 @@ def tool_arguments_access_forbidden_memory_artifact(tool_name: str, value: Any) 
         return False
     path_keys = {
         "dir",
+        "dirs",
         "directory",
+        "directories",
         "file",
+        "files",
         "file_path",
+        "file_paths",
         "filepath",
+        "filepaths",
         "glob",
+        "globs",
         "include",
         "path",
+        "paths",
         "root",
+        "roots",
         "target",
+        "targets",
     }
     if "glob" in tool_name.lower():
         path_keys.add("pattern")
@@ -4069,10 +4091,20 @@ def tool_arguments_access_forbidden_memory_artifact(tool_name: str, value: Any) 
             return any(references_private_path(child) for child in item.values())
         return False
 
-    return any(
-        str(key).lower() in path_keys and references_private_path(item)
-        for key, item in value.items()
-    )
+    def mapping_accesses_private_path(mapping: dict[str, Any]) -> bool:
+        for key, item in mapping.items():
+            normalized_key = str(key).lower().replace("-", "_")
+            if normalized_key in path_keys and references_private_path(item):
+                return True
+            if isinstance(item, dict) and mapping_accesses_private_path(item):
+                return True
+            if isinstance(item, list) and any(
+                isinstance(child, dict) and mapping_accesses_private_path(child) for child in item
+            ):
+                return True
+        return False
+
+    return mapping_accesses_private_path(value)
 
 
 def tool_event_errored(value: Any) -> bool:
