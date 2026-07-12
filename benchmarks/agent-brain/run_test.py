@@ -5789,8 +5789,18 @@ class _FakeProc:
 
 
 class TemporalHarnessDeliveryTests(unittest.TestCase):
-    def _delivery(self, task, condition, stdout, returncode=0, stderr=""):
+    def _delivery(self, task, condition, stdout, returncode=0, stderr="", root=None):
         """Run harness_memory_delivery against a faked retrieval subprocess."""
+        if root is None:
+            with tempfile.TemporaryDirectory() as tmp:
+                return self._delivery(
+                    task,
+                    condition,
+                    stdout,
+                    returncode=returncode,
+                    stderr=stderr,
+                    root=pathlib.Path(tmp),
+                )
         calls = []
         old_run_cmd = run.run_cmd
 
@@ -5800,39 +5810,38 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
             calls.append(args)
             return _FakeProc(returncode=returncode, stdout=stdout, stderr=stderr)
 
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = pathlib.Path(tmp)
-            brain = tmp_path / "entire-brain"
-            brain.write_text("fake brain binary")
-            run_dir = tmp_path / "run"
-            run_dir.mkdir()
-            tools = {"brain": brain}
-            prep = {
-                "cache": {"key": "c" * 24},
-                "source_cache": {"key": "s" * 24},
-                "memory_bundle": {
-                    "checkpoint_ref_commit": "a" * 40,
-                    "cutoff_at": "2026-06-18T08:29:27Z",
-                    "selected_sessions": [
-                        {"session_id": "session-a", "transcript_sha256": "f" * 64}
-                    ],
-                    "history_index": {"sha256": "1" * 64},
-                    "facts": {"artifacts": [{"sha256": "2" * 64}]},
-                    "delivery": {"allowed_sources": ["history"]},
-                },
-            }
-            try:
-                run.run_cmd = fake_run_cmd
-                packet, delivery = run.harness_memory_delivery(
-                    task, condition, tmp_path / "worktree", {}, tools, prep
-                )
-            finally:
-                run.run_cmd = old_run_cmd
-            persisted = None
-            delivery_path = run_dir / "memory-delivery.json"
-            if delivery_path.exists():
-                persisted = json.loads(delivery_path.read_text())
-            return packet, delivery, calls, persisted
+        tmp_path = pathlib.Path(root)
+        brain = tmp_path / "entire-brain"
+        brain.write_text("fake brain binary")
+        run_dir = tmp_path / "run"
+        run_dir.mkdir(exist_ok=True)
+        tools = {"brain": brain}
+        prep = {
+            "cache": {"key": "c" * 24},
+            "source_cache": {"key": "s" * 24},
+            "memory_bundle": {
+                "checkpoint_ref_commit": "a" * 40,
+                "cutoff_at": "2026-06-18T08:29:27Z",
+                "selected_sessions": [
+                    {"session_id": "session-a", "transcript_sha256": "f" * 64}
+                ],
+                "history_index": {"sha256": "1" * 64},
+                "facts": {"artifacts": [{"sha256": "2" * 64}]},
+                "delivery": {"allowed_sources": ["history"]},
+            },
+        }
+        try:
+            run.run_cmd = fake_run_cmd
+            packet, delivery = run.harness_memory_delivery(
+                task, condition, tmp_path / "worktree", {}, tools, prep
+            )
+        finally:
+            run.run_cmd = old_run_cmd
+        persisted = None
+        delivery_path = run_dir / "memory-delivery.json"
+        if delivery_path.exists():
+            persisted = json.loads(delivery_path.read_text())
+        return packet, delivery, calls, persisted
 
     def test_temporal_delivery_mode_defaults_and_validation(self):
         self.assertEqual(run.temporal_delivery_mode({"id": "t"}), "agent_tool")
@@ -6092,6 +6101,52 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
             self.assertEqual(record["memory_delivery"], persisted)
             self.assertEqual(persisted["retrieval"]["response"]["sha256"], "a" * 64)
             self.assertNotIn(str(root), json.dumps(persisted))
+
+    def test_memory_delivery_redacts_stderr_before_retaining_tail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            worktree = root / "worktree"
+            error_prefix = "retrieval failed under "
+            host_path = str(worktree)
+            root_fragment_offset = len(str(root)) // 2
+            truncated_fragment = str(root)[root_fragment_offset:]
+            old_tail_start = len(error_prefix) + root_fragment_offset
+            suffix_length = 2000 - (len(error_prefix) + len(host_path) - old_tail_start)
+            self.assertGreater(suffix_length, 0)
+            stderr = error_prefix + host_path + "x" * suffix_length
+
+            try:
+                self._delivery(
+                    _harness_task(),
+                    "raw_history",
+                    "",
+                    returncode=3,
+                    stderr=stderr,
+                    root=root,
+                )
+            except run.MemoryDeliveryError as exc:
+                delivery = exc.delivery
+            else:
+                self.fail("failed retrieval did not raise MemoryDeliveryError")
+            self.assertGreater(len(delivery["retrieval"]["stderr_tail"]), 2000)
+            self.assertEqual(delivery["retrieval"]["stderr_tail"], stderr)
+
+            record = {}
+            persisted = run.persist_memory_delivery(
+                record,
+                delivery,
+                source=root / "source",
+                suite_dir=root / "suite",
+                run_dir=root / "run",
+                tools={"brain": root / "entire-brain"},
+                worktree=worktree,
+            )
+            side_artifact = json.loads((root / "run" / "memory-delivery.json").read_text())
+            self.assertEqual(side_artifact, persisted)
+            self.assertEqual(record["memory_delivery"], persisted)
+            self.assertEqual(len(persisted["retrieval"]["stderr_tail"]), 2000)
+            self.assertNotIn(str(root), json.dumps(persisted))
+            self.assertNotIn(truncated_fragment, json.dumps(persisted))
 
     def test_harness_delivery_marks_failed_isolation_before_reraising(self):
         with tempfile.TemporaryDirectory() as tmp:

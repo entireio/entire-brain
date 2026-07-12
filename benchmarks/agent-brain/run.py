@@ -2644,7 +2644,8 @@ def harness_memory_delivery(
         "preregistered_min_results": min_results,
         "returncode": proc.returncode,
         "seconds": time.time() - start,
-        "stderr_tail": proc.stderr[-2000:],
+        # Persistence redacts the complete stderr before retaining its diagnostic tail.
+        "stderr_tail": proc.stderr,
         "response": {
             "bytes": len(raw),
             "sha256": hashlib.sha256(raw).hexdigest(),
@@ -2713,6 +2714,9 @@ def persist_memory_delivery(
     isolation_error = redacted.get("isolation_error")
     if isinstance(isolation_error, dict) and isinstance(isolation_error.get("message"), str):
         isolation_error["message"] = isolation_error["message"][:1000]
+    retrieval = redacted.get("retrieval")
+    if isinstance(retrieval, dict) and isinstance(retrieval.get("stderr_tail"), str):
+        retrieval["stderr_tail"] = retrieval["stderr_tail"][-2000:]
     record["memory_delivery"] = redacted
     write_json(run_dir / "memory-delivery.json", redacted)
     return redacted
