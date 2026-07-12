@@ -5197,6 +5197,11 @@ def run_one(
             read_isolation_profile=read_isolation_profile,
             read_isolation=read_isolation,
         )
+        # The agent ran and produced output. A failure past this point (an integrity
+        # abort, or a validation/scoring error) is a REAL condition outcome scored 0,
+        # not an infrastructure non-outcome, so it must stay in the arm means. Only a
+        # pre-agent failure (the agent never ran) is excluded; see the handlers below.
+        record["agent_ran"] = True
         leak_audit = agent_output_leak_audit(
             task,
             (run_dir / "agent.stdout").read_text(encoding="utf-8", errors="ignore"),
@@ -5267,16 +5272,15 @@ def run_one(
             }
         )
     except Exception as exc:
-        record.update(
-            {
-                "ok": False,
-                "error": str(exc),
-                "score": {"total": 0},
-                # A harness/isolation error (not an agent-produced outcome) yields a
-                # synthetic 0; exclude it from arm means and report the count.
-                "analysis_excluded": {"reason": "harness_infrastructure_error"},
-            }
-        )
+        record.update({"ok": False, "error": str(exc), "score": {"total": 0}})
+        if not record.get("agent_ran"):
+            # Pre-agent harness/isolation error: the agent never produced an
+            # outcome, so this synthetic 0 is an infrastructure non-outcome --
+            # exclude it from arm means and report the count. A post-agent failure
+            # (agent_ran) keeps its scored 0 as a real, condition-attributable
+            # outcome; excluding those would directionally favor the treatment arm
+            # (brain conditions inject more context and can trip more such aborts).
+            record["analysis_excluded"] = {"reason": "harness_infrastructure_error"}
     finally:
         record["finished_at"] = dt.datetime.now(dt.UTC).isoformat()
         redacted_record = redact_record_host_paths(

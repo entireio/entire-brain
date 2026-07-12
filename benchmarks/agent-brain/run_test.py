@@ -6742,33 +6742,37 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
         self.assertEqual(by_mode["agent_tool"]["mean_total_tokens_baseline"], 925.0)
 
     def test_summarize_excludes_infrastructure_failures_from_arm_means(self):
-        # F2: a harness-delivery/isolation failure is an infrastructure non-outcome
-        # (agent never produced a real score). Its synthetic 0 must stay out of the
-        # arm mean/n and be reported as an excluded count, or it would directionally
-        # depress the harness-delivered treatment arm (only that arm can fail this way).
-        def cell_rec(condition, *, score, excluded=False):
+        # F2: an INFRASTRUCTURE non-outcome (harness delivery/isolation failed, the
+        # agent never ran) is dropped from the arm mean/n and only counted; but a
+        # REAL failing outcome (the agent ran and scored 0 -- e.g. an integrity abort
+        # or failed validation) stays IN the mean. Excluding the latter would
+        # directionally favor the treatment arm.
+        def cell_rec(condition, *, score, kind="ok"):
             record = _rec(700, score=score)
             record["condition"] = condition
             record["delivery_mode"] = "harness"
-            if excluded:
+            if kind == "infra":  # agent never ran -> excluded
                 record["ok"] = False
                 record["score"] = {"total": 0}
                 record["analysis_excluded"] = {"reason": "harness_memory_delivery_failed"}
+            elif kind == "real_fail":  # agent ran, scored 0 -> included
+                record["ok"] = False
+                record["agent_ran"] = True
+                record["score"] = {"total": 0}
             return record
 
         records = [cell_rec("no_brain", score=50) for _ in range(2)]
         records += [cell_rec("raw_history", score=80) for _ in range(2)]
-        # One infrastructure failure in the treatment arm (synthetic 0).
-        records.append(cell_rec("raw_history", score=0, excluded=True))
+        records.append(cell_rec("raw_history", score=0, kind="real_fail"))  # counts
+        records.append(cell_rec("raw_history", score=0, kind="infra"))  # excluded
         with tempfile.TemporaryDirectory() as d:
             summary = run.summarize(records, pathlib.Path(d))
         comps = [c for c in summary["comparisons"] if c["condition"] == "raw_history"]
         self.assertEqual(len(comps), 1)
         comp = comps[0]
-        # The excluded 0 enters neither the count nor the mean (a naive mean would be
-        # (80+80+0)/3 = 53.33, dragging the treatment arm below the baseline).
-        self.assertEqual(comp["n_condition"], 2)
-        self.assertEqual(comp["mean_condition"], 80.0)
+        # Real 0 counts; infra 0 does not: n=3, mean=(80+80+0)/3, one excluded.
+        self.assertEqual(comp["n_condition"], 3)
+        self.assertAlmostEqual(comp["mean_condition"], 160.0 / 3.0)
         self.assertEqual(comp["n_infrastructure_excluded_condition"], 1)
         self.assertEqual(comp["n_infrastructure_excluded_baseline"], 0)
 
