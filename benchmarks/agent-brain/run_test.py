@@ -1750,6 +1750,36 @@ class StatsAndAttributionTests(unittest.TestCase):
             self.assertEqual(prov["source"]["origin_url"]["name"], "private-origin.git")
             self.assertNotIn(str(root), json.dumps(prov))
 
+            run.run_cmd(
+                [
+                    "git",
+                    "remote",
+                    "set-url",
+                    "origin",
+                    "https://oauth2:private-token@github.com/example/repo.git?access_token=secret#fragment",
+                ],
+                cwd=repo,
+                check=True,
+            )
+            credential_safe = run.build_record_provenance(
+                bound,
+                None,
+                "no_brain",
+                1,
+                root / "suite",
+                tools,
+                args,
+                command="run",
+                source=source,
+                base=base,
+            )
+            self.assertEqual(
+                credential_safe["source"]["origin_url"],
+                "https://github.com/example/repo.git",
+            )
+            self.assertNotIn("private-token", json.dumps(credential_safe))
+            self.assertNotIn("access_token", json.dumps(credential_safe))
+
             summary = run.suite_provenance([{"provenance": prov}])
             self.assertEqual(summary["records_with_provenance"], 1)
             self.assertEqual(summary["sources"][0]["base_commit"], head)
@@ -1917,7 +1947,7 @@ class PanelAndStabilityTests(unittest.TestCase):
             pricing_path = root / "pricing.json"
             pricing_path.write_text('{"model":{"input_per_million":1}}\n')
             args = argparse.Namespace(
-                tasks=[str(task_path), "t"],
+                tasks=[str(task_path), "tasks/private-task.json", "t"],
                 agents="",
                 runners="codex:gpt-test:low",
                 conditions="no_brain,full_brain",
@@ -1951,8 +1981,32 @@ class PanelAndStabilityTests(unittest.TestCase):
             self.assertEqual(payload["pricing"]["file"]["sha256"], run.file_sha256(pricing_path))
             self.assertEqual(payload["requested"]["tasks"][0]["role"], "requested_task")
             self.assertEqual(payload["requested"]["tasks"][0]["sha256"], run.file_sha256(task_path))
-            self.assertEqual(payload["requested"]["tasks"][1], "t")
+            self.assertEqual(payload["requested"]["tasks"][1]["role"], "requested_task")
+            self.assertEqual(payload["requested"]["tasks"][1]["name"], "private-task.json")
+            self.assertEqual(payload["requested"]["tasks"][2], "t")
             self.assertNotIn(str(root), json.dumps(payload))
+
+            nested = {
+                "worktree": str(root / "suite" / "run" / "worktree"),
+                "brain_prep": {
+                    "commands": [[str(root / "tools" / "brain"), str(root / "suite")]],
+                    "stderr_tail": f"failed under {root}",
+                },
+            }
+            redacted = run.redact_record_host_paths(
+                nested,
+                {
+                    root / "suite": "<suite-dir>",
+                    root / "tools" / "brain": "<frozen-tool:brain>",
+                    root: "<temporary-root>",
+                },
+            )
+            self.assertEqual(redacted["worktree"], "<suite-dir>/run/worktree")
+            self.assertEqual(
+                redacted["brain_prep"]["commands"],
+                [["<frozen-tool:brain>", "<suite-dir>"]],
+            )
+            self.assertNotIn(str(root), json.dumps(redacted))
 
             args.panel_config_sha256 = "f" * 64
             changed = run.run_config_provenance(

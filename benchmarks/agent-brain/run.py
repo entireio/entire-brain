@@ -718,11 +718,17 @@ def provenance_path_reference(
     role: str,
     *,
     relative_is_path: bool = False,
+    slash_relative_is_path: bool = False,
 ) -> Any:
     """Replace local paths with reproducible, location-free provenance."""
     if isinstance(value, (list, tuple)):
         return [
-            provenance_path_reference(item, role, relative_is_path=relative_is_path)
+            provenance_path_reference(
+                item,
+                role,
+                relative_is_path=relative_is_path,
+                slash_relative_is_path=slash_relative_is_path,
+            )
             for item in value
         ]
     if not isinstance(value, str) or not value:
@@ -739,9 +745,23 @@ def provenance_path_reference(
     is_network_reference = bool(parsed.scheme and not is_file_url) or bool(
         re.match(r"^[^/@\s]+@[^:\s]+:.+", value)
     )
+    is_slash_relative_path = slash_relative_is_path and ("/" in value or "\\" in value)
     if not is_file_url and not is_explicit_path and (
-        not relative_is_path or is_network_reference
+        (not relative_is_path and not is_slash_relative_path) or is_network_reference
     ):
+        if parsed.scheme and parsed.netloc:
+            hostname = parsed.hostname or ""
+            if ":" in hostname and not hostname.startswith("["):
+                hostname = f"[{hostname}]"
+            netloc = hostname
+            if parsed.port is not None:
+                netloc += f":{parsed.port}"
+            return urllib.parse.urlunparse(
+                (parsed.scheme, netloc, parsed.path, parsed.params, "", "")
+            )
+        scp_remote = re.match(r"^[^/@\s]+@([^:\s]+):(.+)", value)
+        if scp_remote:
+            return f"{scp_remote.group(1)}:{scp_remote.group(2)}"
         return value
 
     candidate: pathlib.Path | None = None
@@ -767,6 +787,60 @@ def provenance_path_reference(
         reference["sha256"] = file_sha256(candidate)
         reference["sha256_kind"] = "file_content"
     return reference
+
+
+def redact_record_host_paths(value: Any, paths: dict[pathlib.Path, str]) -> Any:
+    """Remove known machine-local paths from the persisted record tree."""
+    replacements: dict[str, str] = {}
+    for path, label in paths.items():
+        raw = str(path)
+        if not raw:
+            continue
+        replacements[raw] = label
+        replacements[raw.replace("\\", "/")] = label
+        try:
+            replacements[path.as_uri()] = label
+        except ValueError:
+            pass
+
+    def redact(item: Any) -> Any:
+        if isinstance(item, dict):
+            return {key: redact(child) for key, child in item.items()}
+        if isinstance(item, list):
+            return [redact(child) for child in item]
+        if isinstance(item, tuple):
+            return [redact(child) for child in item]
+        if not isinstance(item, str):
+            return item
+        output = item
+        for raw, label in sorted(replacements.items(), key=lambda pair: len(pair[0]), reverse=True):
+            output = output.replace(raw, label)
+        return output
+
+    return redact(value)
+
+
+def benchmark_record_private_paths(
+    source: pathlib.Path,
+    suite_dir: pathlib.Path,
+    run_dir: pathlib.Path,
+    tools: dict[str, pathlib.Path],
+    worktree: pathlib.Path | None,
+) -> dict[pathlib.Path, str]:
+    paths = {
+        pathlib.Path.home(): "<HOME>",
+        ROOT: "<benchmark-harness>",
+        source: "<source-repo>",
+        suite_dir: "<suite-dir>",
+        run_dir: "<run-dir>",
+        **{
+            pathlib.Path(path): f"<frozen-tool:{name}>"
+            for name, path in tools.items()
+        },
+    }
+    if worktree is not None:
+        paths[worktree] = "<agent-worktree>"
+    return paths
 
 
 def task_file_sha256(task: dict[str, Any]) -> str | None:
@@ -845,7 +919,9 @@ def run_config_provenance(
         },
         "requested": {
             "tasks": provenance_path_reference(
-                getattr(args, "tasks", None), "requested_task"
+                getattr(args, "tasks", None),
+                "requested_task",
+                slash_relative_is_path=True,
             ),
             "agents": getattr(args, "agents", None),
             "runners": getattr(args, "runners", None),
@@ -857,7 +933,9 @@ def run_config_provenance(
         "stop_after_no_brain_score": getattr(args, "stop_after_no_brain_score", None),
         "pricing": {
             "file": provenance_path_reference(
-                getattr(args, "pricing_file", None), "pricing_manifest"
+                getattr(args, "pricing_file", None),
+                "pricing_manifest",
+                slash_relative_is_path=True,
             ),
             "inline_sha256": text_sha256(pricing_json) if pricing_json else None,
         },
@@ -876,7 +954,9 @@ def run_config_provenance(
     if panel_name or panel_path or panel_config_sha256:
         payload["panel"] = {
             "name": panel_name,
-            "path": provenance_path_reference(panel_path, "panel_manifest"),
+            "path": provenance_path_reference(
+                panel_path, "panel_manifest", slash_relative_is_path=True
+            ),
             "config_sha256": panel_config_sha256,
         }
     payload["fingerprint"] = stable_json_sha256(payload)
@@ -5000,7 +5080,7 @@ def run_one(
         record.update(
             {
                 "ok": validation["ok"] and agent_info["returncode"] == 0 and leak_audit["ok"] and mcp_audit["ok"] and temporal_audit["ok"],
-                "worktree": str(worktree),
+                "worktree": provenance_path_reference(str(worktree), "agent_worktree"),
                 "brain_prep": prep,
                 "brain_state": brain_state,
                 "post_brain_setup_applied": post_brain_changed,
@@ -5024,6 +5104,12 @@ def run_one(
         record.update({"ok": False, "error": str(exc), "score": {"total": 0}})
     finally:
         record["finished_at"] = dt.datetime.now(dt.UTC).isoformat()
+        redacted_record = redact_record_host_paths(
+            record,
+            benchmark_record_private_paths(source, suite_dir, run_dir, tools, worktree),
+        )
+        record.clear()
+        record.update(redacted_record)
         (run_dir / "record.json").write_text(json.dumps(record, indent=2, sort_keys=True))
         if worktree and not args.keep_worktrees:
             remove_worktree(source, worktree)
@@ -6205,7 +6291,7 @@ def cmd_prep(args: argparse.Namespace) -> int:
                 record.update(
                     {
                         "ok": True,
-                        "worktree": str(worktree),
+                        "worktree": provenance_path_reference(str(worktree), "agent_worktree"),
                         "brain_prep": prep,
                         "brain_state": brain_state,
                     }
@@ -6214,6 +6300,12 @@ def cmd_prep(args: argparse.Namespace) -> int:
                 record.update({"ok": False, "error": str(exc)})
             finally:
                 record["finished_at"] = dt.datetime.now(dt.UTC).isoformat()
+                redacted_record = redact_record_host_paths(
+                    record,
+                    benchmark_record_private_paths(source, suite_dir, run_dir, tools, worktree),
+                )
+                record.clear()
+                record.update(redacted_record)
                 (run_dir / "record.json").write_text(json.dumps(record, indent=2, sort_keys=True))
                 records.append(record)
                 with (suite_dir / "records.ndjson").open("a") as f:
