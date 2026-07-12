@@ -577,6 +577,60 @@ func TestVitalityAppendPreservesFirstEventAfterTornTail(t *testing.T) {
 	}
 }
 
+func TestVitalityAppendPreservesAbsorbedMarkerAcrossTornTail(t *testing.T) {
+	brainDir := t.TempDir()
+	branch := "main"
+	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	absorbedEvent := vitalityEvent{
+		Type:    vitalityEventServed,
+		FactID:  "fact:absorbed",
+		At:      now,
+		Surface: "recall",
+		Branch:  branch,
+	}
+	line, err := json.Marshal(absorbedEvent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logBefore := append(append(line, '\n'), []byte(`{"type":"served","fact_id":"torn`)...)
+	if err := appendBrainRelativeFile(brainDir, factsVitalityLogRelPath(branch), logBefore); err != nil {
+		t.Fatalf("seed pre-crash log: %v", err)
+	}
+	rollup := newVitalityRollup()
+	mergeVitalityEvents(&rollup, []vitalityEvent{absorbedEvent})
+	rollup.Log = vitalityLogMarker{
+		AbsorbedBytes:  int64(len(logBefore)),
+		AbsorbedSHA256: vitalityContentSHA(logBefore),
+	}
+	if err := writeVitalityRollup(brainDir, branch, rollup); err != nil {
+		t.Fatalf("write phase-one marker: %v", err)
+	}
+
+	freshEvent := vitalityEvent{
+		Type:    vitalityEventServed,
+		FactID:  "fact:fresh",
+		At:      now.Add(time.Minute),
+		Surface: "query",
+		Branch:  branch,
+	}
+	if err := appendVitalityEvents(brainDir, branch, []vitalityEvent{freshEvent}); err != nil {
+		t.Fatalf("append after marker-covered torn tail: %v", err)
+	}
+	recovered, stats, err := compactVitality(brainDir, branch)
+	if err != nil {
+		t.Fatalf("recover compaction: %v", err)
+	}
+	if stats.NewEvents != 1 || stats.Malformed != 0 {
+		t.Fatalf("marker boundary was not preserved: %+v", stats)
+	}
+	if got := recovered.Facts[absorbedEvent.FactID]; got == nil || got.Served != 1 {
+		t.Fatalf("absorbed receipt was double-counted or lost: %+v", got)
+	}
+	if got := recovered.Facts[freshEvent.FactID]; got == nil || got.Served != 1 {
+		t.Fatalf("fresh receipt was lost: %+v", got)
+	}
+}
+
 func TestVitalityCorruptLogAndRollupDegrade(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("The corrupt sidecar must not break recall.", "main", f.now)
