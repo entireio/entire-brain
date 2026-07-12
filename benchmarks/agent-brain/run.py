@@ -2379,7 +2379,10 @@ def collect_memory_bundle_artifacts(
     sources = manifest.get("sources") if isinstance(manifest, dict) else {}
     history_path = brain_dir / "history" / "index.json"
     facts_files = sorted((brain_dir / "facts").rglob("*.ndjson")) if (brain_dir / "facts").exists() else []
-    distill_binary = temporal_distill_binary(task)
+    # Record the distiller as provenance only; do not require it to be installed.
+    # The facts are content-addressed (artifacts[].sha256 above), so the record
+    # stays valid whether or not the vendor-updated distiller is still present.
+    distill_binary = temporal_distill_binary_optional(task)
     result = dict(bundle_record)
     result.update(
         {
@@ -2404,11 +2407,15 @@ def collect_memory_bundle_artifacts(
                     for path in facts_files
                 ],
             },
-            "distill_binary": {
-                "role": "pinned_distillation_tool",
-                "name": distill_binary.name,
-                "sha256": file_sha256(distill_binary),
-            },
+            "distill_binary": (
+                {
+                    "role": "distillation_tool",
+                    "name": distill_binary.name,
+                    "sha256": file_sha256(distill_binary),
+                }
+                if distill_binary is not None
+                else {"role": "distillation_tool", "available": False}
+            ),
         }
     )
     return result
