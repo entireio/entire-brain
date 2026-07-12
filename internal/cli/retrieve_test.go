@@ -535,6 +535,36 @@ func TestQMDTopLevelHelpListsRetrievalVerbs(t *testing.T) {
 	}
 }
 
+func TestPrintRetrievalCaveatsIncludesStructuredContext(t *testing.T) {
+	var out strings.Builder
+	printRetrievalCaveats(&out, unifiedResult{Caveats: []retrievalCaveat{
+		{
+			Kind:    retrievalCaveatStaleLocus,
+			Message: "Current code no longer contains every recorded path.",
+			Paths:   []string{"internal/old.go", "pkg/removed.go"},
+		},
+		{
+			Kind:       retrievalCaveatUnresolvedReview,
+			Message:    "A pending supersede proposal requires review.",
+			ReviewID:   "review:abc",
+			Action:     factActionSupersede,
+			Confidence: 0.55,
+		},
+	}})
+	text := out.String()
+	for _, want := range []string{
+		"Current code no longer contains every recorded path.",
+		"paths=internal/old.go,pkg/removed.go",
+		"review=review:abc",
+		"action=supersede",
+		"confidence=0.55",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("caveat output missing %q:\n%s", want, text)
+		}
+	}
+}
+
 func TestQMDFormatCLIOverridesJSONAndReportsMissingIDs(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

@@ -213,5 +213,19 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 func printRetrievalCaveats(out io.Writer, result unifiedResult) {
 	for _, caveat := range result.Caveats {
 		fmt.Fprintf(out, "    verify: %s\n", caveat.Message)
+		details := make([]string, 0, 4)
+		if len(caveat.Paths) > 0 {
+			details = append(details, "paths="+strings.Join(caveat.Paths, ","))
+		}
+		if caveat.ReviewID != "" {
+			details = append(details, "review="+caveat.ReviewID)
+		}
+		if caveat.Action != "" {
+			details = append(details, "action="+caveat.Action)
+			details = append(details, fmt.Sprintf("confidence=%.2f", caveat.Confidence))
+		}
+		if len(details) > 0 {
+			fmt.Fprintf(out, "      details: %s\n", strings.Join(details, "  "))
+		}
 	}
 }
