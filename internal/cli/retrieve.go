@@ -391,7 +391,7 @@ func docsVectorRanked(
 		if requireRelevance && s.keep && !lexical && len(out.calibratedSemanticOnly) < limit {
 			out.calibratedSemanticOnly = append(out.calibratedSemanticOnly, result)
 		}
-		if len(out.ranked) >= limit && len(out.calibratedSemanticOnly) >= limit {
+		if len(out.ranked) >= limit && (!requireRelevance || len(out.calibratedSemanticOnly) >= limit) {
 			break
 		}
 	}
