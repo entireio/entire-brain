@@ -2566,12 +2566,11 @@ def harness_memory_delivery(
     env: dict[str, str],
     tools: dict[str, pathlib.Path],
     prep: dict[str, Any],
-    run_dir: pathlib.Path,
 ) -> tuple[str | None, dict[str, Any]]:
     """Causal-lane delivery: the HARNESS executes the single frozen Brain retrieval before the task
     agent starts and returns the bounded packet for prompt injection, so treatment delivery cannot
     depend on agent tool adherence. Fail-closed: a failed process, empty response, or non-JSON
-    response persists its provenance to memory-delivery.json and raises MemoryDeliveryError — the
+    response raises MemoryDeliveryError — run_one persists its provenance before returning, and the
     agent is never run with a silently missing treatment. The delivery record intentionally holds
     only commands, configuration, hashes, sizes, and exit status (never hidden answers)."""
     memory_bundle_config(task)
@@ -2594,11 +2593,9 @@ def harness_memory_delivery(
     }
     if condition == "no_brain":
         delivery["ok"] = True
-        write_json(run_dir / "memory-delivery.json", delivery)
         return None, delivery
     if condition not in TEMPORAL_MEMORY_CONDITIONS:
         delivery["ok"] = False
-        write_json(run_dir / "memory-delivery.json", delivery)
         raise MemoryDeliveryError(
             f"harness memory delivery supports only the temporal ablation conditions, not {condition}", delivery
         )
@@ -2679,13 +2676,11 @@ def harness_memory_delivery(
         else:
             reason = "retrieval response does not match the search JSON contract"
         delivery["ok"] = False
-        write_json(run_dir / "memory-delivery.json", delivery)
         raise MemoryDeliveryError(f"harness memory delivery failed closed for {condition}: {reason}", delivery)
     packet_text, packet_meta = bound_memory_packet(stdout, max_bytes)
     delivery["retrieval"]["packet"] = packet_meta
     if packet_meta["delivered_result_count"] < min_results:
         delivery["ok"] = False
-        write_json(run_dir / "memory-delivery.json", delivery)
         raise MemoryDeliveryError(
             f"harness memory delivery retained {packet_meta['delivered_result_count']} results, "
             f"below the preregistered minimum of {min_results}",
@@ -2693,12 +2688,31 @@ def harness_memory_delivery(
         )
     if FROZEN_MEMORY_PACKET_END_TAG in packet_text.lower():
         delivery["ok"] = False
-        write_json(run_dir / "memory-delivery.json", delivery)
         raise MemoryDeliveryError(
             "harness memory delivery contains the reserved packet delimiter", delivery
         )
     delivery["ok"] = True
     return packet_text, delivery
+
+
+def persist_memory_delivery(
+    record: dict[str, Any],
+    delivery: dict[str, Any],
+    *,
+    source: pathlib.Path,
+    suite_dir: pathlib.Path,
+    run_dir: pathlib.Path,
+    tools: dict[str, pathlib.Path],
+    worktree: pathlib.Path | None,
+) -> dict[str, Any]:
+    """Persist one path-safe delivery object identically in the record and side artifact."""
+    redacted = redact_record_host_paths(
+        delivery,
+        benchmark_record_private_paths(source, suite_dir, run_dir, tools, worktree),
+    )
+    record["memory_delivery"] = redacted
+    write_json(run_dir / "memory-delivery.json", redacted)
+    return redacted
 
 
 def remove_agent_visible_brain_store(worktree: pathlib.Path) -> dict[str, Any]:
@@ -5020,10 +5034,8 @@ def run_one(
             # physically deletes the Brain store so the agent cannot reach Brain, the source
             # cache, raw transcripts, or benchmark artifacts regardless of its tool behavior.
             memory_packet, memory_delivery = harness_memory_delivery(
-                task, condition, worktree, env, tools, prep, run_dir
+                task, condition, worktree, env, tools, prep
             )
-            record["memory_delivery"] = memory_delivery
-            write_json(run_dir / "memory-delivery.json", memory_delivery)
             try:
                 memory_delivery["post_delivery_isolation"] = remove_agent_visible_brain_store(worktree)
                 memory_delivery["git_remote_isolation"] = remove_agent_visible_git_remotes(worktree)
@@ -5034,7 +5046,15 @@ def run_one(
                 )
                 memory_delivery["agent_read_isolation"] = read_isolation
             finally:
-                write_json(run_dir / "memory-delivery.json", memory_delivery)
+                memory_delivery = persist_memory_delivery(
+                    record,
+                    memory_delivery,
+                    source=source,
+                    suite_dir=suite_dir,
+                    run_dir=run_dir,
+                    tools=tools,
+                    worktree=worktree,
+                )
         prompt = prompt_for(task, condition, runner, memory_packet=memory_packet)
         (run_dir / "prompt.txt").write_text(prompt)
         agent_info = run_agent(
@@ -5099,7 +5119,16 @@ def run_one(
     except MemoryDeliveryError as exc:
         # Fail-closed: the failed retrieval's provenance is retained on the record and in
         # memory-delivery.json; the task agent was never started.
-        record.update({"ok": False, "error": str(exc), "memory_delivery": exc.delivery, "score": {"total": 0}})
+        persist_memory_delivery(
+            record,
+            exc.delivery,
+            source=source,
+            suite_dir=suite_dir,
+            run_dir=run_dir,
+            tools=tools,
+            worktree=worktree,
+        )
+        record.update({"ok": False, "error": str(exc), "score": {"total": 0}})
     except Exception as exc:
         record.update({"ok": False, "error": str(exc), "score": {"total": 0}})
     finally:

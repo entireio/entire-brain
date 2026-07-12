@@ -5824,7 +5824,7 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
             try:
                 run.run_cmd = fake_run_cmd
                 packet, delivery = run.harness_memory_delivery(
-                    task, condition, tmp_path / "worktree", {}, tools, prep, run_dir
+                    task, condition, tmp_path / "worktree", {}, tools, prep
                 )
             finally:
                 run.run_cmd = old_run_cmd
@@ -6054,8 +6054,44 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
         self.assertTrue(delivery["ok"])
         self.assertIsNone(delivery["retrieval"])
         self.assertIsNone(delivery["sources"])
-        self.assertIsNotNone(persisted)
-        self.assertEqual(persisted["condition"], "no_brain")
+        self.assertIsNone(persisted)  # run_one owns the single path-safe persistence point
+
+    def test_memory_delivery_side_artifact_matches_redacted_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            source = root / "private-source"
+            suite_dir = root / "private-suite"
+            run_dir = suite_dir / "run"
+            worktree = run_dir / "private-worktree"
+            run_dir.mkdir(parents=True)
+            tools = {
+                "bin": root / "private-tools",
+                "brain": root / "private-tools" / "entire-brain",
+                "sem": root / "private-tools" / "entire-sem",
+                "entire": root / "private-tools" / "entire",
+            }
+            record = {}
+            delivery = {
+                "ok": False,
+                "retrieval": {
+                    "stderr_tail": f"failed under {worktree} using {tools['brain']}",
+                    "response": {"sha256": "a" * 64},
+                },
+            }
+            persisted = run.persist_memory_delivery(
+                record,
+                delivery,
+                source=source,
+                suite_dir=suite_dir,
+                run_dir=run_dir,
+                tools=tools,
+                worktree=worktree,
+            )
+            side_artifact = json.loads((run_dir / "memory-delivery.json").read_text())
+            self.assertEqual(side_artifact, persisted)
+            self.assertEqual(record["memory_delivery"], persisted)
+            self.assertEqual(persisted["retrieval"]["response"]["sha256"], "a" * 64)
+            self.assertNotIn(str(root), json.dumps(persisted))
 
     def test_remove_agent_visible_brain_store_deletes_source_store(self):
         with tempfile.TemporaryDirectory() as tmp:
