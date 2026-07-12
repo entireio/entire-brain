@@ -6776,6 +6776,52 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
         self.assertEqual(comp["n_infrastructure_excluded_condition"], 1)
         self.assertEqual(comp["n_infrastructure_excluded_baseline"], 0)
 
+    def test_source_artifact_validation_is_distiller_binary_independent(self):
+        # Content-addressed facts validate whether or not the distiller that made
+        # them is still installed or unchanged. Agents/models are vendor-updated
+        # (a codex app update moves the binary and changes its hash), so gating on
+        # the live distiller would reject known-good frozen facts. Integrity comes
+        # from the fact/history/transcript content hashes, not the tool.
+        task = {
+            "id": "t",
+            "memory_bundle": {
+                "role": "development",
+                "checkpoint_ref_commit": "a" * 40,
+                "cutoff_at": "2026-06-18T01:29:27-07:00",
+                "session_ids": ["s1"],
+                "retrieval_branch": "b",
+                "distill": {
+                    "agent": "codex",
+                    "binary": "/nonexistent/Codex.app/Contents/Resources/codex",
+                    "model": "m",
+                    "effort": "low",
+                },
+                "source_artifact": {
+                    "cache_key": "0" * 24,
+                    "transcript_sha256": ["a" * 64],
+                    "history_sha256": "b" * 64,
+                    "fact_artifact_sha256": ["c" * 64],
+                },
+            },
+        }
+        memory_record = {
+            "checkpoint_ref_commit": "a" * 40,
+            "cutoff_at": "2026-06-18T01:29:27-07:00",
+            "selected_sessions": [{"session_id": "s1", "transcript_sha256": "a" * 64}],
+            "facts": {"artifacts": [{"sha256": "c" * 64}]},
+            "history_index": {"sha256": "b" * 64},
+            "distill_binary": {"sha256": "old-hash-no-longer-installed"},
+        }
+        meta = {"key": "0" * 24}
+        # Distiller binary absent AND its recorded hash stale: still validates.
+        run.validate_temporal_source_artifact(task, "0" * 24, meta, memory_record)
+        self.assertIsNone(run.temporal_distill_binary_optional(task))
+        # A tampered fact hash still fails closed.
+        tampered = json.loads(json.dumps(memory_record))
+        tampered["facts"]["artifacts"][0]["sha256"] = "tampered"
+        with self.assertRaisesRegex(RuntimeError, "failed validation"):
+            run.validate_temporal_source_artifact(task, "0" * 24, meta, tampered)
+
     def test_validation_commands_normalize_behavioral_and_reject_malformed(self):
         task = {
             "validation": [

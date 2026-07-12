@@ -1904,6 +1904,18 @@ def temporal_distill_binary(task: dict[str, Any]) -> pathlib.Path:
     return path
 
 
+def temporal_distill_binary_optional(task: dict[str, Any]) -> pathlib.Path | None:
+    """Resolve the distiller if it is installed, else None. Fresh distillation
+    needs it on PATH; a cached, content-verified fact set does not. We do not fail
+    when it is absent (agents/models are vendor-updated and move), so cached-fact
+    runs work regardless; a genuine cache-miss distillation still fails later with
+    a clear 'agent not found' error from the distill command."""
+    try:
+        return temporal_distill_binary(task)
+    except ValueError:
+        return None
+
+
 def prepare_condition_history(task: dict[str, Any], condition: str, worktree: pathlib.Path) -> None:
     if not condition_copies_entire_history(condition):
         return
@@ -1997,7 +2009,9 @@ def apply_task_env(env: dict[str, str], task: dict[str, Any], frozen_bin: pathli
     if task.get("path_prefix"):
         path_prefixes.insert(0, expand_prefix(task["path_prefix"]))
     if task.get("memory_bundle"):
-        path_prefixes.insert(0, str(temporal_distill_binary(task).parent))
+        distill_binary = temporal_distill_binary_optional(task)
+        if distill_binary is not None:
+            path_prefixes.insert(0, str(distill_binary.parent))
     path_prefixes = [p for p in path_prefixes if p]
     if not path_prefixes and frozen_bin is None:
         return env
@@ -2060,9 +2074,10 @@ def brain_cache_payload(
         "copy_entire_history_from_source": bool(task.get("copy_entire_history_from_source"))
         and condition_copies_entire_history(condition),
         "memory_bundle": task.get("memory_bundle") if is_temporal_memory_condition(condition) else None,
-        "distill_binary_sha256": file_sha256(temporal_distill_binary(task))
-        if is_temporal_memory_condition(condition)
-        else None,
+        # The distiller binary is deliberately NOT part of the cache key: facts are
+        # content-addressed (see the memory_record fact/history/transcript hashes),
+        # and agents/models are vendor-updated, so keying prep on the live binary
+        # hash would spuriously invalidate a valid frozen fact set on any app update.
         "setup_patch": task.get("setup_patch", ""),
         "setup_replacements": task.get("setup_replacements", []),
         "setup_commands": task.get("setup_commands", []),
@@ -2123,10 +2138,12 @@ def validate_temporal_source_artifact(
         "transcript hashes": (actual_transcripts, sorted(str(value) for value in artifact["transcript_sha256"])),
         "history hash": (actual_history, str(artifact["history_sha256"])),
         "fact artifact hashes": (actual_facts, sorted(str(value) for value in artifact["fact_artifact_sha256"])),
-        "distill binary hash": (
-            str((memory_record.get("distill_binary") or {}).get("sha256") or ""),
-            file_sha256(temporal_distill_binary(task)),
-        ),
+        # The facts are content-addressed above (transcript/history/fact hashes),
+        # which is the integrity guarantee. The distiller identity is recorded in
+        # memory_record.distill_binary for audit, but is NOT gated on the live
+        # binary: agents/models are vendor-updated (e.g. a codex path/hash change
+        # when the app updates), so requiring the exact distiller still be
+        # installed would reject known-good, content-verified facts.
     }
     mismatches = [f"{label}: got {actual!r}, expected {expected!r}" for label, (actual, expected) in checks.items() if actual != expected]
     if mismatches:
