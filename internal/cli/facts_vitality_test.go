@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,14 @@ import (
 
 	"github.com/spf13/cobra"
 )
+
+var errVitalityTestOutput = errors.New("test output failure")
+
+type failingVitalityWriter struct{}
+
+func (failingVitalityWriter) Write([]byte) (int, error) {
+	return 0, errVitalityTestOutput
+}
 
 // executeSplit runs a command with stdout and stderr captured separately, so
 // tests can assert both a parseable stdout contract and the bounded stderr
@@ -265,6 +274,53 @@ func TestVitalityHookSurfacesRecordReceipts(t *testing.T) {
 	rollup = vitalityViewOrFatal(t, f.brainDir, "main")
 	if rollup.Facts[fact.ID].Served != 1 {
 		t.Fatalf("silent hook must not add receipts: %+v", rollup.Facts[fact.ID])
+	}
+}
+
+func TestVitalityFailedEmissionDoesNotRecordReceipt(t *testing.T) {
+	for _, jsonOut := range []bool{false, true} {
+		mode := "text"
+		if jsonOut {
+			mode = "json"
+		}
+		for _, surface := range []string{"recall", "search", "get", "brief", "hook"} {
+			t.Run(surface+"/"+mode, func(t *testing.T) {
+				f := newVerifyFixture(t)
+				fact := vitalityTestFact("internal/cli/distill_cmd.go owns retrieval cache invalidation.", "main", f.now)
+				if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+					t.Fatalf("write facts: %v", err)
+				}
+				var args []string
+				switch surface {
+				case "recall":
+					args = []string{"recall", "retrieval cache invalidation", "--no-semantic"}
+				case "search":
+					args = []string{"search", "retrieval cache invalidation"}
+				case "get":
+					args = []string{"get", fact.ID}
+				case "brief":
+					if err := updateFactSourceManifest(f.brainDir, f.now); err != nil {
+						t.Fatalf("update manifest: %v", err)
+					}
+					args = []string{"brief", "retrieval cache invalidation", "--no-semantic"}
+				case "hook":
+					args = []string{"hook", "pre-edit", "--file", "internal/cli/distill_cmd.go"}
+				}
+				if jsonOut {
+					args = append(args, "--json")
+				}
+				cmd := NewRootCommand(f.opts)
+				cmd.SetOut(failingVitalityWriter{})
+				cmd.SetErr(io.Discard)
+				cmd.SetArgs(args)
+				if err := cmd.Execute(); err == nil || !errors.Is(err, errVitalityTestOutput) {
+					t.Fatalf("failed output returned %v", err)
+				}
+				if got := vitalitySidecarBytes(t, f.brainDir, "main"); len(got) != 0 {
+					t.Fatalf("failed %s emission wrote a receipt: %s", mode, got)
+				}
+			})
+		}
 	}
 }
 

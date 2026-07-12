@@ -2744,8 +2744,41 @@ func writeJSON(cmd *cobra.Command, value any) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), string(data))
-	return nil
+	n, err := fmt.Fprintln(cmd.OutOrStdout(), string(data))
+	if err == nil && n != len(data)+1 {
+		return io.ErrShortWrite
+	}
+	return err
+}
+
+func writeText(cmd *cobra.Command, render func(io.Writer)) error {
+	var out strings.Builder
+	render(&out)
+	text := out.String()
+	n, err := io.WriteString(cmd.OutOrStdout(), text)
+	if err == nil && n != len(text) {
+		return io.ErrShortWrite
+	}
+	return err
+}
+
+type stickyErrorWriter struct {
+	writer io.Writer
+	err    error
+}
+
+func (w *stickyErrorWriter) Write(p []byte) (int, error) {
+	if w.err != nil {
+		return 0, w.err
+	}
+	n, err := w.writer.Write(p)
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	if err != nil {
+		w.err = err
+	}
+	return n, err
 }
 
 // ---- workspace list / remove (ergonomics) ----

@@ -1063,6 +1063,8 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			"Inspect full diffs or source files when the task intersects dirty files or when confidence is low.",
 		},
 	}
+	var receiptBranch, receiptSurface string
+	var receiptFactIDs []string
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Semantic != nil {
 		contextSymbols, contextRelations, contextNeighbors, contextErr := semanticContextFacts(status.Brain.Path, status.Manifest.Sources.Semantic, task, briefOpts.limit, 0)
 		if contextErr != nil {
@@ -1140,14 +1142,12 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 				rr.retain(facts) // keep every present fact's vector; prune only departed facts
 				_ = rr.flush()   // best-effort cache persist
 			}
-			// Serve receipts (vitality Phase 1): best-effort, never affects
-			// the brief. Only a hash of the task text is persisted.
-			surface := briefOpts.surface
-			if surface == "" {
-				surface = "brief"
+			receiptBranch = branch
+			receiptSurface = briefOpts.surface
+			if receiptSurface == "" {
+				receiptSurface = "brief"
 			}
-			recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), status.Brain.Path, branch, surface,
-				status.Live.Head, task, factRecordIDs(report.Facts))
+			receiptFactIDs = factRecordIDs(report.Facts)
 		}
 	}
 	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, report.Facts)
@@ -1169,9 +1169,23 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	report.Consolidations = loadBriefConsolidations(status.Brain.Path, brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
 	// Verified latent-practice themes relevant to the task (no noise; accepted only).
 	report.Themes = rankTaskRelevantThemes(loadThemeViews(status.Brain.Path, true), brainBriefFileMatchTerms(task), brainBriefPatternsCount(briefOpts.limit))
-	if briefOpts.json {
-		return writeJSON(cmd, report)
+	recordReceipt := func() {
+		recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), status.Brain.Path, receiptBranch, receiptSurface,
+			status.Live.Head, task, receiptFactIDs)
 	}
+	if briefOpts.json {
+		if err := writeJSON(cmd, report); err != nil {
+			return err
+		}
+		if len(receiptFactIDs) > 0 {
+			recordReceipt()
+		}
+		return nil
+	}
+	originalOut := cmd.OutOrStdout()
+	trackedOut := &stickyErrorWriter{writer: originalOut}
+	cmd.SetOut(trackedOut)
+	defer cmd.SetOut(originalOut)
 	fmt.Fprintf(cmd.OutOrStdout(), "task: %s\n", report.Task)
 	if severity := brainStatusFreshnessSeverity(report.Status); severity != "" {
 		fmt.Fprintf(cmd.OutOrStdout(), "freshness: %s\n", severity)
@@ -1237,6 +1251,12 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	}
 	for _, warning := range append(report.Status.Warnings, report.Warnings...) {
 		fmt.Fprintf(cmd.OutOrStdout(), "warning: %s\n", warning)
+	}
+	if trackedOut.err != nil {
+		return trackedOut.err
+	}
+	if len(receiptFactIDs) > 0 {
+		recordReceipt()
 	}
 	return nil
 }

@@ -71,9 +71,8 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	if err != nil {
 		return err
 	}
-	// Serve receipts (vitality Phase 1) for the fact-layer hits: best-effort,
-	// never affects the result. Only a hash of the query text is persisted.
-	if factIDs := unifiedFactIDs(results); len(factIDs) > 0 {
+	factIDs := unifiedFactIDs(results)
+	recordReceipt := func() {
 		recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), brainDir, resolvedBranch, surface,
 			vitalityHead(ctx, opts.Runner, repoDir), query, factIDs)
 	}
@@ -94,30 +93,43 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 				out["blind_spot"] = note
 			}
 		}
-		return writeJSON(cmd, out)
-	}
-	if len(results) == 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "no results for %q\n", query)
-		if note := emptyResultBlindSpot(brainDir); note != "" {
-			fmt.Fprintln(cmd.OutOrStdout(), note)
+		if err := writeJSON(cmd, out); err != nil {
+			return err
 		}
-		// still show related pattern pointers if any
-	}
-	for _, r := range results {
-		ex := truncateString(strings.Join(strings.Fields(r.Text), " "), 200)
-		loc := r.Path
-		if r.Line > 0 {
-			loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
+		if len(factIDs) > 0 {
+			recordReceipt()
 		}
-		label := r.Source
-		if r.VerificationRequired {
-			label += " verify"
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s  %s\n    %s\n", label, r.ID, loc, ex)
-		printRetrievalCaveats(cmd.OutOrStdout(), r)
+		return nil
 	}
-	for _, p := range related {
-		fmt.Fprintf(cmd.OutOrStdout(), "related [%s] %s  %s\n", p.Type, p.ID, p.Title)
+	if err := writeText(cmd, func(out io.Writer) {
+		if len(results) == 0 {
+			fmt.Fprintf(out, "no results for %q\n", query)
+			if note := emptyResultBlindSpot(brainDir); note != "" {
+				fmt.Fprintln(out, note)
+			}
+			// still show related pattern pointers if any
+		}
+		for _, r := range results {
+			ex := truncateString(strings.Join(strings.Fields(r.Text), " "), 200)
+			loc := r.Path
+			if r.Line > 0 {
+				loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
+			}
+			label := r.Source
+			if r.VerificationRequired {
+				label += " verify"
+			}
+			fmt.Fprintf(out, "[%s] %s  %s\n    %s\n", label, r.ID, loc, ex)
+			printRetrievalCaveats(out, r)
+		}
+		for _, p := range related {
+			fmt.Fprintf(out, "related [%s] %s  %s\n", p.Type, p.ID, p.Title)
+		}
+	}); err != nil {
+		return err
+	}
+	if len(factIDs) > 0 {
+		recordReceipt()
 	}
 	return nil
 }
@@ -188,9 +200,8 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	if err != nil {
 		return err
 	}
-	// Serve receipts (vitality Phase 1) for resolved fact ids. Gets are
-	// id-addressed, so there is no task text to hash.
-	if factIDs := unifiedFactIDs(found); len(factIDs) > 0 {
+	factIDs := unifiedFactIDs(found)
+	recordReceipt := func() {
 		recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), brainDir, resolvedBranch, surface,
 			vitalityHead(ctx, opts.Runner, repoDir), "", factIDs)
 	}
@@ -203,23 +214,36 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 		missing = []string{}
 	}
 	if jsonOut {
-		return writeJSON(cmd, map[string]any{"branch": resolvedBranch, "results": found, "missing": missing})
-	}
-	for _, r := range found {
-		loc := r.Path
-		if r.Line > 0 {
-			loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
+		if err := writeJSON(cmd, map[string]any{"branch": resolvedBranch, "results": found, "missing": missing}); err != nil {
+			return err
 		}
-		label := r.Source
-		if r.VerificationRequired {
-			label += " verify"
+		if len(factIDs) > 0 {
+			recordReceipt()
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s  %s\n%s\n", label, r.ID, loc, r.Text)
-		printRetrievalCaveats(cmd.OutOrStdout(), r)
-		fmt.Fprintln(cmd.OutOrStdout())
+		return nil
 	}
-	for _, id := range missing {
-		fmt.Fprintf(cmd.OutOrStdout(), "not found: %s\n", id)
+	if err := writeText(cmd, func(out io.Writer) {
+		for _, r := range found {
+			loc := r.Path
+			if r.Line > 0 {
+				loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
+			}
+			label := r.Source
+			if r.VerificationRequired {
+				label += " verify"
+			}
+			fmt.Fprintf(out, "[%s] %s  %s\n%s\n", label, r.ID, loc, r.Text)
+			printRetrievalCaveats(out, r)
+			fmt.Fprintln(out)
+		}
+		for _, id := range missing {
+			fmt.Fprintf(out, "not found: %s\n", id)
+		}
+	}); err != nil {
+		return err
+	}
+	if len(factIDs) > 0 {
+		recordReceipt()
 	}
 	return nil
 }

@@ -153,7 +153,9 @@ func newHookPreEditCommand(opts Options) *cobra.Command {
 			// its extension or talk about its symbols' shared prefix.
 			hits := factsRelevantToChange([]string{rel, stem}, nil, facts, 8)
 			kept, err := hookEmit(cmd, hits, budget, jsonOut)
-			hookRecordServed(cmd, opts, target, "hook-pre-edit", rel, kept)
+			if err == nil {
+				hookRecordServed(cmd, opts, target, "hook-pre-edit", rel, kept)
+			}
 			return err
 		},
 	}
@@ -193,7 +195,9 @@ steps into one, not after re-deriving it. Pipe the failure output on stdin:
 			}
 			hits := hookMatchFailure(facts, query)
 			kept, err := hookEmit(cmd, hits, budget, jsonOut)
-			hookRecordServed(cmd, opts, target, "hook-post-failure", query, kept)
+			if err == nil {
+				hookRecordServed(cmd, opts, target, "hook-post-failure", query, kept)
+			}
 			return err
 		},
 	}
@@ -326,9 +330,9 @@ func hookEmit(cmd *cobra.Command, hits []factRecord, budget int, jsonOut bool) (
 		}
 		return kept, writeJSON(cmd, out)
 	}
-	w := cmd.OutOrStdout()
-	for _, f := range kept {
-		fmt.Fprintf(w, "[%s] %s\n", factKindOrInferred(f), f.Text)
-	}
-	return kept, nil
+	return kept, writeText(cmd, func(out io.Writer) {
+		for _, f := range kept {
+			fmt.Fprintf(out, "[%s] %s\n", factKindOrInferred(f), f.Text)
+		}
+	})
 }
