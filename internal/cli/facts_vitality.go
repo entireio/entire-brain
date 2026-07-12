@@ -44,9 +44,10 @@ const (
 	// ordering between the two exists, so no inversion is possible).
 	factsVitalityLockName = "vitality.lock"
 
-	// factsVitalityLockTimeout is short because receipts are droppable
-	// telemetry: a read surface must not stall behind a busy sidecar.
-	factsVitalityLockTimeout = 500 * time.Millisecond
+	// factsVitalityLockTimeout permits only a handful of standard lock retries.
+	// Serve receipts are droppable telemetry, so they must not add a material
+	// stall to a fast query or hook when another process owns the sidecar.
+	factsVitalityLockTimeout = 50 * time.Millisecond
 
 	// factsVitalityLogMaxBytes caps the append log; an append that grows the
 	// log past this compacts it into the rollup inline, bounding disk growth.
@@ -138,13 +139,17 @@ func vitalityContentSHA(data []byte) string {
 // withVitalityLock serializes vitality writers (appends and compaction). The
 // lock is never acquired while holding the brain write lock or vice versa.
 func withVitalityLock(brainDir string, fn func() error) error {
+	return withVitalityLockTimeout(brainDir, factsVitalityLockTimeout, fn)
+}
+
+func withVitalityLockTimeout(brainDir string, timeout time.Duration, fn func() error) error {
 	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
 	}
 	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
 		return err
 	}
-	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, factsVitalityLockName), "vitality_locked", factsVitalityLockTimeout)
+	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, factsVitalityLockName), "vitality_locked", timeout)
 	if err != nil {
 		return err
 	}
@@ -198,6 +203,12 @@ func appendVitalityEvents(brainDir, branch string, events []vitalityEvent) error
 }
 
 func appendVitalityEventsBounded(brainDir, branch string, events []vitalityEvent, maxLogBytes int64) error {
+	return appendVitalityEventsBoundedWithLockTimeout(
+		brainDir, branch, events, maxLogBytes, factsVitalityLockTimeout,
+	)
+}
+
+func appendVitalityEventsBoundedWithLockTimeout(brainDir, branch string, events []vitalityEvent, maxLogBytes int64, lockTimeout time.Duration) error {
 	if len(events) == 0 {
 		return nil
 	}
@@ -210,7 +221,7 @@ func appendVitalityEventsBounded(brainDir, branch string, events []vitalityEvent
 		buf.Write(line)
 		buf.WriteByte('\n')
 	}
-	return withVitalityLock(brainDir, func() error {
+	return withVitalityLockTimeout(brainDir, lockTimeout, func() error {
 		rel := factsVitalityLogRelPath(branch)
 		abs := filepath.Join(brainDir, filepath.FromSlash(rel))
 		// Hard backstop: if the log has grown far past its cap, inline

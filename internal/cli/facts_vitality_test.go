@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -304,7 +305,9 @@ func TestVitalityConcurrentAppendsAreLossless(t *testing.T) {
 				{Type: vitalityEventServed, FactID: "fact:shared", At: now.Add(time.Duration(i) * time.Second), Surface: "recall", Branch: branch},
 				{Type: vitalityEventServed, FactID: fmt.Sprintf("fact:unique-%02d", i), At: now, Surface: "query", Branch: branch},
 			}
-			errs <- appendVitalityEvents(brainDir, branch, events)
+			errs <- appendVitalityEventsBoundedWithLockTimeout(
+				brainDir, branch, events, factsVitalityLogMaxBytes, time.Second,
+			)
 		}()
 	}
 	close(start)
@@ -335,6 +338,28 @@ func TestVitalityConcurrentAppendsAreLossless(t *testing.T) {
 	}
 	if got := rollup.Facts["fact:shared"].LastServed; !got.Equal(now.Add(time.Duration(workers-1) * time.Second)) {
 		t.Fatalf("last_served = %s", got)
+	}
+}
+
+func TestVitalityBusyLockDropsReceiptWithoutReadPathStall(t *testing.T) {
+	brainDir := t.TempDir()
+	lock, err := acquireFileLock(
+		filepath.Join(brainDir, brainLockDirName, factsVitalityLockName),
+		"test_vitality_locked",
+		time.Second,
+	)
+	if err != nil {
+		t.Fatalf("acquire held vitality lock: %v", err)
+	}
+	defer lock.Close()
+
+	start := time.Now()
+	recordServedFacts(io.Discard, time.Now().UTC(), brainDir, "main", "search", "", "query", []string{"fact:a"})
+	if elapsed := time.Since(start); elapsed > 250*time.Millisecond {
+		t.Fatalf("busy vitality lock stalled read path for %s", elapsed)
+	}
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(factsVitalityLogRelPath("main")))); !os.IsNotExist(err) {
+		t.Fatalf("busy-lock receipt should be dropped, stat err = %v", err)
 	}
 }
 

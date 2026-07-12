@@ -46,9 +46,10 @@ vitality is branch-scoped exactly like the fact store it describes.
 
 **Concurrency and atomicity.** Writers (appends and compaction) serialize on
 `locks/vitality.lock` via the repository's standard file-lock machinery, with
-a short (500 ms) timeout so a busy sidecar can only ever delay — never block —
-a read. The lock is deliberately separate from the brain `write.lock` and is
-never held together with it, so no lock-ordering hazard exists. All rewrites
+a 50 ms timeout (at most five standard retries). A busy sidecar therefore drops
+the receipt instead of adding a material stall to a query or hook. The lock is
+deliberately separate from the brain `write.lock` and is never held together
+with it, so no lock-ordering hazard exists. All rewrites
 (rollup, log truncation) go through the brain's atomic, symlink-rejecting
 write path.
 
