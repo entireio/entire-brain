@@ -693,6 +693,11 @@ change can revisit it intentionally.
   from filling with near-duplicates; runs predating reconcile show the
   alternative (one focused 56-session branch distilled to ~1,270 facts, heavily
   restated). Disable it case-by-case only if cost outweighs dedup quality.
+  One exemption: a candidate whose content-derived id already exists in the
+  branch store is an exact duplicate whose only sound outcome is the provenance
+  union `new` already performs, so it never reaches the agent — a chunk that
+  re-derived only known facts (an incrementally re-distilled grown session)
+  spends no reconcile call at all.
 
 - **Reconcile compares candidates only against *existing* facts, not against
   each other.** Two near-identical facts emitted from the *same* chunk both land

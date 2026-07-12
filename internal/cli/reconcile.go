@@ -305,28 +305,65 @@ func candidatePathSet(candidates []factRecord) []string {
 // candidate is trivially `new` (no agent call); otherwise the agent decides.
 // An agent error falls back to treating all candidates as `new` so facts are
 // never lost. It returns the actions to apply plus any warnings.
+//
+// A candidate whose content-derived id is already in the branch store is an
+// exact duplicate (same normalized text, same paths): the only sound outcome
+// is the provenance union Upsert performs for a `new` action, and its
+// relationships to other facts were decided when it was first stored — the
+// self-target guard in ApplyActions already voids any merge/supersede the
+// agent could aim at its stored twin. Such candidates therefore never reach
+// the agent; they resolve to `new` directly. This skips the reconcile call
+// entirely for a chunk that re-derived only known facts — the common shape
+// when a grown session is incrementally re-distilled and its unchanged early
+// chunks re-emit the same statements — and stops agent noise from letting an
+// identical restatement supersede an unrelated fact.
 func reconcileChunkCandidates(ctx context.Context, run distillAgentRunner, agentArgs []string, candidates, active []factRecord, repoDir string, timeout time.Duration) ([]factAction, []string) {
-	existing, capped := activeFactsAtPaths(active, candidatePathSet(candidates))
-	if len(existing) == 0 {
+	knownIDs := make(map[string]struct{}, len(active))
+	for i := range active {
+		knownIDs[active[i].ID] = struct{}{}
+	}
+	fresh := candidates[:0:0]
+	for _, c := range candidates {
+		if _, ok := knownIDs[c.ID]; !ok {
+			fresh = append(fresh, c)
+		}
+	}
+	allNew := func() []factAction {
 		actions := make([]factAction, len(candidates))
 		for i, c := range candidates {
 			actions[i] = factAction{Kind: factActionNew, Confidence: 1.0, Candidate: c}
 		}
-		return actions, nil
+		return actions
+	}
+	if len(fresh) == 0 {
+		return allNew(), nil
+	}
+	existing, capped := activeFactsAtPaths(active, candidatePathSet(fresh))
+	if len(existing) == 0 {
+		return allNew(), nil
 	}
 	var warnings []string
 	if capped {
 		warnings = append(warnings, fmt.Sprintf("reconcile: more than %d existing facts at these paths; comparing against the %d most recent", maxReconcileExisting, maxReconcileExisting))
 	}
-	out, err := run(ctx, repoDir, agentArgs, reconcileInput(candidates, existing), timeout)
+	out, err := run(ctx, repoDir, agentArgs, reconcileInput(fresh, existing), timeout)
 	if err != nil {
-		warnings = append(warnings, fmt.Sprintf("reconcile agent failed, treating %d candidates as new: %v", len(candidates), err))
-		actions := make([]factAction, len(candidates))
-		for i, c := range candidates {
-			actions[i] = factAction{Kind: factActionNew, Confidence: 1.0, Candidate: c}
-		}
-		return actions, warnings
+		warnings = append(warnings, fmt.Sprintf("reconcile agent failed, treating %d candidates as new: %v", len(fresh), err))
+		return allNew(), warnings
 	}
-	actions, parseWarnings := parseReconcileActions(out, candidates, existing)
+	freshActions, parseWarnings := parseReconcileActions(out, fresh, existing)
+	// Re-interleave in the original candidate order so the chronological apply
+	// order (and thus any supersession chain) is exactly what a pre-filter run
+	// would have produced.
+	actions := make([]factAction, 0, len(candidates))
+	fi := 0
+	for _, c := range candidates {
+		if _, ok := knownIDs[c.ID]; ok {
+			actions = append(actions, factAction{Kind: factActionNew, Confidence: 1.0, Candidate: c})
+			continue
+		}
+		actions = append(actions, freshActions[fi])
+		fi++
+	}
 	return actions, append(warnings, parseWarnings...)
 }

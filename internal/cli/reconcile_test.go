@@ -167,6 +167,85 @@ func TestActiveFactsAtPaths(t *testing.T) {
 	}
 }
 
+// A chunk whose candidates all already exist by content-derived id (an
+// incremental re-distill re-emitting the same statements) must not spend an
+// agent call: the only sound outcome for an exact duplicate is the provenance
+// union a `new` action already performs.
+func TestReconcileChunkCandidatesSkipsAgentForKnownIDs(t *testing.T) {
+	now := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+	stored := factFor(t, "The stack is Go.", []string{"project.tooling.stack"}, now)
+	other := factFor(t, "CI runs on push.", []string{"project.tooling.stack"}, now)
+
+	// Same text and paths as stored -> same id, but a different source anchor.
+	candidate := factFor(t, "The stack is Go.", []string{"project.tooling.stack"}, now.Add(time.Hour))
+	candidate.Provenance = []factAnchor{{SessionID: "s2", Line: 7}}
+
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		t.Fatalf("agent must not be called for known-id candidates (input: %s)", input)
+		return "", nil
+	}
+	actions, warnings := reconcileChunkCandidates(context.Background(), run, nil, []factRecord{candidate}, []factRecord{stored, other}, "", time.Minute)
+	if len(warnings) != 0 {
+		t.Errorf("unexpected warnings: %v", warnings)
+	}
+	if len(actions) != 1 || actions[0].Kind != factActionNew {
+		t.Fatalf("known-id candidate should resolve to new without an agent call: %+v", actions)
+	}
+	// Applying the action must union the new anchor into the stored fact.
+	out, proposals := applyFactActions([]factRecord{stored, other}, actions, defaultFactConfidenceThreshold, now.Add(time.Hour))
+	if len(proposals) != 0 {
+		t.Errorf("no proposals expected: %+v", proposals)
+	}
+	if len(out) != 2 {
+		t.Fatalf("exact duplicate must collapse into the stored fact, got %d records", len(out))
+	}
+	if i := indexOfFact(out, stored.ID); i < 0 || len(out[i].Provenance) != 2 {
+		t.Fatalf("stored fact should carry the unioned provenance: %+v", out)
+	}
+}
+
+// A mixed chunk sends only the fresh candidates to the agent; known-id
+// candidates resolve to `new` locally and the returned actions keep the
+// original candidate order.
+func TestReconcileChunkCandidatesSendsOnlyFreshCandidates(t *testing.T) {
+	now := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+	stored := factFor(t, "The stack is Go.", []string{"project.tooling.stack"}, now)
+	known := factFor(t, "The stack is Go.", []string{"project.tooling.stack"}, now.Add(time.Hour))
+	fresh := factFor(t, "The project pins Go 1.26.", []string{"project.tooling.stack"}, now.Add(time.Hour))
+
+	var seenInput string
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		seenInput = string(input)
+		return "1 merge 1 0.9\n", nil
+	}
+	actions, warnings := reconcileChunkCandidates(context.Background(), run, nil, []factRecord{known, fresh}, []factRecord{stored}, "", time.Minute)
+	if len(warnings) != 0 {
+		t.Errorf("unexpected warnings: %v", warnings)
+	}
+	if seenInput == "" {
+		t.Fatal("agent should have been called for the fresh candidate")
+	}
+	candidatesBlock, _, ok := strings.Cut(seenInput, "\nEXISTING")
+	if !ok {
+		t.Fatalf("unexpected reconcile input: %s", seenInput)
+	}
+	if strings.Contains(candidatesBlock, "The stack is Go.") {
+		t.Errorf("known-id candidate leaked into the agent's candidate list: %s", candidatesBlock)
+	}
+	if !strings.Contains(candidatesBlock, "1 [project.tooling.stack] The project pins Go 1.26.") {
+		t.Errorf("fresh candidate missing or misnumbered: %s", candidatesBlock)
+	}
+	if len(actions) != 2 {
+		t.Fatalf("expected 2 actions, got %d", len(actions))
+	}
+	if actions[0].Kind != factActionNew || actions[0].Candidate.ID != known.ID {
+		t.Errorf("first action should be the known candidate as new: %+v", actions[0])
+	}
+	if actions[1].Kind != factActionMerge || actions[1].TargetID != stored.ID || actions[1].Candidate.ID != fresh.ID {
+		t.Errorf("second action should be the agent's merge for the fresh candidate: %+v", actions[1])
+	}
+}
+
 // writeSameBranchFixture puts two sessions on the same branch so the reconcile
 // pass actually fires on the second session.
 func writeSameBranchFixture(t *testing.T, now time.Time) string {
@@ -238,6 +317,51 @@ func TestRunDistillForBrainReconcilesMerge(t *testing.T) {
 	}
 	if source.Facts != 1 {
 		t.Errorf("manifest should report 1 fact, got %d", source.Facts)
+	}
+}
+
+// A second session re-emitting the identical statement must not pay a
+// reconcile agent call: the candidate's content-derived id already exists, so
+// it collapses into the stored fact (unioned provenance) with no agent
+// judgment needed.
+func TestRunDistillForBrainSkipsReconcileForExactDuplicate(t *testing.T) {
+	now := time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC)
+	brainDir := writeSameBranchFixture(t, now)
+
+	var distillCalls, reconcileCalls int
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		if strings.HasPrefix(string(input), "CANDIDATES") {
+			reconcileCalls++
+			return "1 new - 1.0\n", nil
+		}
+		distillCalls++
+		// Both sessions emit the identical statement (same id).
+		return "project.tooling.stack\tThe project uses Go 1.26.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, confidenceThreshold: defaultFactConfidenceThreshold}
+
+	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
+	if err != nil {
+		t.Fatalf("runDistillForBrain: %v", err)
+	}
+	if distillCalls != 2 {
+		t.Fatalf("expected 2 extraction calls, got %d", distillCalls)
+	}
+	if reconcileCalls != 0 {
+		t.Fatalf("exact-duplicate candidate must skip the reconcile agent call, got %d", reconcileCalls)
+	}
+	if source.ReconcileCalls != 0 {
+		t.Errorf("manifest should report 0 reconcile calls, got %d", source.ReconcileCalls)
+	}
+	facts, err := loadFacts(brainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(facts) != 1 {
+		t.Fatalf("identical statements must collapse to 1 fact, got %d", len(facts))
+	}
+	if len(facts[0].Provenance) != 2 {
+		t.Fatalf("both sessions' anchors should be unioned, got %d", len(facts[0].Provenance))
 	}
 }
 
