@@ -346,6 +346,10 @@ TEMPORAL_DELIVERY_MODES = {"agent_tool", "harness"}
 DEFAULT_MEMORY_PACKET_MAX_BYTES = 65536
 TEMPORAL_AGENT_SANDBOX_EXECUTABLE = pathlib.Path("/usr/bin/sandbox-exec")
 FROZEN_MEMORY_PACKET_END_TAG = "</frozen-memory-packet>"
+FROZEN_MEMORY_PACKET_END_TAG_PATTERN = re.compile(
+    r"<(?:\s|\\[nrt])*/(?:\s|\\[nrt])*frozen-memory-packet(?:\s|\\[nrt])*>",
+    re.IGNORECASE,
+)
 
 
 def temporal_delivery_mode(task: dict[str, Any]) -> str:
@@ -2687,7 +2691,7 @@ def harness_memory_delivery(
             f"below the preregistered minimum of {min_results}",
             delivery,
         )
-    if FROZEN_MEMORY_PACKET_END_TAG in packet_text.lower():
+    if FROZEN_MEMORY_PACKET_END_TAG_PATTERN.search(packet_text):
         delivery["ok"] = False
         raise MemoryDeliveryError(
             "harness memory delivery contains the reserved packet delimiter", delivery
