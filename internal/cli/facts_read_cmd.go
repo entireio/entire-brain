@@ -131,6 +131,12 @@ func newRecallCommand(opts Options) *cobra.Command {
 					vitalityHead(cmd.Context(), opts.Runner, repoDir), query, factRecordIDs(matches))
 			}
 			if jsonOut {
+				// Recall's JSON envelope is fact-centric (top-level `facts`), so
+				// its fact-scoped keys stay unprefixed: `pending_reviews` and
+				// `locus_drift`. The brief report is a multi-domain object and
+				// prefixes the same concepts as `facts_pending_review` /
+				// `facts_locus_drift` to disambiguate. This per-surface split is
+				// intentional and kept as-is; we do not unify the keys.
 				out := map[string]any{"branch": resolvedBranch, "query": query, "facts": matches}
 				if len(drift) > 0 {
 					out["locus_drift"] = drift
