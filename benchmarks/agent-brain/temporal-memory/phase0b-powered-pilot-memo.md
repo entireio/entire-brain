@@ -7,25 +7,31 @@ and adherence fixes)
 Data: `phase0b-powered-pilot-results-v2-harness.json` (VALID, harness-delivery lane).
 Supersedes `-v1.json` (agent_tool lane — all memory arms were adherence-invalid).
 
-## Headline finding (valid causal lane)
+## Headline finding (valid causal lane, adherence-invalid runs excluded)
 
-**Project memory substantially HELPS on this hidden-decision recovery task — in
-both correctness and token efficiency.** With the harness delivering the frozen
-memory packet (6 results per memory arm, adherence-clean), the null hypothesis
-("no temporal-memory condition improves over no_brain") is falsified for raw
-history and history+facts:
+**Project memory clearly HELPS on this hidden-decision recovery task in direction
+— correctness and token efficiency — but n is too small for significance once
+invalid runs are excluded.** With the harness delivering the frozen memory packet
+(6 results per memory arm, all adherence-clean), and `summarize` now excluding
+adherence-invalid runs from the comparison:
 
-| Condition | Validation pass | Mean score | Mean tokens | Δ vs no_brain (p) |
+| Condition | Pass (all / adh-valid) | Mean score | Mean tokens | Δ vs valid no_brain (p) |
 | --- | --- | --- | --- | --- |
-| no_brain | 1/4 | 50 | 6.69M | baseline |
-| raw_history | 4/4 | 96.5 | 0.24M | +46.5 (p≈0.040), **~28x fewer tokens** |
-| history_facts | 4/4 | 96.75 | 0.22M | +46.75 (p≈0.040), **~30x fewer tokens** |
-| facts_only | 3/4 | 75.75 | 2.84M | +25.75 (p=0.24, n.s.) |
+| no_brain | 1/4 / **1/2 valid** | 50 (valid 64) | 6.69M | baseline (n=2 valid) |
+| raw_history | 4/4 / 4/4 | 96.5 | 0.24M | +32.5 (p=0.43, **n.s.**), ~28x fewer tokens |
+| history_facts | 4/4 / 4/4 | 96.75 | 0.22M | +32.75 (p=0.43, n.s.), ~30x fewer tokens |
+| facts_only | 3/4 / 3/4 | 75.75 | 2.84M | +11.75 (p=0.74, n.s.) |
 
-Without memory the agent fails 3/4 (recovering a deliberately hidden project
-decision is hard from current code alone). With raw history (or history+facts) it
-passes every time, scores ~46 points higher, and uses ~1/28th the tokens. Distilled
-`facts_only` helps but is noisier (one run scored 33) and not significant at n=4.
+Without memory the agent fails most of the time (recovering a deliberately hidden
+project decision is hard from current code alone); with raw history (or history+
+facts) it passes every time, scores ~32 points higher, and uses ~1/28th the tokens.
+**But the p-values are NOT significant**: excluding the two adherence-invalid
+no_brain runs leaves a valid baseline of only n=2 with high variance ([90, 38]).
+An earlier read of this same run reported p≈0.04 — that significance was partly
+spurious, driven by counting the invalid no_brain probes; the adherence-exclusion
+fix (below) removes it. The DIRECTION (pass-rate + large token reduction) is
+consistent across all four memory runs; the magnitude needs more reps and a
+cleaner baseline to claim significance.
 
 ## Why this corrects the first run
 
@@ -68,11 +74,13 @@ adherence-valid, and the true signal (memory helps) appears.
 
 1. **Always run the causal lane in harness delivery mode.** agent_tool makes the
    result hostage to the agent choosing to search first; the claude runner does not.
-2. **Consider excluding adherence-invalid runs from the causal comparison**, the way
-   `analysis_excluded` (F2) excludes infrastructure failures — right now an
-   adherence-invalid `no_brain` (agent probed forbidden artifacts) still counts in
-   arm means. This is a real, small harness gap worth closing before a confirmatory
-   run.
+2. **[DONE] Exclude adherence-invalid runs from the causal comparison.** `summarize`
+   now drops runs whose required `temporal_memory_condition_audit` failed (like it
+   drops infrastructure failures) and surfaces `n_adherence_excluded_{condition,
+   baseline}`. This is what removed the spurious p≈0.04 above.
+2b. **Get enough VALID no_brain reps.** Here 2/4 baseline runs were adherence-invalid
+   (claude probed forbidden artifacts), leaving n=2. A confirmatory run needs more
+   no_brain reps — and ideally an understanding of why the baseline agent probes.
 3. **Content-address facts; never pin an agent/model binary** (fixed here across
    validation, cache key, PATH, and provenance).
 4. **`facts_only` vs `raw_history`**: raw history was cleanly reliable; distilled
