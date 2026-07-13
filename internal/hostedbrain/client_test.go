@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/ashtom/entire-brain/internal/brainwire"
@@ -195,4 +199,52 @@ func TestClientRespectsEgressGate(t *testing.T) {
 	if _, err := c.ListTools(ctx, "repo1"); !errors.Is(err, ErrNoEgress) {
 		t.Fatalf("ListTools under LOCAL_ONLY=maybe = %v; want ErrNoEgress (fail-closed)", err)
 	}
+}
+
+func TestEgressGateWarningRedactsUnrecognizedValue(t *testing.T) {
+	toggleWarned = sync.Map{}
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "secret-token-value")
+
+	out := captureStderr(t, func() {
+		if !noEgress() {
+			t.Fatal("noEgress() = false; want fail-closed true for unrecognized value")
+		}
+	})
+	if strings.Contains(out, "secret-token-value") {
+		t.Fatalf("warning leaked raw env value: %q", out)
+	}
+	if !strings.Contains(out, "ENTIRE_BRAIN_NO_EGRESS") {
+		t.Fatalf("warning omitted env var name: %q", out)
+	}
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	writerClosed := false
+	closeWriter := func() error {
+		if writerClosed {
+			return nil
+		}
+		writerClosed = true
+		return w.Close()
+	}
+	defer func() { _ = closeWriter() }()
+	os.Stderr = w
+	defer func() { os.Stderr = old }()
+
+	fn()
+	if err := closeWriter(); err != nil {
+		t.Fatal(err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
 }

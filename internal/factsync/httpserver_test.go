@@ -19,9 +19,10 @@ var _ Server = (*HTTPServer)(nil)
 // contractServer stands up an httptest server that speaks entire-api's fact-set sync
 // wire contract (brain_facts.go) backed by an in-memory fakeServer. It lets the REAL
 // HTTPServer adapter be exercised over a real HTTP round-trip — JSON encoding, base64
-// data, query/body branch, and the 200/200-unchanged/409/400 status mapping — validating
-// the adapter against the documented contract. (End-to-end validation against the live
-// entire-api handler is the deploy-time step; the two Go modules can't share types.)
+// data, query/body branch, and the success/no-op/conflict/bad-request status
+// mapping — validating the adapter against the documented contract. (End-to-end
+// validation against the live entire-api handler is the deploy-time step; the two
+// Go modules can't share types.)
 func contractServer(t *testing.T, fake *fakeServer) *httptest.Server {
 	t.Helper()
 	ctx := context.Background()
@@ -35,7 +36,7 @@ func contractServer(t *testing.T, fake *fakeServer) *httptest.Server {
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/brain/facts/advance"):
 			var body struct {
 				Branch string `json:"branch"`
-				OldRef string `json:"old_ref"`
+				OldRef string `json:"oldRef"`
 				Data   []byte `json:"data"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -50,13 +51,14 @@ func contractServer(t *testing.T, fake *fakeServer) *httptest.Server {
 			switch {
 			case err == ErrNoChange:
 				cur, _, _, _ := fake.Current(ctx, "repo", body.Branch)
-				_ = json.NewEncoder(w).Encode(map[string]any{"new_ref": cur, "version": 1, "unchanged": true})
+				// no-op: changed omitted (false), mirroring the real server.
+				_ = json.NewEncoder(w).Encode(map[string]any{"newRef": cur, "version": 1})
 			case err == ErrConflict:
-				w.WriteHeader(http.StatusConflict)
+				w.WriteHeader(http.StatusPreconditionFailed)
 			case err != nil:
 				w.WriteHeader(http.StatusBadRequest)
 			default:
-				_ = json.NewEncoder(w).Encode(map[string]any{"new_ref": newRef, "version": 1})
+				_ = json.NewEncoder(w).Encode(map[string]any{"newRef": newRef, "version": 1, "changed": true})
 			}
 
 		default:
@@ -66,8 +68,8 @@ func contractServer(t *testing.T, fake *fakeServer) *httptest.Server {
 }
 
 // TestHTTPServerContract exercises the adapter's every status→sentinel mapping over a real
-// HTTP round-trip: empty-head read, create, read-back, no-op (unchanged→ErrNoChange), and
-// stale-old-ref (409→ErrConflict).
+// HTTP round-trip: empty-head read, create, read-back, no-op (ErrNoChange), and
+// stale-old-ref (412/409→ErrConflict).
 func TestHTTPServerContract(t *testing.T) {
 	ctx := context.Background()
 	ts := contractServer(t, &fakeServer{})
@@ -92,9 +94,55 @@ func TestHTTPServerContract(t *testing.T) {
 	if _, err := h.Advance(ctx, "repo", "main", ref1, []byte("fact:a\n")); err != ErrNoChange {
 		t.Fatalf("Advance(no-op) = %v; want ErrNoChange", err)
 	}
-	// Stale old_ref → ErrConflict.
+	// Stale oldRef → ErrConflict.
 	if _, err := h.Advance(ctx, "repo", "main", "facts-stale", []byte("fact:a\nfact:b\n")); err != ErrConflict {
 		t.Fatalf("Advance(stale) = %v; want ErrConflict", err)
+	}
+}
+
+func TestHTTPServerLegacyAdvanceWireCompatibility(t *testing.T) {
+	ctx := context.Background()
+	fake := &fakeServer{}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/brain/facts/advance") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		var body struct {
+			Branch string `json:"branch"`
+			OldRef string `json:"old_ref"`
+			Data   []byte `json:"data"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		newRef, err := fake.Advance(ctx, "repo", body.Branch, body.OldRef, body.Data)
+		switch {
+		case err == ErrNoChange:
+			cur, _, _, _ := fake.Current(ctx, "repo", body.Branch)
+			_ = json.NewEncoder(w).Encode(map[string]any{"new_ref": cur, "version": 1, "unchanged": true})
+		case err == ErrConflict:
+			w.WriteHeader(http.StatusConflict)
+		case err != nil:
+			w.WriteHeader(http.StatusBadRequest)
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{"new_ref": newRef, "version": 1})
+		}
+	}))
+	defer ts.Close()
+
+	h := &HTTPServer{BaseURL: ts.URL, Token: "test-token"}
+	ref1, err := h.Advance(ctx, "repo", "main", "", []byte("fact:a\n"))
+	if err != nil || ref1 != contentRef([]byte("fact:a\n")) {
+		t.Fatalf("Advance(create legacy) = %q, %v", ref1, err)
+	}
+	if _, err := h.Advance(ctx, "repo", "main", ref1, []byte("fact:a\n")); err != ErrNoChange {
+		t.Fatalf("Advance(no-op legacy) = %v; want ErrNoChange", err)
+	}
+	if _, err := h.Advance(ctx, "repo", "main", "facts-stale", []byte("fact:a\nfact:b\n")); err != ErrConflict {
+		t.Fatalf("Advance(stale legacy) = %v; want ErrConflict", err)
 	}
 }
 

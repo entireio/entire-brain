@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/ashtom/entire-brain/internal/brainwire"
 )
@@ -231,18 +232,8 @@ func (c *Client) Search(ctx context.Context, repoID, branch, query string, limit
 	if limit > 0 {
 		args["limit"] = limit
 	}
-	text, err := c.CallTool(ctx, repoID, "brain_search", args)
-	if err != nil {
-		return nil, err
-	}
-	if text == "" {
-		return nil, nil
-	}
 	var results []SearchResult
-	if err := json.Unmarshal([]byte(text), &results); err != nil {
-		return nil, fmt.Errorf("hostedbrain: decode search results: %w", err)
-	}
-	return results, nil
+	return results, c.callInto(ctx, repoID, "brain_search", args, &results)
 }
 
 // GetResult is the shape brain_get returns: Found + the fact on a hit, or Found=false +
@@ -324,11 +315,24 @@ func noEgress() bool {
 	return toggleOn("ENTIRE_BRAIN_NO_EGRESS") || toggleOn("ENTIRE_BRAIN_LOCAL_ONLY")
 }
 
+// toggleWarned dedups the unrecognized-value warning (mirrors the CLI's
+// securityToggleEnabled) so a garbage env value cannot flood stderr.
+var toggleWarned sync.Map
+
 func toggleOn(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	switch strings.ToLower(raw) {
 	case "", "0", "false", "no", "off", "disable", "disabled":
 		return false
+	case "1", "true", "yes", "on", "enable", "enabled":
+		return true
 	default:
+		// Fail closed AND say so, matching the CLI's securityToggleEnabled: a
+		// typo'd value silently enabling the gate is safe, but the operator must
+		// be told their config is not what they wrote.
+		if _, seen := toggleWarned.LoadOrStore(name, struct{}{}); !seen {
+			fmt.Fprintf(os.Stderr, "warning: %s is not a recognized boolean; treating as enabled (fail-closed)\n", name)
+		}
 		return true
 	}
 }
