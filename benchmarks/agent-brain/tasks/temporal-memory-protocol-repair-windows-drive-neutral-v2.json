@@ -1,0 +1,87 @@
+{
+  "id": "temporal-memory-protocol-repair-windows-drive-neutral-v2",
+  "repo": "entire-brain",
+  "repo_path": "entire-brain",
+  "temporal_stratum": "neutral",
+  "evidence_role": "protocol_repair_not_sealed",
+  "conditions": [
+    "no_brain",
+    "raw_history",
+    "facts_only",
+    "history_facts"
+  ],
+  "base_commit": "fc65f656615f4623a2370ec7943f8d575714cfe8",
+  "prepare_semantic": false,
+  "memory_bundle": {
+    "role": "development",
+    "checkpoint_ref_commit": "ba97a6d5ffa2609668b2c1142329de92d19778e4",
+    "cutoff_at": "2026-06-18T01:29:27-07:00",
+    "retrieval_branch": "claude/durable-facts-and-distill",
+    "require_facts": true,
+    "session_ids": [
+      "d770cc65-b914-4759-91e4-31397a99ba57"
+    ],
+    "session_variants": [
+      {
+        "session_id": "d770cc65-b914-4759-91e4-31397a99ba57",
+        "branch": "claude/durable-facts-and-distill",
+        "latest_checkpoint_id": "4f652deb0475"
+      }
+    ],
+    "source_artifact": {
+      "cache_key": "1dd2312593bd40ce7e66f748",
+      "transcript_sha256": [
+        "55b9a4a04a2cfa2402898b132f43bd215f5c948fb56367aa0ad25b4d80470192"
+      ],
+      "history_sha256": "06f3ac5c0520e396dccac3761a559be157b0120abc657b264837f107d37bcd35",
+      "fact_artifact_sha256": [
+        "20bf8d495f6d6d656ad2ee9391667081d3170afeffacedbb75bf346910bd3dd8"
+      ]
+    },
+    "distill": {
+      "agent": "codex",
+      "binary": "/Applications/Codex.app/Contents/Resources/codex",
+      "model": "gpt-5.3-codex-spark",
+      "effort": "low",
+      "concurrency": 1,
+      "max_chunk_bytes": 196608,
+      "timeout_seconds": 3600
+    }
+  },
+  "prompt": "The path command no longer recognizes a missing Windows path when its drive letter is lowercase, and can misclassify it as a repository remote. Restore case-insensitive drive-letter detection while preserving one-letter SCP host aliases.",
+  "setup_replacements": [
+    {
+      "path": "internal/cli/path.go",
+      "old": "\treturn len(target) >= 2 &&\n\t\t((target[0] >= 'A' && target[0] <= 'Z') || (target[0] >= 'a' && target[0] <= 'z')) &&\n\t\ttarget[1] == ':'",
+      "new": "\treturn len(target) >= 2 &&\n\t\t(target[0] >= 'A' && target[0] <= 'Z') &&\n\t\ttarget[1] == ':'"
+    },
+    {
+      "path": "internal/cli/path_test.go",
+      "old": "\tout, err := execute(t, cmd, \"path\", `C:\\missing\\repo`)\n\tif err == nil {\n\t\tt.Fatalf(\"path succeeded for missing Windows drive path:\\n%s\", out)\n\t}\n\tif !strings.Contains(err.Error(), \"neither an existing path\") && !strings.Contains(err.Error(), \"stat target path\") {\n\t\tt.Fatalf(\"path err = %v\", err)\n\t}\n\tout, err = execute(t, cmd, \"path\", `C:missing`)\n\tif err == nil {\n\t\tt.Fatalf(\"path succeeded for drive-relative Windows path:\\n%s\", out)\n\t}\n\tif !strings.Contains(err.Error(), \"neither an existing path\") && !strings.Contains(err.Error(), \"stat target path\") {\n\t\tt.Fatalf(\"path err = %v\", err)\n\t}",
+      "new": "\tfor _, target := range []string{`C:\\missing\\repo`, `C:missing`, `c:\\missing\\repo`, `c:missing`} {\n\t\tout, err := execute(t, cmd, \"path\", target)\n\t\tif err == nil {\n\t\t\tt.Fatalf(\"path succeeded for missing Windows drive path %q:\\n%s\", target, out)\n\t\t}\n\t\tif !strings.Contains(err.Error(), \"neither an existing path\") && !strings.Contains(err.Error(), \"stat target path\") {\n\t\t\tt.Fatalf(\"path err for %q = %v\", target, err)\n\t\t}\n\t}"
+    }
+  ],
+  "validation": [
+    "go test ./internal/cli -run 'TestPathRejectsMissingWindowsDrivePathAsRemote|TestPathPrintsBrainDirForOneLetterSCPHostAlias'"
+  ],
+  "expected_files": [
+    "internal/cli/path.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum",
+    "internal/cli/path_test.go"
+  ],
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "leak_markers": [],
+  "agent_hidden_paths": [
+    "benchmarks/agent-brain"
+  ],
+  "brain_queries": [
+    "path command local versus remote target classification",
+    "repository storage key ambiguous colon syntax",
+    "cross platform path parsing edge cases",
+    "single character remote aliases"
+  ]
+}

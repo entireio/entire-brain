@@ -350,11 +350,14 @@ func TestRunDistillForBrainRetriesFailedSessions(t *testing.T) {
 	}
 	failOpts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: failRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
 	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, failOpts, now)
-	if err != nil {
-		t.Fatalf("first run: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "all 2 agent calls failed") {
+		t.Fatalf("first run error = %v, want all-agent-calls-failed error", err)
 	}
-	if source.Facts != 0 {
-		t.Fatalf("expected 0 facts after total failure, got %d", source.Facts)
+	if source != nil {
+		t.Fatalf("expected no source manifest after total failure, got %+v", source)
+	}
+	if cache := loadDistillCache(brainDir); len(cache.Sessions) != 0 {
+		t.Fatalf("failed sessions must not be cached, got %v", cache.Sessions)
 	}
 
 	// Second run (no --force): failed sessions must be retried, not skipped as
@@ -707,6 +710,46 @@ func TestRunDistillForBrainAbortsOnSystematicAgentFailure(t *testing.T) {
 	}
 	if calls != distillAgentAbortThreshold {
 		t.Fatalf("expected abort at %d calls, not churning all 8 sessions; got %d", distillAgentAbortThreshold, calls)
+	}
+}
+
+func TestRunDistillForBrainRejectsSmallAllFailureCorpus(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	tp := "sessions/main/s1.jsonl"
+	p := filepath.Join(brainDir, filepath.FromSlash(tp))
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("one small transcript\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		GeneratedAt:   now,
+		DefaultBranch: "main",
+		Sources: &brainSources{Sessions: &sessionSourceManifest{
+			GeneratedAt:   now,
+			DefaultBranch: "main",
+			Sessions: []exportSession{{
+				SessionID: "s1", Branch: "main", LatestCheckpoint: "cp1",
+				TranscriptPath: tp, CreatedAt: now,
+			}},
+		}},
+	}
+	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	failRun := func(context.Context, string, []string, []byte, time.Duration) (string, error) {
+		return "", fmt.Errorf("agent executable is broken")
+	}
+	opts := distillCommandOptions{
+		agent: "command", agentCommand: []string{"fake"}, run: failRun,
+		maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute,
+	}
+	_, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
+	if err == nil || !strings.Contains(err.Error(), "all 1 agent calls failed") {
+		t.Fatalf("small all-failure corpus must fail instead of recording zero facts: %v", err)
 	}
 }
 

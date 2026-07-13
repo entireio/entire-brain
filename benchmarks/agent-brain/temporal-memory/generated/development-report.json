@@ -1,0 +1,417 @@
+{
+  "agent_metrics": [
+    {
+      "agent": "codex",
+      "brain_commands": [],
+      "changed_files": [
+        "internal/cli/facts_merge.go"
+      ],
+      "condition": "no_brain",
+      "direct_brain_cli_calls": 0,
+      "first_tool_is_memory_search": false,
+      "input_tokens": 3395176,
+      "leak_audit_ok": true,
+      "ok": true,
+      "output_tokens": 16412,
+      "protocol_audit_ok": true,
+      "protocol_findings": [],
+      "resolved_model": null,
+      "runner_id": "codex-gpt-5.3-codex-spark-low",
+      "score": 91,
+      "seconds": 143.71640706062317,
+      "total_tokens": 3411588,
+      "turns": null,
+      "validation_ok": true
+    },
+    {
+      "agent": "codex",
+      "brain_commands": [
+        "search"
+      ],
+      "changed_files": [
+        "internal/cli/facts_merge.go"
+      ],
+      "condition": "raw_history",
+      "direct_brain_cli_calls": 1,
+      "first_tool_is_memory_search": true,
+      "input_tokens": 152116,
+      "leak_audit_ok": true,
+      "ok": true,
+      "output_tokens": 2117,
+      "protocol_audit_ok": true,
+      "protocol_findings": [],
+      "resolved_model": null,
+      "runner_id": "codex-gpt-5.3-codex-spark-low",
+      "score": 97,
+      "seconds": 27.21678876876831,
+      "total_tokens": 154233,
+      "turns": null,
+      "validation_ok": true
+    },
+    {
+      "agent": "codex",
+      "brain_commands": [
+        "search"
+      ],
+      "changed_files": [
+        "internal/cli/facts_merge.go"
+      ],
+      "condition": "facts_only",
+      "direct_brain_cli_calls": 1,
+      "first_tool_is_memory_search": true,
+      "input_tokens": 972763,
+      "leak_audit_ok": true,
+      "ok": false,
+      "output_tokens": 6362,
+      "protocol_audit_ok": true,
+      "protocol_findings": [],
+      "resolved_model": null,
+      "runner_id": "codex-gpt-5.3-codex-spark-low",
+      "score": 71,
+      "seconds": 42.70353603363037,
+      "total_tokens": 979125,
+      "turns": null,
+      "validation_ok": false
+    },
+    {
+      "agent": "codex",
+      "brain_commands": [
+        "search"
+      ],
+      "changed_files": [
+        "internal/cli/facts_merge.go"
+      ],
+      "condition": "history_facts",
+      "direct_brain_cli_calls": 1,
+      "first_tool_is_memory_search": true,
+      "input_tokens": 135296,
+      "leak_audit_ok": true,
+      "ok": true,
+      "output_tokens": 1753,
+      "protocol_audit_ok": true,
+      "protocol_findings": [],
+      "resolved_model": null,
+      "runner_id": "codex-gpt-5.3-codex-spark-low",
+      "score": 97,
+      "seconds": 22.000518798828125,
+      "total_tokens": 137049,
+      "turns": null,
+      "validation_ok": true
+    },
+    {
+      "agent": "claude",
+      "brain_commands": [],
+      "changed_files": [
+        "internal/cli/facts_merge.go"
+      ],
+      "condition": "no_brain",
+      "direct_brain_cli_calls": 0,
+      "first_tool_is_memory_search": false,
+      "input_tokens": 1423,
+      "leak_audit_ok": false,
+      "ok": false,
+      "output_tokens": 53987,
+      "protocol_audit_ok": false,
+      "protocol_findings": [
+        {
+          "kind": "forbidden_memory_artifact_access"
+        }
+      ],
+      "resolved_model": "claude-sonnet-5",
+      "runner_id": "claude-sonnet-high",
+      "score": 90,
+      "seconds": 530.4692437648773,
+      "total_tokens": 6051900,
+      "turns": null,
+      "validation_ok": true
+    },
+    {
+      "agent": "claude",
+      "brain_commands": [
+        "search"
+      ],
+      "changed_files": [
+        "internal/cli/facts_merge.go"
+      ],
+      "condition": "raw_history",
+      "direct_brain_cli_calls": 1,
+      "first_tool_is_memory_search": true,
+      "input_tokens": 1026,
+      "leak_audit_ok": true,
+      "ok": true,
+      "output_tokens": 4081,
+      "protocol_audit_ok": true,
+      "protocol_findings": [],
+      "resolved_model": "claude-sonnet-5",
+      "runner_id": "claude-sonnet-high",
+      "score": 97,
+      "seconds": 41.668312788009644,
+      "total_tokens": 198070,
+      "turns": null,
+      "validation_ok": true
+    },
+    {
+      "agent": "claude",
+      "brain_commands": [
+        "search"
+      ],
+      "changed_files": [],
+      "condition": "facts_only",
+      "direct_brain_cli_calls": 1,
+      "first_tool_is_memory_search": true,
+      "input_tokens": 1306,
+      "leak_audit_ok": true,
+      "ok": false,
+      "output_tokens": 53499,
+      "protocol_audit_ok": true,
+      "protocol_findings": [],
+      "resolved_model": "claude-sonnet-5",
+      "runner_id": "claude-sonnet-high",
+      "score": 40,
+      "seconds": 360.57164001464844,
+      "total_tokens": 2402315,
+      "turns": null,
+      "validation_ok": false
+    },
+    {
+      "agent": "claude",
+      "brain_commands": [
+        "search"
+      ],
+      "changed_files": [
+        "internal/cli/facts_merge.go"
+      ],
+      "condition": "history_facts",
+      "direct_brain_cli_calls": 1,
+      "first_tool_is_memory_search": true,
+      "input_tokens": 1039,
+      "leak_audit_ok": true,
+      "ok": true,
+      "output_tokens": 3940,
+      "protocol_audit_ok": true,
+      "protocol_findings": [],
+      "resolved_model": "claude-sonnet-5",
+      "runner_id": "claude-sonnet-high",
+      "score": 97,
+      "seconds": 36.00413513183594,
+      "total_tokens": 210792,
+      "turns": null,
+      "validation_ok": true
+    }
+  ],
+  "agent_smoke_interpretation": "Both history-bearing arms passed validation for 2/2 backends; facts-only failed for 2/2 backends. `claude-sonnet-high` used 96.7% fewer tokens with history and 96.5% fewer with history plus facts than its no-Brain arm; `codex-gpt-5.3-codex-spark-low` used 95.5% fewer tokens with history and 96.0% fewer with history plus facts than its no-Brain arm. Protocol deviations occurred in `claude-sonnet-high/no_brain`; comparisons using those rows are diagnostic only even when validation passed. With one authored task and one repetition per backend, these are mechanism and failure-mode observations, not treatment-effect estimates.",
+  "checkpoint_ref_commit": "ba97a6d5ffa2609668b2c1142329de92d19778e4",
+  "cutoff_at": "2026-06-18T01:29:27-07:00",
+  "facts_count": 10,
+  "facts_sha256": "20bf8d495f6d6d656ad2ee9391667081d3170afeffacedbb75bf346910bd3dd8",
+  "history_sha256": "06f3ac5c0520e396dccac3761a559be157b0120abc657b264837f107d37bcd35",
+  "interpretation": "Indexed history retained and retrieved the decisive pre-cutoff value, while the distilled fact store omitted it. This task therefore supports history-channel feasibility and records a fact-compression miss; it must not be used as a positive durable-facts task.",
+  "retrieval_probes": [
+    {
+      "condition": "raw_history",
+      "expected_ranks": [
+        1,
+        3
+      ],
+      "expected_text_sha256": "ce5d3aa79ae56155078af52e8fac68eb2d0a78489f82bc26c1e1bbc667ba9fde",
+      "query_sha256": "a16bd648e539b147e3cc19bd5894ab9c257b0e8e2446db86585230466a7c022b",
+      "result_count": 10,
+      "top_results": [
+        {
+          "id": "history:e7aed0c7c8fcbd2635d6d7bb",
+          "rank": 1,
+          "source": "history",
+          "text_sha256": "c12e5933447bf330b48bd1e0ca5a4f85ff802656eb0324a667665daf0a87590d"
+        },
+        {
+          "id": "history:7266e932794adbcddfd2060c",
+          "rank": 2,
+          "source": "history",
+          "text_sha256": "0393c16cc32b7540da1430c84467bee91f3e7337cfebb4850e9c661eb2a4752e"
+        },
+        {
+          "id": "history:eb4c633ef3bf8218718218dd",
+          "rank": 3,
+          "source": "history",
+          "text_sha256": "c81c9912348d99c6d3d85e9ba1c7e2f649836fbcc2faae7f49ec823c671cc08f"
+        },
+        {
+          "id": "history:67c03897ae0daecfda90a1bc",
+          "rank": 4,
+          "source": "history",
+          "text_sha256": "d5eb038ff29919deb10980523aec8db760dafb97b6cc113693266c58877128a1"
+        },
+        {
+          "id": "history:4599e843c51a17c8c8d3aeb0",
+          "rank": 5,
+          "source": "history",
+          "text_sha256": "35e657a8bbdb6dd0783acd65883361389ca08b23a33a3c72b1f49053d5e1390d"
+        },
+        {
+          "id": "history:2e09b610a58495458742b7e9",
+          "rank": 6,
+          "source": "history",
+          "text_sha256": "22f006b159a9018be2f9126c71e80de93ee7d8e00a84641d6306bb1d79d8f1d0"
+        },
+        {
+          "id": "history:7b5c79d035854a4b0589a4a0",
+          "rank": 7,
+          "source": "history",
+          "text_sha256": "462db1960f191d5ec6436962500ab8c5e64d1f3faf5bae713da6e396a1a16666"
+        },
+        {
+          "id": "history:780f164081aa4c2a1ef6ada0",
+          "rank": 8,
+          "source": "history",
+          "text_sha256": "ac6d5b1b17c79ad8100275789a29c93260a94a458e8683b69ef0ed2bf1a4cc9c"
+        },
+        {
+          "id": "history:4ab6202292a56741e7a1079f",
+          "rank": 9,
+          "source": "history",
+          "text_sha256": "c6c44b283b4dc4e024fe2f05a40a5e861c5d7a5d84cacf4c0ed40c710e409de3"
+        },
+        {
+          "id": "history:baf9ceea8c8a141965ce6e71",
+          "rank": 10,
+          "source": "history",
+          "text_sha256": "b4b8bd8c6a0be382e914d662001ddfe0499c62fe2b02e979bc8856d019986aad"
+        }
+      ]
+    },
+    {
+      "condition": "facts_only",
+      "expected_ranks": [],
+      "expected_text_sha256": "ce5d3aa79ae56155078af52e8fac68eb2d0a78489f82bc26c1e1bbc667ba9fde",
+      "query_sha256": "a16bd648e539b147e3cc19bd5894ab9c257b0e8e2446db86585230466a7c022b",
+      "result_count": 8,
+      "top_results": [
+        {
+          "id": "fact:ade035883711c7892062a01d",
+          "rank": 1,
+          "source": "fact",
+          "text_sha256": "52f89b9f77459ea65cc806686554a262bd1630b3ed588fcf6aeed16684d0387d"
+        },
+        {
+          "id": "fact:700dcbfed28d2770920af3fd",
+          "rank": 2,
+          "source": "fact",
+          "text_sha256": "de53a9a69b3f0a0355d79f1dd8ba6fb35bbe0c66138b486ab79696434439e846"
+        },
+        {
+          "id": "fact:e969b48f2f35adb36c1c93fe",
+          "rank": 3,
+          "source": "fact",
+          "text_sha256": "1b1344b74569191ce7aafeb33599532fd0f16eccd00cd5ed18bf138f5ab069d7"
+        },
+        {
+          "id": "fact:e32f987da70e8e60a9f56ba3",
+          "rank": 4,
+          "source": "fact",
+          "text_sha256": "827c0d0de2ec960708bbf0808e9c57e420e15273374c31180a2e6c0bfb543200"
+        },
+        {
+          "id": "fact:e543589b6d46e4f8bf593392",
+          "rank": 5,
+          "source": "fact",
+          "text_sha256": "5e0baaabbd439734dd001d5c558f2ba94639dfcaca43ad42c1fa4d1a50c809a6"
+        },
+        {
+          "id": "fact:c3ddb02da9e1ff22a64fb8ce",
+          "rank": 6,
+          "source": "fact",
+          "text_sha256": "033783954194d86165270f6135d9bde0aa2c15f5ce62defba1cece916c6c6fbf"
+        },
+        {
+          "id": "fact:a7644a87d3e0603b7ef9c3ac",
+          "rank": 7,
+          "source": "fact",
+          "text_sha256": "fdeec4b2f1cef59266a8d202b87e99172cb788f4027b36b143c659b0bf32df31"
+        },
+        {
+          "id": "fact:83f9b7d58c155a6122c78869",
+          "rank": 8,
+          "source": "fact",
+          "text_sha256": "b2a1cfbf6a2a7e00f80283c755ad18a8e5b678f053ea3d49c4f5f9ac41dce61e"
+        }
+      ]
+    },
+    {
+      "condition": "history_facts",
+      "expected_ranks": [
+        2,
+        6
+      ],
+      "expected_text_sha256": "ce5d3aa79ae56155078af52e8fac68eb2d0a78489f82bc26c1e1bbc667ba9fde",
+      "query_sha256": "a16bd648e539b147e3cc19bd5894ab9c257b0e8e2446db86585230466a7c022b",
+      "result_count": 10,
+      "top_results": [
+        {
+          "id": "fact:ade035883711c7892062a01d",
+          "rank": 1,
+          "source": "fact",
+          "text_sha256": "52f89b9f77459ea65cc806686554a262bd1630b3ed588fcf6aeed16684d0387d"
+        },
+        {
+          "id": "history:e7aed0c7c8fcbd2635d6d7bb",
+          "rank": 2,
+          "source": "history",
+          "text_sha256": "c12e5933447bf330b48bd1e0ca5a4f85ff802656eb0324a667665daf0a87590d"
+        },
+        {
+          "id": "fact:700dcbfed28d2770920af3fd",
+          "rank": 3,
+          "source": "fact",
+          "text_sha256": "de53a9a69b3f0a0355d79f1dd8ba6fb35bbe0c66138b486ab79696434439e846"
+        },
+        {
+          "id": "history:7266e932794adbcddfd2060c",
+          "rank": 4,
+          "source": "history",
+          "text_sha256": "0393c16cc32b7540da1430c84467bee91f3e7337cfebb4850e9c661eb2a4752e"
+        },
+        {
+          "id": "fact:e969b48f2f35adb36c1c93fe",
+          "rank": 5,
+          "source": "fact",
+          "text_sha256": "1b1344b74569191ce7aafeb33599532fd0f16eccd00cd5ed18bf138f5ab069d7"
+        },
+        {
+          "id": "history:eb4c633ef3bf8218718218dd",
+          "rank": 6,
+          "source": "history",
+          "text_sha256": "c81c9912348d99c6d3d85e9ba1c7e2f649836fbcc2faae7f49ec823c671cc08f"
+        },
+        {
+          "id": "fact:e32f987da70e8e60a9f56ba3",
+          "rank": 7,
+          "source": "fact",
+          "text_sha256": "827c0d0de2ec960708bbf0808e9c57e420e15273374c31180a2e6c0bfb543200"
+        },
+        {
+          "id": "history:67c03897ae0daecfda90a1bc",
+          "rank": 8,
+          "source": "history",
+          "text_sha256": "d5eb038ff29919deb10980523aec8db760dafb97b6cc113693266c58877128a1"
+        },
+        {
+          "id": "fact:e543589b6d46e4f8bf593392",
+          "rank": 9,
+          "source": "fact",
+          "text_sha256": "5e0baaabbd439734dd001d5c558f2ba94639dfcaca43ad42c1fa4d1a50c809a6"
+        },
+        {
+          "id": "history:4599e843c51a17c8c8d3aeb0",
+          "rank": 10,
+          "source": "history",
+          "text_sha256": "35e657a8bbdb6dd0783acd65883361389ca08b23a33a3c72b1f49053d5e1390d"
+        }
+      ]
+    }
+  ],
+  "schema": 1,
+  "source_cache_key": "1dd2312593bd40ce7e66f748",
+  "status": "complete_with_protocol_deviation",
+  "task_id": "temporal-memory-default-fact-merge-confidence",
+  "transcript_sha256": "55b9a4a04a2cfa2402898b132f43bd215f5c948fb56367aa0ad25b4d80470192"
+}

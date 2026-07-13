@@ -1,0 +1,185 @@
+{
+  "comparisons_vs_no_brain": {
+    "facts_only": {
+      "delta": -42.5,
+      "mean_baseline": 90.75,
+      "mean_condition": 48.25,
+      "p_value_approx": 0.058452029848549775,
+      "pass_rate_baseline": 1.0,
+      "pass_rate_condition": 0.25
+    },
+    "history_facts": {
+      "delta": 4.75,
+      "mean_baseline": 90.75,
+      "mean_condition": 95.5,
+      "p_value_approx": 0.001390660909441097,
+      "pass_rate_baseline": 1.0,
+      "pass_rate_condition": 1.0
+    },
+    "raw_history": {
+      "delta": 5.5,
+      "mean_baseline": 90.75,
+      "mean_condition": 96.25,
+      "p_value_approx": 0.00027432853963941937,
+      "pass_rate_baseline": 1.0,
+      "pass_rate_condition": 1.0
+    }
+  },
+  "conditions": {
+    "facts_only": {
+      "mean_score": 48.25,
+      "mean_total_tokens": 2061085,
+      "n": 4,
+      "per_rep_protocol_adherence_ok": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "per_rep_score": [
+        91,
+        35,
+        34,
+        33
+      ],
+      "per_rep_total_tokens": [
+        1549142,
+        1499990,
+        2429297,
+        2765910
+      ],
+      "per_rep_validation_pass": [
+        true,
+        false,
+        false,
+        false
+      ],
+      "protocol_adherence_valid_count": 0,
+      "validation_pass_rate": 0.25
+    },
+    "history_facts": {
+      "mean_score": 95.5,
+      "mean_total_tokens": 266838,
+      "n": 4,
+      "per_rep_protocol_adherence_ok": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "per_rep_score": [
+        94,
+        95,
+        97,
+        96
+      ],
+      "per_rep_total_tokens": [
+        306189,
+        244057,
+        242247,
+        274860
+      ],
+      "per_rep_validation_pass": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "protocol_adherence_valid_count": 0,
+      "validation_pass_rate": 1.0
+    },
+    "no_brain": {
+      "mean_score": 90.75,
+      "mean_total_tokens": 7638116,
+      "n": 4,
+      "per_rep_protocol_adherence_ok": [
+        true,
+        true,
+        false,
+        true
+      ],
+      "per_rep_score": [
+        92,
+        90,
+        90,
+        91
+      ],
+      "per_rep_total_tokens": [
+        3770704,
+        14474304,
+        6426743,
+        5880715
+      ],
+      "per_rep_validation_pass": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "protocol_adherence_valid_count": 3,
+      "validation_pass_rate": 1.0
+    },
+    "raw_history": {
+      "mean_score": 96.25,
+      "mean_total_tokens": 256773,
+      "n": 4,
+      "per_rep_protocol_adherence_ok": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "per_rep_score": [
+        96,
+        96,
+        97,
+        96
+      ],
+      "per_rep_total_tokens": [
+        256584,
+        280673,
+        214642,
+        275194
+      ],
+      "per_rep_validation_pass": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "protocol_adherence_valid_count": 0,
+      "validation_pass_rate": 1.0
+    }
+  },
+  "delivery_mode": "agent_tool",
+  "execution_harness_commit": "af4640a646f14c667c96372216d1a3fa4a36b83c",
+  "frozen_fact_artifact_sha256": [
+    "20bf8d495f6d6d656ad2ee9391667081d3170afeffacedbb75bf346910bd3dd8"
+  ],
+  "generated_at": "2026-07-13",
+  "hypothesis": "At a fixed current-code snapshot, authentic pre-cutoff project memory improves recovery of a hidden project decision and/or token efficiency over no_brain.",
+  "infrastructure_excluded": 0,
+  "null_hypothesis": "No temporal-memory condition improves hidden-validation success or efficiency over no_brain.",
+  "records": 16,
+  "records_sha256": "461438969b289ffd3f1aeda8ee5b709bd794026bfdb0f4560edb4d8b0e52c8c0",
+  "repetitions_per_condition": 4,
+  "role": "development",
+  "runner": {
+    "agent": "claude",
+    "effort": "high",
+    "id": "claude-sonnet-high",
+    "model": "sonnet"
+  },
+  "schema": 1,
+  "source_cache_key": "1dd2312593bd40ce7e66f748",
+  "status": "diagnostic_dev_pilot_not_confirmatory_evidence",
+  "task_config_sha256": "6d4e697d920ddd88fdf9933f2263306293f87fb1360bdf120f9748ccebd52ace",
+  "task_id": "temporal-memory-default-fact-merge-confidence",
+  "validity_caveats": [
+    "ALL 12 memory-arm runs FAILED the required protocol-adherence audit (memory_search_was_not_first_tool + memory_search_command_mismatch): the claude agent-tool runner did not begin with exactly one `entire brain search`, so outcomes cannot be causally attributed to the memory channel.",
+    "agent_tool delivery lane (not harness delivery); the harness did not perform the frozen retrieval, so the agent controlled memory use.",
+    "n=4, one task, one runner; the development task is explicitly diagnostic, not paper evidence.",
+    "no_brain mean tokens (7.64M) is anomalously high vs memory arms (~0.26M) and includes cache-read tokens; unexplained, likely an exploration loop."
+  ],
+  "visibility": "private_aggregates_only_no_memory_content"
+}

@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "visibility": "private",
+  "contains_private_memory_output": true,
+  "public_release_allowed": false,
+  "archive_basename": "phase0a-evidence-ca40c070-v1.tar.gz",
+  "archive_root": "phase0a-evidence-ca40c070-v1",
+  "archive_bytes": 8039414,
+  "archive_sha256": "4c71d487eeed1555445016a43c4c83289165295da9a3620ac1ba7cb5a70bc854",
+  "execution_harness_commit": "ca40c07016a97220c79c2e615b2e941dc449f58f",
+  "excluded_from_archive": [
+    "bin",
+    "cache",
+    "worktree"
+  ],
+  "suites": [
+    {
+      "group": "development",
+      "suite": "temporal-memory-phase0a-source-v3",
+      "records": 1,
+      "records_sha256": "170fc4cfd7a59990cad87a4dd46a4c05c6e8080acc99ade921af9accf2e720b3",
+      "prep_summary_sha256": "69b8eff29713870553835636a2d8f42c9e170f27892b965378cbd066bc305ad9"
+    },
+    {
+      "group": "development",
+      "suite": "temporal-memory-phase0a-derived-v1",
+      "records": 2,
+      "records_sha256": "6d516ec6f4f7278e26f364e9cb88eadadf704831835ef9f3d4a68e84ce581f42",
+      "prep_summary_sha256": "0292bebb6b37b627688dd5f3d6ae3a193ef2745ead1a2d5240d2ca6489813e41"
+    },
+    {
+      "group": "development",
+      "suite": "temporal-memory-phase0a-agent-smoke-v1",
+      "records": 4,
+      "records_sha256": "e8907164f7d686c719dbeb411ca293ad151b8dd0a5c9b47dcb0a7d67f47daddf",
+      "summary_sha256": "4b6731f27c47a44e529ba04dc75f7db07c8bbbc8740e4c9706d66e36f98317e4"
+    },
+    {
+      "group": "development",
+      "suite": "temporal-memory-phase0a-agent-smoke-claude-v2",
+      "records": 4,
+      "records_sha256": "fa6fca5acfcba86b08b13d00295c27ea1f80996a1f5185ee0d7bfa6428520874",
+      "summary_sha256": "222390ffe7a43abe9877dc0f69c929ece1cc0b157ad2537b1c83cc4f8aba2ce4"
+    },
+    {
+      "group": "sealed_pilot",
+      "suite": "temporal-memory-phase0a-sealed-codex-v1",
+      "records": 12,
+      "records_sha256": "7043241bbeb73dd9cf6f214d88eebbe6166011fdf72843b5dc6aca7717f9fd7e",
+      "summary_sha256": "38fa37ebb060bfb4ff67380eba9e2600f4a1f1282a722543e864d1385af10e3a"
+    },
+    {
+      "group": "sealed_pilot",
+      "suite": "temporal-memory-phase0a-sealed-claude-v1",
+      "records": 12,
+      "records_sha256": "8567b07f17296a14b30625f9a94ae446b4232489a570e5593ac273b6bfdb46a9",
+      "summary_sha256": "ea189ff212cdc148ec3171ba90221e42b9020ac342bf941296e534a43733b013"
+    },
+    {
+      "group": "sealed_clean",
+      "suite": "temporal-memory-phase0a-sealed-clean-prep-v1",
+      "records": 9,
+      "records_sha256": "08dfa2bb1dc4a82c98b684301a080fada8fddbdcc3499a345eed7a6cf978941f",
+      "prep_summary_sha256": "1ed8ed7d372f506d1838acbe884dff23272e670655939f04b44e957af2e91fd2"
+    },
+    {
+      "group": "sealed_clean",
+      "suite": "temporal-memory-phase0a-sealed-clean-codex-v1",
+      "records": 12,
+      "records_sha256": "c38d4d00aeeee7401d4769a3e80e71ccdc47b9332f2bb98c12d22d319803f6e1",
+      "summary_sha256": "2f3befffbac05442375ac7aa3dcdcce51d9075d88b5ec41d10713365a611f1c1"
+    },
+    {
+      "group": "sealed_clean",
+      "suite": "temporal-memory-phase0a-sealed-clean-claude-v1",
+      "records": 12,
+      "records_sha256": "b001e01e0c912f8ccb33c60eb5405f1ab3fb38c083c4217730da497b44753498",
+      "summary_sha256": "b92ae6b4de348a69fc3122c23bf86e9f0d64cb7b8676ea88e3b7fc885e057020"
+    }
+  ],
+  "retention_note": "The archive is retained outside git because agent output can quote authentic private memory. Share it only through the project's private evidence channel."
+}

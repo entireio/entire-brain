@@ -951,6 +951,12 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		}
 		reportProgress()
 	}
+	if agentFailures > 0 && !anyAgentSuccess {
+		return nil, fmt.Errorf(
+			"distill aborted after all %d agent calls failed with no successful response; check --agent, --model, authentication, and executable PATH",
+			agentFailures,
+		)
+	}
 
 	warnings = capWarnings(warnings, maxDistillWarnings)
 

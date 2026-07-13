@@ -1,0 +1,196 @@
+{
+  "comparisons_vs_no_brain_adherence_valid_only": {
+    "facts_only": {
+      "delta": 11.75,
+      "mean_baseline": 64.0,
+      "mean_condition": 75.75,
+      "mean_total_tokens_baseline": 4686498.5,
+      "mean_total_tokens_condition": 2838430.0,
+      "n_adherence_excluded_baseline": 2,
+      "n_baseline": 2,
+      "n_condition": 4,
+      "p_value_approx": 0.7373633315888152,
+      "pass_rate_baseline": 0.5,
+      "pass_rate_condition": 0.75
+    },
+    "history_facts": {
+      "delta": 32.75,
+      "mean_baseline": 64.0,
+      "mean_condition": 96.75,
+      "mean_total_tokens_baseline": 4686498.5,
+      "mean_total_tokens_condition": 222359.25,
+      "n_adherence_excluded_baseline": 2,
+      "n_baseline": 2,
+      "n_condition": 4,
+      "p_value_approx": 0.42716102119240973,
+      "pass_rate_baseline": 0.5,
+      "pass_rate_condition": 1.0
+    },
+    "raw_history": {
+      "delta": 32.5,
+      "mean_baseline": 64.0,
+      "mean_condition": 96.5,
+      "mean_total_tokens_baseline": 4686498.5,
+      "mean_total_tokens_condition": 239079.75,
+      "n_adherence_excluded_baseline": 2,
+      "n_baseline": 2,
+      "n_condition": 4,
+      "p_value_approx": 0.4295339869858576,
+      "pass_rate_baseline": 0.5,
+      "pass_rate_condition": 1.0
+    }
+  },
+  "conditions": {
+    "facts_only": {
+      "adherence_valid_mean_score": 75.75,
+      "adherence_valid_mean_tokens": 2838430,
+      "adherence_valid_n": 4,
+      "adherence_valid_pass_rate": 0.75,
+      "n": 4,
+      "per_rep_protocol_adherence_ok": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "per_rep_score": [
+        33,
+        89,
+        89,
+        92
+      ],
+      "per_rep_total_tokens": [
+        3700008,
+        3006187,
+        2129162,
+        2518363
+      ],
+      "per_rep_validation_pass": [
+        false,
+        true,
+        true,
+        true
+      ]
+    },
+    "history_facts": {
+      "adherence_valid_mean_score": 96.75,
+      "adherence_valid_mean_tokens": 222359,
+      "adherence_valid_n": 4,
+      "adherence_valid_pass_rate": 1.0,
+      "n": 4,
+      "per_rep_protocol_adherence_ok": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "per_rep_score": [
+        96,
+        97,
+        97,
+        97
+      ],
+      "per_rep_total_tokens": [
+        273855,
+        242427,
+        185274,
+        187881
+      ],
+      "per_rep_validation_pass": [
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    "no_brain": {
+      "adherence_valid_mean_score": 64.0,
+      "adherence_valid_mean_tokens": 4686498,
+      "adherence_valid_n": 2,
+      "adherence_valid_pass_rate": 0.5,
+      "n": 4,
+      "per_rep_protocol_adherence_ok": [
+        false,
+        true,
+        true,
+        false
+      ],
+      "per_rep_score": [
+        38,
+        90,
+        38,
+        34
+      ],
+      "per_rep_total_tokens": [
+        10511876,
+        3065593,
+        6307404,
+        6871091
+      ],
+      "per_rep_validation_pass": [
+        false,
+        true,
+        false,
+        false
+      ]
+    },
+    "raw_history": {
+      "adherence_valid_mean_score": 96.5,
+      "adherence_valid_mean_tokens": 239080,
+      "adherence_valid_n": 4,
+      "adherence_valid_pass_rate": 1.0,
+      "n": 4,
+      "per_rep_protocol_adherence_ok": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "per_rep_score": [
+        96,
+        96,
+        97,
+        97
+      ],
+      "per_rep_total_tokens": [
+        282314,
+        256120,
+        227370,
+        190515
+      ],
+      "per_rep_validation_pass": [
+        true,
+        true,
+        true,
+        true
+      ]
+    }
+  },
+  "delivery_mode": "harness",
+  "execution_harness_commit": "cc7c7d22c98f21903a489ce45f3c0da72489d4fe",
+  "finding": "Direction favors memory strongly: raw_history/history_facts 4/4 pass vs no_brain 1/2 (adherence-valid), ~28x fewer tokens, delta +32. NOT statistically significant after excluding adherence-invalid runs (valid baseline n=2, p~0.43). facts_only weaker/noisier. Confirmatory needs more reps + a clean baseline.",
+  "generated_at": "2026-07-13",
+  "infrastructure_excluded": 0,
+  "null_hypothesis": "No temporal-memory condition improves hidden-validation success or efficiency over no_brain.",
+  "records": 16,
+  "records_sha256": "486e87d9ca5fe30c624131994229d8b60bc9e448e94b194c262c9a700b934909",
+  "repetitions_per_condition": 4,
+  "role": "development",
+  "runner": {
+    "agent": "claude",
+    "effort": "high",
+    "model": "sonnet"
+  },
+  "schema": 1,
+  "source_cache_key": "1dd2312593bd40ce7e66f748",
+  "status": "diagnostic_dev_pilot_not_confirmatory_evidence",
+  "supersedes": "phase0b-powered-pilot-results-v1.json (agent_tool lane; all memory arms were adherence-invalid)",
+  "task_id": "temporal-memory-default-fact-merge-confidence-harness",
+  "valid_causal_lane": true,
+  "validity_caveats": [
+    "summarize now EXCLUDES adherence-invalid runs (temporal_memory_condition_audit ok=False) from the causal comparison, like it excludes infrastructure failures.",
+    "no_brain baseline: 2/4 runs were adherence-invalid (forbidden_memory_artifact_access) and are now excluded -> valid baseline n=2 with high variance ([90,38]); the earlier all-runs p~0.04 was partly spurious.",
+    "Direction is clear (pass-rate + ~28x token reduction) but n is too small for significance; a confirmatory run needs more reps AND enough VALID no_brain runs (claude often probes forbidden artifacts in the baseline).",
+    "n=4 reps, one diagnostic task, one runner. Non-confirmatory dev evidence."
+  ]
+}
