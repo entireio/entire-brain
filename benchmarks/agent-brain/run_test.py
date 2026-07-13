@@ -6810,6 +6810,38 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
         self.assertEqual(comp["n_condition"], 2)
         self.assertEqual(comp["n_adherence_excluded_condition"], 0)
 
+    def test_temporal_arms_symmetrically_strip_entire_side_channel(self):
+        # Every arm of a temporal-memory task strips the repo's committed .entire/
+        # store + checkpoint ref, so no_brain and facts_only can't probe a memory
+        # side-channel (which failed the adherence audit and biased the baseline).
+        temporal = _harness_task()  # carries a memory_bundle
+        for cond in ("no_brain", "raw_history", "facts_only", "history_facts"):
+            self.assertTrue(
+                run.should_remove_agent_visible_entire_history(temporal, cond),
+                f"temporal {cond} must strip .entire/",
+            )
+        # A non-temporal task keeps the prior history-only behaviour: no_brain does
+        # NOT strip (the repo's .entire/ is legitimately part of that lane).
+        nontemporal = {"id": "t"}
+        self.assertFalse(run.should_remove_agent_visible_entire_history(nontemporal, "no_brain"))
+        self.assertTrue(run.should_remove_agent_visible_entire_history(nontemporal, "raw_history"))
+        # A non-temporal condition inside a temporal task is not in the lane.
+        self.assertFalse(run.should_remove_agent_visible_entire_history(temporal, "semantic_brain"))
+
+    def test_remove_agent_visible_side_channels_strips_entire_and_codex(self):
+        with tempfile.TemporaryDirectory() as d:
+            wt = pathlib.Path(d)
+            for name in (".entire", ".codex"):
+                (wt / name).mkdir()
+                (wt / name / "settings.json").write_text("{}")
+            (wt / "internal").mkdir()
+            (wt / "internal" / "keep.go").write_text("package x")
+            removed = run.remove_agent_visible_entire_history(wt)
+            self.assertTrue(removed)
+            self.assertFalse((wt / ".entire").exists())  # committed store stripped
+            self.assertFalse((wt / ".codex").exists())  # committed agent-config stripped
+            self.assertTrue((wt / "internal" / "keep.go").exists())  # repo source untouched
+
     def test_source_artifact_validation_is_distiller_binary_independent(self):
         # Content-addressed facts validate whether or not the distiller that made
         # them is still installed or unchanged. Agents/models are vendor-updated

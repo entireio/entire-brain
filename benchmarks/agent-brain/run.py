@@ -1960,12 +1960,35 @@ def copy_checkpoint_ref(source: pathlib.Path, worktree: pathlib.Path, task: dict
         shutil.copy2(src_settings, worktree / ".entire" / "settings.json")
 
 
+def should_remove_agent_visible_entire_history(task: dict[str, Any], condition: str) -> bool:
+    """Whether to strip the repo's committed .entire/ store and checkpoint ref from
+    the agent worktree. History conditions always do. For a temporal-memory task,
+    EVERY arm (no_brain and all temporal conditions) must also strip them so the
+    delivered memory is the only channel: otherwise the no_brain baseline and
+    facts_only keep a self-hosted memory side-channel the agent can probe, which
+    fails the required adherence audit and biases the causal comparison. Non-
+    temporal tasks keep the prior history-only behaviour."""
+    if condition_copies_entire_history(condition):
+        return True
+    return bool(task.get("memory_bundle")) and condition in ({"no_brain"} | TEMPORAL_MEMORY_CONDITIONS)
+
+
 def remove_agent_visible_entire_history(worktree: pathlib.Path) -> bool:
     removed = False
-    target_entire = worktree / ".entire"
-    if target_entire.exists():
-        shutil.rmtree(target_entire)
-        removed = True
+    # Strip the repo's OWN committed memory / agent-config side-channels (the
+    # entire-brain repo dogfoods entire, so it commits .entire/ and .codex/). For a
+    # temporal-memory experiment the agent's only memory must be the delivered
+    # channel; a self-hosted store the agent can `cat`/`find` both leaks context and
+    # trips the forbidden-artifact adherence audit. .benchmark/ is the harness-
+    # delivered store and is managed by remove_agent_visible_brain_store, not here.
+    for prefix in BENCHMARK_PRIVATE_PREFIXES:
+        name = prefix.rstrip("/")
+        if name == ".benchmark":
+            continue
+        target = worktree / name
+        if target.exists():
+            shutil.rmtree(target)
+            removed = True
     # Drop the Entire checkpoint branch so the agent cannot read raw session
     # transcripts via git; the indexed brain stays under .benchmark/plugin.
     if run_cmd(["git", "rev-parse", "--verify", "-q", CHECKPOINT_REF], cwd=worktree).returncode == 0:
@@ -5167,7 +5190,7 @@ def run_one(
                 include_current_changes=True,
             )
         agent_visible_entire_removed = False
-        if condition_copies_entire_history(condition):
+        if should_remove_agent_visible_entire_history(task, condition):
             agent_visible_entire_removed = remove_agent_visible_entire_history(worktree)
         secret_preflight = agent_secret_preflight(worktree)
         record["agent_secret_preflight"] = secret_preflight
