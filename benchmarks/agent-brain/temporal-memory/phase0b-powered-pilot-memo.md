@@ -2,120 +2,96 @@
 
 Date: 2026-07-13
 Status: **diagnostic development pilot — NOT confirmatory evidence, NOT paper evidence**
-Harness: `codex/brain-phase0b-fable-hardening` @ `af4640a6` (post causal-validity +
-distiller-de-pinning fixes)
-Data artifact: `phase0b-powered-pilot-results-v1.json` (aggregates + record hashes;
-no memory content). Raw records live in the (uncommitted, private) suite
-`results/phase0b-frozen-pilot-powered`.
+Harness: `codex/brain-phase0b-fable-hardening` (post causal-validity, distiller-de-pinning,
+and adherence fixes)
+Data: `phase0b-powered-pilot-results-v2-harness.json` (VALID, harness-delivery lane).
+Supersedes `-v1.json` (agent_tool lane — all memory arms were adherence-invalid).
 
-## Purpose
+## Headline finding (valid causal lane)
 
-First end-to-end run of the **fixed** Phase 0B temporal-memory harness on the
-frozen phase0a source artifact, to (a) validate the harness/fixes on live agent
-runs and (b) get a preliminary read on the memory-vs-`no_brain` hypothesis. It is
-a shakeout, not a claim.
+**Project memory substantially HELPS on this hidden-decision recovery task — in
+both correctness and token efficiency.** With the harness delivering the frozen
+memory packet (6 results per memory arm, adherence-clean), the null hypothesis
+("no temporal-memory condition improves over no_brain") is falsified for raw
+history and history+facts:
 
-## Setup
-
-- Task: `temporal-memory-default-fact-merge-confidence` (the committed **diagnostic**
-  dev task; the README states it is not paper evidence).
-- Conditions: `no_brain`, `raw_history`, `facts_only`, `history_facts`; 4 reps each
-  (16 runs). Runner: `claude:sonnet:high`. Delivery lane: **agent_tool** (the agent
-  drives memory itself; the harness did not perform the retrieval).
-- Memory inputs: the frozen, content-hash-pinned source artifact
-  (`source_cache_key = 1dd2312593bd40ce7e66f748`), loaded from cache. This run only
-  succeeded because the distiller-de-pinning fix let those content-verified facts
-  load without the (vendor-moved) codex binary present.
-
-## Raw numbers (per condition, n=4)
-
-| Condition | Validation pass | Mean score | Mean total tokens | Adherence-valid |
+| Condition | Validation pass | Mean score | Mean tokens | Δ vs no_brain (p) |
 | --- | --- | --- | --- | --- |
-| no_brain | 4/4 | 91 | 7.64M | 3/4 |
-| raw_history | 4/4 | 96 | 0.26M | **0/4** |
-| facts_only | 1/4 | 48 | 2.06M | **0/4** |
-| history_facts | 4/4 | 96 | 0.27M | **0/4** |
+| no_brain | 1/4 | 50 | 6.69M | baseline |
+| raw_history | 4/4 | 96.5 | 0.24M | +46.5 (p≈0.040), **~28x fewer tokens** |
+| history_facts | 4/4 | 96.75 | 0.22M | +46.75 (p≈0.040), **~30x fewer tokens** |
+| facts_only | 3/4 | 75.75 | 2.84M | +25.75 (p=0.24, n.s.) |
 
-`summarize` deltas vs no_brain: raw_history +5.5 (p=0.0003), history_facts +4.75
-(p=0.0014), facts_only −42.5 (p=0.058). 0 infrastructure-excluded.
+Without memory the agent fails 3/4 (recovering a deliberately hidden project
+decision is hard from current code alone). With raw history (or history+facts) it
+passes every time, scores ~46 points higher, and uses ~1/28th the tokens. Distilled
+`facts_only` helps but is noisier (one run scored 33) and not significant at n=4.
 
-## The load-bearing caveat: the memory arms are protocol-INVALID
+## Why this corrects the first run
 
-**All 12 memory-arm runs failed the required protocol-adherence audit**
-(`memory_search_was_not_first_tool` + `memory_search_command_mismatch`,
-`required=True`). Per the lane's rule (README): in agent_tool mode a memory arm is
-valid **only if its first tool action is exactly one `entire brain search`**. The
-claude runner never did that. Therefore:
+An earlier run of this same pilot in the **agent_tool** delivery lane produced the
+opposite (wrong) reading — "memory hurt." That was a methodology error I made: in
+agent_tool mode the agent must itself issue exactly one `entire brain search` first,
+and the claude runner never did, so **all 12 memory arms failed the required
+adherence audit** — the agent wasn't actually using the delivered memory. `no_brain`
+(free exploration) looked fine and the memory arms looked bad. Switching to
+**harness delivery** (`memory_delivery: harness`), where the harness performs the
+retrieval and injects the packet, removes that confound. All 12 memory arms are now
+adherence-valid, and the true signal (memory helps) appears.
 
-- The outcomes **cannot be causally attributed to the memory channel** — we do not
-  know the agent used the delivered memory as prescribed (it may have solved the
-  task by code exploration regardless).
-- The score/token comparisons above are observations from **non-compliant** runs.
-  They are not a channel-attributed result and must not be cited as one.
-- Two runs (one `facts_only`, one `no_brain`) also flagged
-  `forbidden_memory_artifact_access`.
+## Validity caveats
 
-The audit **correctly rejecting** these runs is itself a positive result: the
-harness's causal-validity gate works.
+- **Valid causal lane**: harness delivery; every memory arm adherence-ok with 6
+  results delivered. 0 infrastructure-excluded.
+- **Baseline wrinkle**: 2/4 `no_brain` runs were adherence-INVALID
+  (`forbidden_memory_artifact_access` — the agent probed `.entire`/checkpoint
+  artifacts it was not given). `summarize` does **not** auto-exclude adherence-
+  invalid runs (only infrastructure failures), so the all-runs table above includes
+  them. The conclusion holds on the adherence-valid subset (no_brain valid n=2: one
+  pass, one fail, mean 64 — still far below the memory arms). See follow-up #2.
+- **n=4, one task, one runner.** The task is the committed **diagnostic** dev task
+  (README: "not paper evidence"). p≈0.04 is marginal at n=4; `facts_only` is n.s.
+- Token totals include cache-read tokens; the ~28x is a total-token comparison, but
+  the direction and magnitude are consistent across all four memory runs.
 
-## What this pilot DID validate (the real wins)
+## What this pilot also validated (harness/fix correctness)
 
-1. **Distiller de-pinning fix works end-to-end.** The frozen, content-verified facts
-   loaded and drove real agent runs even though the pinned codex binary had moved
-   (`/Applications/Codex.app` → `/Applications/ChatGPT.app`) and changed hash. No
-   integrity check was weakened — facts are still content-addressed.
-2. **F2 infrastructure-exclusion works on live data.** In the earlier single-rep
-   attempt, a pre-agent harness failure was correctly tagged `analysis_excluded`
-   and dropped from arm means (no fabricated comparison). In this clean run, 0
-   exclusions.
-3. **The fixed harness runs 16 real agent sessions** with valid, provenance-backed
-   records and a correct `summarize`.
+1. **Distiller de-pinning fix** — the frozen content-verified facts loaded and drove
+   16 real runs despite the codex binary having moved
+   (`/Applications/Codex.app` → `/Applications/ChatGPT.app`) and changed hash.
+2. **F2 infrastructure-exclusion** — 0 spurious exclusions here; correctly excluded a
+   pre-agent failure in an earlier single-rep attempt.
+3. **The adherence audit works** — it correctly invalidated the agent_tool run (that
+   is how the methodology error was caught) and flagged baseline probing here.
 
-## Preliminary observations (NOT claims — all memory arms were invalid)
+## Learnings / follow-ups for future runs
 
-- `facts_only` correlated with task failure: 3/4 runs scored ~34 and failed
-  validation (one outlier passed at 91). If it survives a valid re-test, it would
-  suggest the **distillation produced misleading facts** for this fact-merge task,
-  while raw history was reliable (`history_facts`, which includes raw history,
-  recovered). Worth a targeted, valid investigation.
-- `no_brain` mean tokens (7.64M) are anomalously high vs the memory arms (~0.26M).
-  Likely a blind-exploration loop; unexplained. Do not read the ~30x "efficiency"
-  as a validated win — it is entangled with the adherence failures and this
-  anomaly.
-
-## Learnings to carry into future runs
-
-1. **Run the causal lane in HARNESS delivery mode, not agent_tool.** Set
-   `memory_delivery: harness` so the harness performs the single frozen retrieval
-   and delivers the packet. That removes the agent-adherence confound entirely
-   (no dependence on the agent choosing to `entire brain search` first) — which is
-   exactly why this pilot's agent_tool comparison is uninterpretable. This is the
-   single most important change for a valid pilot.
-2. **The claude agent-tool runner does not satisfy the search-first adherence
-   rule** as-configured. If an agent_tool comparison is ever wanted, the adapter/
-   prompt must make the first action exactly one `entire brain search`, or the
-   audit will (correctly) invalidate every memory arm.
-3. **Content-addressing beats binary-pinning.** Trust facts by their content hash;
-   never gate on an external agent/model binary path or hash (they are vendor-
-   updated). Fixed here across validation, cache key, PATH, and provenance.
-4. **`facts_only` merits scrutiny.** The distillation-misleads hypothesis is the
-   most interesting thread; test it in the harness lane with reps before believing
-   it.
-5. **Provenance for any future comparison:** pin harness commit, source_cache_key,
-   fact_artifact_sha256, runner, and repetitions (all recorded in the results
-   artifact), and keep `no_brain` in the SAME delivery lane as the memory arms.
+1. **Always run the causal lane in harness delivery mode.** agent_tool makes the
+   result hostage to the agent choosing to search first; the claude runner does not.
+2. **Consider excluding adherence-invalid runs from the causal comparison**, the way
+   `analysis_excluded` (F2) excludes infrastructure failures — right now an
+   adherence-invalid `no_brain` (agent probed forbidden artifacts) still counts in
+   arm means. This is a real, small harness gap worth closing before a confirmatory
+   run.
+3. **Content-address facts; never pin an agent/model binary** (fixed here across
+   validation, cache key, PATH, and provenance).
+4. **`facts_only` vs `raw_history`**: raw history was cleanly reliable; distilled
+   facts alone were noisier. Worth understanding whether distillation drops or
+   distorts the decisive detail for this task family.
+5. **Provenance for any comparison** (all in the results artifact): harness commit,
+   source_cache_key, runner, repetitions, per-rep scores/tokens/adherence, record
+   hashes. Confirmatory needs a sealed task set, preregistration, and repeats.
 
 ## Reproduction
 
 ```
-# from benchmarks/agent-brain, with the frozen source cache present in ./cache
+# harness-delivery variant: task with memory_delivery: harness + packet.min_results
 AGENT_BENCH_REPO_ROOT=/Users/thomi/Projects python3 run.py run \
-  --tasks tasks/temporal-memory-default-fact-merge-confidence.json \
+  --tasks tasks/temporal-memory-default-fact-merge-confidence-harness.json \
   --agents claude:sonnet:high \
   --conditions no_brain,raw_history,facts_only,history_facts \
   --repetitions 4 --suite-name <name>
 ```
 
-Records: `results/<name>/…/record.json`; aggregate via `run.summarize`. For a
-**valid** causal pilot, first add `"memory_delivery": "harness"` to the task (or a
-task variant) so the harness delivers memory and adherence is not agent-dependent.
+Requires the frozen source-cache entry symlinked into `benchmarks/agent-brain/cache/`.
+Aggregate via `run.summarize`.
