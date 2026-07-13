@@ -6776,6 +6776,40 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
         self.assertEqual(comp["n_infrastructure_excluded_condition"], 1)
         self.assertEqual(comp["n_infrastructure_excluded_baseline"], 0)
 
+    def test_summarize_excludes_adherence_invalid_runs_from_arm_means(self):
+        # A run where the agent violated the required protocol audit (probed a
+        # forbidden artifact, or did not search-first) is not a valid measurement
+        # of the condition; it is dropped from arm means/deltas and counted, not
+        # folded in. Can occur in ANY arm (including no_brain).
+        def cell_rec(condition, *, score, adherence_ok=True):
+            record = _rec(700, score=score)
+            record["condition"] = condition
+            record["delivery_mode"] = "harness"
+            record["agent_ran"] = True
+            record["temporal_memory_condition_audit"] = {
+                "ok": adherence_ok,
+                "required": True,
+                "findings": [] if adherence_ok else [{"kind": "forbidden_memory_artifact_access"}],
+            }
+            return record
+
+        records = [
+            cell_rec("no_brain", score=90),
+            cell_rec("no_brain", score=20, adherence_ok=False),  # invalid: excluded
+        ]
+        records += [cell_rec("raw_history", score=95) for _ in range(2)]
+        with tempfile.TemporaryDirectory() as d:
+            summary = run.summarize(records, pathlib.Path(d))
+        comps = [c for c in summary["comparisons"] if c["condition"] == "raw_history"]
+        self.assertEqual(len(comps), 1)
+        comp = comps[0]
+        # The adherence-invalid no_brain (score 20) does not depress the baseline mean.
+        self.assertEqual(comp["n_baseline"], 1)
+        self.assertEqual(comp["mean_baseline"], 90.0)
+        self.assertEqual(comp["n_adherence_excluded_baseline"], 1)
+        self.assertEqual(comp["n_condition"], 2)
+        self.assertEqual(comp["n_adherence_excluded_condition"], 0)
+
     def test_source_artifact_validation_is_distiller_binary_independent(self):
         # Content-addressed facts validate whether or not the distiller that made
         # them is still installed or unchanged. Agents/models are vendor-updated

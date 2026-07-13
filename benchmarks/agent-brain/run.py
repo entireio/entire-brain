@@ -5616,6 +5616,13 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
     # synthetic zeros never enter arm means, deltas, or p-values. The per-cell
     # count is surfaced on each comparison for transparency (F2).
     excluded: dict[tuple[str, str, str, str, str], int] = {}
+    # Protocol-adherence non-outcomes: the agent ran but violated the condition's
+    # required audit (e.g. did not issue the prescribed first `entire brain search`,
+    # probed forbidden .entire/checkpoint artifacts, or used Brain in the harness
+    # lane). Such a row is not a valid measurement of the condition, so it is kept
+    # OUT of arm means/deltas/p-values and counted separately. The audit only sets
+    # ok=False when it was required, so `ok is False` is an exact, lane-agnostic gate.
+    adherence_excluded: dict[tuple[str, str, str, str, str], int] = {}
     for rec in records:
         runner_id = rec.get("runner", {}).get("id") if isinstance(rec.get("runner"), dict) else None
         runner_id = runner_id or rec["agent"]
@@ -5623,6 +5630,10 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
         key = (rec["task_id"], rec["agent"], runner_id, mode, rec["condition"])
         if rec.get("analysis_excluded"):
             excluded[key] = excluded.get(key, 0) + 1
+            continue
+        audit = rec.get("temporal_memory_condition_audit")
+        if isinstance(audit, dict) and audit.get("ok") is False:
+            adherence_excluded[key] = adherence_excluded.get(key, 0) + 1
             continue
         groups.setdefault(key, []).append(float(rec.get("score", {}).get("total", 0)))
         metrics.setdefault(key, []).append(rec)
@@ -5721,6 +5732,12 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
                 (task_id, agent, runner_id, mode, condition), 0
             ),
             "n_infrastructure_excluded_baseline": excluded.get(
+                (task_id, agent, runner_id, mode, "no_brain"), 0
+            ),
+            "n_adherence_excluded_condition": adherence_excluded.get(
+                (task_id, agent, runner_id, mode, condition), 0
+            ),
+            "n_adherence_excluded_baseline": adherence_excluded.get(
                 (task_id, agent, runner_id, mode, "no_brain"), 0
             ),
             "mean_condition": sum(values) / len(values),
