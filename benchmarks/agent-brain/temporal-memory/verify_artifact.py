@@ -71,7 +71,18 @@ def main() -> int:
 
     verified_suites = []
     with tarfile.open(archive_path, "r:gz") as archive:
-        roots = {member.name.split("/", 1)[0] for member in archive.getmembers() if member.name}
+        roots = set()
+        for member in archive.getmembers():
+            name = member.name
+            if name.startswith("./"):
+                name = name[2:]
+            name = name.strip("/")
+            # Skip empty and tar metadata entries (e.g. a leading "." dir or a
+            # pax_global_header some tar creators emit) so a valid archive is not
+            # rejected over its layout; the archive_root match below is unchanged.
+            if not name or name == "." or name == "pax_global_header":
+                continue
+            roots.add(name.split("/", 1)[0])
         if roots != {manifest["archive_root"]}:
             raise RuntimeError(f"archive roots {sorted(roots)} do not match manifest")
         for suite in manifest.get("suites", []):
