@@ -17,7 +17,7 @@ func TestPhase1SemanticCommandJSONContracts(t *testing.T) {
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{stdout: "M\tinternal/auth/token.go\n"}
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
 
-	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--graph-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	assertPhase1NoNetworkCommands(t, runner, repoDir)
@@ -50,7 +50,7 @@ func TestPhase1SemanticPerformanceSmoke(t *testing.T) {
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
 
 	start := time.Now()
-	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--graph-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > 30*time.Second {
@@ -83,7 +83,7 @@ func assertCommandJSONContains(t *testing.T, cmd *cobra.Command, name string, ar
 
 func assertPhase1NoNetworkCommands(t *testing.T, runner *fakeCommandRunner, repoDir string) {
 	t.Helper()
-	if !fakeRunnerCalled(runner, "entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network") {
+	if !fakeRunnerCalled(runner, "entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network") {
 		t.Fatalf("semantic provider snapshot was not constrained with --no-network: %+v", runner.calls)
 	}
 	for _, call := range runner.calls {

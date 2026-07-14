@@ -33,7 +33,7 @@ TR_Q = "transcript reresolve resolveTranscriptPath TranscriptPath ReResolvesToNe
 def build():
     bd = pathlib.Path(tempfile.mkdtemp(prefix="regeval-bin-"))
     subprocess.run(["go", "build", "-o", str(bd / "entire-brain"), "./cmd/entire-brain"], cwd=ROOT, check=True)
-    subprocess.run(["go", "build", "-o", str(bd / "entire-sem"), "./cmd/entire-sem"], cwd=ROOT.parent / "entire-sem", check=True)
+    subprocess.run(["go", "build", "-o", str(bd / "entire-graph"), "./cmd/entire-graph"], cwd=ROOT.parent / "entire-graph", check=True)
     return bd
 
 

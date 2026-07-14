@@ -74,7 +74,7 @@ func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
 
-	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	tracePath := filepath.Join(repoDir, "runtime-trace.ndjson")
@@ -173,7 +173,7 @@ func TestBrainBriefIncludesMatchingFacts(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
 
-	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
@@ -226,7 +226,7 @@ func TestBrainBriefAnnotatesPendingFactReview(t *testing.T) {
 	now := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC)
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
 
-	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
@@ -294,7 +294,7 @@ func TestBrainBriefWarnsWhenProposalQueueUnreadable(t *testing.T) {
 	now := time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC)
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
 
-	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
@@ -353,7 +353,7 @@ func TestBrainInspectCodeAndShow(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
-	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}

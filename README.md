@@ -14,8 +14,8 @@ ref (`entire/checkpoints/v1`) instead of mixing it into normal code history. A
 checkpoint is the retained link between an agent session and the commit or
 intermediate work state it produced.
 
-`entire-sem` and `entire-brain` add the local reasoning layer on top of that
-captured history. `entire-sem` is the semantic provider: it parses source code
+`entire-graph` and `entire-brain` add the local reasoning layer on top of that
+captured history. `entire-graph` is the semantic provider: it parses source code
 locally and emits versioned code-structure records and semantic diffs.
 `entire-brain` consumes those records plus Entire sessions, checkpoint history,
 docs, runtime traces, durable facts, and pattern evidence into a local
@@ -40,18 +40,18 @@ Prerequisites:
 - The target agent hooks already installed for that repository
 - Git
 - Go 1.26 toolchain for `entire-brain`
-- A cgo-capable compiler/toolchain for `entire-sem`
+- A cgo-capable compiler/toolchain for `entire-graph`
 
 ### 1. Clone the repositories
 
-Clone `entire-sem` and `entire-brain` side by side. The directory names matter:
-`scripts/install.sh` expects `entire-sem` to be the sibling checkout next to
+Clone `entire-graph` and `entire-brain` side by side. The directory names matter:
+`scripts/install.sh` expects `entire-graph` to be the sibling checkout next to
 `entire-brain`.
 
 ```sh
 cd /path/to/your/source-directory
 
-git clone https://github.com/entireio/entire-sem.git
+git clone https://github.com/entireio/entire-graph.git
 git clone https://github.com/ashtom/entire-brain.git
 ```
 
@@ -66,13 +66,13 @@ scripts/install.sh
 
 This builds and installs both plugins, writes the default `entire-brain`
 configuration file, then runs `entire brain doctor`. `entire-brain` uses a
-pure-Go default build; `entire-sem` uses tree-sitter native parser bindings, so
+pure-Go default build; `entire-graph` uses tree-sitter native parser bindings, so
 its local source build needs cgo.
 
 Other install paths:
 
 - `scripts/install-local.sh` — one-command local source install of just this plugin.
-- `mise install && mise run check && mise run build && entire plugin install ./entire-brain` — build without the sibling `entire-sem` step.
+- `mise install && mise run check && mise run build && entire plugin install ./entire-brain` — build without the sibling `entire-graph` step.
 - `scripts/release.sh` — local release archives with `SHA256SUMS`.
 
 See [docs/operations.md](docs/operations.md) for target, cgo, and shared
@@ -81,14 +81,14 @@ baseline details.
 Verify:
 
 ```sh
-entire sem version
-entire sem doctor --json
+entire graph version
+entire graph doctor --json
 entire brain version
 entire brain doctor
 entire plugin doctor
 ```
 
-If `doctor` reports the semantic provider is missing, check that `entire-sem`
+If `doctor` reports the semantic provider is missing, check that `entire-graph`
 and `entire-brain` were cloned side by side with the names above.
 
 ### 3. Build the deterministic brain
@@ -109,7 +109,7 @@ backed semantic indexes are rejected by bundle export.
 
 `--agent none` keeps the first build deterministic and token-free, with no
 hosted-model calls. Refresh exports captured sessions, builds the local
-history/doc indexes, asks `entire-sem` for a semantic snapshot, and stores the
+history/doc indexes, asks `entire-graph` for a semantic snapshot, and stores the
 derived brain under Entire's local plugin data directory.
 
 At this point the brain can answer from captured history, docs, semantic code
@@ -207,6 +207,12 @@ For clients without MCP, direct `entire brain ... --json` calls are the
 compatibility surface (humans and scripts use the same commands). Treat it like a
 tool API, not an invitation to run a long command tour:
 
+The provider naming migration is an intentional compatibility break. Current
+automation must use `entire graph`, `--graph-binary`, `--skip-graph`,
+`--graph-timeout`, `--graph-inactivity-timeout`, and
+`ENTIRE_BRAIN_GRAPH_BINARY`; aliases for prior provider-facing names are not
+supported.
+
 ```sh
 entire brain status --json
 entire brain brief "<task>" --json
@@ -300,7 +306,7 @@ calls.
 
 When a task depends on structure rather than text, use the semantic tools:
 `brain_code`/`brain_search_code` to find candidate symbols, then `brain_context`,
-`brain_impact`, and `brain_tests`. This is where `entire-sem` matters — it is the
+`brain_impact`, and `brain_tests`. This is where `entire-graph` matters — it is the
 local parser/provider that gives the brain the graph the agent queries. Semantic
 depth is language-dependent: parser-backed extraction covers the semantic
 language set; many recognized filetypes are inventory-only, where you should

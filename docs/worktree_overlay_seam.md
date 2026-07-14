@@ -52,16 +52,16 @@ diff and are re-parsed; a *mid-edit inconsistent* state has a wrong graph becaus
 ## Provider dependency: a scoped parse entrypoint
 
 `--worktree` already exists — the provider can parse uncommitted content (`runSemanticSnapshot`,
-`internal/cli/semantic.go:739`, emits `sem snapshot --repo <dir> --format ndjson --no-network [--ignore-file …] [--worktree]`).
+`internal/cli/semantic.go:739`, emits `graph snapshot --repo <dir> --format ndjson --no-network [--ignore-file …] [--worktree]`).
 What is missing is **scope**: `snapshot` is whole-repo, so a fresh read today costs a full sweep plus the
 worktree-stability guard (`verifySemanticWorktreeStable`, `internal/cli/semantic.go:1690`). tree-sitter
 parses a single file in low-ms; the expensive part is the repo-wide sweep + relation resolution + SQLite
 write, none of which a read should pay.
 
-The concrete ask to the `entire-sem` side is a narrow op:
+The concrete ask to the `entire-graph` side is a narrow op:
 
 ```
-entire sem parse --repo <dir> --paths a.go,b.go --worktree --format ndjson --no-network
+entire graph parse --repo <dir> --paths a.go,b.go --worktree --format ndjson --no-network
 ```
 
 (or a `--paths` filter on `snapshot`). It emits the same `semanticRecord` shape as `snapshot` — `file`,
@@ -92,11 +92,11 @@ without a schema change. Until this lands, the overlay is not cheap enough for t
 ## No-egress
 
 The overlay preserves the Phase 1 guarantee: fresh parsing uses the same local provider binary with the same
-`--no-network` flag and the same `sem doctor` egress check (`runSemanticDoctor`). No path opens the network.
+`--no-network` flag and the same `graph doctor` egress check (`runSemanticDoctor`). No path opens the network.
 
 ## Status
 
 **DESIGN ONLY — not implemented.** No overlay code exists; the read surfaces still resolve against the index.
-Blocked on the scoped `sem parse` provider entrypoint (cross-repo, `entire-sem`). Everything downstream — the
+Blocked on the scoped `graph parse` provider entrypoint (cross-repo, `entire-graph`). Everything downstream — the
 session overlay store, the `inspect changes` integration, and read-time locus canonicalization — is
 straightforward once the provider can parse N named paths from the working tree cheaply.

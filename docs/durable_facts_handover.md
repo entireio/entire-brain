@@ -244,9 +244,9 @@ measured failure modes:
 
 ### Backend decision: Option A — pure-Go static embeddings (agreed)
 
-`entire-sem` provides **no embedder** (it is a tree-sitter structural provider:
-symbols + relations + FTS; `entire sem` has no `embed` command and there are no
-vectors anywhere in the stack). So "reuse entire-sem" was a non-option for
+`entire-graph` provides **no embedder** (it is a tree-sitter structural provider:
+symbols + relations + FTS; `entire graph` has no `embed` command and there are no
+vectors anywhere in the stack). So "reuse entire-graph" was a non-option for
 embeddings. The chosen backend is a **bundled Model2Vec static model** run in
 pure Go — no cgo, no ONNX/llama.cpp runtime, no network, single static binary —
 behind an `Embedder` interface so a transformer bi-encoder (ONNX) or a

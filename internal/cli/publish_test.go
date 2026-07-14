@@ -67,7 +67,7 @@ func writePublishBrainFixture(t *testing.T, brainDir string) {
 		Sources: &brainSources{
 			Semantic: &semanticSourceManifest{
 				GeneratedAt:     time.Date(2026, 2, 1, 12, 0, 0, 0, time.UTC),
-				Provider:        "entire-sem",
+				Provider:        "entire-graph",
 				ProviderVersion: "0.3.1",
 				SchemaVersion:   "1.0",
 			},
@@ -294,8 +294,8 @@ func TestPublishSendsBundleWhenOptedIn(t *testing.T) {
 	if wire.Manifest.BrainSchemaVersion != "1.0" {
 		t.Fatalf("manifest brain_schema_version = %q, want 1.0", wire.Manifest.BrainSchemaVersion)
 	}
-	if wire.Manifest.Provider != "entire-sem" {
-		t.Fatalf("manifest provider = %q, want entire-sem", wire.Manifest.Provider)
+	if wire.Manifest.Provider != "entire-graph" {
+		t.Fatalf("manifest provider = %q, want entire-graph", wire.Manifest.Provider)
 	}
 
 	// Snapshot: keyed by commit, bytes preserved.

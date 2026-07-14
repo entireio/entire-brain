@@ -116,7 +116,7 @@ func TestRefreshSkipsCurrentSemanticIndex(t *testing.T) {
 		t.Fatalf("warm refresh: %v\n%s", err, out)
 	}
 	for _, call := range runner.calls {
-		if call.name == "entire" && len(call.args) >= 3 && call.args[0] == "sem" && call.args[1] == "snapshot" {
+		if call.name == "entire" && len(call.args) >= 3 && call.args[0] == "graph" && call.args[1] == "snapshot" {
 			t.Fatalf("warm refresh reran semantic snapshot: %+v", runner.calls)
 		}
 	}
@@ -133,7 +133,7 @@ func TestRefreshHelpShowsSimplifiedFlags(t *testing.T) {
 			t.Fatalf("refresh help missing %q:\n%s", want, out)
 		}
 	}
-	for _, hidden := range []string{"--history-index", "--force-seed", "--semantic", "--sem-binary"} {
+	for _, hidden := range []string{"--history-index", "--force-seed", "--semantic", "--graph-binary"} {
 		if strings.Contains(out, hidden) {
 			t.Fatalf("refresh help exposed hidden flag %q:\n%s", hidden, out)
 		}
@@ -244,8 +244,8 @@ func addRefreshSemanticFixture(runner *fakeCommandRunner, repoDir string) {
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{stdout: ""}
 	runner.responses[fakeCommandKey("git", "diff", "--binary", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--cached", "--binary", "HEAD")] = fakeCommandResponse{}
-	runner.responses[fakeCommandKey("entire", "sem", "doctor", "--json")] = fakeCommandResponse{stdout: `{"no_egress":true}`}
-	runner.responses[fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network")] = fakeCommandResponse{stdout: semanticFixtureSnapshot("1.0")}
+	runner.responses[fakeCommandKey("entire", "graph", "doctor", "--json")] = fakeCommandResponse{stdout: `{"no_egress":true}`}
+	runner.responses[fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network")] = fakeCommandResponse{stdout: semanticFixtureSnapshot("1.0")}
 }
 
 func TestRefreshAllBranchesRequiresSemanticBeforeMutation(t *testing.T) {
@@ -283,8 +283,8 @@ func TestRefreshSemanticWorktreePassesWorktreeToIndex(t *testing.T) {
 	runner.responses[fakeCommandKey("git", "diff", "--binary", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--cached", "--binary", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD^{tree}")] = fakeCommandResponse{stdout: "tree111\n"}
-	runner.responses[fakeCommandKey("entire", "sem", "doctor", "--json")] = fakeCommandResponse{stdout: `{"no_egress":true}`}
-	runner.responses[fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--worktree")] = fakeCommandResponse{stdout: semanticFixtureSnapshot("1.0")}
+	runner.responses[fakeCommandKey("entire", "graph", "doctor", "--json")] = fakeCommandResponse{stdout: `{"no_egress":true}`}
+	runner.responses[fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--worktree")] = fakeCommandResponse{stdout: semanticFixtureSnapshot("1.0")}
 
 	cmd := NewRootCommand(Options{
 		Version: "test-version",
@@ -301,7 +301,7 @@ func TestRefreshSemanticWorktreePassesWorktreeToIndex(t *testing.T) {
 	if _, err := execute(t, cmd, "refresh", "--semantic", "--semantic-worktree"); err != nil {
 		t.Fatalf("refresh --semantic --semantic-worktree: %v", err)
 	}
-	if !fakeRunnerCalled(runner, "entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--worktree") {
+	if !fakeRunnerCalled(runner, "entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--worktree") {
 		t.Fatalf("semantic snapshot was not called with --worktree: %+v", runner.calls)
 	}
 }
@@ -313,8 +313,8 @@ func TestRefreshSeedWorktreeDoesNotPassSemanticWorktree(t *testing.T) {
 	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "aaa111\n"}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: ""}
 	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD^{tree}")] = fakeCommandResponse{stdout: "tree111\n"}
-	runner.responses[fakeCommandKey("entire", "sem", "doctor", "--json")] = fakeCommandResponse{stdout: `{"no_egress":true}`}
-	runner.responses[fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network")] = fakeCommandResponse{stdout: semanticFixtureSnapshot("1.0")}
+	runner.responses[fakeCommandKey("entire", "graph", "doctor", "--json")] = fakeCommandResponse{stdout: `{"no_egress":true}`}
+	runner.responses[fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network")] = fakeCommandResponse{stdout: semanticFixtureSnapshot("1.0")}
 
 	cmd := NewRootCommand(Options{
 		Version: "test-version",
@@ -331,10 +331,10 @@ func TestRefreshSeedWorktreeDoesNotPassSemanticWorktree(t *testing.T) {
 	if _, err := execute(t, cmd, "refresh", "--semantic", "--worktree"); err != nil {
 		t.Fatalf("refresh --semantic --worktree: %v", err)
 	}
-	if !fakeRunnerCalled(runner, "entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network") {
+	if !fakeRunnerCalled(runner, "entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network") {
 		t.Fatalf("semantic snapshot was not called without --worktree: %+v", runner.calls)
 	}
-	if fakeRunnerCalled(runner, "entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--worktree") {
+	if fakeRunnerCalled(runner, "entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--worktree") {
 		t.Fatalf("seed --worktree leaked into semantic snapshot: %+v", runner.calls)
 	}
 }

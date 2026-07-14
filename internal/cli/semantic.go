@@ -59,7 +59,7 @@ var (
 	semanticBundleMaxTotal int64 = 512 * 1024 * 1024
 	semanticBundleMaxFiles       = 10000
 	// semanticMaxRecordBytes bounds a single NDJSON record from the (untrusted)
-	// entire-sem stream. A per-symbol record is realistically kilobytes; the cap is
+	// entire-graph stream. A per-symbol record is realistically kilobytes; the cap is
 	// kept generous but far below the previous 64 MiB so one crafted line cannot
 	// force a huge buffer allocation. Operators with unusually large records can
 	// raise it via ENTIRE_BRAIN_MAX_RECORD_BYTES.
@@ -261,8 +261,8 @@ type semanticEvidence struct {
 
 type semanticIndexOptions struct {
 	force          bool
-	semBinary      string
-	skipSem        bool
+	graphBinary    string
+	skipGraph      bool
 	worktree       bool
 	outputDir      string
 	outputExplicit bool
@@ -300,7 +300,7 @@ type semanticResetOptions struct {
 }
 
 func newSemanticIndexCommand(opts Options) *cobra.Command {
-	indexOpts := semanticIndexOptions{semBinary: "entire"}
+	indexOpts := semanticIndexOptions{graphBinary: "entire"}
 	cmd := &cobra.Command{
 		Use:   "index [path]",
 		Short: "Build a local semantic brain index",
@@ -317,11 +317,11 @@ func newSemanticIndexCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&indexOpts.force, "force", false, "Replace the current semantic snapshot even when one exists")
-	cmd.Flags().StringVar(&indexOpts.semBinary, "sem-binary", "entire", "Entire CLI binary that exposes `sem` provider commands")
-	cmd.Flags().BoolVar(&indexOpts.skipSem, "skip-sem", false, "Record semantic metadata without invoking the semantic provider")
+	cmd.Flags().StringVar(&indexOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
+	cmd.Flags().BoolVar(&indexOpts.skipGraph, "skip-graph", false, "Record semantic metadata without invoking the semantic provider")
 	cmd.Flags().BoolVar(&indexOpts.worktree, "worktree", false, "Index the dirty worktree instead of committed HEAD")
-	cmd.Flags().DurationVar(&indexOpts.timeout, "sem-timeout", 0, "Overall deadline for the semantic provider snapshot (0 uses the default)")
-	cmd.Flags().DurationVar(&indexOpts.inactivityTimeout, "sem-inactivity-timeout", 0, "Abort the snapshot if the provider emits no records for this long (0 uses the default)")
+	cmd.Flags().DurationVar(&indexOpts.timeout, "graph-timeout", 0, "Overall deadline for the semantic provider snapshot (0 uses the default)")
+	cmd.Flags().DurationVar(&indexOpts.inactivityTimeout, "graph-inactivity-timeout", 0, "Abort the snapshot if the provider emits no records for this long (0 uses the default)")
 	cmd.Flags().StringVar(&indexOpts.profile, "profile", "", "Semantic provider snapshot profile (e.g. full, syntax-only); empty uses the provider default")
 	return cmd
 }
@@ -476,7 +476,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	hasher := sha256.New()
 	out := io.MultiWriter(tmp, hasher)
 
-	if indexOpts.skipSem {
+	if indexOpts.skipGraph {
 		header = semanticHeader{
 			SchemaVersion: "1.0",
 			Provider:      "skipped",
@@ -494,12 +494,12 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		}
 		warnings = append(warnings, header.Warnings...)
 	} else {
-		if strings.TrimSpace(indexOpts.semBinary) == "" {
-			return errors.New("--sem-binary must not be empty")
+		if strings.TrimSpace(indexOpts.graphBinary) == "" {
+			return errors.New("--graph-binary must not be empty")
 		}
 		var doctorWarnings []semanticWarning
 		indexOpts.reportPhase("verifying provider")
-		noEgress, doctorWarnings = runSemanticDoctor(ctx, opts.Runner, repoDir, indexOpts.semBinary)
+		noEgress, doctorWarnings = runSemanticDoctor(ctx, opts.Runner, repoDir, indexOpts.graphBinary)
 		warnings = append(warnings, doctorWarnings...)
 		if !noEgress {
 			code := "provider_no_egress_unverified"
@@ -555,7 +555,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		header.Tree = tree
 	}
 	if header.Provider == "" {
-		header.Provider = "entire-sem"
+		header.Provider = "entire-graph"
 	}
 	if header.RepoKey == "" {
 		header.RepoKey = storage.Key
@@ -627,7 +627,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		Warnings:         sanitizeSemanticWarnings(warnings, repoDir),
 		PartialFailures:  sanitizeSemanticWarnings(header.PartialFailures, repoDir),
 		Capabilities:     header.Capabilities,
-		NoEgressVerified: noEgress || indexOpts.skipSem,
+		NoEgressVerified: noEgress || indexOpts.skipGraph,
 		WorktreeMode:     worktreeMode,
 		WorktreeHash:     worktreeHash,
 
@@ -926,13 +926,13 @@ func acquireSemanticIndexLock(brainDir string) (func(), error) {
 	return func() { _ = lock.Close() }, nil
 }
 
-func runSemanticDoctor(ctx context.Context, runner CommandRunner, repoDir, semBinary string) (bool, []semanticWarning) {
+func runSemanticDoctor(ctx context.Context, runner CommandRunner, repoDir, graphBinary string) (bool, []semanticWarning) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	runCtx, cancel := context.WithTimeout(ctx, semanticDoctorTimeout)
 	defer cancel()
-	stdout, _, err := runner.Run(runCtx, repoDir, semBinary, "sem", "doctor", "--json")
+	stdout, _, err := runner.Run(runCtx, repoDir, graphBinary, "graph", "doctor", "--json")
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		return false, []semanticWarning{{Code: "provider_doctor_timeout", Severity: "warning", Effect: "provider diagnostics unavailable", Detail: fmt.Sprintf("semantic provider doctor timed out after %s", semanticDoctorTimeout)}}
 	}

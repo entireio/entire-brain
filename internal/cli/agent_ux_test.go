@@ -19,7 +19,7 @@ func indexFixtureBrain(t *testing.T, snapshot string) (string, string, Options) 
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, snapshot)
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
-	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
@@ -34,7 +34,7 @@ func indexFixtureBrain(t *testing.T, snapshot string) (string, string, Options) 
 // invert that.
 func idfRankingSnapshot() string {
 	var b strings.Builder
-	b.WriteString(`{"schema_version":"1.0","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}` + "\n")
+	b.WriteString(`{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}` + "\n")
 	for i := 0; i < 12; i++ {
 		fmt.Fprintf(&b, `{"record_type":"symbol","id":"common-%d","kind":"function","name":"CommonThing%d","qualified_name":"pkg.CommonThing%d","file_path":"pkg/common%d.go","start_line":1,"end_line":2,"signature":"common1 common2 helper","language":"Go","stable_id_version":"1"}`+"\n", i, i, i, i)
 	}

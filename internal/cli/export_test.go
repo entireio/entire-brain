@@ -122,7 +122,7 @@ func fakeCommandIsSemanticSnapshotAnyRepo(name string, args []string) bool {
 	if name != "entire" || len(args) < 6 {
 		return false
 	}
-	if args[0] != "sem" || args[1] != "snapshot" || args[2] != "--repo" {
+	if args[0] != "graph" || args[1] != "snapshot" || args[2] != "--repo" {
 		return false
 	}
 	for _, arg := range args {

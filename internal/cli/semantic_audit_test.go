@@ -81,7 +81,7 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 	manifest := exportManifest{
 		SchemaVersion: brainManifestSchemaVersion,
 		Sources: &brainSources{Semantic: &semanticSourceManifest{
-			Provider:         "entire-sem",
+			Provider:         "entire-graph",
 			ProviderVersion:  "0.1.0",
 			SchemaVersion:    "1.0",
 			Commit:           "headsha",
@@ -177,7 +177,7 @@ func statusGateFixtureOptions(t *testing.T, repoDir string, partialFailures []se
 	manifest := exportManifest{
 		SchemaVersion: brainManifestSchemaVersion,
 		Sources: &brainSources{Semantic: &semanticSourceManifest{
-			Provider:         "entire-sem",
+			Provider:         "entire-graph",
 			ProviderVersion:  "0.1.0",
 			SchemaVersion:    "1.0",
 			Commit:           "headsha",
@@ -206,7 +206,7 @@ func TestStatusJSONIncludesSemanticSection(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("decode status JSON: %v\n%s", err, out)
 	}
-	if report.Semantic == nil || report.Semantic.Provider == nil || report.Semantic.Provider.Name != "entire-sem" {
+	if report.Semantic == nil || report.Semantic.Provider == nil || report.Semantic.Provider.Name != "entire-graph" {
 		t.Fatalf("semantic provider missing: %+v", report.Semantic)
 	}
 	if report.Semantic.Coverage == nil || report.Semantic.Coverage.Symbols != 3 || report.Semantic.Coverage.Relations != 4 {
@@ -321,7 +321,7 @@ func TestStatusSkipsUnsafeStoreCoverage(t *testing.T) {
 	manifest := exportManifest{
 		SchemaVersion: brainManifestSchemaVersion,
 		Sources: &brainSources{Semantic: &semanticSourceManifest{
-			Provider:         "entire-sem",
+			Provider:         "entire-graph",
 			ProviderVersion:  "0.1.0",
 			SchemaVersion:    "1.0",
 			Commit:           "headsha",

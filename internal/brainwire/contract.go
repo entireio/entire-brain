@@ -48,7 +48,7 @@ type BrainArtifact struct {
 // BrainManifest is the identity and versioning header for a BrainArtifact.
 //
 // It mirrors the load-bearing header fields of internal/cli.exportManifest
-// (RepoKey, DefaultBranch, GeneratedAt) and the entire-sem provider identity
+// (RepoKey, DefaultBranch, GeneratedAt) and the entire-graph provider identity
 // from internal/cli.semanticSourceManifest (Provider, ProviderVersion,
 // ProviderSchemaVersion). BrainSchemaVersion is the version of THIS wire
 // contract, distinct from the provider's own schema version.
@@ -65,7 +65,7 @@ type BrainManifest struct {
 	BrainSchemaVersion string `json:"brain_schema_version"`
 
 	// Provider is the semantic provider name that produced the semantic
-	// snapshots (e.g. "entire-sem").
+	// snapshots (e.g. "entire-graph").
 	Provider string `json:"provider,omitempty"`
 	// ProviderVersion is the semantic provider's release version.
 	ProviderVersion string `json:"provider_version,omitempty"`
@@ -147,7 +147,7 @@ func NewBrainArtifact(repoKey, defaultBranch string, generatedAt time.Time) *Bra
 	}
 }
 
-// SetProvider records the entire-sem provider identity on the manifest, mirroring
+// SetProvider records the entire-graph provider identity on the manifest, mirroring
 // internal/cli.semanticSourceManifest's Provider, ProviderVersion, and
 // SchemaVersion. It returns the receiver for chaining.
 func (a *BrainArtifact) SetProvider(name, version, schemaVersion string) *BrainArtifact {

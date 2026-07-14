@@ -30,11 +30,11 @@ Implemented in Entire Brain:
 - Added `gc` for pruning old local semantic snapshots while preserving the
   active snapshot.
 
-Coordination with `../entire-sem`:
+Coordination with `../entire-graph`:
 
-- Read `../entire-sem/docs/semantic_provider_requirements.md`.
-- The Entire Brain integration expects `entire sem doctor --json` and
-  `entire sem snapshot --repo <path> --format ndjson`.
+- Read `../entire-graph/docs/semantic_provider_requirements.md`.
+- The Entire Brain integration expects `entire graph doctor --json` and
+  `entire graph snapshot --repo <path> --format ndjson`.
 - The provider-side no-egress field names are accepted conservatively:
   `no_egress`, `no_egress_verified`, or `local_only` verify local-only status;
   `network_egress`, `requires_network`, or `network_required` degrade the
@@ -96,7 +96,7 @@ Verification:
 - Bundle export privacy review now validates active snapshot paths with the
   import policy before opening outputs, including canonical path, snapshot
   directory, basename, non-symlink file, and snapshot header/schema checks.
-- Latest review pass marks `--skip-sem` indexes unsafe for semantic completeness,
+- Latest review pass marks `--skip-graph` indexes unsafe for semantic completeness,
   validates seed-agent output schema/status before writing artifacts, and
   changes semantic NDJSON filtering to a two-pass scanner with an explicit
   record-size cap instead of retaining every parsed record line.
@@ -320,7 +320,7 @@ Implemented in Entire Brain:
 - Hardened workspace path resolution to reject a symlinked `brain/` root before
   writing workspace manifests.
 - Redacted provider `repo_root` from persisted semantic snapshots, including
-  `--skip-sem` snapshots, so bundle exports cannot leak local checkout paths.
+  `--skip-graph` snapshots, so bundle exports cannot leak local checkout paths.
 - Sanitized the active snapshot during bundle export as a defense for legacy or
   imported snapshots that still contain `repo_root`.
 - Bounded parse-cache content hashing for indexed files so large files are not
@@ -332,7 +332,7 @@ Verification:
 
 - Focused symlink-root and symlink-parent hardening tests passed for semantic
   index writes and workspace creation.
-- Focused provider, `--skip-sem`, and legacy/imported-style bundle snapshot
+- Focused provider, `--skip-graph`, and legacy/imported-style bundle snapshot
   redaction tests passed.
 - Focused oversized content-hash tests passed.
 - Focused generated bundle round-trip test passed for export, import into a
@@ -352,12 +352,12 @@ incremental SQLite generations, query/context, impact/changes, boundary views,
 workspaces, stdio MCP, local bundles, no-egress provider invocation, and
 deterministic CI coverage are present.
 
-Live self-validation with the fixed `../entire-sem` provider passed for this
+Live self-validation with the fixed `../entire-graph` provider passed for this
 repo:
 
-- `entire sem doctor --json`
-- `entire sem snapshot --repo . --format ndjson --no-network`
-- `entire brain refresh index . --sem-binary <fixed-provider> --worktree --force`
+- `entire graph doctor --json`
+- `entire graph snapshot --repo . --format ndjson --no-network`
+- `entire brain refresh index . --graph-binary <fixed-provider> --worktree --force`
 - `stale`, `query`, `context`, `impact`, `changes`, `routes`, `tools`,
   `workflows`, `tests`
 - workspace create/add/refresh/query/impact
@@ -489,10 +489,10 @@ Completed so far:
 
 Resolved blocker:
 
-- `entire-sem` commit `b3839c7` snapshots the `entire-cli` checkout in about
+- `entire-graph` commit `b3839c7` snapshots the `entire-cli` checkout in about
   17 seconds.
 - A full isolated `entire brain refresh index <entire-cli-checkout>` with locally
-  built `entire-brain` and `entire-sem` completes in about 29 seconds.
+  built `entire-brain` and `entire-graph` completes in about 29 seconds.
 - The indexed `entire-cli` semantic artifact records 760 files, 9,130 symbols,
   179,717 stored relations, zero warnings, zero partial failures, and a
   roughly 152 MB SQLite store.
@@ -617,13 +617,13 @@ Latest brain optimization for Layer A scenarios:
   surfaces direct evidence for each retained Layer A task.
 - Added a root `.brainignore` for generated benchmark artifacts and bounded
   semantic provider calls with a 30s doctor timeout and 2m snapshot timeout.
-- After `entire-sem` added Git ignore support and repeatable
+- After `entire-graph` added Git ignore support and repeatable
   `--ignore-file`, Entire Brain now passes the repo `.brainignore` to
-  `entire sem snapshot` when present. Post-snapshot redaction remains as a
+  `entire graph snapshot` when present. Post-snapshot redaction remains as a
   safety net.
 - Live validation with the new provider on 2026-06-02:
   - Direct provider command
-    `entire sem snapshot --repo . --format ndjson --no-network --worktree
+    `entire graph snapshot --repo . --format ndjson --no-network --worktree
     --ignore-file .brainignore` completed in 0.59s and emitted 5,888 NDJSON
     records with no `benchmarks/agent-brain/cache` or
     `benchmarks/agent-brain/results` records.

@@ -20,7 +20,7 @@ func representativeArtifact(t *testing.T) *BrainArtifact {
 		t.Fatalf("parse timestamp: %v", err)
 	}
 	return NewBrainArtifact("gh/org/repo", "main", ts).
-		SetProvider("entire-sem", "0.1.0", "1.1").
+		SetProvider("entire-graph", "0.1.0", "1.1").
 		AddSnapshot(SnapshotRef{
 			Commit: "abc123",
 			Tree:   "tree789",
@@ -146,7 +146,7 @@ func TestTolerantReaderIgnoresUnknownFields(t *testing.T) {
 			"default_branch": "main",
 			"generated_at": "2026-06-01T12:00:00Z",
 			"brain_schema_version": "1.4",
-			"provider": "entire-sem",
+			"provider": "entire-graph",
 			"provider_version": "0.2.0",
 			"provider_schema_version": "1.2",
 			"future_manifest_field": {"nested": ["anything", 1, true]}

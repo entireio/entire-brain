@@ -10,7 +10,7 @@ in PR #6 (`claude/brain-agent-ux-improvements`): tokenized/IDF-ranked specialist
 and symbol search, `overview`, recency ordering, `stale --blind-spots`, record-id
 resolution, the path-query guard, and `[]`-vs-`null` consistency. The items below
 are the remaining **plugin-side** polish — each is low-risk, well-scoped, and
-independent. (Provider-side work lives in `entire-sem`, tracked separately.)
+independent. (Provider-side work lives in `entire-graph`, tracked separately.)
 
 Every item should ship with a regression test in
 `internal/cli/agent_ux_test.go` following the patterns already there.
@@ -105,7 +105,7 @@ MCP client could not discover it.
 `tools/list` now advertises it; covered by
 `TestMCPToolsListAdvertisesBlindSpots`.
 
-## Out of scope (provider-side, `entire-sem`)
+## Out of scope (provider-side, `entire-graph`)
 
 Not addressable in this plugin — tracked separately:
 - SQL migrations unindexed by the bundled tree-sitter grammar (verification task:

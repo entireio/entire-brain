@@ -327,7 +327,7 @@ func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Opt
 		outputDir:       defaultExportDir,
 		checkpointLimit: defaultCheckpointLimit,
 		entireBinary:    "entire",
-		semBinary:       "entire",
+		graphBinary:     "entire",
 		scope:           exportScopeAll,
 		historyIndex:    true,
 		semantic:        true,
