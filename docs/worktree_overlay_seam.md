@@ -51,10 +51,11 @@ diff and are re-parsed; a *mid-edit inconsistent* state has a wrong graph becaus
 
 ## Provider dependency: a scoped parse entrypoint
 
-`--worktree` already exists — the provider can parse uncommitted content (`runSemanticSnapshot`,
-`internal/cli/semantic.go:739`, emits `graph snapshot --repo <dir> --format ndjson --no-network [--ignore-file …] [--worktree]`).
+`--worktree` already exists — the provider can parse uncommitted content
+(`streamSemanticSnapshot` in `internal/cli/semantic_stream.go` emits
+`graph snapshot --repo <dir> --format ndjson --no-network [--ignore-file …] [--worktree]`).
 What is missing is **scope**: `snapshot` is whole-repo, so a fresh read today costs a full sweep plus the
-worktree-stability guard (`verifySemanticWorktreeStable`, `internal/cli/semantic.go:1690`). tree-sitter
+worktree-stability guard (`verifySemanticWorktreeStable` in `internal/cli/semantic.go`). tree-sitter
 parses a single file in low-ms; the expensive part is the repo-wide sweep + relation resolution + SQLite
 write, none of which a read should pay.
 
