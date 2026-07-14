@@ -27,7 +27,7 @@ type refreshCommandOptions struct {
 	allBranches      bool
 	forceAllBranches bool
 	historyIndex     bool
-	semBinary        string
+	graphBinary      string
 	statusAfter      bool
 	seed             seedCommandOptions
 }
@@ -36,7 +36,7 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	refreshOpts := refreshCommandOptions{
 		checkpointLimit: 0,
 		entireBinary:    "entire",
-		semBinary:       "entire",
+		graphBinary:     "entire",
 		scope:           exportScopeAll,
 		historyIndex:    true,
 		semantic:        true,
@@ -76,10 +76,10 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", true, "Refresh the local semantic index after session and seed refresh")
 	cmd.Flags().BoolVar(&refreshOpts.semanticWorktree, "semantic-worktree", false, "Allow semantic indexing of the current dirty worktree")
 	cmd.Flags().BoolVar(&refreshOpts.historyIndex, "history-index", true, "Build a decision/rationale index from exported sessions")
-	cmd.Flags().StringVar(&refreshOpts.semBinary, "sem-binary", "entire", "Entire CLI binary that exposes `sem` provider commands")
+	cmd.Flags().StringVar(&refreshOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
 	cmd.Flags().BoolVar(&refreshOpts.forceAllBranches, "force-all-branches", false, "Allow all local branches instead of the bounded recent-branch default")
-	for _, name := range []string{"checkpoint-limit", "entire-binary", "raw", "scope", "force-seed", "worktree", "agent-command", "seed-model", "seed-effort", "semantic", "semantic-worktree", "history-index", "sem-binary", "all-branches", "force-all-branches"} {
+	for _, name := range []string{"checkpoint-limit", "entire-binary", "raw", "scope", "force-seed", "worktree", "agent-command", "seed-model", "seed-effort", "semantic", "semantic-worktree", "history-index", "graph-binary", "all-branches", "force-all-branches"} {
 		_ = cmd.Flags().MarkHidden(name)
 	}
 	// Individual refresh stages, runnable on their own: `refresh` does all of
@@ -310,7 +310,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			semanticProgress := func(phase string) {
 				semanticTask.Update("semantic index: " + phase)
 			}
-			if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, semBinary: refreshOpts.semBinary, worktree: refreshOpts.semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit, progress: semanticProgress}, repoDir); err != nil {
+			if err := runSemanticIndex(ctx, indexCmd, opts, semanticIndexOptions{force: true, graphBinary: refreshOpts.graphBinary, worktree: refreshOpts.semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit, progress: semanticProgress}, repoDir); err != nil {
 				semanticTask.Finish(err)
 				return err
 			}

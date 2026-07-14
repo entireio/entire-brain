@@ -39,7 +39,7 @@ BrainArtifact
 
 ### `BrainManifest`
 
-Mirrors the header of `internal/cli.exportManifest` plus the entire-sem provider
+Mirrors the header of `internal/cli.exportManifest` plus the entire-graph provider
 identity from `internal/cli.semanticSourceManifest`.
 
 | JSON field                | Type      | Mirrors                                   | Notes |
@@ -48,12 +48,12 @@ identity from `internal/cli.semanticSourceManifest`.
 | `default_branch`          | string    | `exportManifest.DefaultBranch`            | omitempty |
 | `generated_at`            | RFC3339   | `exportManifest.GeneratedAt`              | when the brain state was produced |
 | `brain_schema_version`    | string    | *(new)*                                   | this wire contract's version, `major.minor` |
-| `provider`                | string    | `semanticSourceManifest.Provider`         | e.g. `entire-sem`; omitempty |
+| `provider`                | string    | `semanticSourceManifest.Provider`         | e.g. `entire-graph`; omitempty |
 | `provider_version`        | string    | `semanticSourceManifest.ProviderVersion`  | omitempty |
 | `provider_schema_version` | string    | `semanticSourceManifest.SchemaVersion`    | the provider's own `major.minor`; independent of `brain_schema_version`; omitempty |
 
 `brain_schema_version` (this contract) and `provider_schema_version` (the
-entire-sem output contract) are versioned independently and must not be
+entire-graph output contract) are versioned independently and must not be
 conflated.
 
 ### Content-addressed references

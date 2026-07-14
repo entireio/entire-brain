@@ -63,8 +63,8 @@ SCENARIO = {
 }
 
 COND_ORDER = ["no_brain", "semantic_brain", "full_cli_compact", "mcp_semantic", "mcp_history"]
-COND_LABEL = {"no_brain": "no_brain (grep)", "semantic_brain": "Brain via CLI (sem)",
-              "full_cli_compact": "Brain via CLI", "mcp_semantic": "Brain via MCP (sem)",
+COND_LABEL = {"no_brain": "no_brain (grep)", "semantic_brain": "Brain via CLI (graph)",
+              "full_cli_compact": "Brain via CLI", "mcp_semantic": "Brain via MCP (graph)",
               "mcp_history": "Brain via MCP"}
 COND_COLOR = {"no_brain": "#8d99ae", "semantic_brain": "#3aa6a0", "full_cli_compact": "#2a9d8f",
               "mcp_semantic": "#21897e", "mcp_history": "#1d7874"}

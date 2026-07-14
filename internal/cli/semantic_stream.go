@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// semanticSummary is the authoritative trailing record emitted by entire-sem
+// semanticSummary is the authoritative trailing record emitted by entire-graph
 // after the header and every file/symbol/relation/external record. The
 // streaming header is intentionally lean; aggregate metadata lives here and
 // overrides the header (see mergeSemanticSummary). Unknown shapes for stats and
@@ -61,7 +61,7 @@ const maxDroppedSemanticRecords = 1000
 
 // semanticStrictIngest reports whether a single malformed record must abort the
 // whole ingest (the historical behavior). It is off by default — one bad record
-// from the untrusted entire-sem stream should not fail the entire index — and
+// from the untrusted entire-graph stream should not fail the entire index — and
 // re-enabled with ENTIRE_BRAIN_STRICT_INGEST for validation/debugging.
 func semanticStrictIngest() bool {
 	return envBool("ENTIRE_BRAIN_STRICT_INGEST")
@@ -368,7 +368,7 @@ func streamSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir s
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	args := []string{"sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"}
+	args := []string{"graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"}
 	for _, path := range ignoreFiles {
 		path = strings.TrimSpace(path)
 		if path == "" {
@@ -423,7 +423,7 @@ func streamSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir s
 		go watchSemanticInactivity(runCtx, inactivity, activity, cancel, &inactivityFired)
 	}
 
-	stream, err := streamer.Stream(runCtx, repoDir, indexOpts.semBinary, args...)
+	stream, err := streamer.Stream(runCtx, repoDir, indexOpts.graphBinary, args...)
 	if err != nil {
 		return semanticStreamResult{}, fmt.Errorf("semantic provider snapshot failed: %w", err)
 	}

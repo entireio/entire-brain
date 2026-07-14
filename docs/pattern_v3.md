@@ -265,7 +265,7 @@ Run validation on at least:
 
 - `entire-brain`
 - `entire-cli`
-- `entire-sem`
+- `entire-graph`
 - one multi-repo workspace that includes at least two of the above
 
 For each repo/workspace, collect:

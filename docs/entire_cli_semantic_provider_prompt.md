@@ -1,7 +1,7 @@
-# Handoff prompt — entire-cli semantic provider (`entire sem`)
+# Handoff prompt — entire-cli semantic provider (`entire graph`)
 
 Paste the section below to an agent working in the **entire-cli** repo (the binary
-that exposes `entire sem …`). It is the upstream root-cause work for issues found
+that exposes `entire graph …`). It is the upstream root-cause work for issues found
 while consuming the provider from `entire-brain`.
 
 ---
@@ -10,8 +10,8 @@ while consuming the provider from `entire-brain`.
 
 `entire-brain` builds its semantic index by shelling out to this repo's provider:
 
-- `entire sem doctor --json` — checked for `no_egress` / `local_only`.
-- `entire sem snapshot --repo . --format ndjson [--worktree] [--ignore-file …]` — the
+- `entire graph doctor --json` — checked for `no_egress` / `local_only`.
+- `entire graph snapshot --repo . --format ndjson [--worktree] [--ignore-file …]` — the
   NDJSON snapshot that becomes the brain's symbol/relation store.
 
 On a real TypeScript repo (entire.io: 1212 files, 1204 TS) the snapshot reported
@@ -43,7 +43,7 @@ failures are not actionable and cannot be triaged, ignored, or fixed.
 4. If feasible, include a short reason beyond "syntax error nodes present" — e.g.
    the byte offset / line of the first ERROR node — to speed up triage.
 
-Acceptance: `entire sem snapshot --format ndjson` header `partial_failures[*]` each
+Acceptance: `entire graph snapshot --format ndjson` header `partial_failures[*]` each
 include a non-empty `path`, and those paths exist in the repo tree.
 
 ## Problem 2 — Grammar version trails modern syntax
@@ -65,7 +65,7 @@ remaining failures are documented as genuinely unsupported.
 
 ## Problem 3 — No per-file progress from `snapshot`
 
-`entire sem snapshot` runs as a single opaque step. The consumer's `refresh` can
+`entire graph snapshot` runs as a single opaque step. The consumer's `refresh` can
 only show "parsing sources" with a spinner while the provider walks every file +
 builds the store. Emit incremental progress so long indexing is observable:
 
@@ -93,7 +93,7 @@ The consumer already handles the workflow boundary shape (external
 has nothing to list. Required: detect CI/workflow definitions (GitHub Actions
 `.github/workflows/*.yml`, and ideally other CI systems) and emit them as
 workflow boundaries with handler relations, the same way routes/tools are
-emitted. *Acceptance: `entire sem snapshot` on a repo with GitHub Actions emits
+emitted. *Acceptance: `entire graph snapshot` on a repo with GitHub Actions emits
 `workflow` boundary nodes and the relations that wire jobs/steps to them.*
 
 ## Notes

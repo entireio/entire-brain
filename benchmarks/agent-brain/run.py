@@ -608,13 +608,13 @@ def build_tools(run_root: pathlib.Path) -> dict[str, pathlib.Path]:
     bin_dir = run_root / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     brain_bin = bin_dir / "entire-brain"
-    sem_bin = bin_dir / "entire-sem"
+    graph_bin = bin_dir / "entire-graph"
     entire_wrapper = bin_dir / "entire"
 
     run_cmd(["go", "build", "-o", str(brain_bin), "./cmd/entire-brain"], cwd=ROOT, check=True)
     run_cmd(
-        ["go", "build", "-o", str(sem_bin), "./cmd/entire-sem"],
-        cwd=ROOT.parent / "entire-sem",
+        ["go", "build", "-o", str(graph_bin), "./cmd/entire-graph"],
+        cwd=ROOT.parent / "entire-graph",
         check=True,
     )
 
@@ -625,19 +625,19 @@ if [[ "${{1:-}}" == "brain" ]]; then
   shift
   exec "{brain_bin}" "$@"
 fi
-if [[ "${{1:-}}" == "sem" ]]; then
+if [[ "${{1:-}}" == "graph" ]]; then
   shift
-  exec "{sem_bin}" "$@"
+  exec "{graph_bin}" "$@"
 fi
 if [[ -n "{system_entire}" ]]; then
   exec "{system_entire}" "$@"
 fi
-echo "entire wrapper only supports brain and sem in this benchmark" >&2
+echo "entire wrapper only supports brain and graph in this benchmark" >&2
 exit 127
 """
     entire_wrapper.write_text(wrapper)
     entire_wrapper.chmod(0o755)
-    return {"bin": bin_dir, "brain": brain_bin, "sem": sem_bin, "entire": entire_wrapper}
+    return {"bin": bin_dir, "brain": brain_bin, "graph": graph_bin, "entire": entire_wrapper}
 
 
 def git_head(repo: pathlib.Path) -> str:
@@ -2105,7 +2105,7 @@ def brain_cache_payload(
         "setup_replacements": task.get("setup_replacements", []),
         "setup_commands": task.get("setup_commands", []),
         "brain_sha256": file_sha256(tools["brain"]),
-        "sem_sha256": file_sha256(tools["sem"]),
+        "graph_sha256": file_sha256(tools["graph"]),
     }
 
 
@@ -3083,7 +3083,7 @@ def brain_prep_commands(task: dict[str, Any], condition: str, worktree: pathlib.
 
     commands = [[str(tools["brain"]), "refresh", "seed", str(worktree), "--agent", "none", "--force"]]
     if task.get("prepare_semantic", True):
-        commands.append([str(tools["brain"]), "refresh", "index", str(worktree), "--sem-binary", str(tools["entire"]), "--force"])
+        commands.append([str(tools["brain"]), "refresh", "index", str(worktree), "--graph-binary", str(tools["entire"]), "--force"])
     if condition_prepares_history(condition):
         # `export` moved under `refresh sessions` (PR #40 export-under-refresh); same flags.
         commands.insert(0, [str(tools["brain"]), "refresh", "sessions", "--checkpoint-limit", str(checkpoint_limit), "--history-index"])

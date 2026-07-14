@@ -278,7 +278,7 @@ class RunnerAndConditionTests(unittest.TestCase):
         tools = {
             "brain": pathlib.Path("/tmp/entire-brain"),
             "entire": pathlib.Path("/tmp/entire"),
-            "sem": pathlib.Path("/tmp/entire-sem"),
+            "graph": pathlib.Path("/tmp/entire-graph"),
         }
         worktree = pathlib.Path("/tmp/worktree")
         commands = run.brain_prep_commands(task, "mcp_workspace_radar", worktree, tools, 200)
@@ -1748,7 +1748,7 @@ class StatsAndAttributionTests(unittest.TestCase):
             tools_dir = root / "tools"
             tools_dir.mkdir()
             tools = {}
-            for name in ("brain", "sem", "entire"):
+            for name in ("brain", "graph", "entire"):
                 path = tools_dir / name
                 path.write_text(f"{name}\n")
                 tools[name] = path
@@ -2692,7 +2692,7 @@ class CodexAuditScriptTests(unittest.TestCase):
             "tools": {
                 "brain": {"sha256": self.TOOL_SHA},
                 "entire": {"sha256": self.TOOL_SHA},
-                "sem": {"sha256": self.TOOL_SHA},
+                "graph": {"sha256": self.TOOL_SHA},
             },
         }
 
@@ -4009,6 +4009,21 @@ class CodexAuditScriptTests(unittest.TestCase):
             mismatch_report = audit_codex.build_audit_report(results_dir, ["mismatch-*"])
             flags = mismatch_report["suites"]["mismatch-suite"]["records"][0]["flags"]
             self.assertIn("H:provenance_unpinned_base_head_mismatch", flags)
+
+            missing_provider = self._record()
+            missing_provider["provenance"]["tools"].pop("graph")
+            self._write_records(results_dir, "missing-provider-suite", [missing_provider])
+            missing_provider_report = audit_codex.build_audit_report(results_dir, ["missing-provider-*"])
+            flags = missing_provider_report["suites"]["missing-provider-suite"]["records"][0]["flags"]
+            self.assertIn("H:provenance_missing_semantic_provider_tool_sha256", flags)
+
+            historical_provider = self._record()
+            tools = historical_provider["provenance"]["tools"]
+            tools["provider_v1"] = tools.pop("graph")
+            self._write_records(results_dir, "historical-provider-suite", [historical_provider])
+            historical_provider_report = audit_codex.build_audit_report(results_dir, ["historical-provider-*"])
+            audited = historical_provider_report["suites"]["historical-provider-suite"]["records"][0]
+            self.assertTrue(audited["provenance"]["ok"], audited)
 
     def test_audit_codex_flags_proof_ready_without_stability(self):
         with tempfile.TemporaryDirectory() as results, tempfile.TemporaryDirectory() as out:
@@ -5643,7 +5658,7 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
             "\n".join([
                 "# Draft",
                 "entire-brain",
-                "entire-sem",
+                "entire-graph",
                 "entire-replay-lab",
                 "Future Claims We Should Not Make Yet",
                 "Release Checklist",
@@ -5781,7 +5796,7 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 "\n".join([
                     "# Draft",
                     "entire-brain",
-                    "entire-sem",
+                    "entire-graph",
                     "entire-replay-lab",
                     "Future Claims We Should Not Make Yet",
                     "Release Checklist",
@@ -6264,7 +6279,7 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
             tools = {
                 "bin": root / "private-tools",
                 "brain": root / "private-tools" / "entire-brain",
-                "sem": root / "private-tools" / "entire-sem",
+                "graph": root / "private-tools" / "entire-graph",
                 "entire": root / "private-tools" / "entire",
             }
             record = {}
@@ -6354,7 +6369,7 @@ class TemporalHarnessDeliveryTests(unittest.TestCase):
             tools = {
                 "bin": root / "private-tools",
                 "brain": root / "private-tools" / "entire-brain",
-                "sem": root / "private-tools" / "entire-sem",
+                "graph": root / "private-tools" / "entire-graph",
                 "entire": root / "private-tools" / "entire",
             }
             delivery = {"ok": True}

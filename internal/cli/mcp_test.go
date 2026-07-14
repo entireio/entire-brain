@@ -37,6 +37,18 @@ func TestMCPInitializeAndToolsList(t *testing.T) {
 	}
 }
 
+func TestMCPGraphBinaryUsesTrustedEnvironmentOverride(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_GRAPH_BINARY", "  /opt/entire-graph  ")
+	if got := mcpGraphBinary(); got != "/opt/entire-graph" {
+		t.Fatalf("mcpGraphBinary() = %q, want trusted override", got)
+	}
+
+	t.Setenv("ENTIRE_BRAIN_GRAPH_BINARY", "  ")
+	if got := mcpGraphBinary(); got != "entire" {
+		t.Fatalf("mcpGraphBinary() with blank override = %q, want default", got)
+	}
+}
+
 func TestMCPToolsListIncludesRegressions(t *testing.T) {
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`) +
 		frameMCP(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
@@ -93,14 +105,14 @@ func TestMCPProjectManagementTools(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	repoKey := filepath.ToSlash(filepath.Join("local", localRepoKey(repoDir)))
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("git", "rev-parse", "--show-toplevel"):                                                {stdout: repoDir + "\n"},
-		fakeCommandKey("git", "rev-parse", "HEAD"):                                                           {stdout: "aaa111\n"},
-		fakeCommandKey("git", "rev-parse", "HEAD^{tree}"):                                                    {stdout: "tree111\n"},
-		fakeCommandKey("git", "branch", "--show-current"):                                                    {stdout: "main\n"},
-		fakeCommandKey("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):              {stdout: "origin/main\n"},
-		fakeCommandKey("git", "status", "--porcelain"):                                                       {stdout: ""},
-		fakeCommandKey("entire", "sem", "doctor", "--json"):                                                  {stdout: `{"no_egress":true}`},
-		fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"): {stdout: workspaceGraphSnapshot(repoKey, "HandleMCP")},
+		fakeCommandKey("git", "rev-parse", "--show-toplevel"):                                                  {stdout: repoDir + "\n"},
+		fakeCommandKey("git", "rev-parse", "HEAD"):                                                             {stdout: "aaa111\n"},
+		fakeCommandKey("git", "rev-parse", "HEAD^{tree}"):                                                      {stdout: "tree111\n"},
+		fakeCommandKey("git", "branch", "--show-current"):                                                      {stdout: "main\n"},
+		fakeCommandKey("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):                {stdout: "origin/main\n"},
+		fakeCommandKey("git", "status", "--porcelain"):                                                         {stdout: ""},
+		fakeCommandKey("entire", "graph", "doctor", "--json"):                                                  {stdout: `{"no_egress":true}`},
+		fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"): {stdout: workspaceGraphSnapshot(repoKey, "HandleMCP")},
 	}}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC) }}
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`) +
@@ -518,7 +530,7 @@ func TestMCPDebugLogReviewToolsRedactAndLogSuccess(t *testing.T) {
 		now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 		cmd := &cobra.Command{Use: "index"}
 		opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
-		if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+		if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 			t.Fatalf("index: %v", err)
 		}
 		storage, err := repoStoragePaths(cmd.Context(), runner, env, repoDir)
@@ -609,7 +621,7 @@ func TestMCPBrainRegressionsTool(t *testing.T) {
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	cmd := &cobra.Command{Use: "index"}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
-	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	storage, err := repoStoragePaths(cmd.Context(), runner, env, repoDir)
@@ -669,7 +681,7 @@ func TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites(t *testi
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	cmd := &cobra.Command{Use: "index"}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
-	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	storage, err := repoStoragePaths(cmd.Context(), runner, env, repoDir)
@@ -723,7 +735,7 @@ func TestMCPBrainReviewTool(t *testing.T) {
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	cmd := &cobra.Command{Use: "index"}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
-	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	storage, err := repoStoragePaths(cmd.Context(), runner, env, repoDir)
@@ -936,7 +948,7 @@ func TestMCPBrainQueryToolUsesLocalSemanticJSON(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := &cobra.Command{Use: "index"}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
-	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_query","arguments":{"query":"ValidateToken","limit":5}}}`)
@@ -1011,7 +1023,7 @@ func TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON(t *testing.T) 
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{stdout: "M\tinternal/auth/token.go\n"}
 	cmd := &cobra.Command{Use: "index"}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
-	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_context","arguments":{"query":"ValidateToken","limit":5}}}`) +
@@ -1045,7 +1057,7 @@ func TestMCPBrainBriefAndQueryToolsUseIndexedHistory(t *testing.T) {
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	cmd := &cobra.Command{Use: "index"}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
-	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	storage, err := repoStoragePaths(cmd.Context(), runner, env, repoDir)
@@ -1153,11 +1165,11 @@ func TestMCPRejectsOversizedAndNegativeFrames(t *testing.T) {
 	}
 }
 
-func TestMCPIndexRepositoryRejectsSemBinaryArgument(t *testing.T) {
-	// sem_binary used to be an attacker-controllable executable name; it must no
+func TestMCPIndexRepositoryRejectsGraphBinaryArgument(t *testing.T) {
+	// graph_binary used to be an attacker-controllable executable name; it must no
 	// longer be an accepted argument so an untrusted/prompt-injected client cannot
 	// run an arbitrary binary through the indexer.
-	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_index_repository","arguments":{"sem_binary":"/bin/evil"}}}`)
+	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_index_repository","arguments":{"graph_binary":"/bin/evil"}}}`)
 	var out bytes.Buffer
 	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, Options{Version: "test-version"}); err != nil {
 		t.Fatalf("mcp: %v", err)
@@ -1167,7 +1179,7 @@ func TestMCPIndexRepositoryRejectsSemBinaryArgument(t *testing.T) {
 		t.Fatalf("responses = %d", len(responses))
 	}
 	errObj, ok := responses[0]["error"].(map[string]any)
-	if !ok || !strings.Contains(fmt.Sprint(errObj["message"]), "unknown argument for brain_index_repository: sem_binary") {
+	if !ok || !strings.Contains(fmt.Sprint(errObj["message"]), "unknown argument for brain_index_repository: graph_binary") {
 		t.Fatalf("expected unknown-argument rejection, got %+v", responses[0])
 	}
 }
@@ -1253,7 +1265,7 @@ func TestMCPBrainStaleUsesEnvRepoRoot(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := &cobra.Command{Use: "index"}
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
-	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	oldWD, err := os.Getwd()

@@ -14,7 +14,7 @@ curated durable facts into an inspectable memory layer that stays on the develop
 machine.
 
 `entire-brain` gives agents a qmd-inspired retrieval surface over the repo's
-local memory. `entire-sem` gives agents an audit-reported map of code structure,
+local memory. `entire-graph` gives agents an audit-reported map of code structure,
 relations, boundaries, and likely tests when provider coverage is fresh enough
 for the target repo. `entire-replay-lab` measures whether those tools improve
 task outcomes instead of relying on demos or anecdotes.
@@ -30,6 +30,14 @@ task outcomes instead of relying on demos or anecdotes.
 - Semantic freshness, blind-spot reporting, and semantic audit output.
 - Local benchmark harness for no-brain, semantic-brain, and full-brain agent
   conditions.
+
+## Compatibility Note
+
+Provider-facing commands, flags, environment variables, and provenance now use
+Graph naming consistently. This is an intentional compatibility break, and the
+release does not provide aliases for prior provider-facing names. Retained
+benchmark evidence remains immutable and continues to describe the binaries
+that generated it.
 
 ## Known Replay-Lab Outcome
 

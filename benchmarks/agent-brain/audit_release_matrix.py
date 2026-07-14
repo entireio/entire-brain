@@ -366,7 +366,7 @@ def audit_manifest(manifest_file: pathlib.Path) -> dict[str, Any]:
     )
 
     press_flags: list[str] = []
-    for required in ("entire-brain", "entire-sem", "entire-replay-lab", "Future Claims We Should Not Make Yet", "Release Checklist"):
+    for required in ("entire-brain", "entire-graph", "entire-replay-lab", "Future Claims We Should Not Make Yet", "Release Checklist"):
         if required not in press_text:
             press_flags.append(f"release press release missing {required!r}")
     press_text_lower = press_text.lower()

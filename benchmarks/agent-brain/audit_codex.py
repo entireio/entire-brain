@@ -628,9 +628,23 @@ def audit_record_provenance(rec: dict[str, Any]) -> tuple[list[str], list[str], 
     if not is_sha256(prov.get("fingerprint")):
         flags.append("H:provenance_missing_record_fingerprint")
 
-    for tool in ("brain", "sem", "entire"):
+    tools = get(prov, "tools")
+    for tool in ("brain", "entire"):
         if not is_sha256(get(prov, "tools", tool, "sha256")):
             flags.append(f"H:provenance_missing_{tool}_tool_sha256")
+    provider_tools = []
+    if isinstance(tools, dict):
+        provider_tools = [
+            name
+            for name, metadata in tools.items()
+            if name not in {"bin", "brain", "entire"}
+            and isinstance(metadata, dict)
+            and is_sha256(metadata.get("sha256"))
+        ]
+    if not provider_tools:
+        flags.append("H:provenance_missing_semantic_provider_tool_sha256")
+    elif len(provider_tools) > 1:
+        flags.append("H:provenance_ambiguous_semantic_provider_tools")
 
     if get(prov, "harness", "dirty", "dirty") is True:
         notes.append("H:harness_dirty")

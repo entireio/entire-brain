@@ -8,13 +8,13 @@ import (
 )
 
 // semanticBoundaryFixtureSnapshotExternalNodes models the shape the real
-// `entire sem` provider emits: route/tool boundaries are external endpoint
+// `entire graph` provider emits: route/tool boundaries are external endpoint
 // nodes (no file path) referenced by HANDLES_* relations from in-repo handler
 // symbols, rather than kind-tagged in-repo symbols. The external records are
 // dropped at SQLite generation (only file/symbol/relation are ingested), so the
 // boundary identity must be recovered from the relations' external endpoints.
 func semanticBoundaryFixtureSnapshotExternalNodes() string {
-	return `{"schema_version":"1.0","provider":"entire-sem","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go","routes","tools","workflows"],"warnings":[],"partial_failures":[]}
+	return `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go","routes","tools","workflows"],"warnings":[],"partial_failures":[]}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
 {"record_type":"symbol","id":"gh/example/repo:go:internal/cli/root.go:function:cli.Refresh","kind":"function","name":"Refresh","qualified_name":"cli.Refresh","file_path":"internal/cli/root.go","start_line":50,"end_line":60,"signature":"func Refresh()","language":"Go","stable_id_version":"1"}
 {"record_type":"external","id":"external:route:/tokens/{id}","kind":"route","name":""}
@@ -30,7 +30,7 @@ func TestSemanticBoundaryCommandsResolveExternalNodes(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticBoundaryFixtureSnapshotExternalNodes())
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--graph-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 

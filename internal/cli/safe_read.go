@@ -26,7 +26,7 @@ const (
 	// maxManifestBytes bounds JSON manifest/index/cursor files, which are small.
 	maxManifestBytes = 16 << 20 // 16 MiB
 
-	// defaultMaxSemanticSnapshotBytes bounds a full entire-sem snapshot read. It is
+	// defaultMaxSemanticSnapshotBytes bounds a full entire-graph snapshot read. It is
 	// generous because a large monorepo's snapshot is legitimately big; operators
 	// with even larger repos can raise it via ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES.
 	defaultMaxSemanticSnapshotBytes = 2 << 30 // 2 GiB

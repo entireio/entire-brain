@@ -1,7 +1,7 @@
 # Release Readiness Audit
 
 This audit tracks the loose ends that need to close before `entire-brain`,
-`entire-sem`, and `entire-replay-lab` can ship with honest claims.
+`entire-graph`, and `entire-replay-lab` can ship with honest claims.
 
 ## Distill Performance
 
@@ -226,14 +226,14 @@ Claim policy: do not say semantic indexing works globally. Say which languages,
 relations, and freshness states are covered, and show blind spots.
 
 Historical clean semantic evidence collected on this repo after the provider
-compatibility fix: `go run ./cmd/entire-brain refresh index --sem-binary entire --force`
+compatibility fix: `go run ./cmd/entire-brain refresh index --graph-binary entire --force`
 indexed 134 files, 2,250 symbols, and 14,883 relations at `721aae0`; `go run
 ./cmd/entire-brain semantic-audit --json --fail-on release` passed with freshness
 `ok`, worktree state `clean`, zero blind spots, and one retained warning:
 `provider_ignore_file_unsupported`. After the release-readiness commits moved
 HEAD forward, the same audit correctly failed as stale until the index was
 refreshed. Re-running with the explicit local provider path
-`go run ./cmd/entire-brain refresh index --sem-binary "$HOME/.local/bin/entire" --force`
+`go run ./cmd/entire-brain refresh index --graph-binary "$HOME/.local/bin/entire" --force`
 indexed 137 files, 2,405 symbols, and 17,091 relations at `b430963`; the
 subsequent `mise run semantic:evidence` passed with freshness `ok`, worktree
 state `clean`, and zero blind spots. This proves local coverage and audit health
@@ -383,7 +383,7 @@ The launch story is tracked in `docs/release_press_release.md`.
 Release claims must stay local-first and evidence-backed:
 
 - `entire-brain`: local durable repo memory and qmd-inspired retrieval.
-- `entire-sem`: audit-reported local semantic code context with freshness and
+- `entire-graph`: audit-reported local semantic code context with freshness and
   blind-spot reporting.
 - `entire-replay-lab`: measured agent outcomes, not anecdotes.
 

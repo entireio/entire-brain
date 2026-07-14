@@ -18,7 +18,7 @@ import (
 
 // semanticStreamLeanHeader is a minimal streaming header: identity fields only,
 // no aggregate metadata (that lives in the trailing summary).
-const semanticStreamLeanHeader = `{"schema_version":"1.0","provider":"entire-sem","provider_version":"0.2.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111"}`
+const semanticStreamLeanHeader = `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.2.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111"}`
 
 func semanticStreamSummaryFixture() string {
 	lines := []string{
@@ -272,14 +272,14 @@ func TestStreamSemanticSnapshotReportsProviderFailureAfterPartialOutput(t *testi
 	partial := semanticStreamLeanHeader + "\n" +
 		`{"record_type":"symbol","id":"s1","kind":"function","name":"A","file_path":"a.go","stable_id_version":"1"}` + "\n"
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("entire", "sem", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"): {
+		fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"): {
 			stdout: partial,
 			stderr: "provider crashed mid-stream",
 			err:    fmt.Errorf("exit status 1"),
 		},
 	}}
 	out := &bytes.Buffer{}
-	res, err := streamSemanticSnapshot(context.Background(), runner, repoDir, semanticIndexOptions{semBinary: "entire"}, nil, brainIgnore{}, out)
+	res, err := streamSemanticSnapshot(context.Background(), runner, repoDir, semanticIndexOptions{graphBinary: "entire"}, nil, brainIgnore{}, out)
 	if err == nil {
 		t.Fatal("expected provider failure error")
 	}
@@ -307,7 +307,7 @@ func TestSemanticIndexUsesSummaryMetadataOverLeanHeader(t *testing.T) {
 		Env:     env,
 		Runner:  runner,
 		Now:     time.Now,
-	}, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 
@@ -347,7 +347,7 @@ func TestSemanticIndexPersistsSummaryRecordInSnapshot(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticStreamSummaryFixture())
 	cmd := &cobra.Command{Use: "index"}
 
-	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	source := mustSemanticSource(t, env)
@@ -378,7 +378,7 @@ func TestSemanticRepairMergesSummaryMetadata(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticStreamSummaryFixture())
 	cmd := NewRootCommand(Options{Version: "test", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "refresh", "index", "--sem-binary", "entire"); err != nil {
+	if _, err := execute(t, cmd, "refresh", "index", "--graph-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
@@ -433,7 +433,7 @@ func TestSemanticStaleValidatesStreamedSnapshotWithSummary(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticStreamSummaryFixture())
 	opts := Options{Env: env, Runner: runner, Now: time.Now}
 	cmd := &cobra.Command{Use: "index"}
-	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	report, err := semanticStaleReport(cmd.Context(), opts, repoDir)
@@ -454,7 +454,7 @@ func TestBundleRoundTripToleratesStreamedSnapshotRecords(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticStreamSummaryFixture())
 	cmd := &cobra.Command{Use: "index"}
 	exportOpts := Options{Env: exportEnv, Runner: runner, Now: time.Now}
-	if err := runSemanticIndex(cmd.Context(), cmd, exportOpts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
+	if err := runSemanticIndex(cmd.Context(), cmd, exportOpts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
 	output := filepath.Join(t.TempDir(), "brain.tar")
@@ -480,7 +480,7 @@ func TestBundleRoundTripToleratesStreamedSnapshotRecords(t *testing.T) {
 // fails fast (rather than buffering) when given a runner that does not implement
 // CommandStreamer.
 func TestStreamSemanticSnapshotRequiresStreamingRunner(t *testing.T) {
-	_, err := streamSemanticSnapshot(context.Background(), nonStreamingRunner{}, t.TempDir(), semanticIndexOptions{semBinary: "entire"}, nil, brainIgnore{}, io.Discard)
+	_, err := streamSemanticSnapshot(context.Background(), nonStreamingRunner{}, t.TempDir(), semanticIndexOptions{graphBinary: "entire"}, nil, brainIgnore{}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "streaming command runner") {
 		t.Fatalf("expected streaming-required error, got %v", err)
 	}
@@ -506,11 +506,11 @@ func TestMergeSemanticSummaryCarriesLanguageTiers(t *testing.T) {
 	}
 }
 
-// TestScanSemanticStreamRealProviderOutput ingests a real entire-sem snapshot
+// TestScanSemanticStreamRealProviderOutput ingests a real entire-graph snapshot
 // (schema 1.1, streaming). It fails before Fix 1 because completeness is an
 // object, not a string, and the lean header cannot be parsed.
 func TestScanSemanticStreamRealProviderOutput(t *testing.T) {
-	data, err := os.ReadFile("testdata/sem_snapshot_stream.ndjson")
+	data, err := os.ReadFile("testdata/graph_snapshot_stream.ndjson")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -570,7 +570,7 @@ func TestScanSemanticStreamRealProviderOutput(t *testing.T) {
 // TestScanSemanticStreamPreservesSchema11Fields enforces Fix 2: the filtered
 // stream must not drop the schema-1.1 symbol/relation fields.
 func TestScanSemanticStreamPreservesSchema11Fields(t *testing.T) {
-	data, err := os.ReadFile("testdata/sem_snapshot_stream.ndjson")
+	data, err := os.ReadFile("testdata/graph_snapshot_stream.ndjson")
 	if err != nil {
 		t.Fatal(err)
 	}

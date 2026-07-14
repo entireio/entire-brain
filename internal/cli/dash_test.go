@@ -131,7 +131,7 @@ func TestLoadSemanticSymbolsReadsSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Header line + two symbols + one relation; only symbols should come back.
-	content := `{"schema_version":"1.0","provider":"entire-sem"}
+	content := `{"schema_version":"1.0","provider":"entire-graph"}
 {"record_type":"symbol","id":"s1","kind":"func","name":"Run","file_path":"a.go","start_line":1}
 {"record_type":"relation","id":"r1","type":"calls","from_id":"s1","to_id":"s2"}
 {"record_type":"symbol","id":"s2","kind":"type","name":"Model","file_path":"b.go","start_line":5}

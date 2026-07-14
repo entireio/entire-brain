@@ -477,12 +477,12 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			break
 		}
 		// The indexing binary is resolved from the trusted server environment,
-		// never from untrusted MCP client arguments: an arbitrary sem_binary would
+		// never from untrusted MCP client arguments: an arbitrary graph_binary would
 		// otherwise let a prompt-injected host (or a malicious client) run any
 		// executable. The path is normalized to the bound repo root and
 		// runSemanticIndex re-checks the *resolved* repo dir against containRoot so
 		// the client cannot point the indexer/subprocess outside the bound root.
-		semBinary := mcpSemBinary()
+		graphBinary := mcpGraphBinary()
 		path, containRoot := mcpResolveIndexPath(opts.Env, path)
 		worktree, boolErr := mcpBool(params.Arguments, "worktree")
 		if boolErr != nil {
@@ -494,7 +494,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = boolErr
 			break
 		}
-		err = runSemanticIndex(ctx, cmd, opts, semanticIndexOptions{semBinary: semBinary, profile: strings.TrimSpace(profile), worktree: worktree, force: force, containRoot: containRoot}, path)
+		err = runSemanticIndex(ctx, cmd, opts, semanticIndexOptions{graphBinary: graphBinary, profile: strings.TrimSpace(profile), worktree: worktree, force: force, containRoot: containRoot}, path)
 	case "brain_list_projects":
 		err = runMCPListProjects(cmd, opts)
 	case "brain_delete_project":
@@ -869,14 +869,14 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 	}{DeletedRepoKey: repoKey, BrainDir: brainDir})
 }
 
-// mcpSemBinary resolves the Entire CLI binary that exposes `sem` provider
+// mcpGraphBinary resolves the Entire CLI binary that exposes `graph` provider
 // commands from the trusted server environment, never from untrusted MCP client
-// arguments. An operator can override it via ENTIRE_BRAIN_SEM_BINARY; otherwise
+// arguments. An operator can override it via ENTIRE_BRAIN_GRAPH_BINARY; otherwise
 // it defaults to "entire". Resolving this server-side closes the
 // arbitrary-executable vector that an untrusted (or prompt-injected) MCP client
 // would otherwise reach through a tool argument.
-func mcpSemBinary() string {
-	if v := strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_SEM_BINARY")); v != "" {
+func mcpGraphBinary() string {
+	if v := strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_GRAPH_BINARY")); v != "" {
 		return v
 	}
 	return "entire"

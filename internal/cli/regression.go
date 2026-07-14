@@ -1233,7 +1233,7 @@ func newInspectRegressionsCommand(opts Options) *cobra.Command {
 // cli; this command is hidden — see root.go). When wired, the cli's `entire review` WOULD gain a
 // diff-less mode that shells `entire-brain review <query> --json`, checks reviewReport.schema_version,
 // and folds these findings into the review prompt — reviewing the working tree against the brain's
-// memory instead of a branch-vs-base diff (the graceful upgrade entire-brain gets from entire-sem).
+// memory instead of a branch-vs-base diff (the graceful upgrade entire-brain gets from entire-graph).
 // That cli mode is prototyped on a held branch, NOT landed. Full contract + consumer design:
 // docs/diffless_review_seam.md.
 //
