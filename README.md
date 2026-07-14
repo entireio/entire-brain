@@ -207,11 +207,11 @@ For clients without MCP, direct `entire brain ... --json` calls are the
 compatibility surface (humans and scripts use the same commands). Treat it like a
 tool API, not an invitation to run a long command tour:
 
-The provider naming migration is an intentional compatibility break. Current
+The provider naming migration is an intentional compatibility break. Direct CLI
 automation must use `entire graph`, `--graph-binary`, `--skip-graph`,
-`--graph-timeout`, `--graph-inactivity-timeout`, and
-`ENTIRE_BRAIN_GRAPH_BINARY`; aliases for prior provider-facing names are not
-supported.
+`--graph-timeout`, and `--graph-inactivity-timeout`. MCP server deployments use
+`ENTIRE_BRAIN_GRAPH_BINARY` for the trusted provider-binary override. Aliases for
+prior provider-facing names are not supported.
 
 ```sh
 entire brain status --json
