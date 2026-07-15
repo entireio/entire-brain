@@ -3223,3 +3223,7 @@ entire-graph is not the retrieval engine for facts. Whay makes you think that?
 ---
 
 Write a handover doc with all details on your goal, what you tried, what worked, what didn't work, what you believe are next steps. Put it in entire-plan and tell me the filename.
+
+---
+
+commit/push all your changes, so the worktree is clean
