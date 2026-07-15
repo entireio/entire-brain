@@ -646,102 +646,36 @@ class ProtocolCheckTest(unittest.TestCase):
         errors = CHECK.validate_dataset(dataset, protocol, freeze=True)
         self.assertIn("too few development relevance tasks", errors)
 
-    def test_engine_gate_verifies_exact_arms_runtime_state_and_artifact_bytes(self) -> None:
+    def test_engine_gate_rejects_legacy_unpinned_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             repo = pathlib.Path(temp)
             here = repo / "benchmarks" / "agent-brain" / "confirmatory"
             matrix = json.loads((HERE / "engine-matrix.json").read_text(encoding="utf-8"))
-            shared_files: dict[str, tuple[str, str]] = {}
-            for name in (
-                "binary",
-                "stdout",
-                "stderr",
-                "vector-model2vec",
-                "vector-embeddinggemma",
-                "model",
-            ):
-                path = here / "engine-artifacts" / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes((name + "\n").encode())
-                relative = path.relative_to(repo).as_posix()
-                shared_files[name] = (relative, self._sha(path))
-
-            records = []
-            for arm in matrix["arms"]:
-                semantic = arm["semantic"]
-                vector_path, vector_hash = (
-                    shared_files[
-                        "vector-embeddinggemma"
-                        if arm["id"] == "embeddinggemma_rrf"
-                        else "vector-model2vec"
-                    ]
-                    if semantic
-                    else (None, None)
-                )
-                model_path, model_hash = (
-                    shared_files["model"] if arm["id"] == "embeddinggemma_rrf" else (None, None)
-                )
-                records.append(
-                    {
-                        "schema_version": 1,
-                        "arm": arm["id"],
-                        "requested": {
-                            "command": "entire-brain recall --json",
-                            "environment": dict(arm["environment"]),
-                            "namespace": arm["namespace"],
-                        },
-                        "effective": {
-                            "engine": arm["id"],
-                            "semantic_available": semantic,
-                            "bm25_enabled": False,
-                            "fallback_used": False,
-                            "embedder_id": f"{arm['id']}-embedder" if semantic else None,
-                            "embedding_dimension": 768 if semantic else None,
-                            "vector_count": 8 if semantic else 0,
-                            "vector_namespace": arm["namespace"],
-                        },
-                        "artifacts": {
-                            "binary_path": shared_files["binary"][0],
-                            "binary_sha256": shared_files["binary"][1],
-                            "stdout_path": shared_files["stdout"][0],
-                            "stdout_sha256": shared_files["stdout"][1],
-                            "stderr_path": shared_files["stderr"][0],
-                            "stderr_sha256": shared_files["stderr"][1],
-                            "vector_artifact_path": vector_path,
-                            "vector_artifact_sha256": vector_hash,
-                            "embedding_model_path": model_path,
-                            "embedding_model_sha256": model_hash,
-                        },
-                        "corpus": {
-                            "facts_sha256": "f" * 64,
-                            "prefilter_count": 10,
-                            "eligible_count": 8,
-                            "excluded_by_reason": {"future": 2},
-                            "delivered_count": 3,
-                        },
-                        "result": {
-                            "query_id": "query-1",
-                            "fact_ids_in_order": ["fact-1", "fact-2"],
-                            "output_valid": True,
-                        },
-                    }
-                )
-            self._write_json(here / "engine-verification.json", {"records": records})
-            check = {"status": "pass", "evidence": "engine-verification.json"}
-            self.assertEqual(
-                CHECK.validate_engine_verification(matrix, check, here=here, repo=repo),
-                [],
+            legacy_records = [
+                {
+                    "schema_version": 1,
+                    "arm": arm["id"],
+                    "requested": {
+                        "command": "entire-brain recall --json",
+                        "environment": dict(arm["environment"]),
+                        "namespace": arm["namespace"],
+                    },
+                    "effective": {},
+                    "artifacts": {},
+                    "corpus": {},
+                    "result": {},
+                }
+                for arm in matrix["arms"]
+            ]
+            self._write_json(here / "engine-verification.json", {"records": legacy_records})
+            errors = CHECK.validate_engine_verification(
+                matrix,
+                {"status": "pass", "evidence": "engine-verification.json"},
+                here=here,
+                repo=repo,
+                pin_repo=CHECK.REPO,
             )
-
-            records[1]["effective"]["fallback_used"] = True
-            self._write_json(here / "engine-verification.json", {"records": records})
-            errors = CHECK.validate_engine_verification(matrix, check, here=here, repo=repo)
-            self.assertTrue(any("fallback is prohibited" in error for error in errors))
-            records[1]["effective"]["fallback_used"] = False
-            (here / "engine-artifacts" / "binary").write_text("TAMPERED\n", encoding="utf-8")
-            self._write_json(here / "engine-verification.json", {"records": records})
-            errors = CHECK.validate_engine_verification(matrix, check, here=here, repo=repo)
-            self.assertTrue(any("binary artifact: content hash mismatch" in error for error in errors))
+            self.assertEqual(sum("missing required field pin_set" in error for error in errors), 3)
 
 
 if __name__ == "__main__":

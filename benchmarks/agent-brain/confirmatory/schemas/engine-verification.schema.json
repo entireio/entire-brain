@@ -1,12 +1,38 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://entire.io/schemas/agent-brain/engine-verification-v1.json",
+  "$id": "https://entire.io/schemas/agent-brain/engine-verification-v2.json",
   "type": "object",
-  "required": ["schema_version", "arm", "requested", "effective", "artifacts", "corpus", "result"],
+  "required": ["schema_version", "pin_set", "arm", "requested", "effective", "artifacts", "corpus", "result"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
+    "pin_set": {
+      "type": "object",
+      "required": ["id", "sha256", "authority"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "authority": {"enum": ["production", "test_fixture"]}
+      },
+      "additionalProperties": false
+    },
     "arm": {"enum": ["lexical_handrolled", "model2vec_rrf", "embeddinggemma_rrf"]},
-    "requested": {"type": "object", "required": ["command", "environment", "namespace"]},
+    "requested": {
+      "type": "object",
+      "required": ["command", "environment", "namespace"],
+      "properties": {
+        "command": {
+          "oneOf": [
+            {"type": "string", "minLength": 1},
+            {"type": "array", "minItems": 1, "items": {"type": "string"}}
+          ]
+        },
+        "environment": {"type": "object", "additionalProperties": {"type": "string"}},
+        "namespace": {"type": "string", "minLength": 1},
+        "embedding_server_command": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+        "embedding_server_environment": {"type": "object", "additionalProperties": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
     "effective": {
       "type": "object",
       "required": ["engine", "semantic_available", "bm25_enabled", "fallback_used", "embedder_id", "embedding_dimension", "vector_count", "vector_namespace"],
@@ -19,11 +45,29 @@
         "embedding_dimension": {"type": ["integer", "null"], "minimum": 1},
         "vector_count": {"type": "integer", "minimum": 0},
         "vector_namespace": {"type": "string", "minLength": 1}
-      }
+      },
+      "additionalProperties": false
     },
     "artifacts": {
       "type": "object",
-      "required": ["binary_path", "binary_sha256", "stdout_path", "stdout_sha256", "stderr_path", "stderr_sha256", "vector_artifact_path", "vector_artifact_sha256", "embedding_model_path", "embedding_model_sha256"],
+      "required": [
+        "binary_path", "binary_sha256",
+        "stdout_path", "stdout_sha256",
+        "stderr_path", "stderr_sha256",
+        "facts_source_path", "facts_source_sha256",
+        "session_dates_source_path", "session_dates_source_sha256",
+        "derived_facts_path", "derived_facts_sha256",
+        "vector_artifact_path", "vector_artifact_sha256",
+        "embedding_model_path", "embedding_model_sha256",
+        "embedding_server_stdout_path", "embedding_server_stdout_sha256",
+        "embedding_server_stderr_path", "embedding_server_stderr_sha256",
+        "embedding_server_attestation_path", "embedding_server_attestation_sha256",
+        "server_script_path", "server_script_sha256",
+        "node_runtime_path", "node_runtime_sha256",
+        "package_manifest_path", "package_manifest_sha256",
+        "package_lock_path", "package_lock_sha256",
+        "runtime_dependency_manifest_path", "runtime_dependency_manifest_sha256"
+      ],
       "properties": {
         "binary_path": {"type": "string", "minLength": 1},
         "binary_sha256": {"$ref": "#/$defs/sha256"},
@@ -31,11 +75,34 @@
         "stdout_sha256": {"$ref": "#/$defs/sha256"},
         "stderr_path": {"type": "string", "minLength": 1},
         "stderr_sha256": {"$ref": "#/$defs/sha256"},
+        "facts_source_path": {"type": "string", "minLength": 1},
+        "facts_source_sha256": {"$ref": "#/$defs/sha256"},
+        "session_dates_source_path": {"type": "string", "minLength": 1},
+        "session_dates_source_sha256": {"$ref": "#/$defs/sha256"},
+        "derived_facts_path": {"type": "string", "minLength": 1},
+        "derived_facts_sha256": {"$ref": "#/$defs/sha256"},
         "vector_artifact_path": {"type": ["string", "null"], "minLength": 1},
         "vector_artifact_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
         "embedding_model_path": {"type": ["string", "null"], "minLength": 1},
-        "embedding_model_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
-      }
+        "embedding_model_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "embedding_server_stdout_path": {"type": ["string", "null"], "minLength": 1},
+        "embedding_server_stdout_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "embedding_server_stderr_path": {"type": ["string", "null"], "minLength": 1},
+        "embedding_server_stderr_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "embedding_server_attestation_path": {"type": ["string", "null"], "minLength": 1},
+        "embedding_server_attestation_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "server_script_path": {"type": ["string", "null"], "minLength": 1},
+        "server_script_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "node_runtime_path": {"type": ["string", "null"], "minLength": 1},
+        "node_runtime_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "package_manifest_path": {"type": ["string", "null"], "minLength": 1},
+        "package_manifest_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "package_lock_path": {"type": ["string", "null"], "minLength": 1},
+        "package_lock_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "runtime_dependency_manifest_path": {"type": ["string", "null"], "minLength": 1},
+        "runtime_dependency_manifest_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
     },
     "corpus": {
       "type": "object",
@@ -44,11 +111,21 @@
         "facts_sha256": {"$ref": "#/$defs/sha256"},
         "prefilter_count": {"type": "integer", "minimum": 0},
         "eligible_count": {"type": "integer", "minimum": 0},
-        "excluded_by_reason": {"type": "object"},
+        "excluded_by_reason": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
         "delivered_count": {"type": "integer", "minimum": 0}
-      }
+      },
+      "additionalProperties": false
     },
-    "result": {"type": "object", "required": ["query_id", "fact_ids_in_order", "output_valid"]}
+    "result": {
+      "type": "object",
+      "required": ["query_id", "fact_ids_in_order", "output_valid"],
+      "properties": {
+        "query_id": {"type": "string", "minLength": 1},
+        "fact_ids_in_order": {"type": "array", "items": {"type": "string"}},
+        "output_valid": {"const": true}
+      },
+      "additionalProperties": false
+    }
   },
   "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}},
   "additionalProperties": false

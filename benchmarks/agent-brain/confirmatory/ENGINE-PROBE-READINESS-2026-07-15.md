@@ -39,23 +39,30 @@ No fresh relevance or agent holdout was opened by these probes.
 ## Verification-wrapper checkpoint
 
 `verify_engines.py` now implements the retained run without inferring identity from requested
-environment:
+environment or accepting caller-defined expected values:
 
-- it verifies the pinned source-facts, session-date, and GGUF hashes before creating output;
+- it loads the production facts/session/GGUF/count, server-script, resolved-Node, package/lockfile,
+  and complete dependency-inventory expectations only from checked-in
+  `engine-verification-pins.json`;
+- it verifies all pinned source and runtime bytes before creating output;
 - it accepts only a query/cutoff/exclusion tuple from exposed development task `6699ec40a`;
 - it creates distinct derived data, config, state, and cache roots for all three arms and never
   supplies the frozen data root to the binary;
 - it starts and stops its own loopback EmbeddingGemma server, and refuses an endpoint already owned
-  by another process;
+  by another process; the owned server attests the same PID, ownership token, model hash, dimension,
+  and Node version before, continuously during, and after EmbeddingGemma recall;
 - it rejects fallback, BM25, partial semantic coverage, temporal-count drift, results above `K`,
   vector paths outside an arm's derived data root, and vector header/model/dimension/count drift;
-- it retains the binary, recall stdout/stderr, server stdout/stderr, one vector artifact per semantic
-  arm, and the pinned GGUF, all with SHA-256 hashes; and
-- it emits exactly three canonical records only after the existing protocol checker accepts them.
+- it retains and hashes the facts/session sources, every derived facts file, binary, recall and
+  server logs, one vector artifact per semantic arm, GGUF, exact Node executable, server script,
+  package and lockfile, dependency tree/inventory, and server attestation; and
+- it validates a temporary manifest with the protocol checker and atomically renames it only after
+  all three canonical records pass. Failed validation leaves no manifest.
 
-Eight hermetic tests pass, including a full synthetic three-arm publication and fail-closed cases for
-fallback, escaped vector paths, vector-header mismatch, input-pin mismatch, a non-development query,
-trailing vector bytes, and an occupied server endpoint.
+Fourteen hermetic wrapper tests pass, including a full synthetic three-arm publication, rejection of
+test-fixture evidence by the production checker, retained-source and derived-facts rehashing, atomic
+publication failure, server PID/phase discontinuity, and the earlier fallback, vector, input-pin,
+development-query, and endpoint-ownership cases.
 
 The real retained run was preflighted against development task `6699ec40a`. It correctly refused
 before creating an evidence directory because a pre-existing, unowned Node process (PID 70028 at the

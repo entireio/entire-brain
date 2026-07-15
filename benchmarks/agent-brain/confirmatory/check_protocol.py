@@ -77,6 +77,8 @@ RELEVANCE_REVIEW_LEDGER_REPO_PATH = (
 )
 # Reviewed independently of preregistration.json's routinely regenerated artifact hashes.
 RELEVANCE_SOURCE_CONTRACT_SHA256 = "a1e38838638a25accdc8a959d5f00a4d92257da70e411f90757e99f38e587678"
+ENGINE_PINS = HERE / "engine-verification-pins.json"
+DEPENDENCY_INVENTORY_ALGORITHM = "sha256_ordered_relative_path_nul_sha256_newline_v1"
 
 
 def load(path: pathlib.Path) -> Any:
@@ -1224,16 +1226,282 @@ def _load_engine_records(path: pathlib.Path, errors: list[str], repo: pathlib.Pa
     return [artifact]
 
 
+def _dependency_inventory_sha256(rows: list[tuple[str, str]]) -> str:
+    aggregate = hashlib.sha256()
+    for relative, sha256 in rows:
+        aggregate.update(relative.encode("utf-8"))
+        aggregate.update(b"\0")
+        aggregate.update(sha256.encode("ascii"))
+        aggregate.update(b"\n")
+    return aggregate.hexdigest()
+
+
+def _engine_pin_descriptor(pins: dict[str, Any], *, require_production: bool) -> dict[str, str]:
+    if require_production:
+        digest_value = digest(ENGINE_PINS)
+        authority = "production"
+    else:
+        digest_value = canonical_json_sha256(pins)
+        authority = "test_fixture"
+    return {"id": pins.get("pin_set_id"), "sha256": digest_value, "authority": authority}
+
+
+def _validate_engine_pins(
+    pins: Any,
+    errors: list[str],
+    *,
+    repo: pathlib.Path,
+    require_production: bool,
+) -> dict[str, Any]:
+    if not isinstance(pins, dict):
+        errors.append("engine verification pins must be an object")
+        return {}
+    if require_production:
+        canonical = load(ENGINE_PINS)
+        _error(errors, pins == canonical, "engine verification did not use the canonical production pin set")
+        _error(errors, pins.get("authority") == "production", "engine production pin authority is invalid")
+    else:
+        _error(errors, pins.get("authority") == "test_fixture", "injected engine pins must have test_fixture authority")
+    _error(errors, pins.get("schema_version") == 1, "engine pin schema_version must be 1")
+    _error(errors, isinstance(pins.get("pin_set_id"), str) and bool(pins.get("pin_set_id")), "engine pin_set_id is missing")
+
+    task = pins.get("development_task", {})
+    queries = task.get("queries", []) if isinstance(task, dict) else []
+    query_ids: list[Any] = []
+    query_hashes: list[Any] = []
+    for index, query in enumerate(queries if isinstance(queries, list) else []):
+        if not isinstance(query, dict):
+            errors.append(f"engine pins development queries[{index}] must be an object")
+            continue
+        query_ids.append(query.get("query_id"))
+        query_hashes.append(query.get("query_sha256"))
+        text = query.get("query_text")
+        _error(errors, isinstance(text, str) and bool(text), f"engine pins development queries[{index}] text is missing")
+        if isinstance(text, str):
+            _error(
+                errors,
+                query.get("query_sha256") == hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                f"engine pins development queries[{index}] hash is stale",
+            )
+    _error(errors, bool(query_ids) and _unique_strings(query_ids), "engine pin query ids are missing or duplicated")
+    _error(errors, _unique_strings(query_hashes), "engine pin query hashes are not unique strings")
+    exclusions = task.get("exclude_session_ids") if isinstance(task, dict) else None
+    _error(errors, isinstance(exclusions, list) and _unique_strings(exclusions), "engine pin excluded sessions are invalid")
+    _error(errors, isinstance(task.get("eligible_before"), str) and bool(task.get("eligible_before")), "engine pin cutoff is missing")
+
+    corpus = pins.get("corpus", {})
+    for key in ("facts_sha256", "session_dates_sha256"):
+        _error(errors, _is_sha256(corpus.get(key)), f"engine pin {key} is invalid")
+    for key in ("facts_size_bytes", "session_dates_size_bytes", "prefilter_count", "eligible_count"):
+        _error(errors, _is_nonnegative_int(corpus.get(key)), f"engine pin {key} is invalid")
+    if _is_nonnegative_int(corpus.get("eligible_count")) and _is_nonnegative_int(corpus.get("prefilter_count")):
+        _error(errors, corpus["eligible_count"] <= corpus["prefilter_count"], "engine pin eligibility counts are impossible")
+
+    model = pins.get("embedding_model", {})
+    _error(errors, _is_sha256(model.get("sha256")), "engine model pin hash is invalid")
+    _error(errors, _is_nonnegative_int(model.get("size_bytes")) and model.get("size_bytes", 0) > 0, "engine model size pin is invalid")
+    _error(errors, _is_nonnegative_int(model.get("dimension")) and model.get("dimension", 0) > 0, "engine model dimension pin is invalid")
+    engines = pins.get("engines", {})
+    _error(errors, isinstance(engines, dict) and set(engines) == set(ARMS), "engine pins do not cover the exact arms")
+
+    runtime = pins.get("runtime", {})
+    for key in ("platform", "node_version", "node_llama_cpp_version", "platform_package", "platform_package_version"):
+        _error(errors, isinstance(runtime.get(key), str) and bool(runtime.get(key)), f"engine runtime pin {key} is invalid")
+    for key in (
+        "node_sha256",
+        "server_script_sha256",
+        "package_manifest_sha256",
+        "package_lock_sha256",
+        "dependency_inventory_sha256",
+    ):
+        _error(errors, _is_sha256(runtime.get(key)), f"engine runtime pin {key} is invalid")
+    _error(
+        errors,
+        runtime.get("dependency_inventory_algorithm") == DEPENDENCY_INVENTORY_ALGORITHM,
+        "engine dependency inventory algorithm is unsupported",
+    )
+    for key in ("dependency_file_count", "dependency_total_bytes"):
+        _error(errors, _is_nonnegative_int(runtime.get(key)), f"engine runtime pin {key} is invalid")
+    for stem in ("server_script", "package_manifest", "package_lock"):
+        raw_path = runtime.get(f"{stem}_repo_path")
+        target = _safe_relative_path(raw_path, repo)
+        _error(errors, target is not None and target.is_file(), f"engine runtime pin {stem} path is missing")
+        if target is not None and target.is_file() and _is_sha256(runtime.get(f"{stem}_sha256")):
+            _error(errors, digest(target) == runtime[f"{stem}_sha256"], f"engine runtime pin {stem} hash is stale")
+    return pins
+
+
+def _validate_dependency_manifest(
+    raw_path: Any,
+    pins: dict[str, Any],
+    errors: list[str],
+    label: str,
+    *,
+    repo: pathlib.Path,
+    expected_root: pathlib.Path | None = None,
+) -> None:
+    target = _safe_relative_path(raw_path, repo)
+    if target is None or not target.is_file():
+        return
+    manifest = _load_artifact(target, errors, f"{label} dependency manifest")
+    if not isinstance(manifest, dict):
+        return
+    runtime = pins.get("runtime", {})
+    _error(errors, manifest.get("schema_version") == 1, f"{label}: dependency manifest schema_version must be 1")
+    _error(errors, manifest.get("algorithm") == DEPENDENCY_INVENTORY_ALGORITHM, f"{label}: dependency algorithm mismatch")
+    root = _safe_relative_path(manifest.get("root_path"), repo)
+    _error(errors, root is not None and root.is_dir(), f"{label}: retained dependency root is missing")
+    if root is not None and expected_root is not None:
+        _error(errors, root == expected_root.resolve(), f"{label}: retained dependency root is not beside server script")
+    files = manifest.get("files")
+    _error(errors, isinstance(files, list) and bool(files), f"{label}: dependency files are missing")
+    rows: list[tuple[str, str]] = []
+    total_bytes = 0
+    seen_relative: set[str] = set()
+    if isinstance(files, list):
+        for index, item in enumerate(files):
+            item_label = f"{label}.dependency files[{index}]"
+            if not _required_object_fields(errors, item, ("relative_path", "path", "sha256", "size_bytes"), item_label):
+                continue
+            relative = item.get("relative_path")
+            _error(errors, isinstance(relative, str) and bool(relative) and ".." not in pathlib.Path(relative).parts, f"{item_label}: relative path is invalid")
+            if isinstance(relative, str):
+                _error(errors, relative not in seen_relative, f"{item_label}: duplicate relative path")
+                seen_relative.add(relative)
+            verified_path = _verify_hashed_file(errors, item, item_label, repo=repo)
+            target_file = _safe_relative_path(verified_path, repo)
+            if root is not None and target_file is not None and isinstance(relative, str):
+                _error(errors, target_file == (root / relative).resolve(), f"{item_label}: path is outside dependency root")
+            size = item.get("size_bytes")
+            _error(errors, _is_nonnegative_int(size), f"{item_label}: size is invalid")
+            if target_file is not None and target_file.is_file() and _is_nonnegative_int(size):
+                _error(errors, target_file.stat().st_size == size, f"{item_label}: size mismatch")
+                total_bytes += size
+            if isinstance(relative, str) and _is_sha256(item.get("sha256")):
+                rows.append((relative, item["sha256"]))
+    rows.sort()
+    aggregate = _dependency_inventory_sha256(rows)
+    _error(errors, manifest.get("aggregate_sha256") == aggregate, f"{label}: dependency aggregate is stale")
+    _error(errors, manifest.get("aggregate_sha256") == runtime.get("dependency_inventory_sha256"), f"{label}: dependency aggregate differs from pin")
+    _error(errors, manifest.get("file_count") == len(rows) == runtime.get("dependency_file_count"), f"{label}: dependency file count differs from pin")
+    _error(errors, manifest.get("total_bytes") == total_bytes == runtime.get("dependency_total_bytes"), f"{label}: dependency byte count differs from pin")
+    for key in ("node_version", "node_llama_cpp_version", "platform_package", "platform_package_version"):
+        _error(errors, manifest.get(key) == runtime.get(key), f"{label}: dependency {key} differs from pin")
+    if root is not None and root.is_dir():
+        actual: set[str] = set()
+        for path in root.rglob("*"):
+            _error(errors, not path.is_symlink(), f"{label}: retained dependency root contains a symlink")
+            if path.is_file() and not path.is_symlink():
+                actual.add(path.relative_to(root).as_posix())
+        _error(errors, actual == seen_relative, f"{label}: retained dependency file set differs from manifest")
+
+
+def _validate_server_attestation(
+    raw_path: Any,
+    requested: dict[str, Any],
+    pins: dict[str, Any],
+    errors: list[str],
+    label: str,
+    *,
+    repo: pathlib.Path,
+) -> None:
+    target = _safe_relative_path(raw_path, repo)
+    if target is None or not target.is_file():
+        return
+    artifact = _load_artifact(target, errors, f"{label} server attestation")
+    if not isinstance(artifact, dict):
+        return
+    model = pins.get("embedding_model", {})
+    runtime = pins.get("runtime", {})
+    _error(errors, artifact.get("schema_version") == 1, f"{label}: server attestation schema_version must be 1")
+    _error(errors, artifact.get("pin_set_id") == pins.get("pin_set_id"), f"{label}: server attestation pin set differs")
+    pid = artifact.get("process_pid")
+    _error(errors, _is_nonnegative_int(pid) and pid > 0, f"{label}: server attestation PID is invalid")
+    token_hash = artifact.get("ownership_token_sha256")
+    _error(errors, _is_sha256(token_hash), f"{label}: server ownership token hash is invalid")
+    model_path = artifact.get("model_path")
+    _error(errors, isinstance(model_path, str) and bool(model_path), f"{label}: attested model path is missing")
+    _error(errors, artifact.get("model_sha256") == model.get("sha256"), f"{label}: attested model hash differs from pin")
+    _error(errors, artifact.get("embedding_dimension") == model.get("dimension"), f"{label}: attested dimension differs from pin")
+    _error(errors, artifact.get("node_version") == runtime.get("node_version"), f"{label}: attested Node version differs from pin")
+    environment = requested.get("embedding_server_environment")
+    _error(errors, isinstance(environment, dict), f"{label}: embedding server environment is missing")
+    if isinstance(environment, dict) and isinstance(environment.get("ENGINE_VERIFICATION_TOKEN"), str):
+        _error(
+            errors,
+            hashlib.sha256(environment["ENGINE_VERIFICATION_TOKEN"].encode("utf-8")).hexdigest() == token_hash,
+            f"{label}: server environment ownership token differs from attestation",
+        )
+        gguf = environment.get("GGUF")
+        _error(
+            errors,
+            isinstance(gguf, str)
+            and isinstance(model_path, str)
+            and pathlib.Path(gguf).resolve() == pathlib.Path(model_path).resolve(),
+            f"{label}: attested model path differs from server environment",
+        )
+    else:
+        errors.append(f"{label}: server environment ownership token is missing")
+    observations = artifact.get("observations")
+    _error(errors, isinstance(observations, list) and len(observations) >= 3, f"{label}: server health observations are incomplete")
+    phases: list[Any] = []
+    if isinstance(observations, list):
+        for index, observation in enumerate(observations):
+            observation_label = f"{label}.server observations[{index}]"
+            if not _required_object_fields(
+                errors,
+                observation,
+                (
+                    "sequence",
+                    "phase",
+                    "observed_at",
+                    "pid",
+                    "ownership_token_sha256",
+                    "model_path",
+                    "model_sha256",
+                    "embedding_dimension",
+                    "node_version",
+                    "healthy",
+                ),
+                observation_label,
+            ):
+                continue
+            phases.append(observation.get("phase"))
+            _error(errors, observation.get("sequence") == index, f"{observation_label}: sequence is not contiguous")
+            _error(errors, observation.get("healthy") is True, f"{observation_label}: health is not true")
+            _error(errors, observation.get("pid") == pid, f"{observation_label}: PID changed")
+            _error(errors, observation.get("ownership_token_sha256") == token_hash, f"{observation_label}: ownership token changed")
+            _error(errors, observation.get("model_path") == model_path, f"{observation_label}: model path changed")
+            _error(errors, observation.get("model_sha256") == model.get("sha256"), f"{observation_label}: model hash changed")
+            _error(errors, observation.get("embedding_dimension") == model.get("dimension"), f"{observation_label}: dimension changed")
+            _error(errors, observation.get("node_version") == runtime.get("node_version"), f"{observation_label}: Node version changed")
+            _error(errors, isinstance(observation.get("observed_at"), str) and bool(observation.get("observed_at")), f"{observation_label}: timestamp is missing")
+    _error(errors, "pre_recall" in phases, f"{label}: no pre-recall health attestation")
+    _error(errors, "during_recall" in phases, f"{label}: no during-recall health attestation")
+    _error(errors, phases and phases[-1] == "post_recall", f"{label}: final health attestation is not post-recall")
+
+
 def validate_engine_verification(
     matrix: dict[str, Any],
     check: dict[str, Any],
     *,
     here: pathlib.Path = HERE,
     repo: pathlib.Path = REPO,
+    pins: dict[str, Any] | None = None,
+    require_production: bool = True,
+    pin_repo: pathlib.Path | None = None,
 ) -> list[str]:
     errors: list[str] = []
     if check.get("status") != "pass":
         return errors
+    pin_data = load(ENGINE_PINS) if pins is None else pins
+    pin_data = _validate_engine_pins(
+        pin_data,
+        errors,
+        repo=repo if pin_repo is None else pin_repo,
+        require_production=require_production,
+    )
+    expected_descriptor = _engine_pin_descriptor(pin_data, require_production=require_production)
     evidence_path = _evidence_path(check.get("evidence"), here, repo)
     _error(errors, evidence_path is not None and evidence_path.exists(), "engine pass evidence is missing")
     if evidence_path is None or not evidence_path.exists():
@@ -1242,26 +1510,76 @@ def validate_engine_verification(
     record_arms = [record.get("arm") if isinstance(record, dict) else None for record in records]
     _error(errors, len(record_arms) == len(ARMS), "engine verification must contain exactly one record per primary arm")
     _error(errors, _unique_strings(record_arms), "engine verification arms are not unique strings")
-    _error(errors, all(isinstance(arm, str) for arm in record_arms) and set(record_arms) == set(ARMS), "engine verification does not cover the exact primary arms")
+    _error(errors, record_arms == ARMS, "engine verification does not cover the primary arms in canonical order")
     matrix_by_id = {
         arm.get("id"): arm for arm in matrix.get("arms", []) if isinstance(arm, dict) and isinstance(arm.get("id"), str)
     }
+    pinned_queries = {
+        item.get("query_id"): item
+        for item in pin_data.get("development_task", {}).get("queries", [])
+        if isinstance(item, dict) and isinstance(item.get("query_id"), str)
+    }
+    corpus_pin = pin_data.get("corpus", {})
+    runtime_pin = pin_data.get("runtime", {})
+    model_pin = pin_data.get("embedding_model", {})
+    engine_pins = pin_data.get("engines", {})
+    artifact_fields = tuple(
+        f"{stem}_{suffix}"
+        for stem in (
+            "binary",
+            "stdout",
+            "stderr",
+            "facts_source",
+            "session_dates_source",
+            "derived_facts",
+            "vector_artifact",
+            "embedding_model",
+            "embedding_server_stdout",
+            "embedding_server_stderr",
+            "embedding_server_attestation",
+            "server_script",
+            "node_runtime",
+            "package_manifest",
+            "package_lock",
+            "runtime_dependency_manifest",
+        )
+        for suffix in ("path", "sha256")
+    )
+    server_stems = (
+        "embedding_server_stdout",
+        "embedding_server_stderr",
+        "embedding_server_attestation",
+        "server_script",
+        "node_runtime",
+        "package_manifest",
+        "package_lock",
+        "runtime_dependency_manifest",
+    )
     namespaces: list[Any] = []
     semantic_vector_paths: list[Any] = []
     corpus_signatures: list[tuple[Any, Any, Any]] = []
     query_ids: list[Any] = []
+    pin_descriptors: list[Any] = []
+    facts_source_paths: list[Any] = []
+    session_source_paths: list[Any] = []
+    derived_facts_paths: list[Any] = []
     for index, record in enumerate(records):
         label = f"engine records[{index}]"
         if not _required_object_fields(
             errors,
             record,
-            ("schema_version", "arm", "requested", "effective", "artifacts", "corpus", "result"),
+            ("schema_version", "pin_set", "arm", "requested", "effective", "artifacts", "corpus", "result"),
             label,
         ):
             continue
         arm_id = record.get("arm")
         arm = matrix_by_id.get(arm_id, {}) if isinstance(arm_id, str) else {}
-        _error(errors, record.get("schema_version") == 1, f"{label}: schema_version must be 1")
+        engine_pin = engine_pins.get(arm_id, {}) if isinstance(engine_pins, dict) else {}
+        _error(errors, record.get("schema_version") == 2, f"{label}: schema_version must be 2")
+        pin_set = record.get("pin_set")
+        if _required_object_fields(errors, pin_set, ("id", "sha256", "authority"), f"{label}.pin_set"):
+            pin_descriptors.append(pin_set)
+            _error(errors, pin_set == expected_descriptor, f"{label}: pin descriptor is not authoritative")
         requested = record.get("requested")
         effective = record.get("effective")
         artifacts = record.get("artifacts")
@@ -1271,35 +1589,10 @@ def validate_engine_verification(
         effective_ok = _required_object_fields(
             errors,
             effective,
-            (
-                "engine",
-                "semantic_available",
-                "bm25_enabled",
-                "fallback_used",
-                "embedder_id",
-                "embedding_dimension",
-                "vector_count",
-                "vector_namespace",
-            ),
+            ("engine", "semantic_available", "bm25_enabled", "fallback_used", "embedder_id", "embedding_dimension", "vector_count", "vector_namespace"),
             f"{label}.effective",
         )
-        artifacts_ok = _required_object_fields(
-            errors,
-            artifacts,
-            (
-                "binary_path",
-                "binary_sha256",
-                "stdout_path",
-                "stdout_sha256",
-                "stderr_path",
-                "stderr_sha256",
-                "vector_artifact_path",
-                "vector_artifact_sha256",
-                "embedding_model_path",
-                "embedding_model_sha256",
-            ),
-            f"{label}.artifacts",
-        )
+        artifacts_ok = _required_object_fields(errors, artifacts, artifact_fields, f"{label}.artifacts")
         corpus_ok = _required_object_fields(
             errors,
             corpus,
@@ -1310,98 +1603,139 @@ def validate_engine_verification(
 
         if requested_ok:
             command = requested.get("command")
-            _error(
-                errors,
-                (isinstance(command, str) and bool(command))
-                or (isinstance(command, list) and bool(command) and all(isinstance(part, str) for part in command)),
-                f"{label}: requested command is invalid",
+            command_ok = (isinstance(command, str) and bool(command)) or (
+                isinstance(command, list) and bool(command) and all(isinstance(part, str) for part in command)
             )
+            _error(errors, command_ok, f"{label}: requested command is invalid")
             environment = requested.get("environment")
             _error(errors, isinstance(environment, dict), f"{label}: requested environment must be an object")
             if isinstance(environment, dict):
                 for key, value in arm.get("environment", {}).items():
                     _error(errors, environment.get(key) == value, f"{label}: requested environment mismatch: {key}")
+                _error(errors, environment.get("ENGINE_VERIFICATION_PIN_SET_ID") == pin_data.get("pin_set_id"), f"{label}: runtime pin-set environment differs")
             _error(errors, requested.get("namespace") == arm.get("namespace"), f"{label}: requested namespace mismatch")
 
         if effective_ok:
             namespace = effective.get("vector_namespace")
             namespaces.append(namespace)
             _error(errors, effective.get("engine") == arm_id == arm.get("effective_engine_required"), f"{label}: effective engine mismatch")
-            _error(errors, effective.get("semantic_available") is arm.get("semantic"), f"{label}: semantic availability mismatch")
+            _error(errors, effective.get("semantic_available") is arm.get("semantic") is engine_pin.get("semantic"), f"{label}: semantic availability mismatch")
             _error(errors, effective.get("bm25_enabled") is False, f"{label}: BM25 must be disabled")
             _error(errors, effective.get("fallback_used") is False, f"{label}: fallback is prohibited")
             _error(errors, namespace == arm.get("namespace"), f"{label}: effective namespace mismatch")
             _error(errors, isinstance(namespace, str) and bool(namespace), f"{label}: vector namespace is missing")
             _error(errors, _is_nonnegative_int(effective.get("vector_count")), f"{label}: vector_count is invalid")
-            if arm.get("semantic") is True:
-                _error(errors, isinstance(effective.get("embedder_id"), str) and bool(effective.get("embedder_id")), f"{label}: semantic embedder_id is missing")
-                dimension = effective.get("embedding_dimension")
-                _error(errors, _is_nonnegative_int(dimension) and dimension > 0, f"{label}: semantic embedding_dimension is invalid")
-            else:
-                _error(errors, effective.get("embedder_id") is None, f"{label}: lexical embedder_id must be null")
-                _error(errors, effective.get("embedding_dimension") is None, f"{label}: lexical embedding_dimension must be null")
+            _error(errors, effective.get("embedder_id") == engine_pin.get("embedder_id"), f"{label}: embedder differs from canonical pin")
+            _error(errors, effective.get("embedding_dimension") == engine_pin.get("dimension"), f"{label}: dimension differs from canonical pin")
 
         if artifacts_ok:
-            for stem in ("binary", "stdout", "stderr"):
+            for stem in ("binary", "stdout", "stderr", "facts_source", "session_dates_source", "derived_facts"):
                 _verify_hashed_file(
                     errors,
                     {"path": artifacts.get(f"{stem}_path"), "sha256": artifacts.get(f"{stem}_sha256")},
                     f"{label}.{stem} artifact",
                     repo=repo,
                 )
-            vector_hash = artifacts.get("vector_artifact_sha256")
+            facts_source_paths.append(artifacts.get("facts_source_path"))
+            session_source_paths.append(artifacts.get("session_dates_source_path"))
+            derived_facts_paths.append(artifacts.get("derived_facts_path"))
+            _error(errors, artifacts.get("facts_source_sha256") == corpus_pin.get("facts_sha256"), f"{label}: retained facts source differs from pin")
+            _error(errors, artifacts.get("session_dates_source_sha256") == corpus_pin.get("session_dates_sha256"), f"{label}: retained session dates differ from pin")
+            _error(errors, artifacts.get("derived_facts_sha256") == corpus_pin.get("facts_sha256"), f"{label}: derived facts changed during recall")
+
             vector_path = artifacts.get("vector_artifact_path")
-            model_hash = artifacts.get("embedding_model_sha256")
-            model_path = artifacts.get("embedding_model_path")
+            vector_hash = artifacts.get("vector_artifact_sha256")
             if arm.get("semantic") is True:
                 semantic_vector_paths.append(vector_path)
-                _verify_hashed_file(
-                    errors,
-                    {"path": vector_path, "sha256": vector_hash},
-                    f"{label}.vector artifact",
-                    repo=repo,
-                )
+                _verify_hashed_file(errors, {"path": vector_path, "sha256": vector_hash}, f"{label}.vector artifact", repo=repo)
             else:
-                _error(errors, (vector_path is None) == (vector_hash is None), f"{label}: vector artifact path/hash presence differs")
-                if vector_path is not None or vector_hash is not None:
-                    _verify_hashed_file(
-                        errors,
-                        {"path": vector_path, "sha256": vector_hash},
-                        f"{label}.vector artifact",
-                        repo=repo,
-                    )
+                _error(errors, vector_path is None and vector_hash is None, f"{label}: lexical vector artifact must be null")
+
+            model_path = artifacts.get("embedding_model_path")
+            model_hash = artifacts.get("embedding_model_sha256")
             if arm_id == "embeddinggemma_rrf":
-                _verify_hashed_file(
-                    errors,
-                    {"path": model_path, "sha256": model_hash},
-                    f"{label}.embedding model artifact",
-                    repo=repo,
-                )
-            else:
-                _error(errors, (model_path is None) == (model_hash is None), f"{label}: embedding model path/hash presence differs")
-                if model_path is not None or model_hash is not None:
+                _verify_hashed_file(errors, {"path": model_path, "sha256": model_hash}, f"{label}.embedding model artifact", repo=repo)
+                _error(errors, model_hash == model_pin.get("sha256"), f"{label}: embedding model differs from pin")
+                for stem in server_stems:
                     _verify_hashed_file(
                         errors,
-                        {"path": model_path, "sha256": model_hash},
-                        f"{label}.embedding model artifact",
+                        {"path": artifacts.get(f"{stem}_path"), "sha256": artifacts.get(f"{stem}_sha256")},
+                        f"{label}.{stem} artifact",
                         repo=repo,
                     )
+                for stem, expected in (
+                    ("server_script", runtime_pin.get("server_script_sha256")),
+                    ("node_runtime", runtime_pin.get("node_sha256")),
+                    ("package_manifest", runtime_pin.get("package_manifest_sha256")),
+                    ("package_lock", runtime_pin.get("package_lock_sha256")),
+                ):
+                    _error(errors, artifacts.get(f"{stem}_sha256") == expected, f"{label}: retained {stem} differs from pin")
+                server_script_target = _safe_relative_path(artifacts.get("server_script_path"), repo)
+                node_target = _safe_relative_path(artifacts.get("node_runtime_path"), repo)
+                model_target = _safe_relative_path(model_path, repo)
+                package_target = _safe_relative_path(artifacts.get("package_manifest_path"), repo)
+                lock_target = _safe_relative_path(artifacts.get("package_lock_path"), repo)
+                if server_script_target is not None:
+                    _error(errors, package_target == server_script_target.parent / "package.json", f"{label}: package manifest is not beside server script")
+                    _error(errors, lock_target == server_script_target.parent / "package-lock.json", f"{label}: package lock is not beside server script")
+                _validate_dependency_manifest(
+                    artifacts.get("runtime_dependency_manifest_path"),
+                    pin_data,
+                    errors,
+                    label,
+                    repo=repo,
+                    expected_root=server_script_target.parent / "node_modules" if server_script_target is not None else None,
+                )
+                _validate_server_attestation(
+                    artifacts.get("embedding_server_attestation_path"),
+                    requested if isinstance(requested, dict) else {},
+                    pin_data,
+                    errors,
+                    label,
+                    repo=repo,
+                )
+                server_command = requested.get("embedding_server_command") if isinstance(requested, dict) else None
+                _error(errors, isinstance(server_command, list) and len(server_command) == 2 and all(isinstance(part, str) and part for part in server_command), f"{label}: controlled server command is invalid")
+                if (
+                    isinstance(server_command, list)
+                    and len(server_command) == 2
+                    and all(isinstance(part, str) and part for part in server_command)
+                ):
+                    _error(errors, pathlib.Path(server_command[0]).resolve() == node_target, f"{label}: server command did not use retained Node")
+                    _error(errors, pathlib.Path(server_command[1]).resolve() == server_script_target, f"{label}: server command did not use retained script")
+                server_environment = requested.get("embedding_server_environment") if isinstance(requested, dict) else None
+                _error(errors, isinstance(server_environment, dict), f"{label}: controlled server environment is invalid")
+                if isinstance(server_environment, dict):
+                    _error(errors, server_environment.get("HOST") == "127.0.0.1", f"{label}: controlled server host is not loopback-pinned")
+                    _error(errors, server_environment.get("PORT") == "11500", f"{label}: controlled server port differs from matrix")
+                    gguf = server_environment.get("GGUF")
+                    _error(errors, isinstance(gguf, str) and pathlib.Path(gguf).resolve() == model_target, f"{label}: controlled server did not use retained GGUF")
+            else:
+                _error(errors, model_path is None and model_hash is None, f"{label}: non-EmbeddingGemma model artifact must be null")
+                for stem in server_stems:
+                    _error(
+                        errors,
+                        artifacts.get(f"{stem}_path") is None and artifacts.get(f"{stem}_sha256") is None,
+                        f"{label}: non-EmbeddingGemma {stem} artifact must be null",
+                    )
+                if isinstance(requested, dict):
+                    _error(errors, "embedding_server_command" not in requested, f"{label}: non-EmbeddingGemma server command is prohibited")
+                    _error(errors, "embedding_server_environment" not in requested, f"{label}: non-EmbeddingGemma server environment is prohibited")
 
         if corpus_ok:
             facts_hash = corpus.get("facts_sha256")
             prefilter_count = corpus.get("prefilter_count")
             eligible_count = corpus.get("eligible_count")
             delivered_count = corpus.get("delivered_count")
-            _error(errors, _is_sha256(facts_hash), f"{label}: facts_sha256 is invalid")
-            for key, value in (
-                ("prefilter_count", prefilter_count),
-                ("eligible_count", eligible_count),
-                ("delivered_count", delivered_count),
-            ):
-                _error(errors, _is_nonnegative_int(value), f"{label}: {key} is invalid")
-            _error(errors, isinstance(corpus.get("excluded_by_reason"), dict), f"{label}: excluded_by_reason must be an object")
-            if _is_nonnegative_int(prefilter_count) and _is_nonnegative_int(eligible_count):
-                _error(errors, eligible_count <= prefilter_count, f"{label}: eligible_count exceeds prefilter_count")
+            _error(errors, facts_hash == corpus_pin.get("facts_sha256"), f"{label}: corpus facts hash differs from pin")
+            _error(errors, prefilter_count == corpus_pin.get("prefilter_count"), f"{label}: prefilter count differs from pin")
+            _error(errors, eligible_count == corpus_pin.get("eligible_count"), f"{label}: eligible count differs from pin")
+            _error(errors, _is_nonnegative_int(delivered_count), f"{label}: delivered_count is invalid")
+            excluded = corpus.get("excluded_by_reason")
+            _error(errors, isinstance(excluded, dict), f"{label}: excluded_by_reason must be an object")
+            if isinstance(excluded, dict) and _is_nonnegative_int(prefilter_count) and _is_nonnegative_int(eligible_count):
+                _error(errors, all(_is_nonnegative_int(value) for value in excluded.values()), f"{label}: excluded count is invalid")
+                _error(errors, sum(excluded.values()) == prefilter_count - eligible_count, f"{label}: excluded counts do not reconcile")
             if _is_nonnegative_int(eligible_count) and _is_nonnegative_int(delivered_count):
                 _error(errors, delivered_count <= eligible_count, f"{label}: delivered_count exceeds eligible_count")
             corpus_signatures.append((facts_hash, prefilter_count, eligible_count))
@@ -1409,21 +1743,21 @@ def validate_engine_verification(
         if result_ok:
             query_id = result.get("query_id")
             query_ids.append(query_id)
-            _error(errors, isinstance(query_id, str) and bool(query_id), f"{label}: query_id is missing")
+            _error(errors, query_id in pinned_queries, f"{label}: query_id is not in the canonical development pin set")
             fact_ids = result.get("fact_ids_in_order")
             _error(errors, isinstance(fact_ids, list) and all(isinstance(fact_id, str) for fact_id in fact_ids), f"{label}: fact_ids_in_order is invalid")
             if isinstance(fact_ids, list) and all(isinstance(fact_id, str) for fact_id in fact_ids):
                 _error(errors, _unique_strings(fact_ids), f"{label}: ranked fact ids are not unique")
             _error(errors, result.get("output_valid") is True, f"{label}: output_valid must be true")
 
+    _error(errors, _all_equal(pin_descriptors), "engine verification pin descriptors differ")
     _error(errors, _unique_strings(namespaces), "engine verification namespaces are not unique strings")
-    _error(
-        errors,
-        _unique_strings(semantic_vector_paths),
-        "semantic engine vector artifact paths are not unique strings",
-    )
+    _error(errors, _unique_strings(semantic_vector_paths), "semantic engine vector artifact paths are not unique strings")
     _error(errors, _all_equal(corpus_signatures), "engine verification corpus hash/prefilter/eligible counts differ")
     _error(errors, _all_equal(query_ids), "engine verification query ids differ")
+    _error(errors, _all_equal(facts_source_paths), "engine verification retained facts sources differ")
+    _error(errors, _all_equal(session_source_paths), "engine verification retained session-date sources differ")
+    _error(errors, _unique_strings(derived_facts_paths), "engine verification derived facts paths are not unique")
     return errors
 
 
@@ -1501,6 +1835,7 @@ def validate(freeze: bool = False) -> list[str]:
     dataset = load(HERE / "offline-relevance-dataset.json")
     gate = load(HERE / "go-no-go.json")
     errors.extend(validate_inventory(inventory))
+    _validate_engine_pins(load(ENGINE_PINS), errors, repo=REPO, require_production=True)
 
     for schema_path in sorted((HERE / "schemas").glob("*.json")):
         schema = load(schema_path)

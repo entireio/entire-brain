@@ -1,9 +1,10 @@
 # Engine launch and verification runbook
 
-This runbook is deterministic/offline after the binary, frozen facts root, development query, and
-pinned EmbeddingGemma GGUF are available. It does not invoke a coding agent. Final evidence must be
-created by `verify_engines.py`; the individual commands below remain useful diagnostics but cannot
-by themselves satisfy the gate.
+This runbook is deterministic/offline after the binary and pinned local inputs are available. It
+does not invoke a coding agent. Production expectations come only from the checked-in
+`engine-verification-pins.json`; callers supply source locations, never expected hashes, counts,
+versions, or runtime identities. Final evidence must be created by `verify_engines.py`; the
+individual commands below remain useful diagnostics but cannot by themselves satisfy the gate.
 
 ## Preflight
 
@@ -15,7 +16,9 @@ python3 benchmarks/agent-brain/confirmatory/check_protocol.py
 
 Set `FROZEN_CONFIG`, `FROZEN_DATA`, `FROZEN_STATE`, and `FROZEN_REPO_ROOT` to a read-only frozen
 corpus resolution. Set `FROZEN_FACTS`, `SESSION_DATES`, `QUERY`, `QUERY_ID`, and `K` from the exposed
-development task. Never open a fresh holdout for this step.
+development task. Set `NODE_RUNTIME` to the resolved executable and `NODE_MODULES` to the dependency
+tree named by the canonical pin set; a `node` found through the caller's `PATH` is not authoritative.
+Never open a fresh holdout for this step.
 
 Fact vectors are stored below `ENTIRE_PLUGIN_DATA_DIR`, not `ENTIRE_PLUGIN_CACHE_DIR`. A final
 verification must therefore use a separate derived data root for every arm, copied from the same
@@ -31,10 +34,13 @@ GGUF. Free the endpoint through the owner of that process before running; do not
 or unowned process merely to make this check pass.
 
 Choose `ARTIFACT_ROOT` as the repository root and `OUTPUT` as a new directory below it. The output
-includes a copy of the 333.6 MB GGUF, binary, two independent vector files, recall/server logs, three
-derived runtime roots, and the final manifest. Do not mark the gate pass unless those bytes will be
-durably retained by the repository's artifact strategy. A temporary or untracked output is only a
-diagnostic run even when the wrapper succeeds.
+includes byte-identical retained copies of the facts and session-date sources, the 333.6 MB GGUF,
+the resolved 126.7 MB Node executable, the approximately 46.6 MB regular-file dependency tree,
+server script, package manifest and lockfile, binary, two independent vector files, recall/server
+logs, three derived runtime roots, a dependency inventory, a server health attestation, and the
+final manifest. Do not mark the gate pass unless those bytes will be durably retained by the
+repository's artifact strategy. A temporary or untracked output is only a diagnostic run even when
+the wrapper succeeds.
 
 ```sh
 python3 benchmarks/agent-brain/confirmatory/verify_engines.py \
@@ -51,20 +57,19 @@ python3 benchmarks/agent-brain/confirmatory/verify_engines.py \
   --k "$K" \
   --eligible-before "$CUTOFF" \
   --exclude-session-id "$EXCLUDED_SESSION_ID" \
-  --expected-facts-sha256 "$FACTS_SHA256" \
-  --expected-session-dates-sha256 "$SESSION_DATES_SHA256" \
-  --expected-prefilter-count "$PREFILTER_COUNT" \
-  --expected-eligible-count "$ELIGIBLE_COUNT" \
   --embedding-model "$EMBEDDINGGEMMA_GGUF" \
-  --expected-embedding-model-sha256 "$EMBEDDINGGEMMA_SHA256" \
+  --node-runtime "$NODE_RUNTIME" \
+  --runtime-dependency-root "$NODE_MODULES" \
   --artifact-root "$ARTIFACT_ROOT" \
   --output-dir "$OUTPUT"
 ```
 
 Publication is atomic at the evidence-contract level: `engine-verification.json` is written only
 after all three arms pass runtime identity, eligibility reconciliation, vector-header attribution,
-source-integrity rechecks, artifact hashing, and `check_protocol.validate_engine_verification`.
-On any failure, no manifest is emitted.
+source-integrity rechecks, complete dependency-byte inventory, owned-server continuity checks,
+artifact hashing, and `check_protocol.validate_engine_verification`. Validation occurs against a
+temporary manifest followed by an atomic rename. On any failure, neither a final nor temporary
+manifest is retained.
 
 ## Lexical hand-rolled arm
 
@@ -94,12 +99,15 @@ env -u ENTIRE_BRAIN_EMBEDDER -u ENTIRE_BRAIN_EMBED_URL \
 
 ## Pinned EmbeddingGemma RRF arm
 
-Before starting the server, record the GGUF file SHA-256 and exact model ID. The server must bind
-loopback. The current `scripts/bench/embed-server.mjs` is the supported local endpoint.
+Before starting a diagnostic server, verify the GGUF, Node executable, server script, package and
+dependency-tree pins. The server must bind loopback. The current `scripts/bench/embed-server.mjs` is
+the supported local endpoint. The authoritative wrapper additionally gives the server a random
+ownership token and continuously checks `/health` for the same PID, token, GGUF hash, embedding
+dimension, and Node version before, during, and after recall.
 
 ```sh
-sha256sum "$EMBEDDINGGEMMA_GGUF"
-GGUF="$EMBEDDINGGEMMA_GGUF" HOST=127.0.0.1 PORT=11500 node scripts/bench/embed-server.mjs
+sha256sum "$EMBEDDINGGEMMA_GGUF" "$NODE_RUNTIME" scripts/bench/embed-server.mjs
+GGUF="$EMBEDDINGGEMMA_GGUF" HOST=127.0.0.1 PORT=11500 "$NODE_RUNTIME" scripts/bench/embed-server.mjs
 ```
 
 In a second shell:
@@ -122,9 +130,11 @@ For every command, retain stdout/stderr and a record conforming to
 `schemas/engine-verification.schema.json`. Effective engine must come from machine-readable runtime
 output, not inferred environment intent. Recall JSON now exposes the observed `effective_engine`,
 embedder ID/dimension, BM25 and fallback state, cache backend/path, and vector counts. The verification
-wrapper must still bind those observations to the requested namespace and retain the corpus, vector,
-binary, model, stdout, stderr, command, and environment hashes required by the schema. Final freeze
-remains blocked until one real record for each arm passes those checks.
+wrapper must still bind those observations to the requested namespace and retain the source and
+derived corpus bytes, vector, binary, model, complete server runtime, stdout, stderr, command,
+environment, and health-attestation hashes required by the schema. The checker independently
+re-hashes every named byte and requires production records to name the checked-in canonical pin-set
+descriptor. Final freeze remains blocked until one real record for each arm passes those checks.
 
 Reject a cell when `fallback_used=true`, semantic was requested but unavailable, BM25 differs from the
 arm declaration, namespaces overlap, source facts change, eligible-candidate counts differ between

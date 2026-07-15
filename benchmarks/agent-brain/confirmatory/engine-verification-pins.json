@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "pin_set_id": "facts-retrieval-primary-2026-07-15-darwin-arm64-v1",
+  "authority": "production",
+  "development_task": {
+    "task_id": "entire-cli-c0701-6699ec40a",
+    "queries": [
+      {
+        "query_id": "entire-cli-c0701-6699ec40a:brain-query-1",
+        "query_text": "Pi review cache tokens are double counted",
+        "query_sha256": "9ec3b4c438649cd389e7c2a90214d3e2fe219c9921d22bb7d8986531604fe03c"
+      },
+      {
+        "query_id": "entire-cli-c0701-6699ec40a:brain-query-2",
+        "query_text": "how cache token usage should accumulate across the stream",
+        "query_sha256": "e2e19e8a4abccaaa4ab96540a4684dfa9a6a9247c1646b16f2be8aa157ba849c"
+      },
+      {
+        "query_id": "entire-cli-c0701-6699ec40a:brain-query-3",
+        "query_text": "Pi reviewer token stream cache accounting",
+        "query_sha256": "11d40e44062e785dab46339e329490e0c905872369aee6ffbeeef17cf302bdbb"
+      },
+      {
+        "query_id": "entire-cli-c0701-6699ec40a:brain-query-4",
+        "query_text": "avoiding double counting of cached tokens",
+        "query_sha256": "f38a1d2a48de8fcb60aa266c384a167012af10fe046a995a831658b97a0a2977"
+      }
+    ],
+    "eligible_before": "2026-07-01T19:32:18+02:00",
+    "exclude_session_ids": [
+      "019f1893-b810-7992-afb4-8c4bddc4ae3c"
+    ]
+  },
+  "corpus": {
+    "facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
+    "facts_size_bytes": 2050384,
+    "session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a",
+    "session_dates_size_bytes": 165511,
+    "prefilter_count": 2621,
+    "eligible_count": 2529
+  },
+  "embedding_model": {
+    "model_id": "embeddinggemma",
+    "embedder_id": "ollama:embeddinggemma",
+    "dimension": 768,
+    "sha256": "b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63",
+    "size_bytes": 333590944
+  },
+  "engines": {
+    "lexical_handrolled": {
+      "semantic": false,
+      "embedder_id": null,
+      "dimension": null
+    },
+    "model2vec_rrf": {
+      "semantic": true,
+      "embedder_id": "minishlab/potion-retrieval-32M",
+      "dimension": 512
+    },
+    "embeddinggemma_rrf": {
+      "semantic": true,
+      "embedder_id": "ollama:embeddinggemma",
+      "dimension": 768
+    }
+  },
+  "runtime": {
+    "platform": "darwin-arm64",
+    "node_version": "v23.3.0",
+    "node_sha256": "28a340907b2628c508d3de60406fcde378fdd77a984aab32ee117352b15c02e6",
+    "server_script_repo_path": "scripts/bench/embed-server.mjs",
+    "server_script_sha256": "50093e086755890025efc65240ba755867a65ec24c92ce7a4709d6737dd1dd6e",
+    "package_manifest_repo_path": "scripts/bench/package.json",
+    "package_manifest_sha256": "8c8a9c0b6a6944c86799559d776862d0e679e7ba826823e5c96d5940f450ee75",
+    "package_lock_repo_path": "scripts/bench/package-lock.json",
+    "package_lock_sha256": "4a3eea2319165ee0253fa07c0bbffd07b8834ac552cce1947c99d5ea7d132e1a",
+    "dependency_inventory_algorithm": "sha256_ordered_relative_path_nul_sha256_newline_v1",
+    "dependency_inventory_sha256": "06102ca220d769131ede19ba1e33b91ef029342b04c72e75b8117e9dcbead3d0",
+    "dependency_file_count": 2698,
+    "dependency_total_bytes": 46597247,
+    "node_llama_cpp_version": "3.18.1",
+    "platform_package": "@node-llama-cpp/mac-arm64-metal",
+    "platform_package_version": "3.18.1"
+  }
+}
