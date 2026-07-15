@@ -45,6 +45,9 @@ func newVectorStore(brainDir, branch, modelID string, dim int) vectorStore {
 	return &vecStore{path: filepath.Join(dir, vecStoreFileName), modelID: modelID, dim: dim}
 }
 
+func (s *vecStore) vectorCacheBackend() string { return "sqlite_vec" }
+func (s *vecStore) vectorCachePath() string    { return s.path }
+
 func (s *vecStore) open() (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return nil, err

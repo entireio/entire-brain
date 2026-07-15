@@ -43,6 +43,26 @@ type semanticReranker struct {
 	store   vectorStore     // nil => in-memory only (eval, tests)
 	touched map[string]bool // ids seen this run; nil unless disk-backed
 	dirty   bool            // a new vector was embedded this run
+	loaded  int             // full-dimension vectors loaded from the store
+
+	// lastRun is observation-only instrumentation for callers that must report
+	// the effective retrieval engine. It records what rankFactsFused actually
+	// used; it never participates in ranking decisions.
+	lastRun semanticRerankTrace
+}
+
+// semanticRerankTrace describes the most recent rankFactsFused call. In
+// particular, Applied follows the existing len(qvec)>0 behavior, while
+// QueryVectorValid and ValidCandidateVectors let identity reporting fail closed
+// when a backend returns a malformed/partial result instead of claiming a
+// healthy semantic arm from configuration intent alone.
+type semanticRerankTrace struct {
+	Attempted             bool
+	Applied               bool
+	QueryVectorValid      bool
+	CandidateCount        int
+	ValidCandidateVectors int
+	BM25Used              bool
 }
 
 // newSemanticReranker returns nil when no embedder is available, so callers can
@@ -66,6 +86,7 @@ func newSemanticRerankerForBranch(e Embedder, brainDir, branch string) *semantic
 	}
 	rr.store = newVectorStore(brainDir, branch, e.ID(), e.Dim())
 	rr.cache = rr.store.load()
+	rr.loaded = len(rr.cache)
 	rr.touched = map[string]bool{}
 	return rr
 }
@@ -174,7 +195,11 @@ func (s *semanticReranker) flush() error {
 // An empty (or whitespace-only) query keeps the lexical path's recency listing
 // (no query vector to compare against), matching rankFacts exactly.
 func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool, rr *semanticReranker) []factRecord {
-	if rr == nil || strings.TrimSpace(query) == "" {
+	if rr == nil {
+		return rankFacts(facts, query, limit, includeAll)
+	}
+	rr.lastRun = semanticRerankTrace{}
+	if strings.TrimSpace(query) == "" {
 		return rankFacts(facts, query, limit, includeAll)
 	}
 	if limit <= 0 {
@@ -187,11 +212,14 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		cos    float64
 	}
 	queryLocus := factLocus(query)
+	rr.lastRun.Attempted = true
 	qvec := rr.embedQuery(query)
 	// No query embedding (e.g. the embedder is unavailable) → fall back cleanly to
 	// lexical-only ranking. Otherwise every cosine is 0 and the semantic arm would
 	// still add an RRF term, reordering results by the UpdatedAt tiebreaker.
 	haveSemantic := len(qvec) > 0
+	rr.lastRun.Applied = haveSemantic
+	rr.lastRun.QueryVectorValid = rr.e.Dim() > 0 && len(qvec) == rr.e.Dim()
 	candidates := make([]factRecord, 0, len(facts))
 	for _, f := range facts {
 		if !includeAll && f.Status != factStatusActive {
@@ -199,6 +227,7 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 		}
 		candidates = append(candidates, f)
 	}
+	rr.lastRun.CandidateCount = len(candidates)
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -212,6 +241,7 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 	if factsBM25Enabled() {
 		bm25, haveBM25 = factsFTSScores(candidates, query)
 	}
+	rr.lastRun.BM25Used = haveBM25
 	// Semantic arm engine: under brain_cgo the disk store is a sqlite-vec vec0
 	// table, and one KNN MATCH query returns the cosine for every stored fact —
 	// replacing the per-fact brute-force loop below. Facts not yet in the store
@@ -241,8 +271,13 @@ func rankFactsFused(facts []factRecord, query string, limit int, includeAll bool
 			if c, ok := storeCos[f.ID]; ok {
 				cos = c
 				rr.markTouched(f.ID)
+				rr.lastRun.ValidCandidateVectors++
 			} else {
-				cos = cosineFloat32(qvec, rr.factVector(f))
+				fvec := rr.factVector(f)
+				cos = cosineFloat32(qvec, fvec)
+				if d := rr.e.Dim(); d > 0 && len(fvec) == d {
+					rr.lastRun.ValidCandidateVectors++
+				}
 			}
 		}
 		cands = append(cands, cand{rec: f, lex: lex, lexHit: lexHit, cos: cos})

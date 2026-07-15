@@ -35,6 +35,9 @@ func newEmbedStore(brainDir, branch, modelID string, dim int) *embedStore {
 	return &embedStore{path: filepath.Join(brainDir, filepath.FromSlash(rel)), brainDir: brainDir, relPath: rel, modelID: modelID, dim: dim}
 }
 
+func (s *embedStore) vectorCacheBackend() string { return "flat_file" }
+func (s *embedStore) vectorCachePath() string    { return s.path }
+
 // load reads persisted vectors, returning an empty map (not an error) whenever
 // the cache is absent, unreadable, or built for a different model/dim — every
 // such case is a cache miss that the caller refills by embedding. A cache is
