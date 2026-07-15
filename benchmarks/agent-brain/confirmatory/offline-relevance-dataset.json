@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "dataset_id": "agent-brain-relevance-v1-draft",
+  "status": "draft_pending_labels_and_holdout_seal",
+  "created_at": "2026-07-15T12:00:00+02:00",
+  "label_policy": {
+    "query_sources": ["user_prompt_derived", "oracle_upper_bound"],
+    "required_judgments": ["solving", "relevant_alternative", "hard_topical_distractor", "irrelevant"],
+    "null_queries_required": true,
+    "temporal_eligibility_required": true,
+    "near_duplicate_cluster_ids_required": true
+  },
+  "development": {"items": []},
+  "sealed_holdout": {
+    "item_count": 0,
+    "unique_task_count": 0,
+    "commitment_sha256": null,
+    "sealed_at": null,
+    "opened_at": null,
+    "items": []
+  }
+}

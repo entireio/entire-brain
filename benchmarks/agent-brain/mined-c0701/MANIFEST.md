@@ -31,10 +31,11 @@ hundreds of commits from HEAD).
 ## Negative control (validity gate — already run per task)
 Per-task-base negative control: with the test hunk applied on the parent, the target
 test is **RED at the parent base** (bug present natively) and **GREEN at the fix**.
-All 45 tasks here passed this gate (keep list: `keep_shas.txt`, 45 SHAs).
+The original keep list recorded 45 passing tasks. The additional `d9df8fcca` config also records
+`_negctl: red_at_parent_base`; it was omitted from that list and is reconciled below as task 46.
 
 ## Split (commit-hash parity: even last hex of fix-commit SHA = dev, odd = holdout)
-- **dev: 21**  .  **holdout: 24**  .  **total: 45**
+- **dev: 22**  .  **holdout: 24**  .  **total: 46 unique tasks**
 
 ## dev tasks
 | commit | subject |
@@ -59,6 +60,7 @@ All 45 tasks here passed this gate (keep list: `keep_shas.txt`, 45 SHAs).
 | c67d74e6c | uiform: clear foreground on blurred titles/options too |
 | d8df699cb | repo mirror list: filter on the owner/repo form shown in the table |
 | d90849ac5 | cli/enable: gate import offer on checkpoint policy; don't auto-import non-interactively |
+| d9df8fcca | checkpoint fetch: exclude URL-keyed promisor entries from bulk git fetch --all rather than switching to a named remote |
 | e52b748b4 | Mention trail findings in trail help |
 
 ## holdout tasks
@@ -92,7 +94,14 @@ All 45 tasks here passed this gate (keep list: `keep_shas.txt`, 45 SHAs).
 ## Files
 - `dev/`, `holdout/` - task JSONs (per-task-base scheme).
 - `patches/` - forward TEST-hunk patches (`entire-cli-c0701-<short>-test.patch`).
-- `selection-ledger.json` - the 45 keeps: short sha, full sha, split, subject.
-- `keep_shas.txt` (scratchpad) - the 45 negative-control-passing fix SHAs.
+- `selection-ledger.json` - the 46 unique tasks: short sha, full sha, split, subject.
+- `keep_shas.txt` (scratchpad, not retained here) originally listed 45 negative-control-passing fix SHAs;
+  `d9df8fcca` was an additional negative-control-passing config/patch omitted from that ledger and is
+  now accounted for explicitly.
+
+The duplicate development copy of `4dd458656` was removed. Its canonical config remains in
+`holdout/` to match the mechanical parity split, but prior prompt inspection, retrieval probes, agent
+runs, and ranking/cap optimization make it permanently ineligible for confirmation. See
+`confirmatory/task-inventory.json` for the contamination state of every unique task.
 
 **Status: task set only - NOT yet run.** Running arms (P3/P5) is gated per the plan.

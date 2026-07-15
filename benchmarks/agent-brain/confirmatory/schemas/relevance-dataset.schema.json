@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/relevance-dataset-v1.json",
+  "type": "object",
+  "required": ["schema_version", "dataset_id", "status", "created_at", "label_policy", "development", "sealed_holdout"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "dataset_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["draft_pending_labels_and_holdout_seal", "frozen_unopened", "opened_once"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "label_policy": {"type": "object"},
+    "development": {"type": "object", "required": ["items"], "properties": {"items": {"type": "array", "items": {"$ref": "#/$defs/query"}}}},
+    "sealed_holdout": {
+      "type": "object",
+      "required": ["item_count", "unique_task_count", "commitment_sha256", "sealed_at", "opened_at", "items"],
+      "properties": {
+        "item_count": {"type": "integer", "minimum": 0},
+        "unique_task_count": {"type": "integer", "minimum": 0},
+        "commitment_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "sealed_at": {"type": ["string", "null"], "format": "date-time"},
+        "opened_at": {"type": ["string", "null"], "format": "date-time"},
+        "items": {"type": "array", "items": {"$ref": "#/$defs/query"}}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "query": {
+      "type": "object",
+      "required": ["query_id", "task_id", "query_source", "query_text", "query_sha256", "temporal_cutoff", "null_query", "judgments"],
+      "properties": {
+        "query_id": {"type": "string", "minLength": 1},
+        "task_id": {"type": "string", "minLength": 1},
+        "query_source": {"enum": ["user_prompt_derived", "oracle_upper_bound"]},
+        "query_text": {"type": "string"},
+        "query_sha256": {"$ref": "#/$defs/sha256"},
+        "task_prompt_sha256": {"$ref": "#/$defs/sha256"},
+        "hidden_validation_sha256": {"$ref": "#/$defs/sha256"},
+        "temporal_cutoff": {"type": "string", "format": "date-time"},
+        "null_query": {"type": "boolean"},
+        "judgments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["fact_id", "grade", "eligible", "kind", "cluster_id"],
+            "properties": {
+              "fact_id": {"type": "string", "minLength": 1},
+              "grade": {"enum": ["solving", "relevant_alternative", "hard_topical_distractor", "irrelevant"]},
+              "eligible": {"type": "boolean"},
+              "kind": {"type": "string", "minLength": 1},
+              "cluster_id": {"type": "string", "minLength": 1}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

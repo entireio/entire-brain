@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "decision": "no_go",
+  "updated_at": "2026-07-15T12:00:00+02:00",
+  "checks": [
+    {"id": "ws2_prompt_task_validity", "status": "pending", "evidence": null},
+    {"id": "ws3_temporal_completeness", "status": "pending", "evidence": null},
+    {"id": "ws4_schedule_cache_controls", "status": "pending", "evidence": null},
+    {"id": "ws5_evidence_verification", "status": "pending", "evidence": null},
+    {"id": "unique_inventory_reconciled", "status": "pass", "evidence": "task-inventory.json"},
+    {"id": "fresh_holdout_hash_frozen", "status": "pending", "evidence": null},
+    {"id": "holdout_unopened", "status": "pass", "evidence": "preregistration.json#fresh_holdout"},
+    {"id": "analyzer_hash_frozen", "status": "pending", "evidence": null},
+    {"id": "all_engines_machine_verified", "status": "pending", "evidence": null},
+    {"id": "offline_development_threshold", "status": "pending", "evidence": null},
+    {"id": "power_target_met", "status": "pending", "evidence": null},
+    {"id": "model_runner_price_pinned", "status": "pending", "evidence": null},
+    {"id": "paid_budget_cap_approved", "status": "pending", "evidence": null},
+    {"id": "protocol_content_hash_frozen", "status": "pending", "evidence": null}
+  ],
+  "rule": "go iff every check is pass; pending or fail is no_go"
+}

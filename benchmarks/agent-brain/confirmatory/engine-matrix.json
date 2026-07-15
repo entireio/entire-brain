@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "matrix_id": "facts-retrieval-primary-v1",
+  "bm25_primary_factor": false,
+  "arms": [
+    {
+      "id": "lexical_handrolled",
+      "semantic": false,
+      "cli_flags": ["--no-semantic", "--json"],
+      "environment": {"ENTIRE_BRAIN_FACTS_BM25": "0"},
+      "effective_engine_required": "lexical_handrolled",
+      "namespace": "lexical_handrolled-v1"
+    },
+    {
+      "id": "model2vec_rrf",
+      "semantic": true,
+      "cli_flags": ["--json"],
+      "environment": {"ENTIRE_BRAIN_FACTS_BM25": "0", "ENTIRE_BRAIN_EMBEDDER": ""},
+      "effective_engine_required": "model2vec_rrf",
+      "namespace": "model2vec_rrf-v1"
+    },
+    {
+      "id": "embeddinggemma_rrf",
+      "semantic": true,
+      "cli_flags": ["--json"],
+      "environment": {"ENTIRE_BRAIN_FACTS_BM25": "0", "ENTIRE_BRAIN_EMBEDDER": "ollama", "ENTIRE_BRAIN_EMBED_URL": "http://127.0.0.1:11500"},
+      "effective_engine_required": "embeddinggemma_rrf",
+      "namespace": "embeddinggemma_rrf-v1",
+      "required_pins": ["embedding_model_sha256", "embedding_model_id", "embedding_dimension"]
+    }
+  ],
+  "optional_factor_pattern": "bm25_plus_<semantic>",
+  "isolation_required": ["ENTIRE_PLUGIN_CACHE_DIR", "vector_namespace", "vector_artifact_sha256"],
+  "verification_schema": "schemas/engine-verification.schema.json"
+}

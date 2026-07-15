@@ -1,8 +1,8 @@
 {
   "scheme": "per_task_base_frozen_brief",
-  "generated": "2026-07-14",
-  "total": 45,
-  "dev_count": 21,
+  "generated": "2026-07-15",
+  "total": 46,
+  "dev_count": 22,
   "holdout_count": 24,
   "split_rule": "even last hex char of fix-commit full SHA = dev, odd = holdout",
   "negctl": "red_at_parent_base (per-task-base negative control passed: RED at parent, GREEN at fix)",
@@ -246,6 +246,12 @@
       "sha": "d90849ac5fa8f69412b70b4116f2f3072d0ddbbc",
       "split": "dev",
       "subject": "cli/enable: gate import offer on checkpoint policy; don't auto-import non-interactively"
+    },
+    {
+      "short_sha": "d9df8fcca",
+      "sha": "d9df8fcca2953fd32c1bd57d268c27387f6ccdc9",
+      "split": "dev",
+      "subject": "checkpoint fetch: exclude URL-keyed promisor entries from bulk git fetch --all rather than switching to a named remote"
     },
     {
       "short_sha": "dd255c286",

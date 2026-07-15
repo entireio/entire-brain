@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "protocol_id": "agent-brain-confirmatory-v1-candidate",
+  "status": "draft_pending_ws2_ws5",
+  "drafted_at": "2026-07-15T12:00:00+02:00",
+  "holdout_opened": false,
+  "legacy_inventory": "task-inventory.json",
+  "fresh_holdout": {
+    "target_unique_tasks": 24,
+    "commitment_sha256": null,
+    "opened_at": null,
+    "mine_only_after_methodology_freeze": true
+  },
+  "offline_dataset": {
+    "path": "offline-relevance-dataset.json",
+    "minimum_development_queries": 12,
+    "minimum_development_tasks": 12,
+    "minimum_sealed_holdout_queries": 12,
+    "minimum_sealed_holdout_tasks": 12
+  },
+  "engine_matrix": "engine-matrix.json",
+  "development_selection": {
+    "metrics": ["recall_at_1", "recall_at_5", "recall_at_10", "mrr", "ndcg_at_10", "packet_precision_at_k", "kind_distribution", "cluster_occupancy", "temporal_exclusions"],
+    "thresholds": {
+      "answerable_product_recall_at_5_min": 0.8,
+      "null_false_positive_rate_max": 0.1,
+      "temporal_leakage_max": 0,
+      "selected_packet_cluster_occupancy_max": 1
+    },
+    "k_candidates": [5, 8, 10, 12],
+    "selected_k": null,
+    "selected_aggregation_rule": null,
+    "threshold_passed": false
+  },
+  "agent_design": {
+    "primary_treatments": ["no_memory", "placebo_packet", "retrieved_memory"],
+    "separate_upper_bound": "oracle_retrieval",
+    "query_source": "user_prompt_derived",
+    "tasks": 24,
+    "repetitions_per_treatment": 4,
+    "requested_cells": 288,
+    "maximum_calls_with_reserve": 317,
+    "power": {"target": 0.8, "token_reduction_target": 0.12, "completed": false},
+    "correctness": {"margin_absolute": -0.1, "confidence": 0.95, "method": "one_sided_task_clustered_bootstrap"},
+    "tokens": {"estimand": "paired_task_geometric_mean_ratio_all_valid_attempts", "confidence": 0.95},
+    "wall_time": {"role": "secondary", "fields": ["harness_wall_seconds", "agent_api_seconds"]},
+    "bootstrap_resamples": 10000,
+    "bootstrap_seed": 607152026,
+    "multiplicity": "holm_within_endpoint_family",
+    "outlier_policy": "retain_all_valid_attempts",
+    "stopping_rule": "fixed_cells_or_budget_or_integrity_pause_no_efficacy_peeking"
+  },
+  "paid_budget": {
+    "model_id": null,
+    "input_price_per_token": null,
+    "cached_input_price_per_token": null,
+    "output_price_per_token": null,
+    "maximum_usd": null,
+    "formula": "sum(input_tokens*input_price + cached_input_tokens*cached_input_price + output_tokens*output_price)"
+  },
+  "dependencies": {
+    "ws2_treatment_and_task_validity": "pending",
+    "ws3_temporal_completeness": "pending",
+    "ws4_schedule_and_cache": "pending",
+    "ws5_evidence_verification": "pending"
+  },
+  "analyzer_sha256": null,
+  "freeze": {"frozen_at": null, "protocol_sha256": null}
+}

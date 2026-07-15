@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://entire.io/schemas/agent-brain/engine-verification-v1.json",
+  "type": "object",
+  "required": ["schema_version", "arm", "requested", "effective", "artifacts", "corpus", "result"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "arm": {"enum": ["lexical_handrolled", "model2vec_rrf", "embeddinggemma_rrf"]},
+    "requested": {"type": "object", "required": ["command", "environment", "namespace"]},
+    "effective": {
+      "type": "object",
+      "required": ["engine", "semantic_available", "bm25_enabled", "fallback_used", "embedder_id", "embedding_dimension", "vector_count", "vector_namespace"],
+      "properties": {
+        "engine": {"enum": ["lexical_handrolled", "model2vec_rrf", "embeddinggemma_rrf"]},
+        "semantic_available": {"type": "boolean"},
+        "bm25_enabled": {"const": false},
+        "fallback_used": {"const": false},
+        "embedder_id": {"type": ["string", "null"]},
+        "embedding_dimension": {"type": ["integer", "null"], "minimum": 1},
+        "vector_count": {"type": "integer", "minimum": 0},
+        "vector_namespace": {"type": "string", "minLength": 1}
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "required": ["binary_sha256", "stdout_sha256", "stderr_sha256", "vector_artifact_sha256", "embedding_model_sha256"],
+      "properties": {
+        "binary_sha256": {"$ref": "#/$defs/sha256"},
+        "stdout_sha256": {"$ref": "#/$defs/sha256"},
+        "stderr_sha256": {"$ref": "#/$defs/sha256"},
+        "vector_artifact_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "embedding_model_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "corpus": {
+      "type": "object",
+      "required": ["facts_sha256", "prefilter_count", "eligible_count", "excluded_by_reason", "delivered_count"],
+      "properties": {
+        "facts_sha256": {"$ref": "#/$defs/sha256"},
+        "prefilter_count": {"type": "integer", "minimum": 0},
+        "eligible_count": {"type": "integer", "minimum": 0},
+        "excluded_by_reason": {"type": "object"},
+        "delivered_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "result": {"type": "object", "required": ["query_id", "fact_ids_in_order", "output_valid"]}
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}},
+  "additionalProperties": false
+}
