@@ -1,14 +1,23 @@
 <codex_delegation>
   <source_thread_id>019f64dd-263f-7e71-b679-a326a94ac0d4</source_thread_id>
-  <input>You own Workstream 2: treatment isolation and task-validity repair.
-Read the complete execution plan at /Users/thomi/Projects/entire-plan/ENTIRE-BRAIN-BENCHMARK-REPAIR-EXECUTION-PLAN-2026-07-15.md, especially sections 1–4 and the workstream named below. This is an execution task, not merely a request to restate the plan.
+  <input>Your Workstream 2 result failed the parent audit on the mandatory baseline requirement.
 
-Global constraints:
-- For entire-brain code, verify the required harness baseline exists on origin/wip/memory-lifecycle-plan-handoff-20260712 at or after bbe1bdf5. Your Codex worktree may start from the default branch; if so, bring the required WIP baseline into your codex/ branch non-destructively before editing. Do not silently implement against an older main.
-- Never modify entire-sem.
-- Do not run paid benchmark agent/model cells. Local deterministic probes and unit tests are allowed.
-- Preserve unrelated changes. Do not push or open a PR.
-- Implement only this workstream, run focused tests plus the full harness test suite when implementation changes the harness, and report exact artifacts, tests, remaining risks, and integration notes.
+Evidence from the shared repository:
+- branch: codex/ws2-treatment-isolation
+- HEAD: 4d2aff60257a784a13cf89aa5ede1307fdfcc66c
+- `git merge-base HEAD bbe1bdf5` returns 5d4b08c3..., not bbe1bdf5
+- `git branch --contains bbe1bdf5` does not include codex/ws2-treatment-isolation
 
-Implement section 6: remove oracle query text and condition labels from agent-visible prompts, define explicit treatment/query-source schema, add deterministic placebo packet support, add parity/snapshot tests, and introduce task-validity lint/review-ledger support. Treat existing 882 and 4dd prompts as regression fixtures that must be rejected or labeled oracle-assisted. Do not change temporal filtering, scheduling, provenance schemas, or production ranking except for the minimum interfaces needed by this workstream.</input>
+So the final claim that the worktree HEAD contained required baseline bbe1bdf5 was incorrect.
+
+Please reopen WS2 and repair this non-destructively:
+1. Preserve all current WS2 implementation changes.
+2. Put the WS2 implementation on a branch whose ancestry contains bbe1bdf5, preferably starting from the exact WIP baseline rather than dragging unrelated origin/main history into integration.
+3. Resolve the implementation against the WIP harness behavior, especially run.py/run_test.py.
+4. Rerun focused treatment-validity tests, focused temporal harness tests, the full benchmark harness suite, py_compile, git diff --check, and the lint regression check.
+5. Re-audit with exact `git merge-base HEAD bbe1bdf5` and `git merge-base --is-ancestor bbe1bdf5 HEAD`.
+6. Do not run paid cells, modify entire-sem, push, or open a PR.
+7. Report the exact branch/HEAD, changed files, tests, and any semantic differences caused by porting.
+
+Do not merely amend the report; fix the branch baseline and implementation.</input>
 </codex_delegation>
