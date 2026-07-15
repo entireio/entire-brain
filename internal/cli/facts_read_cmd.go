@@ -37,18 +37,22 @@ func resolveFactsTarget(ctx context.Context, opts Options, target, branchOverrid
 
 func newRecallCommand(opts Options) *cobra.Command {
 	var (
-		branch       string
-		limit        int
-		includeAll   bool
-		scope        string
-		kind         string
-		locus        string
-		noSemantic   bool
-		expand       bool
-		agent        string
-		model        string
-		agentCommand []string
-		jsonOut      bool
+		branch                string
+		limit                 int
+		includeAll            bool
+		scope                 string
+		kind                  string
+		locus                 string
+		noSemantic            bool
+		expand                bool
+		agent                 string
+		model                 string
+		agentCommand          []string
+		jsonOut               bool
+		eligibleBefore        string
+		sessionDatesPath      string
+		excludeSessionIDs     []string
+		readOnlySemanticCache bool
 	)
 	cmd := &cobra.Command{
 		Use:   "recall <query>",
@@ -73,7 +77,24 @@ func newRecallCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			facts := filterFactsByLocus(filterFactsByKind(filterFactsByScope(allFacts, scope), kind), locus)
+			candidateFacts := allFacts
+			var eligibility *factEligibilityAudit
+			if eligibleBefore != "" || sessionDatesPath != "" || len(excludeSessionIDs) > 0 {
+				if eligibleBefore == "" || sessionDatesPath == "" {
+					return fmt.Errorf("--eligible-before and --session-dates must be supplied together")
+				}
+				dates, loadErr := loadSessionDates(sessionDatesPath)
+				if loadErr != nil {
+					return loadErr
+				}
+				filtered, audit, filterErr := filterFactsByTemporalEligibility(allFacts, dates, eligibleBefore, excludeSessionIDs)
+				if filterErr != nil {
+					return filterErr
+				}
+				candidateFacts = filtered
+				eligibility = &audit
+			}
+			facts := filterFactsByLocus(filterFactsByKind(filterFactsByScope(candidateFacts, scope), kind), locus)
 			effectiveQuery := query
 			if expand && strings.TrimSpace(query) != "" {
 				resolved := agent
@@ -102,7 +123,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 				}
 			}
 			matches := rankFactsFused(facts, effectiveQuery, limit, includeAll, rr)
-			if rr != nil {
+			if rr != nil && !readOnlySemanticCache {
 				rr.retain(allFacts) // keep every present fact's vector; prune only departed facts
 				_ = rr.flush()      // best-effort cache persist
 			}
@@ -111,6 +132,10 @@ func newRecallCommand(opts Options) *cobra.Command {
 			drift := factsLocusDrift(repoDir, matches)
 			if jsonOut {
 				out := map[string]any{"branch": resolvedBranch, "query": query, "facts": matches}
+				if eligibility != nil {
+					eligibility.DeliveredCount = len(matches)
+					out["eligibility"] = eligibility
+				}
 				if len(drift) > 0 {
 					out["locus_drift"] = drift
 				}
@@ -149,6 +174,10 @@ func newRecallCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&model, "model", "", "Model for codex/claude-code/ollama expand calls")
 	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().StringVar(&eligibleBefore, "eligible-before", "", "Restrict candidates to facts whose provenance is strictly before this RFC3339 cutoff")
+	cmd.Flags().StringVar(&sessionDatesPath, "session-dates", "", "JSON map of session IDs to provenance timestamps for --eligible-before")
+	cmd.Flags().StringArrayVar(&excludeSessionIDs, "exclude-session-id", nil, "Exclude facts anchored to this session (repeatable)")
+	cmd.Flags().BoolVar(&readOnlySemanticCache, "read-only-semantic-cache", false, "Do not persist or prune semantic vectors during recall")
 	return cmd
 }
 

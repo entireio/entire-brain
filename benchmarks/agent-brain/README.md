@@ -315,3 +315,7 @@ JSON files with fixed base commits and cached repositories before large runs.
 
 The harness intentionally keeps generated brain artifacts and worktrees out of
 the repository. Result directories are ignored by git.
+
+Rolling-cutoff frozen-brain tasks constrain temporal eligibility before lexical
+or semantic top-K ranking. See [TEMPORAL-ELIGIBILITY-DESIGN.md](TEMPORAL-ELIGIBILITY-DESIGN.md)
+for the fail-closed provenance, immutable-cache, and audit-field contract.

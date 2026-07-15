@@ -6,9 +6,11 @@ import json
 import os
 import pathlib
 import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 RUN_PATH = pathlib.Path(__file__).with_name("run.py")
@@ -2124,6 +2126,83 @@ class FrozenBrainDeliveryTests(unittest.TestCase):
         # No cutoff => no filtering, even for facts that have no provenance at all.
         facts = run.collect_frozen_facts([self.FAKE_RECALL_A, self.FAKE_RECALL_B])
         self.assertEqual([f["id"] for f in facts], ["fact:bbb", "fact:aaa", "fact:ccc"])
+
+    def test_frozen_recall_constrains_temporal_eligibility_before_top_k(self):
+        """Five future facts must not truncate the eligible solving fact at rank six."""
+        future = [
+            self._fact(f"fact:future-{i}", ["sess-late"])
+            | {"text": f"target regression exact match future distractor {i}"}
+            for i in range(5)
+        ]
+        solving = self._fact("fact:solving", ["sess-early"]) | {
+            "text": "target regression exact match eligible solving fact"
+        }
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            worktree = root / "worktree"
+            worktree.mkdir()
+            dates_path = root / "session-dates.json"
+            dates_path.write_text(json.dumps(self.SESSION_DATES))
+            task = {
+                "brain_queries": ["target regression exact match"],
+                "rolling_cutoff_rfc3339": self.CUTOFF,
+                "frozen_session_dates_path": str(dates_path),
+                "frozen_recall_k": 5,
+                "frozen_packet_cap": 5,
+            }
+            calls = []
+
+            def fake_run_cmd(args, **kwargs):
+                calls.append(args)
+                if "recall" not in args:
+                    return subprocess.CompletedProcess(args, 0, "", "")
+                # Model the real failure: unconstrained top-K is all future facts. The
+                # solving fact appears only when recall receives the temporal constraint.
+                constrained = "--eligible-before" in args
+                facts = [solving] if constrained else future
+                payload = {"branch": "main", "facts": facts}
+                if constrained:
+                    payload["eligibility"] = {
+                        "prefilter_corpus_count": 6,
+                        "eligible_count": 1,
+                        "excluded_counts": {"at_or_after_cutoff": 5},
+                    }
+                return subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
+
+            with mock.patch.dict(os.environ, {
+                run.FROZEN_BRAIN_PLUGIN_ENV: str(root / "plugin"),
+                run.FROZEN_BRAIN_REPO_ENV: str(root / "repo"),
+            }), mock.patch.object(run, "run_cmd", side_effect=fake_run_cmd):
+                audit = run.write_frozen_brain_packet(task, worktree, {"brain": pathlib.Path("brain")})
+
+            packet = (worktree / ".benchmark" / "brain-history-excerpt.md").read_text()
+            self.assertIn("eligible solving fact", packet)
+            self.assertNotIn("future distractor", packet)
+            recall_args = next(args for args in calls if "recall" in args)
+            self.assertIn("--eligible-before", recall_args)
+            self.assertIn("--read-only-semantic-cache", recall_args)
+            self.assertEqual(audit["prefilter_corpus_count"], 6)
+            self.assertEqual(audit["eligible_count"], 1)
+            self.assertEqual(audit["delivered_count"], 1)
+
+    def test_frozen_prepare_records_temporal_eligibility_audit(self):
+        task = {"memory_delivery": "frozen_brief", "history_excerpt": True}
+        expected = {
+            "prefilter_corpus_count": 6,
+            "eligible_count": 1,
+            "excluded_counts": {"at_or_after_cutoff": 5},
+            "delivered_count": 1,
+        }
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(
+            run, "deliver_full_brain_memory", return_value=expected
+        ):
+            root = pathlib.Path(d)
+            worktree = root / "worktree"
+            run_dir = root / "run"
+            worktree.mkdir()
+            run_dir.mkdir()
+            _, prep = run.prepare_brain(task, "full_brain", worktree, run_dir, {"bin": root}, 10)
+        self.assertEqual(prep["temporal_eligibility"], expected)
 
     def test_uses_frozen_brain_delivery_flag(self):
         self.assertTrue(run.uses_frozen_brain_delivery({"memory_delivery": "frozen_brief"}))

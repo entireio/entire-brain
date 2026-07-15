@@ -2184,7 +2184,9 @@ def prepare_brain(
         # mirroring brain_prep_commands()==[] for these tasks. Building/caching a worktree
         # brain would both waste minutes and leak the CURRENT (post-cutoff) checkpoint ref.
         if condition_writes_history_excerpt(condition) and task.get("history_excerpt", True):
-            deliver_full_brain_memory(task, worktree, tools)
+            temporal_eligibility = deliver_full_brain_memory(task, worktree, tools)
+            if temporal_eligibility is not None:
+                prep["temporal_eligibility"] = temporal_eligibility
         prep["frozen_brain_delivery"] = True
         return env, prep
 
@@ -2896,7 +2898,9 @@ def render_frozen_brain_packet(facts: list[dict[str, Any]]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_frozen_brain_packet(task: dict[str, Any], worktree: pathlib.Path, tools: dict[str, pathlib.Path]) -> None:
+def write_frozen_brain_packet(
+    task: dict[str, Any], worktree: pathlib.Path, tools: dict[str, pathlib.Path]
+) -> dict[str, Any] | None:
     """Deliver the FROZEN brain's real distilled facts to the worktree packet file the agent
     reads. Runs `entire-brain recall` (the real product retrieval) once per brain_query against
     the frozen quarantined brain, merges/dedupes/caps the facts, and writes the facts-first
@@ -2904,7 +2908,7 @@ def write_frozen_brain_packet(task: dict[str, Any], worktree: pathlib.Path, tool
     opted into `memory_delivery: frozen_brief`."""
     queries = [q for q in task.get("brain_queries", []) if q]
     if not queries:
-        return
+        return None
     env = frozen_brain_env()
     per_query_k = int(task.get("frozen_recall_k", 5))
     cap = int(task.get("frozen_packet_cap", FROZEN_BRAIN_PACKET_CAP))
@@ -2922,9 +2926,26 @@ def write_frozen_brain_packet(task: dict[str, Any], worktree: pathlib.Path, tool
             )
         session_dates = load_session_dates(dates_path)
     results: list[dict[str, Any]] = []
+    eligibility_audits: list[dict[str, Any]] = []
     for query in queries:
+        recall_args = [str(tools["brain"]), "recall", str(query), "--json", "--k", str(per_query_k)]
+        if cutoff_rfc3339:
+            # Completeness requires the product to constrain candidates before either
+            # lexical or semantic ranking. Read-only cache mode also makes the frozen
+            # quarantine genuinely immutable: no vector creation, rewrite, or pruning.
+            recall_args.extend(
+                [
+                    "--eligible-before",
+                    str(cutoff_rfc3339),
+                    "--session-dates",
+                    str(task["frozen_session_dates_path"]),
+                    "--read-only-semantic-cache",
+                ]
+            )
+            for session_id in exclude_ids:
+                recall_args.extend(["--exclude-session-id", str(session_id)])
         proc = run_cmd(
-            [str(tools["brain"]), "recall", str(query), "--json", "--k", str(per_query_k)],
+            recall_args,
             cwd=worktree,
             env=env,
             timeout=180,
@@ -2935,9 +2956,29 @@ def write_frozen_brain_packet(task: dict[str, Any], worktree: pathlib.Path, tool
                 f"stderr:\n{proc.stderr[-2000:]}"
             )
         try:
-            results.append(json.loads(proc.stdout))
+            result = json.loads(proc.stdout)
         except json.JSONDecodeError as exc:
             raise RuntimeError(f"frozen-brain recall produced non-JSON for {query!r}: {exc}") from exc
+        results.append(result)
+        if cutoff_rfc3339:
+            audit = result.get("eligibility") if isinstance(result, dict) else None
+            if not isinstance(audit, dict):
+                raise RuntimeError(f"frozen-brain recall omitted eligibility audit for query {query!r}")
+            prefilter_count = audit.get("prefilter_corpus_count")
+            eligible_count = audit.get("eligible_count")
+            excluded_counts = audit.get("excluded_counts")
+            if (
+                type(prefilter_count) is not int
+                or type(eligible_count) is not int
+                or prefilter_count < 0
+                or eligible_count < 0
+                or eligible_count > prefilter_count
+                or not isinstance(excluded_counts, dict)
+                or any(type(count) is not int or count < 0 for count in excluded_counts.values())
+                or sum(excluded_counts.values()) != prefilter_count - eligible_count
+            ):
+                raise RuntimeError(f"frozen-brain recall returned invalid eligibility counts for query {query!r}")
+            eligibility_audits.append(audit)
     facts = collect_frozen_facts(
         results,
         cap,
@@ -2945,8 +2986,17 @@ def write_frozen_brain_packet(task: dict[str, Any], worktree: pathlib.Path, tool
         cutoff_rfc3339=cutoff_rfc3339,
         exclude_ids=exclude_ids,
     )
+    eligibility_audit: dict[str, Any] | None = None
+    if cutoff_rfc3339:
+        identity_fields = ("prefilter_corpus_count", "eligible_count", "excluded_counts")
+        first = eligibility_audits[0]
+        for audit in eligibility_audits[1:]:
+            if any(audit.get(field) != first.get(field) for field in identity_fields):
+                raise RuntimeError("temporal eligibility candidate counts changed across frozen-brain queries")
+        eligibility_audit = {field: first.get(field) for field in identity_fields}
+        eligibility_audit.update({"delivered_count": len(facts), "query_count": len(results)})
     if not facts:
-        return
+        return eligibility_audit
     out_dir = worktree / ".benchmark"
     out_dir.mkdir(exist_ok=True)
     (out_dir / "brain-history-excerpt.md").write_text(render_frozen_brain_packet(facts))
@@ -2968,15 +3018,19 @@ def write_frozen_brain_packet(task: dict[str, Any], worktree: pathlib.Path, tool
         env=benchmark_git_env(),
         check=True,
     )
+    return eligibility_audit
 
 
-def deliver_full_brain_memory(task: dict[str, Any], worktree: pathlib.Path, tools: dict[str, pathlib.Path]) -> None:
+def deliver_full_brain_memory(
+    task: dict[str, Any], worktree: pathlib.Path, tools: dict[str, pathlib.Path]
+) -> dict[str, Any] | None:
     """Dispatch full-brain memory delivery: the real distilled-fact packet from the FROZEN
     brain when `memory_delivery: frozen_brief` is set, else the legacy grep-based excerpt."""
     if uses_frozen_brain_delivery(task):
-        write_frozen_brain_packet(task, worktree, tools)
+        return write_frozen_brain_packet(task, worktree, tools)
     else:
         write_history_excerpt(task, worktree)
+        return None
 
 
 def history_excerpt_files(worktree: pathlib.Path) -> list[pathlib.Path]:
