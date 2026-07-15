@@ -5,9 +5,10 @@ paid agent run and it does not contain or open a fresh confirmatory holdout.
 
 Current state: `integrated_methodology_draft_power_redesign_required`. The WS2 treatment contract,
 WS3 pre-ranking temporal filter, WS4 scheduling/cache controls, and WS5 evidence controls have been
-integrated. Final freeze remains blocked on checked-in integration evidence, fresh-task validity
-review, real three-engine records, relevance labels and holdouts, a defensible powered design, and
-model pricing/budget approval. The confirmatory analyzer is implemented and path-locked.
+integrated and verified by content-addressed source and test evidence. Final freeze remains blocked
+on fresh-task validity review, real three-engine records, relevance labels and holdouts, a defensible
+powered design, and model pricing/budget approval. The confirmatory analyzer is implemented and
+path-locked.
 
 ## Artifacts
 
@@ -24,6 +25,8 @@ model pricing/budget approval. The confirmatory analyzer is implemented and path
   current 24-task x 4-repetition design fails the conservative planning scenario; this is a no-go,
   not a reason to adopt the scenario's task-count estimate as empirical truth.
 - `go-no-go.json`: paid-run gate. Every item must be `pass`; `pending` is a hard no-go.
+- `integration-verification.json` and `integration-logs/`: exact WS2-WS5 source commits, content
+  hashes, unpaid commands, and captured test outputs for the locked integration commit.
 - `analyzer-lock.json`: path-bound hash of the exact confirmatory analyzer sources and schemas.
 - `check_protocol.py`: offline integrity checker. `--freeze` additionally enforces final-freeze gates.
 
@@ -34,8 +37,9 @@ python3 benchmarks/agent-brain/confirmatory/check_protocol.py
 python3 -m unittest benchmarks/agent-brain/confirmatory/test_check_protocol.py
 ```
 
-The first command must pass now. The following command must fail until upstream integration,
-relevance labeling, fresh holdout sealing, analyzer freezing, and engine verification are complete:
+The first command must pass now. The following command must fail until fresh-task review, relevance
+labeling, fresh holdout sealing, powered-design repair, final pricing/budget approval, and durable
+engine verification are complete:
 
 ```sh
 python3 benchmarks/agent-brain/confirmatory/check_protocol.py --freeze

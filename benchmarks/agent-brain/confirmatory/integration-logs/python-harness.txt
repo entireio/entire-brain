@@ -1,0 +1,642 @@
+.......................
+Audit is not release evidence:
+- proof_ready_comparisons 0 < required 1
+- hard_flags 5 > 0
+- suite release-candidate-leaky-queries has no proof_ready comparison
+- proof_ready_comparisons[history] 0 < required 1
+.
+Audit is not release evidence:
+- hard_flags 1 > 0
+..............
+Audit is not release evidence:
+- proof_ready_comparisons 0 < required 1
+
+Audit is not release evidence:
+- proof_ready_comparisons 0 < required 1
+- hard_flags 3 > 0
+
+Audit is not release evidence:
+- proof_ready_comparisons 0 < required 1
+- hard_flags 9 > 0
+
+Audit is not release evidence:
+- hard_flags 1 > 0
+
+Audit is not release evidence:
+- suites 0 < required 1
+- records 0 < required 1
+..
+Audit is not release evidence:
+- mcp_named_tool_verified_records 0 < required 1
+.
+Audit is not release evidence:
+- proof_ready_comparisons 0 < required 1
+- hard_flags 2 > 0
+- suite release-candidate-semantic-proof has no proof_ready comparison
+- proof_ready_comparisons[history] 0 < required 1
+.
+Audit is not release evidence:
+- proof_ready_comparisons 0 < required 1
+- hard_flags 5 > 0
+- suite release-candidate-host-path-leak has no proof_ready comparison
+- proof_ready_comparisons[history] 0 < required 1
+.
+Audit is not release evidence:
+- proof_ready_comparisons[semantic] 0 < required 1
+.
+Audit is not release evidence:
+- mcp_verified_records 0 < required 1
+.
+Audit is not release evidence:
+- named_tool_proof_ready_comparisons[mcp] 0 < required 1
+.
+Audit is not release evidence:
+- suite release-candidate-semantic-no-signal has no proof_ready comparison
+......# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **8**
+- **Hard integrity flags: 0**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **4**
+- Named-tool MCP datapoints (server log names the required brain tool): **4**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **4**
+- Records with required provenance (source base/head + harness/config/tool hashes): **8/8**
+- Stable proof-ready comparisons: **1**
+
+- Proof-ready comparisons by scope: `mcp_radar_location_only`=1
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpnjtszbf6/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **8**
+- **Hard integrity flags: 0**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **4**
+- Named-tool MCP datapoints (server log names the required brain tool): **4**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **4**
+- Records with required provenance (source base/head + harness/config/tool hashes): **8/8**
+- Stable proof-ready comparisons: **1**
+
+- Proof-ready comparisons by scope: `mcp_workspace_radar_location_only`=1
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmprw537iyu/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **8**
+- **Hard integrity flags: 5**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **0**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **8/8**
+- Stable proof-ready comparisons: **0**
+
+## Release Gate
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmprqawjuoc/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **8**
+- **Hard integrity flags: 5**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **0**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **8/8**
+- Stable proof-ready comparisons: **0**
+
+## Release Gate
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmprqawjuoc/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **8**
+- **Hard integrity flags: 1**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **0**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **8/8**
+- Stable proof-ready comparisons: **0**
+
+## Release Gate
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmptlofplho/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **1**
+- **Hard integrity flags: 0**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **0**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **1/1**
+- Stable proof-ready comparisons: **0**
+
+## Release Gate
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **1**
+- **Hard integrity flags: 0**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **0**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **1/1**
+- Stable proof-ready comparisons: **0**
+
+## Release Gate
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **1**
+- **Hard integrity flags: 3**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **0**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **1/1**
+- Stable proof-ready comparisons: **0**
+
+## Release Gate
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **8**
+- **Hard integrity flags: 0**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **0**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **8/8**
+- Stable proof-ready comparisons: **1**
+
+- Proof-ready comparisons by scope: `history`=1
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **8**
+- **Hard integrity flags: 9**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **0**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **8/8**
+- Stable proof-ready comparisons: **0**
+
+## Release Gate
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **1**
+- **Hard integrity flags: 1**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **0**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **1/1**
+- Stable proof-ready comparisons: **0**
+
+## Release Gate
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **0**
+- Agent records audited (prep excluded): **0**
+- **Hard integrity flags: 0**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **0**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **0/0**
+- Stable proof-ready comparisons: **0**
+
+## Release Gate
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpz5exuoo4/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **8**
+- **Hard integrity flags: 0**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **4**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **8/8**
+- Stable proof-ready comparisons: **1**
+
+- Proof-ready comparisons by scope: `mcp`=1
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp2cgn730x/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **6**
+- **Hard integrity flags: 2**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **0**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **6/6**
+- Stable proof-ready comparisons: **0**
+
+## Release Gate
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp5j3aoyfm/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **8**
+- **Hard integrity flags: 0**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **0**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **8/8**
+- Stable proof-ready comparisons: **1**
+
+- Proof-ready comparisons by scope: `history`=1
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp5j3aoyfm/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **8**
+- **Hard integrity flags: 5**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **0**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **8/8**
+- Stable proof-ready comparisons: **0**
+
+## Release Gate
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp9lcfc048/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **8**
+- **Hard integrity flags: 0**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **0**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **8/8**
+- Stable proof-ready comparisons: **1**
+
+- Proof-ready comparisons by scope: `history`=1
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmppg4uukn_/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **1**
+- Agent records audited (prep excluded): **8**
+- **Hard integrity flags: 0**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **0**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **8/8**
+- Stable proof-ready comparisons: **1**
+
+- Proof-ready comparisons by scope: `history`=1
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpfwj7ew26/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **2**
+- Agent records audited (prep excluded): **16**
+- **Hard integrity flags: 0**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **8**
+- Named-tool MCP datapoints (server log names the required brain tool): **4**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **4**
+- Records with required provenance (source base/head + harness/config/tool hashes): **16/16**
+- Stable proof-ready comparisons: **2**
+
+- Proof-ready comparisons by scope: `mcp`=1, `mcp_radar_location_only`=1
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp5f5_ho4w/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **2**
+- Agent records audited (prep excluded): **16**
+- **Hard integrity flags: 0**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **8**
+- Named-tool MCP datapoints (server log names the required brain tool): **4**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **4**
+- Records with required provenance (source base/head + harness/config/tool hashes): **16/16**
+- Stable proof-ready comparisons: **2**
+
+- Proof-ready comparisons by scope: `mcp`=1, `mcp_radar_location_only`=1
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp5f5_ho4w/codex-audit-report.json and codex-audit-report.md
+# Codex Benchmark Audit (independent re-check)
+
+- Suites audited: **2**
+- Agent records audited (prep excluded): **16**
+- **Hard integrity flags: 0**
+- Integrity-verified MCP datapoints (real calls + parentless baseline + server-log backed): **0**
+- Named-tool MCP datapoints (server log names the required brain tool): **0**
+- Completed named-tool MCP datapoints (required tool_result-backed for Radar proof): **0**
+- Records with required provenance (source base/head + harness/config/tool hashes): **16/16**
+- Stable proof-ready comparisons: **1**
+
+- Proof-ready comparisons by scope: `history`=1
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpay0d7aed/codex-audit-report.json and codex-audit-report.md
+task-a__codex__a__r1: score=1 ok=True
+..{
+  "ok": true
+}
+task-a__codex__a__r1: score=1 ok=True
+....
+Distill performance artifacts are not release evidence:
+- artifact_sha256.serial_run mismatch
+- commands.parallel_run: --agent must match artifact agent
+- commands.parallel_run: --model must match artifact model
+- commands.parallel_run: --max-chunk-bytes must match artifact max_chunk_bytes
+..
+Distill performance artifacts are not release evidence:
+- speedup 1.050 < required 1.250
+
+Distill performance artifacts are not release evidence:
+- serial/parallel mismatch: facts
+..
+Distill performance artifacts are not release evidence:
+- target.claim_scope must be a non-empty string
+- target.source_head must be a 40-character git commit
+- target.brain_manifest_sha256 must be sha256:<64 hex>
+.................
+Facts eval artifacts are not release evidence:
+- raw_vs_facts: release_claimable must be true
+- raw_vs_facts: allow_proxy_comparison must be false for release proof
+- raw_vs_facts: useful_per_1k evidence_basis is 'proxy_or_mixed', retained rows recompute to 'proof_labels'
+- raw_vs_facts: useful_per_1k release_claimable is True, retained rows recompute to False
+- raw_vs_facts: useful_per_1k evidence_basis is 'proxy_or_mixed', want 'proof_labels'
+- required_claims must include a proof-label claim where facts beats raw-sessions
+
+Facts eval artifacts are not release evidence:
+- raw_vs_facts: release_claimable must be true
+- raw_vs_facts: useful_per_1k significant is False, retained rows recompute to True
+- raw_vs_facts: useful_per_1k release_claimable is False, retained rows recompute to True
+- raw_vs_facts: useful_per_1k is not release_claimable
+- raw_vs_facts: useful_per_1k is not significant
+- required_claims must include a proof-label claim where facts beats raw-sessions
+.........................................Radar evidence has no promotable pilot or proof-ready comparison.
+.Radar evidence has no promotable pilot or proof-ready comparison.
+.Radar evidence has no promotable pilot or proof-ready comparison.
+.Radar evidence has no proof-ready comparison.
+.Release-candidate Radar proof requires --codex-audit-report.
+.Radar evidence has no promotable pilot or proof-ready comparison.
+..Radar evidence has no proof-ready comparison.
+.Radar evidence has no proof-ready comparison.
+.Release-candidate Radar proof requires --codex-audit-report.
+..............................................................................................
+----------------------------------------------------------------------
+Ran 223 tests in 1.235s
+
+OK
+{}
+# Distill Performance Evidence Audit
+
+- Status: **PASS**
+- Release evidence: **true**
+- Target: **github.com/example/large-repo**
+- Claim scope: **large-repo distill backfill speedup**
+- Required speedup: **1.25x**
+- Observed speedup: **2.0x**
+- Dry-run chunks: **20**
+- Source hashes checked: **6/6**
+- Local Ollama contract artifact: **go-test-internal-cli-ollama-distill.jsonl**
+- Local Ollama required tests passed: **9/9**
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpa4oye2c4/distill-perf-audit-report.json and distill-perf-audit-report.md
+# Distill Performance Evidence Audit
+
+- Status: **FAIL**
+- Release evidence: **false**
+- Target: **github.com/example/large-repo**
+- Claim scope: **large-repo distill backfill speedup**
+- Required speedup: **1.25x**
+- Observed speedup: **2.0x**
+- Dry-run chunks: **20**
+- Source hashes checked: **6/6**
+- Local Ollama contract artifact: **go-test-internal-cli-ollama-distill.jsonl**
+- Local Ollama required tests passed: **9/9**
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpvzq77_8g/distill-perf-audit-report.json and distill-perf-audit-report.md
+# Distill Performance Evidence Audit
+
+- Status: **FAIL**
+- Release evidence: **false**
+- Target: **github.com/example/large-repo**
+- Claim scope: **large-repo distill backfill speedup**
+- Required speedup: **1.25x**
+- Observed speedup: **1.05x**
+- Dry-run chunks: **20**
+- Source hashes checked: **6/6**
+- Local Ollama contract artifact: **go-test-internal-cli-ollama-distill.jsonl**
+- Local Ollama required tests passed: **9/9**
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpzr8yf86z/distill-perf-audit-report.json and distill-perf-audit-report.md
+# Distill Performance Evidence Audit
+
+- Status: **FAIL**
+- Release evidence: **false**
+- Target: **github.com/example/large-repo**
+- Claim scope: **large-repo distill backfill speedup**
+- Required speedup: **1.25x**
+- Observed speedup: **2.0x**
+- Dry-run chunks: **20**
+- Source hashes checked: **6/6**
+- Local Ollama contract artifact: **go-test-internal-cli-ollama-distill.jsonl**
+- Local Ollama required tests passed: **9/9**
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpzr8yf86z/distill-perf-audit-report.json and distill-perf-audit-report.md
+# Distill Performance Evidence Audit
+
+- Status: **FAIL**
+- Release evidence: **false**
+- Target: **github.com/example/large-repo**
+- Claim scope: ****
+- Required speedup: **1.25x**
+- Observed speedup: **2.0x**
+- Dry-run chunks: **20**
+- Source hashes checked: **6/6**
+- Local Ollama contract artifact: **go-test-internal-cli-ollama-distill.jsonl**
+- Local Ollama required tests passed: **9/9**
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp02xxtm8t/distill-perf-audit-report.json and distill-perf-audit-report.md
+# Facts Eval Evidence Audit
+
+- Status: **PASS**
+- Release evidence: **false**
+- Claim policy: **proof_required**
+- Claim scope: **fixture_contract**
+- Facts-vs-raw claimable: **false**
+- Fixture facts-vs-raw claimable: **true**
+- Tasks hash: `sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- Brain manifest hash: `sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`
+- Required retrievers: `facts`, `history`, `query`, `raw-sessions`
+
+## Required Claims
+
+| Comparison | Metric | A | B | Winner | Evidence | Claimable |
+|---|---|---|---|---|---|---|
+| raw_vs_facts | useful_per_1k | raw-sessions | facts | b | proof_labels | True |
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp11w40xpm/facts-eval-audit-report.json and facts-eval-audit-report.md
+# Facts Eval Evidence Audit
+
+- Status: **PASS**
+- Release evidence: **true**
+- Claim policy: **no_release_claim**
+- Claim scope: **release**
+- Facts-vs-raw claimable: **false**
+- Fixture facts-vs-raw claimable: **false**
+- Tasks hash: `unset`
+- Brain manifest hash: `unset`
+- Required retrievers: none
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp24324wjp/facts-eval-audit-report.json and facts-eval-audit-report.md
+# Facts Eval Evidence Audit
+
+- Status: **PASS**
+- Release evidence: **true**
+- Claim policy: **proof_required**
+- Claim scope: **release**
+- Facts-vs-raw claimable: **true**
+- Fixture facts-vs-raw claimable: **false**
+- Tasks hash: `sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- Brain manifest hash: `sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`
+- Required retrievers: `facts`, `history`, `query`, `raw-sessions`
+
+## Required Claims
+
+| Comparison | Metric | A | B | Winner | Evidence | Claimable |
+|---|---|---|---|---|---|---|
+| raw_vs_facts | useful_per_1k | raw-sessions | facts | b | proof_labels | True |
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmph6quw0gj/facts-eval-audit-report.json and facts-eval-audit-report.md
+# Facts Eval Evidence Audit
+
+- Status: **FAIL**
+- Release evidence: **false**
+- Claim policy: **proof_required**
+- Claim scope: **release**
+- Facts-vs-raw claimable: **false**
+- Fixture facts-vs-raw claimable: **false**
+- Tasks hash: `sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- Brain manifest hash: `sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`
+- Required retrievers: `facts`, `history`, `query`, `raw-sessions`
+
+## Required Claims
+
+| Comparison | Metric | A | B | Winner | Evidence | Claimable |
+|---|---|---|---|---|---|---|
+| raw_vs_facts | useful_per_1k | raw-sessions | facts | b | proxy_or_mixed | True |
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpn2micby4/facts-eval-audit-report.json and facts-eval-audit-report.md
+# Facts Eval Evidence Audit
+
+- Status: **FAIL**
+- Release evidence: **false**
+- Claim policy: **proof_required**
+- Claim scope: **release**
+- Facts-vs-raw claimable: **false**
+- Fixture facts-vs-raw claimable: **false**
+- Tasks hash: `sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`
+- Brain manifest hash: `sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`
+- Required retrievers: `facts`, `history`, `query`, `raw-sessions`
+
+## Required Claims
+
+| Comparison | Metric | A | B | Winner | Evidence | Claimable |
+|---|---|---|---|---|---|---|
+| raw_vs_facts | useful_per_1k | raw-sessions | facts | b | proof_labels | False |
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpn2micby4/facts-eval-audit-report.json and facts-eval-audit-report.md
+# Regression Radar Evidence Audit
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp2553k5gz/radar-candidate-report.json and radar-candidate-report.md
+# Regression Radar Evidence Audit
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpoeo655e2/radar-candidate-report.json and radar-candidate-report.md
+Radar evidence is no-claim; no proof-ready comparison required.
+# Regression Radar Evidence Audit
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp7f4roola/radar-candidate-report.json and radar-candidate-report.md
+# Regression Radar Evidence Audit
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpfij0v5xe/radar-candidate-report.json and radar-candidate-report.md
+# Regression Radar Evidence Audit
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpndq76v3u/radar-candidate-report.json and radar-candidate-report.md
+Radar evidence is no-claim; no proof-ready comparison required.
+# Regression Radar Evidence Audit
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp9izuhcp2/radar-candidate-report.json and radar-candidate-report.md
+# Regression Radar Evidence Audit
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp38aql6co/radar-candidate-report.json and radar-candidate-report.md
+# Regression Radar Evidence Audit
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp63a85vgx/radar-candidate-report.json and radar-candidate-report.md
+# Regression Radar Evidence Audit
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp34ykxmss/radar-candidate-report.json and radar-candidate-report.md
+# Regression Radar Evidence Audit
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp34ykxmss/radar-candidate-report.json and radar-candidate-report.md
+# Regression Radar Evidence Audit
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpci36g6oz/radar-candidate-report.json and radar-candidate-report.md
+# Regression Radar Evidence Audit
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpaloi_hql/radar-candidate-report.json and radar-candidate-report.md
+# Regression Radar Evidence Audit
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpaloi_hql/radar-candidate-report.json and radar-candidate-report.md
+# MCP/Radar Tool Evidence Audit
+
+- Status: **PASS**
+- Claim scope: **mcp_radar_tool_contract**
+- Required tests: **52**
+- Artifact: `go-test-radar.jsonl`
+- Artifact hash: `sha256:c2ad1c5784cfc7a865f44471cc654d832ceb3e6c3d9f7c51fdc27385f1c799c0`
+- Package pass event: **True**
+
+## Limitations
+- Tool-contract proof only; this is not agent lift proof.
+
+Wrote /var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpxypk08xc/radar-tool-audit-report.json and radar-tool-audit-report.md
+# MCP/Radar Tool Evidence Audit
+
+- Status: **FAIL**
+- Claim scope: **mcp_radar_tool_contract**
+- Required tests: **52**
+- Artifact: `go-test-radar.jsonl`
+- Artifact hash: `sha256:cbb5850607f3a143047d735b0968f7e7634560722b1fb5b74135442e81154e2d`
+- Package pass event: **True**
+
+## Errors
+- missing required passed tests: TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint
+
+## Limitations
+- Tool-contract proof only; this is not agent lift proof.
+
+Wrote /var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpua5cr78a/radar-tool-audit-report.json and radar-tool-audit-report.md
+# Release Readiness Matrix
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpipr7fj_n/release-matrix-report.json and release-matrix-report.md
+# Release Readiness Matrix
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmp6f50ax0t/release-matrix-report.json and release-matrix-report.md
+# Workspace Radar Evidence Audit
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpbyvq_f1m/workspace-radar-audit-report.json and workspace-radar-audit-report.md
+# Workspace Radar Evidence Audit
+
+Wrote /private/var/folders/7g/r0pg1n495tb1snh2zvk9y0_r0000gn/T/tmpysqm3bvu/workspace-radar-audit-report.json and workspace-radar-audit-report.md

@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "decision": "no_go",
-  "updated_at": "2026-07-15T12:06:26+02:00",
+  "updated_at": "2026-07-15T12:11:08+02:00",
   "checks": [
-    {"id": "ws2_treatment_contract_integrated", "status": "pending", "evidence": null},
+    {"id": "ws2_treatment_contract_integrated", "status": "pass", "evidence": "integration-verification.json"},
     {"id": "fresh_task_validity_review", "status": "pending", "evidence": null},
-    {"id": "ws3_temporal_preranking_contract", "status": "pending", "evidence": null},
-    {"id": "ws4_schedule_cache_controls", "status": "pending", "evidence": null},
-    {"id": "ws5_evidence_verification", "status": "pending", "evidence": null},
+    {"id": "ws3_temporal_preranking_contract", "status": "pass", "evidence": "integration-verification.json"},
+    {"id": "ws4_schedule_cache_controls", "status": "pass", "evidence": "integration-verification.json"},
+    {"id": "ws5_evidence_verification", "status": "pass", "evidence": "integration-verification.json"},
     {"id": "unique_inventory_reconciled", "status": "pass", "evidence": "task-inventory.json"},
     {"id": "fresh_holdout_hash_frozen", "status": "pending", "evidence": null},
     {"id": "holdout_unopened", "status": "pass", "evidence": "preregistration.json#fresh_holdout"},

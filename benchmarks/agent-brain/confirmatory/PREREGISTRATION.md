@@ -95,7 +95,8 @@ The final freeze requires contracts, fixtures, and passing evidence from:
 - WS5: content-addressed suite/run manifests, common executed-run predicate, frozen analyzer hash, and
   successful evidence verification.
 
-The implementation contracts are integrated, but they are not substitutes for fresh prompt reviews,
+The implementation contracts are integrated and backed by content-addressed source and unpaid test
+evidence in `integration-verification.json`, but they are not substitutes for fresh prompt reviews,
 actual engine records, or final experimental inputs. `check_protocol.py --freeze` must remain red
-while any integration evidence, task-validity review, engine verification, development threshold,
-powered design, model/budget cap, analyzer hash, or fresh holdout commitment is pending or failed.
+while any task-validity review, engine verification, development threshold, powered design,
+model/budget cap, or fresh holdout commitment is pending or failed.

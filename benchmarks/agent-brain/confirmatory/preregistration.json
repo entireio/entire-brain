@@ -71,10 +71,10 @@
     "formula": "sum(input_tokens*input_price + cached_input_tokens*cached_input_price + output_tokens*output_price)"
   },
   "dependencies": {
-    "ws2_treatment_and_task_validity": "pending",
-    "ws3_temporal_completeness": "pending",
-    "ws4_schedule_and_cache": "pending",
-    "ws5_evidence_verification": "pending"
+    "ws2_treatment_and_task_validity": "pass",
+    "ws3_temporal_completeness": "pass",
+    "ws4_schedule_and_cache": "pass",
+    "ws5_evidence_verification": "pass"
   },
   "analyzer_sha256": "1407ba68fb09a6ad2a3f7f469e2261951537f0edddf26d18a1047b7a0fcfe9e2",
   "freeze": {"frozen_at": null, "protocol_sha256": null}

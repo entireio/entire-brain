@@ -29,10 +29,10 @@ class ProtocolCheckTest(unittest.TestCase):
     def test_preparation_artifacts_are_consistent(self) -> None:
         self.assertEqual(CHECK.validate(freeze=False), [])
 
-    def test_freeze_is_fail_closed_while_dependencies_are_pending(self) -> None:
+    def test_freeze_is_fail_closed_after_dependencies_pass(self) -> None:
         errors = CHECK.validate(freeze=True)
         self.assertTrue(errors)
-        self.assertIn("WS2-WS5 dependencies are pending", errors)
+        self.assertNotIn("WS2-WS5 dependencies are pending", errors)
         self.assertIn("fresh holdout commitment is not frozen", errors)
         self.assertIn("paid-run checklist is not all pass", errors)
 
