@@ -1,0 +1,60 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "2e5c829cd01a",
+  "session_id": "019f64ec-e11a-7630-a854-a8075eddd33c",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-15T09:17:04.217637Z",
+  "branch": "codex/workstream7-ranking-gate",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/analysis/WORKSTREAM-7-GATE-REPORT-2026-07-15.md",
+    "benchmarks/agent-brain/analysis/__init__.py",
+    "benchmarks/agent-brain/analysis/artifacts/ranking-baseline-output-v1.json",
+    "benchmarks/agent-brain/analysis/fixtures/ranking-baseline-input-v1.json",
+    "benchmarks/agent-brain/analysis/ranking_diagnostics.py",
+    "benchmarks/agent-brain/analysis/test_ranking_diagnostics.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "c94418b375cb",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 112357,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1853184,
+    "output_tokens": 15230,
+    "api_call_count": 29
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-15T09:17:04.096875Z",
+    "agent_lines": 647,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 647,
+    "total_lines_changed": 647,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 647,
+      "agent_lines_removed": 0
+    }
+  ]
+}

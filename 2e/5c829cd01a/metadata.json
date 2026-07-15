@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "2e5c829cd01a",
+  "strategy": "manual-commit",
+  "branch": "codex/workstream7-ranking-gate",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/analysis/WORKSTREAM-7-GATE-REPORT-2026-07-15.md",
+    "benchmarks/agent-brain/analysis/__init__.py",
+    "benchmarks/agent-brain/analysis/artifacts/ranking-baseline-output-v1.json",
+    "benchmarks/agent-brain/analysis/fixtures/ranking-baseline-input-v1.json",
+    "benchmarks/agent-brain/analysis/ranking_diagnostics.py",
+    "benchmarks/agent-brain/analysis/test_ranking_diagnostics.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2e/5c829cd01a/0/metadata.json",
+      "transcript": "/2e/5c829cd01a/0/full.jsonl",
+      "compact_transcript": "/2e/5c829cd01a/0/transcript.jsonl",
+      "content_hash": "/2e/5c829cd01a/0/content_hash.txt",
+      "prompt": "/2e/5c829cd01a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 112357,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1853184,
+    "output_tokens": 15230,
+    "api_call_count": 29
+  }
+}
