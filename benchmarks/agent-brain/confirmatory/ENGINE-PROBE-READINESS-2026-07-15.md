@@ -1,6 +1,6 @@
 # Retrieval-engine probe readiness — 2026-07-15
 
-Status: **runtime smoke passed; freeze evidence incomplete; no paid calls**.
+Status: **runtime smoke passed; fail-closed wrapper ready; freeze evidence incomplete; no paid calls**.
 
 Read-only probes used the already-exposed development task `6699ec40a` against the full rolling
 quarantine. All three runtime paths reported `identity_verified=true`, BM25 disabled, no fallback,
@@ -35,3 +35,36 @@ Before the gate can pass:
    isolated namespaces, `fallback_used=false`, and the requested effective engine.
 
 No fresh relevance or agent holdout was opened by these probes.
+
+## Verification-wrapper checkpoint
+
+`verify_engines.py` now implements the retained run without inferring identity from requested
+environment:
+
+- it verifies the pinned source-facts, session-date, and GGUF hashes before creating output;
+- it accepts only a query/cutoff/exclusion tuple from exposed development task `6699ec40a`;
+- it creates distinct derived data, config, state, and cache roots for all three arms and never
+  supplies the frozen data root to the binary;
+- it starts and stops its own loopback EmbeddingGemma server, and refuses an endpoint already owned
+  by another process;
+- it rejects fallback, BM25, partial semantic coverage, temporal-count drift, results above `K`,
+  vector paths outside an arm's derived data root, and vector header/model/dimension/count drift;
+- it retains the binary, recall stdout/stderr, server stdout/stderr, one vector artifact per semantic
+  arm, and the pinned GGUF, all with SHA-256 hashes; and
+- it emits exactly three canonical records only after the existing protocol checker accepts them.
+
+Eight hermetic tests pass, including a full synthetic three-arm publication and fail-closed cases for
+fallback, escaped vector paths, vector-header mismatch, input-pin mismatch, a non-development query,
+trailing vector bytes, and an occupied server endpoint.
+
+The real retained run was preflighted against development task `6699ec40a`. It correctly refused
+before creating an evidence directory because a pre-existing, unowned Node process (PID 70028 at the
+time of the check) already held the matrix-pinned `127.0.0.1:11500` endpoint. That process was neither
+reused nor stopped. The source facts, session-date map, and GGUF hashes remained unchanged.
+
+The gate remains **pending** for two exact reasons:
+
+1. The pinned endpoint must be made available by its owner so the wrapper can perform a clean,
+   controlled three-arm run.
+2. The resulting repo-relative bytes—especially the 333,590,944-byte GGUF—need an approved durable
+   repository artifact strategy. A successful temporary or untracked run is not pass evidence.
