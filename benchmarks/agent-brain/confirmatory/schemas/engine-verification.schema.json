@@ -23,12 +23,17 @@
     },
     "artifacts": {
       "type": "object",
-      "required": ["binary_sha256", "stdout_sha256", "stderr_sha256", "vector_artifact_sha256", "embedding_model_sha256"],
+      "required": ["binary_path", "binary_sha256", "stdout_path", "stdout_sha256", "stderr_path", "stderr_sha256", "vector_artifact_path", "vector_artifact_sha256", "embedding_model_path", "embedding_model_sha256"],
       "properties": {
+        "binary_path": {"type": "string", "minLength": 1},
         "binary_sha256": {"$ref": "#/$defs/sha256"},
+        "stdout_path": {"type": "string", "minLength": 1},
         "stdout_sha256": {"$ref": "#/$defs/sha256"},
+        "stderr_path": {"type": "string", "minLength": 1},
         "stderr_sha256": {"$ref": "#/$defs/sha256"},
+        "vector_artifact_path": {"type": ["string", "null"], "minLength": 1},
         "vector_artifact_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "embedding_model_path": {"type": ["string", "null"], "minLength": 1},
         "embedding_model_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
       }
     },
