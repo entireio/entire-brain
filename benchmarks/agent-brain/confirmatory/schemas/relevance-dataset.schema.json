@@ -8,8 +8,45 @@
     "dataset_id": {"type": "string", "minLength": 1},
     "status": {"enum": ["draft_pending_labels_and_holdout_seal", "frozen_unopened", "opened_once"]},
     "created_at": {"type": "string", "format": "date-time"},
-    "label_policy": {"type": "object"},
-    "development": {"type": "object", "required": ["items"], "properties": {"items": {"type": "array", "items": {"$ref": "#/$defs/query"}}}},
+    "label_policy": {
+      "type": "object",
+      "required": ["query_sources", "required_judgments", "null_queries_required", "temporal_eligibility_required", "near_duplicate_cluster_ids_required", "positive_definition", "fact_hash_definition"],
+      "properties": {
+        "query_sources": {"type": "array", "items": {"enum": ["user_prompt_derived", "oracle_upper_bound"]}, "uniqueItems": true},
+        "required_judgments": {"type": "array", "items": {"enum": ["solving", "relevant_alternative", "hard_topical_distractor", "irrelevant"]}, "uniqueItems": true},
+        "null_queries_required": {"const": true},
+        "temporal_eligibility_required": {"const": true},
+        "near_duplicate_cluster_ids_required": {"const": true},
+        "positive_definition": {"type": "array", "items": {"enum": ["solving", "relevant_alternative"]}, "uniqueItems": true},
+        "fact_hash_definition": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "development": {
+      "type": "object",
+      "required": ["item_count", "unique_task_count", "judgment_count", "grade_counts", "evidence_counts", "source_facts_sha256", "source_session_dates_sha256", "labels_sha256", "fact_snapshot_sha256", "items"],
+      "properties": {
+        "item_count": {"type": "integer", "minimum": 0},
+        "unique_task_count": {"type": "integer", "minimum": 0},
+        "judgment_count": {"type": "integer", "minimum": 0},
+        "grade_counts": {"$ref": "#/$defs/gradeCounts"},
+        "evidence_counts": {
+          "type": "object",
+          "required": ["legacy_agent_packet", "manual_frozen_corpus_review"],
+          "properties": {
+            "legacy_agent_packet": {"type": "integer", "minimum": 0},
+            "manual_frozen_corpus_review": {"type": "integer", "minimum": 0}
+          },
+          "additionalProperties": false
+        },
+        "source_facts_sha256": {"$ref": "#/$defs/sha256"},
+        "source_session_dates_sha256": {"$ref": "#/$defs/sha256"},
+        "labels_sha256": {"$ref": "#/$defs/sha256"},
+        "fact_snapshot_sha256": {"$ref": "#/$defs/sha256"},
+        "items": {"type": "array", "items": {"$ref": "#/$defs/query"}}
+      },
+      "additionalProperties": false
+    },
     "sealed_holdout": {
       "type": "object",
       "required": ["item_count", "unique_task_count", "commitment_sha256", "sealed_at", "opened_at", "items"],
@@ -25,9 +62,31 @@
   },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "gradeCounts": {
+      "type": "object",
+      "required": ["solving", "relevant_alternative", "hard_topical_distractor", "irrelevant"],
+      "properties": {
+        "solving": {"type": "integer", "minimum": 0},
+        "relevant_alternative": {"type": "integer", "minimum": 0},
+        "hard_topical_distractor": {"type": "integer", "minimum": 0},
+        "irrelevant": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "labelEvidence": {
+      "type": "object",
+      "required": ["type", "source_id", "rationale"],
+      "properties": {
+        "type": {"enum": ["legacy_agent_packet", "manual_frozen_corpus_review"]},
+        "source_id": {"type": "string", "minLength": 1},
+        "source_sha256": {"$ref": "#/$defs/sha256"},
+        "rationale": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
     "query": {
       "type": "object",
-      "required": ["query_id", "task_id", "query_source", "query_text", "query_sha256", "temporal_cutoff", "null_query", "judgments"],
+      "required": ["query_id", "task_id", "query_source", "query_text", "query_sha256", "task_prompt_sha256", "temporal_cutoff", "null_query", "task_inventory_state", "label_evidence", "judgments"],
       "properties": {
         "query_id": {"type": "string", "minLength": 1},
         "task_id": {"type": "string", "minLength": 1},
@@ -38,17 +97,21 @@
         "hidden_validation_sha256": {"$ref": "#/$defs/sha256"},
         "temporal_cutoff": {"type": "string", "format": "date-time"},
         "null_query": {"type": "boolean"},
+        "task_inventory_state": {"enum": ["prompt_inspected", "retrieval_probed", "agent_run", "optimization_used"]},
+        "label_evidence": {"$ref": "#/$defs/labelEvidence"},
         "judgments": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["fact_id", "grade", "eligible", "kind", "cluster_id"],
+            "required": ["fact_id", "fact_sha256", "grade", "eligible", "kind", "cluster_id", "rationale"],
             "properties": {
               "fact_id": {"type": "string", "minLength": 1},
+              "fact_sha256": {"$ref": "#/$defs/sha256"},
               "grade": {"enum": ["solving", "relevant_alternative", "hard_topical_distractor", "irrelevant"]},
               "eligible": {"type": "boolean"},
               "kind": {"type": "string", "minLength": 1},
-              "cluster_id": {"type": "string", "minLength": 1}
+              "cluster_id": {"type": "string", "minLength": 1},
+              "rationale": {"type": "string", "minLength": 1}
             },
             "additionalProperties": false
           }

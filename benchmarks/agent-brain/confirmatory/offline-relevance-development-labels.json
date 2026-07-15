@@ -1,0 +1,432 @@
+{
+  "schema_version": 1,
+  "dataset_id": "agent-brain-relevance-v1-development",
+  "label_set_id": "exposed-c0701-manual-review-2026-07-15",
+  "created_at": "2026-07-15T13:45:00+02:00",
+  "source_corpus": {
+    "facts_sha256": "084f5170c07a8b843e6ffc7eac1939df0fa9c13d45ade9f5061d7c185195a793",
+    "session_dates_sha256": "0ccd0a2ec938b354fa512fea090f2f68ca0e7b958f17ffa50784fb13108ed18a"
+  },
+  "allowed_inventory_states": [
+    "prompt_inspected",
+    "retrieval_probed",
+    "agent_run",
+    "optimization_used"
+  ],
+  "items": [
+    {
+      "query_id": "dev-product-4dd458656",
+      "task_id": "entire-cli-c0701-4dd458656",
+      "query_source": "user_prompt_derived",
+      "null_query": false,
+      "label_evidence": {
+        "type": "legacy_agent_packet",
+        "source_id": "opus3d-s0/full_brain/r1",
+        "source_sha256": "473d637492db2d135c12fc18b9da7f184836b7a2510187f5cc4b86e5a6e8ee78",
+        "rationale": "The retained packet placed fact:30c6c2e4a031d91df16e4d27 first; exact text was matched back to the pinned full fact corpus before grading."
+      },
+      "judgments": [
+        {
+          "fact_id": "fact:30c6c2e4a031d91df16e4d27",
+          "grade": "solving",
+          "cluster_id": "cluster:managed-hook-wrapper-migration",
+          "rationale": "It states the required stale Entire-managed wrapper replacement rule and the sh/cmd.exe migration behavior directly."
+        },
+        {
+          "fact_id": "fact:ca0150e655d12006e8ca74f8",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:hook-ownership-copilot",
+          "rationale": "It concerns ownership-safe hook replacement, but for Copilot commands rather than Cursor wrapper-form migration."
+        },
+        {
+          "fact_id": "fact:ab03900e702414db4d6b15f3",
+          "grade": "irrelevant",
+          "cluster_id": "cluster:checkpoint-metadata-refetch",
+          "rationale": "Avoiding duplicate checkpoint database rows is unrelated to replacing installed hook entries."
+        }
+      ]
+    },
+    {
+      "query_id": "dev-oracle-4dd458656",
+      "task_id": "entire-cli-c0701-4dd458656",
+      "query_source": "oracle_upper_bound",
+      "query_text": "How should an Entire-managed Cursor hook be migrated when reinstalling changes its wrapper between sh and cmd.exe?",
+      "null_query": false,
+      "label_evidence": {
+        "type": "legacy_agent_packet",
+        "source_id": "opus3d-s0/full_brain/r1",
+        "source_sha256": "473d637492db2d135c12fc18b9da7f184836b7a2510187f5cc4b86e5a6e8ee78",
+        "rationale": "This oracle wording names the exact wrapper migration represented by the retained packet's first fact."
+      },
+      "judgments": [
+        {
+          "fact_id": "fact:30c6c2e4a031d91df16e4d27",
+          "grade": "solving",
+          "cluster_id": "cluster:managed-hook-wrapper-migration",
+          "rationale": "The fact is an exact answer to the oracle query."
+        },
+        {
+          "fact_id": "fact:32a34f711bb107845dc407c3",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:duplicate-cross-agent-hooks",
+          "rationale": "It describes duplicate lifecycle hooks, but the cause is cross-agent dispatch rather than wrapper-form migration."
+        },
+        {
+          "fact_id": "fact:0d1104c5493d9d6febcb7600",
+          "grade": "irrelevant",
+          "cluster_id": "cluster:gitops-package-boundary",
+          "rationale": "A Git operations package boundary does not answer hook migration behavior."
+        }
+      ]
+    },
+    {
+      "query_id": "dev-product-6699ec40a",
+      "task_id": "entire-cli-c0701-6699ec40a",
+      "query_source": "user_prompt_derived",
+      "null_query": false,
+      "label_evidence": {
+        "type": "legacy_agent_packet",
+        "source_id": "opus3-s2/full_brain/r1",
+        "source_sha256": "e78454d0e55755e8c65e19d0324e13d330640439e109319b5ccc5cf42d3ed1b3",
+        "rationale": "The retained packet supplied token-accounting invariants; exact packet text was mapped to pinned corpus fact IDs before grading."
+      },
+      "judgments": [
+        {
+          "fact_id": "fact:653adbd42aa9c222acb547d9",
+          "grade": "relevant_alternative",
+          "cluster_id": "cluster:cumulative-token-events",
+          "rationale": "It establishes cumulative event-stream token accounting, a useful analogue for Pi's cumulative cache-token handling, without specifying Pi's event shape."
+        },
+        {
+          "fact_id": "fact:d6d013154da56499fbf92453",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:codex-inclusive-token-accounting",
+          "rationale": "It is strongly topical to cache-token double counting but describes Codex inclusive fields rather than Pi stream accumulation."
+        },
+        {
+          "fact_id": "fact:9c39a262ba60f7ed28023b46",
+          "grade": "irrelevant",
+          "cluster_id": "cluster:recap-aggregation-drift",
+          "rationale": "Its double-counting issue concerns recap contributors and API data sources, not reviewer token events."
+        }
+      ]
+    },
+    {
+      "query_id": "dev-product-855b8cdab",
+      "task_id": "entire-cli-c0701-855b8cdab",
+      "query_source": "user_prompt_derived",
+      "null_query": false,
+      "label_evidence": {
+        "type": "manual_frozen_corpus_review",
+        "source_id": "full-quarantine-084f5170",
+        "rationale": "Human review compared the exposed task prompt with eligible facts proposed from the pinned corpus; no agent memory packet was retained for this no-memory development run."
+      },
+      "judgments": [
+        {
+          "fact_id": "fact:a9d6e9f86b6d576fb8e30a5f",
+          "grade": "relevant_alternative",
+          "cluster_id": "cluster:checkpoint-url-from-push-remote",
+          "rationale": "It establishes that checkpoint URL/auth derivation follows the active push remote, which is central context, but does not state same-cluster entire:// derivation."
+        },
+        {
+          "fact_id": "fact:73a7cd4f05b859958bffc347",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:checkpoint-token-forces-https",
+          "rationale": "It correctly covers the token-forces-HTTPS exception but not mirror-cluster routing in the tokenless matching-forge case."
+        },
+        {
+          "fact_id": "fact:09ef343c6580f47c54dece07",
+          "grade": "irrelevant",
+          "cluster_id": "cluster:local-checkpoint-discovery",
+          "rationale": "Local checkpoint discovery has no bearing on remote URL derivation."
+        }
+      ]
+    },
+    {
+      "query_id": "dev-null-8828752a7",
+      "task_id": "entire-cli-c0701-8828752a7",
+      "query_source": "user_prompt_derived",
+      "null_query": true,
+      "label_evidence": {
+        "type": "legacy_agent_packet",
+        "source_id": "opus3-s0/full_brain/r1",
+        "source_sha256": "79f3ac6234b284184c9bcda9db60b877fd1764bd1b55a041d8f01d91fd8300f0",
+        "rationale": "All twelve retained packet facts were reviewed; none describes resume auto-detection ordering or fetching a remote-only branch, so this is an observed no-answer case for the frozen corpus."
+      },
+      "judgments": [
+        {
+          "fact_id": "fact:fd2481fbb3a8ca7ce9f85e63",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:remote-tracking-v11-mirror",
+          "rationale": "It mentions a deliberately omitted remote-tracking fallback, but for the local-only v1.1 metadata mirror rather than resume target resolution."
+        },
+        {
+          "fact_id": "fact:86eeae1918bb7aa4eca19306",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:policy-remote-resolution",
+          "rationale": "It discusses branch/push remote resolution, but for policy refs rather than checkpoint resume auto-detection."
+        },
+        {
+          "fact_id": "fact:1560962204e7614f27850c22",
+          "grade": "irrelevant",
+          "cluster_id": "cluster:trails-remote-ownership",
+          "rationale": "Trail branch ownership does not address resolving a resume target."
+        }
+      ]
+    },
+    {
+      "query_id": "dev-product-d9df8fcca",
+      "task_id": "entire-cli-c0701-d9df8fcca",
+      "query_source": "user_prompt_derived",
+      "null_query": false,
+      "label_evidence": {
+        "type": "manual_frozen_corpus_review",
+        "source_id": "full-quarantine-084f5170",
+        "rationale": "The exposed prompt and eligible corpus facts contain a direct, independently distilled account of Git's persisted promisor sections and the URL-fetch constraint."
+      },
+      "judgments": [
+        {
+          "fact_id": "fact:8325ce8c7c9c08ba273c812f",
+          "grade": "solving",
+          "cluster_id": "cluster:filtered-fetch-config-pollution",
+          "rationale": "It directly prescribes URL-based filtered fetches to avoid named-remote config pollution while retaining filtered retrieval."
+        },
+        {
+          "fact_id": "fact:11af406c1bcd1c4994261a6c",
+          "grade": "relevant_alternative",
+          "cluster_id": "cluster:literal-url-promisor-section",
+          "rationale": "It explains that literal URL/path fetches can still persist synthetic promisor sections, the exact mechanism behind bulk-fetch exposure."
+        },
+        {
+          "fact_id": "fact:f43f95628493822bad1fcda2",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:origin-promisor-migration",
+          "rationale": "It concerns legacy origin pollution and cleanup, not suppressing accumulated literal-URL remotes during bulk fetch/update."
+        },
+        {
+          "fact_id": "fact:80545a403b658bba19a7a6b0",
+          "grade": "irrelevant",
+          "cluster_id": "cluster:trail-pr-base-retarget",
+          "rationale": "Trail PR base synchronization is unrelated to Git promisor configuration."
+        }
+      ]
+    },
+    {
+      "query_id": "dev-product-d90849ac5",
+      "task_id": "entire-cli-c0701-d90849ac5",
+      "query_source": "user_prompt_derived",
+      "null_query": false,
+      "label_evidence": {
+        "type": "manual_frozen_corpus_review",
+        "source_id": "full-quarantine-084f5170",
+        "rationale": "This task was already retrieval-probed; manual review found an eligible fact that records removal of automatic enable-time import prompting."
+      },
+      "judgments": [
+        {
+          "fact_id": "fact:80dfd6321fdef23175afc388",
+          "grade": "solving",
+          "cluster_id": "cluster:explicit-session-import",
+          "rationale": "It states the safe product rule directly: imports are explicit manual commands rather than an enable-time side effect."
+        },
+        {
+          "fact_id": "fact:4ffcd573803e604fcb1ea1b3",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:enable-yes-bootstrap",
+          "rationale": "It specifies non-interactive enable behavior, but does not establish repository-policy validation for history imports."
+        },
+        {
+          "fact_id": "fact:42e169e787462c51357851e2",
+          "grade": "irrelevant",
+          "cluster_id": "cluster:token-usage-import-cycle",
+          "rationale": "A Go import cycle in token usage code does not affect enable-time history import."
+        }
+      ]
+    },
+    {
+      "query_id": "dev-product-aaeb8546c",
+      "task_id": "entire-cli-c0701-aaeb8546c",
+      "query_source": "user_prompt_derived",
+      "null_query": false,
+      "label_evidence": {
+        "type": "manual_frozen_corpus_review",
+        "source_id": "full-quarantine-084f5170",
+        "rationale": "Manual review found security invariants that constrain bearer-token destinations, but no fact that describes this API client's redirect callback implementation exactly."
+      },
+      "judgments": [
+        {
+          "fact_id": "fact:c9b44a5e5e1678e0a21270d3",
+          "grade": "relevant_alternative",
+          "cluster_id": "cluster:token-audience-origin-validation",
+          "rationale": "It establishes that a raw token may only be sent to a validated HTTPS origin, useful security guidance for rejecting off-origin redirects."
+        },
+        {
+          "fact_id": "fact:0539f87b0bf63eaf40ae9eec",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:split-host-auth-redirect",
+          "rationale": "It is about cross-host auth redirects, but the failure is device-grant store separation rather than Authorization-header leakage."
+        },
+        {
+          "fact_id": "fact:b492d36505d004ee3f331cc1",
+          "grade": "irrelevant",
+          "cluster_id": "cluster:expired-recap-token",
+          "rationale": "Bearer expiry during recap does not address redirect host validation."
+        }
+      ]
+    },
+    {
+      "query_id": "dev-product-b3f0deb5b",
+      "task_id": "entire-cli-c0701-b3f0deb5b",
+      "query_source": "user_prompt_derived",
+      "null_query": false,
+      "label_evidence": {
+        "type": "manual_frozen_corpus_review",
+        "source_id": "full-quarantine-084f5170",
+        "rationale": "The eligible corpus contains the stale-cache fallback policy and separate cache architecture needed to judge this discovery regression."
+      },
+      "judgments": [
+        {
+          "fact_id": "fact:d75f426867c91b5437248c77",
+          "grade": "solving",
+          "cluster_id": "cluster:discovery-stale-cache-fallback",
+          "rationale": "It directly distinguishes expired-entry fallback from the hard error required when no usable entry exists."
+        },
+        {
+          "fact_id": "fact:556c688f7e3ecb06f7a95f0b",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:discovery-cache-separation",
+          "rationale": "It describes discovery cache structure and TTL, but not audience-aware fallback eligibility."
+        },
+        {
+          "fact_id": "fact:7f36ef3dd79da3aee5a556e3",
+          "grade": "irrelevant",
+          "cluster_id": "cluster:recap-expired-token-401",
+          "rationale": "An expired recap token is unrelated to cluster-core discovery fallback."
+        }
+      ]
+    },
+    {
+      "query_id": "dev-product-21fcaf5f2",
+      "task_id": "entire-cli-c0701-21fcaf5f2",
+      "query_source": "user_prompt_derived",
+      "null_query": false,
+      "label_evidence": {
+        "type": "manual_frozen_corpus_review",
+        "source_id": "full-quarantine-084f5170",
+        "rationale": "Manual review found separate eligible facts for imported-checkpoint constraints and strategy-owned orphan classification; neither was inferred from the prompt alone."
+      },
+      "judgments": [
+        {
+          "fact_id": "fact:b7a1d34e559873a769bf585a",
+          "grade": "relevant_alternative",
+          "cluster_id": "cluster:imported-checkpoint-read-only",
+          "rationale": "It establishes imported checkpoints as a distinct protected kind, supporting exclusion from destructive generic cleanup."
+        },
+        {
+          "fact_id": "fact:ca30b3f899d29db801519c07",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:active-session-orphan-cleanup",
+          "rationale": "It is about preventing cleanup of legitimate session state, but for active carry-forward work rather than imported sessions."
+        },
+        {
+          "fact_id": "fact:32203deb1036cba4d14b243c",
+          "grade": "irrelevant",
+          "cluster_id": "cluster:recap-response-aggregates",
+          "rationale": "Recap response completeness does not affect orphan classification."
+        }
+      ]
+    },
+    {
+      "query_id": "dev-product-996336140",
+      "task_id": "entire-cli-c0701-996336140",
+      "query_source": "user_prompt_derived",
+      "null_query": false,
+      "label_evidence": {
+        "type": "manual_frozen_corpus_review",
+        "source_id": "full-quarantine-084f5170",
+        "rationale": "Manual review found an eligible imported-kind contract and a separate stale-session policy, allowing an honest partial-relevance judgment."
+      },
+      "judgments": [
+        {
+          "fact_id": "fact:5c23e28b4902b6162eca87e4",
+          "grade": "relevant_alternative",
+          "cluster_id": "cluster:imported-checkpoint-kind",
+          "rationale": "It defines imported checkpoints as a distinct kind that unsupported consumers must filter, relevant to exempting them from generic staleness consumers."
+        },
+        {
+          "fact_id": "fact:aeac17d3e3f7c90103b4b128",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:active-session-staleness",
+          "rationale": "It defines stale ACTIVE display behavior, not imported-session lifetime or purge eligibility."
+        },
+        {
+          "fact_id": "fact:d939db93c090d7ab800329a0",
+          "grade": "irrelevant",
+          "cluster_id": "cluster:explain-metadata-fetch",
+          "rationale": "Fetching a metadata branch for explain is unrelated to session auto-purge."
+        }
+      ]
+    },
+    {
+      "query_id": "dev-product-e52b748b4",
+      "task_id": "entire-cli-c0701-e52b748b4",
+      "query_source": "user_prompt_derived",
+      "null_query": false,
+      "label_evidence": {
+        "type": "manual_frozen_corpus_review",
+        "source_id": "full-quarantine-084f5170",
+        "rationale": "Eligible facts prove trail findings are a real user-facing workflow and provide both a relevant command contract and nearby help/discovery distractors."
+      },
+      "judgments": [
+        {
+          "fact_id": "fact:e3e7d5ba3d7767d06ea91f5e",
+          "grade": "relevant_alternative",
+          "cluster_id": "cluster:trail-finding-command",
+          "rationale": "It documents a concrete trail finding command and limitation, making findings relevant to the trail help surface without prescribing wording."
+        },
+        {
+          "fact_id": "fact:2f3eb1f9194691d5d97d97bb",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:experimental-help-discovery",
+          "rationale": "It addresses help as a discovery surface, but for experimental commands rather than trail findings."
+        },
+        {
+          "fact_id": "fact:8c7cbd18b936edc149a64ec1",
+          "grade": "irrelevant",
+          "cluster_id": "cluster:codex-resume-registry",
+          "rationale": "Codex session registry behavior is unrelated to trail help."
+        }
+      ]
+    },
+    {
+      "query_id": "dev-null-b72a6e621",
+      "task_id": "entire-cli-c0701-b72a6e621",
+      "query_source": "user_prompt_derived",
+      "null_query": true,
+      "label_evidence": {
+        "type": "manual_frozen_corpus_review",
+        "source_id": "full-quarantine-084f5170",
+        "rationale": "Eligible-corpus review found no fact about deduplicating mirror-placement search statistics; the nearest facts only share mirror, aggregation, or double-count vocabulary."
+      },
+      "judgments": [
+        {
+          "fact_id": "fact:9c39a262ba60f7ed28023b46",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:recap-aggregation-drift",
+          "rationale": "It reports double-counted aggregates, but in recap contributor data rather than mirror-placement code search stats."
+        },
+        {
+          "fact_id": "fact:3b0199c75a7f4b613beb6bd8",
+          "grade": "hard_topical_distractor",
+          "cluster_id": "cluster:mirror-id-routing",
+          "rationale": "It uses mirror metadata for API routing, not per-cell search-result deduplication."
+        },
+        {
+          "fact_id": "fact:c9cfe5bcac4d18cc84df6128",
+          "grade": "irrelevant",
+          "cluster_id": "cluster:worktree-shadow-scope",
+          "rationale": "Worktree shadow-branch scoping has no relationship to code-search statistics."
+        }
+      ]
+    }
+  ]
+}

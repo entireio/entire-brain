@@ -15,12 +15,14 @@ set will be mined only after this methodology and the WS2-WS5 interfaces are fro
 hidden validation, solving fact IDs, temporal cutoffs, and split assignments will be committed by
 content hash without exposing holdout labels to ranking work.
 
-The offline relevance dataset will contain at least 12 development queries and 12 sealed holdout
-queries, cover at least 12 unique tasks in each split, and include product queries, oracle upper-bound
-queries, hard topical distractors, and null/no-answer cases. The fresh agent holdout target is 24
-unique tasks. If the pre-run power calculation misses 80% power for a 12% token reduction at the
-correctness gate, task count or repetitions must increase before sealing; they may not change after
-the holdout is opened.
+The offline relevance dataset now contains 13 development queries over 12 exposed legacy tasks: 12
+product queries, one oracle upper-bound query, two null/no-answer cases, and explicit hard topical
+distractors. This satisfies the development count floor only. It does not pass the offline engine
+threshold, choose K/aggregation, or substitute for the still-empty sealed holdout. The final dataset
+must contain at least 12 sealed holdout queries over at least 12 unique untouched tasks. The fresh
+agent holdout target is 24 unique tasks. If the pre-run power calculation misses 80% power for a 12%
+token reduction at the correctness gate, task count or repetitions must increase before sealing; they
+may not change after the holdout is opened.
 
 ## Retrieval matrix
 

@@ -26,9 +26,9 @@ not used for tuning and no model/agent cell was run.
 | Required evidence | Status | Audit result |
 |---|---:|---|
 | Identical-cell full-versus-tight corpus comparison changes the delivered packet | **Absent** | No artifact supplies paired prompt, engine, task config, temporal eligibility, and delivered packet hashes for both corpus sizes. |
-| Solving-fact rank or packet precision degrades reproducibly | **Absent** | WS6 now supplies a zero-label draft relevance scaffold, but no committed labels, thresholds, or counterbalanced repeated packet evidence exist. |
+| Solving-fact rank or packet precision degrades reproducibly | **Absent** | WS6 now supplies 13 labeled development queries over 12 exposed tasks, but no verified three-engine outputs, threshold result, or counterbalanced repeated packet evidence exists. |
 | Engine, prompt, temporal, cache, and contamination confounds excluded | **Absent** | Existing evidence does not jointly verify those controls; the required repaired-workstream artifacts are not integrated here. |
-| WS6 development relevance set and untouched holdout designated | **Absent** | WS6 now supplies draft schemas with null commitments; neither a labeled development set nor a sealed untouched ranking holdout has been designated. |
+| WS6 development relevance set and untouched holdout designated | **Partial** | The exposed-only development count floor is met and content-addressed; the untouched relevance holdout remains empty/uncommitted, so the conjunctive gate is still false. |
 
 Because all four requirements must be true, no candidate ranking implementation is authorized.
 
@@ -37,7 +37,8 @@ Because all four requirements must be true, no candidate ranking implementation 
 ### Retrieval engines
 
 The code and user documentation identify four distinguishable baselines, but the common WS6 relevance
-dataset remains a zero-label draft and cannot yet measure them:
+dataset now contains development labels but cannot measure them until identical-corpus verified engine
+records and ranked outputs are retained:
 
 - hand-rolled lexical score: `factQueryScore` plus `60` per shared locus token and the closed-negative
   kind boost;

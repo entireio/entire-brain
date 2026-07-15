@@ -5,18 +5,29 @@ paid agent run and it does not contain or open a fresh confirmatory holdout.
 
 Current state: `integrated_methodology_draft_power_redesign_required`. The WS2 treatment contract,
 WS3 pre-ranking temporal filter, WS4 scheduling/cache controls, and WS5 evidence controls have been
-integrated and verified by content-addressed source and test evidence. Final freeze remains blocked
-on fresh-task validity review, real three-engine records, relevance labels and holdouts, a defensible
-powered design, and model pricing/budget approval. The confirmatory analyzer is implemented and
-path-locked.
+integrated and verified by content-addressed source and test evidence. An exposed-only offline
+development relevance set now meets the 12-query/12-task count floor, but no three-engine metrics
+have been computed and the relevance holdout remains unopened and empty. Final freeze remains
+blocked on fresh-task validity review, real three-engine records and development threshold, relevance
+holdout sealing, a defensible powered design, and model pricing/budget approval. The confirmatory
+analyzer is implemented and path-locked.
 
 ## Artifacts
 
 - `PREREGISTRATION.md` and `preregistration.json`: human- and machine-readable candidate protocol.
 - `task-inventory.json`: content-addressed reconciliation of all 46 unique C0701 tasks.
 - `schemas/task-inventory.schema.json`: task exposure/contamination contract.
-- `schemas/relevance-dataset.schema.json`: offline relevance labels and sealed-holdout contract.
-- `offline-relevance-dataset.json`: unopened draft shell; it intentionally contains no holdout labels.
+- `schemas/relevance-dataset.schema.json`: generated offline relevance dataset and sealed-holdout
+  contract; the two adjacent relevance schemas cover reviewed labels and the fact excerpt.
+- `OFFLINE-RELEVANCE-DEVELOPMENT-2026-07-15.md`: counts, contamination boundary, evidence tiers,
+  reproducible commands, and exact remaining threshold/holdout blockers.
+- `offline-relevance-development-labels.json`: reviewed exposed-task label source.
+- `offline-relevance-fact-snapshot.json`: content-addressed 38-fact/provenance excerpt of the pinned
+  full quarantine, sufficient for offline rebuild and validation.
+- `relevance_dataset.py` and `test_relevance_dataset.py`: exposed-only proposal, snapshot,
+  materialization, and fail-closed validation workflow.
+- `offline-relevance-dataset.json`: generated 13-query/12-task development set; its sealed holdout
+  intentionally contains no plaintext labels.
 - `engine-matrix.json` and `ENGINE-VERIFICATION-RUNBOOK.md`: exact named arms and verification steps.
 - `schemas/engine-verification.schema.json`: required machine output for every engine execution.
 - `ENGINE-PROBE-READINESS-2026-07-15.md`: unpaid three-path runtime smoke and the remaining vector
@@ -42,11 +53,18 @@ Run the non-paid checks with:
 ```sh
 python3 benchmarks/agent-brain/confirmatory/check_protocol.py
 python3 -m unittest benchmarks/agent-brain/confirmatory/test_check_protocol.py
+python3 benchmarks/agent-brain/confirmatory/relevance_dataset.py validate \
+  --labels benchmarks/agent-brain/confirmatory/offline-relevance-development-labels.json \
+  --inventory benchmarks/agent-brain/confirmatory/task-inventory.json \
+  --snapshot benchmarks/agent-brain/confirmatory/offline-relevance-fact-snapshot.json \
+  --dataset benchmarks/agent-brain/confirmatory/offline-relevance-dataset.json
+python3 -m unittest benchmarks/agent-brain/confirmatory/test_relevance_dataset.py
 ```
 
-The first command must pass now. The following command must fail until fresh-task review, relevance
-labeling, fresh holdout sealing, powered-design repair, final pricing/budget approval, and durable
-engine verification are complete:
+The preparation and relevance validation commands must pass now. The following command must fail
+until fresh-task review, three-engine development evaluation and threshold selection, relevance
+holdout sealing, powered-design repair, final pricing/budget approval, and durable engine verification
+are complete:
 
 ```sh
 python3 benchmarks/agent-brain/confirmatory/check_protocol.py --freeze
