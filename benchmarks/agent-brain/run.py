@@ -40,6 +40,13 @@ from treatment import (
     user_query,
     validate_review_ledger,
 )
+from analysis.common import is_executed_run
+from analysis.evidence import (
+    finalize_suite_manifest,
+    render_markdown as render_evidence_markdown,
+    verify_bundle,
+    write_run_manifest,
+)
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -480,6 +487,22 @@ def parse_runner_spec(value: str) -> RunnerSpec:
         if effort:
             runner_id += f"-{effort}"
     return RunnerSpec(id=runner_id, agent=agent, model=model, effort=effort)
+
+
+def runner_cli_versions(runners: list[RunnerSpec]) -> dict[str, Any]:
+    versions: dict[str, Any] = {}
+    for agent in sorted({runner.agent for runner in runners}):
+        executable = shutil.which(agent)
+        if not executable:
+            versions[agent] = {"available": False}
+            continue
+        proc = run_cmd([executable, "--version"])
+        versions[agent] = {
+            "available": proc.returncode == 0,
+            "version": (proc.stdout or proc.stderr).strip()[:500],
+            "executable_sha256": file_sha256(pathlib.Path(executable)),
+        }
+    return versions
 
 
 def load_pricing(args: argparse.Namespace) -> dict[str, Any]:
@@ -997,6 +1020,58 @@ def git_dirty_metadata(repo: pathlib.Path) -> dict[str, Any]:
         "status_sha256": text_sha256(status.stdout),
         "tracked_diff_sha256": text_sha256(diff_text),
     }
+
+
+def capture_git_patch(repo: pathlib.Path) -> str:
+    """Capture tracked, staged, and untracked changes as one replayable patch."""
+    tracked = run_cmd(["git", "diff", "--binary", "--no-ext-diff", "HEAD", "--"], cwd=repo, check=True).stdout
+    parts = [tracked]
+    untracked = run_cmd(
+        ["git", "ls-files", "--others", "--exclude-standard"], cwd=repo, check=True
+    ).stdout.splitlines()
+    for relative in sorted(path for path in untracked if path.strip()):
+        proc = run_cmd(
+            ["git", "diff", "--no-index", "--binary", "--", "/dev/null", relative], cwd=repo
+        )
+        if proc.returncode not in (0, 1):
+            raise RuntimeError(f"failed to capture dirty harness file {relative}: {proc.stderr.strip()}")
+        parts.append(proc.stdout)
+    return "".join(parts)
+
+
+def prepare_harness_evidence(suite_dir: pathlib.Path, allow_dirty: bool) -> dict[str, Any]:
+    dirty = git_dirty_metadata(ROOT)
+    if not dirty.get("available"):
+        raise RuntimeError("cannot determine harness dirty status")
+    result: dict[str, Any] = {
+        "commit": git_commit_metadata(ROOT, "HEAD").get("commit"),
+        "dirty": bool(dirty.get("dirty")),
+        "status_sha256": dirty.get("status_sha256"),
+        "tracked_diff_sha256": dirty.get("tracked_diff_sha256"),
+        "confirmatory_eligible": not bool(dirty.get("dirty")),
+        "exploratory_override": False,
+    }
+    if dirty.get("dirty"):
+        if not allow_dirty:
+            raise RuntimeError(
+                "benchmark harness is dirty; commit/stash the changes or pass "
+                "--allow-dirty-harness-exploratory (dirty suites cannot be confirmatory)"
+            )
+        patch = capture_git_patch(ROOT)
+        patch_path = suite_dir / "harness.patch"
+        patch_path.write_text(patch)
+        result.update(
+            {
+                "confirmatory_eligible": False,
+                "exploratory_override": True,
+                "patch": {
+                    "path": "harness.patch",
+                    "bytes": len(patch.encode()),
+                    "sha256": text_sha256(patch),
+                },
+            }
+        )
+    return result
 
 
 def git_remote_url(repo: pathlib.Path) -> str | None:
@@ -4835,6 +4910,7 @@ def run_one(
         ),
     }
     try:
+        record["delivery_mode"] = "harness" if uses_frozen_brain_delivery(task) else "agent_tool"
         treatment = treatment_for_condition(task, condition)
         record["treatment"] = {key: value for key, value in treatment.items() if key != "candidate_facts"}
         record["retrieval_query_source"] = treatment["query_source"]
@@ -4864,6 +4940,7 @@ def run_one(
             record["packet_artifact"] = {"path": None, **packet_artifact}
             if memory_packet is not None:
                 (run_dir / "memory-packet.json").write_text(memory_packet)
+                (run_dir / "packet.txt").write_text(memory_packet)
                 record["packet_artifact"]["path"] = "memory-packet.json"
         # frozen_brief arms have no worktree brain (see prepare_brain short-circuit); their
         # readiness is verified via the delivered frozen packet, not a worktree manifest.
@@ -4983,6 +5060,7 @@ def run_one(
         }
         record["finished_at"] = dt.datetime.now(dt.UTC).isoformat()
         (run_dir / "record.json").write_text(json.dumps(record, indent=2, sort_keys=True))
+        write_run_manifest(record, run_dir, suite_dir)
         if worktree and not args.keep_worktrees:
             remove_worktree(source, worktree)
     return RunResult(record=record, run_dir=run_dir)
@@ -5274,23 +5352,44 @@ def comparison_stability(
 
 
 def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[str, Any]:
-    groups: dict[tuple[str, str, str, str], list[float]] = {}
-    metrics: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
+    # Delivery mode is part of the comparison key: causal-lane (harness-delivered) rows only ever
+    # compare against a harness-delivered no_brain baseline, and adherence-lane (agent_tool) rows
+    # only against an agent_tool baseline. Mixing lanes would fold tool-adherence failures into
+    # the causal treatment estimate.
+    groups: dict[tuple[str, str, str, str, str], list[float]] = {}
+    metrics: dict[tuple[str, str, str, str, str], list[dict[str, Any]]] = {}
+    # Infrastructure non-outcomes (harness delivery/isolation failed, agent never
+    # produced a real score) are tallied but kept OUT of groups/metrics so their
+    # synthetic zeros never enter arm means, deltas, or p-values. The per-cell
+    # count is surfaced on each comparison for transparency (F2).
+    excluded: dict[tuple[str, str, str, str, str], int] = {}
+    # Adherence failures are diagnostics, not post-treatment exclusions.  Once
+    # the agent executed they stay in every primary correctness/efficiency
+    # denominator; otherwise a difficult treatment could improve its own metric
+    # by failing the protocol.  We retain counts for interpretation.
+    adherence_failures: dict[tuple[str, str, str, str, str], int] = {}
     for rec in records:
         runner_id = rec.get("runner", {}).get("id") if isinstance(rec.get("runner"), dict) else None
         runner_id = runner_id or rec["agent"]
-        key = (rec["task_id"], rec["agent"], runner_id, rec["condition"])
+        mode = rec.get("delivery_mode") or "agent_tool"
+        key = (rec["task_id"], rec["agent"], runner_id, mode, rec["condition"])
+        if not is_executed_run(rec):
+            excluded[key] = excluded.get(key, 0) + 1
+            continue
+        audit = rec.get("temporal_memory_condition_audit")
+        if isinstance(audit, dict) and audit.get("ok") is False:
+            adherence_failures[key] = adherence_failures.get(key, 0) + 1
         groups.setdefault(key, []).append(float(rec.get("score", {}).get("total", 0)))
         metrics.setdefault(key, []).append(rec)
 
     comparisons = []
     stability_inputs: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]] = []
-    for (task_id, agent, runner_id, condition), values in groups.items():
+    for (task_id, agent, runner_id, mode, condition), values in groups.items():
         if condition == "no_brain":
             continue
-        base = groups.get((task_id, agent, runner_id, "no_brain"), [])
-        base_records = metrics.get((task_id, agent, runner_id, "no_brain"), [])
-        condition_records = metrics.get((task_id, agent, runner_id, condition), [])
+        base = groups.get((task_id, agent, runner_id, mode, "no_brain"), [])
+        base_records = metrics.get((task_id, agent, runner_id, mode, "no_brain"), [])
+        condition_records = metrics.get((task_id, agent, runner_id, mode, condition), [])
         if not base:
             continue
         def mean_field(recs: list[dict[str, Any]], path: list[str]) -> float | None:
@@ -5367,11 +5466,24 @@ def summarize(records: list[dict[str, Any]], suite_dir: pathlib.Path) -> dict[st
             "agent": agent,
             "runner": runner_id,
             "condition": condition,
+            "delivery_mode": mode,
             "delivery_scope": delivery_scope(condition, env_flags),
             "env_flags": env_flags,
             "baseline": "no_brain",
             "n_condition": len(values),
             "n_baseline": len(base),
+            "n_infrastructure_excluded_condition": excluded.get(
+                (task_id, agent, runner_id, mode, condition), 0
+            ),
+            "n_infrastructure_excluded_baseline": excluded.get(
+                (task_id, agent, runner_id, mode, "no_brain"), 0
+            ),
+            "n_adherence_failures_condition": adherence_failures.get(
+                (task_id, agent, runner_id, mode, condition), 0
+            ),
+            "n_adherence_failures_baseline": adherence_failures.get(
+                (task_id, agent, runner_id, mode, "no_brain"), 0
+            ),
             "mean_condition": sum(values) / len(values),
             "mean_baseline": sum(base) / len(base),
             "delta": sum(values) / len(values) - sum(base) / len(base),
@@ -5921,8 +6033,16 @@ def cmd_run(args: argparse.Namespace) -> int:
     )
     suite = args.suite_name or dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     suite_dir = RESULT_DIR / suite
+    allow_dirty_harness = bool(getattr(args, "allow_dirty_harness_exploratory", False))
+    harness_dirty = git_dirty_metadata(ROOT)
+    if harness_dirty.get("dirty") and not allow_dirty_harness:
+        raise RuntimeError(
+            "benchmark harness is dirty; commit/stash the changes or pass "
+            "--allow-dirty-harness-exploratory (dirty suites cannot be confirmatory)"
+        )
     resume = bool(getattr(args, "resume", False))
     suite_dir.mkdir(parents=True, exist_ok=resume)
+    harness_evidence = prepare_harness_evidence(suite_dir, allow_dirty_harness)
     schedule_path = suite_dir / "schedule.json"
     if resume:
         if not schedule_path.exists():
@@ -6114,7 +6234,78 @@ def cmd_run(args: argparse.Namespace) -> int:
             )
     persist_schedule_state()
     summary = summarize(records, suite_dir)
+    requested_cells = {
+        "tasks": [task.get("id") for task in tasks],
+        "runners": [runner_payload(runner) for runner in runners],
+        "conditions": conditions,
+        "repetitions": args.repetitions,
+        "count": sum(
+            args.repetitions
+            for task in tasks
+            for _runner in runners
+            for condition in conditions
+            if condition in task.get("conditions", [])
+        ),
+        "isolation_flags": {
+            "checkpoint_limit": args.checkpoint_limit,
+            "brain_cache_enabled": not args.no_brain_cache,
+            "brain_cache_refresh": args.refresh_brain_cache,
+        },
+        "runner_cli_versions": runner_cli_versions(runners),
+    }
+    finalize_suite_manifest(
+        suite_dir,
+        suite_id=suite,
+        command=list(sys.argv),
+        requested_cells=requested_cells,
+        harness=harness_evidence,
+        tasks=tasks,
+        analysis_dir=BENCH_ROOT / "analysis",
+        tools=tools,
+        validation_fixture_dir=VALIDATION_FIXTURE_DIR,
+    )
+    verification = verify_bundle(suite_dir)
+    write_json(suite_dir / "evidence-verification.json", verification)
+    (suite_dir / "evidence-report.md").write_text(render_evidence_markdown(verification))
+    if not verification["ok"]:
+        raise RuntimeError(f"evidence verification failed: {verification['errors'][:3]}")
     print(json.dumps(summary, indent=2, sort_keys=True))
+    return 0
+
+
+def cmd_verify_evidence(args: argparse.Namespace) -> int:
+    suite_dir = pathlib.Path(args.suite).resolve()
+    verification = verify_bundle(suite_dir)
+    if args.write_report:
+        write_json(suite_dir / "evidence-verification.json", verification)
+        (suite_dir / "evidence-report.md").write_text(render_evidence_markdown(verification))
+    print(json.dumps(verification, indent=2, sort_keys=True))
+    return 0 if verification["ok"] else 1
+
+
+def cmd_analyze_records(args: argparse.Namespace) -> int:
+    from analysis.common import load_records
+    from analysis.metrics import render_exploratory_markdown
+
+    records: list[dict[str, Any]] = []
+    sources: list[dict[str, Any]] = []
+    for raw in args.records:
+        path = pathlib.Path(raw).resolve()
+        loaded = load_records(path)
+        records.extend(loaded)
+        source = path / "records.ndjson" if path.is_dir() else path
+        sources.append(
+            {
+                "logical_id": path.name if path.is_file() else path.name + "/records.ndjson",
+                "sha256": file_sha256(source),
+                "records": len(loaded),
+            }
+        )
+    report = render_exploratory_markdown(records, sources)
+    if args.output:
+        pathlib.Path(args.output).write_text(report)
+    else:
+        print(report, end="")
     return 0
 
 
@@ -6518,6 +6709,11 @@ def main() -> int:
     run_p.add_argument("--keep-worktrees", action="store_true")
     run_p.add_argument("--no-brain-cache", action="store_true", help="Rebuild brain prep artifacts in every run")
     run_p.add_argument("--refresh-brain-cache", action="store_true", help="Overwrite cached brain prep artifacts")
+    run_p.add_argument(
+        "--allow-dirty-harness-exploratory",
+        action="store_true",
+        help="Capture harness.patch and mark the suite non-confirmatory instead of failing closed",
+    )
     run_p.set_defaults(func=cmd_run)
 
     panel_p = sub.add_parser("panel", help="Run a committed, reproducible benchmark panel + print a stability verdict")
@@ -6537,6 +6733,11 @@ def main() -> int:
     panel_p.add_argument("--no-brain-cache", action="store_true", help="Rebuild brain prep artifacts in every run")
     panel_p.add_argument("--refresh-brain-cache", action="store_true", help="Overwrite cached brain prep artifacts")
     panel_p.add_argument("--stop-after-no-brain-score", type=float)
+    panel_p.add_argument(
+        "--allow-dirty-harness-exploratory",
+        action="store_true",
+        help="Capture harness.patch and mark the suite non-confirmatory instead of failing closed",
+    )
     panel_p.set_defaults(func=cmd_panel)
 
     prep_p = sub.add_parser("prep")
@@ -6552,6 +6753,22 @@ def main() -> int:
     report_p = sub.add_parser("report")
     report_p.add_argument("suite", nargs="+")
     report_p.set_defaults(func=cmd_report)
+
+    verify_p = sub.add_parser(
+        "verify-evidence",
+        help="rehash a portable evidence bundle and recompute all-executed headline metrics",
+    )
+    verify_p.add_argument("suite", help="suite directory containing evidence-manifest.json")
+    verify_p.add_argument("--write-report", action="store_true")
+    verify_p.set_defaults(func=cmd_verify_evidence)
+
+    analyze_p = sub.add_parser(
+        "analyze-records",
+        help="migrate legacy raw-record analysis with an explicit exploratory label",
+    )
+    analyze_p.add_argument("records", nargs="+", help="records.ndjson files or suite directories")
+    analyze_p.add_argument("--output")
+    analyze_p.set_defaults(func=cmd_analyze_records)
 
     check_p = sub.add_parser("check")
     check_p.add_argument("--tasks", nargs="*", default=[])

@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import shutil
 import shlex
 import subprocess
 import sys
@@ -6108,6 +6109,127 @@ class TreatmentIsolationAndTaskValidityTests(unittest.TestCase):
                 joined = " | ".join(errors)
                 self.assertIn("lacks approved_symptom_only human review", joined, fixture["id"])
                 self.assertIn("explicit schema requires treatments", joined, fixture["id"])
+
+class EvidenceManifestTests(unittest.TestCase):
+    def _record(self, run_id="task__runner__no_brain__r1", *, validation_ok=False):
+        return {
+            "run_id": run_id,
+            "task_id": "task",
+            "repo": "repo",
+            "agent": "codex",
+            "runner": {"id": "runner", "agent": "codex", "model": "model", "effort": "high"},
+            "condition": "no_brain",
+            "delivery_mode": "harness",
+            "agent_ran": True,
+            "ok": validation_ok,
+            "error": "post-agent validation failed" if not validation_ok else None,
+            "agent_info": {"returncode": 1, "seconds": 12.5, "usage": {"total_tokens": 100}},
+            "validation": {"ok": validation_ok},
+            "score": {"total": 0 if not validation_ok else 100},
+            "patch_artifact": {"sha256": hashlib.sha256(b"").hexdigest()},
+            "provenance": {"tools": {"brain": {"sha256": "a" * 64}}},
+        }
+
+    def test_shared_predicate_keeps_post_agent_failures_and_rejects_infrastructure(self):
+        from analysis.common import is_executed_run
+
+        self.assertTrue(is_executed_run(self._record()))
+        adherence = self._record()
+        adherence["temporal_memory_condition_audit"] = {"ok": False}
+        self.assertTrue(is_executed_run(adherence))
+        infra = self._record()
+        infra["agent_ran"] = False
+        infra["analysis_excluded"] = {"reason": "harness_infrastructure_error"}
+        self.assertFalse(is_executed_run(infra))
+
+    def test_portable_bundle_verifies_recomputes_and_detects_prompt_tampering(self):
+        from analysis.evidence import finalize_suite_manifest, verify_bundle, write_run_manifest
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            suite = root / "suite"
+            suite.mkdir()
+            record = self._record()
+            run_dir = suite / record["run_id"]
+            run_dir.mkdir()
+            (run_dir / "prompt.txt").write_text("direct prompt")
+            (run_dir / "packet.txt").write_text('{"results":[{"id":"fact-1","kind":"invariant","text":"x"}]}')
+            (run_dir / "agent.patch").write_text("")
+            (run_dir / "agent.stdout").write_text("output")
+            (run_dir / "agent.stderr").write_text("")
+            (suite / "records.ndjson").write_text(json.dumps(record, sort_keys=True) + "\n")
+            task_path = root / "task.json"
+            task_path.write_text(json.dumps({"id": "task", "validation_files": []}))
+            task = {"id": "task", "_path": str(task_path), "validation_files": []}
+            binary = root / "entire-brain"
+            binary.write_bytes(b"frozen binary")
+            write_run_manifest(record, run_dir, suite)
+            finalize_suite_manifest(
+                suite,
+                suite_id="suite",
+                command=["run.py", "run"],
+                requested_cells={"count": 1},
+                harness={"commit": "b" * 40, "dirty": False, "confirmatory_eligible": True},
+                tasks=[task],
+                analysis_dir=pathlib.Path(__file__).with_name("analysis"),
+                tools={"brain": binary},
+            )
+            first = verify_bundle(suite)
+            self.assertTrue(first["ok"], first)
+            self.assertEqual(first["headline"]["executed_records"], 1)
+            self.assertEqual(first["headline"]["arms"][0]["validation_passes"], 0)
+
+            moved = root / "moved"
+            shutil.copytree(suite, moved)
+            self.assertTrue(verify_bundle(moved)["ok"])
+            manifest = json.loads((moved / "evidence-manifest.json").read_text())
+            task_artifact = next(item for item in manifest["inputs"] if item["role"] == "task_config")
+            binary_artifact = next(item for item in manifest["inputs"] if item["role"] == "binary:brain")
+            analyzer_artifact = manifest["analyzer"]["artifacts"][0]
+            targets = [
+                moved / record["run_id"] / "prompt.txt",
+                moved / record["run_id"] / "packet.txt",
+                moved / "records.ndjson",
+                moved / task_artifact["path"],
+                moved / binary_artifact["path"],
+                moved / analyzer_artifact["path"],
+            ]
+            for target in targets:
+                original = target.read_bytes()
+                target.write_bytes(original + b"tampered")
+                broken = verify_bundle(moved)
+                self.assertFalse(broken["ok"], target)
+                target.write_bytes(original)
+                self.assertTrue(verify_bundle(moved)["ok"], target)
+
+    def test_dirty_harness_fails_closed_or_captures_patch_as_exploratory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = pathlib.Path(tmp) / "repo"
+            repo.mkdir()
+            run.run_cmd(["git", "init"], cwd=repo, check=True)
+            run.run_cmd(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+            run.run_cmd(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+            tracked = repo / "tracked.txt"
+            tracked.write_text("clean\n")
+            run.run_cmd(["git", "add", "tracked.txt"], cwd=repo, check=True)
+            run.run_cmd(["git", "commit", "-m", "base"], cwd=repo, check=True)
+            tracked.write_text("dirty\n")
+            old_root = run.ROOT
+            run.ROOT = repo
+            try:
+                with self.assertRaisesRegex(RuntimeError, "dirty"):
+                    run.prepare_harness_evidence(repo / "fail-suite", False)
+                suite = repo / "suite"
+                suite.mkdir()
+                evidence = run.prepare_harness_evidence(suite, True)
+            finally:
+                run.ROOT = old_root
+            self.assertTrue(evidence["dirty"])
+            self.assertFalse(evidence["confirmatory_eligible"])
+            self.assertEqual(
+                evidence["patch"]["sha256"],
+                hashlib.sha256((suite / "harness.patch").read_bytes()).hexdigest(),
+            )
 
 
 if __name__ == "__main__":

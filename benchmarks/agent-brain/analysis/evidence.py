@@ -1,0 +1,402 @@
+"""Portable, content-addressed evidence bundle capture and verification."""
+
+from __future__ import annotations
+
+import datetime as dt
+import hashlib
+import json
+import pathlib
+import shutil
+from typing import Any, Iterable
+
+from .common import EXECUTED_RUN_PREDICATE_VERSION, is_executed_run, load_records
+from .metrics import headline_table
+
+SUITE_SCHEMA = "agent-brain-evidence-suite/v1"
+RUN_SCHEMA = "agent-brain-evidence-run/v1"
+REPORT_SCHEMA = "agent-brain-evidence-report/v1"
+
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def sha256_file(path: pathlib.Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_json(path: pathlib.Path, value: Any) -> None:
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+
+def manifest_identity(value: dict[str, Any]) -> str:
+    payload = {key: item for key, item in value.items() if key != "identity_sha256"}
+    return sha256_bytes(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode())
+
+
+def artifact(path: pathlib.Path, bundle_root: pathlib.Path, *, role: str) -> dict[str, Any]:
+    relative = path.relative_to(bundle_root).as_posix()
+    return {"role": role, "path": relative, "bytes": path.stat().st_size, "sha256": sha256_file(path)}
+
+
+def retain_input(source: pathlib.Path, suite_dir: pathlib.Path, *, role: str) -> dict[str, Any]:
+    data = source.read_bytes()
+    digest = sha256_bytes(data)
+    suffix = source.suffix if source.suffix else ".bin"
+    destination = suite_dir / "evidence" / "inputs" / f"{digest}{suffix}"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if not destination.exists():
+        destination.write_bytes(data)
+    return {**artifact(destination, suite_dir, role=role), "logical_name": source.name}
+
+
+def analyzer_artifacts(analysis_dir: pathlib.Path, suite_dir: pathlib.Path) -> list[dict[str, Any]]:
+    return [
+        retain_input(path, suite_dir, role="analyzer_source")
+        for path in sorted(analysis_dir.rglob("*"))
+        if path.is_file() and "__pycache__" not in path.parts
+    ]
+
+
+def validate_suite_manifest(value: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if value.get("schema") != SUITE_SCHEMA:
+        errors.append(f"unsupported suite schema: {value.get('schema')!r}")
+    for key in ("suite_id", "identity_sha256", "command", "requested_cells", "harness", "inputs", "analyzer", "runs"):
+        if key not in value:
+            errors.append(f"suite manifest missing {key}")
+    if not isinstance(value.get("runs"), list):
+        errors.append("suite manifest runs must be a list")
+    return errors
+
+
+def validate_run_manifest(value: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if value.get("schema") != RUN_SCHEMA:
+        errors.append(f"unsupported run schema: {value.get('schema')!r}")
+    for key in ("run_id", "identity_sha256", "executed", "artifacts", "execution_gate", "raw_metrics"):
+        if key not in value:
+            errors.append(f"run manifest missing {key}")
+    if not isinstance(value.get("artifacts"), list):
+        errors.append("run manifest artifacts must be a list")
+    return errors
+
+
+def packet_details(packet_path: pathlib.Path | None, record: dict[str, Any]) -> dict[str, Any]:
+    if packet_path is None or not packet_path.exists():
+        return {"present": False, "bytes": 0, "sha256": None, "fact_ids": [], "kinds": []}
+    data = packet_path.read_bytes()
+    fact_ids: list[str] = []
+    kinds: list[str] = []
+    try:
+        payload = json.loads(data)
+        for result in payload.get("results", []) if isinstance(payload, dict) else []:
+            if not isinstance(result, dict):
+                continue
+            identifier = result.get("id") or result.get("fact_id")
+            if identifier is not None:
+                fact_ids.append(str(identifier))
+            if result.get("kind") is not None:
+                kinds.append(str(result["kind"]))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        pass
+    delivery = record.get("memory_delivery") if isinstance(record.get("memory_delivery"), dict) else {}
+    return {
+        "present": True,
+        "bytes": len(data),
+        "sha256": sha256_bytes(data),
+        "fact_ids": fact_ids,
+        "kinds": kinds,
+        "query_source_class": delivery.get("query_source_class") or "legacy_brain_queries",
+    }
+
+
+def retrieval_arm_evidence(record: dict[str, Any]) -> dict[str, Any] | None:
+    delivery = record.get("memory_delivery")
+    if not isinstance(delivery, dict):
+        return None
+    sources = delivery.get("sources") if isinstance(delivery.get("sources"), dict) else {}
+    retrieval = delivery.get("retrieval") if isinstance(delivery.get("retrieval"), dict) else {}
+    engine = retrieval.get("engine") if isinstance(retrieval.get("engine"), dict) else {}
+    eligibility = delivery.get("temporal_eligibility") if isinstance(delivery.get("temporal_eligibility"), dict) else {}
+    return {
+        "condition": record.get("condition"),
+        "frozen_root_logical_id": sources.get("source_cache_key") or sources.get("prep_cache_key"),
+        "facts_file_sha256": sources.get("facts_file_sha256"),
+        "fact_artifact_sha256": sources.get("fact_artifact_sha256") or [],
+        "active_fact_count": sources.get("active_fact_count"),
+        "superseded_fact_count": sources.get("superseded_fact_count"),
+        "session_date_map_sha256": sources.get("session_date_map_sha256"),
+        "embedder_id": engine.get("embedder_id") or retrieval.get("embedder_id"),
+        "embedding_dimension": engine.get("dimension") or retrieval.get("embedding_dimension"),
+        "vector_count": engine.get("vector_count") or retrieval.get("vector_count"),
+        "vector_artifact_sha256": engine.get("vector_artifact_sha256") or retrieval.get("vector_artifact_sha256"),
+        "prefilter_corpus_count": eligibility.get("prefilter_corpus_count"),
+        "eligible_count": eligibility.get("eligible_count"),
+        "excluded_counts": eligibility.get("excluded_counts"),
+        "delivered_count": eligibility.get("delivered_count") or (retrieval.get("packet") or {}).get("delivered_result_count"),
+        "raw_delivery_sha256": sha256_bytes(json.dumps(delivery, sort_keys=True, separators=(",", ":")).encode()),
+    }
+
+
+def build_run_manifest(record: dict[str, Any], run_dir: pathlib.Path, suite_dir: pathlib.Path) -> dict[str, Any]:
+    artifacts: list[dict[str, Any]] = []
+    for name, role in (
+        ("prompt.txt", "agent_prompt"),
+        ("packet.txt", "delivered_packet"),
+        ("agent.patch", "agent_patch"),
+        ("agent.stdout", "agent_stdout"),
+        ("agent.stderr", "agent_stderr"),
+        ("memory-delivery.json", "memory_delivery"),
+    ):
+        path = run_dir / name
+        if path.exists():
+            artifacts.append(artifact(path, suite_dir, role=role))
+    prompt = run_dir / "prompt.txt"
+    packet = run_dir / "packet.txt"
+    agent_info = record.get("agent_info") if isinstance(record.get("agent_info"), dict) else {}
+    usage = agent_info.get("usage") if isinstance(agent_info.get("usage"), dict) else {}
+    validation = record.get("validation") if isinstance(record.get("validation"), dict) else {}
+    provenance = record.get("provenance") if isinstance(record.get("provenance"), dict) else {}
+    tools = provenance.get("tools") if isinstance(provenance.get("tools"), dict) else {}
+    return {
+        "schema": RUN_SCHEMA,
+        "run_id": record.get("run_id"),
+        "task_id": record.get("task_id"),
+        "condition": record.get("condition"),
+        "runner": record.get("runner"),
+        "resolved_model": agent_info.get("resolved_model"),
+        "reasoning_effort": (record.get("runner") or {}).get("effort"),
+        "service_tier": usage.get("service_tier"),
+        "isolation": agent_info.get("isolation"),
+        "executed": is_executed_run(record),
+        "prompt_sha256": sha256_file(prompt) if prompt.exists() else None,
+        "packet": packet_details(packet if packet.exists() else None, record),
+        "temporal_eligibility": (record.get("memory_delivery") or {}).get("temporal_eligibility"),
+        "retrieval_evidence": record.get("memory_delivery"),
+        "binary_hashes": {name: item.get("sha256") for name, item in sorted(tools.items()) if isinstance(item, dict)},
+        "execution_gate": {
+            "agent_ran": record.get("agent_ran"),
+            "duration_seconds": agent_info.get("seconds"),
+            "total_tokens": usage.get("total_tokens"),
+            "error": record.get("error"),
+            "return_code": agent_info.get("returncode"),
+            "validation_ok": validation.get("ok"),
+            "record_ok": record.get("ok"),
+        },
+        "patch_sha256": (record.get("patch_artifact") or {}).get("sha256"),
+        "result_sha256": hashlib.sha256(json.dumps(record, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+        "raw_metrics": {"score": record.get("score"), "usage": usage, "duration_seconds": agent_info.get("seconds")},
+        "artifacts": artifacts,
+    }
+
+
+def write_run_manifest(record: dict[str, Any], run_dir: pathlib.Path, suite_dir: pathlib.Path) -> dict[str, Any]:
+    value = build_run_manifest(record, run_dir, suite_dir)
+    value["identity_sha256"] = manifest_identity(value)
+    write_json(run_dir / "evidence-manifest.json", value)
+    return value
+
+
+def iter_artifacts(value: Any) -> Iterable[dict[str, Any]]:
+    if isinstance(value, dict):
+        if isinstance(value.get("path"), str) and isinstance(value.get("sha256"), str):
+            yield value
+        for child in value.values():
+            yield from iter_artifacts(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from iter_artifacts(child)
+
+
+def _safe_bundle_path(root: pathlib.Path, relative: str) -> pathlib.Path:
+    path = (root / relative).resolve()
+    try:
+        path.relative_to(root.resolve())
+    except ValueError as exc:
+        raise ValueError(f"artifact escapes evidence bundle: {relative}") from exc
+    return path
+
+
+def verify_bundle(suite_dir: pathlib.Path) -> dict[str, Any]:
+    suite_dir = suite_dir.resolve()
+    manifest_path = suite_dir / "evidence-manifest.json"
+    suite = json.loads(manifest_path.read_text())
+    errors = validate_suite_manifest(suite)
+    if suite.get("identity_sha256") != manifest_identity(suite):
+        errors.append("suite manifest identity mismatch")
+    checked = 0
+    for item in iter_artifacts(suite):
+        try:
+            path = _safe_bundle_path(suite_dir, item["path"])
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        if not path.is_file():
+            errors.append(f"missing artifact: {item['path']}")
+            continue
+        checked += 1
+        if path.stat().st_size != item.get("bytes"):
+            errors.append(f"size mismatch: {item['path']}")
+        if sha256_file(path) != item["sha256"]:
+            errors.append(f"hash mismatch: {item['path']}")
+    run_manifests: list[dict[str, Any]] = []
+    for run_ref in suite.get("runs", []):
+        relative = run_ref.get("manifest") if isinstance(run_ref, dict) else None
+        if not isinstance(relative, str):
+            errors.append("run reference missing manifest")
+            continue
+        try:
+            path = _safe_bundle_path(suite_dir, relative)
+            value = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            errors.append(f"invalid run manifest {relative}: {exc}")
+            continue
+        errors.extend(f"{relative}: {error}" for error in validate_run_manifest(value))
+        if value.get("identity_sha256") != manifest_identity(value):
+            errors.append(f"{relative}: manifest identity mismatch")
+        run_manifests.append(value)
+        for item in value.get("artifacts", []):
+            try:
+                artifact_path = _safe_bundle_path(suite_dir, item["path"])
+                if not artifact_path.is_file() or sha256_file(artifact_path) != item.get("sha256"):
+                    errors.append(f"run artifact mismatch: {item.get('path')}")
+                else:
+                    checked += 1
+            except (KeyError, ValueError) as exc:
+                errors.append(f"invalid run artifact: {exc}")
+    try:
+        records = load_records(suite_dir)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        errors.append(f"invalid raw records: {exc}")
+        records = []
+    record_ids = [record.get("run_id") for record in records]
+    manifest_ids = [manifest.get("run_id") for manifest in run_manifests]
+    if record_ids != manifest_ids:
+        errors.append("run manifest order/IDs do not match records.ndjson")
+    for record, manifest in zip(records, run_manifests):
+        digest = hashlib.sha256(
+            json.dumps(record, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        if digest != manifest.get("result_sha256"):
+            errors.append(f"record hash mismatch: {record.get('run_id')}")
+    report = headline_table(records)
+    return {"ok": not errors, "schema": REPORT_SCHEMA, "suite_id": suite.get("suite_id"), "artifacts_checked": checked, "errors": errors, "headline": report}
+
+
+def render_markdown(verification: dict[str, Any]) -> str:
+    headline = verification["headline"]
+    lines = [
+        f"# Evidence report: {verification.get('suite_id')}",
+        "",
+        f"Verification: **{'PASS' if verification.get('ok') else 'FAIL'}**",
+        "",
+        f"Estimand: `{headline['estimand']}`",
+        "",
+        "| Task | Runner | Delivery | Condition | Executed | Passed | Mean tokens | Mean seconds |",
+        "|---|---|---|---|---:|---:|---:|---:|",
+    ]
+    for row in headline["arms"]:
+        tokens = "—" if row["mean_total_tokens_all_executed_with_measurement"] is None else f"{row['mean_total_tokens_all_executed_with_measurement']:.1f}"
+        seconds = "—" if row["mean_agent_seconds_all_executed_with_measurement"] is None else f"{row['mean_agent_seconds_all_executed_with_measurement']:.1f}"
+        lines.append(f"| {row['task_id']} | {row['runner']} | {row['delivery_mode']} | {row['condition']} | {row['executed_attempts']} | {row['validation_passes']} | {tokens} | {seconds} |")
+    if verification.get("errors"):
+        lines.extend(["", "## Verification errors", ""] + [f"- {error}" for error in verification["errors"]])
+    return "\n".join(lines) + "\n"
+
+
+def finalize_suite_manifest(
+    suite_dir: pathlib.Path,
+    *,
+    suite_id: str,
+    command: list[str],
+    requested_cells: dict[str, Any],
+    harness: dict[str, Any],
+    tasks: list[dict[str, Any]],
+    analysis_dir: pathlib.Path,
+    tools: dict[str, pathlib.Path] | None = None,
+    validation_fixture_dir: pathlib.Path | None = None,
+) -> dict[str, Any]:
+    inputs: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for task in tasks:
+        task_path = pathlib.Path(str(task.get("_path") or ""))
+        candidates = [(task_path, "task_config")]
+        parent_ledger = task_path.parent.parent / "selection-ledger.json"
+        if parent_ledger.exists():
+            candidates.append((parent_ledger, "selection_ledger"))
+        dates = task.get("frozen_session_dates_path")
+        if dates:
+            candidates.append((pathlib.Path(str(dates)), "session_date_map"))
+        if validation_fixture_dir is not None:
+            for entry in task.get("validation_files", []):
+                if isinstance(entry, dict) and entry.get("fixture"):
+                    candidates.append((validation_fixture_dir / str(entry["fixture"]), "hidden_validation_fixture"))
+        for source, role in candidates:
+            if source.is_file() and (role, str(source.resolve())) not in seen:
+                inputs.append(retain_input(source, suite_dir, role=role))
+                seen.add((role, str(source.resolve())))
+    for name, path in sorted((tools or {}).items()):
+        if path.is_file():
+            inputs.append(retain_input(path, suite_dir, role=f"binary:{name}"))
+    records = load_records(suite_dir)
+    runs = []
+    for record in records:
+        relative = pathlib.Path(str(record["run_id"])) / "evidence-manifest.json"
+        runs.append({"run_id": record["run_id"], "manifest": relative.as_posix()})
+    analyzers = analyzer_artifacts(analysis_dir, suite_dir)
+    runtime = []
+    retrieval = []
+    sources = []
+    for record in records:
+        agent_info = record.get("agent_info") if isinstance(record.get("agent_info"), dict) else {}
+        runtime.append(
+            {
+                "runner": record.get("runner"),
+                "resolved_model": agent_info.get("resolved_model"),
+                "isolation": agent_info.get("isolation"),
+            }
+        )
+        arm_evidence = retrieval_arm_evidence(record)
+        if arm_evidence is not None:
+            retrieval.append(arm_evidence)
+        provenance = record.get("provenance") if isinstance(record.get("provenance"), dict) else {}
+        if isinstance(provenance.get("source"), dict):
+            source = provenance["source"]
+            sources.append(
+                {
+                    "repo": source.get("repo"),
+                    "base_commit": (source.get("base") or {}).get("commit"),
+                    "head_commit": (source.get("head") or {}).get("commit"),
+                }
+            )
+    unique = lambda values: [json.loads(item) for item in sorted({json.dumps(value, sort_keys=True, default=str) for value in values})]
+    value = {
+        "schema": SUITE_SCHEMA,
+        "suite_id": suite_id,
+        "created_at": dt.datetime.now(dt.UTC).isoformat(),
+        "command": command,
+        "requested_cells": requested_cells,
+        "schedule": requested_cells.get("schedule") or {"seed": None, "order_policy": "legacy_task_runner_condition"},
+        "cache_policy": requested_cells.get("cache_policy") or "legacy_shared_or_per-run_flags; see requested_cells.isolation_flags",
+        "harness": harness,
+        "source_repositories": unique(sources),
+        "runtime": unique(runtime),
+        "retrieval_arms": unique(retrieval),
+        "inputs": inputs,
+        "analyzer": {
+            "predicate_version": EXECUTED_RUN_PREDICATE_VERSION,
+            "estimand": "all executed attempts; correctness and efficiency separate",
+            "artifacts": analyzers,
+            "aggregate_sha256": sha256_bytes("".join(item["sha256"] for item in analyzers).encode()),
+        },
+        "runs": runs,
+        "records": artifact(suite_dir / "records.ndjson", suite_dir, role="raw_records"),
+    }
+    value["identity_sha256"] = manifest_identity(value)
+    write_json(suite_dir / "evidence-manifest.json", value)
+    return value
