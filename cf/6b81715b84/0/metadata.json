@@ -1,0 +1,63 @@
+{
+  "cli_version": "0.8.42",
+  "checkpoint_id": "cf6b81715b84",
+  "session_id": "019f64ec-e099-7692-9aff-a08e50874748",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-15T08:53:10.456469Z",
+  "branch": "codex/ws2-treatment-isolation",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "benchmarks/agent-brain/README.md",
+    "benchmarks/agent-brain/fixtures/task-validity/oracle-assisted-regressions.json",
+    "benchmarks/agent-brain/run.py",
+    "benchmarks/agent-brain/run_test.py",
+    "benchmarks/agent-brain/schemas/task-review-ledger.schema.json",
+    "benchmarks/agent-brain/schemas/task-treatment.schema.json",
+    "benchmarks/agent-brain/schemas/treatment.schema.json",
+    "benchmarks/agent-brain/task-review-ledger.json",
+    "benchmarks/agent-brain/treatment.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-5.6-sol",
+  "turn_id": "e4ba5e2b0b20",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 232796,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 7600640,
+    "output_tokens": 31269,
+    "api_call_count": 63
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-15T08:53:10.349456Z",
+    "agent_lines": 800,
+    "agent_removed": 22,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 800,
+    "total_lines_changed": 822,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 800,
+      "agent_lines_removed": 22
+    }
+  ]
+}
