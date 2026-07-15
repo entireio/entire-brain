@@ -3,9 +3,11 @@
 This directory contains the unpaid, preparatory Workstream 6 artifacts. It does **not** authorize a
 paid agent run and it does not contain or open a fresh confirmatory holdout.
 
-Current state: `draft_pending_ws2_ws5`. The candidate methodology is recorded, but final freeze is
-blocked until the WS2 treatment/task-validity, WS3 temporal-completeness, WS4 scheduling/cache, and
-WS5 evidence schemas and controls are integrated and verified.
+Current state: `integrated_methodology_draft_power_redesign_required`. The WS2 treatment contract,
+WS3 pre-ranking temporal filter, WS4 scheduling/cache controls, and WS5 evidence controls have been
+integrated. Final freeze remains blocked on checked-in integration evidence, fresh-task validity
+review, real three-engine records, relevance labels and holdouts, a defensible powered design, and
+model pricing/budget approval. The confirmatory analyzer is implemented and path-locked.
 
 ## Artifacts
 
@@ -16,7 +18,13 @@ WS5 evidence schemas and controls are integrated and verified.
 - `offline-relevance-dataset.json`: unopened draft shell; it intentionally contains no holdout labels.
 - `engine-matrix.json` and `ENGINE-VERIFICATION-RUNBOOK.md`: exact named arms and verification steps.
 - `schemas/engine-verification.schema.json`: required machine output for every engine execution.
+- `ENGINE-PROBE-READINESS-2026-07-15.md`: unpaid three-path runtime smoke and the remaining vector
+  isolation/evidence blocker; it is not final engine verification.
+- `power_analysis.py` and `power-analysis.json`: deterministic unpaid sensitivity calculation. The
+  current 24-task x 4-repetition design fails the conservative planning scenario; this is a no-go,
+  not a reason to adopt the scenario's task-count estimate as empirical truth.
 - `go-no-go.json`: paid-run gate. Every item must be `pass`; `pending` is a hard no-go.
+- `analyzer-lock.json`: path-bound hash of the exact confirmatory analyzer sources and schemas.
 - `check_protocol.py`: offline integrity checker. `--freeze` additionally enforces final-freeze gates.
 
 Run the non-paid checks with:

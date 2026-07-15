@@ -1,7 +1,10 @@
 # Candidate preregistration: engine matrix and fresh confirmatory holdout
 
-Status: **draft pending WS2-WS5; not frozen; no paid run authorized**. Drafted 2026-07-15 before
-mining or opening a fresh confirmatory holdout.
+Status: **integrated methodology draft; power redesign required; not frozen; no paid run
+authorized**. Drafted 2026-07-15 before mining or opening a fresh confirmatory holdout.
+
+The confirmatory analyzer implementation and schemas are now frozen by the path-bound aggregate in
+`analyzer-lock.json`. Freezing the analyzer does not freeze or authorize the wider protocol.
 
 ## Scope and split policy
 
@@ -66,6 +69,13 @@ formula until the final model and observed development token distribution are pi
 `sum(input_tokens * input_price + output_tokens * output_price)`, with cached-token prices recorded
 separately. No run may start with an unbounded or blank dollar cap.
 
+The checked-in, data-free sensitivity calculation does **not** substantiate this target design. Under
+its explicitly hypothetical conservative scenario, marginal power is 0.370207 for the 12% token
+effect and 0.243511 for correctness non-inferiority; repetitions alone cannot overcome the assumed
+task-level heterogeneity. The calculation is complete, but the power gate is failed. Its 118-task
+sensitivity estimate must not be adopted automatically: the design requires a defensible variance
+source or an explicit new planning decision before any holdout is sealed.
+
 Use 10,000 task-clustered bootstrap resamples with a checked-in seed. Holm correction applies within
 each endpoint family for retrieved-vs-no-memory and placebo-vs-no-memory comparisons. All valid
 attempts and all numerical observations remain in the primary analysis; there is no performance
@@ -85,6 +95,7 @@ The final freeze requires contracts, fixtures, and passing evidence from:
 - WS5: content-addressed suite/run manifests, common executed-run predicate, frozen analyzer hash, and
   successful evidence verification.
 
-These are contracts, not substitute implementations. `check_protocol.py --freeze` must remain red
-while any dependency, engine verification, development threshold, power result, model/budget cap,
-analyzer hash, or fresh holdout commitment is pending.
+The implementation contracts are integrated, but they are not substitutes for fresh prompt reviews,
+actual engine records, or final experimental inputs. `check_protocol.py --freeze` must remain red
+while any integration evidence, task-validity review, engine verification, development threshold,
+powered design, model/budget cap, analyzer hash, or fresh holdout commitment is pending or failed.

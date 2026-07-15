@@ -15,6 +15,11 @@ Set `FROZEN_CONFIG`, `FROZEN_DATA`, `FROZEN_STATE`, and `FROZEN_REPO_ROOT` to a 
 corpus resolution. Set `QUERY` and `K` from the development relevance dataset. Never reuse a cache
 directory across arms.
 
+Fact vectors are stored below `ENTIRE_PLUGIN_DATA_DIR`, not `ENTIRE_PLUGIN_CACHE_DIR`. A final
+semantic verification must therefore use a separate derived data root for each semantic arm, copied
+from the same frozen facts source, and persist that arm's own vector artifact. A read-only in-memory
+rebuild is useful as a smoke test but cannot satisfy vector provenance.
+
 ## Lexical hand-rolled arm
 
 ```sh
@@ -69,10 +74,11 @@ ENTIRE_REPO_ROOT="$FROZEN_REPO_ROOT" \
 
 For every command, retain stdout/stderr and a record conforming to
 `schemas/engine-verification.schema.json`. Effective engine must come from machine-readable runtime
-output, not inferred environment intent. The current baseline recall JSON does not expose all required
-engine identity fields; this is an explicit WS5 integration contract. Until it emits or captures
-`effective_engine`, embedder ID/dimension, BM25 state, fallback state, namespace, corpus hash, vector
-count/hash, binary hash, command, and output hash, final freeze is blocked.
+output, not inferred environment intent. Recall JSON now exposes the observed `effective_engine`,
+embedder ID/dimension, BM25 and fallback state, cache backend/path, and vector counts. The verification
+wrapper must still bind those observations to the requested namespace and retain the corpus, vector,
+binary, model, stdout, stderr, command, and environment hashes required by the schema. Final freeze
+remains blocked until one real record for each arm passes those checks.
 
 Reject a cell when `fallback_used=true`, semantic was requested but unavailable, BM25 differs from the
 arm declaration, namespaces overlap, source facts change, eligible-candidate counts differ between

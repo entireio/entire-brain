@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "protocol_id": "agent-brain-confirmatory-v1-candidate",
-  "status": "draft_pending_ws2_ws5",
+  "status": "integrated_methodology_draft_power_redesign_required",
   "drafted_at": "2026-07-15T12:00:00+02:00",
   "holdout_opened": false,
   "legacy_inventory": "task-inventory.json",
@@ -40,7 +40,19 @@
     "repetitions_per_treatment": 4,
     "requested_cells": 288,
     "maximum_calls_with_reserve": 317,
-    "power": {"target": 0.8, "token_reduction_target": 0.12, "completed": false},
+    "power": {
+      "target": 0.8,
+      "token_reduction_target": 0.12,
+      "completed": true,
+      "status": "fail_conservative_sensitivity",
+      "evidence": "power-analysis.json",
+      "analysis_kind": "deterministic_data_free_sensitivity",
+      "conservative_marginal_power": {
+        "tokens": 0.370207,
+        "correctness_noninferiority": 0.243511
+      },
+      "design_decision_required": true
+    },
     "correctness": {"margin_absolute": -0.1, "confidence": 0.95, "method": "one_sided_task_clustered_bootstrap"},
     "tokens": {"estimand": "paired_task_geometric_mean_ratio_all_valid_attempts", "confidence": 0.95},
     "wall_time": {"role": "secondary", "fields": ["harness_wall_seconds", "agent_api_seconds"]},
@@ -64,6 +76,6 @@
     "ws4_schedule_and_cache": "pending",
     "ws5_evidence_verification": "pending"
   },
-  "analyzer_sha256": null,
+  "analyzer_sha256": "1407ba68fb09a6ad2a3f7f469e2261951537f0edddf26d18a1047b7a0fcfe9e2",
   "freeze": {"frozen_at": null, "protocol_sha256": null}
 }
