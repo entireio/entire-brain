@@ -1,0 +1,109 @@
+{
+  "closed_negative_ablation": {
+    "closed_negative_count": 1,
+    "closed_negatives_with_rank_change": 1,
+    "closed_negatives_with_top_k_membership_change": 1,
+    "configured_boost": 30,
+    "queries": [
+      {
+        "closed_negative_effects": [
+          {
+            "base_score": 240,
+            "boosted_score": 270,
+            "fact_id": "fact:closed-negative",
+            "rank_improvement": 1,
+            "rank_with_boost_1based": 1,
+            "rank_without_boost_1based": 2,
+            "top_k_membership_changed": true
+          }
+        ],
+        "query_id": "synthetic-equal-lexical-match",
+        "ranked_ids_with_boost": [
+          "fact:closed-negative",
+          "fact:convention"
+        ],
+        "ranked_ids_without_boost": [
+          "fact:convention",
+          "fact:closed-negative"
+        ]
+      }
+    ],
+    "query_count": 1,
+    "top_k": 1
+  },
+  "packet_aggregation": {
+    "cap": 3,
+    "delivered": [
+      {
+        "best_rank_1based": 1,
+        "delivered_rank_1based": 1,
+        "fact_id": "fact:bbb",
+        "hit_count": 2,
+        "per_query_ranks_1based": {
+          "query-a": 2,
+          "query-b": 1
+        }
+      },
+      {
+        "best_rank_1based": 1,
+        "delivered_rank_1based": 2,
+        "fact_id": "fact:aaa",
+        "hit_count": 1,
+        "per_query_ranks_1based": {
+          "query-a": 1
+        }
+      },
+      {
+        "best_rank_1based": 2,
+        "delivered_rank_1based": 3,
+        "fact_id": "fact:ccc",
+        "hit_count": 1,
+        "per_query_ranks_1based": {
+          "query-b": 2
+        }
+      }
+    ],
+    "delivered_count": 3,
+    "near_duplicate_clusters": {
+      "cluster_count": 1,
+      "clusters": [
+        {
+          "fact_ids": [
+            "fact:aaa",
+            "fact:ccc"
+          ],
+          "slot_count": 2
+        }
+      ],
+      "method": "transitive_token_jaccard",
+      "occupancy_fraction": 0.6666666666666666,
+      "occupied_slots": 2,
+      "threshold": 0.8
+    },
+    "ordering_rule": [
+      "best_rank_ascending",
+      "hit_count_descending",
+      "stable_first_seen"
+    ],
+    "per_query": [
+      {
+        "query_id": "query-a",
+        "ranked_fact_ids": [
+          "fact:aaa",
+          "fact:bbb"
+        ]
+      },
+      {
+        "query_id": "query-b",
+        "ranked_fact_ids": [
+          "fact:bbb",
+          "fact:ccc"
+        ]
+      }
+    ],
+    "query_count": 2,
+    "unique_fact_count": 3
+  },
+  "production_behavior_changed": false,
+  "schema_version": "entire-brain-ranking-diagnostics-v1"
+}

@@ -1,4 +1,4 @@
-"""Checked-in, dependency-free analysis and evidence tooling for agent-brain."""
+"""Checked-in evidence tooling and deterministic offline diagnostics for agent-brain."""
 
 from .common import EXECUTED_RUN_PREDICATE_VERSION, is_executed_run
 
