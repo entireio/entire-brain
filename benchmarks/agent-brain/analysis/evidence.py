@@ -15,6 +15,18 @@ from .metrics import headline_table
 SUITE_SCHEMA = "agent-brain-evidence-suite/v1"
 RUN_SCHEMA = "agent-brain-evidence-run/v1"
 REPORT_SCHEMA = "agent-brain-evidence-report/v1"
+ANALYZER_AGGREGATE_ALGORITHM = "sha256_ordered_path_nul_sha256_newline_v1"
+ANALYZER_RUNTIME_SOURCE_PATHS = (
+    "benchmarks/agent-brain/analysis/__init__.py",
+    "benchmarks/agent-brain/analysis/common.py",
+    "benchmarks/agent-brain/analysis/confirmatory.py",
+    "benchmarks/agent-brain/analysis/evidence.py",
+    "benchmarks/agent-brain/analysis/metrics.py",
+    "benchmarks/agent-brain/analysis/schemas/confirmatory-analysis-v1.schema.json",
+    "benchmarks/agent-brain/analysis/schemas/run-v1.schema.json",
+    "benchmarks/agent-brain/analysis/schemas/suite-v1.schema.json",
+)
+_ANALYSIS_SOURCE_PREFIX = pathlib.PurePosixPath("benchmarks/agent-brain/analysis")
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -54,12 +66,82 @@ def retain_input(source: pathlib.Path, suite_dir: pathlib.Path, *, role: str) ->
     return {**artifact(destination, suite_dir, role=role), "logical_name": source.name}
 
 
-def analyzer_artifacts(analysis_dir: pathlib.Path, suite_dir: pathlib.Path) -> list[dict[str, Any]]:
+def analyzer_runtime_files(analysis_dir: pathlib.Path) -> list[tuple[str, pathlib.Path]]:
+    """Resolve the explicit, ordered confirmatory runtime source/schema set."""
+    files: list[tuple[str, pathlib.Path]] = []
+    for source_path in ANALYZER_RUNTIME_SOURCE_PATHS:
+        relative = pathlib.PurePosixPath(source_path).relative_to(_ANALYSIS_SOURCE_PREFIX)
+        path = analysis_dir.joinpath(*relative.parts)
+        if not path.is_file():
+            raise FileNotFoundError(f"required analyzer runtime source is missing: {path}")
+        files.append((source_path, path))
+    return files
+
+
+def analyzer_aggregate_sha256(records: Iterable[dict[str, Any]]) -> str:
+    """Hash ordered ``source_path NUL content-sha newline`` records."""
+    ordered: list[tuple[str, str]] = []
+    for record in records:
+        source_path = record.get("source_path") if isinstance(record, dict) else None
+        digest = record.get("sha256") if isinstance(record, dict) else None
+        if not isinstance(source_path, str) or not isinstance(digest, str):
+            raise ValueError("analyzer aggregate records require source_path and sha256 strings")
+        ordered.append((source_path, digest))
+    ordered.sort()
+    aggregate = hashlib.sha256()
+    for source_path, digest in ordered:
+        aggregate.update(source_path.encode("utf-8"))
+        aggregate.update(b"\0")
+        aggregate.update(digest.encode("ascii"))
+        aggregate.update(b"\n")
+    return aggregate.hexdigest()
+
+
+def current_analyzer_records(analysis_dir: pathlib.Path) -> list[dict[str, str]]:
     return [
-        retain_input(path, suite_dir, role="analyzer_source")
-        for path in sorted(analysis_dir.rglob("*"))
-        if path.is_file() and "__pycache__" not in path.parts
+        {"source_path": source_path, "sha256": sha256_file(path)}
+        for source_path, path in analyzer_runtime_files(analysis_dir)
     ]
+
+
+def analyzer_artifacts(analysis_dir: pathlib.Path, suite_dir: pathlib.Path) -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+    for source_path, path in analyzer_runtime_files(analysis_dir):
+        retained = retain_input(path, suite_dir, role="analyzer_source")
+        retained["source_path"] = source_path
+        artifacts.append(retained)
+    return artifacts
+
+
+def validate_analyzer_manifest(value: Any) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(value, dict):
+        return ["suite manifest analyzer must be an object"]
+    if value.get("algorithm") != ANALYZER_AGGREGATE_ALGORITHM:
+        errors.append("suite manifest analyzer algorithm is unsupported")
+    artifacts = value.get("artifacts")
+    if not isinstance(artifacts, list):
+        return [*errors, "suite manifest analyzer artifacts must be a list"]
+    paths = [item.get("source_path") if isinstance(item, dict) else None for item in artifacts]
+    if paths != list(ANALYZER_RUNTIME_SOURCE_PATHS):
+        errors.append("suite manifest analyzer runtime source set changed or is out of order")
+    if any(
+        not isinstance(item, dict)
+        or not isinstance(item.get("sha256"), str)
+        or len(item["sha256"]) != 64
+        or any(character not in "0123456789abcdef" for character in item["sha256"])
+        for item in artifacts
+    ):
+        errors.append("suite manifest analyzer artifact hash is invalid")
+        return errors
+    try:
+        aggregate = analyzer_aggregate_sha256(artifacts)
+    except (UnicodeEncodeError, ValueError):
+        errors.append("suite manifest analyzer aggregate inputs are invalid")
+        return errors
+    if value.get("aggregate_sha256") != aggregate:
+        errors.append("suite manifest analyzer aggregate hash mismatch")
+    return errors
 
 
 def validate_suite_manifest(value: dict[str, Any]) -> list[str]:
@@ -71,6 +153,7 @@ def validate_suite_manifest(value: dict[str, Any]) -> list[str]:
             errors.append(f"suite manifest missing {key}")
     if not isinstance(value.get("runs"), list):
         errors.append("suite manifest runs must be a list")
+    errors.extend(validate_analyzer_manifest(value.get("analyzer")))
     return errors
 
 
@@ -472,8 +555,10 @@ def finalize_suite_manifest(
         "analyzer": {
             "predicate_version": EXECUTED_RUN_PREDICATE_VERSION,
             "estimand": "all executed attempts; correctness and efficiency separate",
+            "algorithm": ANALYZER_AGGREGATE_ALGORITHM,
+            "source_set": "explicit_confirmatory_runtime_v1",
             "artifacts": analyzers,
-            "aggregate_sha256": sha256_bytes("".join(item["sha256"] for item in analyzers).encode()),
+            "aggregate_sha256": analyzer_aggregate_sha256(analyzers),
         },
         "runs": runs,
         "records": artifact(suite_dir / "records.ndjson", suite_dir, role="raw_records"),
