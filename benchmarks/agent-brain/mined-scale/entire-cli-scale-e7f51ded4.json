@@ -1,0 +1,42 @@
+{
+  "id": "entire-cli-scale-e7f51ded4",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "The flowchart-to-ASCII renderer bails out to raw source when a node or edge label legitimately contains an ampersand or a doubled percent sign, treating label content as structural syntax. Separately, labels containing wide double-width characters throw off the horizontal alignment of sibling boxes. Make all three of these render correctly. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-cli-scale-e7f51ded4.patch"
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/investigate/flowchart -run 'TestRender_AmpersandInLabel|TestRender_PercentHandling|TestRender_WideRunes'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/investigate/flowchart/flowchart.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "flowchart renderer falls back on ampersand inside a label",
+    "mermaid comment handling doubled percent sign in labels",
+    "wide rune alignment sibling columns flowchart",
+    "when does the flowchart renderer return fallback",
+    "double-width CJK emoji rendering column alignment"
+  ],
+  "_mined_from_commit": "e7f51ded4512ade8fe896d0565451d6bf2ac59ac",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": false,
+  "_leak_risk": "medium",
+  "_subject": "flowchart: fix bugbot findings \u2014 & in labels, %% semantics, wide runes",
+  "copy_checkpoint_ref_from_source": true
+}

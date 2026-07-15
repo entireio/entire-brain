@@ -574,11 +574,25 @@ def build_tools(run_root: pathlib.Path) -> dict[str, pathlib.Path]:
     entire_wrapper = bin_dir / "entire"
 
     run_cmd(["go", "build", "-o", str(brain_bin), "./cmd/entire-brain"], cwd=ROOT, check=True)
-    run_cmd(
-        ["go", "build", "-o", str(sem_bin), "./cmd/entire-sem"],
-        cwd=ROOT.parent / "entire-sem",
-        check=True,
-    )
+    # entire-sem was migrated to entire-graph (repo dir entire-sem -> entire-graph;
+    # cmd/entire-sem -> cmd/entire-graph). Try each existing repo dir x cmd combo, and
+    # tolerate absence entirely: history/facts-only conditions (prepare_semantic=false)
+    # never call the sem binary. A missing repo dir must NOT crash the whole run.
+    sem_built = False
+    for repo_dir in (ROOT.parent / "entire-graph", ROOT.parent / "entire-sem"):
+        if not repo_dir.is_dir():
+            continue
+        for sem_cmd in ("./cmd/entire-graph", "./cmd/entire-sem"):
+            if not (repo_dir / sem_cmd).is_dir():
+                continue
+            proc = run_cmd(["go", "build", "-o", str(sem_bin), sem_cmd], cwd=repo_dir)
+            if proc.returncode == 0:
+                sem_built = True
+                break
+        if sem_built:
+            break
+    if not sem_built:
+        print("warning: could not build the entire-sem/entire-graph binary; semantic conditions unavailable", flush=True)
 
     system_entire = shutil.which("entire") or ""
     wrapper = f"""#!/usr/bin/env bash
@@ -1609,7 +1623,10 @@ def prepare_condition_history(task: dict[str, Any], condition: str, worktree: pa
     source = resolve_repo_path(task["repo_path"])
     if task.get("copy_entire_history_from_source"):
         copy_entire_history(source, worktree)
-    if task.get("copy_checkpoint_ref_from_source"):
+    if task.get("copy_checkpoint_ref_from_source") and not uses_frozen_brain_delivery(task):
+        # frozen_brief tasks draw memory ONLY from the external frozen packet, so the
+        # disposable worktree needs no checkpoint ref. Copying it would be useless and, on a
+        # blob:none partial clone, the fetch fails (lazy fetching disabled from the promisor).
         copy_checkpoint_ref(source, worktree, task)
 
 
@@ -2115,6 +2132,12 @@ def isolate_temporal_memory_delivery(
 
 
 def brain_prep_commands(task: dict[str, Any], condition: str, worktree: pathlib.Path, tools: dict[str, pathlib.Path], checkpoint_limit: int) -> list[list[str]]:
+    # frozen_brief tasks deliver memory ONLY from the pre-cut frozen brain (via
+    # deliver_full_brain_memory). Building a worktree brain here would (a) waste minutes and
+    # (b) leak: the worktree's checkpoint ref is the CURRENT ref, which includes post-cutoff
+    # sessions. So skip all worktree brain prep for the full-brain arm of a frozen_brief task.
+    if uses_frozen_brain_delivery(task) and condition != "no_brain":
+        return []
     if is_temporal_memory_condition(condition):
         memory_bundle_config(task)
         commands = [
@@ -2154,6 +2177,17 @@ def prepare_brain(
     if condition == "no_brain":
         return env, prep
 
+    if uses_frozen_brain_delivery(task):
+        # Frozen-brief arms carry NO worktree brain: memory is delivered solely from the
+        # external frozen packet (deliver_full_brain_memory -> write_frozen_brain_packet).
+        # There is no plugin to build, cache, sanitize, or assert, so short-circuit here —
+        # mirroring brain_prep_commands()==[] for these tasks. Building/caching a worktree
+        # brain would both waste minutes and leak the CURRENT (post-cutoff) checkpoint ref.
+        if condition_writes_history_excerpt(condition) and task.get("history_excerpt", True):
+            deliver_full_brain_memory(task, worktree, tools)
+        prep["frozen_brain_delivery"] = True
+        return env, prep
+
     payload = brain_cache_payload(task, condition, worktree, tools, checkpoint_limit)
     key = brain_cache_key(payload)
     cache_entry = CACHE_DIR / key
@@ -2180,7 +2214,7 @@ def prepare_brain(
             }
         )
         if condition_writes_history_excerpt(condition) and task.get("history_excerpt", True):
-            write_history_excerpt(task, worktree)
+            deliver_full_brain_memory(task, worktree, tools)
         return env, prep
 
     memory_record: dict[str, Any] | None = None
@@ -2288,7 +2322,7 @@ def prepare_brain(
             },
         )
     if condition_writes_history_excerpt(condition) and task.get("history_excerpt", True):
-        write_history_excerpt(task, worktree)
+        deliver_full_brain_memory(task, worktree, tools)
     return env, prep
 
 
@@ -2606,6 +2640,15 @@ def write_history_excerpt(task: dict[str, Any], worktree: pathlib.Path) -> None:
     if not queries:
         return
     limit = int(task.get("history_excerpt_lines", 60))
+    # Delivery gate (env-tunable): cap raw snippets, drop low-relevance matches, and
+    # optionally deliver decision-only. Defaults preserve legacy behavior (cap=limit,
+    # no score floor, raw on). Undifferentiated 60-snippet dumps distract capable
+    # agents into over-editing; gating keeps the rare high-relevance decision.
+    max_snippets = int(os.environ.get("BRAIN_EXCERPT_MAX_SNIPPETS", str(limit)))
+    min_score = float(os.environ.get("BRAIN_EXCERPT_MIN_SCORE", "-inf"))
+    include_raw = os.environ.get("BRAIN_EXCERPT_RAW", "1") != "0" and bool(
+        task.get("history_include_raw_snippets", True)
+    )
     candidates: list[tuple[int, str]] = []
     seen: set[str] = set()
     history_files = list(history_excerpt_files(worktree))
@@ -2620,20 +2663,28 @@ def write_history_excerpt(task: dict[str, Any], worktree: pathlib.Path) -> None:
                 if key and key not in seen:
                     seen.add(key)
                     candidates.append((excerpt_score, f"## Query `{query}` ({rel}:{line_no})\n\n{excerpt}"))
-    if not candidates:
+    # Relevance gate: only keep matches at or above the score floor. If nothing
+    # clears it, deliver NO memory — the agent solves from current code (which is
+    # exactly what the winning no_brain runs do) rather than being flooded.
+    gated = [(score, text) for score, text in candidates if score >= min_score]
+    if not gated:
         return
-    snippets = [text for _, text in sorted(candidates, key=lambda item: item[0], reverse=True)[:limit]]
+    ranked = sorted(gated, key=lambda item: item[0], reverse=True)[:max_snippets]
+    snippets = [text for _, text in ranked]
     fact_summary = summarize_history_facts(snippets)
     out_dir = worktree / ".benchmark"
     out_dir.mkdir(exist_ok=True)
     (out_dir / "brain-history-excerpt.md").write_text(
         "# Retrieved Checkpoint History Excerpt\n\n"
-        "This file is generated by the benchmark from Entire v1 checkpoints for the full-brain condition.\n\n"
+        "This file is generated by the benchmark from Entire v1 checkpoints for the full-brain condition.\n"
+        "Use it only where directly relevant to the task; make the smallest change that fixes the issue.\n\n"
         + fact_summary
-        + ("\n\n".join(snippets) if task.get("history_include_raw_snippets", True) else "")
+        + ("\n\n".join(snippets) if include_raw else "")
         + "\n"
     )
-    run_cmd(["git", "add", ".benchmark/brain-history-excerpt.md"], cwd=worktree, check=True)
+    # `.benchmark/` is in info/exclude (ignore_benchmark_plugin), so force-add the delivered
+    # packet to fold it into the pre-agent baseline (else `git add` refuses the ignored path).
+    run_cmd(["git", "add", "-f", ".benchmark/brain-history-excerpt.md"], cwd=worktree, check=True)
     run_cmd(
         [
             "git",
@@ -2649,6 +2700,283 @@ def write_history_excerpt(task: dict[str, Any], worktree: pathlib.Path) -> None:
         env=benchmark_git_env(),
         check=True,
     )
+
+
+# --- Frozen-brain delivery (Phase 2) ---------------------------------------
+# `write_history_excerpt` greps raw session JSONL and dumps top-N snippets: it never
+# uses the brain's DISTILLED facts. The frozen-brief path below instead runs the REAL
+# product retrieval (`entire-brain recall`) against the FROZEN pre-C quarantined brain
+# and writes a clean facts-first packet — the same file the agent reads — so the
+# full-brain arm receives real decisions/invariants/gotchas, not grep noise.
+#
+# The frozen brain is located via env vars (NOT rebuilt from the worktree):
+#   FROZEN_BRAIN_PLUGIN_DIR  -> the quarantine `plugin` dir (holds config/data/state/cache)
+#   FROZEN_BRAIN_REPO_ROOT   -> the quarantine `scratch-clone` repo root (ENTIRE_REPO_ROOT)
+# Opt in per task with `"memory_delivery": "frozen_brief"`.
+FROZEN_BRAIN_DELIVERY = "frozen_brief"
+FROZEN_BRAIN_PLUGIN_ENV = "FROZEN_BRAIN_PLUGIN_DIR"
+FROZEN_BRAIN_REPO_ENV = "FROZEN_BRAIN_REPO_ROOT"
+FROZEN_BRAIN_PACKET_CAP = 12
+
+
+def uses_frozen_brain_delivery(task: dict[str, Any]) -> bool:
+    return str(task.get("memory_delivery") or "") == FROZEN_BRAIN_DELIVERY
+
+
+def _parse_rfc3339(value: Any) -> "dt.datetime | None":
+    """Parse an RFC3339/ISO-8601 timestamp into a tz-aware datetime, or None if unparseable.
+    Naive timestamps are assumed UTC so cutoff and provenance dates always compare cleanly."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith("Z") or text.endswith("z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = dt.datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed
+
+
+# session_dates maps are loaded once per unique path and cached (built by the full-brain build).
+_SESSION_DATES_CACHE: dict[str, dict[str, str]] = {}
+
+
+def load_session_dates(path: "str | pathlib.Path") -> dict[str, str]:
+    """Load and cache the {session_id: created_at_rfc3339} map produced by the full-brain build.
+    Cached by absolute path so each task's rolling-cutoff filter dates provenance without re-reading."""
+    key = str(pathlib.Path(path).resolve())
+    cached = _SESSION_DATES_CACHE.get(key)
+    if cached is not None:
+        return cached
+    raw = json.loads(pathlib.Path(path).read_text())
+    if not isinstance(raw, dict):
+        raise RuntimeError(f"session dates map at {path} is not a JSON object")
+    mapping = {str(k): str(v) for k, v in raw.items()}
+    _SESSION_DATES_CACHE[key] = mapping
+    return mapping
+
+
+def filter_facts_by_cutoff(
+    facts: list[dict[str, Any]],
+    session_dates: dict[str, str],
+    cutoff_rfc3339: str,
+    exclude_ids: "list[str] | set[str] | None",
+) -> list[dict[str, Any]]:
+    """Keep only facts safe to deliver under a rolling cutoff. A fact survives iff it has a
+    non-empty provenance whose EVERY session_id (a) is present in `session_dates` with a
+    created_at strictly before `cutoff_rfc3339`, and (b) is NOT in `exclude_ids`. Facts with
+    empty/missing provenance, an undateable/unknown provenance session, or a provenance session
+    at-or-after the cutoff are DROPPED (fail-closed — omit rather than risk leaking the task's
+    own decision). Pure and unit-testable — no I/O."""
+    cutoff = _parse_rfc3339(cutoff_rfc3339)
+    if cutoff is None:
+        raise RuntimeError(f"rolling_cutoff_rfc3339 is not a valid RFC3339 timestamp: {cutoff_rfc3339!r}")
+    excluded = {str(s) for s in (exclude_ids or [])}
+    kept: list[dict[str, Any]] = []
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        provenance = fact.get("provenance")
+        if not isinstance(provenance, list) or not provenance:
+            continue  # can't verify temporality without provenance -> drop
+        session_ids: list[str] = []
+        for anchor in provenance:
+            if isinstance(anchor, dict):
+                sid = str(anchor.get("session_id") or "").strip()
+                if sid:
+                    session_ids.append(sid)
+        if not session_ids:
+            continue  # provenance carried no session ids -> undateable -> drop
+        if any(sid in excluded for sid in session_ids):
+            continue  # references the task's own fix session -> drop
+        ok = True
+        for sid in session_ids:
+            created = _parse_rfc3339(session_dates.get(sid))
+            if created is None or not (created < cutoff):
+                ok = False  # unknown/undateable or at-or-after cutoff -> drop
+                break
+        if ok:
+            kept.append(fact)
+    return kept
+
+
+def frozen_brain_env() -> dict[str, str]:
+    """Build the process env that points `entire-brain` at the FROZEN quarantined brain.
+    Reads the plugin dir + repo root from env vars; raises if unset so a misconfigured
+    frozen-brief run fails loudly instead of silently retrieving from the wrong brain."""
+    plugin = os.environ.get(FROZEN_BRAIN_PLUGIN_ENV)
+    repo = os.environ.get(FROZEN_BRAIN_REPO_ENV)
+    if not plugin or not repo:
+        raise RuntimeError(
+            f"frozen_brief delivery requires {FROZEN_BRAIN_PLUGIN_ENV} (quarantine plugin dir) "
+            f"and {FROZEN_BRAIN_REPO_ENV} (quarantine scratch-clone) to be set"
+        )
+    plugin_path = pathlib.Path(plugin)
+    env = os.environ.copy()
+    env.update(
+        {
+            "ENTIRE_REPO_ROOT": str(repo),
+            "ENTIRE_PLUGIN_CONFIG_DIR": str(plugin_path / "config"),
+            "ENTIRE_PLUGIN_DATA_DIR": str(plugin_path / "data"),
+            "ENTIRE_PLUGIN_STATE_DIR": str(plugin_path / "state"),
+            "ENTIRE_PLUGIN_CACHE_DIR": str(plugin_path / "cache"),
+        }
+    )
+    return env
+
+
+def collect_frozen_facts(
+    recall_results: list[dict[str, Any]],
+    cap: int = FROZEN_BRAIN_PACKET_CAP,
+    session_dates: "dict[str, str] | None" = None,
+    cutoff_rfc3339: "str | None" = None,
+    exclude_ids: "list[str] | set[str] | None" = None,
+) -> list[dict[str, Any]]:
+    """Merge per-query `entire-brain recall --json` payloads into one ranked, deduped fact
+    list. Facts are ranked by best (lowest) position across queries, ties broken by how many
+    queries surfaced them; deduped by fact id (falling back to normalized text). Pure and
+    unit-testable — takes already-parsed JSON, does no I/O.
+
+    When `cutoff_rfc3339` is set, each query's facts are first passed through
+    `filter_facts_by_cutoff` (rolling-cutoff temporal filter) BEFORE ranking/capping so the
+    delivered packet never leaks a fact whose provenance is at-or-after the task's own fix.
+    With no cutoff the behavior is unchanged (backward compatible)."""
+    apply_cutoff = cutoff_rfc3339 is not None
+    best: dict[str, dict[str, Any]] = {}
+    for result in recall_results:
+        facts = result.get("facts") if isinstance(result, dict) else None
+        if not isinstance(facts, list):
+            continue
+        if apply_cutoff:
+            facts = filter_facts_by_cutoff(facts, session_dates or {}, cutoff_rfc3339, exclude_ids)
+        for rank, fact in enumerate(facts):
+            if not isinstance(fact, dict):
+                continue
+            text = str(fact.get("text") or "").strip()
+            if not text:
+                continue
+            key = str(fact.get("id") or "").strip() or text.casefold()
+            entry = best.get(key)
+            if entry is None:
+                best[key] = {"fact": fact, "best_rank": rank, "hits": 1}
+            else:
+                entry["best_rank"] = min(entry["best_rank"], rank)
+                entry["hits"] += 1
+    ordered = sorted(best.values(), key=lambda e: (e["best_rank"], -e["hits"]))
+    return [e["fact"] for e in ordered[:cap]]
+
+
+def render_frozen_brain_packet(facts: list[dict[str, Any]]) -> str:
+    """Render deduped frozen-brain facts as a facts-first markdown packet. Pure/unit-testable."""
+    lines = [
+        "# Retrieved Brain Facts",
+        "",
+        "Distilled facts retrieved from the Entire Brain for the full-brain condition. "
+        "Use only where relevant; make the minimal change.",
+        "",
+    ]
+    for i, fact in enumerate(facts, start=1):
+        text = str(fact.get("text") or "").strip()
+        kind = str(fact.get("kind") or "fact").strip()
+        paths = fact.get("paths")
+        loci = fact.get("locus")
+        lines.append(f"## {i}. [{kind}] {text}")
+        meta: list[str] = []
+        if isinstance(paths, list) and paths:
+            meta.append("paths: " + ", ".join(str(p) for p in paths))
+        if isinstance(loci, list) and loci:
+            meta.append("locus: " + ", ".join(str(p) for p in loci))
+        if meta:
+            lines.append("")
+            lines.append("  " + " | ".join(meta))
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_frozen_brain_packet(task: dict[str, Any], worktree: pathlib.Path, tools: dict[str, pathlib.Path]) -> None:
+    """Deliver the FROZEN brain's real distilled facts to the worktree packet file the agent
+    reads. Runs `entire-brain recall` (the real product retrieval) once per brain_query against
+    the frozen quarantined brain, merges/dedupes/caps the facts, and writes the facts-first
+    markdown to `.benchmark/brain-history-excerpt.md`. Replaces the grep-based excerpt for tasks
+    opted into `memory_delivery: frozen_brief`."""
+    queries = [q for q in task.get("brain_queries", []) if q]
+    if not queries:
+        return
+    env = frozen_brain_env()
+    per_query_k = int(task.get("frozen_recall_k", 5))
+    cap = int(task.get("frozen_packet_cap", FROZEN_BRAIN_PACKET_CAP))
+    # Rolling-cutoff delivery: filter recalled facts to those provably earlier than this task's
+    # own fix. Absent `rolling_cutoff_rfc3339`, delivery is unfiltered (backward compatible).
+    cutoff_rfc3339 = task.get("rolling_cutoff_rfc3339") or None
+    exclude_ids = task.get("exclude_session_ids") or []
+    session_dates: dict[str, str] | None = None
+    if cutoff_rfc3339:
+        dates_path = task.get("frozen_session_dates_path")
+        if not dates_path:
+            raise RuntimeError(
+                "rolling_cutoff_rfc3339 is set but frozen_session_dates_path is missing; "
+                "cannot date fact provenance for the rolling-cutoff filter"
+            )
+        session_dates = load_session_dates(dates_path)
+    results: list[dict[str, Any]] = []
+    for query in queries:
+        proc = run_cmd(
+            [str(tools["brain"]), "recall", str(query), "--json", "--k", str(per_query_k)],
+            cwd=worktree,
+            env=env,
+            timeout=180,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"frozen-brain recall failed ({proc.returncode}) for query {query!r}\n"
+                f"stderr:\n{proc.stderr[-2000:]}"
+            )
+        try:
+            results.append(json.loads(proc.stdout))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"frozen-brain recall produced non-JSON for {query!r}: {exc}") from exc
+    facts = collect_frozen_facts(
+        results,
+        cap,
+        session_dates=session_dates,
+        cutoff_rfc3339=cutoff_rfc3339,
+        exclude_ids=exclude_ids,
+    )
+    if not facts:
+        return
+    out_dir = worktree / ".benchmark"
+    out_dir.mkdir(exist_ok=True)
+    (out_dir / "brain-history-excerpt.md").write_text(render_frozen_brain_packet(facts))
+    # `.benchmark/` is in info/exclude (ignore_benchmark_plugin), so force-add the delivered
+    # packet to fold it into the pre-agent baseline (else `git add` refuses the ignored path).
+    run_cmd(["git", "add", "-f", ".benchmark/brain-history-excerpt.md"], cwd=worktree, check=True)
+    run_cmd(
+        [
+            "git",
+            "-c",
+            "user.name=Entire Brain Benchmark",
+            "-c",
+            "user.email=benchmark@example.invalid",
+            "commit",
+            "-m",
+            "Benchmark full-brain frozen fact packet",
+        ],
+        cwd=worktree,
+        env=benchmark_git_env(),
+        check=True,
+    )
+
+
+def deliver_full_brain_memory(task: dict[str, Any], worktree: pathlib.Path, tools: dict[str, pathlib.Path]) -> None:
+    """Dispatch full-brain memory delivery: the real distilled-fact packet from the FROZEN
+    brain when `memory_delivery: frozen_brief` is set, else the legacy grep-based excerpt."""
+    if uses_frozen_brain_delivery(task):
+        write_frozen_brain_packet(task, worktree, tools)
+    else:
+        write_history_excerpt(task, worktree)
 
 
 def history_excerpt_files(worktree: pathlib.Path) -> list[pathlib.Path]:
@@ -4026,8 +4354,11 @@ def run_one(
             use_cache=not args.no_brain_cache,
             refresh_cache=args.refresh_brain_cache,
         )
-        brain_state = collect_brain_state(worktree, env, tools) if condition != "no_brain" else {}
-        if condition != "no_brain":
+        # frozen_brief arms have no worktree brain (see prepare_brain short-circuit); their
+        # readiness is verified via the delivered frozen packet, not a worktree manifest.
+        needs_worktree_brain = condition != "no_brain" and not uses_frozen_brain_delivery(task)
+        brain_state = collect_brain_state(worktree, env, tools) if needs_worktree_brain else {}
+        if needs_worktree_brain:
             assert_brain_state_ready(task, condition, brain_state)
         post_brain_changed = apply_post_brain_setup(task, worktree)
         if post_brain_changed:
@@ -5271,8 +5602,11 @@ def cmd_prep(args: argparse.Namespace) -> int:
                     use_cache=not args.no_brain_cache,
                     refresh_cache=args.refresh_brain_cache,
                 )
-                brain_state = collect_brain_state(worktree, env, tools)
-                assert_brain_state_ready(task, condition, brain_state)
+                if uses_frozen_brain_delivery(task):
+                    brain_state = {}
+                else:
+                    brain_state = collect_brain_state(worktree, env, tools)
+                    assert_brain_state_ready(task, condition, brain_state)
                 record.update(
                     {
                         "ok": True,

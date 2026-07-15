@@ -1,0 +1,85 @@
+diff --git a/cmd/entire/cli/checkpoint_resume_test.go b/cmd/entire/cli/checkpoint_resume_test.go
+index d09f7cbd6..2ecefc6ea 100644
+--- a/cmd/entire/cli/checkpoint_resume_test.go
++++ b/cmd/entire/cli/checkpoint_resume_test.go
+@@ -145,6 +145,46 @@ func TestCheckpointResumeCommit_ResolvesTrailer(t *testing.T) {
+ 	}
+ }
+ 
++// "HEAD" is shaped like a checkpoint prefix (Crockford ULID alphabet) and
++// happens to also resolve via branchCommit's origin/<name> fallback (as
++// refs/remotes/origin/HEAD) in the old auto-detection order. With no local
++// branch or checkpoint named "HEAD", it must fall through to commit
++// resolution and resume the checkpoint referenced by HEAD's trailer.
++func TestCheckpointResumeAuto_HeadResolvesAsCommit(t *testing.T) {
++	tmpDir := t.TempDir()
++	t.Chdir(tmpDir)
++	claudeDir := filepath.Join(tmpDir, "claude-projects")
++	t.Setenv("ENTIRE_TEST_CLAUDE_PROJECT_DIR", claudeDir)
++
++	repo, w, head := setupResumeTestRepo(t, tmpDir, false)
++	cpID := id.MustCheckpointID("abc123def456")
++	writeCommittedResumeCheckpoint(t, repo, cpID, "session-head", time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
++	if _, err := w.Commit("work\n\nEntire-Checkpoint: "+cpID.String(), &git.CommitOptions{
++		AllowEmptyCommits: true,
++		Author:            &object.Signature{Name: "Test User", Email: "test@example.com"},
++	}); err != nil {
++		t.Fatalf("commit: %v", err)
++	}
++
++	// Seed origin/HEAD like a real clone has: auto-detection must not classify
++	// "HEAD" as a branch via branchCommit's origin/<name> fallback.
++	if err := repo.Storer.SetReference(plumbing.NewHashReference(plumbing.NewRemoteReferenceName("origin", "master"), head)); err != nil {
++		t.Fatalf("create origin/master: %v", err)
++	}
++	if err := repo.Storer.SetReference(plumbing.NewSymbolicReference(plumbing.NewRemoteHEADReferenceName("origin"), plumbing.NewRemoteReferenceName("origin", "master"))); err != nil {
++		t.Fatalf("create origin/HEAD: %v", err)
++	}
++
++	cmd, out := newCheckpointResumeTestCmd(t)
++	cmd.SetArgs([]string{"HEAD"})
++	if err := cmd.Execute(); err != nil {
++		t.Fatalf("Execute() error = %v\noutput: %s", err, out.String())
++	}
++	if !strings.Contains(out.String(), "session-head") {
++		t.Errorf("output should mention restored session ID, got: %s", out.String())
++	}
++}
++
+ func TestCheckpointResumeCommit_NoTrailer(t *testing.T) {
+ 	tmpDir := t.TempDir()
+ 	t.Chdir(tmpDir)
+@@ -223,6 +263,33 @@ func TestCheckpointResumeBare_NonTTYListsCheckpoints(t *testing.T) {
+ 	}
+ }
+ 
++func TestCheckpointResumeOptionLabel_Fallbacks(t *testing.T) {
++	t.Parallel()
++
++	unindexed := checkpoint.CheckpointInfo{
++		CheckpointID: id.MustCheckpointID("aaa111bbb222"),
++		CreatedAt:    time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
++	}
++	indexed := checkpoint.CheckpointInfo{
++		CheckpointID: id.MustCheckpointID("ccc333ddd444"),
++		CreatedAt:    time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
++	}
++	branchIndex := map[string]string{indexed.CheckpointID.String(): "feature"}
++
++	fallbackLabel := checkpointResumeOptionLabel(unindexed, branchIndex)
++	if !strings.Contains(fallbackLabel, "no local branch") {
++		t.Errorf("label = %q, want to contain %q", fallbackLabel, "no local branch")
++	}
++	if !strings.Contains(fallbackLabel, unknownAgentLabel) {
++		t.Errorf("label = %q, want to contain %q", fallbackLabel, unknownAgentLabel)
++	}
++
++	indexedLabel := checkpointResumeOptionLabel(indexed, branchIndex)
++	if !strings.Contains(indexedLabel, "feature") {
++		t.Errorf("label = %q, want to contain branch %q", indexedLabel, "feature")
++	}
++}
++
+ func TestCheckpointResumeBare_NoCheckpoints(t *testing.T) {
+ 	tmpDir := t.TempDir()
+ 	t.Chdir(tmpDir)

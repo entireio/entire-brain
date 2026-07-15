@@ -1,0 +1,181 @@
+diff --git a/core/api/server.go b/core/api/server.go
+index d33a3a571..42c6190a3 100644
+--- a/core/api/server.go
++++ b/core/api/server.go
+@@ -1148,32 +1148,14 @@ func (s *Server) handleConsoleLogout(w http.ResponseWriter, r *http.Request) {
+ 	http.Redirect(w, r, endSession.String(), http.StatusFound)
+ }
+ 
+-// handleEndSession terminates the IdP session for the calling browser.
+-// It always sets Max-Age=0 on all three browser cookies (__Host-login,
+-// __Host-refresh, idp_session) — even when the request carries none of
+-// them — so a half-cleared client ends up consistent. The idp row is
+-// deleted atomically with its (account_id, refresh_family_id), and
+-// the refresh family is revoked via RefreshStore.RevokeFamily before
+-// the response is written (best-effort: a revoke failure is logged
+-// but the cookies still clear and the redirect still happens — the
+-// user's intent is unambiguous).
+-//
+-// Validation of client_id + return_to gates only the redirect: an
+-// attacker who supplies a bogus return_to can still log themselves
+-// out, but cannot bounce the user to an attacker-controlled URI.
+-//
+-// COR-325. Pairs with COR-309's exchange gate: outstanding *exchanged*
+-// access tokens cannot be renewed because /oauth/token re-exchange
+-// consults the now-missing family, so they drain within their own TTL
+-// (5m repo/ops/debug, 8h api-access). The original login JWT itself
+-// is not revocation-gated at RP verification — see the FamilyID claim
+-// docstring in core/authn/jwt.go for the rationale — so a holder of
+-// the leaked login JWT can keep authenticating at RP-style endpoints
+-// until its 8h TTL expires. Full "log out everywhere" semantics
+-// require the cookie clear (this PR) plus an access-token-TTL drain.
++// handleEndSession terminates the IdP session for the calling browser. It
++// always clears the IdP cookie + row (idempotent for missing cookies, and
++// safe to do even when client_id/return_to are invalid — the user's intent
++// is unambiguous). Validation of client_id + return_to gates only the
++// redirect: an attacker who supplies a bogus return_to can still log
++// themselves out, but cannot bounce the user to an attacker-controlled URI.
+ func (s *Server) handleEndSession(w http.ResponseWriter, r *http.Request) {
+-	s.terminateIdpSession(r.Context(), r)
+-	s.clearAllSessionCookies(w)
++	clearSessionCookie(w, r, s.idpCookie, s.idpSessionStore, "idp")
+ 
+ 	clientID := r.URL.Query().Get("client_id")
+ 	returnTo := r.URL.Query().Get("return_to")
+@@ -1191,86 +1173,6 @@ func (s *Server) handleEndSession(w http.ResponseWriter, r *http.Request) {
+ 	http.Redirect(w, r, returnTo, http.StatusFound)
+ }
+ 
+-// terminateIdpSession reads the idp_session cookie (if present),
+-// atomically deletes the backing row, and revokes the refresh family
+-// it was linked to. Best-effort: failures are logged with an
+-// `outcome` attribute so observability can alert on the case where
+-// cookies cleared but the refresh family is still alive — that's a
+-// real failure mode (the user thinks they're logged out but their
+-// refresh family lives until natural expiry, up to 30d). The
+-// user's intent to log out still wins at the cookie layer; the
+-// outcome attribute is the signal SRE relies on to detect when the
+-// downstream cleanup didn't.
+-func (s *Server) terminateIdpSession(ctx context.Context, r *http.Request) {
+-	if s.idpCookie == nil || s.idpSessionStore == nil {
+-		return
+-	}
+-	sessionID, ok := s.idpCookie.Read(r)
+-	if !ok {
+-		return
+-	}
+-	accountID, familyID, found, err := s.idpSessionStore.DeleteAndReturnFamily(ctx, sessionID)
+-	if err != nil {
+-		slogutil.Warn(ctx, "idp session delete failed during logout",
+-			slog.String("outcome", "idp_delete_failed"),
+-			slog.String("error", err.Error()))
+-		return
+-	}
+-	if !found {
+-		// Idempotent logout — row was already gone. Nothing to revoke.
+-		return
+-	}
+-	if familyID == "" {
+-		// Fid-less idp session: the row was created via the
+-		// stripped-down fallback paths (handleProviderRegionalCallback
+-		// or the WorkOS callback) when the three-tier deps weren't
+-		// fully wired, or it's a pre-migration-015 row. No refresh
+-		// family was ever linked, so there's nothing to revoke. Info
+-		// rather than warn — this is a legitimate state, just not
+-		// the common one.
+-		slogutil.Info(ctx, "logout for fid-less session — skipping RevokeFamily",
+-			slog.String("outcome", "fid_less_skipped"),
+-			slog.String("account_id", accountID.String()),
+-			slog.String("session_id", sessionID))
+-		return
+-	}
+-	if s.refreshStore == nil {
+-		// Test/standalone fallback where no refresh store is wired.
+-		return
+-	}
+-	if err := s.refreshStore.RevokeFamily(ctx, accountID, familyID); err != nil {
+-		if errors.Is(err, authn.ErrRefreshTokenNotFound) {
+-			// Idempotent: the family was already revoked elsewhere
+-			// (e.g. via /api/auth/tokens/current, an admin reset, or
+-			// natural expiry sweep). The cookies still clear and the
+-			// redirect still happens.
+-			return
+-		}
+-		slogutil.Warn(ctx, "refresh family revoke failed during logout — cookies still cleared, family may be alive until natural expiry",
+-			slog.String("outcome", "revoke_failed_cookies_cleared"),
+-			slog.String("error", err.Error()),
+-			slog.String("account_id", accountID.String()),
+-			slog.String("family_id", familyID))
+-	}
+-}
+-
+-// clearAllSessionCookies sets Max-Age=0 on the three browser cookies
+-// COR-310 introduced (__Host-login, __Host-refresh) plus the existing
+-// idp_session cookie. Called unconditionally on end-session — a
+-// half-cleared client (some cookies kept, some deleted) ends up
+-// fully consistent on the next response either way.
+-func (s *Server) clearAllSessionCookies(w http.ResponseWriter) {
+-	if s.loginCookie != nil {
+-		s.loginCookie.Clear(w)
+-	}
+-	if s.refreshCookie != nil {
+-		s.refreshCookie.Clear(w)
+-	}
+-	if s.idpCookie != nil {
+-		s.idpCookie.Clear(w)
+-	}
+-}
+-
+ // serveLoggedOutFallback writes a styled "you're signed out" body when the
+ // IdP cannot validate where to send the user. Self-contained (inline CSS,
+ // no external assets) so it still works if staticFS is broken. Links back
+diff --git a/core/authn/session_store.go b/core/authn/session_store.go
+index 2d53fdb5c..d675381f1 100644
+--- a/core/authn/session_store.go
++++ b/core/authn/session_store.go
+@@ -9,7 +9,6 @@ import (
+ 	"time"
+ 
+ 	"github.com/antithesishq/antithesis-sdk-go/assert"
+-	"github.com/jackc/pgx/v5"
+ 	"github.com/jackc/pgx/v5/pgxpool"
+ 
+ 	"entire.io/core/model"
+@@ -174,37 +173,6 @@ func (s *SessionStore) Delete(ctx context.Context, sessionID string) error {
+ 	return nil
+ }
+ 
+-// DeleteAndReturnFamily atomically deletes the session row and returns
+-// the (account_id, refresh_family_id) it carried, in one round trip.
+-// Used by /api/auth/end-session (COR-325) so the handler can call
+-// RefreshStore.RevokeFamily on the returned family without racing a
+-// second concurrent end-session that's already deleted the row.
+-//
+-// ok=false means the row was already gone (or never existed) — that's
+-// the idempotent-logout case; the caller treats it as success and
+-// still emits the cookie-clear headers. err is non-nil only for
+-// transport / SQL failure. familyID is "" for sessions that were
+-// created without a refresh family (pre-migration-015 rows or the
+-// system-login paths that mint fid-less sessions); callers must
+-// skip RevokeFamily in that case rather than calling it with "".
+-func (s *SessionStore) DeleteAndReturnFamily(ctx context.Context, sessionID string) (model.AccountID, string, bool, error) {
+-	var (
+-		accountID model.AccountID
+-		familyID  string
+-	)
+-	err := s.pool.QueryRow(ctx,
+-		fmt.Sprintf(`DELETE FROM %s WHERE id = $1 RETURNING account_id, refresh_family_id`, s.tableName),
+-		sessionID,
+-	).Scan(&accountID, &familyID)
+-	if err != nil {
+-		if errors.Is(err, pgx.ErrNoRows) {
+-			return "", "", false, nil
+-		}
+-		return "", "", false, fmt.Errorf("delete session and return family: %w", err)
+-	}
+-	return accountID, familyID, true, nil
+-}
+-
+ // DeleteByAccountID removes every session row owned by accountID. Returns the
+ // number of rows deleted. Callers use this to sweep sessions when an account
+ // is deleted so cookies don't outlive the identity they were issued against.

@@ -1,0 +1,60 @@
+diff --git a/cmd/entire/cli/agent/geminicli/lifecycle.go b/cmd/entire/cli/agent/geminicli/lifecycle.go
+index b44fae42c..6069c253a 100644
+--- a/cmd/entire/cli/agent/geminicli/lifecycle.go
++++ b/cmd/entire/cli/agent/geminicli/lifecycle.go
+@@ -49,9 +49,7 @@ func (g *GeminiCLIAgent) ParseHookEvent(_ context.Context, hookName string, stdi
+ 		return g.parseSessionEnd(stdin)
+ 	case HookNamePreCompress:
+ 		return g.parseCompaction(stdin)
+-	case HookNameBeforeModel:
+-		return g.parseBeforeModel(stdin)
+-	case HookNameBeforeTool, HookNameAfterTool,
++	case HookNameBeforeTool, HookNameAfterTool, HookNameBeforeModel,
+ 		HookNameAfterModel, HookNameBeforeToolSelection, HookNameNotification:
+ 		// Acknowledged hooks with no lifecycle action
+ 		return nil, nil //nolint:nilnil // nil event = no lifecycle action
+@@ -160,23 +158,6 @@ func (g *GeminiCLIAgent) parseSessionEnd(stdin io.Reader) (*agent.Event, error)
+ 	}, nil
+ }
+ 
+-func (g *GeminiCLIAgent) parseBeforeModel(stdin io.Reader) (*agent.Event, error) {
+-	raw, err := agent.ReadAndParseHookInput[beforeModelRaw](stdin)
+-	if err != nil {
+-		return nil, err
+-	}
+-	model := raw.LLMRequest.Model
+-	if model == "" {
+-		return nil, nil //nolint:nilnil // no model info → no lifecycle action
+-	}
+-	return &agent.Event{
+-		Type:      agent.ModelUpdate,
+-		SessionID: raw.SessionID,
+-		Model:     model,
+-		Timestamp: time.Now(),
+-	}, nil
+-}
+-
+ func (g *GeminiCLIAgent) parseCompaction(stdin io.Reader) (*agent.Event, error) {
+ 	raw, err := agent.ReadAndParseHookInput[sessionInfoRaw](stdin)
+ 	if err != nil {
+diff --git a/cmd/entire/cli/agent/geminicli/types.go b/cmd/entire/cli/agent/geminicli/types.go
+index c919e21af..86c5af0c9 100644
+--- a/cmd/entire/cli/agent/geminicli/types.go
++++ b/cmd/entire/cli/agent/geminicli/types.go
+@@ -63,16 +63,6 @@ type agentHookInputRaw struct {
+ 	Prompt         string `json:"prompt,omitempty"` // User's prompt (BeforeAgent only)
+ }
+ 
+-// beforeModelRaw is the JSON structure from BeforeModel hooks.
+-// Contains the LLM model being used for the current request.
+-type beforeModelRaw struct {
+-	SessionID      string `json:"session_id"`
+-	TranscriptPath string `json:"transcript_path"`
+-	LLMRequest     struct {
+-		Model string `json:"model"`
+-	} `json:"llm_request"`
+-}
+-
+ // Tool names used in Gemini CLI that modify files
+ // Note: Gemini CLI uses different names in different contexts:
+ // - Internal/transcript names: write_file, replace

@@ -1,0 +1,69 @@
+diff --git a/cmd/entire/cli/search/search.go b/cmd/entire/cli/search/search.go
+index a34bf32fb..bdb2b9e68 100644
+--- a/cmd/entire/cli/search/search.go
++++ b/cmd/entire/cli/search/search.go
+@@ -154,9 +154,6 @@ func (r *Result) UnmarshalJSON(b []byte) error {
+ 	r.Type = raw.Type
+ 	r.Meta = raw.Meta
+ 	r.rawData = raw.Data
+-	// Clear any previously-decoded payloads so a reused Result keeps the
+-	// "exactly one typed pointer is non-nil" invariant.
+-	r.Checkpoint, r.Commit, r.Session = nil, nil, nil
+ 
+ 	switch raw.Type {
+ 	case TypeCheckpoint:
+@@ -382,7 +379,7 @@ type Config struct {
+ 
+ // HasFilters reports whether any filter fields are set on the config.
+ func (c Config) HasFilters() bool {
+-	return c.Author != "" || c.Date != "" || c.Branch != "" || len(c.Repos) > 0 || c.AllRepos
++	return c.Author != "" || c.Date != "" || c.Branch != "" || len(c.Repos) > 0
+ }
+ 
+ // ParsedInput holds the parsed query and optional filters extracted from search input.
+@@ -546,25 +543,11 @@ func Search(ctx context.Context, cfg Config) (*Response, error) {
+ 		return nil, err
+ 	}
+ 	allRepos := cfg.AllRepos || (len(cfg.Repos) == 1 && cfg.Repos[0] == AllReposFilter)
+-	hasExplicitRepo := false
+-	for _, repo := range cfg.Repos {
+-		if repo != AllReposFilter {
+-			hasExplicitRepo = true
+-			break
+-		}
+-	}
+-	switch {
+-	case hasExplicitRepo:
+-		// An explicit owner/name filter always scopes the search, even when
+-		// --all-repos is also set (the more specific filter wins).
++	if len(cfg.Repos) > 0 && !allRepos {
+ 		for _, repo := range cfg.Repos {
+-			if repo != AllReposFilter {
+-				q.Add("repo", repo)
+-			}
++			q.Add("repo", repo)
+ 		}
+-	case allRepos:
+-		// No repo scoping — search every accessible repo.
+-	case cfg.Owner != "" && cfg.Repo != "":
++	} else if !allRepos && cfg.Owner != "" && cfg.Repo != "" {
+ 		q.Set("repo", cfg.Owner+"/"+cfg.Repo)
+ 	}
+ 	// Don't set types — let the API return all types (checkpoints, commits, sessions, etc.)
+diff --git a/cmd/entire/cli/search_cmd.go b/cmd/entire/cli/search_cmd.go
+index 950aa9375..650dfdaf3 100644
+--- a/cmd/entire/cli/search_cmd.go
++++ b/cmd/entire/cli/search_cmd.go
+@@ -159,9 +159,9 @@ branch:<name>, repo:<owner/name>, and repo:* to search all accessible repos.`,
+ 				return nil
+ 			}
+ 
+-			// Fetch a full page (DefaultLimit, matching the web UI) up front and
+-			// paginate client-side for all output modes; the requested --limit
+-			// only controls the client-side page size.
++			// Fetch max results so client-side pagination works.
++			// The search API caps results at the limit, so we fetch
++			// the maximum and paginate client-side for all output modes.
+ 			requestedLimit := searchCfg.Limit
+ 			requestedPage := searchCfg.Page
+ 			searchCfg.Limit = search.DefaultLimit

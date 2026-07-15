@@ -1,0 +1,55 @@
+diff --git a/cmd/entire/cli/checkpoint/checkpoint.go b/cmd/entire/cli/checkpoint/checkpoint.go
+index 32e58cb3a..9bc9babad 100644
+--- a/cmd/entire/cli/checkpoint/checkpoint.go
++++ b/cmd/entire/cli/checkpoint/checkpoint.go
+@@ -227,9 +227,7 @@ type WriteCommittedOptions struct {
+ 	// FilesTouched are files modified during the session
+ 	FilesTouched []string
+ 
+-	// CheckpointsCount is the displayed "steps" count for this session: the number
+-	// of user prompts attributed to this checkpoint (floored at 1). Despite the
+-	// historical name/JSON tag, it is no longer a count of checkpoints.
++	// CheckpointsCount is the number of checkpoints in this session
+ 	CheckpointsCount int
+ 
+ 	// SaveStepCount is the number of SaveStep-recorded steps (shadow-branch
+diff --git a/cmd/entire/cli/lifecycle.go b/cmd/entire/cli/lifecycle.go
+index 143a5a280..ad8fbb83d 100644
+--- a/cmd/entire/cli/lifecycle.go
++++ b/cmd/entire/cli/lifecycle.go
+@@ -1121,14 +1121,11 @@ func persistEventMetadataToState(event *agent.Event, state *strategy.SessionStat
+ 	} else if event.Type == agent.TurnEnd {
+ 		state.SessionTurnCount++
+ 	}
+-	// Deferred checkpoint-window reset: the first time the turn count actually
+-	// advances after a checkpoint was written, re-anchor the window base to the
+-	// count from before this turn so the current turn becomes the first prompt of
+-	// the new window. Gate on a real advance (not just a TurnEnd / non-zero
+-	// TurnCount) so a repeated or stale hook reporting the same cumulative count
+-	// doesn't re-anchor early — that would make a later back-to-back checkpoint
+-	// report 1 instead of matching the prior count.
+-	if state.SessionTurnCount > prevTurnCount && state.PromptWindowResetPending {
++	// Deferred checkpoint-window reset: the first time a turn is counted after a
++	// checkpoint was written, re-anchor the window base to the turn count from
++	// before this turn so the current turn becomes the first prompt of the new
++	// window. Until then, back-to-back checkpoints keep reporting the same count.
++	if (event.TurnCount > 0 || event.Type == agent.TurnEnd) && state.PromptWindowResetPending {
+ 		state.PromptWindowBase = prevTurnCount
+ 		state.PromptWindowResetPending = false
+ 	}
+diff --git a/cmd/entire/cli/strategy/manual_commit_condensation.go b/cmd/entire/cli/strategy/manual_commit_condensation.go
+index 9e6a6a2dd..2224102ec 100644
+--- a/cmd/entire/cli/strategy/manual_commit_condensation.go
++++ b/cmd/entire/cli/strategy/manual_commit_condensation.go
+@@ -105,9 +105,8 @@ var redactSessionJSONLBytes = redact.JSONLBytes
+ // checkpoint being written: the turns counted since the current window's base.
+ // The base is re-anchored (deferred) the next time a turn is counted after a
+ // checkpoint write, so back-to-back checkpoints with no prompt between them share
+-// a count. Floored at 1 so we never record 0 (covers a fast-path checkpoint
+-// before any turn, and exec-mode gaps where turns weren't counted). Attach has
+-// its own count (see attachStepCount); it does not go through this path.
++// a count. Floored at 1 so we never record 0 (covers attach, a fast-path
++// checkpoint before any turn, and exec-mode gaps where turns weren't counted).
+ func checkpointStepCount(s *SessionState) int {
+ 	if w := s.SessionTurnCount - s.PromptWindowBase; w >= 1 {
+ 		return w

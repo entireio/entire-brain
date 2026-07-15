@@ -1,0 +1,43 @@
+{
+  "id": "entire-db-scale-706f78e8f",
+  "repo": "entire-db",
+  "repo_path": "/Users/thomi/Projects/entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "A repo credential scoped to write a given repository is rejected when the same credential is used to resolve or read that repository, forcing clients to mint a second, separately-scoped credential just to read before they write. This turns a single write workflow into two credential round-trips. Make a write-capable credential also satisfy read operations on the same repository, while a read-only credential still cannot write. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-db-scale-706f78e8f.patch"
+  ],
+  "validation": [
+    "go test ./server/githttp -run 'TestHandleBundleByIDAcceptsPushToken'",
+    "go test ./server/repoapi -run 'TestHandleBundleByIDAcceptsPushToken'"
+  ],
+  "expected_files": [
+    "reqctx/reqctx.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "repo token scope authorization action equality gate",
+    "SpiceDB schema pull push permission hierarchy",
+    "scoped JWT repo credential resolve read write",
+    "git operation scope check repo bound token",
+    "why two tokens needed to read then write repo"
+  ],
+  "_mined_from_commit": "706f78e8fea8fed0970a231de94858217ee6e681",
+  "_flavor": "recall-decision",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "reqctx: a push-scoped token also authorizes pull (#1876)",
+  "copy_checkpoint_ref_from_source": true
+}

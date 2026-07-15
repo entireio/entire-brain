@@ -1,0 +1,12 @@
+diff --git a/cmd/entire/cli/agent/cursor/lifecycle.go b/cmd/entire/cli/agent/cursor/lifecycle.go
+index 36760255a..c361b2146 100644
+--- a/cmd/entire/cli/agent/cursor/lifecycle.go
++++ b/cmd/entire/cli/agent/cursor/lifecycle.go
+@@ -132,7 +132,6 @@ func (c *CursorAgent) parseSessionEnd(ctx context.Context, stdin io.Reader) (*ag
+ 		Type:       agent.SessionEnd,
+ 		SessionID:  raw.ConversationID,
+ 		SessionRef: c.resolveTranscriptRef(ctx, raw.ConversationID, raw.TranscriptPath),
+-		Model:      raw.Model,
+ 		DurationMs: intFromJSON(raw.DurationMs),
+ 		Timestamp:  time.Now(),
+ 	}, nil

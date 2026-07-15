@@ -1,0 +1,19 @@
+diff --git a/core/api/token_endpoint.go b/core/api/token_endpoint.go
+index aaa51f3ba..9438d7d95 100644
+--- a/core/api/token_endpoint.go
++++ b/core/api/token_endpoint.go
+@@ -83,13 +83,7 @@ func (c *httpTokenClient) ExchangeCode(ctx context.Context, code, redirectURI, c
+ 	}
+ 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+ 	req.Header.Set("Accept", "application/json")
+-	// RFC 6749 §2.3.1: client_id and client_secret must be
+-	// application/x-www-form-urlencoded before being placed in the Basic
+-	// auth header. http.Request.SetBasicAuth does not encode, and pkg/op's
+-	// ParseAuthenticatedTokenRequest url.QueryUnescapes both values on the
+-	// other side — so a literal '+' or '%xx' in a raw secret round-trips to
+-	// a different value and AuthorizeClientIDSecret fails with invalid_client.
+-	req.SetBasicAuth(neturl.QueryEscape(c.clientID), neturl.QueryEscape(c.secret))
++	req.SetBasicAuth(c.clientID, c.secret)
+ 
+ 	client := &http.Client{Transport: c.rt, Timeout: 10 * time.Second}
+ 	resp, err := client.Do(req)

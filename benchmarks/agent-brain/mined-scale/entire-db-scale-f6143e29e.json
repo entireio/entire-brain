@@ -1,0 +1,42 @@
+{
+  "id": "entire-db-scale-f6143e29e",
+  "repo": "entire-db",
+  "repo_path": "/Users/thomi/Projects/entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "Under fault-injection testing, killing the database while a query is in flight makes some RPCs return an Internal error instead of a retryable/transient one. This breaks the property that concurrent operations only ever surface non-leak terminal outcomes. Classify these connection-death failures so callers retry and SLOs do not count them as program bugs. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-db-scale-f6143e29e.patch"
+  ],
+  "validation": [
+    "go test ./server/connecterr -run 'TestRespondInternalOrTransient_Internal|TestRespondInternalOrTransient_MidFlightNetwork'"
+  ],
+  "expected_files": [
+    "server/connecterr/connecterr.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "error classification transient versus internal",
+    "database connection killed mid query surfacing",
+    "pgx SafeToRetry gate and unclassified errors",
+    "antithesis non-leak terminal property failures",
+    "raw socket errors reaching the classifier"
+  ],
+  "_mined_from_commit": "f6143e29e7c64f5b83c47c19a3572c5e338823e5",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "connecterr: classify mid-flight TCP failures as Unavailable",
+  "copy_checkpoint_ref_from_source": true
+}

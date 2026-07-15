@@ -1,0 +1,34 @@
+diff --git a/cmd/entire/cli/agent/copilotcli/copilotcli.go b/cmd/entire/cli/agent/copilotcli/copilotcli.go
+index 018d20bee..44d0d4f48 100644
+--- a/cmd/entire/cli/agent/copilotcli/copilotcli.go
++++ b/cmd/entire/cli/agent/copilotcli/copilotcli.go
+@@ -11,6 +11,7 @@ import (
+ 
+ 	"github.com/entireio/cli/cmd/entire/cli/agent"
+ 	"github.com/entireio/cli/cmd/entire/cli/agent/types"
++	"github.com/entireio/cli/cmd/entire/cli/paths"
+ )
+ 
+ //nolint:gochecknoinits // Agent self-registration is the intended pattern
+@@ -46,10 +47,18 @@ func (c *CopilotCLIAgent) Description() string {
+ // IsPreview returns true because this is a new integration.
+ func (c *CopilotCLIAgent) IsPreview() bool { return true }
+ 
+-// DetectPresence checks if Entire hooks are installed in the Copilot CLI config.
+-// Delegates to AreHooksInstalled which checks .github/hooks/entire.json for Entire hook entries.
++// DetectPresence checks if Copilot CLI hooks are configured in the repository.
+ func (c *CopilotCLIAgent) DetectPresence(ctx context.Context) (bool, error) {
+-	return c.AreHooksInstalled(ctx), nil
++	worktreeRoot, err := paths.WorktreeRoot(ctx)
++	if err != nil {
++		worktreeRoot = "."
++	}
++
++	hooksDir := filepath.Join(worktreeRoot, ".github", "hooks")
++	if _, err := os.Stat(hooksDir); err == nil {
++		return true, nil
++	}
++	return false, nil
+ }
+ 
+ // GetSessionID extracts the session ID from hook input.

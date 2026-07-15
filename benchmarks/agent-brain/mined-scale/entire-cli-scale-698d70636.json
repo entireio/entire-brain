@@ -1,0 +1,42 @@
+{
+  "id": "entire-cli-scale-698d70636",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "Files that Gemini CLI edits are not showing up in the set of modified files for a session. Some of its file-editing operations are recognized while others are silently ignored, so those edits go untracked. Find why certain Gemini edits are missed and make them count. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-cli-scale-698d70636.patch"
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/agent/geminicli -run 'TestExtractModifiedFiles_ReplaceTool'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/agent/geminicli/types.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "gemini modified files extraction",
+    "gemini cli file modification tools",
+    "gemini transcript tool call names",
+    "file editing tools recognized gemini",
+    "extract modified files tool name list"
+  ],
+  "_mined_from_commit": "698d706369a9bcd2d297a3a04dcd26c010350ef7",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "add replace as type for gemini",
+  "copy_checkpoint_ref_from_source": true
+}

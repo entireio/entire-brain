@@ -1,0 +1,30 @@
+diff --git a/core/coreapi/orgs.go b/core/coreapi/orgs.go
+index 2963a5ae3..a75d63ee7 100644
+--- a/core/coreapi/orgs.go
++++ b/core/coreapi/orgs.go
+@@ -88,12 +88,6 @@ func (s *OrgService) AddOrgMember(ctx context.Context, in *corev1.AddOrgMemberIn
+ 		slogutil.Error(ctx, "GetOrg failed", slog.Any("error", err))
+ 		return nil, internalErr()
+ 	}
+-	if allowed, err := s.Server.CheckOrgManage(ctx, claims, orgID); err != nil {
+-		slogutil.Error(ctx, "CheckOrgManage failed", slog.Any("error", err))
+-		return nil, internalErr()
+-	} else if !allowed {
+-		return nil, forbidden("permission denied")
+-	}
+ 	if ok, reason, err := s.Server.CheckOrgSSO(ctx, claims, orgID); err != nil {
+ 		slogutil.Error(ctx, "CheckOrgSSO failed", slog.Any("error", err))
+ 		return nil, internalErr()
+@@ -143,12 +137,6 @@ func (s *OrgService) RemoveOrgMember(ctx context.Context, in *corev1.RemoveOrgMe
+ 		slogutil.Error(ctx, "GetOrg failed", slog.Any("error", err))
+ 		return nil, internalErr()
+ 	}
+-	if allowed, err := s.Server.CheckOrgManage(ctx, claims, orgID); err != nil {
+-		slogutil.Error(ctx, "CheckOrgManage failed", slog.Any("error", err))
+-		return nil, internalErr()
+-	} else if !allowed {
+-		return nil, forbidden("permission denied")
+-	}
+ 	if ok, reason, err := s.Server.CheckOrgSSO(ctx, claims, orgID); err != nil {
+ 		slogutil.Error(ctx, "CheckOrgSSO failed", slog.Any("error", err))
+ 		return nil, internalErr()

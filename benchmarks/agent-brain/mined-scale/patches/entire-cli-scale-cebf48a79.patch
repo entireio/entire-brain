@@ -1,0 +1,38 @@
+diff --git a/cmd/entire/cli/api/client.go b/cmd/entire/cli/api/client.go
+index 453207b36..50e39efe0 100644
+--- a/cmd/entire/cli/api/client.go
++++ b/cmd/entire/cli/api/client.go
+@@ -66,24 +66,23 @@ func NewClientWithBaseURL(token, baseURL string) *Client {
+ }
+ 
+ // bearerTransport is an http.RoundTripper that injects the Authorization header.
+-//
+-// When token is empty, the Authorization header is omitted (rather than sent
+-// as a malformed "Authorization: Bearer "). This supports endpoints like
+-// recap that deliberately want the unauthenticated request to reach the
+-// server so it can return a typed 401 — callers that want a local fast-fail
+-// for missing auth should check ErrNotLoggedIn at construction time, not
+-// rely on the transport.
+ type bearerTransport struct {
+ 	token string
+ 	base  http.RoundTripper
+ }
+ 
++// errEmptyBearerToken surfaces at first request rather than at construction
++// because NewClient* don't return errors. An empty bearer otherwise becomes
++// "Authorization: Bearer " on the wire and produces a confusing 401.
++var errEmptyBearerToken = errors.New("api: refusing to send request with empty bearer token (construct via NewAuthenticatedAPIClient)")
++
+ func (t *bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
++	if t.token == "" {
++		return nil, errEmptyBearerToken
++	}
+ 	// Clone the request to avoid mutating the caller's request.
+ 	r := req.Clone(req.Context())
+-	if t.token != "" {
+-		r.Header.Set("Authorization", "Bearer "+t.token)
+-	}
++	r.Header.Set("Authorization", "Bearer "+t.token)
+ 	r.Header.Set("User-Agent", userAgent)
+ 	if r.Header.Get("Accept") == "" {
+ 		r.Header.Set("Accept", "application/json")

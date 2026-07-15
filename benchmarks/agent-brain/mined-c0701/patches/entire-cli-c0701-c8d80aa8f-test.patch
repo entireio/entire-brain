@@ -1,0 +1,31 @@
+diff --git a/cmd/entire/cli/cell_fanout_test.go b/cmd/entire/cli/cell_fanout_test.go
+index f01ec503f..6ae8458cb 100644
+--- a/cmd/entire/cli/cell_fanout_test.go
++++ b/cmd/entire/cli/cell_fanout_test.go
+@@ -186,6 +186,26 @@ func TestResolveCellBaseURLs_JurisdictionFallbackForPlacements(t *testing.T) {
+ 	}
+ }
+ 
++// TestResolveCellBaseURLs_JurisdictionFallbackPrefersDefault verifies that
++// when multiple clusters exist in a jurisdiction, the fallback picks the one
++// with IsDefault=true — matching the auth layer's resolution.
++func TestResolveCellBaseURLs_JurisdictionFallbackPrefersDefault(t *testing.T) {
++	t.Parallel()
++	cells := []cellGroup{
++		{cell: "aws-eu-central-1", clusterSlug: "", jurisdiction: "eu"},
++	}
++	fake := &fakeCellCore{clusters: []coreapi.Cluster{
++		// Non-default listed first — must not win.
++		{Slug: "eu-staging", Jurisdiction: "eu", ApiUrl: coreapi.NewOptString("https://eu-staging.api.entire.io")},
++		// Default cluster — should be preferred.
++		{Slug: "eu-prod", Jurisdiction: "eu", IsDefault: true, ApiUrl: coreapi.NewOptString("https://aws-eu-central-1.api.entire.io")},
++	}}
++	resolveCellBaseURLs(context.Background(), fake, cells)
++	if cells[0].baseURL != "https://aws-eu-central-1.api.entire.io" {
++		t.Fatalf("eu baseURL = %q, want default cluster's URL", cells[0].baseURL)
++	}
++}
++
+ func TestResolveCellBaseURLs_CatalogErrorLeavesJurisdictionRouting(t *testing.T) {
+ 	t.Parallel()
+ 	cells := []cellGroup{{cell: euWestCell, clusterSlug: "eu-prod", jurisdiction: "eu"}}

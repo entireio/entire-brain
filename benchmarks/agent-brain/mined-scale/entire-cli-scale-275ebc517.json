@@ -1,0 +1,42 @@
+{
+  "id": "entire-cli-scale-275ebc517",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "Running the configure command with a settings flag in a repository where Entire hasn't been set up yet prints a confusing low-level 'failed to load settings' error instead of guiding the user. Make it fail early with a clear, actionable message. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-cli-scale-275ebc517.patch"
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli -run 'TestConfigureCmd_FreshRepo_PointsAtEnable'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/setup.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "configure command fresh repo error",
+    "entire not configured hint enable",
+    "load settings failure configure flags",
+    "configure un-enabled repository behavior",
+    "IsSetUp check configure command"
+  ],
+  "_mined_from_commit": "275ebc5177257856bb2e12fc28938e3fb8ac2ab2",
+  "_flavor": "recall-decision",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "low",
+  "_subject": "Reject configure flags on fresh repo with entire enable hint",
+  "copy_checkpoint_ref_from_source": true
+}

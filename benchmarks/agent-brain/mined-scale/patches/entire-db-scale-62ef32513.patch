@@ -1,0 +1,28 @@
+diff --git a/server/connecterr/connecterr.go b/server/connecterr/connecterr.go
+index 7795674ce..7cefb1128 100644
+--- a/server/connecterr/connecterr.go
++++ b/server/connecterr/connecterr.go
+@@ -29,11 +29,8 @@ import (
+ // *status.Status wrapped with fmt.Errorf, connect-internal calls
+ // return *connect.Error, and postgres / local I/O can surface
+ // context.Canceled / DeadlineExceeded directly before any RPC layer
+-// wraps it. *objstore.QuorumError and objstore.ErrCommitDataNotFound
+-// are both treated as Unavailable: the first signals "no provider
+-// reachable right now," the second signals "every provider has the
+-// commit's ref but not its objects yet" — both are replication-lag
+-// shapes that retries should ride out, not Internal-rate alerts. pgx
++// wraps it. *objstore.QuorumError is treated as Unavailable so
++// retries and SLOs treat replication gaps as transient. pgx
+ // connection-died errors (caught via pgconn.SafeToRetry, e.g. the
+ // "conn closed" connLockError raised when a pooled connection dies
+ // mid-acquire-advisory-lock) are also Unavailable — these are
+@@ -49,9 +46,6 @@ func ClassifyTransient(err error) (connect.Code, bool) {
+ 	if errors.As(err, &qErr) {
+ 		return connect.CodeUnavailable, true
+ 	}
+-	if errors.Is(err, objstore.ErrCommitDataNotFound) {
+-		return connect.CodeUnavailable, true
+-	}
+ 	switch c := connect.CodeOf(err); c { //nolint: exhaustive // treat other codes as non-transient
+ 	case connect.CodeUnavailable, connect.CodeCanceled, connect.CodeDeadlineExceeded:
+ 		return c, true

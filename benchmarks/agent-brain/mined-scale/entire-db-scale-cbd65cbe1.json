@@ -1,0 +1,42 @@
+{
+  "id": "entire-db-scale-cbd65cbe1",
+  "repo": "entire-db",
+  "repo_path": "/Users/thomi/Projects/entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "When a user whose home region differs from the region handling their OAuth callback signs in, they get bounced over to their home region's login flow instead of being signed in on the region that handled the callback. They should be able to complete login locally on the handling region, and that region must not persist the user's private profile or provider tokens. Make sign-in complete locally. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-db-scale-cbd65cbe1.patch"
+  ],
+  "validation": [
+    "go test ./core/api -run 'TestRegionalCallback_ForeignHomeUserAuditOnly|TestRegionalCallback_ForeignHomeUserLogsInLocally'"
+  ],
+  "expected_files": [
+    "core/api/server.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "foreign home jurisdiction login bridge",
+    "cross-region OAuth callback authorize redirect",
+    "regional callback foreign jurisdiction PII isolation",
+    "drop foreign home oauth bridge decision",
+    "home region redirect vs local login callback"
+  ],
+  "_mined_from_commit": "cbd65cbe19b8af69296c1fa45ea6260e3187eeda",
+  "_flavor": "recall-decision",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "COR-288: Drop foreign-home OAuth bridge (#1629)",
+  "copy_checkpoint_ref_from_source": true
+}

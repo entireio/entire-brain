@@ -1,0 +1,60 @@
+diff --git a/cmd/entire/cli/strategy/content_overlap.go b/cmd/entire/cli/strategy/content_overlap.go
+index 30168f571..a52cbb136 100644
+--- a/cmd/entire/cli/strategy/content_overlap.go
++++ b/cmd/entire/cli/strategy/content_overlap.go
+@@ -494,18 +494,13 @@ func hasSignificantContentOverlap(stagedContent, shadowContent string) bool {
+ 	return false
+ }
+ 
+-// extractSignificantLines returns a set of significant lines from content.
+-// Lines are trimmed and must be at least 10 characters.
+-//
+-// This simple length-based filter works well because:
+-// - Most structural boilerplate is short: `{`, `}`, `});`, `} else {` (all < 10 chars)
+-// - Long lines (>= 10 chars) are usually meaningful regardless of language
+-// - No language-specific pattern matching needed
++// extractSignificantLines returns a set of significant (non-trivial) lines from content.
++// Lines are trimmed and must be at least 10 characters and not boilerplate.
+ func extractSignificantLines(content string) map[string]bool {
+ 	lines := make(map[string]bool)
+ 	for _, line := range splitLines([]byte(content)) {
+ 		trimmed := trimLine(line)
+-		if len(trimmed) >= 10 {
++		if len(trimmed) >= 10 && !isTrivialLine(trimmed) {
+ 			lines[trimmed] = true
+ 		}
+ 	}
+@@ -524,3 +519,33 @@ func trimLine(line string) string {
+ 	}
+ 	return line[start:end]
+ }
++
++// isTrivialLine returns true for lines that are common boilerplate.
++func isTrivialLine(line string) bool {
++	// Exact matches for very common single tokens
++	switch line {
++	case ")", "{", "}", "(", "};", ");", "],", "});", "]":
++		return true
++	}
++
++	// Prefix matches for common patterns
++	trivialPrefixes := []string{
++		"package ",
++		"import ",
++		"import(",
++		"func ",
++		"return ",
++		"return;",
++		"//", // Comments might be significant, but single-line are usually not
++		"/*", // Start of block comment
++		"* ", // Middle of block comment
++		"*/", // End of block comment
++	}
++	for _, prefix := range trivialPrefixes {
++		if len(line) >= len(prefix) && line[:len(prefix)] == prefix {
++			return true
++		}
++	}
++
++	return false
++}

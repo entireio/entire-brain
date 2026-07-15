@@ -1,0 +1,13 @@
+diff --git a/cmd/entire/cli/setup.go b/cmd/entire/cli/setup.go
+index b98f167d9..2713ec5cd 100644
+--- a/cmd/entire/cli/setup.go
++++ b/cmd/entire/cli/setup.go
+@@ -1468,7 +1468,7 @@ func setupAgentHooksNonInteractive(ctx context.Context, w io.Writer, ag agent.Ag
+ 	}
+ 
+ 	targetFile, configDisplay := settingsTargetFile(ctx, opts.UseLocalSettings, opts.UseProjectSettings)
+-	if err := saveEnabledState(ctx, settings, targetFile == EntireSettingsFile); err != nil {
++	if err := saveSettingsToTarget(ctx, settings, targetFile); err != nil {
+ 		return fmt.Errorf("failed to save settings: %w", err)
+ 	}
+ 

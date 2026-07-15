@@ -1,0 +1,14 @@
+diff --git a/cmd/entire/cli/agent/claudecode/error.go b/cmd/entire/cli/agent/claudecode/error.go
+index 612e9fb48..cb69d7fc4 100644
+--- a/cmd/entire/cli/agent/claudecode/error.go
++++ b/cmd/entire/cli/agent/claudecode/error.go
+@@ -38,9 +38,6 @@ type ClaudeError struct {
+ 
+ func (e *ClaudeError) Error() string {
+ 	if e.Message == "" {
+-		if e.ExitCode != 0 {
+-			return fmt.Sprintf("claude CLI error (kind=%s, exit=%d)", e.Kind, e.ExitCode)
+-		}
+ 		return fmt.Sprintf("claude CLI error (kind=%s)", e.Kind)
+ 	}
+ 	return fmt.Sprintf("claude CLI error (kind=%s): %s", e.Kind, e.Message)

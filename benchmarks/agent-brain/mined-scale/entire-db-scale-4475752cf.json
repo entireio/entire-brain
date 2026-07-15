@@ -1,0 +1,42 @@
+{
+  "id": "entire-db-scale-4475752cf",
+  "repo": "entire-db",
+  "repo_path": "/Users/thomi/Projects/entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "An OIDC relying party cannot map an authenticated identity back to its provider-side user record, because the standard identity endpoints omit the provider's user id even though the access token already carries it. The two token-inspection endpoints also disagree on which identity fields they expose, so a caller that inspects a token then fetches identity sees inconsistent data. Surface the provider user id consistently across both endpoints. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-db-scale-4475752cf.patch"
+  ],
+  "validation": [
+    "go test ./core/authn/oidcop -run 'TestIntrospection_SurfacesIdentityClaims'"
+  ],
+  "expected_files": [
+    "core/authn/oidcop/storage.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "userinfo endpoint provider user id claim missing",
+    "introspection and userinfo claim parity contract",
+    "relying party map oidc identity to provider user row",
+    "access token private claims provider identity",
+    "oidc storage surface handle provider identity claims"
+  ],
+  "_mined_from_commit": "4475752cf8904c04716f08c4bdcc95448657325d",
+  "_flavor": "recall-decision",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "low",
+  "_subject": "COR-259 oidcop: surface provider_user_id on /userinfo (#1525)",
+  "copy_checkpoint_ref_from_source": true
+}

@@ -1,0 +1,160 @@
+diff --git a/cmd/entire/cli/review/manifest_test.go b/cmd/entire/cli/review/manifest_test.go
+index 1d02cb18f..26b5ef220 100644
+--- a/cmd/entire/cli/review/manifest_test.go
++++ b/cmd/entire/cli/review/manifest_test.go
+@@ -21,6 +21,8 @@ import (
+ const manifestTestCodexAgent = "codex"
+ const manifestTokenTestAgentName agenttypes.AgentName = "review-token-test"
+ const manifestTokenTestAgentType agenttypes.AgentType = "Review Token Test"
++const manifestFindingsFlag = "--findings"
++const manifestTestFinding = "finding"
+ 
+ func TestHydrateReviewSummaryTokensFromStates_PopulatesTokensFromSessionState(t *testing.T) {
+ 	t.Parallel()
+@@ -160,7 +162,7 @@ func TestWriteReviewCompletionFooter_PointsToFindings(t *testing.T) {
+ 	writeReviewCompletionFooter(&b, manifest)
+ 
+ 	got := b.String()
+-	for _, want := range []string{"Review complete.", "entire review --findings claude-session"} {
++	for _, want := range []string{"Review complete.", "entire review --findings 'claude-session'"} {
+ 		if !strings.Contains(got, want) {
+ 			t.Fatalf("footer missing %q:\n%s", want, got)
+ 		}
+@@ -170,6 +172,29 @@ func TestWriteReviewCompletionFooter_PointsToFindings(t *testing.T) {
+ 	}
+ }
+ 
++func TestReviewFindingCommandsQuoteShellHandles(t *testing.T) {
++	manifest := LocalReviewManifest{
++		Sources: []ManifestSource{{
++			SessionID: "sid; echo pwned",
++			Label:     "Claude Code",
++			Output:    manifestTestFinding,
++		}},
++	}
++	var list strings.Builder
++	var footer strings.Builder
++
++	printReviewFindingsList(&list, []LocalReviewManifest{manifest})
++	writeReviewCompletionFooter(&footer, manifest)
++
++	want := "entire review --findings 'sid; echo pwned'"
++	if !strings.Contains(list.String(), "view: "+want) {
++		t.Fatalf("list output missing quoted view command:\n%s", list.String())
++	}
++	if !strings.Contains(footer.String(), want) {
++		t.Fatalf("footer output missing quoted view command:\n%s", footer.String())
++	}
++}
++
+ func TestPrintReviewFindingsList_ListsSessionsWithoutLocalPath(t *testing.T) {
+ 	oldArgs := os.Args
+ 	t.Cleanup(func() { os.Args = oldArgs })
+@@ -200,14 +225,49 @@ func TestPrintReviewFindingsList_ListsSessionsWithoutLocalPath(t *testing.T) {
+ 	if !strings.Contains(got, "claude-session") {
+ 		t.Fatalf("findings list missing session handle:\n%s", got)
+ 	}
+-	if !strings.Contains(got, "view: entire review --findings claude-session") {
++	if !strings.Contains(got, "view: entire review --findings 'claude-session'") {
+ 		t.Fatalf("findings list missing view command:\n%s", got)
+ 	}
+-	if !strings.Contains(got, "view: entire review --findings 20260508T110000") {
++	if !strings.Contains(got, "view: entire review --findings '20260508T110000'") {
+ 		t.Fatalf("findings list missing timestamp fallback handle:\n%s", got)
+ 	}
+ }
+ 
++func TestReviewFindingsCommand_ProfileFlagListsFindings(t *testing.T) {
++	tmp := t.TempDir()
++	testutil.InitRepo(t, tmp)
++	testutil.WriteFile(t, tmp, "f.txt", "init")
++	testutil.GitAdd(t, tmp, "f.txt")
++	testutil.GitCommit(t, tmp, "init")
++	t.Chdir(tmp)
++
++	if err := writeLocalReviewManifest(context.Background(), LocalReviewManifest{
++		CreatedAt: time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC),
++		Sources: []ManifestSource{{
++			SessionID: "claude-session",
++			Label:     "Claude Code",
++			Output:    manifestTestFinding,
++		}},
++	}); err != nil {
++		t.Fatalf("writeLocalReviewManifest: %v", err)
++	}
++
++	cmd := NewCommand(Deps{})
++	var out strings.Builder
++	cmd.SetOut(&out)
++	cmd.SetArgs([]string{manifestFindingsFlag, "--profile", "general"})
++
++	if err := cmd.Execute(); err != nil {
++		t.Fatalf("execute review --findings --profile: %v", err)
++	}
++	got := out.String()
++	for _, want := range []string{"Review Findings", "view: entire review --findings 'claude-session'"} {
++		if !strings.Contains(got, want) {
++			t.Fatalf("findings list missing %q:\n%s", want, got)
++		}
++	}
++}
++
+ func TestReviewFindingsCommand_WithHandlePrintsFullDetail(t *testing.T) {
+ 	tmp := t.TempDir()
+ 	testutil.InitRepo(t, tmp)
+@@ -231,7 +291,7 @@ func TestReviewFindingsCommand_WithHandlePrintsFullDetail(t *testing.T) {
+ 	cmd := NewCommand(Deps{})
+ 	var out strings.Builder
+ 	cmd.SetOut(&out)
+-	cmd.SetArgs([]string{"--findings", "claude-session"})
++	cmd.SetArgs([]string{manifestFindingsFlag, "claude-session"})
+ 
+ 	if err := cmd.Execute(); err != nil {
+ 		t.Fatalf("execute review --findings handle: %v", err)
+@@ -248,6 +308,28 @@ func TestReviewFindingsCommand_WithHandlePrintsFullDetail(t *testing.T) {
+ 	}
+ }
+ 
++func TestReviewFindingsCommand_HandleWithNoManifestsFails(t *testing.T) {
++	tmp := t.TempDir()
++	testutil.InitRepo(t, tmp)
++	testutil.WriteFile(t, tmp, "f.txt", "init")
++	testutil.GitAdd(t, tmp, "f.txt")
++	testutil.GitCommit(t, tmp, "init")
++	t.Chdir(tmp)
++
++	cmd := NewCommand(Deps{})
++	var errOut strings.Builder
++	cmd.SetErr(&errOut)
++	cmd.SetArgs([]string{manifestFindingsFlag, "missing-session"})
++
++	if err := cmd.Execute(); err == nil {
++		t.Fatal("expected unknown findings handle to fail")
++	}
++	got := errOut.String()
++	if !strings.Contains(got, `no local review findings match "missing-session"`) {
++		t.Fatalf("no-manifest handle error mismatch:\n%s", got)
++	}
++}
++
+ func TestReviewFindingsCommand_UnknownHandleListsValidHandles(t *testing.T) {
+ 	tmp := t.TempDir()
+ 	testutil.InitRepo(t, tmp)
+@@ -261,7 +343,7 @@ func TestReviewFindingsCommand_UnknownHandleListsValidHandles(t *testing.T) {
+ 		Sources: []ManifestSource{{
+ 			SessionID: "claude-session",
+ 			Label:     "Claude Code",
+-			Output:    "finding",
++			Output:    manifestTestFinding,
+ 		}},
+ 	}); err != nil {
+ 		t.Fatalf("writeLocalReviewManifest: %v", err)
+@@ -270,7 +352,7 @@ func TestReviewFindingsCommand_UnknownHandleListsValidHandles(t *testing.T) {
+ 	cmd := NewCommand(Deps{})
+ 	var errOut strings.Builder
+ 	cmd.SetErr(&errOut)
+-	cmd.SetArgs([]string{"--findings", "missing-session"})
++	cmd.SetArgs([]string{manifestFindingsFlag, "missing-session"})
+ 
+ 	if err := cmd.Execute(); err == nil {
+ 		t.Fatal("expected unknown findings handle to fail")

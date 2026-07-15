@@ -1,0 +1,55 @@
+{
+  "id": "entire-cli-c0701-80c7a4efd",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "base_commit": "4a1f5fa174a74af3abde658cc6431d6dc653291b",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "In the checkpoint read-routing layer: a non-final store's error (for example an on-demand ref fetch failing on the network) blocks the fallback to the next store instead of falling through, so a hex read that should resolve from the git-branch store fails; and List can show a checkpoint that is present in both backends twice. Fall through to the next store on a non-final store's error, and dedupe List by checkpoint id.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "validation_files": [
+    {
+      "path": "cmd/entire/cli/checkpoint/routing_store_test.go",
+      "content": "package checkpoint\n\nimport (\n\t\"context\"\n\t\"errors\"\n\t\"testing\"\n\n\t\"github.com/go-git/go-git/v6/plumbing\"\n\t\"github.com/stretchr/testify/assert\"\n\t\"github.com/stretchr/testify/require\"\n\n\t\"github.com/entireio/cli/cmd/entire/cli/checkpoint/id\"\n\t\"github.com/entireio/cli/redact\"\n)\n\nconst routingSampleULID = \"01KVBJCWYA4YW6J5M9GP655HZN\"\n\n// writeRoutingCheckpoint writes a minimal one-session checkpoint to store.\nfunc writeRoutingCheckpoint(t *testing.T, store PersistentStore, cid id.CheckpointID, sessionID string) {\n\tt.Helper()\n\trequire.NoError(t, store.Write(context.Background(), Session{\n\t\tCheckpointID: cid,\n\t\tSessionID:    sessionID,\n\t\tStrategy:     \"manual-commit\",\n\t\tTranscript:   redact.AlreadyRedacted([]byte(\"transcript for \" + sessionID)),\n\t\tAuthorName:   \"Test\",\n\t\tAuthorEmail:  \"test@example.com\",\n\t}))\n}\n\nfunc TestKindRoutingStore_Read(t *testing.T) {\n\tt.Parallel()\n\tctx := context.Background()\n\n\thexID := id.MustCheckpointID(\"a1b2c3d4e5f6\")\n\tulidID := id.MustCheckpointID(routingSampleULID)\n\n\tt.Run(\"git-branch primary: hex on branch, ULID still from refs\", func(t *testing.T) {\n\t\tt.Parallel()\n\t\t_, repo, _ := newTestRepo(t)\n\t\tbranch := NewGitStore(repo, DefaultV1Refs())\n\t\trefs := newGitRefsStore(repo)\n\t\twriteRoutingCheckpoint(t, branch, hexID, \"hex-on-branch\")\n\t\twriteRoutingCheckpoint(t, refs, ulidID, \"ulid-in-refs\")\n\n\t\trouter := newKindRoutingStore(branch, branch, refs, BackendTypeGitBranch)\n\n\t\tgot, err := router.Read(ctx, hexID)\n\t\trequire.NoError(t, err)\n\t\trequire.NotNil(t, got, \"hex checkpoint should resolve from the branch\")\n\n\t\tgot, err = router.Read(ctx, ulidID)\n\t\trequire.NoError(t, err)\n\t\trequire.NotNil(t, got, \"ULID checkpoint should resolve from refs even under a git-branch primary\")\n\t})\n\n\tt.Run(\"git-refs primary: ULID from refs, pre-migration hex from branch fallback\", func(t *testing.T) {\n\t\tt.Parallel()\n\t\t_, repo, _ := newTestRepo(t)\n\t\tbranch := NewGitStore(repo, DefaultV1Refs())\n\t\trefs := newGitRefsStore(repo)\n\t\twriteRoutingCheckpoint(t, branch, hexID, \"hex-on-branch\")\n\t\twriteRoutingCheckpoint(t, refs, ulidID, \"ulid-in-refs\")\n\n\t\trouter := newKindRoutingStore(refs, branch, refs, BackendTypeGitRefs)\n\n\t\tgot, err := router.Read(ctx, ulidID)\n\t\trequire.NoError(t, err)\n\t\trequire.NotNil(t, got)\n\n\t\tgot, err = router.Read(ctx, hexID)\n\t\trequire.NoError(t, err)\n\t\trequire.NotNil(t, got, \"hex checkpoint on the branch should resolve via fallback under a git-refs primary\")\n\t})\n\n\tt.Run(\"git-refs primary: migrated hex in refs resolves from refs first\", func(t *testing.T) {\n\t\tt.Parallel()\n\t\t_, repo, _ := newTestRepo(t)\n\t\tbranch := NewGitStore(repo, DefaultV1Refs())\n\t\trefs := newGitRefsStore(repo)\n\t\tmigratedHex := id.MustCheckpointID(\"ffffffffeeee\")\n\t\twriteRoutingCheckpoint(t, refs, migratedHex, \"hex-migrated-to-refs\")\n\n\t\trouter := newKindRoutingStore(refs, branch, refs, BackendTypeGitRefs)\n\n\t\tgot, err := router.Read(ctx, migratedHex)\n\t\trequire.NoError(t, err)\n\t\trequire.NotNil(t, got, \"a hex checkpoint migrated into refs should resolve under a git-refs primary\")\n\t})\n\n\tt.Run(\"git-refs primary: a refs fetch error falls back to the branch\", func(t *testing.T) {\n\t\tt.Parallel()\n\t\t_, repo, _ := newTestRepo(t)\n\t\tbranch := NewGitStore(repo, DefaultV1Refs())\n\t\trefs := newGitRefsStore(repo)\n\t\t// A missing local ref triggers an on-demand fetch; simulate that fetch\n\t\t// failing (network down) so the refs read returns a hard error rather than\n\t\t// ErrCheckpointNotFound.\n\t\trefs.SetRefFetcher(func(context.Context, plumbing.ReferenceName) error {\n\t\t\treturn errors.New(\"network down\")\n\t\t})\n\t\twriteRoutingCheckpoint(t, branch, hexID, \"hex-on-branch\")\n\n\t\trouter := newKindRoutingStore(refs, branch, refs, BackendTypeGitRefs)\n\n\t\tgot, err := router.Read(ctx, hexID)\n\t\trequire.NoError(t, err, \"a refs fetch error must not block the branch fallback\")\n\t\trequire.NotNil(t, got, \"hex checkpoint on the branch should resolve even when the refs read errors\")\n\t})\n\n\tt.Run(\"a ULID is never read from the branch\", func(t *testing.T) {\n\t\tt.Parallel()\n\t\t_, repo, _ := newTestRepo(t)\n\t\tbranch := NewGitStore(repo, DefaultV1Refs())\n\t\trefs := newGitRefsStore(repo)\n\t\t// Deliberately put a ULID-named checkpoint on the branch (the wrong place)\n\t\t// and nothing in refs; routing must not find it, proving branch is never\n\t\t// consulted for a ULID.\n\t\twriteRoutingCheckpoint(t, branch, ulidID, \"stray-ulid-on-branch\")\n\n\t\trouter := newKindRoutingStore(branch, branch, refs, BackendTypeGitBranch)\n\n\t\tgot, err := router.Read(ctx, ulidID)\n\t\trequire.NoError(t, err)\n\t\tassert.Nil(t, got, \"a ULID must be read only from refs; a stray ULID on the branch must not resolve\")\n\t})\n}\n\nfunc TestKindRoutingStore_SessionReadRoutes(t *testing.T) {\n\tt.Parallel()\n\tctx := context.Background()\n\t_, repo, _ := newTestRepo(t)\n\tbranch := NewGitStore(repo, DefaultV1Refs())\n\trefs := newGitRefsStore(repo)\n\n\tulidID := id.MustCheckpointID(routingSampleULID)\n\twriteRoutingCheckpoint(t, refs, ulidID, \"ulid-in-refs\")\n\n\trouter := newKindRoutingStore(branch, branch, refs, BackendTypeGitBranch)\n\n\tmeta, err := router.ReadSessionMetadata(ctx, ulidID, 0)\n\trequire.NoError(t, err)\n\trequire.NotNil(t, meta, \"session metadata for a ULID checkpoint should route to refs\")\n\tassert.Equal(t, \"ulid-in-refs\", meta.SessionID)\n}\n\nfunc TestKindRoutingStore_ListUnionsBothBackends(t *testing.T) {\n\tt.Parallel()\n\tctx := context.Background()\n\t_, repo, _ := newTestRepo(t)\n\tbranch := NewGitStore(repo, DefaultV1Refs())\n\trefs := newGitRefsStore(repo)\n\n\thexID := id.MustCheckpointID(\"a1b2c3d4e5f6\")\n\tulidID := id.MustCheckpointID(routingSampleULID)\n\twriteRoutingCheckpoint(t, branch, hexID, \"hex\")\n\twriteRoutingCheckpoint(t, refs, ulidID, \"ulid\")\n\n\trouter := newKindRoutingStore(branch, branch, refs, BackendTypeGitBranch)\n\n\tinfos, err := router.List(ctx)\n\trequire.NoError(t, err)\n\tseen := make(map[string]bool, len(infos))\n\tfor _, info := range infos {\n\t\tseen[info.CheckpointID.String()] = true\n\t}\n\tassert.True(t, seen[hexID.String()], \"list should include the hex checkpoint from the branch\")\n\tassert.True(t, seen[ulidID.String()], \"list should include the ULID checkpoint from refs\")\n}\n\nfunc TestKindRoutingStore_ListDedupesAcrossBackends(t *testing.T) {\n\tt.Parallel()\n\tctx := context.Background()\n\t_, repo, _ := newTestRepo(t)\n\tbranch := NewGitStore(repo, DefaultV1Refs())\n\trefs := newGitRefsStore(repo)\n\n\t// The same checkpoint present in BOTH backends (as happens for a mirrored\n\t// checkpoint or a migrated one) must appear only once in the merged list.\n\tdupID := id.MustCheckpointID(\"a1b2c3d4e5f6\")\n\twriteRoutingCheckpoint(t, branch, dupID, \"on-branch\")\n\twriteRoutingCheckpoint(t, refs, dupID, \"in-refs\")\n\n\trouter := newKindRoutingStore(branch, branch, refs, BackendTypeGitRefs)\n\n\tinfos, err := router.List(ctx)\n\trequire.NoError(t, err)\n\tcount := 0\n\tfor _, info := range infos {\n\t\tif info.CheckpointID == dupID {\n\t\t\tcount++\n\t\t}\n\t}\n\tassert.Equal(t, 1, count, \"a checkpoint present in both backends should appear once\")\n}\n\nfunc TestKindRoutingStore_GetCheckpointAuthorRoutes(t *testing.T) {\n\tt.Parallel()\n\tctx := context.Background()\n\t_, repo, _ := newTestRepo(t)\n\tbranch := NewGitStore(repo, DefaultV1Refs())\n\trefs := newGitRefsStore(repo)\n\n\tulidID := id.MustCheckpointID(routingSampleULID)\n\twriteRoutingCheckpoint(t, refs, ulidID, \"ulid-in-refs\")\n\n\trouter := newKindRoutingStore(branch, branch, refs, BackendTypeGitBranch)\n\tauthor, ok := router.(AuthorReader)\n\trequire.True(t, ok, \"routing store over git backends should expose AuthorReader\")\n\n\tgot, err := author.GetCheckpointAuthor(ctx, ulidID)\n\trequire.NoError(t, err)\n\tassert.Equal(t, \"Test\", got.Name, \"author of a ULID checkpoint should route to refs\")\n}\n"
+    }
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/checkpoint -run '^(TestKindRoutingStore_ListDedupesAcrossBackends)$'"
+  ],
+  "leak_markers": [
+    "TestKindRoutingStore_ListDedupesAcrossBackends"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/checkpoint/persistent.go",
+    "cmd/entire/cli/checkpoint/refs_store.go",
+    "cmd/entire/cli/checkpoint/routing_store.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "a fetch error blocks the fallback to the next checkpoint store",
+    "read routing should fall through on a non-final store error",
+    "List shows a checkpoint present in both backends twice",
+    "de-duplicating checkpoint List by id across backends"
+  ],
+  "prepare_semantic": false,
+  "_mined_from_commit": "80c7a4efd26161f84910ba3ec008ff20c9dcc249",
+  "_flavor": "recall-decision",
+  "_subject": "/simplify + review: fix fallback-on-error, dedup List, share sort helper",
+  "_negctl": "red_at_parent_base",
+  "_apply_mode": "test_only_forward",
+  "_split": "holdout",
+  "memory_delivery": "frozen_brief",
+  "rolling_cutoff_rfc3339": "2026-07-04T18:16:52+02:00",
+  "exclude_session_ids": [
+    "6852b33a-0d22-4364-aa6c-8de706ecc215"
+  ],
+  "frozen_session_dates_path": "/Users/thomi/.entire-brain-eval/quarantine-full-20260714T204719Z/session_dates.json",
+  "_rolling_cutoff_confidence": "high (entire checkpoint explain resolved fix session directly)"
+}

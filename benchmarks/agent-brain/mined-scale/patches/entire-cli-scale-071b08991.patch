@@ -1,0 +1,22 @@
+diff --git a/cmd/entire/cli/agent/claudecode/response.go b/cmd/entire/cli/agent/claudecode/response.go
+index 100f7091a..5dd58b9d9 100644
+--- a/cmd/entire/cli/agent/claudecode/response.go
++++ b/cmd/entire/cli/agent/claudecode/response.go
+@@ -19,15 +19,8 @@ type responseEnvelope struct {
+ // The returned envelope allows callers to check IsError and APIErrorStatus.
+ func parseGenerateTextResponse(stdout []byte) (string, *responseEnvelope, error) {
+ 	var response responseEnvelope
+-	if err := json.Unmarshal(stdout, &response); err == nil {
+-		if response.Result != nil {
+-			return *response.Result, &response, nil
+-		}
+-		// is_error:true with null result is a structured CLI failure; callers
+-		// need the envelope (IsError, APIErrorStatus) for classification.
+-		if response.IsError {
+-			return "", &response, nil
+-		}
++	if err := json.Unmarshal(stdout, &response); err == nil && response.Result != nil {
++		return *response.Result, &response, nil
+ 	}
+ 
+ 	var responses []responseEnvelope

@@ -1,0 +1,45 @@
+{
+  "id": "entire-cli-scale-a01a78194",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "Extend the recap summary view with clearer scope and range controls: show the time window, list scoped repo names, surface unavailable-transcript counts, and add direct range-selection keys. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-cli-scale-a01a78194.patch"
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli -run 'TestRecapTUIModel_LoadErrorShowsUppercaseRetryKey|TestRecapTUIModel_SameRangeKeyRetriesAfterError|TestRecapTUIModel_UppercaseRRefreshes|TestRecapTUIModel_UsesDirectRangeKeys|TestRenderStaticRecap_ListsMultipleRepoNames|TestRenderStaticRecap_ShowsUnavailableTranscriptNote|TestRenderStaticRecap_TranscriptNoteHandlesNilTeamInViewTeam|TestRenderStaticRecap_TranscriptNoteOmittedWhenAllZero|TestRenderStaticRecap_TranscriptNoteSingularLabel|TestRenderStaticRecap_TranscriptNoteSumsMeAndTeamInViewBoth|TestRenderStaticRecap_WindowSkippedForInvalidTimestamps|TestRenderStaticRecap_WrapsContextLineWithLongRepoNames|TestRenderStaticRecap_WrapsUnavailableTranscriptNote'",
+    "go test ./cmd/entire/cli/recap -run 'TestRecapTUIModel_LoadErrorShowsUppercaseRetryKey|TestRecapTUIModel_SameRangeKeyRetriesAfterError|TestRecapTUIModel_UppercaseRRefreshes|TestRecapTUIModel_UsesDirectRangeKeys|TestRenderStaticRecap_ListsMultipleRepoNames|TestRenderStaticRecap_ShowsUnavailableTranscriptNote|TestRenderStaticRecap_TranscriptNoteHandlesNilTeamInViewTeam|TestRenderStaticRecap_TranscriptNoteOmittedWhenAllZero|TestRenderStaticRecap_TranscriptNoteSingularLabel|TestRenderStaticRecap_TranscriptNoteSumsMeAndTeamInViewBoth|TestRenderStaticRecap_WindowSkippedForInvalidTimestamps|TestRenderStaticRecap_WrapsContextLineWithLongRepoNames|TestRenderStaticRecap_WrapsUnavailableTranscriptNote'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/recap/me_recap.go",
+    "cmd/entire/cli/recap/render_static.go",
+    "cmd/entire/cli/recap_tui.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "recap summary rendering scope and range",
+    "recap TUI range selection keys",
+    "recap transcript availability note",
+    "recap repo names ordering overflow",
+    "recap window rendering since until"
+  ],
+  "_mined_from_commit": "a01a781940fe9f045c30a5d6579219cc062a58f5",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": false,
+  "_leak_risk": "low",
+  "_subject": "Clarify recap scope and range controls (#1161)",
+  "copy_checkpoint_ref_from_source": true
+}

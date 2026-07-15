@@ -1,0 +1,109 @@
+diff --git a/cmd/entire/cli/search_cmd_test.go b/cmd/entire/cli/search_cmd_test.go
+index 4b8f0241f..e286bab67 100644
+--- a/cmd/entire/cli/search_cmd_test.go
++++ b/cmd/entire/cli/search_cmd_test.go
+@@ -382,21 +382,16 @@ func TestMergeSearchResults_DeduplicatesOverlappingCells(t *testing.T) {
+ 	t.Parallel()
+ 
+ 	dup := codesearch.Result{Repo: "acme/web", Path: "main.go", Line: 10, Column: 5, Score: 0.9}
++	cellVal := func() *codesearch.SearchResponse {
++		return &codesearch.SearchResponse{
++			Results:   []codesearch.Result{dup},
++			Stats:     codesearch.Stats{TotalMatches: 1, TotalFiles: 1, ReposSearched: 1},
++			RepoStats: []codesearch.RepoStats{{Repo: "acme/web", MatchCount: 1, FileCount: 1}},
++		}
++	}
+ 	results := []cellCallResult[*codesearch.SearchResponse]{
+-		{
+-			group: cellGroup{cell: "", jurisdiction: ""},
+-			value: &codesearch.SearchResponse{
+-				Results: []codesearch.Result{dup},
+-				Stats:   codesearch.Stats{TotalMatches: 1, TotalFiles: 1, ReposSearched: 1},
+-			},
+-		},
+-		{
+-			group: cellGroup{cell: "aws-us-east-2", jurisdiction: "us"},
+-			value: &codesearch.SearchResponse{
+-				Results: []codesearch.Result{dup},
+-				Stats:   codesearch.Stats{TotalMatches: 1, TotalFiles: 1, ReposSearched: 1},
+-			},
+-		},
++		{group: cellGroup{cell: "", jurisdiction: ""}, value: cellVal()},
++		{group: cellGroup{cell: "aws-us-east-2", jurisdiction: "us"}, value: cellVal()},
+ 	}
+ 
+ 	merged, err := mergeSearchResults(context.Background(), 0, results)
+@@ -406,6 +401,73 @@ func TestMergeSearchResults_DeduplicatesOverlappingCells(t *testing.T) {
+ 	if len(merged.Results) != 1 {
+ 		t.Fatalf("len(Results) = %d, want 1 (duplicate removed)", len(merged.Results))
+ 	}
++	// Stats must not double-count the overlapping match either.
++	if merged.Stats.TotalMatches != 1 {
++		t.Errorf("TotalMatches = %d, want 1 (overlapping cells must not double-count)", merged.Stats.TotalMatches)
++	}
++	if merged.Stats.ReposSearched != 1 {
++		t.Errorf("ReposSearched = %d, want 1 (one logical repo)", merged.Stats.ReposSearched)
++	}
++	if len(merged.RepoStats) != 1 || merged.RepoStats[0].MatchCount != 1 {
++		t.Errorf("RepoStats = %+v, want one entry with MatchCount 1", merged.RepoStats)
++	}
++}
++
++func TestMergeSearchResults_MirrorPlacementsDoNotDoubleCount(t *testing.T) {
++	t.Parallel()
++
++	// A US-homed repo with an EU mirror indexes the same content, so the
++	// fan-out queries both cells and each returns the SAME matches. Merged
++	// results dedupe by repo+path+line; the stats must dedupe too, or the
++	// summary reports "6 matches across 4 files in 2 repos" for 3 unique
++	// results (and falsely claims truncation). Regression guard for the
++	// mirror fan-out this trail introduced.
++	matches := []codesearch.Result{
++		{Repo: "acme/web", Path: "main.go", Line: 1, Column: 0, Score: 0.9},
++		{Repo: "acme/web", Path: "main.go", Line: 2, Column: 0, Score: 0.8},
++		{Repo: "acme/web", Path: "util.go", Line: 5, Column: 0, Score: 0.7},
++	}
++	cell := func(name, jur string) cellCallResult[*codesearch.SearchResponse] {
++		return cellCallResult[*codesearch.SearchResponse]{
++			group: cellGroup{cell: name, jurisdiction: jur},
++			value: &codesearch.SearchResponse{
++				Query:     "handleRequest",
++				Stats:     codesearch.Stats{TotalMatches: 3, TotalFiles: 2, ReposSearched: 1, DurationMs: 10},
++				RepoStats: []codesearch.RepoStats{{Repo: "acme/web", MatchCount: 3, FileCount: 2}},
++				Results:   matches,
++			},
++		}
++	}
++	results := []cellCallResult[*codesearch.SearchResponse]{
++		cell("aws-us-east-2", "us"),
++		cell(testCellEU, "eu"),
++	}
++
++	merged, err := mergeSearchResults(context.Background(), 0, results)
++	if err != nil {
++		t.Fatalf("unexpected error: %v", err)
++	}
++	if len(merged.Results) != 3 {
++		t.Fatalf("len(Results) = %d, want 3 (mirror duplicates removed)", len(merged.Results))
++	}
++	if merged.Stats.TotalMatches != 3 {
++		t.Errorf("TotalMatches = %d, want 3 (mirror must not double-count)", merged.Stats.TotalMatches)
++	}
++	if merged.Stats.TotalFiles != 2 {
++		t.Errorf("TotalFiles = %d, want 2 (mirror must not double-count)", merged.Stats.TotalFiles)
++	}
++	if merged.Stats.ReposSearched != 1 {
++		t.Errorf("ReposSearched = %d, want 1 (one logical repo across two cells)", merged.Stats.ReposSearched)
++	}
++	if merged.Stats.DurationMs != 10 {
++		t.Errorf("DurationMs = %v, want 10 (slowest cell preserved)", merged.Stats.DurationMs)
++	}
++	if len(merged.RepoStats) != 1 {
++		t.Fatalf("len(RepoStats) = %d, want 1 (deduped by repo)", len(merged.RepoStats))
++	}
++	if merged.RepoStats[0].MatchCount != 3 || merged.RepoStats[0].FileCount != 2 {
++		t.Errorf("RepoStats[0] = %+v, want representative {3,2} not summed {6,4}", merged.RepoStats[0])
++	}
+ }
+ 
+ func TestResolveRepoFilters_GhPrefix(t *testing.T) {

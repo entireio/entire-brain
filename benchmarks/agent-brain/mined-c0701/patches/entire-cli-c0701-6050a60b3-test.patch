@@ -1,0 +1,40 @@
+diff --git a/cmd/git-remote-entire/main_test.go b/cmd/git-remote-entire/main_test.go
+index 57c93fcb3..1e2f61ca0 100644
+--- a/cmd/git-remote-entire/main_test.go
++++ b/cmd/git-remote-entire/main_test.go
+@@ -213,6 +213,35 @@ func TestMissingClusterHostMessage(t *testing.T) {
+ 			contains:    []string{`fatal: missing host in URL "entire:///gh"`},
+ 			notContains: []string{"entire repo clone"},
+ 		},
++		{
++			// Forge in host slot but no owner/repo — the shorthand `/gh` would be
++			// rejected by `entire repo clone`, so fall back rather than suggest it.
++			name:        "forge in host slot without path falls back",
++			rawURL:      "entire://gh",
++			contains:    []string{`fatal: missing host in URL "entire://gh"`},
++			notContains: []string{"entire repo clone"},
++		},
++		{
++			// Forge in host slot with owner but no repo — incomplete triple.
++			name:        "forge in host slot with owner only falls back",
++			rawURL:      "entire://gh/owner",
++			contains:    []string{`fatal: missing host in URL "entire://gh/owner"`},
++			notContains: []string{"entire repo clone"},
++		},
++		{
++			// Empty host, forge + owner but no repo — incomplete triple.
++			name:        "empty host forge and owner only falls back",
++			rawURL:      "entire:///gh/owner",
++			contains:    []string{`fatal: missing host in URL "entire:///gh/owner"`},
++			notContains: []string{"entire repo clone"},
++		},
++		{
++			// Too many segments — not the gh/<owner>/<repo> shape either.
++			name:        "forge in host slot with extra path segment falls back",
++			rawURL:      "entire://gh/owner/repo/extra",
++			contains:    []string{`fatal: missing host in URL "entire://gh/owner/repo/extra"`},
++			notContains: []string{"entire repo clone"},
++		},
+ 	}
+ 	for _, tc := range tests {
+ 		t.Run(tc.name, func(t *testing.T) {

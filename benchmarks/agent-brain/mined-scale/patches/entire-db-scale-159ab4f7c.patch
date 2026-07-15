@@ -1,0 +1,43 @@
+diff --git a/core/authz/store.go b/core/authz/store.go
+index d08f055e3..933e71255 100644
+--- a/core/authz/store.go
++++ b/core/authz/store.go
+@@ -167,26 +167,29 @@ func (s *Store) LookupAccessible(ctx context.Context, subjectType, subjectID, re
+ 		return nil, fmt.Errorf("unknown resource type: %s", resourceType)
+ 	}
+ 
+-	// One LookupResources stream per permission, recording which permissions
+-	// each resource came back from. The resources returned by LookupResources
+-	// are exactly those the subject holds the permission on, so we already
+-	// know the granted set without re-checking each resource.
+-	granted := map[string][]string{}
++	// Collect unique resource IDs across all permissions.
++	seen := map[string]struct{}{}
+ 	for _, perm := range perms {
+ 		ids, err := s.LookupResources(ctx, resourceType, perm, subjectType, subjectID)
+ 		if err != nil {
+ 			return nil, fmt.Errorf("lookup %s: %w", perm, err)
+ 		}
+ 		for _, id := range ids {
+-			granted[id] = append(granted[id], perm)
++			seen[id] = struct{}{}
+ 		}
+ 	}
+ 
+-	result := make([]ResourceAccess, 0, len(granted))
+-	for id, ps := range granted {
++	// For each resource, get the full permission set.
++	subject := subjectType + ":" + subjectID
++	var result []ResourceAccess
++	for id := range seen {
++		granted, err := s.GetPermissions(ctx, subject, resourceType, id)
++		if err != nil {
++			return nil, fmt.Errorf("get permissions for %s: %w", id, err)
++		}
+ 		result = append(result, ResourceAccess{
+ 			ResourceID:  id,
+-			Permissions: ps,
++			Permissions: granted,
+ 		})
+ 	}
+ 	return result, nil

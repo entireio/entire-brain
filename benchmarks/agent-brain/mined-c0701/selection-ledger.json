@@ -1,0 +1,281 @@
+{
+  "scheme": "per_task_base_frozen_brief",
+  "generated": "2026-07-14",
+  "total": 45,
+  "dev_count": 21,
+  "holdout_count": 24,
+  "split_rule": "even last hex char of fix-commit full SHA = dev, odd = holdout",
+  "negctl": "red_at_parent_base (per-task-base negative control passed: RED at parent, GREEN at fix)",
+  "tasks": [
+    {
+      "short_sha": "0730ddd75",
+      "sha": "0730ddd75e3770f9ac318daeac7cfc98cad8d6eb",
+      "split": "holdout",
+      "subject": "fix(settings): honor redaction.externalize_images in local settings merge"
+    },
+    {
+      "short_sha": "078a63ebb",
+      "sha": "078a63ebb622cc0829e76af20583ba696d17b31d",
+      "split": "holdout",
+      "subject": "fix: TUI code search handles multi-repo filters and repo:* correctly"
+    },
+    {
+      "short_sha": "21fcaf5f2",
+      "sha": "21fcaf5f23f2206ce0685dab1bd6e1755bcc964e",
+      "split": "dev",
+      "subject": "fix(strategy): never flag imported sessions as orphaned in clean"
+    },
+    {
+      "short_sha": "250538b1f",
+      "sha": "250538b1f2f6e65eb355a49c5011cbc9b03c518c",
+      "split": "dev",
+      "subject": "fix(import): imported session LastPrompt uses the most recent turn"
+    },
+    {
+      "short_sha": "338d79887",
+      "sha": "338d79887a78f6408942e4db5a36cc64bf41f867",
+      "split": "holdout",
+      "subject": "git-remote-entire: case-fold the home-jurisdiction routing comparison"
+    },
+    {
+      "short_sha": "36563bc78",
+      "sha": "36563bc7812edc0f9c9a006e093b1c6f1a745a3f",
+      "split": "holdout",
+      "subject": "Gate migrated-ref push on the checkpoint policy"
+    },
+    {
+      "short_sha": "3a1b973ad",
+      "sha": "3a1b973ad9ef2b45e918d085d1d53bce72cc0155",
+      "split": "holdout",
+      "subject": "cli: render mirror poll 404 cleanly and widen poll retry budget"
+    },
+    {
+      "short_sha": "40cb4d68a",
+      "sha": "40cb4d68acfe9ed0ec3fc0344500e80f17b13f10",
+      "split": "dev",
+      "subject": "Deduplicate no-id Pi review token events"
+    },
+    {
+      "short_sha": "40cded153",
+      "sha": "40cded153498698ef1ec4c98a46f066e63e661c5",
+      "split": "holdout",
+      "subject": "git-refs: compact the push queue on Drain"
+    },
+    {
+      "short_sha": "43ae6061f",
+      "sha": "43ae6061f79add4f837122a1febc6711697c45bf",
+      "split": "holdout",
+      "subject": "fix: match cell name against cluster URLs before jurisdiction fallback"
+    },
+    {
+      "short_sha": "4dd458656",
+      "sha": "4dd4586566526108c2ef4d3802014fe04ee78767",
+      "split": "holdout",
+      "subject": "cursor: replace stale-form hooks on wrapper migration"
+    },
+    {
+      "short_sha": "55cde8f97",
+      "sha": "55cde8f97b2d39b251ff6c1265f604488bf4a613",
+      "split": "holdout",
+      "subject": "git-remote-entire: identity tokens only \u2014 drop the repo-scoped fallback"
+    },
+    {
+      "short_sha": "570854e73",
+      "sha": "570854e73447f44da5476931e5e13e861022afac",
+      "split": "dev",
+      "subject": "repo mirror list: rename REPO column and --repo flag to NAME"
+    },
+    {
+      "short_sha": "5edbdf073",
+      "sha": "5edbdf0733c33dbc572f26242bf0400aaf7d3fe7",
+      "split": "holdout",
+      "subject": "Guard checkpoint migration re-runs against ref regression"
+    },
+    {
+      "short_sha": "5f68588b1",
+      "sha": "5f68588b1ab38ec4a7b26946b5ca448153591e5e",
+      "split": "dev",
+      "subject": "fix: quoted repo filters, stale code results, and search mode on error"
+    },
+    {
+      "short_sha": "605050d0e",
+      "sha": "605050d0ef00e855e93f4f04a0e38d5301cae6ed",
+      "split": "holdout",
+      "subject": "migrate: re-enqueue already-imported refs so a lost enqueue still pushes"
+    },
+    {
+      "short_sha": "6050a60b3",
+      "sha": "6050a60b39bbc81a0234460181dbd379da6d6894",
+      "split": "dev",
+      "subject": "git-remote-entire: only suggest clone for a complete forge/owner/repo ref"
+    },
+    {
+      "short_sha": "60576d5e8",
+      "sha": "60576d5e8314bcd2a232f893c61c870ebcc5b950",
+      "split": "dev",
+      "subject": "fix(mirror): exit non-zero when create hits an admin-suspended mirror"
+    },
+    {
+      "short_sha": "6699ec40a",
+      "sha": "6699ec40abdb7b02c379c9346526cc02d3d2ab30",
+      "split": "dev",
+      "subject": "Avoid double counting Pi review cache tokens"
+    },
+    {
+      "short_sha": "6cdbe3cc8",
+      "sha": "6cdbe3cc8f2868bcf8f2c9e6f4651e79dc198074",
+      "split": "dev",
+      "subject": "fix: fan out code search across mirror placements, not just home cell"
+    },
+    {
+      "short_sha": "7a56d8ce9",
+      "sha": "7a56d8ce91c50498cee5b61b485bbcf50b09c755",
+      "split": "holdout",
+      "subject": "fix(resume): exclude imported sessions from the resume picker"
+    },
+    {
+      "short_sha": "80c7a4efd",
+      "sha": "80c7a4efd26161f84910ba3ec008ff20c9dcc249",
+      "split": "holdout",
+      "subject": "/simplify + review: fix fallback-on-error, dedup List, share sort helper"
+    },
+    {
+      "short_sha": "80f680618",
+      "sha": "80f680618c617e5c609399b9af6c00d4ab2e8a3b",
+      "split": "holdout",
+      "subject": "migrate: --dry-run no longer writes loose git objects"
+    },
+    {
+      "short_sha": "855b8cdab",
+      "sha": "855b8cdab64147eb73fa6ac805ded1a9391a92ac",
+      "split": "dev",
+      "subject": "Route checkpoints through entire:// push-through mirrors"
+    },
+    {
+      "short_sha": "8828752a7",
+      "sha": "8828752a7be5f21ecd02478f4db4f400dadff9ce",
+      "split": "dev",
+      "subject": "checkpoint resume: fall back to remote branches in auto-detection"
+    },
+    {
+      "short_sha": "885cf3a68",
+      "sha": "885cf3a68a12cff781706bb851af2f083cec27c5",
+      "split": "holdout",
+      "subject": "harden review findings fallback"
+    },
+    {
+      "short_sha": "96ed4e121",
+      "sha": "96ed4e12190014a8b1a119ef6a81bf0e41dce554",
+      "split": "dev",
+      "subject": "fix(strategy): don't purge imported sessions in shadow-branch orphan cleanup"
+    },
+    {
+      "short_sha": "996336140",
+      "sha": "996336140448090c6dc2a5d968dfdfb593e6e046",
+      "split": "dev",
+      "subject": "feat(session): exempt imported sessions from staleness auto-purge"
+    },
+    {
+      "short_sha": "9c2b149fd",
+      "sha": "9c2b149fd1849fb6650d593c5e944d72daab63a5",
+      "split": "holdout",
+      "subject": "cli/auth: add -j short form for `token --jurisdiction`"
+    },
+    {
+      "short_sha": "a9d4ce908",
+      "sha": "a9d4ce908ff2c6473fa798a8300da79591b4c1a2",
+      "split": "dev",
+      "subject": "checkpoint resume: harden auto-detection and clash message"
+    },
+    {
+      "short_sha": "aaeb8546c",
+      "sha": "aaeb8546c6e90bd471a2d6457d7351bc156cedf6",
+      "split": "dev",
+      "subject": "cli/api: keep the bearer on its origin across redirects and cross-host paths"
+    },
+    {
+      "short_sha": "b3f0deb5b",
+      "sha": "b3f0deb5b0548b5308b4a712ddb898e069fbcc14",
+      "split": "dev",
+      "subject": "clusterdiscovery: don't serve an audience-less stale entry to audience-requiring callers"
+    },
+    {
+      "short_sha": "b72a6e621",
+      "sha": "b72a6e621c62900dcb51f492b37730d04b24a7a0",
+      "split": "dev",
+      "subject": "fix: dedupe merged code-search stats across mirror cells"
+    },
+    {
+      "short_sha": "befdcf4fb",
+      "sha": "befdcf4fbb88a4889033eeb85d2e64c28747f43f",
+      "split": "holdout",
+      "subject": "Normalize checkpoint metadata during branch-to-refs migration"
+    },
+    {
+      "short_sha": "c67d74e6c",
+      "sha": "c67d74e6c0a7ab997357c26a6bac195ff695e500",
+      "split": "dev",
+      "subject": "uiform: clear foreground on blurred titles/options too"
+    },
+    {
+      "short_sha": "c768ab0ec",
+      "sha": "c768ab0ec7710089ede7d9762f91a2c08c086619",
+      "split": "holdout",
+      "subject": "add brew auto-update confirmation flag"
+    },
+    {
+      "short_sha": "c8d80aa8f",
+      "sha": "c8d80aa8fd3fdd693edcde2d4b220b67ea225457",
+      "split": "holdout",
+      "subject": "fix: jurisdiction fallback prefers default cluster"
+    },
+    {
+      "short_sha": "cf28d625c",
+      "sha": "cf28d625cc2f0565b1e09869e06faab91970b72d",
+      "split": "holdout",
+      "subject": "reword checkpoint policy help to write-guard semantics"
+    },
+    {
+      "short_sha": "d8df699cb",
+      "sha": "d8df699cb5bf92d842d9b6f5f4b636c7c057645a",
+      "split": "dev",
+      "subject": "repo mirror list: filter on the owner/repo form shown in the table"
+    },
+    {
+      "short_sha": "d90849ac5",
+      "sha": "d90849ac5fa8f69412b70b4116f2f3072d0ddbbc",
+      "split": "dev",
+      "subject": "cli/enable: gate import offer on checkpoint policy; don't auto-import non-interactively"
+    },
+    {
+      "short_sha": "dd255c286",
+      "sha": "dd255c2860c6a0927dbeda124bf977c94803463d",
+      "split": "holdout",
+      "subject": "remotehelper: re-mint and retry once on 401 instead of failing the command"
+    },
+    {
+      "short_sha": "de60a63d0",
+      "sha": "de60a63d0ec3dbb70457bb5acbc437437d8012a1",
+      "split": "holdout",
+      "subject": "avoid ambiguous review findings handles"
+    },
+    {
+      "short_sha": "e1112a77a",
+      "sha": "e1112a77ac866aeae75738301826321bdb9143b5",
+      "split": "holdout",
+      "subject": "Make attach checkpoint-presence backend-aware (git-refs)"
+    },
+    {
+      "short_sha": "e52b748b4",
+      "sha": "e52b748b474d047a5a83767f4337a349f2e04c38",
+      "split": "dev",
+      "subject": "Mention trail findings in trail help"
+    },
+    {
+      "short_sha": "fe8428c24",
+      "sha": "fe8428c246a9d98efb4869ee904fffc5dc3c8775",
+      "split": "holdout",
+      "subject": "add review findings detail handles"
+    }
+  ]
+}

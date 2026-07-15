@@ -1,0 +1,42 @@
+{
+  "id": "entire-cli-scale-85f82af48",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "When resuming a checkpoint that contains more than one session, the resume path reports the wrong session's metadata (its agent, creation time, and id) rather than the most recent session. Fix the selection so the surfaced metadata comes from the latest session. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-cli-scale-85f82af48.patch"
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli -run 'TestReadCheckpointInfoFromStoreUsesLatestSessionMetadata'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/resume.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "resume multi-session checkpoint metadata selection",
+    "checkpoint session agent and created-at chosen",
+    "reading checkpoint info from store session order",
+    "resume picks wrong session metadata",
+    "latest session metadata for resume"
+  ],
+  "_mined_from_commit": "85f82af48ebee53201cc7e4644ca1fc98b5777e0",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "low",
+  "_subject": "Use latest session metadata for resume",
+  "copy_checkpoint_ref_from_source": true
+}

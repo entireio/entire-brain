@@ -1,0 +1,42 @@
+{
+  "id": "entire-cli-scale-7c4600095",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "On Windows, the git hooks that Entire installs never execute: the shell guard that decides whether the hook program is present reports it as missing even when the binary is right there, so checkpointing silently stops on those machines. Separately, when the hook program truly is absent, the warning path aborts the git operation instead of letting it continue. Restore correct behavior for both situations. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-cli-scale-7c4600095.patch"
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/strategy -run 'TestGitHookCommandAvailableTest_WindowsAbsolutePath|TestGitHookCommand_MissingWarningIsNonFatal'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/strategy/hooks.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "windows git hook availability detection",
+    "git hook missing warning aborts commit",
+    "hook installed binary not found on windows",
+    "copilot git hook feedback fixes",
+    "shell guard absolute path hook command"
+  ],
+  "_mined_from_commit": "7c4600095e7c391cbf447042637060f9d26a5320",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "Address Copilot git hook feedback",
+  "copy_checkpoint_ref_from_source": true
+}

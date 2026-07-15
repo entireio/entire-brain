@@ -1,0 +1,42 @@
+{
+  "id": "entire-db-scale-62ef32513",
+  "repo": "entire-db",
+  "repo_path": "/Users/thomi/Projects/entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "Under fault-injection load, concurrent repo provisioning leaks Internal/Unknown errors from the loser of a URL-claim race, violating the assertion that every concurrent loser returns AlreadyExists or Aborted. The trigger is a global-metadata readability probe hitting a commit whose objects have not yet replicated to any provider. Classify that replication-lag failure so it is treated as transient and retried. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-db-scale-62ef32513.patch"
+  ],
+  "validation": [
+    "go test ./server/connecterr -run 'TestRespondInternalOrTransient_CommitDataNotFound|TestRespondInternalOrTransient_Internal'"
+  ],
+  "expected_files": [
+    "server/connecterr/connecterr.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "concurrent repo create duplicate leak antithesis",
+    "global metadata session readability probe failure",
+    "commit objects not yet fanned out to providers",
+    "replication lag treated as transient error",
+    "how quorum-style storage failures are classified"
+  ],
+  "_mined_from_commit": "62ef325137bdefaade9f9d5f41997e28eeb0fa73",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "connecterr: classify ErrCommitDataNotFound as Unavailable",
+  "copy_checkpoint_ref_from_source": true
+}

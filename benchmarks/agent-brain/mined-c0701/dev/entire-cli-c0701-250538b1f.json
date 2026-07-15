@@ -1,0 +1,53 @@
+{
+  "id": "entire-cli-c0701-250538b1f",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "base_commit": "ffbe2630362ce56b69d1e676063d715b27e96e5e",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "For imported sessions, the displayed 'last prompt' shows the session's opening prompt instead of the most recent user prompt, unlike every other session kind. Make imported sessions report the most recent user prompt.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "validation_files": [
+    {
+      "path": "cmd/entire/cli/agentimport/session_state_test.go",
+      "content": "package agentimport\n\nimport (\n\t\"context\"\n\t\"os\"\n\t\"path/filepath\"\n\t\"testing\"\n\t\"time\"\n\n\t\"github.com/go-git/go-git/v6\"\n\n\t\"github.com/entireio/cli/cmd/entire/cli/agent\"\n\t\"github.com/entireio/cli/cmd/entire/cli/agent/types\"\n\t\"github.com/entireio/cli/cmd/entire/cli/session\"\n\t\"github.com/entireio/cli/cmd/entire/cli/strategy\"\n\t\"github.com/entireio/cli/cmd/entire/cli/testutil\"\n)\n\n// fakeImporter is the minimal Importer needed to exercise writeSessionState.\ntype fakeImporter struct{}\n\nfunc (fakeImporter) Name() string               { return string(agent.AgentNameClaudeCode) }\nfunc (fakeImporter) AgentType() types.AgentType { return agent.AgentTypeClaudeCode }\nfunc (fakeImporter) Discover(_, _ string, _ time.Time, _ []string) ([]SessionFile, error) {\n\treturn nil, nil\n}\nfunc (fakeImporter) SplitTurns(_ SessionFile, _ []byte) ([]Turn, error) { return nil, nil }\n\n// runFakeImporter feeds canned Discover/SplitTurns results so Run's full\n// per-session path (including the writeSessionState call site) can be exercised.\ntype runFakeImporter struct {\n\tfiles []SessionFile\n\tturns []Turn\n}\n\nfunc (runFakeImporter) Name() string               { return string(agent.AgentNameClaudeCode) }\nfunc (runFakeImporter) AgentType() types.AgentType { return agent.AgentTypeClaudeCode }\nfunc (f runFakeImporter) Discover(_, _ string, _ time.Time, _ []string) ([]SessionFile, error) {\n\treturn f.files, nil\n}\nfunc (f runFakeImporter) SplitTurns(_ SessionFile, _ []byte) ([]Turn, error) { return f.turns, nil }\n\nfunc TestRun_WritesSessionStateForImportedSession(t *testing.T) {\n\t// Not parallel: t.Chdir.\n\tdir := t.TempDir()\n\ttestutil.InitRepo(t, dir)\n\ttestutil.WriteFile(t, dir, \"f.txt\", \"x\")\n\ttestutil.GitAdd(t, dir, \"f.txt\")\n\ttestutil.GitCommit(t, dir, \"init\")\n\ttp := filepath.Join(dir, \"session.jsonl\")\n\tif err := os.WriteFile(tp, []byte(\"{\\\"type\\\":\\\"user\\\"}\\n\"), 0o600); err != nil {\n\t\tt.Fatalf(\"write transcript: %v\", err)\n\t}\n\tt.Chdir(dir)\n\n\tctx := context.Background()\n\trepo, err := git.PlainOpen(dir)\n\tif err != nil {\n\t\tt.Fatalf(\"open repo: %v\", err)\n\t}\n\n\tsid := \"44444444-4444-4444-4444-444444444444\"\n\timp := runFakeImporter{\n\t\tfiles: []SessionFile{{Path: tp, SessionID: sid}},\n\t\tturns: []Turn{{UUID: \"a\", Prompt: \"hello\", CreatedAt: time.Now().Add(-time.Hour)}},\n\t}\n\tif _, err := Run(ctx, repo, imp, Options{RepoRoot: dir, Now: time.Now()}); err != nil {\n\t\tt.Fatalf(\"Run: %v\", err)\n\t}\n\n\tstore, err := session.NewStateStore(ctx)\n\tif err != nil {\n\t\tt.Fatalf(\"NewStateStore: %v\", err)\n\t}\n\tst, err := store.Load(ctx, sid)\n\tif err != nil || st == nil {\n\t\tt.Fatalf(\"Load returned (%v, %v); want an imported state\", st, err)\n\t}\n\tif st.Kind != session.KindImported {\n\t\tt.Errorf(\"Kind = %q, want %q\", st.Kind, session.KindImported)\n\t}\n}\n\nfunc TestRun_DryRunWritesNoSessionState(t *testing.T) {\n\t// Not parallel: t.Chdir.\n\tdir := t.TempDir()\n\ttestutil.InitRepo(t, dir)\n\ttestutil.WriteFile(t, dir, \"f.txt\", \"x\")\n\ttestutil.GitAdd(t, dir, \"f.txt\")\n\ttestutil.GitCommit(t, dir, \"init\")\n\ttp := filepath.Join(dir, \"session.jsonl\")\n\tif err := os.WriteFile(tp, []byte(\"{\\\"type\\\":\\\"user\\\"}\\n\"), 0o600); err != nil {\n\t\tt.Fatalf(\"write transcript: %v\", err)\n\t}\n\tt.Chdir(dir)\n\n\tctx := context.Background()\n\trepo, err := git.PlainOpen(dir)\n\tif err != nil {\n\t\tt.Fatalf(\"open repo: %v\", err)\n\t}\n\n\tsid := \"55555555-5555-5555-5555-555555555555\"\n\timp := runFakeImporter{\n\t\tfiles: []SessionFile{{Path: tp, SessionID: sid}},\n\t\tturns: []Turn{{UUID: \"a\", Prompt: \"hello\", CreatedAt: time.Now().Add(-time.Hour)}},\n\t}\n\tif _, err := Run(ctx, repo, imp, Options{RepoRoot: dir, Now: time.Now(), DryRun: true}); err != nil {\n\t\tt.Fatalf(\"Run: %v\", err)\n\t}\n\n\tstore, err := session.NewStateStore(ctx)\n\tif err != nil {\n\t\tt.Fatalf(\"NewStateStore: %v\", err)\n\t}\n\tst, err := store.Load(ctx, sid)\n\tif err != nil {\n\t\tt.Fatalf(\"Load: %v\", err)\n\t}\n\tif st != nil {\n\t\tt.Fatalf(\"dry-run must not write a session state, got %+v\", st)\n\t}\n}\n\nfunc totalImported(s *session.State) int {\n\tif s.TokenUsage == nil {\n\t\treturn 0\n\t}\n\treturn s.TokenUsage.InputTokens + s.TokenUsage.OutputTokens +\n\t\ts.TokenUsage.CacheCreationTokens + s.TokenUsage.CacheReadTokens\n}\n\nfunc TestWriteSessionState_CreatesListableImportedState(t *testing.T) {\n\t// Not parallel: t.Chdir + git-cwd resolution.\n\tdir := t.TempDir()\n\ttestutil.InitRepo(t, dir)\n\tt.Chdir(dir)\n\n\tctx := context.Background()\n\tt0 := time.Now().Add(-48 * time.Hour)\n\tt1 := t0.Add(30 * time.Minute)\n\tsf := SessionFile{Path: \"/does/not/matter.jsonl\", SessionID: \"11111111-1111-1111-1111-111111111111\"}\n\tturns := []Turn{\n\t\t{UUID: \"a\", Prompt: \"first prompt\", Model: \"claude-x\", CreatedAt: t0, Tokens: &types.TokenUsage{InputTokens: 10, OutputTokens: 5}},\n\t\t{UUID: \"b\", Prompt: \"second prompt\", Model: \"claude-x\", CreatedAt: t1, Tokens: &types.TokenUsage{InputTokens: 3, OutputTokens: 2}},\n\t}\n\n\tif err := writeSessionState(ctx, fakeImporter{}, sf, turns); err != nil {\n\t\tt.Fatalf(\"writeSessionState: %v\", err)\n\t}\n\n\tstore, err := session.NewStateStore(ctx)\n\tif err != nil {\n\t\tt.Fatalf(\"NewStateStore: %v\", err)\n\t}\n\tst, err := store.Load(ctx, sf.SessionID)\n\tif err != nil || st == nil {\n\t\tt.Fatalf(\"Load returned (%v, %v); want a state\", st, err)\n\t}\n\tif st.Kind != session.KindImported {\n\t\tt.Errorf(\"Kind = %q, want %q\", st.Kind, session.KindImported)\n\t}\n\tif st.BaseCommit != \"\" {\n\t\tt.Errorf(\"BaseCommit = %q, want empty (never HEAD-pinned)\", st.BaseCommit)\n\t}\n\tif st.AgentType != agent.AgentTypeClaudeCode {\n\t\tt.Errorf(\"AgentType = %q, want %q\", st.AgentType, agent.AgentTypeClaudeCode)\n\t}\n\tif !st.StartedAt.Equal(t0) {\n\t\tt.Errorf(\"StartedAt = %v, want %v (earliest turn)\", st.StartedAt, t0)\n\t}\n\tif st.EndedAt == nil || !st.EndedAt.Equal(t1) {\n\t\tt.Errorf(\"EndedAt = %v, want %v (latest turn)\", st.EndedAt, t1)\n\t}\n\tif st.StepCount != 2 {\n\t\tt.Errorf(\"StepCount = %d, want 2\", st.StepCount)\n\t}\n\tif got := totalImported(st); got != 20 {\n\t\tt.Errorf(\"token total = %d, want 20\", got)\n\t}\n\tif st.LastPrompt != \"second prompt\" {\n\t\tt.Errorf(\"LastPrompt = %q, want the most recent turn's prompt\", st.LastPrompt)\n\t}\n}\n\nfunc TestWriteSessionState_DoesNotClobberLiveSession(t *testing.T) {\n\t// Not parallel: t.Chdir.\n\tdir := t.TempDir()\n\ttestutil.InitRepo(t, dir)\n\tt.Chdir(dir)\n\n\tctx := context.Background()\n\tsid := \"22222222-2222-2222-2222-222222222222\"\n\tstore, err := session.NewStateStore(ctx)\n\tif err != nil {\n\t\tt.Fatalf(\"NewStateStore: %v\", err)\n\t}\n\tlive := &session.State{SessionID: sid, Phase: session.PhaseActive, StartedAt: time.Now()}\n\tif err := store.Save(ctx, live); err != nil {\n\t\tt.Fatalf(\"seed live state: %v\", err)\n\t}\n\n\tsf := SessionFile{Path: \"/x.jsonl\", SessionID: sid}\n\tturns := []Turn{{UUID: \"a\", Prompt: \"p\", CreatedAt: time.Now()}}\n\tif err := writeSessionState(ctx, fakeImporter{}, sf, turns); err != nil {\n\t\tt.Fatalf(\"writeSessionState: %v\", err)\n\t}\n\n\tgot, err := store.Load(ctx, sid)\n\tif err != nil {\n\t\tt.Fatalf(\"Load: %v\", err)\n\t}\n\tif got == nil || got.Kind == session.KindImported || got.Phase != session.PhaseActive {\n\t\tt.Fatalf(\"import clobbered a live session: %+v\", got)\n\t}\n}\n\nfunc TestImportedSessionSurvivesListing(t *testing.T) {\n\t// Not parallel: t.Chdir.\n\tdir := t.TempDir()\n\ttestutil.InitRepo(t, dir)\n\tt.Chdir(dir)\n\n\tctx := context.Background()\n\told := time.Now().Add(-30 * 24 * time.Hour) // 30 days > 7-day stale threshold\n\tsf := SessionFile{Path: \"/x.jsonl\", SessionID: \"33333333-3333-3333-3333-333333333333\"}\n\tturns := []Turn{{UUID: \"a\", Prompt: \"p\", CreatedAt: old}}\n\tif err := writeSessionState(ctx, fakeImporter{}, sf, turns); err != nil {\n\t\tt.Fatalf(\"writeSessionState: %v\", err)\n\t}\n\n\tstates, err := strategy.ListSessionStates(ctx)\n\tif err != nil {\n\t\tt.Fatalf(\"ListSessionStates: %v\", err)\n\t}\n\tfound := false\n\tfor _, s := range states {\n\t\tif s.SessionID == sf.SessionID {\n\t\t\tfound = true\n\t\t}\n\t}\n\tif !found {\n\t\tt.Fatal(\"imported session (30 days old) was not returned by ListSessionStates\")\n\t}\n}\n"
+    }
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/agentimport -run '^(TestWriteSessionState_CreatesListableImportedState)$'"
+  ],
+  "leak_markers": [
+    "TestWriteSessionState_CreatesListableImportedState"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/agentimport/agentimport.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "what the last-prompt field should represent for a session",
+    "why an imported session shows its opening prompt instead of the latest",
+    "how last prompt is derived for imported sessions",
+    "most recent user turn for imported sessions"
+  ],
+  "prepare_semantic": false,
+  "_mined_from_commit": "250538b1f2f6e65eb355a49c5011cbc9b03c518c",
+  "_flavor": "recall-decision",
+  "_subject": "fix(import): imported session LastPrompt uses the most recent turn",
+  "_negctl": "red_at_parent_base",
+  "_apply_mode": "test_only_forward",
+  "_split": "dev",
+  "memory_delivery": "frozen_brief",
+  "rolling_cutoff_rfc3339": "2026-07-09T14:22:39-07:00",
+  "exclude_session_ids": [
+    "91fa7c44-6634-48ab-ae5f-d394502f50d5"
+  ],
+  "frozen_session_dates_path": "/Users/thomi/.entire-brain-eval/quarantine-full-20260714T204719Z/session_dates.json",
+  "_rolling_cutoff_confidence": "high (entire checkpoint explain resolved fix session directly)"
+}

@@ -1,0 +1,61 @@
+{
+  "id": "entire-cli-scale-0ef509dba",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "In local-development mode the tooling's git and agent hooks run the CLI straight from source, recompiling on each invocation. Whenever the working tree does not compile \u2014 most often while an agent is mid merge-conflict \u2014 every hook silently does nothing: no checkpoint, no commit trailer, and no error surfaced. Make hooks keep working when the source is temporarily broken instead of silently failing. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-cli-scale-0ef509dba.patch"
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/agent/claudecode -run 'TestEntireDevScript_ExitsZeroWhenNothingAvailable|TestEntireDevScript_FallsBackToBinaryWhenBuildFails|TestGitHookCommand_LocalDevDelegatesToScript|TestInstallHooks_LocalDevFallsBackToPath|TestUninstallHooks_RemovesLocalDevHooks'",
+    "go test ./cmd/entire/cli/agent/codex -run 'TestEntireDevScript_ExitsZeroWhenNothingAvailable|TestEntireDevScript_FallsBackToBinaryWhenBuildFails|TestGitHookCommand_LocalDevDelegatesToScript|TestInstallHooks_LocalDevFallsBackToPath|TestUninstallHooks_RemovesLocalDevHooks'",
+    "go test ./cmd/entire/cli/agent/copilotcli -run 'TestEntireDevScript_ExitsZeroWhenNothingAvailable|TestEntireDevScript_FallsBackToBinaryWhenBuildFails|TestGitHookCommand_LocalDevDelegatesToScript|TestInstallHooks_LocalDevFallsBackToPath|TestUninstallHooks_RemovesLocalDevHooks'",
+    "go test ./cmd/entire/cli/agent/cursor -run 'TestEntireDevScript_ExitsZeroWhenNothingAvailable|TestEntireDevScript_FallsBackToBinaryWhenBuildFails|TestGitHookCommand_LocalDevDelegatesToScript|TestInstallHooks_LocalDevFallsBackToPath|TestUninstallHooks_RemovesLocalDevHooks'",
+    "go test ./cmd/entire/cli/agent/factoryaidroid -run 'TestEntireDevScript_ExitsZeroWhenNothingAvailable|TestEntireDevScript_FallsBackToBinaryWhenBuildFails|TestGitHookCommand_LocalDevDelegatesToScript|TestInstallHooks_LocalDevFallsBackToPath|TestUninstallHooks_RemovesLocalDevHooks'",
+    "go test ./cmd/entire/cli/agent/geminicli -run 'TestEntireDevScript_ExitsZeroWhenNothingAvailable|TestEntireDevScript_FallsBackToBinaryWhenBuildFails|TestGitHookCommand_LocalDevDelegatesToScript|TestInstallHooks_LocalDevFallsBackToPath|TestUninstallHooks_RemovesLocalDevHooks'",
+    "go test ./cmd/entire/cli/agent/opencode -run 'TestEntireDevScript_ExitsZeroWhenNothingAvailable|TestEntireDevScript_FallsBackToBinaryWhenBuildFails|TestGitHookCommand_LocalDevDelegatesToScript|TestInstallHooks_LocalDevFallsBackToPath|TestUninstallHooks_RemovesLocalDevHooks'",
+    "go test ./cmd/entire/cli/agent/pi -run 'TestEntireDevScript_ExitsZeroWhenNothingAvailable|TestEntireDevScript_FallsBackToBinaryWhenBuildFails|TestGitHookCommand_LocalDevDelegatesToScript|TestInstallHooks_LocalDevFallsBackToPath|TestUninstallHooks_RemovesLocalDevHooks'",
+    "go test ./cmd/entire/cli/integration_test -run 'TestEntireDevScript_ExitsZeroWhenNothingAvailable|TestEntireDevScript_FallsBackToBinaryWhenBuildFails|TestGitHookCommand_LocalDevDelegatesToScript|TestInstallHooks_LocalDevFallsBackToPath|TestUninstallHooks_RemovesLocalDevHooks'",
+    "go test ./cmd/entire/cli/strategy -run 'TestEntireDevScript_ExitsZeroWhenNothingAvailable|TestEntireDevScript_FallsBackToBinaryWhenBuildFails|TestGitHookCommand_LocalDevDelegatesToScript|TestInstallHooks_LocalDevFallsBackToPath|TestUninstallHooks_RemovesLocalDevHooks'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/agent/claudecode/hooks.go",
+    "cmd/entire/cli/agent/codex/hooks.go",
+    "cmd/entire/cli/agent/copilotcli/hooks.go",
+    "cmd/entire/cli/agent/cursor/hooks.go",
+    "cmd/entire/cli/agent/factoryaidroid/hooks.go",
+    "cmd/entire/cli/agent/geminicli/hooks.go",
+    "cmd/entire/cli/agent/hook_command.go",
+    "cmd/entire/cli/agent/opencode/hooks.go",
+    "cmd/entire/cli/agent/pi/hooks.go",
+    "cmd/entire/cli/strategy/hook_managers.go",
+    "cmd/entire/cli/strategy/hooks.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "local-dev hooks silently fail when the tree does not compile",
+    "fall back to installed binary when running from source fails",
+    "hooks stop working during merge conflict resolution",
+    "why route local-dev hooks through a launcher instead of inline",
+    "keep recognizing old hook command prefix for clean uninstall"
+  ],
+  "_mined_from_commit": "0ef509dbac29950e46bf422c553b87b9e4f7154c",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "high",
+  "_subject": "Fall back to PATH binary when local-dev build is broken",
+  "copy_checkpoint_ref_from_source": true
+}

@@ -1,0 +1,114 @@
+diff --git a/cmd/entire-deploy/deploy.go b/cmd/entire-deploy/deploy.go
+index d4224a675..01ce260da 100644
+--- a/cmd/entire-deploy/deploy.go
++++ b/cmd/entire-deploy/deploy.go
+@@ -41,21 +41,12 @@ type DeployOptions struct {
+ 	ClusterURL string
+ }
+ 
+-// swapStrategy is the per-node action that takes a node from the old version
+-// to the new version. The orchestration around it (preflight, optional
+-// stepdown, readiness, postflight) is shared; strategies vary the swap itself
+-// and whether a DHT stepdown precedes it (see RequiresStepdown).
++// swapStrategy is the per-node action that takes a stepped-down node from the
++// old version to the new version. The orchestration around it (preflight,
++// stepdown, readiness, postflight) is identical for every strategy.
+ type swapStrategy interface {
+ 	// Name appears in event-log step names ("replace" / "ssm-update").
+ 	Name() string
+-	// RequiresStepdown reports whether the node must gossip Active→Deploying
+-	// (evicting its routing/provider records cluster-wide, draining the LB)
+-	// before the swap. True for instance replacement, where the instance
+-	// genuinely departs for minutes. False for in-place SSM binary updates:
+-	// the listener stays bound across the restart so requests merely queue
+-	// for a few seconds, and a DHT departure + 30-min repair grace + provider
+-	// republish is pure churn for a node that never left.
+-	RequiresStepdown() bool
+ 	// AlreadyAtTarget returns true when the node is already on the target
+ 	// version and should be skipped. Errors are non-fatal — the caller proceeds
+ 	// with the swap on error, matching existing LT-drift behaviour. opts is
+@@ -438,24 +429,15 @@ func deployNode(ctx context.Context, opts DeployOptions, target, witness NodeCon
+ 	)
+ 	emit("preflight", "completed", target.Address, time.Since(stepStart))
+ 
+-	// 3. Stepdown target, if the strategy needs it. Instance replacement does:
+-	// the instance departs for minutes, so we gossip Active→Deploying first to
+-	// drain the LB and let peers evict its routing/provider records under a
+-	// 30-min repair grace. In-place SSM updates skip it — the listener stays
+-	// bound across the seconds-long restart, so a DHT departure (plus the
+-	// provider republish to undo it) is churn for a node that never left. With
+-	// stepdown skipped, the swap below becomes the point of no return, and a
+-	// failed swap leaves the node Active rather than stranded in Deploying.
+-	if opts.Strategy.RequiresStepdown() {
+-		stepStart = time.Now()
+-		slogutil.Info(nodeCtx, "stepping down", slog.String("target", target.Address))
+-		emit("stepdown", "started", target.Address, 0)
+-		nr.StepdownAt = time.Now()
+-		if err := callStepdown(nodeCtx, opts, target.Address); err != nil {
+-			return failNode("stepdown", stepStart, fmt.Errorf("stepdown failed on %s: %w", target.Name, err))
+-		}
+-		emit("stepdown", "completed", "", time.Since(stepStart))
++	// 3. Stepdown target (point of no return).
++	stepStart = time.Now()
++	slogutil.Info(nodeCtx, "stepping down", slog.String("target", target.Address))
++	emit("stepdown", "started", target.Address, 0)
++	nr.StepdownAt = time.Now()
++	if err := callStepdown(nodeCtx, opts, target.Address); err != nil {
++		return failNode("stepdown", stepStart, fmt.Errorf("stepdown failed on %s: %w", target.Name, err))
+ 	}
++	emit("stepdown", "completed", "", time.Since(stepStart))
+ 
+ 	// 4. Strategy-defined swap: terminate+ASG-replace, or in-place SSM update.
+ 	stepStart = time.Now()
+diff --git a/cmd/entire-deploy/replace.go b/cmd/entire-deploy/replace.go
+index 94677a214..806993cc2 100644
+--- a/cmd/entire-deploy/replace.go
++++ b/cmd/entire-deploy/replace.go
+@@ -101,10 +101,6 @@ type replaceStrategy struct {
+ 
+ func (replaceStrategy) Name() string { return "replace" }
+ 
+-// RequiresStepdown is true: terminating the instance removes it from the
+-// cluster for minutes, so it must gossip Active→Deploying first.
+-func (replaceStrategy) RequiresStepdown() bool { return true }
+-
+ func (replaceStrategy) ExpectedCommit() string { return "" }
+ 
+ func (replaceStrategy) ReadinessPollInterval() time.Duration { return 10 * time.Second }
+diff --git a/cmd/entire-deploy/update.go b/cmd/entire-deploy/update.go
+index 2bd7e9689..cfbaa1f8b 100644
+--- a/cmd/entire-deploy/update.go
++++ b/cmd/entire-deploy/update.go
+@@ -17,9 +17,8 @@ import (
+ 
+ // newUpdateBinariesCmd is the rolling in-place binary update subcommand. It
+ // reuses the same per-node orchestration as the root entire-deploy (preflight,
+-// readiness gate, postflight) but swaps via SSM instead of EC2 terminate + ASG
+-// replacement. It skips the DHT stepdown: the restart keeps the listener bound,
+-// so there's no instance departure to drain for.
++// stepdown, readiness gate, postflight) but swaps via SSM instead of EC2
++// terminate + ASG replacement.
+ func newUpdateBinariesCmd() *cobra.Command {
+ 	var (
+ 		configPath  string
+@@ -40,7 +39,7 @@ func newUpdateBinariesCmd() *cobra.Command {
+ 	cmd := &cobra.Command{
+ 		Use:           "update-binaries",
+ 		Short:         "Rolling in-place binary update via SSM",
+-		Long:          "Pushes new binaries to each node via SSM, restarting one at a time behind preflight and readiness gates. No stepdown: the restart keeps the listener bound, so requests queue briefly instead of draining. Use after GoReleaser uploads a new build to S3.",
++		Long:          "Pushes new binaries to each node via SSM, restarting one at a time with stepdown and readiness gates. Use after GoReleaser uploads a new build to S3.",
+ 		SilenceUsage:  true,
+ 		SilenceErrors: true,
+ 		RunE: func(cmd *cobra.Command, _ []string) error {
+@@ -122,11 +121,6 @@ type ssmUpdateStrategy struct {
+ 
+ func (ssmUpdateStrategy) Name() string { return "ssm-update" }
+ 
+-// RequiresStepdown is false: the in-place restart keeps the listener bound, so
+-// requests queue for a few seconds rather than failing. Gossiping the node out
+-// of the DHT and back would be needless churn — see swapStrategy.RequiresStepdown.
+-func (ssmUpdateStrategy) RequiresStepdown() bool { return false }
+-
+ func (s ssmUpdateStrategy) ExpectedCommit() string { return s.commit }
+ 
+ func (ssmUpdateStrategy) ReadinessPollInterval() time.Duration { return 5 * time.Second }

@@ -2015,6 +2015,139 @@ class PanelAndStabilityTests(unittest.TestCase):
             run.RESULT_DIR = old_result_dir
 
 
+class FrozenBrainDeliveryTests(unittest.TestCase):
+    """Phase 2: the frozen-brief delivery path turns real `entire-brain recall --json`
+    payloads into a facts-first packet (replacing the grep-based history excerpt)."""
+
+    FAKE_RECALL_A = {
+        "branch": "main",
+        "facts": [
+            {
+                "id": "fact:aaa",
+                "kind": "decision",
+                "paths": ["accounting.tokens"],
+                "text": "Turn-end events without an id must be deduped by usage so token totals are not inflated.",
+            },
+            {
+                "id": "fact:bbb",
+                "kind": "gotcha",
+                "locus": ["parseTokens"],
+                "text": "Cursor transcripts without a uuid collapse turns onto one checkpoint id.",
+            },
+        ],
+    }
+    FAKE_RECALL_B = {
+        "branch": "main",
+        "facts": [
+            # Same fact id as A's second fact -> must dedupe, and its better (rank 0) here.
+            {
+                "id": "fact:bbb",
+                "kind": "gotcha",
+                "locus": ["parseTokens"],
+                "text": "Cursor transcripts without a uuid collapse turns onto one checkpoint id.",
+            },
+            {
+                "id": "fact:ccc",
+                "kind": "invariant",
+                "text": "Token classes have different prices; never optimize raw total token count.",
+            },
+            {"id": "fact:empty", "kind": "decision", "text": "   "},  # blank -> dropped
+        ],
+    }
+
+    def test_collect_frozen_facts_dedupes_ranks_and_caps(self):
+        facts = run.collect_frozen_facts([self.FAKE_RECALL_A, self.FAKE_RECALL_B], cap=12)
+        ids = [f["id"] for f in facts]
+        # fact:bbb is surfaced by BOTH queries at best rank 0 (rank 1 in A, rank 0 in B) ->
+        # deduped once and ranked ahead of fact:aaa (also rank 0, but only 1 query hit).
+        self.assertEqual(ids, ["fact:bbb", "fact:aaa", "fact:ccc"])
+        self.assertNotIn("fact:empty", ids)  # blank-text fact dropped
+        capped = run.collect_frozen_facts([self.FAKE_RECALL_A, self.FAKE_RECALL_B], cap=1)
+        self.assertEqual([f["id"] for f in capped], ["fact:bbb"])
+
+    def test_render_frozen_brain_packet_is_facts_first_markdown(self):
+        facts = run.collect_frozen_facts([self.FAKE_RECALL_A, self.FAKE_RECALL_B])
+        packet = run.render_frozen_brain_packet(facts)
+        self.assertTrue(packet.startswith("# Retrieved Brain Facts"))
+        self.assertIn("Use only where relevant; make the minimal change.", packet)
+        self.assertIn("## 1. [gotcha] Cursor transcripts without a uuid collapse", packet)
+        self.assertIn("## 2. [decision] Turn-end events without an id must be deduped", packet)
+        self.assertIn("paths: accounting.tokens", packet)
+        self.assertIn("locus: parseTokens", packet)
+        self.assertIn("## 3. [invariant] Token classes have different prices", packet)
+        # No grep-style raw JSONL snippets / query headers leak into the packet.
+        self.assertNotIn("## Query `", packet)
+
+    CUTOFF = "2026-07-13T00:00:00Z"
+    SESSION_DATES = {
+        "sess-early": "2026-07-10T12:00:00Z",
+        "sess-alsoearly": "2026-07-11T09:00:00Z",
+        "sess-late": "2026-07-13T12:00:00Z",
+        "sess-own-fix": "2026-07-09T00:00:00Z",
+    }
+
+    @staticmethod
+    def _fact(fid, session_ids):
+        return {
+            "id": fid,
+            "kind": "decision",
+            "text": f"decision for {fid}",
+            "provenance": [{"session_id": s} for s in session_ids],
+        }
+
+    def _filter_one(self, fact, exclude_ids=None):
+        return run.filter_facts_by_cutoff([fact], self.SESSION_DATES, self.CUTOFF, exclude_ids or [])
+
+    def test_filter_keeps_fact_with_all_provenance_before_cutoff(self):
+        fact = self._fact("fact:keep", ["sess-early", "sess-alsoearly"])
+        self.assertEqual(self._filter_one(fact), [fact])
+
+    def test_filter_drops_fact_with_provenance_after_cutoff(self):
+        fact = self._fact("fact:late", ["sess-early", "sess-late"])
+        self.assertEqual(self._filter_one(fact), [])
+
+    def test_filter_drops_fact_with_provenance_in_exclude_ids(self):
+        fact = self._fact("fact:own", ["sess-early", "sess-own-fix"])
+        # session date is before cutoff, but it is the task's own fix session -> dropped.
+        self.assertEqual(self._filter_one(fact, exclude_ids=["sess-own-fix"]), [])
+
+    def test_filter_drops_fact_with_unknown_session_provenance(self):
+        fact = self._fact("fact:unknown", ["sess-early", "sess-not-in-map"])
+        self.assertEqual(self._filter_one(fact), [])
+
+    def test_filter_drops_fact_with_empty_provenance(self):
+        no_prov = {"id": "fact:noprov", "kind": "decision", "text": "no provenance"}
+        empty_prov = {"id": "fact:emptyprov", "kind": "decision", "text": "empty", "provenance": []}
+        self.assertEqual(run.filter_facts_by_cutoff([no_prov, empty_prov], self.SESSION_DATES, self.CUTOFF, []), [])
+
+    def test_collect_frozen_facts_without_cutoff_is_unchanged(self):
+        # No cutoff => no filtering, even for facts that have no provenance at all.
+        facts = run.collect_frozen_facts([self.FAKE_RECALL_A, self.FAKE_RECALL_B])
+        self.assertEqual([f["id"] for f in facts], ["fact:bbb", "fact:aaa", "fact:ccc"])
+
+    def test_uses_frozen_brain_delivery_flag(self):
+        self.assertTrue(run.uses_frozen_brain_delivery({"memory_delivery": "frozen_brief"}))
+        self.assertFalse(run.uses_frozen_brain_delivery({"memory_delivery": "grep"}))
+        self.assertFalse(run.uses_frozen_brain_delivery({}))
+
+    def test_frozen_brain_env_requires_config(self):
+        saved = {k: os.environ.pop(k, None) for k in (run.FROZEN_BRAIN_PLUGIN_ENV, run.FROZEN_BRAIN_REPO_ENV)}
+        try:
+            with self.assertRaises(RuntimeError):
+                run.frozen_brain_env()
+            os.environ[run.FROZEN_BRAIN_PLUGIN_ENV] = "/frozen/plugin"
+            os.environ[run.FROZEN_BRAIN_REPO_ENV] = "/frozen/scratch-clone"
+            env = run.frozen_brain_env()
+            self.assertEqual(env["ENTIRE_PLUGIN_DATA_DIR"], "/frozen/plugin/data")
+            self.assertEqual(env["ENTIRE_REPO_ROOT"], "/frozen/scratch-clone")
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+
 class BrainQueryLeakAuditTests(unittest.TestCase):
     """Release blocker B1: the four suites named in docs/release-blockers.md must fail this
     auditor with the brain_queries they were committed with, frozen here as fixtures."""

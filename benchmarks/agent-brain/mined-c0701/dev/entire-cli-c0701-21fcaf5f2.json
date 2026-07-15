@@ -1,0 +1,53 @@
+{
+  "id": "entire-cli-c0701-21fcaf5f2",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "base_commit": "96ed4e12190014a8b1a119ef6a81bf0e41dce554",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "The cleanup/clean flow flags imported sessions as orphaned and removes them, even though they were legitimately imported. Imported sessions should never be treated as orphans during cleanup.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "validation_files": [
+    {
+      "path": "cmd/entire/cli/strategy/cleanup_imported_test.go",
+      "content": "package strategy\n\nimport (\n\t\"context\"\n\t\"testing\"\n\t\"time\"\n\n\t\"github.com/entireio/cli/cmd/entire/cli/session\"\n\t\"github.com/entireio/cli/cmd/entire/cli/testutil\"\n)\n\nfunc TestListOrphanedSessionStates_SkipsImported(t *testing.T) {\n\t// Not parallel: t.Chdir.\n\tdir := t.TempDir()\n\ttestutil.InitRepo(t, dir)\n\ttestutil.WriteFile(t, dir, \"f.txt\", \"x\")\n\ttestutil.GitAdd(t, dir, \"f.txt\")\n\ttestutil.GitCommit(t, dir, \"init\")\n\tt.Chdir(dir)\n\n\tctx := context.Background()\n\tstore, err := session.NewStateStore(ctx)\n\tif err != nil {\n\t\tt.Fatalf(\"NewStateStore: %v\", err)\n\t}\n\told := time.Now().Add(-24 * time.Hour) // past sessionGracePeriod\n\tif err := store.Save(ctx, &session.State{\n\t\tSessionID: \"imported-orphan\", Kind: session.KindImported,\n\t\tPhase: session.PhaseEnded, StartedAt: old, EndedAt: &old,\n\t}); err != nil {\n\t\tt.Fatalf(\"save: %v\", err)\n\t}\n\n\titems, err := ListOrphanedSessionStates(ctx)\n\tif err != nil {\n\t\tt.Fatalf(\"ListOrphanedSessionStates: %v\", err)\n\t}\n\tfor _, it := range items {\n\t\tif it.ID == \"imported-orphan\" {\n\t\t\tt.Fatal(\"imported session was flagged as orphaned\")\n\t\t}\n\t}\n}\n"
+    }
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/strategy -run '^(TestListOrphanedSessionStates_SkipsImported)$'"
+  ],
+  "leak_markers": [
+    "TestListOrphanedSessionStates_SkipsImported"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/strategy/cleanup.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "why imported sessions get flagged as orphaned during clean",
+    "how orphaned-session detection should treat imported sessions",
+    "imported session lifecycle versus orphan cleanup",
+    "distinguishing imported sessions in the cleanup path"
+  ],
+  "prepare_semantic": false,
+  "_mined_from_commit": "21fcaf5f23f2206ce0685dab1bd6e1755bcc964e",
+  "_flavor": "recall-decision",
+  "_subject": "fix(strategy): never flag imported sessions as orphaned in clean",
+  "_negctl": "red_at_parent_base",
+  "_apply_mode": "test_only_forward",
+  "_split": "dev",
+  "memory_delivery": "frozen_brief",
+  "rolling_cutoff_rfc3339": "2026-07-09T13:42:09-07:00",
+  "exclude_session_ids": [
+    "91fa7c44-6634-48ab-ae5f-d394502f50d5"
+  ],
+  "frozen_session_dates_path": "/Users/thomi/.entire-brain-eval/quarantine-full-20260714T204719Z/session_dates.json",
+  "_rolling_cutoff_confidence": "high (entire checkpoint explain resolved fix session directly)"
+}

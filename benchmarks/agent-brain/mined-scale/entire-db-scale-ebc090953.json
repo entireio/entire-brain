@@ -1,0 +1,42 @@
+{
+  "id": "entire-db-scale-ebc090953",
+  "repo": "entire-db",
+  "repo_path": "/Users/thomi/Projects/entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "Any authenticated user, including someone who is not a member of an organization, can add themselves as an owner of an organization that is not configured for single sign-on, taking it over, or can remove that organization's legitimate owner. The endpoints that add and remove organization members authorize the caller incorrectly. Add the missing authorization so that only a caller permitted to manage the organization can change its membership. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-db-scale-ebc090953.patch"
+  ],
+  "validation": [
+    "go test ./test/createrepo -run 'TestE2E_AddOrgMember_NonMemberForbidden|TestE2E_RemoveOrgMember_NonMemberForbidden'"
+  ],
+  "expected_files": [
+    "core/coreapi/orgs.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "organization member add remove authorization check",
+    "org manage permission enforcement handlers",
+    "non-SSO org authorization gate returns ok true",
+    "org takeover membership escalation vulnerability",
+    "how organization management permissions are enforced"
+  ],
+  "_mined_from_commit": "ebc090953b10584ec6bea43278fa544fd9cc013c",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "fix(coreapi): authorize org member add/remove (COR-375) (#1836)",
+  "copy_checkpoint_ref_from_source": true
+}

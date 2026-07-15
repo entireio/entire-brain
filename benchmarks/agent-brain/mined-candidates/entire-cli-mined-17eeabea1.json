@@ -1,0 +1,36 @@
+{
+  "id": "entire-cli-mined-17eeabea1",
+  "_mined_from_commit": "17eeabea1eb6dc29a6e4aec3f8883ef93383c9f0",
+  "_flavor": "recall-decision",
+  "_leak_risk_selfassessed": "medium",
+  "_mined_note": "Auto-mined memory-sensitive task. setup_patch reverse-applies the fix commit's SOURCE hunks (removes the guard + rationale comments); the commit's regression tests remain in the tree as hidden validation. Rationale lives in the session history that produced the fix, not the post-revert tree. Judgment/prompt drafted by a per-commit reviewer; NOT yet run.",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "A dispatch prompt payload can present a repository link that points somewhere other than the real repository when the repository's name contains unusual or invisible characters. Ensure the payload never exposes a misleading URL. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "diff --git a/cmd/entire/cli/dispatch/generate.go b/cmd/entire/cli/dispatch/generate.go\nindex 339a295b0..e7081a470 100644\n--- a/cmd/entire/cli/dispatch/generate.go\n+++ b/cmd/entire/cli/dispatch/generate.go\n@@ -149,15 +149,12 @@ func marshalDispatchPromptPayload(dispatch *Dispatch, voice string) (string, err\n \t}\n \tseenBranches := map[string]struct{}{}\n \tfor _, repo := range dispatch.Repos {\n-\t\ttrimmedFullName := strings.TrimSpace(repo.FullName)\n \t\tfullName := sanitizeDispatchPromptString(repo.FullName)\n \t\toutRepo := dispatchPromptRepo{\n \t\t\tFullName: fullName,\n+\t\t\tURL:      githubRepoURL(fullName),\n \t\t\tSections: make([]dispatchPromptSection, 0, len(repo.Sections)),\n \t\t}\n-\t\tif fullName == trimmedFullName {\n-\t\t\toutRepo.URL = githubRepoURL(trimmedFullName)\n-\t\t}\n \t\tfor _, section := range repo.Sections {\n \t\t\toutSection := dispatchPromptSection{\n \t\t\t\tLabel:   sanitizeDispatchPromptString(section.Label),\n",
+  "validation": [
+    "go test ./cmd/entire/cli/dispatch -run 'TestMarshalDispatchPromptPayload_OmitsRepoURLWhenFullNameSanitized'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/dispatch/generate.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "dispatch repo URL sanitization decision",
+    "why omit repo URL in dispatch prompt payload",
+    "handling invisible characters in repo full name dispatch",
+    "githubRepoURL spoofing dispatch generate",
+    "repo full name cleaned mismatch URL omitted"
+  ],
+  "_prompt_descriptive_v0": "When building the dispatch prompt payload, a repository whose full name contains hidden or invisible characters still gets a linkable URL derived from the cleaned name. That URL can point somewhere other than the real repository. Ensure the payload only exposes a URL when the repository name was safe to begin with, and omits it otherwise. Keep the fix minimal.",
+  "copy_checkpoint_ref_from_source": true
+}

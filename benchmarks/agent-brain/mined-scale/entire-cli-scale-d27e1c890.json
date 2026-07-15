@@ -1,0 +1,41 @@
+{
+  "id": "entire-cli-scale-d27e1c890",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "Running the top-level agent command with no subcommand should launch the interactive agent flow rather than printing help. Wire the bare command to the appropriate setup-or-manage flow depending on whether anything is already configured. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-cli-scale-d27e1c890.patch"
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli -run 'TestAgentGroupBareCommandRunsAgentMenu'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/agent_group.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "bare agent command open selector",
+    "entire agent interactive menu",
+    "agent group runE setup flow",
+    "manage agents vs setup flow"
+  ],
+  "_mined_from_commit": "d27e1c89011c245457e5160a0339ff3629cd1102",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": false,
+  "_leak_risk": "low",
+  "_subject": "Make bare agent command open selector",
+  "copy_checkpoint_ref_from_source": true
+}

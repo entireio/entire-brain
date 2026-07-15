@@ -1,0 +1,41 @@
+{
+  "id": "entire-db-scale-cd6112824",
+  "repo": "entire-db",
+  "repo_path": "/Users/thomi/Projects/entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "When creating a project, if the permissions/authorization setup fails after the project row has already been written, the row is left orphaned: it exists in the database with no owner permissions, and its name stays taken so a retry with the same name conflicts. Make creation undo the partial write when the permissions step fails. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-db-scale-cd6112824.patch"
+  ],
+  "validation": [
+    "go test ./core/resource -run 'TestCreateProject_AuthzFailureDeletesInsertedProject|TestGetProjectByName_TrimValidateAndMissing'"
+  ],
+  "expected_files": [
+    "core/resource/store.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "project create authz failure orphaned row",
+    "rollback project row permissions setup failed",
+    "duplicate name after failed project create",
+    "CreateProject cleanup on downstream failure"
+  ],
+  "_mined_from_commit": "cd6112824840d60e968047ec12730897049f24f6",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "low",
+  "_subject": "Clean up project row after authz create failure",
+  "copy_checkpoint_ref_from_source": true
+}

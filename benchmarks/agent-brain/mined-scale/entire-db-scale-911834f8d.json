@@ -1,0 +1,43 @@
+{
+  "id": "entire-db-scale-911834f8d",
+  "repo": "entire-db",
+  "repo_path": "/Users/thomi/Projects/entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "When an operator runs a rolling deploy with a short-lived access token and that token expires partway through, the deploy hangs silently. The readiness gate keeps polling a node that is actually healthy and surfaces nothing \u2014 no log line, no error \u2014 until the overall deploy timeout finally fires many minutes later. Make the deploy fail fast and surface the real cause instead of spinning. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-db-scale-911834f8d.patch"
+  ],
+  "validation": [
+    "go test ./cmd/entire-deploy -run 'TestRetryNodeProbeBailsOnAuthError|TestWaitForReadyBailsOnAuthError'"
+  ],
+  "expected_files": [
+    "cmd/entire-deploy/admin_client.go",
+    "cmd/entire-deploy/deploy.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "deploy readiness gate polling loop behavior",
+    "short-lived ops token expiry mid-deploy",
+    "retry loop swallowing errors during node probe",
+    "how are Status RPC errors handled while waiting for ready",
+    "which failures should abort a deploy versus retry"
+  ],
+  "_mined_from_commit": "911834f8d501a147d2eed92b1338a1c7b7f9f809",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "entire-deploy: fail fast on auth errors instead of looping silently",
+  "copy_checkpoint_ref_from_source": true
+}

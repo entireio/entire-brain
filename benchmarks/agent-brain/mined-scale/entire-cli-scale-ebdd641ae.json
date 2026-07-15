@@ -1,0 +1,42 @@
+{
+  "id": "entire-cli-scale-ebdd641ae",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "Codex sessions record which files a turn touched. Ensure a file-mutating tool invocation is reflected in the session's touched-file accounting while a non-mutating tool invocation leaves session state untouched. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-cli-scale-ebdd641ae.patch"
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/integration_test -run 'TestCodexPostToolUse_NonMutatingToolIsNoop|TestCodexPostToolUse_PopulatesFilesTouched'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/integration_test/hooks.go",
+    "e2e/testutil/metadata.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "codex post tool use files touched",
+    "codex apply_patch envelope parsing",
+    "checkpoint transcript offset advancement",
+    "codex hook lifecycle dispatch"
+  ],
+  "_mined_from_commit": "ebdd641ae86b1c2c247ac25d084b8fb6a76243cb",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": false,
+  "_leak_risk": "low",
+  "_subject": "Add Codex PostToolUse integration test + e2e metadata field",
+  "copy_checkpoint_ref_from_source": true
+}

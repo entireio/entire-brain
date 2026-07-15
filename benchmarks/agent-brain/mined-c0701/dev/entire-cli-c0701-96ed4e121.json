@@ -1,0 +1,53 @@
+{
+  "id": "entire-cli-c0701-96ed4e121",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "base_commit": "f65c471532d0641a75c18734a1e6ed39af969feb",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "The shadow-branch orphan cleanup purges imported sessions along with real orphans, discarding legitimately imported session state. Keep imported sessions out of that purge.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "validation_files": [
+    {
+      "path": "cmd/entire/cli/strategy/manual_commit_session_test.go",
+      "content": "package strategy\n\nimport (\n\t\"context\"\n\t\"testing\"\n\t\"time\"\n\n\t\"github.com/entireio/cli/cmd/entire/cli/session\"\n\t\"github.com/entireio/cli/cmd/entire/cli/testutil\"\n)\n\nfunc TestListAllSessionStates_KeepsImported(t *testing.T) {\n\t// Not parallel: t.Chdir.\n\tdir := t.TempDir()\n\ttestutil.InitRepo(t, dir)\n\ttestutil.WriteFile(t, dir, \"f.txt\", \"x\")\n\ttestutil.GitAdd(t, dir, \"f.txt\")\n\ttestutil.GitCommit(t, dir, \"init\")\n\tt.Chdir(dir)\n\n\tctx := context.Background()\n\tstore, err := session.NewStateStore(ctx)\n\tif err != nil {\n\t\tt.Fatalf(\"NewStateStore: %v\", err)\n\t}\n\told := time.Now().Add(-24 * time.Hour)\n\timported := &session.State{\n\t\tSessionID: \"imported-keep\", Kind: session.KindImported,\n\t\tPhase: session.PhaseEnded, StartedAt: old, EndedAt: &old,\n\t}\n\tif err := store.Save(ctx, imported); err != nil {\n\t\tt.Fatalf(\"save imported: %v\", err)\n\t}\n\n\tstates, err := NewManualCommitStrategy().listAllSessionStates(ctx)\n\tif err != nil {\n\t\tt.Fatalf(\"listAllSessionStates: %v\", err)\n\t}\n\tfound := false\n\tfor _, s := range states {\n\t\tif s.SessionID == \"imported-keep\" {\n\t\t\tfound = true\n\t\t}\n\t}\n\tif !found {\n\t\tt.Fatal(\"imported session was purged by listAllSessionStates orphan cleanup\")\n\t}\n}\n"
+    }
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/strategy -run '^(TestListAllSessionStates_KeepsImported)$'"
+  ],
+  "leak_markers": [
+    "TestListAllSessionStates_KeepsImported"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/strategy/manual_commit_session.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "shadow-branch orphan cleanup purges imported sessions",
+    "listing all session states should keep imported ones",
+    "why imported sessions must survive orphan cleanup",
+    "handling imported sessions in the strategy cleanup"
+  ],
+  "prepare_semantic": false,
+  "_mined_from_commit": "96ed4e12190014a8b1a119ef6a81bf0e41dce554",
+  "_flavor": "recall-decision",
+  "_subject": "fix(strategy): don't purge imported sessions in shadow-branch orphan cleanup",
+  "_negctl": "red_at_parent_base",
+  "_apply_mode": "test_only_forward",
+  "_split": "dev",
+  "memory_delivery": "frozen_brief",
+  "rolling_cutoff_rfc3339": "2026-07-09T13:41:13-07:00",
+  "exclude_session_ids": [
+    "91fa7c44-6634-48ab-ae5f-d394502f50d5"
+  ],
+  "frozen_session_dates_path": "/Users/thomi/.entire-brain-eval/quarantine-full-20260714T204719Z/session_dates.json",
+  "_rolling_cutoff_confidence": "high (entire checkpoint explain resolved fix session directly)"
+}

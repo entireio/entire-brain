@@ -1,0 +1,41 @@
+{
+  "id": "entire-cli-scale-071b08991",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "When the underlying Claude CLI fails internally and returns an error result with no text body, the failure surfaces as a generic parse error and the real error status is discarded. The typed error and its status code should survive to the caller instead of being lost. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-cli-scale-071b08991.patch"
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/agent/claudecode -run 'TestParseGenerateTextResponse_IsErrorEnvelopeNullResult'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/agent/claudecode/response.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "claude cli error result null parsing",
+    "parse generate text response envelope error",
+    "api error status lost missing result item",
+    "claudecode response error classification path"
+  ],
+  "_mined_from_commit": "071b08991c9c142fda1e8ff610161af051c6acb3",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "fix(claudecode): preserve envelope on is_error:true with null result",
+  "copy_checkpoint_ref_from_source": true
+}

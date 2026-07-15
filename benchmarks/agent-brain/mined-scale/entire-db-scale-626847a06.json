@@ -1,0 +1,44 @@
+{
+  "id": "entire-db-scale-626847a06",
+  "repo": "entire-db",
+  "repo_path": "/Users/thomi/Projects/entire-db",
+  "base_commit": "8e8fdc662bf653c6e39bbf4b485cd1975cd4c38f",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "In-place binary updates restart a node in place, keeping its listener bound so in-flight requests only queue briefly. Yet the deploy still gossips that node out of the cluster and back, evicting and later republishing its routing/provider records under a long repair grace \u2014 needless churn for a node that never actually departed. It also means a failed swap can leave the node stuck mid-transition instead of healthy. Change the in-place update path so it avoids this unnecessary cluster dance. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-db-scale-626847a06.patch"
+  ],
+  "validation": [
+    "go test ./cmd/entire-deploy -run 'TestSSMUpdateDriftSkip|TestSSMUpdateSkipsStepdown'"
+  ],
+  "expected_files": [
+    "cmd/entire-deploy/deploy.go",
+    "cmd/entire-deploy/replace.go",
+    "cmd/entire-deploy/update.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "stepdown before swap in rolling deploy",
+    "in-place binary update orchestration steps",
+    "node state transitions during deploy Active to Deploying",
+    "repair grace and provider record republish churn",
+    "which deploy strategies need to drain the load balancer"
+  ],
+  "_mined_from_commit": "626847a06c181b5d39875b8bb9d816ce04e13bd2",
+  "_flavor": "recall-decision",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "deploy: skip DHT stepdown for in-place SSM binary updates (#1886)",
+  "copy_checkpoint_ref_from_source": true
+}

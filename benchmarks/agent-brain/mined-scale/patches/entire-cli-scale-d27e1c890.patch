@@ -1,0 +1,45 @@
+diff --git a/cmd/entire/cli/agent_group.go b/cmd/entire/cli/agent_group.go
+index c7d04fd6e..0b13daa05 100644
+--- a/cmd/entire/cli/agent_group.go
++++ b/cmd/entire/cli/agent_group.go
+@@ -9,7 +9,6 @@ import (
+ 	"github.com/entireio/cli/cmd/entire/cli/agent"
+ 	"github.com/entireio/cli/cmd/entire/cli/agent/types"
+ 	"github.com/entireio/cli/cmd/entire/cli/paths"
+-	"github.com/entireio/cli/cmd/entire/cli/settings"
+ 	"github.com/spf13/cobra"
+ )
+ 
+@@ -26,7 +25,6 @@ Commands:
+   remove   Uninstall hooks for an agent
+ 
+ Examples:
+-  entire agent
+   entire agent list
+   entire agent add claude-code
+   entire agent remove claude-code`,
+@@ -36,9 +34,6 @@ Examples:
+ 			}
+ 			return nil
+ 		},
+-		RunE: func(cmd *cobra.Command, _ []string) error {
+-			return runAgentMenu(cmd.Context(), cmd.OutOrStdout())
+-		},
+ 	}
+ 
+ 	cmd.AddCommand(newAgentListCmd())
+@@ -47,14 +42,6 @@ Examples:
+ 	return cmd
+ }
+ 
+-func runAgentMenu(ctx context.Context, w io.Writer) error {
+-	opts := EnableOptions{Telemetry: true}
+-	if settings.IsSetUpAny(ctx) {
+-		return runManageAgents(ctx, w, opts, nil)
+-	}
+-	return runSetupFlow(ctx, w, opts)
+-}
+-
+ func newAgentListCmd() *cobra.Command {
+ 	return &cobra.Command{
+ 		Use:   "list",

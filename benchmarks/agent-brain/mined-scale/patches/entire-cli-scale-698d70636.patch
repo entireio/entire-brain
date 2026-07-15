@@ -1,0 +1,25 @@
+diff --git a/cmd/entire/cli/agent/geminicli/types.go b/cmd/entire/cli/agent/geminicli/types.go
+index 6dbdaedcf..2c82df21c 100644
+--- a/cmd/entire/cli/agent/geminicli/types.go
++++ b/cmd/entire/cli/agent/geminicli/types.go
+@@ -79,14 +79,10 @@ type toolHookInputRaw struct {
+ }
+ 
+ // Tool names used in Gemini CLI that modify files
+-// Note: Gemini CLI uses different names in different contexts:
+-// - Internal/transcript names: write_file, replace
+-// - Display names: WriteFile, Edit
+ const (
+ 	ToolWriteFile = "write_file"
+ 	ToolEditFile  = "edit_file"
+ 	ToolSaveFile  = "save_file"
+-	ToolReplace   = "replace"
+ )
+ 
+ // FileModificationTools lists tools that create or modify files in Gemini CLI
+@@ -94,5 +90,4 @@ var FileModificationTools = []string{
+ 	ToolWriteFile,
+ 	ToolEditFile,
+ 	ToolSaveFile,
+-	ToolReplace,
+ }

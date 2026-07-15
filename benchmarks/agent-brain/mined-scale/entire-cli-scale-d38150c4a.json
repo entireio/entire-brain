@@ -1,0 +1,42 @@
+{
+  "id": "entire-cli-scale-d38150c4a",
+  "repo": "entire-cli",
+  "repo_path": "/Users/thomi/Projects/entire-cli",
+  "base_commit": "6da333cc28daa1e3d252ff9dfb85dc1e73559f79",
+  "conditions": [
+    "no_brain",
+    "full_brain"
+  ],
+  "prompt": "When a Cursor session ends, the persisted session record is missing the model name that was in use. The model is present in the incoming end-of-session payload but never lands in the saved record, so the final model is lost for sessions that finish this way. Trace why the model is dropped at session end and make sure it is carried through. Keep the fix minimal.",
+  "hide_expected_from_agent": true,
+  "hide_validation_from_agent": true,
+  "setup_patch": "",
+  "setup_replacements": [],
+  "setup_commands": [],
+  "post_brain_commands": [
+    "git apply /Users/thomi/Projects/entire-brain/benchmarks/agent-brain/mined-scale/patches/entire-cli-scale-d38150c4a.patch"
+  ],
+  "validation": [
+    "go test ./cmd/entire/cli/agent/cursor -run 'TestParseHookEvent_SessionEnd_IncludesModel'"
+  ],
+  "expected_files": [
+    "cmd/entire/cli/agent/cursor/lifecycle.go"
+  ],
+  "forbidden_files": [
+    "go.mod",
+    "go.sum"
+  ],
+  "brain_queries": [
+    "cursor session end handling model",
+    "session end payload persisted fields",
+    "cursor lifecycle parse session end",
+    "model name per session record",
+    "cursor stop event model persistence"
+  ],
+  "_mined_from_commit": "d38150c4a845d4bc91057c80be227cd0c6359e34",
+  "_flavor": "recall-solution",
+  "_is_memory_sensitive_guess": true,
+  "_leak_risk": "medium",
+  "_subject": "fix: wire up model on Cursor parseSessionEnd",
+  "copy_checkpoint_ref_from_source": true
+}
