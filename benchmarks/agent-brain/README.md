@@ -3,6 +3,28 @@
 This directory contains a repeatable harness for comparing Codex and Claude Code
 with and without Entire Brain.
 
+## Treatment-isolated tasks
+
+Confirmatory tasks use `user_query`, an explicit `retrieval_query_source` (`user_query` or
+`oracle_queries`), and a `treatments` object keyed by condition. Treatment arms are `no_memory`,
+`placebo_packet`, `retrieved_memory`, and the upper-bound-only `oracle_retrieval`. Comparable arms
+must use the WIP harness-owned `frozen_brief` delivery; their agent-visible instruction is identical and differs only inside the
+`<frozen-memory-packet>` payload. Oracle queries are harness-owned and never written to `prompt.txt`.
+
+Legacy `prompt` and `brain_queries` tasks remain runnable for reproducing exploratory suites, but
+legacy `frozen_brief` delivery may still consume `brain_queries` harness-side. Those queries are not
+agent-visible, and legacy tasks fail confirmatory panel preflight. A confirmatory panel must set
+`"confirmatory": true`; every included task also needs
+an `approved_symptom_only` entry in `task-review-ledger.json`. Automated task-validity lint is triage,
+not human approval. The historical 8828752a7 and 4dd458656 prompts are retained under
+`fixtures/task-validity/` and explicitly excluded as oracle-assisted.
+
+Run deterministic triage and validate the review ledger without an agent/model call:
+
+```sh
+python3 run.py lint-tasks --tasks fixtures/task-validity/oracle-assisted-regressions.json
+```
+
 ## Stable panel (`panel`) + the stability gate
 
 "Is benchmarking stable?" is answered with a **committed panel manifest** plus a **printed

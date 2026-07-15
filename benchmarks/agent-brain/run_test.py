@@ -471,7 +471,7 @@ class RunnerAndConditionTests(unittest.TestCase):
         self.assertTrue(run.wants_disciplined_mcp(run.parse_runner_spec("codex:gpt-5.4-mini:high")))
         self.assertFalse(run.wants_disciplined_mcp(run.parse_runner_spec("codex:gpt-5.4-mini:medium")))
 
-    def test_full_brain_prompt_uses_query_terms_in_initial_brief(self):
+    def test_full_brain_prompt_uses_user_query_not_oracle_terms_in_initial_brief(self):
         task = {
             "id": "task",
             "prompt": "Fix the regression.",
@@ -483,7 +483,9 @@ class RunnerAndConditionTests(unittest.TestCase):
         prompt = run.prompt_for(task, "full_cli_original")
         # The query is shell-quoted (shlex.quote) — it has spaces so it is single-quoted, NOT the
         # old unescaped double-quoted form that let shell metacharacters corrupt the query.
-        self.assertIn("entire brain brief 'task: Fix the regression. | ExactSymbol, important invariant' --json", prompt)
+        self.assertIn("entire brain brief 'Fix the regression.' --json", prompt)
+        self.assertNotIn("ExactSymbol", prompt)
+        self.assertNotIn("important invariant", prompt)
         self.assertIn("Your first context command must be", prompt)
         self.assertIn("prefer `action_checklist`", prompt)
         self.assertIn("Read `.benchmark/brain-history-excerpt.md` only if", prompt)
@@ -611,7 +613,7 @@ class RunnerAndConditionTests(unittest.TestCase):
                         ["--limit", str(expected_limit_val)] if expected_limit_val is not None else [],
                         label,
                     )
-                    self.assertEqual(packet["query"], "t: Fix it. | q", label)
+                    self.assertEqual(packet["query"], "Fix it.", label)
                     self.assertEqual(args[2], packet["query"], label)
                     # MIRROR INVARIANT (the point of the shared helpers + shlex.quote): the command
                     # the agent is told to run must shell-quote back to the SAME query the diagnostic
@@ -5824,6 +5826,123 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
 
             self.assertEqual(report["status"], "fail", report)
             self.assertIn("missing retained release proof scope mcp_radar_location_only", report["flags"])
+
+
+class TreatmentIsolationAndTaskValidityTests(unittest.TestCase):
+    def _task(self):
+        return {
+            "id": "treatment-task",
+            "repo": "entire-brain",
+            "repo_path": "entire-brain",
+            "conditions": ["no_brain", "full_brain", "placebo_packet"],
+            "user_query": "The command reports stale state after a refresh.",
+            "prompt": "legacy prompt must not win",
+            "brain_queries": ["ExactOracleHelper replacement order"],
+            "retrieval_query_source": "user_query",
+            "oracle_queries": ["ExactOracleHelper replacement order"],
+            "memory_delivery": "frozen_brief",
+            "rolling_cutoff_rfc3339": "2026-06-18T08:29:27Z",
+            "validation": ["go test ./..."],
+            "treatments": {
+                "no_brain": {"arm": "no_memory", "query_source": "user_query"},
+                "full_brain": {"arm": "retrieved_memory", "query_source": "user_query"},
+                "placebo_packet": {
+                    "arm": "placebo_packet",
+                    "query_source": "user_query",
+                    "seed": "fixture-seed",
+                    "solving_fact_ids": ["solve"],
+                    "candidate_facts": [
+                        {"id": "solve", "text": "exact solving detail", "created_at": "2026-01-01T00:00:00Z"},
+                        {"id": "future", "text": "unrelated future detail", "created_at": "2027-01-01T00:00:00Z"},
+                        {"id": "p1", "text": "release documentation convention", "created_at": "2026-01-02T00:00:00Z"},
+                        {"id": "p2", "text": "logging cleanup convention", "created_at": "2026-01-03T00:00:00Z"},
+                    ],
+                },
+            },
+        }
+
+    def test_prompt_parity_and_query_isolation(self):
+        task = self._task()
+        packet = '{"results":[{"id":"x","text":"payload"}]}'
+        prompts = {
+            "no_brain": run.prompt_for(task, "no_brain"),
+            "full_brain": run.prompt_for(task, "full_brain", memory_packet=packet),
+            "placebo_packet": run.prompt_for(task, "placebo_packet", memory_packet=packet),
+        }
+        self.assertTrue(run.prompt_parity(prompts)["ok"])
+        for condition, prompt in prompts.items():
+            self.assertNotIn(condition, prompt)
+            self.assertNotIn("Benchmark condition:", prompt)
+            self.assertNotIn("ExactOracleHelper", prompt)
+            self.assertIn("Use the supplied context packet if present", prompt)
+
+    def test_wip_frozen_delivery_builds_retrieved_and_placebo_packets(self):
+        task = self._task()
+        facts = [
+            {"id": "r1", "text": "first retrieved fact"},
+            {"id": "r2", "text": "second retrieved fact"},
+        ]
+        old = run.recall_frozen_brain_facts
+        run.recall_frozen_brain_facts = lambda *args, **kwargs: facts
+        try:
+            retrieved, retrieved_meta = run.treatment_memory_packet(
+                task, "full_brain", pathlib.Path("/tmp/worktree"), {"brain": pathlib.Path("brain")}
+            )
+            placebo, placebo_meta = run.treatment_memory_packet(
+                task, "placebo_packet", pathlib.Path("/tmp/worktree"), {"brain": pathlib.Path("brain")}
+            )
+        finally:
+            run.recall_frozen_brain_facts = old
+        self.assertEqual(retrieved_meta["fact_ids"], ["r1", "r2"])
+        self.assertEqual(set(placebo_meta["fact_ids"]), {"p1", "p2"})
+        self.assertEqual(placebo_meta["placebo"]["rejected"]["solving_fact"], 1)
+        self.assertEqual(placebo_meta["placebo"]["rejected"]["temporally_ineligible"], 1)
+        self.assertLessEqual(abs(len(retrieved.encode()) - len(placebo.encode())), placebo_meta["placebo"]["size_match_tolerance_bytes"])
+
+    def test_mixed_oracle_source_is_harness_owned_and_excluded_from_confirmatory(self):
+        task = self._task()
+        task["treatments"] = {
+            "full_brain": {"arm": "oracle_retrieval", "query_source": "oracle_queries"}
+        }
+        prompt = run.prompt_for(task, "full_brain", memory_packet='{"results":[]}')
+        self.assertNotIn("ExactOracleHelper", prompt)
+        self.assertEqual(run.retrieval_query(task, "oracle_queries"), "ExactOracleHelper replacement order")
+        self.assertTrue(any("excluded" in error for error in run.treatment_schema_errors(task, ["full_brain"])))
+
+    def test_oracle_assisted_regression_fixtures_and_ledger(self):
+        fixture_path = pathlib.Path(__file__).with_name("fixtures") / "task-validity" / "oracle-assisted-regressions.json"
+        tasks = {task["id"]: task for task in json.loads(fixture_path.read_text())["tasks"]}
+        ledger = json.loads(pathlib.Path(__file__).with_name("task-review-ledger.json").read_text())
+        self.assertEqual(run.validate_review_ledger(ledger, tasks), [])
+        for task in tasks.values():
+            lint = run.task_validity_lint(task, run.brain_query_leak_audit)
+            self.assertEqual(lint["automated_disposition"], "oracle_assisted", task["id"])
+            self.assertFalse(lint["confirmatory_eligible"], task["id"])
+
+    def test_regression_fixtures_cannot_enter_confirmatory_panel(self):
+        fixture_path = pathlib.Path(__file__).with_name("fixtures") / "task-validity" / "oracle-assisted-regressions.json"
+        for fixture in json.loads(fixture_path.read_text())["tasks"]:
+            with tempfile.TemporaryDirectory() as tmp:
+                task = {
+                    **fixture,
+                    "repo": "entire-cli",
+                    "repo_path": "entire-cli",
+                    "conditions": ["no_brain"],
+                    "validation": ["go test ./..."],
+                }
+                path = pathlib.Path(tmp) / "task.json"
+                path.write_text(json.dumps(task))
+                errors = run.panel_preflight({
+                    "name": "confirmatory-regression-fixture",
+                    "confirmatory": True,
+                    "runners": ["codex:gpt-5.5:high"],
+                    "tasks": [str(path)],
+                    "conditions": ["no_brain"],
+                    "repetitions": 4,
+                })
+                joined = " | ".join(errors)
+                self.assertIn("lacks approved_symptom_only human review", joined, fixture["id"])
+                self.assertIn("explicit schema requires treatments", joined, fixture["id"])
 
 
 if __name__ == "__main__":

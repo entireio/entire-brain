@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "reviews": [
+    {
+      "task_id": "entire-cli-c0701-8828752a7",
+      "prompt_sha256": "1ea745c4ea50aa1c308d27369b92faf9a0ded4b386dbefe18cf0a11831287d96",
+      "reviewer": "benchmark-repair-2026-07-15",
+      "reviewed_at": "2026-07-15T00:00:00Z",
+      "disposition": "exclude_oracle_assisted",
+      "rationale": "The prompt states the remote fallback and its exact position after commit resolution; the retrieval queries repeat that answer-bearing ordering. It is retained only as an oracle-assisted regression fixture."
+    },
+    {
+      "task_id": "entire-cli-c0701-4dd458656",
+      "prompt_sha256": "c56cbfb02f87ee1a49edb0f91591dc29c9d39f908f074fd01c888686f5bf6f01",
+      "reviewer": "benchmark-repair-2026-07-15",
+      "reviewed_at": "2026-07-15T00:00:00Z",
+      "disposition": "exclude_oracle_assisted",
+      "rationale": "The prompt names both wrapper implementations, the replacement strategy, and the exact one-entry invariant. It is not eligible as a genuine non-oracle confirmatory task."
+    }
+  ]
+}
